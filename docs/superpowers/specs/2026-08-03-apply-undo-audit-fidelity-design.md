@@ -65,7 +65,7 @@ export type ApplyParseResultOutcome = {
 | `source_absent` | `!previousNamesSet.has(pair.removedName)` | `applyParseResult.ts:176` |
 | `target_absent` | `!nextNamesSet.has(pair.addedName)` — the P2-F4 hold-suppression landing point | `applyParseResult.ts:177` |
 | `name_held` | `heldNames.has(...)` either side | `applyParseResult.ts:178` |
-| `source_delete_protected` | `deleteProtectedNames.includes(...)` | `applyParseResult.ts:179` |
+| ~~`source_delete_protected`~~ | **unreachable — not implemented.** Every `protectedNames` entry is a hold's `entity_key` (`lib/sync/holds/holdAwareApply.ts:237`, `lib/sync/holds/holdAwareApply.ts:434`, `lib/sync/holds/holdAwareApply.ts:448`) and every surviving hold adds that same key to `heldNames` first (`lib/sync/holds/holdAwareApply.ts:216`), so the `name_held` guard at `lib/sync/applyParseResult.ts:178` always wins before the delete-protected guard at `lib/sync/applyParseResult.ts:179` can fire. A test emitting this reason would have to mock an impossible planner state. The union has **five** members, not six. | `applyParseResult.ts:179` |
 | `pair_already_consumed` | consumed-once belt | `applyParseResult.ts:180-182` |
 | `rename_no_op` | A1 returned `false` | new |
 
@@ -98,7 +98,7 @@ renamedAway  ←  landedRenames.map(removedName)
 
 Feeding `landedRenames` alone would fire a **false capability-loss notice** for every pair whose source survived — a new defect in the opposite direction from the one this unit fixes. The `source_absent` reason is inert either way (the name is not in `previousCrewMembers`, so arm (c) never reaches it).
 
-**This corrects a real loss that is silently suppressed today.** For `target_absent` (the P2-F4 shape) and `rename_no_op`, the source row is *not* protected — `deleteCrewMembersNotIn` removes it — so a capability genuinely disappears. Today `renamedAway` contains the requested `removedName` and suppresses the notice, so that loss is never reported. Under this design it reports. See §4 item 8.
+**This corrects a real loss that is silently suppressed today.** For `target_absent` (the P2-F4 shape) and `rename_no_op`, the source row is *not* protected — `deleteCrewMembersNotIn` removes it — so a capability genuinely disappears. Today `renamedAway` contains the requested `removedName` and suppresses the notice, so that loss is never reported. Under this design it reports. See §4 item 9.
 
 **A4. The feed consumes landed pairs and stops re-deriving.**
 
@@ -117,22 +117,36 @@ A new forensic emitter modeled exactly on `lib/log/emitLeadRoleApplied.ts`, whic
 - **Escalation code:** `IDENTITY_LINK_RENAME_UNLANDED_PERSIST_FAILED`, surfaced via `log.error` on `{ ok: false }` (invariant 9 — never silently swallowed), mirroring `emitLeadRoleApplied.ts:73`.
 - **Payload:** `{ showId, driveFileId, removedName, addedName, reason }`. Redaction-safe: crew names only, no email/phone/token. `persistAppEventStrict` also runs `sanitizeContext`.
 - **Emission point:** post-commit, outside the advisory-lock transaction (invariant 10), from the same tail region that already emits `roleFlagsNotice`.
+- **Propagation is specified per hop, because R4 makes this the ONLY signal.** `applyParseResult` returning `unlandedRenames` is worthless if any boundary between it and the post-commit sink drops the field — and a dropped hop would be completely dark, with no user-visible surface to notice its absence. The field therefore rides every boundary the existing `roleFlagsNotice` rides, which is the proven template for exactly this shape:
+
+  | Hop | `roleFlagsNotice` precedent | Add |
+  |---|---|---|
+  | Phase 2 result | `lib/sync/phase2.ts:168` | `unlandedRenames` |
+  | cron/manual result | `lib/sync/runScheduledCronSync.ts:396` | `unlandedRenames` |
+  | staged core result | `lib/sync/applyStagedCore.ts:474` | `unlandedRenames` |
+  | staged result | `lib/sync/applyStaged.ts:265` | `unlandedRenames` |
+
+  Each of the three post-commit sinks (cron/manual, dashboard staged, finalize-cas) gets an **integration** assertion that the event fires end-to-end, not merely a unit test of the emitter in isolation. A unit test on the emitter proves nothing about whether the field survived four hops.
 - **Cardinality: one event per unlanded pair per apply attempt.** No dedup, no coalescing — matching the precedent, which emits per capability change per apply (`lib/log/emitLeadRoleApplied.ts:52-68`). All six `reason` values emit, including `name_held`, which is an ordinary operator-initiated state rather than a fault.
 - **Volume is NOT bounded by an accept gate.** `computeIdentityLinkRenames` gates only MI-13 and MI-14 on `acceptedThisVersion`; **MI-12 pairs are emitted unconditionally** (`lib/sync/identityLinkRenames.ts:20-23`), and `computeStagedIdentityLinkRenames` (`lib/sync/identityLinkRenames.ts:39-59`) has no accept gate at all. So a standing hold on an MI-12 pair DOES re-request, and therefore re-emit, on every pass until the hold clears. This is accepted — see §8 for why filtering belongs in the read path — but it must not be justified by a gate that does not cover the common case.
 
 ### 2.3 Unit C — one emit helper, three callers
 
-The emit tail at `lib/sync/applyStaged.ts:1993-2002` — `emitLeadRoleApplied(...)` then `upsertAdminAlert(...)`, in that order, with the ordering rationale documented inline at `lib/sync/applyStaged.ts:1995-1999` — is extracted into a single helper under `lib/sync/`. Callers:
+**The helper already exists; this unit adopts it rather than creating one.** `emitDeferredRoleFlagsNotice` (`lib/sync/runScheduledCronSync.ts:2318-2331`) is already precisely the intended shape — same applied-and-notice-present guard, same `emitLeadRoleApplied` then `upsertAdminAlert` ordering, same rationale comment — and `lib/sync/applyStaged.ts:1993-2002` is a near-verbatim duplicate of it. The duplication this unit was written to prevent is therefore already present. The work is to **export it, relocate it to a shared module under `lib/sync/`, collapse the `applyStaged` copy into it, and add finalize-cas as a third caller.**
+
+One signature change: the existing function takes a `ProcessOneFileResult` envelope and re-derives the guard from it. finalize-cas's per-row result is a different shape (`ShadowApplyResult`), so the shared form takes the `roleFlagsNotice` directly and leaves the guard to each caller. Callers:
 
 | Caller | Today | After |
 |---|---|---|
-| `lib/sync/applyStaged.ts:1993-2002` | inline emit | calls helper |
-| `lib/sync/runScheduledCronSync.ts:2322-2330` | inline emit | calls helper |
+| `lib/sync/runScheduledCronSync.ts:2318-2331` | **owns** `emitDeferredRoleFlagsNotice` (private) | exported + relocated; calls the shared form |
+| `lib/sync/applyStaged.ts:1993-2002` | near-verbatim duplicate | calls the shared form |
 | `app/api/admin/onboarding/finalize-cas/route.ts` | **discards `core.roleFlagsNotice`** (`app/api/admin/onboarding/finalize-cas/route.ts:619` returns without it) | surfaces it on the per-row result, caller emits post-commit |
 
 The emit ordering (durable audit **before** the throwing `upsertAdminAlert`) moves into the helper unchanged — it is load-bearing per `applyStaged.ts:1995-1999`.
 
 **finalize-cas plumbing.** `applyStagedCore` runs under `deps.withRowTx` → `defaultWithRowTx`'s `pg_advisory_xact_lock('show:'||$1)` (`route.ts:167`). The emit must therefore happen **after** that lock resolves, in the `runFinalizeCas` loop — exactly where the existing `logAdminOutcome({ code: "SHOW_FINALIZED", ... })` post-commit emit already sits (`route.ts:982-989`). The per-row result type `ShadowApplyResult` (`route.ts:83-114`) gains an optional `roleFlagsNotice` on its OK branch, set at the `app/api/admin/onboarding/finalize-cas/route.ts:619` return. **No new advisory lock is acquired** — invariant 2's single-holder rule is untouched.
+
+**The new field must be stripped from the HTTP response.** The caller currently destructures only `showId` off the per-row result before building `responseRow`, so an added `roleFlagsNotice` would ride into `per_row` and become part of the route's public response — leaking an internal payload (crew names and capability flags) and breaking the stated stable response contract (`app/api/admin/onboarding/finalize-cas/route.ts:82-94`, `app/api/admin/onboarding/finalize-cas/route.ts:980-994`). The destructure widens to drop it alongside `showId`, and §7 carries a response-shape assertion — the emission and failure tests do not cover this.
 
 **`upsertAdminAlert` throws, and the finalize-cas loop is fail-open — the helper must not import a throw into it.** Every existing emit in `runFinalizeCas`'s per-row loop is deliberately non-throwing: the `log.warn`/`log.error` calls are wrapped (`app/api/admin/onboarding/finalize-cas/route.ts:1009-1017`), and `app/api/admin/onboarding/finalize-cas/route.ts:1023-1024` records that `logAdminOutcome` "never throws (fail-open internally)", needing no try/catch. That loop runs inside the outer `deps.withTx`, so a throw escaping it would abort the transaction **after** per-row shows already committed durably, skipping `deleteShadowRows`, `publishAppliedWizardShows` (`app/api/admin/onboarding/finalize-cas/route.ts:1059-1064`) and `markFinalCasDone` (`app/api/admin/onboarding/finalize-cas/route.ts:1094`).
 
@@ -150,9 +164,24 @@ Three places drop the column; all three are repaired.
 |---|---|---|
 | D1 | `crewImage` — `lib/sync/changeLog/writeAutoApplyChanges.ts:53-66`, 10 keys | add `selections_reset_at` → 11 keys. Already available on the source type (`lib/sync/applyParseResult.ts:17`) |
 | D2 | `undo_change` Direction A INSERT column list — `supabase/migrations/20260719000001_undo_change_lifecycle_guard.sql:175-179` (12 columns) and the values list `supabase/migrations/20260719000001_undo_change_lifecycle_guard.sql:181-188` | add the column, cast `(v_before->>'selections_reset_at')::timestamptz` |
-| D3 | the same function's `ON CONFLICT (show_id, name) DO UPDATE SET` list — `supabase/migrations/20260719000001_undo_change_lifecycle_guard.sql:189-198` | `selections_reset_at = greatest(crew_members.selections_reset_at, excluded.selections_reset_at)` — **not** a bare `excluded.` assignment (see below) |
+| D3 | the same function's `ON CONFLICT (show_id, name) DO UPDATE SET` list — `supabase/migrations/20260719000001_undo_change_lifecycle_guard.sql:189-198` | `selections_reset_at = greatest(crew_members.selections_reset_at, excluded.selections_reset_at)` — **not** a bare `excluded.` assignment |
+| D4 | the successor `select … for update` — `supabase/migrations/20260719000001_undo_change_lifecycle_guard.sql:151-153` | also capture `selections_reset_at` into a new local, and feed the INSERT `greatest((v_before->>'selections_reset_at')::timestamptz, v_succ_reset)` |
+| D5 | `mi11_approve_hold`'s crew `before_image` builder — `supabase/migrations/20260608000002_mi11_gate_rpcs.sql:336` | add `selections_reset_at`; it is the **second** production builder and `crewImage` is not the only one |
 
-**D3 must not be a bare `excluded.` assignment, or the unit inverts its own goal.** The ON CONFLICT branch fires when a row already occupies `(show_id, name)`. A plain `selections_reset_at = excluded.selections_reset_at` would overwrite that live row's reset marker with the older value captured in `before_image` — re-validating a picker cookie an admin invalidated *after* the change being undone. That is precisely the defect §1 says an undo must not cause, reintroduced through the branch meant to fix it.
+**D3 alone is not enough — it guards the branch that almost never runs.** The ON CONFLICT branch is documented as defensive (`supabase/migrations/20260719000001_undo_change_lifecycle_guard.sql:172-174` calls the clean-INSERT path "the reachable one"). A normal `crew_renamed` undo **deletes the live successor first** (`supabase/migrations/20260719000001_undo_change_lifecycle_guard.sql:150-163`) precisely so the INSERT slot is free, so it takes the clean-INSERT path. Any reset stamped on that successor *after* the rename is destroyed by the delete, and `greatest(...)` in the conflict branch never sees it. D3 without D4 leaves the common case exactly as broken as it is today.
+
+**D4 is the actual fix, and it subsumes the historical case.** The successor row is already `select … for update`'d at `supabase/migrations/20260719000001_undo_change_lifecycle_guard.sql:151-153` before the delete, so its marker is capturable at zero extra cost:
+
+```sql
+select id, selections_reset_at into v_succ_id, v_succ_reset
+  from public.crew_members
+ where show_id = v_log.show_id and name = v_succ_name
+   for update;
+```
+
+and the INSERT takes `greatest((v_before->>'selections_reset_at')::timestamptz, v_succ_reset)`. For `crew_removed` there is no successor, `v_succ_reset` is NULL, and `greatest` falls through to the `before_image` value. For a **historical** rename row whose `before_image` lacks the key, the term is NULL and `greatest` falls through to the live successor's marker — so old rows are protected too, without a backfill.
+
+**Correcting an earlier overclaim in this spec.** A previous revision said historical rows "degrade safely" because the absent-key cast produces NULL rather than an error. That conflated *no error* with *no harm*: restoring NULL over a live invalidation is precisely the revalidation §1 exists to prevent. The probe below still holds as a statement about cast behavior; it never established safety.
 
 `greatest(...)` is NULL-safe in the direction that matters — probed, not assumed:
 
@@ -167,7 +196,7 @@ The branch is documented as defensive and hard to reach (`supabase/migrations/20
 
 Delivered as a new migration using `CREATE OR REPLACE FUNCTION`, matching how `20260719000001` itself superseded `20260608000003_undo_change_rpc.sql:89`. The `ROW_COUNT` fail-safe at `supabase/migrations/20260719000001_undo_change_lifecycle_guard.sql:199-200` is preserved verbatim.
 
-**Historical `before_image` rows degrade safely — probed, not assumed.** Rows written before D1 have no `selections_reset_at` key. The new INSERT reads it as `(v_before->>'selections_reset_at')::timestamptz`, and an absent jsonb key yields SQL NULL, which casts to a NULL `timestamptz` without error:
+**Historical `before_image` rows cast cleanly — which is a statement about types, not about safety.** Rows written before D1 have no `selections_reset_at` key. The new INSERT reads it as `(v_before->>'selections_reset_at')::timestamptz`, and an absent jsonb key yields SQL NULL, which casts to a NULL `timestamptz` without error:
 
 ```
 $ psql -c "select (('{\"name\":\"A\"}'::jsonb)->>'selections_reset_at')::timestamptz as absent, ..."
@@ -175,7 +204,7 @@ $ psql -c "select (('{\"name\":\"A\"}'::jsonb)->>'selections_reset_at')::timesta
  t                      | timestamp with time zone |                   |                    | 2026-08-03 01:02:03+00
 ```
 
-So an undo of a pre-change row restores NULL — identical to today's behavior, no error and no regression. No backfill is required and none is proposed. A row written after D1 round-trips its real value. This is why D2/D3 need no migration-ordering guard against in-flight feed rows.
+No backfill is required and none is proposed, but the NULL is **not** benign on its own: restoring it over a live invalidation is the very revalidation this unit prevents. D4 is what makes historical rename rows safe, by falling through to the captured successor marker. A historical **`crew_removed`** row is the one case D4 cannot rescue — there is no successor to capture from and the deleted row's marker is genuinely gone. That is a real residual limit, recorded in §8 rather than papered over.
 
 **The guard that should have caught this is aimed at a dead file.** `tests/db/undo-change-no-phantom-columns.test.ts:19` reads `20260608000003_undo_change_rpc.sql`, superseded by `20260719000001`. Its `REAL_CREW_COLUMNS` set (`tests/db/undo-change-no-phantom-columns.test.ts:22-34`) also omits `selections_reset_at`, and the test only asserts that named columns are real plus that a required subset is present — nothing forbids an omission. Repointing it at the live migration and adding the column is in scope: repairing the drop without repairing its blind guard queues the next drop.
 
@@ -210,15 +239,27 @@ Single producer, three consumers. No consumer re-derives.
 
 Every change an operator could notice, stated so review does not have to discover them.
 
-1. **A suppressed/collided/no-op rename stops producing a `crew_renamed` feed row, and produces `crew_removed` + `crew_added` instead.** The rename row suppressed BOTH sides of the pair: the removal loop skips names in `renamedPriorNames` (`lib/sync/changeLog/writeAutoApplyChanges.ts:106-107`) and the additions loop skips names in `renamedAddedNames` (`lib/sync/changeLog/writeAutoApplyChanges.ts:121`). With the pair no longer counted as a rename, both loops proceed. The feed gains the two rows describing what actually happened and loses the one that was false. (An unlanded pair whose target was hold-suppressed yields only `crew_removed`, since the target never entered `appliedCrewMembers` to be added.)
-2. **An unaccepted cron MI-13 or MI-14 stops producing a `crew_renamed` row** (and produces `crew_removed` + `crew_added` per item 1). `computeIdentityLinkRenames` gates those two invariants on `acceptedThisVersion` (`lib/sync/identityLinkRenames.ts:20-23`); `renamePairs` had no gate at all. This is the R7 fix. MI-12 is ungated in both, so it is unaffected.
-3. **A staged `independent` decision stops producing a `crew_renamed` row.** Same mechanism as (2).
-4. **First-seen shows are unaffected.** `runManualStageForFirstSeen.ts:125` passes `[]`, and a first-seen show has no prior roster, so it produced no legitimate rename rows before and produces none now.
-5. **A suppressed rename no longer appears in the capability notice**, so a `ROLE_FLAGS_NOTICE` that would have been raised solely by a phantom rename is not raised at all.
-6. **Undo restores `selections_reset_at`.** A picker cookie invalidated before the undone change stays invalidated afterward.
-7. **A Phase D wizard apply that changes a LEAD/FINANCIALS bit now raises the bell alert and the durable event**, matching the dashboard and cron paths.
-8. **A capability loss that is silently suppressed today now reports.** When a rename's target is hold-suppressed (P2-F4) or the update no-ops, the source row is not delete-protected, so `deleteCrewMembersNotIn` removes it and a LEAD/FINANCIALS capability genuinely disappears. Today `renamedAway` holds the requested `removedName` and suppresses arm (c), so no loss notice fires. Under §2.1 A3 it fires. This is a **new** `ROLE_FLAGS_NOTICE` in a case that previously produced none — an addition to the operator's bell, not a removal, and the opposite direction from items 1–5.
-9. **Pairs whose source row SURVIVED continue to produce no loss notice.** Membership in `deleteKeepNames` (`lib/sync/applyParseResult.ts:152`) is the test, so §2.1 A3 keeps them in `renamedAway`. Called out because a naive reading of item 8 would predict otherwise. Note this is narrower than "held": a `name_held` pair whose hold kind did not delete-protect it falls under item 8, not here.
+1. **A suppressed/collided/no-op rename stops producing a `crew_renamed` feed row.** What replaces it is **one-sided and depends on the reason**, not a uniform "removed + added". The rename row suppressed both loops — removals skip `renamedPriorNames` (`lib/sync/changeLog/writeAutoApplyChanges.ts:106-107`), additions skip `renamedAddedNames` (`lib/sync/changeLog/writeAutoApplyChanges.ts:121`) — but each unlanded reason leaves only one side of the pair actually present in the rosters being diffed. Measured against the current writer, requested-pair versus no-landed-pair:
+
+   | Case | With requested pair (today) | With landed pairs only |
+   |---|---|---|
+   | target collision | `crew_renamed:Old` | `crew_removed:Old` |
+   | source absent | `crew_renamed:Old` | `crew_added:New` |
+   | target absent (P2-F4) | `crew_renamed:Old` | `crew_removed:Old` |
+   | held source | (none) | `crew_added:New` |
+   | held target | (none) | `crew_removed:Old` |
+
+   In every case the feed row that appears is the one describing what actually happened to the rosters, and the false rename disappears. Note the last two rows: a held pair produces **no** feed row today and gains one.
+
+2. **`field_changed` rows change too.** `renames` has a third use inside the writer beyond the two loops above — it maps prior names while deriving structured field changes (`lib/sync/changeLog/writeAutoApplyChanges.ts:145-170`). A requested-but-unlanded pair currently emits a `field_changed` row attributing the successor's field deltas to the prior member (measured: `field_changed: Role — New, A1 → V1` alongside the `crew_renamed` row). Sourcing from landed pairs drops that attribution with the rename. §7 pins this mapping explicitly.
+3. **An unaccepted cron MI-13 or MI-14 stops producing a `crew_renamed` row** (replaced per the item 1 table). `computeIdentityLinkRenames` gates those two invariants on `acceptedThisVersion` (`lib/sync/identityLinkRenames.ts:20-23`); `renamePairs` had no gate at all. This is the R7 fix. MI-12 is ungated in both, so it is unaffected.
+4. **A staged `independent` decision stops producing a `crew_renamed` row.** Same mechanism as (3).
+5. **First-seen shows are unaffected.** `runManualStageForFirstSeen.ts:125` passes `[]`, and a first-seen show has no prior roster, so it produced no legitimate rename rows before and produces none now.
+6. **A suppressed rename no longer appears in the capability notice**, so a `ROLE_FLAGS_NOTICE` that would have been raised solely by a phantom rename is not raised at all.
+7. **Undo restores `selections_reset_at`.** A picker cookie invalidated before the undone change stays invalidated afterward.
+8. **A Phase D wizard apply that changes a LEAD/FINANCIALS bit now raises the bell alert and the durable event**, matching the dashboard and cron paths.
+9. **A capability loss that is silently suppressed today now reports.** When a rename's target is hold-suppressed (P2-F4) or the update no-ops, the source row is not delete-protected, so `deleteCrewMembersNotIn` removes it and a LEAD/FINANCIALS capability genuinely disappears. Today `renamedAway` holds the requested `removedName` and suppresses arm (c), so no loss notice fires. Under §2.1 A3 it fires. This is a **new** `ROLE_FLAGS_NOTICE` in a case that previously produced none — an addition to the operator's bell, not a removal, and the opposite direction from items 1–5.
+10. **Pairs whose source row SURVIVED continue to produce no loss notice.** Membership in `deleteKeepNames` (`lib/sync/applyParseResult.ts:152`) is the test, so §2.1 A3 keeps them in `renamedAway`. Called out because a naive reading of item 8 would predict otherwise. Note this is narrower than "held": a `name_held` pair whose hold kind did not delete-protect it falls under item 9, not here.
 
 ---
 
@@ -259,7 +300,7 @@ This branch is a live instance of that open backlog row. It does not fix it — 
 - **Unit B follows the honest-durability posture** documented for its precedent (`lib/log/emitLeadRoleApplied.ts:19-23`): post-commit, so not transactionally atomic with the change; durable + failure-visible; `{ ok: false }` escalates loudly via `log.error` with a distinct code. Residual double-fault (strict insert and escalation both fail) is documented, not handled — same as the precedent.
 - **Unit C preserves emit ordering.** Durable audit before the throwing `upsertAdminAlert`, so a transient alert-RPC failure can never skip the durable record.
 - **Unit B emission never blocks the apply.** An unlanded rename is an expected outcome, not a fault; a failed *event write* must not fail the sync.
-- **Invariant 9 at every new Supabase call boundary.** The A1 rowcount read destructures `{ data, error }`, distinguishes returned-error from thrown-error, and surfaces infra faults as typed results — never a bare `continue`.
+- **A1 is NOT a Supabase call boundary, so invariant 9's `{ data, error }` shape does not apply.** The sole production implementation runs through postgres.js `unsafe` (`lib/sync/runScheduledCronSync.ts:728-729`, bound at `lib/sync/runScheduledCronSync.ts:1847-1848`), which returns a row list carrying `.count` and signals faults by **throwing** — there is no returned-error channel to destructure. A1 therefore reads `.count` from the existing result and lets faults propagate as they already do; an earlier revision of this spec prescribed a destructure that would not compile against this client. Invariant 9's substance still binds elsewhere in the diff wherever a genuine Supabase client call is added.
 
 ---
 
@@ -271,20 +312,26 @@ TDD per task (invariant 1). Each row names the concrete failure it catches — n
 |---|---|---|
 | A | Hold-suppressed rename target (P2-F4 shape): assert **no** `crew_renamed` row **and a `crew_removed` row for the prior name** | The current false-rename-plus-missing-removal pair. Asserting only the absent rename row would pass on a writer that dropped both. |
 | A | Unaccepted MI-13 with a surviving target: assert `crew_removed` **and** `crew_added` both appear | §4 item 1's additions half. The removals half alone passes on a writer that still suppresses additions (`lib/sync/changeLog/writeAutoApplyChanges.ts:121`). |
-| A | `renamedAway` survival split: an unlanded pair whose `removedName` IS in `deleteKeepNames` produces **no** loss notice; one whose `removedName` is NOT produces one (capability-flagged prior) | The §4 item 8 / item 9 pair. A single-set implementation cannot satisfy both, so this test is what forces the split. |
+| A | `renamedAway` survival split: an unlanded pair whose `removedName` IS in `deleteKeepNames` produces **no** loss notice; one whose `removedName` is NOT produces one (capability-flagged prior) | The §4 item 9 / item 10 pair. A single-set implementation cannot satisfy both, so this test is what forces the split. |
 | A | A `name_held` pair whose hold kind did **not** delete-protect it still produces a loss notice | The reason-based proxy. A `reason ∈ {name_held, …}` implementation passes the row above and fails only here — which is exactly the case that would hide a real capability loss. |
 | A | `renameCrewMember` returns `false` on target collision and on missing source; the pair surfaces as `rename_no_op` | The second silent layer — a pair clearing all five guards can still no-op. Existing tests (`tests/sync/applyParseResult.identityLink.db.test.ts:64` and `tests/sync/applyParseResult.identityLink.db.test.ts:80`) assert DB state only and pass today. |
 | A | Each of the five guards maps to its distinct `reason` | A collapsed union that reports every skip identically |
 | A | An **accepted** rename that lands still produces its notice entry and `crew_renamed` row | Over-correction — the fix silencing legitimate renames |
+| A | `field_changed` attribution follows landed pairs: an unlanded pair emits no `field_changed` row mapped through the prior name | §4 item 2. The rename/add/remove assertions all pass while this row is still mis-attributed. |
 | B | One unlanded pair emits exactly one event carrying `reason`; `{ ok: false }` escalates via `log.error` | Silent omission degrading into silent-everything |
+| B | **Integration, once per sink** (cron/manual, dashboard staged, finalize-cas): an unlanded pair produces the event end-to-end | A dropped propagation hop. R4 makes this the only signal, so a lost field is fully dark — and an emitter unit test passes with all four hops broken. |
 | B | The code does not register in the §12.4 / internal-code-enum scans — mirrors `tests/messages/stripLogEmissionCalls.test.ts:123-138` | A forensic code leaking into the user-facing catalog |
 | C | finalize-cas Phase D LEAD-bit change co-emits `LEAD_ROLE_APPLIED` + `ROLE_FLAGS_NOTICE`, **post-commit** — mirrors `tests/sync/applyStaged.test.ts:272-316` | The entry-1 drop |
 | C | Emit ordering preserved: durable audit attempted before a throwing `upsertAdminAlert` — mirrors `tests/sync/applyStaged.test.ts:321-366` | Extraction silently reordering a load-bearing sequence |
 | C | `_metaLeadRoleAppliedTopology` expects **one** site | A fourth emit site added off-helper |
 | C | finalize-cas admin behavioral coverage still passes (`tests/log/adminOutcomeBehavior.test.ts`); route stays in `AUDITABLE_MUTATIONS` (`tests/log/_auditableMutations.ts:35`) | Invariant 10 regression on an admin mutation surface |
 | C | A throwing `upsertAdminAlert` on the finalize-cas path still reaches `markFinalCasDone` | Importing a throw into a fail-open loop and aborting the outer tx post-commit |
+| C | **Response shape:** `per_row` contains no `roleFlagsNotice` key | Leaking crew names and capability flags into the public API response |
 | D | **db test:** seed a crew member, stamp `selections_reset_at`, record a change, undo it, assert the column round-trips **and** that `resolvePickerSelection` still returns `selection_reset` for a cookie stamped before the reset | The security-adjacent revalidation. Asserting the column alone would miss a reader-side regression. |
-| D | **db test driving the ON CONFLICT branch:** a live row whose `selections_reset_at` is NEWER than `before_image`'s keeps the newer value through an undo | D3 written as a bare `excluded.` assignment — which reintroduces the exact revalidation this unit exists to prevent, on a branch the clean-INSERT test never touches |
+| D | **db test on the CLEAN-INSERT path (the reachable one):** rename, stamp a reset on the successor, undo, assert the marker survives | **The D3-only failure.** This is the common path; a `greatest()` that lives solely in the ON CONFLICT branch fails here while every other D test passes. |
+| D | **db test driving the ON CONFLICT branch:** a live row whose `selections_reset_at` is NEWER than `before_image`'s keeps the newer value through an undo | D3 written as a bare `excluded.` assignment |
+| D | **historical-row test:** a `before_image` with no `selections_reset_at` key, undone against a successor carrying one, keeps the successor's | D4's fall-through. Pins that old rows are rescued by capture rather than by backfill. |
+| D | `mi11_approve_hold`'s `before_image` carries `selections_reset_at`, and an undo of an MI-11-applied removal round-trips it | D5. The second producer — invisible to any test that only exercises `crewImage`. |
 | D | `undo-change-no-phantom-columns` reads the **live** migration and `REAL_CREW_COLUMNS` includes the column | The blind guard that let this land |
 | D | `_holdsHelpers` seed + `readCrew` carry the column | Otherwise no D test can observe anything |
 
@@ -297,6 +344,7 @@ TDD per task (invariant 1). Each row names the concrete failure it catches — n
 - **An unlanded rename is invisible to Doug in the product.** By R4 it lives only in `app_events`, reachable via `pnpm observe`. If operators later need it surfaced, that is a new scoped change with a §12.4 row and the impeccable dual-gate.
 - **`renameCrewMember`'s `false` does not distinguish collision from missing source.** Both are a zero-row guarded update; separating them needs a second query, which is not worth a round-trip on the locked show transaction. Both report as `rename_no_op`.
 - **The validation apply stays manual** until `BL-VALIDATION-PARITY-FUNCTIONS-UNCHECKED` is closed (§5.1).
+- **A historical `crew_removed` undo can still revalidate a cookie.** D4 rescues historical rename rows by falling through to the live successor's marker, but a removal has no successor — the deleted row's marker is gone and the pre-D1 `before_image` never carried it. Bounded to `crew_removed` rows written before this change; every row written after carries the value. Not backfillable, since the information no longer exists anywhere. Stated rather than hidden, per the preparedness posture.
 - **`name_held` emits a forensic event for an ordinary hold.** A held name is an expected operator flow, not a fault, so some fraction of `IDENTITY_LINK_RENAME_UNLANDED` events describe the system working as designed. Accepted deliberately: `reason` is on the event, so a reader filters by it, and suppressing `name_held` at the emit site would mean the one query that answers "was this rename ever requested?" silently omits the most common answer. If event volume later proves a problem, filtering belongs in the read path (`pnpm observe`), not the write path.
 
 ---
@@ -307,7 +355,7 @@ TDD per task (invariant 1). Each row names the concrete failure it catches — n
 Both deferrals below name their exception under the class-sweep disposition rule (AGENTS.md, "Class-sweep before patching adversarial findings"), which makes same-PR repair of every instance the default and requires a deferred peer to cite (a) an unsettled product/design decision, (b) a ratified scope fence, or (c) a redesign of an untouched surface / scope-blowing breadth. "Same defect, different file" is explicitly not sufficient.
 
 - **A guard that detects a caller DROPPING `roleFlagsNotice`** — **exception (c)**. The existing topology pin cannot (§2.3). Building one means walking every `applyStagedCore` caller for a discarded return field, which is a different mechanism from the emit-site regex walker and a new guard surface this PR does not otherwise touch. Unit C closes the one known instance; the guard is what stops the next one.
-- **A pre-existing false capability-loss for held members generally** — **exception (c)**. Arm (c) fires for ANY `previousCrewMembers` entry absent from `appliedCrewMembers` without a `renamedAway` entry, and held/delete-protected rows are exactly that shape when no rename pair names them (`lib/sync/applyParseResult.ts:152` vs `lib/sync/applyParseResult.ts:163`). This spec keeps rename-linked held pairs suppressed (§4 item 9) — the instances reachable through the rename path, which IS the shape this PR is in. Fixing the non-rename case requires redesigning arm (c)'s absence predicate to distinguish "row deleted" from "row survived but is not in the applied list", which is a change to the notice's core semantics on a path no unit here touches. Filed as a new BACKLOG row.
+- **A pre-existing false capability-loss for held members generally** — **exception (c)**. Arm (c) fires for ANY `previousCrewMembers` entry absent from `appliedCrewMembers` without a `renamedAway` entry, and held/delete-protected rows are exactly that shape when no rename pair names them (`lib/sync/applyParseResult.ts:152` vs `lib/sync/applyParseResult.ts:163`). This spec keeps rename-linked held pairs suppressed (§4 item 10) — the instances reachable through the rename path, which IS the shape this PR is in. Fixing the non-rename case requires redesigning arm (c)'s absence predicate to distinguish "row deleted" from "row survived but is not in the applied list", which is a change to the notice's core semantics on a path no unit here touches. Filed as a new BACKLOG row.
 - Any user-visible surface for unlanded renames (R4).
 - Changing `renameCrewMember`'s no-op semantics (R1).
 - Changing `crew_renamed`'s `entity_ref` (R3).
