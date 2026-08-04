@@ -461,7 +461,7 @@ Expected: clean. Every construction site of `ApplyParseResultOutcome` now needs 
 - [ ] **Step 7: Commit**
 
 ```bash
-git add lib/sync/applyParseResult.ts tests/sync/applyParseResult.identityLink.test.ts
+git add lib/sync/applyParseResult.ts tests/sync/applyParseResult.identityLink.test.ts tests/sync/applyParseResult.identityLink.db.test.ts
 git commit -m "feat(sync): report landed and unlanded identity-link renames from applyParseResult"
 ```
 
@@ -589,7 +589,7 @@ it("capability: a held pair whose hold kind did NOT delete-protect it still repo
 Every title starts with `capability:` so the `-t "capability"` filter in Step 2 selects all four across both files.
 
 
-**Failure mode each catches:** test 2 catches the naive both-arms-landed implementation (the false-loss regression); test 3 catches leaving arm (c) on requested pairs (a real loss stays silent); test 4 catches the reason-proxy implementation, which passes tests 2 and 3 and fails only here.
+**Failure mode each catches:** the **source-survived** test catches the naive both-arms-landed implementation — that mutant reports a loss for a row still holding its flags. The **source-died** test catches leaving arm (c) on requested pairs, where a real loss stays silent. The **held-but-not-delete-protected** test is the only discriminator for the reason-proxy implementation: it passes both of the others and fails only here.
 
 - [ ] **Step 2: Run to verify they fail**
 
@@ -684,18 +684,22 @@ it("roster_shift_counts reports zero renamed for an unlanded pair", async () => 
 });
 
 it("field_changed attribution follows landed pairs, not requested ones", async () => {
-  // FIXTURE REQUIREMENT: the successor must carry a NON-LEAD field delta versus the prior row,
-  // because writeAutoApplyChanges only writes a field_changed row in that case
-  // (lib/sync/changeLog/writeAutoApplyChanges.ts lines 151-169). With unchanged fields this test is
-  // green BEFORE the implementation and proves nothing. Give "New" a different role (or phone /
-  // date_restriction) from "Old", then request an UNLANDED pair Old -> New.
+  // FIXTURE REQUIREMENT, probe-established: the successor must differ from the prior row in
+  // NON-LEAD **role_flags** specifically. Measured against the current writer:
+  //   role-only delta  -> ['crew_renamed']              (no field_changed)
+  //   phone-only delta -> ['crew_renamed']              (no field_changed)
+  //   date-only delta  -> ['crew_renamed']              (no field_changed)
+  //   role_flags delta -> ['crew_renamed','field_changed']
+  // So a role / phone / date_restriction fixture leaves this test green BEFORE the implementation
+  // and proves nothing. Give "New" a non-LEAD role_flags value that "Old" does not have, then
+  // request an UNLANDED pair Old -> New.
   const rows = (await readChangeLog(showId)).all;
   // With the pair unlanded, the delta must NOT be attributed through the prior name.
   expect(rows.filter((r) => r.change_kind === "field_changed")).toEqual([]);
 });
 ```
 
-**Failure mode each catches:** test 1 catches the false-rename-plus-missing-removal pair (asserting only the absent rename row would pass on a writer that dropped both); test 2 catches the additions half, which test 1 alone misses; test 3 catches over-correction silencing legitimate renames and pins resolution #19's `entity_ref`; test 4 checks the aggregate the operator actually reads on the dashboard badge — a writer emitting BOTH a rename and a removal passes test 1 and fails this; test 5 catches `field_changed` staying mis-attributed while every row-kind assertion passes.
+**Failure mode each catches:** test 1 catches the false-rename-plus-missing-removal pair — asserting only the absent rename row would pass on a writer that dropped both, which is why it also requires the `crew_removed` row. Test 2 catches the additions half, which test 1 alone misses. Test 3 catches over-correction silencing legitimate renames, and pins resolution #19's `entity_ref`. Test 4 checks the aggregate the operator actually reads on the dashboard badge, catching a correct-rows-wrong-counts divergence that per-row assertions cannot see. Test 5 catches `field_changed` staying mis-attributed while every row-kind assertion passes.
 
 - [ ] **Step 2: Run to verify they fail**
 
@@ -743,11 +747,11 @@ git commit -m "fix(sync): derive crew_renamed from landed pairs, completing the 
 **Interfaces:**
 - Produces: `emitIdentityLinkRenameUnlanded(unlanded: UnlandedRename[], ctx: { source: string; showId: string; driveFileId: string }): Promise<void>`
 
-**Spec-amendment note (payload key casing).** Spec section 2.2 writes the payload as `{ showId, driveFileId, removedName, addedName, reason }`. The house convention for `app_events` **context** keys is snake_case — its own stated precedent `emitLeadRoleApplied` uses `crew_name` / `prior_flags` / `new_flags` in context while passing `showId` and `driveFileId` as top-level event fields. This plan follows the precedent the spec points at rather than the spec's inline casing: `showId` and `driveFileId` stay top-level, and the three context keys are `removed_name`, `added_name`, `reason`. **Confirm this reading before implementing** — if the reviewer or the spec author intends literal camelCase context keys, the spec wins and this note is the thing to correct.
+**Payload key casing — RESOLVED, spec wins.** An earlier revision proposed snake_case context keys on the grounds that `emitLeadRoleApplied` uses `crew_name` / `prior_flags`. That house convention is real but does not override an explicit canonical-spec contract: spec section 2.2 names the payload `{ showId, driveFileId, removedName, addedName, reason }`, so the context keys are **`removedName`, `addedName`, `reason`** as written. The convention argument is recorded here only so it is not re-derived.
 
 **Context:** Model this file on `lib/log/emitLeadRoleApplied.ts` — read it in full first, including its header comment (lines 10-30), which documents the whole pattern. Key properties to copy: `persistAppEventStrict` (`lib/log/persist.ts:60`) as the writer; `{ ok: false }` escalates loudly via `log.error` with a distinct code and is never swallowed (invariant 9); the emitter never throws; the code is **not** a §12.4 user-facing code, so no catalog row, no `pnpm gen:spec-codes`, no lockstep update.
 
-Payload per event: `{ removed_name, added_name, reason }`, with `showId` and `driveFileId` as top-level event fields (NOT context keys), matching `emitLeadRoleApplied`'s shape where `crew_name`/`prior_flags` are snake_case context and `showId`/`driveFileId` are top-level. See the spec-amendment note below. Redaction-safe — crew names only, no email/phone/token.
+Payload per event, **verbatim from the approved spec**: context keys `removedName`, `addedName`, `reason`; `showId` and `driveFileId` as top-level event fields, as in `emitLeadRoleApplied`. Redaction-safe — crew names only, no email/phone/token.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -764,7 +768,7 @@ it("emits one event per unlanded pair, carrying the reason", async () => {
   expect(persistAppEventStrict).toHaveBeenNthCalledWith(1, expect.objectContaining({
     code: "IDENTITY_LINK_RENAME_UNLANDED",
     showId: "s1",
-    context: expect.objectContaining({ removed_name: "Old", added_name: "New", reason: "target_absent" }),
+    context: expect.objectContaining({ removedName: "Old", addedName: "New", reason: "target_absent" }),
   }));
 });
 
@@ -825,7 +829,6 @@ git commit -m "feat(log): add the forensic IDENTITY_LINK_RENAME_UNLANDED emitter
 - Modify: `lib/sync/applyStagedCore.ts` (~line 474), `lib/sync/applyStaged.ts` (~line 265)
 - Modify: `lib/sync/runManualStageForFirstSeen.ts:170` (carrier only; its emit is Task 12)
 - Modify: `app/api/admin/pending-ingestions/[id]/retry/route.ts`
-- Modify: the wizard per-row envelope in both finalize routes (carrier only; their emits are Task 11)
 - Test: `tests/sync/runScheduledCronSync.test.ts`, `tests/sync/applyStaged.test.ts`, `tests/sync/runManualSyncForShow.test.ts`
 
 **Context:** `roleFlagsNotice` rides these exact hops today — follow it. **Four sinks, and one of them is reachable by a path that crosses none of the core hops:** the pending-ingestion retry calls `runManualSyncForShowUnlocked`, which routes around `processOneFile`'s post-commit tail (`lib/sync/runManualSyncForShow.ts:287-288`), so it needs its own carrier and its own emit point.
@@ -840,7 +843,7 @@ git commit -m "feat(log): add the forensic IDENTITY_LINK_RENAME_UNLANDED emitter
 | ordinary finalize | **Task 11** |
 | finalize-cas, both handlers | **Task 11** |
 
-The propagation hops (result-type fields) for ALL sinks are added here — only the two finalize *emits* defer to Task 11. Task 11's step list covers them; do not leave them unwired.
+**Only the hops this task's tests exercise are added here.** An earlier revision had this task plumb the finalize routes' carrier while testing neither, which violates invariant 1 — an implementer cannot follow both that scope and TDD. The two finalize routes' carrier AND emit both belong to Task 11, which has the tests for them. This task touches `lib/sync/**` and the retry route only.
 
 - [ ] **Step 1: Write the failing integration tests — one per sink wired here**
 
@@ -874,7 +877,7 @@ Expected: PASS.
 
 ```bash
 git add lib/sync/ app/api/admin/pending-ingestions/ tests/
-git commit -m "feat(sync): emit IDENTITY_LINK_RENAME_UNLANDED from every post-commit sink"
+git commit -m "feat(sync): emit IDENTITY_LINK_RENAME_UNLANDED from the cron, staged and retry sinks"
 ```
 
 ---
@@ -1052,6 +1055,7 @@ git commit -m "test(db): point the phantom-columns guard at the shipped undo_cha
 
 **Files:**
 - Create: lib/sync/emitRoleFlagsNotice.ts (new)
+- Modify: the per-row envelope in BOTH finalize routes — carrier for `roleFlagsNotice` **and** `unlandedRenames` (Task 7 deliberately left both to this task, since this is where their tests live)
 - Modify: `lib/sync/runScheduledCronSync.ts:2318-2331`, `lib/sync/applyStaged.ts:1993-2002`
 - Modify: `app/api/admin/onboarding/finalize/route.ts`, `app/api/admin/onboarding/finalize-cas/route.ts`
 - Test: `tests/onboarding/finalize.test.ts`, `tests/onboarding/finalize-cas.test.ts`
