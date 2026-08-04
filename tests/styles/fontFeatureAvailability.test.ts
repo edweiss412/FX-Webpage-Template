@@ -290,6 +290,56 @@ const ALLOWED_FEATURE_RESETS = new Map<string, string>([
   ],
 ]);
 
+/**
+ * Selectors allowed to set `font-family`, and why.
+ *
+ * Family 9's other half. Round 17 closed the INLINE face swap; round 18 showed a
+ * plain rule does the same thing — `[data-testid="…"] { font-family: ui-monospace }`
+ * changes the face beneath a perfectly valid feature declaration, and the
+ * compiled analyser checked values, resets, shorthands, tags, axes and payload
+ * but never the family.
+ *
+ * The product sets the family in exactly two places, and Tailwind's preflight in
+ * three more. Anything else fails the build: a face swap is how a correct
+ * declaration renders nothing, which is this whole change's subject.
+ */
+const ALLOWED_FONT_FAMILY_RULES = new Map<string, string>([
+  ["html", "the app's own root binding: `var(--font-sans)`, which reads `--font-inter`."],
+  [".code-value", "binds the UI family so the features are not inert on a <code> (§12.2)."],
+  [
+    "html, :host",
+    "Tailwind preflight's root default; the app's later `html` rule wins the cascade.",
+  ],
+  [
+    "code, kbd, samp, pre",
+    "Tailwind preflight's monospace default — the §2.4 documented exception.",
+  ],
+  [
+    "button, input, select, optgroup, textarea, ::file-selector-button",
+    "Tailwind preflight: `font-family: inherit`, so controls keep the page's typography.",
+  ],
+  ["::backdrop", "Tailwind preflight's root-variable mirror for the backdrop pseudo-element."],
+  [
+    ".font-mono",
+    "Tailwind's `font-mono` utility, used deliberately on sheet ids, warning payloads " +
+      "and the shows-table heading. Same disposition as the preflight mono rule: those " +
+      "surfaces render in a monospace face where I/l/1 are already distinct, so ss04 has " +
+      "nothing to add. A `.code-value` on such an element still wins, being later and " +
+      "equally specific.",
+  ],
+]);
+
+/** Every rule that sets `font-family`, by selector. */
+export function fontFamilyRules(cssSource: string): string[] {
+  const out: string[] = [];
+  postcss.parse(cssSource).walkDecls((decl) => {
+    if (normalizeProp(decl.prop).name !== "font-family") return;
+    const parent = decl.parent;
+    out.push(parent && "selector" in parent ? String(parent.selector) : "(unknown)");
+  });
+  return out;
+}
+
 /** Rules that declare the property but enable nothing — i.e. that RESET it. */
 export function featureResetRules(cssSource: string): string[] {
   return featureRules(cssSource)
@@ -696,18 +746,33 @@ const FIRST_PARTY_STYLESHEETS = ["app/globals.css"];
 
 describe("only one first-party stylesheet exists, so compiling it is sufficient", () => {
   test("no stylesheet under app/, components/ or lib/ escapes the compiled analysis", () => {
+    // EVERY STYLESHEET IN THE TREE, tracked or not, walked from the repo root.
+    // Next permits a CSS Module to be imported from anywhere, so
+    // `styles/Step1Share.module.css` sits outside app/components/lib and was
+    // invisible — round 18's second finding. `git ls-files` was the first fix and
+    // was itself incomplete: it lists only TRACKED files, so a module that had
+    // not been committed yet escaped. A developer writing one will `git add` it,
+    // so the walk cannot depend on that having happened.
+    const IGNORED_DIRS = new Set([
+      "node_modules",
+      ".git",
+      "docs", // mocks and specs, never served by this app
+      "tests", // fixtures
+      "playwright-report",
+      "test-results",
+    ]);
     const found: string[] = [];
     const walk = (dir: string): void => {
       for (const entry of readdirSync(dir, { withFileTypes: true })) {
-        const path = join(dir, entry.name);
         if (entry.isDirectory()) {
-          if (entry.name !== "node_modules") walk(path);
+          if (IGNORED_DIRS.has(entry.name) || entry.name.startsWith(".next")) continue;
+          walk(join(dir, entry.name));
         } else if (/\.(css|scss|sass|less)$/.test(entry.name)) {
-          found.push(path.slice(REPO_ROOT.length + 1));
+          found.push(join(dir, entry.name).slice(REPO_ROOT.length + 1));
         }
       }
     };
-    for (const root of PRODUCT_ROOTS) walk(resolve(REPO_ROOT, root));
+    walk(REPO_ROOT);
     expect(
       found.sort(),
       `the guard compiles only ${FIRST_PARTY_STYLESHEETS.join(", ")}. A stylesheet it ` +
@@ -936,6 +1001,19 @@ describe("font feature availability", () => {
         `these rules use the \`font\` shorthand, which resets font-feature-settings ` +
           `to its initial value and would silently undo ss04/tnum/zero: ` +
           `${shorthand.join(", ")}. Set the longhands instead.`,
+      ).toEqual([]);
+    });
+
+    test("every rule that sets font-family is a known, justified one", () => {
+      // Family 9's compiled-sheet half. A face swap makes a correct feature
+      // declaration render nothing — the failure this whole change is about — and
+      // a plain CSS rule does it just as well as an inline style.
+      const unknown = fontFamilyRules(css).filter((sel) => !ALLOWED_FONT_FAMILY_RULES.has(sel));
+      expect(
+        unknown,
+        `these rules set font-family without a recorded reason: ${unknown.join(" | ")}. ` +
+          `Swapping the face beneath a valid feature declaration makes the features ` +
+          `inert — add it to ALLOWED_FONT_FAMILY_RULES with why, or remove it.`,
       ).toEqual([]);
     });
 

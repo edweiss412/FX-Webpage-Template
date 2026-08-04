@@ -757,3 +757,16 @@ Enumerate the closure set **in the spec, before the first review round**. It cos
 **This is what the enumeration bought.** Rounds 13–16 produced four rounds of spellings inside already-closed families. Round 17, given a declared closure set and asked to argue the enumeration instead, produced two real families in one pass — one of which reopens a bug the impeccable audit had already found once. The lesson in §13.4 stands, with a corollary: the closure set is not only a convergence device, it is a better prompt.
 
 **Sixty-four mutants across seventeen rounds. All caught.**
+
+### 12.18 Round 18 — both new families were only half closed
+
+`VERDICT: NEEDS-ATTENTION`, two P1s, both accepted and fixed. Both are live escapes **inside** families 9 and 10 as declared — admissible by the closure set's own bar, and both are cases where round 17's fix covered one half of a family and the spec claimed the whole.
+
+| # | Sev | Finding | Disposition |
+| --- | --- | --- | --- |
+| 1 | **P1** | **Family 9, the CSS half.** Round 17 closed the INLINE face swap. A plain rule does the same thing: `[data-testid="wizard-step1-service-account-email"] { font-family: ui-monospace }` changes the face beneath a perfectly valid feature declaration. The compiled analyser checked values, resets, shorthands, tags, axes and payload — never the family. | **FIXED.** `font-family` rules in the compiled sheet are now enumerated in `ALLOWED_FONT_FAMILY_RULES`, each with a reason, and an unlisted one fails the build. Six entries: the app's root binding, `.code-value`'s own, three Tailwind preflight rules, and Tailwind's `font-mono` utility — the last a real find, used deliberately on sheet ids, warning payloads and the shows-table heading, and dispositioned like the preflight mono rule. |
+| 2 | **P1** | **Family 10, the location half.** The "exactly one first-party stylesheet" assertion walked only `app/`, `components/` and `lib/`, but Next permits a CSS Module to be imported from anywhere, so `styles/Step1Share.module.css` was outside the census entirely. | **FIXED**, and the first fix was itself incomplete in an instructive way: switching to `git ls-files` still missed an **untracked** module, and a developer writing one will `git add` it afterwards. The census now walks the repo from its root, tracked or not, excluding `node_modules`, build output, docs mocks and test fixtures. Mutation-proven in both placements. |
+
+The pattern across rounds 17 and 18 is worth stating: **a family is not closed until every mechanism that reaches it is closed.** Round 17 named two real families and shut the door each had arrived through; round 18 found each had a second door. That is a better failure than rounds 13–16's spellings, and it is the closure set doing its job — the finding is "family 9 is partly open", which is actionable, rather than "here is another escape sequence", which is not.
+
+**Sixty-seven mutants across eighteen rounds. All caught.**
