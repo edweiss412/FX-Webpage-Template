@@ -194,6 +194,7 @@ class FakePhase2Tx {
 
   async renameCrewMember(showId: string, removedName: string, addedName: string) {
     this.operations.push(`renameCrewMember:${showId}:${removedName}→${addedName}`);
+    return true;
   }
 
   async upsertCrewMembers(showId: string, members: CrewMemberRow[]) {

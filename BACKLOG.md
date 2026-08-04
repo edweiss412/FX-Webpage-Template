@@ -8,6 +8,64 @@ Last reconciled: 2026-08-03 — `feat/inter-numeral-disambiguation` graduated `B
 
 ---
 
+## BL-CODE-ENUM-PROVENANCE-COMMENT-BLIND — a doc comment silently rewrites generated code provenance
+
+**Status:** OPEN · **Severity:** LOW (no consumer keys on the widened field today; the exposure is that generated provenance stops meaning what it says) · **Class:** generator fidelity · **Filed:** 2026-08-04 (`fix/apply-undo-audit-fidelity`, surfaced while reconciling the Unit C registry drift) · **Effort:** S
+
+`scripts/extract-internal-code-enums.ts:161` decides whether a file's codes claim `admin_alerts.code` provenance by regexing the **raw source**:
+
+```
+if (/\badmin_alerts?\b|upsertAdminAlert|upsert_admin_alert/i.test(source)) {
+```
+
+That test is comment-blind. Adding a doc comment that merely _names_ `upsertAdminAlert` — as the apply/undo branch did at `app/api/admin/onboarding/finalize/route.ts` and `app/api/admin/onboarding/finalize-cas/route.ts`, explaining why an emit does NOT belong at a given point — flips provenance for **every** code in that file. Six §12.4 codes widened to claim `admin_alerts.code` on that regeneration (`ONBOARDING_FINALIZE_INTERNAL_ERROR`, `ONBOARDING_LEGACY_ROW_AMBIGUOUS`, `ROLE_MAPPINGS_OUTDATED_AT_PUBLISH`, `STAGED_PARSE_OUTDATED_AT_PHASE_D`, `STAGED_PARSE_REVISION_RACE_DURING_FINALIZE`, `WIZARD_REVIEWER_CHOICES_VERSION_UNSUPPORTED`) without any of them gaining a write site.
+
+**Benign as shipped, which is exactly why it is worth filing.** Code membership is unchanged and no consumer keys on `admin_alerts.code` — the live filters key on `parse_warnings.code` — so the widening changed nothing observable and the regenerated manifest was committed rather than the extractor patched mid-branch. The defect is that a generated artifact's provenance field can be rewritten by prose, so it cannot be trusted as evidence of a write site, and the next person to rely on it will not know that.
+
+**Work:** gate on parsed source rather than raw text — strip comments and string literals before the provenance test, the same shape `stripLogEmissionCalls` already uses for the §12.4 scans. A regression fixture is a file whose only mention of the writer is in a comment.
+
+---
+
+## BL-SHADOW-REBUILD-EXHAUSTED-EMIT-PLACEMENT — a durable event for a committed row is skipped when the outer finalize rolls back
+
+**Status:** OPEN · **Severity:** LOW-MEDIUM (lost forensic event; no data impact) · **Class:** telemetry durability · **Filed:** 2026-08-03 (`fix/apply-undo-audit-fidelity`, spec §2.3, deferred under class-sweep exception (a)) · **Effort:** S once the product question is settled
+
+`logAdminOutcome({ code: "ONBOARDING_SHADOW_REBUILD_EXHAUSTED", … })` (`app/api/admin/onboarding/finalize-cas/route.ts:1025-1038`) fires inside `runFinalizeCas`, which runs inside the outer `deps.withTx` holding `tryFinalizeLock` (`app/api/admin/onboarding/finalize-cas/route.ts:905`). The row mutation it describes commits in its own `withRowTx`, independently of that outer transaction — so when the outer commit fails, the mutation stands and the event describing it is silently skipped.
+
+**The exposure is the lock, not a lost event.** The emit fires after `withRowTx` resolves (`app/api/admin/onboarding/finalize-cas/route.ts:968-970`, `:1020-1022`) and before the outer transaction finishes, so a later outer rollback cannot retract it — an earlier draft of this row claimed the event was skipped, which is wrong. What is true is that it runs while `tryFinalizeLock` is still held, which is the invariant-10 posture AGENTS.md states for emits ("POST-COMMIT, outside any advisory-lock tx"). Its neighbour `SHOW_FINALIZED` shares the placement, but both finalize routes have deliberate, test-pinned behavior for it (ordinary finalize suppresses on outer failure, `tests/onboarding/finalize.test.ts:864`; finalize-cas preserves it, `tests/onboarding/finalize-cas.test.ts:685-686`), so it is not in this row's scope.
+
+**Why this is exception (a), not a mechanical fix.** Moving the emit outside the lock also changes when it fires relative to an outer rollback, and whether an operator should hear about an exhausted shadow rebuild belonging to a finalize attempt that then failed is a product question about their mental model. If the answer is yes, the fix is the accumulator-and-`finally` pattern the closing branch establishes for its own emits. Surfaced by cross-model review R9 of that branch, which identified the placement while the branch had no basis to settle the semantics.
+
+---
+
+## BL-ROLEFLAGSNOTICE-DROP-GUARD — no guard detects a path that obtains a `roleFlagsNotice` and never emits it
+
+**Status:** OPEN · **Severity:** LOW-MEDIUM (all four known instances closed; the class is unguarded) · **Class:** guard completeness, static analysis · **Filed:** 2026-08-03 (`fix/apply-undo-audit-fidelity`, descoped at spec review R5 after the vector produced a finding in four consecutive rounds) · **Effort:** L
+
+`tests/sync/_metaLeadRoleAppliedTopology.test.ts:29` matches `upsertAdminAlert(<expr>roleFlagsNotice` and asserts the discovered emit-site list. That detects a site that upserts the alert **without** the durable event. It has never detected the opposite and more damaging shape: a path that obtains a real notice and emits nothing. `BL-FINALIZE-CAS-ROLEFLAGS-NOTICE-DROP` was one instance of that shape; the closing branch found and repaired four.
+
+**Why this is L, not S — read before attempting.** Four adversarial rounds each refuted a cheaper design, and those refutations are the real specification:
+
+1. Keying on `applyStagedCore` callers misses `runManualStageForFirstSeen`, which takes its notice straight from `runPhase2` (`lib/sync/runManualStageForFirstSeen.ts:111`).
+2. Keying on `runPhase2` consumers still misses the one known bypass: the pending-ingestion retry route is not a `runPhase2` OR a `processOneFile_unlocked` consumer. It calls `runManualSyncForShow_unlocked`, which forwards through an import alias and a dependency-injection seam (`lib/sync/runManualSyncForShow.ts:13`, `lib/sync/runManualSyncForShow.ts:287-288`). A direct-consumer guard would approve that helper for faithfully preserving the envelope while staying blind to the route that drops it.
+3. So the guard needs **recursive carrier tracking** from every producer through those seams to terminal sinks, plus an exemption syntax and a registry — a static-analysis surface with its own design.
+
+Structural note for whoever takes this: the emit is attached to the locked wrapper (`lib/sync/runScheduledCronSync.ts:2750`), not to the apply, which is why every `_unlocked` caller is a discard site by construction. A future design might close the class at that layer instead of by analysis. Deferred under class-sweep exception (c) — a redesign of a surface the closing PR does not otherwise touch.
+
+---
+
+## BL-CAPABILITY-LOSS-SURVIVING-ROW-FALSE-POSITIVE — arm (c) reports a capability loss for a row that is still live
+
+**Status:** OPEN · **Severity:** LOW-MEDIUM (false operator alert; no data impact) · **Class:** notice fidelity · **Filed:** 2026-08-03 (`fix/apply-undo-audit-fidelity`, spec §9, deferred under class-sweep exception (c)) · **Effort:** M · **Reachability: INFERRED, NOT PROBED — confirm before scheduling.**
+
+`capabilityRoleChangesForNotice` arm (c) (`lib/sync/phase2.ts:323-331`) reports a capability loss for any `previousCrewMembers` entry that is absent from `nextByName` and absent from `renamedAway`. `nextByName` is built from `appliedCrewMembers`, which is the post-hold **parse** list (`lib/sync/applyParseResult.ts:163`), while `deleteKeepNames` (`lib/sync/applyParseResult.ts:152`) protects rows from deletion **without** adding them to that list. A row can therefore survive the apply with its capability flags intact and still be reported as a loss.
+
+The rename-linked instances of this shape are fixed in the closing PR via the survival test in its spec §2.1 A3. The non-rename instances are not: a held or delete-protected member absent from the parse, named by no rename pair, has no `renamedAway` entry to spare it.
+
+**Not yet probed.** `heldNames.add(...)` is unconditional per surviving hold (`lib/sync/holds/holdAwareApply.ts:216`) but `protectedNames.add(...)` fires only in specific hold-kind branches (`lib/sync/holds/holdAwareApply.ts:237`, `lib/sync/holds/holdAwareApply.ts:434`, `lib/sync/holds/holdAwareApply.ts:448`), so which hold kinds actually produce a surviving-but-unlisted row is unestablished. **First step is a probe per hold kind, not a patch** — if no hold kind produces the shape, this closes as unreachable. Deferred because the fix is a redesign of arm (c)'s absence predicate on a path no unit in the closing PR touches.
+
+---
+
 ## BL-COVERAGE-CLAIMS-CITE-SKIPPED-SUITES — contract artifacts claim e2e coverage from suites that do not execute
 
 **Status:** OPEN · **Severity:** LOW-MEDIUM (dark coverage on documented contracts; no product impact) · **Class:** docs/contract, test-coverage claims · **Filed:** 2026-08-03 (`docs/settle-lead-capability-prose`, descoped at spec review R3 after three rounds of under-counting) · **Effort:** L
@@ -671,7 +729,7 @@ The Flow-8 audit item 8.4 (`docs/audits/e2e-real-world-variation-preparedness-20
 
 ## BL-FINALIZE-CAS-ROLEFLAGS-NOTICE-DROP — the wizard Phase D apply discards its capability notice
 
-**Filed:** 2026-08-03 (`2026-08-03-staged-identitylink-rename-identity` §1.1 #7, review R1 finding 1) · **Class:** audit emission gap (onboarding Phase D) · **Effort:** S-M (a post-commit sink on the finalize-cas route)
+**Status:** IN PROGRESS · **Branch:** fix/apply-undo-audit-fidelity · **Filed:** 2026-08-03 (`2026-08-03-staged-identitylink-rename-identity` §1.1 #7, review R1 finding 1) · **Class:** audit emission gap (onboarding Phase D) · **Effort:** S-M (a post-commit sink on the finalize-cas route)
 
 `applyStagedCore` returns `roleFlagsNotice` on every path, and the dashboard staged-apply tail emits it post-commit. `finalize-cas` (`app/api/admin/onboarding/finalize-cas/route.ts`) does not: its per-row return carries only `drive_file_id`, `code`, and `showId`, and no `ROLE_FLAGS_NOTICE` alert or durable `LEAD_ROLE_APPLIED` event is emitted anywhere on that route. A capability gain or loss landed by a Phase D existing-show apply is therefore audited by the change-log row but never reaches the bell or the durable event.
 
@@ -679,7 +737,7 @@ Pre-existing and independent of the staged identity-link threading — verified 
 
 ## BL-IDENTITYLINK-LANDED-VS-REQUESTED — the notice and feed consume requested rename pairs, not landed ones
 
-**Filed:** 2026-08-03 (`2026-08-03-staged-identitylink-rename-identity` §1.1 #8, review R1 finding 2) · **Class:** sync audit fidelity (cron + staged, shared) · **Effort:** M (the reconciler must report what it landed)
+**Status:** IN PROGRESS · **Branch:** fix/apply-undo-audit-fidelity · **Filed:** 2026-08-03 (`2026-08-03-staged-identitylink-rename-identity` §1.1 #8, review R1 finding 2) · **Class:** sync audit fidelity (cron + staged, shared) · **Effort:** M (the reconciler must report what it landed)
 
 Hold-aware reconciliation can suppress a rename TARGET (P2-F4 added-row reservation collision, `lib/sync/holds/holdAwareApply.ts`). The pair then no-ops inside `applyParseResult` — no successor row lands — yet `capabilityRoleChangesForNotice` and the feed writer both consume the **requested** `identityLinkRenames`, so the notice and the feed describe a rename that did not happen. `renameCrewMember`'s no-op on target collision / missing source is the same class (it returns void, unobservable to callers).
 
@@ -687,7 +745,7 @@ Shared verbatim with the cron path — same producer/consumer wiring — and nei
 
 ## BL-UNDO-SELECTIONS-RESET-AT-DROP — any crew undo resets `selections_reset_at` to null
 
-**Filed:** 2026-08-03 (`2026-08-03-staged-identitylink-rename-identity` §1.1 #9, review R1 finding 3) · **Class:** undo lifecycle fidelity · **Effort:** S (one column through `before_image` + the Direction A re-insert)
+**Status:** IN PROGRESS · **Branch:** fix/apply-undo-audit-fidelity · **Filed:** 2026-08-03 (`2026-08-03-staged-identitylink-rename-identity` §1.1 #9, review R1 finding 3) · **Class:** undo lifecycle fidelity · **Effort:** S (one column through `before_image` + the Direction A re-insert)
 
 `crewImage` omits `selections_reset_at` from `before_image`, and the `undo_change` Direction A re-insert omits the column, so ANY crew undo — removed or renamed, either apply shape, either path — restores the row with a null marker. A picker cookie that was deliberately invalidated before the undone change can validate again afterward.
 

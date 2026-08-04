@@ -175,7 +175,7 @@ export function applyTx(tx: Sql): ApplyParseResultTx {
     async renameCrewMember(showId: string, removedName: string, addedName: string) {
       // Delegate to the PRODUCTION tx (whole-diff R1 F2) so this testkit can never drift from
       // PostgresPipelineTx.renameCrewMember's guarded in-place SQL.
-      await makeSyncPipelineTx(tx as never).renameCrewMember(showId, removedName, addedName);
+      return await makeSyncPipelineTx(tx as never).renameCrewMember(showId, removedName, addedName);
     },
     async upsertCrewMembers(showId: string, members: ParseResult["crewMembers"]) {
       for (const m of members) {
