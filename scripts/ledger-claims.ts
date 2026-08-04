@@ -35,8 +35,17 @@ function main(argv: string[]): number {
   const git = realGitSurface();
 
   if (checkAt !== -1) {
+    // `--check` is the authoritative gate and ALWAYS fetches. Combining it with
+    // `--no-fetch` would return exit 0 or 1 from a cache that may predate the
+    // very push being checked for — an authoritative answer from an unverified
+    // universe, which is the defect this tool exists to remove. Refused rather
+    // than silently downgraded.
+    if (noFetch) {
+      process.stderr.write("--check always fetches; --no-fetch cannot be combined with it\n");
+      return 2;
+    }
     const ids = argv.slice(checkAt + 1).filter((a) => !a.startsWith("--"));
-    const r = runCheck(git, ids, { fetch: !noFetch, verify: true });
+    const r = runCheck(git, ids, { fetch: true, verify: true });
     for (const n of r.notes) process.stdout.write(`${n}\n`);
     for (const w of r.warnings) process.stdout.write(`${w}\n`);
     for (const reason of r.reasons) process.stderr.write(`${reason}\n`);
@@ -76,27 +85,43 @@ function main(argv: string[]): number {
     return 0;
   }
 
+  // The cap is global across BOTH sections and applies INSIDE an id group. It
+  // previously broke only between groups, so one id claimed by 101 branches
+  // printed 101 rows, and 100 fresh plus 100 stale printed 200 — in both cases
+  // with no omission notice, which is the silent truncation the cap exists to
+  // avoid being.
+  let budget = DISPLAY_CAP;
+  let omitted = 0;
+
   const render = (rows: typeof res.claims) => {
     const byId = new Map<string, typeof res.claims>();
     for (const c of rows) byId.set(c.id, [...(byId.get(c.id) ?? []), c]);
-    let shown = 0;
     for (const [id, cs] of byId) {
-      if (shown >= DISPLAY_CAP) break;
+      if (budget <= 0) {
+        omitted += cs.length;
+        continue;
+      }
       process.stdout.write(`${id}\n`);
       for (const c of cs) {
+        if (budget <= 0) {
+          omitted++;
+          continue;
+        }
         const pr = c.pr === null ? "" : `  PR #${c.pr}`;
         process.stdout.write(`  ${c.kind.padEnd(8)} ${c.branch}${pr}  ${c.tipAgeDays}d ago\n`);
-        shown++;
+        budget--;
       }
     }
-    const omitted = rows.length - shown;
-    if (omitted > 0) process.stdout.write(`  ... ${omitted} more not shown (display cap)\n`);
   };
 
   render(fresh);
   if (stale.length > 0) {
     process.stdout.write(`\nstale (tip older than ${STALE_DAYS} days) — listed, not dropped:\n`);
     render(stale);
+  }
+  if (omitted > 0) {
+    process.stdout.write(`\n... ${omitted} more row(s) not shown (display cap ${DISPLAY_CAP}). `);
+    process.stdout.write("Use --json for the complete, uncapped set.\n");
   }
   return 0;
 }

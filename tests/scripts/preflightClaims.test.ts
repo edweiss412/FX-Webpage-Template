@@ -6,7 +6,14 @@
  * assertion, since unmodified preflight exits 0 and never spawns the child.
  */
 import { spawnSync } from "node:child_process";
-import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -100,6 +107,41 @@ describe("preflight spawns the claims child on every success path", () => {
     // The stub echoes argv, so this asserts the flag actually reaches the child
     // rather than merely appearing in the source.
     expect(runPreflight([]).out).toContain("--no-fetch");
+  });
+
+  it("the REAL reader under --no-fetch makes no fetch and no ls-remote", () => {
+    // Argv alone is not the contract (spec §7.5 rejects that test shape): an
+    // implementation that accepts the flag and fetches anyway passes it. This
+    // runs the real CLI with a `git` shim earlier on PATH that records every
+    // invocation, so the assertion is over what was actually executed.
+    const shim = mkdtempSync(join(tmpdir(), "git-shim-"));
+    const logFile = join(shim, "calls.log");
+    writeFileSync(
+      join(shim, "git"),
+      `#!/bin/sh
+printf '%s\n' "$*" >> "${logFile}"
+exec /usr/bin/git "$@"
+`,
+      { mode: 0o755 },
+    );
+    chmodSync(join(shim, "git"), 0o755);
+
+    const r = spawnSync(
+      process.execPath,
+      ["--import", "tsx", join(ROOT, "scripts/ledger-claims.ts"), "--no-fetch"],
+      {
+        cwd: ROOT,
+        encoding: "utf8",
+        timeout: 120_000,
+        env: { ...process.env, PATH: `${shim}:${process.env.PATH ?? ""}` },
+      },
+    );
+    expect(r.status, `reader failed: ${r.stderr}`).toBe(0);
+
+    const calls = existsSync(logFile) ? readFileSync(logFile, "utf8") : "";
+    expect(calls.length, "the git shim recorded nothing — it was not on PATH").toBeGreaterThan(0);
+    expect(calls, "--no-fetch must not fetch").not.toMatch(/^fetch/m);
+    expect(calls, "--no-fetch must not contact the remote").not.toMatch(/^ls-remote/m);
   });
 });
 

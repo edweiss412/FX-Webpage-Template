@@ -175,8 +175,13 @@ describe("ledger claim collision (cross-branch backstop)", () => {
       // command. The condition that matters is the repo shape, not the label.
       const alreadyShallow =
         (gitQuiet(["rev-parse", "--is-shallow-repository"]) ?? "").trim() === "true";
-      if (IN_CI && alreadyShallow) {
-        git(["fetch", "--no-tags", "--depth=1", "origin", "+refs/heads/*:refs/remotes/origin/*"]);
+      // Refresh in CI whichever depth the checkout has. Skipping on a full
+      // clone leaves a branch pushed after checkout invisible to the guard —
+      // exactly the collision it exists to catch. Only the DEPTH argument is
+      // conditional, because --depth=1 is what converts a full clone to shallow.
+      if (IN_CI) {
+        const depthArgs = alreadyShallow ? ["--depth=1"] : [];
+        git(["fetch", "--no-tags", ...depthArgs, "origin", "+refs/heads/*:refs/remotes/origin/*"]);
       }
     } catch (e) {
       // Under CI a fetch failure FAILS: a guard that cannot see the universe

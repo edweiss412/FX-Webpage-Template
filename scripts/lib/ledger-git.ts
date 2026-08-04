@@ -19,25 +19,32 @@ const FETCH_MS = 30_000;
 const LS_REMOTE_MS = 30_000;
 const GH_MS = 10_000;
 
-function git(args: string[], timeout: number, quiet = false): string | null {
+/**
+ * Every read THROWS on failure. There is no fail-open path.
+ *
+ * This module previously had four readers that turned a git failure into a
+ * valid-looking answer — `[]` for merged branches, `[]` for diff hunks, `0` for
+ * a tip epoch, `false` for shallow. Each is consumed silently: a failed
+ * merged-exclusion lets `--check` assert a collision from an already-merged
+ * branch, a failed diff drops inferred warnings, a failed shallow probe
+ * suppresses the degraded state that tells the caller the answer is narrowed.
+ *
+ * A caller that wants "absent" asks for it explicitly (`showFile`), and that is
+ * the ONLY place absence is a legitimate answer.
+ */
+function git(args: string[], timeout: number): string {
   const r = spawnSync("git", args, {
     cwd: ROOT,
     encoding: "utf8",
     timeout,
-    // stderr discarded on the quiet path: `git show ref:missing-file` writes a
-    // `fatal:` line that means nothing, and preflight must not print one per
-    // ledger per branch on every healthy run.
-    stdio: ["ignore", "pipe", quiet ? "ignore" : "pipe"],
+    stdio: ["ignore", "pipe", "pipe"],
   });
-  if (r.status !== 0) return null;
-  return r.stdout ?? "";
-}
-
-function gitOrThrow(args: string[], timeout: number): string {
-  const r = spawnSync("git", args, { cwd: ROOT, encoding: "utf8", timeout });
   if (r.error) throw r.error;
-  if (r.status !== 0)
-    throw new Error(`git ${args[0]} failed: ${(r.stderr ?? "").trim() || "unknown"}`);
+  if (r.status !== 0) {
+    throw new Error(
+      `git ${args.slice(0, 2).join(" ")} failed: ${(r.stderr ?? "").trim() || `status ${r.status}`}`,
+    );
+  }
   return r.stdout ?? "";
 }
 
@@ -54,14 +61,14 @@ export function realGitSurface(): GitSurface {
       // Explicit refspec, never the configured one: a clone with a narrow
       // `remote.origin.fetch` resolves only main and still exits 0, silently
       // shrinking the branch universe while every command reports success.
-      gitOrThrow(
+      git(
         ["fetch", "--no-tags", "--prune", "origin", "+refs/heads/*:refs/remotes/origin/*"],
         FETCH_MS,
       );
     },
 
     lsRemote() {
-      const out = gitOrThrow(["ls-remote", "--heads", "origin"], LS_REMOTE_MS);
+      const out = git(["ls-remote", "--heads", "origin"], LS_REMOTE_MS);
       const map = new Map<string, string>();
       for (const line of out.split("\n")) {
         const pair = parseRefLine(line.trim());
@@ -134,11 +141,10 @@ export function realGitSurface(): GitSurface {
     },
 
     mergedIntoMain() {
-      const out =
-        git(
-          ["branch", "-r", "--merged", "origin/main", "--format=%(refname:short)"],
-          LS_REMOTE_MS,
-        ) ?? "";
+      const out = git(
+        ["branch", "-r", "--merged", "origin/main", "--format=%(refname:short)"],
+        LS_REMOTE_MS,
+      );
       return out
         .split("\n")
         .map((s) => s.trim())
@@ -172,13 +178,23 @@ export function realGitSurface(): GitSurface {
     },
 
     mergeBase(ref) {
-      const out = git(["merge-base", "origin/main", ref], LS_REMOTE_MS, true);
-      return out === null ? null : out.trim() || null;
+      // The ONE reader where failure is a legitimate answer: a shallow clone has
+      // no merge-base, and the caller degrades `inferred` for that ref rather
+      // than failing. Distinguished from a fault by asking git first.
+      const r = spawnSync("git", ["merge-base", "origin/main", ref], {
+        cwd: ROOT,
+        encoding: "utf8",
+        timeout: LS_REMOTE_MS,
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+      if (r.status === 0) return (r.stdout ?? "").trim() || null;
+      // Exit 1 is "no merge base"; anything else is a fault.
+      if (r.status === 1) return null;
+      throw new Error(`git merge-base failed: ${(r.stderr ?? "").trim() || `status ${r.status}`}`);
     },
 
     diffHunks(base, ref, files): Hunk[] {
-      const out = git(["diff", "--unified=0", base, ref, "--", ...files], LS_REMOTE_MS, true);
-      if (out === null) return [];
+      const out = git(["diff", "--unified=0", base, ref, "--", ...files], LS_REMOTE_MS);
       const hunks: Hunk[] = [];
       let file: string | null = null;
       for (const line of out.split("\n")) {
@@ -195,17 +211,22 @@ export function realGitSurface(): GitSurface {
     },
 
     tipEpoch(ref) {
-      const out = git(["log", "-1", "--format=%ct", ref], LS_REMOTE_MS, true);
-      return out === null ? 0 : Number(out.trim()) || 0;
+      // Throws rather than returning 0, which would date every branch to 1970
+      // and mark the whole report stale.
+      const n = Number(git(["log", "-1", "--format=%ct", ref], LS_REMOTE_MS).trim());
+      if (!Number.isFinite(n) || n <= 0) throw new Error(`git log gave no tip date for ${ref}`);
+      return n;
     },
 
     isShallow() {
       // Parsed as a STRING: git prints the literal `false`, and Boolean("false")
       // is true, which would classify every full clone as shallow and disable the
       // merged-exclusion permanently.
-      return (
-        (git(["rev-parse", "--is-shallow-repository"], LS_REMOTE_MS, true) ?? "").trim() === "true"
-      );
+      const out = git(["rev-parse", "--is-shallow-repository"], LS_REMOTE_MS).trim();
+      if (out !== "true" && out !== "false") {
+        throw new Error(`git rev-parse --is-shallow-repository gave ${JSON.stringify(out)}`);
+      }
+      return out === "true";
     },
 
     currentBranch() {
@@ -216,8 +237,8 @@ export function realGitSurface(): GitSurface {
       const fromCI =
         process.env.GITHUB_ACTIONS === "true" ? process.env.GITHUB_HEAD_REF : undefined;
       if (fromCI) return fromCI;
-      const out = git(["rev-parse", "--abbrev-ref", "HEAD"], LS_REMOTE_MS, true);
-      const name = (out ?? "").trim();
+      const out = git(["rev-parse", "--abbrev-ref", "HEAD"], LS_REMOTE_MS);
+      const name = out.trim();
       return name && name !== "HEAD" ? name : null;
     },
 
