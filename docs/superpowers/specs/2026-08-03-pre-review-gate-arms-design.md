@@ -268,6 +268,7 @@ AC-41 pins the amendment; it is a docs change in this PR, not a note for later. 
 | lint exits 0 or 1 but the report is malformed — see the four-part shape below | **refuse to dispatch**, exit 2: the tool did not run to completion, or ran on the wrong artifact |
 | the child fails to spawn (`ENOENT`), or dies on a signal (`code === null`) | **refuse to dispatch**, exit 2 |
 | lint exits 2 (usage or infra fault, including a tracked symlink) | **refuse to dispatch**, exit 2, no result.json Codex outcome |
+| lint exits any other status (3–255) | **refuse to dispatch**, exit 2 — the CLI defines only 0, 1 and 2, so any other status means it is not the CLI, or not one this contract knows |
 | `--lint-doc` resolves outside `--cwd`'s repo, or is unreadable | refuse, exit 2, message names path and repo root (§2.2.1) |
 | embedded reports exceed the 200,000-byte budget, but every report is seatable | truncate at a line boundary with an explicit notice; dispatch proceeds (§2.2.2) |
 | the requested reports cannot all be seated at their frame-plus-notice floor | **refuse to dispatch**, exit 2, message names the report count and the budget (§2.2.4) |
@@ -276,6 +277,15 @@ AC-41 pins the amendment; it is a docs change in this PR, not a note for later. 
 Findings never block dispatch. A doc with 40 citation failures is exactly the doc a reviewer most needs the report for. Only a tool that could not run blocks, which matches the exit-2-is-infra semantics `spec:lint` already defines.
 
 **The shape check validates the frame, not merely its two ends**, because §2.2.4's construction assumes a frame and must not be handed a report that lacks one. A well-formed report has, in order: line 1 `spec:lint <path>` naming the **requested** document; line 2 beginning `kind: `; line 3 empty; a last line beginning `summary:` that is **not** among the first three. All four are required.
+
+A fifth clause is required for the same reason, and it is about what the transformation *discards* rather than what it keeps: **between the `INVENTORY` line and the `summary:` line, no line may match the finding shape**, and `summary:` may appear only once. Without it a child emitting a bare `INVENTORY` before a later finding section, or a non-final `summary:` before one, passes the frame check — and steps 1–4 then stop the body at that early sentinel, dispatching a report whose surviving summary counts findings the embedded block does not contain:
+
+```
+earlyInventory  shapeOK=true  rawFails=1  emittedFails=0  emittedSummary="summary: 1 hard, 0 advisory"
+earlySummary    shapeOK=true  rawFails=2  emittedFails=1  emittedSummary="summary: 2 hard, 0 advisory"
+```
+
+A reviewer reads "1 hard" and sees none, with nothing marked truncated. The clause asserts directly the property the discard depends on — that everything removed is inventory — instead of trusting the sentinel's position.
 
 The fourth clause is the one an earlier draft omitted, and its absence made the construction non-total over reports §2.3 itself called well-formed. A two-line child emitting `spec:lint <path>` then `summary: …` passed a check keyed on the two ends — and then step 1 takes "the first three lines" as head while step 4 appends the summary, so the emitted block carries the summary **twice**:
 
@@ -527,7 +537,12 @@ The three `tasks: end` rows are jointly exhaustive over the region state, which 
 
 **The "in every respect except" prerequisite is load-bearing on the first two rows**, and an earlier draft omitted it. Because this table is declared authoritative over the §3.4 catalog, dropping the prerequisite made it override §3.3's precedence rule outright: `` <!-- task: red=`` foo=x ac=AC-1 --> `` has an empty command *and* an unknown key, so the shortened row classified it `TASK_RED_EMPTY` where precedence rule 3 and AC-11 both require `TASK_MARKER_MALFORMED`. Likewise `` <!-- task: red=`cmd` foo=x --> `` read as `TASK_AC_MISSING` rather than malformed. The specific codes describe a marker that is *otherwise well-formed*; a line carrying junk as well is malformed, whatever else is also wrong with it.
 
-**Rows are evaluated top to bottom and the first match wins.** Without that, and with the catch-all sitting above the well-formed row, a valid marker matched both — it satisfies neither defect row, so "matches nothing above" was true of it, while the well-formed row was also true. Under first-match semantics as previously ordered *every valid marker was `TASK_MARKER_MALFORMED`*; without them it had two outcomes. Ordering the specific rows, then the well-formed row, then the catch-all, and fixing the evaluation order makes each marker line reach exactly one row.
+**The table holds two independent groups, and first-match applies within one of them only.**
+
+- **Per-extent conclusions** — `TASK_ENROLL_EMPTY`, `TASK_MARKER_MISSING`, `TASK_MARKER_DUPLICATE`. These are computed once per task extent from marker **cardinality**, and every one that holds is reported.
+- **Per-marker-line classification** — `TASK_MARKER_ORPHANED`, `TASK_RED_EMPTY`, `TASK_AC_MISSING`, the well-formed row, and `TASK_MARKER_MALFORMED`. These are evaluated **top to bottom, first match wins**, once per marker line.
+
+The two groups do not compete: a defective marker in a two-marker extent draws its own code from the second group *and* `TASK_MARKER_DUPLICATE` from the first, which is exactly what AC-44 requires. An earlier draft stated first-match over the whole table, and because the duplicate row precedes the marker rows, literal evaluation stopped there and never reached the defective marker — contradicting AC-44 on all five of its mixed fixtures. Scoping the rule to the group it was written for resolves it; the ordering fix it was introduced for (specific rows, then well-formed, then catch-all, so a valid marker no longer matches the catch-all) is unaffected and still required.
 
 The first two rows are what make the enrollment gate real rather than nominal. A marker-shaped line in a plan that never enrolled, or in one whose enrollment failed, is **discarded without a finding** — matching §3.3's rule that placement and form are both conditional on enrollment, and matching AC-7's promise that a plan with no enrollment line yields zero findings "regardless of heading count or stray markers".
 
@@ -744,9 +759,13 @@ That is the whole feature failing silently with every criterion green. `taskCont
 
 **AC-13.** An `ac=` id that appears only inside marker lines, and nowhere else in the plan, is `TASK_AC_UNRESOLVED` — an id cannot satisfy itself.
 
+**Resolution is quantified over *every* id in the marker, and one criterion must use a multi-id marker.** For `ac=AC-1,AC-2` in a plan whose prose resolves only `AC-1`, the correct result reports `TASK_AC_UNRESOLVED` for `AC-2`; an implementation checking `ids[0]` alone reports nothing and silently accepts the task. Every other resolution criterion — AC-24, AC-34, AC-42 — uses a single-id marker, so none of them can see the difference, and a comma-separated `ac=` list appears in no acceptance fixture at all. Higher arities are the same escape, so one two-id case closes the class.
+
 **AC-14.** `docs/agents/spec-self-review.md` carries the §4.1 rule text and the §3.2 plus §3.3 marker convention. Both are asserted; §1.2's change inventory names both for the same reason.
 
 **AC-47.** All ten task-contract codes are **hard**, pinned behaviorally rather than by inspecting a severity field. A plan fixture with one task-contract finding and no other defect makes the CLI **exit 1**, renders the finding as `FAIL` rather than `ADVISORY`, and is suppressible by a `spec-lint: ignore` waiver on its target line (§6 item 9) — suppression applies only to `severity: "fail"` findings (`lib/specLint/run.ts:93`), so it is itself a severity assertion.
+
+**All ten codes, not one.** The fixture is driven from the §3.4 catalog rather than hand-picked: one minimal plan per code, each asserting exit 1 and a `FAIL` render for that code. A single-finding fixture kills only the mutant that downgrades *every* code; a mutant downgrading exactly one leaves that code rendering, anchoring, and appearing in every full-list assertion, while a document whose sole defect uses it exits 0. Ten singleton mutants exist and one fixture covers one, so nine escape. Deriving the fixture set from the catalog also means an eleventh code added later is covered by construction instead of by remembering.
 
 Nothing else pins this. A mutant emitting every task-contract finding as advisory preserves the codes, anchors, messages, full finding lists, renderer heading, and plan-versus-spec gating that AC-6 through AC-46 assert, while flipping the CLI to exit 0 — which silently converts the whole check family from a gate into a suggestion, and is the single change that would most completely defeat this spec's purpose while passing its criteria. AC-4 mentions hard findings but assumes an already-hard input; it requires no task-contract finding to be one.
 
