@@ -115,7 +115,7 @@ import { normalizeRoleTokenMappings, type GatedRoleMapping } from "@/lib/sync/ro
 import { listRoleVocabDriftEligibleFileIds } from "@/lib/sync/roleVocabDrift";
 import { resolveUnreadableAlertIfHealed } from "@/lib/adminAlerts/resolveOnboardingSheetUnreadable";
 import { emitRoleTokenMapped } from "@/lib/log/emitRoleTokenMapped";
-import { emitLeadRoleApplied } from "@/lib/log/emitLeadRoleApplied";
+import { emitRoleFlagsNotice, ROLE_FLAGS_EMIT_SOURCE } from "@/lib/sync/emitRoleFlagsNotice";
 import { emitIdentityLinkRenameUnlanded } from "@/lib/log/emitIdentityLinkRenameUnlanded";
 import type { UnlandedRename } from "@/lib/sync/applyParseResult";
 
@@ -2334,14 +2334,16 @@ async function emitDeferredRoleFlagsNotice(
   deps: ProcessOneFileDeps,
 ): Promise<void> {
   if ("skipped" in result || result.outcome !== "applied" || !result.roleFlagsNotice) return;
-  const upsertAdminAlert = deps.upsertAdminAlert ?? defaultUpsertAdminAlert;
-  // §3.4 (F1): emit the durable, non-coalescing LEAD audit event FIRST — BEFORE the alert upsert.
-  // `upsertAdminAlert` THROWS on RPC failure; ordering the authoritative audit ahead of it means a
-  // transient feed-write failure (post-commit, after the LEAD mutation already landed) can never
-  // skip the durable record. The audit is failure-visible internally ({ok,error}); it never throws.
-  // Rides the SAME site as the feed nudge so no apply path is missed (cross-caller topology).
-  await emitLeadRoleApplied(result.roleFlagsNotice, { source: "sync.roleFlags" });
-  await upsertAdminAlert(result.roleFlagsNotice);
+  // Unit C (spec 2026-08-03-apply-undo-audit-fidelity §2.3): this function WAS the canonical emit;
+  // its body — including the load-bearing durable-audit-BEFORE-alert-upsert order — now lives in
+  // the shared `emitRoleFlagsNotice` (lib/sync/emitRoleFlagsNotice.ts) that every apply path calls,
+  // so the order has one implementation instead of three copies to drift. What stays here is the
+  // caller's own concern: the applied-and-notice-present guard, the tx-bound upsert override, and
+  // the failure policy (a thrown `upsertAdminAlert` still propagates on the cron path, unchanged).
+  await emitRoleFlagsNotice(result.roleFlagsNotice, {
+    source: ROLE_FLAGS_EMIT_SOURCE,
+    ...(deps.upsertAdminAlert ? { upsertAdminAlert: deps.upsertAdminAlert } : {}),
+  });
 }
 
 function addHours(date: Date, hours: number): Date {

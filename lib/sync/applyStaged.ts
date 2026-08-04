@@ -23,7 +23,7 @@ import { asParseResult, JsonbCoercionError } from "@/lib/db/coerceJsonbObject";
 import { normalizeUseRawDecisions, type UseRawDecision } from "@/lib/sync/useRawOverlay";
 import { normalizeRoleTokenMappings, type GatedRoleMapping } from "@/lib/sync/roleMappingOverlay";
 import { emitRoleTokenMapped } from "@/lib/log/emitRoleTokenMapped";
-import { emitLeadRoleApplied } from "@/lib/log/emitLeadRoleApplied";
+import { emitRoleFlagsNotice, ROLE_FLAGS_EMIT_SOURCE } from "@/lib/sync/emitRoleFlagsNotice";
 import { emitIdentityLinkRenameUnlanded } from "@/lib/log/emitIdentityLinkRenameUnlanded";
 import type { UnlandedRename } from "@/lib/sync/applyParseResult";
 import {
@@ -2002,14 +2002,15 @@ export async function applyStaged(
       await resolveAlerts({ showId: result.showId, codes: toResolve });
     }
     if (!("skipped" in result) && result.outcome === "applied" && result.roleFlagsNotice) {
-      const upsertAdminAlert = deps.upsertAdminAlert ?? defaultUpsertAdminAlert;
-      // §3.4 (F1): emit the durable, non-coalescing LEAD audit event FIRST — BEFORE the alert upsert.
-      // `upsertAdminAlert` THROWS on RPC failure; ordering the authoritative audit ahead of it means
-      // a transient feed-write failure (post-commit, after the LEAD mutation already landed) can
-      // never skip the durable record. The audit is failure-visible internally ({ok,error}); it
-      // never throws. Rides the SAME site as the feed nudge so the staged path is never left silent.
-      await emitLeadRoleApplied(result.roleFlagsNotice, { source: "sync.roleFlags" });
-      await upsertAdminAlert(result.roleFlagsNotice);
+      // Unit C (spec 2026-08-03-apply-undo-audit-fidelity §2.3): this block was a near-verbatim
+      // duplicate of the cron helper. Both now call the ONE shared `emitRoleFlagsNotice`, which
+      // owns the load-bearing durable-audit-BEFORE-alert-upsert order. The guard, the tx-bound
+      // upsert override and the failure policy (a thrown `upsertAdminAlert` propagates on the
+      // staged path, unchanged) stay here — the helper imposes no policy on its callers.
+      await emitRoleFlagsNotice(result.roleFlagsNotice, {
+        source: ROLE_FLAGS_EMIT_SOURCE,
+        ...(deps.upsertAdminAlert ? { upsertAdminAlert: deps.upsertAdminAlert } : {}),
+      });
     }
     // Unit A: IDENTITY_LINK_RENAME_UNLANDED — POST-COMMIT, outside the held lock tx (invariant 10;
     // applyLiveWithDriveReverify has fully awaited every withPipelineLock before returning). This is
