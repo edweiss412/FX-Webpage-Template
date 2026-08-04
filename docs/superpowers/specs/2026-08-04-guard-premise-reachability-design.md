@@ -138,9 +138,16 @@ Four units. Unit 1 is a prerequisite for Unit 2; Unit 3 is independent of both b
 
 **Guard, merge-gating.** A meta-test asserts the overlay config's resolved `resolve.alias` and `test.testTimeout` / `test.hookTimeout` equal the shared definitions. This can fail: reverting either value reds it.
 
-**Guard, executable, merge-gating.** A fixture suite under `tests/mutation/source/fixtures/ (new)` that imports a module through `@/` is run through the real overlay config by the real runner. Its own premise is asserted: the fixture's source text must contain an `@/` import, so the guard cannot pass because the fixture stopped exercising the alias.
+**Guards, executable — and each one names its file and its execution owner.** Spec R9 found that the first draft named neither, which lands the fixtures in one of two failure modes and both are this spec's own subject at the wiring level: `BASE_INCLUDE` is `["tests/**/*.test.ts", …]` (`vitest.projects.ts:34`), so a fixture named `*.test.ts` is discovered by the default projects and runs on **every merge** — contradicting "nightly only" — while a fixture named anything else is discovered by nothing and is **dark**, a guard that cannot fail because it never runs.
 
-**Guard, executable, nightly.** The timeout is proved by a fixture test that sleeps past 5 000 ms. It runs in the nightly gate only, because 5 s is not worth paying on every merge; the merge-gating structural check above covers the same value.
+So neither fixture is discovered. Both are named `*.fixture.ts`, which `BASE_INCLUDE` cannot match, and both are **invoked explicitly** through the overlay config, whose `include` is a single explicit path (`req("MUTATION_SUITE")`) and therefore does not care about the name:
+
+| fixture | file | invoked by | runs |
+| --- | --- | --- | --- |
+| `@/` alias resolves | `tests/mutation/source/fixtures/aliasImport.fixture.ts (new)` | `tests/mutation/_metaOverlayConfigParity.test.ts (new)`, through the overlay config | every merge — it is fast |
+| `testTimeout` exceeds vitest's 5 000 ms default | `tests/mutation/source/fixtures/slowTest.fixture.ts (new)` | `tests/mutation/guardSurfaces.gate.test.ts` | nightly only, because it sleeps ~5.2 s |
+
+A wiring meta-test pins both halves, since "it is nightly-only" is otherwise a claim nobody checks: the default projects resolve **zero** files under `tests/mutation/source/fixtures/`, and `pnpm mutation:guards` executes the slow fixture. Merge-gating structural parity (above) covers the timeout **value** on every merge regardless, so a nightly-only executable proof is a second line rather than the only one.
 
 ### 3.2 Unit 2 — enroll the ledger surface
 
@@ -394,6 +401,7 @@ Each of these was settled by probe or by an existing ratification. Reopening one
 | Symbol-level data-flow analysis is NOT adopted (§3.3.2.1) | spec R6 recommendation, declined; the trajectory is a TypeScript data-flow analyser, and `eval`/computed access/aliasing defeat it anyway | — |
 | A test's extent is its whole call expression, so `.each` producers are inside it (§3.3.2) | spec R7; probed — 120 non-literal `.each` producers in this repository | — |
 | A premise may not sit where its execution count can be zero (§3.3.2.2) | spec R8; probed — `test.each([])` beside one passing test reports `Tests 1 passed (1)` and the callback never runs | — |
+| Executable fixtures are named `*.fixture.ts` and invoked explicitly, never discovered (§3.1) | spec R9; `BASE_INCLUDE` at `vitest.projects.ts:34` matches only `*.test.ts`/`*.test.tsx`, so a discovered fixture runs every merge and an undiscovered one is dark | — |
 | *Unclassifiable* (recognized, unresolvable, reds) and *undetected* (unrecognized, L-8) are separate categories (§3.3.2.1) | spec R7; conflating them is what made §3.3.3 and §4 disagree | — |
 | The consequence bound is over a closed list of analyzed forms, not a soundness claim (§4) | spec R6; the unbounded promise is what made R3–R6 each a legitimate finding | — |
 
@@ -427,7 +435,8 @@ Each of these was settled by probe or by an existing ratification. Reopening one
 
 - **AC-1** `tests/mutation/source/mutantOverlay.config.ts` resolves `@` and carries the root's timeouts, both from a single shared definition consumed by `vitest.config.ts` as well.
 - **AC-2** A merge-gating meta-test fails when either value is reverted, demonstrated by running the reverted config, not asserted in prose.
-- **AC-3** A fixture suite importing through `@/` passes through the real overlay config and the real runner, and the guard asserts the fixture still contains an `@/` import.
+- **AC-3** `tests/mutation/source/fixtures/aliasImport.fixture.ts (new)` passes through the real overlay config and the real runner, and the guard asserts the fixture still contains an `@/` import.
+- **AC-3a** Every executable fixture names its file and its execution owner (§3.1's table). A wiring meta-test proves the default vitest projects resolve **zero** files under `tests/mutation/source/fixtures/`, and that `pnpm mutation:guards` executes the slow fixture named in §3.1's table. Without it, "nightly only" is a claim nobody checks and the fixture is either paid for on every merge or dark — both of which are this spec's own subject.
 - **AC-4** `scripts/lib/ledger-claims-core.ts` and `scripts/lib/ledger-git.ts` are enrolled; `pnpm mutation:guards` passes; every survivor is killed, `equivalent` with an argument, or `accepted-gap` with a resolving ledger ref.
 - **AC-4a** `GuardSurface.control` exists; `validateSurface` rejects a row whose `from` occurs zero times or more than once in `sourcePath`, each demonstrated by a rejection case; `lib/specLint/taskContract.ts` carries its existing control text as a registry row with no behavior change.
 - **AC-4b** The gate **runs** each surface's control as the mutant and asserts KILLED — the run receives the control text, which `guardSurfaces.gate.test.ts:120` today does not. Demonstrated per enrolled surface by the recorded verdict, not asserted in prose.
