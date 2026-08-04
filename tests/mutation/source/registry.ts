@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { type AcceptedSurvivor } from "./ledger";
 import { OPERATOR_NAMES, type OperatorName } from "./operators";
 
@@ -19,6 +19,21 @@ export type GuardSurface = {
   operators: OperatorName[];
   /** Minimum acceptable mutation score, in (0, 1]. */
   scoreFloor: number;
+  /**
+   * A deliberately behavior-changing edit the surface's own suite MUST notice.
+   *
+   * It proves the overlay is live: a harness whose overlay silently failed to
+   * apply reports a PERFECT score, every mutant having run against clean
+   * source, with every other gate condition still passing.
+   *
+   * Per-surface, because the first version hardcoded a literal that exists only
+   * in taskContract.ts inside a `describe.each` over this registry -- so
+   * enrolling any second surface red the gate. It was also never RUN: the
+   * `broken` text was computed, asserted non-equal to the source, and then
+   * never passed to the runner, so the assertion proved a string existed in a
+   * file.
+   */
+  control: { from: string; to: string };
   accepted: AcceptedSurvivor[];
 };
 
@@ -64,6 +79,22 @@ export function validateSurface(surface: GuardSurface): string[] {
   const floor = surface.scoreFloor;
   if (!Number.isFinite(floor) || floor <= 0 || floor > 1) {
     problems.push(`${surface.id}: scoreFloor must be a finite number in (0, 1], got ${floor}`);
+  }
+
+  const { from, to } = surface.control;
+  if (from === to) {
+    problems.push(`${surface.id}: control.from and control.to are identical; it mutates nothing`);
+  }
+  if (existsSync(surface.sourcePath)) {
+    const occurrences = readFileSync(surface.sourcePath, "utf8").split(from).length - 1;
+    if (occurrences === 0) {
+      problems.push(`${surface.id}: control.from does not occur in ${surface.sourcePath}`);
+    } else if (occurrences > 1) {
+      problems.push(
+        `${surface.id}: control.from occurs ${occurrences} times in ${surface.sourcePath}; ` +
+          `an ambiguous anchor makes the control's target unknowable, so it must occur exactly once`,
+      );
+    }
   }
 
   const declared = new Set<string>(surface.operators);
@@ -124,6 +155,9 @@ export const GUARD_SURFACES: GuardSurface[] = [
     suitePaths: ["tests/specLint/taskContract.test.ts"],
     operators: [...OPERATOR_NAMES],
     scoreFloor: 0.95,
+    // Moved here from the gate test body, where it was hardcoded for this one
+    // surface. Same text, same behavior; it is now a property of the surface.
+    control: { from: 'if (kind !== "plan") return [];', to: 'if (kind === "plan") return [];' },
     accepted: [
       // ---- equivalent: cannot change observable behavior (spec §2.4) -------
       {

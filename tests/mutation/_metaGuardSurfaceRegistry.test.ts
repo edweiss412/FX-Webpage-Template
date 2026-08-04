@@ -19,6 +19,7 @@ const VALID: GuardSurface = {
   suitePaths: ["tests/specLint/taskContract.test.ts"],
   operators: [...OPERATOR_NAMES],
   scoreFloor: 0.95,
+  control: { from: 'if (kind !== "plan") return [];', to: 'if (kind === "plan") return [];' },
   accepted: [
     { siteId: "relational-boundary:1:1:<><=", kind: "equivalent", reason: "unreachable; §2.4" },
     {
@@ -60,6 +61,25 @@ describe("guard-surface registry — the shipped rows", () => {
 describe("guard-surface registry — validation rejects each malformed row (AC-11)", () => {
   it("accepts the valid fixture, so every rejection below is attributable", () => {
     expect(validateSurface(VALID)).toEqual([]);
+  });
+
+  it("rejects a control whose `from` is absent from the source", () => {
+    // The shipped control replaced a literal that exists only in taskContract.ts
+    // -- inside a describe.each over this registry -- so enrolling ANY second
+    // surface red the gate before this validation existed.
+    expect(reject({ control: { from: "nothing like this exists", to: "x" } }).join(" ")).toMatch(
+      /control/i,
+    );
+  });
+
+  it("rejects a control whose `from` occurs more than once", () => {
+    // An ambiguous anchor makes the control's target unknowable, which is the
+    // taskContract bug generalized rather than fixed.
+    expect(reject({ control: { from: "const", to: "let" } }).join(" ")).toMatch(/once/i);
+  });
+
+  it("rejects a control that changes nothing", () => {
+    expect(reject({ control: { from: "plan", to: "plan" } }).join(" ")).toMatch(/identical/i);
   });
 
   it("rejects a missing sourcePath", () => {
