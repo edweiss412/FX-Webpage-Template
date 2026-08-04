@@ -712,6 +712,22 @@ The rec-5 mutation-testing harness (`tests/parser/mutationHarness.test.ts`, nigh
 
 ---
 
+### BL-TASKCONTRACT-SORT-COMPARATOR-EQUALKEY — finding-order comparator is unpinnable for equal `(docLine, code)` pairs
+
+**Status:** OPEN (2026-08-04, `feat/mutation-gate-guard-surfaces`) · **Severity:** low · **Class:** TEST COVERAGE · **Effort:** S
+
+Three source mutants of the `findings.sort(...)` comparator at `lib/specLint/taskContract.ts:247` survive the suite and cannot be killed through the function's output: `a.code < b.code` → `<=`, `a.code > b.code` → `>=`, and the final `: 0` → `: 1`. All three are reached only when `a.docLine - b.docLine` is `0`, and each differs from clean behavior only when the two `code` values are ALSO equal — for unequal codes every one takes an identical path.
+
+Such a pair is reachable: `ac=AC-90,AC-91` with both ids unresolved emits two `TASK_AC_UNRESOLVED` findings on one line. But the reordering is not observable. Probed on `node v20.20.1`: exhaustive over all 40320 permutations of 8 elements sharing one `(docLine, code)` → no difference; randomized to n=200 with 30 trials per n → no difference.
+
+They are therefore ledgered `accepted-gap` (not `equivalent`) in the source-mutation registry and counted as survivors, costing ~3.6 points of that surface's mutation score. `equivalent` would overclaim: an inconsistent comparator is implementation-defined in ECMA-262, so the argument rests on V8's stable sort rather than on control flow — recorded as documented limit **L-7** of `docs/superpowers/specs/ci/2026-08-04-source-mutation-guard-gate.md`.
+
+**Closing this** means making the comparator total so no equal-key pair exists — add a third tiebreak (e.g. `message`), after which all three mutants become killable and their ledger rows go stale, which the gate reports rather than absorbs.
+
+**Deferred from `feat/mutation-gate-guard-surfaces` under class-sweep exception (a) — it needs a product decision this PR cannot settle.** Ordering for same-line, same-code findings is `spec:lint`'s user-visible report contract; that arc ships a mutation harness plus test debt and touches no `taskContract.ts` product code. The sweep itself was complete — all three comparator sites found, classified and ledgered together — so this entry covers every instance of the class, not one peer of several.
+
+---
+
 ### BL-EXPORT-BLANK-ROW-SEGMENTATION — blank-row block segmentation fuses/splits sections silently (audit #10)
 
 **Status:** PARTIALLY CLOSED (2026-07-27, `fix/export-blank-row-segmentation` — spec `docs/superpowers/specs/2026-07-27-export-blank-row-segmentation.md`) · **Severity:** medium · **Class:** EXPORT/PARSER ROBUSTNESS
