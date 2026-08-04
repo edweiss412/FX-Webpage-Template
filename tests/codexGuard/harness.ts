@@ -68,6 +68,13 @@ export interface GuardResult {
   recoveredFrom: "rollout_scrape" | null;
   /** Vendored native codex binary the guard invoked instead of the Node shim, if resolved. */
   nativeBinaryResolved: string | null;
+  /**
+   * Whether the dispatch carried at least one `--lint-doc` (design §2.4).
+   * Written by BOTH result writers: a wrapper fault after a valid lint run must
+   * still record it, or the machine-visibility promise fails in exactly the
+   * case an orchestrator most needs it.
+   */
+  lintArm: "present" | "absent";
   startedAt: string | null;
   endedAt: string;
 }

@@ -16,7 +16,7 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import { basename, isAbsolute, join, resolve } from "node:path";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 
 const GUARD_VERSION = 1;
 
@@ -67,12 +67,13 @@ function readEnvNum(name, { integer = false } = {}) {
 
 function parseArgs(argv) {
   if (argv[0] !== "review") usageError(`unknown subcommand: ${argv[0] ?? "(none)"} (only: review)`);
-  const flags = { artifacts: [] };
+  const flags = { artifacts: [], lintDocs: [] };
   const takesValue = new Set([
     "--brief",
     "--cwd",
     "--out",
     "--artifact",
+    "--lint-doc",
     "--label",
     "--max-attempts",
     "--attempt-max-secs",
@@ -90,6 +91,7 @@ function parseArgs(argv) {
     const v = argv[++i];
     if (v === undefined) usageError(`${a} requires a value`);
     if (a === "--artifact") flags.artifacts.push(v);
+    else if (a === "--lint-doc") flags.lintDocs.push(v);
     else flags[a.slice(2).replace(/-([a-z])/g, (_, c) => c.toUpperCase())] = v;
   }
   return flags;
@@ -134,6 +136,11 @@ function buildConfig(flags) {
   cfg.cwd = expandPath(flags.cwd);
   cfg.out = expandPath(flags.out);
   cfg.artifacts = flags.artifacts.map(expandPath);
+  cfg.lintBudgetBytes = Number(process.env.CODEX_GUARD_LINT_BUDGET_BYTES ?? 200000);
+  cfg.lintCliArgs = [
+    resolve(process.env.CODEX_GUARD_TSX ?? join(process.cwd(), "node_modules/tsx/dist/cli.mjs")),
+    resolve(process.env.CODEX_GUARD_SPEC_LINT ?? join(process.cwd(), "scripts/spec-lint.ts")),
+  ];
   cfg.codexHome = expandPath(process.env.CODEX_HOME || join(homedir(), ".codex"));
 
   try {
@@ -145,6 +152,18 @@ function buildConfig(flags) {
   if (!existsSync(cfg.cwd) || !statSync(cfg.cwd).isDirectory())
     usageError(`--cwd is not a directory: ${cfg.cwd}`);
   if (cfg.artifacts.length > 0 && !cfg.fallback) usageError("--artifact requires --fallback");
+
+  // §2.2.1 — a relative --lint-doc resolves against --cwd, never the wrapper's
+  // launch cwd. Invariant 11 makes those differ on every worktree run, so
+  // inheriting the launch cwd breaks the feature in normal use.
+  cfg.lintDocs = flags.lintDocs.map((d) => {
+    const abs = isAbsolute(d) ? resolve(d) : resolve(cfg.cwd, d);
+    const root = resolve(cfg.cwd);
+    if (abs !== root && !abs.startsWith(root + "/")) {
+      usageError(`--lint-doc is outside the repository: ${abs} (repo root: ${root})`);
+    }
+    return abs;
+  });
   cfg.artifactTexts = [];
   for (const a of cfg.artifacts) {
     try {
@@ -251,6 +270,57 @@ function resolveNativeBinary({ cmd, leadingArgs }) {
 // Prompt composition (§4) — composed ONCE at startup; cap violation = exit 2.
 // ---------------------------------------------------------------------------
 
+/**
+ * §2.2.2 — the embedded block, by construction:
+ *   head (first three lines) / body prefix / notice if shortened / summary last.
+ * `body` is positional — everything after the head up to the bare INVENTORY
+ * line or `summary:` — so check-section labels are inside it by definition
+ * rather than by enumeration.
+ */
+function embedReport(raw, requestedRel, allowance) {
+  const lines = raw.split("\n");
+  let sum = -1;
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (lines[i].startsWith("summary:")) {
+      sum = i;
+      break;
+    }
+  }
+  // §2.3 frame validation — all five clauses. The fifth is about what the
+  // transform DISCARDS: a bare INVENTORY or a non-final summary: before a later
+  // finding section passes the two ends and then loses real findings.
+  const firstOk = lines[0] === `spec:lint ${requestedRel}`;
+  const kindOk = (lines[1] ?? "").startsWith("kind: ");
+  const blankOk = (lines[2] ?? "") === "";
+  const sumOk = sum >= 3;
+  const oneSummary = lines.filter((l) => l.startsWith("summary:")).length === 1;
+  const inv = lines.indexOf("INVENTORY");
+  const discardClean =
+    inv === -1 ||
+    lines.slice(inv + 1, sum).every((l) => !/^\s+(FAIL|ADVISORY)\s+[A-Z_]+\s/.test(l));
+  if (!firstOk || !kindOk || !blankOk || !sumOk || !oneSummary || !discardClean) return null;
+
+  const head = lines.slice(0, 3);
+  const body = lines.slice(3, inv === -1 ? sum : inv);
+  const summary = lines[sum];
+
+  const whole = [...head, ...body, summary].join("\n");
+  if (Buffer.byteLength(whole) <= allowance) return { block: whole, truncated: false };
+
+  const totalBody = Buffer.byteLength(body.join("\n"));
+  const notice = (n) => `[truncated: ${n} of ${totalBody} bytes shown]`;
+  const frameBytes = (n) => Buffer.byteLength([...head, notice(n), summary].join("\n"));
+  const kept = [];
+  let acc = 0;
+  for (const l of body) {
+    const trial = acc + Buffer.byteLength(l) + 1;
+    if (frameBytes(trial) + trial > allowance) break;
+    kept.push(l);
+    acc = trial;
+  }
+  return { block: [...head, ...kept, notice(acc), summary].join("\n"), truncated: true };
+}
+
 function composePrompt(cfg) {
   let prompt = cfg.briefText;
   if (cfg.fallback) {
@@ -262,6 +332,13 @@ function composePrompt(cfg) {
     prompt +=
       "\nCitations were pre-verified — do not re-read files needlessly. " +
       "REACH A VERDICT — budget your reading.\n";
+  }
+  if (cfg.lintReports && cfg.lintReports.length > 0) {
+    for (const r of cfg.lintReports) {
+      prompt += `\n===== SPEC-LINT: ${r.rel} =====\n`;
+      prompt += r.block;
+      prompt += `\n===== END SPEC-LINT =====\n`;
+    }
   }
   if (Buffer.byteLength(prompt) > cfg.promptMaxBytes) {
     usageError(`composed prompt exceeds PROMPT_MAX_BYTES (${cfg.promptMaxBytes})`);
@@ -591,6 +668,7 @@ function writeResult(cfg, state, patch) {
     error: null,
     recoveredFrom: null,
     nativeBinaryResolved: cfg.nativeBin ?? null,
+    lintArm: (cfg.lintDocs ?? []).length > 0 ? "present" : "absent",
     startedAt: state.startedAtIso,
     endedAt: new Date().toISOString(),
     ...patch,
@@ -805,6 +883,42 @@ function selectRung(cfg, attempt, state) {
 // ---------------------------------------------------------------------------
 
 const cfg = buildConfig(parseArgs(process.argv.slice(2)));
+// §2.2 — run spec:lint per --lint-doc BEFORE composing, so an infra fault
+// refuses the dispatch instead of embedding a broken report. Seating is decided
+// up front: each report's allowance reserves the floors of every report still
+// to come, so an earlier one cannot expand into a later one's frame.
+if (cfg.lintDocs.length > 0) {
+  const FLOOR = 220; // head + a worst-case notice + summary
+  if (FLOOR * cfg.lintDocs.length > cfg.lintBudgetBytes) {
+    usageError(
+      `${cfg.lintDocs.length} --lint-doc reports cannot be seated in ${cfg.lintBudgetBytes} bytes`,
+    );
+  }
+  cfg.lintReports = [];
+  let remaining = cfg.lintBudgetBytes;
+  for (let i = 0; i < cfg.lintDocs.length; i++) {
+    const abs = cfg.lintDocs[i];
+    const rel = abs.startsWith(resolve(cfg.cwd) + "/")
+      ? abs.slice(resolve(cfg.cwd).length + 1)
+      : abs;
+    const r = spawnSync(process.execPath, [cfg.lintCliArgs[0], cfg.lintCliArgs[1], rel], {
+      cwd: cfg.cwd,
+      encoding: "utf8",
+      maxBuffer: 64 * 1024 * 1024,
+    });
+    // Exit 2 is an infra fault; a spawn failure or signal death gives no usable
+    // code at all. None of them is a findings report.
+    if (r.error || r.status === null || r.status === 2) {
+      usageError(`spec:lint could not run for ${rel} (status ${r.status ?? "signal"})`);
+    }
+    const downstream = FLOOR * (cfg.lintDocs.length - i - 1);
+    const embedded = embedReport(r.stdout ?? "", rel, remaining - downstream);
+    if (!embedded) usageError(`spec:lint produced a malformed report for ${rel}`);
+    cfg.lintReports.push({ rel, block: embedded.block });
+    remaining -= Buffer.byteLength(embedded.block);
+  }
+}
+
 cfg.prompt = composePrompt(cfg);
 
 async function main() {
@@ -898,6 +1012,7 @@ main().catch((e) => {
           verdict: null,
           verdictLine: null,
           lastMessagePath: null,
+          lintArm: (cfg?.lintDocs ?? []).length > 0 ? "present" : "absent",
           attempts,
           failureReason: "wrapper_error",
           error: String(e?.message ?? e),
