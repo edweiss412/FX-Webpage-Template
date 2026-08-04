@@ -501,10 +501,17 @@ Nine artifacts burned on this shape; none was caught by review-time reasoning al
 
    Filed as `BL-TASK-ENROLLMENT-SINGLE-DEPTH` under **deferral exception (c)** of the class-sweep disposition rule in `AGENTS.md` — a redesign of a surface this PR does not otherwise touch. Item 7 below is the second shape of the same class and files under the same entry.
 
-7. **A single region cannot exclude same-depth non-task headings interleaved among the tasks.** Distinct from limit 6, which is about task units at *different* depths. A fence-aware scan of tracked plans found six single-depth plans carrying non-task headings at the task depth *between* their first and last task — grouping headers like `Tasks 5-22: A3-A20 (PROC each)`, and process sections like `Fix-round regression budget (mandatory per AGENTS.md)`. Region delimiters cannot exclude a heading that sits in the middle of the region:
+7. **A single region cannot exclude same-depth non-task headings interleaved among the tasks.** Distinct from limit 6, which is about task units at *different* depths. Derived, not hand-listed — a fence-aware scan that selects plans whose task-labelled headings occupy exactly one depth (multi-depth is item 6), then reports same-depth headings that are not task-labelled and fall strictly between the first and last task:
+
+   ```
+   depth of task-labelled headings == 1 distinct value
+     AND a same-depth non-task heading with firstTask.line < h.line < lastTask.line
+   ```
+
+   Six plans match, reproduced independently of the review that raised it — grouping headers like `Tasks 5-22: A3-A20 (PROC each)`, and process sections like `Fix-round regression budget (mandatory per AGENTS.md)`. Region delimiters cannot exclude a heading that sits in the middle of the region:
 
    `docs/superpowers/plans/2026-07-26-stripcomments-shared.md`, `docs/superpowers/plans/admin/2026-07-07-admin-field-overrides/PLAN.md`, `docs/superpowers/plans/observability/2026-07-01-durable-outcome-telemetry.md`, `docs/superpowers/plans/observability/2026-07-02-observability-coverage-completion.md`, `docs/superpowers/plans/step3-onboarding/2026-06-11-onboarding-fixups/HANDOFF-NOTES-F5A.md`, and `docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-30-m12.2-admin-redesign/M12.2-phase-b3-email-delivery.md`.
 
-   Such a heading is classified as a task and draws `TASK_MARKER_MISSING`. That is a **conservative failure with a surfaced finding**, not silent corruption, so per the project's admissibility contract it files here rather than forcing a redesign: the author's remedy is to demote the grouping header a level or leave the plan unenrolled. Enrollment is opt-in, so nothing breaks until someone enrols a plan of this shape.
+   Interloper counts run 1 to 5 per plan. Such a heading is classified as a task and draws `TASK_MARKER_MISSING`. That is a **conservative failure with a surfaced finding**, not silent corruption, so per the project's admissibility contract it files here rather than forcing a redesign: the author's remedy is to demote the grouping header a level or leave the plan unenrolled. Enrollment is opt-in, so nothing breaks until someone enrols a plan of this shape.
 
 8. **`--lint-doc` reports are budgeted, so a large enough set is shown truncated.** §2.2.2 caps embedded reports at 200,000 bytes combined with an explicit notice. A reviewer handed a truncated report sees that it was truncated; they do not see the omitted findings. Raising the cap trades against the wrapper's 2,000,000-byte composition limit, which a full corpus-scale set would cross on its own.
