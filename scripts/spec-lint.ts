@@ -233,5 +233,8 @@ if (isEntry) {
   const r = runCli(process.argv.slice(2), deps);
   if (r.stdout) process.stdout.write(r.stdout);
   if (r.stderr) process.stderr.write(r.stderr + "\n");
-  process.exit(r.exitCode);
+  // NOT process.exit(): stdout.write is ASYNC on a pipe, so exiting on the next
+  // statement truncates every captured report — codex-guard captures through a
+  // pipe by construction, so A1 cannot work until this drains naturally.
+  process.exitCode = r.exitCode;
 }
