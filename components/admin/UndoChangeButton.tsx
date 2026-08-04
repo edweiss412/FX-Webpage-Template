@@ -106,14 +106,22 @@ export function UndoChangeButton({
         <input type="hidden" name="changeLogId" value={changeLogId} />
         <SubmitButton pending={pending} label="Undo this change" stretch={stretch} quiet={quiet} />
       </form>
-      {failing ? (
-        <div
-          data-testid="change-feed-undo-result"
-          className="rounded-sm border border-border-strong bg-warning-bg p-3 text-warning-text"
-        >
-          <ErrorExplainer code={failing.code} surface="admin" />
-        </div>
-      ) : null}
+      {/* ALWAYS mounted, so the card's appearance is a TEXT CHANGE inside a live
+          region rather than a node insertion — a conditionally inserted region is
+          the classic not-announced pitfall (DESIGN.md:479). sr-only when idle is
+          position:absolute, so it is not a flex item and adds no phantom gap to
+          the parent's gap-2. */}
+      <div
+        data-testid="change-feed-undo-result"
+        role="status"
+        className={
+          failing
+            ? "rounded-sm border border-border-strong bg-warning-bg p-3 text-warning-text"
+            : "sr-only"
+        }
+      >
+        {failing ? <ErrorExplainer code={failing.code} surface="admin" /> : null}
+      </div>
     </div>
   );
 }

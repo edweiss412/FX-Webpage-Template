@@ -11,7 +11,7 @@
 //    component must surface the typed failure via lib/messages (invariant 5).
 import "@testing-library/jest-dom/vitest";
 import { afterEach, expect, it, vi } from "vitest";
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { UndoChangeButton, type UndoButtonResult } from "@/components/admin/UndoChangeButton";
 import { UndoAnnounceContext } from "@/components/admin/undoAnnounceContext";
 
@@ -36,9 +36,13 @@ it("surfaces UNDO_SUPERSEDED post-submit via ErrorExplainer (catalog copy, no ra
   await act(async () => {
     fireEvent.click(screen.getByRole("button", { name: /undo this change/i }));
   });
-  expect(await screen.findByTestId("change-feed-undo-result")).toBeInTheDocument();
-  // catalog copy renders; the raw code NEVER appears in the DOM (invariant 5).
-  expect(screen.getByText(/nothing to undo/i)).toBeInTheDocument();
+  // Scoped INSIDE the result node: with the region always mounted, a global
+  // getByText could be satisfied by copy another element renders.
+  expect(
+    within(await screen.findByTestId("change-feed-undo-result")).getByTestId(
+      "error-explainer-message",
+    ),
+  ).toHaveTextContent(/nothing to undo/i);
   expect(screen.queryByText("UNDO_SUPERSEDED")).toBeNull();
 });
 
@@ -48,8 +52,11 @@ it("surfaces UNDO_EMAIL_CLAIMED post-submit via ErrorExplainer — P6-F1", async
   await act(async () => {
     fireEvent.click(screen.getByRole("button", { name: /undo this change/i }));
   });
-  expect(await screen.findByTestId("change-feed-undo-result")).toBeInTheDocument();
-  expect(screen.getByText(/belongs to someone else/i)).toBeInTheDocument();
+  expect(
+    within(await screen.findByTestId("change-feed-undo-result")).getByTestId(
+      "error-explainer-message",
+    ),
+  ).toHaveTextContent(/belongs to someone else/i);
   expect(screen.queryByText("UNDO_EMAIL_CLAIMED")).toBeNull();
 });
 
@@ -59,7 +66,8 @@ it("renders NO error panel on a successful undo ({ok:true}) — P6-F1", async ()
   await act(async () => {
     fireEvent.click(screen.getByRole("button", { name: /undo this change/i }));
   });
-  expect(screen.queryByTestId("change-feed-undo-result")).toBeNull();
+  // Always-mounted live region: present but EMPTY is the no-failure state.
+  expect(screen.getByTestId("change-feed-undo-result")).toHaveTextContent("");
 });
 
 it("stretch=false (default) → button not w-full; stretch → form + button w-full", () => {
@@ -152,4 +160,19 @@ it("does not throw or announce when mounted with NO provider", async () => {
   render(<UndoChangeButton changeLogId="cl-1" undoAction={undoAction} announceLabel="X" />);
   await clickUndo();
   expect(undoAction).toHaveBeenCalledTimes(1);
+});
+
+it("keeps the SAME result node across a failure (never a node insertion)", async () => {
+  // The whole reason the wrapper is always mounted: a live region inserted at
+  // announce time is the classic not-announced pitfall (DESIGN.md:479). Text
+  // equality alone would pass even if the node had been destroyed and replaced.
+  const undoAction = vi.fn().mockResolvedValue({ ok: false, code: "UNDO_SUPERSEDED" });
+  render(<UndoChangeButton changeLogId="cl-1" undoAction={undoAction} />);
+  const before = screen.getByTestId("change-feed-undo-result");
+  expect(before).toHaveTextContent("");
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: /undo this change/i }));
+  });
+  expect(screen.getByTestId("change-feed-undo-result")).toBe(before);
+  expect(before).not.toHaveTextContent("");
 });
