@@ -153,6 +153,16 @@ The other 28 — `layout-dimensions`, `crew-layout-dimensions`, `admin-layout-di
 Two changes close it, and the spec requires both:
 
 1. **The harness-emitted face uses `font-display: block`, not `swap`.** This is a deliberate divergence from the app, and the reason is that the two environments want opposite things: a reader must never stare at invisible text, so the app swaps; a measurement harness must never measure the wrong face, so it blocks. The files are served from the same directory the page is served from, so the block period is a local read.
+**The work is 88 navigation sites, not 25 waits, and that is the number the plan carries.** §5 counts files because files are what get edited; the invariant counts documents, and the two differ by more than a factor of three. Derived the same reproducible way as the census:
+
+```
+# navigation sites across the 25 callers
+$ rg -c 'setContent\(|page\.goto\(|renderEntry\(|mountEntry\(' <the 25 files>
+88 total; 15 of the 25 files have more than one; section-header-layout.layout has 14
+```
+
+Seven of that file's fourteen sit **inside loops** over cells and viewports, so the count of runtime documents is higher still and is not statically knowable. That is exactly why the await is placed *at the navigation site* rather than once per file or once per test: a site inside a loop body is awaited on every iteration, which makes the per-document invariant hold without anyone having to enumerate iterations. A per-file wait would satisfy a reviewer counting files and leave thirteen documents unsynchronized in that one caller.
+
 2. **The 25 unsynchronized callers await `document.fonts.ready` once per measured document** — the invariant stated below; not once per file, not per navigation, and not per geometry read. `font-display: block` makes the race vanishingly unlikely; awaiting makes it impossible, and it is the guarantee the specification actually offers. The list is enumerated in §5 so the work is countable rather than discovered.
 
    **Per document, because 15 of the 24 create more than one.** Recomputed on this branch: `agendaScheduleLayout`, `appHealthIndicator.layout`, `autoAppliedCardGrid.layout`, `bulk-ignore-eyebrow.layout`, `compact-alert-card-layout`, `dataQualityBadge.layout`, `developer-toggle-layout`, `hoverhelp-geometry`, `pendingDiscardReal.layout`, `pendingDiscardReflow.layout`, `popover-clip-fit`, `section-header-layout.layout`, `section-header-visual`, `statusStripToggleLayout`, `step3-review-modal.interactions`, `step3-review-page.layout`. An earlier draft said 13 and listed 13 — it predated the `boundingBox()` predicate fix, which added `autoAppliedCardGrid.layout` and `dataQualityBadge.layout` to the multi-document set. A promise settled against the first document says nothing about the second, so a per-file wait would leave every later navigation in these 15 unsynchronized while reading as done.
