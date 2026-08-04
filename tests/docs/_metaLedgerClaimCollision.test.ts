@@ -21,7 +21,7 @@
 // it cannot be computed here anyway, since it needs a merge-base a shallow CI
 // clone does not have.
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
@@ -95,6 +95,17 @@ describe("ledger claim collision (cross-branch backstop)", () => {
 
     const mine = declaredHere();
 
+    // Spec-required and previously missing: prove the fetch actually resolved
+    // main before asserting anything about the universe.
+    expect(
+      execFileSync("git", ["rev-parse", "--verify", "origin/main"], {
+        cwd: ROOT,
+        encoding: "utf8",
+        timeout: 30_000,
+      }).trim(),
+      "origin/main did not resolve — the universe was never established",
+    ).toMatch(/^[0-9a-f]{40}$/);
+
     // One shared reader. Every git fault in it THROWS rather than yielding an
     // empty answer, so a failure surfaces as a red test instead of a clean pass
     // over a universe that was never inspected.
@@ -132,6 +143,40 @@ describe("ledger claim collision (cross-branch backstop)", () => {
       "another live branch already declares a row this branch declares — reconcile before merging, " +
         "or clear the stale marker if that branch is finished",
     ).toEqual([]);
+  });
+
+  it("end-to-end: a marker written into a real ledger is read and collides", () => {
+    // The positive control the live rule cannot be. `declaredHere()` reads the
+    // REAL working-tree ledgers, so planting a marker in one and restoring it
+    // exercises the whole local chain — file discovery, parse, in-progress
+    // detection, comparison — with nothing stubbed.
+    //
+    // This is what fails under `declaredHere() => []`, an unconditional early
+    // return, or `collisions = []`, none of which the parser and comparator
+    // tests can see.
+    const file = join(ROOT, "BACKLOG.md");
+    const original = readFileSync(file, "utf8");
+    const id = "BL-E2E-CONTROL-PLANTED";
+    try {
+      writeFileSync(
+        file,
+        `${original}\n## ${id} — planted by the backstop's own control\n\n**Status:** IN PROGRESS · **Branch:** feat/planted\n`,
+      );
+
+      const mine = declaredHere();
+      expect(mine, "declaredHere did not read the working tree").toContain(id);
+
+      const others = [{ branch: "feat/somebody-else", declared: [id] }];
+      expect(
+        findCollisions(mine, others, "feat/mine"),
+        "the chain did not turn a real local declaration into a collision",
+      ).toContain(`${id} is also declared by feat/somebody-else`);
+    } finally {
+      writeFileSync(file, original);
+    }
+    // The ledger is byte-identical afterwards, so this control cannot leave the
+    // tree dirty for the guards that read it.
+    expect(readFileSync(file, "utf8")).toBe(original);
   });
 });
 
