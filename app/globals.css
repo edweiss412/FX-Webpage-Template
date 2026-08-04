@@ -103,7 +103,8 @@
   /* `var(--font-inter)` first, NOT the literal "Inter". The token is defined by
      next/font's generated class (app/fonts.ts) and carries BOTH the generated
      family and its generated companion -- a face built with size-adjust/ascent-override
-     specifically so the `display: "swap"` window does not reflow. Naming the
+     so the `display: "swap"` window reflows FAR LESS. Not zero: metric overrides
+     narrow the mismatch, they cannot equalise per-string advances (DESIGN.md 2.1). Naming the
      literal skipped that face entirely, so first paint used a system font at
      native metrics and then snapped ~10% (measured 187.28px -> 168.91px on a
      real string) on every React-root route. Since the loader moved to
@@ -721,9 +722,9 @@ html {
      gains a tail. Crew read stage labels, room numbers and confirmation codes on
      a phone in direct sun, where I/l/1 collapse into one stem. The split is the
      typeface's own -- `ss02` is the same set WITH the slashed zero, which lives
-     on the tabular rule instead so prose keeps an unslashed zero. Only reachable
-     since the family became the vendored upstream build; the Google build ships
-     none of these. DESIGN.md 2.4. */
+     on `.code-value` instead so prose keeps an unslashed zero. Only reachable
+     since the family became the self-hosted upstream build; the Google build
+     ships none of these. DESIGN.md 2.4. */
   font-feature-settings: "ss04" 1;
   background-color: var(--color-bg);
   color: var(--color-text);

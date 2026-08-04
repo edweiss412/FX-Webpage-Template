@@ -18,6 +18,7 @@
  * exists to close. So the `src` is parsed out of `app/fonts.ts` and resolved
  * relative to that module, the same way the bundler resolves it.
  */
+import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import * as fontkit from "fontkit";
@@ -27,6 +28,8 @@ const REPO_ROOT = resolve(__dirname, "..", "..");
 const GLOBALS_CSS = resolve(REPO_ROOT, "app", "globals.css");
 const FONTS_MODULE = resolve(REPO_ROOT, "app", "fonts.ts");
 const GOOGLE_FIXTURE = resolve(__dirname, "fixtures", "inter-google-latin-v20.woff2");
+/** The exact latin subset fonts.gstatic.com served on 2026-08-03, pinned by identity. */
+const GOOGLE_FIXTURE_SHA256 = "c940764593d0fe5d596be327ca7558855e018039fb78509aa21921fd3644c3e4";
 
 /**
  * The literal tag set `app/globals.css` carried before this change, frozen.
@@ -39,10 +42,37 @@ const GOOGLE_FIXTURE = resolve(__dirname, "fixtures", "inter-google-latin-v20.wo
  */
 const HISTORICAL_TAGS = ["tnum", "cv11"] as const;
 
+/** CSS comments removed, so a commented-out declaration cannot be mistaken for a live one. */
+export function stripCssComments(cssSource: string): string {
+  return cssSource.replace(/\/\*[\s\S]*?\*\//g, " ");
+}
+
+/**
+ * The `font-feature-settings` tags declared by the rule whose selector list
+ * contains `selector`, or null when that rule declares none.
+ *
+ * SELECTOR-ADDRESSED, NOT POSITIONAL. Whole-diff review round 1 landed a live
+ * mutant against the previous version, which took the first declaration in the
+ * file as "the root rule": with the real `html` declaration commented out, every
+ * assertion still passed while ordinary prose lost `ss04` product-wide.
+ */
+export function tagsForSelector(cssSource: string, selector: string): string[] | null {
+  const css = stripCssComments(cssSource);
+  for (const rule of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+    const selectors = (rule[1] ?? "").split(",").map((sel) => sel.trim());
+    if (!selectors.includes(selector)) continue;
+    if (!/font-feature-settings\s*:/.test(rule[2] ?? "")) continue;
+    return extractFeatureTags(rule[2] ?? "");
+  }
+  return null;
+}
+
 /** Every `"xxxx" 1`-style tag inside every `font-feature-settings` declaration. */
 export function extractFeatureTags(cssSource: string): string[] {
   const tags = new Set<string>();
-  const declarations = cssSource.matchAll(/font-feature-settings\s*:([^;}]*)[;}]/g);
+  const declarations = stripCssComments(cssSource).matchAll(
+    /font-feature-settings\s*:([^;}]*)[;}]/g,
+  );
   for (const declaration of declarations) {
     for (const tag of (declaration[1] ?? "").matchAll(/["']([A-Za-z0-9]{4})["']/g)) {
       const value = tag[1];
@@ -69,17 +99,43 @@ export function missingTags(tags: readonly string[], fontPath: string): string[]
  * The font `app/fonts.ts` loads, resolved the way the bundler resolves it.
  * Deliberately strict: an unparseable module is a failure, not a skip.
  */
+export function stripJsComments(source: string): string {
+  // Block and line comments become spaces so offsets stay sane. Naive about
+  // comment-like text inside string literals, which is acceptable here: this
+  // file is a five-line font loader, and the alternative (a real parser) buys
+  // nothing the ONE_SRC assertion below does not already cover.
+  return source.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/\/\/[^\n]*/g, " ");
+}
+
+/**
+ * The font `app/fonts.ts` loads, resolved the way the bundler resolves it.
+ *
+ * COMMENTS ARE STRIPPED FIRST, AND EXACTLY ONE `src` MUST REMAIN. Whole-diff
+ * review round 1 landed a live mutant against the previous version: it took the
+ * FIRST regex-shaped `src:` in the raw source, so a commented decoy pointing at
+ * the vendored file let the guard pass while the ACTIVE loader pointed at the
+ * feature-stripped Google fixture. The guard reported no missing tags; the real
+ * loader was missing `ss04` and `zero`. Deriving the path is only worth doing if
+ * it derives the path the app actually uses.
+ */
 export function resolveLoadedFontPath(): string {
-  const source = readFileSync(FONTS_MODULE, "utf8");
-  const match = /\bsrc\s*:\s*["'](\.[^"']+\.woff2?)["']/.exec(source);
-  if (!match?.[1]) {
+  const source = stripJsComments(readFileSync(FONTS_MODULE, "utf8"));
+  const matches = [...source.matchAll(/\bsrc\s*:\s*["'](\.[^"']+\.woff2?)["']/g)];
+  if (matches.length === 0) {
     throw new Error(
-      `app/fonts.ts declares no local font \`src\`. If the loader moved back to ` +
-        `next/font/google, this guard can no longer see the font the app loads — ` +
-        `fix the guard, do not delete it.`,
+      `app/fonts.ts declares no local font \`src\` outside comments. If the loader ` +
+        `moved back to next/font/google, this guard can no longer see the font the ` +
+        `app loads — fix the guard, do not delete it.`,
     );
   }
-  return resolve(dirname(FONTS_MODULE), match[1]);
+  if (matches.length > 1) {
+    throw new Error(
+      `app/fonts.ts declares ${matches.length} font \`src\` values outside comments ` +
+        `(${matches.map((m) => m[1]).join(", ")}). This guard checks ONE font; with ` +
+        `several it cannot know which the app loads.`,
+    );
+  }
+  return resolve(dirname(FONTS_MODULE), matches[0]![1]!);
 }
 
 describe("font feature availability", () => {
@@ -115,6 +171,18 @@ describe("font feature availability", () => {
   });
 
   describe("regression proof — the guard would have caught the dead cv11", () => {
+    test("the fixture IS the binary this change replaced, not merely a Google Inter", () => {
+      // Whole-diff review round 1: the proof below passed against a DIFFERENT
+      // Google-served Inter (85,272 bytes), because it only ever checked a
+      // feature set. A historical claim has to be pinned to the historical
+      // artifact, or it is a claim about a category rather than about what this
+      // repo actually shipped. Byte-pinning a committed INPUT fixture is not the
+      // byte-comparison trap in AGENTS.md — that is about generated output.
+      const bytes = readFileSync(GOOGLE_FIXTURE);
+      expect(bytes.byteLength).toBe(48432);
+      expect(createHash("sha256").update(bytes).digest("hex")).toBe(GOOGLE_FIXTURE_SHA256);
+    });
+
     test("the historical tag set reports cv11 missing from the Google-served font", () => {
       expect(missingTags(HISTORICAL_TAGS, GOOGLE_FIXTURE)).toEqual(["cv11"]);
     });
@@ -132,12 +200,20 @@ describe("font feature availability", () => {
     // span containing letters — `A1 · Audio Lead`, a stage label, a plate number —
     // would silently lose disambiguation. Stated structurally so a fourth rule
     // added later cannot reintroduce the hole quietly.
-    const rules = [...css.matchAll(/font-feature-settings\s*:([^;}]*)[;}]/g)].map((m) =>
-      extractFeatureTags(`font-feature-settings:${m[1] ?? ""};`),
+    const rules = [...stripCssComments(css).matchAll(/font-feature-settings\s*:([^;}]*)[;}]/g)].map(
+      (m) => extractFeatureTags(`font-feature-settings:${m[1] ?? ""};`),
     );
     expect(rules.length, "there are multiple rules for this check to compare").toBeGreaterThan(1);
-    const rootTags = rules.find((tags) => tags.includes("ss04") && !tags.includes("tnum"));
-    expect(rootTags, "the html rule declares ss04 alone").toBeDefined();
+    // Addressed by SELECTOR, never by position. Finding the root rule as "the one
+    // with ss04 and no tnum" would silently pass if the html rule vanished and
+    // some other rule happened to match that shape.
+    const rootTags = tagsForSelector(css, "html");
+    expect(
+      rootTags,
+      "the `html` rule declares font-feature-settings — without it, ordinary prose " +
+        "loses ss04 product-wide and only the two opt-in classes keep it",
+    ).not.toBeNull();
+    expect(rootTags).toEqual(["ss04"]);
     for (const tags of rules) {
       for (const rootTag of rootTags ?? []) {
         expect(tags, `every rule repeats the root tag ${rootTag}`).toContain(rootTag);
@@ -154,13 +230,13 @@ describe("font feature availability", () => {
     // "not techie" anti-reference. The split is the fix; these tests are what
     // stop it collapsing back.
     const ruleTags = (selector: string): string[] => {
-      const match = new RegExp(`${selector}\\s*\\{[^}]*\\}`).exec(css);
-      expect(match, `${selector} exists in app/globals.css`).not.toBeNull();
-      return extractFeatureTags(match?.[0] ?? "");
+      const tags = tagsForSelector(css, selector);
+      expect(tags, `${selector} declares font-feature-settings in app/globals.css`).not.toBeNull();
+      return tags ?? [];
     };
 
     test("the shared tabular rule does NOT slash zeros", () => {
-      const tags = ruleTags("\\.tabular-nums");
+      const tags = ruleTags(".tabular-nums");
       expect(tags).toContain("ss04");
       expect(tags).toContain("tnum");
       expect(
@@ -171,11 +247,11 @@ describe("font feature availability", () => {
     });
 
     test("the code-value rule DOES slash zeros, and keeps the inherited tags", () => {
-      expect(ruleTags("\\.code-value")).toEqual(["ss04", "tnum", "zero"]);
+      expect(ruleTags(".code-value")).toEqual(["ss04", "tnum", "zero"]);
     });
 
     test("`zero` is declared in exactly one rule", () => {
-      const zeroRules = [...css.matchAll(/font-feature-settings\s*:([^;}]*)[;}]/g)].filter((m) =>
+      const zeroRules = [...stripCssComments(css).matchAll(/font-feature-settings\s*:([^;}]*)[;}]/g)].filter((m) =>
         extractFeatureTags(`font-feature-settings:${m[1] ?? ""};`).includes("zero"),
       );
       expect(zeroRules.length, "only `.code-value` slashes zeros").toBe(1);

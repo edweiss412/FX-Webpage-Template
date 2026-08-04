@@ -2,7 +2,11 @@
  * Font binding — does the app actually RENDER the family it commits to?
  *
  * `DESIGN.md:133` commits the product to Inter, "single contemporary sans for
- * all UI", loaded via `next/font/local` from `app/fonts.ts`. `app/globals.css`
+ * all UI", loaded via `next/font/local` from `app/fonts.ts`, which supplies an
+ * explicit `weight: "100 900"` range and whose generated family is `inter`
+ * (lowercased from the loader's variable name — the google loader emitted the
+ * literal `Inter`, which is why every assertion below reads the family out of
+ * `--font-inter` rather than comparing a spelled literal). `app/globals.css`
  * applies `font-family: var(--font-sans)` at `html`, and `--font-sans` names the
  * LITERAL family `"Inter"` first. Nothing in that chain proves a face called
  * Inter is actually available — a missing loader degrades silently to the next
@@ -250,9 +254,12 @@ function assertExposesFontInterToken(report: FontReport, surface: string): void 
     `${surface}: <html> exposes --font-inter (the loader's \`variable\` option)`,
   ).not.toBe("");
 
-  // THE METRIC-MATCHED FALLBACK IS IN THE CASCADE. next/font generates an
-  // `Inter Fallback` face with size-adjust/ascent-override so the
-  // `display: "swap"` window does not reflow. An earlier version of this change
+  // THE METRIC-MATCHED FALLBACK IS IN THE CASCADE. next/font generates a
+  // companion face with size-adjust/ascent-override so the `display: "swap"`
+  // window reflows FAR LESS — not zero, since metric overrides narrow the
+  // mismatch without equalising per-string advances (DESIGN.md §2.1). This
+  // assertion checks cascade MEMBERSHIP, not geometry; nothing here measures the
+  // residual shift. An earlier version of this change
   // named the literal `"Inter"` in `--font-sans`, which skipped that face
   // entirely: first paint used a system font at native metrics and then snapped
   // ~10% once Inter arrived (measured 187.28px against 168.91px on a real
@@ -593,6 +600,28 @@ test.describe("font binding — the features render", () => {
       `"ss04" left I and l at their default widths, so the feature is inert ` +
         `(off: ${boxOff?.width}, on: ${boxOn?.width})`,
     ).toBeGreaterThan(boxOff?.width ?? Number.POSITIVE_INFINITY);
+  });
+
+  test("ordinary prose gets ss04 — the root grants it, not just the opt-in classes", async ({
+    page,
+  }) => {
+    // Whole-diff review round 1, finding 2: every other assertion here samples an
+    // opt-in class (`.tabular-nums`, `.code-value`) or an inline specimen, so the
+    // `html` declaration could vanish and all of them would stay green while
+    // ordinary prose — most of the product — silently lost disambiguation.
+    // This samples the root itself, and a real paragraph under it.
+    await page.goto("/auth/sign-in", { waitUntil: "load" });
+    const resolved = await page.evaluate(() => {
+      const p = document.createElement("p");
+      p.textContent = "Ill 10";
+      document.body.appendChild(p);
+      return {
+        root: getComputedStyle(document.documentElement).fontFeatureSettings,
+        prose: getComputedStyle(p).fontFeatureSettings,
+      };
+    });
+    expect(resolved.root, "the html element declares ss04").toContain("ss04");
+    expect(resolved.prose, "and ordinary prose inherits it").toContain("ss04");
   });
 
   test("the tabular rule keeps ss04 that the html rule grants", async ({ page }) => {

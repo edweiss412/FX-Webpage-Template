@@ -22,10 +22,15 @@ Two further defects in the row itself, independent of availability: `cv05` moves
 never touches capital `I`, so the pair named in the row's own title was incomplete; and `ss04` is
 Inter's own "disambiguation without zero", which covers both letterforms in one tag.
 
-**Shipped:** the upstream `rsms/inter` v4.1 release vendored verbatim at `app/_fonts/InterVariable.woff2`
-(344 KB, checksummed in `app/_fonts/PROVENANCE.md`, OFL text alongside) and loaded via `next/font/local`;
-`ss04` at `html` and `ss04`/`tnum`/`zero` on the tabular rule, with `ss04` repeated because
-`font-feature-settings` inherits as a whole value rather than a merged list. Verbatim rather than
+**Shipped:** a latin + latin-ext SUBSET of the upstream `rsms/inter` v4.1 release at
+`app/_fonts/InterVariable-latin.woff2` (173 KB, built by `scripts/subset-inter.sh` from a
+checksum-pinned input, OFL text alongside) and loaded via `next/font/local`. The verbatim 344 KB
+release was the decision at the gate; the impeccable audit then measured it costing FCP +136-164ms
+and a fallback-to-Inter swap landing 3.7s in on slow 4G, and the owner revised. CSS: `ss04` at
+`html`, `ss04`/`tnum` on the tabular rule, and `zero` on a narrower `.code-value` — `.tabular-nums`
+turned out to sit on whole prose sentences, including the Right Now hero's 30px bold `<h2>`, so the
+slash was landing mid-sentence. `ss04` is repeated on each rule because `font-feature-settings`
+inherits as a whole value rather than a merged list. Verbatim rather than
 subsetted so the artifact is a signed release file, not committed build output needing a
 reproducibility gate. The `opsz` axis arrived with it, making `DESIGN.md` §2.1's long-standing
 optical-sizing claim true for the first time.
