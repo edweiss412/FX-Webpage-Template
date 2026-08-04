@@ -30,10 +30,11 @@ and a fallback-to-Inter swap landing 3.7s in on slow 4G, and the owner revised. 
 `html`, `ss04`/`tnum` on the tabular rule, and `zero` on a narrower `.code-value` — `.tabular-nums`
 turned out to sit on whole prose sentences, including the Right Now hero's 30px bold `<h2>`, so the
 slash was landing mid-sentence. `ss04` is repeated on each rule because `font-feature-settings`
-inherits as a whole value rather than a merged list. Verbatim rather than
-subsetted so the artifact is a signed release file, not committed build output needing a
-reproducibility gate. The `opsz` axis arrived with it, making `DESIGN.md` §2.1's long-standing
-optical-sizing claim true for the first time.
+inherits as a whole value rather than a merged list. The generated-artifact objection that
+argued for verbatim is answered by asserting the binary SEMANTICALLY — the guard checks the
+declared tags and both axes against whatever the loader points at — rather than by byte-equality,
+so no pinned-image gate is owed. The `opsz` axis survives the subset, making `DESIGN.md` §2.1's
+long-standing optical-sizing claim true for the first time.
 
 **Fourteen false claims corrected** across `DESIGN.md`, the font-binding spec and plan, and six source
 comments — including that plan's own P3 disposition, which had recorded "now deterministically activates

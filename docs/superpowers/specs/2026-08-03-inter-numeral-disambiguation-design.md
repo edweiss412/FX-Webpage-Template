@@ -87,7 +87,7 @@ Read from Next's bundled font loader sources, not from documentation. **Vendor p
 
 - **`unicode-range` per file: not expressible.** `declarations` is applied uniformly to every `@font-face` the loader emits, and `src`-as-array emits one face per entry with the same declarations. Google's on-demand seven-subset split cannot be reproduced. One file, one coverage decision. — compiled/@next/font/dist/local/loader.js:36-39
 - **`adjustFontFallback` defaults ON** and, unlike the Google loader's static metric table, computes overrides from *our* font file: `getFallbackMetricsFromFontFile(fallbackFontFile.fontMetadata, 'sans-serif')` when `adjustFontFallback !== false`. — compiled/@next/font/dist/local/loader.js:61-66
-- **The `variable` token keeps its two-entry shape.** The token is built as the font family, then the generated `Fallback` family, then any `fallback` entries. So `--font-inter` still names a metric-matched companion second, which is exactly what `tests/e2e/font-binding.spec.ts:246-255` asserts. **The existing e2e binding test survives the swap unchanged.** — esm/build/webpack/loaders/next-font-loader/postcss-next-font.js:49-59 and :96-100
+- **The `variable` token keeps its two-entry shape.** The token is built as the font family, then the generated `Fallback` family, then any `fallback` entries. So `--font-inter` still names a metric-matched companion second, which is exactly what `tests/e2e/font-binding.spec.ts:246-255` asserts. **That particular assertion survives the swap unchanged** — but the file as a whole does not: §4.5 records the one assertion that had to be rewritten. — esm/build/webpack/loaders/next-font-loader/postcss-next-font.js:49-59 and :96-100
 - **`weight` and `style` must be passed explicitly.** The loader emits `font-weight` / `font-style` descriptors only when given, and `declarations` is forbidden from carrying them. Omitting `weight` on a variable font would leave the face at an implied `normal`, so the browser would synthesize bold instead of using the `wght` axis. — compiled/@next/font/dist/local/loader.js:42-47 and compiled/@next/font/dist/local/validate-local-font-function-call.js:50
 - **The generated family name changes case**, from the literal `Inter` to `inter` — the loader derives it from the JS variable name the call is assigned to, lowercased. **Measured in the built output, not inferred:** the emitted rule is `@font-face{font-family:inter;…}` and the token resolves to `"inter", "inter Fallback"`. Nothing depends on the literal — `--font-sans` reads the token and the e2e test reads the family from the token — but the comments in §3.4 that name the literal go stale. — compiled/@next/font/dist/local/loader.js:39
 
@@ -185,7 +185,7 @@ time,
 
 **`zero` is on `.code-value`, NOT on the shared tabular rule.** An earlier revision of this spec put it on `time, .tabular-nums`, reasoning that the tabular rule marks "a number that is a value to be transcribed". It does not. In this codebase `.tabular-nums` means "digits that should not shift width", and it is applied to whole prose sentences — `components/crew/RightNowHero.tsx:524` is a 30px bold `<h2>` carrying it, `components/crew/RightNowHero.tsx:532` is the detail paragraph, and `components/layout/Footer.tsx:145` is the copyright year. Shipped that way, the hero read *"Today: Show day 1(slashed)0 of 12"*: a terminal readout in the product's single most expressive moment, against the explicit "not techie" anti-reference in `PRODUCT.md`. Caught by impeccable critique (P1) after the first implementation commit.
 
-`.code-value` is the narrower opt-in, applied at three sites where a value genuinely gets transcribed: the `Confirmation` row in `components/crew/sections/TravelSection.tsx` (via a new `code?: boolean` on `KeyValueRow`), the flight record locator in the same file, and the service-account address in `components/admin/wizard/Step1Share.tsx`. The decision the user made — slash where a value is transcribed, not in prose — is unchanged; this is the implementation that actually delivers it.
+`.code-value` is the narrower opt-in, applied at four sites where a value genuinely gets transcribed: the `Confirmation` row in `components/crew/sections/TravelSection.tsx` (via a new `code?: boolean` on `KeyValueRow`), the per-segment record locator and the flight itinerary locator in the same file, and the service-account address in `components/admin/wizard/Step1Share.tsx`. The per-segment locator was added after the impeccable audit found it carrying `tabular-nums` while its sibling carried `code-value` (§12 row 4). The decision the user made — slash where a value is transcribed, not in prose — is unchanged; this is the implementation that actually delivers it.
 
 **`ss04` is repeated in the tabular rule deliberately.** `font-feature-settings` inherits as a whole value, not as a merged list, so a rule that sets it replaces the inherited `"ss04" 1` entirely. Without the repeat, a `.tabular-nums` span containing letters — `A1 · Audio Lead`, a stage label, a plate number — would silently lose the disambiguation the `html` rule grants everything else. This is the single most likely implementation defect in the change and the guard in §4.2 exists to catch it.
 
@@ -252,7 +252,7 @@ Every task is TDD: failing test, minimal implementation, passing test, commit.
 
 ### 4.1 Feature-availability guard — the bug class this change exists to kill
 
-tests/styles/fontFeatureAvailability.test.ts, exporting a pure `missingTags(cssSource, fontPath): string[]` so the same checker can be pointed at different fonts.
+tests/styles/fontFeatureAvailability.test.ts, exporting a pure `missingTags(tags, fontPath): string[]` so the same checker can be pointed at different fonts.
 
 **The font path is derived, never hardcoded.** The test parses the `src:` string literal out of `app/fonts.ts` and resolves it relative to that module, so it always checks *the font the app actually loads*. Hardcoding the font path would let the guard stay green while `app/fonts.ts` pointed somewhere else entirely — the precise disconnect that let a CSS declaration and a served font disagree for three months. The test asserts the derived path resolves to an existing file before using it.
 
@@ -339,7 +339,9 @@ The repair: extend `tests/setup.ts` with a `next/font/local` mock returning the 
 - ~~**Subsetting the font.**~~ **NO LONGER OUT OF SCOPE.** Ratified out at the gate, then ratified back in after the impeccable audit measured the verbatim file's latency cost — the branch ships a latin + latin-ext subset. §2.6 and §12 row 3.
 - **`BL-HARNESS-FONT-FIDELITY`.** §5.
 - **Building the `font-tabular` utility** `DESIGN.md:174` describes. Nothing uses it; the claim is deleted rather than implemented.
-- **Regenerating help screenshots.** No screenshot in `public/help/screenshots/` is a specimen of numerals under test, and regenerating on an arm64 host would pollute the x64-Linux baseline.
+- ~~**Regenerating help screenshots.**~~ **WRONG, AND REQUIRED.** The original reasoning here — "no screenshot is a specimen of numerals under test" — asked the wrong question. Whether numerals are pictured is irrelevant: changing the font changes how *all* text rasterises, so every committed baseline drifts. The `screenshots-drift` CI gate failed on 22 files, which is the correct behaviour and caught the spec's error.
+
+  The second half of the original reasoning was right and is why this is not a local fix: regenerating on an arm64 host produces different bytes than the native-x64 gate expects. `screenshots-regen.yml` is the sanctioned path — a `workflow_dispatch` job that captures on a native-amd64 runner inside the same pinned Playwright image the drift gate uses, then commits the baselines back to the branch. Dispatched from this branch rather than run locally, exactly as the byte-comparison discipline in `AGENTS.md` requires.
 
 ---
 
@@ -348,8 +350,8 @@ The repair: extend `tests/setup.ts` with a `next/font/local` mock returning the 
 1. `app/_fonts/InterVariable-latin.woff2` is present, is accompanied by the OFL text and a provenance record, and `scripts/subset-inter.sh` regenerates it from the pinned upstream release.
 2. `tests/styles/fixtures/inter-google-latin-v20.woff2` is present as the regression fixture §4.1 requires.
 3. `app/fonts.ts` loads the vendored file via `next/font/local` with the §3.2 options; no `next/font/google` import remains in the repo.
-4. `app/globals.css` declares `ss04` at `html` and `ss04`/`tnum`/`zero` on the tabular rule; no `cv11` remains.
-5. tests/styles/fontFeatureAvailability.test.ts passes all four §4.1 assertions, including the historical-`cv11` regression proof and the derived-font-path resolution.
+4. `app/globals.css` declares `ss04` at `html`, `ss04`/`tnum` on the tabular rule, and `ss04`/`tnum`/`zero` on `.code-value`; no `cv11` remains.
+5. tests/styles/fontFeatureAvailability.test.ts passes every §4.1 assertion, including the fixture-identity pin, the historical-`cv11` regression proof, and the derived-font-path resolution.
 6. The §4.4 pixel oracle proves a slashed zero renders in a real browser, and the §4.4 width oracle proves `ss04` widens `I` and `l`.
 7. `tests/e2e/font-binding.spec.ts` passes with exactly one assertion rewritten — the `appFaces.length` non-vacuity guard at line 194, per §4.5. Every other assertion in the file passes unchanged.
 8. `tests/setup.ts` mocks `next/font/local` per §4.7, and `tests/observe/globalError.test.tsx` passes.
@@ -428,3 +430,29 @@ Codex, fresh-eyes over the full diff. `VERDICT: NEEDS-ATTENTION`, five findings,
 | 5 | P3 | New blank line at EOF in `BACKLOG.md`. | **FIXED.** |
 
 Explicitly cleared by the reviewer, recorded so it is not re-derived: the `.code-value` / `.tabular-nums` split is correctly applied at all four value surfaces; the subset retains the required corpus and features; `appFaces.length === 1` matches Next's one-face-per-local-source behavior after excluding the generated fallback; and the screenshot oracle uses fixed integer-aligned geometry with no nondeterministic input.
+
+### 12.2 Whole-diff cross-model review — round 2
+
+`VERDICT: NEEDS-ATTENTION`, four findings, **all accepted and fixed**. Round 1's repairs held on their own terms; round 2 defeated them from a direction the repairs had not closed.
+
+**The class, named.** Rounds 1 and 2 produced four escaping mutants and every one exploited the same thing: **the guard parsed CSS and TypeScript with regexes, and a regex cannot tell code from text that merely looks like code.**
+
+| round | mutant | what the regex believed |
+| --- | --- | --- |
+| 1 | a commented-out decoy `src:` | a comment was live code |
+| 1 | the `html` declaration commented out | position identified the root rule |
+| 2 | `"ss04" 0` | a tag's presence meant it was on |
+| 2 | `--guard-open: "/*"` … `--guard-close: "*/"` around a live reset | a string literal was a comment |
+
+Patching the stripper a third time would have been answering one more spelling in an open space, which `AGENTS.md`'s structural-defense calibration says to stop doing once the class is nameable. **So the hand-parsing is gone.** CSS now goes through `postcss` and `app/fonts.ts` through the TypeScript compiler's own AST — the parsers the app is built with. A string that looks like a comment is a string to both, which is a property the regexes could never have had. Values are parsed too, so `"ss04" 0` is read as disabled rather than present.
+
+All four mutants were replayed against the rewrite. All four now fail the guard.
+
+| # | Sev | Finding | Disposition |
+| --- | --- | --- | --- |
+| 1 | **P1** | Disabled values passed everything. `"ss04" 0` yielded the exact expected tag arrays, and the browser assertions used `toContain`, which a disabled setting also satisfies. fontkit measured the real corruption: enabled `ss04` shapes 111 glyphs at advance 5868, disabled 94 at 4184. | **FIXED.** `parseFeatureValue` returns `{tag, enabled}`; every static assertion filters on `enabled`. In the browser, a `featureEnabled()` helper replaces every `toContain`. Mutation-proven statically and in the browser. |
+| 2 | **P1** | CSS string literals defeated the comment stripper AND the prose assertion. The reset used `body > :not(p)`, so the assertion's injected direct `<p>` child was deliberately excluded from it. | **FIXED.** postcss sees the reset. The browser assertion now samples a REAL rendered element deep in `main`, not an injected node. Mutation-proven. |
+| 3 | P2 | The same string-literal trick defeated the "exactly one `src`" repair in `app/fonts.ts`. | **FIXED** by the TypeScript AST, same rewrite. |
+| 4 | P2 | Eight documentation contradictions, enumerated by the reviewer: the archive entry contradicted itself within eight lines; §2.5 claimed the e2e suite survives unchanged against its own §4.5; §3.3's `.code-value` block omitted the load-bearing `font-family`; "three application sites" against four in code; a wrong `missingTags` signature; AC4 put `zero` back on the tabular rule and AC5 undercounted the assertions; `font-binding.spec.ts` still said `--font-sans` names a literal; the font-binding plan still claimed the companion prevents reflow entirely. | **ALL FIXED.** |
+
+The reviewer confirmed the sha256 fixture pin is sound and creates no regeneration obligation, since it identifies a frozen historical input.

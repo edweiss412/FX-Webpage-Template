@@ -22,6 +22,8 @@ import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import * as fontkit from "fontkit";
+import postcss from "postcss";
+import ts from "typescript";
 import { describe, expect, test } from "vitest";
 
 const REPO_ROOT = resolve(__dirname, "..", "..");
@@ -36,48 +38,78 @@ const GOOGLE_FIXTURE_SHA256 = "c940764593d0fe5d596be327ca7558855e018039fb78509aa
  *
  * Hardcoded ON PURPOSE, and the only hardcoded tag list here. It is a fact about
  * commit `78662acb5`, not a moving target, and it CANNOT be derived from today's
- * CSS — today's CSS no longer contains `cv11`, which is the whole point. Asking
- * the extracted current list to prove the historical bug is unsatisfiable: the
- * current list is {ss04, tnum, zero} and `cv11` is not in it.
+ * CSS — today's CSS no longer contains `cv11`, which is the whole point.
  */
 const HISTORICAL_TAGS = ["tnum", "cv11"] as const;
 
-/** CSS comments removed, so a commented-out declaration cannot be mistaken for a live one. */
-export function stripCssComments(cssSource: string): string {
-  return cssSource.replace(/\/\*[\s\S]*?\*\//g, " ");
-}
-
 /**
- * The `font-feature-settings` tags declared by the rule whose selector list
- * contains `selector`, or null when that rule declares none.
+ * WHY THIS FILE PARSES WITH REAL PARSERS RATHER THAN REGEXES.
  *
- * SELECTOR-ADDRESSED, NOT POSITIONAL. Whole-diff review round 1 landed a live
- * mutant against the previous version, which took the first declaration in the
- * file as "the root rule": with the real `html` declaration commented out, every
- * assertion still passed while ordinary prose lost `ss04` product-wide.
+ * Two rounds of whole-diff review defeated regex-based versions of these
+ * helpers, and both escapes were the same shape: a regex cannot tell code from
+ * text that merely looks like code.
+ *
+ *   round 1  a COMMENTED decoy `src:` was picked as the live one
+ *   round 2  `--guard-open: "/*"` and `--guard-close: "*\/"` custom properties
+ *            made a naive comment-stripper swallow a live `font-feature-settings:
+ *            normal` reset sitting between them; the same trick hid a live
+ *            loader in fonts.ts
+ *
+ * Patching the stripper a third time would be answering a specific spelling in
+ * an open space. So the CSS goes through `postcss` and the TypeScript through
+ * the compiler's own AST — the parsers the app itself is built with. A string
+ * that looks like a comment is a string to both of them, which is the property
+ * the regexes could never have.
  */
-export function tagsForSelector(cssSource: string, selector: string): string[] | null {
-  const css = stripCssComments(cssSource);
-  for (const rule of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
-    const selectors = (rule[1] ?? "").split(",").map((sel) => sel.trim());
-    if (!selectors.includes(selector)) continue;
-    if (!/font-feature-settings\s*:/.test(rule[2] ?? "")) continue;
-    return extractFeatureTags(rule[2] ?? "");
+
+/** A `font-feature-settings` entry: the tag, and whether it is ON. */
+export type FeatureSetting = { tag: string; enabled: boolean };
+
+/** Parse a `font-feature-settings` VALUE into its settings. */
+export function parseFeatureValue(value: string): FeatureSetting[] {
+  const out: FeatureSetting[] = [];
+  for (const m of value.matchAll(/["']([A-Za-z0-9]{4})["']\s*(on|off|-?\d+)?/g)) {
+    const raw = (m[2] ?? "").trim().toLowerCase();
+    // Per spec, an omitted value means 1. `0`/`off` DISABLES the feature while
+    // leaving the tag present — round 2's mutant, which every name-only check
+    // passed while fontkit measured real shaping corruption (ss04 enabled:
+    // 111/459 glyphs, advance 5868; disabled: 94/444, advance 4184).
+    out.push({ tag: m[1]!, enabled: raw !== "0" && raw !== "off" });
   }
-  return null;
+  return out;
 }
 
-/** Every `"xxxx" 1`-style tag inside every `font-feature-settings` declaration. */
+/** Every rule in `cssSource` that declares `font-feature-settings`. */
+export function featureRules(
+  cssSource: string,
+): { selectors: string[]; settings: FeatureSetting[] }[] {
+  const rules: { selectors: string[]; settings: FeatureSetting[] }[] = [];
+  postcss.parse(cssSource).walkDecls("font-feature-settings", (decl) => {
+    const parent = decl.parent;
+    const selector = parent && "selector" in parent ? String(parent.selector) : "";
+    rules.push({
+      selectors: selector.split(",").map((sel) => sel.trim()),
+      settings: parseFeatureValue(decl.value),
+    });
+  });
+  return rules;
+}
+
+/** The ENABLED tags declared by the rule whose selector list contains `selector`. */
+export function tagsForSelector(cssSource: string, selector: string): string[] | null {
+  const rule = featureRules(cssSource).find((r) => r.selectors.includes(selector));
+  if (!rule) return null;
+  return rule.settings
+    .filter((f) => f.enabled)
+    .map((f) => f.tag)
+    .sort();
+}
+
+/** Every ENABLED tag anywhere in the sheet. */
 export function extractFeatureTags(cssSource: string): string[] {
   const tags = new Set<string>();
-  const declarations = stripCssComments(cssSource).matchAll(
-    /font-feature-settings\s*:([^;}]*)[;}]/g,
-  );
-  for (const declaration of declarations) {
-    for (const tag of (declaration[1] ?? "").matchAll(/["']([A-Za-z0-9]{4})["']/g)) {
-      const value = tag[1];
-      if (value !== undefined) tags.add(value);
-    }
+  for (const rule of featureRules(cssSource)) {
+    for (const f of rule.settings) if (f.enabled) tags.add(f.tag);
   }
   return [...tags].sort();
 }
@@ -96,46 +128,47 @@ export function missingTags(tags: readonly string[], fontPath: string): string[]
 }
 
 /**
- * The font `app/fonts.ts` loads, resolved the way the bundler resolves it.
- * Deliberately strict: an unparseable module is a failure, not a skip.
- */
-export function stripJsComments(source: string): string {
-  // Block and line comments become spaces so offsets stay sane. Naive about
-  // comment-like text inside string literals, which is acceptable here: this
-  // file is a five-line font loader, and the alternative (a real parser) buys
-  // nothing the ONE_SRC assertion below does not already cover.
-  return source.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/\/\/[^\n]*/g, " ");
-}
-
-/**
- * The font `app/fonts.ts` loads, resolved the way the bundler resolves it.
+ * The font `app/fonts.ts` loads, read off the TypeScript AST.
  *
- * COMMENTS ARE STRIPPED FIRST, AND EXACTLY ONE `src` MUST REMAIN. Whole-diff
- * review round 1 landed a live mutant against the previous version: it took the
- * FIRST regex-shaped `src:` in the raw source, so a commented decoy pointing at
- * the vendored file let the guard pass while the ACTIVE loader pointed at the
- * feature-stripped Google fixture. The guard reported no missing tags; the real
- * loader was missing `ss04` and `zero`. Deriving the path is only worth doing if
- * it derives the path the app actually uses.
+ * Finds the `src` property of every object literal argument in the module and
+ * requires exactly one. The compiler's parser sees a commented decoy as a
+ * comment and a `"src: ..."` string constant as a string, so neither reaches
+ * this list — which is precisely what the regex version could not manage.
  */
 export function resolveLoadedFontPath(): string {
-  const source = stripJsComments(readFileSync(FONTS_MODULE, "utf8"));
-  const matches = [...source.matchAll(/\bsrc\s*:\s*["'](\.[^"']+\.woff2?)["']/g)];
-  if (matches.length === 0) {
+  const source = ts.createSourceFile(
+    FONTS_MODULE,
+    readFileSync(FONTS_MODULE, "utf8"),
+    ts.ScriptTarget.Latest,
+    true,
+  );
+  const found: string[] = [];
+  const visit = (node: ts.Node): void => {
+    if (
+      ts.isPropertyAssignment(node) &&
+      ((ts.isIdentifier(node.name) && node.name.text === "src") ||
+        (ts.isStringLiteral(node.name) && node.name.text === "src")) &&
+      ts.isStringLiteralLike(node.initializer)
+    ) {
+      found.push(node.initializer.text);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  if (found.length === 0) {
     throw new Error(
-      `app/fonts.ts declares no local font \`src\` outside comments. If the loader ` +
-        `moved back to next/font/google, this guard can no longer see the font the ` +
-        `app loads — fix the guard, do not delete it.`,
+      `app/fonts.ts declares no font \`src\` property. If the loader moved back to ` +
+        `next/font/google, this guard can no longer see the font the app loads — ` +
+        `fix the guard, do not delete it.`,
     );
   }
-  if (matches.length > 1) {
+  if (found.length > 1) {
     throw new Error(
-      `app/fonts.ts declares ${matches.length} font \`src\` values outside comments ` +
-        `(${matches.map((m) => m[1]).join(", ")}). This guard checks ONE font; with ` +
-        `several it cannot know which the app loads.`,
+      `app/fonts.ts declares ${found.length} font \`src\` values (${found.join(", ")}). ` +
+        `This guard checks ONE font; with several it cannot know which the app loads.`,
     );
   }
-  return resolve(dirname(FONTS_MODULE), matches[0]![1]!);
+  return resolve(dirname(FONTS_MODULE), found[0]!);
 }
 
 describe("font feature availability", () => {
@@ -200,8 +233,11 @@ describe("font feature availability", () => {
     // span containing letters — `A1 · Audio Lead`, a stage label, a plate number —
     // would silently lose disambiguation. Stated structurally so a fourth rule
     // added later cannot reintroduce the hole quietly.
-    const rules = [...stripCssComments(css).matchAll(/font-feature-settings\s*:([^;}]*)[;}]/g)].map(
-      (m) => extractFeatureTags(`font-feature-settings:${m[1] ?? ""};`),
+    const rules = featureRules(css).map((r) =>
+      r.settings
+        .filter((f) => f.enabled)
+        .map((f) => f.tag)
+        .sort(),
     );
     expect(rules.length, "there are multiple rules for this check to compare").toBeGreaterThan(1);
     // Addressed by SELECTOR, never by position. Finding the root rule as "the one
@@ -251,9 +287,9 @@ describe("font feature availability", () => {
     });
 
     test("`zero` is declared in exactly one rule", () => {
-      const zeroRules = [
-        ...stripCssComments(css).matchAll(/font-feature-settings\s*:([^;}]*)[;}]/g),
-      ].filter((m) => extractFeatureTags(`font-feature-settings:${m[1] ?? ""};`).includes("zero"));
+      const zeroRules = featureRules(css).filter((r) =>
+        r.settings.some((f) => f.tag === "zero" && f.enabled),
+      );
       expect(zeroRules.length, "only `.code-value` slashes zeros").toBe(1);
     });
   });

@@ -7,7 +7,8 @@
  * (lowercased from the loader's variable name — the google loader emitted the
  * literal `Inter`, which is why every assertion below reads the family out of
  * `--font-inter` rather than comparing a spelled literal). `app/globals.css`
- * applies `font-family: var(--font-sans)` at `html`, and `--font-sans` names the
+ * applies `font-family: var(--font-sans)` at `html`, and `--font-sans` reads the
+ * family out of `--font-inter` rather than naming one — it names the
  * LITERAL family `"Inter"` first. Nothing in that chain proves a face called
  * Inter is actually available — a missing loader degrades silently to the next
  * entry in the stack, which is what `BL-HEADER-FONT-FALLBACK-WRAP` measured.
@@ -531,6 +532,22 @@ test.describe("font binding — the measured row", () => {
  * loaded binary CONTAIN the tags?). This is the expensive half: does the browser
  * APPLY them?
  */
+/**
+ * Is `tag` ENABLED in a computed `font-feature-settings` value?
+ *
+ * `String.includes(tag)` is not the same question, and whole-diff review round 2
+ * demonstrated the gap: `"ss04" 0` contains "ss04" while DISABLING the feature.
+ * fontkit measured the real corruption — enabled shapes 111 glyphs at advance
+ * 5868, disabled 94 at 4184 — so a substring check passes while the product
+ * renders wrong. Per spec an omitted value means 1; `0` and `off` mean off.
+ */
+function featureEnabled(computed: string, tag: string): boolean {
+  const m = new RegExp(`["']${tag}["']\\s*(on|off|-?\\d+)?`).exec(computed);
+  if (!m) return false;
+  const raw = (m[1] ?? "").trim().toLowerCase();
+  return raw !== "0" && raw !== "off";
+}
+
 test.describe("font binding — the features render", () => {
   /** Two spans, identical but for one `font-feature-settings` declaration. */
   async function renderPair(page: Page, text: string, feature: string) {
@@ -612,16 +629,25 @@ test.describe("font binding — the features render", () => {
     // This samples the root itself, and a real paragraph under it.
     await page.goto("/auth/sign-in", { waitUntil: "load" });
     const resolved = await page.evaluate(() => {
-      const p = document.createElement("p");
-      p.textContent = "Ill 10";
-      document.body.appendChild(p);
+      // Sample REAL rendered elements, deep in the tree, not a node appended to
+      // <body>. Round 2's mutant used `body > :not(p)` precisely so an injected
+      // direct child would dodge the reset it applied to everything else.
+      const deepest = [...document.querySelectorAll("main *")]
+        .filter((el) => (el.textContent ?? "").trim().length > 0)
+        .pop();
       return {
         root: getComputedStyle(document.documentElement).fontFeatureSettings,
-        prose: getComputedStyle(p).fontFeatureSettings,
+        deep: deepest ? getComputedStyle(deepest).fontFeatureSettings : null,
+        deepTag: deepest?.tagName ?? null,
       };
     });
-    expect(resolved.root, "the html element declares ss04").toContain("ss04");
-    expect(resolved.prose, "and ordinary prose inherits it").toContain("ss04");
+    expect(featureEnabled(resolved.root, "ss04"), `html: ${resolved.root}`).toBe(true);
+    expect(resolved.deep, "there is a real rendered element to sample").not.toBeNull();
+    expect(
+      featureEnabled(resolved.deep ?? "", "ss04"),
+      `a real <${resolved.deepTag}> deep in the page resolved to ${resolved.deep} — ` +
+        `ordinary product text is not getting ss04`,
+    ).toBe(true);
   });
 
   test("the tabular rule keeps ss04 that the html rule grants", async ({ page }) => {
@@ -640,20 +666,20 @@ test.describe("font binding — the features render", () => {
       return getComputedStyle(el).fontFeatureSettings;
     });
     expect(
-      settings,
-      `.tabular-nums resolved to ${settings}, which does not carry ss04 — a ` +
+      featureEnabled(settings, "ss04"),
+      `.tabular-nums resolved to ${settings}, which does not ENABLE ss04 — a ` +
         `number span containing letters would lose disambiguation`,
-    ).toContain("ss04");
+    ).toBe(true);
     // And NOT the slashed zero. `.tabular-nums` sits on whole prose sentences in
     // this codebase (the Right Now hero's 30px bold <h2>, the footer year), so a
     // slash here lands mid-sentence and reads as a terminal readout. Impeccable
     // critique P1 — it shipped that way for one round. `.code-value` is where
     // `zero` belongs, asserted below.
     expect(
-      settings,
+      featureEnabled(settings, "zero"),
       `.tabular-nums resolved to ${settings}, which slashes zeros — that reaches ` +
         `running prose; move it to .code-value`,
-    ).not.toContain("zero");
+    ).toBe(false);
   });
 
   test("the code-value class DOES slash zeros", async ({ page }) => {
@@ -667,8 +693,8 @@ test.describe("font binding — the features render", () => {
     });
     // Where a crew member reads a confirmation number off the screen and types it
     // back, 0-vs-O costs a failed check-in.
-    expect(settings).toContain("zero");
-    expect(settings, "and it keeps what it inherits").toContain("ss04");
+    expect(featureEnabled(settings, "zero"), `.code-value resolved to ${settings}`).toBe(true);
+    expect(featureEnabled(settings, "ss04"), "and it keeps what it inherits").toBe(true);
   });
 
   test("code-value works on a <code> element, not only where it inherits the UI font", async ({
@@ -707,6 +733,6 @@ test.describe("font binding — the features render", () => {
       `.code-value on a <code> resolved to ${resolved.fontFamily}, which is not ` +
         `the loaded family — its font-feature-settings render nothing there`,
     ).toContain(resolved.loaderFamily ?? "\u0000");
-    expect(resolved.settings).toContain("zero");
+    expect(featureEnabled(resolved.settings, "zero"), `resolved: ${resolved.settings}`).toBe(true);
   });
 });
