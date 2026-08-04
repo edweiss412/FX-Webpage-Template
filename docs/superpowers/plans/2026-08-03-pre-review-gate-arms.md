@@ -97,6 +97,8 @@ Each case states the mutant it kills. Confirm every case fails before implementa
 
 Add the citation-collision fixture the pre-draft pass surfaced: a marker whose `red=` is a single dotted token, asserting the interaction with the citations check is whatever the implementation actually does, pinned rather than assumed.
 
+Add the **inline-mention fixture**, from a live probe against this very plan. Extracting `ac=` values with a naive substring scan over this file returns `NOTANID` — a string that appears only as an illustrative cell inside the M9 row of the closure table above, never as a marker. The spec anchors markers to a full line (`^<!-- task: (.*) -->$`), so the shipped checker must ignore it. Fixture: a plan whose prose and table cells contain `ac=`, `red=`, and a complete marker-shaped string mid-sentence, asserting zero findings from those and correct findings from the real full-line markers. Failure mode caught: a checker that scans for the marker substring anywhere on a line, which would report phantom tasks in any plan that documents the convention — including this one.
+
 
 <!-- spec-lint: ignore — new file created by this plan; not tracked until implementation -->
 **GREEN.** Implement the nine codes in `lib/specLint/taskContract.ts`.
