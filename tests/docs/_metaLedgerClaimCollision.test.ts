@@ -49,14 +49,40 @@ const gitQuiet = (args: string[]): string | null => {
  * breaks one: outside CI the event payload is always absent, so treating that as
  * unknown would make every local run report its own claims as collisions.
  */
-function selfBranch(): { branch: string | null; identity: string } {
-  if (!IN_CI) {
-    const name = (gitQuiet(["rev-parse", "--abbrev-ref", "HEAD"]) ?? "").trim();
-    return { branch: name && name !== "HEAD" ? name : null, identity: "local" };
+export type IdentityEnv = {
+  inCI: boolean;
+  gitBranch: string | null;
+  headRepo: string | null;
+  baseRepo: string | null;
+  headRef: string | null;
+};
+
+/**
+ * Pure so fixtures can exercise it. Previously only the ambient environment
+ * called this, so M5 was not closed on the backstop: a mutant self-excluding a
+ * same-named fork branch passed every test.
+ */
+export function resolveSelf(env: IdentityEnv): { branch: string | null; identity: string } {
+  if (!env.inCI) {
+    const name = env.gitBranch;
+    // Detached HEAD locally means self cannot be established, which is
+    // unresolved — not "resolved, and nothing is me".
+    return name && name !== "HEAD"
+      ? { branch: name, identity: "local" }
+      : { branch: null, identity: "ci-unknown" };
   }
-  const p = process.env.GITHUB_EVENT_PATH;
+  if (env.headRepo === null) return { branch: null, identity: "ci-unknown" };
+  if (env.baseRepo === null) return { branch: null, identity: "ci-unknown" };
+  // A bare branch name is not an identity across repositories: on a fork PR no
+  // base ref is "me", so nothing may be excluded as self.
+  if (env.headRepo !== env.baseRepo) return { branch: null, identity: "ci-resolved-fork" };
+  return { branch: env.headRef, identity: "ci-resolved" };
+}
+
+function selfBranch(): { branch: string | null; identity: string } {
   let head: string | null = null;
-  if (p) {
+  const p = process.env.GITHUB_EVENT_PATH;
+  if (IN_CI && p) {
     try {
       const ev = JSON.parse(readFileSync(p, "utf8")) as {
         pull_request?: { head?: { repo?: { full_name?: string } } };
@@ -66,13 +92,13 @@ function selfBranch(): { branch: string | null; identity: string } {
       head = null;
     }
   }
-  if (head === null) return { branch: null, identity: "ci-unknown" };
-  const base = process.env.GITHUB_REPOSITORY || null;
-  // A bare branch name is not an identity across repositories: on a fork PR no
-  // base ref is "me", so nothing may be excluded as self.
-  if (base === null) return { branch: null, identity: "ci-unknown" };
-  if (head !== base) return { branch: null, identity: "ci-resolved-fork" };
-  return { branch: process.env.GITHUB_HEAD_REF ?? null, identity: "ci-resolved" };
+  return resolveSelf({
+    inCI: IN_CI,
+    gitBranch: (gitQuiet(["rev-parse", "--abbrev-ref", "HEAD"]) ?? "").trim() || null,
+    headRepo: head,
+    baseRepo: process.env.GITHUB_REPOSITORY || null,
+    headRef: process.env.GITHUB_HEAD_REF ?? null,
+  });
 }
 
 /**
@@ -265,5 +291,41 @@ describe("findCollisions — the comparison the live rule cannot exercise here",
       null,
     );
     expect(out).toHaveLength(2);
+  });
+});
+
+describe("resolveSelf — M5 closed on the backstop (whole-diff R4 F4)", () => {
+  const base = { inCI: true, gitBranch: "x", headRepo: "base/r", baseRepo: "base/r", headRef: "feat/a" };
+
+  it("local: self is the git branch", () => {
+    expect(resolveSelf({ ...base, inCI: false, gitBranch: "feat/a" })).toEqual({
+      branch: "feat/a",
+      identity: "local",
+    });
+  });
+
+  it("local detached: unresolved, so nothing is self", () => {
+    expect(resolveSelf({ ...base, inCI: false, gitBranch: "HEAD" }).identity).toBe("ci-unknown");
+  });
+
+  it("CI same-repository: self is the head ref", () => {
+    expect(resolveSelf(base)).toEqual({ branch: "feat/a", identity: "ci-resolved" });
+  });
+
+  it("CI fork: NO base ref is self, even when the head names a real base branch", () => {
+    // The mutant this closes: self-excluding a same-named base branch on a fork
+    // PR, which hides a real collision.
+    expect(resolveSelf({ ...base, headRepo: "fork/r" })).toEqual({
+      branch: null,
+      identity: "ci-resolved-fork",
+    });
+  });
+
+  it("CI with an unreadable payload: unresolved", () => {
+    expect(resolveSelf({ ...base, headRepo: null }).branch).toBeNull();
+  });
+
+  it("CI with no base repository: unresolved, not same-repo", () => {
+    expect(resolveSelf({ ...base, baseRepo: null }).identity).toBe("ci-unknown");
   });
 });
