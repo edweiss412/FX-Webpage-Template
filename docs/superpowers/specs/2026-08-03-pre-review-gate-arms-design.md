@@ -112,6 +112,15 @@ Same document, same wrapper contract, opposite outcomes — and under §2.3 the 
 - A relative `--lint-doc` resolves against **`--cwd`**. An absolute path is used as given.
 - A `--lint-doc` that resolves outside `--cwd`'s repository is a usage error (exit 2) attributable to the caller, and its message names both the path and the repo root, so the two failure causes are never confused.
 
+**Both halves verified, from a process whose cwd is the main checkout while `--cwd` is a worktree:**
+
+```
+inherit launch cwd : status=2  "document is outside the repository: /Users/ericweiss/FX-worktrees/..."
+cwd = --cwd        : status=0  hasSummary=false
+```
+
+The first line is the defect. The second is the repair working — **and simultaneously the reason §2.2.3 is a separate precondition**: with cwd pinned the child exits 0, yet the captured report still has no `summary:` line, because the truncation is an independent defect in the CLI. An implementer who fixes only the cwd sees a green exit code and reasonably concludes the integration works. It does not; it silently ships a headless report. The two repairs are orthogonal and both are required.
+
 ### 2.2.2 Embedded report content and the aggregate budget
 
 Only the **findings** portion of the report is embedded. The CLI's numeric `INVENTORY` block is excluded: it is the bulk of the bytes and is drafting-aid output, not review signal.
