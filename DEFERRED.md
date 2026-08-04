@@ -238,19 +238,25 @@ From the impeccable critique of `feat/sheet-icon-link-affordance-class` (2026-07
 
 From the impeccable v3 dual gate on `feat/sync-feed-undo-announce`. The critique's detector ran clean (0 findings) and contrast, tokens, tap targets, em-dash and ARIA all passed. Three findings are accepted and deferred rather than fixed, each with its reason and un-defer trigger.
 
-**P1 — a repeated identical failure does not re-announce.** The three feed action buttons surface failures through an always-mounted `role="status"` card, which announces on text CHANGE. Two consecutive failures with the same error code (the common case, since the same cause yields the same code) mutate nothing, so nothing is spoken: the operator taps again and hears silence. This is the exact class the success channel uses `role="log"` to avoid.
+### UNDO-FAILURE-REANNOUNCE-1 — impeccable critique P1: a repeated identical failure does not re-announce (2026-08-03)
+
+The three feed action buttons surface failures through an always-mounted `role="status"` card, which announces on text CHANGE. Two consecutive failures with the same error code (the common case, since the same cause yields the same code) mutate nothing, so nothing is spoken: the operator taps again and hears silence. This is the exact class the success channel uses `role="log"` to avoid.
 
 **Accepted, not fixed.** The spec's §1.1 R8 ratified it as a documented limit, and the alternative it names is worse: routing failures through the log channel would leave error copy in a region that persists after the visible card is gone, so a stale failure could be re-read long after it stopped applying. The visible card is present throughout in every case, and `Mi11GateActions` is already exempt because its pending-gated `failing` blanks the region on retry, producing a real text change (`components/admin/Mi11GateActions.tsx:137`).
 
 **Un-defer trigger:** an operator reports a silent retry, or the failure channel is redesigned for any other reason.
 
-**P2 — an uncatalogued error code renders an empty card and announces nothing.** `ErrorExplainer` returns `null` when a code has no catalog row (`components/messages/ErrorExplainer.tsx:82`), so the wrapper paints its bordered warning chrome with no text inside and the live region fires empty.
+### UNDO-UNCATALOGUED-CODE-CARD-1 — impeccable critique P2: an uncatalogued error code renders an empty card and announces nothing (2026-08-03)
+
+`ErrorExplainer` returns `null` when a code has no catalog row (`components/messages/ErrorExplainer.tsx:82`), so the wrapper paints its bordered warning chrome with no text inside and the live region fires empty.
 
 **Accepted, not fixed.** Behavior is unchanged from before this branch — the conditional wrapper rendered the same empty card. What the branch changes is the promise: an always-mounted live region reads as a commitment to speak. Fixing it properly means resolving the code before deciding to render, which touches the message layer rather than these three components, and every code reachable from these call sites has a catalog row today (`lib/messages/catalog.ts:902`, `:939`, `:952`, `:3275`).
 
 **Un-defer trigger:** any new code reachable from a feed action, or the next `lib/messages` pass.
 
-**P3 — the dialog region's `aria-label` is a constant while its `data-testid` is derived.** `ReviewModalShell` has three render sites, and Step-3 cards hold per-card open state, so two shells can be attached at once and would share the accessible name `"Undo updates in this dialog"`.
+### UNDO-DIALOG-LABEL-CONSTANT-1 — impeccable critique P3: the dialog region's `aria-label` is a constant while its `data-testid` is derived (2026-08-03)
+
+`ReviewModalShell` has three render sites, and Step-3 cards hold per-card open state, so two shells can be attached at once and would share the accessible name `"Undo updates in this dialog"`.
 
 **Accepted, not fixed, and deliberately so.** Deriving the label from `testIdBase` was implemented and reverted: it produces names like "Undo updates in the wizard step3 card `<driveFileId>` review dialog", putting internal identifiers into text a screen reader speaks. A leaked drive-file id in an accessible name is a worse outcome for the user than a duplicated label in the rare two-dialog case. The `data-testid` remains derived, so tooling and Playwright stay unambiguous.
 
