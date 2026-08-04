@@ -5,7 +5,8 @@
 **Date:** 2026-08-03
 **Branch:** `chore/ledger-claim-visibility`
 **Backlog entries:** none opened for this work (see §9.1); one filed as a by-product (§9.2)
-**Status:** R4 repaired — 25 Codex findings across four rounds plus 5 self-findings, all accepted, all closed
+**Status:** R5 repaired — 33 adversarial findings across five rounds plus 5 self-findings, all accepted, all closed
+**Review note:** R1-R4 were Codex (cross-model). R5 was a fresh-eyes Opus session, because Codex hit a usage limit resetting 2026-08-10; see §10
 **impeccable-gate: N/A — no UI surface**
 
 ---
@@ -59,7 +60,13 @@ it describes.
 ## 2. Probe log — what is actually true
 
 All probes run 2026-08-03 in `/Users/ericweiss/FX-worktrees/ledger-claim-visibility` at
-`96a79f596`, which is `origin/main`.
+`96a79f596`, which was `origin/main` at 19:11 CDT.
+
+**Corpus counts in this section are a dated snapshot, and they decay fast.** Between 19:11 and 20:38
+the same probes went from 15 live refs to 19 and from 4837 parsed entries to 6715, because other
+sessions ship into this repo continuously. Where a count is load-bearing, the section says which
+invariant it establishes and §7 pins that invariant against a committed fixture rather than against
+origin. A drifted count here is not a review finding; a drifted *invariant* is.
 
 ### 2.1 The collision that motivated this
 
@@ -176,11 +183,22 @@ its marker at the END of a long entry body, about seventeen lines below the head
 four ledger files:
 
 ```
-12-line-window sees:        2
-same-line Status+flight:    3
-MISSED by the window:       1
+                            19:11 CDT    20:38 CDT
+12-line-window sees:            2            5
+status on any line:             3            6
+status + flight, same line:     3            6
+MISSED by the window:           1            1
   origin/chore/ledger-body-ids-enum-scan-widen:BACKLOG.md BL-INTERNAL-CODE-ENUM-SCAN-WIDEN
+over-fire of status-alone:      0            0
 ```
+
+**Read the invariants, not the counts.** The two columns are 90 minutes apart on a repo where other
+sessions are actively marking entries, and the absolute numbers moved by more than double in that
+window. Three things did not move, and those are what this design rests on: status-alone detection
+adds **zero** entries over the stricter same-line rule; the window's miss set is **non-empty**; and
+the missed entry is a real marker on a live branch. §7.4b therefore pins a committed fixture rather
+than a live count, because a bound read off origin would have been green at 19:11 and wrong by
+20:38.
 
 Two live consequences. The reader as originally drafted would downgrade a genuine `declared` claim
 to `inferred`. And `tests/docs/_metaLedgerInProgress.test.ts` cannot see that marker either, so its
@@ -238,11 +256,14 @@ in a shallow clone, with the candidate set always a superset rather than a subse
 ### 2.8 Precedent for a script module shared with tests
 
 `scripts/lib/` holds three TypeScript modules today. Two are imported by both a script and a test:
-`scripts/lib/validation-env.ts:46` (`loadValidationEnv`) is used at `scripts/observe.ts:7` and by
-`tests/scripts/validation-env.test.ts:24`; `scripts/lib/validation-smoke-target.ts` is used at
+`scripts/lib/validation-smoke-target.ts` is used at
 `scripts/validation-smoke.ts:39` and imported by a test as
 `@/scripts/lib/validation-smoke-target` (`tests/scripts/validation-smoke-base-url.test.ts:12`),
 resolving through the `"@/*": ["./*"]` alias at `tsconfig.json:26`. §3.1 follows this shape exactly.
+
+`scripts/lib/validation-env.ts:46` (`loadValidationEnv`) is **not** a second instance of it, despite
+looking like one: `tests/scripts/validation-env.test.ts:24` holds the module's *path* as a constant
+it feeds to a spawned child, not an import. One real precedent, stated as one.
 
 ### 2.8a Stage 0 writes the marker but does not push it (R1 BLOCKING)
 
@@ -345,8 +366,14 @@ Wired as `"ledger:claims": "tsx scripts/ledger-claims.ts"` in `package.json`.
    branch universe while every command reports success. On failure, fall through to whatever
    remote-tracking refs exist locally and set the **degraded** flag (§4.1), which `--check` treats
    as untrusted rather than as an answer.
-2. Candidate branches: every `refs/remotes/origin/*` except `origin/main` and `origin/HEAD`. The
-   **merged-exclusion is an optional narrowing**, not part of the definition:
+2. Candidate branches: every `refs/remotes/origin/*` except `origin/main` and `origin/HEAD`.
+
+   **`origin/main` is parsed, but never as a candidate.** It supplies the vacuity baseline in §4.2
+   and the entry-span map that §4.3's unknown-id note reads; it contributes no claims. R5 finding 2
+   caught an earlier draft gating vacuity on a main count the algorithm never computed, which made
+   §3.3's exit-2 vacuity door unimplementable and its §7.2 test unwritable.
+
+   The **merged-exclusion is an optional narrowing**, not part of the definition:
    - **Full clone:** subtract every branch reported by `git branch -r --merged origin/main`. A
      merged claim has landed or died; either way it is not in flight.
    - **Shallow clone:** §2.7b measured that ancestry is not computable there, so the subtraction is
@@ -431,13 +458,24 @@ them into "non-zero means collision" would report a parser regression as somebod
 | **1** | A named id is `declared` by a branch other than the current one. Message names the id, the branch, and the PR if known | Stop and reconcile |
 | **2** | **The check could not be trusted**: usage error, parser vacuity (§4.2), or an environment failure that §4.1 escalates | Stop and fix the check. This is never evidence about another branch, in either direction |
 
-Also `--json` for machine consumption, emitting the same claim set as an array of
-`{id, branch, kind, pr, tipAgeDays, stale}`.
+Also `--json` for machine consumption, emitting an array of
+`{id, branch, kind, pr, tipAgeDays, stale}`. **`--json` is never capped** — the 100-branch limit is a
+display concern for human output only. A machine consumer receiving a truncated set with no
+truncation marker would compute a false all-clear, which is the same defect as the capped `--check`
+R3 finding 1 closed.
 
 ### 3.4 Preflight surfacing
 
-`scripts/preflight-env.mjs` spawns `tsx scripts/ledger-claims.ts` with a **15 s** timeout and prints
-its table.
+`scripts/preflight-env.mjs` spawns `tsx scripts/ledger-claims.ts --no-fetch` with a **15 s** timeout
+and prints its table.
+
+**`--no-fetch` is not an optimization, it is what makes the budget coherent.** R5 finding 3 caught
+the inner bound exceeding the outer: a 30 s fetch inside a 15 s budget means that on exactly the
+degraded network §4.1's first row exists for, preflight kills the child mid-fetch and prints nothing
+useful. Splitting the two roles removes the conflict rather than tuning it. Preflight is a
+**display** over already-fetched refs — instant, never authoritative, and honest about it, printing
+`(cached refs; run pnpm ledger:claims for a fresh read)` in its header. `--check` is the
+**authoritative** path and always fetches, on the full 30 s. No caller needs both at once.
 
 **Placement is specified, not left to "add a final step".** R4 finding 4 measured two successful
 early exits that any appended step would sit below: `--no-db` returns at
@@ -493,7 +531,7 @@ Every input, and what the reader does with it.
 | A ledger file missing at a branch's tip | Skipped for that branch, with `git show`'s stderr discarded (§3.2 step 4). A branch may predate the file |
 | A diff hunk landing outside every entry span | Dropped, contributing no `inferred` claim (§3.2 step 6). The reconciliation-log preamble is this case and occurs on every live ref |
 | A ledger file present but unparseable at a ref | That file contributes no claims; print `WARN: <ref>:<file> parsed 0 entries` |
-| **Vacuity**: every branch yields 0 entries while `origin/main` yields more than 100 | Print `WARN: claim parser matched nothing across N branches — treat this report as unreliable` and exit 2 in `--check`. A parser that silently matches nothing would make the whole report a false all-clear, which is the one failure this tool must never produce quietly. The threshold sits far below the real floor: the probe parsed **4837** entries across 15 refs and 4 ledgers, so it cannot misfire on a healthy corpus |
+| **Vacuity**: every branch yields 0 entries while `origin/main` yields more than 100 | Print `WARN: claim parser matched nothing across N branches — treat this report as unreliable` and exit 2 in `--check`. A parser that silently matches nothing would make the whole report a false all-clear, which is the one failure this tool must never produce quietly. The threshold sits far below the real floor: the probe parsed 4837 entries across 15 refs and 4 ledgers at 19:11 CDT, and 6715 across 19 refs 90 minutes later. Both are an order of magnitude clear of 100, and the margin grows as the corpus does |
 | An entry declared in-progress with no `Branch`/`PR` field | Still reported as `declared`, keyed on the ref it was found at. Field validity is `tests/docs/_metaLedgerInProgress.test.ts`'s job, not the reader's |
 | The same id declared by two branches | Both rows printed. This IS the collision; `--check` exits 1 |
 | An id declared on a branch and also present on `origin/main` as in-progress | Reported once per branch. Main is never a candidate, so main's own copy contributes nothing |
@@ -537,7 +575,7 @@ Every numeric bound in this design, defined once here and referenced everywhere 
 | Branch report cap | 100, with the omitted count always printed | §4.1 |
 | Open-PR query limit | 100, display only, and allowed to be incomplete because no rule reads it | §3.2 step 7, §4.1 |
 | Meta-line body window | 12 lines, inherited unchanged by `ledgerItems`; the claim recognizer is position-independent and uses no window | §3.1, §3.2 step 5 |
-| Vacuity floor | 100 entries on main, against a measured corpus of 4837 across 15 refs | §4.2 |
+| Vacuity floor | 100 entries on main, against a measured corpus of 4837 and then 6715 within 90 minutes | §4.2 |
 
 No other numeric bound exists in this design.
 
@@ -716,7 +754,7 @@ branch declares in-progress, no other unmerged origin branch may declare the sam
 - Fetches what it needs itself: `git fetch --no-tags --depth=1 origin '+refs/heads/*:refs/remotes/origin/*'`,
   30 s timeout, measured at 1.8 s against a real depth-1 clone (§2.7b). Depth 1 is sufficient because
   only tip file content is read, and it respects the wall-clock constraint recorded at
-  `.github/workflows/unit-suite.yml:148`.
+  `.github/workflows/unit-suite.yml:149`.
 - Candidate set is every non-main head, with the merged-exclusion skipped because ancestry is
   unavailable (§3.2 step 2). Deliberately NOT scoped to open PRs: R2 measured two branches declaring
   markers with no open PR, so a PR-scoped guard would pass while missing a real claim.
@@ -736,10 +774,22 @@ branch declares in-progress, no other unmerged origin branch may declare the sam
 - Planted-input suite proving the rule fires, in the shape of
   `tests/docs/_metaLedgerInProgress.test.ts:224`.
 
-Registry note: this file plants synthetic `BL-` ids, so it needs a row in `NOT_CITATIONS`
-(`tests/docs/_metaLedgerReferentialIntegrity.test.ts:76`), which excludes ledger-guard tests whose
-ids are fixtures rather than references. The shared parser module of §3.1 contains no synthetic ids
-and needs no row.
+Registry note, covering **every** new file this spec adds that carries a synthetic `BL-` id.
+`NOT_CITATIONS` (`tests/docs/_metaLedgerReferentialIntegrity.test.ts:76`) is an exclusion set for
+ledger-guard tests whose ids are fixtures rather than references, and
+`tests/docs/_metaLedgerReferentialIntegrity.test.ts:106` scans every tracked `*.md`/`*.ts`/`*.tsx`,
+so anything not excluded is scanned by default:
+
+| New file | Row needed? |
+| --- | --- |
+| The §7.3 collision backstop | **Yes** — plants synthetic ids |
+| §7.4b's committed fixture corpus | **Yes** — R5 finding 5 caught this one missing; a tracked fixture of planted ledger entries fails the citation guard on this branch's own CI |
+| §7.1 / §7.2 reader tests | **Yes if** their planted ledgers use `BL-`-shaped ids, which they do |
+| The §3.1 shared parser module | No — contains no ids |
+| The §3.2 reader script | No — contains no ids |
+
+The rows land in the same commit as the file that needs them, never as a follow-up: a missing row
+fails CI immediately, so deferring it just means a red branch.
 
 ### 7.4 `tests/docs/_metaLedgerInProgress.test.ts` — the move, then the recognizer
 
@@ -764,8 +814,8 @@ a behavior widening of an existing guard, so it gets its own task and its own ca
   flight-field rule, unchanged.
 - Corpus regression bound: asserted against a **committed fixture corpus**, never against origin, so
   it cannot decay when the live branches merge. The fixture reproduces §2.7a's measured shapes — the
-  two in-window markers, the one out-of-window marker, the deep-quoted bare `**Branch:**`, and the
-  status-only malformation — and pins detection at **4 of 5**: everything except the deep-quoted
+  an in-window marker, the out-of-window marker, a second in-window marker, the deep-quoted bare
+  `**Branch:**`, and the status-only malformation — and pins detection at **4 of 5**: everything except the deep-quoted
   bare `**Branch:**`, whose line carries no status. R4 finding 2 caught an earlier `3 of 5` here,
   which was arithmetically incompatible with status-alone detection and could only have been
   satisfied by hiding the status-only malformation that §4.2 explicitly requires to be visible. A
@@ -776,24 +826,24 @@ a behavior widening of an existing guard, so it gets its own task and its own ca
 
 ### 7.5a `tests/docs/_metaAgentsMarkerContract.test.ts` — the delta stays complete
 
-Catches the class R2 finding 6 caught twice by hand: an edit to one of AGENTS.md's three statements
-of the marker contract, leaving the other two contradicting it. The guard is literal and narrow, and
-that is the point — it does not model the prose, it pins the specific sentences that drifted:
+Catches the class R2 finding 6 caught twice by hand: an edit to one of AGENTS.md's statements of the
+marker contract, leaving the others contradicting it. The guard is literal and narrow, and that is
+the point — it does not model the prose, it pins the specific sentences that drifted.
 
-- All three locations still exist and still mention the marker, so a rename cannot silently delete
-  a rule.
-- None of them contains the retired orderings: "after the `0  0` check, removes it" and "the moment
-  the PR merges, the marker goes away with it".
-- The Stage 0 statement names both the check command and the push, since §6.2's whole load is
-  carried by those two words.
-- **The Stage 4.4 bullet no longer orders marker clearing.** R3 finding 4 built the escaping mutant:
-  edit the opening sentence, the pipeline sentence, and the Stage 0 instruction, leave
-  `AGENTS.md:135-136` alone, and every other assertion here passes while Stage 4.4 still says to
-  clear the marker after the `0  0` check. The assertion is therefore positive and specific — the
-  Stage 4.4 bullet mentions the pane and the agent and does **not** mention the marker — rather than
-  a scan for retired phrases, which is what the mutant walked through.
-- The pane, agent, and `CronDelete` instructions are still present at Stage 4.4, so the guard fails
-  a repair that fixes the contradiction by deleting the bullet wholesale.
+**One assertion per §6 edit, all six.** R5 finding 1 built four escaping mutants against a
+three-assertion draft, so the mapping is now exhaustive and stated as a table rather than a list:
+
+| §6 edit | Assertion | The mutant it stops |
+| --- | --- | --- |
+| 6.1 reading rule | `AGENTS.md` contains a sentence naming `ledger:claims` **and** stating claims are read from origin's branches | never adding §6.1 at all, which an earlier draft's assertions all tolerated |
+| 6.2 Stage 0 check + push | **Both** `AGENTS.md:38`'s paragraph and the Stage 0 lifecycle bullet name the check command and the push. Asserted at both locations, not "the Stage 0 statement" singular | implementing at the invariant-12 paragraph only and leaving the lifecycle bullet unchanged |
+| 6.3 pre-merge removal | Neither retired ordering survives: "after the `0  0` check, removes it" and "the moment the PR merges, the marker goes away with it" | the original R2 drift |
+| 6.4 Stage 4.4 bullet | The Stage 4.4 bullet mentions the pane and the agent and does **not** mention the marker; pane, agent, and `CronDelete` instructions are all still present | R3 finding 4's mutant, plus a repair that "fixes" the contradiction by deleting the bullet wholesale |
+| 6.5 parenthetical deleted | The string "takes its marker with it by construction" appears **nowhere** in `AGENTS.md`. Probed: it is present exactly once today, at `AGENTS.md:27` | keeping a sentence R3 finding 3 showed is false against `tests/docs/_metaLedgerInProgress.test.ts:149` |
+| 6.6 pipeline reordering | On `AGENTS.md`'s autonomous-pipeline sentence, the marker clause precedes the `spec →` clause | editing four locations and leaving the pipeline sentence ordering the marker after two full review cycles — which silently reopens the hours-long window §2.1 measured |
+
+The last row is the one worth dwelling on: it is the only assertion that pins an **ordering** rather
+than a presence, and §2.1's collision is precisely an ordering failure.
 
 Failure message points at §6 of this spec, so the next editor learns the sweep rule rather than
 rediscovering it.
@@ -810,7 +860,15 @@ to come first.
 claims child is spawned and its table reaches preflight's output, with the child stubbed to emit a
 recognizable line, under **all three** exits that print `env ✓`: the default DB-probe path,
 `--no-db` (`scripts/preflight-env.mjs:132`), and `psql` absent from `PATH`
-(`scripts/preflight-env.mjs:142`). Testing only the default path was R4 finding 4's escaping mutant:
+(`scripts/preflight-env.mjs:142`).
+
+**The test must clear `CI` from the child's environment.** R5 finding 4: §3.4 suppresses the claims
+step under `CI`, and `tests/scripts/**` is not in `PARALLEL_TEST_GLOBS` (`vitest.projects.ts:86`) so
+it runs in the `serial` project (`vitest.config.ts:96`) with `CI=true` on every Actions run. Without
+an explicit `CI: undefined` in the spawned environment, the single assertion that makes all of §7.5
+non-vacuous is green locally and red in CI — the local-passes-CI-fails class the cross-cutting
+discipline names by name. A companion case asserts the opposite direction: with `CI` set, the child
+is **not** spawned. Testing only the default path was R4 finding 4's escaping mutant:
 a step appended at the end of the file passes it while leaving both early exits dark. These are the
 assertions that fail if the wiring is skipped or misplaced, and every assertion below is conditional
 on them.
@@ -860,3 +918,27 @@ separator after the bold id, so any bold lone id at a bullet lead defines. Probe
 Latent, not live: main mints exactly the intended eight ids today. But it over-mints in the
 direction the guard exists to prevent, so a bullet naming a sibling id in bold makes that id
 resolve and a typo can define itself. Filed OPEN with this probe output. Not fixed here.
+
+---
+
+## 10. Review provenance
+
+R1 through R4 ran through `codex-guard` against Codex (`gpt-5.6-sol`, reasoning effort high),
+returning BLOCKING with 6, 8, 7, and 4 findings respectively. Every finding was accepted; none was
+refuted.
+
+R5 could not run there. Codex returned `You've hit your usage limit … try again at Aug 10th, 2026
+6:16 PM` on three consecutive wrapper attempts, each producing a zero-line transcript — a distinct
+shape from the silent-death class documented in `docs/agents/codex-silent-death-2026-07-24.md`,
+which does real work before dying. R5 therefore ran as a fresh-eyes Opus session against the same
+brief and the same admissibility contract, and returned BLOCKING with 8 findings, all probe-backed
+and all accepted.
+
+This is a real reduction in review strength, recorded rather than glossed: the cross-CLI discipline
+exists because an opposing model's blind spots differ from the implementer's, and an opposing
+session shares them. Two observations bound how much was lost. R5's findings were of comparable
+character to R1-R4's — four escaping mutants against a guard, an unimplementable gate condition, an
+inner timeout exceeding its outer bound, and a local-passes-CI-fails env leak — and R5 independently
+re-ran every probe in §2, confirming direction while catching that the absolute counts had already
+decayed. What cannot be claimed is that a same-model round substitutes for a cross-model one in
+general; it did not here, and the disposition of that gap is the user's call, recorded here once made.
