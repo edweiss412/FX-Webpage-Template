@@ -6,6 +6,30 @@
 
 ---
 
+> **RE-SCOPED 2026-08-03, after a concurrent session shipped the settle.**
+>
+> While this document was in adversarial review, another session settled
+> `BL-LEAD-CAPABILITY-PROSE-STALE` independently and merged it (instances A, B, D
+> and E; its own source-text parity guard at `tests/visibility/capabilityHeaderParity.test.ts`;
+> the entry graduated; `BL-CAPABILITY-MATRIX-FINANCIALS-PREDICATE` filed). **That
+> settle stands. This branch no longer claims it.**
+>
+> What that settle left behind on `main`, and what this branch now closes:
+>
+> | Residue | State on `main` before this branch |
+> | --- | --- |
+> | Instance C | the header still promised a *TypeScript error* for an incomplete matrix — probed false; nothing linked the union to the matrix |
+> | Instance F | `tests/visibility/capabilityTransitions.test.ts` still hand-listed `ALL_PREDICATES` under `satisfies`, which permits a SUBSET |
+> | Matrix counts | three literals (`toHaveLength(10)`, `toBe(10)`, `toBe(4)`) describing five predicates by number |
+> | Shrink direction | nothing pinned the predicate list against an independent source |
+> | `is_admin()` contract | no test held the fact MI-9 now asserts |
+> | Behavioral parity | the shipped guard compares SOURCE TEXT; nothing checked what the predicates actually DO |
+>
+> Sections below describing instances A, B, D and E, and the graduation, are
+> **historical** — they record how this branch reached its conclusions and are
+> left unedited for provenance. The live scope is the table above.
+
+
 ## 1. Scope
 
 ### 1.1 Resolved scope — do not relitigate

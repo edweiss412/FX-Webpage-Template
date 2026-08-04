@@ -58,7 +58,7 @@ $ grep -rl 'describe.skip' tests/e2e/ | wc -l
 
 So the fix shape is **not** "grep harder". It is: enumerate every `describe.skip` / `test.fixme` / `test.skip` suite mechanically, resolve which modules and tests cite each one, and check the citing prose — **or** decide that prose coverage claims are unguardable and delete the class of sentence rather than maintain it. That decision is this row's open question and is a design call.
 
-**Why it was descoped rather than fixed:** it is a different class from the one `BL-LEAD-CAPABILITY-PROSE-STALE` filed (restatements of whether a test EXECUTES, not of what a predicate COMPUTES), its extent is unmeasured, and bundling it into a branch chartered to settle two named claims drove three BLOCKING review rounds. Full reasoning: `docs/superpowers/specs/2026-08-03-lead-capability-prose-settle-design.md` §1.2 and §2.7.
+**Why it was descoped rather than fixed:** it is a different class from the one `BL-LEAD-CAPABILITY-PROSE-STALE` filed (now in `BACKLOG-archive.md`) (restatements of whether a test EXECUTES, not of what a predicate COMPUTES), its extent is unmeasured, and bundling it into a branch chartered to settle two named claims drove three BLOCKING review rounds. Full reasoning: `docs/superpowers/specs/2026-08-03-lead-capability-prose-settle-design.md` §1.2 and §2.7.
 
 ## BL-WARNING-SCAN-SCOPE-HAS-NO-ANCHOR — the recognizer signals unresolvable sites, but a narrowed scan scope drops codes with nothing to signal
 

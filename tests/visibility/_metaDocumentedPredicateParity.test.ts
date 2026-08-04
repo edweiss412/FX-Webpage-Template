@@ -20,7 +20,7 @@ import * as scopeTiles from "@/lib/visibility/scopeTiles";
 import type { RoleFlag } from "@/lib/parser/types";
 
 const MODULE_REL = "lib/visibility/capabilityTransitions.ts";
-const BLOCK_SENTINEL = "(verbatim branch logic from";
+const BLOCK_SENTINEL = "Tile-visibility rules";
 
 const ALL_ROLE_FLAGS = [
   "LEAD",
@@ -80,7 +80,7 @@ function parseDocumentedPredicates(source: string): DocumentedPredicate[] {
   if (sentinelLines.length === 0) {
     throw new Error(
       `documented-predicate block not found: no line contains "${BLOCK_SENTINEL}". ` +
-        `If the comment was re-wrapped, restore the sentinel to a single line.`,
+        `That heading marks the quoted-predicate block; restore it if it was renamed.`,
     );
   }
   // Uniqueness matters: findIndex would bind to the FIRST occurrence, so a
@@ -103,11 +103,15 @@ function parseDocumentedPredicates(source: string): DocumentedPredicate[] {
       if (started) break;
       continue;
     }
-    started = true;
     const m = /^([A-Za-z][A-Za-z0-9_]*)\s*=\s*([^(]*)/.exec(body);
     if (m === null) {
-      throw new Error(`documented-predicate line is not "<name> = <expr>": ${body}`);
+      // Prose between the heading and the quotes (e.g. a wrapped continuation
+      // of the heading itself) is skipped; once the quotes START, a non-quote
+      // line terminates the block rather than being tolerated.
+      if (started) break;
+      continue;
     }
+    started = true;
     const name = m[1]!;
     const expr = m[2]!.trim();
     if (!/^[A-Za-z0-9_]+(\s*\|\|\s*[A-Za-z0-9_]+)*$/.test(expr)) {
@@ -245,20 +249,20 @@ describe("the parser fails loudly rather than silently passing", () => {
   });
 
   test("M8: a short block yields fewer entries than there are gated predicates", () => {
-    const short = ` * (verbatim branch logic from x):\n *\n *   audioScopeVisible = A1\n *\n`;
+    const short = ` * Tile-visibility rules:\n *\n *   audioScopeVisible = A1\n *\n`;
     expect(parseDocumentedPredicates(short)).toHaveLength(1);
     expect(parseDocumentedPredicates(short).length).toBeLessThan(GATED.length);
   });
 
   test("M25: a duplicate sentinel block is ambiguous, not silently preferred", () => {
     const decoy =
-      ` * (verbatim branch logic from x):\n *\n *   financialsVisible = isAdmin || LEAD || FINANCIALS\n *\n` +
-      ` * (verbatim branch logic from x):\n *\n *   financialsVisible = isAdmin || LEAD\n *\n`;
+      ` * Tile-visibility rules:\n *\n *   financialsVisible = isAdmin || LEAD || FINANCIALS\n *\n` +
+      ` * Tile-visibility rules:\n *\n *   financialsVisible = isAdmin || LEAD\n *\n`;
     expect(() => parseDocumentedPredicates(decoy)).toThrow(/ambiguous: 2 lines contain/);
   });
 
   test("M9: an unsupported operator throws", () => {
-    const bad = ` * (verbatim branch logic from x):\n *\n *   financialsVisible = isAdmin && LEAD\n *\n`;
+    const bad = ` * Tile-visibility rules:\n *\n *   financialsVisible = isAdmin && LEAD\n *\n`;
     expect(() => parseDocumentedPredicates(bad)).toThrow(/expression shape this guard does not/);
   });
 });

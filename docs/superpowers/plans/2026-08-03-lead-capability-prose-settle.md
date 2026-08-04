@@ -6,6 +6,17 @@ Six instances of one class — a hand-maintained restatement of a predicate or s
 
 ---
 
+> **RE-SCOPED 2026-08-03.** A concurrent session settled
+> `BL-LEAD-CAPABILITY-PROSE-STALE` and merged it while this plan was in review.
+> Tasks 4 (MI-9), 5 (the descoped-class filing — kept), and 6 (graduation) are
+> therefore **superseded or already landed on `main`**; the branch takes main's
+> side wherever the two overlap. The live tasks are 1, 2 and 3, which close the
+> residue that settle left: the false TypeScript-error promise, the `satisfies`
+> hand-list, the hardcoded matrix counts, the unpinned shrink direction, the
+> missing `is_admin()` contract test, and behavioral (as opposed to source-text)
+> predicate parity. See the spec's re-scope banner for the residue table.
+
+
 ## 0. Pre-draft verification pass (RUN, not planned)
 
 Every file, symbol, and line named below was opened and confirmed before this plan was drafted. Transcript:
