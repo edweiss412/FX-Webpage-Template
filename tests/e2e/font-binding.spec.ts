@@ -8,9 +8,9 @@
  * literal `Inter`, which is why every assertion below reads the family out of
  * `--font-inter` rather than comparing a spelled literal). `app/globals.css`
  * applies `font-family: var(--font-sans)` at `html`, and `--font-sans` reads the
- * family out of `--font-inter` rather than naming one — it names the
- * LITERAL family `"Inter"` first. Nothing in that chain proves a face called
- * Inter is actually available — a missing loader degrades silently to the next
+ * family out of `--font-inter` rather than naming one, falling back to the
+ * literals only where that token is undefined. Nothing in that chain proves the
+ * loaded face is actually available — a missing loader degrades silently to the next
  * entry in the stack, which is what `BL-HEADER-FONT-FALLBACK-WRAP` measured.
  *
  * THE ORACLE IS WIDTH, NOT `document.fonts.check()`. Measured 2026-08-03 on the
@@ -662,7 +662,10 @@ test.describe("font binding — the features render", () => {
       const el = document.createElement("span");
       el.className = "tabular-nums";
       el.textContent = "A1";
-      document.body.appendChild(el);
+      // Mounted under <main>, not <body>. Every real surface carrying these
+      // classes is inside <main>, and round 3's mutant scoped its reset to
+      // `main .code-value` precisely so a probe hanging off <body> would miss it.
+      (document.querySelector("main") ?? document.body).appendChild(el);
       return getComputedStyle(el).fontFeatureSettings;
     });
     expect(
@@ -688,7 +691,7 @@ test.describe("font binding — the features render", () => {
       const el = document.createElement("span");
       el.className = "code-value";
       el.textContent = "45846091";
-      document.body.appendChild(el);
+      (document.querySelector("main") ?? document.body).appendChild(el);
       return getComputedStyle(el).fontFeatureSettings;
     });
     // Where a crew member reads a confirmation number off the screen and types it
@@ -720,7 +723,7 @@ test.describe("font binding — the features render", () => {
       const el = document.createElement("code");
       el.className = "code-value";
       el.textContent = "45846091";
-      document.body.appendChild(el);
+      (document.querySelector("main") ?? document.body).appendChild(el);
       const style = getComputedStyle(el);
       return {
         loaderFamily,

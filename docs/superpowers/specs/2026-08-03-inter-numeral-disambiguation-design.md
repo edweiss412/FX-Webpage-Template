@@ -113,7 +113,7 @@ availableFeatures: aalt calt case ccmp cpsp cv01 … ss04 … tnum zero
 variationAxes:     [ 'opsz', 'wght' ]
 ```
 
-One new devDependency.
+Three new devDependencies in total, added as the guard's needs became clear: `fontkit` and `@types/fontkit` to read the binary, and `postcss` to parse the stylesheet with a real parser after review round 2 (§12.2).
 
 ---
 
@@ -121,11 +121,11 @@ One new devDependency.
 
 ### 3.1 The vendored font
 
-`app/_fonts/InterVariable-latin.woff2` — 176,696 bytes, subset from `rsms/inter` release v4.1 (Inter-4.1.zip, sha256 `9883fdd4a49d4fb66bd8177ba6625ef9a64aa45899767dde3d36aa425756b11e`, file web/InterVariable.woff2, 352,240 bytes) by `scripts/subset-inter.sh`, which pins that input checksum and verifies it before subsetting. Coverage is Google Fonts' `latin` + `latin-ext` ranges combined.
+`assets/fonts/InterVariable-latin.woff2` — 176,696 bytes, subset from `rsms/inter` release v4.1 (Inter-4.1.zip, sha256 `9883fdd4a49d4fb66bd8177ba6625ef9a64aa45899767dde3d36aa425756b11e`, file web/InterVariable.woff2, 352,240 bytes) by `scripts/subset-inter.sh`, which pins that input checksum and verifies it before subsetting. Coverage is Google Fonts' `latin` + `latin-ext` ranges combined.
 
-`app/_fonts/LICENSE.txt` — the SIL Open Font License 1.1 text shipped in that release, verbatim. Required: the OFL obliges the license to accompany the font.
+`assets/fonts/LICENSE.txt` — the SIL Open Font License 1.1 text shipped in that release, verbatim. Required: the OFL obliges the license to accompany the font.
 
-`app/_fonts/PROVENANCE.md` — release tag, both checksums, the upstream URL, and the date fetched, so a future reader can verify the binary without trusting this document.
+`assets/fonts/PROVENANCE.md` — release tag, both checksums, the upstream URL, and the date fetched, so a future reader can verify the binary without trusting this document.
 
 The `_` prefix makes the directory private to the App Router, so it never becomes a route.
 
@@ -258,7 +258,7 @@ tests/styles/fontFeatureAvailability.test.ts, exporting a pure `missingTags(tags
 
 **Failure mode it catches:** a feature tag declared in CSS that the font the app loads cannot honor — rendering nothing, and reading as intentional.
 
-Three assertions, and the distinction between them matters:
+The assertions below are the core three, and the distinction between them matters. Review rounds 1–3 added more against demonstrated mutants — the file now carries twelve, including the fixture-identity pin, the axis check, the scope split, and the `font`-shorthand ban:
 
 1. **Current state.** `missingTags(globals.css, derivedPath)` is empty. The tag list is extracted from CSS, not hardcoded, so any tag a future rule adds is covered by default.
 2. **Non-vacuity.** The extracted tag list is non-empty and is exactly `{ss04, tnum, zero}` — the set §3.3 specifies. Without this, a regex that silently stopped matching would pass assertion 1 against an empty set.
@@ -278,7 +278,7 @@ Same file. Asserts the vendored font exposes both `opsz` and `wght`, because `DE
 
 ### 4.4 Real-browser rendering proof — pixels, not widths
 
-`tests/e2e/font-binding.spec.ts` gains one test proving the features actually change what is drawn. jsdom cannot do this: it computes no layout and applies no OpenType feature.
+`tests/e2e/font-binding.spec.ts` gains a `features render` block — six tests by the end, after review rounds added the root-inheritance and `<code>` cases — proving the features actually change what is drawn. jsdom cannot do this: it computes no layout and applies no OpenType feature.
 
 **A width oracle does not work for `zero`, and this is measured.** Laying out `0` through the vendored font with and without the feature:
 
@@ -339,7 +339,7 @@ The repair: extend `tests/setup.ts` with a `next/font/local` mock returning the 
 - ~~**Subsetting the font.**~~ **NO LONGER OUT OF SCOPE.** Ratified out at the gate, then ratified back in after the impeccable audit measured the verbatim file's latency cost — the branch ships a latin + latin-ext subset. §2.6 and §12 row 3.
 - **`BL-HARNESS-FONT-FIDELITY`.** §5.
 - **Building the `font-tabular` utility** `DESIGN.md:174` describes. Nothing uses it; the claim is deleted rather than implemented.
-- ~~**Regenerating help screenshots.**~~ **WRONG, AND REQUIRED.** The original reasoning here — "no screenshot is a specimen of numerals under test" — asked the wrong question. Whether numerals are pictured is irrelevant: changing the font changes how *all* text rasterises, so every committed baseline drifts. The `screenshots-drift` CI gate failed on 22 files, which is the correct behaviour and caught the spec's error.
+- ~~**Regenerating help screenshots.**~~ **WRONG, AND REQUIRED.** The original reasoning here — "no screenshot is a specimen of numerals under test" — asked the wrong question. Whether numerals are pictured is irrelevant: changing the font changes how *all* text rasterises, so every committed baseline drifts. The `screenshots-drift` CI gate failed, which is the correct behaviour and caught the spec's error; 14 committed WebPs changed (seven captures × two themes).
 
   The second half of the original reasoning was right and is why this is not a local fix: regenerating on an arm64 host produces different bytes than the native-x64 gate expects. `screenshots-regen.yml` is the sanctioned path — a `workflow_dispatch` job that captures on a native-amd64 runner inside the same pinned Playwright image the drift gate uses, then commits the baselines back to the branch. Dispatched from this branch rather than run locally, exactly as the byte-comparison discipline in `AGENTS.md` requires.
 
@@ -347,7 +347,7 @@ The repair: extend `tests/setup.ts` with a `next/font/local` mock returning the 
 
 ## 7. Acceptance criteria
 
-1. `app/_fonts/InterVariable-latin.woff2` is present, is accompanied by the OFL text and a provenance record, and `scripts/subset-inter.sh` regenerates it from the pinned upstream release.
+1. `assets/fonts/InterVariable-latin.woff2` is present, is accompanied by the OFL text and a provenance record, and `scripts/subset-inter.sh` regenerates it from the pinned upstream release.
 2. `tests/styles/fixtures/inter-google-latin-v20.woff2` is present as the regression fixture §4.1 requires.
 3. `app/fonts.ts` loads the vendored file via `next/font/local` with the §3.2 options; no `next/font/google` import remains in the repo.
 4. `app/globals.css` declares `ss04` at `html`, `ss04`/`tnum` on the tabular rule, and `ss04`/`tnum`/`zero` on `.code-value`; no `cv11` remains.
@@ -365,7 +365,7 @@ Invariant 1 requires failing test → implementation → passing test for every 
 
 - **They are assets, not behavior.** Nothing in them executes. The TDD unit is the guard test and the loader change, both of which follow the red → green order strictly: tests/styles/fontFeatureAvailability.test.ts is written first and fails (no `next/font/local` in `app/fonts.ts` yet, so the derived-path parse finds nothing), then `app/fonts.ts` changes, then it passes.
 - **They had to be tracked for the spec to lint.** `pnpm spec:lint` resolves every code-span citation against `git ls-files`, and the spec cites the binary's checksum and the fixture by path. An untracked binary makes the spec unlintable, so the ordering was forced by the tooling, not chosen for convenience.
-- **The assets are not self-certifying, and the guard is what certifies them.** Acceptance criteria 1 and 5 are what make the committed bytes trustworthy: the checksum in `app/_fonts/PROVENANCE.md` is verifiable independently, and §4.1's axis and feature assertions fail if the file is ever swapped for one lacking `opsz` or `zero`. Committing them early means they are covered by the end of the change, not that they escape coverage.
+- **The assets are not self-certifying, and the guard is what certifies them.** Acceptance criteria 1 and 5 are what make the committed bytes trustworthy: the checksum in `assets/fonts/PROVENANCE.md` is verifiable independently, and §4.1's axis and feature assertions fail if the file is ever swapped for one lacking `opsz` or `zero`. Committing them early means they are covered by the end of the change, not that they escape coverage.
 
 ---
 
@@ -456,3 +456,18 @@ All four mutants were replayed against the rewrite. All four now fail the guard.
 | 4 | P2 | Eight documentation contradictions, enumerated by the reviewer: the archive entry contradicted itself within eight lines; §2.5 claimed the e2e suite survives unchanged against its own §4.5; §3.3's `.code-value` block omitted the load-bearing `font-family`; "three application sites" against four in code; a wrong `missingTags` signature; AC4 put `zero` back on the tabular rule and AC5 undercounted the assertions; `font-binding.spec.ts` still said `--font-sans` names a literal; the font-binding plan still claimed the companion prevents reflow entirely. | **ALL FIXED.** |
 
 The reviewer confirmed the sha256 fixture pin is sound and creates no regeneration obligation, since it identifies a frozen historical input.
+
+### 12.3 Whole-diff cross-model review — round 3
+
+`VERDICT: NEEDS-ATTENTION`, four findings, **all accepted and fixed**. Three P1s, each with a live escaping mutant against the round-2 AST rewrite. Round 2 replaced regex parsing with real parsers; round 3 showed that parsing the stylesheet correctly is not the same as modelling the CASCADE correctly, and that anchoring to a syntax shape is not the same as anchoring to the CALL.
+
+| # | Sev | Finding | Disposition |
+| --- | --- | --- | --- |
+| 1 | **P1** | `resolveLoadedFontPath` collected any literal `src` property anywhere in the module, not the `localFont()` argument. Mutant: a decoy `const guardOnly = {src: "…InterVariable-latin.woff2"}` beside a real `localFont({src: [{path: "…inter-google-latin-v20.woff2"}]})` — the guard resolved the vendored font while Next loaded the Google fixture. It also never handled the array `src` form the loader accepts. | **FIXED.** Anchored to the `localFont()` call expression; exactly one such call, exactly one resolved path, and both the string and array-of-`{path}` spellings handled. |
+| 2 | **P1** | postcss finds explicit `font-feature-settings` declarations — but the **`font` shorthand resets it to its initial value** (CSS Fonts 4 §2.7) while naming neither property. Mutant: `main .code-value { font: 400 16px var(--font-sans); }` left every guard reporting unchanged while all four real `.code-value` surfaces — every one under `<main>` — lost `zero`. The browser probes appended to `<body>`, which the selector deliberately excluded. | **FIXED.** A new assertion bans the `font` shorthand outright, with the reason stated. Browser probes now mount under `<main>`. |
+| 3 | **P1** | `parseFeatureValue` was still regex-shaped and diverged from CSS Fonts 4 §6.12 four ways: well-formed tags containing punctuation were skipped entirely (`"ZZ-Z" 1` never reached the does-the-font-have-it check), negative integers read as enabled, duplicates were not last-value-wins, and unrecognised tokens like `var(--state)` read as an omitted value and therefore ON. | **FIXED.** Rewritten to the spec: full `U+0020–U+007E` tag charset, non-negative integers only, last-value-wins, and unparseable values **fail closed**. |
+| 4 | P2 | Five more documentation contradictions: "one new devDependency" against three; "three assertions" against a file that now holds twelve tests; "gains one test" against six; "22 files" against 14 changed WebPs; and `font-binding.spec.ts:10` still contradicting itself two lines later. | **ALL FIXED.** |
+
+Separately, CI's own `sheetIconLinkContainment` tripwire — *no tracked `.md` under `app/`, because `app/` is the only page-capable tree* — correctly rejected `app/_fonts/PROVENANCE.md`. The font assets moved to `assets/fonts/`, which is where they belonged: they are not route code, and `app/` is Next's routing tree.
+
+**Seven mutants across three rounds, all replayed against the current guard, all caught.**

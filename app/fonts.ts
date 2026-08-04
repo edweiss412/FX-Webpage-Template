@@ -1,7 +1,7 @@
 /**
  * The app's single type family, per DESIGN.md §2.1: "single contemporary sans
  * for all UI. One family, no display/body pairing. Loaded via `next/font/local`
- * from the vendored binary in `app/_fonts/`." (That line named `app/layout.tsx`
+ * from the vendored binary in `assets/fonts/`." (That line named `app/layout.tsx`
  * until 2026-08-03 and `next/font/google` until the numeral-disambiguation
  * change; both were amended in lockstep with this module.)
  *
@@ -19,7 +19,7 @@
  * tnum` and a `wght` axis. So `app/globals.css` spent three months declaring
  * `"cv11" 1` against a font that could not honor it, rendering nothing on every
  * route. The upstream release carries the full feature set plus the `opsz` axis.
- * `app/_fonts/PROVENANCE.md` records the version and checksums;
+ * `assets/fonts/PROVENANCE.md` records the version and checksums;
  * `tests/styles/fontFeatureAvailability.test.ts` makes a repeat of that silent
  * failure fail the build instead.
  *
@@ -62,7 +62,7 @@
 import localFont from "next/font/local";
 
 export const inter = localFont({
-  src: "./_fonts/InterVariable-latin.woff2",
+  src: "../assets/fonts/InterVariable-latin.woff2",
   weight: "100 900",
   style: "normal",
   display: "swap",

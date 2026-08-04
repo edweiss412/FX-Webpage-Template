@@ -23,7 +23,7 @@ never touches capital `I`, so the pair named in the row's own title was incomple
 Inter's own "disambiguation without zero", which covers both letterforms in one tag.
 
 **Shipped:** a latin + latin-ext SUBSET of the upstream `rsms/inter` v4.1 release at
-`app/_fonts/InterVariable-latin.woff2` (173 KB, built by `scripts/subset-inter.sh` from a
+`assets/fonts/InterVariable-latin.woff2` (173 KB, built by `scripts/subset-inter.sh` from a
 checksum-pinned input, OFL text alongside) and loaded via `next/font/local`. The verbatim 344 KB
 release was the decision at the gate; the impeccable audit then measured it costing FCP +136-164ms
 and a fallback-to-Inter swap landing 3.7s in on slow 4G, and the owner revised. CSS: `ss04` at

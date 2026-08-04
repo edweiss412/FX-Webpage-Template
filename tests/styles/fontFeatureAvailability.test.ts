@@ -12,7 +12,7 @@
  * Spec: docs/superpowers/specs/2026-08-03-inter-numeral-disambiguation-design.md §4.1
  *
  * WHY THE FONT PATH IS DERIVED, NEVER HARDCODED. The check is only meaningful
- * against the font the app loads. If this file named `app/_fonts/…` directly, it
+ * against the font the app loads. If this file named `assets/fonts/…` directly, it
  * would keep passing after someone repointed `app/fonts.ts` somewhere else —
  * reintroducing exactly the CSS-says-one-thing/font-does-another split the guard
  * exists to close. So the `src` is parsed out of `app/fonts.ts` and resolved
@@ -65,18 +65,39 @@ const HISTORICAL_TAGS = ["tnum", "cv11"] as const;
 /** A `font-feature-settings` entry: the tag, and whether it is ON. */
 export type FeatureSetting = { tag: string; enabled: boolean };
 
-/** Parse a `font-feature-settings` VALUE into its settings. */
+/**
+ * Parse a `font-feature-settings` VALUE per CSS Fonts 4 §6.12.
+ *
+ * Round 3 enumerated four ways the previous regex diverged from the spec, each
+ * with a live mutant. All four are handled here:
+ *
+ *   - **Tag charset.** A tag is exactly four characters in U+0020–U+007E. `"ZZ-Z"`
+ *     is a WELL-FORMED tag the font does not have, and the old pattern (`[A-Za-z0-9]{4}`)
+ *     skipped it silently, so it never reached the does-the-font-have-it check.
+ *   - **Negative integers are invalid**, not "enabled".
+ *   - **Duplicates are last-value-wins**, so `"ss04" 1, "ss04" 0` is OFF.
+ *   - **Unrecognised value tokens** (`var(--state)`, anything non-integer) are NOT
+ *     treated as an omitted value. They fail closed: the setting is recorded as
+ *     not-confidently-enabled rather than silently ON.
+ */
 export function parseFeatureValue(value: string): FeatureSetting[] {
-  const out: FeatureSetting[] = [];
-  for (const m of value.matchAll(/["']([A-Za-z0-9]{4})["']\s*(on|off|-?\d+)?/g)) {
-    const raw = (m[2] ?? "").trim().toLowerCase();
-    // Per spec, an omitted value means 1. `0`/`off` DISABLES the feature while
-    // leaving the tag present — round 2's mutant, which every name-only check
-    // passed while fontkit measured real shaping corruption (ss04 enabled:
-    // 111/459 glyphs, advance 5868; disabled: 94/444, advance 4184).
-    out.push({ tag: m[1]!, enabled: raw !== "0" && raw !== "off" });
+  const bySpelling = new Map<string, boolean>();
+  for (const rawEntry of value.split(",")) {
+    const entry = rawEntry.trim();
+    if (entry === "") continue;
+    const m = /^(?:"([\u0020-\u007E]{4})"|'([\u0020-\u007E]{4})')\s*(.*)$/.exec(entry);
+    if (!m) continue; // `normal`, or a malformed entry: declares no tag
+    const tag = m[1] ?? m[2]!;
+    const rest = (m[3] ?? "").trim().toLowerCase();
+    let enabled: boolean;
+    if (rest === "" || rest === "on") enabled = true;
+    else if (rest === "off") enabled = false;
+    else if (/^\d+$/.test(rest))
+      enabled = rest !== "0"; // non-negative integer
+    else enabled = false; // negative, var(), or anything unparseable — fail closed
+    bySpelling.set(tag, enabled); // later entry wins
   }
-  return out;
+  return [...bySpelling].map(([tag, enabled]) => ({ tag, enabled }));
 }
 
 /** Every rule in `cssSource` that declares `font-feature-settings`. */
@@ -93,6 +114,24 @@ export function featureRules(
     });
   });
   return rules;
+}
+
+/**
+ * Rules using the `font` SHORTHAND, which silently resets `font-feature-settings`
+ * and `font-variant-numeric` to their initial values (CSS Fonts 4 §2.7).
+ *
+ * Round 3's mutant was `main .code-value { font: 400 16px var(--font-sans); }` —
+ * a declaration that names neither property, so walking `font-feature-settings`
+ * declarations could never see it, while every real `.code-value` surface (all
+ * four are under `<main>`) silently lost `zero`.
+ */
+export function fontShorthandRules(cssSource: string): string[] {
+  const out: string[] = [];
+  postcss.parse(cssSource).walkDecls("font", (decl) => {
+    const parent = decl.parent;
+    out.push(parent && "selector" in parent ? String(parent.selector) : "(unknown)");
+  });
+  return out;
 }
 
 /** The ENABLED tags declared by the rule whose selector list contains `selector`. */
@@ -130,10 +169,15 @@ export function missingTags(tags: readonly string[], fontPath: string): string[]
 /**
  * The font `app/fonts.ts` loads, read off the TypeScript AST.
  *
- * Finds the `src` property of every object literal argument in the module and
- * requires exactly one. The compiler's parser sees a commented decoy as a
- * comment and a `"src: ..."` string constant as a string, so neither reaches
- * this list — which is precisely what the regex version could not manage.
+ * ANCHORED TO THE `localFont()` CALL, not to any `src` property in the module.
+ * Round 3's mutant proved the difference: a decoy object literal
+ * `const guardOnly = { src: "…/InterVariable-latin.woff2" }` alongside a real
+ * `localFont({ src: [{ path: "…/inter-google-latin-v20.woff2" }] })` had the
+ * guard resolving the vendored file while Next loaded the Google fixture.
+ *
+ * Both `src` spellings the loader accepts are handled — a bare string, and the
+ * array-of-`{path}` form for multi-file families. The array form must resolve to
+ * exactly one path here, since this guard checks one font.
  */
 export function resolveLoadedFontPath(): string {
   const source = ts.createSourceFile(
@@ -142,33 +186,75 @@ export function resolveLoadedFontPath(): string {
     ts.ScriptTarget.Latest,
     true,
   );
-  const found: string[] = [];
+
+  const calls: ts.ObjectLiteralExpression[] = [];
   const visit = (node: ts.Node): void => {
-    if (
-      ts.isPropertyAssignment(node) &&
-      ((ts.isIdentifier(node.name) && node.name.text === "src") ||
-        (ts.isStringLiteral(node.name) && node.name.text === "src")) &&
-      ts.isStringLiteralLike(node.initializer)
-    ) {
-      found.push(node.initializer.text);
+    if (ts.isCallExpression(node)) {
+      const callee = node.expression;
+      const name = ts.isIdentifier(callee)
+        ? callee.text
+        : ts.isPropertyAccessExpression(callee)
+          ? callee.name.text
+          : "";
+      // The loader is imported as a default binding, conventionally `localFont`.
+      // Matching the CALL rather than a property name is the whole point.
+      if (/^(localFont|.*Font)$/.test(name) && node.arguments.length > 0) {
+        const arg = node.arguments[0];
+        if (arg && ts.isObjectLiteralExpression(arg)) calls.push(arg);
+      }
     }
     ts.forEachChild(node, visit);
   };
   visit(source);
-  if (found.length === 0) {
+
+  if (calls.length !== 1) {
     throw new Error(
-      `app/fonts.ts declares no font \`src\` property. If the loader moved back to ` +
+      `app/fonts.ts contains ${calls.length} font-loader calls with an object ` +
+        `literal argument; this guard checks exactly one.`,
+    );
+  }
+
+  const srcProp = calls[0]!.properties.find(
+    (prop): prop is ts.PropertyAssignment =>
+      ts.isPropertyAssignment(prop) &&
+      ((ts.isIdentifier(prop.name) && prop.name.text === "src") ||
+        (ts.isStringLiteral(prop.name) && prop.name.text === "src")),
+  );
+  if (!srcProp) {
+    throw new Error(
+      `the font-loader call in app/fonts.ts has no \`src\`. If it moved back to ` +
         `next/font/google, this guard can no longer see the font the app loads — ` +
         `fix the guard, do not delete it.`,
     );
   }
-  if (found.length > 1) {
+
+  const paths: string[] = [];
+  const init = srcProp.initializer;
+  if (ts.isStringLiteralLike(init)) {
+    paths.push(init.text);
+  } else if (ts.isArrayLiteralExpression(init)) {
+    for (const el of init.elements) {
+      if (!ts.isObjectLiteralExpression(el)) continue;
+      for (const prop of el.properties) {
+        if (
+          ts.isPropertyAssignment(prop) &&
+          ts.isIdentifier(prop.name) &&
+          prop.name.text === "path" &&
+          ts.isStringLiteralLike(prop.initializer)
+        ) {
+          paths.push(prop.initializer.text);
+        }
+      }
+    }
+  }
+
+  if (paths.length !== 1) {
     throw new Error(
-      `app/fonts.ts declares ${found.length} font \`src\` values (${found.join(", ")}). ` +
-        `This guard checks ONE font; with several it cannot know which the app loads.`,
+      `the font-loader call in app/fonts.ts resolves to ${paths.length} font files ` +
+        `(${paths.join(", ") || "none"}); this guard checks exactly one.`,
     );
   }
-  return resolve(dirname(FONTS_MODULE), found[0]!);
+  return resolve(dirname(FONTS_MODULE), paths[0]!);
 }
 
 describe("font feature availability", () => {
@@ -284,6 +370,22 @@ describe("font feature availability", () => {
 
     test("the code-value rule DOES slash zeros, and keeps the inherited tags", () => {
       expect(ruleTags(".code-value")).toEqual(["ss04", "tnum", "zero"]);
+    });
+
+    test("no rule uses the `font` shorthand, which would silently reset the features", () => {
+      // CSS Fonts 4 §2.7: the `font` shorthand resets font-feature-settings and
+      // font-variant-numeric to their INITIAL values. A rule using it names
+      // neither property, so walking font-feature-settings declarations cannot
+      // see it — round 3's mutant was `main .code-value { font: 400 16px ... }`,
+      // which silently stripped `zero` from every real .code-value surface (all
+      // four are under <main>) while every guard stayed green.
+      const shorthand = fontShorthandRules(css);
+      expect(
+        shorthand,
+        `these rules use the \`font\` shorthand, which resets font-feature-settings ` +
+          `to its initial value and would silently undo ss04/tnum/zero: ` +
+          `${shorthand.join(", ")}. Set the longhands instead.`,
+      ).toEqual([]);
     });
 
     test("`zero` is declared in exactly one rule", () => {
