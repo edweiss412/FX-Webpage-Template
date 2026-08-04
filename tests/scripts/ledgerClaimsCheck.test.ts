@@ -447,6 +447,15 @@ describe("the real git adapter and the JSON envelope (whole-diff F3/F9)", () => 
       { cwd: ROOT, encoding: "utf8", timeout: 90_000 },
     );
     expect(r.status, `CLI failed: ${r.stderr}`).toBe(0);
+    // The direct-invocation guard is fail-OPEN if it breaks: a false
+    // `process.argv[1] === fileURLToPath(import.meta.url)` makes the CLI exit 0
+    // having done nothing, and preflight would print an empty claim list that
+    // reads exactly like "nothing is in flight". JSON.parse below happens to
+    // throw on empty stdout, but incidentally; this states it.
+    expect(
+      r.stdout.trim().length,
+      "the CLI produced nothing — its direct-invocation guard did not fire",
+    ).toBeGreaterThan(0);
     const payload = JSON.parse(r.stdout) as {
       status: string;
       degraded: string[];
