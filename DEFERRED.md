@@ -216,16 +216,6 @@ From the same audit. Tailwind v4's `duration-*` utility resolves `--transition-d
 
 > **UPDATE 2026-07-27: fixed** on `fix/duration-tokens-emit-no-css` (spec `docs/superpowers/specs/2026-07-27-duration-tokens-emit-no-css.md`) via `@theme` `--transition-duration-*` aliases (approach A, not the rename sketched above). The reduced-motion path is now proven on a real Tailwind utility by a WebKit computed-value e2e assertion; compile-emission guard at `tests/design/durationTokenEmission.test.ts`. `BL-DURATION-TOKENS-EMIT-NO-CSS` graduated to `BACKLOG-archive.md`; residual bare-`transition-*` gap filed as `BL-BARE-TRANSITION-NO-DURATION-CLASS`.
 
-### DESTRUCT-ARM-ANNOUNCE-1 — [P2] the armed window closes silently
-
-**Status:** IN PROGRESS · **Branch:** chore/backlog-convergence
-
-From the same audit. At 4s the live region empties and the button's accessible name reverts, but a focused button's name change is not spoken — the user believes they are still armed. Separately, 4s is tight against ~3s of polite speech for the arm message.
-
-**Accepted, not fixed.** Both fixes mean revisiting `ARM_REVERT_MS` for assistive-tech users specifically, which is a decision across all 11 surfaces sharing the constant, not one component. Tracked as `BL-DESTRUCT-ARM-STATE-ANNOUNCEMENTS`.
-
-**Un-defer trigger:** an a11y pass on the destructive-confirm family, or any change to `ARM_REVERT_MS`.
-
 ### SHEETLINK-SUBTLE-ACTION-CLASS-1 — [P1] `text-text-subtle` survives on four sibling icon-only action targets
 
 **Effort:** M

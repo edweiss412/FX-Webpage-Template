@@ -70,6 +70,36 @@ boolean (`const opensNewTab = isExternal && ready;`) and gate both the spread an
 that identifier. Do NOT widen the classifier; that is the loop this limit exists to end. Ratified
 in spec §6.4. Un-defer trigger: a case where hoisting is genuinely impossible.
 
+## DESTRUCT-ARM-ANNOUNCE-1 — GRADUATED 2026-08-04 (the work it tracked is already resolved)
+
+Not a demotion — a graduation the ledger missed. The entry deferred both halves of its finding to
+`BL-DESTRUCT-ARM-STATE-ANNOUNCEMENTS` ("Tracked as ..."), and that row closed on 2026-08-01:
+`BACKLOG-archive.md` carries it as RESOLVED under `fix/announce-a11y-pass`, with gap (1) fixed by the
+shared `ARM_EXPIRED_ANNOUNCEMENT` sr-only `role="status"` and gap (2) — the 4s-versus-speech timing —
+owner-ratified CLOSED as keep-4s-and-announce. Nothing was left for this row to track; it simply had
+no update note, so it kept reading as open work.
+
+Found by the 2026-08-04 semantic screen, which reads every open entry rather than grepping for
+hypothetical language — this row's language was fine, its POINTER was stale.
+
+**Un-defer path, unchanged:** the entry's own trigger ("an a11y pass on the destructive-confirm
+family, or any change to `ARM_REVERT_MS`") still applies to the constant, which is live at
+`lib/admin/destructiveConfirm.ts` with six consumer components. If `ARM_REVERT_MS` moves, re-open
+from the resolved row rather than this one.
+
+screen-disposition 2026-08-04: GRADUATE — the tracking row it delegates to resolved 2026-08-01 with
+both gaps closed, one by fix and one by owner ratification.
+
+The original entry follows verbatim.
+
+### DESTRUCT-ARM-ANNOUNCE-1 — [P2] the armed window closes silently
+
+From the same audit. At 4s the live region empties and the button's accessible name reverts, but a focused button's name change is not spoken — the user believes they are still armed. Separately, 4s is tight against ~3s of polite speech for the arm message.
+
+**Accepted, not fixed.** Both fixes mean revisiting `ARM_REVERT_MS` for assistive-tech users specifically, which is a decision across all 11 surfaces sharing the constant, not one component. Tracked as `BL-DESTRUCT-ARM-STATE-ANNOUNCEMENTS`.
+
+**Un-defer trigger:** an a11y pass on the destructive-confirm family, or any change to `ARM_REVERT_MS`.
+
 ## PSQL-GUARD-RECALL-RESIDUAL — DEMOTED TO A DOCUMENTED LIMIT 2026-08-04
 
 Not resolved and not stale: **demoted** by the 2026-08-04 ledger filing bar (AGENTS.md
