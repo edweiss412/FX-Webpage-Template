@@ -27,6 +27,9 @@ const KNOWN_OPERATORS = new Set<string>(OPERATOR_NAMES);
 /** Operator prefix of a site id (`operator:line:column:from>to`). */
 const operatorOf = (siteId: string): string => siteId.split(":")[0] ?? "";
 
+/** A `BACKLOG.md` / `DEFERRED.md` entry id, matching the repo-wide citation shape. */
+const BACKLOG_REF = /^(BL|DEF)-[A-Z0-9]+(-[A-Z0-9]+)*$/;
+
 /**
  * Static validation. Returns a list of problems; empty means valid.
  *
@@ -85,8 +88,21 @@ export function validateSurface(surface: GuardSurface): string[] {
 
     // Asymmetric on purpose: a deliberately-uncovered gap is debt and must be
     // tracked; a proven equivalence is not debt.
-    if (row.kind === "accepted-gap" && !row.ref?.trim()) {
-      problems.push(`${surface.id}: accepted-gap row requires a ref: ${row.siteId}`);
+    //
+    // The ref must be SHAPED like a real ledger id, not merely non-empty. A
+    // free-text ref makes an accepted gap look tracked while resolving to no
+    // debt entry, which defeats the only reason the field is mandatory. The
+    // shape is checked here; that the id RESOLVES is enforced repo-wide by
+    // tests/docs/_metaLedgerReferentialIntegrity.test.ts.
+    if (row.kind === "accepted-gap") {
+      const ref = row.ref?.trim() ?? "";
+      if (ref === "") {
+        problems.push(`${surface.id}: accepted-gap row requires a ref: ${row.siteId}`);
+      } else if (!BACKLOG_REF.test(ref)) {
+        problems.push(
+          `${surface.id}: accepted-gap ref must be a BL-*/DEF-* ledger id, got "${ref}" (${row.siteId})`,
+        );
+      }
     }
   }
 

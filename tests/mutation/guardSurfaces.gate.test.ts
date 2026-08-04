@@ -41,6 +41,27 @@ describe.each(GUARD_SURFACES.map((s) => [s.id, s] as const))(
       expect(result.passed).toBe(true);
     });
 
+    it("holds the exact ledger-kind counts AC-13 requires", () => {
+      // The score floor is deliberately COARSE (spec §4.3): from the shipping
+      // state it takes three further blessed gaps to breach 0.95. So the floor
+      // cannot detect one or two rows silently migrating between kinds, and
+      // AC-13's numeric authority would go unenforced without this.
+      const kinds = surface.accepted.reduce<Record<string, number>>((acc, row) => {
+        acc[row.kind] = (acc[row.kind] ?? 0) + 1;
+        return acc;
+      }, {});
+      expect(kinds).toEqual({ equivalent: 18, "accepted-gap": 2 });
+    });
+
+    it("classifies every generated mutant exactly once", () => {
+      // The consequence bound in one assertion: killed + survivors must account
+      // for every mutant produced. A dropped outcome leaves the gate green while
+      // the run tested less than it claims.
+      expect(run.killed + run.survivors.length).toBe(run.mutantCount);
+      expect(new Set(run.survivors).size).toBe(run.survivors.length);
+      expect(run.outcomes).toHaveLength(run.mutantCount);
+    });
+
     it("generated mutants at all, and none was a no-op", () => {
       // Guards the vacuity hole from the other side: a run that silently
       // produced nothing would satisfy the ledger and floor conditions.

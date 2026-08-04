@@ -123,6 +123,34 @@ describe("guard-surface registry — validation rejects each malformed row (AC-1
     ).toEqual([]);
   });
 
+  it("rejects an accepted-gap ref that is not shaped like a ledger id (whole-diff R1 F5)", () => {
+    // A non-empty check alone lets an accepted gap LOOK tracked while resolving
+    // to no debt entry, which defeats the only reason the field is mandatory.
+    for (const ref of ["not-a-backlog-id", "TODO", "see backlog", "bl-lowercase"]) {
+      expect(
+        reject({
+          accepted: [
+            { siteId: "equality-flip:1:1:===>!==", kind: "accepted-gap", reason: "x", ref },
+          ],
+        }).join(" "),
+        `ref ${ref}`,
+      ).toMatch(/ref/i);
+    }
+  });
+
+  it("accepts BL- and DEF- shaped refs", () => {
+    for (const ref of ["BL-TASKCONTRACT-SORT-COMPARATOR-EQUALKEY", "DEF-SOMETHING-2"]) {
+      expect(
+        reject({
+          accepted: [
+            { siteId: "equality-flip:1:1:===>!==", kind: "accepted-gap", reason: "x", ref },
+          ],
+        }),
+        `ref ${ref}`,
+      ).toEqual([]);
+    }
+  });
+
   it("rejects duplicate siteIds in one ledger", () => {
     const row = {
       siteId: "equality-flip:1:1:===>!==",

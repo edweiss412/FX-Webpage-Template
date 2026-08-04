@@ -7,7 +7,10 @@ import { type GateInput, evaluateGate } from "./gate";
  */
 const PASSING: GateInput = {
   surfaceId: "taskContract",
-  mutantCount: 84,
+  // The real generated count, NOT the score denominator (84). Conflating the two
+  // is exactly what the accounting condition exists to catch — and it caught this
+  // fixture, which had been asserting a passing gate against inconsistent inputs.
+  mutantCount: 102,
   noOps: [],
   baselineGreen: true,
   killed: 82,
@@ -121,5 +124,37 @@ describe("mutation gate (spec §3.6)", () => {
     const r = evaluateGate({ ...PASSING, survivors: [...PASSING.survivors, "orphan"] });
     const f = r.failures.find((x) => x.condition === "unaccepted-survivor");
     expect(f?.detail).toContain("orphan");
+  });
+
+  it("fails when generated mutants outnumber classified outcomes (whole-diff R1 F2)", () => {
+    // The consequence bound is "killed, ledgered, or fails the gate". Without an
+    // accounting check a mutant can be NONE of those: conditions 1-5 reason about
+    // the survivor list and the killed count without ever confirming they sum to
+    // the mutants produced, so a dropped outcome leaves the gate green.
+    const r = evaluateGate({ ...PASSING, mutantCount: 103 });
+    expect(r.passed).toBe(false);
+    expect(r.failures.map((f) => f.condition)).toContain("unaccounted-mutants");
+  });
+
+  it("fails when killed is overcounted relative to the mutants generated", () => {
+    const r = evaluateGate({ ...PASSING, killed: 83 });
+    expect(r.failures.map((f) => f.condition)).toContain("unaccounted-mutants");
+  });
+
+  it("fails on a duplicate survivor id, which would otherwise mask a missing outcome", () => {
+    // Repeating one survivor keeps the ARRAY length right while a real outcome is
+    // absent, so the count check alone can be defeated by duplication.
+    const dup = [...PASSING.survivors.slice(0, -1), PASSING.survivors[0]!];
+    const r = evaluateGate({ ...PASSING, survivors: dup });
+    expect(r.passed).toBe(false);
+    expect(r.failures.map((f) => f.condition)).toContain("duplicate-survivor");
+  });
+
+  it("names the duplicated id so a red run is triageable", () => {
+    const dup = [...PASSING.survivors.slice(0, -1), PASSING.survivors[0]!];
+    const f = evaluateGate({ ...PASSING, survivors: dup }).failures.find(
+      (x) => x.condition === "duplicate-survivor",
+    );
+    expect(f?.detail).toContain(PASSING.survivors[0]!);
   });
 });

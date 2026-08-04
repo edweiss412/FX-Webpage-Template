@@ -14,7 +14,9 @@ export type GateCondition =
   | "stale-ledger-row"
   | "below-floor"
   | "no-mutants"
-  | "non-finite-score";
+  | "non-finite-score"
+  | "unaccounted-mutants"
+  | "duplicate-survivor";
 
 export type GateFailure = { condition: GateCondition; detail: string };
 
@@ -40,6 +42,34 @@ export function evaluateGate(input: GateInput): GateResult {
     failures.push({
       condition: "no-op",
       detail: `${input.noOps.length} no-op mutant(s): ${input.noOps.join(", ")}`,
+    });
+  }
+
+  // ACCOUNTING. Every generated mutant must be classified exactly once: the
+  // consequence bound is "killed, ledgered, or fails the gate", and without this
+  // a mutant can be neither. Conditions 3-5 all reason about the survivor LIST
+  // and the killed COUNT without ever checking they add up to the mutants
+  // actually produced, so a dropped outcome — a `continue` in the run loop, a
+  // filter that quietly discards, an exception swallowed per-mutant — leaves the
+  // gate green while the run tested less than it claims.
+  const uniqueSurvivors = new Set(input.survivors);
+  if (uniqueSurvivors.size !== input.survivors.length) {
+    const seen = new Set<string>();
+    const dupes = input.survivors.filter((s) => (seen.has(s) ? true : (seen.add(s), false)));
+    failures.push({
+      condition: "duplicate-survivor",
+      detail: `survivor id(s) reported more than once: ${[...new Set(dupes)].join(", ")}`,
+    });
+  }
+
+  const accounted = input.killed + uniqueSurvivors.size;
+  if (accounted !== input.mutantCount) {
+    failures.push({
+      condition: "unaccounted-mutants",
+      detail:
+        `${input.surfaceId}: ${input.mutantCount} mutant(s) generated but ${accounted} classified ` +
+        `(killed ${input.killed} + ${uniqueSurvivors.size} distinct survivor(s)). ` +
+        `Every generated mutant must be killed or survive; a mutant that is neither was silently dropped.`,
     });
   }
 
