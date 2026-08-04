@@ -540,3 +540,17 @@ The recogniser's test table asserts REFUSAL for every mutant rounds 3–7 produc
 | r7 | `"ZZ-Z" \6f n`, all six whitespace spellings | refused |
 
 **Nineteen mutants across seven rounds. All caught.**
+
+### 12.8 Round 8 — the recogniser held; discovery did not
+
+`VERDICT: NEEDS-ATTENTION`, one P1, accepted and fixed.
+
+**The round-7 approach change held.** The reviewer states plainly that no accepted-value escaping mutant was found inside the canonical recogniser, and that removing `postcss-value-parser` left no live imports or lockfile entry. Four rounds of value-parsing findings ended when the guard stopped parsing.
+
+The finding is on a different surface: **declaration DISCOVERY**. CSS property names are ASCII case-insensitive (CSS Syntax §5.4.5); postcss's string form of `walkDecls` is not. `FONT-FEATURE-SETTINGS: "ZZ-Z" 1` was invisible to the walk, honoured by the browser, and therefore never reached the fail-closed recogniser at all — the value was never refused because the declaration was never seen. The same applied to `FONT:` in the shorthand ban. The browser assertions could not close it: they inspect their own inline declarations and specific classes, not every stylesheet declaration.
+
+**FIXED** by matching both properties with a case-insensitive RegExp. Mutation-proven in three spellings: `FONT-FEATURE-SETTINGS:`, `Font-Feature-Settings:`, and `FONT:` as the shorthand.
+
+Worth naming for the record: the fail-closed design from §12.7 is only as good as what reaches it. Refusing well is useless on a declaration you never looked at — and that is a discovery bug, not a parsing bug, which is why it survived the approach change.
+
+**Twenty-two mutants across eight rounds. All caught.**

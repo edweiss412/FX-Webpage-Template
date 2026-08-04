@@ -148,7 +148,12 @@ export function featureRules(
     refusal: string | null;
     raw: string;
   }[] = [];
-  postcss.parse(cssSource).walkDecls("font-feature-settings", (decl) => {
+  // CASE-INSENSITIVE. CSS property names are ASCII case-insensitive (CSS Syntax
+  // §5.4.5), and postcss's string form of walkDecls is not. Round 8's mutant was
+  // simply `FONT-FEATURE-SETTINGS:` — invisible to the walk, honoured by the
+  // browser, and therefore a declaration that never reached the fail-closed
+  // recogniser at all.
+  postcss.parse(cssSource).walkDecls(/^font-feature-settings$/i, (decl) => {
     const parent = decl.parent;
     const selector = parent && "selector" in parent ? String(parent.selector) : "";
     const parsed = parseFeatureValue(decl.value);
@@ -173,7 +178,9 @@ export function featureRules(
  */
 export function fontShorthandRules(cssSource: string): string[] {
   const out: string[] = [];
-  postcss.parse(cssSource).walkDecls("font", (decl) => {
+  // Case-insensitive for the same reason as above: `FONT:` is the `font`
+  // shorthand, and it resets font-feature-settings just as quietly.
+  postcss.parse(cssSource).walkDecls(/^font$/i, (decl) => {
     const parent = decl.parent;
     out.push(parent && "selector" in parent ? String(parent.selector) : "(unknown)");
   });
