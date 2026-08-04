@@ -87,7 +87,17 @@ describe("ledger claim collision (cross-branch backstop)", () => {
     // and it respects the wall-clock constraint at
     // .github/workflows/unit-suite.yml:149 that rejected fetch-depth: 0.
     try {
-      git(["fetch", "--no-tags", "--depth=1", "origin", "+refs/heads/*:refs/remotes/origin/*"]);
+      // ONLY under CI, and only into an already-shallow checkout. A --depth=1
+      // fetch CONVERTS a full clone into a shallow one: it writes .git/shallow,
+      // which then breaks merge-base, ancestry, and this repo's own
+      // merged-exclusion for every later command in that worktree. This test did
+      // exactly that to its author's worktree, which is how the rule was learned.
+      //
+      // Locally the refs are already present and current from ordinary work, so
+      // there is nothing to fetch and nothing to damage.
+      if (IN_CI) {
+        git(["fetch", "--no-tags", "--depth=1", "origin", "+refs/heads/*:refs/remotes/origin/*"]);
+      }
     } catch (e) {
       // Under CI a fetch failure FAILS: a guard that cannot see the universe
       // must not report it clean. Locally it skips, so an offline `pnpm test`
