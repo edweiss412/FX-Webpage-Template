@@ -14,6 +14,12 @@ merge-blocking unit suite.
 `mutants.mjs` applies 30 mutations to a known-good stylesheet and asserts the
 guard rejects every one.
 
+`harness-guard.mjs` + `harness-mutants.mjs` are the harness-side twin. They
+simulate the target-state `compileEntryCss` post-step — rewrite `/fonts/` URLs
+to bare siblings, `swap` to `block`, copy the seven files beside the output —
+and check the four §4.1 harness rows plus their preconditions: 7 rows, 8
+mutants, all killed. Together the two instruments are 22 rows and 38 mutants.
+
 ## Running it
 
 Lightning CSS is a transitive dependency until the plan adds the exact pin, so

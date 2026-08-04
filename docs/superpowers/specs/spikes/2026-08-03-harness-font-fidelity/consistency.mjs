@@ -40,7 +40,15 @@ check("combining-mark feature", !/combining marks for cyrillic/.test(t),
 check("wait anchor", !/await is placed \*at the navigation site\*/.test(t),
   "placement stated as the navigation site, contradicting the content-present anchor");
 
-// 6. Every count above should appear at least once (catches a rename losing a claim).
+// 6. Coverage numbers must not contradict each other. Added after the harness
+// instrument landed and made an earlier "not among the 30" caveat false --
+// the same peer-staleness this file exists to catch, one level up.
+check("stale coverage caveat", !/they are \*\*not\*\* among the 30/.test(t),
+  "still discloses the harness rows as uncovered");
+const rows = t.match(/\b22 rows and 38 mutants\b/);
+check("coverage totals present", !!rows, "the 22-rows/38-mutants total is missing or was reworded");
+
+// 7. Every count above should appear at least once (catches a rename losing a claim).
 for (const [k, v] of Object.entries(counts))
   check(`count present: ${k}`, new RegExp(`\\b${v}\\b`).test(t), `no occurrence of ${v}`);
 
