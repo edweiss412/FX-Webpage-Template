@@ -154,7 +154,16 @@ The redirect is not incidental. An earlier draft published this same reproductio
 
 Worse, the truncated value is **not stable**: the same pipe has been observed at `65536`, `81920`, and `8171`. That is not buffer scheduling — §2.2.3 identifies the actual cause, which A1 must fix before it can work at all.
 
-A quarter-megabyte report for a document with **zero** hard findings is the shape of the problem: the bytes are inventory, not signal. The 13 largest reports together reach 2,008,482 bytes, crossing the wrapper's cap before any brief text, so a repeatable flag whose every individual run exits 0 or 1 could still fail composition.
+A quarter-megabyte report for a document with **zero** hard findings is the shape of the problem: the bytes are inventory, not signal. The 13 largest **raw** reports together reach 2,008,482 bytes, crossing the wrapper's cap before any brief text — which is the argument for *filtering*, and it is decisive.
+
+It is not, however, an argument that filtered reports threaten the cap, and an earlier draft used it as one. Measured across all 348 tracked spec documents:
+
+```
+largest filtered    : 42458      13 largest FILTERED : 284555
+ALL 348 FILTERED    : 1718166    wrapper cap         : 2000000
+```
+
+The 13 largest filter to 284 KB, seven times under the cap, and linting the **entire corpus in a single dispatch** would still fit. The budget is therefore a backstop against a pathological invocation, not a constraint any realistic dispatch approaches — which is exactly how §6 item 8 describes it, and why the number is set well below where the real limit bites rather than tuned against it.
 
 Measure this with output redirected to a file, never through a captured pipe — for the reason given in §2.2.3, which is a defect in the CLI rather than a property of measurement.
 
@@ -168,8 +177,9 @@ INVENTORY at line 179 | summary lines found: 1 | bare-INVENTORY collisions: 1
 The worst report in the corpus lands at 20 KB filtered, so the 200,000-byte budget accommodates roughly ten of the largest documents in one dispatch and the wrapper's 2,000,000-byte composition cap is never approached in realistic use. Truncation is the guard against a pathological invocation, not a thing reviewers should expect to see.
 
 - Reports are embedded in `--lint-doc` argument order, and that order is preserved.
-- The embedded reports carry a combined budget of 200,000 bytes. When a report would cross it, it is truncated at a line boundary and the block ends with an explicit `[truncated: N of M bytes shown]` line, so the reviewer is never shown a silently shortened report.
-- Truncation is never a refusal. Exceeding the budget is an expected consequence of a valid input, not a fault.
+- **Each report's allowance is the remaining budget minus the floors of every report still to come.** Without this, allocation is greedy and an earlier report expands into a later one's frame: measured on two real reports at a forced 6,000-byte budget, report 1 took 5,928 and left 72 for a report whose floor is 161, so the emitted total reached 6,089 — over budget, with every per-report property still holding. Reserving downstream floors brings the same pair to 5,945. The seating check (§2.2.4) guarantees the reservation is always satisfiable.
+- The embedded reports carry a combined budget of 200,000 bytes. When a report would cross its allowance it is truncated at a line boundary and carries an explicit `[truncated: N of M bytes shown]` line **immediately before its `summary:` line**, so the reviewer is never shown a silently shortened report. An earlier wording said the block "ends with" the notice, which contradicted §2.2.4's construction placing the summary last; the notice is penultimate, never final.
+- **Truncation is never a refusal, and that is a statement about content, not about seating.** A report that is seated and then shortened is an expected consequence of a valid input. A *request* whose reports cannot all be seated at their frame-plus-notice floor is a different thing — a caller error — and refuses with exit 2 (§2.2.4). The two were previously stated as one unconditional rule, which contradicted the seating exception outright.
 
 ### 2.2.3 Precondition — the CLI truncates its own output on a pipe
 
@@ -210,15 +220,32 @@ The word doing the damage is "full", and it was written when a human pasted term
 
 **"Every finding" is unachievable in general, and pretending otherwise made four requirements that cannot all hold.** A report whose findings alone exceed 200,000 bytes cannot be embedded whole under a 200,000-byte budget while also dispatching. Probed against the corpus's largest report: `requiredFindingPlusSummaryBytes=220056` against `budget=200000`. So the contract is stated **conditionally**, in three properties whose conjunction is satisfiable for every input:
 
-Define the **frame** of a report as its two header lines, the blank after them, and the `summary:` line — everything that is not a finding, an inventory entry, or a finding's subordinate `detail:` line. The frame is what makes a report readable as a report; the body is what varies.
+**The emitted block is defined by construction, in this exact order**, which is what makes the transformation total rather than a set of properties to be reconciled:
 
-- **P1, unconditional — the transformation is content-blind, and the frame is never dropped.** It removes one contiguous block delimited by a bare `INVENTORY` line and the `summary:` line. If the result exceeds its allowance, it drops whole lines **from the end of the body**, never from the frame: the emitted block is the header, a prefix of the body, the `[truncated: …]` notice, and the `summary:` line last. No line is ever selected against by what it says.
+1. the **head** — the report's first three lines (two headers and the blank following them);
+2. the **body**, or a prefix of it — every line after the head up to but excluding whichever comes first, the bare `INVENTORY` line or the `summary:` line;
+3. the **notice**, `[truncated: N of M bytes shown]`, present if and only if the body was shortened;
+4. the **summary** line, always last.
+
+Head and summary together are the **frame**. Body is defined by *position*, not by enumerating what it contains — an earlier draft enumerated it as "findings, inventory entries, and `detail:` lines" and thereby omitted the renderer's check-section labels, which are a real and unclassified line class:
+
+```
+$ node --import tsx scripts/spec-lint.ts <this spec> | rg -n '^[a-z]+:$|^summary:'
+4:citations:
+31:numerics:
+54:copy:
+622:summary: 0 hard, 25 advisory
+```
+
+Three occurrences in a single report, belonging to no named class — so a partition built on the enumeration had no home for them. Positional definition has no such gap: every line of a raw report is head, body, inventory, or summary, by where it sits.
+
+- **P1, unconditional — the transformation is content-blind, and the frame is never dropped.** It removes the `INVENTORY` block and, if the result exceeds its allowance, drops whole lines **from the end of the body** — never from the head, never the summary, never the notice. The emitted order is the four-step construction above. No line is ever selected against by what it says.
 
   An earlier draft said "drops whole lines from the end" without excepting the frame — and `summary:` **is** the last line, so the very first line truncation removed was the one the next paragraph promised always survives. The prototype written for this section made exactly that mistake and its assertions missed it, because they checked summary-survival on the filtered body *before* budgeting rather than on the emitted block.
 
 - **P2, untruncated case — the emitted body is raw stdout with exactly the `INVENTORY` block removed**, compared as a **full ordered line sequence**, not as a set or multiset of finding lines. Finding-line comparison is too weak in a way that matters: the renderer emits subordinate `detail:` lines (`scripts/spec-lint.ts:55`), and a mutant deleting every one of them preserves the finding lines, the summary, and the absence of `INVENTORY` — passing while silently discarding the diagnostic evidence a reviewer needs. Sequence comparison subsumes findings, details, headers, blanks, and ordering in one assertion.
 
-- **P3, truncated case — the emitted block is the frame plus a prefix of the body plus the notice.** Nothing is reordered or reselected; the reviewer sees a documented head of the report, and always sees the totals it should have had.
+- **P3, truncated case — the emitted block is exactly steps 1–4 with a proper prefix at step 2.** Nothing is reordered or reselected: the head keeps its lines in their original order, the retained body lines keep theirs, and the summary stays last with the notice immediately before it. The reviewer sees a documented head of the report and always sees the totals it should have had. `N` in the notice is the byte count actually retained and `M` the byte count the body would have had — both are asserted (AC-21.7), because a notice that lies about the ratio is worse than none.
 
 **§6 item 8 is therefore not in conflict with this section — it is P3.** An earlier draft asserted "every finding" unconditionally here while §6 admitted truncation withholds findings, which is a flat contradiction rather than a tension. The amended rule's "if the report is abridged for size, the dispatch says so explicitly and says how much was dropped" is precisely the clause that makes P3 conformant rather than a violation.
 
@@ -242,7 +269,8 @@ AC-41 pins the amendment; it is a docs change in this PR, not a note for later. 
 | the child fails to spawn (`ENOENT`), or dies on a signal (`code === null`) | **refuse to dispatch**, exit 2 |
 | lint exits 2 (usage or infra fault, including a tracked symlink) | **refuse to dispatch**, exit 2, no result.json Codex outcome |
 | `--lint-doc` resolves outside `--cwd`'s repo, or is unreadable | refuse, exit 2, message names path and repo root (§2.2.1) |
-| embedded reports exceed the 200,000-byte budget | truncate at a line boundary with an explicit notice; dispatch proceeds (§2.2.2) |
+| embedded reports exceed the 200,000-byte budget, but every report is seatable | truncate at a line boundary with an explicit notice; dispatch proceeds (§2.2.2) |
+| the requested reports cannot all be seated at their frame-plus-notice floor | **refuse to dispatch**, exit 2, message names the report count and the budget (§2.2.4) |
 | no `--lint-doc` given | dispatch proceeds; result.json records `lintArm: "absent"` |
 
 Findings never block dispatch. A doc with 40 citation failures is exactly the doc a reviewer most needs the report for. Only a tool that could not run blocks, which matches the exit-2-is-infra semantics `spec:lint` already defines.
@@ -573,12 +601,17 @@ The over-budget case is AC-21's, and its assertion is P3 rather than P2: the ret
 
 **AC-20.** The embedded block excludes the CLI's `INVENTORY` section and contains its findings.
 
-**AC-21.** Reports embed in argument order; when the combined 200,000-byte budget is crossed, the block truncates at a line boundary, carries an explicit truncation notice, and the dispatch still proceeds. Four assertions, because the first two alone leave three live mutants:
+**AC-21.** Reports embed in argument order. When the combined 200,000-byte budget is crossed **and every report is still seatable**, blocks truncate at a line boundary, carry an explicit notice, and the dispatch proceeds; when they are not all seatable, the dispatch refuses (item 4). Seven assertions, because the obvious three leave six live mutants:
 
 1. **The sum of the emitted blocks is `<= 200,000` bytes, notices included.** The obvious implementation truncates the body to the remaining allowance and *then* appends the notice, so every truncated block overshoots by the notice's length. Measured on a prototype over two real reports with the budget forced to 6,000: the running total finished at `-29` and `-64`. P1, P2 and P3 all passed there — nothing in the earlier criteria looked at the running total, which is exactly how it survived.
 2. **The `summary:` line is present in every emitted block, truncated or not** — asserted on the *emitted block*, never on the pre-budget body. This is the assertion the same prototype got wrong: it checked summary-survival before budgeting, so it could not see that dropping "whole lines from the end" removes the summary first (§2.2.4 P1).
 3. **The retained body lines are a prefix of the untruncated body**, so nothing is reordered or reselected.
 4. **A request whose reports cannot all be seated at their frame-plus-notice floor exits 2** with a message naming the count and the budget, rather than silently dropping whole reports (§2.2.4). Distinguishable from AC-3's and AC-19's exit 2 by its message.
+5. **The head survives intact in every emitted block** — all three lines, in order. Assertions 1–3 are all satisfied by a mutant that drops head lines to make room, since the sum shrinks, the summary is still last, and the retained body is still a prefix.
+6. **The summary is the last line and the notice is immediately before it.** A mutant emitting the notice last satisfies 1, 2, 3 and 5 — the summary is still *present*, merely no longer final — and produces a block whose totals read as if they belonged to the truncation notice.
+7. **The notice's arithmetic is truthful**: `N` equals the bytes of body actually retained and `M` the bytes the untruncated body would have had, both recomputed in the test rather than read back from the notice. A mutant emitting fixed or inverted numbers satisfies every other assertion while telling the reviewer a false ratio, which is worse than omitting the notice.
+
+Assertions 5, 6 and 7 exist because 1–4 admit exactly these three escapes, each demonstrated live: `drop_frame_lines`, `notice_last`, and `false_notice_math` all pass an AC-21 limited to budget, summary-presence, prefix and seating. They are only reachable on truncated blocks, so AC-1's untruncated sequence comparison never sees them.
 
 **AC-22.** An enrolled plan whose region selects zero tasks reports `TASK_ENROLL_EMPTY` — pinned both by a wrong-depth fixture and by one whose opening line follows the last matching heading.
 
@@ -639,6 +672,20 @@ fixture with no marker         correct=[DUPLICATE]  mutant=[DUPLICATE, MARKER_MI
 A criterion asserting the absence of a finding only discriminates when the wrong implementation would have produced one.
 
 **AC-27.** Each of the three overlapping marker defects — missing `ac=`, empty `ac=`, empty backticked `red` — yields exactly ONE code, the one the §3.3 precedence assigns, and a task whose only marker is malformed does not additionally report `TASK_MARKER_MISSING`.
+
+**AC-44.** `TASK_MARKER_DUPLICATE` fires on marker **cardinality**, independent of the markers' classification, and is pinned as a matrix rather than a single case: an extent holding two markers reports `TASK_MARKER_DUPLICATE` **together with** whatever code the defective one drew, for each of `TASK_RED_EMPTY`, `TASK_AC_MISSING`, `TASK_MARKER_MALFORMED`, and `TASK_AC_UNRESOLVED` paired with a well-formed marker. The well-formed pair is the base case, not one of the four.
+
+Without the matrix a mutant that counts only well-formed markers toward duplication passes every existing criterion — AC-8 exercises each code on a fixture with no siblings, AC-27 uses single-marker defects, and AC-29 enumerates line class against region state, not cardinality against outcome. Its escapes, demonstrated:
+
+```
+well+well                     correct=[DUPLICATE]                     mutant=[DUPLICATE]
+TASK_RED_EMPTY+well           correct=[DUPLICATE,RED_EMPTY]           mutant=[RED_EMPTY]
+TASK_AC_MISSING+well          correct=[DUPLICATE,AC_MISSING]          mutant=[AC_MISSING]
+TASK_MARKER_MALFORMED+well    correct=[DUPLICATE,MARKER_MALFORMED]    mutant=[MARKER_MALFORMED]
+TASK_AC_UNRESOLVED+well       correct=[DUPLICATE,AC_UNRESOLVED]       mutant=[AC_UNRESOLVED]
+```
+
+It passes the one case anyone writes by hand and silently omits duplication in every mixed extent — which is the shape "occupies the slot" (§3.3) exists to guarantee and nothing yet asserted.
 
 **AC-28.** A marker on a line after `<!-- tasks: end -->` but before the next equal-or-shallower heading reports `TASK_MARKER_ORPHANED`, and the preceding task reports `TASK_MARKER_MISSING` if it has no marker of its own. Pinned as one fixture asserting both, since the defect was that these two rules disagreed about the same line.
 
