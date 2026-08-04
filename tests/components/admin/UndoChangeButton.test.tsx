@@ -11,8 +11,9 @@
 //    component must surface the typed failure via lib/messages (invariant 5).
 import "@testing-library/jest-dom/vitest";
 import { afterEach, expect, it, vi } from "vitest";
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { UndoChangeButton } from "@/components/admin/UndoChangeButton";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { UndoChangeButton, type UndoButtonResult } from "@/components/admin/UndoChangeButton";
+import { UndoAnnounceContext } from "@/components/admin/undoAnnounceContext";
 
 afterEach(cleanup);
 
@@ -35,9 +36,13 @@ it("surfaces UNDO_SUPERSEDED post-submit via ErrorExplainer (catalog copy, no ra
   await act(async () => {
     fireEvent.click(screen.getByRole("button", { name: /undo this change/i }));
   });
-  expect(await screen.findByTestId("change-feed-undo-result")).toBeInTheDocument();
-  // catalog copy renders; the raw code NEVER appears in the DOM (invariant 5).
-  expect(screen.getByText(/nothing to undo/i)).toBeInTheDocument();
+  // Scoped INSIDE the result node: with the region always mounted, a global
+  // getByText could be satisfied by copy another element renders.
+  expect(
+    within(await screen.findByTestId("change-feed-undo-result")).getByTestId(
+      "error-explainer-message",
+    ),
+  ).toHaveTextContent(/nothing to undo/i);
   expect(screen.queryByText("UNDO_SUPERSEDED")).toBeNull();
 });
 
@@ -47,8 +52,11 @@ it("surfaces UNDO_EMAIL_CLAIMED post-submit via ErrorExplainer — P6-F1", async
   await act(async () => {
     fireEvent.click(screen.getByRole("button", { name: /undo this change/i }));
   });
-  expect(await screen.findByTestId("change-feed-undo-result")).toBeInTheDocument();
-  expect(screen.getByText(/belongs to someone else/i)).toBeInTheDocument();
+  expect(
+    within(await screen.findByTestId("change-feed-undo-result")).getByTestId(
+      "error-explainer-message",
+    ),
+  ).toHaveTextContent(/belongs to someone else/i);
   expect(screen.queryByText("UNDO_EMAIL_CLAIMED")).toBeNull();
 });
 
@@ -58,7 +66,8 @@ it("renders NO error panel on a successful undo ({ok:true}) — P6-F1", async ()
   await act(async () => {
     fireEvent.click(screen.getByRole("button", { name: /undo this change/i }));
   });
-  expect(screen.queryByTestId("change-feed-undo-result")).toBeNull();
+  // Always-mounted live region: present but EMPTY is the no-failure state.
+  expect(screen.getByTestId("change-feed-undo-result")).toHaveTextContent("");
 });
 
 it("stretch=false (default) → button not w-full; stretch → form + button w-full", () => {
@@ -81,4 +90,98 @@ it("quiet=false (default) → bordered; quiet → borderless transparent (recess
   expect(q.className).toMatch(/border-transparent/);
   expect(q.className).toMatch(/bg-transparent/);
   expect(q.className).not.toMatch(/border-border-strong/);
+});
+
+// ---- Task 4: success announcement (spec §3.3a) ----
+
+function renderWithSpy(
+  undoAction: (p: UndoButtonResult | null, f: FormData) => Promise<UndoButtonResult>,
+  announceLabel?: string,
+) {
+  const announce = vi.fn();
+  const ui = render(
+    <UndoAnnounceContext.Provider value={{ announce }}>
+      <UndoChangeButton
+        changeLogId="cl-1"
+        undoAction={undoAction}
+        {...(announceLabel === undefined ? {} : { announceLabel })}
+      />
+    </UndoAnnounceContext.Provider>,
+  );
+  return { announce, ...ui };
+}
+
+const clickUndo = async () =>
+  act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: /undo this change/i }));
+  });
+
+it("announces the row's summary exactly once on {ok:true}", async () => {
+  // Catches: the feature silently not firing, and double-announcing one submit.
+  // The literal is the real generator shape, not an invented one.
+  const { announce } = renderWithSpy(
+    vi.fn().mockResolvedValue({ ok: true }),
+    "Crew member Alice Chen removed",
+  );
+  await clickUndo();
+  expect(announce).toHaveBeenCalledTimes(1);
+  expect(announce).toHaveBeenCalledWith(
+    'Undone. "Crew member Alice Chen removed" no longer applies.',
+  );
+});
+
+it("announces NOTHING on a typed failure", async () => {
+  // Catches: announcing a success that did not happen.
+  const { announce } = renderWithSpy(
+    vi.fn().mockResolvedValue({ ok: false, code: "UNDO_SUPERSEDED" }),
+    "Crew member Alice Chen removed",
+  );
+  await clickUndo();
+  expect(announce).not.toHaveBeenCalled();
+});
+
+it("announces NOTHING when the action throws", async () => {
+  const { announce } = renderWithSpy(vi.fn().mockRejectedValue(new Error("boom")), "X");
+  try {
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /undo this change/i }));
+    });
+  } catch {
+    // The rejection propagating is today's behavior and not what this test pins;
+    // what matters is that nothing was announced for a failed undo.
+  }
+  expect(announce).not.toHaveBeenCalled();
+});
+
+it("falls back to the bare sentence when no announceLabel is given", async () => {
+  const { announce } = renderWithSpy(vi.fn().mockResolvedValue({ ok: true }));
+  await clickUndo();
+  expect(announce).toHaveBeenCalledWith("Change undone.");
+});
+
+it("does not throw or announce when mounted with NO provider", async () => {
+  // Catches: the no-op default failing to hold. Silence here is correct;
+  // the structural guard is what stops it becoming silence in production.
+  const undoAction = vi.fn().mockResolvedValue({ ok: true });
+  render(<UndoChangeButton changeLogId="cl-1" undoAction={undoAction} announceLabel="X" />);
+  await clickUndo();
+  expect(undoAction).toHaveBeenCalledTimes(1);
+  // The "or announce" half, which was previously unasserted: with no provider
+  // the no-op default runs, so nothing reaches any region on the page.
+  expect(document.querySelector('[role="log"]')).toBeNull();
+});
+
+it("keeps the SAME result node across a failure (never a node insertion)", async () => {
+  // The whole reason the wrapper is always mounted: a live region inserted at
+  // announce time is the classic not-announced pitfall (DESIGN.md:479). Text
+  // equality alone would pass even if the node had been destroyed and replaced.
+  const undoAction = vi.fn().mockResolvedValue({ ok: false, code: "UNDO_SUPERSEDED" });
+  render(<UndoChangeButton changeLogId="cl-1" undoAction={undoAction} />);
+  const before = screen.getByTestId("change-feed-undo-result");
+  expect(before).toHaveTextContent("");
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: /undo this change/i }));
+  });
+  expect(screen.getByTestId("change-feed-undo-result")).toBe(before);
+  expect(before).not.toHaveTextContent("");
 });

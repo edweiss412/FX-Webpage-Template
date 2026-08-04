@@ -28,3 +28,4 @@ Post-deployment (v1.X+) specs grouped by subsystem. See [`../README.md`](../READ
 | [`2026-07-18-callout-preview-action-cue.md`](./2026-07-18-callout-preview-action-cue.md) | 2026-07-18 |
 | [`2026-07-25-secondary-drive-id-nonblank.md`](./2026-07-25-secondary-drive-id-nonblank.md) | 2026-07-25 |
 | [`2026-07-26-driveid-guard-cluster-design.md`](./2026-07-26-driveid-guard-cluster-design.md) | 2026-07-26 |
+| [`2026-08-03-close-v1-override-wont-build.md`](./2026-08-03-close-v1-override-wont-build.md) | 2026-08-03 |

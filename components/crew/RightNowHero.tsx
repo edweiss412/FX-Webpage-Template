@@ -1,19 +1,22 @@
 /**
  * components/crew/RightNowHero.tsx — crew-redesign §4.3 / §4.16.
  *
- * `RightNowHero` IS `RightNowCard` re-skinned into the mock's five-slot hero
- * (§4.16): eyebrow (+ live-dot when "now"), lead, detail, progress (segments),
+ * `RightNowHero` IS the retired `RightNowCard` re-skinned into the mock's
+ * five-slot hero (§4.16): eyebrow (+ live-dot when "now"), lead, detail,
+ * progress (segments),
  * stats (≤3 key-values, one accented). It consumes the SAME `selectRightNowState`
- * machine and a `RightNowContext` and carries `RightNowCard`'s clock +
+ * machine and a `RightNowContext` and carries that component's clock +
  * state-derivation + `lastGood`/`morph-to-last-good` + `transitionTreatment` +
- * `prefersReducedMotion` machinery VERBATIM (`RightNowCard.tsx:355-664`). Only
- * the body slotting changes — the state machine is NOT re-implemented (§4.16).
+ * `prefersReducedMotion` machinery VERBATIM (carried at `b327d5eb0`; the source
+ * file was retired 2026-08-03, so read that provenance in git history rather
+ * than at a line range that no longer resolves). Only the body slotting
+ * changes — the state machine is NOT re-implemented (§4.16).
  *
  * Props: `{ context }` ONLY. No `state`, no `initialNow`, no server seed. The
- * hero owns the live `new Date()` clock (the `RightNowCard` pattern); it does
+ * hero owns the live `new Date()` clock (the pattern it inherited); it does
  * NOT call `nowDate()` (server-only). Screenshot determinism comes from the
- * capture harness freezing the browser clock (§4.11), exactly as `RightNowCard`
- * requires today.
+ * capture harness freezing the browser clock (§4.11), exactly as the retired
+ * `RightNowCard` required.
  *
  * §4.3 12-state map drives the eyebrow / lead / progress / stats per state.
  * §4.8 two-level stat omission: each stat with a null/empty/non-finite value is
@@ -27,7 +30,7 @@
  *   • right-now-hero      — outer wrapper (also carries data-degraded,
  *                           data-prefers-reduced-motion).
  *   • right-now-state     — hidden marker (data-state / data-rendered-state /
- *                           data-treatment), mirroring RightNowCard.
+ *                           data-treatment), mirroring the retired card.
  *   • right-now-eyebrow   — eyebrow slot (live-dot is a child when "now").
  *   • right-now-body      — keyed AnimatePresence child (lead + detail).
  *   • right-now-lead      — lead slot.
@@ -55,7 +58,7 @@ import type { RightNowContext } from "@/components/right-now/buildRightNowContex
 
 /**
  * Format a relative-time phrase (no em dashes per DESIGN.md §9). Mirrors
- * RightNowCard's helpers so the lead/detail copy stays byte-identical where
+ * the shared helpers so the lead/detail copy stays byte-identical where
  * the §4.3 map reuses the existing phrasing.
  */
 function formatDaysAway(daysAway: number): string {
@@ -95,7 +98,7 @@ type HeroBody = {
 
 /**
  * The §8.2 "degraded zone" — kinds where the date-data fallback path is active
- * (carried verbatim from RightNowCard). Used for the directional `lastGood`
+ * (carried verbatim from the retired card). Used for the directional `lastGood`
  * refinement: render lastGood ONLY while still inside the degraded zone.
  */
 function isDegradedState(kind: RightNowState["kind"]): boolean {
@@ -329,7 +332,7 @@ type RightNowHeroProps = {
  * Hero. Time-aware via a 60-second tick that re-derives the state from a fresh
  * `new Date()` (day-rollover becomes automatic). Render-time `new Date()` is
  * captured in `useState` initial so the very first paint already has a real
- * value (no SSR flash to a stub state). Carried verbatim from RightNowCard.
+ * value (no SSR flash to a stub state). Carried verbatim from the retired card.
  */
 export function RightNowHero({ context }: RightNowHeroProps) {
   const [now, setNow] = useState<Date>(() => new Date());
@@ -339,7 +342,7 @@ export function RightNowHero({ context }: RightNowHeroProps) {
   // misses the INITIAL matchMedia value. The shared matchMedia-on-mount hook
   // resolves the real preference; `null` (SSR + first client render) is
   // treated as "unknown — animate at full duration" for first-paint
-  // consistency. (Verbatim from RightNowCard; M12.11 trap.)
+  // consistency. (Verbatim from the retired card; M12.11 trap.)
   const prefersReducedMotion = usePrefersReducedMotion();
 
   useEffect(() => {
@@ -413,7 +416,7 @@ export function RightNowHero({ context }: RightNowHeroProps) {
   const isStale = showLastGood || body.isStale;
 
   // Diagnostic side-effect for matrix-violating transitions (admin-only;
-  // never user-visible). Verbatim from RightNowCard.
+  // never user-visible). Verbatim from the retired card.
   useEffect(() => {
     if (rawTreatment === "unreachable") {
       clientLog(
@@ -510,7 +513,7 @@ export function RightNowHero({ context }: RightNowHeroProps) {
       />
 
       {/* §4.3 body crossfade. AnimatePresence mode="wait" initial={false}
-          (verbatim from RightNowCard); keyed by renderState.kind so the body
+          (verbatim from the retired card); keyed by renderState.kind so the body
           rebuilds on swap (NOT state.kind — during morph-to-last-good,
           renderState.kind === lastGoodKind so the body does not unmount on the
           kind flip). The container min-h holds height through the crossfade. */}

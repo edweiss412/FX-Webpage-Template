@@ -8,35 +8,39 @@ Last reconciled: 2026-07-24 — swept every merged PR body (#445–#570) for def
 
 ---
 
-### PSQL-STARTUP-FILE-NO-X-CLASSWIDE — every other `psql` call site still reads startup files (2026-08-02)
+### PSQL-GUARD-RECALL-RESIDUAL — three hypothetical gaps in the psql `-X` guard (2026-08-03)
 
-Surfaced by whole-diff review R3 on `test/step3-live-render-cluster`, which proved the vector
-against the installed binary: with a `PSQLRC` (or `$HOME/.psqlrc`, or the compiled system psqlrc)
-containing `\connect postgresql://…@192.0.2.3:5432/postgres`, psql executes it BEFORE the
-statements arriving on stdin, so a validated-local connection is silently replaced and the work
-runs remotely. `psql -X` suppresses startup files and is the documented contract.
+**Effort:** S
 
-**Closed on the gallery path in that branch** (`tests/e2e/helpers/devCaptureStaged.ts`), which is
-the only site the branch touches. **Still open everywhere else.** Census at filing time, from
-`rg -n 'execFileSync\("psql"'`:
+The `-X` class is CLOSED on this repository: `tests/cross-cutting/psqlStartupFiles/scan.ts` walks
+the tree and reports 75 psql call sites, 0 unprotected, 0 indirections, and a new site fails by
+default. Adversarial review rounds R28-R40 hardened the guard's RECALL well past that — roughly 120
+defects fixed, including several real false safes — and closed every gap that touches a surface this
+repo uses.
 
-- `tests/reports/quota.test.ts:12`
-- `tests/reports/_dbHelpers.ts:7`
-- `scripts/generate-schema-manifest.ts:44`
-- `scripts/ci/realtime-relay-diagnostic.ts:26`
-- `tests/dev/materializeRoundTrip.realdb.test.ts:53`
-- `tests/db/_metaCrewReadArchivedGate.test.ts:16`
-- `tests/db/show_share_tokens.test.ts:8`
-- `tests/db/reset_picker_epoch_atomic.test.ts:9`
-- `tests/db/mint-validation-fixture-atomic.test.ts:22`
-- `lib/audit/emailCanonicalization.ts:668`
+Three demonstrated gaps remain, all on surfaces this repo does not use, each with a live mutant and
+each pinned by a test asserting the CURRENT behaviour so a future fix has a failing case waiting:
 
-Deferred rather than swept in that branch because it was a test-and-docs change; adding `-X` to ten
-unrelated call sites would have put unreviewed change into it, and `lib/audit/emailCanonicalization.ts`
-is not a test surface at all. **Fix when prioritized:** add `-X` at every site above, and add a
-structural meta-test asserting that any `execFileSync("psql", …)` in the tree passes `-X`, so the
-class stays closed rather than being re-swept. **Un-defer trigger:** the next milestone touching any
-psql call site, or any hardening pass on local-DB test transport.
+1. **A cardinality-changing GLOB in the COMMAND WORD.**
+   `/opt/homebrew/Cellar/postgresql@*/*/bin/psql -X mydb` expands to several psql paths, so the
+   first receives another as its first positional and `-X` arrives after it — discarded under
+   `POSIXLY_CORRECT`. Globs are refused in ARGUMENTS; the command word is not checked.
+2. **A JS spawn whose `shell` option names a NON-POSIX shell.**
+   `execFileSync("psql", ["-F", "@args", "-X", "mydb"], {shell: "/opt/homebrew/bin/pwsh"})` — the
+   both-readings check parses the joined argv as POSIX shell, while PowerShell splatting removes the
+   empty `@args`, so `-F` consumes `-X`.
+3. **A QUOTED Windows path in SHELL text.** `"C:\pg\bin\psql.exe"` — inside double quotes bash
+   keeps a backslash that precedes an ordinary character, and this lexer strips it. The JS spawn
+   form of the same path IS read, as of R40.
+
+**Why deferred rather than fixed:** none is a miss on any call site in this tree. The census stayed
+75 sites / 0 unprotected through all thirteen rounds, and each of these needs a structural change
+(command-word glob analysis, reading the spawn options object the guard deliberately does not read,
+and a lexer change to double-quote backslash handling) whose regression risk exceeds the risk it
+removes for a Linux-only, no-container, no-Windows repository.
+
+**Un-defer trigger:** this repo adding a Windows runner, a container action, a non-POSIX workflow
+step, or any psql invocation built through a glob or a `shell:` spawn option.
 
 ### STEP3-GALLERY-TAP-TARGETS-1 — sub-44px chrome + a skipped heading level on `/admin?step=3` (2026-08-02)
 
@@ -92,6 +96,8 @@ a documented deliberate revert from `next/image` (which drops cookies), mirrorin
 `components/diagrams/Gallery.tsx:130-144`.
 
 ### NEWTAB-GUARD-UNDECIDABLE-2 — statically undecidable guard limits (2026-07-25; item (b) closed same day)
+
+**Effort:** XS
 
 Ratified as accepted limits in spec §6.4 of
 `docs/superpowers/specs/2026-07-25-newtab-announcement-family.md`, surfaced by whole-diff review
@@ -260,6 +266,8 @@ From the same audit. A needs-you row's accessible name is now `"needs review —
 
 ### DESTRUCT-FOCUSRING-1 — [P1] the light-mode focus ring measures 1.60:1
 
+**Effort:** L
+
 From the impeccable audit of `fix/destruct-thumb-order-drift-guard` (2026-07-25). `--color-focus-ring` composites over white to ≈`#FFC075`, **1.60:1** against adjacent colors, where WCAG 1.4.11 non-text contrast expects 3:1. Dark mode passes at 4.40:1.
 
 **Accepted, not fixed.** This is a token, not a surface: every `focus-visible:ring-focus-ring` control in the app inherits it, so changing it inside a two-button branch would ship an app-wide visual change under a diff about button order. `DESIGN.md`'s contrast table has no focus-ring row, which is why it was never pinned. Tracked by the pre-existing `BL-FOCUS-RING-CONTRAST`, which already owns the token decision and the ~90 bare `ring-offset-2` sweep; this run contributed the measured ratios.
@@ -286,8 +294,34 @@ From the same audit. At 4s the live region empties and the button's accessible n
 
 ### SHEETLINK-SUBTLE-ACTION-CLASS-1 — [P1] `text-text-subtle` survives on four sibling icon-only action targets
 
+**Effort:** M
+
 From the impeccable critique of `feat/sheet-icon-link-affordance-class` (2026-07-26). The diff fixed the DESIGN.md "never an action target" violation on the three icon-only SHEET links, but the same bug shape lives on at `ModalCloseButton.tsx:20`, `RescanSheetButton.tsx:207`, `BellPanel.tsx:1294` (the `bell-panel-close` icon-only dismiss), and `HelpSheet.tsx:145` — and the close button sits in the SAME modal header, so post-merge the secondary sheet link renders DARKER at rest than the primary dismiss beside it (a deliberate-looking inversion that is actually drift).
 
 **Accepted, not fixed.** The backlog entry this branch closes scoped the icon-only sheet-link class; recolouring four more controls — one of which (ModalCloseButton) feeds the byte-for-byte header baselines and every modal suite — is its own class sweep with its own RED edges, not a rider on this diff. The header-inversion observation is the measured cost of waiting.
 
 **Un-defer trigger:** the next DESIGN.md conformance pass, or any edit to ModalCloseButton.
+
+---
+
+## Undo announcement channel — impeccable critique deferrals (2026-08-03)
+
+From the impeccable v3 dual gate on `feat/sync-feed-undo-announce`. The critique's detector ran clean (0 findings) and contrast, tokens, tap targets, em-dash and ARIA all passed. Three findings are accepted and deferred rather than fixed, each with its reason and un-defer trigger.
+
+**P1 — a repeated identical failure does not re-announce.** The three feed action buttons surface failures through an always-mounted `role="status"` card, which announces on text CHANGE. Two consecutive failures with the same error code (the common case, since the same cause yields the same code) mutate nothing, so nothing is spoken: the operator taps again and hears silence. This is the exact class the success channel uses `role="log"` to avoid.
+
+**Accepted, not fixed.** The spec's §1.1 R8 ratified it as a documented limit, and the alternative it names is worse: routing failures through the log channel would leave error copy in a region that persists after the visible card is gone, so a stale failure could be re-read long after it stopped applying. The visible card is present throughout in every case, and `Mi11GateActions` is already exempt because its pending-gated `failing` blanks the region on retry, producing a real text change (`components/admin/Mi11GateActions.tsx:137`).
+
+**Un-defer trigger:** an operator reports a silent retry, or the failure channel is redesigned for any other reason.
+
+**P2 — an uncatalogued error code renders an empty card and announces nothing.** `ErrorExplainer` returns `null` when a code has no catalog row (`components/messages/ErrorExplainer.tsx:82`), so the wrapper paints its bordered warning chrome with no text inside and the live region fires empty.
+
+**Accepted, not fixed.** Behavior is unchanged from before this branch — the conditional wrapper rendered the same empty card. What the branch changes is the promise: an always-mounted live region reads as a commitment to speak. Fixing it properly means resolving the code before deciding to render, which touches the message layer rather than these three components, and every code reachable from these call sites has a catalog row today (`lib/messages/catalog.ts:902`, `:939`, `:952`, `:3275`).
+
+**Un-defer trigger:** any new code reachable from a feed action, or the next `lib/messages` pass.
+
+**P3 — the dialog region's `aria-label` is a constant while its `data-testid` is derived.** `ReviewModalShell` has three render sites, and Step-3 cards hold per-card open state, so two shells can be attached at once and would share the accessible name `"Undo updates in this dialog"`.
+
+**Accepted, not fixed, and deliberately so.** Deriving the label from `testIdBase` was implemented and reverted: it produces names like "Undo updates in the wizard step3 card `<driveFileId>` review dialog", putting internal identifiers into text a screen reader speaks. A leaked drive-file id in an accessible name is a worse outcome for the user than a duplicated label in the rare two-dialog case. The `data-testid` remains derived, so tooling and Playwright stay unambiguous.
+
+**Un-defer trigger:** a human-readable per-dialog name becomes available on the shell (a title prop or similar), or two review dialogs become simultaneously reachable outside Step-3.

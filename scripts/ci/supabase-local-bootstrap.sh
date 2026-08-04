@@ -99,8 +99,12 @@ until supabase start -x imgproxy,mailpit,studio,postgres-meta,edge-runtime,vecto
 done
 DB_CONTAINER="$(docker ps --filter 'name=supabase_db_' --format '{{.Names}}' | head -1)"
 test -n "$DB_CONTAINER"
+# -X: psql reads $PSQLRC / $HOME/.psqlrc / the system psqlrc before anything on
+# `-c`, and a `\connect` there silently retargets the session. HOME here is the
+# supabase_db container's, not the runner's, but an image-baked or bind-mounted
+# psqlrc is exactly as invisible, and suppressing costs nothing.
 docker exec "$DB_CONTAINER" \
-  psql -U supabase_admin -d postgres -v ON_ERROR_STOP=1 \
+  psql -X -U supabase_admin -d postgres -v ON_ERROR_STOP=1 \
   -c "alter database postgres set app.fxav_vercel_url = '$GUC_URL';"
 restore
 trap - EXIT

@@ -12,6 +12,7 @@ import "@testing-library/jest-dom/vitest";
 import { afterEach, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { RecentAutoAppliedStrip } from "@/components/admin/RecentAutoAppliedStrip";
+import { AdminAnnounceProvider } from "@/components/admin/AdminAnnounceProvider";
 import type { AutoAppliedRow, RecentAutoApplied } from "@/lib/admin/loadRecentAutoApplied";
 
 afterEach(cleanup);
@@ -1205,4 +1206,34 @@ it("REDESIGN-3: the Unavailable marker renders as a distinct warning row", () =>
   const marker = screen.getByText(/details unavailable/);
   expect(marker).toBeInTheDocument();
   expect(marker.closest("li")).toHaveClass("bg-warning-bg");
+});
+
+// ── Task 7: the undo announcement from the dashboard strip ───────────────────
+
+it("announces THAT row's summary when a single-row undo succeeds", async () => {
+  // The strip is a NON-modal surface, so it announces into the layout channel.
+  // Expectation derives from the fixture's own summary.
+  const actions = noopActions();
+  render(
+    <AdminAnnounceProvider testId="admin-undo-status" label="Undo updates">
+      <RecentAutoAppliedStrip data={okData()} actions={actions} defaultExpanded />
+    </AdminAnnounceProvider>,
+  );
+  const undoButtons = screen.getAllByTestId("change-feed-undo");
+  await act(async () => {
+    fireEvent.click(undoButtons[0]!);
+  });
+  expect(screen.getByTestId("admin-undo-status")).toHaveTextContent(
+    'Undone. "Crew member Priya Nair added" no longer applies.',
+  );
+});
+
+it("leaves the bulk Undo-all channel untouched (R2 non-regression)", () => {
+  // The bulk region is out of scope and must stay role=status with its own
+  // per-group testid. A refactor that swept it into the log channel would break
+  // a ratified scope boundary.
+  render(<RecentAutoAppliedStrip data={okData()} actions={noopActions()} defaultExpanded />);
+  const bulk = screen.getByTestId(`auto-applied-bulk-undo-status-${FIN_ID}`);
+  expect(bulk.getAttribute("role")).toBe("status");
+  expect(bulk).toHaveTextContent("");
 });

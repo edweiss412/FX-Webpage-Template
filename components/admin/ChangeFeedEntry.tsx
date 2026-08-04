@@ -138,7 +138,13 @@ export function ChangeFeedEntry({
             />
           ) : null}
           {canUndo ? (
-            <UndoChangeButton changeLogId={entry.changeLogId!} undoAction={undoAction} />
+            <UndoChangeButton
+              changeLogId={entry.changeLogId!}
+              undoAction={undoAction}
+              // The announcement names the same change the row shows, so a
+              // screen-reader user hears which row was undone (spec §3.6).
+              announceLabel={entry.summary}
+            />
           ) : canGate ? (
             <Mi11GateActions
               holdId={entry.gate!.holdId}

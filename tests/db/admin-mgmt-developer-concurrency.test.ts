@@ -10,7 +10,7 @@ const url =
 // two racing transactions actually overlap for the lock-contention assertion.
 const psql = (sql: string) =>
   new Promise<{ ok: boolean; out: string }>((resolve) => {
-    const p = spawn("psql", [url, "-v", "ON_ERROR_STOP=1", "-qAt"]);
+    const p = spawn("psql", ["-X", "-v", "ON_ERROR_STOP=1", "-qAt", url]);
     let so = "";
     let se = "";
     p.stdout.on("data", (d) => (so += String(d)));
@@ -91,7 +91,7 @@ describe("admin-mgmt cross-demotion race (upsert/revoke post-lock re-check isola
 
     // cleanup
     await psql(`delete from public.admin_emails where email in ('${a}','${b}','${target}');`);
-  }, 15000); // 2s pg_sleep hold window exceeds vitest's 5s default; raise per-test timeout.
+  });
 
   test("revoke: A demotes developer-actor B; B passes pre-lock then the POST-lock re-check rejects its revoke (42501) → target stays active", async () => {
     const a = `race-a-${randomUUID()}@example.com`;
@@ -143,5 +143,5 @@ describe("admin-mgmt cross-demotion race (upsert/revoke post-lock re-check isola
 
     // cleanup
     await psql(`delete from public.admin_emails where email in ('${a}','${b}','${target}');`);
-  }, 15000);
+  });
 });

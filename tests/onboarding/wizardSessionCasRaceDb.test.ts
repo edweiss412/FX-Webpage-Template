@@ -646,8 +646,4 @@ test.skipIf(!dbUp)(
     expect(staleRun.sessions.map((s) => s.wizardSessionId)).toContain(W1);
     expect(await readDeferralRows(FILE)).toEqual([]);
   },
-  // Headroom, NOT the fix (the fix is pooledReapWithTx above): the reap's
-  // candidate enumeration scans EVERY leaked wizard session in the shared
-  // local DB, so this test's runtime grows with other suites' debris.
-  15_000,
 );

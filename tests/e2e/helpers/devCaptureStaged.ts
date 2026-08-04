@@ -227,7 +227,7 @@ function runLockedSql(
     // session after the validated local connection is made, so the seed or
     // cleanup would execute remotely with the guard none the wiser (whole-diff
     // review R3). Stripping PG* cannot close this: PSQLRC and HOME are not PG*.
-    execFileSync("psql", [dsn, "-X", "-v", "ON_ERROR_STOP=1", "-At"], {
+    execFileSync("psql", ["-X", "-v", "ON_ERROR_STOP=1", "-At", dsn], {
       input: sql,
       encoding: "utf8",
       // NOT the ambient environment: PG* variables retarget libpq behind the

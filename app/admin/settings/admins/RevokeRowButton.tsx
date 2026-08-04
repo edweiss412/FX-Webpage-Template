@@ -4,7 +4,10 @@
  * app/admin/settings/admins/RevokeRowButton.tsx (M9 C9 / M2-D1)
  *
  * Two-tap inline confirmation for revoking an admin row, echoing the
- * C4 ResolveAlertButton pattern (shape brief §6.5):
+ * C4 two-tap arm/confirm pattern (shape brief §6.5), the idiom ArchiveShowButton
+ * and the picker controls also follow; their armed branches are registered in
+ * tests/styles/_metaDestructiveConfirm.test.ts, which pins the confirm-go recipe
+ * rather than the two-tap shape:
  *
  *   idle     → [ Revoke ] (accent)
  *              Click → confirm.

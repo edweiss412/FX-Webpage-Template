@@ -100,7 +100,15 @@ const sql = `
 
 const psql = spawnSync(
   "psql",
-  [dbUrl, "-v", "ON_ERROR_STOP=1", "-At", "-c", `set application_name = 'db-reset-pool'; ${sql}`],
+  [
+    "-X",
+    "-v",
+    "ON_ERROR_STOP=1",
+    "-At",
+    "-c",
+    `set application_name = 'db-reset-pool'; ${sql}`,
+    dbUrl,
+  ],
   { encoding: "utf8", timeout: 10_000 },
 );
 

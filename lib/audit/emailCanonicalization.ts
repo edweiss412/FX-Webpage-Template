@@ -665,7 +665,7 @@ function sqlString(value: string): string {
 
 function runPsql(sql: string): string {
   // not-subject-to-meta: psql shell-out; no Supabase client involved
-  return execFileSync("psql", [databaseUrl, "-v", "ON_ERROR_STOP=1", "-At"], {
+  return execFileSync("psql", ["-X", "-v", "ON_ERROR_STOP=1", "-At", databaseUrl], {
     input: sql,
     encoding: "utf8",
   }).trim();

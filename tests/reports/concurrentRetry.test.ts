@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
+import { awaitCreateIssueEntered, deferred } from "@/tests/reports/_createIssueBarrier";
 import {
   cleanupReportFixtures,
   reportRows,
@@ -7,14 +8,6 @@ import {
   seedShow,
   sqlString,
 } from "@/tests/reports/_dbHelpers";
-
-function deferred<T>() {
-  let resolve!: (value: T) => void;
-  const promise = new Promise<T>((res) => {
-    resolve = res;
-  });
-  return { promise, resolve };
-}
 
 const githubMock = vi.hoisted(() => ({
   createIssue: vi.fn(),
@@ -26,6 +19,9 @@ const githubMock = vi.hoisted(() => ({
       labels: string[];
     }>
   >,
+  // Resolved the moment createIssue is ENTERED, so the test resumes on an
+  // observed event rather than by polling the clock.
+  entered: null as null | ReturnType<typeof deferred<void>>,
 }));
 
 vi.mock("@/lib/github/issues", async (importOriginal) => {
@@ -74,8 +70,10 @@ describe("concurrent expired-lease retries", () => {
     githubMock.createIssue.mockReset();
     githubMock.findIssueByMarker.mockReset();
     githubMock.gate = deferred();
+    githubMock.entered = deferred();
     githubMock.findIssueByMarker.mockResolvedValue(null);
     githubMock.createIssue.mockImplementation(async (input: { labels: string[] }) => {
+      githubMock.entered?.resolve();
       if (githubMock.gate) return await githubMock.gate.promise;
       return { htmlUrl: retryUrl, issueNumber: 88, labels: input.labels };
     });
@@ -84,13 +82,17 @@ describe("concurrent expired-lease retries", () => {
   afterEach(() => {
     cleanupReportFixtures(showId, ["admin"]);
     githubMock.gate = null;
+    githubMock.entered = null;
   });
 
   test("only one retry claims the expired lease while the other sees in-flight contention", async () => {
     seedExpiredUnknownOutcomeRow();
 
     const first = submitReport({ kind: "admin", email: "admin.com" }, requestBody);
-    await vi.waitFor(() => expect(githubMock.createIssue).toHaveBeenCalledTimes(1));
+    // Only `first` is in flight, so it is necessarily the caller that claims the
+    // expired lease and reaches createIssue; the second submit is issued after
+    // the barrier precisely so it meets an in-flight claim rather than a race.
+    await awaitCreateIssueEntered(githubMock.entered!.promise, [first]);
     const second = await submitReport({ kind: "admin", email: "admin.com" }, requestBody);
 
     githubMock.gate?.resolve({

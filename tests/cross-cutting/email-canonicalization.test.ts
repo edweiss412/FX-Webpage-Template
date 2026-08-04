@@ -23,7 +23,7 @@ function read(path: string): string {
 }
 
 function runPsql(sql: string): string {
-  return execFileSync("psql", [databaseUrl, "-v", "ON_ERROR_STOP=1", "-qAt"], {
+  return execFileSync("psql", ["-X", "-v", "ON_ERROR_STOP=1", "-qAt", databaseUrl], {
     cwd: process.cwd(),
     input: sql,
     encoding: "utf8",
@@ -32,7 +32,7 @@ function runPsql(sql: string): string {
 
 const livePsqlReachable = ((): boolean => {
   try {
-    execFileSync("psql", [databaseUrl, "-v", "ON_ERROR_STOP=1", "-c", "select 1"], {
+    execFileSync("psql", ["-X", "-v", "ON_ERROR_STOP=1", "-c", "select 1", databaseUrl], {
       cwd: process.cwd(),
       stdio: ["ignore", "ignore", "ignore"],
       timeout: 3000,
@@ -526,7 +526,6 @@ describe("X.5 email canonicalization audit", () => {
         dev_pending_change: "dev.pendingchange@example.com",
       });
     },
-    15000,
   );
 
   test.skipIf(!livePsqlReachable)(
@@ -640,14 +639,9 @@ describe("X.5 email canonicalization audit", () => {
         dev_nocanon_rows: 1,
       });
     },
-    15000,
   );
 
-  test.skipIf(!livePsqlReachable)(
-    "live project satisfies all seven AC-X.5 audit layers",
-    () => {
-      expect(auditLiveEmailCanonicalization()).toEqual([]);
-    },
-    15000,
-  );
+  test.skipIf(!livePsqlReachable)("live project satisfies all seven AC-X.5 audit layers", () => {
+    expect(auditLiveEmailCanonicalization()).toEqual([]);
+  });
 });

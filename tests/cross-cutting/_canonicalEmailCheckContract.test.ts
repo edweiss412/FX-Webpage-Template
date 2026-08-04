@@ -283,7 +283,7 @@ function resolveDatabaseUrl(): string {
 }
 
 function liveCanonicalChecks(): string[] {
-  const out = execFileSync("psql", [resolveDatabaseUrl(), "-v", "ON_ERROR_STOP=1", "-qAt"], {
+  const out = execFileSync("psql", ["-X", "-v", "ON_ERROR_STOP=1", "-qAt", resolveDatabaseUrl()], {
     input: `
         select rel.relname || '.' || con.conname
         from pg_constraint con

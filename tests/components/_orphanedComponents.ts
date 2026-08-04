@@ -47,33 +47,26 @@ export type AllowRow = { file: string; reason: string; backlog: string };
 /**
  * Components with zero production importers that are KNOWN debt, each owned by
  * a backlog row. Adding a row is a deliberate act of deferral, not how a new
- * failure gets silenced. Work BL-ORPHANED-COMPONENTS-ZERO-PROD-IMPORTERS by
- * emptying this list.
+ * failure gets silenced.
+ *
+ * BL-ORPHANED-COMPONENTS-ZERO-PROD-IMPORTERS was worked on 2026-08-03: four of
+ * the five rows were resolved by retiring their components. The one that remains
+ * is a DECIDED terminal state, not leftover work — see its reason. Emptying this
+ * list is no longer the goal; keeping every row's reason true is.
  */
 export const ORPHAN_ALLOWLIST: readonly AllowRow[] = [
   {
-    file: "components/admin/PerShowCrewSection.tsx",
-    reason: "No reference of any kind outside itself; retired-or-unmounted call pending.",
-    backlog: "BL-ORPHANED-COMPONENTS-ZERO-PROD-IMPORTERS",
-  },
-  {
-    file: "components/admin/ResolveAlertButton.tsx",
-    reason: "Referenced only as a pattern exemplar in other components' comments.",
-    backlog: "BL-ORPHANED-COMPONENTS-ZERO-PROD-IMPORTERS",
-  },
-  {
-    file: "components/admin/RunFinalCASButton.tsx",
-    reason: "Referenced only in the AccentButton header comment.",
-    backlog: "BL-ORPHANED-COMPONENTS-ZERO-PROD-IMPORTERS",
-  },
-  {
-    file: "components/right-now/RightNowCard.tsx",
-    reason: "Referenced only in comments; a crew-surface product question, not a sweep.",
-    backlog: "BL-ORPHANED-COMPONENTS-ZERO-PROD-IMPORTERS",
-  },
-  {
     file: "components/shared/WrappedTile.tsx",
-    reason: "Referenced only in sibling comments; also the sole hit of an all-importers probe.",
+    reason:
+      "DECIDED RETENTION, not undecided work (2026-08-03). Retained by the ratified KEEP in " +
+      "docs/superpowers/plans/crew/2026-06-15-crew-page-redesign-phase1/04-layout-migration-closeout.md:10; " +
+      "its dormancy is itself the contract the alert family relies on (the 2026-07-24 " +
+      "alert-autoresolve spec keeps TileServerFallback's TILE_SERVER_RENDER_FAILED producer " +
+      "dormant and its write-site pin honest), pinned by tests/crew/_metaTileProducerTopology.test.ts. " +
+      "Deleting it does not shrink this ledger, it GROWS it: WrappedTile is the sole production " +
+      "importer of both TileErrorBoundary and TileServerFallback, so both become orphans. There is " +
+      "no mount to wire either — the live crew sections are synchronous and use WrappedSection, the " +
+      "deliberate synchronous analog; WrappedTile is the async load() form.",
     backlog: "BL-ORPHANED-COMPONENTS-ZERO-PROD-IMPORTERS",
   },
 ];

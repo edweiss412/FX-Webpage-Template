@@ -4,8 +4,9 @@
  *
  * The crew page's tile-visibility logic is driven by the
  * `role_flags[]` capability array. Five derived predicates gate the
- * five gated tiles (FinancialsTile, AudioScopeTile, VideoScopeTile,
- * LightingScopeTile — see `lib/visibility/scopeTiles.ts`):
+ * FOUR gated tiles (FinancialsTile, AudioScopeTile, VideoScopeTile,
+ * LightingScopeTile — see `lib/visibility/scopeTiles.ts`); the counts
+ * differ because `hasAdmin` and `hasLead` both reach FinancialsTile:
  *
  *   • `hasLead`  → `flags.includes('LEAD')`. Unlocks FinancialsTile +
  *                  AudioScopeTile (via the `flags.includes('LEAD')`
@@ -45,15 +46,24 @@
  */
 
 /**
- * The 5 capability predicates that gate scope-tile and financials
- * visibility on the crew page. Hand-listed (rather than `keyof`-
- * extracted) so a future predicate addition surfaces here AND in the
- * matrix as a TypeScript error if the matrix is incomplete.
+ * The capability predicates that gate scope-tile and financials visibility on
+ * the crew page. This array is the single source: the `CapabilityPredicate`
+ * union is derived from it, and the matrix tests derive their expected pair
+ * set from its length — so adding a predicate here FAILS
+ * `tests/visibility/capabilityTransitions.test.ts` until the matrix carries
+ * every new pair.
+ *
+ * It does NOT produce a TypeScript error. An earlier version of this comment
+ * promised one; that was probed false — the union was hand-written with no
+ * link to the matrix, and all three size assertions were literals, so a sixth
+ * member produced no error anywhere.
  */
-export type CapabilityPredicate = "hasLead" | "hasA1" | "hasV1" | "hasL1" | "hasAdmin";
+export const CAPABILITY_PREDICATES = ["hasLead", "hasA1", "hasV1", "hasL1", "hasAdmin"] as const;
+
+export type CapabilityPredicate = (typeof CAPABILITY_PREDICATES)[number];
 
 /**
- * The five gated tiles whose visibility this matrix covers. Listed
+ * The four gated tiles whose visibility this matrix covers. Listed
  * as a string-literal union so the per-flip delta records can name
  * tiles by exact identifier (no free-text drift).
  */
@@ -121,7 +131,19 @@ export interface TileVisibilityDelta {
  *   audioScopeVisible    = A1 || A2 || LEAD       (so flip(hasA1) toggles audio iff LEAD is false; flip(hasLead) toggles audio iff hasA1 is false)
  *   videoScopeVisible    = V1 || LEAD              (so flip(hasV1) toggles video iff LEAD is false; flip(hasLead) toggles video iff hasV1 is false)
  *   lightingScopeVisible = L1 || LEAD              (§8.1 amended 2026-05-13: LEAD now reads-in to Lighting; flip(hasL1) toggles lighting iff LEAD is false; flip(hasLead) toggles lighting iff hasL1 is false)
- *   financialsVisible    = isAdmin || LEAD          (LEAD-or-admin)
+ *   financialsVisible    = isAdmin || LEAD || FINANCIALS (the FINANCIALS branch landed at e348c81ca, 2026-07-16)
+ *
+ * MODELING BOUNDARY (recorded 2026-08-03, settling BL-LEAD-CAPABILITY-PROSE-STALE).
+ * The matrix models FIVE predicates — see `CapabilityPredicate` below — and
+ * `FINANCIALS` is not among them. So "definitively" below means definitive with
+ * respect to the five MODELED predicates only: a `hasLead` flip does not toggle
+ * FinancialsTile for a viewer who also holds `FINANCIALS`, which the matrix does
+ * not represent. The gap is documentary rather than behavioral (this matrix has no
+ * production consumer; its only reader is
+ * tests/visibility/capabilityTransitions.test.ts) and is filed as
+ * BL-CAPABILITY-MATRIX-FINANCIALS-PREDICATE. The quoted rules above are pinned
+ * against scopeTiles.ts source by tests/visibility/capabilityHeaderParity.test.ts,
+ * so this block cannot drift again the way the financialsVisible line did.
  *
  * For each pair, the delta records the tiles that DEFINITIVELY change
  * when ONLY the flipped predicate changes — i.e., the flip is

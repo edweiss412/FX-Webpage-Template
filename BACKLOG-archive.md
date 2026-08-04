@@ -8,6 +8,139 @@ Same split as [DEFERRED.md](./DEFERRED.md) ↔ [DEFERRED-archive.md](./DEFERRED-
 
 ---
 
+## BL-ADMIN-NOJS-LOADING-CONFLICT — RESOLVED (2026-08-03, `fix/nojs-loading-shell-notice`)
+
+### BL-ADMIN-NOJS-LOADING-CONFLICT — no-JS contract vs loading.tsx streaming
+
+Filed 2026-06-10 (discovered during mobile needs-attention T5 e2e run; pre-existing since M12.11 `f2f7f7b4`). The `admin-banner.spec.ts` "no-JS native summary" e2e fails on main: with `javaScriptEnabled:false` the admin dashboard never leaves the `app/admin/loading.tsx` skeleton because React streams suspense content into a hidden div swapped by an inline `$RC()` script that needs JS. No CI workflow runs Playwright, so it went unnoticed. Structurally: the no-JS banner contract and instant loading skeletons are incompatible as shipped. Options when picked up: drop the no-JS contract test, gate loading.tsx behind JS detection (not really possible server-side), or accept skeleton-only no-JS rendering and retarget the test. Technical home: `tests/e2e/admin-banner.spec.ts:261` + `app/admin/loading.tsx`.
+
+**Resolved 2026-08-03 (`fix/nojs-loading-shell-notice`).** Two halves, only one of which was still live.
+
+_The named symptom was already gone._ `tests/e2e/admin-banner.spec.ts` was deleted wholesale in `67ce6d082` ("feat(admin): mount bell in both chromes; retire AlertBanner"), together with `components/admin/AlertBanner.tsx` and the `<details>`-based no-JS contract that test asserted. At pickup, `rg noscript app components` returned zero hits: no no-JS contract survived anywhere in the app.
+
+_The structural half was real, and is fixed._ A probe against a throwaway `force-dynamic` route confirmed the mechanism exactly as this entry described it — the fallback renders inline, the real content ships inside `<div hidden id="S:1">`, and only an inline `$RC()` call reveals it. Of the three options this entry listed, the first is moot (the test is gone) and the second is not implementable (the server cannot know whether the client will run the script). The third shipped, in the strongest available form: `LoadingShell` now carries a `<noscript>` block with a "JavaScript is required" notice plus a `<noscript>`-scoped `<style>` that hides the shell content, so a no-JS visitor gets one clear message instead of an eternal shimmer. One insertion point covers all nine `loading.tsx` routes — crew as well as admin, which is broader than this entry's admin-only framing.
+
+_One claim in this entry was stale and should not be carried forward._ "No CI workflow runs Playwright" was true when filed; thirteen workflow files reference it today and eleven invoke `playwright test`. That sentence is precisely the reasoning that would justify skipping CI registration, so the replacement e2e (`tests/e2e/nojs-loading-notice.spec.ts`) is named explicitly in `.github/workflows/admin-layout-e2e.yml` as well as in `playwright.config.ts`. Registering only the latter would have left it dark — most Playwright workflows here pass an explicit spec-file list, and `desktop-chromium` appears in none of the three that instead run whole configs or projects — which is how the predecessor test sat failing on `main` from M12.11 until it was deleted.
+
+Spec: `docs/superpowers/specs/2026-08-03-nojs-loading-shell-notice-design.md`. Plan: `docs/superpowers/plans/2026-08-03-nojs-loading-shell-notice.md`.
+
+---
+
+## BL-INTERNAL-CODE-ENUM-SCAN-WIDEN — RESOLVED (2026-08-03, `chore/scanner-precision-cluster`)
+
+**Filed:** 2026-08-02 (retroactively; cited by `lib/dev/attentionScenarios/tier1.ts:127` and `docs/superpowers/specs/2026-07-20-attention-scenario-gallery-design.md:165` as if already filed, with no row anywhere). **Class:** generated-registry completeness. **Effort:** S.
+
+`extractInternalCodeEnums` (`scripts/extract-internal-code-enums.ts:70-71`) collects `parse_warnings.code` literals from `readFiles(["lib/parser"])`, then filters those files by `/\bParseWarning\b|\bwarnings\b|hardErrors/`. Because no runtime module enumerates the parse-warning universe, the attention-scenario gallery has to union the generated enum with a hand-maintained residue, `EXTRA_WARNING_CODES` (`lib/dev/attentionScenarios/tier1.ts:131-136`): `AGENDA_SCHEDULE_LOW_CONFIDENCE`, `AGENDA_SCHEDULE_TIME_ADJUSTED`, `PULL_SHEET_ON_ARCHIVED_TAB`, `PULL_SHEET_OVERRIDE_CONTENT_CHANGED`.
+
+The `tier1.ts` comment attributes the miss to the content regex alone. Verified 2026-08-02, that is only the second filter: all four emitters live in `lib/agenda/extractAgendaSchedule.ts`, `lib/sync/enrichAgenda.ts`, and `lib/sync/pullSheetOverride.ts` — outside the `["lib/parser"]` root the scan ever opens, so the regex never runs on them. Widening the content heuristic without widening the directory list would change nothing.
+
+**Work:** widen the scan roots (and the content predicate, if it then over- or under-selects) so the generator reaches every `ParseWarning` emitter, and delete `EXTRA_WARNING_CODES`. The union in `warningCodes()` de-duplicates, so absorbing a code silently shrinks the residue rather than double-rendering it — which means the residue can rot invisibly, and is the reason this is worth closing rather than living with. Add a guard that fails when a `ParseWarning` code literal exists in a file the generator does not scan; otherwise the same drift reappears the next time an emitter lands outside the scanned roots.
+
+**Status:** RESOLVED on branch `chore/scanner-precision-cluster` (2026-08-03)
+
+---
+
+**How it was resolved.** The scan is no longer syntactic. Every syntactic mechanism was built and
+refuted by probe — widening the roots mis-attributes 10-13 admin-alert codes, stripping type
+declarations misses value positions, and matching factories by their WRITTEN return type is the
+same bug one level up, since `warning(): Phase2Args["parseResult"]["warnings"][number]` never
+spells `ParseWarning`. Recognition is now by TYPE, fail-closed (the default is SIGNAL), with four
+capture-linked classifications validated in a second pass against what was actually captured.
+
+The entry's premise was also partly wrong, and worse than it thought: `PULL_SHEET_ON_ARCHIVED_TAB`
+was already absorbed, so one of the four residue rows was long dead, and **eleven** real §12.4
+codes were dark that the residue never listed. `warningCodes()` de-duplicates, so under-coverage
+had no symptom at all — which is exactly why the entry asked for a guard.
+
+Measured: 58 codes, 0 unresolved, 44 capture-linked skips, zero admin-alert leakage.
+`EXTRA_WARNING_CODES` is gone and the consumer filter moved from exact equality to provenance
+membership, which alone had been dropping three genuine warnings.
+
+**Documented limit, not a defect:** a code whose provenance passes through `any`/`unknown` or that
+reaches its factory only by higher-order application is neither captured nor signalled — tracing
+that is undecidable, and no type-based recognizer survives `const w: ParseWarning = someAny`. Zero
+such constructions exist today. The real closure is an enumerated catalog, filed as
+`BL-CATALOG-PARTITION-WARNING-CLASS`.
+
+## BL-LEDGER-GUARD-BODY-DEFINED-IDS — RESOLVED (2026-08-03, `chore/scanner-precision-cluster`)
+
+**Filed:** 2026-08-02 (dangling-citation filing pass). **Class:** guard precision. **Effort:** S. **Owner note:** the guard file itself is owned by a parallel session; this entry is the handoff, not a patch.
+
+`tests/docs/_metaLedgerReferentialIntegrity.test.ts` resolves a citation against `ledgerIds(...)`, which walks `##`/`###` HEADINGS. Some ids are defined deliberately in an entry's BODY instead: a parent entry enumerates its sub-items as bullets, and each bullet's id is how the sub-item is referenced everywhere else. Those resolve fine for a human reading the parent, and they are not debt — but the guard cannot see them, so they sit in `KNOWN_DANGLING` looking like untracked work.
+
+**Decision (2026-08-02): they stay body-defined.** Promoting them would give each a heading whose content is one bullet, and would break the thing that makes them meaningful — the parent's ratchet or gate semantics. The eight below are the full current set:
+
+- `BL-MUTATION-REF-SUB`, `BL-MUTATION-UNICODE`, `BL-MUTATION-COLUMN-SHIFT`, `BL-MUTATION-MERGED-CELL`, `BL-MUTATION-SECTION-ORDER` — the five operator classes enumerated by `BL-MUTATION-HARNESS-OPEN-HOLES` above, which states outright that "each is tracked as a backlog sub-item below". They are also the `finding` tags on thousands of rows in `tests/parser/mutation/knownHoles.ts`, where they identify a hole CLASS, not an item. The parent owns the shrink-only ratchet that gives them their meaning: hardening a class turns its holes into `staleRows` and fails the nightly harness until they are removed. Split across five headings, that ratchet has no single home.
+- `BL-SYNCFEED-UI-1`, `BL-SYNCFEED-UI-2`, `BL-SYNCFEED-UI-3` — the three LOW / no-user-harm findings enumerated by `BL-SYNC-FEED-UI-POLISH` above, each a one-sentence "only act if" note from one impeccable dual-gate that PASSED. Their shared provenance and shared "no concrete trigger" disposition is the entry; individually they are not items.
+
+**Work:** teach the guard that an id may be DEFINED by a body bullet of the form ``- **`BL-…`** — …`` inside an entry whose own heading id resolves, then delete these eight `KNOWN_DANGLING` rows. Two things to get right, both of which the existing family-reference suppressor already models: the bullet must be inside a resolving parent (a bullet in a plan or spec must NOT define anything, or any typo can define itself), and the definition must be a bullet LEAD, not any inline mention, or an entry that merely discusses a sibling id would define it. Worth a plant in the guard's own corpus for each failure mode.
+
+**Status:** RESOLVED on branch `chore/scanner-precision-cluster` (2026-08-03)
+
+---
+
+**How it was resolved.** `bodyDefinedIds` teaches the guard that a parent entry may DEFINE a
+sub-item id as a body bullet. Three conditions, each forced by a measurement against the real
+corpus: the id must lead the bullet inside a **strong** span (a code-span lead is enumeration —
+this entry's own body led a bullet with the same five ids and would otherwise have defined them);
+it must be the first child of the item's first paragraph; and the walk stops at the first heading,
+because `extractEntries` opens entries only at prefixed headings, so a plain `##` section falls
+inside the preceding entry's span. Across the four ledgers those conditions are the difference
+between 11 ids and the 8 that are really body-defined. `definedIds` is exported with injectable
+`(ledgers, read)` and six plants pin the file-scoping property, including one asserting its body
+performs no read outside the injected reader. The eight `KNOWN_DANGLING` rows are removed, not
+exempted — the guard's stale-row ratchet is what proves the removal was required.
+
+## BL-MODAL-REALTIME-UPDATED-CUE — RESOLVED (2026-08-03, `feat/modal-freshness-cue`)
+
+Shipped as a one-shot flash-then-fade on the panel card of each registry section whose content changed across an in-place reconcile, plus a branch-stable sr-only announcement driven by the SAME detector so the two legs can never disagree. Spec: `docs/superpowers/specs/2026-08-03-modal-freshness-cue.md`.
+
+**The entry's premise below was WRONG, and it was load-bearing.** It claims the spec ratified a silent-by-design posture. It did not: `docs/superpowers/specs/2026-07-19-admin-modal-realtime-refresh.md:75` says only that the bridge component renders `null`, and line 173 says its transition inventory is N/A because the bridge adds no visual states. Both are statements about the BRIDGE, not about the surface it refreshes. Nobody had weighed a cue and rejected it, so this was a new design decision rather than a reversal of one. The un-defer signal was never reached either: the user was shown the options and chose the cue directly.
+
+The original entry, unedited, follows.
+
+## BL-MODAL-REALTIME-UPDATED-CUE — freshness cue near the published modal's action clusters
+
+**Filed:** 2026-07-24 (retroactive — deferred in PR #505's body 2026-07-20, never filed) · **Class:** UI refinement · **Effort:** S
+
+Impeccable P3 from `admin-modal-realtime-refresh`: an optional "updated just now" cue near the modal's action clusters, so a realtime-driven change is attributable rather than appearing as content silently shifting under the cursor. Deferred as a future refinement — the spec ratifies the silent-by-design posture, so nothing requires it.
+
+**Un-defer signal (weak, hence backlog not DEFERRED.md):** a user reporting that modal content changed without explanation. Note the tension with the ratified posture — adding a cue is a spec decision, not a polish pass.
+
+**Status:** resolved (shipped 2026-08-03).
+
+## BL-ONBOARDING-CAS-SOURCE-ANCHORS — RESOLVED (2026-08-03, `fix/onboarding-cas-source-anchors`)
+
+### BL-ONBOARDING-CAS-SOURCE-ANCHORS — the existing-show re-onboard never refreshed shows.source_anchors
+
+**Filed:** 2026-06-28 (cross-model review of PR #179) · **Class:** data fidelity · **Effort:** S · **Resolved:** 2026-08-03
+
+**The gap.** PR #179 threaded `source_anchors` into the FIRST-SEEN onboarding materialization so a
+freshly-onboarded show got correct "In sheet" deep links immediately. The EXISTING-SHOW re-onboard
+path had the same gap and kept it: `stageExistingShowShadow` staged a shadow payload without the
+anchors, `deleteApprovedPending` consumed the `pending_syncs` row in the same transaction, and by
+Phase D the value the scan computed no longer existed anywhere. A re-onboarded show kept whatever
+anchors the last sync-pipeline pass left.
+
+**What shipped, and why it is not what this entry originally prescribed.** The entry called for
+computing anchors pre-lock in `finalize-cas`'s apply path. That was right for PR #179's era and
+stale by the time it was picked up: the 2026-07-01 persist-at-scan rewrite made Phase D SQL-only, so
+an XLSX export there is no longer an option. The anchors ride the shadow payload instead — the same
+channel `use_raw_decisions` already uses, for the same reason. Three edits: a `source_anchors` key in
+`stageExistingShowShadow`'s `jsonb_build_object`, a tolerant `sourceAnchors` field on
+`parseShadowPayloadForApply` (anything unusable degrades to `{}` rather than refusing a shadow over
+a cosmetic deep link), and a never-pass-`{}` spread at the Phase-D `applyStagedCore` call. No
+migration, no new §12.4 code, no UI surface.
+
+**The limit it does NOT close.** Flow B preserves the stored map on ANY empty scan, where the sync
+pipeline would clear on some of them — `pending_syncs.source_anchors` flattens a transient Drive
+failure and a workbook with no recognized regions into the same `{}`, so clearing on that value
+would wipe good anchors on every hiccup during a re-onboard. The consequence is that a preserved map
+can predate the applied revision and still produce a structurally valid deep link to a stale range.
+Documented in full at `docs/superpowers/specs/step3-onboarding/2026-08-03-finalize-cas-source-anchors.md`
+§4.1, with the revision-stamp fix that would detect it filed as
+`BL-SOURCE-ANCHORS-STALE-AFTER-FAILED-GID-FETCH`.
+
 ## BL-ROLEFLAGS-NOTICE-HELPFULCONTEXT-OVERGRANT — RESOLVED (2026-08-02, `chore/copy-deadcode-sweep`)
 
 ## BL-ROLEFLAGS-NOTICE-HELPFULCONTEXT-OVERGRANT — §12.4 ROLE_FLAGS_NOTICE copy says FINANCIALS unlocks admin access
@@ -31,6 +164,38 @@ Since the show-page→modal pivot (#476) nothing imports `components/admin/Parse
 Two claims in `app/help/admin/per-show-panel/page.mdx` describe a status-strip copy-link that the share-hub consolidation removed: `:7` lists it among the strip's contents, and `:30` places the Re-sync button "between the sync line and the copy-link button". Both are user-visible and both are wrong.
 
 Pre-existing debt from `docs/superpowers/specs/2026-07-20-share-hub-design.md:104`, not from the milestone that surfaced it, and deliberately out of scope there: correcting shipped user copy pulls in the help screenshot surface (`help-affordances`, `screenshots-drift`), which a code-comment sweep should not. Trigger: the next help pass, which can own the regeneration.
+
+## BL-UNPUBLISH-TO-HELD — RESOLVED (2026-08-03, `docs/graduate-bl-unpublish-to-held` — already shipped 2026-07-01; row filed on a false verification)
+
+## BL-UNPUBLISH-TO-HELD — no inverse action returning a published show to Held
+
+**Filed:** 2026-08-02 (retroactively; `docs/superpowers/specs/step3-onboarding/2026-06-23-onboarding-step3-review-redesign.md:291` lists it under §11 Out of scope / Backlog, with no row anywhere). **Class:** admin lifecycle gap. **Effort:** M (new RPC + state-machine review).
+
+The existing M12.13 token-unpublish ARCHIVES the show; there is no published→Held transition. Verified 2026-08-02: no such RPC exists in `supabase/migrations/` or `lib/`. So an operator who published early has one exit, and it is the destructive one.
+
+**Work:** a `published → held` RPC plus its admin affordance. Treat the state machine as the hard part, not the SQL: Held is the pre-publish review state, so returning to it has to say what happens to the share token, to any in-flight finalize, and to a crew member holding a live link, and it must not become a second path to the archived state. Advisory-lock discipline (invariant 2) and the `AUDITABLE_MUTATIONS` registry (invariant 10) both apply.
+
+**Resolution (2026-08-03):** already shipped a month before the row was filed. The published toggle (spec `docs/superpowers/specs/admin/2026-07-01-published-toggle.md`, commit 945bd4ef0) is exactly this feature: `unpublish_show` RPC (`supabase/migrations/20260701000000_published_toggle_unpublish_show.sql:27`) does a pure `published=false` with archived untouched — which IS Held, since Held has no column of its own (`published=F ∧ archived=F`) — and is driven by `setShowPublishedAction(slug, false)` from the admin show review modal. Both of the row's factual claims were wrong at filing time: the RPC existed, and the M12.13 token-unpublish never archived — the emailed-link path is a pure unpublish too (`lib/sync/unpublishShow.ts`). Every state-machine question the row poses is answered in the shipped surface: the share token is deliberately not rotated (spec D1 — a crew member's live link lands on the paused-link UI via the `published≠true` check in `app/show/[slug]/[shareToken]/page.tsx` and revives on republish); in-flight finalize is refused (`FINALIZE_OWNED_SHOW`); archived rows are immutable (`SHOW_ARCHIVED_IMMUTABLE`), so the RPC cannot become a second path to archived; the advisory lock is held in-RPC with the single-holder topology pinned (`tests/sync/_advisoryLockSingleHolderContract.test.ts:528`); and the `AUDITABLE_MUTATIONS` row has executable behavioral proof including the performed-only emit contract (`tests/log/adminOutcomeBehavior.test.ts:1969`, commit 72862711f). A 10-point graduation audit found no functional gap; its one finding — the validation-schema-parity gate covers tables×columns and never functions — is repo-wide, not feature-specific, and is filed as `BL-VALIDATION-PARITY-FUNCTIONS-UNCHECKED`.
+
+## BL-VERSION-AMBIGUOUS-V1-OVERRIDE — RESOLVED — WON'T BUILD (2026-08-03, `docs/close-v1-override-wont-build`)
+
+## BL-VERSION-AMBIGUOUS-V1-OVERRIDE — no admin force-classify for a genuine legacy-v1 sheet
+
+**Filed:** 2026-08-02 (retroactively; `docs/superpowers/specs/data-quality/2026-07-04-version-detection-confidence-gate-design.md:171` defers it by name in §10, with no row anywhere). **Class:** operator escape hatch. **Effort:** M.
+
+`VERSION_AMBIGUOUS` has deliberately no in-app "approve the ambiguous parse as-is" affordance, because approving a parse the system is not confident about defeats the gate. The two live resolutions are: the operator restores the sheet's version markers, or a developer registers the new template's markers. A genuine legacy-v1 sheet has neither, and none exists in the corpus today — it would flag ambiguous with no way forward but those same two actions. Verified 2026-08-02: no force-classify path exists.
+
+**Read the deferral before picking this up.** The reason it is open is not that nobody thought about it: an admin override IS an approve-ambiguous path, which is the exact thing the gate exists to prevent. Any design here has to explain why it is not that, and a real legacy-v1 sheet appearing is the trigger that would make the question live.
+
+**Resolution (2026-08-03): WON'T BUILD.** Closed on `docs/close-v1-override-wont-build` per `docs/superpowers/specs/data-quality/2026-08-03-close-v1-override-wont-build.md`. No admin force-classify override gets built, now or trigger-gated.
+
+The row's own premise was false as stated, and that is what closes it rather than a priority call. `v1` is a **fallback bucket, not a confirmed legacy template**: `lib/parser/schema.ts:37` calls it the fallback for when markdown table syntax is present but no v2/v4 markers are found, and the registry entry at `lib/parser/schema.ts:53` is `{ id: "v1", fallback: true }` with no `requires` array — so nothing positively identifies a v1 sheet. The gate spec says the same thing independently at its D2 row: v1 is defined purely by absence. **Probed 2026-08-03:** all 10 committed fixtures in `fixtures/shows/raw/` classify confidently through `classifyVersion` — six v2 at scores 7/0, four v4 at 8/0 — with zero ambiguous and zero v1, against a `MIN_MARGIN` of 2. The oldest sheet in the corpus, `2024-05-east-coast-family-office.md`, is the one a legacy-v1 template would most plausibly be, and it scores 7/0 for v2 on the typo spelling `Hotal Contact Info`. That probe establishes exactly one claim — **the committed corpus contains no v1 sheet** — and neither the broader "no v1 sheet has ever existed" nor anything about the live-sheet population; the argument below needs none of those.
+
+Four things can land in the ambiguous bucket, indistinguishable by construction, which is why the gate pauses for human triage instead of publishing a guess: (1) a **damaged v2/v4 sheet** — resolved by restoring its markers, and force-classifying it as v1 would parse it with the wrong template, strictly worse than the repair; (2) a **genuinely new template** — resolved by a developer registering its markers, where an override would instead ship a permanent wrong classification; (3) a **junk non-show spreadsheet** with a table sitting in the synced folder — resolved by disregarding it, where the correct outcome is not parsing it at all; (4) a **hypothetical genuine legacy-v1 sheet**, never observed. An override serves none of them better than its existing disposition.
+
+The insight that closes the question is about occupant (4): **a real legacy-v1 sheet, once actually seen, is indistinguishable from occupant (2).** Any real sheet has some stable column-0 labels — that is exactly what the confidence-scoring marker sets are built from (`V4_BLOCKS` and `V2_BLOCKS`, `lib/parser/schema.ts:90-99`, each spanning three independent blocks against a diversity clause requiring ≥2) — so a developer registers them as a version entry, which is §7.1 resolution #2. Nothing about that path is restricted to _new_ templates; it is restricted to _unregistered_ ones, and a legacy sheet nobody registered is unregistered. This entry's "a genuine legacy-v1 sheet has neither" therefore conflated **no markers registered today** (true of a hypothetical legacy sheet, and of every new template before someone registers it) with **no registrable structure** (unsupported). And a sheet that genuinely had no registrable structure would not be parseable by the block parsers either: force-classifying it as v1 would hand them a document they cannot read, producing a confidently-wrong parse instead of a signaled one. The override does not turn an unparseable sheet into a parseable one — it turns a _signaled_ failure into a _silent_ one, inverting the posture the preparedness audit requires (`docs/audits/edge-case-preparedness-audit-2026-07-04.md:92`: every input "parsed correctly or _signaled_, never silently wrong").
+
+**Re-open trigger, deliberately conjunctive — both halves required:** a real legacy sheet surfaces **AND** marker registration proves impossible, i.e. the sheet has no stable column-0 labels spanning ≥2 blocks. The first alone is not enough; that is occupant (2), already resolved. If the second ever holds, the right follow-up is still probably not a force-classify override — a sheet with no registrable structure is one the block parsers cannot read — but the question would at least be live again, which it is not today.
 
 ## BL-PARSER-HOTEL-INLINE-AMBIGUITY — RESOLVED (2026-07-26, PR #608 `feat/hotel-ambiguity-coverage`)
 
@@ -735,6 +900,35 @@ Editing/deleting a `role_token_mappings` row changes no sheet bytes, so cron/pus
 The `roleToken` field added to `UNKNOWN_ROLE_TOKEN` warnings (feat/extend-role-scope-vocab) changes parse output for every corpus fixture whose mutated cells produce unknown role tokens, so the redacted parse-output fingerprints in `tests/parser/mutation/knownHoles.ts` drift. Local run 2026-07-16: **~1013 DRIFTED fingerprint rows across 7 shards — SAME siteIds, fingerprint-only (`driftedAlarms`/`driftedStale`), zero NEW siteIds, zero fixed holes** — the benign class per the 2026-07-09 triage discipline (see BL-MUTATION-LEDGER status above: fixture-data-driven sites; a source edit cannot add a site). The nightly `mutation-harness` workflow is non-required and path-filtered to `tests/parser/mutation/**`, so it does not gate this PR. **Refresh:** `VITEST_INCLUDE_MUTATION_HARNESS=1 COLLECT_MUTATION_ALARMS=<dir> pnpm exec vitest run --project mutation`, then surgical re-bless via `reconcileLedger` (drift bucket only). Trigger: the next mutation-file-touching PR or the first post-merge nightly triage.
 
 **Resolution (2026-07-16):** the nightly on MAIN went red with this exact class the same day, promoting the refresh into this PR. Root cause correction: the drift is ENTIRELY from PR #388-era parser-output changes — the `roleToken` field is empirically fingerprint-neutral (collection dumps from main's parser and this branch's parser are byte-identical). Full corpus collection on the branch + surgical `reconcileLedger` drift-bucket re-bless: 7912 rows, 1017 fingerprints swapped, 0 new holes, 0 fixed holes (machine-verified pure drift; the re-bless script fails loud otherwise). First post-merge nightly should be green.
+
+---
+
+## BL-MUTATION-LEDGER-AUTOCORRECT-DRIFT — ✅ RESOLVED (2026-07-22, `chore/mutation-ledger-autocorrect-rebless`, PR #548)
+
+**Filed:** 2026-07-22 · **Class:** benign ledger drift · **Effort:** XS (corpus re-run + surgical re-bless) · **Resolved:** 2026-07-22
+
+The `autocorrect` field populated at all 13 parser producers (`7295d794c`, merged via the
+warning-card-identity-placement chain, PR #543-era) changes parse output for corpus fixtures whose
+mutated cells produce autocorrect-bearing warnings, so the redacted parse-output fingerprints in
+`tests/parser/mutation/knownHoles.ts` drift. Nightly run 29907734946 (2026-07-22): DRIFTED
+fingerprint rows across 7 shards — SAME siteIds, fingerprint-only, zero NEW siteIds, zero fixed
+holes — the benign class per the 2026-07-09 triage discipline (BL-MUTATION-LEDGER-ROLETOKEN-DRIFT
+above and BL-MUTATION-LEDGER-REFRESH-AMBIGUITY below are the identical prior instances). The nightly
+`mutation-harness` workflow is non-required and path-filtered to `tests/parser/mutation/**`, so it
+gated no PR.
+
+**Resolution (2026-07-22, `c5847a9f4`):** re-blessed the same day it was filed, on
+`chore/mutation-ledger-autocorrect-rebless` (PR #548), from the full HEAD corpus — 8 LPT shard dumps,
+101,705 mutants, reconciled bidirectionally: **2452 pure fingerprint drifts, 0 new holes, 0 fixed
+holes**; ledger totals unchanged (7912 rows, 7514 `wrong` + 398 `signal_loss`, section-reorder 82).
+
+**Why it sat in the open queue twelve days after it was fixed:** the entry named its own trigger as
+"the next mutation-file-touching PR or the next post-merge nightly triage", and that PR shipped
+within hours — the refresh happened, the entry was never closed. Graduated on
+`chore/close-mutation-autocorrect-drift` (2026-08-03) after re-verifying the claim rather than
+trusting the commit message: every scheduled `mutation-harness` nightly from 2026-07-29 through
+2026-08-03 is green, and the intervening 07-27 / 07-28 red runs were the SEPARATE hotel
+ambiguity-judgment drift, closed by `9af6610a8` + `704de0833`.
 
 ---
 
@@ -2420,6 +2614,33 @@ Filed 2026-06-12 (production-bug fix `fix/sheets-drawings-fields-mask`). The cro
 
 ---
 
+## BL-CONCURRENT-RETRY-DB-TIMEOUT-FLAKE — RESOLVED (2026-08-03, `fix/db-test-timeout-flake`)
+
+**Resolution:** the entry named two files; the flake was a class of 242. Both halves of the diagnosis were right and neither was sufficient alone.
+
+The default-timeout half is fixed at the ROOT of `vitest.config.ts` (`testTimeout`/`hookTimeout` at 30_000), which both projects inherit via `extends: true`, rather than per-file as the entry proposed — a sweep found 242 test files reaching a real database, nearly none setting their own budget, so per-file would have fixed the two that happened to flake first and left the shape everywhere else. Files needing more still raise their own (`vi.setConfig` wins over the config file), so the already-bumped 90s doc-scan in `tests/scripts/validation-report-fixtures.test.ts` is unaffected. That alone closes `tests/db/show_share_tokens.test.ts`, whose exposure was purely the 5s default across three synchronous psql spawns.
+
+The entry's second suggestion — an explicit barrier instead of wall-clock `vi.waitFor` — turned out to be load-bearing rather than optional, because **`vi.waitFor`'s own timeout defaults to 1000ms and is not derived from `testTimeout`**: raising the test budget to 30s would have left the poll one second to cover a DB round-trip, and `concurrentRetry` would have kept flaking. `tests/reports/_createIssueBarrier.ts` gives the mock a deferred it resolves when `createIssue` is ENTERED; `awaitCreateIssueEntered` races that against every in-flight submit settling, so the "nobody ever entered createIssue" case throws one descriptive line instead of hanging to the timeout. It waits on ALL submits deliberately — in the first-submit race the loser legitimately 409s before the winner enters `createIssue`, so a single-promise race would fail healthy runs. A class sweep found the same shape in `tests/reports/firstSubmitRace.test.ts`, which the entry did not name; both were converted.
+
+The third suggestion, a scoped `retry: 1`, was NOT taken: retries mask nondeterminism in DB tests, and with the two real causes removed there is nothing left for it to paper over.
+
+Pinned by `tests/cross-cutting/db-test-timeout-floor.test.ts` — the floor against both the authored and the RESOLVED runtime config (so a CLI override cannot pass on the strength of the file alone), plus a filesystem-walked ban on `vi.waitFor` in DB-touching files, which fails by default for a newly added one. `vi.waitFor` in `tests/components/**` and `tests/admin/**` is deliberately untouched: those poll an in-process React state flush with no I/O in it.
+
+### BL-CONCURRENT-RETRY-DB-TIMEOUT-FLAKE — DB-concurrency tests intermittently time out and fail the `unit-suite` gate
+
+**Filed:** 2026-06-26 (surfaced during PR #121 — the `unit-suite` matrix-shard landing; see memory `project_ci_speedup_pr_d_matrix_shard`). **NOT introduced by sharding:** a re-run of the same commit passed (confirming a flake, not a fault), and sharding _reduces_ per-leg DB load. These tests would flake the same way on the pre-split monolithic gate under the same runner noise.
+
+**Effort:** S
+
+A few DB-concurrency tests intermittently **time out** (Vitest "Test/Hook timed out", NOT assertion failures) under 2-core CI-runner load, failing whichever shard leg they land in → the required `unit-suite` gate goes red until a re-run clears it:
+
+- `tests/reports/concurrentRetry.test.ts` — "only one retry claims the expired lease while the other sees in-flight contention": fires concurrent `submitReport` DB calls racing for an expired processing lease + `await vi.waitFor(() => createIssue called once)`, with an `afterEach` `cleanupReportFixtures` DB call. It uses Vitest's **default** 5s test / 10s hook timeouts (no `vi.setConfig`), so it exceeds them when the local Supabase is momentarily slow.
+- `tests/db/show_share_tokens.test.ts` — "new show insert auto-creates a 64-character lowercase hex token" (trigger-driven) — same default-timeout exposure.
+
+**When picked up:** bump per-file timeouts (`vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 })`, mirroring the already-bumped `tests/scripts/validation-report-fixtures.test.ts` at 90s) and/or make the contention test deterministic (gate the second submit on an explicit barrier rather than wall-clock `vi.waitFor`); optionally scope a Vitest `retry: 1` to the DB-concurrency files only. Technical home: the two test files (± `vitest.config.ts`). Cheap to do; low value until the flake rate is annoying enough (a leg re-run currently clears it). Related class: `BL-NEEDS-ATTENTION-DARK-CAPTURE-FLAKE` (CI nondeterminism).
+
+---
+
 ## BL-PARSER-VENUE-TYPO-GENERATOR-SEED-FLAKE — RESOLVED (2026-08-02, `test/parser-determinism-pair`)
 
 **Resolution:** the entry's recorded diagnosis was wrong in both halves, and the corrected work is test-only. **There is no RNG.** `singleEditNeighbors` / `unambiguousTypos` (`tests/parser/_typoGenerator.ts`) are pure, `REVERSE_MAP` is built once at module load and never mutated, `lib/parser/` reads no env and holds no module-level mutable state, and vitest isolates modules per file — cross-model review confirmed it independently, with five separate processes producing the identical 8453-case SHA-256. So "the input set varies per run" is disproven; what varied was coverage per _edit_, because the case sampled `.slice(0, 4)` aliases x `.slice(0, 6)` typos off a list ordered by `FIELD_ALIASES` insertion order. Worse, that window covered only the five aliases whose canonicals `parseVenue` never assigns (`venue.contact_info`, `venue.in_house_av`, `venue.hotel_reservations` — owned by `contacts.ts` / `hotels.ts`), so not one of the 24 sampled cases could ever prove a value reached a venue field.
@@ -2665,6 +2886,81 @@ four shapes `buildShowReturnUrl` emits were 403ing, not only section deep links 
 an ordinary first-contact path. The two-step workaround in
 `tests/e2e/stage-restricted-crew-schedule.spec.ts` is retired at all three sites, and reverting the
 fix reds them, which is the end-to-end proof.
+
+## BL-LEAD-CAPABILITY-PROSE-STALE — two prose claims that LEAD grants an admin/ops surface
+
+**RESOLVED 2026-08-03** (`chore/orphan-components-lead-prose`). Both claims settled by reading the contract each belonged to; both turned out to be stale rather than intentional.
+
+**Filed:** 2026-08-02 (`chore/copy-deadcode-sweep`, spec review R1 finding 1) · **Class:** docs/copy + contract · **Severity:** low · **Effort:** S each, but each needs a contract read
+
+Probed while fixing `BL-ROLEFLAGS-NOTICE-HELPFULCONTEXT-OVERGRANT`: **no role flag grants admin access.** `is_admin()` (`supabase/migrations/20260514000000_admin_emails_runtime_mutable.sql`) reads the JWT `app_metadata.role` claim and the `admin_emails` table, and never consults `role_flags`; the admin tree gates on admin identity. Sweeping every production use of the LEAD flag finds financials entitlement (`lib/visibility/scopeTiles.ts`, `lib/data/getShowForViewer.ts`), the audio/video/lighting scope-tile predicates, and a "Lead" chip. No admin path exists.
+
+The shipped Doug-visible copy was corrected on that branch (§12.4 helpfulContext, its `longExplanation`, and the explainer mirror). Two prose claims were deliberately NOT edited, because each is a statement about what a capability confers rather than a copy string, and changing one is a ratification act:
+
+1. **`lib/visibility/capabilityTransitions.ts`** — its module-header predicate list carries `financialsVisible = isAdmin || LEAD (LEAD-or-admin)`, while the live predicate is `isAdmin || LEAD || FINANCIALS`. Whether the line is wrong or is an accurate description of a flip matrix that deliberately models `hasLead` only cannot be settled without reading the matrix contract.
+2. **Master spec MI-9** (`docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md`) — "LEAD additionally grants the admin/ops surface". Contradicted by the probe above. May encode intent rather than a stale description.
+
+**How it was settled.**
+
+1. **`lib/visibility/capabilityTransitions.ts` — WRONG, of the stale-verbatim-quote kind.** The block the line sits in is labelled "Tile-visibility rules from `lib/visibility/scopeTiles.ts` (verbatim branch logic)", and `financialsVisible` gained its third branch at `e348c81ca` (2026-07-16) without the quote following. It was NOT "an accurate description of a matrix that deliberately models `hasLead` only" — though the matrix genuinely does not model `FINANCIALS`, which is now stated as an explicit modeling boundary and filed as `BL-CAPABILITY-MATRIX-FINANCIALS-PREDICATE`. `tests/visibility/capabilityHeaderParity.test.ts` extracts the expected flag set from `scopeTiles.ts` SOURCE and compares sets, so the block cannot drift that way again.
+2. **Master spec MI-9 — a STALE DESCRIPTION, not encoded intent.** "admin/ops" was always copy: its oldest instances are the §12.4 strings ratified at `9700c447b` (2026-05-09), MI-9's earlier wording carried the same claim, and `aaab97102` rewrote the clause around it. Every other instance had since been retired or corrected, leaving this one. The clause now states what LEAD actually confers beyond FINANCIALS — the audio/video/lighting scope tiles and the crew-page "Lead" chip — and that neither flag grants admin access, naming `is_admin()`'s two arms.
+
+**A third instance the literal sweep could not see:** `lib/sync/phase2.ts` said a capability flag "would grant ops/financial access silently" — the same claim in production source, in a semantic variant. Corrected in the same commit. `tests/docs/capabilityClaimProse.test.ts` now scans the MI-9 rows AND every `.ts`/`.tsx` under `app/`, `components/`, and `lib/` with a positive-claim recognizer (a raw admin/grant ban could never go green, since the corrected prose itself says neither flag grants admin access), pinned by six fixtures including `lib/parser/typoVocabRegistry.ts`'s unrelated "ops/financials field-alias" as the hardest negative.
+
+---
+
+### BL-SYNC-FEED-UI-POLISH — impeccable v3 LOW/no-harm follow-ups (changes-feed UI)
+
+**Filed:** 2026-06-10 from the Phase-6 impeccable v3 dual-gate (gate PASSED; zero HIGH after the Approve-button accent fix; these are LOW / no-user-harm, no concrete trigger — same shape as the `BACKLOG-B2UI-*` batch below (`:1303-1305`): one parent entry, the individual findings as sub-bullets under it). Citation corrected 2026-08-02: this line gave that family a `BL-` prefix, which resolves to nothing — the real ids carry the `BACKLOG-` prefix. A one-word prefix typo, not a vanished family; the analogy it draws was always sound. The wrong spelling is described rather than written out, since re-typing it would re-create the dangling reference.
+
+- **BL-SYNCFEED-UI-1** — `UndoChangeButton`: post-submit success relies on page revalidation flipping the row to `undone`; consider an `aria-live` region announcing undo success (the failure path already surfaces via `ErrorExplainer`).
+- **BL-SYNCFEED-UI-2** — `ChangeFeedBadge`: `title` tooltips are hover-only (desktop); acceptable since the visible text label already carries meaning (color-blind floor met) — only act if touch-discoverability is raised.
+- **BL-SYNCFEED-UI-3** — `Disposition` test fixtures pass `{disposition:'removal', name:…}` where the canonical union has no `name` on `removal` (off-type but harmless at runtime; `dispositionName` returns null for removal). Tighten the fixtures if/when the `Disposition` type is hardened.
+
+**GRADUATED 2026-08-03** (`feat/sync-feed-undo-announce`). All three children disposed:
+
+- **BL-SYNCFEED-UI-1 — RESOLVED, with its own premise corrected.** The note proposed an `aria-live` region inside `UndoChangeButton`. That placement cannot work: a successful undo moves the row out of `status='applied'`, `action` flips to `none` (`lib/sync/feed/shapeChangeFeed.ts:65`), `canUndo` goes false and the whole button subtree unmounts before assistive technology can read anything. Six adversarial rounds then established that no surface-level owner works either — the group empties, the strip returns null, the dashboard returns a different tree, the feed is swapped for its error rendering. The channel now lives in `AdminAnnounceProvider`, mounted by `app/admin/layout.tsx` and by `ReviewModalShell` (a modal needs its own, because content outside an `aria-modal` dialog is excluded from the accessibility tree). Append-shaped `role="log"`, because two shows dropping a same-named crew member produce byte-identical announcements.
+- **BL-SYNCFEED-UI-2 — RATIFIED as untriggered, no code.** The entry conditions action on touch-discoverability being raised; it has not been. `ChangeFeedBadge` renders the status as a real text node (`components/admin/ChangeFeedBadge.tsx:55`) with `title` as pure supplement, so no information is hover-only. **Re-open trigger preserved:** raise it if touch discoverability of the badge tooltips is ever reported as a problem.
+- **BL-SYNCFEED-UI-3 — GRADUATED as already-shipped.** The off-type fixture was corrected at `c3920fe6a`; `tests/components/admin/ChangeFeedEntry.test.tsx:192` reads `{ disposition: "removal" as const }`, and a tree-wide sweep finds no removal literal carrying `name`. The `Disposition` union at `lib/sync/holds/types.ts:7-10` never moved, so the entry's "tighten if/when the type is hardened" premise was moot.
+
+**Filed from this work, not fixed:** `BL-FEED-BUTTON-SUCCESS-ANNOUNCE`, `BL-BULK-UNDO-ANNOUNCE-UNMOUNT`, `BL-ANNOUNCE-REGION-UNMOUNT-CLASS`.
+
+Spec `docs/superpowers/specs/2026-08-03-undo-success-announcement-design.md`; plan `docs/superpowers/plans/admin/2026-08-03-undo-success-announcement.md`.
+
+---
+
+---
+
+## BL-HEADER-FONT-FALLBACK-WRAP — RESOLVED (2026-08-03, `feat/font-binding-modal-freshness-cue`)
+
+**Resolution.** The browser check the entry asked for was run first, and it changed the shape of the finding.
+
+_What the probe found._ Next 16's `next/font/google` registers the face under the **literal** family name `Inter`, not a hashed one — so the crew layout's import DID bind, and the entry's stated doubt ("`next/font`'s hashed `@font-face` family name does not obviously satisfy") is empirically refuted for this Next version. Measured on a real crew page: inherited width 192.38px, forced `"Inter"` 192.38px, generic `sans-serif` 182.61px. But on every non-crew route the same string measured 187.28px against Inter's 168.91px — the host system font, not Inter.
+
+_So the real finding was wider than the entry knew._ The product rendered **two type families across its trees** — Inter on crew pages, the host sans on admin, auth, help and the crash screen — while `DESIGN.md` §2.1 commits to one, and named `app/layout.tsx` as the place to load it. That wiring had never been done. Admin numerics also silently lost the `cv11`/`tnum` treatment §2.4 specifies, since those alternates exist only in Inter.
+
+_What shipped._ The loader lives in `app/fonts.ts`, whose single exported instance both Next roots import — `app/layout.tsx` and `app/global-error.tsx`, which renders its own `<html>` and replaces the root layout on a fatal error, so the crash screen was otherwise the one tree left behind. `--font-sans` reads `var(--font-inter, "Inter", "Inter Fallback"), …`: naming the literal skipped next/font's generated metric-matched fallback face, so the `display: "swap"` window reflowed ~10% on every route until the impeccable critique measured it.
+
+_Scope, stated plainly — and narrowed twice during review, so read the claim as written._ This closes the wide-fallback path for **every Next-rendered surface with a React root** — every page of the product proper. Deliberately NOT "everything a user reads": the four auth error documents below are read when they appear. Two things it does NOT reach, both documented rather than quietly implied:
+
+- The 31 standalone test harnesses compile `app/globals.css` with no Next runtime, so they keep measuring the ambient host font by construction. Costs nothing today (the one font-sensitive measurement carries a deliberate Arial / Liberation Sans pin). Filed as `BL-HARNESS-FONT-FIDELITY`.
+- Four route handlers build their own complete `<html>` as a string and mount no React root: the Google-auth start, the picker bootstrap, the auth callback, and sign-out. All four are persistent ERROR pages (503/403/502/500) with readable copy and no automatic redirect — review R6 corrected an earlier claim that they were transient bounces. Sign-out's explicit `system-ui` is defensible on one narrow fact — it is a self-contained document requesting ZERO external assets, so a webfont would add its first network dependency — and NOT on any general "error pages avoid webfonts" principle, which this change contradicts by binding the font on the fatal-error page. The other three fall to browser-default serif. Filed as `BL-AUTH-INTERSTITIAL-FONT`.
+
+_The tolerance in `tests/e2e/section-header-layout.layout.spec.ts` was NOT widened_, per this entry's own instruction.
+
+_Guards._ `tests/e2e/font-binding.spec.ts` measures rendered text width on `/admin`, `/auth/sign-in` and a seeded crew route — width, not `document.fonts.check()`, which returned `true` on a tree with no Inter face registered at all. It also asserts exactly one font family and no duplicate `@font-face` tuple, which CORROBORATE the static guard rather than closing it — four review rounds each produced new syntactic escapes from a source-parsing check, so the guard's claim was narrowed to what it actually proves. `tests/assets/singleFontLoader.test.ts` is the millisecond tripwire, pinning the loader's PATH (a count cannot tell "one loader, at the root" from "one loader, in the wrong layout" — exactly this bug). It is a tripwire for the ORDINARY accident and proves no closure: four adversarial rounds each found a location a file-walk cannot see, and the vector was descoped per the AGENTS.md same-vector rule rather than patched a fifth time. Spec §4.3 records what that leaves open and why it is acceptable. Wired into `crew-e2e.yml`, which builds and starts the production artifact.
+
+Spec: `docs/superpowers/specs/2026-08-03-app-wide-font-binding.md` · Plan: `docs/superpowers/plans/2026-08-03-app-wide-font-binding.md`
+
+---
+
+## BL-STAGED-IDENTITYLINK-RENAME-IDENTITY — RESOLVED (2026-08-03, `feat/staged-identitylink-rename-identity`) — dashboard staged apply treats identity-link renames as remove+add
+
+**Filed:** 2026-07-17 (role-flags-notice-lead-only-doug §2.5) · **Class:** sync (staged identity application) · **Effort:** M (staged-core threading + double-apply analysis)
+
+The dashboard staged-apply path (`applyStagedCore`) applies an identity-linked rename (MI-12/13/14) as **remove-old + add-new** by ratified contract (R33-2, `applyStagedCore.ts:552`; passes zero `identityLinkRenames`), so crew identity (id/oauth link) is NOT preserved across a rename on that path. The capability AUDIT is already complete (arm (c) audits the removed old identity's loss + arm (b) the added new identity's grant, path-independent), so this is NOT an audit gap. If identity-PRESERVATION on the staged path is ever wanted, thread `identityLinkRenames` through `applyStagedCore` (compute via `computeIdentityLinkRenames` from the staged `triggeredReviewItems`) — but resolve the double-apply / R33-2-override risk first. Trigger: a report of a staged rename losing a crew member's oauth link.
+
+**Resolved.** `docs/superpowers/specs/2026-08-03-staged-identitylink-rename-identity.md`, branch `feat/staged-identitylink-rename-identity`: `computeStagedIdentityLinkRenames` links a pair only when its validated reviewer choice is `rename` (the per-item admin vouch, the staged analogue of cron's version-bound accept), and `applyStagedCore` threads the result into `runPhase2` behind a length gate. A staged rename now preserves `crew_members.id` and `claimed_via_oauth_at`; `independent` still applies as remove+add, so the R33-2 feed assertions are untouched. The double-apply / override risk this entry flagged resolved as a choice gate, not a path override — the role-flags spec's staged loss+grant audit shape is superseded in part, banner-fenced in both directions.
 
 ## BL-NEEDS-ATTENTION-HOLDS-ROLLUP — RESOLVED (2026-08-03, `feat/needs-attention-holds-rollup`)
 

@@ -1,8 +1,9 @@
 name: Admin layout e2e (desktop-chromium)
-# Runs the admin shell's real-browser dimensional-invariant specs against a real
-# browser and a seeded local Supabase:
+# Runs the admin shell's real-browser specs against a real browser and a seeded
+# local Supabase. Two are dimensional-invariant specs; the third is behavioral:
 #   - tests/e2e/bell-panel-layout.spec.ts          (alert bell geometry + transitions)
 #   - tests/e2e/admin-nav-layout-dimensions.spec.ts (nav chrome across the breakpoint)
+#   - tests/e2e/nojs-loading-notice.spec.ts        (LoadingShell's no-JavaScript branch)
 #
 # Why this job exists: the spec ran in NO workflow. `desktop-chromium` is invoked
 # only by step3-live-bundle.yml, and only for its own spec, so this gate has been
@@ -17,7 +18,11 @@ name: Admin layout e2e (desktop-chromium)
 # unread-dot no-layout-shift invariant, severity grouping, the shared timestamp /
 # Dismiss right edge and the 28px chevron gutter's bled 44px tap target, the nav
 # chrome sweep across the 840px breakpoint band (including 768, inside the range
-# that used to overflow), and document-level horizontal overflow on /admin.
+# that used to overflow), and document-level horizontal overflow on /admin. Plus
+# the no-JavaScript branch of LoadingShell: with scripting disabled the streaming
+# reveal never runs, so the notice must show and the shell content must be hidden
+# by the <noscript>-scoped rule — and a JS-on control proves neither reaches a
+# visitor who has JavaScript. That one is a behavioral assertion, not a rect.
 #
 # Shape mirrors crew-e2e.yml (native runner + chromium; this spec asserts rects and
 # behavior, NOT pixel bytes, so the amd64 Docker raster pin used by
@@ -38,6 +43,13 @@ on:
       - "app/api/admin/alerts/bell/**"
       - "tests/e2e/bell-panel-layout.spec.ts"
       - "tests/e2e/admin-nav-layout-dimensions.spec.ts"
+      # The no-JS notice lives in the shared LoadingShell, so the trigger has
+      # to name that component: a PR touching only Skeleton.tsx would otherwise
+      # not match any path here and this gate would run dark against the exact
+      # file it guards -- the same "matched by a project but invoked by no
+      # step" class this workflow's header was written about.
+      - "components/layout/Skeleton.tsx"
+      - "tests/e2e/nojs-loading-notice.spec.ts"
       - "tests/e2e/needs-attention-holds.spec.ts"
       # Every production surface the needs-attention holds rollup touches: a
       # later regression in any of them must not leave the holds spec dark.
@@ -129,7 +141,7 @@ jobs:
       - run: pnpm exec playwright install-deps chromium
       - run: pnpm exec playwright install chromium
       - name: Run admin layout e2e (desktop-chromium, :3000 only)
-        run: pnpm exec playwright test --project=desktop-chromium tests/e2e/bell-panel-layout.spec.ts tests/e2e/admin-nav-layout-dimensions.spec.ts tests/e2e/needs-attention-holds.spec.ts
+        run: pnpm exec playwright test --project=desktop-chromium tests/e2e/bell-panel-layout.spec.ts tests/e2e/admin-nav-layout-dimensions.spec.ts tests/e2e/nojs-loading-notice.spec.ts tests/e2e/needs-attention-holds.spec.ts
       - name: Upload Playwright traces/report (diagnosis artifact)
         if: failure()
         uses: actions/upload-artifact@v4
