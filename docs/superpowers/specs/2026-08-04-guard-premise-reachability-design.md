@@ -212,6 +212,8 @@ Both throw on violation with a message that names the failure as a premise failu
 #### 3.3.2 The rule
 
 > For every test in a suite named by any `GuardSurface.suitePaths`, if anything in the test's **reachable body set** (§3.3.2.1) references a member of the closed `ENVIRONMENT_SOURCES` set, the test body must contain at least one `premise` / `premiseHolds` call, or an inline `// no-premise: <reason>` comment with a non-empty reason.
+>
+> **One exception, and it is the only one:** when the provenance is an environment-derived `.each` producer, the premise sits in the **associated pre-registration position** defined in §3.3.2.2 — over the named binding, between it and the `test.each(<binding>)` call — because a premise inside the callback cannot run when the producer yields nothing. Both placements are the same contract; only one of them can execute.
 
 Three terms, defined so the checker has no latitude:
 
@@ -318,7 +320,19 @@ The callback body threw unconditionally and never executed. A premise that canno
 
 > A premise must execute **unconditionally relative to the assertion it is a premise for**. It may not sit anywhere whose execution count can be zero when the premise is false — a `.each` callback, a `describe.each` body, a loop body, or a conditional branch.
 
-For an environment-derived `.each`, that means the premise belongs in the enclosing scope, evaluated with the producer and before case registration. The checker enforces the placement, and AC-8b proves it by execution rather than by classification: a fixture whose producer returns `[]`, beside a passing test, must make the suite **fail**. Static classification cannot see this, which is why round 8 could raise it against a spec whose static rules were already correct.
+**The associated placement, stated exactly, because "in the enclosing scope" is not a rule a checker can apply** (spec R10: §3.3.2 requires the premise inside the test's extent, this section requires it outside, and nothing connected the two — so an implementation had to reject the safe placement or accept the vacuous one). The association is by name and order:
+
+> For an environment-derived `.each`, the producer result is bound to a named `const` in the enclosing scope, and a `premise` / `premiseHolds` call **over that binding** appears between the binding and the `test.each(<binding>)` call that consumes it. That premise satisfies the requirement for every case the call registers.
+
+```ts
+const refs = listRefsFromCheckout();                    // environment-derived producer
+premise("the checkout yields refs to iterate", refs.length, 0);   // executes at registration time
+test.each(refs)("%s resolves", (ref) => { … });         // zero cases is now impossible silently
+```
+
+Decidable statically — same scope, matching name, premise between the two — and it executes when the module or `describe` body is evaluated, which is before registration and independent of how many cases exist. §3.3.2's rule text carries the same exception, so the two sections state one contract rather than two.
+
+AC-8c proves it by execution rather than classification: a fixture whose producer returns `[]`, beside a passing test, must make the suite **fail**, and a callback-local premise on the same producer must be **rejected**. Static classification cannot see the first, which is why round 8 could raise it against static rules that were already correct.
 
 #### 3.3.3 The meta-test, and why it cannot pass vacuously
 
@@ -401,6 +415,7 @@ Each of these was settled by probe or by an existing ratification. Reopening one
 | Symbol-level data-flow analysis is NOT adopted (§3.3.2.1) | spec R6 recommendation, declined; the trajectory is a TypeScript data-flow analyser, and `eval`/computed access/aliasing defeat it anyway | — |
 | A test's extent is its whole call expression, so `.each` producers are inside it (§3.3.2) | spec R7; probed — 120 non-literal `.each` producers in this repository | — |
 | A premise may not sit where its execution count can be zero (§3.3.2.2) | spec R8; probed — `test.each([])` beside one passing test reports `Tests 1 passed (1)` and the callback never runs | — |
+| The `.each` premise is associated by name and order — a named `const` binding, a premise over it, then `test.each(<binding>)` (§3.3.2.2) | spec R10; "in the enclosing scope" was not a rule a checker could apply, and §3.3.2 and §3.3.2.2 contradicted each other until it was | — |
 | Executable fixtures are named `*.fixture.ts` and invoked explicitly, never discovered (§3.1) | spec R9; `BASE_INCLUDE` at `vitest.projects.ts:34` matches only `*.test.ts`/`*.test.tsx`, so a discovered fixture runs every merge and an undiscovered one is dark | — |
 | *Unclassifiable* (recognized, unresolvable, reds) and *undetected* (unrecognized, L-8) are separate categories (§3.3.2.1) | spec R7; conflating them is what made §3.3.3 and §4 disagree | — |
 | The consequence bound is over a closed list of analyzed forms, not a soundness claim (§4) | spec R6; the unbounded promise is what made R3–R6 each a legitimate finding | — |
@@ -446,7 +461,8 @@ Each of these was settled by probe or by an existing ratification. Reopening one
 - **AC-8** `tests/mutation/_metaPremiseContract.test.ts (new)` carries one rejection/acceptance fixture pair **per provenance × form cell** of §3.3.2 — for the module provenances: static named, static aliased, static namespace, dynamic destructured; for `process.env`: direct member access, destructured, aliased destructure; plus one hook-mediated pair per provenance — each pair differing in exactly one thing. The required cell list is derived from the `ENVIRONMENT_SOURCES` declaration and asserted to match the fixture set exactly, so a newly declared provenance reds until it brings its own fixtures.
 - **AC-8a** Each form on the closed *unclassifiable* list (§3.3.2.1) has a fixture that is REPORTED and reds, not passed as environment-free. The criterion makes no claim about *undetected* forms, which are L-8 — conflating the two is what made this AC contradict §4 before spec R7.
 - **AC-8b** A `.each` fixture pair: `test.each(<producer reading the environment>)(…)` whose callback references only its parameter must classify as environment-touching, with a pure-producer twin as its foil. The test's extent is the whole call expression (§3.3.2).
-- **AC-8c** **Executable, not static.** A fixture whose environment-derived `.each` producer returns `[]`, placed beside a passing test in the same file, must make the suite FAIL. Probed at spec R8 that it currently passes green — zero cases registered, callback never run — so this criterion is met by running it, never by classification. The checker additionally rejects a premise placed anywhere its execution count can be zero (§3.3.2.2).
+- **AC-8c** **Executable, not static.** A fixture whose environment-derived `.each` producer returns `[]`, placed beside a passing test in the same file, must make the suite FAIL. Probed at spec R8 that it currently passes green — zero cases registered, callback never run — so this criterion is met by running it, never by classification.
+- **AC-8d** The associated placement of §3.3.2.2 is accepted and the callback-local placement is rejected, proven by a fixture pair over the same producer. Without both halves the checker could accept everything or nothing and one fixture would still pass. The checker additionally rejects a premise placed anywhere its execution count can be zero.
 - **AC-9** The meta-test's non-vacuity assertions (§3.3.3, items 1-3) are present and each fails against a corresponding degenerate input; the declared per-suite count map's key set is asserted equal to the enrolled suite set, so a newly enrolled suite fails until it declares its own.
 - **AC-10** Every qualifying test in the two enrolled suites carries a premise or a reasoned exemption. **Two are construction-based repairs and an exemption is not permitted for either**: `tests/scripts/ledgerClaimsCheck.test.ts:508-510` constructs its own corpus, and `tests/scripts/ledgerClaimsCheck.test.ts:393-409` asserts `isShallow()` against a controlled repository covering BOTH values — a throwaway repo for non-shallow and a `--depth=1` `file://` clone of it for shallow — so it discriminates in CI, where it currently does not.
 - **AC-10a** The premise checker computes a cycle-safe fixed point over the declaration-reference graph (§3.3.2.1), with every fixture in that section's table: pure local wrapper, cross-module `node:child_process` wrapper, cross-module `process.env` wrapper importing nothing, two-level same-file chain, module-scope initializer, pure module constant, default-parameter and class-field initializers, and the `reportEnvelope` case that a module-closure rule over-classifies. Every environment-touching fixture has an environment-free foil differing in one thing, so a constant traversal fails in both directions.
