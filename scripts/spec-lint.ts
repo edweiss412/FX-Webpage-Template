@@ -43,7 +43,7 @@ function renderText(result: LintResult): string {
   out.push(`spec:lint ${result.doc}`);
   out.push(`kind: ${result.kind} (${result.kindSource})`);
   out.push("");
-  const checks = ["document", "citations", "numerics", "copy", "sections"] as const;
+  const checks = ["document", "citations", "numerics", "copy", "sections", "taskContract"] as const;
   for (const check of checks) {
     const fs = result.findings.filter((f) => f.check === check);
     if (fs.length === 0) continue;
@@ -233,5 +233,8 @@ if (isEntry) {
   const r = runCli(process.argv.slice(2), deps);
   if (r.stdout) process.stdout.write(r.stdout);
   if (r.stderr) process.stderr.write(r.stderr + "\n");
-  process.exit(r.exitCode);
+  // NOT process.exit(): stdout.write is ASYNC on a pipe, so exiting on the next
+  // statement truncates every captured report — codex-guard captures through a
+  // pipe by construction, so A1 cannot work until this drains naturally.
+  process.exitCode = r.exitCode;
 }

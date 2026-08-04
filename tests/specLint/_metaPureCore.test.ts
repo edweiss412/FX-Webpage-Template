@@ -25,7 +25,7 @@ describe("spec-lint pure core (structural)", () => {
   const files = walk(CORE_DIR);
 
   it("has files (walker sanity floor)", () => {
-    expect(files.length).toBeGreaterThanOrEqual(7);
+    expect(files.length).toBeGreaterThanOrEqual(8);
   });
 
   it.each(files)("%s imports no node:fs / node:child_process / node:process", (file) => {

@@ -13,6 +13,7 @@
 import { describe, expect, it } from "vitest";
 
 import { type GitSurface, resolveClaims } from "@/scripts/lib/ledger-claims-core";
+import { reportEnvelope } from "@/scripts/ledger-claims";
 import { runCheck, verifyUniverse } from "@/scripts/lib/ledger-check";
 
 const MARKER = (branch: string, id: string) =>
@@ -86,6 +87,21 @@ const check = (git: GitSurface, ids: string[], extra: Record<string, unknown> = 
  */
 const checkVerified = (git: GitSurface, ids: string[], extra: Record<string, unknown> = {}) =>
   runCheck(git, ids, { now: NOW, fetch: true, verify: true, ...extra });
+
+/** 101 branches each declaring one row -- past any plausible display cap. */
+function manyClaims() {
+  const many: [string, string][] = [["main", "a"]];
+  for (let i = 0; i < 101; i++) many.push([`b${i}`, `oid${i}`]);
+  return resolveClaims(
+    fake({
+      localRefs: () => new Map(many),
+      lsRemote: () => new Map(many),
+      showFile: (ref, f) =>
+        f === "BACKLOG.md" ? MARKER(ref.replace("origin/", ""), "BL-MANY") : null,
+    }),
+    { fetch: false, now: NOW },
+  );
+}
 
 describe("--check exit codes", () => {
   it("exits 1 on a declared collision with resolved identity", () => {
@@ -455,21 +471,29 @@ describe("the real git adapter and the JSON envelope (whole-diff F3/F9)", () => 
   });
 
   it("resolves every claim past the display limit at the core", () => {
-    // M8: `claims.slice(0, 100)` is the mutant. The cap is a display concern;
-    // a machine consumer receiving a truncated set with no marker computes a
-    // false all-clear.
-    const many: [string, string][] = [["main", "a"]];
-    for (let i = 0; i < 101; i++) many.push([`b${i}`, `oid${i}`]);
-    const r = resolveClaims(
-      fake({
-        localRefs: () => new Map(many),
-        lsRemote: () => new Map(many),
-        showFile: (ref, f) =>
-          f === "BACKLOG.md" ? MARKER(ref.replace("origin/", ""), "BL-MANY") : null,
-      }),
-      { fetch: false, now: NOW },
-    );
-    expect(r.claims.length, "every candidate must appear").toBe(101);
+    // M8, half one: the cap is a display concern, and a machine consumer given a
+    // truncated set with no marker computes a false all-clear.
+    expect(manyClaims().claims.length, "every candidate must appear").toBe(101);
+  });
+
+  it("serializes every claim past the display limit through the CLI's own envelope", () => {
+    // M8, half two, and the one that actually pins the mutant. The named mutant
+    // -- `claims: res.claims.slice(0, 100)` -- lives in scripts/ledger-claims.ts,
+    // not the core, so the assertion above cannot see it. Neither could the
+    // end-to-end CLI test: it runs against the live repository, which has ~13
+    // claims, so a cap at 100 is unreachable there and the advertised guard could
+    // not fail against the mutation it names (whole-diff R11 F3).
+    //
+    // `reportEnvelope` is exported for exactly this: the CLI's serialization,
+    // fed the 101-claim fixture the live repo cannot supply.
+    const res = manyClaims();
+    expect(res.claims.length, "fixture premise: past any plausible cap").toBe(101);
+    const payload = reportEnvelope(res);
+    expect(payload.claims.length, "the CLI envelope truncated the resolved set").toBe(101);
+    // Shape too, so `claims: []` and a bare array both still fail here.
+    expect(Array.isArray(payload)).toBe(false);
+    expect(payload.status).toBe(0);
+    expect(payload.claims.map((c) => c.branch)).toEqual(res.claims.map((c) => c.branch));
   });
 });
 

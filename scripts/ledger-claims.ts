@@ -11,6 +11,9 @@
  *   pnpm ledger:claims --json             # {status, degraded, claims}
  *   pnpm ledger:claims --check BL-A BL-B  # 0 clear · 1 collision · 2 untrusted
  */
+import { fileURLToPath } from "node:url";
+
+import type { Claim, Resolution } from "./lib/ledger-claims-core";
 import { resolveClaims } from "./lib/ledger-claims-core";
 import { runCheck } from "./lib/ledger-check";
 import { realGitSurface } from "./lib/ledger-git";
@@ -18,6 +21,33 @@ import { realGitSurface } from "./lib/ledger-git";
 /** Display limit for the human table only. `--check` and `--json` see everything. */
 const DISPLAY_CAP = 100;
 const STALE_DAYS = 14;
+
+/**
+ * Report mode's `--json` payload.
+ *
+ * An ENVELOPE, never a bare array: a healthy empty result and a stale-cache
+ * false all-clear both serialize as `[]`, and every report-level state the
+ * table prints in its header would be invisible to a machine consumer.
+ * `status` mirrors the exit code, which report mode always exits 0 with -- a
+ * degraded READ is still a complete answer to "what is in flight", and only
+ * `--check` makes an authoritative claim that can be untrusted, so the degraded
+ * flags carry the caveat without overloading the exit code.
+ *
+ * NEVER CAPPED, and exported so that is provable. The display cap belongs to
+ * the human table alone; a `claims.slice(0, N)` here silently truncates a
+ * machine consumer's view of what is in flight. It is exported because the live
+ * repository has ~13 claims, so an end-to-end CLI assertion cannot reach any
+ * plausible cap -- the guard could not fail against the mutant it names
+ * (whole-diff R11 F3). With the builder exposed, a 101-claim fixture tests the
+ * CLI's own serialization rather than only the core's.
+ */
+export function reportEnvelope(res: Resolution): {
+  status: number;
+  degraded: string[];
+  claims: Claim[];
+} {
+  return { status: 0, degraded: res.degraded, claims: res.claims };
+}
 
 function main(argv: string[]): number {
   const wantJson = argv.includes("--json");
@@ -85,17 +115,7 @@ function main(argv: string[]): number {
   const res = resolveClaims(git, { fetch: !noFetch });
 
   if (wantJson) {
-    // An ENVELOPE, never a bare array: a healthy empty result and a
-    // stale-cache false all-clear both serialize as `[]`, and every
-    // report-level state the table prints in its header would be invisible to a
-    // machine consumer. Never capped.
-    // `status` mirrors the exit code, which the report mode always exits 0 with:
-    // a degraded READ is still a complete answer to "what is in flight", and
-    // only `--check` makes an authoritative claim that can be untrusted. The
-    // degraded flags carry the caveat without overloading the exit code.
-    process.stdout.write(
-      `${JSON.stringify({ status: 0, degraded: res.degraded, claims: res.claims }, null, 2)}\n`,
-    );
+    process.stdout.write(`${JSON.stringify(reportEnvelope(res), null, 2)}\n`);
     return 0;
   }
 
@@ -154,4 +174,10 @@ function main(argv: string[]): number {
   return 0;
 }
 
-process.exit(main(process.argv.slice(2)));
+// Only when run as a program. Without the guard, importing this module to test
+// its own units EXECUTES the CLI and exits the test process -- which is why the
+// uncapped-envelope guard could previously only be written against the core
+// (whole-diff R11 F3). Same idiom as scripts/extract-spec-codes.ts:479.
+if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+  process.exit(main(process.argv.slice(2)));
+}

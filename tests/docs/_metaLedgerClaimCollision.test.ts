@@ -21,7 +21,8 @@
 // it cannot be computed here anyway, since it needs a merge-base a shallow CI
 // clone does not have.
 import { execFileSync } from "node:child_process";
-import { readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
@@ -54,11 +55,11 @@ export function findCollisions(
   return out;
 }
 
-/** What THIS working tree declares — the thing the PR actually proposes. */
-function declaredHere(): string[] {
+/** What a working tree declares — by default THIS one, the thing the PR proposes. */
+function declaredHere(root: string = ROOT): string[] {
   const out: string[] = [];
-  for (const file of ledgerFiles(ROOT)) {
-    const text = readFileSync(join(ROOT, file), "utf8");
+  for (const file of ledgerFiles(root)) {
+    const text = readFileSync(join(root, file), "utf8");
     for (const item of ledgerItems(file, text)) if (isInProgress(item)) out.push(item.id);
   }
   return out;
@@ -145,38 +146,34 @@ describe("ledger claim collision (cross-branch backstop)", () => {
     ).toEqual([]);
   });
 
-  it("end-to-end: a marker written into a real ledger is read and collides", () => {
-    // The positive control the live rule cannot be. `declaredHere()` reads the
-    // REAL working-tree ledgers, so planting a marker in one and restoring it
-    // exercises the whole local chain — file discovery, parse, in-progress
-    // detection, comparison — with nothing stubbed.
+  it("end-to-end: a planted marker is read and turned into a collision", () => {
+    // The positive control the live rule cannot be. It exercises the whole local
+    // chain — ledger discovery, parse, in-progress detection, comparison — with
+    // nothing stubbed, so `declaredHere() => []`, an unconditional early return,
+    // or `collisions = []` all fail here while the parser and comparator tests
+    // stay green.
     //
-    // This is what fails under `declaredHere() => []`, an unconditional early
-    // return, or `collisions = []`, none of which the parser and comparator
-    // tests can see.
-    const file = join(ROOT, "BACKLOG.md");
-    const original = readFileSync(file, "utf8");
+    // It runs against a COPY in a temp dir, never the tracked tree. An earlier
+    // version wrote a marker into the real BACKLOG.md and restored it, which is
+    // unsafe in a file-parallel project: a concurrent docs guard can observe the
+    // planted marker, and an interrupted run leaves the caller's worktree dirty.
+    const sandbox = mkdtempSync(join(tmpdir(), "ledger-e2e-"));
     const id = "BL-E2E-CONTROL-PLANTED";
-    try {
-      writeFileSync(
-        file,
-        `${original}\n## ${id} — planted by the backstop's own control\n\n**Status:** IN PROGRESS · **Branch:** feat/planted\n`,
-      );
-
-      const mine = declaredHere();
-      expect(mine, "declaredHere did not read the working tree").toContain(id);
-
-      const others = [{ branch: "feat/somebody-else", declared: [id] }];
-      expect(
-        findCollisions(mine, others, "feat/mine"),
-        "the chain did not turn a real local declaration into a collision",
-      ).toContain(`${id} is also declared by feat/somebody-else`);
-    } finally {
-      writeFileSync(file, original);
+    for (const f of ledgerFiles(ROOT)) {
+      const body = f === "BACKLOG.md"
+        ? `## ${id} — planted by the backstop's own control\n\n**Status:** IN PROGRESS · **Branch:** feat/planted\n`
+        : "";
+      writeFileSync(join(sandbox, f), body);
     }
-    // The ledger is byte-identical afterwards, so this control cannot leave the
-    // tree dirty for the guards that read it.
-    expect(readFileSync(file, "utf8")).toBe(original);
+
+    const mine = declaredHere(sandbox);
+    expect(mine, "declaredHere did not read the ledger it was pointed at").toContain(id);
+
+    const others = [{ branch: "feat/somebody-else", declared: [id] }];
+    expect(
+      findCollisions(mine, others, "feat/mine"),
+      "the chain did not turn a real declaration into a collision",
+    ).toContain(`${id} is also declared by feat/somebody-else`);
   });
 });
 
