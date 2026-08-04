@@ -62,7 +62,7 @@
 import localFont from "next/font/local";
 
 export const inter = localFont({
-  src: "../assets/fonts/InterVariable-latin.woff2",
+  src: "../public/fonts/InterVariable-latin.woff2",
   weight: "100 900",
   style: "normal",
   display: "swap",
