@@ -500,6 +500,14 @@ Wired as `"ledger:claims": "tsx scripts/ledger-claims.ts"` in `package.json`.
    The **merged-exclusion is an optional narrowing**, not part of the definition:
    - **Full clone:** subtract every branch reported by `git branch -r --merged origin/main`. A
      merged claim has landed or died; either way it is not in flight.
+
+     The subtraction is keyed on the **tip OID, not the branch name**. `--merged` is read at one
+     instant and the ref snapshot at another; a branch that merges in between would otherwise be
+     dropped from the candidate set although the snapshot still holds its unmerged tip, turning a
+     verified collision into a trusted all-clear. A candidate is excluded only when the OID
+     `--merged` reported still matches the pinned snapshot, so a tip that moved between the two
+     reads stays in the set. This is the same failure direction the shallow case takes below, and
+     for the same reason. (Added during implementation; whole-diff review R13 F1 probed the race.)
    - **Shallow clone:** §2.7b measured that ancestry is not computable there, so the subtraction is
      skipped and the report says so once in its header. The candidate set is a **superset**, never a
      subset — the failure direction is a false collision that names a real branch, which a human can
