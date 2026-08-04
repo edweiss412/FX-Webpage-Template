@@ -517,3 +517,26 @@ Explicitly cleared: the 220 KB budget is correctly shaped (176,696 bytes leaves 
 2. **The parser has its own test table.** Every mutant from rounds 2–6 is now a named row asserting the parser directly, with the round that found it recorded in the row. Until now the parser's only oracle was "mutate `app/globals.css` and watch" — indirect, expensive, and testing only the spellings someone thought to try. 33 tests in that file now, up from 13.
 
 **Sixteen mutants across six rounds. All caught, and the fourteen that target the value parser are now permanent test rows rather than history.**
+
+### 12.7 Round 7 — the vector declared unresolved, and the approach abandoned
+
+`VERDICT: NEEDS-ATTENTION`, one P1, accepted.
+
+`postcss-value-parser` is not browser-equivalent around **whitespace-terminated hex escapes**. `"ZZ-Z" \6f n` is the keyword `on` to a browser, because the space is consumed as part of `\6f`; the tokenizer produces two words. All six whitespace spellings escaped. So did `"A\2c<CRLF>B!"`.
+
+**This was the fourth consecutive round on this one function.** §12.6 claimed to have closed the vector structurally by adopting a real tokenizer. It had not — it had adopted a *better approximation*, which is the same move at a higher level. `AGENTS.md` is explicit about what happens here: when the round after a comprehensive re-analysis still surfaces the same vector, the analysis was incomplete, and the answer is to stop patching and change the approach.
+
+**The approach was wrong, and it is abandoned.** The guard was trying to answer "what does this CSS mean?" — a question with an open, adversarial input space that four rounds proved is not worth reimplementing in a test. It now answers a bounded question instead: **"is this CSS in the one form I understand?"** It recognises exactly `"abcd" <integer|on|off>`, comma separated — the only form the product uses — and **refuses everything else**, where refusal is a build failure rather than a shrug.
+
+That inverts the failure mode this entire change exists to kill. Before, an unrecognised spelling contributed no tags and every other assertion stayed green — a dead declaration shipping silently, exactly like the original `cv11`. Now an unrecognised spelling stops the build and says to extend the recogniser deliberately. **The guard cannot be defeated by a tokenization subtlety because it no longer makes a tokenization claim.**
+
+The recogniser's test table asserts REFUSAL for every mutant rounds 3–7 produced — not correct interpretation, refusal. `postcss-value-parser` was removed; it is no longer needed, and keeping a dependency whose semantics diverge from the browser's would be its own trap.
+
+| Round | Mutant on this function | Now |
+| --- | --- | --- |
+| r3 | comment inside the value | refused |
+| r5 | `"A,B!" +1`, `"A\2c B!" 1`, `"ZZ-Z"/**/1` | refused |
+| r6 | `"ZZ-Z" o\6e`, escaped-newline continuation | refused |
+| r7 | `"ZZ-Z" \6f n`, all six whitespace spellings | refused |
+
+**Nineteen mutants across seven rounds. All caught.**

@@ -23,7 +23,6 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import * as fontkit from "fontkit";
 import postcss from "postcss";
-import valueParser from "postcss-value-parser";
 import ts from "typescript";
 import { describe, expect, test } from "vitest";
 
@@ -67,95 +66,97 @@ const HISTORICAL_TAGS = ["tnum", "cv11"] as const;
 export type FeatureSetting = { tag: string; enabled: boolean };
 
 /**
- * Decode CSS escape sequences, per CSS Syntax §4.3.7 and §4.3.5.
+ * A `font-feature-settings` value this guard is willing to reason about.
  *
- * Three rules, and rounds 5–6 each shipped a mutant exploiting one of them:
+ * STRICT BY CONSTRUCTION, AND THAT IS THE POINT. Four consecutive review rounds
+ * defeated attempts to PARSE this property the way a browser does:
  *
- *   `\\2c ` → `,`    a hex escape, optionally followed by ONE whitespace which is
- *                    consumed as part of the escape
- *   `\\<newline>`     a STRING CONTINUATION: the backslash and the newline both
- *                    vanish, so `"ZZ\\<LF>-Z"` is the tag `ZZ-Z`. LF, CR, FF and
- *                    CRLF all spell it.
- *   `\\n` → `n`      any other escaped character is itself
+ *   r3  comments inside the value, positional rule matching
+ *   r5  commas inside tags, hex escapes, comments postcss keeps in `decl.value`
+ *   r6  escapes inside the KEYWORD (`o\\6e` is `on`), escaped-newline continuation
+ *   r7  whitespace-TERMINATED hex escapes (`\\6f n` is `on`), which even
+ *       `postcss-value-parser` splits into two words where a browser does not
  *
- * Applied to identifiers as well as strings, because CSS consumes escapes while
- * consuming a NAME too — round 6's `o\\6e` is the keyword `on`, which CSS Fonts 4
- * §6.12 defines as synonymous with `1`.
+ * Each fix answered one more spelling in an open space. CSS tokenization is not
+ * a thing worth reimplementing in a test, and every attempt to approximate it
+ * has been a place for a real feature to hide.
+ *
+ * So the guard stops approximating and starts REFUSING. It recognises exactly
+ * the canonical form the product uses — `"abcd" <integer|on|off>`, comma
+ * separated — and treats anything else as a hard failure rather than as
+ * something to interpret. An escape, a comment, a `var()`, an exotic tag: the
+ * build fails and says extend this guard deliberately.
+ *
+ * That inverts the failure mode this whole change exists to kill. Previously an
+ * unrecognised spelling meant the guard shrugged and a dead declaration shipped.
+ * Now an unrecognised spelling stops the build. The guard cannot be fooled by a
+ * tokenization subtlety, because it no longer claims to tokenize.
  */
-export function decodeCssEscapes(raw: string): string {
-  return raw.replace(
-    /\\(?:([0-9a-fA-F]{1,6})[ \t\n\r\f]?|(\r\n|[\n\r\f])|([\s\S]))/g,
-    (_all, hex: string | undefined, newline: string | undefined, ch: string | undefined) => {
-      if (hex !== undefined) return String.fromCodePoint(Number.parseInt(hex, 16));
-      if (newline !== undefined) return ""; // string continuation: both characters vanish
-      return ch ?? "";
-    },
-  );
-}
+const CANONICAL_ENTRY = /^"([A-Za-z0-9]{4})"(?:[ \t\n\r]+(on|off|\+?\d+))?$/;
 
-/**
- * Parse a `font-feature-settings` VALUE per CSS Fonts 4 §6.12.
- *
- * TOKENIZED BY `postcss-value-parser`, NOT BY HAND. Three consecutive review
- * rounds defeated hand-written scanners here — commas inside tags, comments
- * inside the value, escapes inside the tag, escapes inside the KEYWORD, escaped
- * newlines continuing a string. Each fix answered one more spelling in an open
- * space, which is the shape `AGENTS.md`'s same-vector rule says to stop
- * patching. A real value tokenizer closes the class: it already knows what a
- * string is, what a word is, and where a comma separates. What remains hand-
- * written is escape DECODING, which is a closed, three-rule function with its
- * own test table below.
- *
- * Semantics: an omitted value means 1; `on` is 1 and `off` is 0; the integer
- * must be non-negative, and CSS Syntax permits a leading `+`. Duplicates are
- * last-value-wins. Anything unparseable FAILS CLOSED — recorded as not
- * confidently enabled rather than silently on.
- */
-export function parseFeatureValue(value: string): FeatureSetting[] {
+/** `normal` is the initial value and declares no features. */
+const IS_NORMAL = /^normal$/i;
+
+export type ParsedValue =
+  | { recognized: true; settings: FeatureSetting[] }
+  | { recognized: false; reason: string };
+
+/** Parse a value, or REFUSE it. Refusal is a build failure, not a shrug. */
+export function parseFeatureValue(value: string): ParsedValue {
+  const trimmed = value.trim();
+  if (IS_NORMAL.test(trimmed)) return { recognized: true, settings: [] };
+
   const bySpelling = new Map<string, boolean>();
-  const groups: valueParser.Node[][] = [[]];
-  for (const node of valueParser(value).nodes) {
-    if (node.type === "div" && node.value === ",") groups.push([]);
-    else if (node.type !== "space" && node.type !== "comment")
-      groups[groups.length - 1]!.push(node);
-  }
-
-  for (const group of groups) {
-    const [tagNode, valueNode, ...rest] = group;
-    if (!tagNode || tagNode.type !== "string") continue; // `normal`, or declares no tag
-    if (rest.length > 0) continue; // more tokens than the grammar allows — fail closed
-    const tag = decodeCssEscapes(tagNode.value);
-    // A tag is exactly four characters in the printable-ASCII range, measured
-    // AFTER decoding, so the length check cannot precede it.
-    if (!/^[\u0020-\u007E]{4}$/.test(tag)) continue;
-
-    let enabled: boolean;
-    if (!valueNode)
-      enabled = true; // omitted means 1
-    else if (valueNode.type !== "word") enabled = false;
-    else {
-      const keyword = decodeCssEscapes(valueNode.value).toLowerCase();
-      if (keyword === "on") enabled = true;
-      else if (keyword === "off") enabled = false;
-      else if (/^\+?\d+$/.test(keyword)) enabled = !/^\+?0+$/.test(keyword);
-      else enabled = false; // negative, var(), or anything unparseable
+  for (const rawEntry of trimmed.split(",")) {
+    const entry = rawEntry.trim();
+    const m = CANONICAL_ENTRY.exec(entry);
+    if (!m) {
+      return {
+        recognized: false,
+        reason:
+          `\`${entry}\` is not the canonical \`"abcd" <integer|on|off>\` form this guard ` +
+          `recognises. It refuses rather than guesses: CSS escapes, comments and ` +
+          `runtime values all have spellings that look inert and are not, and four ` +
+          `review rounds found one hiding in each approximation. If this spelling is ` +
+          `genuinely needed, extend CANONICAL_ENTRY deliberately and say why.`,
+      };
     }
+    const tag = m[1]!;
+    const setting = (m[2] ?? "1").toLowerCase();
+    const enabled = setting === "on" ? true : setting === "off" ? false : !/^\+?0+$/.test(setting);
     bySpelling.set(tag, enabled); // later entry wins
   }
-  return [...bySpelling].map(([tag, enabled]) => ({ tag, enabled }));
+  return {
+    recognized: true,
+    settings: [...bySpelling].map(([tag, enabled]) => ({ tag, enabled })),
+  };
+}
+
+/** The enabled tags of a value, or `[]` when the value is refused. */
+function enabledOf(value: string): string[] {
+  const parsed = parseFeatureValue(value);
+  return parsed.recognized ? parsed.settings.filter((f) => f.enabled).map((f) => f.tag) : [];
 }
 
 /** Every rule in `cssSource` that declares `font-feature-settings`. */
 export function featureRules(
   cssSource: string,
-): { selectors: string[]; settings: FeatureSetting[] }[] {
-  const rules: { selectors: string[]; settings: FeatureSetting[] }[] = [];
+): { selectors: string[]; settings: FeatureSetting[]; refusal: string | null; raw: string }[] {
+  const rules: {
+    selectors: string[];
+    settings: FeatureSetting[];
+    refusal: string | null;
+    raw: string;
+  }[] = [];
   postcss.parse(cssSource).walkDecls("font-feature-settings", (decl) => {
     const parent = decl.parent;
     const selector = parent && "selector" in parent ? String(parent.selector) : "";
+    const parsed = parseFeatureValue(decl.value);
     rules.push({
       selectors: selector.split(",").map((sel) => sel.trim()),
-      settings: parseFeatureValue(decl.value),
+      settings: parsed.recognized ? parsed.settings : [],
+      refusal: parsed.recognized ? null : parsed.reason,
+      raw: decl.value,
     });
   });
   return rules;
@@ -196,6 +197,13 @@ export function extractFeatureTags(cssSource: string): string[] {
     for (const f of rule.settings) if (f.enabled) tags.add(f.tag);
   }
   return [...tags].sort();
+}
+
+/** Declarations the guard refused to interpret. Non-empty is a build failure. */
+export function refusedValues(cssSource: string): { raw: string; reason: string }[] {
+  return featureRules(cssSource)
+    .filter((r) => r.refusal !== null)
+    .map((r) => ({ raw: r.raw, reason: r.refusal! }));
 }
 
 /** The OpenType features a font binary can actually honor. */
@@ -303,53 +311,66 @@ export function resolveLoadedFontPath(): string {
 }
 
 /**
- * THE PARSER'S OWN TEST TABLE.
+ * THE RECOGNISER'S OWN TEST TABLE.
  *
- * Rounds 3, 5 and 6 all landed mutants on `parseFeatureValue`, and every one was
- * found by mutating `app/globals.css` and watching the guard — an expensive,
- * indirect oracle that only ever tested the spellings someone thought to try.
- * `AGENTS.md`'s same-vector rule says that after three rounds on one vector you
- * stop patching and close the class structurally. This table is that closure:
- * the parser is now specified directly, case by case, against CSS Syntax and
- * CSS Fonts 4 §6.12. Every row below was a live escaping mutant or its control.
+ * Rounds 3, 5, 6 and 7 each landed a mutant on this function, and each fix
+ * answered one more spelling. The table below is the closure: every accepted
+ * form is named, and every mutant those rounds produced is asserted to be
+ * REFUSED — not parsed correctly, refused. A refusal fails the build, which is
+ * strictly safer than a correct parse and cannot be defeated by a tokenization
+ * subtlety, because it makes no tokenization claim.
  */
-describe("parseFeatureValue — CSS Fonts 4 §6.12 semantics", () => {
-  const enabledTags = (value: string): string[] =>
-    parseFeatureValue(value)
+describe("parseFeatureValue — recognises the canonical form, refuses everything else", () => {
+  const enabled = (value: string): string[] => {
+    const parsed = parseFeatureValue(value);
+    if (!parsed.recognized) throw new Error(`refused: ${value}`);
+    return parsed.settings
       .filter((f) => f.enabled)
       .map((f) => f.tag)
       .sort();
+  };
 
   test.each([
-    // [value, enabled tags, why this row exists]
     ['"ss04" 1', ["ss04"], "the ordinary case"],
     ['"ss04"', ["ss04"], "an omitted value means 1"],
     ['"ss04" on', ["ss04"], "`on` is 1"],
     ['"ss04" off', [], "`off` is 0"],
     ['"ss04" 0', [], "r2 mutant: a present tag is not an enabled tag"],
-    ['"ss04" +1', ["ss04"], "r5 mutant: CSS Syntax permits a leading + on an integer"],
+    ['"ss04" +1', ["ss04"], "CSS Syntax permits a leading + on an integer"],
     ['"ss04" +0', [], "…and +0 is still zero"],
-    ['"ss04" -1', [], "CSS Fonts requires non-negative; fail closed"],
-    ['"ss04" var(--x)', [], "r3 mutant: a runtime token is not an omitted value"],
+    ['"ss04" 1, "tnum" 1', ["ss04", "tnum"], "comma separated"],
     ['"ss04" 1, "ss04" 0', [], "r3 mutant: duplicates are last-value-wins"],
     ['"ss04" 0, "ss04" 1', ["ss04"], "…in both directions"],
-    ['"A,B!" 1', ["A,B!"], "r4 mutant: a comma is a legal tag character"],
-    ['"A\\2c B!" 1', ["A,B!"], "r5 mutant: a hex escape is the same tag as its literal"],
-    ['"ZZ-Z"/**/1', ["ZZ-Z"], "r5 mutant: a comment is consumed before grammar matching"],
-    ['"ZZ-Z" o\\6e', ["ZZ-Z"], "r6 mutant: escapes are decoded in the KEYWORD too"],
-    ['"ZZ\\\n-Z" 1', ["ZZ-Z"], "r6 mutant: an escaped newline continues the string"],
-    ["normal", [], "the initial value declares no tag"],
-    ['"toolong" 1', [], "a tag is exactly four characters"],
-    ['"ab" 1', [], "…in both directions"],
-  ])("%s → %j (%s)", (value, expected) => {
-    expect(enabledTags(value as string)).toEqual(expected);
+    ["normal", [], "the initial value declares no features"],
+  ])("accepts %s → %j (%s)", (value, expectedTags) => {
+    expect(enabled(value as string)).toEqual(expectedTags);
   });
 
-  test("an escaped newline is consumed in every spelling CSS allows", () => {
-    // LF, CR, FF and CRLF all continue a string. Round 6 found the helper
-    // handling none of them.
-    for (const nl of ["\n", "\r", "\f", "\r\n"]) {
-      expect(enabledTags(`"ZZ\\${nl}-Z" 1`), `escaped ${JSON.stringify(nl)}`).toEqual(["ZZ-Z"]);
+  test.each([
+    ['"ss04" -1', "a negative integer is invalid per CSS Fonts 4 §6.12"],
+    ['"ss04" var(--x)', "r3 mutant: a runtime value cannot be resolved statically"],
+    ['"A,B!" 1', "r4 mutant: a comma is a legal tag character, so this is ambiguous here"],
+    ['"A\\2c B!" 1', "r5 mutant: a hex escape"],
+    ['"ZZ-Z"/**/1', "r5 mutant: a comment inside the value"],
+    ['"ZZ-Z" o\\6e', "r6 mutant: an escape inside the keyword"],
+    ['"ZZ\\\n-Z" 1', "r6 mutant: an escaped-newline string continuation"],
+    ['"ZZ-Z" \\6f n', "r7 mutant: a whitespace-TERMINATED hex escape"],
+    ['"toolong" 1', "a tag is exactly four characters"],
+    ['"ab" 1', "…in both directions"],
+  ])("REFUSES %s (%s)", (value) => {
+    const parsed = parseFeatureValue(value as string);
+    expect(parsed.recognized, `expected a refusal for ${value}`).toBe(false);
+  });
+
+  test("every whitespace spelling of a terminated escape is refused", () => {
+    // Round 7 showed all six spellings tokenize differently from a browser in
+    // postcss-value-parser. None of them is interpreted now; all are refused.
+    for (const ws of [" ", "\t", "\n", "\r", "\f", "\r\n"]) {
+      const value = `"ZZ-Z" \\6f${ws}n`;
+      expect(
+        parseFeatureValue(value).recognized,
+        `escape terminated by ${JSON.stringify(ws)}`,
+      ).toBe(false);
     }
   });
 });
@@ -361,6 +382,17 @@ describe("font feature availability", () => {
   test("the loaded font path resolves to a file that exists", () => {
     const path = resolveLoadedFontPath();
     expect(existsSync(path), `app/fonts.ts src resolves to ${path}`).toBe(true);
+  });
+
+  test("every font-feature-settings value in the sheet is one the guard understands", () => {
+    // The load-bearing half of the strict recogniser. Without this, an exotic
+    // spelling would simply contribute no tags and every other assertion would
+    // stay green — which is the shrug this whole change exists to eliminate.
+    // With it, a spelling the guard cannot interpret STOPS THE BUILD.
+    const refused = refusedValues(css);
+    expect(refused, refused.map((r) => `${JSON.stringify(r.raw)}: ${r.reason}`).join("\n")).toEqual(
+      [],
+    );
   });
 
   test("the extracted tag set is exactly what the spec specifies", () => {
