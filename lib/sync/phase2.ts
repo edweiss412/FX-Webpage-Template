@@ -16,6 +16,7 @@ import {
   applyParseResult,
   type ApplyParseResultTx,
   type PreviousCrewMember,
+  type UnlandedRename,
 } from "@/lib/sync/applyParseResult";
 import { writeMi11Holds, type Mi11Item, type LiveCrewRow } from "@/lib/sync/holds/writeMi11Holds";
 import type { HoldPort } from "@/lib/sync/holds/holdPort";
@@ -166,6 +167,11 @@ export type Phase2Result =
       outcome: "applied";
       showId: string;
       roleFlagsNotice?: RoleFlagsNotice;
+      // Unit A: identity-link rename pairs the apply did NOT land, with the reason and whether the
+      // source row survived anyway. The forensic app_event a post-commit sink writes is the ONLY
+      // signal an unlanded pair produces, so this must survive every hop out to that sink. OPTIONAL,
+      // exactly mirroring roleFlagsNotice? above — consumers default with `?? []`.
+      unlandedRenames?: UnlandedRename[];
       snapshotRevisionId?: string;
       // §02 (FIX-3 cross-boundary thread): the post-apply parseResult.warnings (including any
       // AGENDA_DAY_EMPTIED the apply appended). runPhase2 works on LOCAL rebound parseResult copies,
@@ -620,5 +626,11 @@ export async function runPhase2(tx: Phase2Tx, args: Phase2Args): Promise<Phase2R
   };
   if (snapshotRevisionId) applied.snapshotRevisionId = snapshotRevisionId;
   if (roleFlagsNotice) applied.roleFlagsNotice = roleFlagsNotice;
+  // Unit A: carry the pairs the apply did NOT land out to the post-commit sinks that emit the
+  // forensic event. Set only when non-empty, mirroring roleFlagsNotice — absent and [] both mean
+  // "nothing unlanded", and consumers default with `?? []`.
+  if (applyOutcome.unlandedRenames.length > 0) {
+    applied.unlandedRenames = applyOutcome.unlandedRenames;
+  }
   return applied;
 }

@@ -576,6 +576,36 @@ describe("runPhase2 destructive snapshot", () => {
     );
   });
 
+  // Unit A: an unlanded pair's ONLY signal is the forensic app_event a post-commit sink emits, so a
+  // dropped propagation hop out of runPhase2 leaves it completely dark — and an emitter unit test
+  // passes with every hop broken. This pins the hop itself.
+  test("phase2 surfaces unlandedRenames on its result so post-commit sinks can emit them", async () => {
+    const tx = new FakePhase2Tx();
+    tx.shows.set("file-1", {
+      id: "show-1",
+      driveFileId: "file-1",
+      lastSeenModifiedTime: "2026-05-08T11:00:00.000Z",
+      lastSyncStatus: "ok",
+      lastSyncError: null,
+      crewNames: ["Old"],
+    });
+
+    const result = await runWith(tx, {
+      parseResult: parseResult({ crewMembers: [crew("New")] }),
+      // requested pair whose target is absent from the parse -> target_absent
+      identityLinkRenames: [{ removedName: "Old", addedName: "Nowhere" }],
+    });
+
+    // Phase2Result is a DISCRIMINATED UNION — its `stale` branch carries neither field, so narrow
+    // before dereferencing or this does not compile (TS2339). `unlandedRenames` is also optional,
+    // so default it rather than indexing directly (TS18048).
+    if (result.outcome !== "applied") throw new Error(`expected applied, got ${result.outcome}`);
+    const unlanded = result.unlandedRenames ?? [];
+    expect(unlanded).toHaveLength(1);
+    expect(unlanded[0]?.reason).toBe("target_absent");
+    expect(unlanded[0]?.pair).toEqual({ removedName: "Old", addedName: "Nowhere" });
+  });
+
   test("newly-added crew auth rows enter no-live-link state", async () => {
     const tx = new FakePhase2Tx();
     tx.shows.set("file-1", {
