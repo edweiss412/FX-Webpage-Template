@@ -1796,6 +1796,11 @@ describe("sheet-link phrase containment (spec §7.10)", () => {
       ".fixture",
       ".snap",
       ".example",
+      // Font binaries, new to the repo at BL-INTER-NUMERAL-DISAMBIGUATION: the
+      // self-hosted Inter subset the app loads, and the Google-served binary it
+      // replaced, kept as the guard's historical regression fixture. Neither is
+      // resolvable by the module graph, which is what this census is about.
+      ".woff2",
     ]);
     const DOTFILE_BASENAMES = new Set([
       ".gitattributes",
