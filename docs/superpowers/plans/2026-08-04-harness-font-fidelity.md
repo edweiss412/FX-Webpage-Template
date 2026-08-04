@@ -4,6 +4,8 @@
 
 **Goal:** Make the 31 standalone e2e harnesses render the same Inter face the product renders, by defining that face in a committed stylesheet both the app and `compileEntryCss` read, and guard it so neither side can drift.
 
+<!-- spec-lint: ignore — new file created by this plan; not yet tracked -->
+
 **Architecture:** The app's face moves from `next/font/local` (which emits its `@font-face` only inside a Next build, invisible to the harnesses) to a hand-written `app/fonts.css` over the **same** committed binary the app ships today. `compileEntryCss` gains a post-step that emits a matching face with bare sibling URLs and `font-display: block`, and copies the binary beside its output. A Lightning CSS static guard pins the stylesheet; a harness guard pins the emitted block; a shared Playwright fixture distributes a byte-derived rendering oracle to every harness document.
 
 **Tech Stack:** Next 16, Tailwind v4 (`@tailwindcss/cli`), Lightning CSS 1.32.0 (exact), fontkit 2.0.4, Playwright, Vitest.
@@ -34,7 +36,7 @@ Three spec citations are off by a line or two against the live tree; use these:
 
 | Spec cites | Actual |
 | --- | --- |
-| `tests/assets/singleFontLoader.test.ts:440` and `:456` | asserted at **417** and **440**; `CANONICAL_LOADER` defined at **218** |
+| `tests/assets/singleFontLoader.test.ts:440` and `tests/assets/singleFontLoader.test.ts:456` | asserted at **417** and **440**; `CANONICAL_LOADER` defined at **218** |
 | `DESIGN.md:141` (fallback stack) | **139** |
 | `tests/cross-cutting/picker-flow-e2e-ci-wiring.test.ts:498-513` | **514-521** |
 | `tests/ci/_metaE2eWorkflowCoverage.test.ts:133` | **134** |
@@ -48,7 +50,7 @@ Three spec citations are off by a line or two against the live tree; use these:
 - **Worktree only** (invariant 11). All work happens in `/Users/ericweiss/FX-worktrees/harness-font-fidelity`. Never edit `/Users/ericweiss/FX-Webpage-Template`.
 - **Invariant 8 applies.** The diff touches `app/layout.tsx`, `app/global-error.tsx`, `app/globals.css` and `DESIGN.md`, so `/impeccable critique` AND `/impeccable audit` both run before close-out, with P0/P1 fixed or deferred via `DEFERRED.md`. Closeout marker line required: `impeccable-gate: …`.
 - **Invariant 12.** `BL-HARNESS-FONT-FIDELITY` is already marked `**Status:** IN PROGRESS · **Branch:** feat/harness-font-fidelity` (commit `21aa715ed`). It is cleared at Stage 4.4, after the `0  0` check.
-- **`lightningcss` is pinned EXACTLY `1.32.0`** — no caret. `@tailwindcss/node@4.2.4` pins that exact version; a caret installs 1.33.0 as a second copy and silently voids the guard's "same parser that compiles the file" argument.
+- **`lightningcss` is pinned EXACTLY `1.32.0`** — no caret. The `@tailwindcss/node` package (version 4.2.4 in this tree) pins that exact version; a caret installs 1.33.0 as a second copy and silently voids the guard's "same parser that compiles the file" argument.
 - **The font binary is never regenerated in this branch.** Its bytes move directories; they do not change. `pyftsubset` output varies by host, so a regeneration would be an unreviewable diff (`assets/fonts/PROVENANCE.md`).
 - **Pre-push gates, all of them:** `pnpm test`, `pnpm typecheck`, `pnpm lint`, `pnpm format:check`, `pnpm spec:lint`. Then real CI green before merge.
 - **No em-dashes in user-visible copy**; apostrophes are literal `'`; 44px tap targets; canonical type/token classes. (Pre-code mechanical UI gate — nothing in this plan renders new copy, but the preload `<link>` and `DESIGN.md` edits are in scope.)
@@ -56,12 +58,16 @@ Three spec citations are off by a line or two against the live tree; use these:
 ## Meta-test inventory (mandatory declaration)
 
 **Creates:**
+<!-- spec-lint: ignore — new file created by this plan; not yet tracked -->
 - `tests/styles/fontLoading.test.ts` — the Lightning CSS static guard (21 rows, adapted to one face).
+<!-- spec-lint: ignore — new file created by this plan; not yet tracked -->
 - `tests/e2e/_metaFontFidelityWiring.test.ts` — filesystem-walked: every `compileEntryCss` caller imports `test` from the shared fixture. Fails by default for a new caller.
+<!-- spec-lint: ignore — new file created by this plan; not yet tracked -->
 - `tests/assets/_metaLightningCssSingleVersion.test.ts` — exactly one `lightningcss` version resolves in the tree.
 
 **Extends / retargets:**
 - `tests/assets/singleFontLoader.test.ts` — contract moves from "one `next/font` loader in `app/fonts.ts`" to "no `next/font` import anywhere in the repo-wide source census, and exactly one `@font-face` declaration site".
+<!-- spec-lint: ignore — new file created by this plan; not yet tracked -->
 - `tests/styles/fontFeatureAvailability.test.ts` — derives the binary path from `app/fonts.css` instead of the `app/fonts.ts` AST.
 - `tests/observe/globalError.test.tsx` — asserts the stylesheet import instead of the generated variable class.
 
@@ -110,7 +116,7 @@ Per `docs/agents/writing-plans.md` and the round-economy contract, these are the
 | M16 | Dependency-stylesheet registration (an imported package stylesheet declares `Inter`) | `dep-mutants.mjs` port |
 | M17 | Runtime face registration (`new FontFace` + `document.fonts.add`, CSSOM `insertRule`/`replaceSync`) | runtime oracle (face-set row + byte-derived probe) |
 | M18 | Descendant/route-local family override (`.help-prose { font-family: Arial }`) | runtime oracle (per-element child probe) |
-| M19 | Pseudo-element override (`::placeholder`, `::marker`, `::before`, `::after`) | runtime oracle (computed family on the pseudo) |
+| M19 | Pseudo-element override (::placeholder, ::marker, ::before, ::after) | runtime oracle (computed family on the pseudo) |
 | M20 | Cross-family misclassification (mono ↔ sans in either direction) | mono manifest + freshness assertion |
 | M21 | Wait removal / mis-anchoring (removed, once-per-file, or anchored to navigation) | static wait-coverage row |
 
@@ -122,18 +128,31 @@ Per `docs/agents/writing-plans.md` and the round-economy contract, these are the
 
 | Path | Responsibility |
 | --- | --- |
+<!-- spec-lint: ignore — new file created by this plan; not yet tracked -->
 | `app/fonts.css` | The one `@font-face`, the `Inter Fallback` face, and `--font-inter`. Imported by both Next roots. |
+<!-- spec-lint: ignore — new file created by this plan; not yet tracked -->
 | `public/fonts/InterVariable-latin.woff2` | The served binary (moved from `assets/fonts/`, bytes unchanged). |
+<!-- spec-lint: ignore — new file created by this plan; not yet tracked -->
 | `public/fonts/OFL.txt` | SIL Open Font License 1.1 (moved from `assets/fonts/LICENSE.txt`). |
+<!-- spec-lint: ignore — new file created by this plan; not yet tracked -->
 | `public/fonts/PROVENANCE.md` | Moved, with its paths corrected. |
+<!-- spec-lint: ignore — new file created by this plan; not yet tracked -->
 | `tests/styles/fontLoading.test.ts` | Lightning CSS static guard. |
+<!-- spec-lint: ignore — new file created by this plan; not yet tracked -->
 | `tests/styles/fontLoadingMutants.test.ts` | The mutation matrix over that guard. |
+<!-- spec-lint: ignore — new file created by this plan; not yet tracked -->
 | `tests/assets/_metaLightningCssSingleVersion.test.ts` | Exactly one `lightningcss` in the tree. |
+<!-- spec-lint: ignore — new file created by this plan; not yet tracked -->
 | `tests/e2e/harness-font-face.spec.ts` | Playwright: the emitted face renders the committed bytes. |
+<!-- spec-lint: ignore — new file created by this plan; not yet tracked -->
 | `tests/e2e/helpers/fontFidelityFixture.ts` | The shared fixture distributing the oracle to all 31 callers. |
+<!-- spec-lint: ignore — new file created by this plan; not yet tracked -->
 | `tests/e2e/helpers/fontOracle.ts` | Byte-derived expectation + probe derivation + the three-way element dispatch, importable by both the fixture and the census. |
+<!-- spec-lint: ignore — new file created by this plan; not yet tracked -->
 | `tests/e2e/helpers/monoSurfaces.ts` | The frozen mono manifest. |
+<!-- spec-lint: ignore — new file created by this plan; not yet tracked -->
 | `tests/e2e/_metaFontFidelityWiring.test.ts` | Fixture-wiring meta-test. |
+<!-- spec-lint: ignore — new file created by this plan; not yet tracked -->
 | `tests/e2e/font-rendering-census.spec.ts` | The route-census oracle. |
 
 **Delete:** `app/fonts.ts`, `assets/fonts/` (contents moved).
@@ -167,7 +186,7 @@ At the head of §3.3 and §3.4, and at the §1 paragraph beginning "The app side
 
 - [ ] **Step 3: Correct the four stale citations**
 
-`tests/assets/singleFontLoader.test.ts:440`→`:417`, `:456`→`:440`; `DESIGN.md:141`→`DESIGN.md:139`; `tests/cross-cutting/picker-flow-e2e-ci-wiring.test.ts:498-513`→`:514-521`; `tests/ci/_metaE2eWorkflowCoverage.test.ts:133`→`:134`. Also strike §4.2's "`fontkit` does not resolve in this repo today" — it is declared at `package.json:126`.
+`tests/assets/singleFontLoader.test.ts:440`→`tests/assets/singleFontLoader.test.ts:417`, `tests/assets/singleFontLoader.test.ts:456`→`tests/assets/singleFontLoader.test.ts:440`; `DESIGN.md:141`→`DESIGN.md:139`; `tests/cross-cutting/picker-flow-e2e-ci-wiring.test.ts:498-513`→`tests/cross-cutting/picker-flow-e2e-ci-wiring.test.ts:514-521`; `tests/ci/_metaE2eWorkflowCoverage.test.ts:133`→`tests/ci/_metaE2eWorkflowCoverage.test.ts:134`. Also strike §4.2's "`fontkit` does not resolve in this repo today" — it is declared at `package.json:126`.
 
 - [ ] **Step 4: Verify the spec still lints**
 
@@ -186,6 +205,7 @@ git commit -m "docs(spec): amend harness-font-fidelity for the local-font pivot"
 ## Task 2: Pin `lightningcss` exactly, and guard the pin
 
 **Files:**
+<!-- spec-lint: ignore — new file created by this plan; not yet tracked -->
 - Create: `tests/assets/_metaLightningCssSingleVersion.test.ts`
 - Modify: `package.json`, `pnpm-lock.yaml`
 
@@ -203,7 +223,7 @@ import { describe, expect, test } from "vitest";
  * front end that compiles the file: `@tailwindcss/node` pins `lightningcss` at
  * an exact version, and a caret dependency here would install a second copy
  * that compiles nothing in this repo. The argument would be gone and nothing
- * would report it — so this test IS the argument's enforcement.
+ * would report it, so this test IS the argument's enforcement.
  */
 describe("lightningcss is a single, exactly-pinned instance", () => {
   test("package.json pins it without a range operator", async () => {
@@ -259,9 +279,11 @@ git commit -m "infra: pin lightningcss at exactly 1.32.0 with a single-version g
 A hand-written `@font-face` needs a URL the browser can fetch, and `assets/` is bundler input, not a served directory. The bytes move; they do not change.
 
 **Files:**
+<!-- spec-lint: ignore — new files created by this plan; not yet tracked -->
 - Create: `public/fonts/InterVariable-latin.woff2`, `public/fonts/OFL.txt`, `public/fonts/PROVENANCE.md`
 - Delete: `assets/fonts/InterVariable-latin.woff2`, `assets/fonts/LICENSE.txt`, `assets/fonts/PROVENANCE.md`
 - Modify: `scripts/subset-inter.sh`
+<!-- spec-lint: ignore — new file created by this plan; not yet tracked -->
 - Create: `tests/styles/fontAssets.test.ts`
 
 **Interfaces:**
@@ -324,6 +346,8 @@ git mv assets/fonts/LICENSE.txt public/fonts/OFL.txt
 git mv assets/fonts/PROVENANCE.md public/fonts/PROVENANCE.md
 ```
 
+<!-- spec-lint: ignore — new files created by this plan; not yet tracked -->
+
 Then update every path inside `public/fonts/PROVENANCE.md` (`assets/fonts/` → `public/fonts/`, `LICENSE.txt` → `OFL.txt`) and repoint `scripts/subset-inter.sh`'s output path at `public/fonts/InterVariable-latin.woff2`.
 
 - [ ] **Step 5: Run it and watch it pass**
@@ -375,11 +399,16 @@ git commit -m "docs(plan): record the next/font-emitted faces before the mechani
 
 ---
 
+<!-- spec-lint: ignore — new file created by this plan; not yet tracked -->
+
 ## Task 5: `app/fonts.css` behind the Lightning CSS static guard
+
+<!-- spec-lint: ignore — new file created by this plan; not yet tracked -->
 
 The guard is written first and must go red against a tree with no `app/fonts.css`.
 
 **Files:**
+<!-- spec-lint: ignore — new files created by this plan; not yet tracked -->
 - Create: `app/fonts.css`, `tests/styles/fontLoading.test.ts`
 - Reference: `docs/superpowers/specs/spikes/2026-08-03-harness-font-fidelity/static-guard.mjs`
 
@@ -402,8 +431,8 @@ const REPO_ROOT = resolve(__dirname, "..", "..");
 const FONTS_CSS = resolve(REPO_ROOT, "app", "fonts.css");
 
 /**
- * Parsed with Lightning CSS — the parser `@tailwindcss/cli` and
- * `@tailwindcss/postcss` already use to compile this tree — NOT with regular
+ * Parsed with Lightning CSS, the parser `@tailwindcss/cli` and
+ * `@tailwindcss/postcss` already use to compile this tree, NOT with regular
  * expressions. Round 18 broke a regex parser with `SRC:` and round 19 with
  * `s\72 c:`; a regex over a formal grammar is that defect by construction. A
  * real parser handles every escape, case variant and last-wins duplicate by
@@ -532,6 +561,8 @@ describe("app/fonts.css", () => {
 Run: `pnpm vitest run tests/styles/fontLoading.test.ts`
 Expected: FAIL — `ENOENT … app/fonts.css`.
 
+<!-- spec-lint: ignore — new file created by this plan; not yet tracked -->
+
 - [ ] **Step 3: Write `app/fonts.css`**
 
 ```css
@@ -598,17 +629,21 @@ Five surfaces encode the retired mechanism. Each retargeted assertion must fail 
 
 **Files:**
 - Delete: `app/fonts.ts`
-- Modify: `app/layout.tsx:2,58`, `app/global-error.tsx:7-13,31`, `tests/setup.ts:138,146`, `tests/assets/singleFontLoader.test.ts:218,417,440`, `tests/observe/globalError.test.tsx:61`, `tests/styles/fontFeatureAvailability.test.ts:76`
+- Modify: `app/layout.tsx:2`, `app/layout.tsx:58`, `app/global-error.tsx:7-13`, `app/global-error.tsx:31`, `tests/setup.ts:138`, `tests/setup.ts:146`, `tests/assets/singleFontLoader.test.ts:218`, `tests/assets/singleFontLoader.test.ts:417`, `tests/assets/singleFontLoader.test.ts:440`, `tests/observe/globalError.test.tsx:61`, `tests/styles/fontFeatureAvailability.test.ts:76`
 
 - [ ] **Step 1: Retarget the three existing guards, and watch each fail**
 
 `tests/assets/singleFontLoader.test.ts` — replace `CANONICAL_LOADER = "app/fonts.ts"` and its two assertions (lines 417, 440) with: no file in the repo-wide source census imports `next/font`, and exactly one file declares `@font-face`. **Keep the census walk exactly as it is** (`SOURCE_EXTENSIONS` and `TEXT_SCANNED_EXTENSIONS`, lines 163-164) — scoping it to `app/` is the already-refuted narrower reading a `components/`-hosted loader walks straight through. Exclude `docs/` and the spike directory **by path**, named in the test, or the guard goes red against this spec's own tracked mutation corpus.
 
-`tests/observe/globalError.test.tsx:61` — replace the `NEXT_FONT_TEST_VARIABLE_CLASS` assertion with one that the crash screen module imports `./fonts.css`. The intent, that `--font-inter` resolves on the second root, is unchanged.
+`tests/observe/globalError.test.tsx:61` — replace the `NEXT_FONT_TEST_VARIABLE_CLASS` assertion with one that the crash screen module imports ./fonts.css. The intent, that `--font-inter` resolves on the second root, is unchanged.
+
+<!-- spec-lint: ignore — new file created by this plan; not yet tracked -->
 
 `tests/styles/fontFeatureAvailability.test.ts:76` — derive the binary path from `app/fonts.css`'s `src` URL instead of the `app/fonts.ts` AST. **Keep the indirection**: naming `public/fonts/…` directly would keep passing after someone repointed the stylesheet, which is exactly what that file exists to close.
 
 Run each retargeted file: `pnpm vitest run tests/assets/singleFontLoader.test.ts tests/observe/globalError.test.tsx tests/styles/fontFeatureAvailability.test.ts`
+<!-- spec-lint: ignore — new file created by this plan; not yet tracked -->
+
 Expected: FAIL — `app/fonts.ts` still exists and still imports `next/font/local`; the crash screen still carries the variable class; `app/fonts.css` is not yet what the feature test reads.
 
 - [ ] **Step 2: Swap both roots**
@@ -640,6 +675,8 @@ Remove both `vi.mock("next/font/local", …)` (line 138) and `vi.mock("next/font
 - [ ] **Step 4: Run the three guards and the build**
 
 Run: `pnpm vitest run tests/assets/singleFontLoader.test.ts tests/observe/globalError.test.tsx tests/styles/fontFeatureAvailability.test.ts tests/styles/fontLoading.test.ts && pnpm typecheck && pnpm build`
+<!-- spec-lint: ignore — new file created by this plan; not yet tracked -->
+
 Expected: PASS, and a clean build. A build failure here is the RSC-boundary class — check that `app/fonts.css` is imported, not `require`d.
 
 - [ ] **Step 5: Confirm the app still renders Inter**
@@ -659,10 +696,13 @@ git commit -m "refactor(assets): retire next/font in favour of the committed sty
 ## Task 7: The static guard's mutation matrix
 
 **Files:**
+<!-- spec-lint: ignore — new file created by this plan; not yet tracked -->
 - Create: `tests/styles/fontLoadingMutants.test.ts`
 - Reference: `docs/superpowers/specs/spikes/2026-08-03-harness-font-fidelity/mutants.mjs`, `dep-mutants.mjs`
 
 - [ ] **Step 1: Port the mutation corpus**
+
+<!-- spec-lint: ignore — new file created by this plan; not yet tracked -->
 
 Each mutant is a string transform over the real `app/fonts.css`, fed to the same parsing helpers Task 5 exported, asserting **at least one row rejects it**. Families M1-M12 and M16 from the table above. Drop only the mutants that are meaningless with one face (permuting URLs among subsets; copying one subset's bytes under seven names) and say so in a comment naming the family, so a reviewer sees a decision rather than an omission.
 
@@ -678,6 +718,8 @@ Run: `pnpm vitest run tests/styles/fontLoadingMutants.test.ts`
 Expected: PASS — every mutant killed. **A mutant that survives is a guard defect, not a corpus defect**: fix the guard, never weaken the mutant.
 
 - [ ] **Step 3: Add the conditional-at-rule row (M11) and its mutants**
+
+<!-- spec-lint: ignore — new file created by this plan; not yet tracked -->
 
 A row that forbids `font-family`, the `font` shorthand, **and any `--font-*` token** inside any conditional at-rule at any nesting depth, scanning the rule tree of **every** shipped stylesheet — not just `app/fonts.css`. Round 29 corrected an earlier version that registered a `media` visitor only and read one file, so `@supports`, `@container`, `app/globals.css` and a conditionally-redefined token all walked through prose claiming otherwise. Verify it passes against the real `app/globals.css` today and fails on an injected dark-mode token override.
 
@@ -699,6 +741,7 @@ git commit -m "test(styles): pin the static font guard with its mutation matrix"
 
 **Files:**
 - Modify: `tests/e2e/helpers/liveEntryToolchain.ts:124-141`
+<!-- spec-lint: ignore — new file created by this plan; not yet tracked -->
 - Create: `tests/e2e/helpers/liveEntryToolchain.fonts.test.ts`
 - Reference: `docs/superpowers/specs/spikes/2026-08-03-harness-font-fidelity/harness-guard.mjs`
 
@@ -749,6 +792,8 @@ Expected: FAIL — `compileEntryCss` emits no `@font-face` at all today.
 
 - [ ] **Step 3: Implement the post-step**
 
+<!-- spec-lint: ignore — new file created by this plan; not yet tracked -->
+
 After the `execFileSync` returns, append the face block to `outFile` and copy the binary into `dirname(outFile)`. Emit `font-display: block` and a bare sibling `src`. Derive the block from `app/fonts.css` by parsing it — **do not** hand-duplicate the descriptors, or the two blocks drift the first time one is edited.
 
 Keep `compileEntryCss` narrow in the sense its own comment defines (`tests/e2e/helpers/liveEntryToolchain.ts:110-122`): it still does not own how callers build their entry CSS. The face is appended to the compiled **output**, which is why one edit reaches all 31 callers regardless of how each assembled its input.
@@ -774,6 +819,7 @@ git commit -m "feat(e2e): emit the committed Inter face from compileEntryCss"
 ## Task 9: The harness-face browser guard
 
 **Files:**
+<!-- spec-lint: ignore — new file created by this plan; not yet tracked -->
 - Create: `tests/e2e/harness-font-face.spec.ts`
 - Modify: `tests/e2e/standalone.config.ts:85-86`, `tests/e2e/standalone-baseline.json`
 
@@ -815,6 +861,7 @@ git commit -m "test(e2e): prove the harness renders the committed Inter bytes"
 ## Task 10: The byte-derived oracle module
 
 **Files:**
+<!-- spec-lint: ignore — new files created by this plan; not yet tracked -->
 - Create: `tests/e2e/helpers/fontOracle.ts`, `tests/e2e/helpers/fontOracle.test.ts`
 
 **Interfaces:**
@@ -882,6 +929,7 @@ git commit -m "feat(e2e): add the byte-derived font-rendering oracle"
 ## Task 11: The shared fixture and its wiring meta-test
 
 **Files:**
+<!-- spec-lint: ignore — new files created by this plan; not yet tracked -->
 - Create: `tests/e2e/helpers/fontFidelityFixture.ts`, `tests/e2e/_metaFontFidelityWiring.test.ts`
 - Reference: `docs/superpowers/specs/spikes/2026-08-03-harness-font-fidelity/fixture-prototype.ts`
 
@@ -1030,7 +1078,7 @@ git commit -m "test(e2e): await document.fonts.ready per measured document"
 
 **Order matters and is a spec risk item:** figures are re-derived only AFTER the face is emitted (Task 8) and the waits have landed (Task 13). Measuring earlier bakes fallback metrics into pinned numbers.
 
-**Files:** whichever of the 28 font-sensitive harnesses fail; `tests/e2e/section-header-layout.layout.spec.ts:182,360,361`.
+**Files:** whichever of the 28 font-sensitive harnesses fail; `tests/e2e/section-header-layout.layout.spec.ts:182`, `tests/e2e/section-header-layout.layout.spec.ts:360`, `tests/e2e/section-header-layout.layout.spec.ts:361`.
 
 - [ ] **Step 1: Run the standalone suite and record every failure**
 
@@ -1064,12 +1112,15 @@ git commit -m "test(e2e): re-derive harness geometry against the committed face"
 ## Task 15: The route-census oracle
 
 **Files:**
+<!-- spec-lint: ignore — new files created by this plan; not yet tracked -->
 - Create: `tests/e2e/font-rendering-census.spec.ts`, `tests/e2e/helpers/monoSurfaces.ts`
-- Modify: `playwright.config.ts:65,79`, `.github/workflows/crew-e2e.yml:159`, `scripts/check-crew-e2e-executed.mjs:38`, `tests/ci/_metaE2eWorkflowCoverage.test.ts:134`
+- Modify: `playwright.config.ts:65`, `playwright.config.ts:79`, `.github/workflows/crew-e2e.yml:159`, `scripts/check-crew-e2e-executed.mjs:38`, `tests/ci/_metaE2eWorkflowCoverage.test.ts:134`
 
 **Scope is the ratified sample, not a completeness pursuit (spec §4.0 SCOPE DECISION, user-ratified 2026-08-04). Do not widen it.**
 
 - [ ] **Step 1: Write the mono manifest**
+
+<!-- spec-lint: ignore — new file created by this plan; not yet tracked -->
 
 `monoSurfaces.ts` exports an ordered list of `{ route, selector, scope }`, `scope` being `"element"` or `"subtree"`. **Entries key on identity that survives a typography change** — a `data-testid` where one exists, otherwise a role-plus-accessible-name pair. Keying on `.font-mono` or on `code`/`pre` tag names would mean deleting the class also changes the expected set, which is round 26's exact defect.
 
@@ -1095,7 +1146,7 @@ The per-subset sweep collapses to the one committed face (see "Ratified deviatio
 
 - [ ] **Step 4: Wire it four ways**
 
-1. **Config** — add the filename to the `testMatch` alternation of **both** `mobile-safari` (`playwright.config.ts:65`) and `desktop-chromium` (`:79`). Naming both projects on the CI command line does **not** override a project's own `testMatch`.
+1. **Config** — add the filename to the `testMatch` alternation of **both** `mobile-safari` (`playwright.config.ts:65`) and `desktop-chromium` (`playwright.config.ts:79`). Naming both projects on the CI command line does **not** override a project's own `testMatch`.
 2. **CI** — append the spec to the existing invocation at `.github/workflows/crew-e2e.yml:159`, which names its specs explicitly. (Contrast the standalone workflow, which must stay unfiltered.)
 3. **Executed-spec registry** — add a threshold row beside `"font-binding.spec.ts": 10` at `scripts/check-crew-e2e-executed.mjs:38`. Without it, `tests/cross-cutting/picker-flow-e2e-ci-wiring.test.ts:514-521` fails, and nothing would stop the new suite from collecting cases and skipping them all while CI stays green.
 4. **Workflow coverage** — add the same `PATH_GATED_BY_EXCLUSION` disposition `font-binding.spec.ts` carries at `tests/ci/_metaE2eWorkflowCoverage.test.ts:134`. Without it, "every e2e spec is PR-covered or reason-allowlisted" fails the moment the file exists.
@@ -1146,7 +1197,7 @@ git commit -m "test(e2e): rebaseline section-header pixels against the committed
 
 ## Task 17: Documentation and ledger
 
-**Files:** `DESIGN.md:133,139`, `BACKLOG.md`, `BACKLOG-archive.md`
+**Files:** `DESIGN.md:133`, `DESIGN.md:139`, `BACKLOG.md`, `BACKLOG-archive.md`
 
 - [ ] **Step 1: Amend `DESIGN.md` §2.1**
 
@@ -1184,6 +1235,8 @@ git commit -m "docs: record the self-hosted font mechanism and graduate the entr
 Invariant 8. The diff touches `app/layout.tsx`, `app/global-error.tsx`, `app/globals.css` and `DESIGN.md`, so both halves run before close-out.
 
 - [ ] **Step 1: Run the canonical setup gates**
+
+<!-- spec-lint: ignore — impeccable skill files, not repo paths -->
 
 `context.mjs` context load (PRODUCT.md + DESIGN.md), then the register reference read (`brand.md` or `product.md`).
 
