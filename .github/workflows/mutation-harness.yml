@@ -25,6 +25,7 @@ on:
     paths:
       - ".github/workflows/mutation-harness.yml"
       - "tests/parser/mutation/**"
+      - "tests/mutation/**"
       - "tests/parser/mutationHarness.*.test.ts"
       # vitest wiring owns the mutation project's existence/includes — a wiring-only
       # PR must fire the real workflow too (whole-diff review advisory).

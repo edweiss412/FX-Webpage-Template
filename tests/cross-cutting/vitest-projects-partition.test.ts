@@ -197,9 +197,10 @@ describe("vitest projects split — partition is complete and correctly wired", 
           expect(admitting, `${f} must be admitted by exactly one default project`).toHaveLength(1);
         }
       }
-      expect(nightlyCount, "exactly the 9 nightly harness files live in no default project").toBe(
-        9,
-      );
+      expect(
+        nightlyCount,
+        "exactly the 10 nightly files (9 parser harness + the source-mutation gate) live in no default project",
+      ).toBe(10);
       // Anti-collapse floors, computed from RESOLVED membership (not the
       // matchesParallel helper): exact-once alone permits massive drift, since
       // every file could pile into one project and still be admitted exactly

@@ -80,8 +80,16 @@ export const ENV_BOUND_EXCLUDES = [
 // `mutation` project (fileParallelism:true — the sharding speedup) exists ONLY
 // when VITEST_INCLUDE_MUTATION_HARNESS=1 (nightly workflow + local regen runs).
 // (User-directed nightly placement 2026-07-06; parent spec §Non-goals + AC-5.)
-export const MUTATION_TEST_GLOBS = ["tests/parser/mutationHarness.*.test.ts"];
-export const NIGHTLY_ONLY_EXCLUDES = ["**/tests/parser/mutationHarness.*.test.ts"];
+export const MUTATION_TEST_GLOBS = [
+  "tests/parser/mutationHarness.*.test.ts",
+  // Source-mutation gate (spec docs/superpowers/specs/ci/2026-08-04-source-mutation-guard-gate.md):
+  // spawns one vitest child per mutant, so it is nightly + on-demand, never merge-gating.
+  "tests/mutation/guardSurfaces.gate.test.ts",
+];
+export const NIGHTLY_ONLY_EXCLUDES = [
+  "**/tests/parser/mutationHarness.*.test.ts",
+  "**/tests/mutation/guardSurfaces.gate.test.ts",
+];
 
 export const PARALLEL_TEST_GLOBS = [
   "tests/components/**/*.test.{ts,tsx}",
@@ -124,6 +132,9 @@ export const PARALLEL_TEST_GLOBS = [
   "tests/github/**/*.test.{ts,tsx}",
   "tests/venue/**/*.test.{ts,tsx}",
   "tests/docs/**/*.test.{ts,tsx}",
+  // The source-mutation UNIT tests are pure and fast; the nightly gate file in
+  // the same tree is excluded from both default projects by NIGHTLY_ONLY_EXCLUDES.
+  "tests/mutation/**/*.test.{ts,tsx}",
   "tests/sample.test.ts",
 ];
 
