@@ -137,6 +137,22 @@ if (process.env.APP_CSS && existsSync(process.env.APP_CSS))
 for (const f of (process.env.EXTRA_CSS ?? "").split(":").filter(Boolean))
   if (existsSync(f)) SHIPPED.push([readFileSync(f, "utf8"), f.split("/").pop()]);
 const conditionalHits = SHIPPED.flatMap(([t, l]) => scanConditionals(t, l));
+// Round 31: EXTRA_CSS reached scanConditionals but NOT the face parser, so an
+// imported dependency stylesheet could register an impostor "Inter" face and the
+// guard stayed green. The fonts stylesheet is the only place a face may be
+// declared; every other shipped stylesheet must declare none.
+const foreignFaces = [];
+for (const [text, label] of SHIPPED) {
+  if (label === "fonts.css") continue;
+  transform({ filename: label, code: Buffer.from(text), minify: false, visitor: {
+    Rule: { "font-face"(r) {
+      const fam = r.value.properties.find((x) => x.type === "font-family");
+      foreignFaces.push(`${label}: @font-face ${typeof fam?.value === "string" ? fam.value : "?"}`);
+    }},
+  }});
+}
+check("19 no @font-face outside the fonts stylesheet, in any shipped stylesheet",
+  foreignFaces.length === 0, foreignFaces.join(" | "));
 check("18 no font-family, font, or --font-* token set inside any conditional at-rule, in any shipped stylesheet",
   conditionalHits.length === 0, conditionalHits.join(" | "));
 check("16 every Inter face declares font-weight EXACTLY 100 900",
