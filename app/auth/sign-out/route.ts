@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import { interstitialDocument } from "@/lib/auth/interstitialDocument";
 import { COOKIE_NAME as PICKER_COOKIE_NAME } from "@/lib/auth/picker/cookieEnvelope";
 import { isSupabaseAuthCookieName } from "@/lib/auth/supabaseAuthCookieNames";
 import { messageFor } from "@/lib/messages/lookup";
@@ -22,30 +23,19 @@ function teardownFailureHtml(): string {
   const heading = "Sign-out couldn't complete";
   const body = entry.crewFacing ?? entry.dougFacing ?? "Please try again.";
   const retry = "Try signing out again";
-  return [
-    "<!doctype html>",
-    '<html lang="en">',
-    "<head>",
-    '<meta charset="utf-8">',
-    `<title>${heading}</title>`,
-    '<meta name="viewport" content="width=device-width,initial-scale=1">',
-    "<style>",
-    "body{font:16px/1.5 system-ui,sans-serif;margin:0;padding:2rem;max-width:32rem;margin-inline:auto;color:#1a1a1a}",
-    "h1{font-size:1.5rem;margin:0 0 1rem}",
-    "p{margin:0 0 1rem}",
-    "form{margin:1rem 0 0}",
-    "button{font:inherit;padding:.6rem 1rem;border:1px solid #999;background:#f5f5f5;border-radius:.375rem;cursor:pointer}",
-    "</style>",
-    "</head>",
-    "<body>",
-    `<h1>${heading}</h1>`,
-    `<p>${body}</p>`,
-    '<form method="POST" action="/auth/sign-out">',
-    `<button type="submit">${retry}</button>`,
-    "</form>",
-    "</body>",
-    "</html>",
-  ].join("");
+  // This document's own inline style is now the shared one: it was the only
+  // one of the four that declared a font stack, and the other three adopting it
+  // is what closes BL-AUTH-INTERSTITIAL-FONT. Its chrome is unchanged.
+  return interstitialDocument({
+    title: heading,
+    heading,
+    body,
+    extraBodyHtml: [
+      '<form method="POST" action="/auth/sign-out">',
+      `<button type="submit">${retry}</button>`,
+      "</form>",
+    ].join(""),
+  });
 }
 
 function clearSupabaseAuthCookies(request: NextRequest, response: NextResponse): void {
