@@ -5,7 +5,7 @@
 **Date:** 2026-08-03
 **Branch:** `chore/ledger-claim-visibility`
 **Backlog entries:** none opened for this work (see §9.1); three filed as by-products (§9.2, §9.3, §5 item 0a)
-**Status:** R10 repaired — 61 adversarial findings across ten rounds plus 5 self-findings, all accepted. R10 triggered the three-round cap: §3.1 is now written from a spike, not from prose
+**Status:** R11 repaired — 67 adversarial findings across eleven rounds plus 5 self-findings, all accepted. R10 triggered the three-round cap: §3.1 is written from a spike, independently reproduced cross-model at R11
 **Review note:** R1-R4 were Codex (cross-model). R5 and R6 were fresh-eyes Opus sessions, because Codex hit a usage limit resetting 2026-08-10; see §10
 **impeccable-gate: N/A — no UI surface**
 
@@ -448,8 +448,16 @@ onto main, which is the precise stale-marker failure this spec exists to close.
 | Element | Definition |
 | --- | --- |
 | `LedgerItem.fields` | fields from the 12-line window **union** fields parsed from any line that itself carries an in-progress `Status`, at any depth. Window value wins on a key collision, so existing entries are untouched |
-| `isInProgress(entry)` | **any** line in the entry body carries an in-progress `Status`, at any depth |
+| `isInProgress(entry)` | **any** line in the entry body carries an in-progress `Status`, at any depth. **It scans lines; it never reads `fields.Status`** |
 | `flightFieldsOn(entry)` | unchanged in definition; it reads the widened `fields`, so it follows automatically |
+
+**The two can disagree, and which one wins is specified.** R11 finding 1: `fields` resolves a key
+collision in the window's favor, so an entry reading `Status: OPEN` near the top with a valid marker
+below line 12 has `fields.Status === "OPEN"` while `isInProgress` is true. A predicate reading
+`fields.Status` would downgrade a live claim, and the guard would then report the widened `Branch`
+as a flight field with no status explaining it — a false violation on a correctly-marked entry. So
+`isInProgress` scans lines, and the flight-field rule defers to it rather than to `fields.Status`.
+§7.4b plants exactly this shape.
 
 Because the union lands on `fields`, all four existing consumers — pointability, `Branch` shape,
 `PR` shape, and branch liveness — see the out-of-window marker without any of them being edited.
@@ -460,6 +468,7 @@ Every existing planted assertion survives unchanged, which is the acceptance cri
 | `**Status:** IN PROGRESS · **Severity:** low` | true | none | fires as unactionable, as today |
 | `**Status:** OPEN · **Branch:** feat/x` | false | `Branch=feat/x` | fires as flight-field-without-status, as today |
 | `**Status:** OPEN`, then a `**Branch:**` fourteen paragraphs down | false | none | silent — the deep quote's own line carries no in-progress status, so it contributes nothing to the union |
+| `**Status:** OPEN` in-window, then `**Status:** IN PROGRESS · **Branch:** feat/live` below line 12 | **true** | `Branch=feat/live` | silent — R11 finding 1's collision. `fields.Status` still reads `OPEN`, and any predicate consulting it would both downgrade the claim and fire a false flight-field violation |
 | `**Status:** IN PROGRESS · **Branch:** chore/real-branch` seventeen lines down | true | `Branch=chore/real-branch` | newly seen; passes shape, and is now subject to the liveness check it previously escaped |
 | `**Status:** IN PROGRESS · **Branch:** not a branch` seventeen lines down | true | `Branch=not a branch` | **newly fires** the `Branch` shape rule (`tests/docs/_metaLedgerInProgress.test.ts:171`), which it escaped before the union |
 
@@ -659,8 +668,7 @@ Every input, and what the reader does with it.
 | A diff hunk landing outside every entry span | Dropped, contributing no `inferred` claim (§3.2 step 6). The reconciliation-log preamble is this case and occurs on every live ref |
 | A ledger file that is non-empty on disk but yields **zero** entries | Exit **2** in `--check`, not a warning. This is the per-file vacuity rule (§3.1): a whole ledger silently disappearing — which a wrong `ExtractOpts` mapping does to both deferred files — is the same false-all-clear class as R3 finding 1 reached through a different door. The condition is self-contained and never compares the parser against another run of itself |
 | A ledger file that is genuinely empty, or absent at a ref | Contributes no claims, no warning. A branch may predate the file |
-| **Vacuity**: every branch yields 0 entries while `origin/main` yields more than 100, **and at least one candidate branch exists whose ledger files are non-empty** | R10 finding 2: without that last clause the predicate is true in three legitimate universes — origin holding only `main`, every candidate predating the ledgers, and genuinely empty candidate ledgers — so a repo with no side branches would exit 2 forever. The clause is what distinguishes "the parser broke" from "there is nothing to parse" |
-| Legacy row, superseded by the above | Print `WARN: claim parser matched nothing across N branches — treat this report as unreliable` and exit 2 in `--check`. A parser that silently matches nothing would make the whole report a false all-clear, which is the one failure this tool must never produce quietly. The threshold sits far below the real floor: the probe parsed 4837 entries across 15 refs and 4 ledgers at 19:11 CDT, and 6715 across 19 refs 90 minutes later. Both are an order of magnitude clear of 100, and the margin grows as the corpus does |
+| **Vacuity**: every branch yields 0 entries while `origin/main` yields more than 100, **and at least one candidate branch exists whose ledger files are non-empty** | R10 finding 2: without that last clause the predicate is true in three legitimate universes — origin holding only `main`, every candidate predating the ledgers, and genuinely empty candidate ledgers — so a repo with no side branches would exit 2 forever. The clause is what distinguishes "the parser broke" from "there is nothing to parse" Print `WARN: claim parser matched nothing across N branches — treat this report as unreliable` and exit 2 in `--check`. A parser that silently matches nothing would make the whole report a false all-clear, which is the one failure this tool must never produce quietly. The threshold sits far below the real floor: the probe parsed 4837 entries across 15 refs and 4 ledgers at 19:11 CDT, and 6715 across 19 refs 90 minutes later. Both are an order of magnitude clear of 100, and the margin grows as the corpus does |
 | An entry declared in-progress with no `Branch`/`PR` field | Still reported as `declared`, keyed on the ref it was found at. Field validity is `tests/docs/_metaLedgerInProgress.test.ts`'s job, not the reader's |
 | The same id declared by two branches | Both rows printed. This IS the collision; `--check` exits 1 |
 | An id declared on a branch and also present on `origin/main` as in-progress | Reported once per branch. Main is never a candidate, so main's own copy contributes nothing |
@@ -887,11 +895,14 @@ a false all-clear through five distinct doors while passing everything above:
 | --- | --- | --- |
 | Fetch fails, cached refs carry another branch's live declaration | 2 | exit 0 from an unverified universe |
 | Zero `refs/remotes/origin/*` resolved | 2 | exit 0 from an empty universe |
-| Fetch succeeds but resolves fewer heads than `git ls-remote` reports | 2 | exit 0 from a silently narrowed universe (the configured-refspec case) |
+| Fetch succeeds but the resolved head **set** is missing a name `git ls-remote` reports | 2 | exit 0 from a silently narrowed universe (the configured-refspec case) |
 | Detached HEAD with no `GITHUB_HEAD_REF` | 2 | exit 1 attributing the caller's own marker to a stranger |
 | `git ls-remote` fails after a successful fetch | 2 | R9 finding 3: `execFileSync` throws (status 128) and an uncaught throw exits **1**, which §3.3 and §6.2 both define as another branch's collision. An implementation that simply omits the catch passes every other row here |
+| **Equal or larger head count, wrong members** | 2 | R11 finding 3: the case must plant `resolved = {main, stale-deleted}` against `remote = {main, claimed-live}`, and a second with `resolved` strictly larger. Both have no count shortfall while the claimed branch is absent, so a cardinality assertion passes over exactly the branch that matters |
+| **Only `main` on origin** | **0** | R11 finding 2: a legitimate empty universe, not a parser failure. Also planted: a candidate that predates the ledgers, and a candidate whose ledgers are genuinely empty. All three satisfy "every branch yields 0" and must NOT exit 2, which is the assertion that fails if the non-empty-candidate clause is dropped |
+| **`--json` envelope shape** | n/a | R11 finding 4: assert the payload is an object with `status` and `degraded`, that a healthy empty run and a fetch-failed run are **distinguishable**, and that `degraded` names the state. A bare-array implementation passes the 101-entry cap test while making those two runs byte-identical |
 | **The no-em-dash boundary entry** | n/a — a positive case | R10 finding 6: no test planted the shape R7 finding 1 was about. A fixture entry whose heading carries no em dash must resolve, with its span, and be attributable. This is the one case the deleted `HEADING` regex fails and the authoritative grammar passes, so it is the only assertion that catches a silent reversion to the old recognizer |
-| **`levels: [2]` instead of `[2, 3]` on the backlog pair** | 2 | R10 finding 6's second mutant, and the reason the zero-result vacuity gate is not sufficient on its own: dropping H3 keeps 46 of 92 backlog entries and 144 of 229 archive entries, so **no file is empty and the global floor is cleared** while 74 unique ids vanish. The case asserts a known H3 entry resolves, which is the only thing that fails |
+| **`levels: [2]` instead of `[2, 3]` on the backlog pair** | n/a — a positive case, **not** an exit code | R10 finding 6's second mutant, and the reason the zero-result vacuity gate is not sufficient on its own: dropping H3 keeps 46 of 92 backlog entries and 144 of 229 archive entries, so **no file is empty and the global floor is cleared** while 74 unique ids vanish. R11 finding 5 caught an earlier draft demanding exit 2 here, which its own numbers refute — no vacuity condition fires, so there is nothing to exit 2 about. The contract is the positive assertion alone: a known H3 entry resolves. That is the only thing the mutant fails |
 | A deferred ledger parsed with the backlog `ExtractOpts` | 2 | R8 finding 1 / R9 finding 1: both deferred files yield zero entries, a planted deferred claim vanishes, and the global floor stays satisfied by the backlog entries alone. **The case plants a claim in `DEFERRED.md` and asserts it is found**, which is the only assertion that fails when the opts mapping is wrong |
 | 101 candidates, the collision in the 101st | **1** | exit 0 from a collision hidden behind the display cap |
 
@@ -990,7 +1001,13 @@ which is why this is a table:
 | --- | --- | --- |
 | `BL-SOME-OTHER-ROW` | §3.2 sample output | placeholder in the report example |
 | `BL-A`, `BL-B` | §3.3 usage line | `--check` argument example |
-| `BL-DEFINED`, `BL-MENTIONED`, `BL-COLON`, `BL-NESTED`, `BL-ONE`, `BL-TWO` | §9.2 probe table | the over-mint probe's planted inputs |
+| `BL-DEFINED`, `BL-MENTIONED`, `BL-COLON`, `BL-NESTED`, `BL-ONE` | §9.2 probe table | the over-mint probe's planted inputs |
+
+`BL-TWO` appears in §9.2's probe alongside `BL-ONE` but takes **no row**, which R11 finding 6 caught
+the table contradicting its own prose about. The guard suppresses it as a family stem before
+consulting the registry, because `BL-TWO-WAY-SHEET-SYNC` is a real entry (`BACKLOG.md:1218`). Adding
+a ninth row would be an exemption that exempts nothing, and neither ratchet would reject it — the
+registry fails a row whose id becomes real, not one that was never needed.
 
 `BL-LEDGER-BODY-DEFINED-ID-OVERMINT` and `BL-LEDGER-MDAST-SHARED-HOME` are deliberately **not** in
 that list: both resolve, because §9.2 and §9.3 open them.
