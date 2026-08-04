@@ -17,9 +17,10 @@ function renderCard(props: {
   ingestionTotal: number;
   syncTotal: number;
   syncProblemTotal?: number;
+  identityHoldTotal?: number;
   autoAppliedCount?: number;
 }) {
-  render(<NeedsAttentionSummaryCard syncProblemTotal={0} {...props} />);
+  render(<NeedsAttentionSummaryCard syncProblemTotal={0} identityHoldTotal={0} {...props} />);
   return screen.getByTestId("needs-attention-summary-card");
 }
 
@@ -127,5 +128,37 @@ describe("NeedsAttentionSummaryCard", () => {
     const chevron = card.querySelector("svg.lucide-chevron-right");
     expect(chevron).not.toBeNull();
     expect(chevron).toHaveAttribute("aria-hidden", "true");
+  });
+});
+
+// ── Holds rollup Task 7: the fourth chip. `renderCard` defaults
+// identityHoldTotal to 0, so every case above still exercises the absent state.
+describe("NeedsAttentionSummaryCard held-changes chip", () => {
+  it("identityHoldTotal 2 → '2 held' chip with a self-describing accessible name", () => {
+    const card = renderCard({
+      totalCount: 2,
+      ingestionTotal: 0,
+      syncTotal: 0,
+      identityHoldTotal: 2,
+    });
+    const chip = within(card).getByTestId("summary-chip-identity-holds");
+    expect(chip).toHaveTextContent("2 held");
+    expect(chip).toHaveAttribute("aria-label", "2 held identity changes");
+  });
+
+  it("identityHoldTotal 0 → chip absent", () => {
+    const card = renderCard({ totalCount: 1, ingestionTotal: 1, syncTotal: 0 });
+    expect(within(card).queryByTestId("summary-chip-identity-holds")).toBeNull();
+  });
+
+  it("holds-only state still renders a breakdown (spec G2: never an empty chip row)", () => {
+    const card = renderCard({
+      totalCount: 3,
+      ingestionTotal: 0,
+      syncTotal: 0,
+      identityHoldTotal: 3,
+    });
+    expect(card.textContent).toContain("Needs attention · 3");
+    expect(within(card).getByTestId("summary-chip-identity-holds")).toHaveTextContent("3 held");
   });
 });

@@ -409,4 +409,30 @@ describe("Dashboard composition", () => {
     ) as HTMLElement;
     expect(within(card).queryByTestId("summary-chip-auto-applied")).toBeNull();
   });
+  it("threads identityHoldTotal from the loader into the summary card chip", async () => {
+    // Threading test: the fixture total (4) is set on the LOADER result only.
+    // A card rendered without the Dashboard's identityHoldTotal prop pass-through
+    // shows no chip at all, so this fails on a missing thread even though the
+    // direct-prop card test passes.
+    naState.override = {
+      items: [],
+      renderedCount: 0,
+      totalCount: 4,
+      overflowCount: 4,
+      ingestionTotal: 0,
+      syncTotal: 0,
+      syncProblemTotal: 0,
+      identityHoldTotal: 4,
+    };
+    await renderDashboard();
+
+    const col = screen.getByTestId("dashboard-inbox-col");
+    const clone = col.cloneNode(true) as HTMLElement;
+    clone.querySelector('[data-testid="dashboard-inbox-desktop"]')?.remove();
+    const card = clone.querySelector<HTMLElement>('[data-testid="needs-attention-summary-card"]');
+    expect(card).not.toBeNull();
+    expect(
+      card!.querySelector('[data-testid="summary-chip-identity-holds"]')?.textContent,
+    ).toContain("4 held");
+  });
 });

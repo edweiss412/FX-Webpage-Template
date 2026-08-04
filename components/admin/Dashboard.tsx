@@ -740,6 +740,7 @@ export async function Dashboard(
             ingestionTotal={result.needsAttention.ingestionTotal}
             syncTotal={result.needsAttention.syncTotal}
             syncProblemTotal={result.needsAttention.syncProblemTotal}
+            identityHoldTotal={result.needsAttention.identityHoldTotal}
             autoAppliedCount={result.autoAppliedCount}
             className="min-[720px]:hidden"
           />
