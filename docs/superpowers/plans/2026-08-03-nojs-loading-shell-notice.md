@@ -82,7 +82,11 @@ const VARIANTS = [
   { name: "without testId (the /me case)", testId: undefined },
 ];
 
-function renderShell(testId: string | undefined): { noscriptInner: Document; outer: Document } {
+function renderShell(testId: string | undefined): {
+  html: string;
+  noscriptInner: Document;
+  outer: Document;
+} {
   // Spread rather than pass `testId={undefined}`: under exactOptionalPropertyTypes
   // an explicit undefined is not assignable to an optional prop, and omitting it
   // is exactly what app/me/loading.tsx does.
@@ -99,14 +103,17 @@ function renderShell(testId: string | undefined): { noscriptInner: Document; out
   const inner = html.slice(open + "<noscript>".length, close);
   const rest = html.slice(0, open) + html.slice(close + "</noscript>".length);
   const parser = new DOMParser();
+  // `html` as well as the two Documents: assertion 12 is about how the wrapper
+  // attribute was SERIALIZED, and a parsed Document cannot answer that.
   return {
+    html,
     noscriptInner: parser.parseFromString(inner, "text/html"),
     outer: parser.parseFromString(rest, "text/html"),
   };
 }
 ```
 
-Assertions, one `it` each, each named for the failure it catches:
+Assertions, one `it` each, each named for the failure it catches, all inside a single `describe.each(VARIANTS)` block so every one runs for both `testId` variants. Rows 14 and 15 share an `it`, so fifteen assertions are fourteen blocks and 28 cases.
 
 1. `noscriptInner.querySelector('[data-testid="loading-nojs-notice"]')` is non-null **and** `outer.querySelector('[data-testid="loading-nojs-notice"]')` is null. Catches: the notice rendering outside `<noscript>`, showing the card to every visitor.
 2. `noscriptInner.querySelector("style")?.textContent` equals `HIDE_RULE` exactly. Catches: typo'd selector, renamed attribute, or React hoisting the `<style>` out of the block.
@@ -119,7 +126,7 @@ Assertions, one `it` each, each named for the failure it catches:
 9. The notice's `classList` contains each of `rounded-md`, `border`, `border-border`, `bg-surface`, `p-tile-pad` (membership, so order is not pinned). Catches: a classless card that keeps the copy and discards the treatment the user chose.
 10. The heading's `classList` contains `text-2xl`, `font-semibold`, `text-text-strong`; the body's contains `mt-2`, `text-base`, `text-text-subtle`. Catches: token drift on the text elements — separate from 9 because fixing the card does not imply fixing these.
 11. `notice.contains(h1)` and `notice.contains(bodyParagraph)`. Catches: an empty padded card beside loose copy, which assertion 5 alone accepts because it searches the whole `noscriptInner` document.
-12. The serialized `outer` string contains the literal `data-loading-shell-content=""`. Catches: regression to the bare JSX attribute, which serializes to `="true"` and which the attribute *selector* in assertions 3-4 matches either way.
+12. The undivided `html` string returned by the helper contains the literal `data-loading-shell-content=""` — the string, not either `Document`, because serialization is only observable before parsing. Catches: regression to the bare JSX attribute, which serializes to `="true"` and which the attribute *selector* in assertions 3-4 matches either way.
 13. The wrapper's ENTIRE attribute set is exactly `["data-loading-shell-content"]` with value `""`. Catches: `hidden` / `class="hidden"` / `style="display:none"` on that element — each breaks the JavaScript-ENABLED path on all nine routes while assertions 1-12 and all four e2e cases stay green. Verified by mutation.
 14. The wrapper's parent is the shell root, the root's parent is `<body>`, and the root's attributes are exactly `["data-testid"]`. Catches: any hiding ANCESTOR, by pinning the chain's shape rather than blacklisting mechanisms — verified against `opacity:0`, `sr-only`, and `height:0 overflow:hidden`, each of which defeated a property blacklist.
 15. Both the root and the wrapper are `DIV` elements. Catches: element-type substitution — a `<dialog>` keeps every attribute assertion true while UA styling hides the fallback.
