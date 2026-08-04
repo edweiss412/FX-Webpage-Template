@@ -138,6 +138,7 @@ import { Avatar } from "@/components/atoms/Avatar";
 import { CrewRowActions, type CrewRowOutcome } from "@/components/admin/wizard/CrewRowActions";
 import { AgendaScheduleBlock } from "@/components/crew/AgendaScheduleBlock";
 import type { AdminAgendaItem } from "@/lib/agenda/agendaAdminPreview";
+import { agendaOverflowNotes } from "@/lib/agenda/agendaPaint";
 import { VenueMapTile } from "@/components/admin/wizard/VenueMapTile";
 import {
   ArchivedTabOffer,
@@ -472,6 +473,12 @@ export type Step3SectionChrome = {
   /** §7 flagged-set membership (drives icon-chip tone, chip, panel border). A
    *  section is flagged when it has ≥1 NON-ambiguity warn (spec 2026-07-07 §7.1). */
   flagged: boolean;
+  /** spec 2026-08-03-modal-freshness-cue §4.3: this section's one-shot freshness
+   *  cue value, alternating between "1" and "2" so a re-arm changes
+   *  `animation-name` and restarts the animation without remounting the card.
+   *  ABSENT when the section is not currently cued (exactOptionalPropertyTypes);
+   *  the staged wizard never supplies it. */
+  freshnessFlash?: "1" | "2";
   /** §7.1 judgment status (spec 2026-07-07): the section has ≥1 warn and ALL of
    *  them are ambiguity-class — a calm judgment-call callout, NOT the amber flag.
    *  Mutually exclusive with `flagged`. Optional/ABSENT (exactOptionalPropertyTypes). */
@@ -1032,6 +1039,9 @@ export function ModalSectionChrome({
           ? {
               "data-testid": `wizard-step3-card-${chrome.dfid}-section-${chrome.sectionId}-panel-card`,
             }
+          : {})}
+        {...(chrome.sectionId !== undefined && chrome.freshnessFlash !== undefined
+          ? { "data-section-freshness-flash": chrome.freshnessFlash }
           : {})}
         className={`flex min-w-0 flex-col gap-1.5 rounded-md border bg-surface p-tile-pad shadow-(--shadow-tile) ${
           flagged ? "border-border-strong" : "border-border"
@@ -3189,14 +3199,6 @@ function agendaSleep(ms: number, signal: AbortSignal): Promise<void> {
       { once: true },
     );
   });
-}
-
-function agendaOverflowNotes(block: NonNullable<AdminAgendaItem["block"]>): string[] {
-  const notes: string[] = [];
-  if (block.droppedSessions > 0) notes.push(`…and ${block.droppedSessions} more sessions`);
-  if (block.droppedDays > 0) notes.push(`…and ${block.droppedDays} more days`);
-  if (block.droppedTracks > 0) notes.push(`…and ${block.droppedTracks} more tracks`);
-  return notes;
 }
 
 /** The per-state note line for a note-only item (never a raw error/status code —

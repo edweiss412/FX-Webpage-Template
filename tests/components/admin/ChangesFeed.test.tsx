@@ -7,8 +7,9 @@
 //  (c) empty feed renders nothing/raw error instead of a calm empty state.
 import "@testing-library/jest-dom/vitest";
 import { afterEach, expect, it, vi } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { ChangesFeed } from "@/components/admin/ChangesFeed";
+import { AdminAnnounceProvider } from "@/components/admin/AdminAnnounceProvider";
 
 afterEach(cleanup);
 
@@ -150,4 +151,79 @@ it("heading reads exactly 'Sheet changes' with a stable id", () => {
   );
   const heading = document.getElementById("admin-changes-feed-heading");
   expect(heading?.textContent).toBe("Sheet changes");
+});
+
+// ---- Task 7: the undo announcement, end to end through the feed ----
+
+const undoable = (id: string, summary: string) => ({
+  ...mk(id, "2026-06-09T10:00:00Z"),
+  action: "undo" as const,
+  changeLogId: `log-${id}`,
+  summary,
+});
+
+function renderFeed(entries: ReturnType<typeof undoable>[], undoAction: typeof noop) {
+  return render(
+    <AdminAnnounceProvider testId="admin-undo-status" label="Undo updates">
+      <ChangesFeed
+        entries={entries}
+        truncated={false}
+        now={now}
+        showId="show-1"
+        undoAction={undoAction}
+        acceptAction={acceptNoop}
+        acceptAllAction={acceptNoop}
+        approveAction={noop}
+        rejectAction={noop}
+      />
+    </AdminAnnounceProvider>,
+  );
+}
+
+it("announces THAT row's summary when its undo succeeds", async () => {
+  // Expectation derives from the fixture's own summary, never a hardcoded
+  // string, so it cannot pass against the wrong row.
+  const summary = "Crew member Alice Chen removed";
+  const undoAction = vi.fn().mockResolvedValue({ ok: true });
+  renderFeed([undoable("a", summary)], undoAction);
+  await act(async () => {
+    fireEvent.click(screen.getByTestId("change-feed-undo"));
+  });
+  expect(screen.getByTestId("admin-undo-status")).toHaveTextContent(
+    `Undone. \"${summary}\" no longer applies.`,
+  );
+});
+
+it("announces TWO identical summaries as two separate entries", async () => {
+  // The reachable collision (spec §1.2): two shows dropping a crew member of
+  // the same name. Under role=status the second undo would be silent.
+  const summary = "Crew member Alice Chen removed";
+  const undoAction = vi.fn().mockResolvedValue({ ok: true });
+  renderFeed([undoable("a", summary), undoable("b", summary)], undoAction);
+  const buttons = screen.getAllByTestId("change-feed-undo");
+  await act(async () => {
+    fireEvent.click(buttons[0]!);
+  });
+  await act(async () => {
+    fireEvent.click(buttons[1]!);
+  });
+  const region = screen.getByTestId("admin-undo-status");
+  const texts = Array.from(region.children).map((c) => c.textContent);
+  // Assert the TEXT, not just the count: an unthreaded label would announce the
+  // bare "Change undone." twice and still produce two children, so a count-only
+  // assertion passes without the feature working at all.
+  expect(texts).toEqual([
+    `Undone. \"${summary}\" no longer applies.`,
+    `Undone. \"${summary}\" no longer applies.`,
+  ]);
+});
+
+it("keeps the SAME region node across the undo", async () => {
+  const undoAction = vi.fn().mockResolvedValue({ ok: true });
+  renderFeed([undoable("a", "Crew member Bo Ray added")], undoAction);
+  const before = screen.getByTestId("admin-undo-status");
+  await act(async () => {
+    fireEvent.click(screen.getByTestId("change-feed-undo"));
+  });
+  expect(screen.getByTestId("admin-undo-status")).toBe(before);
 });
