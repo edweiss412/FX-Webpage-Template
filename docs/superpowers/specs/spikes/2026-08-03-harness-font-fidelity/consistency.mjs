@@ -81,6 +81,28 @@ if (decl) {
     `says ${decl[1]}, lists ${listed.size}`);
 }
 
+// 5c. Round 24: every survivor was a number bound to the WRONG NOUN, or an
+// inventory that had drifted from its peer. Both are checkable.
+const NOUN = {
+  "geometry harnesses": 28, "font-sensitive callers": 28, "font-sensitive harnesses": 28,
+  "harness callers": 31, "harness documents": 31, "unsynchronized callers": 25,
+};
+for (const [noun, want] of Object.entries(NOUN))
+  for (const m of t.matchAll(new RegExp(`\\b(\\d+) ${noun}\\b`, "g")))
+    check("number bound to the wrong noun", Number(m[1]) === want,
+      `"${m[0]}" — ${noun} is ${want}`);
+
+// The §7 test inventory must cover every artifact §3.0 says the spec creates.
+// Round 24 found three missing; the two sections drifted independently.
+const created = (t.match(/\*\*Create \(new, untracked\):\*\*([\s\S]*?)\n\n/) || [])[1] || "";
+const s7 = t.slice(t.indexOf("| Test | Shape |"));
+for (const f of created.match(/`[^`]+\.(ts|tsx|css)`/g) || []) {
+  const stem = f.replace(/`/g, "").split("/").pop().replace(/\.(spec|test)\.tsx?$/, "").replace(/\.tsx?$/, "");
+  const words = stem.replace(/([a-z])([A-Z])/g, "$1 $2").toLowerCase().split(/[^a-z]+/).filter((w) => w.length > 3);
+  check("§7 omits a §3.0 artifact", words.some((w) => s7.toLowerCase().includes(w)),
+    `${stem} appears in §3.0 but nothing in the §7 table mentions it`);
+}
+
 // 6. Coverage numbers must not contradict each other. Added after the harness
 // instrument landed and made an earlier "not among the 30" caveat false --
 // the same peer-staleness this file exists to catch, one level up.
