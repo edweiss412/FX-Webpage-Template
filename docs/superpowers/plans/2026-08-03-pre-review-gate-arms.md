@@ -87,9 +87,9 @@ It reads the document correctly — `enrolled, depth=2, tasks=7` — and after t
 | M24 code overlap | missing `ac=`; empty `ac=`; `red=` with empty backticks AND with whitespace-only backticks | exactly one code by §3.3 precedence, and the two empty-`red` spellings draw the SAME code (AC-27) |
 | M32 pipe truncation | capture the CLI through a pipe rather than a file | AC-35: summary line present, byte-identical to redirect |
 | M33 infra-as-findings | pre-adapter exit 1 with empty stdout; ENOENT; signal death | AC-36, AC-37: refuse, dispatch nothing |
-| M34 id punctuation | ids `AC-1.`, `AC-1..1`, `AC-1.-child`, `AC-1-` | illegal under the tightened grammar, so no alias target exists |
+| M34 id punctuation | ids `AC-1.`, `AC-1..1`, `AC-1.-child`, `AC-1-` | AC-38: `TASK_MARKER_MALFORMED` |
 | M35 left boundary | resolver dropping the preceding-character check | `XAC-1`, `0AC-1`, `.AC-1`, `MY-AC-1` must not resolve `AC-1` |
-| M36 indented marker | 1-3 leading spaces on an enrollment or task marker | still recognized; 4+ is an indented code block and is not |
+| M36 indented marker | 1-3 leading spaces on an enrollment or task marker | AC-39: 1-3 recognized, 4+ not |
 | M37 surplus close | `open -> close -> close` | `TASK_ENROLL_MALFORMED` on the surplus close |
 | M31 sentence-final id | `**Verify.** AC-14.` as the only occurrence | AC-34: resolves; naive boundary rule reports a false UNRESOLVED |
 | M30 orphan-form overlap | malformed marker outside every extent | AC-33: ORPHANED alone, asserted as a full list |
@@ -105,7 +105,7 @@ It reads the document correctly — `enrolled, depth=2, tasks=7` — and after t
 
 ## Task 1 — enrollment and task segmentation, pure
 
-<!-- task: red=`pnpm vitest run tests/specLint/taskContract.test.ts` ac=AC-7,AC-9,AC-12,AC-15,AC-16,AC-17,AC-22,AC-26,AC-28,AC-29,AC-30,AC-32,AC-33 -->
+<!-- task: red=`pnpm vitest run tests/specLint/taskContract.test.ts` ac=AC-7,AC-9,AC-12,AC-15,AC-16,AC-17,AC-22,AC-26,AC-28,AC-29,AC-30,AC-32,AC-33,AC-39 -->
 
 
 <!-- spec-lint: ignore — new file created by this plan; not tracked until implementation -->
@@ -131,7 +131,7 @@ Each case states the mutant it kills. Confirm every case fails before implementa
 
 ## Task 2 — marker grammar and the ten codes
 
-<!-- task: red=`pnpm vitest run tests/specLint/taskContract.test.ts` ac=AC-6,AC-8,AC-11,AC-13,AC-23,AC-24,AC-27,AC-31,AC-34 -->
+<!-- task: red=`pnpm vitest run tests/specLint/taskContract.test.ts` ac=AC-6,AC-8,AC-11,AC-13,AC-23,AC-24,AC-27,AC-31,AC-34,AC-38 -->
 
 **RED.** Extend the Task 1 suite with families M2, M5, M6, M7, M8, M9, M11, M17, M18, M19, M24, M28, M31, M34, M35 — one case per code, each asserting the code fires on a fixture exhibiting it **and does not fire** on a sibling fixture exhibiting only the neighbouring defect. That negative half is what makes AC-8 non-tautological: a checker that returned every code on every input would pass the positive half alone.
 

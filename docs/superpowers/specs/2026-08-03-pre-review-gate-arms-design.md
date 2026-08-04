@@ -439,6 +439,10 @@ Nine artifacts burned on this shape; none was caught by review-time reasoning al
 
 **AC-24.** `TASK_AC_UNRESOLVED` fires for `ac=AC-1` when the plan's prose contains only `AC-10`, `AC-1a`, `AC-1.1`, or `AC-1-child` — one case per prefix family, none of which may resolve it.
 
+**AC-38.** The marker grammar rejects `ac=AC-1.`, `ac=AC-1..1`, `ac=AC-1.-child`, and `ac=AC-1-` as `TASK_MARKER_MALFORMED`. Without this the tightening in §3.3 is a claim about a regex rather than an asserted behavior, and the aliasing it closes could silently return.
+
+**AC-39.** An enrollment line and a task marker indented by one, two, and three spaces are recognized; the same lines indented by four spaces are not, being indented code blocks under CommonMark. Both halves asserted — a suite testing only the accepted side would pass a grammar that accepted arbitrary indentation.
+
 **AC-35.** `scripts/spec-lint.ts` sets `process.exitCode` and exits naturally rather than calling `process.exit()`. Pinned behaviorally: the CLI spawned through a pipe returns a report whose last line begins `summary:`, byte-identical to the same run redirected to a file. Asserting the source no longer contains `process.exit` would pass a rewrite that reintroduced the truncation another way.
 
 **AC-36.** A `--lint-doc` whose child exits 0 or 1 with a malformed report — no `spec:lint` first line, or no `summary:` last line — refuses the dispatch with exit 2. Pinned with a real pre-adapter failure (a missing Node loader: `status=1`, empty stdout), not a hand-built string.
