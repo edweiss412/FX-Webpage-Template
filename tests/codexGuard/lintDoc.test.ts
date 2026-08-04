@@ -33,14 +33,28 @@ function plantDoc(run: Run, rel: string, text: string): string {
   return rel;
 }
 
+/**
+ * Defects across MULTIPLE check families, so the report carries more than one
+ * finding, a `detail:` line, and several section labels. A single-finding
+ * fixture makes the ordered/multiplicity/detail assertions below vacuous —
+ * transforms that reorder, deduplicate, or delete details all pass against it.
+ */
 const PLAN_WITH_DEFECT = [
   "# Plan",
+  "",
+  "See `lib/specLint/parse.ts:99999` and `lib/specLint/run.ts:99998`.",
+  "",
+  "The budget covers 3 reports here and 7 reports there.",
   "",
   "<!-- tasks: depth=2 -->",
   "",
   "## Task 1",
   "",
   "prose with no marker",
+  "",
+  "## Task 2",
+  "",
+  "<!-- task: red=`` ac=AC-1 -->",
   "",
   "<!-- tasks: end -->",
   "",
@@ -88,11 +102,25 @@ describe("codex-guard --lint-doc (design §2.2)", () => {
         raw = String((e as { stdout?: string }).stdout ?? "");
       }
       expect(findingLines(raw).length).toBeGreaterThan(0);
-      // Every finding survives, compared as an ordered sequence so a mutant
-      // deleting subordinate `detail:` lines cannot pass.
-      for (const line of findingLines(raw)) expect(prompt).toContain(line);
-      expect(prompt).not.toMatch(/^INVENTORY$/m);
-      expect(prompt).toMatch(/^summary: /m);
+      // The fixture must not be vacuous: independent `toContain` assertions on a
+      // one-finding, zero-detail report pass against transforms that reorder,
+      // deduplicate, or drop details.
+      const rawFindings = findingLines(raw);
+      expect(rawFindings.length).toBeGreaterThan(1);
+      expect(raw).toMatch(/^\s+detail: /m);
+      expect(raw).toMatch(/^INVENTORY$/m);
+
+      // ORDERED SEQUENCE, with multiplicity — not a set, not containment.
+      const block = prompt
+        .split(`===== SPEC-LINT: ${rel} =====\n`)[1]!
+        .split("\n===== END SPEC-LINT =====")[0]!;
+      const sentLines = block.split("\n");
+      const inv = raw.split("\n").indexOf("INVENTORY");
+      const sum = raw.split("\n").findIndex((l) => l.startsWith("summary:"));
+      const expected = [...raw.split("\n").slice(0, inv === -1 ? sum : inv), raw.split("\n")[sum]!];
+      expect(sentLines).toEqual(expected);
+      expect(block).not.toMatch(/^INVENTORY$/m);
+      expect(block.trimEnd().split("\n").pop()).toMatch(/^summary: /);
     },
     T,
   );
@@ -152,6 +180,29 @@ describe("codex-guard --lint-doc (design §2.2)", () => {
       const r = await runGuard(run, ["--lint-doc", rel]);
       expect(r.code).toBe(0);
       expect(readCalls(run)[0]!.stdin).toContain("TASK_MARKER_MISSING");
+    },
+    T,
+  );
+
+  it(
+    "M81: any child status outside {0,1} refuses — 2, 3 and 255 alike",
+    async () => {
+      // The CLI defines exactly 0 and 1. An undefined status means it is not the
+      // CLI, so dispatching a report built from whatever it printed would arm
+      // the reviewer with something no contract describes.
+      for (const status of [2, 3, 255]) {
+        const run = mkRun();
+        const rel = plantDoc(run, "docs/superpowers/plans/p.md", PLAN_WITH_DEFECT);
+        const stub = join(run.dir, `exit-${status}.mjs`);
+        writeFileSync(
+          stub,
+          `process.stdout.write("spec:lint ${rel}\\nkind: plan (inferred)\\n\\nsummary: 0 hard, 0 advisory\\n");\nprocess.exit(${status});\n`,
+        );
+        writeScenario(run, APPROVE);
+        const r = await runGuard(run, ["--lint-doc", rel], { CODEX_GUARD_SPEC_LINT: stub });
+        expect(`status=${status} exit=${r.code}`).toBe(`status=${status} exit=2`);
+        expect(readCalls(run)).toEqual([]);
+      }
     },
     T,
   );

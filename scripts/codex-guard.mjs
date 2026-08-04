@@ -294,11 +294,30 @@ function embedReport(raw, requestedRel, allowance) {
   const blankOk = (lines[2] ?? "") === "";
   const sumOk = sum >= 3;
   const oneSummary = lines.filter((l) => l.startsWith("summary:")).length === 1;
+  // `summary:` must be the LAST content line — anything after it sits outside
+  // the construction and would be silently dropped.
+  const summaryFinal = lines.slice(sum + 1).every((l) => l.trim() === "");
   const inv = lines.indexOf("INVENTORY");
+  const invBeforeSummary = inv === -1 || inv < sum;
+  // ALLOWLIST over the discard span, not a denylist of finding-shaped lines. A
+  // renderer can move a section label or a subordinate `detail:` line in there
+  // while leaving the primary finding above it, and both are then discarded
+  // with every clause still green. Only indented inventory entries and blanks
+  // may sit between INVENTORY and summary.
   const discardClean =
-    inv === -1 ||
-    lines.slice(inv + 1, sum).every((l) => !/^\s+(FAIL|ADVISORY)\s+[A-Z_]+\s/.test(l));
-  if (!firstOk || !kindOk || !blankOk || !sumOk || !oneSummary || !discardClean) return null;
+    inv === -1 || lines.slice(inv + 1, sum).every((l) => l === "" || /^ {2,}\S/.test(l));
+  if (
+    !firstOk ||
+    !kindOk ||
+    !blankOk ||
+    !sumOk ||
+    !oneSummary ||
+    !summaryFinal ||
+    !invBeforeSummary ||
+    !discardClean
+  ) {
+    return null;
+  }
 
   const head = lines.slice(0, 3);
   const body = lines.slice(3, inv === -1 ? sum : inv);
@@ -908,7 +927,11 @@ if (cfg.lintDocs.length > 0) {
     });
     // Exit 2 is an infra fault; a spawn failure or signal death gives no usable
     // code at all. None of them is a findings report.
-    if (r.error || r.status === null || r.status === 2) {
+    // The CLI defines exactly 0 and 1. Anything else — 2, a signal death, or an
+    // undefined status 3..255 — means it is not the CLI, or not one this
+    // contract knows, so refuse rather than dispatch an armed-looking report
+    // built from whatever it happened to print.
+    if (r.error || r.status === null || (r.status !== 0 && r.status !== 1)) {
       usageError(`spec:lint could not run for ${rel} (status ${r.status ?? "signal"})`);
     }
     const downstream = FLOOR * (cfg.lintDocs.length - i - 1);

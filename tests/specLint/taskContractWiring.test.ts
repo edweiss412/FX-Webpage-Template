@@ -66,13 +66,125 @@ afterAll(() => {
 });
 
 describe("taskContract wiring (design §3.4)", () => {
+  /**
+   * One minimal plan per code, driven from the §3.4 catalog rather than
+   * hand-picked. A single-finding fixture kills only the mutant that downgrades
+   * EVERY code; ten singleton mutants exist, and one fixture covers one.
+   */
+  const CODE_FIXTURES: Record<string, string> = {
+    TASK_ENROLL_MALFORMED: ["<!-- tasks: depth=x -->", "", "## Task 1", ""].join("\n"),
+    TASK_ENROLL_DUPLICATE: [
+      "<!-- tasks: depth=2 -->",
+      "",
+      "## Task 1",
+      "",
+      "<!-- task: red=`x` ac=AC-1 -->",
+      "",
+      "AC-1 here.",
+      "",
+      "<!-- tasks: end -->",
+      "",
+      "<!-- tasks: depth=2 -->",
+      "",
+      "<!-- tasks: end -->",
+      "",
+    ].join("\n"),
+    TASK_ENROLL_EMPTY: [
+      "<!-- tasks: depth=2 -->",
+      "",
+      "### deeper",
+      "",
+      "<!-- tasks: end -->",
+      "",
+    ].join("\n"),
+    TASK_MARKER_MISSING: DEFECTIVE,
+    TASK_MARKER_ORPHANED: [
+      "<!-- tasks: depth=2 -->",
+      "",
+      "<!-- task: red=`x` ac=AC-1 -->",
+      "",
+      "## Task 1",
+      "",
+      "<!-- task: red=`y` ac=AC-1 -->",
+      "",
+      "AC-1 here.",
+      "",
+      "<!-- tasks: end -->",
+      "",
+    ].join("\n"),
+    TASK_MARKER_DUPLICATE: [
+      "<!-- tasks: depth=2 -->",
+      "",
+      "## Task 1",
+      "",
+      "<!-- task: red=`x` ac=AC-1 -->",
+      "<!-- task: red=`y` ac=AC-1 -->",
+      "",
+      "AC-1 here.",
+      "",
+      "<!-- tasks: end -->",
+      "",
+    ].join("\n"),
+    TASK_MARKER_MALFORMED: [
+      "<!-- tasks: depth=2 -->",
+      "",
+      "## Task 1",
+      "",
+      "<!-- task: red=x ac=AC-1 -->",
+      "",
+      "AC-1 here.",
+      "",
+      "<!-- tasks: end -->",
+      "",
+    ].join("\n"),
+    TASK_RED_EMPTY: [
+      "<!-- tasks: depth=2 -->",
+      "",
+      "## Task 1",
+      "",
+      "<!-- task: red=`` ac=AC-1 -->",
+      "",
+      "AC-1 here.",
+      "",
+      "<!-- tasks: end -->",
+      "",
+    ].join("\n"),
+    TASK_AC_MISSING: [
+      "<!-- tasks: depth=2 -->",
+      "",
+      "## Task 1",
+      "",
+      "<!-- task: red=`x` -->",
+      "",
+      "<!-- tasks: end -->",
+      "",
+    ].join("\n"),
+    TASK_AC_UNRESOLVED: [
+      "<!-- tasks: depth=2 -->",
+      "",
+      "## Task 1",
+      "",
+      "<!-- task: red=`x` ac=AC-99 -->",
+      "",
+      "<!-- tasks: end -->",
+      "",
+    ].join("\n"),
+  };
+
   it(
-    "AC-47/M75: findings are HARD — exit 1, rendered FAIL, never ADVISORY",
+    "AC-47/M75/M80: ALL TEN codes are hard — exit 1 and rendered FAIL, never ADVISORY",
     () => {
-      const r = cli(defective);
-      expect(r.code).toBe(1);
-      expect(r.stdout).toMatch(/FAIL TASK_MARKER_MISSING /);
-      expect(r.stdout).not.toMatch(/ADVISORY TASK_MARKER_MISSING/);
+      for (const [code, text] of Object.entries(CODE_FIXTURES)) {
+        const rel = write(`_tc-sev-${code}.md`, text);
+        try {
+          const r = cli(rel);
+          expect(`${code} exit=${r.code}`).toBe(`${code} exit=1`);
+          expect(r.stdout).toMatch(new RegExp(`FAIL ${code} `));
+          expect(r.stdout).not.toMatch(new RegExp(`ADVISORY ${code} `));
+        } finally {
+          rmSync(join(ROOT, rel), { force: true });
+        }
+      }
     },
     T,
   );
