@@ -5,7 +5,7 @@
 **Date:** 2026-08-03
 **Branch:** `chore/ledger-claim-visibility`
 **Backlog entries:** none opened for this work (see §9.1); three filed as by-products (§9.2, §9.3, §5 item 0a)
-**Status:** R11 repaired — 67 adversarial findings across eleven rounds plus 5 self-findings, all accepted. R10 triggered the three-round cap: §3.1 is written from a spike, independently reproduced cross-model at R11
+**Status:** R12 repaired — 72 adversarial findings across twelve rounds plus 5 self-findings, all accepted. R10 triggered the three-round cap: §3.1 is written from a spike, independently reproduced cross-model at R11
 **Review note:** R1-R4 were Codex (cross-model). R5 and R6 were fresh-eyes Opus sessions, because Codex hit a usage limit resetting 2026-08-10; see §10
 **impeccable-gate: N/A — no UI surface**
 
@@ -651,7 +651,7 @@ Every input, and what the reader does with it.
 | `git fetch` fails (offline, auth, timeout) | Use existing remote-tracking refs and print `WARN: claims computed from stale refs (fetch failed: <reason>)`. The report still prints, because a stale report beats none. **`--check` exits 2**, never 0: R3's case is a checkout that cannot reach origin while a cached ref already carries another branch's live declaration, and answering "no collision" from a universe you could not verify is the false all-clear this spec exists to remove |
 | No `refs/remotes/origin/*` at all | Print `no origin branches resolvable`; `--check` exits 2 |
 | `git ls-remote` itself fails after a successful fetch | Exit **2**, explicitly caught. R8 finding 6: `execFileSync` throws on a failed `ls-remote` (status 128), and an uncaught throw exits the process with 1 — which §3.3 and §6.2 both define as "another branch declares this row". An environment failure reported as somebody else's claim is worse than either a crash or a warning |
-| Fetch succeeded but the resolved head **set** is missing any name `git ls-remote --heads origin` reports | Compared as sets, never as counts. R10 finding 3: churn that deletes two branches and creates one leaves the count equal or larger while a newly created claimed branch is absent, so a cardinality check passes over exactly the branch that matters. Print the missing names; `--check` exits 2. The `ls-remote` carries its own **30 s** bound, matching `tests/docs/_metaLedgerInProgress.test.ts:201`, and is **skipped entirely under `--no-fetch`** — it verifies a fetch, so with no fetch there is nothing to verify. R6 finding 5 caught it otherwise reopening the budget conflict R5 finding 3 closed: an unbounded network call still sat inside preflight's 15 s |
+| The resolved head **map** differs from `git ls-remote --heads origin` in any way — a missing name, an extra name, or a name whose **OID** differs | Compared as a name→OID map, in both directions. R12 finding 2: names alone are not enough, because a fast-forward, a force-push, or a delete-and-recreate all change the tip under an unchanged name. Probed against the real `52247dcd1`: name sets equal, zero missing names, and the resolved tip carries **0** declarations while the remote tip carries **2** — a trusted-looking universe missing every claim the push added. The extra-name direction matters too: a deleted branch left in the local cache keeps its stale declarations eligible to raise a false collision. R10 finding 3: churn that deletes two branches and creates one leaves the count equal or larger while a newly created claimed branch is absent, so a cardinality check passes over exactly the branch that matters. Print the missing names; `--check` exits 2. The `ls-remote` carries its own **30 s** bound, matching `tests/docs/_metaLedgerInProgress.test.ts:201`, and is **skipped entirely under `--no-fetch`** — it verifies a fetch, so with no fetch there is nothing to verify. R6 finding 5 caught it otherwise reopening the budget conflict R5 finding 3 closed: an unbounded network call still sat inside preflight's 15 s |
 | `gh` absent, unauthenticated, or returning malformed JSON, **any mode** | PR column blank. Never an error, never a warning, never a change to which claims resolve. R2 measured that `unit-suite.yml` supplies no `GH_TOKEN`, so the unauthenticated path is the CI default, not an edge case |
 | More than 100 open PRs | The PR column is incomplete for the overflow and says so. No claim resolution reads it, which is the reason it is allowed to be incomplete: a query that cannot report its own truncation must not carry a correctness rule |
 | `git merge-base` unresolvable for a ref (shallow clone, unrelated histories) | `inferred` is disabled for that ref; `declared` is unaffected. Said once in the header, not once per branch |
@@ -745,6 +745,19 @@ believes is signaled is worse than one they can see.
    asks for — delete the branch, or clear a marker that survived its merge — is correct regardless.
    Under §6.3's amended Stage 4.4 a merged branch should carry no marker at all, so this state is
    itself a pipeline violation.
+1a. **The in-progress recognizer matches negated and quoted statuses.** R12 finding 5 probed the
+   regex this design leaves unchanged: `NOT IN PROGRESS`, `NOT IN-FLIGHT`, `NOT WIP`, and `NOT
+   UNDERWAY` all match, as does any quoted, historical, or explanatory `Status` line anywhere in the
+   body now that detection is position-independent. Two consequences, both surfaced rather than
+   silent: a negated marker is reported as `declared`, and a deep status-only quotation can trip the
+   guard's unactionable-marker rule.
+
+   Accepted rather than tightened, per the admissibility contract: no probe shows either shape
+   occurring in the corpus — the recognizer fires on exactly 6 entries, all genuine markers, with
+   zero over-fire — and tightening a recognizer without a probe demonstrating the corruption it
+   prevents is the reversal pattern this project has paid for twice. The failure mode is a visible
+   extra row naming a real branch, never a missed claim. If an instance ever appears, the fix is a
+   negation-aware recognizer with that instance as its test.
 2. **`inferred` is a heuristic over diff hunks.** A branch editing a long entry's body to mention a
    sibling id claims the enclosing entry. Printed as `inferred`, never `declared`, and never able to
    fail anything (§4.4). Note the corrected direction: the reconciliation-log preamble at
@@ -874,6 +887,20 @@ listing it, or mis-keys a claim to the wrong branch. Fixtures are temp git repos
 following the `spawnSync("git", ["init", …])` precedent at `tests/specLint/cli.test.ts:35`, so no
 network is involved.
 
+**Attribution cases (R12 finding 3).** The ref is the claim's key (§3.2 step 5), and nothing
+previously distinguished that from reading `fields.Branch`, which agrees with the ref in every
+healthy case. Three fixtures force them apart: an entry on `feat/a` whose marker names
+`Branch: feat/b` where `feat/b` **exists** (the claim keys to `feat/a`, and does not self-collide
+for a session on `feat/b`); the same where `feat/b` does not exist; and a marker with **no**
+`Branch` at all (still fully attributed to its ref). An implementation reading `fields.Branch`
+passes every other case in this file and fails all three.
+
+**Inferred-hunk cases (R12 finding 4).** §3.2 step 6 specifies three mapping rules and none had a
+test: a hunk outside every entry span contributes nothing (the `BACKLOG.md:7` preamble shape); a
+pure deletion (`+N,0`) maps to nothing; and a hunk overlapping a heading boundary attributes to
+**every** entry it overlaps, not just the first. Each is a distinct mutant — nearest-entry mapping,
+new-side-line assumption, and first-match-wins respectively.
+
 Cases: a declared claim on an unmerged branch is reported; the same branch merged into main is not;
 a branch whose tip is 20 days old is reported under `stale` and not dropped; two branches declaring
 one id both appear; an id declared only by the current branch is not a collision; a ledger file
@@ -895,7 +922,8 @@ a false all-clear through five distinct doors while passing everything above:
 | --- | --- | --- |
 | Fetch fails, cached refs carry another branch's live declaration | 2 | exit 0 from an unverified universe |
 | Zero `refs/remotes/origin/*` resolved | 2 | exit 0 from an empty universe |
-| Fetch succeeds but the resolved head **set** is missing a name `git ls-remote` reports | 2 | exit 0 from a silently narrowed universe (the configured-refspec case) |
+| Resolved head map differs from `ls-remote` by a **changed OID under an unchanged name** | 2 | R12 finding 2's primary instance, planted from the real `52247dcd1` shape: the parent tip carries 0 declarations, the remote tip carries 2, and every name matches. A name-only check reports a verified universe with zero claims |
+| Resolved head map has an **extra** name `ls-remote` does not | 2 | the deletion direction: a stale cached ref keeps declarations alive that can raise a false collision | exit 0 from a silently narrowed universe (the configured-refspec case) |
 | Detached HEAD with no `GITHUB_HEAD_REF` | 2 | exit 1 attributing the caller's own marker to a stranger |
 | `git ls-remote` fails after a successful fetch | 2 | R9 finding 3: `execFileSync` throws (status 128) and an uncaught throw exits **1**, which §3.3 and §6.2 both define as another branch's collision. An implementation that simply omits the catch passes every other row here |
 | **Equal or larger head count, wrong members** | 2 | R11 finding 3: the case must plant `resolved = {main, stale-deleted}` against `remote = {main, claimed-live}`, and a second with `resolved` strictly larger. Both have no count shortfall while the claimed branch is absent, so a cardinality assertion passes over exactly the branch that matters |
@@ -1060,7 +1088,9 @@ a behavior widening of an existing guard, so it gets its own task and its own ca
 - Corpus regression bound: asserted against a **committed fixture corpus**, never against origin, so
   it cannot decay when the live branches merge. The fixture reproduces §2.7a's measured shapes — the
   two in-window markers, the out-of-window marker, the deep-quoted bare
-  `**Branch:**`, and the status-only malformation — and pins **both** detection and field
+  `**Branch:**`, the status-only malformation, **and the R11 collision** (`Status: OPEN` in-window
+  with a valid marker below line 12; required verdicts `isInProgress: true`,
+  `fields.Branch: feat/live`, and **no** flight-field violation) — and pins **both** detection and field
   extraction. R8 finding 4 built the escaping mutant against a detection-only bound: scan any-depth
   `Status`, keep the old 12-line `fields`, and an implementation matches the required count while
   the out-of-window `Branch` never reaches shape or liveness validation — R4 finding 1 walking back
@@ -1068,7 +1098,9 @@ a behavior widening of an existing guard, so it gets its own task and its own ca
   `fields.Branch`, with the out-of-window fixture required to expose its branch and the deep-quote
   fixture required not to. Detection alone is **4 of 5**: everything except the deep-quoted bare
   `**Branch:**`, whose line carries no status. R4 finding 2 caught an earlier `3 of 5` here,
-  which was arithmetically incompatible with status-alone detection and could only have been
+  R12 finding 1 caught §3.1 promising that collision plant while this inventory omitted it, leaving
+  the exact mutant R11 identified — an `isInProgress` reading `fields.Status` — passing the bound.
+  An earlier `3 of 5` here was also arithmetically incompatible with status-alone detection and could only have been
   satisfied by hiding the status-only malformation that §4.2 explicitly requires to be visible. A
   bound read from live refs would have been green today and meaningless next week, which is the
   decay this fixture exists to avoid.
