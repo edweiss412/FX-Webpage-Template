@@ -380,6 +380,17 @@ The oracle therefore runs **from the close path**: the fixture proxies `page.clo
 
   So the oracle is the last row. For a fixed string at a fixed size, the expected advance width is computed in-test from the committed file with fontkit — `font.layout(probe).advanceWidth / font.unitsPerEm * fontSize` (`unitsPerEm` 2048, one `wght` axis) — and compared to the rendered width within 0.5px.
 
+**The arithmetic itself is exact, which is worth separating from the end-to-end figure.** `layout(text).advanceWidth / unitsPerEm * fontSize` was checked against a real browser rendering the committed bytes, on a probe carrying the normalisation §4.2 specifies:
+
+```
+subset     probe             fontkit(px)    browser(px)     delta
+latin      Hamburgefonstiv      130.0938       130.0938     0.0000
+greek      Αλφαβητικος          101.4219       101.4219     0.0000
+cyrillic   Привет мир            93.0469        93.0469     0.0000
+```
+
+Zero, not merely small, and on two non-Latin subsets as well as latin — so the formula is not an approximation that happens to be close. The **0.008px** figure reported elsewhere in this spec is a different measurement and both numbers stand: that one is the full harness path, where the residual comes from the surrounding document rather than from this computation. Reading the exactness here as licence to loosen the tolerance there would be the wrong inference.
+
 **Probe text rejects zero-advance codepoints, not just unmapped ones, and the difference is a silently unguarded subset.** Rejecting `glyphForCodePoint(cp).id === 0` removes characters the face cannot draw. It does not remove characters the face draws with **no advance** — combining marks — and those defeat a width oracle completely, because a zero-width string measures zero under every font. Measured against the committed bytes at 16px:
 
 ```
