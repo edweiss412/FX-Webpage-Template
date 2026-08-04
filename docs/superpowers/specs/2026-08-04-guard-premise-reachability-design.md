@@ -68,6 +68,19 @@ With the fetch deleted, `calls` is `["localRefs"]`, so `indexOf("fetch")` is `-1
 
 That is a **third vacuity shape**, it was shipped through fourteen whole-diff rounds, and the gate found it in one run.
 
+### 1.4.2 The overlay stops at the process boundary, and the score understates because of it
+
+`statement-removal` on `degraded.push("no-fetch-cached-refs")` (`scripts/lib/ledger-claims-core.ts:142`) also survives — while `tests/scripts/ledgerClaimsCheck.test.ts:515` asserts exactly that string. Both are true at once, and the reason is structural: the overlay is a Vite `load` hook (`tests/mutation/source/overlay.ts:1-20`), so it serves mutant text to the **vitest process's module graph**. That test's assertion is made through `spawnSync(TSX_BIN, …)`, and the child process loads the tracked file, which #703's AC-4 guarantees is byte-identical.
+
+Demonstrated from both sides, since one side alone proves nothing:
+
+| delivery | verdict |
+| --- | --- |
+| the harness's overlay | SURVIVED |
+| the same edit written to disk, that test run alone | `1 failed` |
+
+The assertion is fully capable of catching the defect. Only the delivery differs. So **every assertion a suite makes through a spawned child contributes zero to its mutation score**, and a suite whose strongest guarantees are end-to-end scores lower than it deserves. This is not in #703's limits table; it is carried here as L-7 and it shapes the triage — a survivor of this kind is repaid by adding an in-process twin assertion, not by writing a test for behavior that is already tested.
+
 ### 1.5 Probe transcript
 
 ```
@@ -206,17 +219,28 @@ Three terms, defined so the checker has no latitude:
 | any member access on the `process` global whose object path starts `process.env` | `process.env.X`, destructured `const { env } = process` | ambient configuration, absent or different in CI |
 | any binding imported from `scripts/lib/ledger-git` | `realGitSurface` and any alias | this repository's named adapter over the checkout |
 
-**Accepted binding forms**, each with its own rejection fixture (§3.3.3):
+**Accepted binding forms, as a matrix over provenance × form.** Each provenance declares the forms it can be reached through, and the fixture matrix (§3.3.3) must cover **every cell**. The cell list is *derived from the `ENVIRONMENT_SOURCES` declaration, not hand-written* — a newly declared provenance therefore fails the meta-test until it has its own fixtures, rather than inheriting coverage from a neighbour. That is the difference between this table and its first draft, which listed forms ad hoc and left `process.env` with zero rows while claiming full coverage (spec R2).
 
-| form | example | present in the corpus today |
+Module provenances (`node:child_process`, `scripts/lib/ledger-git`) are reached through import bindings:
+
+| form | example | in the corpus today |
 | --- | --- | --- |
 | static named | `import { spawnSync } from "node:child_process"` | yes — `tests/scripts/ledgerClaimsCheck.test.ts:22` |
 | static aliased | `import { spawnSync as run } from "node:child_process"` | no |
 | static namespace | `import * as cp from "node:child_process"`, then `cp.spawnSync(…)` | no |
 | dynamic destructured | `const { realGitSurface } = await import("@/scripts/lib/ledger-git")` | yes — `tests/scripts/ledgerClaimsCheck.test.ts:396` |
-| hook-mediated | the read is in a `beforeEach` / `beforeAll` in an enclosing `describe` | no |
 
-The last row propagates: a hook's environment read classifies every test in its `describe` subtree, because that is where the value the tests consume comes from.
+The `process.env` provenance is a global, so it has no import forms and its own set instead:
+
+| form | example | in the corpus today |
+| --- | --- | --- |
+| direct member access | `process.env.LEDGER_GIT_ROOT` | yes — `tests/scripts/ledgerClaimsCheck.test.ts:434` |
+| destructured | `const { env } = process`, then `env.X` | no |
+| aliased destructure | `const { env: e } = process`, then `e.X` | no |
+
+The corpus count cannot substitute for these fixtures, and the reason is worth stating because it is not obvious: the one `process.env` use in the enrolled suites sits in a test that *also* calls `realGitSurface`, so that test stays classified through the other provenance whether or not `process.env` detection works at all. A future test resting on ambient configuration alone would pass as environment-free.
+
+**Hook-mediated reads** apply to every provenance rather than being a form of one: a read in a `beforeEach` / `beforeAll` classifies every test in its enclosing `describe` subtree, because that is where the value those tests consume comes from. The fixture matrix carries one hook-mediated pair per provenance.
 
 **Unrecognized forms fail closed, and that is what makes the consequence bound true.** A call whose callee resolves to none of the three provenances and whose binding the checker cannot trace — a re-export chain, a computed member access, an indirection through another module — is reported as **unclassifiable** and reds the run. It is not silently treated as environment-free. Clearing one is an explicit `// no-premise: <reason>` like any other, so the residue is visible in the diff rather than absorbed.
 
@@ -233,7 +257,7 @@ Five assertions exist solely to keep the checker from reporting green on nothing
 1. the enrolled-suite set is non-empty;
 2. the set of tests examined is non-empty;
 3. **per enrolled suite**, the number of tests classified as environment-touching equals a count declared independently in the registry — not counted from the classification itself, which would compare a list to itself. A recognizer that silently stops matching (a `spawnSync` call moved behind a wrapper, say) drops that count to zero and reds, instead of reporting a clean corpus it no longer understands. A genuinely pure suite declares `0` honestly and is not forced to invent a match. This mirrors `EXPECTED_LEDGER_KINDS` (`tests/mutation/guardSurfaces.gate.test.ts:33`), which exists for the same reason;
-4. a **fixture matrix**, one row per accepted binding form in §3.3.2's table: for each form, a synthetic test source using that form with no premise must be REJECTED, and the same source with a premise added must be ACCEPTED. Each pair differs in exactly one thing, so a rejection is attributable to the premise. One pair per form, not one pair overall — a single pair validates only the spelling it happens to use, which is the defect the provenance keying exists to avoid;
+4. a **fixture matrix over every provenance × form cell** of §3.3.2: for each cell, a synthetic test source using that form with no premise must be REJECTED, and the same source with a premise added must be ACCEPTED. Each pair differs in exactly one thing, so a rejection is attributable to the premise. The required cell list is **derived from the `ENVIRONMENT_SOURCES` declaration**, and the meta-test asserts the fixture set covers it exactly — so a newly declared provenance reds until it brings its own fixtures, instead of inheriting a neighbour's coverage. One pair per cell, not one pair overall: a single pair validates only the spelling it happens to use, which is the defect the provenance keying exists to avoid, and a per-form list that is not derived from the provenances is how `process.env` ended up with zero coverage in this spec's own first draft;
 5. an **unclassifiable fixture**: a source whose environment read arrives through a form the checker cannot trace must be REPORTED, not passed. This is the executable half of the fail-closed claim in §3.3.2; without it, "unrecognized forms fail closed" is prose.
 
 Assertion 4 is the one that matters. Without it the checker could be `return []` and the first three would still pass. Assertion 3 is the one that keeps mattering after the fixtures stop changing — **with the caveat the design owes it**: a declared count catches a recognizer that stops matching, but it does *not* catch a newly added test the recognizer never matched, because the recognized count is unchanged and still equals the declaration. That gap is closed by assertion 5, not by the count: a new test using an untraceable form is reported as unclassifiable rather than counted as environment-free.
@@ -292,6 +316,7 @@ Each of these was settled by probe or by an existing ratification. Reopening one
 | L-3 | A premise can itself be trivially true | `premise("x", 1, 0)` satisfies the checker and proves nothing. The checker enforces presence, not strength; strength is a review judgement, as it is for every assertion. |
 | L-4 | V1 with no environment read is uncovered | A pure fixture too small to cross a boundary, with no spawn and no `process.env`, is not classified as environment-touching. Both shipped instances read the environment, so the mechanism reaches both, but the pure-fixture variant remains the prose rule's job (`docs/agents/writing-plans.md:13`). |
 | L-5 | The mutation gate is nightly and not merge-gating | An enrolled surface's new gap surfaces one cycle after it lands. Unchanged by this spec; stated because §1.4 depends on it. |
+| L-7 | The overlay does not reach a spawned child process | An assertion made through `spawnSync`/`execFileSync` contributes nothing to the mutation score, though it may fully cover the behavior. Demonstrated both ways in §1.4.2. Triage repays such a survivor with an in-process twin assertion; a suite that is mostly end-to-end will score lower than its real coverage, and the score must be read with that in mind. |
 | L-6 | Mutant verdicts on `ledger-git.ts` can be environment-dependent | Addressed by construction (§3.2) — such mutants are killed by tests that build their own ref namespace, never ledgered — but the constraint is a standing one for any future adapter surface. |
 
 ---
@@ -316,7 +341,7 @@ Each of these was settled by probe or by an existing ratification. Reopening one
 - **AC-5** Each enrolled surface has its own `EXPECTED_LEDGER_KINDS` row.
 - **AC-6** No `accepted` row on `ledger-git.ts` has an environment-dependent verdict; each such mutant is killed by a test that constructs its own ref namespace.
 - **AC-7** `premise` / `premiseHolds` exist, fail loudly, and name the failure as a premise failure.
-- **AC-8** `tests/mutation/_metaPremiseContract.test.ts (new)` carries one rejection/acceptance fixture pair **per accepted binding form** in §3.3.2's table — static named, static aliased, static namespace, dynamic destructured, hook-mediated — each pair differing in exactly one thing.
+- **AC-8** `tests/mutation/_metaPremiseContract.test.ts (new)` carries one rejection/acceptance fixture pair **per provenance × form cell** of §3.3.2 — for the module provenances: static named, static aliased, static namespace, dynamic destructured; for `process.env`: direct member access, destructured, aliased destructure; plus one hook-mediated pair per provenance — each pair differing in exactly one thing. The required cell list is derived from the `ENVIRONMENT_SOURCES` declaration and asserted to match the fixture set exactly, so a newly declared provenance reds until it brings its own fixtures.
 - **AC-8a** An unclassifiable fixture — an environment read through a form the checker cannot trace — is REPORTED and reds, not passed as environment-free. This is the executable proof of the fail-closed claim, without which §4's consequence bound is prose.
 - **AC-9** The meta-test's non-vacuity assertions (§3.3.3, items 1-3) are present and each fails against a corresponding degenerate input; the declared per-suite count map's key set is asserted equal to the enrolled suite set, so a newly enrolled suite fails until it declares its own.
 - **AC-10** Every qualifying test in the two enrolled suites carries a premise or a reasoned exemption, including `tests/scripts/ledgerClaimsCheck.test.ts:508-510`, whose repair constructs its own corpus.
