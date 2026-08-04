@@ -2889,11 +2889,9 @@ The shipped Doug-visible copy was corrected on that branch (§12.4 helpfulContex
 
 **A third instance the literal sweep could not see:** `lib/sync/phase2.ts` said a capability flag "would grant ops/financial access silently" — the same claim in production source, in a semantic variant. Corrected in the same commit. `tests/docs/capabilityClaimProse.test.ts` now scans the MI-9 rows AND every `.ts`/`.tsx` under `app/`, `components/`, and `lib/` with a positive-claim recognizer (a raw admin/grant ban could never go green, since the corrected prose itself says neither flag grants admin access), pinned by six fixtures including `lib/parser/typoVocabRegistry.ts`'s unrelated "ops/financials field-alias" as the hardest negative.
 
-
 ---
 
 ### BL-SYNC-FEED-UI-POLISH — impeccable v3 LOW/no-harm follow-ups (changes-feed UI)
-
 
 **Filed:** 2026-06-10 from the Phase-6 impeccable v3 dual-gate (gate PASSED; zero HIGH after the Approve-button accent fix; these are LOW / no-user-harm, no concrete trigger — same shape as the `BACKLOG-B2UI-*` batch below (`:1303-1305`): one parent entry, the individual findings as sub-bullets under it). Citation corrected 2026-08-02: this line gave that family a `BL-` prefix, which resolves to nothing — the real ids carry the `BACKLOG-` prefix. A one-word prefix typo, not a vanished family; the analogy it draws was always sound. The wrong spelling is described rather than written out, since re-typing it would re-create the dangling reference.
 
