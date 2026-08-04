@@ -31,97 +31,25 @@
 // The ledger list is derived from the filesystem, not hardcoded, so a NEW ledger
 // file is covered by default rather than silently exempt.
 import { execFileSync } from "node:child_process";
-import { readdirSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-const ROOT = join(__dirname, "..", "..");
+import {
+  BRANCH_SHAPE,
+  PR_SHAPE,
+  flightFieldsOn,
+  isInProgress,
+  ledgerFiles,
+  ledgerItems,
+  type LedgerItem,
+} from "@/scripts/lib/ledger-fields";
 
-/**
- * Ledger files, discovered rather than listed. A new `FOO-archive.md` alongside
- * the existing pair is picked up without editing this file — the fail-by-default
- * posture invariant 10 uses for mutation surfaces, applied to ledger prose.
- */
-export function ledgerFiles(root: string = ROOT): string[] {
-  return readdirSync(root)
-    .filter((f) => /^(BACKLOG|DEFERRED)(-archive)?\.md$/.test(f))
-    .sort();
-}
+const ROOT = join(__dirname, "..", "..");
 
 /** An archive file holds finished work; nothing in one can be in flight. */
 const isArchive = (file: string) => /-archive\.md$/.test(file);
-
-export type LedgerItem = {
-  file: string;
-  id: string;
-  line: number;
-  /** The bold-run fields found on the entry's meta lines, key -> raw value. */
-  fields: Record<string, string>;
-};
-
-const HEADING = /^(#{2,3})\s+~?~?([A-Z][A-Z0-9]*(?:[._-][A-Z0-9]+)*)~?~?\s+—\s+(.+)$/;
-
-/**
- * Bold-run fields on ONE line, `**Key:** value · **Key2:** value2`. A value ends
- * at the next bold run on its line, matching how the entries are actually
- * written — a greedy read would swallow the whole meta line into the first key.
- */
-function fieldsOfLine(line: string): Record<string, string> {
-  const out: Record<string, string> = {};
-  const marks: { key: string; end: number; at: number }[] = [];
-  const re = /\*\*([^*\n]{1,60}?):?\*\*/g;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(line))) {
-    const key = (m[1] ?? "").replace(/:\s*$/, "").trim();
-    if (key) marks.push({ key, at: m.index, end: m.index + m[0].length });
-  }
-  marks.forEach((mark, i) => {
-    const next = marks[i + 1];
-    const stop = next ? next.at : line.length;
-    const raw = line.slice(mark.end, stop).replace(/^[:\s]*/, "").replace(/\s*·\s*$/, "").trim();
-    if (out[mark.key] === undefined) out[mark.key] = raw;
-  });
-  return out;
-}
-
-/**
- * Entries with their fields. Only the first 12 lines of a body are scanned for
- * meta: an entry's `**Status:**` line sits at the top, and reading the whole body
- * would let a quoted `**Branch:**` deep in a discussion masquerade as the entry's
- * own field.
- */
-export function ledgerItems(file: string, text: string): LedgerItem[] {
-  const lines = text.split("\n");
-  const heads: { i: number; id: string }[] = [];
-  lines.forEach((l, i) => {
-    const m = HEADING.exec(l);
-    const id = m?.[2];
-    if (id) heads.push({ i, id });
-  });
-  return heads.map((h, n) => {
-    const next = heads[n + 1];
-    const end = next ? next.i : lines.length;
-    const fields: Record<string, string> = {};
-    for (const l of lines.slice(h.i + 1, Math.min(end, h.i + 13))) {
-      for (const [k, v] of Object.entries(fieldsOfLine(l))) if (fields[k] === undefined) fields[k] = v;
-    }
-    return { file, id: h.id, line: h.i + 1, fields };
-  });
-}
-
-/** The declared forms. Deliberately narrow — this is opt-in, never sniffed. */
-const IN_PROGRESS = /\b(in[\s-]?progress|in[\s-]?flight|wip|underway)\b/i;
-
-/** Fields that only make sense on work in flight. */
-const FLIGHT_FIELDS = ["Branch", "PR", "Owner", "Assignee", "In progress"] as const;
-
-export const isInProgress = (it: LedgerItem) => IN_PROGRESS.test(it.fields.Status ?? "");
-export const flightFieldsOn = (it: LedgerItem) => FLIGHT_FIELDS.filter((f) => (it.fields[f] ?? "").length > 0);
-
-/** `feat/thing`, `fix/thing-2`, `chore/a-b-c` — the repo's own branch grammar. */
-const BRANCH_SHAPE = /^[a-z][a-z0-9]*\/[a-z0-9][a-z0-9._-]*$/;
-const PR_SHAPE = /^#\d+$/;
 
 const readLedgers = () =>
   ledgerFiles().flatMap((f) => ledgerItems(f, readFileSync(join(ROOT, f), "utf8")));
@@ -272,6 +200,37 @@ describe("the guard catches what it claims to", () => {
     // An audit stamp is not somebody working on it. This is the exact shape that
     // made an inference-based reading of "in progress" indefensible.
     expect(isInProgress(plant("**Status:** OPEN\n\n**VERIFIED INCOMPLETE 2026-08-03 — do not archive.**"))).toBe(false);
+  });
+
+  it("sees a marker below the 12-line window", () => {
+    // The live shape: chore/ledger-body-ids-enum-scan-widen appended its marker
+    // ~17 lines below the heading, so the window could not see it — meaning this
+    // guard could not validate a marker it was written to validate, and main
+    // would have inherited it unchecked at merge.
+    const body = ["**Status:** OPEN", ...Array<string>(15).fill("filler"),
+      "**Status:** IN PROGRESS · **Branch:** chore/real-branch"].join("\n\n");
+    const it0 = plant(body);
+    expect(isInProgress(it0)).toBe(true);
+    expect(it0.fields.Branch, "the union must reach fields, not just a helper").toBe("chore/real-branch");
+  });
+
+  it("does not let the window's Status mask a deeper one", () => {
+    // fields.Status stays OPEN by the window-wins rule. A predicate reading it
+    // would downgrade a live claim AND then fire a false flight-field violation.
+    const body = ["**Status:** OPEN · **Severity:** low", ...Array<string>(15).fill("filler"),
+      "**Status:** IN PROGRESS · **Branch:** feat/live"].join("\n\n");
+    const it0 = plant(body);
+    expect(it0.fields.Status).toBe("OPEN");
+    expect(isInProgress(it0), "must scan lines, not read fields.Status").toBe(true);
+    expect(flightFieldsOn(it0)).toEqual(["Branch"]);
+  });
+
+  it("subjects an out-of-window branch to the shape rule it used to escape", () => {
+    const body = ["**Status:** OPEN", ...Array<string>(15).fill("filler"),
+      "**Status:** IN PROGRESS · **Branch:** not a branch"].join("\n\n");
+    const it0 = plant(body);
+    expect(isInProgress(it0)).toBe(true);
+    expect(BRANCH_SHAPE.test(it0.fields.Branch ?? ""), "now reachable by the shape rule").toBe(false);
   });
 
   it("ignores a **Branch:** quoted deep inside a long body", () => {
