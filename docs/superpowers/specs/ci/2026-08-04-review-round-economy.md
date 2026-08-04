@@ -156,14 +156,19 @@ All scalars. There is no array field and no free-text field, so a row is bounded
 
 Every dispatch appends a row. The threshold counts **distinct `round` values among rows with `status === "verdict"`**.
 
-`status` takes exactly two values in the wrapper today — `"verdict"` and `"no_verdict"` — assigned at four sites in `scripts/codex-guard.mjs` (`scripts/codex-guard.mjs:698`, `scripts/codex-guard.mjs:792`, `scripts/codex-guard.mjs:1017`, `scripts/codex-guard.mjs:1081`). There is no `wrapper_error` status: a wrapper failure is `status: "no_verdict"` carrying `failureReason: "wrapper_error"` (`scripts/codex-guard.mjs:1081`). The row therefore records `failureReason` alongside `status`, so the corpus can tell an infra fault from a reviewer that simply never emitted a verdict.
+**The counting rule is exactly two conjuncts, and `failureReason` is not one of them:** `status === "verdict"` AND `stage` in `spec`/`plan`/`diff`. Nothing else participates.
 
-| `status` | `failureReason` | Recorded | Counts toward threshold |
-| --- | --- | --- | --- |
-| `verdict`, `stage` in `spec`/`plan`/`diff` | `null` | yes | yes |
-| `verdict`, `stage: "task"` | `null` | yes | **no** — not a review round (§5.1) |
-| `no_verdict` | `"wrapper_error"` | yes | **no** |
-| `no_verdict` | any other value or `null` | yes | **no** |
+Stating it that way matters because `failureReason` is **not** `null` on every counted row. `status` takes two values (`scripts/codex-guard.mjs:698`, `codex-guard.mjs:792`, `codex-guard.mjs:1017`, `codex-guard.mjs:1081`) and there is no `wrapper_error` status — a wrapper failure is `status: "no_verdict"` with `failureReason: "wrapper_error"` (`codex-guard.mjs:1087`). But `giveUp()` (`codex-guard.mjs:1026`) merges `tryRolloutScrape()` into the result, so a **recovered verdict** carries a real verdict alongside `failureReason: "total_timeout"` or `"attempts_exhausted"` (`codex-guard.mjs:1031`, `codex-guard.mjs:1033`, `codex-guard.mjs:1036`). Those are real review rounds — the reviewer did its work and the verdict was recovered from the rollout — and they count.
+
+| `status` | `stage` | `failureReason` | Recorded | Counts |
+| --- | --- | --- | --- | --- |
+| `verdict` | `spec`/`plan`/`diff` | **any value, including non-null** | yes | **yes** |
+| `verdict` | `task` | any | yes | **no** — not a review round (§5.1) |
+| `no_verdict` | any | any, including `"wrapper_error"` / `"interrupted"` | yes | **no** |
+
+The table is exhaustive over the `status` axis, and `failureReason` is deliberately shown as "any" on the counted row rather than enumerated. An implementation that reads a `failureReason: null` column as part of the counted combination would drop four recovered verdicts, see a contiguous `1..4`, oblige nothing, and pass all nine gate assertions — an obliged arc reported compliant.
+
+`verdict` itself (`APPROVE` / `NEEDS-ATTENTION` / `BLOCKING`) is recorded verbatim and **not** constrained by the gate. The wrapper owns that vocabulary; a new outcome value must not fail the corpus.
 
 An infrastructure fault is not a review round. The reaper bug killed 58% of dispatches at one point (`docs/agents/codex-silent-death-2026-07-24.md`); counting those would push nearly every arc over threshold on noise and discredit the gate in its first week.
 
@@ -266,7 +271,7 @@ Over-obligation — a filing demanded where nothing was mechanizable — costs o
 Output:
 
 - Rounds per stage per arc, and counted-vs-recorded rows. **Per stage** — never collapsed across stages, since the threshold is per-stage (§4.3) and a collapsed number cannot be compared against it.
-- Trigger rate by month — the success metric named in §1.1.
+- Trigger rate by month — the success metric named in §1.1. **Defined on one event and one population, because two defensible readings otherwise report conflicting facts for the same month.** The population is `(arc, stage)` pairs having at least one counted row (§5.4) — so `task` stages and stages with only `no_verdict` rows are excluded, since no review completed. A pair is bucketed by the month of its **first counted row's `startedAt`**, and counts as triggered if it **ever** reached `ROUND_THRESHOLD`. Rate is triggered ÷ population within the bucket. Bucketing the crossing separately from the population lets a stage that began in January and crossed in February land in two months at once, which makes a monthly rate exceed 1 and reports January as both 50% and 0%.
 - Finding-count totals by stage, over rows where the declared line was present. **Rows with `findingCount: null` are excluded from the total and reported separately as a count of undeclared rows.** Folding `null` into zero would state a false total; §5.3 makes `null` mean "not declared," never "none found."
 - **Silent arcs**: arcs that merged with zero rows in the corpus.
 
@@ -350,6 +355,8 @@ Fixture corpus for determinism, plus a live-tree pass over the real `docs/review
 | 4 distinct verdict rounds, no filing | **FAIL** — the core assertion |
 | 3 verdict + 1 `no_verdict` | **PASS** — infra noise must not oblige |
 | 3 verdict + 1 `no_verdict` with `failureReason: "wrapper_error"` | **PASS** — the wrapper-error path is the same status, not a third one |
+| 4 verdict rounds, each with `failureReason: "attempts_exhausted"` | **FAIL** — recovered verdicts are real rounds and must oblige (§5.4) |
+| 4 verdict rounds with `stage: "task"`, no filing | **PASS** — a task dispatch is not a review round (§5.1) |
 | rounds `1,2,3,3,3` (parallel wave) → 3 distinct | **PASS** — the recommended practice is not taxed |
 | rounds `1,2,4` | **FAIL** — gap |
 | filing cites a `BL-` id absent from the ledgers | **FAIL** |
@@ -373,7 +380,9 @@ Two layers, because a pre-parsed fixture list would let the test pass while the 
 
 Every output §9 promises gets behavioral coverage. A report that presents a false number is the failure mode §9 declines to excuse, so "read-only" buys no test relief.
 
-1. **Producer against a synthesized fixture repository.** Build a repo in a temp dir (`mkdtempSync`, per `tests/docs/_metaLedgerClaimCollision.test.ts:166`) containing one of every shape the accept-set must decide: a standard `Merge pull request #N from …`, the second spelling `Merge PR #N: …`, a `Merge branch 'main'` into a feature branch, a non-first-parent merge, and a branch whose main advanced after divergence. Assert recognition, `unrecognized` reporting **with subject**, and — critically — the reconstructed `baseSha` equals `merge-base <merge>^1 <merge>^2` and NOT the first parent for the advanced-main case. Deterministic, network-free, and independent of clone depth.
+1. **Producer against a synthesized fixture repository.** Build a repo in a temp dir (`mkdtempSync`, per `tests/docs/_metaLedgerClaimCollision.test.ts:166`) containing one of every shape the accept-set must decide: a standard `Merge pull request #N from …`, the second spelling `Merge PR #N: …`, a `Merge branch 'main'` into a feature branch, a non-first-parent merge, and a branch whose main advanced after divergence. Assert recognition, `unrecognized` reporting **with subject**, the extracted **branch path in full**, and the reconstructed `baseSha` equal to `merge-base <merge>^1 <merge>^2` and NOT the first parent for the advanced-main case.
+
+   The branch assertion is not decoration: 607 of the 676 recognized merges name a nested branch (`chore/ledger-claim-visibility`, `feat/mutation-gate-guard-surfaces`). A producer taking only the final slash-delimited component recognizes every merge, reports the residue, and computes the right merge base — passing every other assertion — while joining `modal-freshness-cue` against a corpus stored at `feat/modal-freshness-cue`, so fully-recorded arcs come back as silent. The fixture therefore includes a nested branch name and asserts the whole path after `owner/`. Deterministic, network-free, and independent of clone depth.
 
    **This layer must not be a real-history test.** CI checks out at depth 1 and deliberately fetches only `origin/main` at depth 1 (`.github/workflows/unit-suite.yml:152`) — the comment there records that full history was rejected because it took this gate from ~4.2 minutes back toward 9.1. A layer-1 test reading the live log would derive its expectations from a truncated history and pass over zero or one merge, which is a vacuous pass wearing a real-history costume.
 
