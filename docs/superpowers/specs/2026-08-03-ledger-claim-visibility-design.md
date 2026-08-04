@@ -5,7 +5,7 @@
 **Date:** 2026-08-03
 **Branch:** `chore/ledger-claim-visibility`
 **Backlog entries:** none opened for this work (see §9.1); three filed as by-products (§9.2, §9.3, §5 item 0a)
-**Status:** R15 repaired — 81 adversarial findings across fifteen rounds plus 5 self-findings, all accepted. R10 triggered the three-round cap: §3.1 is written from a spike, independently reproduced cross-model at R11
+**Status:** R16 repaired — 84 adversarial findings across sixteen rounds plus 5 self-findings, all accepted. R10 triggered the three-round cap: §3.1 is written from a spike, independently reproduced cross-model at R11
 **Review note:** R1-R4 were Codex (cross-model). R5 and R6 were fresh-eyes Opus sessions, because Codex hit a usage limit resetting 2026-08-10; see §10
 **impeccable-gate: N/A — no UI surface**
 
@@ -527,12 +527,24 @@ Wired as `"ledger:claims": "tsx scripts/ledger-claims.ts"` in `package.json`.
    same-repository PR the comparison reads `undefined !== GITHUB_REPOSITORY`, concludes "fork",
    disables self-exclusion, and exits 1 on the PR's own declaration — failing every compliant run.
 
-   The design therefore does not depend on any single variable name being right. Head repository is
-   read from the event payload at `GITHUB_EVENT_PATH` when that file is present, and **when it
-   cannot be determined, self-exclusion is off**. That default is the same asymmetry §3.2 step 2
-   already ratified: a false collision names a real branch and a human clears it in seconds, while a
-   false all-clear is the defect this spec exists to remove. An implementation that guesses wrong
-   about the environment therefore over-reports rather than going quiet. The environment
+   The design therefore does not depend on any single variable name being right. Identity resolves
+   in **three cases**, and R16 finding 1 is why they must be distinguished rather than collapsed
+   into "known or unknown":
+
+   | Case | Detected by | Identity | Self-exclusion |
+   | --- | --- | --- | --- |
+   | **Local** | no `GITHUB_ACTIONS` in the environment | current branch from `git rev-parse --abbrev-ref HEAD`, in the local repository | **by branch name** — and this is sound, because a local worktree's branch pushes to `origin`, so it *is* a base-repo branch. Fork ambiguity cannot arise here |
+   | **CI, payload readable** | `GITHUB_EVENT_PATH` present and parseable | head repo from `.pull_request.head.repo.full_name`, compared with `GITHUB_REPOSITORY` | by full head identity; disabled when the two differ |
+   | **CI, payload unreadable** | `GITHUB_ACTIONS` set, payload missing or unparseable | genuinely unknown | **off** — over-report rather than go quiet |
+
+   Collapsing the first and third rows is the defect R16 caught: outside CI the payload is *always*
+   absent, so an unknown-identity fallback would disable self-exclusion on every local `--check` and
+   report the session's own claims as collisions. That is the Stage 0 pre-flight path — the primary
+   use case — so the rule would have failed exactly where it matters most while passing in CI.
+
+   The conservative default survives where it belongs, in the third row only. There the asymmetry
+   §3.2 step 2 ratified applies: a false collision names a real branch and is cleared in seconds,
+   while a false all-clear is the defect this spec exists to remove. The environment
    variable is not a convenience — `actions/checkout@v4` leaves a PR build on a detached merge ref,
    so a reader that only asked git would find no current branch and attribute the PR's own marker to
    a stranger, failing every PR that declares anything.
@@ -789,6 +801,13 @@ believes is signaled is worse than one they can see.
    prevents is the reversal pattern this project has paid for twice. The failure mode is a visible
    extra row naming a real branch, never a missed claim. If an instance ever appears, the fix is a
    negation-aware recognizer with that instance as its test.
+1b. **In CI with an unreadable event payload, a branch collides with itself.** Self-exclusion is off
+   in that case (§3.2 step 3, third row), so a run's own declarations are reported as another
+   branch's and `--check` exits 1. Distinct from the shallow-ancestry false collision above: this
+   one names the caller's *own* branch, which reads as nonsense until you know the rule. The report
+   therefore says so explicitly — `identity unresolved; not excluding any branch as self` — rather
+   than leaving a reader to infer it. Deliberate, per the ratified asymmetry, and bounded to CI:
+   locally the first row of that table applies and self-exclusion works by branch name.
 2. **`inferred` is a heuristic over diff hunks.** A branch editing a long entry's body to mention a
    sibling id claims the enclosing entry. Printed as `inferred`, never `declared`, and never able to
    fail anything (§4.4). Note the corrected direction: the reconciliation-log preamble at
@@ -917,6 +936,20 @@ Catches: a reader that reports a claim from a merged branch, drops a stale-tippe
 listing it, or mis-keys a claim to the wrong branch. Fixtures are temp git repos built in-test,
 following the `spawnSync("git", ["init", …])` precedent at `tests/specLint/cli.test.ts:35`, so no
 network is involved.
+
+**Identity cases (R16 finding 2).** All three rows of §3.2 step 3's table get a fixture, because the
+mutant that collapses them passes any two of the three. Planted from a live shape: a branch carrying
+three pushed declarations, checked against its own ids.
+
+| Fixture | Required |
+| --- | --- |
+| No `GITHUB_ACTIONS`, on the declaring branch | exit **0** — self-exclusion by branch name. A "payload absent means unknown" mutant exits 1 here, failing every local Stage 0 pre-flight |
+| `GITHUB_ACTIONS` set, payload readable, same repository | exit **0** |
+| `GITHUB_ACTIONS` set, payload absent, `GITHUB_HEAD_REF` naming that same branch | exit **1** — all three claims visible. A name-only fallback mutant exits 0, which is the false all-clear R15 ratified against |
+
+The third row is the one with no natural home: it looks like the first (no payload) and reads like
+the second (a head ref that matches), so only an explicit fixture separates them. Both the reader
+tests and the CI backstop carry it, since each resolves identity independently.
 
 **Attribution cases (R12 finding 3).** The ref is the claim's key (§3.2 step 5), and nothing
 previously distinguished that from reading `fields.Branch`, which agrees with the ref in every
