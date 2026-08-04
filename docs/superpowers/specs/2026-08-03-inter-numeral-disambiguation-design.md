@@ -501,3 +501,19 @@ Explicitly cleared by the reviewer: the `font`-shorthand ban is not overbroad in
 Explicitly cleared: the 220 KB budget is correctly shaped (176,696 bytes leaves 24.5% headroom while rejecting the 352,240-byte verbatim regression), and tsc, prettier, spec lint and `git diff --check` all pass.
 
 **Thirteen mutants across five rounds. All replayed against the current guard; all caught.**
+
+### 12.6 Whole-diff cross-model review — round 6, and the vector closed structurally
+
+`VERDICT: NEEDS-ATTENTION`, one finding, accepted and fixed. The reviewer found no other admissible issue and confirmed round 5's count correction is consistent across its pinned sites.
+
+| # | Sev | Finding | Disposition |
+| --- | --- | --- | --- |
+| 1 | **P1** | `parseFeatureValue` decoded escapes only inside the tag string, and compared the trailing keyword as raw text. Mutant: `"ZZ-Z" o\6e` — CSS decodes escapes while consuming a NAME, so that keyword is `on`, which §6.12 defines as 1. The browser enabled an unsupported feature; the guard reported nothing missing. The same sweep found string continuation: `"ZZ\<newline>-Z"` tokenizes as `ZZ-Z`, and the decoder returned it with the newline intact, in all four spellings (LF, CR, FF, CRLF). | **FIXED — and the vector closed, not patched again.** |
+
+**This was the third consecutive round on CSS value tokenization** (r3: comment/positional parsing; r5: commas, escapes, comments in values; r6: escapes in keywords, string continuation). `AGENTS.md`'s same-vector rule says that at three rounds you stop patching prose or spellings and close the class structurally. Two changes do that:
+
+1. **The value is tokenized by `postcss-value-parser`, not by hand.** Every hand-written scanner I shipped here lost to a spelling — commas inside tags, comments inside values, escapes in two positions. A real tokenizer already knows what a string is, what a word is, and where a comma separates. What remains hand-written is escape DECODING, which is a closed three-rule function (hex escape, string continuation, escaped character) rather than an open parsing problem. As a side effect the hand-rolled comment scan disappeared, which is what CI's `_metaStripCommentsSingleSource` guard was objecting to in the same push.
+
+2. **The parser has its own test table.** Every mutant from rounds 2–6 is now a named row asserting the parser directly, with the round that found it recorded in the row. Until now the parser's only oracle was "mutate `app/globals.css` and watch" — indirect, expensive, and testing only the spellings someone thought to try. 33 tests in that file now, up from 13.
+
+**Sixteen mutants across six rounds. All caught, and the fourteen that target the value parser are now permanent test rows rather than history.**

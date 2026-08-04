@@ -23,6 +23,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import * as fontkit from "fontkit";
 import postcss from "postcss";
+import valueParser from "postcss-value-parser";
 import ts from "typescript";
 import { describe, expect, test } from "vitest";
 
@@ -66,108 +67,79 @@ const HISTORICAL_TAGS = ["tnum", "cv11"] as const;
 export type FeatureSetting = { tag: string; enabled: boolean };
 
 /**
- * Decode CSS string escapes: `\\2c ` → `,`, `\\"` → `"`, and so on.
+ * Decode CSS escape sequences, per CSS Syntax §4.3.7 and §4.3.5.
  *
- * CSS Syntax decodes escapes during tokenization, so `"A\\2c B!"` and `"A,B!"` are
- * the SAME tag. Round 5's mutant used the escaped spelling to smuggle a tag the
- * font lacks past a matcher that only understood the literal one.
+ * Three rules, and rounds 5–6 each shipped a mutant exploiting one of them:
+ *
+ *   `\\2c ` → `,`    a hex escape, optionally followed by ONE whitespace which is
+ *                    consumed as part of the escape
+ *   `\\<newline>`     a STRING CONTINUATION: the backslash and the newline both
+ *                    vanish, so `"ZZ\\<LF>-Z"` is the tag `ZZ-Z`. LF, CR, FF and
+ *                    CRLF all spell it.
+ *   `\\n` → `n`      any other escaped character is itself
+ *
+ * Applied to identifiers as well as strings, because CSS consumes escapes while
+ * consuming a NAME too — round 6's `o\\6e` is the keyword `on`, which CSS Fonts 4
+ * §6.12 defines as synonymous with `1`.
  */
 export function decodeCssEscapes(raw: string): string {
-  return raw.replace(/\\(?:([0-9a-fA-F]{1,6})[ \t\n]?|([\s\S]))/g, (_all, hex, ch) =>
-    hex ? String.fromCodePoint(Number.parseInt(hex, 16)) : (ch ?? ""),
+  return raw.replace(
+    /\\(?:([0-9a-fA-F]{1,6})[ \t\n\r\f]?|(\r\n|[\n\r\f])|([\s\S]))/g,
+    (_all, hex: string | undefined, newline: string | undefined, ch: string | undefined) => {
+      if (hex !== undefined) return String.fromCodePoint(Number.parseInt(hex, 16));
+      if (newline !== undefined) return ""; // string continuation: both characters vanish
+      return ch ?? "";
+    },
   );
-}
-
-/**
- * Scan a declaration value: remove comments, then split on commas — both only
- * where they are NOT inside a string.
- *
- * Three round-5 mutants live here, and all three are the same mistake in
- * different clothes: treating a CSS value as text rather than as tokens.
- *
- *   `"A,B!" 1`      a comma is a legal tag character, so a plain split tore the
- *                   tag in half and it never reached the availability check
- *   `"ZZ-Z"\/**\/1`  postcss preserves comments inside `decl.value`, so the value
- *                   token was `"ZZ-Z"\/**\/1` and the integer never matched
- *   `"A\\2c B!" 1`   an escaped comma is the same tag as a literal one
- *
- * Comments are stripped BEFORE splitting, per CSS Syntax: a comment is consumed
- * during tokenization and cannot be part of a value's grammar.
- */
-export function splitTopLevelCommas(value: string): string[] {
-  const parts: string[] = [];
-  let current = "";
-  let quote: '"' | "'" | null = null;
-  for (let i = 0; i < value.length; i += 1) {
-    const ch = value[i]!;
-    if (quote) {
-      current += ch;
-      if (ch === "\\" && i + 1 < value.length) {
-        current += value[i + 1]!;
-        i += 1;
-      } else if (ch === quote) {
-        quote = null;
-      }
-      continue;
-    }
-    if (ch === '"' || ch === "'") {
-      quote = ch;
-      current += ch;
-      continue;
-    }
-    if (ch === "/" && value[i + 1] === "*") {
-      const end = value.indexOf("*/", i + 2);
-      i = end === -1 ? value.length : end + 1;
-      current += " "; // a comment is a token separator, not nothing
-      continue;
-    }
-    if (ch === ",") {
-      parts.push(current);
-      current = "";
-      continue;
-    }
-    current += ch;
-  }
-  parts.push(current);
-  return parts;
 }
 
 /**
  * Parse a `font-feature-settings` VALUE per CSS Fonts 4 §6.12.
  *
- * Round 3 enumerated four ways the previous regex diverged from the spec, each
- * with a live mutant. All four are handled here:
+ * TOKENIZED BY `postcss-value-parser`, NOT BY HAND. Three consecutive review
+ * rounds defeated hand-written scanners here — commas inside tags, comments
+ * inside the value, escapes inside the tag, escapes inside the KEYWORD, escaped
+ * newlines continuing a string. Each fix answered one more spelling in an open
+ * space, which is the shape `AGENTS.md`'s same-vector rule says to stop
+ * patching. A real value tokenizer closes the class: it already knows what a
+ * string is, what a word is, and where a comma separates. What remains hand-
+ * written is escape DECODING, which is a closed, three-rule function with its
+ * own test table below.
  *
- *   - **Tag charset.** A tag is exactly four characters in U+0020–U+007E. `"ZZ-Z"`
- *     is a WELL-FORMED tag the font does not have, and the old pattern (`[A-Za-z0-9]{4}`)
- *     skipped it silently, so it never reached the does-the-font-have-it check.
- *   - **Negative integers are invalid**, not "enabled".
- *   - **Duplicates are last-value-wins**, so `"ss04" 1, "ss04" 0` is OFF.
- *   - **Unrecognised value tokens** (`var(--state)`, anything non-integer) are NOT
- *     treated as an omitted value. They fail closed: the setting is recorded as
- *     not-confidently-enabled rather than silently ON.
+ * Semantics: an omitted value means 1; `on` is 1 and `off` is 0; the integer
+ * must be non-negative, and CSS Syntax permits a leading `+`. Duplicates are
+ * last-value-wins. Anything unparseable FAILS CLOSED — recorded as not
+ * confidently enabled rather than silently on.
  */
 export function parseFeatureValue(value: string): FeatureSetting[] {
   const bySpelling = new Map<string, boolean>();
-  for (const rawEntry of splitTopLevelCommas(value)) {
-    const entry = rawEntry.trim();
-    if (entry === "") continue;
-    // Capture the raw string body (escapes intact), then decode — a tag is four
-    // characters AFTER decoding, so the length check cannot precede it.
-    const m = /^(?:"((?:[^"\\]|\\[\s\S])*)"|'((?:[^'\\]|\\[\s\S])*)')\s*(.*)$/.exec(entry);
-    if (!m) continue; // `normal`, or a malformed entry: declares no tag
-    const tag = decodeCssEscapes(m[1] ?? m[2] ?? "");
-    // Four characters in the printable-ASCII range, per CSS Fonts 4 §6.12. A
-    // string that is not a well-formed tag declares nothing.
+  const groups: valueParser.Node[][] = [[]];
+  for (const node of valueParser(value).nodes) {
+    if (node.type === "div" && node.value === ",") groups.push([]);
+    else if (node.type !== "space" && node.type !== "comment")
+      groups[groups.length - 1]!.push(node);
+  }
+
+  for (const group of groups) {
+    const [tagNode, valueNode, ...rest] = group;
+    if (!tagNode || tagNode.type !== "string") continue; // `normal`, or declares no tag
+    if (rest.length > 0) continue; // more tokens than the grammar allows — fail closed
+    const tag = decodeCssEscapes(tagNode.value);
+    // A tag is exactly four characters in the printable-ASCII range, measured
+    // AFTER decoding, so the length check cannot precede it.
     if (!/^[\u0020-\u007E]{4}$/.test(tag)) continue;
-    const rest = (m[3] ?? "").trim().toLowerCase();
+
     let enabled: boolean;
-    if (rest === "" || rest === "on") enabled = true;
-    else if (rest === "off") enabled = false;
-    // CSS Syntax accepts a leading `+` on an <integer>; CSS Fonts requires the
-    // value be non-negative. `-1` therefore fails closed below, `+1` does not.
-    else if (/^\+?\d+$/.test(rest)) enabled = !/^\+?0+$/.test(rest);
-    else enabled = false; // negative, var(), or anything unparseable — fail closed
+    if (!valueNode)
+      enabled = true; // omitted means 1
+    else if (valueNode.type !== "word") enabled = false;
+    else {
+      const keyword = decodeCssEscapes(valueNode.value).toLowerCase();
+      if (keyword === "on") enabled = true;
+      else if (keyword === "off") enabled = false;
+      else if (/^\+?\d+$/.test(keyword)) enabled = !/^\+?0+$/.test(keyword);
+      else enabled = false; // negative, var(), or anything unparseable
+    }
     bySpelling.set(tag, enabled); // later entry wins
   }
   return [...bySpelling].map(([tag, enabled]) => ({ tag, enabled }));
@@ -329,6 +301,58 @@ export function resolveLoadedFontPath(): string {
   }
   return resolve(dirname(FONTS_MODULE), paths[0]!);
 }
+
+/**
+ * THE PARSER'S OWN TEST TABLE.
+ *
+ * Rounds 3, 5 and 6 all landed mutants on `parseFeatureValue`, and every one was
+ * found by mutating `app/globals.css` and watching the guard — an expensive,
+ * indirect oracle that only ever tested the spellings someone thought to try.
+ * `AGENTS.md`'s same-vector rule says that after three rounds on one vector you
+ * stop patching and close the class structurally. This table is that closure:
+ * the parser is now specified directly, case by case, against CSS Syntax and
+ * CSS Fonts 4 §6.12. Every row below was a live escaping mutant or its control.
+ */
+describe("parseFeatureValue — CSS Fonts 4 §6.12 semantics", () => {
+  const enabledTags = (value: string): string[] =>
+    parseFeatureValue(value)
+      .filter((f) => f.enabled)
+      .map((f) => f.tag)
+      .sort();
+
+  test.each([
+    // [value, enabled tags, why this row exists]
+    ['"ss04" 1', ["ss04"], "the ordinary case"],
+    ['"ss04"', ["ss04"], "an omitted value means 1"],
+    ['"ss04" on', ["ss04"], "`on` is 1"],
+    ['"ss04" off', [], "`off` is 0"],
+    ['"ss04" 0', [], "r2 mutant: a present tag is not an enabled tag"],
+    ['"ss04" +1', ["ss04"], "r5 mutant: CSS Syntax permits a leading + on an integer"],
+    ['"ss04" +0', [], "…and +0 is still zero"],
+    ['"ss04" -1', [], "CSS Fonts requires non-negative; fail closed"],
+    ['"ss04" var(--x)', [], "r3 mutant: a runtime token is not an omitted value"],
+    ['"ss04" 1, "ss04" 0', [], "r3 mutant: duplicates are last-value-wins"],
+    ['"ss04" 0, "ss04" 1', ["ss04"], "…in both directions"],
+    ['"A,B!" 1', ["A,B!"], "r4 mutant: a comma is a legal tag character"],
+    ['"A\\2c B!" 1', ["A,B!"], "r5 mutant: a hex escape is the same tag as its literal"],
+    ['"ZZ-Z"/**/1', ["ZZ-Z"], "r5 mutant: a comment is consumed before grammar matching"],
+    ['"ZZ-Z" o\\6e', ["ZZ-Z"], "r6 mutant: escapes are decoded in the KEYWORD too"],
+    ['"ZZ\\\n-Z" 1', ["ZZ-Z"], "r6 mutant: an escaped newline continues the string"],
+    ["normal", [], "the initial value declares no tag"],
+    ['"toolong" 1', [], "a tag is exactly four characters"],
+    ['"ab" 1', [], "…in both directions"],
+  ])("%s → %j (%s)", (value, expected) => {
+    expect(enabledTags(value as string)).toEqual(expected);
+  });
+
+  test("an escaped newline is consumed in every spelling CSS allows", () => {
+    // LF, CR, FF and CRLF all continue a string. Round 6 found the helper
+    // handling none of them.
+    for (const nl of ["\n", "\r", "\f", "\r\n"]) {
+      expect(enabledTags(`"ZZ\\${nl}-Z" 1`), `escaped ${JSON.stringify(nl)}`).toEqual(["ZZ-Z"]);
+    }
+  });
+});
 
 describe("font feature availability", () => {
   const css = readFileSync(GLOBALS_CSS, "utf8");
