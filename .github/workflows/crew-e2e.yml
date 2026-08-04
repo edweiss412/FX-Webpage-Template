@@ -8,9 +8,9 @@ name: Crew e2e (mobile-safari + desktop-chromium)
 # (tests/e2e/font-binding.spec.ts), which measures rendered text width on /admin,
 # /auth/sign-in and a seeded crew route to prove the app renders the family
 # DESIGN.md 2.1 commits to. It runs HERE, on the job that builds and starts the
-# production artifact, because the binding rests on next/font registering a
+# production artifact, because the binding rests on the committed @font-face in
 # family under the name it puts in `--font-inter` -- `inter` since the loader
-# moved to next/font/local, `Inter` before it, which is exactly why the suite
+# app/fonts.css resolving through --font-inter, which is exactly why the suite
 # reads that token instead of comparing a literal. A dev-server-only run would
 # leave that unproved against the build CI actually ships. The stage-restricted suite is on chromium
 # for the same reason picker-flow is: WebKit cannot store the Secure `__Host-`

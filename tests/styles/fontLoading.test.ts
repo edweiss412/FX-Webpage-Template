@@ -200,4 +200,18 @@ describe("app/fonts.css", () => {
     // identically, so no pixel gate can see it.
     expect(parseFontFaces(GLOBALS_CSS)).toHaveLength(0);
   });
+
+  test("DESIGN.md describes the mechanism that actually ships", () => {
+    // Named with DESIGN so `-t "DESIGN"` selects it. Nothing previously held the
+    // design document and the live CSS together, so G5 could regress silently.
+    //
+    // It asserts the CURRENT claim, not the absence of a string: §2.1 carries a
+    // deliberate history of the three mechanisms this line has named, and
+    // banning "next/font" outright would fail on that record. What must hold is
+    // that the sentence describing what ships names the stylesheet, and does not
+    // describe the app as LOADING VIA the retired loader.
+    const design = readFileSync(resolve(REPO_ROOT, "DESIGN.md"), "utf8");
+    expect(design).toContain("app/fonts.css");
+    expect(design).not.toMatch(/Loaded via `next\/font/);
+  });
 });

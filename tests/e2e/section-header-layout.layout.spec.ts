@@ -164,7 +164,10 @@ test("hairline floor @ 240px row", async ({ page }) => {
 
     // PIN THE FONT for this one measurement. The app's stack is
     // `"Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", "Helvetica
-    // Neue", sans-serif` and NOTHING loads Inter — no `@font-face`, no next/font —
+    // Neue", sans-serif`. NOTE: as of BL-HARNESS-FONT-FIDELITY the harness DOES
+    // load Inter -- compileEntryCss emits the committed face -- so this pin is a
+    // deliberate override of it, retargeted in the geometry task rather than a
+    // claim that no face exists.
     // so it resolves to SF Pro on macOS and falls all the way through to DejaVu
     // Sans on a bare Linux CI runner. DejaVu is wide enough that this label fills
     // the 240px row unaided, which made the floor look like the cause of a wrap it

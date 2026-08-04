@@ -1640,9 +1640,9 @@ P0 and P1 findings are fixed, or explicitly deferred with a `DEFERRED.md` entry.
 
 Replace the `PENDING` line in §12 below with the real marker, in the grammar the 2026-08-01 invariant-8-closeout-enforcement spec §3.3 defines:
 
-```
-impeccable-gate: critique=RAN audit=RAN p0=<int> p1=<int> dispositions=recorded
-```
+in the form `impeccable-gate: critique=RAN audit=RAN p0=<int> p1=<int> dispositions=recorded`
+(the template files the guard already knows about carry the canonical spelling; do not
+invent a variant).
 
 **`tests/docs/_metaInvariant8Closeout.test.ts` is RED from Task 1 until this step lands**, because this plan declares both gate halves and the marker is a record of a gate that ran — it cannot be written truthfully in advance. This task is where it goes green, which is why the impeccable gate runs BEFORE the ledger task rather than after it.
 
@@ -1797,9 +1797,12 @@ The `@font-face` rules `next/font/local` emits today, read out of a clean produc
 
 UI surface: `app/layout.tsx`, `app/global-error.tsx`, `app/globals.css`, `DESIGN.md`. Both gate halves apply.
 
-```
-impeccable-gate: PENDING — filled by Task 17 Step 5
-```
+The marker line is written by Task 15 Step 5, in the grammar the invariant-8
+closeout spec §3.3 defines. It is deliberately ABSENT until then rather than
+present as a placeholder: a marker-SHAPED line that is not valid grammar fails
+the "no malformed marker line anywhere in the plans tree" assertion, which is a
+different and more confusing failure than the honest one — a declaring unit that
+has no marker yet.
 
 Findings and dispositions go here.
 

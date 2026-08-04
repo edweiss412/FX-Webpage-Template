@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { inter } from "./fonts";
+import "./fonts.css";
 import "./globals.css";
 import { GlobalErrorListener } from "@/components/observe/GlobalErrorListener";
 
@@ -55,7 +55,21 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={`${inter.variable} h-full antialiased`} suppressHydrationWarning>
+    <html lang="en" className="h-full antialiased" suppressHydrationWarning>
+      {/* Preload the one face. The framework loader preloaded by default and this
+          replaces it: without the hint the browser discovers the font only after CSSOM,
+          lengthening the fallback interval. No test can observe that -- every
+          screenshot path and font-binding.spec await document.fonts.ready, so
+          they cannot see discovery latency -- which is why it is pinned
+          statically instead. `crossOrigin` is the JSX spelling; raw
+          `crossorigin` fails typecheck against React's LinkHTMLAttributes. */}
+      <link
+        rel="preload"
+        as="font"
+        type="font/woff2"
+        href="/fonts/InterVariable-latin.woff2"
+        crossOrigin="anonymous"
+      />
       <body className="min-h-full">
         <script dangerouslySetInnerHTML={{ __html: NO_FOUC_SCRIPT }} />
         <GlobalErrorListener />
