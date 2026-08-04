@@ -80,7 +80,7 @@ The meta-test is the binding gate: it runs in existing CI, is visible to every h
 
 ### 4.3 Threshold
 
-**`ROUND_THRESHOLD = 4`**, counted per `(branch, stage)`. This is the single canonical definition; every other section references it rather than restating the number. It matches the `REVIEW_ROUND_CAP` default in `$HOME/.claude/hooks/review-convergence-gate.sh` so one number governs the dispatch block and the filing duty.
+**`ROUND_THRESHOLD = 4`**, counted per `(branch, stage)`. This is the single canonical definition. Every section that reasons about the threshold references `ROUND_THRESHOLD` rather than the literal; the only places a bare `4` appears are the §1.1 summary row and the §11.2 fixtures, where a fixture must state a concrete count. It matches the `REVIEW_ROUND_CAP` default in `$HOME/.claude/hooks/review-convergence-gate.sh` so one number governs the dispatch block and the filing duty.
 
 A stage reaching 4 counted rounds obliges a filing section for that stage. Stages are independent: an arc may owe a filing for `diff` and owe nothing for `spec`.
 
