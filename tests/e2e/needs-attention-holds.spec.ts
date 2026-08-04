@@ -170,11 +170,9 @@ async function cleanupFixtures(): Promise<void> {
 }
 
 /**
- * Hydration gate: the disclosure toggle and the MI-11 gate buttons are CLIENT
- * handlers, and a visible control can still be pre-hydration — a gesture then
- * does nothing (or triggers a full navigation). React attaches component props
- * onto the DOM node under a `__reactProps$…` key once the tree has hydrated;
- * poll for the element's onClick / form action being present there.
+ * Hydration gate for a CLIENT ONCLICK handler (the disclosure toggle). React
+ * attaches component props onto the DOM node under a `__reactProps$…` key once
+ * the tree has hydrated; a gesture before that does nothing.
  */
 async function waitForHydration(page: Page, testId: string): Promise<void> {
   await expect
@@ -216,6 +214,33 @@ async function readHeldChip(page: Page): Promise<number> {
   if ((await chip.count()) === 0) return 0; // chip renders only above zero
   const text = (await chip.innerText()).trim();
   return Number.parseInt(text.replace(/\s*held$/, ""), 10);
+}
+
+/**
+ * Hydration gate for a SERVER-ACTION FORM. The MI-11 gate buttons carry their own
+ * `onClick` (it records which action was submitted), so gating on the BUTTON says
+ * nothing about whether the form's action dispatch is wired yet — the two hydrate
+ * independently. That gap is not theoretical: on CI the reject click landed with
+ * the button hydrated and the form not, the submit did nothing, and the assertion
+ * burned its full 15s before the retry passed. Gate on the FORM's own action prop.
+ */
+async function waitForFormAction(page: Page, buttonTestId: string): Promise<void> {
+  await expect
+    .poll(
+      () =>
+        page.evaluate((tid) => {
+          const btn = document.querySelector(`[data-testid="${tid}"]`);
+          const form = btn?.closest("form") as
+            | (HTMLFormElement & Record<string, { action?: unknown }>)
+            | null;
+          if (!form) return false;
+          return Object.keys(form).some(
+            (k) => k.startsWith("__reactProps$") && typeof form[k]?.action === "function",
+          );
+        }, buttonTestId),
+      { message: `${buttonTestId}'s form action is wired`, timeout: 30_000 },
+    )
+    .toBe(true);
 }
 
 test.describe("needs-attention identity holds: cards, badge, chip, clear-through", () => {
@@ -327,9 +352,9 @@ test.describe("needs-attention identity holds: cards, badge, chip, clear-through
     // crew_members row, neither of which is seedable here. Reject needs only the
     // hold row and the round-tripped base_modified_time. It is a single direct
     // server-action submit — no confirmation phase.
-    await waitForHydration(page, "mi11-reject");
+    await waitForFormAction(page, "mi11-reject");
     await page.getByTestId("mi11-reject").first().click();
-    await expect(page.getByTestId("mi11-reject")).toHaveCount(0, { timeout: 15_000 });
+    await expect(page.getByTestId("mi11-reject")).toHaveCount(0, { timeout: 30_000 });
 
     await page.goto("/admin/needs-attention");
     await expect(page.getByTestId(`needs-attention-item-identity-hold-${showId(1)}`)).toHaveCount(
