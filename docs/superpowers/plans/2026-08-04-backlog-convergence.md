@@ -128,11 +128,23 @@ Branch `feat/sweep-ui-a11y` worktree. Ids: BL-FEED-BUTTON-SUCCESS-ANNOUNCE certa
 
 Per §4.5 item 2: "Change accepted" / "Change approved" / "Change rejected" via `UndoAnnounceContext.announce`, `undoneAnnouncement` shape (`components/admin/undoAnnounceContext.ts`). Tests assert the announced STRING in the live region per button success path, tree-scoped per the anti-tautology rule (clone + strip siblings rendering the same words). Failure mode: SR success silence on two of three buttons.
 
-## Task 12 — kept UI closures (SR separator, terminal icon, auth-interstitial font)
+## Task 12a — identity-chip SR separator (if kept)
 
 <!-- task: red=`pnpm vitest run tests/components/identityChipSrSeparator.test.ts` ac=AC-C1 -->
 
-For each of BL-IDENTITYCHIP-SR-SEPARATOR, BL-TERMINAL-FAILURE-ICON, and BL-AUTH-INTERSTITIAL-FONT that Task 5 KEPT: one commit per entry, each with its own failing test named in the commit (`tests/components/identityChipSrSeparator.test.ts`, `tests/components/terminalFailureIcon.test.ts`, `tests/routes/authInterstitialFont.test.ts` — the last asserting the four hand-built auth documents carry the app font per whatever mechanism Task 5's KEEP record ratified), entry's own Work section as contract, graduation to archive on green. The task-level red is the first kept entry's named test, written first; each subsequent entry repeats the pattern in its own commit. Skipped-with-record for rows Task 5 demoted/fenced (a fully-skipped task records that and its red is vacuously N/A in the closeout note). Failure mode: per entry; for auth-interstitial specifically, a KEEP verdict with no implementation path (the plan R2 finding).
+Only if Task 5 KEPT BL-IDENTITYCHIP-SR-SEPARATOR: failing test first, entry's Work section as contract, one commit, graduation on green. Skipped-with-record if demoted/fenced (the skip note in the closeout marks this red N/A). Failure mode: per entry.
+
+## Task 12b — terminal-failure icon (if kept)
+
+<!-- task: red=`pnpm vitest run tests/components/terminalFailureIcon.test.ts` ac=AC-C1 -->
+
+Same conditional shape as Task 12a for BL-TERMINAL-FAILURE-ICON — its own red, its own commit, independent of the other conditionals (each of the three KEEP outcomes is separately satisfiable; plan R3 finding).
+
+## Task 12c — auth-interstitial font (if kept)
+
+<!-- task: red=`pnpm vitest run tests/routes/authInterstitialFont.test.ts` ac=AC-C1 -->
+
+Same conditional shape for BL-AUTH-INTERSTITIAL-FONT: the test asserts the four hand-built auth documents carry the app font per whatever mechanism Task 5's KEEP record ratified. Failure mode: a KEEP verdict with no implementation path (the plan R2 finding).
 
 ## Task 13 — FITWITHINCLIP-CLIP-SCROLL-STALE (if kept)
 
