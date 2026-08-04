@@ -290,7 +290,10 @@ describe("lightningcss is a single, exactly-pinned instance", () => {
 - [ ] **Step 2: Run it and watch it fail**
 
 Run: `pnpm vitest run tests/assets/_metaLightningCssSingleVersion.test.ts`
-Expected: FAIL — `expected undefined to be "1.32.0"` (it is not declared today).
+
+Expected: the **pin assertion FAILS** (`expected undefined to be "1.32.0"` — it is not declared today) while the **single-version assertion already PASSES**. Probed: the walk returns `["1.32.0"]` right now, because `lightningcss` is already in the tree transitively at exactly that version via `@tailwindcss/node`.
+
+**That half-red state is correct, not a broken test.** The single-version row's job is to fail the day a SECOND copy appears — which is precisely what `pnpm add -D lightningcss` without `-E` would do, resolving 1.33.0 alongside. Do not "strengthen" it into something red today; that would make it assert a falsehood.
 
 - [ ] **Step 3: Add the exact pin**
 
@@ -431,7 +434,7 @@ describe("the committed font binary", () => {
   test("ships its licence, matched on distinctive OFL text", () => {
     const licence = readFileSync(resolve(REPO_ROOT, "public/fonts/OFL.txt"), "utf8");
     expect(licence).toContain("SIL OPEN FONT LICENSE");
-    expect(licence).toContain("PERMISSION & CONDITIONS");
+    expect(licence).toContain("PERMISSION AND CONDITIONS");
   });
 
   test("no font binary is left behind under assets/", () => {
@@ -514,10 +517,11 @@ The guard is written first and must go red against a tree with no `app/fonts.css
 <!-- spec-lint: ignore — new file created by this plan; not yet tracked -->
 
 - Produces, from **`tests/helpers/fontCss.ts`** — a plain module with **no Vitest import**, for the same reason `fontManifest.ts` is one: `tests/e2e/helpers/liveEntryToolchain.ts` imports these and runs inside Playwright processes.
-  - `parseFontFaces(css: string): ParsedFace[]` — Lightning CSS parse, last-wins, with a `duplicated` list per face
+  - `parseFontFaces(css: string, opts?: { errorRecovery?: boolean }): ParsedFace[]` — Lightning CSS parse, last-wins, with a `duplicated` list per face. **The option is required, not cosmetic:** Task 5 parses authored CSS strictly (default `false`, so a syntax error in a file this plan writes throws), while Task 8 parses emitted output that contains compiled Tailwind and MUST pass `true` — probed, `{errorRecovery:false} -> threw "Unexpected token in attribute selector: Colon"`, `{errorRecovery:true} -> parsed, 1 face`. A single strict signature makes the harness guard unimplementable with its own produced interface.
   - `EXPECTED_DESCRIPTORS: readonly string[]` and `EXPECTED_FALLBACK_DESCRIPTORS: readonly string[]`
   - `MEASURED_OVERRIDES: Record<string, number>`
-  - `srcOf`, `weightOf`, `styleOf`, `displayOf`, `overridesOf`, `tokenDeclarations` — the accessors, ported from the spike rather than reimplemented
+  - `srcOf`, `weightOf`, `styleOf`, `displayOf`, `overridesOf`, `tokenDeclarations`, `familyOf` — the accessors, ported from the spike rather than reimplemented
+  - `firstVarFallbackFamily(css, token)` — the first literal family inside a `var(<token>, …)` fallback list, used by the literal-binding row. New here, because the spike never needed it: it only ever parsed the fonts stylesheet, never the consuming declaration in `app/globals.css`
 <!-- spec-lint: ignore — new file created by this plan; not yet tracked -->
 
   - **`assertFontsCss(css: string, opts?: { shipped?: Array<{ label: string; css: string }> }): void`** — runs every row and throws on the first violation. Two inputs, because the rows need two: `css` is the fonts stylesheet, and `opts.shipped` is the **rest of the shipped stylesheet list** that rows 19, 20 and 21 iterate (`app/globals.css` plus the derived dependency sheets). Without that second channel the M16 dependency mutants cannot be driven at all — `dep-mutants.mjs` supplies exactly this via its `EXTRA_CSS` env var, and a single-string signature silently drops four of the plan's own mutation families. Defaults to reading the real derived list when omitted. `tests/styles/fontLoading.test.ts` holds the per-row `test()` bodies; every predicate lives here so Task 7 can call it.
@@ -678,6 +682,27 @@ describe("app/fonts.css", () => {
     // correct declaration ANYWHERE, so redeclaring the token later (CSS takes
     // the last) passed, as did appending a trailing family.
     expect(tokenDeclarations(css, "--font-inter")).toEqual([`"Inter", "Inter Fallback"`]);
+  });
+
+  test("app/globals.css's var() fallback literal names the family this stylesheet declares", () => {
+    // THE RENAME ESCAPE, and it is live. The app resolves the face through the
+    // TOKEN -- app/fonts.css defines --font-inter in :root. Every harness
+    // resolves it through the inline LITERAL, because compileEntryCss emits no
+    // token definition at all: probed, 0 definitions of --font-inter in the
+    // compiled output, and all 31 callers read app/globals.css into their
+    // entry, so it is uniform.
+    //
+    // Rename the family to "InterVariable" on BOTH sides and cross-block
+    // equality, descriptor inventory, hashes, URLs and the app's own rendering
+    // all stay green -- while every harness resolves var(--font-inter, "Inter",
+    // ...) to a face that no longer exists and falls through to ui-sans-serif.
+    // That is the ambient host font this whole branch exists to eliminate.
+    //
+    // So the literal is load-bearing, not vestigial: a cleanup that
+    // "simplifies" it to var(--font-inter) breaks all 31 harnesses and nothing
+    // else, which is why this row pins the two together.
+    const globals = readFileSync(resolve(REPO_ROOT, "app/globals.css"), "utf8");
+    expect(firstVarFallbackFamily(globals, "--font-sans")).toBe(familyOf(inter[0]!));
   });
 });
 ```
@@ -1114,7 +1139,7 @@ The task ends with every gate green — no task commits a red tree.
 
 <!-- spec-lint: ignore — new file created by this plan; not yet tracked -->
 
-- Produces: `expectedWidth(text: string, fontSize: number): number`, `deriveProbeText(): string`, `PROBE_STYLE: string`, `walkTextBearing(page: Page): Promise<Finding[]>`, `assertRegisteredFaceSet(page: Page): Promise<void>`, and `MONO_SURFACES` plus `assertMonoPartition(page, route)` from `monoSurfaces.ts` — the complete set Task 10's fixture and Task 13's census both consume. Nothing in the "full oracle" may be named in a later task than this one.
+- Produces: `expectedWidth(text: string, fontSize: number): number`, `deriveProbeText(): string`, `PROBE_STYLE: string`, `walkTextBearing(page: Page): Promise<Finding[]>`, `assertRegisteredFaceSet(page: Page): Promise<void>`, and the two small accessors the tests below use — `glyphFor(cp: number)` (a thin wrapper over fontkit's `glyphForCodePoint`, which is the real API name; there is no `glyphFor` on a fontkit font) and `advanceOf(cp: number): number`, and `MONO_SURFACES` plus `assertMonoPartition(page, route)` from `monoSurfaces.ts` — the complete set Task 10's fixture and Task 13's census both consume. Nothing in the "full oracle" may be named in a later task than this one.
 
 - [ ] **Step 1: Write the failing unit test**
 
@@ -1125,7 +1150,9 @@ test("the expectation is computed from the committed bytes, not from a pinned li
   // independent by construction: the expectation derives from the same bytes
   // the browser renders, so there is no literal to rot across platforms,
   // Chromium builds or CI images.
-  expect(expectedWidth("Hamburgefonstiv", 16)).toBeCloseTo(measuredFromFontkit, 4);
+  // 130.0938px, measured against this binary -- and exactly the figure the
+  // spec recorded against the Google build, so the formula survives the byte swap.
+  expect(expectedWidth("Hamburgefonstiv", 16)).toBeCloseTo(130.0938, 4);
 });
 
 test("probe text rejects BOTH unmapped and zero-advance codepoints", () => {
@@ -1273,11 +1300,35 @@ Copy `fixture-prototype.ts` and adapt. **Do not redesign it.** The load-bearing 
 
 Each wrapped context gets `exposeBinding("__fontOracle", …)` plus an `addInitScript` carrying the serialized walk; that binding is how the in-page listener reports back.
 
-- [ ] **Step 3: Run the fixture's own tests**
+**The fixture meets real app pages too, and the mono manifest must tolerate that.** Three callers — `published-review-modal.layout`, `step3-review-modal.agenda`, `step3-review-modal.interactions` — are in the `desktop-chromium` project as well as standalone, so the same spec runs once against its own harness document and once against the running server. Two consequences:
 
-Port the prototype's four per-vantage tests. Run them; each must pass, and removing any one mechanism must turn one of them red. Verify that by deleting each mechanism in turn and watching the corresponding test fail — a mechanism whose removal changes nothing is a mechanism that was never load-bearing.
+- `assertMonoPartition(page, route)` must treat **a page matching no manifest route** as "every element expected-Inter", which is the default the manifest already defines. A harness document has no route at all (`setContent` leaves the URL at `about:blank`), so a lookup that throws or reports a freshness violation there fails all 31 callers the moment the fixture lands.
+- The **freshness assertion does not run in the fixture**. "Every manifest entry matches at least one element on its route" is a claim about real routes; evaluated against a harness page it marks every entry stale. It belongs to the census spec only.
 
-- [ ] **Step 4: Rewrite the import in each of the 31 callers**
+The upside is real and worth keeping: those three give the oracle free coverage of live app pages before the census spec exists.
+
+- [ ] **Step 3: Give the fixture's four tests a registered home, then run them**
+
+<!-- spec-lint: ignore — new file created by this plan; not yet tracked -->
+
+They go in a spec of their own, `tests/e2e/fontFidelityFixture.spec.ts`, registered exactly as Task 8 registered its guard: add `fontFidelityFixture` to the `testMatch` alternation in `tests/e2e/standalone.config.ts`, regenerate `tests/e2e/standalone-baseline.json`, and add nothing to CI (the standalone workflow runs the whole config unfiltered).
+
+<!-- spec-lint: ignore — new file created by this plan; not yet tracked -->
+
+**They must NOT live inside `fontFidelityFixture.ts`.** That module is imported by all 32 callers, so `test()` calls in its body would register four extra cases in every one of them — 128 duplicated tests, each running against whatever document that caller happened to render.
+
+The four, from `fixture-prototype.ts`: a reused page reporting every document rather than only the last (`docs/superpowers/specs/spikes/2026-08-03-harness-font-fidelity/fixture-prototype.ts:116`); a browser-originated navigation reporting the outgoing document (`docs/superpowers/specs/spikes/2026-08-03-harness-font-fidelity/fixture-prototype.ts:130`); a caller-owned context that closes itself (`docs/superpowers/specs/spikes/2026-08-03-harness-font-fidelity/fixture-prototype.ts:142`); shadow-root and frame text both observed (`docs/superpowers/specs/spikes/2026-08-03-harness-font-fidelity/fixture-prototype.ts:157`).
+
+```bash
+pnpm exec playwright test --config tests/e2e/standalone.config.ts fontFidelityFixture --list
+pnpm exec playwright test --config tests/e2e/standalone.config.ts fontFidelityFixture
+```
+
+`--list` must report **four** collected tests before you trust any result: a spec in no config collects zero and exits 0, which is indistinguishable from four passes.
+
+Each must pass, and **removing any one mechanism must turn one of them red** — verify by deleting each in turn and watching the corresponding test fail. A mechanism whose removal changes nothing was never load-bearing.
+
+- [ ] **Step 4: Rewrite the import in each of the 32 callers**
 
 From `import { test, expect } from "@playwright/test";` to `import { test, expect } from "./helpers/fontFidelityFixture";`. The fixture re-exports `expect` and the type names unchanged, so nothing else in any caller moves. There are a handful of distinct import shapes — read each before editing; a blind `sed` across 31 files is how a `type` import gets mangled.
 
@@ -1354,7 +1405,7 @@ wizard-blocker-modal.layout     openLive
 
 Associating an await inside `boot()` with a geometry read in the calling test needs an interprocedural call graph. Building one is out of proportion to what this guard protects, and a guard that needs one would either false-fail correct placements or silently skip those documents — both worse than a narrower rule that is exactly true.
 
-**So the anchor is the navigation site itself, which is where the await physically goes.** For every navigation call in the file — wherever it lives, helper or test body — require a `document.fonts.ready` await that:
+**So the anchor is the enclosing FUNCTION of each navigation, not the navigation site.** The distinction matters and the spec is emphatic about it: navigation sites are how documents are COUNTED, never where the await goes (round 6's placement rule, which round 21 caught colliding with a count). What this row checks is a containment-and-order property within one function. For every navigation call in the file — wherever it lives, helper or test body — require a `document.fonts.ready` await that:
 
 1. is in the **same function** as that navigation call, and
 2. appears **after** it, and
@@ -1379,7 +1430,7 @@ Run it: FAIL for all 25 — every one has zero waits today, confirmed by probe.
 
 | caller | sites | note |
 | --- | ---: | --- |
-| `agendaScheduleLayout` | 9 | some in loops |
+| `agendaScheduleLayout` | 11 | 9 on the default page, plus the two caller-owned pages at `tests/e2e/agendaScheduleLayout.spec.ts:388` and `tests/e2e/agendaScheduleLayout.spec.ts:402` |
 | `appHealthIndicator.layout` | 4 | |
 | `attention-pill-focus` | 1 | hydrates after an empty `#root` |
 | `autoAppliedCardGrid.layout` | 2 | some in loops |
@@ -1405,7 +1456,7 @@ Run it: FAIL for all 25 — every one has zero waits today, confirmed by probe.
 | `toggle-edge-layout` | 1 | |
 | `wizard-blocker-modal.layout` | 1 | hydrates after an empty `#root` |
 
-**Total 88 across 25 callers.** `resolve-label-layout`, `skeletonBandParity` and `stackedBandLayout` already await and need nothing.
+**Total 90 across 25 callers.** `resolve-label-layout`, `skeletonBandParity` and `stackedBandLayout` already await and need nothing.
 
 - [ ] **Step 3: Run the coverage row**
 
@@ -1709,15 +1760,36 @@ Expected: no `BL-HARNESS-FONT-FIDELITY` row. Task 16 removed it; this step is th
 
 The `@font-face` rules `next/font/local` emits today, read out of a clean production build that emits exactly ONE `.woff2`. Task 5 reproduces these verbatim; every figure the hand-written stylesheet pins comes from here, never from a static family table.
 
+**Measured 2026-08-04 from a clean `pnpm build` emitting exactly ONE `.woff2`**, so these are the current mechanism's figures, not the google-era ones.
+
 ```css
-/* Inter — PENDING Task 3 */
+@font-face {
+  font-family: inter;
+  src: url(../media/InterVariable_latin-s.p.<hash>.woff2) format("woff2");
+  font-display: swap;
+  font-weight: 100 900;
+  font-style: normal;
+}
 ```
 
 ```css
-/* Inter Fallback — PENDING Task 3 */
+@font-face {
+  font-family: inter Fallback;
+  src: local(Arial);
+  ascent-override: 89.79%;
+  descent-override: 22.36%;
+  line-gap-override: 0.0%;
+  size-adjust: 107.89%;
+}
 ```
 
-**Does the emitted Inter face carry a `unicode-range`?** PENDING Task 3. This determines Task 5's `EXPECTED_DESCRIPTORS`.
+**Does the emitted Inter face carry a `unicode-range`?** **No.** One file covering its whole range declares none, so `EXPECTED_DESCRIPTORS` is the **five** descriptors above — `font-family`, `src`, `font-display`, `font-weight`, `font-style` — not the spec's six. The sixth was a seven-subset artifact.
+
+**Three things this settles that were open or wrong:**
+
+1. **The overrides are the latin-derived figures** (89.79 / 22.36 / 0 / 107.89), not the Capsize table the spec adopted (90.44 / 22.52 / 0 / 107.12) and not the raw-metric values the binary's `hhea` suggests (96.88 / 24.12). Reproduce these exactly; do not derive a second answer.
+2. **`DESIGN.md:141`'s `size-adjust: 107.89%` is CORRECT and current.** An earlier note in this branch guessed it had drifted because the binary's raw ascent/descent match the latin-ext row; it had not. Next computes size-adjust from average advance width, which does not move with the vertical metrics. Task 16 therefore corrects only what actually changed.
+3. **The generated family is lowercase `inter`**, derived from the loader module's variable name. The hand-written stylesheet declares `"Inter"` — capital — which is what `app/globals.css`'s `var()` fallback literal already names, and is exactly why the literal-binding row in Task 5 matters. `tests/e2e/font-binding.spec.ts` reads both names out of the token, so the rename is invisible to it.
 
 ---
 
@@ -1794,4 +1866,4 @@ Found by probe in the same window, and the most expensive one had nothing to do 
 
 7 BLOCKING, 3 HIGH, 1 LOW, every one probe-backed and every one accepted. Task 3/4 ordering; the `pnpm ls` JSON shape (`lightningcss` is an object with a `version` field, never a `name@version` key); three runtime modules importing from `*.test.ts`; Task 9's `git stash` red phase, which cannot unwind a committed file; the wiring meta-test committed red plus a regex that a caller importing only `expect` walks through; Task 15 dispatching the regen workflow before pushing, and committing PNGs the workflow already commits; the ledger marker surviving into an archive the guard rejects; four unlisted mechanism-description surfaces; the census's missing hydration gate; and an unspecified registry threshold, where the number is the whole guard.
 
-Found in the same pass by self-verification and repaired alongside: the round-32 rows 20/21 (a denylist of conditional at-rules never sees the app's attribute-selector theme mechanism); the guard must parse authored CSS, never compiled, or Tailwind's own `--font-sans` makes row 20 fail on a correct tree; the shipped-stylesheet list must be derived rather than hard-coded; `H6`/`H7` collapse under one face and that must be said out loud; the fixture's vantages run different walks; four element-population totals the spec pins have drifted; and `tests/docs/_retiredIdentifiers.ts` needed a disposition.
+Found in the same pass by self-verification and repaired alongside: rows 20 and 21, added in round 32 (a denylist of conditional at-rules never sees the app's attribute-selector theme mechanism); the guard must parse authored CSS, never compiled, or Tailwind's own `--font-sans` makes row 20 fail on a correct tree; the shipped-stylesheet list must be derived rather than hard-coded; `H6`/`H7` collapse under one face and that must be said out loud; the fixture's vantages run different walks; four element-population totals the spec pins have drifted; and `tests/docs/_retiredIdentifiers.ts` needed a disposition.
