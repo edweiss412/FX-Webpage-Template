@@ -12,7 +12,8 @@
 import "@testing-library/jest-dom/vitest";
 import { afterEach, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { UndoChangeButton } from "@/components/admin/UndoChangeButton";
+import { UndoChangeButton, type UndoButtonResult } from "@/components/admin/UndoChangeButton";
+import { UndoAnnounceContext } from "@/components/admin/undoAnnounceContext";
 
 afterEach(cleanup);
 
@@ -81,4 +82,74 @@ it("quiet=false (default) → bordered; quiet → borderless transparent (recess
   expect(q.className).toMatch(/border-transparent/);
   expect(q.className).toMatch(/bg-transparent/);
   expect(q.className).not.toMatch(/border-border-strong/);
+});
+
+// ---- Task 4: success announcement (spec §3.3a) ----
+
+function renderWithSpy(
+  undoAction: (p: UndoButtonResult | null, f: FormData) => Promise<UndoButtonResult>,
+  announceLabel?: string,
+) {
+  const announce = vi.fn();
+  const ui = render(
+    <UndoAnnounceContext.Provider value={{ announce }}>
+      <UndoChangeButton changeLogId="cl-1" undoAction={undoAction} announceLabel={announceLabel} />
+    </UndoAnnounceContext.Provider>,
+  );
+  return { announce, ...ui };
+}
+
+const clickUndo = async () =>
+  act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: /undo this change/i }));
+  });
+
+it("announces the row's summary exactly once on {ok:true}", async () => {
+  // Catches: the feature silently not firing, and double-announcing one submit.
+  // The literal is the real generator shape, not an invented one.
+  const { announce } = renderWithSpy(
+    vi.fn().mockResolvedValue({ ok: true }),
+    "Crew member Alice Chen removed",
+  );
+  await clickUndo();
+  expect(announce).toHaveBeenCalledTimes(1);
+  expect(announce).toHaveBeenCalledWith("Change undone: Crew member Alice Chen removed.");
+});
+
+it("announces NOTHING on a typed failure", async () => {
+  // Catches: announcing a success that did not happen.
+  const { announce } = renderWithSpy(
+    vi.fn().mockResolvedValue({ ok: false, code: "UNDO_SUPERSEDED" }),
+    "Crew member Alice Chen removed",
+  );
+  await clickUndo();
+  expect(announce).not.toHaveBeenCalled();
+});
+
+it("announces NOTHING when the action throws", async () => {
+  const { announce } = renderWithSpy(vi.fn().mockRejectedValue(new Error("boom")), "X");
+  try {
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /undo this change/i }));
+    });
+  } catch {
+    // The rejection propagating is today's behavior and not what this test pins;
+    // what matters is that nothing was announced for a failed undo.
+  }
+  expect(announce).not.toHaveBeenCalled();
+});
+
+it("falls back to the bare sentence when no announceLabel is given", async () => {
+  const { announce } = renderWithSpy(vi.fn().mockResolvedValue({ ok: true }));
+  await clickUndo();
+  expect(announce).toHaveBeenCalledWith("Change undone.");
+});
+
+it("does not throw or announce when mounted with NO provider", async () => {
+  // Catches: the no-op default failing to hold. Silence here is correct;
+  // the structural guard is what stops it becoming silence in production.
+  const undoAction = vi.fn().mockResolvedValue({ ok: true });
+  render(<UndoChangeButton changeLogId="cl-1" undoAction={undoAction} announceLabel="X" />);
+  await clickUndo();
+  expect(undoAction).toHaveBeenCalledTimes(1);
 });

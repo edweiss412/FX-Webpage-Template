@@ -18,8 +18,12 @@
 // populated on entry.changeLogId, never re-derived); the bound undo action reads
 // it from FormData and delegates to undo_change.
 "use client";
-import { useActionState } from "react";
+import { useActionState, useCallback, useContext } from "react";
 import { ErrorExplainer } from "@/components/messages/ErrorExplainer";
+import {
+  UndoAnnounceContext,
+  undoneAnnouncement,
+} from "@/components/admin/undoAnnounceContext";
 
 export type UndoButtonResult = { ok: true } | { ok: false; code: string };
 
@@ -64,6 +68,7 @@ export function UndoChangeButton({
   undoAction,
   stretch = false,
   quiet = false,
+  announceLabel,
 }: {
   changeLogId: string;
   // The bound undo server action; returns a typed UndoButtonResult so the typed
@@ -75,8 +80,24 @@ export function UndoChangeButton({
   // When true, renders a recessive/secondary treatment (see SubmitButton). Default
   // false keeps the standard bordered button for the per-show feed page.
   quiet?: boolean;
+  // The row's summary, announced on success. Omitted → the bare sentence.
+  announceLabel?: string;
 }) {
-  const [result, dispatch, pending] = useActionState(undoAction, null);
+  // Announce from INSIDE the action's async continuation, not from an effect.
+  // On success this component unmounts (canUndo goes false once the row leaves
+  // status='applied' — shapeChangeFeed.ts:65), and an effect scheduled on that
+  // commit is not guaranteed to run. An already-executing continuation always
+  // finishes, and it closes over the PROVIDER's announce, not this instance.
+  const { announce } = useContext(UndoAnnounceContext);
+  const announcingAction = useCallback<UndoServerAction>(
+    async (prev, formData) => {
+      const r = await undoAction(prev, formData);
+      if (r.ok) announce(undoneAnnouncement(announceLabel));
+      return r;
+    },
+    [undoAction, announce, announceLabel],
+  );
+  const [result, dispatch, pending] = useActionState(announcingAction, null);
   const failing = result && result.ok === false ? result : null;
 
   return (
