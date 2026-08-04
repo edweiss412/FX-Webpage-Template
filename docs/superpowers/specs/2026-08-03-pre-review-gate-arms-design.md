@@ -35,7 +35,16 @@ This spec arms the three, without relitigating any ratified decision of the `spe
 
 2. **`NUMERIC_NOUN_MISMATCH` stays advisory.** `docs/superpowers/specs/2026-07-19-spec-lint.md:14` ratifies mixed posture: fuzzy heuristics are advisory-only because hard-failing heuristics get bypassed. The same measurement found 2774 occurrences across 598 docs; promotion would newly fail 135 docs. Not done, and not to be reopened on the grounds that "the rule catches real drift" — that was never the disputed premise.
 
-3. **Legacy plans are never retrofitted.** `docs/superpowers/specs/2026-07-19-spec-lint.md:23` scopes the tool to newly authored docs at dispatch time. The §3 task contract applies to plans authored after this ships. A plan with no enrollment line is not a failing plan; it is an unenrolled one (§3.2).
+3. **Legacy plans are never retrofitted, and this is measured rather than asserted.** `docs/superpowers/specs/2026-07-19-spec-lint.md:23` scopes the tool to newly authored docs at dispatch time. The §3 task contract applies to plans authored after this ships. A plan with no enrollment line is not a failing plan; it is an unenrolled one (§3.2).
+
+   A reference implementation of §3 run over the whole tracked plan corpus (2026-08-03) reports:
+
+   ```
+   plans scanned: 534
+   attempted enrollment: 1 | enrolled: 1 | with findings: 0
+   ```
+
+   The single enrolled plan is the one implementing this spec. No existing plan is accidentally enrolled by any incidental `<!-- tasks:`-shaped content, and none acquires a finding. The blast radius on the existing corpus is exactly zero documents.
 
 4. **The §3 contract is declared, never inferred.** No check in this spec recognizes a task's RED step, GREEN step, or acceptance criteria from prose. Rationale in §3.1; this is the single most important constraint in the document and the one most likely to be "helpfully" relaxed by a later round.
 
