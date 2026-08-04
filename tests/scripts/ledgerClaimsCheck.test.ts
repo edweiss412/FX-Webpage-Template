@@ -19,10 +19,12 @@ import { runCheck, verifyUniverse } from "@/scripts/lib/ledger-check";
 const MARKER = (branch: string, id: string) =>
   `## ${id} — planted\n\n**Status:** IN PROGRESS · **Branch:** ${branch}\n`;
 
-import { spawnSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { join } from "node:path";
 
 const ROOT = join(__dirname, "..", "..");
+/** The absolute tsx bin, per tests/cross-cutting/no-npx-tsx-spawn.test.ts. */
+const TSX_BIN = join(ROOT, "node_modules/.bin/tsx");
 const NOW = 1_760_000_000;
 
 function fake(over: Partial<GitSurface> = {}): GitSurface {
@@ -407,7 +409,21 @@ describe("the real git adapter and the JSON envelope (whole-diff F3/F9)", () => 
   it("resolves real refs, and origin/HEAD is absent from both maps", async () => {
     const { realGitSurface } = await import("@/scripts/lib/ledger-git");
     const local = realGitSurface().localRefs();
-    expect(local.size, "no refs resolved from a real worktree").toBeGreaterThan(0);
+    // Cardinality against GIT'S OWN answer, never a hardcoded floor. CI checks
+    // out a single branch with no refs/remotes/origin/* at all, so `> 0` is
+    // false there for a correct reader -- the test would be asserting the
+    // checkout's shape rather than the reader's behavior. Comparing to
+    // for-each-ref keeps the anti-vacuity property (a reader returning an empty
+    // map where git lists refs still fails) in both environments.
+    const truth = execFileSync(
+      "git",
+      ["for-each-ref", "--format=%(refname)", "refs/remotes/origin/"],
+      { cwd: ROOT, encoding: "utf8", timeout: 30_000 },
+    )
+      .split("\n")
+      .map((l: string) => l.trim())
+      .filter((l: string) => l.length > 0 && !l.endsWith("/HEAD")).length;
+    expect(local.size, "the reader disagrees with git about how many refs exist").toBe(truth);
     expect([...local.keys()], "origin/HEAD must never enter the map").not.toContain("HEAD");
     for (const oid of local.values()) expect(oid).toMatch(/^[0-9a-f]{40}$/);
   });
@@ -441,11 +457,11 @@ describe("the real git adapter and the JSON envelope (whole-diff F3/F9)", () => 
     // Observes the CLI, not resolveClaims: the M8 mutant lives in
     // scripts/ledger-claims.ts's envelope (`res.claims.slice(0, 100)`), so a
     // core-level assertion cannot see it. Runs the real CLI and parses stdout.
-    const r = spawnSync(
-      process.execPath,
-      ["--import", "tsx", join(ROOT, "scripts/ledger-claims.ts"), "--json", "--no-fetch"],
-      { cwd: ROOT, encoding: "utf8", timeout: 90_000 },
-    );
+    const r = spawnSync(TSX_BIN, [join(ROOT, "scripts/ledger-claims.ts"), "--json", "--no-fetch"], {
+      cwd: ROOT,
+      encoding: "utf8",
+      timeout: 90_000,
+    });
     expect(r.status, `CLI failed: ${r.stderr}`).toBe(0);
     // The direct-invocation guard is fail-OPEN if it breaks: a false
     // `process.argv[1] === fileURLToPath(import.meta.url)` makes the CLI exit 0

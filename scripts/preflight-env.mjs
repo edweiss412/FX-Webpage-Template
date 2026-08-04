@@ -107,20 +107,35 @@ const skipClaims =
   (process.env.CI !== undefined && process.env.CI !== "" && process.env.CI !== "false");
 
 if (!skipClaims) {
-  const claims = spawnSync("pnpm", ["exec", "tsx", "scripts/ledger-claims.ts", "--no-fetch"], {
+  // The absolute tsx bin, not `pnpm exec tsx`: the repo pins this convention for
+  // spawned tsx children (tests/cross-cutting/no-npx-tsx-spawn.test.ts), and it
+  // drops a resolver hop from every preflight. Overridable so the test can shim
+  // the child without putting a fake binary on PATH.
+  const tsxBin = process.env.PREFLIGHT_TSX_BIN ?? join(repoRoot, "node_modules/.bin/tsx");
+  const claims = spawnSync(tsxBin, ["scripts/ledger-claims.ts", "--no-fetch"], {
     cwd: repoRoot,
     encoding: "utf8",
     timeout: 15_000,
   });
+  // STATUS FIRST, stdout second. A child that dies partway through printing has
+  // non-empty stdout AND a non-zero status, and trusting stdout alone renders
+  // that partial table as though it were the whole answer -- a reader sees three
+  // of the eight rows actually in flight and starts one of the five that were
+  // never printed. This is the same false all-clear the tool exists to remove,
+  // reintroduced one layer up (whole-diff R12 F1).
+  const failed = claims.error !== undefined || claims.status !== 0;
   const out = `${claims.stdout ?? ""}`.trim();
-  if (out) console.log(`\n${out}`);
-  else {
+  if (failed) {
     // Reports EVERY failure shape, not just a spawn error: a child that exits
     // non-zero with only stderr would otherwise leave preflight silently
     // table-less, which reads as "no claims in flight".
-    const why = claims.error?.code ?? (claims.status !== 0 ? `exit ${claims.status}` : "no output");
-    console.log(`preflight: live claims unavailable (${why})`);
-  }
+    const why = claims.error?.code ?? `exit ${claims.status}`;
+    console.log(`preflight: live claims unavailable (${why}) -- run \`pnpm ledger:claims\``);
+    // Partial output is shown BELOW the notice, never above it and never as the
+    // table: it can help diagnose, but it must not be mistakable for the answer.
+    if (out) console.log(`  (partial output suppressed: ${out.split("\n").length} line(s))`);
+  } else if (out) console.log(`\n${out}`);
+  else console.log("preflight: live claims unavailable (no output)");
 }
 
 // --- non-loopback WARNINGS: this is a LOCAL preflight ------------------------

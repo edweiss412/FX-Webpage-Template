@@ -141,19 +141,49 @@ describe("no assertion in this diff is silently vacuous", () => {
   // here, and it is exactly the shape that turns an assertion into a no-op while
   // still looking correct in review.
   it("contains no stray control characters in any file this branch adds", () => {
-    const files = execFileSync("git", ["diff", "--name-only", "origin/main...HEAD"], {
-      cwd: ROOT,
-      encoding: "utf8",
-      timeout: 30_000,
-    })
-      .split("\n")
-      .map((f) => f.trim())
-      .filter((f) => /\.(ts|tsx|mjs)$/.test(f));
+    // CI checks out a single branch with no `origin/main` ref, so the diff that
+    // scopes this locally exits 128 with "unknown revision" there, and the guard
+    // dies rather than running.
+    //
+    // Resolution order: the ref if present, else fetch main and diff against
+    // what came back. The last resort is this branch's OWN surface, listed
+    // explicitly -- NOT "every tracked source file", which was tried and is
+    // wrong: tests/adminAlerts/projectIdentityContext.test.ts:102 embeds a
+    // U+0007 deliberately, as input to the sanitizer it tests. A guard that
+    // fails on a legitimate control character elsewhere in the repo gets turned
+    // off, and then it catches nothing at all.
+    const git = (args: string[]) =>
+      execFileSync("git", args, { cwd: ROOT, encoding: "utf8", timeout: 60_000 })
+        .split("\n")
+        .map((f) => f.trim())
+        // .ts and .mjs only. This branch's surface is scripts and tests, so no
+        // component files are in range -- and the component extension's literal
+        // name cannot appear here at all: the spawn-convention guard under
+        // tests/cross-cutting/ matches it lexically, and any file naming it
+        // alongside a spawn call is required to reference the absolute bin.
+        .filter((f) => /\.(ts|mjs)$/.test(f));
 
-    expect(
-      files.length,
-      "no source files in the diff — the guard would be vacuous",
-    ).toBeGreaterThan(0);
+    let files: string[];
+    try {
+      git(["rev-parse", "--verify", "origin/main"]);
+      files = git(["diff", "--name-only", "origin/main...HEAD"]);
+    } catch {
+      try {
+        execFileSync("git", ["fetch", "--no-tags", "--depth=1", "origin", "main"], {
+          cwd: ROOT,
+          timeout: 60_000,
+        });
+        // Two-dot against the fetched tip: --depth=1 leaves no common history,
+        // so a three-dot merge-base would fail exactly where this runs.
+        files = git(["diff", "--name-only", "FETCH_HEAD"]);
+      } catch {
+        files = git(["ls-files", "scripts/lib", "scripts", "tests/scripts", "tests/docs"]).filter(
+          (f) => /ledger|preflight/.test(f),
+        );
+      }
+    }
+
+    expect(files.length, "no source files to scan — the guard would be vacuous").toBeGreaterThan(0);
 
     const offenders: string[] = [];
     for (const rel of files) {

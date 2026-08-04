@@ -40,14 +40,18 @@ const REQUIRED_ENV: Record<string, string> = {
 };
 
 /**
- * A stub `pnpm` earlier on PATH, so the claims child is observable without
- * touching the network. It records that it ran, echoes its argv, and honours
+ * A stub tsx bin, so the claims child is observable without touching the
+ * network. It records that it ran, echoes its argv, and honours
  * CLAIMS_STUB_MODE.
+ *
+ * Injected by path (PREFLIGHT_TSX_BIN) rather than by shadowing PATH: preflight
+ * spawns the ABSOLUTE `node_modules/.bin/tsx`, per the repo's tsx-spawn
+ * convention, and an absolute path cannot be intercepted by a PATH shim.
  */
 const STUB_DIR = mkdtempSync(join(tmpdir(), "preflight-claims-"));
 mkdirSync(STUB_DIR, { recursive: true });
 writeFileSync(
-  join(STUB_DIR, "pnpm"),
+  join(STUB_DIR, "tsx"),
   `#!/bin/sh
 echo "${SENTINEL} $@"
 case "$CLAIMS_STUB_MODE" in
@@ -58,7 +62,8 @@ exit 0
 `,
   { mode: 0o755 },
 );
-chmodSync(join(STUB_DIR, "pnpm"), 0o755);
+chmodSync(join(STUB_DIR, "tsx"), 0o755);
+const STUB_TSX = join(STUB_DIR, "tsx");
 
 afterAll(() => {
   // tmpdir cleanup is the OS's problem; nothing here leaks into the repo.
@@ -81,6 +86,7 @@ function runPreflight(args: string[], env: Record<string, string | undefined> = 
       // locally and red in CI.
       CI: undefined,
       GITHUB_ACTIONS: undefined,
+      PREFLIGHT_TSX_BIN: STUB_TSX,
       PATH: `${STUB_DIR}:${process.env.PATH ?? ""}`,
       ...env,
     },
@@ -161,6 +167,29 @@ describe("a claims failure never takes preflight down", () => {
   it("exits 0 when the claims child exits non-zero", () => {
     const r = runPreflight(["--no-db"], { CLAIMS_STUB_MODE: "fail" });
     expect(r.status).toBe(0);
+  });
+
+  it("says the read failed even when the failed child printed something first", () => {
+    // The shape whole-diff R12 F1 probed: the stub prints its sentinel and THEN
+    // exits 1, so stdout is non-empty and the status is non-zero at once. A
+    // reader consuming stdout first renders that partial table as the answer,
+    // and a session sees some of what is in flight while believing it saw all
+    // of it -- the false all-clear this surface exists to remove, one layer up.
+    //
+    // Exit 0 alone cannot catch it: the previous assertion passed against the
+    // defect. What distinguishes them is whether the failure is SAID.
+    const r = runPreflight(["--no-db"], { CLAIMS_STUB_MODE: "fail" });
+    expect(r.out, "a failed claims read was reported as a claim table").toContain(
+      "live claims unavailable",
+    );
+    expect(r.out, "the failure notice did not name the exit status").toContain("exit 1");
+    // ...and the partial output must not be presented as the table itself.
+    const lines = r.out.split("\n");
+    const sentinel = lines.findIndex((l) => l.includes(SENTINEL));
+    const notice = lines.findIndex((l) => l.includes("live claims unavailable"));
+    if (sentinel !== -1) {
+      expect(notice, "partial output was printed above the failure notice").toBeLessThan(sentinel);
+    }
   });
 
   it("exits 0 when the claims child hangs past its budget", () => {
