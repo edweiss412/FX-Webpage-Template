@@ -257,6 +257,20 @@ export function visibleAgendaDaysForViewer(
   });
 
   // `located` ⊆ `R` by construction, so equal sizes means every assigned day was found.
+  //
+  // DOCUMENTED LIMIT (demoted from BACKLOG.md 2026-08-04 under the AGENTS.md ledger filing bar;
+  // `BL-AGENDA-PERLINK-COMPLETENESS` is archived in BACKLOG-archive.md with the full body).
+  // `R` is the SHOW-WIDE restricted day set, so completeness is judged show-wide even though this
+  // function is called once per agenda link. A show whose agenda PDFs are DATE-PARTITIONED across
+  // links — link A covering day 1, link B covering day 2 — therefore fails completeness on both and
+  // shows every day on both. Per-link completeness is probably the right rule, and PR #610 chose
+  // deliberately not to change it. It stays a limit rather than queue work because the failure is
+  // FAIL-OPEN: the viewer sees more than their assignment, never less, so no day is ever hidden by
+  // this. Probed 2026-08-04 — the corpus holds two multi-agenda-link show fixtures, only one of
+  // which has two PDFs, and zero date-partitioned multi-extraction instances anywhere.
+  // UN-DEFER TRIGGER: a real show ships date-partitioned agenda PDFs across links. The repair is
+  // per-link completeness, with the invariant search in `tests/agenda/agendaViewerDaysInvariant.test.ts`
+  // extended to multi-link fixtures FIRST — it has no multi-link case today.
   if (R.size === 0 || located.size !== R.size) return ALL;
 
   // EVERY row must also be identifiable, not just every assigned DATE (whole-diff review, HIGH).
