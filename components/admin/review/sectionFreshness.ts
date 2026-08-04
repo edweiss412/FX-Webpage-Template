@@ -50,6 +50,9 @@ import type { PublishedSectionData } from "@/components/admin/review/sectionData
 import type { ParseWarning } from "@/lib/parser/types";
 import { renderedSectionIds } from "@/components/admin/review/sectionInclusion";
 import type { SectionWarningRecord } from "@/lib/admin/sectionWarningModel";
+import { resolveCurrentDiagrams } from "@/lib/data/diagrams";
+import { normalizeAgendaExtraction } from "@/lib/agenda/normalizeAgendaExtraction";
+import { agendaOverflowNotes, driftNote } from "@/lib/agenda/agendaPaint";
 import type { AttentionItem } from "@/lib/admin/attentionItems";
 import { orderNotes, toNoteItem } from "@/lib/admin/parseAttentionNote";
 import {
@@ -75,6 +78,7 @@ import {
   hasContent,
   PACK_LIST_ITEMS_CAP,
   ROOMS_CAP,
+  roomHasScope,
   SCHEDULE_DAYS_CAP,
   SCHEDULE_ENTRIES_CAP,
   findUseRawDecision,
@@ -268,6 +272,14 @@ function renderedEventDetails(d: PublishedSectionData): unknown {
   return keys.map((k) => details[k] ?? null);
 }
 
+/**
+ * The synthetic group the day body never caps (`step3ReviewSections.tsx:1836`).
+ */
+function isSyntheticEntry(e: unknown): boolean {
+  const kind = (e as Record<string, unknown> | null)?.kind;
+  return kind === "strike" || kind === "loadout";
+}
+
 /** Schedule entries render start/title/kind plus the day's own meta, both capped. */
 function renderedRunOfShow(d: PublishedSectionData): unknown {
   const ros = (d.ros ?? {}) as Record<string, unknown>;
@@ -281,9 +293,18 @@ function renderedRunOfShow(d: PublishedSectionData): unknown {
         day.showStart ?? null,
         day.window ?? null,
         day.showEnd ?? null,
+        // The SAME cap-exemption partition the day body applies
+        // (`step3ReviewSections.tsx:1835-1837`): only the agenda group is capped,
+        // and the synthetic strike/load-out group ALWAYS renders after it. A flat
+        // slice hashed neither a strike row past the cap nor an edit to one, so a
+        // same-day load-out could change on screen with no cue (class-sweep, this
+        // round). `hidden` is derived from `agenda.length`, which the count below
+        // already covers.
         entries
+          .filter((e) => !isSyntheticEntry(e))
           .slice(0, SCHEDULE_ENTRIES_CAP)
           .map((e) => pick(e as object, ["start", "title", "kind"])),
+        entries.filter(isSyntheticEntry).map((e) => pick(e as object, ["start", "title", "kind"])),
         entries.length,
       ];
     }),
@@ -328,17 +349,114 @@ function renderedPullSheet(d: PublishedSectionData): unknown {
  * per-item contents of `linkedFolderItems` never reach the DOM, so only its
  * length belongs in the signature.
  *
- * (Round-2 review also named `diagrams.pending`. Refuted by probe: no such field
- * exists on `ParseResult["diagrams"]` (`lib/parser/types.ts:513`); the wrapper
- * that has one resolves to `current` before this data is built
- * (`lib/data/diagrams.ts:54`), so it can never be hashed here.)
+ * THE UNWRAP IS THE WHOLE POINT. Post-M7 the persisted jsonb is a
+ * `{ current, pending }` wrapper, and `publishedAdapter.ts:78` passes it through
+ * UNCHANGED — it is the RENDERER that unwraps, calling `resolveCurrentDiagrams`
+ * at `step3ReviewSections.tsx:3874`. Reading `embeddedImages` off the wrapper
+ * finds `undefined` on every field, so every wrapped show collapsed to one
+ * constant tuple and NO diagram edit could cue: the whole-diff review probed the
+ * revision id, the folder URL, the image alt, the folder item count and current
+ * presence, and all five were missed. (An earlier comment here asserted the
+ * adapter resolved it first. It does not — that claim is what the probe killed.)
+ *
+ * Calling the shipped resolver rather than re-testing for `.current` also means
+ * a malformed row fails the SAME way on both sides: `resolveCurrentDiagrams`
+ * returns null unless `snapshot_revision_id` is a string, and a null resolve
+ * paints nothing.
+ *
+ * `snapshot_revision_id` is in the signature because it is painted — it is a
+ * path segment of every tile's asset URL (`:3880`).
+ *
+ * DOCUMENTED LIMIT: the tile slice hashes whole image entries, so a field on
+ * `PersistedEmbeddedImage` that the tile does not paint would over-cue. Left
+ * as-is deliberately — no probe demonstrates such a field today, and an unprobed
+ * tightening is how a projection drifts away from its renderer.
  */
 function renderedDiagrams(d: PublishedSectionData): unknown {
-  const dg = (d.diagrams ?? null) as Record<string, unknown> | null;
+  const dg = resolveCurrentDiagrams(d.diagrams);
   if (dg === null) return null;
   const images = Array.isArray(dg.embeddedImages) ? dg.embeddedImages : [];
   const items = Array.isArray(dg.linkedFolderItems) ? dg.linkedFolderItems : [];
-  return [dg.linkedFolder ?? null, images.slice(0, DIAGRAM_TILE_CAP), images.length, items.length];
+  return [
+    dg.snapshot_revision_id,
+    dg.linkedFolder ?? null,
+    images.slice(0, DIAGRAM_TILE_CAP),
+    images.length,
+    items.length,
+  ];
+}
+
+/**
+ * A field the renderer tests with `!== null` before painting, kept distinguishable
+ * from a blank one.
+ *
+ * `normalize()` collapses `" "` to `null` because every card body in
+ * `step3ReviewSections.tsx` paints `String(v ?? "").trim()`. The agenda schedule
+ * block does NOT: `normalizeAgendaExtraction` type-checks `title`/`room`/`drift`/
+ * `date` and passes blanks straight through, and `AgendaScheduleBlock` branches
+ * on `!== null` (`:121`, `:165`, `:177`, `:195`), so `null -> " "` MOUNTS a
+ * paragraph. Wrapping the value in a one-element array survives the leaf trim as
+ * `[null]`, which is distinct from a bare `null` — the presence bit is preserved
+ * while the value itself stays trimmed (HTML collapses whitespace, so `" "` and
+ * `"  "` really are the same paint).
+ */
+function nullable(v: string | null | undefined): unknown {
+  return v === null || v === undefined ? null : [v];
+}
+
+/**
+ * The agenda exactly as `PublishedAgendaList` -> `AgendaItemRow` ->
+ * `AgendaScheduleBlock` paints it (`step3ReviewSections.tsx:4238`).
+ *
+ * Hashing `agendaBaseline` wholesale was wrong in both directions, and the
+ * whole-diff review probed both: `corrections`, `extractorVersion` and
+ * `sourceRevision` ride on the extraction and are painted NOWHERE (false cues),
+ * while the renderer's null branches make blank-vs-absent visible (missed cues).
+ *
+ * `normalizeAgendaExtraction` is called here for the same reason the diagrams
+ * resolver is: `AgendaScheduleBlock` runs it itself (`:73`) and renders nothing
+ * unless it returns a high-confidence extraction with days, so two payloads it
+ * rejects paint the same nothing and must hash alike.
+ *
+ * `label` is deliberately absent: it is the React key in `PublishedAgendaList`
+ * (`:3554`) and reaches no DOM text. `fullExtraction` contributes only its
+ * PRESENCE, which with a non-zero drop count is what gates the "Show all"
+ * button (`:3221`); its contents paint only after a click, which no refresh can
+ * cause.
+ */
+function renderedAgenda(d: PublishedSectionData): unknown {
+  return d.agendaBaseline.map((item) => {
+    const block = item.block;
+    if (block === null) return [item.badge ?? null, nullable(item.href), null];
+    const ext = normalizeAgendaExtraction(block.extraction);
+    const painted =
+      ext === null || ext.confidence !== "high" || ext.days.length === 0
+        ? null
+        : ext.days.map((day) => [
+            day.dayLabel,
+            nullable(day.date),
+            day.sessions.map((session) => [
+              session.time,
+              nullable(session.title),
+              nullable(session.room),
+              // The raw drift never paints — only this derived sentence does.
+              session.drift === null ? null : [driftNote(session.drift)],
+              session.tracks.map((track) => [
+                track.label,
+                nullable(track.title),
+                nullable(track.room),
+              ]),
+            ]),
+          ]);
+    return [
+      item.badge ?? null,
+      nullable(item.href),
+      painted,
+      // The drop counts reach the screen ONLY through these strings.
+      agendaOverflowNotes(block),
+      block.fullExtraction !== undefined,
+    ];
+  });
 }
 
 /**
@@ -376,14 +494,23 @@ const OWN_FIELDS: Record<Exclude<SectionId, "report">, (d: PublishedSectionData)
     pickAll(d.contacts, CONTACT_KEYS, null),
   ],
   schedule: (d) => [renderedRunOfShow(d), pick(d.dates, DATE_KEYS)],
-  agenda: (d) => d.agendaBaseline,
+  agenda: renderedAgenda,
   hotels: (d) => pickAll(d.hotels, HOTEL_KEYS, HOTELS_CAP),
   // The SAME leg filter the body applies (`step3ReviewSections.tsx:1349`): a leg
   // whose stage is blank is dropped before render, so its other fields cannot
   // reach the DOM and must not reach the signature. Round-3 review found four
   // of them cueing a byte-identical card.
   transport: (d) => renderedTransportation(d),
-  rooms: (d) => [pickAll(d.rooms, ROOM_KEYS, ROOMS_CAP), renderedDiagrams(d)],
+  // The rail count is `rooms.filter(roomHasScope).length` over the UNCAPPED list
+  // (`step3ReviewSections.tsx:4260`), so a room PAST the cap gaining or losing
+  // scope moves a painted number that the capped projection cannot see. Calling
+  // the shipped predicate keeps `N/A`-style empty scope values collapsing the
+  // same way on both sides (`isEmptyScopeValue`, `:237`).
+  rooms: (d) => [
+    pickAll(d.rooms, ROOM_KEYS, ROOMS_CAP),
+    d.rooms.filter(roomHasScope).length,
+    renderedDiagrams(d),
+  ],
   // The archived-tab affordances are gated on the same lifecycle pair
   // (`step3ReviewSections.tsx:4310`), so they belong to this section's render.
   packlist: (d) => [

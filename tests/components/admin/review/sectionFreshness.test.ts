@@ -20,6 +20,7 @@ import {
   buildSectionSignatures,
   changedSectionIds,
 } from "@/components/admin/review/sectionFreshness";
+import { ROOMS_CAP, SCHEDULE_ENTRIES_CAP } from "@/components/admin/wizard/step3ReviewSections";
 import { buildSectionWarningModel } from "@/lib/admin/sectionWarningModel";
 import { SECTION_REGION_MAP, type SectionId } from "@/lib/admin/step3SectionStatus";
 import type { ShowReviewSnapshot } from "@/lib/admin/readShowReviewSnapshot";
@@ -644,5 +645,229 @@ describe("section freshness detector", () => {
     });
     expect(changed).toEqual(order.filter((id) => changed.includes(id)));
     expect(changed).toEqual(["venue", "crew"]);
+  });
+
+  /**
+   * D17 — the post-M7 `{ current, pending }` diagrams wrapper.
+   *
+   * `publishedAdapter.ts:78` passes the persisted jsonb through UNCHANGED, and the
+   * renderer unwraps it at paint time with `resolveCurrentDiagrams`
+   * (`step3ReviewSections.tsx:3874`). A detector that reads `embeddedImages` and
+   * friends straight off the wrapper finds `undefined` on every one, so every
+   * wrapped show hashes to the same constant tuple and NO diagram edit can cue —
+   * the whole-diff review probed five independent painted channels, all missed.
+   *
+   * The shared fixture ships `diagrams: null`, which is why no earlier row
+   * exercised the wrapper at all.
+   */
+  const persistedDiagrams = (over: Record<string, unknown> = {}) => ({
+    snapshot_revision_id: "rev-1",
+    snapshot_status: "complete",
+    linkedFolder: { driveFolderId: "folder-1", driveFolderUrl: "https://drive/folder-1" },
+    embeddedImages: [{ id: "img-1", snapshotPath: "shows/s/rev-1/a.png", alt: "Plan A" }],
+    linkedFolderItems: [{ id: "lf-1", name: "one.pdf" }],
+    ...over,
+  });
+
+  const diagramSnapshot = (payload: unknown) => {
+    const s = reviewSnapshot();
+    showOf(s).diagrams = payload;
+    return s;
+  };
+
+  it("D17: a change inside the {current} diagrams wrapper cues rooms", () => {
+    const before = signaturesOf(diagramSnapshot({ current: persistedDiagrams(), pending: null }));
+    const after = signaturesOf(
+      diagramSnapshot({
+        current: persistedDiagrams({
+          linkedFolder: { driveFolderId: "folder-2", driveFolderUrl: "https://drive/folder-2" },
+        }),
+        pending: null,
+      }),
+    );
+    expect(changedSectionIds(before, after)).toEqual(["rooms"]);
+  });
+
+  it("D17b: a wrapped payload hashes the same as the bare payload it wraps", () => {
+    // The strongest statement of the bug: unwrapped, the wrapped signature is the
+    // empty tuple and these two disagree. It also pins that the legacy bare row —
+    // the only shape the pre-M7 code could produce — keeps working.
+    const bare = signaturesOf(diagramSnapshot(persistedDiagrams()));
+    const wrapped = signaturesOf(diagramSnapshot({ current: persistedDiagrams(), pending: null }));
+    expect(wrapped.get("rooms")).toBe(bare.get("rooms"));
+  });
+
+  it("D17c: an edit confined to `pending` does not cue — only `current` is painted", () => {
+    const before = signaturesOf(diagramSnapshot({ current: persistedDiagrams(), pending: null }));
+    const after = signaturesOf(
+      diagramSnapshot({
+        current: persistedDiagrams(),
+        pending: { snapshot_revision_id: "rev-9" },
+      }),
+    );
+    expect(changedSectionIds(before, after)).toEqual([]);
+  });
+
+  /**
+   * D18 — the agenda projection reads the extraction the way the schedule block
+   * paints it, not wholesale.
+   *
+   * Two failure directions, both probed by the whole-diff review:
+   *   - MISSED: `normalizeAgendaExtraction` type-checks `title`/`room`/`drift`/
+   *     `date` but never collapses blanks, while `AgendaScheduleBlock` branches on
+   *     `!== null` (`:165`, `:177`, `:195`). So `null -> " "` MOUNTS a paragraph,
+   *     and the detector's leaf trim — correct for every `String(v ?? "").trim()`
+   *     card body — hides exactly that transition.
+   *   - FALSE: `corrections`, `extractorVersion` and `sourceRevision` ride on the
+   *     extraction and are painted nowhere.
+   */
+  const extraction = (
+    over: Record<string, unknown> = {},
+    session: Record<string, unknown> = {},
+  ) => ({
+    confidence: "high",
+    corrections: 0,
+    extractorVersion: 4,
+    sourceRevision: "head-rev-1",
+    days: [
+      {
+        dayLabel: "Mon",
+        date: "Apr 1",
+        sessions: [
+          { time: "09:00", title: "Keynote", room: "Hall A", drift: null, tracks: [], ...session },
+        ],
+      },
+    ],
+    ...over,
+  });
+
+  const agendaSnapshot = (extracted: unknown) => {
+    const s = reviewSnapshot();
+    showOf(s).agenda_links = [{ label: "Run of show", fileId: "AGENDA_FILE_1", extracted }];
+    return s;
+  };
+
+  const agendaDiff = (a: unknown, b: unknown) =>
+    changedSectionIds(signaturesOf(agendaSnapshot(a)), signaturesOf(agendaSnapshot(b)));
+
+  it("D18: extraction metadata the schedule block never paints does not cue", () => {
+    expect(
+      agendaDiff(extraction(), extraction({ extractorVersion: 5 })),
+      "extractorVersion",
+    ).toEqual([]);
+    expect(
+      agendaDiff(extraction(), extraction({ sourceRevision: "head-rev-2" })),
+      "sourceRevision",
+    ).toEqual([]);
+    expect(agendaDiff(extraction(), extraction({ corrections: 7 })), "corrections").toEqual([]);
+  });
+
+  it("D18b: null -> whitespace mounts a session paragraph, so it MUST cue", () => {
+    // The renderer's own test is `session.title !== null`; " " passes it and
+    // paints. A blanket leaf-trim reads both as absent.
+    expect(
+      agendaDiff(
+        extraction({}, { title: null, room: null }),
+        extraction({}, { title: " ", room: null }),
+      ),
+    ).toEqual(["agenda"]);
+    expect(
+      agendaDiff(extraction({}, { drift: null }), extraction({}, { drift: " " })),
+      "drift mounts agenda-drift",
+    ).toEqual(["agenda"]);
+  });
+
+  it("D18c: two drift strings with the same derived note do not cue", () => {
+    // `driftNote` keeps only the `source:` capture, so these paint one identical
+    // sentence. Hashing the raw drift cues a byte-identical card.
+    expect(
+      agendaDiff(
+        extraction({}, { drift: "shifted 10m (source: Sheet A)" }),
+        extraction({}, { drift: "moved earlier (source: Sheet A)" }),
+      ),
+    ).toEqual([]);
+    expect(
+      agendaDiff(
+        extraction({}, { drift: "shifted 10m (source: Sheet A)" }),
+        extraction({}, { drift: "shifted 10m (source: Sheet B)" }),
+      ),
+      "a changed source changes the painted note",
+    ).toEqual(["agenda"]);
+  });
+
+  it("D18d: payloads the render-boundary validator rejects hash as unpainted", () => {
+    // `AgendaScheduleBlock` runs `normalizeAgendaExtraction` itself and returns
+    // null for a malformed or low-confidence payload. Two different malformed
+    // payloads paint the same nothing, so they must hash alike.
+    expect(agendaDiff({ confidence: "high" }, { garbage: true })).toEqual([]);
+  });
+
+  /**
+   * D19/D20 — the two MISSED-cue instances found by the class-sweep the two HIGH
+   * findings triggered. Both are the same shape as the diagrams wrapper: the
+   * renderer reads a WIDER domain than the cap the detector slices to, so content
+   * that genuinely paints sits outside the signature entirely.
+   *
+   * They are fixed here, while the sweep's remaining seven mismatches are
+   * over-cue only (the renderer narrows what the detector already hashes, so the
+   * worst case is a benign extra flash) and are filed as
+   * BL-FRESHNESS-PROJECTION-NARROWING rather than rewritten unprobed at merge.
+   */
+  it("D19: a room past ROOMS_CAP gaining scope changes the painted count, so it cues", () => {
+    // `railCount` counts `rooms.filter(roomHasScope)` over the UNCAPPED list
+    // (`step3ReviewSections.tsx:4260`). Slicing to the cap and keeping only
+    // `length` beyond it means the count moves while the hash does not.
+    const many = (scopeOnLast: boolean) => {
+      const s = reviewSnapshot();
+      s.rooms = Array.from({ length: ROOMS_CAP + 2 }, (_, i) => ({
+        ...rowOf(s.rooms as unknown[], 0),
+        id: `room-${i}`,
+        name: `Room ${String(i).padStart(2, "0")}`,
+        audio: i === ROOMS_CAP + 1 ? (scopeOnLast ? "2x d&b" : null) : "house",
+      })) as typeof s.rooms;
+      return s;
+    };
+    expect(changedSectionIds(signaturesOf(many(false)), signaturesOf(many(true)))).toEqual([
+      "rooms",
+    ]);
+  });
+
+  it("D20: a schedule day that exists only in `dates` is painted, so it cues", () => {
+    // The rendered day domain is `aggregateDays(dates)` UNION the ros-only keys
+    // (`step3ReviewSections.tsx:1961-1968`), and `count` is `mergedDays.length`.
+    // A detector keyed on `Object.keys(ros)` alone cannot see a bookend day that
+    // carries no run-of-show entries at all.
+    const before = reviewSnapshot();
+    const after = reviewSnapshot();
+    (showOf(after).dates as Record<string, unknown>).travelOut = "2026-09-30";
+    expect(changedSectionIds(signaturesOf(before), signaturesOf(after))).toContain("schedule");
+  });
+
+  it("D20b: a strike entry past SCHEDULE_ENTRIES_CAP is cap-exempt, so it cues", () => {
+    // Strike/load-out rows are exempt from the entry cap, so entry number
+    // CAP+1 renders. A flat `.slice(0, SCHEDULE_ENTRIES_CAP)` never hashes it.
+    const withEntries = (lastTitle: string) => {
+      const s = reviewSnapshot();
+      const ros = internalOf(s).run_of_show as Record<string, { entries: unknown[] }>;
+      const iso = Object.keys(ros).sort()[0] as string;
+      ros[iso] = {
+        ...ros[iso],
+        entries: [
+          ...Array.from({ length: SCHEDULE_ENTRIES_CAP }, (_, i) => ({
+            start: `0${i}:00`,
+            title: `Item ${i}`,
+            kind: "agenda",
+          })),
+          { start: "23:00", title: lastTitle, kind: "strike" },
+        ],
+      };
+      return s;
+    };
+    expect(
+      changedSectionIds(
+        signaturesOf(withEntries("Strike A")),
+        signaturesOf(withEntries("Strike B")),
+      ),
+    ).toEqual(["schedule"]);
   });
 });

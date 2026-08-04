@@ -138,6 +138,7 @@ import { Avatar } from "@/components/atoms/Avatar";
 import { CrewRowActions, type CrewRowOutcome } from "@/components/admin/wizard/CrewRowActions";
 import { AgendaScheduleBlock } from "@/components/crew/AgendaScheduleBlock";
 import type { AdminAgendaItem } from "@/lib/agenda/agendaAdminPreview";
+import { agendaOverflowNotes } from "@/lib/agenda/agendaPaint";
 import { VenueMapTile } from "@/components/admin/wizard/VenueMapTile";
 import {
   ArchivedTabOffer,
@@ -3198,14 +3199,6 @@ function agendaSleep(ms: number, signal: AbortSignal): Promise<void> {
       { once: true },
     );
   });
-}
-
-function agendaOverflowNotes(block: NonNullable<AdminAgendaItem["block"]>): string[] {
-  const notes: string[] = [];
-  if (block.droppedSessions > 0) notes.push(`…and ${block.droppedSessions} more sessions`);
-  if (block.droppedDays > 0) notes.push(`…and ${block.droppedDays} more days`);
-  if (block.droppedTracks > 0) notes.push(`…and ${block.droppedTracks} more tracks`);
-  return notes;
 }
 
 /** The per-state note line for a note-only item (never a raw error/status code —
