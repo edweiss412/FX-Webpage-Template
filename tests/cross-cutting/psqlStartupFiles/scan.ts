@@ -136,24 +136,63 @@
  *   adversarial review rounds R28-R40 and recorded rather than closed. Each was
  *   demonstrated with a live mutant against this file; none is a miss on any
  *   call site in this tree, whose census has stayed 75 sites / 0 unprotected
- *   through every one of those rounds. They are filed as
- *   PSQL-GUARD-RECALL-RESIDUAL in DEFERRED.md with the probes attached:
- *     - a cardinality-changing GLOB in the COMMAND WORD
- *       (a `postgresql@<glob>` path with a second glob segment expands to several psql
- *       paths, so the first receives another as a positional and `-X` lands too
- *       late). Globs are refused in ARGUMENTS; the command word is not checked.
- *     - a JS spawn whose `shell` option names a NON-POSIX shell
- *       (`{shell: "/opt/homebrew/bin/pwsh"}`): the both-readings check parses
- *       the joined argv as POSIX shell, and PowerShell splatting removes an
- *       empty array, so `-F @args -X` really passes `-F -X`.
- *     - a QUOTED Windows path in SHELL text (`"C:\pg\bin\psql.exe"`): inside
- *       double quotes bash keeps a backslash before an ordinary character, and
- *       this lexer strips it. The JS spawn form of the same path IS read.
- *   Each has a test pinning the CURRENT behaviour, so the limit is a fact and a
- *   future fix has a failing case waiting for it.
+ *   through every one of those rounds. They are the three entries in the
+ *   Documented limits block below, which is their record of first resort.
  * • Deliberately adversarial spellings beyond the above. The lexer handles the
  *   ones review demonstrated, but the space is unbounded and this file does not
  *   claim to close it.
+ *
+ * ── Documented limits (demoted from DEFERRED.md, 2026-08-04) ───────────────
+ *
+ * These three were carried as `PSQL-GUARD-RECALL-RESIDUAL` in DEFERRED.md
+ * until the 2026-08-04 ledger filing bar (AGENTS.md "Ledger filing bar") sent
+ * them here: each is probe-backed and each worst case is conservative or
+ * inert on THIS tree, which makes them documented limits of the guard rather
+ * than open queue work. The archive record with the original entry body is
+ * `PSQL-GUARD-RECALL-RESIDUAL` in DEFERRED-archive.md; this block is the
+ * substance. Text below is the entry's, verbatim, with the live probe re-run
+ * against this file on 2026-08-04 recorded beneath each.
+ *
+ * The `-X` class is CLOSED on this repository: this file walks the tree and
+ * reports 75 psql call sites, 0 unprotected, 0 indirections, and a new site
+ * fails by default. Adversarial review rounds R28-R40 hardened the guard's
+ * RECALL well past that — roughly 120 defects fixed, including several real
+ * false safes — and closed every gap that touches a surface this repo uses.
+ * Three demonstrated gaps remain, all on surfaces this repo does not use:
+ *
+ * 1. A cardinality-changing GLOB in the COMMAND WORD.
+ *    `/opt/homebrew/Cellar/postgresql@*` + `/` + `*` + `/bin/psql -X mydb`
+ *    expands to several psql paths, so the first receives another as its first
+ *    positional and `-X` arrives after it — discarded under `POSIXLY_CORRECT`.
+ *    Globs are refused in ARGUMENTS; the command word is not checked.
+ *    PROBE 2026-08-04 (`scanSource(<that command>, "x.sh")`): one site,
+ *    tokens `["-X", "mydb"]`, `suppressesStartupFiles: true`,
+ *    `hasDynamicTokens: false` — certified, so the miss is live.
+ * 2. A JS spawn whose `shell` option names a NON-POSIX shell.
+ *    `execFileSync("psql", ["-F", "@args", "-X", "mydb"], {shell: "/opt/homebrew/bin/pwsh"})`
+ *    — the both-readings check parses the joined argv as POSIX shell, while
+ *    PowerShell splatting removes the empty `@args`, so `-F` consumes `-X`.
+ *    PROBE 2026-08-04: one site, tokens `["-F", "@args", "-X", "mydb"]`,
+ *    `suppressesStartupFiles: true` — certified under the POSIX reading.
+ * 3. A QUOTED Windows path in SHELL text. `"C:\pg\bin\psql.exe"` — inside
+ *    double quotes bash keeps a backslash that precedes an ordinary character,
+ *    and this lexer strips it. The JS spawn form of the same path IS read, as
+ *    of R40.
+ *    PROBE 2026-08-04: zero sites — invisible, not merely uncertified. Pinned
+ *    by "a QUOTED backslash path in shell text is a KNOWN miss" in
+ *    `tests/cross-cutting/psqlStartupFileSuppression.test.ts`.
+ *
+ * Why recorded rather than fixed: none is a miss on any call site in this
+ * tree. The census stayed 75 sites / 0 unprotected through all thirteen
+ * rounds, and each of these needs a structural change (command-word glob
+ * analysis, reading the spawn options object the guard deliberately does not
+ * read, and a lexer change to double-quote backslash handling) whose
+ * regression risk exceeds the risk it removes for a Linux-only, no-container,
+ * no-Windows repository.
+ *
+ * UN-DEFER TRIGGER (verbatim from the entry): this repo adding a Windows
+ * runner, a container action, a non-POSIX workflow step, or any psql
+ * invocation built through a glob or a `shell:` spawn option.
  *
  * ── Exemptions ─────────────────────────────────────────────────────────────
  *

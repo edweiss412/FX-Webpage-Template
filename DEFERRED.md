@@ -8,42 +8,6 @@ Last reconciled: 2026-07-24 — swept every merged PR body (#445–#570) for def
 
 ---
 
-### PSQL-GUARD-RECALL-RESIDUAL — three hypothetical gaps in the psql `-X` guard (2026-08-03)
-
-**Status:** IN PROGRESS · **Branch:** chore/backlog-convergence
-
-**Effort:** S
-
-The `-X` class is CLOSED on this repository: `tests/cross-cutting/psqlStartupFiles/scan.ts` walks
-the tree and reports 75 psql call sites, 0 unprotected, 0 indirections, and a new site fails by
-default. Adversarial review rounds R28-R40 hardened the guard's RECALL well past that — roughly 120
-defects fixed, including several real false safes — and closed every gap that touches a surface this
-repo uses.
-
-Three demonstrated gaps remain, all on surfaces this repo does not use, each with a live mutant and
-each pinned by a test asserting the CURRENT behaviour so a future fix has a failing case waiting:
-
-1. **A cardinality-changing GLOB in the COMMAND WORD.**
-   `/opt/homebrew/Cellar/postgresql@*/*/bin/psql -X mydb` expands to several psql paths, so the
-   first receives another as its first positional and `-X` arrives after it — discarded under
-   `POSIXLY_CORRECT`. Globs are refused in ARGUMENTS; the command word is not checked.
-2. **A JS spawn whose `shell` option names a NON-POSIX shell.**
-   `execFileSync("psql", ["-F", "@args", "-X", "mydb"], {shell: "/opt/homebrew/bin/pwsh"})` — the
-   both-readings check parses the joined argv as POSIX shell, while PowerShell splatting removes the
-   empty `@args`, so `-F` consumes `-X`.
-3. **A QUOTED Windows path in SHELL text.** `"C:\pg\bin\psql.exe"` — inside double quotes bash
-   keeps a backslash that precedes an ordinary character, and this lexer strips it. The JS spawn
-   form of the same path IS read, as of R40.
-
-**Why deferred rather than fixed:** none is a miss on any call site in this tree. The census stayed
-75 sites / 0 unprotected through all thirteen rounds, and each of these needs a structural change
-(command-word glob analysis, reading the spawn options object the guard deliberately does not read,
-and a lexer change to double-quote backslash handling) whose regression risk exceeds the risk it
-removes for a Linux-only, no-container, no-Windows repository.
-
-**Un-defer trigger:** this repo adding a Windows runner, a container action, a non-POSIX workflow
-step, or any psql invocation built through a glob or a `shell:` spawn option.
-
 ### STEP3-GALLERY-TAP-TARGETS-1 — sub-44px chrome + a skipped heading level on `/admin?step=3` (2026-08-02)
 
 Surfaced by the invariant-8 dual gate on branch `test/step3-live-render-cluster`, run against the

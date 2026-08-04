@@ -2,6 +2,69 @@
 
 Historical ledger of resolved / stale / N/A / accepted deferrals — full provenance (what, why deferred, resolution). The live open queue is **[DEFERRED.md](./DEFERRED.md)**; entries graduate here when they ship. Newest work is not appended in strict order — grep by id.
 
+## PSQL-GUARD-RECALL-RESIDUAL — DEMOTED TO A DOCUMENTED LIMIT 2026-08-04
+
+Not resolved and not stale: **demoted** by the 2026-08-04 ledger filing bar (AGENTS.md
+"Ledger filing bar (2026-08-04)"; screen precedent and procedure in
+`docs/superpowers/specs/2026-08-04-backlog-convergence-design.md` §2.2, seeded row 1). The entry was
+already probe-BACKED — three live mutants, each demonstrated against the guard — but all three sit on
+surfaces this repository does not use, and their worst case on THIS tree is nothing at all: the
+census stayed 75 sites / 0 unprotected through every round that found them. Under the filing bar that
+makes them documented limits of the guard, not open queue work.
+
+**The substance moved, it was not deleted.** All three limits, the reason each is recorded rather
+than fixed, and the un-defer trigger verbatim now live in the "Documented limits" block in the
+guard's own file, `tests/cross-cutting/psqlStartupFiles/scan.ts` (precedent: the RATIFIED SCOPE
+header in `tests/docs/_ledgerMdast.ts`). Each limit there carries a probe re-run against the shipped
+guard on 2026-08-04:
+
+- limit 1 (glob in the command word) — one site, `suppressesStartupFiles: true`, `hasDynamicTokens: false`; certified, so the miss is live
+- limit 2 (JS spawn with a non-POSIX `shell:` option) — one site, tokens `["-F", "@args", "-X", "mydb"]`, `suppressesStartupFiles: true`
+- limit 3 (quoted Windows path in shell text) — zero sites; invisible, not merely uncertified
+
+**Un-defer path unchanged:** the trigger below still applies, and it now reads off the guard file
+rather than this queue. If it fires, re-file from the scan.ts block.
+
+screen-disposition 2026-08-04: DEMOTE — probe-backed limits on surfaces this tree does not use; worst
+case is inert here, so the record belongs in the guard's limits block, not the open queue.
+
+The original entry follows verbatim (its `**Status:** IN PROGRESS` marker removed on archiving, per
+invariant 12 — archives categorically reject in-flight work).
+
+### PSQL-GUARD-RECALL-RESIDUAL — three hypothetical gaps in the psql `-X` guard (2026-08-03)
+
+**Effort:** S
+
+The `-X` class is CLOSED on this repository: `tests/cross-cutting/psqlStartupFiles/scan.ts` walks
+the tree and reports 75 psql call sites, 0 unprotected, 0 indirections, and a new site fails by
+default. Adversarial review rounds R28-R40 hardened the guard's RECALL well past that — roughly 120
+defects fixed, including several real false safes — and closed every gap that touches a surface this
+repo uses.
+
+Three demonstrated gaps remain, all on surfaces this repo does not use, each with a live mutant and
+each pinned by a test asserting the CURRENT behaviour so a future fix has a failing case waiting:
+
+1. **A cardinality-changing GLOB in the COMMAND WORD.**
+   `/opt/homebrew/Cellar/postgresql@*/*/bin/psql -X mydb` expands to several psql paths, so the
+   first receives another as its first positional and `-X` arrives after it — discarded under
+   `POSIXLY_CORRECT`. Globs are refused in ARGUMENTS; the command word is not checked.
+2. **A JS spawn whose `shell` option names a NON-POSIX shell.**
+   `execFileSync("psql", ["-F", "@args", "-X", "mydb"], {shell: "/opt/homebrew/bin/pwsh"})` — the
+   both-readings check parses the joined argv as POSIX shell, while PowerShell splatting removes the
+   empty `@args`, so `-F` consumes `-X`.
+3. **A QUOTED Windows path in SHELL text.** `"C:\pg\bin\psql.exe"` — inside double quotes bash
+   keeps a backslash that precedes an ordinary character, and this lexer strips it. The JS spawn
+   form of the same path IS read, as of R40.
+
+**Why deferred rather than fixed:** none is a miss on any call site in this tree. The census stayed
+75 sites / 0 unprotected through all thirteen rounds, and each of these needs a structural change
+(command-word glob analysis, reading the spawn options object the guard deliberately does not read,
+and a lexer change to double-quote backslash handling) whose regression risk exceeds the risk it
+removes for a Linux-only, no-container, no-Windows repository.
+
+**Un-defer trigger:** this repo adding a Windows runner, a container action, a non-POSIX workflow
+step, or any psql invocation built through a glob or a `shell:` spawn option.
+
 ## PSQL-STARTUP-FILE-NO-X-CLASSWIDE — GRADUATED 2026-08-03
 
 RESOLVED by branch `chore/psql-startup-file-no-x`. Every psql call site in tracked non-docs source
