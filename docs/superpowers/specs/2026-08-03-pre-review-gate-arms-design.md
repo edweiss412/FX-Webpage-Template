@@ -66,7 +66,7 @@ The audit produced six fixes across three surfaces. They ship as three PRs in or
 --lint-doc <path>   repeatable; a spec or plan doc under docs/superpowers/ to lint and embed
 ```
 
-For each `--lint-doc`, the wrapper **spawns the `spec:lint` CLI** as a child process and appends its captured stdout to the composed prompt, in a delimited block matching the existing artifact-embedding shape at `scripts/codex-guard.mjs:254`. It spawns rather than imports because `scripts/codex-guard.mjs` is plain ESM JavaScript and the lint core under `lib/specLint/` is TypeScript; spawning also makes AC-1's "byte-identical to what the CLI prints" true by construction rather than by reimplementation.
+For each `--lint-doc`, the wrapper **spawns the `spec:lint` CLI** as a child process and appends its captured stdout to the composed prompt, in a delimited block matching the existing artifact-embedding shape at `scripts/codex-guard.mjs:254`. It spawns rather than imports because `scripts/codex-guard.mjs` is plain ESM JavaScript and the lint core under `lib/specLint/` is TypeScript; spawning also means the report is the CLI's real output rather than a reimplementation of it — the filtering and budgeting in §2.2.2 are applied to that output, never a substitute for producing it.
 
 ```
 ===== SPEC-LINT: <basename> =====
@@ -90,9 +90,10 @@ exit=2
 
 $ cd /Users/ericweiss/FX-worktrees/pre-review-gate-arms
 $ node --import tsx scripts/spec-lint.ts docs/superpowers/specs/2026-08-03-pre-review-gate-arms-design.md
-summary: 0 hard, 6 advisory
 exit=0
 ```
+
+(The exit codes are the whole point here; this probe deliberately records **no finding counts**. A self-referential count — this document reporting its own lint summary — is stale the moment the document is edited, and it was: an earlier draft embedded `0 hard, 6 advisory` and drifted to nine advisories within the same review round. Corpus measurements elsewhere in this spec are dated snapshots with reproduction commands, which is a different and safe thing; a document quoting its own current output is never safe.)
 
 Same document, same wrapper contract, opposite outcomes — and under §2.3 the first would refuse the dispatch. So both are pinned:
 
@@ -171,7 +172,8 @@ So the plan declares its own task grain, in a **delimited region**:
 - An **opening line** is a non-fenced line matching `^<!-- tasks: depth=([1-6]) -->$` **exactly**. One field, one value, no other content.
 - A **closing line** is a non-fenced line matching `^<!-- tasks: end -->$` exactly.
 - Any non-fenced line beginning `<!-- tasks:` that is neither is `TASK_ENROLL_MALFORMED`. That single clause covers an out-of-range or non-integer depth, a missing depth, an unknown extra field (`depth=3 extra=x`), a repeated field (`depth=3 depth=4`), and every form not yet imagined — none of which may silently opt a plan out while visibly declaring enrollment.
-- A plan is **enrolled** iff it carries exactly one opening line. A second opening line without an intervening close is `TASK_ENROLL_DUPLICATE`; a closing line with no preceding open is `TASK_ENROLL_MALFORMED`.
+- A plan is **enrolled** iff it carries exactly one opening line. **Every** opening line after the first is `TASK_ENROLL_DUPLICATE` — whether or not a close intervenes. An earlier wording said "without an intervening close", which left `open → close → open → close` as two openings, therefore not enrolled, therefore unchecked, and matching no finding: a visibly enrolled plan receiving no task checking at all. Multiple regions are not supported, and the unsupported case must be loud.
+- A closing line with no preceding open is `TASK_ENROLL_MALFORMED`.
 - A **task** is a heading of exactly the declared depth **lying inside the region**. Nothing else is a task, at any depth; no heading text is ever read. End of document closes an unclosed region.
 - An enrolled plan whose region contains **zero** tasks is `TASK_ENROLL_EMPTY`. A valid in-range depth can legitimately select nothing — wrong depth, or an opening line placed after the last matching heading — and a checker that reports nothing there has accepted a plan while checking no tasks at all. That is the silent-acceptance shape in its purest form, so it is a hard finding rather than a vacuous pass.
 
@@ -197,7 +199,14 @@ Grammar, narrow ACCEPT on the same principle as §3.2:
 
 - A **marker** is a non-fenced line matching `^<!-- task: red=` + backtick + `(.+)` + backtick + ` ac=(AC-[A-Za-z0-9.-]+(,AC-[A-Za-z0-9.-]+)*) -->$` **exactly**: the two fields, in that order, one space between them, no other content.
 - Any non-fenced line beginning `<!-- task:` that does not match is `TASK_MARKER_MALFORMED`. That covers an unknown key, a repeated key, reordered fields, a missing or unbackticked `red`, an empty `ac` list, an empty element inside the list (`AC-1,,AC-2`), and any form not yet imagined.
-- `TASK_RED_EMPTY` fires when the marker matches except that the backticked command is empty or whitespace only, so the commonest authoring slip gets a message naming the actual problem instead of the generic one.
+
+**Exactly one code per marker line, by a stated precedence.** The catch-all above overlaps the specific codes — a line missing `ac=` is both "does not match" and "ac absent" — and an overlap with no ordering makes the output undefined: one implementation emits both codes, another suppresses the generic one, a third treats the line as no marker at all and adds `TASK_MARKER_MISSING` on top. AC-8 would have no deterministic expected result. So:
+
+1. The line matches the marker form, but the backticked command is empty or whitespace only → `TASK_RED_EMPTY`.
+2. Otherwise the line matches everything except that `ac=` is absent or its list is empty → `TASK_AC_MISSING`.
+3. Otherwise → `TASK_MARKER_MALFORMED`.
+
+The first matching rule wins and no further code is emitted for that line. Separately: **a marker line occupies its task's marker slot regardless of which code it drew.** A task whose only marker is malformed reports that code alone, never also `TASK_MARKER_MISSING`; two such lines in one extent still report `TASK_MARKER_DUPLICATE`. Otherwise every malformed marker would produce two findings describing one defect.
 
 **AC ids resolve on exact-token boundaries.** An id resolves only where it appears delimited — not as a prefix of a longer id. A substring test would resolve `AC-1` against every one of these:
 
@@ -210,7 +219,11 @@ wanted=AC-1  prose=AC-1-child  naiveIncludes=true
 
 All four are ids the `[A-Za-z0-9.-]+` grammar permits, so all four are reachable, and each would make `TASK_AC_UNRESOLVED` silently pass on a typo.
 
-A task's extent runs from its heading line to the line before the next heading of the enrolled depth **or shallower**, or to end of document. Content under *deeper* headings therefore belongs to the enclosing task, which is deliberate: a task with `### RED` and `### GREEN` sub-headings is one task, and its marker and AC mentions count wherever they sit inside it. A marker appearing **outside every task extent** — before the region, after the closing line, or between the region's start and its first task heading — is `TASK_MARKER_ORPHANED`; it belongs to no task and is never silently dropped.
+A task's extent runs from its heading line to the line before whichever comes first: the next heading of the enrolled depth **or shallower**, the region's **closing line**, or end of document. Content under *deeper* headings therefore belongs to the enclosing task, which is deliberate: a task with `### RED` and `### GREEN` sub-headings is one task, and its marker and AC mentions count wherever they sit inside it.
+
+**The closing line terminating the extent is load-bearing, not incidental.** Without it the last task's extent runs past `<!-- tasks: end -->` to the next equal-or-shallower heading or EOF, while the orphan rule below simultaneously calls every marker after the close orphaned. The same marker would be both owned and orphaned, and two conforming implementations would disagree: one lets an out-of-region marker satisfy the preceding task, the other reports it orphaned and the task missing.
+
+A marker appearing **outside every task extent** — before the region, after the closing line, or between the region's start and its first task heading — is `TASK_MARKER_ORPHANED`; it belongs to no task and is never silently dropped.
 
 ### 3.4 New checks
 
@@ -218,15 +231,15 @@ A new `taskContract` member of the `Check` union (`lib/specLint/types.ts:2`) and
 
 | Code | Fires when |
 | --- | --- |
-| `TASK_ENROLL_DUPLICATE` | a plan carries two or more opening lines without an intervening close |
+| `TASK_ENROLL_DUPLICATE` | any opening line after the first, intervening close or not |
 | `TASK_ENROLL_MALFORMED` | a `<!-- tasks:` line matches neither the opening nor the closing form exactly (§3.2), or a closing line has no preceding open |
 | `TASK_ENROLL_EMPTY` | an enrolled plan's region contains zero headings at the declared depth |
 | `TASK_MARKER_MISSING` | an enrolled plan has a task with no marker in its extent |
 | `TASK_MARKER_DUPLICATE` | one task extent holds two or more markers |
 | `TASK_MARKER_ORPHANED` | a marker sits outside every task extent |
-| `TASK_MARKER_MALFORMED` | a `<!-- task:` line does not match the marker form exactly (§3.3) |
-| `TASK_RED_EMPTY` | the marker matches except that its backticked command is empty or whitespace only |
-| `TASK_AC_MISSING` | `ac=` absent, or its list is empty |
+| `TASK_MARKER_MALFORMED` | a `<!-- task:` line does not match the marker form exactly and is not claimed by a higher-precedence code (§3.3) |
+| `TASK_RED_EMPTY` | the marker matches except that its backticked command is empty or whitespace only (precedence 1) |
+| `TASK_AC_MISSING` | the line matches except that `ac=` is absent or its list is empty (precedence 2) |
 | `TASK_AC_UNRESOLVED` | an `ac=` id has no exact-token occurrence in the plan's own text outside a marker |
 
 `TASK_AC_UNRESOLVED` resolves against the plan document itself, not the linked spec. Cross-document AC resolution needs a declared spec link that plans do not currently carry; adding one is cluster-C-or-later work, and a check that silently resolves nothing is worse than no check. Recorded in §6. Resolution deliberately excludes marker lines themselves, so an id cannot satisfy itself by being cited.
@@ -253,7 +266,7 @@ Nine artifacts burned on this shape; none was caught by review-time reasoning al
 
 ## 5. Acceptance criteria
 
-**AC-1.** `codex-guard review --brief B --lint-doc D` embeds a `===== SPEC-LINT: D =====` block into the composed prompt, containing the same text `pnpm spec:lint D` prints.
+**AC-1.** `codex-guard review --brief B --lint-doc D` embeds a `===== SPEC-LINT: D =====` block into the composed prompt whose body is the CLI's stdout for `D` **with the `INVENTORY` section removed** (§2.2.2), and truncated if the budget requires (AC-21). The body is derived from a live CLI run in the test, never from hardcoded expected text — a hardcoded expectation passes against a broken embed. Byte-equality against *raw* stdout is explicitly **not** the contract: it would contradict AC-20 for any report carrying an inventory, which is nearly all of them.
 
 **AC-2.** `--lint-doc` is accepted without `--fallback`, and composes with `--artifact` when `--fallback` is present.
 
@@ -290,6 +303,12 @@ Nine artifacts burned on this shape; none was caught by review-time reasoning al
 **AC-23.** `<!-- tasks: depth=3 extra=x -->` and `<!-- tasks: depth=3 depth=4 -->` each report `TASK_ENROLL_MALFORMED`. Neither may parse to "not enrolled".
 
 **AC-24.** `TASK_AC_UNRESOLVED` fires for `ac=AC-1` when the plan's prose contains only `AC-10`, `AC-1a`, `AC-1.1`, or `AC-1-child` — one case per prefix family, none of which may resolve it.
+
+**AC-26.** `open → close → open → close` reports `TASK_ENROLL_DUPLICATE` on the second opening. It may not parse to "not enrolled", which would leave a visibly enrolled plan unchecked.
+
+**AC-27.** Each of the three overlapping marker defects — missing `ac=`, empty `ac=`, empty backticked `red` — yields exactly ONE code, the one the §3.3 precedence assigns, and a task whose only marker is malformed does not additionally report `TASK_MARKER_MISSING`.
+
+**AC-28.** A marker on a line after `<!-- tasks: end -->` but before the next equal-or-shallower heading reports `TASK_MARKER_ORPHANED`, and the preceding task reports `TASK_MARKER_MISSING` if it has no marker of its own. Pinned as one fixture asserting both, since the defect was that these two rules disagreed about the same line.
 
 **AC-25.** `taskContract` findings render in the CLI text report under their own `taskContract:` heading with code, line, and message — asserted against the CLI's actual stdout, not against `runLint`'s return value.
 
