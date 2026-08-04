@@ -142,6 +142,20 @@ export const PROBE_STYLE = [
   // comparison is about WHICH FACE rendered, not how it was instanced.
   "font-optical-sizing: none",
   "font-variation-settings: normal",
+  // ASK FOR GEOMETRIC ADVANCES, not the platform's hinted rendering.
+  //
+  // This is the local-passes-CI-fails class, caught by CI: macOS Chromium uses
+  // subpixel positioning and measured 130.09375px (delta ~0.0), while Linux
+  // Chromium applies full hinting and snapped the same string to a round 132px
+  // -- delta 1.906px, on a face that had already asserted request-200 and
+  // status "loaded". A 1.5% platform difference, not a wrong face.
+  //
+  // `geometricPrecision` tells the engine to use the font's own advances
+  // without hinting or integer snapping, which is exactly what fontkit's
+  // layout() computes. Neutralising it belongs with the other glyph-run
+  // neutralisations above, for the same reason: the comparison is about WHICH
+  // FACE rendered, never about how a platform rasterises it.
+  "text-rendering: geometricPrecision",
   "position: absolute",
   "visibility: hidden",
   "white-space: pre",

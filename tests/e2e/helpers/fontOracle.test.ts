@@ -107,6 +107,9 @@ describe("probe styling", () => {
       // correct face.
       "font-optical-sizing: none",
       "font-variation-settings: normal",
+      // Linux Chromium snapped this string to a round 132px under full hinting
+      // where macOS measured 130.09375 -- caught by CI, not locally.
+      "text-rendering: geometricPrecision",
     ]) {
       expect(PROBE_STYLE).toContain(declaration);
     }
