@@ -514,3 +514,23 @@ describe("git faults are untrusted, never collisions (whole-diff R5)", () => {
     expect(r.code).toBe(2);
   });
 });
+
+describe("post-resolution faults are also untrusted (whole-diff R6)", () => {
+  it("exits 2 when a read fails AFTER resolution, during vacuity or lookup", () => {
+    // R5 wrapped only the resolution call. A fault in the per-file vacuity scan
+    // or the undefined-id lookup still escaped as process exit 1, which means
+    // "another branch declares this row".
+    let calls = 0;
+    const r = checkVerified(
+      fake({
+        showFile: (ref, f) => {
+          calls += 1;
+          if (calls > 2) throw new Error("object read failed after resolution");
+          return f === "BACKLOG.md" && ref === "origin/feat/a" ? MARKER("feat/a", "BL-X") : null;
+        },
+      }),
+      ["BL-X"],
+    );
+    expect(r.code).toBe(2);
+  });
+});

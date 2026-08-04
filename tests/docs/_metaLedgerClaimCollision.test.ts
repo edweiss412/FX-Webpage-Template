@@ -136,7 +136,9 @@ function showOrThrow(ref: string, file: string): string | null {
   });
   if (r.status === 0) return r.stdout ?? "";
   const err = `${r.stderr ?? ""}`;
-  if (/does not exist|exists on disk, but not in|unknown revision|invalid object/i.test(err)) {
+  // Only a genuinely missing path is absent; a bad ref (concurrent prune) must
+  // not read as "this branch has no ledger".
+  if (/does not exist in|exists on disk, but not in/i.test(err)) {
     return null;
   }
   throw new Error(`git show ${ref}:${file} failed: ${err.trim() || `status ${r.status}`}`);

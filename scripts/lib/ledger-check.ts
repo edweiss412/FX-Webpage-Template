@@ -53,6 +53,7 @@ export function verifyUniverse(local: Map<string, string>, remote: Map<string, s
 
 const normalizeId = (raw: string) => raw.replace(/`/g, "").trim().toUpperCase();
 
+/** Inner body, so every git/parser fault below becomes exit 2 rather than escaping. */
 export function runCheck(
   git: GitSurface,
   rawIds: string[],
@@ -113,109 +114,119 @@ export function runCheck(
   }
   if (fetchFailed !== null) resolution.degraded.push(fetchFailed);
 
-  // --- universe verification -------------------------------------------------
-  let untrusted = false;
-  // `--no-fetch` means NO NETWORK, and `ls-remote` is a network call. Verifying
-  // a cached read against the live remote would both violate that contract and
-  // fail offline, which is exactly when the cached read is wanted.
-  if (opts.verify && fetchOpt) {
-    let remote: Map<string, string> | null = null;
-    try {
-      remote = git.lsRemote();
-    } catch (e) {
-      // An uncaught throw would exit 1, which means "another branch declares
-      // this row" — an environment fault reported as somebody else's claim.
-      reasons.push(`ls-remote failed: ${(e as Error).message}`);
-      untrusted = true;
-    }
-    if (remote !== null) {
-      const local = snapshot;
-      if (local.size === 0 && remote.size === 0) {
-        reasons.push("no origin refs resolvable");
+  // Everything from here on reads git and parses ledgers, and ANY fault in it is
+  // an untrusted check — not a collision. R5 fixed only the resolution call;
+  // R6 found the post-resolution loops still escaping as process exit 1.
+  try {
+    // --- universe verification -------------------------------------------------
+    let untrusted = false;
+    // `--no-fetch` means NO NETWORK, and `ls-remote` is a network call. Verifying
+    // a cached read against the live remote would both violate that contract and
+    // fail offline, which is exactly when the cached read is wanted.
+    if (opts.verify && fetchOpt) {
+      let remote: Map<string, string> | null = null;
+      try {
+        remote = git.lsRemote();
+      } catch (e) {
+        // An uncaught throw would exit 1, which means "another branch declares
+        // this row" — an environment fault reported as somebody else's claim.
+        reasons.push(`ls-remote failed: ${(e as Error).message}`);
         untrusted = true;
       }
-      const v = verifyUniverse(local, remote);
-      if (!v.ok) {
-        reasons.push(...v.reasons);
-        untrusted = true;
-      }
-    }
-
-    // Per-file vacuity: a ledger that is non-empty on disk but yields zero
-    // entries means a whole ledger vanished, which is the same false-all-clear
-    // class as an unverified universe.
-    //
-    // Scans main PLUS the same candidate set claims resolve over — not a
-    // different one. Excluding main missed a parser regression confined to it
-    // (a main-only repository returned a trusted exit 0), and including merged
-    // branches failed on legacy content that resolution never reads.
-    const merged = new Set(git.isShallow() ? [] : git.mergedIntoMain());
-    const scanRefs = [
-      "origin/main",
-      ...[...snapshot.keys()]
-        .filter((n) => n !== "main" && n !== "HEAD")
-        .map((n) => `origin/${n}`)
-        .filter((r) => !merged.has(r)),
-    ];
-    for (const ref of scanRefs) {
-      for (const file of ledgerFiles()) {
-        const text = git.showFile(ref, file);
-        if (text === null || text.trim().length === 0) continue;
-        if (ledgerItems(file, text).length === 0) {
-          reasons.push(`${file} is non-empty at ${ref} but parsed zero entries`);
+      if (remote !== null) {
+        const local = snapshot;
+        if (local.size === 0 && remote.size === 0) {
+          reasons.push("no origin refs resolvable");
+          untrusted = true;
+        }
+        const v = verifyUniverse(local, remote);
+        if (!v.ok) {
+          reasons.push(...v.reasons);
           untrusted = true;
         }
       }
-    }
-  }
 
-  // --- collisions ------------------------------------------------------------
-  const wanted = new Set(ids);
-  const mine = resolution.selfBranch;
-  const relevant = resolution.claims.filter((c) => wanted.has(normalizeId(c.id)));
-
-  const declared = relevant.filter((c) => c.kind === "declared" && c.branch !== mine);
-  const inferred = relevant.filter((c) => c.kind === "inferred" && c.branch !== mine);
-
-  for (const c of inferred) {
-    warnings.push(`WARN: ${c.id} may be in flight on ${c.branch} (inferred from its ledger diff)`);
-  }
-  for (const id of ids) {
-    if (!resolution.claims.some((c) => normalizeId(c.id) === id)) {
-      // Every ledger on main, not just BACKLOG.md: a DEF- row or an archived id
-      // would otherwise be reported as defined nowhere.
-      const known = ledgerFiles().flatMap((f) =>
-        ledgerItems(f, git.showFile("origin/main", f) ?? ""),
-      );
-      if (!known.some((k) => normalizeId(k.id) === id)) {
-        notes.push(`note: ${id} is not yet defined anywhere`);
+      // Per-file vacuity: a ledger that is non-empty on disk but yields zero
+      // entries means a whole ledger vanished, which is the same false-all-clear
+      // class as an unverified universe.
+      //
+      // Scans main PLUS the same candidate set claims resolve over — not a
+      // different one. Excluding main missed a parser regression confined to it
+      // (a main-only repository returned a trusted exit 0), and including merged
+      // branches failed on legacy content that resolution never reads.
+      const merged = new Set(git.isShallow() ? [] : git.mergedIntoMain());
+      const scanRefs = [
+        "origin/main",
+        ...[...snapshot.keys()]
+          .filter((n) => n !== "main" && n !== "HEAD")
+          .map((n) => `origin/${n}`)
+          .filter((r) => !merged.has(r)),
+      ];
+      for (const ref of scanRefs) {
+        for (const file of ledgerFiles()) {
+          const text = git.showFile(ref, file);
+          if (text === null || text.trim().length === 0) continue;
+          if (ledgerItems(file, text).length === 0) {
+            reasons.push(`${file} is non-empty at ${ref} but parsed zero entries`);
+            untrusted = true;
+          }
+        }
       }
     }
-  }
 
-  // Identity unresolved makes a declared claim unattributable, not decided.
-  if (resolution.identity === "ci-unknown" && declared.length > 0) {
-    reasons.push("identity unresolved; not excluding any branch as self");
-    untrusted = true;
-  }
+    // --- collisions ------------------------------------------------------------
+    const wanted = new Set(ids);
+    const mine = resolution.selfBranch;
+    const relevant = resolution.claims.filter((c) => wanted.has(normalizeId(c.id)));
 
-  // A degraded resolution is an untrusted one, whatever else is true. A failed
-  // fetch means the claims came from cached refs that may predate the very push
-  // being checked for.
-  for (const d of resolution.degraded) {
-    if (d.startsWith("fetch-failed")) {
-      reasons.push(d);
+    const declared = relevant.filter((c) => c.kind === "declared" && c.branch !== mine);
+    const inferred = relevant.filter((c) => c.kind === "inferred" && c.branch !== mine);
+
+    for (const c of inferred) {
+      warnings.push(
+        `WARN: ${c.id} may be in flight on ${c.branch} (inferred from its ledger diff)`,
+      );
+    }
+    for (const id of ids) {
+      if (!resolution.claims.some((c) => normalizeId(c.id) === id)) {
+        // Every ledger on main, not just BACKLOG.md: a DEF- row or an archived id
+        // would otherwise be reported as defined nowhere.
+        const known = ledgerFiles().flatMap((f) =>
+          ledgerItems(f, git.showFile("origin/main", f) ?? ""),
+        );
+        if (!known.some((k) => normalizeId(k.id) === id)) {
+          notes.push(`note: ${id} is not yet defined anywhere`);
+        }
+      }
+    }
+
+    // Identity unresolved makes a declared claim unattributable, not decided.
+    if (resolution.identity === "ci-unknown" && declared.length > 0) {
+      reasons.push("identity unresolved; not excluding any branch as self");
       untrusted = true;
     }
-  }
 
-  // UNTRUSTED DOMINATES. Exit 1 asserts "another live branch declares this row",
-  // which is a positive claim about the world; it may only be made from a
-  // universe that was actually verified. Returning 1 from an unverifiable
-  // universe is the same error as returning 0 from one — both answer a question
-  // the reader was not in a position to answer.
-  const found = declared.map((c) => ({ id: c.id, branch: c.branch }));
-  if (untrusted) return { code: 2, collisions: found, warnings, notes, reasons };
-  if (declared.length > 0) return { code: 1, collisions: found, warnings, notes, reasons };
-  return { code: 0, collisions: [], warnings, notes, reasons };
+    // A degraded resolution is an untrusted one, whatever else is true. A failed
+    // fetch means the claims came from cached refs that may predate the very push
+    // being checked for.
+    for (const d of resolution.degraded) {
+      if (d.startsWith("fetch-failed")) {
+        reasons.push(d);
+        untrusted = true;
+      }
+    }
+
+    // UNTRUSTED DOMINATES. Exit 1 asserts "another live branch declares this row",
+    // which is a positive claim about the world; it may only be made from a
+    // universe that was actually verified. Returning 1 from an unverifiable
+    // universe is the same error as returning 0 from one — both answer a question
+    // the reader was not in a position to answer.
+    const found = declared.map((c) => ({ id: c.id, branch: c.branch }));
+    if (untrusted) return { code: 2, collisions: found, warnings, notes, reasons };
+    if (declared.length > 0) return { code: 1, collisions: found, warnings, notes, reasons };
+    return { code: 0, collisions: [], warnings, notes, reasons };
+  } catch (e) {
+    reasons.push(`check failed: ${(e as Error).message}`);
+    return { code: 2, collisions: [], warnings, notes, reasons };
+  }
 }

@@ -160,7 +160,11 @@ export function realGitSurface(): GitSurface {
       // git's own wording for a path that simply is not in that tree. Anything
       // else — a corrupt object, a timeout, a bad ref — is a fault, not absence.
       if (
-        /does not exist|exists on disk, but not in|unknown revision|invalid object/i.test(stderr)
+        // ONLY a genuinely missing path is absent. `unknown revision` and
+        // `invalid object` mean the REF is bad — a concurrent prune between
+        // enumeration and read — and calling that "no ledger here" silently drops
+        // every declaration on that branch.
+        /does not exist in|exists on disk, but not in/i.test(stderr)
       ) {
         return null;
       }
@@ -205,7 +209,12 @@ export function realGitSurface(): GitSurface {
     },
 
     currentBranch() {
-      const fromCI = process.env.GITHUB_HEAD_REF;
+      // GITHUB_HEAD_REF is honoured ONLY in CI. Locally it is ambient state that
+      // may be stale or spoofed, and trusting it self-excludes another branch's
+      // real declaration — probed live: a spoofed value turned a genuine
+      // collision into "no collision".
+      const fromCI =
+        process.env.GITHUB_ACTIONS === "true" ? process.env.GITHUB_HEAD_REF : undefined;
       if (fromCI) return fromCI;
       const out = git(["rev-parse", "--abbrev-ref", "HEAD"], LS_REMOTE_MS, true);
       const name = (out ?? "").trim();
