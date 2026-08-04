@@ -51,7 +51,7 @@ This plan ships structural guards, so the mutation families it converges against
 | M6 | Claim keyed by `fields.Branch` instead of the source ref | Task 3, three attribution fixtures |
 | M7 | Universe answered from an unverified set | Task 5, six exit-2 fixtures |
 | M8 | Display cap applied to resolution | Task 5, 101-candidate fixtures for `--check` and `--json` |
-| M9 | `--no-fetch` accepted but network still touched | Task 6, non-invocation spy |
+| M9 | `--no-fetch` accepted but network still touched | Task 6, non-invocation spy **plus a structural import guard** — plan-R3 finding 5 showed a recorder at the injected seam cannot see a mutant importing `node:child_process` directly inside the core. The guard asserts that neither shared module contains `node:child_process` import at all, following the P5-noio precedent that already bans `node:fs` inside `_ledgerMdast.ts` |
 | M10 | Suppression implemented by discarding output rather than skipping work | Task 6, not-spawned assertions |
 | M11 | AGENTS delta applied to one location, or a retired ordering paraphrased | Task 8, six positive assertions |
 
@@ -290,7 +290,7 @@ export function ledgerItems(file: string, text: string): LedgerItem[] {
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `pnpm exec vitest run tests/scripts/ledgerFields.test.ts`
-Expected: PASS, 3 tests.
+Expected: PASS, 5 tests.
 
 - [ ] **Step 5: Typecheck**
 
@@ -596,7 +596,7 @@ under assertion, and its non-invocation seam is asserted in Task 6.
 - [ ] **Step 5: Run to verify pass**
 
 Run: `pnpm exec vitest run tests/scripts/ledgerClaims.test.ts && pnpm typecheck`
-Expected: PASS, 8 tests; no type errors.
+Expected: PASS, 10 tests; no type errors.
 
 - [ ] **Step 6: Commit**
 
@@ -669,7 +669,7 @@ git commit -m "feat(ledger): inferred claims with specified hunk mapping"
 
 **Files:**
 <!-- spec-lint: ignore — new files created by this plan; not yet tracked -->
-- Create: `scripts/ledger-claims.ts`, `tests/scripts/ledgerClaimsCheck.test.ts`
+- Create: `scripts/lib/ledger-git.ts` (deferred here from Task 3 per plan-R2 finding 7, because this is where its behavior is first asserted), `scripts/ledger-claims.ts`, `tests/scripts/ledgerClaimsCheck.test.ts`
 - Modify: `package.json`
 
 - [ ] **Step 1: Write the failing tests** — the exit table (§3.3) plus every §4.1 universe row, and the identity matrix.
@@ -680,7 +680,7 @@ Plus the six cases plan-R1 finding 3 found omitted, each with the mutant it catc
 
 | Case | Required | Mutant it catches |
 | --- | --- | --- |
-| Global vacuity, **isolated from per-file** | **2** | plan-R2 finding 8: the naive form cannot fail. A non-empty candidate yielding zero already trips per-file vacuity, so deleting the global gate changes the outcome not at all. The fixture must make per-file PASS and global FAIL: one candidate whose ledger files are genuinely empty on disk (per-file stays silent) beside one whose files are non-empty and parse normally, with every branch still yielding zero claims |
+| ~~Global vacuity~~ | **removed** | plan-R3 finding 2 proved the isolated fixture logically impossible: "some candidate has a non-empty file" AND "all candidates yield zero entries" together entail a non-empty file yielding zero entries, which is per-file vacuity. Exhaustive enumeration over candidate sets up to size 3 returns **0** satisfying assignments. The global gate is fully subsumed by the per-file one, so it is deleted rather than given an unfalsifiable test. §4.2 of the spec is amended to match |
 | `resolved = {main, stale-a, stale-b}` vs `remote = {main, claimed}`, strictly **larger** | **2** | plan-R2 finding 9: a validator rejecting changed OIDs, isolated extras, isolated missing names, AND equal-cardinality substitution still trusts a larger cache whose extras conceal the missing claimed branch |
 | `resolved = {main, stale}` vs `remote = {main, claimed}` | **2** | a count-plus-shared-OID comparison that trusts equal-cardinality substitution |
 | `--json` healthy-empty vs fetch-failed | distinguishable payloads | a bare array serializing both as `[]` |
@@ -713,7 +713,7 @@ Add to `package.json` scripts, after `"spec:lint"`:
 - [ ] **Step 6: Commit**
 
 ```bash
-git add scripts/ledger-claims.ts tests/scripts/ledgerClaimsCheck.test.ts package.json
+git add scripts/lib/ledger-git.ts scripts/ledger-claims.ts tests/scripts/ledgerClaimsCheck.test.ts package.json
 git commit -m "feat(ledger): ledger:claims CLI with distinct exit-code semantics"
 ```
 
@@ -748,12 +748,30 @@ const SENTINEL = "CLAIMS-CHILD-RAN";
  * Actions, and §3.4 suppresses claims under CI. Without this, the one assertion
  * that makes this file non-vacuous is green locally and red in CI.
  */
+/** Every var preflight hard-requires, seeded so it reaches the claims step in CI. */
+const REQUIRED_ENV: Record<string, string> = Object.fromEntries(
+  // Derived from scripts/preflight-env.mjs itself, not hardcoded: plan-R3 finding 4
+  // measured that CI has no tracked .env.local and tests/setup.ts seeds only 2 of
+  // the 8, so preflight exits during its env checks, which run BEFORE the claims
+  // step, and never reaches the thing under test.
+  requiredEnvKeysOf(join(ROOT, "scripts/preflight-env.mjs")).map((k) => [k, "test-fixture-value"]),
+);
+
 function runPreflight(args: string[], env: Record<string, string | undefined> = {}) {
-  const r = spawnSync("node", [join(ROOT, "scripts/preflight-env.mjs"), ...args], {
+  const r = spawnSync(process.execPath, [join(ROOT, "scripts/preflight-env.mjs"), ...args], {
+    // process.execPath, never the bare name "node": plan-R3 finding 3 measured that
+    // the psql-absent case replaces PATH with the stub dir, so spawnSync("node", ...)
+    // fails ENOENT and preflight never starts.
     cwd: ROOT,
     encoding: "utf8",
     timeout: 60_000,
-    env: { ...process.env, CI: undefined, PATH: `${join(ROOT, "tests/scripts/__stubbin__")}:${process.env.PATH ?? ""}`, ...env },
+    env: {
+      ...process.env,
+      ...REQUIRED_ENV,
+      CI: undefined,
+      PATH: `${join(ROOT, "tests/scripts/__stubbin__")}:${process.env.PATH ?? ""}`,
+      ...env,
+    },
   });
   return { status: r.status, out: `${r.stdout ?? ""}${r.stderr ?? ""}` };
 }
@@ -840,7 +858,8 @@ Placement: after the env checks, **before** the DB probe at `scripts/preflight-e
 - [ ] **Step 5: Commit**
 
 ```bash
-git add scripts/preflight-env.mjs tests/scripts/preflightClaims.test.ts
+git add scripts/preflight-env.mjs tests/scripts/preflightClaims.test.ts \
+        tests/scripts/_recordingGitSurface.ts tests/scripts/__stubbin__/tsx
 git commit -m "feat(ledger): surface live claims in preflight"
 ```
 
@@ -851,7 +870,7 @@ git commit -m "feat(ledger): surface live claims in preflight"
 **Files:**
 <!-- spec-lint: ignore — new files created by this plan; not yet tracked -->
 - Create: `tests/docs/_metaLedgerClaimCollision.test.ts`
-- Modify: `tests/docs/_metaLedgerReferentialIntegrity.test.ts` — add **three** paths to `NOT_CITATIONS`, not one: this guard plus the two reader test files, all of which plant `BL-X`/`BL-Y` fixtures. Plan-R1 finding 5: the citation guard walks every tracked `*.ts` (`tests/docs/_metaLedgerReferentialIntegrity.test.ts:106`), so the reader tests turn CI red the moment Tasks 3-5 commit — before Task 7 runs. **Move this registration into Task 3's commit** rather than leaving it here; a row that arrives two tasks after the file it exempts is two tasks of red CI.
+- ~~Modify `tests/docs/_metaLedgerReferentialIntegrity.test.ts`~~ — **registered in Task 3 Step 3b**, not here. Plan-R3 finding 7: listing it in both places is how the earlier draft staged it in Task 3 with no step that edits it, while Task 7 also claimed the modification. All three synthetic-id paths land in Task 3, so the later two arrive pre-exempted.
 
 - [ ] **Step 1: Write the test**
 
@@ -862,7 +881,7 @@ Declared-versus-declared only. Fetches its own heads at depth 1 (measured at 1.8
 - [ ] **Step 5: Commit**
 
 ```bash
-git add tests/docs/_metaLedgerClaimCollision.test.ts tests/docs/_metaLedgerReferentialIntegrity.test.ts
+git add tests/docs/_metaLedgerClaimCollision.test.ts
 git commit -m "test(ledger): CI backstop for cross-branch declared collisions"
 ```
 
