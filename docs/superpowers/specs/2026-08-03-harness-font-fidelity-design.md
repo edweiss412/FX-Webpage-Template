@@ -212,6 +212,18 @@ One time-varying behavior exists and is deliberately preserved: `font-display: s
 
 ## 4. Guards
 
+### 4.0 What the guards are for, and where enumeration stops
+
+Nine review rounds have killed twelve escaping mutants against this design. They fall into two kinds, and the distinction is what keeps §4.1 from growing without bound:
+
+**Kind A — the shipped inputs are wrong.** Wrong bytes, wrong pairing, a `local()` fallback, a URL that resolves nowhere, a missing import, a stale token, a second delivery mechanism. These are *finitely* enumerable because the inputs are: seven files, one stylesheet, two roots, one toolchain, one token. §4.1 pins them, and each row names the mutant it kills.
+
+**Kind B — something, somewhere, renders the wrong family.** A route-local override, a runtime-registered face, a descendant rule, a state no navigation reaches. This class does **not** terminate by enumeration: any list of places to look is a list someone can render outside. Rounds 6 through 9 each produced another instance — a `.css` file, then source-authored `<style>` text, then `new FontFace`, then `.help-prose`, then an `<h1>`, then `page.mdx`, then `loading.tsx` — and each time the fix was to widen where we look rather than to find the last hiding place.
+
+So Kind B is closed by **one general oracle**, not a list: walk every visible text-bearing element on every rendered surface and assert its computed family resolves to the canonical chain. It has no privileged place to look and therefore no blind spot to enumerate; the only thing that can be incomplete is the *surface census*, which §4.2's census derives from the framework's own config rather than from a hand list.
+
+The acceptance criterion is the project's preparedness posture (`docs/agents/spec-self-review.md:24`) — every surface renders the committed family or a test says otherwise — **not** "no imaginable mutant survives". A new Kind B instance that the general oracle already catches is not a finding. A new Kind B instance that reveals a *surface the census misses* is, and it is fixed by widening the census, not by adding a row.
+
 ### 4.1 Static guard
 
 Sibling precedent: `tests/styles/design-figure-parity.test.ts` and `tests/styles/focusRingContrast.test.ts` both read live `app/globals.css` and assert against a documented figure. Note that the former pins **contrast figures only** — it contains no font reference — so it is a shape precedent, not an existing font guard.
