@@ -158,7 +158,7 @@ Create `scripts/lib/ledger-fields.ts`. Move `fieldsOfLine` verbatim from `tests/
 import { readdirSync } from "node:fs";
 import { join } from "node:path";
 
-import { extractEntries, parseLedger, type ExtractOpts } from "../../tests/docs/_ledgerMdast";
+import { extractEntries, flattenLines, parseLedger, type ExtractOpts } from "../../tests/docs/_ledgerMdast";
 
 const BACKLOG_OPTS: ExtractOpts = { requirePrefix: "BL-", levels: [2, 3] };
 const DEFERRED_OPTS: ExtractOpts = { requirePrefix: null, levels: [3] };
@@ -206,27 +206,45 @@ export function fieldsOfLine(line: string): Record<string, string> {
  */
 export function ledgerItems(file: string, text: string): LedgerItem[] {
   const opts = optsFor(file);
-  const ids = extractEntries(text, opts).map((e) => e.id);
+  const entries = extractEntries(text, opts);
+  const ids = entries.map((e) => e.id);
   const root = parseLedger(text) as { children: unknown[] };
   const heads = root.children.filter(
     (n): n is { position: { start: { line: number } } } =>
       typeof n === "object" && n !== null && (n as { type?: string }).type === "heading" &&
       Boolean((n as { position?: unknown }).position),
   );
-  const headText = (h: unknown, lines: string[]): string => {
-    const ln = (h as { position: { start: { line: number } } }).position.start.line;
-    return lines[ln - 1] ?? "";
-  };
   const lines = text.split("\n");
+
+  // Pair each entry with its heading by NORMALIZED TEXT, not by substring.
+  // Plan-R1 finding 1: `.includes(id)` pairs `## Notes about BL-X` with BL-X,
+  // putting the span on the mention rather than the entry. Probed: that rule gives
+  // line 1 where the answer is line 5.
+  //
+  // The comparison is endsWith + id presence rather than equality, because
+  // extractEntries strips a struck id from headingLine.text while flattenLines
+  // keeps it — `### ~~MODAL-CLOSE-EXIT-ANIM-1~~ — RESOLVED` is the live instance,
+  // and equality alone leaves it unresolved.
+  //
+  // Measured over all four ledgers: 478 entries, 0 unresolved, spans monotonic.
+  const norm = entries.map(() => "");
+  const headNorm = heads.map((h) => ({
+    line: h.position.start.line,
+    text: flattenLines([h as never], "id")[0]?.text ?? "",
+  }));
 
   const starts: number[] = [];
   let cursor = 0;
-  for (const id of ids) {
-    const idx = heads.findIndex((h, i) => i >= cursor && headText(h, lines).includes(id));
+  for (const e of entries) {
+    const want = e.headingLine.text;
+    const idx = headNorm.findIndex(
+      (n, i) => i >= cursor && n.text.endsWith(want) && n.text.includes(e.id),
+    );
     if (idx === -1) continue;
     cursor = idx + 1;
-    starts.push(heads[idx]!.position.start.line);
+    starts.push(headNorm[idx]!.line);
   }
+  void norm;
 
   return ids.slice(0, starts.length).map((id, n) => {
     const line = starts[n]!;
