@@ -13,7 +13,7 @@ Undoing a single change in the sync changes feed currently produces **no screen-
 
 It also closes a defect of the same class found by sweeping the surface: the three feed action buttons render their failure card by **conditional mount**, which is the classic not-announced pitfall — so a failed Undo, Accept, or Approve/Reject is silent to AT as well.
 
-Three ledger dispositions ride along: `BL-SYNCFEED-UI-1` resolves, `BL-SYNCFEED-UI-3` graduates as already-shipped, `BL-SYNCFEED-UI-2` is ratified as untriggered, and the parent `BL-SYNC-FEED-UI-POLISH` closes.
+Four ledger dispositions ride along: `BL-SYNCFEED-UI-1` resolves, `BL-SYNCFEED-UI-3` graduates as already-shipped, `BL-SYNCFEED-UI-2` is ratified as untriggered, and the parent `BL-SYNC-FEED-UI-POLISH` closes.
 
 ---
 
@@ -76,7 +76,8 @@ Under `role="status"` the second undo would be silent. Under `role="log"` both a
 8. **`components/admin/review/ShowReviewSurface.tsx`** — retrofitted onto the extracted module (R6), DOM output unchanged.
 <!-- spec-lint: ignore — new file created by this plan; not tracked until implementation -->
 9. **`tests/styles/_metaUndoAnnounceProvider.test.ts`** (new) — the four-assertion structural guard of §5.
-10. **`BACKLOG.md`** — the four ledger dispositions plus three filed rows (`BL-FEED-BUTTON-SUCCESS-ANNOUNCE`, `BL-BULK-UNDO-ANNOUNCE-UNMOUNT`, `BL-ANNOUNCE-REGION-UNMOUNT-CLASS`); **`DESIGN.md`** — the announcement contract paragraph.
+10. **`tests/e2e/published-review-modal.crew-actions.spec.ts`** — the real-browser accessibility-tree assertion (§11); an existing file, because a new one would not be collected.
+11. **`BACKLOG.md`** — the four ledger dispositions plus three filed rows (`BL-FEED-BUTTON-SUCCESS-ANNOUNCE`, `BL-BULK-UNDO-ANNOUNCE-UNMOUNT`, `BL-ANNOUNCE-REGION-UNMOUNT-CLASS`); **`DESIGN.md`** — the announcement contract paragraph.
 
 `components/admin/ChangesFeed.tsx` is deliberately absent: under §3.5 it needs no change at all.
 ---
@@ -171,7 +172,7 @@ const announcingAction = useCallback<UndoServerAction>(
 const [result, dispatch, pending] = useActionState(announcingAction, null);
 ```
 
-The announcement happens **inside the action's async flow**, before React can process the revalidation that unmounts this component. That ordering is the whole reason the callback is not an effect: an effect scheduled on the `{ok:true}` commit races the RSC refresh, and the parent-owned state written here does not.
+The announcement happens **inside the action's async flow**. The wrapped action is chosen over an effect for a reason that needs no ordering guarantee (§3.7): an effect scheduled on the `{ok:true}` commit is not guaranteed to run at all when the component unmounts in the same commit, whereas an already-executing async continuation always finishes. An earlier draft justified this by claiming the callback necessarily precedes RSC reconciliation; that claim is withdrawn in §3.7 and must not be reintroduced here.
 
 **(b) Failure announcement.** The wrapper around `ErrorExplainer` becomes always-mounted with `role="status"`, so the card's appearance is a text change inside a live region rather than a node insertion:
 
@@ -225,9 +226,18 @@ The pattern is not "pick a component further out." It is that **any owner below 
 **The owner is therefore `app/admin/layout.tsx`.** A new client component `AdminAnnounceProvider` holds `useAnnounceLog`, provides `UndoAnnounceContext`, and renders the region. The layout wraps its chosen branch in it:
 
 ```tsx
-// app/admin/layout.tsx: one wrapper around whichever branch was selected
-return <AdminAnnounceProvider>{branchContent}</AdminAnnounceProvider>;
+// app/admin/layout.tsx: EACH of the three returns is wrapped, individually.
+// Not one wrapper around a collapsed single return: A1 and A3 are stated over
+// the component's returns, and the per-return shape is what makes both
+// mechanically checkable (§5).
+return (
+  <AdminAnnounceProvider testId="admin-undo-status" label="Undo updates">
+    {/* this branch's existing tree, whose root carries data-inert-root */}
+  </AdminAnnounceProvider>
+);
 ```
+
+The provider is the OUTERMOST element of each return, so it always precedes that branch's `data-inert-root` root (`app/admin/layout.tsx:160`, `layout.tsx:182`) and never nests inside it. That ordering is what A3 checks.
 
 ```tsx
 // components/admin/AdminAnnounceProvider.tsx ("use client")
@@ -287,7 +297,13 @@ So the modal gets its own channel:
 | Channel | Mounted by | Serves |
 |---|---|---|
 | Layout channel (`admin-undo-status`) | `AdminAnnounceProvider` in `app/admin/layout.tsx`, wrapping the returned root (§3.5.1) | every non-modal admin surface, including the dashboard strip |
-| Dialog channel (`dialog-undo-status`) | a second `AdminAnnounceProvider` inside `ReviewModalShell`, wrapping the panel interior as `PopoverHostContext` does | every surface rendered inside a review modal, including the per-show changes feed |
+| Dialog channel (`${testIdBase}-undo-status`) | a second `AdminAnnounceProvider` inside `ReviewModalShell`, wrapping the panel interior as `PopoverHostContext` does | every surface rendered inside a review modal, including the per-show changes feed |
+
+**The dialog channel's identifiers are parameterized off `testIdBase`, not hard-coded.** `ReviewModalShell` has three render sites — `components/admin/showpage/PublishedReviewModal.tsx:687`, `components/admin/showpage/ShowReviewModalSkeleton.tsx:44`, and `components/admin/wizard/Step3ReviewModal.tsx:373` — and every existing testid in the shell is already derived from `testIdBase` (`ReviewModalShell.tsx:583`). A hard-coded `dialog-undo-status` would put one id on three shells, reintroducing the strict-mode ambiguity that motivated distinct ids in the first place. The label follows the same rule.
+
+Two of those three shells never host an undo, so their channels are inert by construction. That is acceptable: an unused channel costs one empty `sr-only` span and keeps the shell's contract uniform.
+
+**The skeleton swap is a second post-hydration replacement, and it is added to the spike.** `ShowReviewModalSkeleton` is the Suspense fallback for the published modal (`app/admin/page.tsx:168`), so the fallback-to-real transition destroys one shell and mounts another **after** hydration. The reachability argument that covers the portal flip does not automatically cover this one, because it is a data-load boundary rather than a hydration boundary. What bounds it: announcements originate only in the resolved modal, which mounts once and stays, so nothing announced can be lost to a swap that precedes it. That argument is **not ratified here** — it is the same shape as the arguments five rounds refuted — and §11's spike gains a third part that drives an undo across the Suspense swap.
 
 The two ids differ deliberately, and **so do the two `aria-label`s**: `"Undo updates"` at the layout, `"Undo updates in this dialog"` inside the modal. Both regions are attached at once while a modal is open, so a shared identifier is wrong twice over. A shared `data-testid` makes `page.getByTestId(...)` match two elements, fail Playwright strict mode, and lose the ability to prove the **dialog** region received the announcement. A shared `aria-label` is the same defect one layer up, in the accessibility tree rather than the test locator: a screen-reader user navigating by region would find two identically-named logs and no way to tell which belongs to the dialog they are in. Round 4 caught the test-locator half of this; the label half is the same class.
 
@@ -333,7 +349,7 @@ One residual interaction, documented rather than defended: `FinalizeButton` iner
 
 `ChangeFeedEntry` passes `announceLabel={entry.summary}` to `UndoChangeButton` (`ChangeFeedEntry.tsx:141`). `FeedEntry.summary` is a non-nullable `string` (`lib/sync/holds/types.ts:64`), already rendered visibly at `ChangeFeedEntry.tsx:104`, so the announcement names the change the user sees.
 
-`AutoAppliedRow` passes `announceLabel={row.summary}` to the `UndoChangeButton` at `RecentAutoAppliedStrip.tsx:298`. `summary` is a non-nullable `string` on the row type (`lib/admin/loadRecentAutoApplied.ts:39`).
+`StripRow` passes `announceLabel={row.summary}` to the `UndoChangeButton` at `RecentAutoAppliedStrip.tsx:298`. (`AutoAppliedRow` is the row *type* at `lib/admin/loadRecentAutoApplied.ts:36`, not a component.) `summary` is a non-nullable `string` on the row type (`lib/admin/loadRecentAutoApplied.ts:39`).
 
 That is the entire change to both surfaces. The existing bulk region and its `bulkUndoOutcome` state are untouched (R2); §8 records the pre-existing defect that leaves standing and the row it is filed under.
 
@@ -383,14 +399,14 @@ Moving the channel to the layout (§3.5) changes what a guard can usefully asser
 
 | Assertion | Why it is checkable | Planted violation that must fail it |
 |---|---|---|
-| **A1 — every value `AdminLayout` returns is wrapped.** Every `return` **belonging to the `AdminLayout` function itself** yields a tree wrapped in `AdminAnnounceProvider`. Returns inside nested helpers or callbacks in the same file are out of scope, so the check is stated over the component's own returns rather than the file's — an earlier draft said "every `return` in the file", which a future local helper would have broken for no reason. | The layout has three such returns (`app/admin/layout.tsx:90`); a future fourth that forgets the wrapper is the realistic regression. | The layout source with the wrapper removed from one branch's path; and separately a nested helper with its own unwrapped `return`, which must NOT fail. |
+| **A1 — the wrapper count matches the return count.** `app/admin/layout.tsx` contains at least as many `<AdminAnnounceProvider` occurrences as `return (` occurrences, and at least one of each. | The layout has three returns (`app/admin/layout.tsx:90`); a future fourth that forgets its wrapper drops the count below and fails. | The layout source with one wrapper deleted. |
 | **A3 — the region is never inside an inert root.** `AdminAnnounceProvider` is not rendered as a descendant of any element carrying `data-inert-root` (§3.5.1). | Structural, and the difference between a working feature and a silently dead one. | The layout source with the provider nested inside the `data-inert-root` div instead of wrapping it. |
-| **A2 — the channel is mounted at exactly the two sanctioned positions.** `AdminAnnounceProvider` is rendered in exactly two files: `app/admin/layout.tsx` and `components/admin/review/ReviewModalShell.tsx`. No file other than the provider module references `UndoAnnounceContext.Provider` directly. | A third provider on some intermediate surface would shadow both channels with a shorter-lived one, which is the original defect wearing a new hat. An earlier draft of A2 said "nothing else provides", which the dialog channel now legitimately violates. | A third file rendering `<AdminAnnounceProvider>`; and separately a file rendering `<UndoAnnounceContext.Provider>` directly. |
+| **A2 — the channel is mounted only at sanctioned positions.** Every file rendering `<AdminAnnounceProvider` is either `app/admin/layout.tsx` or a modal shell (a file also rendering `role="dialog"`). No file other than the provider module references `UndoAnnounceContext.Provider` directly. Stated as a rule rather than a two-file allowlist, so that adding a channel to a future `aria-modal` surface — the CORRECT fix for that surface — passes, while a channel on an ordinary surface fails. | A third provider on some intermediate surface would shadow both channels with a shorter-lived one, which is the original defect wearing a new hat. An earlier draft of A2 said "nothing else provides", which the dialog channel now legitimately violates. | A third file rendering `<AdminAnnounceProvider>`; and separately a file rendering `<UndoAnnounceContext.Provider>` directly. |
 | **A4 — no DIRECT announcing surface outside the admin tree.** Every file rendering `<UndoChangeButton` lives under `app/admin/` or `components/admin/`. | A future non-admin call site rendering the button directly silently consumes `NOOP_UNDO_ANNOUNCE` and announces nothing. | A file outside those trees rendering `<UndoChangeButton`. |
 
 A1 and A3 are checked against `app/admin/layout.tsx` from comment-stripped source; A2 and A4 by a walk over `components/` and `app/` (excluding `app/api/**`). All four use `walk` and `stripCommentsForFile` from `tests/styles/_classScanUtils` (`_classScanUtils.ts:7`, `_classScanUtils.ts:17`), and **each assertion carries its own planted violation** — an earlier round's finding was that a widened guard shipped a mutant for only one branch, so a guard silently ignoring another would still pass.
 
-A1 and A3 are deliberately shallow string-and-nesting checks over one known file rather than general JSX analysis. A guard needing a real parser to state its invariant is one nobody can trust; the runtime proof is the e2e assertion in §11.
+A1 and A3 are deliberately shallow counting and line-order checks over one known file rather than general JSX analysis. An earlier draft stated A1 over "returns belonging to `AdminLayout`" and demanded a planted nested-helper case that must NOT fail — a discrimination brace depth cannot make, so the assertion was unbuildable as specified while disclaiming a parser. Counting is coarser and honest: it cannot tell which return lost its wrapper, only that one did, which is all the guard needs to say. The runtime proof is the e2e assertion in §11.
 
 No file needs an exemption comment, because no surface component provides anything any more. `ChangeFeedEntry` and `RecentAutoAppliedStrip` simply consume a context their layout guarantees.
 
@@ -455,6 +471,7 @@ Making the error wrapper always-mounted changes what "no failure yet" looks like
 - **An uncatalogued failure code announces nothing.** `ErrorExplainer` returns `null` when the code has no catalog row (`components/messages/ErrorExplainer.tsx:82`, and again at `ErrorExplainer.tsx:93`), so the always-mounted wrapper stays empty and neither AT nor a sighted user learns anything. This is today's behavior exactly — the conditional wrapper also rendered an empty card — so the change neither introduces nor fixes it. Recorded because a reader of §3.3b would otherwise assume every failure now announces.
 - **Body-level inerting would suppress the channel.** `FinalizeButton` inerts every direct child of `<body>` except its own portal while its overlay is open (`components/admin/FinalizeButton.tsx:660`). The undo region is a body-level sibling, so an announcement raised during that overlay would not be read. Unreachable today (undo is not available from the finalize overlay), but any future body-level inerting must exempt the region, and §5's A3 is the structural reminder.
 - **The dialog channel dies with its dialog.** `ReviewModalShell` returns `null` when closed (`components/admin/review/ReviewModalShell.tsx:126`), so an announcement raised in the same tick the modal closes is lost. Undo does not close the modal, so this is not reachable through the flow this spec adds; it bounds what a future in-modal announcement may assume.
+- **The layout region stays browse-navigable while a modal is open.** `app/layout.tsx` renders `<body>{children}</body>`, so the layout channel is a direct body child, and `ReviewModalShell` inerts only `[data-inert-root]` (`components/admin/review/ReviewModalShell.tsx:180`). A virtual-cursor user inside the dialog can therefore still reach a `role="log"` holding up to 50 earlier announcements. It is `sr-only`, carries a label naming it as updates, and holds no interactive content, so the cost is stray history rather than a trap or a leak — but it is a real difference from the shell, which IS hidden. Recorded rather than fixed: hiding it would require the layout channel to know a dialog is open, which reintroduces exactly the cross-surface coupling the two-channel design removes.
 - **No success announcement for Accept or Approve/Reject.** Out of scope (§3.4).
 
 ---
@@ -477,7 +494,7 @@ The fixture was corrected at `c3920fe6a`; `tests/components/admin/ChangeFeedEntr
 
 All three children disposed. The parent graduates to `BACKLOG-archive.md` at its terminal state, carrying its three sub-bullets with it.
 
-**The three `KNOWN_DANGLING` rows stay** (`tests/docs/_metaLedgerReferentialIntegrity.test.ts:108-113`). This is the non-obvious part and the implementation must not "tidy" them away: the guard scans `BACKLOG-archive.md` (`_metaLedgerReferentialIntegrity.test.ts:57`), so an archived entry's body still counts as a citation, and the ids remain heading-less body bullets there — still dangling by the guard's definition. The guard's dead-row ratchet (`_metaLedgerReferentialIntegrity.test.ts:316-322`) fires only when an id is cited **nowhere**, which is not the case here. Their reason strings are refreshed to name the archive as the citing file instead of `BACKLOG.md`.
+**The three `KNOWN_DANGLING` rows stay** (`tests/docs/_metaLedgerReferentialIntegrity.test.ts:108-113`). This is the non-obvious part and the implementation must not "tidy" them away: the guard scans `BACKLOG-archive.md` (`_metaLedgerReferentialIntegrity.test.ts:57`), so an archived entry's body still counts as a citation, and the ids remain heading-less body bullets there — still dangling by the guard's definition. The guard's dead-row ratchet (`_metaLedgerReferentialIntegrity.test.ts:316-322`) fires only when an id is cited **nowhere**, which is not the case here. Their reason strings keep naming `BACKLOG.md`: `BL-LEDGER-GUARD-BODY-DEFINED-IDS` stays OPEN there and cites all three (`BACKLOG.md:84`), so `BACKLOG.md` remains a citing file after the parent archives. The corpus form for a multi-file citation is `"cited in BACKLOG.md +1 more"` (`tests/docs/_metaLedgerReferentialIntegrity.test.ts:104`), which is what these rows become.
 
 **`BL-LEDGER-GUARD-BODY-DEFINED-IDS` keeps all eight ids.** An earlier draft of this spec dropped the three from its enumeration on the theory that the entry tracks body-defined ids of *open* parents. It does not say that. Its contract is a body-leading bullet inside a parent whose own heading resolves (`BACKLOG.md:75-86`), and an archived parent's heading resolves through the same scanned ledger set — so the three ids remain exactly the examples the future body-definition guard will have to understand. Narrowing that entry to five would quietly shrink its documented scope while its actual work stayed the same size.
 
@@ -631,7 +648,7 @@ Each names a branch a previous round proved could replace a per-surface region. 
 
 **Real-browser assertion (mandatory, and the only proof of §3.5.1).** jsdom enforces neither `inert` nor `aria-hidden` (`components/admin/review/ReviewModalShell.tsx:176`), and Testing Library ignores `aria-hidden` when querying, so every test above stays green even if the region is hidden from assistive technology. A Playwright spec must:
 
-1. Open the published review modal on a seeded show whose feed has an undoable row.
+1. In the EXISTING spec `tests/e2e/published-review-modal.crew-actions.spec.ts` (a new spec file would never run: `playwright.config.ts:79` matches by an explicit filename regex), open the published review modal on a seeded show whose feed has an undoable row, using that suite's existing seed and modal-open helpers.
 2. Assert **`dialog-undo-status`** resolves and is not `aria-hidden` while the modal is open — `expect(page.getByTestId("dialog-undo-status")).toBeAttached()` plus an explicit check that no ancestor carries `aria-hidden="true"` or `inert`. Target the dialog id, not the layout one: under nearest-provider resolution a modal undo writes only to the dialog channel, so asserting on `admin-undo-status` would assert on a region that correctly stays empty.
 3. Click Undo and assert the announcement text lands in `dialog-undo-status`, **and** that `admin-undo-status` is still empty. The second half is what proves the nearest-provider wiring rather than merely that something announced somewhere.
 
