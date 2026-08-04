@@ -105,7 +105,7 @@ describe("LoadingShell no-JavaScript notice", () => {
     expect(text).not.toMatch(/[A-Z]{2,}_[A-Z0-9_]+/);
   });
 
-  it("gives the notice its own gutter and width cap (most routes pad inside the hidden half)", () => {
+  it("gives the notice its own gutter and width cap (the crew route supplies none)", () => {
     const { noscriptInner } = renderShell();
     const notice = must(noscriptInner.querySelector(NOTICE), "the notice");
     const gutter = notice.parentElement;
@@ -141,6 +141,23 @@ describe("LoadingShell no-JavaScript notice", () => {
     const notice = must(noscriptInner.querySelector(NOTICE), "the notice");
     expect(notice.contains(must(noscriptInner.querySelector("h1"), "the heading"))).toBe(true);
     expect(notice.contains(must(noscriptInner.querySelector("p"), "the body"))).toBe(true);
+  });
+
+  it("leaves the wrapper intrinsically visible (a `hidden` attr would pass everything else)", () => {
+    const { outer } = renderShell();
+    const wrapper = must(
+      outer.querySelector("[data-loading-shell-content]"),
+      "the content wrapper",
+    );
+    // Exactly one attribute, and it is the hook itself. Anything else on this
+    // element -- `hidden`, `class="hidden"`, `style="display:none"` -- would
+    // break the JavaScript-ENABLED loading path on all nine routes while every
+    // other assertion here and all four e2e cases stayed green, because they
+    // check the notice and the no-JS branch, never this element's visibility.
+    expect(Array.from(wrapper.attributes).map((a) => a.name)).toEqual([
+      "data-loading-shell-content",
+    ]);
+    expect(wrapper.getAttribute("data-loading-shell-content")).toBe("");
   });
 
   it("serializes the wrapper attribute as the empty string, not the bare-JSX true", () => {
