@@ -1618,12 +1618,15 @@ class PostgresPipelineTx implements SyncPipelineTx {
     ]);
   }
 
-  async renameCrewMember(showId: string, removedName: string, addedName: string) {
+  async renameCrewMember(showId: string, removedName: string, addedName: string): Promise<boolean> {
     // Identity-preserving rename (spec 2026-07-10 §3.4): guarded, idempotent, at-most-one-row.
     // The NOT EXISTS makes a target-name collision or a re-run a no-op instead of a
     // unique (show_id, name) violation; the subsequent upsertCrewMembers refreshes every parsed
     // field on the renamed row. Runs on the already-locked show tx (no new lock holder).
-    await this.rows(
+    // The `returning id` exists only to make the rowcount observable: this.rows types its result
+    // as T[], so rows.length is the portable test and does not depend on postgres.js's .count
+    // surviving the helper's cast. The zero-row case stays a RATIFIED no-op -- never an error.
+    const rows = await this.rows(
       `
         update public.crew_members
            set name = $3
@@ -1631,9 +1634,11 @@ class PostgresPipelineTx implements SyncPipelineTx {
            and not exists (
              select 1 from public.crew_members where show_id = $1 and name = $3
            )
+        returning id
       `,
       [showId, removedName, addedName],
     );
+    return rows.length === 1;
   }
 
   async upsertCrewMembers(showId: string, members: ParseResult["crewMembers"]) {

@@ -121,6 +121,7 @@ export function spyTx(): SpyTx {
     },
     async renameCrewMember(_id: string, removedName: string, addedName: string) {
       tx.ops.push(`renameCrewMember:${removedName}→${addedName}`);
+      return true;
     },
     async upsertCrewMembers() {
       tx.ops.push("upsertCrewMembers");

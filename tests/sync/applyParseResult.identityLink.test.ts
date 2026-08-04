@@ -31,6 +31,8 @@ function makeTx() {
     }),
     renameCrewMember: vi.fn(async (_showId: string, removedName: string, addedName: string) => {
       ops.push(`renameCrewMember:${removedName}→${addedName}`);
+      // Default models a rename that LANDED; per-test overrides use mockResolvedValue(false).
+      return true;
     }),
     provisionAddedCrewAuth: vi.fn(),
     revokeRemovedCrewAuth: vi.fn(),

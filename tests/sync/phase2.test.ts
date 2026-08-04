@@ -205,9 +205,14 @@ class FakePhase2Tx {
   async renameCrewMember(showId: string, removedName: string, addedName: string) {
     this.operations.push(`renameCrewMember:${showId}:${removedName}→${addedName}`);
     const show = [...this.shows.values()].find((row) => row.id === showId);
-    if (show) {
-      show.crewNames = show.crewNames.map((name) => (name === removedName ? addedName : name));
+    // Mirror the production guard rather than hardcoding true: the real SQL matches zero rows when
+    // the source is absent or the target name is taken. A fake that always claims it landed would
+    // make every downstream landed/unlanded assertion tautological.
+    if (!show || !show.crewNames.includes(removedName) || show.crewNames.includes(addedName)) {
+      return false;
     }
+    show.crewNames = show.crewNames.map((name) => (name === removedName ? addedName : name));
+    return true;
   }
 
   async upsertCrewMembers(showId: string, members: CrewMemberRow[]) {

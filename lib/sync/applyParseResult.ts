@@ -35,7 +35,9 @@ export type ApplyParseResultTx = {
   // Identity-preserving rename (spec 2026-07-10 §3.4): guarded in-place UPDATE of crew_members.name
   // so the row's id (the picker cookie key) survives a classified rename. Idempotent, at-most-one
   // row; a target-name collision or missing source is a silent no-op (fail-safe delete+insert).
-  renameCrewMember(showId: string, removedName: string, addedName: string): Promise<void>;
+  // Returns whether the guarded update actually renamed a row -- the no-op is RATIFIED (never an
+  // error), but callers must be able to observe it so the notice and feed can report what landed.
+  renameCrewMember(showId: string, removedName: string, addedName: string): Promise<boolean>;
   provisionAddedCrewAuth(showId: string, names: string[]): Promise<void>;
   revokeRemovedCrewAuth(showId: string, names: string[]): Promise<void>;
   replaceHotelReservations(showId: string, rows: ParseResult["hotelReservations"]): Promise<void>;

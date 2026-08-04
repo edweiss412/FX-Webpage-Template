@@ -63,7 +63,10 @@ describe("sync preserves selections_reset_at", () => {
   test("the sync UPSERT column list does NOT include selections_reset_at (source guard)", () => {
     const src = readFileSync(join(process.cwd(), "lib/sync/runScheduledCronSync.ts"), "utf8");
     // Isolate the upsertCrewMembers do-update block and assert the marker is absent from it.
-    const upsertIdx = src.indexOf("upsertCrewMembers");
+    // Anchor on the METHOD, not the bare identifier: the first textual occurrence of
+    // "upsertCrewMembers" is a mention inside renameCrewMember's comment, so the bare form measured
+    // its fixed-width window from a point that drifts whenever the PRECEDING method is edited.
+    const upsertIdx = src.indexOf("async upsertCrewMembers");
     expect(upsertIdx).toBeGreaterThan(-1);
     const block = src.slice(upsertIdx, upsertIdx + 1200);
     expect(block).toMatch(/on conflict \(show_id, name\)/);

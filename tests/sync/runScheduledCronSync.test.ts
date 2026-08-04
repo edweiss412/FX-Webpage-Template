@@ -409,6 +409,7 @@ function tx(): PipelineTx {
     },
     async renameCrewMember() {
       this.operations.push("renameCrewMember");
+      return true;
     },
     async upsertCrewMembers() {
       this.operations.push("upsertCrewMembers");

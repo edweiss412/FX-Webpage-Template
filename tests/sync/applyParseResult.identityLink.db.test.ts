@@ -86,6 +86,43 @@ describe("renameCrewMember (production tx) — guarded in-place rename", () => {
       expect(rows.map((r) => [r.name, r.id])).toEqual([["Solo", seeded.id]]);
     });
   });
+
+  // The no-op above is RATIFIED (never an error) — these pin that it is also OBSERVABLE, so a pair
+  // that clears every loop guard and still matches zero rows can be reported as unlanded rather
+  // than silently described as a rename that happened.
+  it("renameCrewMember returns true when the guarded update renames a row", async () => {
+    await inRollback(async (tx) => {
+      const { showId } = await seedShow(tx);
+      await seedCrew(tx, showId, crew("Old"));
+      const landed = await makeSyncPipelineTx(tx as never).renameCrewMember(showId, "Old", "New");
+      expect(landed).toBe(true);
+    });
+  });
+
+  it("renameCrewMember returns false on a target-name collision (still no-op, never throws)", async () => {
+    await inRollback(async (tx) => {
+      const { showId } = await seedShow(tx);
+      await seedCrew(tx, showId, crew("Old"));
+      await seedCrew(tx, showId, crew("New"));
+      const landed = await makeSyncPipelineTx(tx as never).renameCrewMember(showId, "Old", "New");
+      expect(landed).toBe(false);
+      const rows = await readCrew(tx, showId);
+      expect(rows.map((r) => r.name).sort()).toEqual(["New", "Old"]);
+    });
+  });
+
+  it("renameCrewMember returns false when the source name is absent", async () => {
+    await inRollback(async (tx) => {
+      const { showId } = await seedShow(tx);
+      await seedCrew(tx, showId, crew("Other"));
+      const landed = await makeSyncPipelineTx(tx as never).renameCrewMember(
+        showId,
+        "Missing",
+        "New",
+      );
+      expect(landed).toBe(false);
+    });
+  });
 });
 
 describe("identity-link apply — held-name skip guard (single home)", () => {
