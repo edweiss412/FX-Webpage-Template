@@ -67,6 +67,16 @@ describe("identity_hold transition audit — source tier", () => {
     expect(inboxSrc).not.toContain("<CollapsePanel");
   });
 
+  it("focus-ring offset matches the CARD surface, not the page background (DESIGN.md §15)", () => {
+    // The island renders inside a bg-surface card, so ring-offset-surface. The
+    // IgnoredSheetsDisclosure precedent this component is modeled on uses
+    // ring-offset-bg because it sits on the page background — copying that
+    // token draws a 2px page-colored gap on top of the card, visibly wrong in
+    // dark mode. The card's own footer link already offsets to surface.
+    expect(islandSrc).toContain("focus-visible:ring-offset-surface");
+    expect(islandSrc).not.toContain("focus-visible:ring-offset-bg");
+  });
+
   it("island root carries no gap utility (collapsed track would keep a parent gap visible)", () => {
     // The root element is the first JSX tag of the returned tree.
     const rootMatch = islandSrc.match(/<div className="([^"]*)"/);

@@ -774,7 +774,19 @@ Thread `identityHolds`, `totalCounts.identityHolds`, `cap: ingestions.length + s
 
 ## 12. Closeout marker
 
-impeccable-gate: critique=<RAN|RAN-DEGRADED> audit=<RAN|RAN-DEGRADED> p0=<int> p1=<int> dispositions=<recorded|none>
+impeccable-gate: critique=RAN-DEGRADED audit=RAN-DEGRADED p0=0 p1=1 dispositions=recorded
+
+**Run provenance (both halves DEGRADED, honestly labelled).** Assessment A (design review) and Assessment B (detector evidence) were dispatched as isolated sub-agents per the critique contract, and the audit as a third; none returned a report. The substantive work was therefore completed in-context, and the evidence tiers were re-run directly rather than asserted: `detect.mjs --json` over `components/admin/NeedsAttentionInbox.tsx`, `components/admin/IdentityHoldDisclosure.tsx`, and `components/admin/NeedsAttentionSummaryCard.tsx` returned `[]` (exit 0, zero findings), and the repo's mechanical gates (em-dash ban over user-visible copy, hex-color ban, 44px tap floor) came back clean. Browser visualization was NOT attempted and is NOT claimed: the surface is auth-gated admin UI with no unauthenticated URL. Critique snapshot: `.impeccable/critique/2026-08-04T04-52-50Z__components-admin-needsattentioninbox-tsx.md` (Design Health 35/40).
+
+**Findings and dispositions.**
+
+| Sev | Finding | Disposition |
+| --- | --- | --- |
+| P1 | `IdentityHoldDisclosure`'s toggle used `focus-visible:ring-offset-bg`, copied from the `IgnoredSheetsDisclosure` precedent. That disclosure sits on the page background; this one sits inside a `bg-surface` card, so a focused toggle drew a 2px page-coloured gap on top of the card (visibly wrong in dark mode, where `bg` and `surface` diverge). DESIGN.md §15 requires the offset to match the surrounding container, and the same card's footer link (`reviewLinkClass`) already offsets to `surface`. | FIXED — `focus-visible:ring-offset-surface`, plus a source-tier regression pin in `tests/components/identityHoldTransitionAudit.test.tsx` asserting the correct token is present and the wrong one absent. No deterministic scanner can see this class of finding; it is the invariant-8 gate earning its keep. |
+| P2 | `identity_hold` labels its footer link `Review →` while the sibling `existing_staged` card says `Open show →` for the SAME `/admin?show={slug}` destination. | NOT A DEFECT, no change. The shipped convention is verb-by-INTENT, not verb-by-destination: `sync_problem` routes to the same place and says `Check it →`, while `first_seen` says `Review →` for a different destination. A hold requires an Approve/Reject decision, so `Review` is intent-correct and matches `first_seen`. DESIGN.md §16 sets the same intent-driven precedent for resolve labels. Recorded here so a later reviewer does not re-derive it. |
+| P3 | Summary lines inside the disclosure use index-based React keys (`NeedsAttentionInbox.tsx`). | ACCEPTED as-is. The children are static `<p>` elements with no state or focus to preserve, so a positional reconcile is indistinguishable from a keyed one; the summaries carry no stable id at this layer. |
+
+No P0 findings. No `DEFERRED.md` entry is required: the single P1 was fixed in-branch.
 
 ## Meta-test inventory (declared)
 
