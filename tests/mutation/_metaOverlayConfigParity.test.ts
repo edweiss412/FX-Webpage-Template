@@ -1,43 +1,16 @@
-import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
 import { describe, expect, it, vi } from "vitest";
 
+import { childRun, INERT_TARGET } from "./source/childRun";
+
+import { globToRegExp } from "@/lib/test/serialAudit";
+import vitestConfig from "@/vitest.config";
 import { REPO_ALIAS, TEST_TIMEOUT_MS } from "@/vitest.projects";
 
 const ROOT = join(__dirname, "..", "..");
-const CONFIG = "tests/mutation/source/mutantOverlay.config.ts";
 const ALIAS_FIXTURE = "tests/mutation/source/fixtures/aliasImport.fixture.ts";
-
-/**
- * Run one fixture through the REAL per-mutant overlay config, serving clean
- * source, and return the child's exit code.
- *
- * Exported because the nightly gate reuses it for the slow fixture, and the
- * premise contract reuses it for four fixtures that must FAIL. A fixture that
- * must fail cannot be an ordinary discovered test, so the child's exit code is
- * the only thing that can carry its verdict.
- */
-export function childRun(fixture: string, target: string): number {
-  try {
-    execFileSync("pnpm", ["exec", "vitest", "run", "--config", CONFIG], {
-      cwd: ROOT,
-      stdio: "pipe",
-      env: {
-        ...process.env,
-        VITEST_INCLUDE_MUTATION_HARNESS: "1",
-        MUTATION_ROOT: ROOT,
-        MUTATION_TARGET: join(ROOT, target),
-        MUTATION_MUTANT: join(ROOT, target),
-        MUTATION_SUITE: fixture,
-      },
-    });
-    return 0;
-  } catch (e) {
-    return (e as { status?: number }).status ?? 1;
-  }
-}
 
 describe("the per-mutant config is at parity with the root config", () => {
   it("carries the shared alias and timeouts, not its own literals", async () => {
@@ -66,6 +39,56 @@ describe("the per-mutant config is at parity with the root config", () => {
     // arc exists to close.
     const src = readFileSync(join(ROOT, ALIAS_FIXTURE), "utf8");
     expect(src, 'fixture premise: it still imports through "@/"').toContain('from "@/');
-    expect(childRun(ALIAS_FIXTURE, "tests/mutation/source/operators.ts")).toBe(0);
+    expect(childRun(ROOT, ALIAS_FIXTURE, INERT_TARGET)).toBe(0);
+  });
+});
+
+/**
+ * Fixtures are invisible to discovery and each one has a live owner.
+ *
+ * Both halves matter and neither is checked by anything else. A fixture named
+ * `*.test.ts` would be discovered by the default projects and run on every
+ * merge -- and three of these MUST FAIL, so that would red the suite. A fixture
+ * nobody invokes is dark, which is a guard that cannot fail: this arc's own
+ * subject, one level in.
+ */
+describe("fixtures are never discovered, and every one has a live owner", () => {
+  const FIXTURE_DIR = "tests/mutation/source/fixtures";
+  const files = readdirSync(join(ROOT, FIXTURE_DIR)).map((f) => `${FIXTURE_DIR}/${f}`);
+
+  /** Declared per spec §3.3.2.3. Rows land as their tasks land. */
+  const OWNERS: Record<string, string> = {
+    "aliasImport.fixture.ts": "tests/mutation/_metaOverlayConfigParity.test.ts",
+    "slowTest.fixture.ts": "tests/mutation/guardSurfaces.gate.test.ts",
+  };
+
+  it("has fixtures to reason about", () => {
+    // Non-vacuity: an empty directory satisfies every assertion below.
+    expect(files.length, "premise: there are fixtures on disk").toBeGreaterThan(0);
+  });
+
+  it("resolves zero fixture files in any default project", () => {
+    const projects = (
+      vitestConfig as { test: { projects: { test: { include: string[] } }[] } }
+    ).test.projects;
+    expect(projects.length, "premise: default projects exist to check against").toBeGreaterThan(0);
+    for (const p of projects) {
+      for (const glob of p.test.include) {
+        const re = globToRegExp(glob);
+        expect(
+          files.filter((f) => re.test(f)),
+          `${glob} must not discover fixtures`,
+        ).toEqual([]);
+      }
+    }
+  });
+
+  it("names a live owner for every fixture on disk, and no others", () => {
+    expect(Object.keys(OWNERS).sort()).toEqual(files.map((f) => f.split("/").pop()!).sort());
+    for (const [fixture, owner] of Object.entries(OWNERS)) {
+      expect(readFileSync(join(ROOT, owner), "utf8"), `${owner} must invoke ${fixture}`).toContain(
+        fixture,
+      );
+    }
   });
 });

@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { childRun, INERT_TARGET } from "./source/childRun";
 import { evaluateGate } from "./source/gate";
 import { GUARD_SURFACES } from "./source/registry";
 import { runSurface } from "./source/runner";
@@ -129,3 +130,19 @@ describe.each(GUARD_SURFACES.map((s) => [s.id, s] as const))(
     });
   },
 );
+
+/**
+ * The per-mutant config's timeout is actually in force (guard-premise Task 3).
+ *
+ * Nightly, because the fixture sleeps 5.2s. The merge-gating structural check
+ * in tests/mutation/_metaOverlayConfigParity.test.ts compares the config VALUE
+ * on every merge; this proves the value takes effect, which comparing a number
+ * to a number cannot.
+ */
+describe("the per-mutant config's timeout is in force", () => {
+  it("runs a fixture that outlives vitest's 5000ms default", () => {
+    expect(
+      childRun(root, "tests/mutation/source/fixtures/slowTest.fixture.ts", INERT_TARGET),
+    ).toBe(0);
+  });
+});
