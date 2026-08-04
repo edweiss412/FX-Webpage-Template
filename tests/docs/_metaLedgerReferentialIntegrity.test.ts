@@ -200,6 +200,11 @@ export function isFamilyReference(text: string, end: number, stem: string, defin
  * as dead, and a row whose id becomes real fails as stale.
  */
 const NOT_A_CITATION: Record<string, Record<string, string>> = {
+  "tests/docs/_metaLedgerClaimCollision.test.ts": {
+    "BL-PLANTED-COLLISION": "planted declared claim proving the backstop reads one",
+    "BL-PLANTED-OPEN": "planted OPEN entry proving it does not read one",
+    "BL-PLANTED-DEEP": "planted out-of-window marker, the shape that started this",
+  },
   "scripts/ledger-claims.ts": {
     "BL-A": "usage example in the CLI docstring",
     "BL-B": "usage example in the CLI docstring",
