@@ -200,6 +200,9 @@ export function isFamilyReference(text: string, end: number, stem: string, defin
  * as dead, and a row whose id becomes real fails as stale.
  */
 const NOT_A_CITATION: Record<string, Record<string, string>> = {
+  "tests/scripts/ledgerFields.test.ts": {
+    "BL-PLANT": "planted meta line proving fields parse into separate keys",
+  },
   "docs/superpowers/plans/2026-08-04-ledger-claim-visibility.md": {
     "BL-X": "planted entry id in the Task 3/4 resolver fixtures",
     "BL-Y": "the second planted entry in Task 4's boundary-overlap hunk fixture",
