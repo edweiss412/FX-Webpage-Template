@@ -115,8 +115,9 @@ Both instances are one defect wearing two faces. A guard's assertion has **discr
 - **V2, degenerate truth source.** The expected value is derived from the same source as the actual value, and both collapse together. `truth = 0`, `size = 0`.
 - **V3, sentinel-satisfied comparison.** An absent event is encoded as a sentinel that happens to satisfy the comparison. `indexOf` returns `-1`, and `-1` is less than every real index, so an ordering assertion holds when the first event never occurred (§1.4.1).
 - **V4, premise for a mechanism since refactored away.** The assertion still guards a precondition, but the thing it was a precondition *for* no longer runs. `guardSurfaces.gate.test.ts:120` asserts a control mutation "applies" to a `broken` value the control run never receives (§1.4).
+- **V5, the assertion never executes.** Not that it fails to discriminate — that it never runs at all, in exactly the case it exists for. `test.each([])` registers no case, so a premise in its callback is unreachable precisely when the producer is degenerate (§3.3.2.2). This one surfaced *inside the mechanism this spec proposes*, which is the strongest available evidence that the class is easy to re-enter while actively looking for it.
 
-Four faces, one defect: the condition under which the assertion has discriminating power is unstated, and nothing re-checks it when the surroundings move.
+Five faces, one defect: the condition under which the assertion has discriminating power is unstated or unreachable, and nothing re-checks it when the surroundings move.
 
 They are also not four separate mechanisms to build. V1's instance read the environment (it spawned the CLI against the live checkout), V2's read git, and V3's is caught by the mutation gate the moment its surface is enrolled. V4 is caught by making the control executable (§3.2.1).
 
@@ -292,6 +293,26 @@ Four fixtures pin the traversal, and they are the ones that matter most in §3.3
 
 Deliberately **excluded**, stated so review does not re-derive it: `node:fs` reads of a tracked path are byte-identical in every environment, and the throwaway-repository construction that is this spec's recommended *cure* is built from `mkdtempSync`/`rmSync` — classifying it as a hazard would tax the fix; wall-clock is already pinned by the suites' `NOW` constant; unit tests reach no network.
 
+#### 3.3.2.2 A premise must execute unconditionally, or it is the very thing this spec exists to stop
+
+Spec R8 found the sharpest defect in this document, and it is worth stating as a rule rather than as a patch, because the mechanism had reproduced the exact class it was built to catch.
+
+`test.each(producer())(…, cb => { premise(…) })` places the premise inside the callback. Vitest registers `.each` cases by iterating the producer's result, so when an environment-derived producer returns `[]`, **no case is registered and the callback never runs** — in precisely the degenerate environment the premise exists to detect. If the file holds any other passing test, the suite is green. Probed:
+
+```
+test.each(producer())(…)   // producer returns []
+  + one unrelated passing test in the same file
+→ Test Files 1 passed (1) · Tests 1 passed (1)
+```
+
+The callback body threw unconditionally and never executed. A premise that cannot run is a guard that cannot fail, which is this spec's subject.
+
+**The rule, stated generally rather than for `.each`:**
+
+> A premise must execute **unconditionally relative to the assertion it is a premise for**. It may not sit anywhere whose execution count can be zero when the premise is false — a `.each` callback, a `describe.each` body, a loop body, or a conditional branch.
+
+For an environment-derived `.each`, that means the premise belongs in the enclosing scope, evaluated with the producer and before case registration. The checker enforces the placement, and AC-8b proves it by execution rather than by classification: a fixture whose producer returns `[]`, beside a passing test, must make the suite **fail**. Static classification cannot see this, which is why round 8 could raise it against a spec whose static rules were already correct.
+
 #### 3.3.3 The meta-test, and why it cannot pass vacuously
 
 `tests/mutation/_metaPremiseContract.test.ts (new)`, merge-gating, static, DB-free. It walks the enrolled suites' ASTs rather than a hand-written file list, so a newly enrolled surface is covered by default.
@@ -372,6 +393,7 @@ Each of these was settled by probe or by an existing ratification. Reopening one
 | Provenance keys on the declaration-reference graph, not on bodies, modules, or a list of syntactic positions (§3.3.2.1) | spec R3/R4/R5 were three rounds on one vector; `AGENTS.md`'s same-vector rule required re-analysing it whole rather than adding a fourth position | a form outside the declared analyzed list AND probed to occur in this repository or to be reachable by ordinary authoring in it |
 | Symbol-level data-flow analysis is NOT adopted (§3.3.2.1) | spec R6 recommendation, declined; the trajectory is a TypeScript data-flow analyser, and `eval`/computed access/aliasing defeat it anyway | — |
 | A test's extent is its whole call expression, so `.each` producers are inside it (§3.3.2) | spec R7; probed — 120 non-literal `.each` producers in this repository | — |
+| A premise may not sit where its execution count can be zero (§3.3.2.2) | spec R8; probed — `test.each([])` beside one passing test reports `Tests 1 passed (1)` and the callback never runs | — |
 | *Unclassifiable* (recognized, unresolvable, reds) and *undetected* (unrecognized, L-8) are separate categories (§3.3.2.1) | spec R7; conflating them is what made §3.3.3 and §4 disagree | — |
 | The consequence bound is over a closed list of analyzed forms, not a soundness claim (§4) | spec R6; the unbounded promise is what made R3–R6 each a legitimate finding | — |
 
@@ -415,6 +437,7 @@ Each of these was settled by probe or by an existing ratification. Reopening one
 - **AC-8** `tests/mutation/_metaPremiseContract.test.ts (new)` carries one rejection/acceptance fixture pair **per provenance × form cell** of §3.3.2 — for the module provenances: static named, static aliased, static namespace, dynamic destructured; for `process.env`: direct member access, destructured, aliased destructure; plus one hook-mediated pair per provenance — each pair differing in exactly one thing. The required cell list is derived from the `ENVIRONMENT_SOURCES` declaration and asserted to match the fixture set exactly, so a newly declared provenance reds until it brings its own fixtures.
 - **AC-8a** Each form on the closed *unclassifiable* list (§3.3.2.1) has a fixture that is REPORTED and reds, not passed as environment-free. The criterion makes no claim about *undetected* forms, which are L-8 — conflating the two is what made this AC contradict §4 before spec R7.
 - **AC-8b** A `.each` fixture pair: `test.each(<producer reading the environment>)(…)` whose callback references only its parameter must classify as environment-touching, with a pure-producer twin as its foil. The test's extent is the whole call expression (§3.3.2).
+- **AC-8c** **Executable, not static.** A fixture whose environment-derived `.each` producer returns `[]`, placed beside a passing test in the same file, must make the suite FAIL. Probed at spec R8 that it currently passes green — zero cases registered, callback never run — so this criterion is met by running it, never by classification. The checker additionally rejects a premise placed anywhere its execution count can be zero (§3.3.2.2).
 - **AC-9** The meta-test's non-vacuity assertions (§3.3.3, items 1-3) are present and each fails against a corresponding degenerate input; the declared per-suite count map's key set is asserted equal to the enrolled suite set, so a newly enrolled suite fails until it declares its own.
 - **AC-10** Every qualifying test in the two enrolled suites carries a premise or a reasoned exemption. **Two are construction-based repairs and an exemption is not permitted for either**: `tests/scripts/ledgerClaimsCheck.test.ts:508-510` constructs its own corpus, and `tests/scripts/ledgerClaimsCheck.test.ts:393-409` asserts `isShallow()` against a controlled repository covering BOTH values — a throwaway repo for non-shallow and a `--depth=1` `file://` clone of it for shallow — so it discriminates in CI, where it currently does not.
 - **AC-10a** The premise checker computes a cycle-safe fixed point over the declaration-reference graph (§3.3.2.1), with every fixture in that section's table: pure local wrapper, cross-module `node:child_process` wrapper, cross-module `process.env` wrapper importing nothing, two-level same-file chain, module-scope initializer, pure module constant, default-parameter and class-field initializers, and the `reportEnvelope` case that a module-closure rule over-classifies. Every environment-touching fixture has an environment-free foil differing in one thing, so a constant traversal fails in both directions.
