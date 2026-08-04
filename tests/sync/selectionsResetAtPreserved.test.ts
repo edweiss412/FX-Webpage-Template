@@ -9,8 +9,9 @@ import { describe, expect, test } from "vitest";
 // UPSERT (runScheduledCronSync.ts upsertCrewMembers) is column-scoped:
 //   on conflict (show_id, name) do update set email/phone/role/role_flags/date_restriction/
 //   stage_restriction/flight_info
-// so a same-name field change leaves the picker marker intact. (A NAME change is delete+insert
-// and loses the marker — acceptable, and identical to claimed_via_oauth_at; a rename re-stages.)
+// so a same-name field change leaves the picker marker intact. (An UNLINKED name change is
+// delete+insert and loses the marker, identical to claimed_via_oauth_at; an identity-link rename,
+// cron or a staged rename choice per spec 2026-08-03, updates in place and preserves it.)
 
 const databaseUrl =
   process.env.TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
@@ -62,7 +63,10 @@ describe("sync preserves selections_reset_at", () => {
   test("the sync UPSERT column list does NOT include selections_reset_at (source guard)", () => {
     const src = readFileSync(join(process.cwd(), "lib/sync/runScheduledCronSync.ts"), "utf8");
     // Isolate the upsertCrewMembers do-update block and assert the marker is absent from it.
-    const upsertIdx = src.indexOf("upsertCrewMembers");
+    // Anchor on the METHOD, not the bare identifier: the first textual occurrence of
+    // "upsertCrewMembers" is a mention inside renameCrewMember's comment, so the bare form measured
+    // its fixed-width window from a point that drifts whenever the PRECEDING method is edited.
+    const upsertIdx = src.indexOf("async upsertCrewMembers");
     expect(upsertIdx).toBeGreaterThan(-1);
     const block = src.slice(upsertIdx, upsertIdx + 1200);
     expect(block).toMatch(/on conflict \(show_id, name\)/);

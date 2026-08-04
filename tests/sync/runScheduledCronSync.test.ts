@@ -39,6 +39,13 @@ import { resolveUnreadableAlertIfHealed as defaultResolveIfHealed } from "@/lib/
 // tests/log/emitLeadRoleApplied.test.ts). Mocked as a no-op for every other cron test.
 vi.mock("@/lib/log/emitLeadRoleApplied", () => ({ emitLeadRoleApplied: vi.fn() }));
 import { emitLeadRoleApplied as mockEmitLeadRoleApplied } from "@/lib/log/emitLeadRoleApplied";
+// Same per-caller topology for the forensic unlanded-rename emitter — the cron/manual tail is one of
+// its sinks. The event is the ONLY signal an unlanded pair produces, so a dropped propagation hop is
+// fully dark. The emitter's own behavior is unit-tested in tests/log/emitIdentityLinkRenameUnlanded.
+vi.mock("@/lib/log/emitIdentityLinkRenameUnlanded", () => ({
+  emitIdentityLinkRenameUnlanded: vi.fn(),
+}));
+import { emitIdentityLinkRenameUnlanded as mockEmitUnlandedRenames } from "@/lib/log/emitIdentityLinkRenameUnlanded";
 
 type PipelineTx = Phase1Tx &
   Phase2Tx & {
@@ -409,6 +416,7 @@ function tx(): PipelineTx {
     },
     async renameCrewMember() {
       this.operations.push("renameCrewMember");
+      return true;
     },
     async upsertCrewMembers() {
       this.operations.push("upsertCrewMembers");
@@ -911,6 +919,73 @@ describe("processOneFile", () => {
 
     expect(mockEmitLeadRoleApplied).toHaveBeenCalledTimes(1);
     expect(vi.mocked(mockEmitLeadRoleApplied).mock.calls[0]![0]).toEqual(leadNotice);
+  });
+
+  // Unit A sink #1 (cron + manual — both route their apply through processOneFile). Failure mode
+  // caught: a dropped propagation hop between runPhase2's result and the post-commit tail. The
+  // emitter's own unit test passes with EVERY hop broken, and R4 makes this event the only signal an
+  // unlanded pair produces, so a lost field is completely dark.
+  test("an unlanded identity-link pair emits IDENTITY_LINK_RENAME_UNLANDED from the processOneFile tail", async () => {
+    vi.mocked(mockEmitUnlandedRenames).mockClear();
+    const fakeTx = tx();
+    const events: string[] = [];
+    vi.mocked(mockEmitUnlandedRenames).mockImplementationOnce(async () => {
+      events.push("emit:unlanded");
+    });
+    const withShowLock = vi.fn(async (driveFileId, fn) => {
+      events.push("lock:start");
+      const locked = await fn(fakeTx as LockedShowTx<PipelineTx>);
+      events.push("lock:commit");
+      return locked;
+    });
+    const unlanded = [
+      {
+        pair: { removedName: "Old", addedName: "New" },
+        reason: "target_absent" as const,
+        sourceSurvived: false,
+      },
+    ];
+    const syncDeps = deps({
+      withShowLock,
+      upsertAdminAlert: vi.fn(async () => "alert-1"),
+      runPhase2: vi.fn(async (lockedTx: Phase2Tx) => {
+        (lockedTx as PipelineTx).operations.push("runPhase2");
+        return {
+          outcome: "applied" as const,
+          appliedRoleMappings: [],
+          showId: "show-1",
+          unlandedRenames: unlanded,
+        };
+      }),
+    });
+
+    await processOneFile("file-1", "cron", fileMeta("file-1"), syncDeps);
+
+    expect(mockEmitUnlandedRenames).toHaveBeenCalledTimes(1);
+    // The WHOLE list reaches the emitter, with the show + file context the event is keyed on.
+    expect(vi.mocked(mockEmitUnlandedRenames).mock.calls[0]).toEqual([
+      unlanded,
+      { source: "sync.identityLink", showId: "show-1", driveFileId: "file-1" },
+    ]);
+    // POST-COMMIT, outside the advisory-lock tx (invariant 10) — never inside the held lock.
+    expect(events).toEqual(["lock:start", "lock:commit", "emit:unlanded"]);
+  });
+
+  test("an apply with NO unlanded pairs emits no IDENTITY_LINK_RENAME_UNLANDED at all", async () => {
+    vi.mocked(mockEmitUnlandedRenames).mockClear();
+    const fakeTx = tx();
+    const syncDeps = deps({
+      withShowLock: vi.fn(async (_driveFileId, fn) => fn(fakeTx as LockedShowTx<PipelineTx>)),
+      upsertAdminAlert: vi.fn(async () => "alert-1"),
+      runPhase2: vi.fn(async (lockedTx: Phase2Tx) => {
+        (lockedTx as PipelineTx).operations.push("runPhase2");
+        return { outcome: "applied" as const, appliedRoleMappings: [], showId: "show-1" };
+      }),
+    });
+
+    await processOneFile("file-1", "cron", fileMeta("file-1"), syncDeps);
+
+    expect(mockEmitUnlandedRenames).not.toHaveBeenCalled();
   });
 
   test("first-seen auto-publish stamps 24h unpublish token, alerts, and invalidates under the show lock", async () => {

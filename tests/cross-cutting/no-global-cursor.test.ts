@@ -266,7 +266,11 @@ describe("X.4 no-global-cursor audit", () => {
     // CI hygiene: this is a ts-morph AST walk over EVERY project source file, so its cost scales
     // with the codebase. GitHub Actions runners are reliably 3-4x slower than local. The repo has
     // grown materially (parser/timeline features + observability Phase 2), pushing the local walk
-    // to ~18s and the CI walk past the old 45000ms budget (it timed out). 120s restores ~2x headroom
-    // over the slowest observed CI run; bump again (not the audit) if the codebase keeps growing.
-  }, 120000);
+    // to ~18s and the CI walk past the old 45000ms budget (it timed out). 120s restored ~2x headroom
+    // at the time; bump again (not the audit) if the codebase keeps growing.
+    //
+    // 2026-08-04: it kept growing. The walk took 124417ms on CI (run 30883271148, shard 1/8) — just
+    // past the 120s budget — so the budget goes to 240s for the same ~2x headroom the previous bump
+    // was sized for. The audit is unchanged; only its clock is.
+  }, 240000);
 });

@@ -41,6 +41,11 @@ vi.mock("@/lib/log", () => ({ log: logMock }));
 // §3.4 per-caller topology: spy on the durable-event emitter so the staged-apply tail can be
 // asserted to co-emit LEAD_ROLE_APPLIED. No-op mock for every other applyStaged test.
 vi.mock("@/lib/log/emitLeadRoleApplied", () => ({ emitLeadRoleApplied: vi.fn() }));
+// Unit A: same per-caller topology for the forensic unlanded-rename emitter — the dashboard staged
+// apply is one of its post-commit sinks. No-op mock for every other applyStaged test.
+vi.mock("@/lib/log/emitIdentityLinkRenameUnlanded", () => ({
+  emitIdentityLinkRenameUnlanded: vi.fn(),
+}));
 
 const W1 = "11111111-1111-4111-8111-111111111111";
 const W2 = "22222222-2222-4222-8222-222222222222";
@@ -155,7 +160,9 @@ function fakeTx(held = true): FakeTx {
       return { outcome: "updated", showId: "show-1", previousCrewNames: [], priorRunOfShow: null };
     },
     async deleteCrewMembersNotIn() {},
-    async renameCrewMember() {},
+    async renameCrewMember() {
+      return true;
+    },
     async upsertCrewMembers() {},
     async provisionAddedCrewAuth() {},
     async revokeRemovedCrewAuth() {},
@@ -364,6 +371,92 @@ describe("applyStaged live-scope", () => {
 
     expect(emitLeadRoleApplied).toHaveBeenCalledTimes(1);
     expect(vi.mocked(emitLeadRoleApplied).mock.calls[0]![0]).toEqual(leadNotice);
+  });
+
+  // Unit A sink #2 (dashboard staged apply). Failure mode caught: a dropped propagation hop across
+  // the applyStagedCore → applyStaged → live-tail chain. The cron sink passing says nothing about
+  // this one; each carrier is a separate result type.
+  test("an unlanded identity-link pair emits IDENTITY_LINK_RENAME_UNLANDED from the staged tail", async () => {
+    const { emitIdentityLinkRenameUnlanded } =
+      await import("@/lib/log/emitIdentityLinkRenameUnlanded");
+    vi.mocked(emitIdentityLinkRenameUnlanded).mockClear();
+    const tx = fakeTx() as LockedShowTx<FakeTx>;
+    const unlanded = [
+      {
+        pair: { removedName: "Old", addedName: "New" },
+        reason: "name_held" as const,
+        sourceSurvived: true,
+      },
+    ];
+    const syncDeps = deps({
+      withPipelineLock: vi.fn(async (_driveFileId, fn) => fn(tx)),
+      readLivePendingSyncForApply: vi.fn(async () => pending()),
+      readShowForApply: vi.fn(async () => ({
+        showId: "show-1",
+        lastSeenModifiedTime: "2026-05-08T10:00:00.000Z",
+        diagrams: { snapshot_revision_id: "rev-prior" },
+      })),
+      fetchDriveFileMetadata: vi.fn(async () => driveMeta()),
+      runPhase2: vi.fn(async () => ({
+        outcome: "applied" as const,
+        appliedRoleMappings: [],
+        showId: "show-1",
+        unlandedRenames: unlanded,
+      })),
+    });
+
+    const result = await applyStaged(
+      {
+        driveFileId: "drive-file-1",
+        sourceScope: "live",
+        stagedId: "staged-live",
+        reviewerChoices: [],
+        appliedByEmail: "doug@fxav.test",
+      },
+      syncDeps,
+    );
+
+    expect(result).toMatchObject({ outcome: "applied", showId: "show-1" });
+    expect(emitIdentityLinkRenameUnlanded).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(emitIdentityLinkRenameUnlanded).mock.calls[0]).toEqual([
+      unlanded,
+      { source: "sync.identityLink", showId: "show-1", driveFileId: "drive-file-1" },
+    ]);
+  });
+
+  test("a staged apply with NO unlanded pairs emits no IDENTITY_LINK_RENAME_UNLANDED at all", async () => {
+    const { emitIdentityLinkRenameUnlanded } =
+      await import("@/lib/log/emitIdentityLinkRenameUnlanded");
+    vi.mocked(emitIdentityLinkRenameUnlanded).mockClear();
+    const tx = fakeTx() as LockedShowTx<FakeTx>;
+    const syncDeps = deps({
+      withPipelineLock: vi.fn(async (_driveFileId, fn) => fn(tx)),
+      readLivePendingSyncForApply: vi.fn(async () => pending()),
+      readShowForApply: vi.fn(async () => ({
+        showId: "show-1",
+        lastSeenModifiedTime: "2026-05-08T10:00:00.000Z",
+        diagrams: { snapshot_revision_id: "rev-prior" },
+      })),
+      fetchDriveFileMetadata: vi.fn(async () => driveMeta()),
+      runPhase2: vi.fn(async () => ({
+        outcome: "applied" as const,
+        appliedRoleMappings: [],
+        showId: "show-1",
+      })),
+    });
+
+    await applyStaged(
+      {
+        driveFileId: "drive-file-1",
+        sourceScope: "live",
+        stagedId: "staged-live",
+        reviewerChoices: [],
+        appliedByEmail: "doug@fxav.test",
+      },
+      syncDeps,
+    );
+
+    expect(emitIdentityLinkRenameUnlanded).not.toHaveBeenCalled();
   });
 
   test("wrapper aborts live Apply when staged_id changes between Drive verification and locked CAS", async () => {
@@ -1479,6 +1572,72 @@ describe("applyStaged live-scope", () => {
       derivedSideEffects: { revokeFloorForNames: ["Old Person"] },
     });
     expect(syncDeps.bumpReviewerAuthFloors).toHaveBeenCalledWith(tx, "show-1", ["Old Person"]);
+  });
+
+  test("rename-resolved pairs thread identityLinkRenames to runPhase2; independent does not", async () => {
+    const items: TriggeredReviewItem[] = [
+      {
+        id: "mi12",
+        invariant: "MI-12",
+        removed_name: "Bob",
+        added_name: "Robert",
+        email: "bob@test.test",
+      },
+      { id: "mi13", invariant: "MI-13", removed_name: "Sam A", added_name: "Sam B" },
+    ];
+    const tx = fakeTx() as LockedShowTx<FakeTx>;
+    const syncDeps = deps({
+      readLivePendingSyncForApply: vi.fn(async () => pending({ triggeredReviewItems: items })),
+    });
+
+    const result = await applyStaged_unlocked(
+      tx,
+      {
+        driveFileId: "drive-file-1",
+        sourceScope: "live",
+        stagedId: "staged-live",
+        reviewerChoices: [
+          { item_id: "mi12", action: "rename", rename_value: "Robert" },
+          { item_id: "mi13", action: "independent" },
+        ],
+        appliedByEmail: "doug@fxav.test",
+      },
+      syncDeps,
+    );
+
+    expect(result).toMatchObject({ outcome: "applied" });
+    expect(syncDeps.runPhase2).toHaveBeenCalledWith(
+      tx,
+      expect.objectContaining({
+        identityLinkRenames: [{ removedName: "Bob", addedName: "Robert" }],
+      }),
+    );
+  });
+
+  test("no rename choices: runPhase2 args carry NO identityLinkRenames key (length-gated spread)", async () => {
+    const items: TriggeredReviewItem[] = [
+      { id: "mi13", invariant: "MI-13", removed_name: "Sam A", added_name: "Sam B" },
+    ];
+    const tx = fakeTx() as LockedShowTx<FakeTx>;
+    const syncDeps = deps({
+      readLivePendingSyncForApply: vi.fn(async () => pending({ triggeredReviewItems: items })),
+    });
+
+    await applyStaged_unlocked(
+      tx,
+      {
+        driveFileId: "drive-file-1",
+        sourceScope: "live",
+        stagedId: "staged-live",
+        reviewerChoices: [{ item_id: "mi13", action: "independent" }],
+        appliedByEmail: "doug@fxav.test",
+      },
+      syncDeps,
+    );
+
+    const phase2Args = vi.mocked(syncDeps.runPhase2!).mock.calls[0]?.[1];
+    expect(phase2Args).toBeDefined();
+    expect(phase2Args !== undefined && "identityLinkRenames" in phase2Args).toBe(false);
   });
 
   test("DIAGRAMS_EMBEDDED_NONE_FOUND mints an intentionally empty diagram snapshot", async () => {

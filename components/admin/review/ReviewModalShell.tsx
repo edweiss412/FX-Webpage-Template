@@ -34,6 +34,7 @@ import {
   type RefObject,
 } from "react";
 import { createPortal } from "react-dom";
+import { AdminAnnounceProvider } from "@/components/admin/AdminAnnounceProvider";
 import { PopoverHostContext } from "@/components/admin/HoverHelp";
 import { useDialogFocus } from "@/lib/a11y/dialogFocus";
 import { useHasMounted } from "@/lib/a11y/useHasMounted";
@@ -622,41 +623,58 @@ function OpenReviewModalShell({
           {...entranceAttr}
           className="relative flex max-h-[85vh] w-full flex-col items-stretch overflow-clip rounded-t-md bg-bg text-text shadow-(--shadow-tile) sm:max-h-[80vh] sm:max-w-5xl sm:rounded-md"
         >
-          <PopoverHostContext.Provider value={panelRef}>
-            {/* Grab strip — sheet mode only (§9.4). Full-width 44px button; the
+          {/* §3.5.2: the dialog's own undo channel. Content OUTSIDE an
+          aria-modal dialog is excluded from the accessibility tree, and the
+          admin shell is additionally inerted while this modal is open (:180),
+          so the layout channel cannot be relied on to announce from in here.
+          Placement mirrors PopoverHostContext directly below: the shell is the
+          ONE provider site wrapping the entire panel interior. Identifiers are
+          derived from testIdBase because this shell has THREE render sites. */}
+          <AdminAnnounceProvider
+            testId={`${testIdBase}-undo-status`}
+            // Constant, unlike testId, which IS derived. Deriving the label too
+            // would put internal ids (a drive-file id, for Step-3 cards) into a
+            // name a screen reader speaks aloud — worse for the user than the
+            // duplicate it would prevent. The duplicate needs two shells attached
+            // at once, which only Step-3's per-card state allows. Tracked as
+            // DEFERRED (impeccable critique P3).
+            label="Undo updates in this dialog"
+          >
+            <PopoverHostContext.Provider value={panelRef}>
+              {/* Grab strip — sheet mode only (§9.4). Full-width 44px button; the
             visual affordance is the small inner pill. A plain tap (travel ≤
             DRAG_SLOP_PX) closes via the click; a real drag consumes the
             synthesized click (§10). `touch-none` keeps the browser from
             claiming the gesture for scrolling (§11 C5). */}
-            <button
-              ref={grabRef}
-              type="button"
-              data-testid={`${testIdBase}-grab`}
-              aria-label="Drag down or tap to close"
-              onClick={() => {
-                if (dragConsumedClickRef.current) return; // the drag ate this click
-                requestClose();
-              }}
-              onPointerDown={handleGrabPointerDown}
-              onPointerMove={handleGrabPointerMove}
-              onPointerUp={handleGrabPointerEnd}
-              onPointerCancel={handleGrabPointerEnd}
-              className="flex min-h-tap-min w-full shrink-0 touch-none items-center justify-center sm:hidden"
-            >
-              <span aria-hidden="true" className="h-1 w-10 rounded-pill bg-border-strong" />
-            </button>
+              <button
+                ref={grabRef}
+                type="button"
+                data-testid={`${testIdBase}-grab`}
+                aria-label="Drag down or tap to close"
+                onClick={() => {
+                  if (dragConsumedClickRef.current) return; // the drag ate this click
+                  requestClose();
+                }}
+                onPointerDown={handleGrabPointerDown}
+                onPointerMove={handleGrabPointerMove}
+                onPointerUp={handleGrabPointerEnd}
+                onPointerCancel={handleGrabPointerEnd}
+                className="flex min-h-tap-min w-full shrink-0 touch-none items-center justify-center sm:hidden"
+              >
+                <span aria-hidden="true" className="h-1 w-10 rounded-pill bg-border-strong" />
+              </button>
 
-            {/* Header wrapper (consumer content: min-w-0 flex-1 text block +
+              {/* Header wrapper (consumer content: min-w-0 flex-1 text block +
             shrink-0 actions, so a long unbroken title wraps and never pushes
             the chip/close off-screen). */}
-            <header
-              data-testid={`${testIdBase}-header`}
-              className="flex shrink-0 items-start gap-3 border-b border-border bg-surface px-tile-pad py-3 sm:py-4"
-            >
-              {header}
-            </header>
+              <header
+                data-testid={`${testIdBase}-header`}
+                className="flex shrink-0 items-start gap-3 border-b border-border bg-surface px-tile-pad py-3 sm:py-4"
+              >
+                {header}
+              </header>
 
-            {/* Optional sub-header band (modal-header-reconciliation §6.1): a
+              {/* Optional sub-header band (modal-header-reconciliation §6.1): a
             separate control strip below the identity header, with its own
             bottom seam.
 
@@ -676,16 +694,16 @@ function OpenReviewModalShell({
             Omitting it does not fail loudly — `absolute inset-x-0 top-full`
             would silently resolve against the panel (itself `relative`) and
             the overlay would land below the entire modal. */}
-            {subHeader ? (
-              <div
-                data-testid={`${testIdBase}-subheader`}
-                className="relative w-full shrink-0 border-b border-border bg-surface px-tile-pad py-2"
-              >
-                {subHeader}
-              </div>
-            ) : null}
+              {subHeader ? (
+                <div
+                  data-testid={`${testIdBase}-subheader`}
+                  className="relative w-full shrink-0 border-b border-border bg-surface px-tile-pad py-2"
+                >
+                  {subHeader}
+                </div>
+              ) : null}
 
-            {/* Body: `children` mount DIRECTLY in the panel flex column — no shell
+              {/* Body: `children` mount DIRECTLY in the panel flex column — no shell
             wrapper (spec §5). The consumer's surface root IS the body element.
             PopoverHostContext (hoverhelp-smart-position §4.1): the shell is the
             ONE provider site, wrapping the ENTIRE panel interior (grab strip
@@ -693,9 +711,9 @@ function OpenReviewModalShell({
             popovers anywhere in the panel portal into the PANEL, staying
             inside the focus trap / aria-modal / inert subtree while escaping
             the inner scroll pane's clipping. */}
-            {children}
+              {children}
 
-            {/* Footer wrapper — only when the consumer provides one. Sheet-mode
+              {/* Footer wrapper — only when the consumer provides one. Sheet-mode
             bottom padding adds the device safe area so the controls are never
             covered by the iOS home indicator; ≥sm restores the plain token
             padding. `relative` is load-bearing: below sm the RescanSheetButton
@@ -703,15 +721,16 @@ function OpenReviewModalShell({
             `sm:relative` only) so a coded result spans from the footer's left
             edge instead of clipping off-screen at 390px (impeccable audit P1 —
             see RescanSheetButton.tsx). */}
-            {footer != null ? (
-              <footer
-                data-testid={`${testIdBase}-footer`}
-                className="relative flex shrink-0 flex-wrap items-center gap-3 border-t border-border bg-surface px-tile-pad pt-3 pb-[calc(--spacing(3)+env(safe-area-inset-bottom,0))] sm:pb-3"
-              >
-                {footer}
-              </footer>
-            ) : null}
-          </PopoverHostContext.Provider>
+              {footer != null ? (
+                <footer
+                  data-testid={`${testIdBase}-footer`}
+                  className="relative flex shrink-0 flex-wrap items-center gap-3 border-t border-border bg-surface px-tile-pad pt-3 pb-[calc(--spacing(3)+env(safe-area-inset-bottom,0))] sm:pb-3"
+                >
+                  {footer}
+                </footer>
+              ) : null}
+            </PopoverHostContext.Provider>
+          </AdminAnnounceProvider>
         </div>
       </div>
     </ReviewModalCloseContext.Provider>

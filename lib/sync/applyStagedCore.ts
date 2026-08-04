@@ -1,4 +1,5 @@
 import { canonicalize } from "@/lib/email/canonicalize";
+import { computeStagedIdentityLinkRenames } from "@/lib/sync/identityLinkRenames";
 import type { DriveListedFile } from "@/lib/drive/list";
 import type { ParseResult, ParseWarning, TriggeredReviewItem } from "@/lib/parser/types";
 import type { GatedRoleMapping, RoleTokenMapping } from "@/lib/sync/roleMappingOverlay";
@@ -10,6 +11,7 @@ import {
   type Phase2Result,
   type RoleFlagsNotice,
 } from "@/lib/sync/phase2";
+import type { UnlandedRename } from "@/lib/sync/applyParseResult";
 import type { SyncPipelineTx } from "@/lib/sync/runScheduledCronSync";
 import type { PullSheetOverride } from "@/lib/sync/pullSheetOverride";
 import type { UseRawDecision } from "@/lib/sync/useRawOverlay";
@@ -471,6 +473,10 @@ export type ApplyStagedCoreResult =
       syncAuditId: string | null;
       derivedSideEffects: { revokeFloorForNames: string[] };
       roleFlagsNotice?: RoleFlagsNotice;
+      // Unit A: identity-link pairs this apply did NOT land, surfaced to the applyStaged tail for
+      // its post-commit forensic emit. OPTIONAL, mirroring roleFlagsNotice? — absent and [] both
+      // mean "nothing unlanded"; consumers default with `?? []`.
+      unlandedRenames?: UnlandedRename[];
       snapshotRevisionId?: string;
       // §02 (FIX-3 / R16/R17): surface the apply outcome's parse warnings so the staged tail caller
       // (applyStaged.ts) can source sync_log's parse_warnings from coreResult.parseWarnings — the
@@ -550,7 +556,9 @@ export async function applyStagedCore(
   // discards BEFORE any mutation. Reject is only valid against an EXISTING show — the live
   // first-seen reject is INVALID_REVIEWER_ACTION (applyStaged.ts first-seen reject contract).
   // rename/independent/apply take NO dispatch branch: the staged parse applies WHOLESALE for all
-  // three — the per-action difference is ONLY in deriveAuthSideEffects floors + the audit record.
+  // three. Per-action differences: deriveAuthSideEffects floors, the audit record, and (spec
+  // 2026-08-03) rename-resolved MI-12/13/14 pairs threading identityLinkRenames so the apply is
+  // identity-preserving; independent pairs stay remove+add.
   if (validation.choices.some((choice) => choice.action === "reject")) {
     if (!args.show?.showId) {
       return { outcome: "invalid_request", code: INVALID_REVIEWER_ACTION };
@@ -577,6 +585,14 @@ export async function applyStagedCore(
     args.feedPolicy.kind === "choice_aware"
       ? choiceAwareFeedItems(args.triggeredReviewItems, validation.choices)
       : [];
+  // Identity-link renames (spec 2026-08-03 §3.2): a rename-resolved MI-12/13/14 item applies
+  // identity-preserving (in-place UPDATE, same crew_members.id); the reviewer's rename choice is
+  // the vouch. independent stays remove+add (R33-2 feed assertions untouched). Length-gated spread
+  // mirrors the cron producer (runScheduledCronSync).
+  const identityLinkRenames = computeStagedIdentityLinkRenames(
+    args.triggeredReviewItems,
+    validation.choices,
+  );
   const phase2 = await (deps.runPhase2 ?? defaultRunPhase2)(applyTx, {
     driveFileId: args.driveFileId,
     mode: "manual",
@@ -603,6 +619,7 @@ export async function applyStagedCore(
     // all-independent resolution would skip the feed write entirely and the g2 regression's
     // remove+add rows (R33-2 assertion ii) would never be written.
     ...(args.feedPolicy.kind === "choice_aware" ? { notableItems: feedItems } : {}),
+    ...(identityLinkRenames.length > 0 ? { identityLinkRenames } : {}),
     binding: {
       bindingToken: args.stagedModifiedTime,
       modifiedTime: args.stagedModifiedTime,
@@ -666,6 +683,11 @@ export async function applyStagedCore(
     appliedRoleMappings: phase2.appliedRoleMappings,
   };
   if (phase2.roleFlagsNotice) applied.roleFlagsNotice = phase2.roleFlagsNotice;
+  // Unit A: carry the unlanded pairs to the applyStaged tail's post-commit emit (invariant 10 — the
+  // emit is NOT here; this function still runs inside the held show lock). Set only when non-empty.
+  if (phase2.unlandedRenames && phase2.unlandedRenames.length > 0) {
+    applied.unlandedRenames = phase2.unlandedRenames;
+  }
   if (phase2.snapshotRevisionId) applied.snapshotRevisionId = phase2.snapshotRevisionId;
   return applied;
 }

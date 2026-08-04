@@ -15,7 +15,18 @@ const state = vi.hoisted(() => ({
 }));
 
 vi.mock("@/lib/supabase/server", () => ({
-  createSupabaseServiceRoleClient: vi.fn(),
+  // Holds rollup Task 5: the badge now reads sync_holds through its OWN
+  // service-role client by default. A bare vi.fn() resolves to undefined and
+  // collapses the healthy-count and concurrency assertions to infra_error.
+  createSupabaseServiceRoleClient: () => {
+    const holdsChain = {
+      select: () => holdsChain,
+      eq: () => holdsChain,
+      order: () => holdsChain,
+      limit: () => Promise.resolve({ data: [], error: null }),
+    };
+    return { from: () => holdsChain };
+  },
   createSupabaseServerClient: async () => {
     if (state.throwOnCreate) throw new Error("META: client create failed");
     return {

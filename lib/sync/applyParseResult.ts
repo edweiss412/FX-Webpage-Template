@@ -4,6 +4,7 @@ import { agendaDayEmptied } from "@/lib/parser/blocks/agendaWarnings";
 import { attachSourceCellAnchors } from "@/lib/drive/showDayTimeAnchors";
 import { planHoldAwareApply } from "@/lib/sync/holds/holdAwareApply";
 import { readOpenHolds, type HoldPort } from "@/lib/sync/holds/holdPort";
+import type { IdentityLinkRename } from "@/lib/sync/identityLinkRenames";
 import type { UseRawDecision } from "@/lib/sync/useRawOverlay";
 
 // PF38 (resolution #24): the prior-crew snapshot carries id + claimed_via_oauth_at so the
@@ -35,7 +36,9 @@ export type ApplyParseResultTx = {
   // Identity-preserving rename (spec 2026-07-10 §3.4): guarded in-place UPDATE of crew_members.name
   // so the row's id (the picker cookie key) survives a classified rename. Idempotent, at-most-one
   // row; a target-name collision or missing source is a silent no-op (fail-safe delete+insert).
-  renameCrewMember(showId: string, removedName: string, addedName: string): Promise<void>;
+  // Returns whether the guarded update actually renamed a row -- the no-op is RATIFIED (never an
+  // error), but callers must be able to observe it so the notice and feed can report what landed.
+  renameCrewMember(showId: string, removedName: string, addedName: string): Promise<boolean>;
   provisionAddedCrewAuth(showId: string, names: string[]): Promise<void>;
   revokeRemovedCrewAuth(showId: string, names: string[]): Promise<void>;
   replaceHotelReservations(showId: string, rows: ParseResult["hotelReservations"]): Promise<void>;
@@ -95,8 +98,10 @@ export type ApplyParseResultArgs = {
   /**
    * Identity-link renames (spec 2026-07-10 §3.3/§3.4): classified rename pairs to apply as an
    * in-place UPDATE (same crew_members.id) instead of delete+insert. MI-12 pairs always; MI-13/
-   * MI-14 pairs only on the version-bound accepted apply. A skipped/absent pair degrades to
-   * today's delete+insert (fail-safe re-pick, never a wrong identity).
+   * MI-14 pairs only on the version-bound accepted apply (cron), or on the per-item rename
+   * reviewer choice (staged, spec 2026-08-03). A skipped/absent pair falls through to the ordinary
+   * delete+upsert flow; a hold-protected old name is retained, not replaced (fail-safe, never a
+   * wrong identity).
    */
   identityLinkRenames?: Array<{ removedName: string; addedName: string }>;
   // Task 6: KEPT "use raw" decisions from the runPhase2 overlay. Forwarded verbatim to
@@ -112,11 +117,33 @@ function difference(left: string[], right: string[]): string[] {
   return left.filter((value) => !rightSet.has(value));
 }
 
+export type UnlandedRenameReason =
+  | "source_absent"
+  | "target_absent"
+  | "name_held"
+  | "pair_already_consumed"
+  | "rename_no_op";
+
+export type UnlandedRename = {
+  pair: IdentityLinkRename;
+  reason: UnlandedRenameReason;
+  // Whether the SOURCE row survived this apply, i.e. removedName ∈ deleteKeepNames. Decided here
+  // because deleteKeepNames is local to applyParseResult and never leaves it, and a surviving
+  // protected row is absent from appliedCrewMembers -- so no consumer can compute this. The notice's
+  // loss-suppression arm needs a survival test, NOT a reason test: heldNames takes every surviving
+  // hold while protectedNames only fires in specific hold-kind branches, so a held pair whose hold
+  // kind did not delete-protect it DOES lose its row and its loss is real.
+  sourceSurvived: boolean;
+};
+
 export type ApplyParseResultOutcome = {
   // P2-F2: the crew list that ACTUALLY landed in crew_members (post-suppression / post-fold /
   // identity-pinned). The change-log writer must derive crew_added/removed/renamed from THIS, not
   // the raw parse list, so a reservation-suppressed row never gets a phantom auto_apply row.
   appliedCrewMembers: ParseResult["crewMembers"];
+  // The same P2-F2 principle applied to the rename pairs, which were left on the raw path.
+  landedRenames: IdentityLinkRename[];
+  unlandedRenames: UnlandedRename[];
 };
 
 export async function applyParseResult(
@@ -165,21 +192,54 @@ export async function applyParseResult(
   // drop the old-name row and leave nothing to rename. Guards: pair names must exist on their
   // respective sides, never touch hold-protected rows, and consume each name at most once
   // (pairing is one-to-one by construction — invariants.ts pairing cascade — so the consumed-set
-  // is a defensive belt; a skipped pair degrades to today's delete+insert, which is fail-safe).
+  // is a defensive belt; a skipped pair falls through to the ordinary delete+upsert flow (a
+  // hold-protected old name is retained), which is fail-safe).
   const previousNamesSet = new Set(args.snapshot.previousCrewNames);
   const nextNamesSet = new Set(nextCrewNames);
   const consumedRenameNames = new Set<string>();
+  const landedRenames: IdentityLinkRename[] = [];
+  const unlandedRenames: UnlandedRename[] = [];
+  const survived = (name: string): boolean => deleteKeepNames.includes(name);
+  const recordUnlanded = (pair: IdentityLinkRename, reason: UnlandedRenameReason): void => {
+    unlandedRenames.push({ pair, reason, sourceSurvived: survived(pair.removedName) });
+  };
+
   for (const pair of args.identityLinkRenames ?? []) {
-    if (!previousNamesSet.has(pair.removedName)) continue;
-    if (!nextNamesSet.has(pair.addedName)) continue;
-    if (heldNames.has(pair.removedName) || heldNames.has(pair.addedName)) continue;
-    if (deleteProtectedNames.includes(pair.removedName)) continue;
+    if (!previousNamesSet.has(pair.removedName)) {
+      recordUnlanded(pair, "source_absent");
+      continue;
+    }
+    if (!nextNamesSet.has(pair.addedName)) {
+      recordUnlanded(pair, "target_absent");
+      continue;
+    }
+    if (heldNames.has(pair.removedName) || heldNames.has(pair.addedName)) {
+      recordUnlanded(pair, "name_held");
+      continue;
+    }
+    // NOTE: the delete-protected guard below is UNREACHABLE -- every protectedNames entry is a
+    // hold's entity_key and every surviving hold adds that key to heldNames first, so the
+    // name_held guard above always wins. Retained as a belt; deliberately has no reason member.
+    if (deleteProtectedNames.includes(pair.removedName)) {
+      recordUnlanded(pair, "name_held");
+      continue;
+    }
     if (consumedRenameNames.has(pair.removedName) || consumedRenameNames.has(pair.addedName)) {
+      recordUnlanded(pair, "pair_already_consumed");
       continue;
     }
     consumedRenameNames.add(pair.removedName);
     consumedRenameNames.add(pair.addedName);
-    await tx.renameCrewMember(args.snapshot.showId, pair.removedName, pair.addedName);
+    const landed = await tx.renameCrewMember(
+      args.snapshot.showId,
+      pair.removedName,
+      pair.addedName,
+    );
+    if (landed) {
+      landedRenames.push(pair);
+    } else {
+      recordUnlanded(pair, "rename_no_op");
+    }
   }
   await tx.deleteCrewMembersNotIn(args.snapshot.showId, deleteKeepNames);
   await tx.upsertCrewMembers(args.snapshot.showId, crewMembers);
@@ -269,5 +329,7 @@ export async function applyParseResult(
   await tx.deleteLivePendingIngestion(args.driveFileId);
   return {
     appliedCrewMembers,
+    landedRenames,
+    unlandedRenames,
   };
 }

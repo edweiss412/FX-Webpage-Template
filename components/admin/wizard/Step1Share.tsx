@@ -168,7 +168,7 @@ export function Step1Share({ serviceAccountEmail }: Step1ShareProps) {
             >
               <code
                 data-testid="wizard-step1-service-account-email"
-                className="break-all text-sm font-medium tabular-nums text-text-strong sm:flex-1 sm:text-base"
+                className="break-all text-sm font-medium code-value text-text-strong sm:flex-1 sm:text-base"
               >
                 {serviceAccountEmail}
               </code>

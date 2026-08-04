@@ -16,6 +16,7 @@ import {
   applyParseResult,
   type ApplyParseResultTx,
   type PreviousCrewMember,
+  type UnlandedRename,
 } from "@/lib/sync/applyParseResult";
 import { writeMi11Holds, type Mi11Item, type LiveCrewRow } from "@/lib/sync/holds/writeMi11Holds";
 import type { HoldPort } from "@/lib/sync/holds/holdPort";
@@ -131,7 +132,9 @@ export type Phase2Args = {
   /**
    * BL-CREW-RENAME-SILENT-REPLACEMENT (spec §3.3): classified rename pairs the apply must land
    * as identity-preserving in-place renames (same crew_members.id). Computed by the orchestrator
-   * via computeIdentityLinkRenames (MI-12 always; MI-13/14 only on the version-bound accept).
+   * via computeIdentityLinkRenames (MI-12 always; MI-13/14 only on the version-bound accept); the
+   * staged core computes via computeStagedIdentityLinkRenames (per-item rename choice, spec
+   * 2026-08-03).
    */
   identityLinkRenames?: IdentityLinkRename[];
   // "Use the sheet's raw value" decisions read (through normalizeUseRawDecisions) from the
@@ -164,6 +167,11 @@ export type Phase2Result =
       outcome: "applied";
       showId: string;
       roleFlagsNotice?: RoleFlagsNotice;
+      // Unit A: identity-link rename pairs the apply did NOT land, with the reason and whether the
+      // source row survived anyway. The forensic app_event a post-commit sink writes is the ONLY
+      // signal an unlanded pair produces, so this must survive every hop out to that sink. OPTIONAL,
+      // exactly mirroring roleFlagsNotice? above — consumers default with `?? []`.
+      unlandedRenames?: UnlandedRename[];
       snapshotRevisionId?: string;
       // §02 (FIX-3 cross-boundary thread): the post-apply parseResult.warnings (including any
       // AGENDA_DAY_EMPTIED the apply appended). runPhase2 works on LOCAL rebound parseResult copies,
@@ -263,7 +271,12 @@ function capabilityDelta(prior: readonly string[], next: readonly string[]): boo
 function capabilityRoleChangesForNotice(
   previousCrewMembers: ParseResult["crewMembers"] | undefined,
   nextCrewMembers: ParseResult["crewMembers"],
-  identityLinkRenames: readonly IdentityLinkRename[] = [],
+  // Unit A: the two arms take DIFFERENT inputs — see each below. Passing one list to both is a
+  // defect in whichever direction it is done, so they arrive as separate named fields.
+  renames: {
+    landedRenames: readonly IdentityLinkRename[];
+    unlandedRenames: readonly UnlandedRename[];
+  } = { landedRenames: [], unlandedRenames: [] },
 ): Array<{ crew_name: string; prior_flags: string[]; new_flags: string[] }> {
   const previousByName = new Map(
     (previousCrewMembers ?? []).map((member) => [member.name, member]),
@@ -273,10 +286,23 @@ function capabilityRoleChangesForNotice(
   // row so a rename resolves to the real prior — otherwise a capability crew member renamed with
   // UNCHANGED flags is falsely reported as a fresh grant, and a rename that DOES flip a capability
   // would carry the wrong prior_flags.
+  // Arm (a) takes the LANDED pairs only: a requested pair that never landed did NOT carry the prior
+  // row's identity onto the added name, so mapping through it would report the added row's flags
+  // against a stranger's prior.
   const priorNameForAdded = new Map(
-    identityLinkRenames.map((rename) => [rename.addedName, rename.removedName]),
+    renames.landedRenames.map((rename) => [rename.addedName, rename.removedName]),
   );
-  const renamedAway = new Set(identityLinkRenames.map((rename) => rename.removedName));
+  // Arm (c) suppresses a loss when the prior row's absence from appliedCrewMembers is explained by
+  // something other than a real loss: the rename landed (the successor carries the capability, caught
+  // by arm (a)), OR the source row survived this apply without being in the applied list — held and
+  // delete-protected rows are exactly that shape. This is a SURVIVAL test, NOT a reason test: a pair
+  // skipped for `name_held` whose hold kind did not delete-protect it DOES lose its row, and that
+  // loss is real. Requested-but-unlanded pairs must NOT appear here at all, or a genuine loss (source
+  // deleted because its rename target was hold-suppressed) stays silently suppressed.
+  const renamedAway = new Set<string>([
+    ...renames.landedRenames.map((rename) => rename.removedName),
+    ...renames.unlandedRenames.filter((u) => u.sourceSurvived).map((u) => u.pair.removedName),
+  ]);
   const nextByName = new Set(nextCrewMembers.map((member) => member.name));
   const changes: Array<{ crew_name: string; prior_flags: string[]; new_flags: string[] }> = [];
 
@@ -313,9 +339,10 @@ function capabilityRoleChangesForNotice(
 
   // Arm (c) — removed-member capability loss: a member present in the prior roster but NOT in the
   // applied roster (and NOT identity-link-renamed away) whose prior flags held a capability has lost
-  // that access. Auditing the loss is path-independent (esp. the staged remove+add of an
-  // identity-link rename, where args.identityLinkRenames is empty so the removed old name is a
-  // genuine removal here). Cron identity-preserving renames are EXCLUDED (renamedAway) so no phantom
+  // that access. Auditing the loss is path-independent (esp. a staged `independent` resolution,
+  // which stays remove+add with empty `identityLinkRenames`; a staged rename-resolved pair threads
+  // its link since spec 2026-08-03 and is excluded here, same as cron). Cron identity-preserving
+  // renames are EXCLUDED (renamedAway) so no phantom
   // loss fires — the successor's capability, if any, is caught by arm (a) above via the rename map.
   for (const priorMember of previousCrewMembers ?? []) {
     if (nextByName.has(priorMember.name)) continue;
@@ -541,6 +568,9 @@ export async function runPhase2(tx: Phase2Tx, args: Phase2Args): Promise<Phase2R
         // raw parse — a reservation-suppressed row never landed in crew_members, so it must not
         // get a phantom auto_apply crew_added feed row.
         nextCrewMembers: applyOutcome.appliedCrewMembers,
+        // The same P2-F2 principle for the rename pairs: crew_renamed follows what the apply
+        // LANDED, never the raw requested pairs (no accept gate, no suppression check).
+        landedRenames: applyOutcome.landedRenames,
         triggeredItems: args.notableItems ?? [],
         heldNames,
       }),
@@ -583,7 +613,12 @@ export async function runPhase2(tx: Phase2Tx, args: Phase2Args): Promise<Phase2R
   const roleFlagChanges = capabilityRoleChangesForNotice(
     snapshot.previousCrewMembers,
     applyOutcome.appliedCrewMembers,
-    args.identityLinkRenames ?? [],
+    // P2-F2 applied to the pairs: the notice describes what the apply LANDED, never what was
+    // requested. The two arms consume these differently — see capabilityRoleChangesForNotice.
+    {
+      landedRenames: applyOutcome.landedRenames,
+      unlandedRenames: applyOutcome.unlandedRenames,
+    },
   );
   const roleFlagsNotice =
     roleFlagChanges.length > 0
@@ -617,5 +652,11 @@ export async function runPhase2(tx: Phase2Tx, args: Phase2Args): Promise<Phase2R
   };
   if (snapshotRevisionId) applied.snapshotRevisionId = snapshotRevisionId;
   if (roleFlagsNotice) applied.roleFlagsNotice = roleFlagsNotice;
+  // Unit A: carry the pairs the apply did NOT land out to the post-commit sinks that emit the
+  // forensic event. Set only when non-empty, mirroring roleFlagsNotice — absent and [] both mean
+  // "nothing unlanded", and consumers default with `?? []`.
+  if (applyOutcome.unlandedRenames.length > 0) {
+    applied.unlandedRenames = applyOutcome.unlandedRenames;
+  }
   return applied;
 }

@@ -31,9 +31,11 @@ export const REQUIRED = {
   "alert-action-links.spec.ts": 4,
   // 3 SFS-1 cases + 3 seeded agenda-fold cases.
   "stage-restricted-crew-schedule.spec.ts": 6,
-  // Three routes: /admin behind signInAs, the public /auth/sign-in, and a seeded
-  // crew route. All three, or the oracle is dark on whichever tree stopped binding.
-  "font-binding.spec.ts": 4,
+  // Three binding routes (/admin behind signInAs, the public /auth/sign-in, a
+  // seeded crew route) + the measured one-line row + six feature-rendering cases
+  // added by BL-INTER-NUMERAL-DISAMBIGUATION. All ten, or the oracle is dark on
+  // whichever tree stopped binding or whichever feature stopped rendering.
+  "font-binding.spec.ts": 10,
 };
 
 // Importable table, runnable script. The wiring guard imports REQUIRED to pin these thresholds

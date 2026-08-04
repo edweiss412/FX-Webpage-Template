@@ -10,7 +10,7 @@
 //      staleness token (or re-derive it) → the Phase 2 retarget guard is vacuous.
 import "@testing-library/jest-dom/vitest";
 import { afterEach, expect, it, vi } from "vitest";
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { Mi11GateActions } from "@/components/admin/Mi11GateActions";
 
 afterEach(cleanup);
@@ -92,7 +92,12 @@ it("surfaces an IDENTITY_WOULD_COLLIDE conflict POST-SUBMIT from the action resu
   });
   // ErrorExplainer renders the catalog copy for the code; the raw code never
   // appears in the DOM (invariant 5).
-  expect(await screen.findByTestId("mi11-gate-result")).toBeInTheDocument();
+  // This file had NO catalog-copy assertion: its only positive evidence a
+  // failure rendered was the node's presence, which is now always true. Without
+  // this, converting the presence check would delete the file's only proof.
+  expect(
+    within(await screen.findByTestId("mi11-gate-result")).getByTestId("error-explainer-message"),
+  ).toHaveTextContent(/clashing with another crew member/i);
   expect(screen.queryByText("IDENTITY_WOULD_COLLIDE")).toBeNull();
 });
 
@@ -249,13 +254,15 @@ it("a pending then successful Reject clears a prior Approve failure (no fallback
     fireEvent.click(screen.getByRole("button", { name: /reject change for alice/i }));
   });
   expect(screen.queryByText(/clashing with another crew member/i)).toBeNull();
-  expect(screen.queryByTestId("mi11-gate-result")).toBeNull();
+  // Always-mounted live region: present but EMPTY is the no-failure state.
+  expect(screen.getByTestId("mi11-gate-result")).toHaveTextContent("");
   // Reject SUCCEEDS → still no error (page revalidates).
   await act(async () => {
     d.resolve({ ok: true });
   });
   expect(screen.queryByText(/clashing with another crew member/i)).toBeNull();
-  expect(screen.queryByTestId("mi11-gate-result")).toBeNull();
+  // Always-mounted live region: present but EMPTY is the no-failure state.
+  expect(screen.getByTestId("mi11-gate-result")).toHaveTextContent("");
 });
 
 it("a pending then successful Approve clears a prior Reject failure (no fallback) (P6-F4 reverse)", async () => {
@@ -279,10 +286,12 @@ it("a pending then successful Approve clears a prior Reject failure (no fallback
     fireEvent.click(screen.getByRole("button", { name: /approve change for alice/i }));
   });
   expect(screen.queryByText(/the sheet changed since this was queued/i)).toBeNull();
-  expect(screen.queryByTestId("mi11-gate-result")).toBeNull();
+  // Always-mounted live region: present but EMPTY is the no-failure state.
+  expect(screen.getByTestId("mi11-gate-result")).toHaveTextContent("");
   await act(async () => {
     d.resolve({ ok: true });
   });
   expect(screen.queryByText(/the sheet changed since this was queued/i)).toBeNull();
-  expect(screen.queryByTestId("mi11-gate-result")).toBeNull();
+  // Always-mounted live region: present but EMPTY is the no-failure state.
+  expect(screen.getByTestId("mi11-gate-result")).toHaveTextContent("");
 });

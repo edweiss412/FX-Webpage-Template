@@ -1,7 +1,8 @@
 /**
  * Phase 4 Task 4.2 — phantom-column + type-correctness static guard for the undo_change migration.
  *
- * Reads the migration SQL and asserts:
+ * Reads the SHIPPED undo_change body — resolved by scanning supabase/migrations/ for the last
+ * CREATE OR REPLACE, never by naming a file — and asserts:
  *  - every column referenced against public.crew_members is a REAL column (no `restrictions`, etc.)
  *  - the restore EXPRESSION is type-correct per the live column type (PF6 / resolution #13):
  *    id::uuid, claimed_via_oauth_at::timestamptz (both restored — PF38), role_flags via
@@ -11,12 +12,15 @@
  * Catches a runtime-only failure (`column "restrictions" does not exist`, a jsonb/text mismatch, or
  * a fresh-uuid/NULL-claim restore that silently logs the viewer out) before the real-PG test runs.
  */
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-const MIGRATION = join(process.cwd(), "supabase/migrations/20260608000003_undo_change_rpc.sql");
+import { shippedFunctionBody } from "./_sqlFunctionBodies";
+
+const MIGRATIONS_DIR = join(process.cwd(), "supabase/migrations");
+const DEFINES_UNDO_CHANGE = /create\s+or\s+replace\s+function\s+public\.undo_change/i;
 
 // The REAL crew_members column set (verified against the live schema — NO `restrictions`).
 const REAL_CREW_COLUMNS = new Set([
@@ -32,15 +36,81 @@ const REAL_CREW_COLUMNS = new Set([
   "flight_info",
   "last_changed_at",
   "claimed_via_oauth_at",
+  "selections_reset_at",
 ]);
 
+// Columns the restore MUST carry. REAL_CREW_COLUMNS is only an ALLOWLIST — it asserts that every
+// INSERT column is real, so adding an entry there can never make an OMISSION fail. Presence is
+// asserted here and nowhere else, which is why a dropped column has to land in BOTH sets.
+//   id + claimed_via_oauth_at + name + email — identity continuity (PF38).
+//   selections_reset_at — §3.6: an undo that drops the picker-invalidation marker revalidates
+//   cookies the admin deliberately invalidated.
+const REQUIRED_INSERT_COLUMNS = [
+  "id",
+  "claimed_via_oauth_at",
+  "name",
+  "email",
+  "selections_reset_at",
+];
+
+/**
+ * Resolve the LIVE undo_change body instead of naming a file. This guard spent its life pointed at
+ * 20260608000003_undo_change_rpc.sql, which two later CREATE OR REPLACEs had already superseded — so
+ * it asserted against a body no database runs, and the shipped drop passed by construction.
+ * Migrations are timestamp-prefixed, so lexicographic order IS apply order and the LAST file that
+ * redefines undo_change is the one in the catalog.
+ */
 function sql(): string {
-  return readFileSync(MIGRATION, "utf8");
+  const defining = readdirSync(MIGRATIONS_DIR)
+    .filter((file) => file.endsWith(".sql"))
+    .sort()
+    .filter((file) => DEFINES_UNDO_CHANGE.test(readFileSync(join(MIGRATIONS_DIR, file), "utf8")));
+  // Non-empty self-check: a resolution that silently finds nothing would make every assertion below
+  // vacuous rather than red.
+  expect(defining.length, "no migration defines undo_change").toBeGreaterThan(0);
+  return readFileSync(join(MIGRATIONS_DIR, defining[defining.length - 1]!), "utf8");
+}
+
+/**
+ * The shipped undo_change FUNCTION BODY — not its whole migration.
+ *
+ * The file-level resolution above fixed the guard's aim; this fixes its scope. The resolved
+ * migration defines two functions that INSERT into public.crew_members (undo_change's restore and
+ * mi11_approve_hold's rename-branch successor insert), and a whole-file regex takes whichever comes
+ * first — so the guard checked the right INSERT only because undo_change happens to be written
+ * first. Body extraction is dollar-tag tolerant (this body is delimited by `$function$`, not `$$`)
+ * and back-references its own tag, so it can never run into the next definition.
+ */
+function undoChangeBody(): string {
+  return shippedFunctionBody("undo_change").body;
 }
 
 describe("undo_change migration — phantom-column + type-correctness guard", () => {
+  it("inspects the undo_change BODY, not the first INSERT in a multi-function migration", () => {
+    // Found while landing Unit D: the resolved migration now defines TWO functions that INSERT into
+    // public.crew_members — undo_change's restore and mi11_approve_hold's rename-branch successor
+    // insert. A whole-FILE regex takes whichever comes first, so this guard checked the right one
+    // only by the accident of source order. Reorder the file and every assertion below silently
+    // retargets mi11_approve_hold's INSERT — which carries neither `id` nor `claimed_via_oauth_at`,
+    // so it fails loudly today, but a future third INSERT that happens to satisfy the required set
+    // would make the whole guard pass vacuously. Scope the extraction to the function body instead.
+    const body = undoChangeBody();
+    expect(body.length, "no undo_change body resolved").toBeGreaterThan(0);
+    // The body is bounded by its own dollar-quote tag — it must not span another definition.
+    expect(body).not.toMatch(/create\s+(?:or\s+replace\s+)?function\s+public\./i);
+    // …and the resolved file genuinely holds a competing crew_members INSERT, so the scoping above
+    // is load-bearing rather than a precaution against a hypothetical.
+    const fileInserts = sql().match(/insert\s+into\s+public\.crew_members\s*\(/gi) ?? [];
+    expect(
+      fileInserts.length,
+      "the resolved migration no longer has a competing crew_members INSERT — re-verify that this " +
+        "guard is still body-scoped before relaxing anything here",
+    ).toBeGreaterThan(1);
+    expect(body.match(/insert\s+into\s+public\.crew_members\s*\(/gi) ?? []).toHaveLength(1);
+  });
+
   it("every column referenced against crew_members is a real column", () => {
-    const src = sql();
+    const src = undoChangeBody();
     // INSERT INTO public.crew_members ( <cols> )
     const insertMatch = src.match(/insert\s+into\s+public\.crew_members\s*\(([\s\S]*?)\)/i);
     expect(insertMatch, "undo_change must INSERT into public.crew_members").not.toBeNull();
@@ -61,14 +131,13 @@ describe("undo_change migration — phantom-column + type-correctness guard", ()
         true,
       );
     }
-    // id + claimed_via_oauth_at + name + email must be in the INSERT list (identity continuity PF38).
-    for (const required of ["id", "claimed_via_oauth_at", "name", "email"]) {
+    for (const required of REQUIRED_INSERT_COLUMNS) {
       expect(insertCols).toContain(required);
     }
   });
 
   it("restore expressions are type-correct per live column type (PF6 / PF38)", () => {
-    const src = sql();
+    const src = undoChangeBody();
     // id (uuid) restored via (v_before->>'id')::uuid.
     expect(src).toMatch(/\(\s*v_before->>'id'\s*\)::uuid/);
     // claimed_via_oauth_at (timestamptz) restored via (v_before->>'claimed_via_oauth_at')::timestamptz

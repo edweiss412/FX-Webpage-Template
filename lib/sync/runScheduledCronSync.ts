@@ -115,7 +115,9 @@ import { normalizeRoleTokenMappings, type GatedRoleMapping } from "@/lib/sync/ro
 import { listRoleVocabDriftEligibleFileIds } from "@/lib/sync/roleVocabDrift";
 import { resolveUnreadableAlertIfHealed } from "@/lib/adminAlerts/resolveOnboardingSheetUnreadable";
 import { emitRoleTokenMapped } from "@/lib/log/emitRoleTokenMapped";
-import { emitLeadRoleApplied } from "@/lib/log/emitLeadRoleApplied";
+import { emitRoleFlagsNotice, ROLE_FLAGS_EMIT_SOURCE } from "@/lib/sync/emitRoleFlagsNotice";
+import { emitIdentityLinkRenameUnlanded } from "@/lib/log/emitIdentityLinkRenameUnlanded";
+import type { UnlandedRename } from "@/lib/sync/applyParseResult";
 
 export const STAGED_PARSE_REVISION_RACE = "STAGED_PARSE_REVISION_RACE" as const;
 export const STAGED_PARSE_REVISION_RACE_COOLDOWN = "STAGED_PARSE_REVISION_RACE_COOLDOWN" as const;
@@ -394,6 +396,13 @@ export type ProcessOneFileResult =
       outcome: "applied";
       showId: string;
       roleFlagsNotice?: RoleFlagsNotice;
+      // Unit A: identity-link pairs this apply did NOT land, carried out of the locked tx so the
+      // post-commit sinks can write the forensic event (the ONLY signal an unlanded pair produces).
+      // Two sinks read it off THIS type: processOneFile's tail (cron + manual) and the
+      // pending-ingestion retry route, which calls runManualSyncForShow_unlocked and so bypasses
+      // that tail entirely. OPTIONAL, mirroring roleFlagsNotice? above — absent and [] both mean
+      // "nothing unlanded", and every consumer defaults with `?? []`.
+      unlandedRenames?: UnlandedRename[];
       snapshotRevisionId?: string;
       // §02 (FIX-3 / R16 structural defense): REQUIRED so tsc forces EVERY tail caller that builds
       // an applied result (cron / manual / staged) to supply it — a future 4th caller cannot
@@ -1618,12 +1627,15 @@ class PostgresPipelineTx implements SyncPipelineTx {
     ]);
   }
 
-  async renameCrewMember(showId: string, removedName: string, addedName: string) {
+  async renameCrewMember(showId: string, removedName: string, addedName: string): Promise<boolean> {
     // Identity-preserving rename (spec 2026-07-10 §3.4): guarded, idempotent, at-most-one-row.
     // The NOT EXISTS makes a target-name collision or a re-run a no-op instead of a
     // unique (show_id, name) violation; the subsequent upsertCrewMembers refreshes every parsed
     // field on the renamed row. Runs on the already-locked show tx (no new lock holder).
-    await this.rows(
+    // The `returning id` exists only to make the rowcount observable: this.rows types its result
+    // as T[], so rows.length is the portable test and does not depend on postgres.js's .count
+    // surviving the helper's cast. The zero-row case stays a RATIFIED no-op -- never an error.
+    const rows = await this.rows(
       `
         update public.crew_members
            set name = $3
@@ -1631,9 +1643,11 @@ class PostgresPipelineTx implements SyncPipelineTx {
            and not exists (
              select 1 from public.crew_members where show_id = $1 and name = $3
            )
+        returning id
       `,
       [showId, removedName, addedName],
     );
+    return rows.length === 1;
   }
 
   async upsertCrewMembers(showId: string, members: ParseResult["crewMembers"]) {
@@ -2320,14 +2334,16 @@ async function emitDeferredRoleFlagsNotice(
   deps: ProcessOneFileDeps,
 ): Promise<void> {
   if ("skipped" in result || result.outcome !== "applied" || !result.roleFlagsNotice) return;
-  const upsertAdminAlert = deps.upsertAdminAlert ?? defaultUpsertAdminAlert;
-  // §3.4 (F1): emit the durable, non-coalescing LEAD audit event FIRST — BEFORE the alert upsert.
-  // `upsertAdminAlert` THROWS on RPC failure; ordering the authoritative audit ahead of it means a
-  // transient feed-write failure (post-commit, after the LEAD mutation already landed) can never
-  // skip the durable record. The audit is failure-visible internally ({ok,error}); it never throws.
-  // Rides the SAME site as the feed nudge so no apply path is missed (cross-caller topology).
-  await emitLeadRoleApplied(result.roleFlagsNotice, { source: "sync.roleFlags" });
-  await upsertAdminAlert(result.roleFlagsNotice);
+  // Unit C (spec 2026-08-03-apply-undo-audit-fidelity §2.3): this function WAS the canonical emit;
+  // its body — including the load-bearing durable-audit-BEFORE-alert-upsert order — now lives in
+  // the shared `emitRoleFlagsNotice` (lib/sync/emitRoleFlagsNotice.ts) that every apply path calls,
+  // so the order has one implementation instead of three copies to drift. What stays here is the
+  // caller's own concern: the applied-and-notice-present guard, the tx-bound upsert override, and
+  // the failure policy (a thrown `upsertAdminAlert` still propagates on the cron path, unchanged).
+  await emitRoleFlagsNotice(result.roleFlagsNotice, {
+    source: ROLE_FLAGS_EMIT_SOURCE,
+    ...(deps.upsertAdminAlert ? { upsertAdminAlert: deps.upsertAdminAlert } : {}),
+  });
 }
 
 function addHours(date: Date, hours: number): Date {
@@ -2748,6 +2764,17 @@ export async function processOneFile(
     await (deps.promoteSnapshotUpload ?? defaultPromoteSnapshotUpload)(result.snapshotRevisionId);
   }
   await emitDeferredRoleFlagsNotice(result, deps);
+  // Unit A: IDENTITY_LINK_RENAME_UNLANDED — POST-COMMIT, outside the show-lock tx (invariant 10),
+  // on the SAME site as the notice above so cron AND manual are both covered (runManualSyncForShow
+  // routes through processOneFile). The pending-ingestion retry does NOT reach here — it calls
+  // runManualSyncForShow_unlocked directly — so it carries its own emit in the route.
+  if (!("skipped" in result) && result.outcome === "applied" && result.unlandedRenames?.length) {
+    await emitIdentityLinkRenameUnlanded(result.unlandedRenames, {
+      source: "sync.identityLink",
+      showId: result.showId,
+      driveFileId,
+    });
+  }
   // §10 point 5: ROLE_TOKEN_MAPPED emission — POST-COMMIT, outside the show-lock tx (invariant 10).
   // Reads the committed apply outcome; a skipped / rolled-back / non-applied result carries no
   // entries, so nothing is emitted. This wrapper covers cron AND manual (runManualSyncForShow runs
@@ -3615,6 +3642,11 @@ export async function processOneFile_unlocked(
     appliedRoleMappings: phase2.appliedRoleMappings,
   };
   if (phase2.roleFlagsNotice) result.roleFlagsNotice = phase2.roleFlagsNotice;
+  // Unit A: carry the unlanded pairs out to the post-commit sinks. Set only when non-empty,
+  // mirroring roleFlagsNotice — nothing here emits, the emit is outside the lock (invariant 10).
+  if (phase2.unlandedRenames && phase2.unlandedRenames.length > 0) {
+    result.unlandedRenames = phase2.unlandedRenames;
+  }
   if (phase2.snapshotRevisionId) result.snapshotRevisionId = phase2.snapshotRevisionId;
   await emitSuccessfulPhase2Tail({
     tx,

@@ -1058,6 +1058,15 @@ describe("sheet-link phrase containment (spec §7.10)", () => {
         "components/admin/NoteWarningCard.tsx": 3,
         "components/admin/OnboardingWizard.tsx": 1,
         "components/admin/PerShowActionableWarnings.tsx": 3,
+        // The freshness DETECTOR, which is a non-rendering consumer and the only
+        // one in this census. It hashes the RESOLVED href rather than the raw
+        // source anchor, because the builder collapses every anchor outside the
+        // allowlist onto one `#gid=0` and two different unusable anchors
+        // therefore render the same link. Calling the shipped builder is the
+        // point: a local reimplementation of that normalization would be a
+        // second source of truth that drifts the first time the allowlist
+        // changes. Count includes the prose that explains the collapse.
+        "components/admin/review/sectionFreshness.ts": 6,
         "components/admin/wizard/Step3Review.tsx": 1,
         "components/admin/wizard/Step3ReviewModal.tsx": 3,
         "components/admin/wizard/Step3SheetCard.tsx": 3,
@@ -1796,6 +1805,11 @@ describe("sheet-link phrase containment (spec §7.10)", () => {
       ".fixture",
       ".snap",
       ".example",
+      // Font binaries, new to the repo at BL-INTER-NUMERAL-DISAMBIGUATION: the
+      // self-hosted Inter subset the app loads, and the Google-served binary it
+      // replaced, kept as the guard's historical regression fixture. Neither is
+      // resolvable by the module graph, which is what this census is about.
+      ".woff2",
     ]);
     const DOTFILE_BASENAMES = new Set([
       ".gitattributes",

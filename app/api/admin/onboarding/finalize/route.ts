@@ -26,6 +26,9 @@ import {
   normalizeTimestamptz,
   type ReviewerChoice,
 } from "@/lib/sync/applyStagedCore";
+import { createDeferredApplyEmits, flushDeferredApplyEmits } from "@/lib/sync/emitRoleFlagsNotice";
+import type { RoleFlagsNotice } from "@/lib/sync/phase2";
+import type { UnlandedRename } from "@/lib/sync/applyParseResult";
 import { normalizeUseRawDecisions, type UseRawDecision } from "@/lib/sync/useRawOverlay";
 import { adoptShowLockHeld } from "@/lib/sync/lockedShowTx";
 import { assertRoleMappingsFresh } from "@/lib/onboarding/roleMappingsFreshnessGate";
@@ -164,6 +167,26 @@ type PerRowResult =
       re_apply_url: string;
       display_name?: string;
     };
+
+/**
+ * The per-row callback's INTERNAL envelope (spec 2026-08-03-apply-undo-audit-fidelity §2.3).
+ *
+ * `publicResult` is the ONLY part that reaches the HTTP `per_row` array. `roleFlagsNotice` and
+ * `unlandedRenames` are private payload — crew names, capability flags, rename pairs — that must
+ * never be serialized into the public response, which is why they ride a distinct type rather than
+ * being widened onto `PerRowResult` (that value is spread verbatim into the response body).
+ *
+ * Why an envelope rather than a route-scope accumulator the row function mutates: the mutation
+ * would happen INSIDE the row's `sql.begin`, so a row whose commit then failed would still have
+ * its payload flushed — a FALSE audit event for a capability change that never landed. The
+ * envelope crosses the commit boundary instead: `withRowTx` resolves only after `sql.begin` does,
+ * so reading it at the call site is post-commit by construction.
+ */
+type RowEnvelope = {
+  publicResult: PerRowResult;
+  roleFlagsNotice?: RoleFlagsNotice;
+  unlandedRenames?: { pairs: UnlandedRename[]; showId: string };
+};
 
 function databaseUrl(): string {
   const configured = process.env.TEST_DATABASE_URL ?? process.env.DATABASE_URL;
@@ -764,7 +787,7 @@ async function finalizeBatchTailResponse(input: {
   return { response, status };
 }
 
-async function processApprovedRow(input: {
+type ProcessApprovedRowInput = {
   row: PendingFinalizeRow;
   wizardSessionId: string;
   tx: FinalizeRouteTx;
@@ -783,7 +806,26 @@ async function processApprovedRow(input: {
   // The existing-show branch only STAGES into shows_pending_changes (no rendered crew-DATA write
   // until finalize-cas Phase D), so it does not collect an id here.
   appliedShowIds: Set<string>;
-}): Promise<PerRowResult> {
+};
+
+/**
+ * The `withRowTx` callback (spec §2.3). Runs `processApprovedRow` and returns its public result
+ * together with whatever private post-commit payload the apply produced, so the caller can flush
+ * that payload OUTSIDE the outer transaction. `carried` is created here, per invocation, and
+ * escapes only through this function's return value — a row that throws (a provenance race, a
+ * fault in the apply) rejects `withRowTx` and carries nothing, exactly matching its rollback.
+ */
+async function processApprovedRowEnvelope(input: ProcessApprovedRowInput): Promise<RowEnvelope> {
+  const carried: Omit<RowEnvelope, "publicResult"> = {};
+  const publicResult = await processApprovedRow(input, carried);
+  return { publicResult, ...carried };
+}
+
+async function processApprovedRow(
+  input: ProcessApprovedRowInput,
+  // Written ONLY on the committed-success path below, immediately before the OK return.
+  carried: Omit<RowEnvelope, "publicResult">,
+): Promise<PerRowResult> {
   const { row, wizardSessionId, tx } = input;
 
   let metadata: DriveListedFile;
@@ -1336,6 +1378,14 @@ async function processApprovedRow(input: {
   // ONLY after the apply + provenance + staging-consume all succeed in this per-row tx; the
   // actual revalidateShow fires after the OUTER deps.withTx resolves (post-commit).
   input.appliedShowIds.add(core.showId);
+  // Units B + C: the private post-commit payload. Set LAST — after the apply, the provenance write
+  // and the staging consume all succeeded in this per-row tx — so it exists only for a row that is
+  // about to return OK. It still does not escape until `withRowTx` resolves (i.e. until this row's
+  // `sql.begin` committed), which is what makes the caller's flush safe.
+  if (core.roleFlagsNotice) carried.roleFlagsNotice = core.roleFlagsNotice;
+  if (core.unlandedRenames && core.unlandedRenames.length > 0) {
+    carried.unlandedRenames = { pairs: core.unlandedRenames, showId: core.showId };
+  }
   return { drive_file_id: row.drive_file_id, wizard_session_id: wizardSessionId, code: OK_CODE };
 }
 
@@ -1404,6 +1454,14 @@ async function executeFinalizeBatch(
     driveFileId: string;
     wizardSessionId: string;
   }> = [];
+  // Units B + C (spec §2.3): post-commit ROLE_FLAGS_NOTICE / LEAD_ROLE_APPLIED and
+  // IDENTITY_LINK_RENAME_UNLANDED payloads, collected per COMMITTED row and flushed in the
+  // `finally` below. Neither of the two obvious placements works: emitting right after each
+  // `withRowTx` is still inside `runtime.withTx`, which holds `tryFinalizeLock` + the app_settings
+  // FOR UPDATE row for its whole body (invariant 10); emitting on the success path after
+  // `runtime.withTx` is skipped whenever a LATER row throws or the outer commit faults, silently
+  // dropping the audit for a capability change that already committed in its own transaction.
+  const pendingEmits = createDeferredApplyEmits();
   try {
     const response = await runtime.withTx(async (tx) => {
       // R25-1/R29-1 lock order: discover the candidate session WITHOUT a row lock, acquire
@@ -1504,8 +1562,8 @@ async function executeFinalizeBatch(
         // locked pending_syncs.source_anchors (persisted at scan), so finalize does NO Drive export.
         let result: PerRowResult;
         try {
-          result = await runtime.withRowTx(row.drive_file_id, (rowTx, pipelineTx) =>
-            processApprovedRow({
+          const envelope = await runtime.withRowTx(row.drive_file_id, (rowTx, pipelineTx) =>
+            processApprovedRowEnvelope({
               row,
               wizardSessionId,
               tx: rowTx,
@@ -1518,6 +1576,19 @@ async function executeFinalizeBatch(
               appliedShowIds,
             }),
           );
+          result = envelope.publicResult;
+          // POST-COMMIT by construction: `withRowTx` resolves only after its `sql.begin` resolved,
+          // so a row that reaches this line committed durably in its OWN transaction. The private
+          // fields are moved off the envelope here and never touch `perRow` (the response body).
+          if (envelope.roleFlagsNotice) {
+            pendingEmits.roleFlagsNotices.push(envelope.roleFlagsNotice);
+          }
+          if (envelope.unlandedRenames) {
+            pendingEmits.unlandedRenames.push({
+              ...envelope.unlandedRenames,
+              driveFileId: row.drive_file_id,
+            });
+          }
         } catch (error) {
           if (!(error instanceof FirstSeenProvenanceRaceError)) throw error;
           // The throw aborted the per-row transaction (show/children/audit rolled back; the
@@ -1663,6 +1734,15 @@ async function executeFinalizeBatch(
       error,
     });
     return errorResponse(500, ONBOARDING_FINALIZE_INTERNAL_ERROR);
+  } finally {
+    // Units B + C flush (spec §2.3). In `finally`, so it runs whether `runtime.withTx` resolved,
+    // returned a 409, or REJECTED — every row in `pendingEmits` committed in its own independent
+    // transaction, so its audit must survive a later row's failure and an outer-commit fault
+    // alike. Here the outer transaction is over, so `tryFinalizeLock` and the app_settings row
+    // lock are both released (invariant 10). Fail-open internally: a throwing `upsertAdminAlert`
+    // is escalated, never propagated, so it can neither replace the route's real outcome nor mask
+    // an in-flight error on its way out of this `finally`.
+    await flushDeferredApplyEmits(pendingEmits, { source: "api.admin.onboarding.finalize" });
   }
 }
 

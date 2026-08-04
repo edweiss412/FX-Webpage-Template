@@ -454,7 +454,7 @@ export async function runDigestNotify(
           recipient,
           dateET: dateET(now),
           shows: [],
-          sourceTotals: { ingestions: 0, syncs: 0, shows: 0 },
+          sourceTotals: { ingestions: 0, syncs: 0, shows: 0, holdShows: 0 },
         };
       }
       const delivered = await (deps.deliverDigest ?? deliverDigest)({

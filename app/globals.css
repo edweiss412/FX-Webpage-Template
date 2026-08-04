@@ -101,15 +101,21 @@
 
   /* ── Typography ── */
   /* `var(--font-inter)` first, NOT the literal "Inter". The token is defined by
-     next/font's generated class (app/fonts.ts) and carries BOTH `Inter` and its
-     generated `Inter Fallback` -- a face built with size-adjust/ascent-override
-     specifically so the `display: "swap"` window does not reflow. Naming the
+     next/font's generated class (app/fonts.ts) and carries BOTH the generated
+     family and its generated companion -- a face built with size-adjust/ascent-override
+     so the `display: "swap"` window reflows FAR LESS. Not zero: metric overrides
+     narrow the mismatch, they cannot equalise per-string advances (DESIGN.md 2.1). Naming the
      literal skipped that face entirely, so first paint used a system font at
      native metrics and then snapped ~10% (measured 187.28px -> 168.91px on a
-     real string) on every React-root route. The var() fallback keeps the literal pair for
-     any surface without the generated class -- notably the standalone test
-     harnesses, which compile this file with no Next runtime -- so the
-     declaration is never invalid at computed-value time. DESIGN.md 2.1. */
+     real string) on every React-root route. Since the loader moved to
+     next/font/local the generated family is `inter`, lowercased from the loader
+     module's variable name, where next/font/google emitted the literal `Inter` --
+     which is exactly why this token, not any spelled name, is the contract. The
+     var() fallback literals now reach only a surface without the generated class
+     -- notably the standalone test harnesses, which compile this file with no
+     Next runtime, where they name a host-INSTALLED Inter if one exists
+     (BL-HARNESS-FONT-FIDELITY) -- so the declaration is never invalid at
+     computed-value time. DESIGN.md 2.1. */
   --font-sans:
     var(--font-inter, "Inter", "Inter Fallback"), ui-sans-serif, system-ui, -apple-system,
     "Segoe UI", "Helvetica Neue", sans-serif;
@@ -658,9 +664,52 @@ progress[data-testid="wizard-step2-progressbar"]:indeterminate::-moz-progress-ba
 time,
 .tabular-nums {
   font-variant-numeric: tabular-nums;
+  /* `ss04` is REPEATED from the html rule on purpose. `font-feature-settings`
+     inherits as a whole value, not as a merged list, so this declaration
+     REPLACES the inherited `"ss04" 1` outright — a `.tabular-nums` span that
+     contains letters (`A1 - Audio Lead`, a stage label, a plate number) would
+     silently lose the disambiguation everything around it keeps. DESIGN.md 2.4;
+     tests/styles/fontFeatureAvailability.test.ts pins it. */
   font-feature-settings:
+    "ss04" 1,
+    "tnum" 1;
+}
+
+/*
+ * A value someone reads off the screen and types or says back: a hotel
+ * confirmation number, a flight record locator, a service-account address.
+ * THIS is where a slashed zero earns its place -- the cost of confusing 0 with
+ * O is a failed check-in, not a moment's hesitation.
+ *
+ * Deliberately NARROWER than `.tabular-nums`, and the distinction is the whole
+ * point. `.tabular-nums` marks "digits that should not shift width", which in
+ * this codebase includes whole prose sentences -- the Right Now hero's lead is
+ * a 30px bold <h2> carrying it (components/crew/RightNowHero.tsx), and the
+ * footer's copyright year carries it too. Slashing zeros there reads as a
+ * terminal readout and works against the "not techie" anti-reference in
+ * PRODUCT.md. Impeccable critique P1, 2026-08-03: `zero` shipped on the
+ * tabular rule for exactly one review round and rendered "Show day 1(slashed)0
+ * of 12" in the product's single most expressive moment.
+ *
+ * `ss04` and `tnum` are repeated for the same whole-value-inheritance reason as
+ * above. DESIGN.md 2.4.
+ */
+.code-value {
+  /* The family is declared HERE, not inherited, and that is load-bearing. Tailwind
+     preflight gives <code>/<kbd>/<samp>/<pre> a `ui-monospace` default, so a
+     `.code-value` on a <code> element resolved to a mono face that carries none
+     of these features and rendered NOTHING -- the same silent dead declaration
+     this whole change exists to kill, reintroduced by its own fix. Measured by
+     pixel oracle at 48px: <code class="code-value"> was byte-identical to a bare
+     <code>. Impeccable audit P1, 2026-08-03. Binding the family makes the class
+     self-contained, so it works wherever it is applied rather than only on
+     elements that happen to inherit the UI font. */
+  font-family: var(--font-sans);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings:
+    "ss04" 1,
     "tnum" 1,
-    "cv11" 1;
+    "zero" 1;
 }
 
 /*
@@ -669,6 +718,14 @@ time,
  */
 html {
   font-family: var(--font-sans);
+  /* Inter's "Disambiguation without zero": capital I gains serifs, lowercase l
+     gains a tail. Crew read stage labels, room numbers and confirmation codes on
+     a phone in direct sun, where I/l/1 collapse into one stem. The split is the
+     typeface's own -- `ss02` is the same set WITH the slashed zero, which lives
+     on `.code-value` instead so prose keeps an unslashed zero. Only reachable
+     since the family became the self-hosted upstream build; the Google build
+     ships none of these. DESIGN.md 2.4. */
+  font-feature-settings: "ss04" 1;
   background-color: var(--color-bg);
   color: var(--color-text);
 }
@@ -946,6 +1003,74 @@ details[open] > summary [data-agenda-day-count] {
 @media (prefers-reduced-motion: reduce) {
   [data-share-link-flash] {
     animation: none;
+  }
+}
+
+/* Published review modal: one-shot cue on the panel card of each registry
+   section whose CONTENT changed across a realtime-driven RSC reconcile
+   (spec 2026-08-03-modal-freshness-cue section 4.5, which makes this block
+   NORMATIVE — a test compares the shipped rules against it rather than against
+   a description of it). A 2px accent-edge outline holding to 45%, then fading.
+
+   OUTLINE ONLY, AND THAT IS A CORRECTION. The first implementation also washed
+   the card in accent-tint. Design review rejected it on two grounds and both
+   were right. First, PRODUCT.md reserves the orange for "this matters now" and
+   spends it sparingly; a background reconcile is informational, and a full-card
+   wash on a 390px phone can be the entire viewport shouting. Second, the wash
+   was occluded unevenly — cards hold opaque children (bg-surface-sunken tiles,
+   nested cards, warning callouts), so a sparse section washed fully while a
+   dense one showed colour only in the gaps, making the SAME event read at wildly
+   different loudness. The outline is the one leg that renders identically on
+   every card, so it is the whole cue.
+
+   WHY AN OUTLINE AND NOT A BORDER OR BOX-SHADOW. The card already owns its
+   border (which switches to border-strong when the section is flagged) and its
+   tile shadow; animating either would fight an existing state. An outline is
+   layout-neutral, composes with both, and follows border-radius. It draws
+   OUTSIDE the border box, which the scroll container's padding leaves room for.
+
+   WHY TWO IDENTICAL KEYFRAMES. Changing an attribute's VALUE does not
+   restart a CSS animation, and the key-based remount the share-link cue uses is
+   unavailable here: remounting a section card would destroy the scroll position
+   and focus inside it, which is the property the whole realtime design exists to
+   preserve. Alternating between -1 and -2 changes `animation-name`, which does
+   restart it. A drift pin keeps the two bodies identical.
+
+   Reduced motion: NO cue, matching the share-link row above. A one-shot "this
+   just changed" signal has no correct steady state. The sr-only announcement is
+   what carries the information there, and it is motion-independent. */
+@keyframes section-freshness-flash-1 {
+  0%,
+  45% {
+    outline-color: var(--color-accent-edge);
+  }
+  100% {
+    outline-color: transparent;
+  }
+}
+@keyframes section-freshness-flash-2 {
+  0%,
+  45% {
+    outline-color: var(--color-accent-edge);
+  }
+  100% {
+    outline-color: transparent;
+  }
+}
+[data-section-freshness-flash] {
+  outline: 2px solid transparent;
+  outline-offset: 0;
+}
+[data-section-freshness-flash="1"] {
+  animation: section-freshness-flash-1 1600ms ease-out;
+}
+[data-section-freshness-flash="2"] {
+  animation: section-freshness-flash-2 1600ms ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-section-freshness-flash] {
+    animation: none;
+    outline-color: transparent;
   }
 }
 

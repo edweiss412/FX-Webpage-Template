@@ -12,6 +12,13 @@ import {
 } from "@/lib/onboarding/shadowPayload";
 import { parsedShowTitle } from "@/lib/onboarding/blockerDisplayName";
 import { applyStagedCore, normalizeTimestamptz } from "@/lib/sync/applyStagedCore";
+import {
+  createDeferredApplyEmits,
+  flushDeferredApplyEmits,
+  type DeferredApplyEmits,
+} from "@/lib/sync/emitRoleFlagsNotice";
+import type { RoleFlagsNotice } from "@/lib/sync/phase2";
+import type { UnlandedRename } from "@/lib/sync/applyParseResult";
 import { evaluateFinalizeOverrideGate } from "@/lib/sync/pullSheetOverride";
 import { revisionTimesMatch } from "@/lib/sync/applyStaged";
 import { SHOW_ARCHIVED_IMMUTABLE, readShowArchived_unlocked } from "@/lib/sync/lifecycleGuards";
@@ -91,6 +98,13 @@ type ShadowApplyResult =
       // Response metadata, NOT an error code (no §12.4 row; invariant 5 unaffected — OK rows
       // never render through the error catalog). Mirrors the live MI-12 reject contract.
       disposition?: "discarded_by_reviewer_choice";
+      // Units B + C (spec 2026-08-03-apply-undo-audit-fidelity §2.3): caller-only private payload,
+      // mirroring `showId` above — consumed by the per-row loop into the deferred-emit accumulator,
+      // then STRIPPED before the result reaches the client. It must never ride into `per_row`:
+      // crew names, capability flags and rename pairs are internal, and the OK row's response
+      // shape is a stable contract ({ drive_file_id, code } + optional disposition).
+      roleFlagsNotice?: RoleFlagsNotice;
+      unlandedRenames?: UnlandedRename[];
     }
   | {
       drive_file_id: string;
@@ -616,7 +630,19 @@ async function applyShadow(
   affectedShowIds.add(live.id);
   // Surface the committed show id so the caller can emit the per-committed-row SHOW_FINALIZED
   // outcome log AFTER this row's withRowTx resolves (post-commit) — see runFinalizeCas loop.
-  return { drive_file_id: row.drive_file_id, code: OK_CODE, showId: live.id };
+  // Units B + C ride the same caller-only channel: this row's post-commit ROLE_FLAGS_NOTICE and
+  // IDENTITY_LINK_RENAME_UNLANDED payloads. Both were DISCARDED here before — the notice was
+  // built by the shared core and dropped at this return (BL-FINALIZE-CAS-ROLEFLAGS-NOTICE-DROP).
+  return {
+    drive_file_id: row.drive_file_id,
+    code: OK_CODE,
+    showId: live.id,
+    // exactOptionalPropertyTypes: add each key only when a real value exists, never `undefined`.
+    ...(core.roleFlagsNotice ? { roleFlagsNotice: core.roleFlagsNotice } : {}),
+    ...(core.unlandedRenames && core.unlandedRenames.length > 0
+      ? { unlandedRenames: core.unlandedRenames }
+      : {}),
+  };
 }
 
 /**
@@ -882,6 +908,12 @@ async function runFinalizeCas(
   // handler, threaded so the per-committed-row SHOW_FINALIZED log can attribute the actor. Logged
   // right after each row's withRowTx resolves (post-commit) — never inside the row tx.
   actorEmail: string,
+  // Units B + C (spec §2.3): DURABLE-on-throw like affectedShowIds — each entry belongs to a row
+  // that committed in its OWN withRowTx. Owned by the HANDLER, not this function, because the
+  // flush must happen after `deps.withTx` resolves: this whole body runs while tryFinalizeLock and
+  // the app_settings FOR UPDATE row are held, so there is no valid emit point inside it
+  // (invariant 10). Each handler flushes it in its own `finally`.
+  pendingEmits: DeferredApplyEmits,
   // Optional progress sink (streaming only). Emits the in-transaction phases (applying →
   // publishing); the post-commit `subscribing` phase is emitted by the streaming handler.
   onPhase?: (p: FinalizeCasPhase) => void,
@@ -977,7 +1009,19 @@ async function runFinalizeCas(
       // that durably applied to a live show carry `showId` (discarded_by_reviewer_choice OK rows
       // do not), so this logs exactly the committed set — the same set that entered
       // affectedShowIds. Awaited for durability; it never mutates the CAS path.
-      const { showId, ...responseRow } = result;
+      const { showId, roleFlagsNotice, unlandedRenames, ...responseRow } = result;
+      // Units B + C: this row's withRowTx has RESOLVED, so its own transaction committed — the
+      // same post-commit point the SHOW_FINALIZED emit below relies on. Collect (do NOT emit):
+      // the outer tx still holds tryFinalizeLock here, so the emit itself waits for the handler's
+      // `finally`. Collected per COMMITTED row, so a later row's 409 or throw cannot drop it.
+      if (roleFlagsNotice) pendingEmits.roleFlagsNotices.push(roleFlagsNotice);
+      if (unlandedRenames && unlandedRenames.length > 0 && showId) {
+        pendingEmits.unlandedRenames.push({
+          pairs: unlandedRenames,
+          showId,
+          driveFileId: row.drive_file_id,
+        });
+      }
       if (showId) {
         await logAdminOutcome({
           code: "SHOW_FINALIZED",
@@ -988,9 +1032,10 @@ async function runFinalizeCas(
           result: "final_cas",
         });
       }
-      // `showId` is a caller-only signal (drives the log); strip it so it never leaks into the
+      // `showId`, `roleFlagsNotice` and `unlandedRenames` are caller-only signals (they drive the
+      // log and the deferred emits); the destructure above strips all three so none leaks into the
       // per_row response body — a stable client contract where OK rows are exactly
-      // { drive_file_id, code } (+ optional disposition), never a show id.
+      // { drive_file_id, code } (+ optional disposition), never a show id or an internal payload.
       shadowResults.push(responseRow);
       continue;
     }
@@ -1125,10 +1170,14 @@ export async function handleOnboardingFinalizeCas(
   // the OLD fan-out (spec §4.2).
   const affectedShowIds = new Set<string>();
   const publishedShowIds = new Set<string>();
+  // Units B + C (spec §2.3): collected per COMMITTED row inside runFinalizeCas, flushed in the
+  // `finally` below — after deps.withTx resolves, so outside tryFinalizeLock (invariant 10) and
+  // unskippable by a later row's 409 or an outer-commit fault.
+  const pendingEmits = createDeferredApplyEmits();
   let committed = false;
   try {
     const result = await deps.withTx((tx) =>
-      runFinalizeCas(tx, deps, affectedShowIds, publishedShowIds, admin.email),
+      runFinalizeCas(tx, deps, affectedShowIds, publishedShowIds, admin.email, pendingEmits),
     );
     // deps.withTx resolved without throwing → the OUTER tx committed. A returned 409 Response is
     // STILL a commit (the fn returned normally); only a THROW below rolls the outer tx back.
@@ -1164,6 +1213,13 @@ export async function handleOnboardingFinalizeCas(
         revalidateShow(showId);
       }
     }
+    // Units B + C flush (spec §2.3), same durability class as affectedShowIds: every entry belongs
+    // to a row that committed in its OWN withRowTx, so it must survive a later row's 409 and an
+    // outer-tx throw alike — hence `finally`, and hence NOT gated on `committed`. Fail-open
+    // internally: `upsertAdminAlert` throws, and a throw escaping here would leave a durably
+    // applied session without its deleteShadowRows / publish / markFinalCasDone tail on the very
+    // path that already committed. The escalation happens inside the flush.
+    await flushDeferredApplyEmits(pendingEmits, { source: "api.admin.onboarding.finalize-cas" });
   }
 }
 
@@ -1202,11 +1258,22 @@ export async function handleOnboardingFinalizeCasStream(
       };
       const affectedShowIds = new Set<string>();
       const publishedShowIds = new Set<string>();
+      // Units B + C (spec §2.3): this handler owns its OWN outer withTx and its OWN `finally`,
+      // distinct from the non-streaming sibling's — and it is the handler the admin finalize
+      // button actually reaches (POST dispatches here on the NDJSON Accept header), so wiring only
+      // the non-streaming sibling would leave the production path dark for both units.
+      const pendingEmits = createDeferredApplyEmits();
       let committed = false;
       try {
         const result = await deps.withTx((tx) =>
-          runFinalizeCas(tx, deps, affectedShowIds, publishedShowIds, admin.email, (p) =>
-            emit({ type: "phase", phase: p }),
+          runFinalizeCas(
+            tx,
+            deps,
+            affectedShowIds,
+            publishedShowIds,
+            admin.email,
+            pendingEmits,
+            (p) => emit({ type: "phase", phase: p }),
           ),
         );
         // Outer tx committed (a returned 409 Response is still a commit; only a THROW rolls back).
@@ -1243,6 +1310,14 @@ export async function handleOnboardingFinalizeCasStream(
           if (committed) {
             for (const showId of publishedShowIds) revalidateShow(showId);
           }
+        });
+        // Units B + C flush (spec §2.3), mirroring handleOnboardingFinalizeCas: in `finally` so a
+        // committed row's audit survives a later row's 409 and an outer-tx throw, and outside
+        // deps.withTx so no emit happens under tryFinalizeLock (invariant 10). Awaited (unlike the
+        // revalidate, which is deferred through after()): these are durable writes the stream's
+        // start() body must not abandon, and the flush is fail-open so it cannot break the close.
+        await flushDeferredApplyEmits(pendingEmits, {
+          source: "api.admin.onboarding.finalize-cas",
         });
         try {
           controller.close();
