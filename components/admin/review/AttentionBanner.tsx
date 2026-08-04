@@ -35,6 +35,11 @@ import {
 } from "@/lib/admin/attentionItems";
 import { renderCatalogEmphasis } from "@/components/messages/renderEmphasis";
 import { formatDataGapBreakdown } from "@/lib/parser/dataGaps";
+import {
+  FAILED_KEYS_CAP,
+  hasVisibleText,
+  usableFailedKeys,
+} from "@/components/admin/review/attentionBannerPaint";
 import { PerShowAlertResolveButton } from "@/components/admin/PerShowAlertResolveButton";
 import { CompactAlertCard } from "@/components/admin/CompactAlertCard";
 import { buildHelpPopoverBody, CompactAlertHelp } from "@/components/admin/compactAlertHelp";
@@ -52,33 +57,14 @@ export type AttentionBannerProps = {
 };
 
 /** At most this many failed-source keys render before the overflow suffix (§4.1). */
-// Exported so the freshness DETECTOR can apply the same cap it renders under
-// rather than re-typing the number. Round-4 review found a change to the
-// seventh key cueing a byte-identical card.
-export const FAILED_KEYS_CAP = 6;
 
 /**
  * A template can be non-empty yet render nothing visible — stray emphasis
  * markers alone, say. Guarding only the input string would then produce an
  * empty message row, so require something to survive marker removal (§5.2).
  */
-// Exported for the freshness detector, alongside FAILED_KEYS_CAP and
-// usableFailedKeys: it must reach the SAME paint-or-fallback decision this
-// component reaches, or a marker-only template cues a card that renders the
-// fallback sentence either way.
-export function hasVisibleText(template: string): boolean {
-  return template.replace(/[*_`\s]/g, "").length > 0;
-}
 
 /** Trimmed, empties dropped; null when nothing survives (§5.2). */
-// Exported for the same reason as FAILED_KEYS_CAP: the detector must drop
-// exactly the keys this drops, or a whitespace-only key cues a card that never
-// shows it.
-export function usableFailedKeys(keys: string[] | null | undefined): string[] | null {
-  if (!Array.isArray(keys)) return null;
-  const kept = keys.map((k) => k.trim()).filter((k) => k.length > 0);
-  return kept.length > 0 ? kept : null;
-}
 
 function DetailEntry({
   label,

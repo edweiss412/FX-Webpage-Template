@@ -2,7 +2,21 @@
  * components/admin/review/sectionFreshness.ts
  *
  * The freshness-cue DETECTOR (spec 2026-08-03-modal-freshness-cue sections 4.1
- * and 4.6). Pure: no React, no Supabase, no clock, no randomness.
+ * and 4.6). Its own code is pure: no hooks, no JSX, no Supabase, no clock, no
+ * randomness. Stated that precisely because it is NOT dependency-free — see the
+ * note below.
+ *
+ * WHAT IT IMPORTS, AND THE TENSION THERE. Getting the projection right means
+ * reaching the same decisions the renderers reach, which is why the caps, the
+ * key normalizer, the paint-or-fallback call, the anchor builder and the note
+ * ordering are all IMPORTED rather than re-typed — four review rounds were spent
+ * on divergence between a re-typed value and the shipped one. The cost is that
+ * this module depends on `step3ReviewSections.tsx`, a component file, for the
+ * render caps and the event vocabulary. That edge predates and outlives this
+ * comment; it is recorded rather than hidden, and `attentionBannerPaint.ts`
+ * exists because the same pressure nearly added a SECOND such edge and that one
+ * was cheap to avoid. A future cleanup would lift the caps into their own module
+ * the way the paint helpers now are.
  *
  * THE PROBLEM IT SOLVES. When a realtime broadcast lands, the admin published
  * review modal calls `router.refresh()` and RSC reconciles the new payload in
@@ -42,7 +56,7 @@ import {
   FAILED_KEYS_CAP,
   hasVisibleText,
   usableFailedKeys,
-} from "@/components/admin/review/AttentionBanner";
+} from "@/components/admin/review/attentionBannerPaint";
 import { formatDataGapBreakdown } from "@/lib/parser/dataGaps";
 import {
   PLACEHOLDER_RE,
