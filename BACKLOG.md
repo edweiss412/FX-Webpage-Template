@@ -8,6 +8,21 @@ Last reconciled: 2026-08-04 — `fix/apply-undo-audit-fidelity` (PR #697, merge 
 
 ---
 
+## BL-GUARD-PREMISE-REACHABILITY — a guard whose fixture cannot reach the boundary it asserts passes forever
+
+**Status:** IN PROGRESS · **Branch:** chore/guard-premise-reachability · **Severity:** MEDIUM (no wrong behavior ships; the cost is review rounds and false assurance from guards that cannot fail) · **Class:** test vacuity · **Filed:** 2026-08-04 (`chore/guard-premise-reachability`, from PR #701's fourteen whole-diff rounds) · **Effort:** M
+
+PR #701's largest finding category was not wrong logic — it was guards that could not fail. The assertion was correct; the fixture or environment could not reach the boundary it discriminated at, so the test passed unconditionally. Two measured instances, both caught by a reviewer rather than by any gate:
+
+- **R11 F3.** A test named as the guard for the `claims: res.claims.slice(0, 100)` mutant ran the CLI against the live repository, which holds ~13 claims. A cap at 100 is unreachable at 13. Repaired at `0b57d4a68` / `f7da7cc69` by exporting `reportEnvelope` and feeding it a 101-claim fixture.
+- **R13 F3.** `expect(local.size).toBe(truth)`, where `truth` is `git for-each-ref refs/remotes/origin/` counted in the same repository (`f7da7cc69`). Probed: with origin refs present the assertion discriminates (truth=3, mutant=0); with zero origin refs — CI's single-branch checkout — truth=0 and the escaping mutant `localRefs() { return new Map() }` also gives 0, so clean and mutant are indistinguishable. Repaired at `484824b9e` by building a throwaway repository with a known ref namespace.
+
+The rule that would have caught both is prose in `~/.claude/CLAUDE.md`'s anti-tautology section, and it is per-machine, invisible to Codex, and executed by nothing. It was violated twice inside one branch by an implementer who had read it.
+
+**Work:** settle, with evidence, how much of this class the PR #703 source-mutation gate already covers, and what mechanism covers the rest; record the resulting rule in `AGENTS.md` and/or `docs/agents/writing-plans.md`, where it is durable and cross-CLI.
+
+---
+
 ## BL-CODE-ENUM-PROVENANCE-COMMENT-BLIND — a doc comment silently rewrites generated code provenance
 
 **Status:** OPEN · **Severity:** LOW (no consumer keys on the widened field today; the exposure is that generated provenance stops meaning what it says) · **Class:** generator fidelity · **Filed:** 2026-08-04 (`fix/apply-undo-audit-fidelity`, surfaced while reconciling the Unit C registry drift) · **Effort:** S
