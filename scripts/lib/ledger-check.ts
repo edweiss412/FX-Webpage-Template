@@ -115,6 +115,24 @@ export function runCheck(
   }
   if (fetchFailed !== null) resolution.degraded.push(fetchFailed);
 
+  // Reads a ledger at the OID the snapshot pinned for that ref, falling back to
+  // the ref name only when the snapshot has none (which cannot happen for a ref
+  // that came out of the snapshot). One blob cache across the whole check: main
+  // and every unrelated branch share their ledger blobs.
+  const blobs = new Map<string, string>();
+  const readAtPin = (ref: string, file: string): string | null => {
+    const oid = resolution.refSnapshot.get(ref.replace(/^origin\//, ""));
+    if (oid === undefined) return git.showFile(ref, file);
+    const key = `${oid}:${file}`;
+    const hit = blobs.get(key);
+    if (hit !== undefined) return hit;
+    const found = git.fileOids(oid, [file]).get(file);
+    if (found === undefined) return null;
+    const text = git.readBlob(found);
+    blobs.set(key, text);
+    return text;
+  };
+
   // Everything from here on reads git and parses ledgers, and ANY fault in it is
   // an untrusted check — not a collision. R5 fixed only the resolution call;
   // R6 found the post-resolution loops still escaping as process exit 1.
@@ -155,17 +173,19 @@ export function runCheck(
       // different one. Excluding main missed a parser regression confined to it
       // (a main-only repository returned a trusted exit 0), and including merged
       // branches failed on legacy content that resolution never reads.
-      const merged = new Set(git.isShallow() ? [] : git.mergedIntoMain());
-      const scanRefs = [
-        "origin/main",
-        ...[...snapshot.keys()]
-          .filter((n) => n !== "main" && n !== "HEAD")
-          .map((n) => `origin/${n}`)
-          .filter((r) => !merged.has(r)),
-      ];
+      // The resolution's OWN candidate set, never a second computation of it.
+      // Recomputing re-read the merged status and the ref names at a later
+      // instant, so a branch could be scanned here that resolution never read,
+      // or skipped here although resolution read it -- and a candidate could
+      // escape the vacuity gate entirely by merging in between (whole-diff
+      // R13 F1). One decision, made once, consumed twice.
+      const scanRefs = ["origin/main", ...resolution.candidates];
       for (const ref of scanRefs) {
         for (const file of ledgerFiles()) {
-          const text = git.showFile(ref, file);
+          // By pinned OID, matching resolution's own read. `showFile(name)`
+          // decides against whatever the movable name points at now, which is
+          // not necessarily the object the universe check verified.
+          const text = readAtPin(ref, file);
           if (text === null || text.trim().length === 0) continue;
           if (ledgerItems(file, text).length === 0) {
             reasons.push(`${file} is non-empty at ${ref} but parsed zero entries`);
@@ -195,14 +215,12 @@ export function runCheck(
         // Every ref the resolver looked at, not just main: a row a live branch
         // has only just minted as OPEN does exist, and calling it "defined
         // nowhere" tells the caller the opposite of the truth.
-        const scan = [
-          "origin/main",
-          ...[...snapshot.keys()]
-            .filter((k) => k !== "main" && k !== "HEAD")
-            .map((k) => `origin/${k}`),
-        ];
+        // Note-only, but pinned for the same reason: the answer it prints
+        // ("defined nowhere") must describe the same universe every other
+        // sentence in this report describes.
+        const scan = ["origin/main", ...resolution.candidates];
         const known = scan.flatMap((r) =>
-          ledgerFiles().flatMap((f) => ledgerItems(f, git.showFile(r, f) ?? "")),
+          ledgerFiles().flatMap((f) => ledgerItems(f, readAtPin(r, f) ?? "")),
         );
         if (!known.some((k) => normalizeId(k.id) === id)) {
           notes.push(`note: ${id} is not yet defined anywhere`);

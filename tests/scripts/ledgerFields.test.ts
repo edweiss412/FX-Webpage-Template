@@ -196,7 +196,34 @@ describe("no assertion in this diff is silently vacuous", () => {
       }
     }
 
-    expect(files.length, "no source files to scan — the guard would be vacuous").toBeGreaterThan(0);
+    // Zero files is the CORRECT answer on a main push, where the comparison base
+    // IS HEAD -- the workflow runs on `push: main`, so demanding a non-empty set
+    // would fail this guard on every merge (whole-diff R13 F2). It is a defect
+    // only when the base and HEAD genuinely differ, which is the branch case
+    // this scopes to.
+    const baseIsHead =
+      files.length === 0 &&
+      execFileSync("git", ["rev-parse", "HEAD"], {
+        cwd: ROOT,
+        encoding: "utf8",
+        timeout: 30_000,
+      }).trim() ===
+        (() => {
+          try {
+            return execFileSync("git", ["rev-parse", "origin/main"], {
+              cwd: ROOT,
+              encoding: "utf8",
+              timeout: 30_000,
+            }).trim();
+          } catch {
+            return "";
+          }
+        })();
+    if (!baseIsHead) {
+      expect(files.length, "no source files to scan — the guard would be vacuous").toBeGreaterThan(
+        0,
+      );
+    }
 
     const offenders: string[] = [];
     for (const rel of files) {

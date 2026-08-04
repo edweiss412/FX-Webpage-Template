@@ -20,6 +20,8 @@ const MARKER = (branch: string, id: string) =>
   `## ${id} — planted\n\n**Status:** IN PROGRESS · **Branch:** ${branch}\n`;
 
 import { execFileSync, spawnSync } from "node:child_process";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const ROOT = join(__dirname, "..", "..");
@@ -44,7 +46,7 @@ function fake(over: Partial<GitSurface> = {}): GitSurface {
         ["feat/a", "bbb"],
       ]),
     prList: () => [],
-    mergedIntoMain: () => [],
+    mergedIntoMain: () => new Map(),
     showFile: (ref, file) =>
       file === "BACKLOG.md" && ref === "origin/feat/a" ? MARKER("feat/a", "BL-X") : null,
     mergeBase: () => "base",
@@ -407,25 +409,43 @@ describe("the real git adapter and the JSON envelope (whole-diff F3/F9)", () => 
   });
 
   it("resolves real refs, and origin/HEAD is absent from both maps", async () => {
+    // Against a CONTROLLED ref namespace, not the live checkout. CI checks out a
+    // single branch with no refs/remotes/origin/* at all, so every assertion
+    // here -- cardinality, HEAD exclusion, the OID shape loop -- is satisfied by
+    // an adapter that returns an empty map, in exactly the environment this was
+    // written to survive (whole-diff R13 F3). A throwaway repository gives the
+    // adapter something real to disagree with, and touches nothing tracked.
+    const repo = mkdtempSync(join(tmpdir(), "ledger-refs-"));
+    const g = (...args: string[]) =>
+      execFileSync("git", args, { cwd: repo, encoding: "utf8", timeout: 30_000 });
+    g("init", "--quiet", "--initial-branch=main");
+    g("config", "user.email", "t@example.com");
+    g("config", "user.name", "t");
+    g("commit", "--quiet", "--allow-empty", "-m", "base");
+    const head = g("rev-parse", "HEAD").trim();
+    for (const name of ["main", "feat/one", "feat/two"]) {
+      g("update-ref", `refs/remotes/origin/${name}`, head);
+    }
+    // The alias the reader must never surface as a branch named "origin".
+    g("update-ref", "refs/remotes/origin/HEAD", head);
+
     const { realGitSurface } = await import("@/scripts/lib/ledger-git");
-    const local = realGitSurface().localRefs();
-    // Cardinality against GIT'S OWN answer, never a hardcoded floor. CI checks
-    // out a single branch with no refs/remotes/origin/* at all, so `> 0` is
-    // false there for a correct reader -- the test would be asserting the
-    // checkout's shape rather than the reader's behavior. Comparing to
-    // for-each-ref keeps the anti-vacuity property (a reader returning an empty
-    // map where git lists refs still fails) in both environments.
-    const truth = execFileSync(
-      "git",
-      ["for-each-ref", "--format=%(refname)", "refs/remotes/origin/"],
-      { cwd: ROOT, encoding: "utf8", timeout: 30_000 },
-    )
-      .split("\n")
-      .map((l: string) => l.trim())
-      .filter((l: string) => l.length > 0 && !l.endsWith("/HEAD")).length;
-    expect(local.size, "the reader disagrees with git about how many refs exist").toBe(truth);
-    expect([...local.keys()], "origin/HEAD must never enter the map").not.toContain("HEAD");
-    for (const oid of local.values()) expect(oid).toMatch(/^[0-9a-f]{40}$/);
+    const prev = process.env.LEDGER_GIT_ROOT;
+    process.env.LEDGER_GIT_ROOT = repo;
+    try {
+      const local = realGitSurface().localRefs();
+      expect([...local.keys()].sort(), "the reader disagrees with the refs that exist").toEqual([
+        "feat/one",
+        "feat/two",
+        "main",
+      ]);
+      expect([...local.keys()], "origin/HEAD must never enter the map").not.toContain("HEAD");
+      for (const oid of local.values()) expect(oid).toMatch(/^[0-9a-f]{40}$/);
+    } finally {
+      if (prev === undefined) delete process.env.LEDGER_GIT_ROOT;
+      else process.env.LEDGER_GIT_ROOT = prev;
+      rmSync(repo, { recursive: true, force: true });
+    }
   });
 
   it("attaches a base-repo PR number and never a fork's", () => {

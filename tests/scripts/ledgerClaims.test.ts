@@ -31,7 +31,7 @@ function fake(over: Partial<GitSurface> = {}): GitSurface {
         ["feat/a", "bbb"],
       ]),
     prList: () => [],
-    mergedIntoMain: () => [],
+    mergedIntoMain: () => new Map(),
     showFile: (ref, file) =>
       file === "BACKLOG.md" && ref === "origin/feat/a" ? MARKER("feat/a") : null,
     mergeBase: () => "base",
@@ -137,8 +137,32 @@ describe("resolveClaims — candidates", () => {
   });
 
   it("excludes branches merged into main on a full clone", () => {
-    const r = resolveClaims(fake({ mergedIntoMain: () => ["origin/feat/a"] }), opts);
+    // The merged OID must MATCH the snapshot's tip for the branch to be
+    // excluded -- "bbb" is what localRefs reports for feat/a.
+    const r = resolveClaims(
+      fake({ mergedIntoMain: () => new Map([["origin/feat/a", "bbb"]]) }),
+      opts,
+    );
     expect(r.claims).toEqual([]);
+  });
+
+  it("does NOT exclude a branch whose tip moved since the merged read", () => {
+    // The R13 F1 race, made executable: git reported feat/a merged at "old",
+    // but the pinned snapshot holds "bbb" -- someone pushed between the two
+    // reads. Excluding on the NAME drops a candidate whose snapshot tip was
+    // never merged, and a verified collision becomes a trusted all-clear.
+    //
+    // Conservative in the safe direction: at worst this reports a collision
+    // that has just been resolved. Silence about a live one is the failure the
+    // tool exists to prevent.
+    const r = resolveClaims(
+      fake({ mergedIntoMain: () => new Map([["origin/feat/a", "old"]]) }),
+      opts,
+    );
+    expect(
+      r.claims.map((c) => c.id),
+      "a moved tip was excluded on its name",
+    ).toEqual(["BL-X"]);
   });
 
   it("keeps merged branches as candidates on a shallow clone, and says so", () => {
@@ -146,7 +170,7 @@ describe("resolveClaims — candidates", () => {
     // collision names a real branch, a false all-clear is the defect this exists
     // to remove.
     const r = resolveClaims(
-      fake({ isShallow: () => true, mergedIntoMain: () => ["origin/feat/a"] }),
+      fake({ isShallow: () => true, mergedIntoMain: () => new Map([["origin/feat/a", "bbb"]]) }),
       opts,
     );
     expect(r.claims.map((c) => c.id)).toEqual(["BL-X"]);

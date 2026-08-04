@@ -15,6 +15,15 @@ import type { GitSurface, Hunk, PrRow } from "./ledger-claims-core";
 
 const ROOT = join(__dirname, "..", "..");
 
+/**
+ * The checkout every command runs in. Overridable ONLY so the adapter can be
+ * exercised against a controlled ref namespace: in CI this repository has no
+ * `refs/remotes/origin/*` at all, so a test asserting against the live checkout
+ * is satisfied by an adapter that returns nothing (whole-diff R13 F3). Nothing
+ * in production ever sets it.
+ */
+const gitRoot = () => process.env.LEDGER_GIT_ROOT ?? ROOT;
+
 const FETCH_MS = 30_000;
 const LS_REMOTE_MS = 30_000;
 const GH_MS = 10_000;
@@ -34,7 +43,7 @@ const GH_MS = 10_000;
  */
 function git(args: string[], timeout: number): string {
   const r = spawnSync("git", args, {
-    cwd: ROOT,
+    cwd: gitRoot(),
     encoding: "utf8",
     timeout,
     stdio: ["ignore", "pipe", "pipe"],
@@ -85,7 +94,7 @@ export function realGitSurface(): GitSurface {
         "git",
         ["for-each-ref", "--format=%(objectname) %(refname)", "refs/remotes/origin"],
         {
-          cwd: ROOT,
+          cwd: gitRoot(),
           encoding: "utf8",
           timeout: LS_REMOTE_MS,
         },
@@ -119,7 +128,7 @@ export function realGitSurface(): GitSurface {
           "--limit",
           "100",
         ],
-        { cwd: ROOT, encoding: "utf8", timeout: GH_MS },
+        { cwd: gitRoot(), encoding: "utf8", timeout: GH_MS },
       );
       if (r.status !== 0 || !r.stdout) return [];
       try {
@@ -141,14 +150,22 @@ export function realGitSurface(): GitSurface {
     },
 
     mergedIntoMain() {
+      // Name AND OID. The caller excludes a branch only when the OID git
+      // reported it merged at still matches the pinned snapshot, so a merge
+      // landing between the two reads cannot drop a candidate whose snapshot
+      // tip is still unmerged (whole-diff R13 F1).
       const out = git(
-        ["branch", "-r", "--merged", "origin/main", "--format=%(refname:short)"],
+        ["branch", "-r", "--merged", "origin/main", "--format=%(refname:short) %(objectname)"],
         LS_REMOTE_MS,
       );
-      return out
-        .split("\n")
-        .map((s) => s.trim())
-        .filter((s) => s.length > 0 && s !== "origin/main");
+      const map = new Map<string, string>();
+      for (const line of out.split("\n")) {
+        const [name, oid] = line.trim().split(/\s+/);
+        if (name === undefined || oid === undefined) continue;
+        if (name.length === 0 || name === "origin/main") continue;
+        map.set(name, oid);
+      }
+      return map;
     },
 
     // One spawn per ref for ALL ledger blob OIDs, plus one `cat-file` per
@@ -157,7 +174,7 @@ export function realGitSurface(): GitSurface {
     fileOids(ref, files) {
       const out = new Map<string, string>();
       const r = spawnSync("git", ["ls-tree", ref, "--", ...files], {
-        cwd: ROOT,
+        cwd: gitRoot(),
         encoding: "utf8",
         timeout: LS_REMOTE_MS,
         stdio: ["ignore", "pipe", "pipe"],
@@ -184,7 +201,7 @@ export function realGitSurface(): GitSurface {
       // declared claims silently: an object-read failure or a timeout would read
       // as "this branch has no ledger" and drop every marker on it.
       const r = spawnSync("git", ["show", `${ref}:${file}`], {
-        cwd: ROOT,
+        cwd: gitRoot(),
         encoding: "utf8",
         timeout: LS_REMOTE_MS,
         stdio: ["ignore", "pipe", "pipe"],
@@ -210,7 +227,7 @@ export function realGitSurface(): GitSurface {
       // no merge-base, and the caller degrades `inferred` for that ref rather
       // than failing. Distinguished from a fault by asking git first.
       const r = spawnSync("git", ["merge-base", "origin/main", ref], {
-        cwd: ROOT,
+        cwd: gitRoot(),
         encoding: "utf8",
         timeout: LS_REMOTE_MS,
         stdio: ["ignore", "pipe", "pipe"],

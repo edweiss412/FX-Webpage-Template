@@ -26,7 +26,8 @@ export type GitSurface = {
   /** name -> OID for `refs/remotes/origin/*`, with the `origin/HEAD` symref excluded. */
   localRefs(): Map<string, string>;
   prList(): PrRow[];
-  mergedIntoMain(): string[];
+  /** Merged branch ref name -> the OID git reported it merged at. */
+  mergedIntoMain(): Map<string, string>;
   /** File content at a ref, or null when absent. Never throws on a missing path. */
   showFile(ref: string, file: string): string | null;
   /** All ledger blob OIDs at a ref in ONE spawn, so reads can be deduplicated. */
@@ -61,6 +62,10 @@ export type Resolution = {
   identity: Identity;
   /** The branch that is "me", or null when nothing may be excluded as self. */
   selfBranch: string | null;
+  /** The pinned ref snapshot every decision above was made against. */
+  refSnapshot: Map<string, string>;
+  /** The refs resolution actually read, already merged-excluded. */
+  candidates: string[];
 };
 
 /** Tip older than this reads as abandoned. Display label only; never drops a claim. */
@@ -132,20 +137,47 @@ export function resolveClaims(
   const { identity, selfBranch } = resolveIdentity(git);
   if (identity === "ci-unknown") degraded.push("identity-unresolved");
 
+  // The snapshot is pinned BEFORE anything derived from it is read, and every
+  // later decision is keyed on the OIDs in it rather than on the ref names.
+  const snapshotRefs = git.localRefs();
+
   const shallow = git.isShallow();
-  const merged = shallow ? new Set<string>() : new Set(git.mergedIntoMain());
+  // name -> the OID git reported as merged, NOT a bare name set. A name-keyed
+  // exclusion decides with a merged-status read at one instant against a ref
+  // snapshot taken at another: a branch that merges in between is dropped from
+  // the candidate set although the snapshot still holds its unmerged tip, and a
+  // verified collision becomes a trusted all-clear (whole-diff R13 F1).
+  //
+  // Requiring the OIDs to MATCH makes every race conservative in the safe
+  // direction: a branch whose tip moved between the two reads is not excluded,
+  // so at worst `--check` reports a collision that has just been resolved. The
+  // opposite error — silence about a live one — is the failure this tool exists
+  // to prevent.
+  const merged = shallow ? new Map<string, string>() : git.mergedIntoMain();
   if (shallow) degraded.push("merged-exclusion-skipped");
 
-  const snapshotRefs = git.localRefs();
   const candidates = [...snapshotRefs.keys()]
     .filter((name) => name !== "main" && name !== "HEAD")
     .map((name) => `origin/${name}`)
-    .filter((ref) => !merged.has(ref));
+    .filter((ref) => {
+      const mergedAt = merged.get(ref);
+      return mergedAt === undefined || mergedAt !== snapshotRefs.get(shortName(ref));
+    });
+
+  // origin/<name> -> the tip OID the universe check verified. Declared BEFORE
+  // every consumer below, because each of them must decide against the pinned
+  // object rather than against whatever the movable name resolves to at the
+  // moment it happens to run.
+  const refOids = new Map<string, string>(
+    [...snapshotRefs.entries()].map(([name, oid]) => [`origin/${name}`, oid]),
+  );
+  /** The pinned OID for a ref, falling back to the name only if it is absent. */
+  const pin = (ref: string) => refOids.get(ref) ?? ref;
 
   // Tip epochs resolved ONCE per ref. Calling git.tipEpoch inside a comparator
   // would spawn O(n log n) subprocesses for a cosmetic ordering.
   const tipOf = new Map<string, number>(
-    candidates.map((ref) => [ref, declaredOnly ? 0 : git.tipEpoch(ref)]),
+    candidates.map((ref) => [ref, declaredOnly ? 0 : git.tipEpoch(pin(ref))]),
   );
   // Newest tip first, so the table leads with what is most likely live rather
   // than with whatever order the ref map happened to yield.
@@ -160,10 +192,6 @@ export function resolveClaims(
 
   const files = ledgerFiles();
   const claims: Claim[] = [];
-  // origin/<name> -> the tip OID the universe check verified.
-  const refOids = new Map<string, string>(
-    [...snapshotRefs.entries()].map(([name, oid]) => [`origin/${name}`, oid]),
-  );
   // Distinct blobs, read once each: most branches share main's ledger blobs.
   const blobCache = new Map<string, string>();
 
@@ -191,8 +219,7 @@ export function resolveClaims(
     // verifies tipA while the content came from B, and the result is a trusted
     // false all-clear. Passing the OID makes the thing verified and the thing
     // read the same object.
-    const tipOid = refOids.get(ref);
-    const oids = git.fileOids(tipOid ?? ref, [...files]);
+    const oids = git.fileOids(pin(ref), [...files]);
     for (const file of files) {
       const oid = oids.get(file);
       if (oid === undefined) continue; // absent at this ref
@@ -216,14 +243,14 @@ export function resolveClaims(
     // Inferred: a branch that edited an entry's span is working on it, marker or
     // not. Advisory only — it never fails anything, in any identity case.
     if (declaredOnly) continue;
-    const base = git.mergeBase(ref);
+    const base = git.mergeBase(pin(ref));
     if (base === null) {
       if (!degraded.includes("merge-base-unavailable")) degraded.push("merge-base-unavailable");
       continue;
     }
 
     const touched = new Set<string>();
-    for (const h of git.diffHunks(base, ref, files)) {
+    for (const h of git.diffHunks(base, pin(ref), files)) {
       // A pure deletion has no new-side line, so it maps to nothing.
       if (h.count === 0) continue;
       const last = h.start + h.count - 1;
@@ -238,5 +265,5 @@ export function resolveClaims(
     for (const id of touched) if (!declaredHere.has(id)) claims.push(mk(id, "inferred"));
   }
 
-  return { claims, degraded, identity, selfBranch };
+  return { claims, degraded, identity, selfBranch, refSnapshot: snapshotRefs, candidates };
 }
