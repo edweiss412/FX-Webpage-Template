@@ -34,8 +34,9 @@ export function Skeleton({ className = "" }: { className?: string }) {
  * - **JavaScript off** — that swap never happens, so the skeleton would shimmer
  *   forever. The `<noscript>` block below says so instead, and its scoped
  *   `<style>` hides the shell content so nothing on screen pretends to still be
- *   loading. A browser with JS enabled does not parse `<noscript>` contents at
- *   all, so this costs the normal path nothing.
+ *   loading. A browser with JS enabled parses `<noscript>` contents only as raw
+ *   text — it materializes no descendants and applies none of their CSS — so
+ *   this costs the normal path nothing beyond the bytes on the wire.
  *
  * Design: docs/superpowers/specs/2026-08-03-nojs-loading-shell-notice-design.md
  *
@@ -62,12 +63,13 @@ export function LoadingShell({
          * The notice carries its OWN gutter and width cap. It cannot inherit the
          * page's: only three loading.tsx files put horizontal padding below
          * `data-loading-shell-content` (which the rule above hides), and the
-         * mobile-primary crew route is one of them. The other six pad from a
-         * parent -- four admin fallbacks via app/admin/layout.tsx, plus /me and
-         * /help -- so there the gutter simply double-applies (~32px narrower
-         * card, accepted). Without this
-         * the card runs flush to both edges of a 390px phone on the crew route
-         * and stretches past 1500px on a wide admin viewport.
+         * mobile-primary crew route is one of them. Eight routes are
+         * parent-padded: all six admin fallbacks inherit from
+         * app/admin/layout.tsx:191 -- including the two that ALSO pad a
+         * descendant, so the groups overlap -- plus /me and /help. There the
+         * gutter double-applies (~32px narrower card, accepted). Without it the
+         * card would run flush to both edges of a 390px phone on the crew route
+         * and stretch past 1500px on a wide admin viewport.
          */}
         <div className="mx-auto w-full max-w-2xl px-4 py-8 sm:px-8">
           <div
