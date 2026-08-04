@@ -267,9 +267,18 @@ And **the twelfth applies app-side too, which round 9's repair missed.** It clos
 
   So the oracle walks the route's **visible text-bearing elements** and asserts each one's computed `font-family` resolves to the canonical chain. That has no privileged insertion point to be wrong about: an override anywhere in any branch lands on an element the walk visits.
 
-  **But resolving the chain is not enough on its own, and round 10 was right that the earlier formulation was tautological.** `tests/e2e/font-binding.spec.ts:63-92` derives its reference family *from the token* and measures against that, so a face registered at runtime under the name `Inter` makes the measured element and the forced reference resolve through the *same* rogue alias: the widths agree, the computed family still reads canonically, and mutant nine survives. Copying that posture inherits the hole.
+  **Resolving the chain is not enough on its own, and the oracle is now spiked rather than specified.** Ten review rounds contested this guard's formulation; per the three-round prose cap (`docs/agents/spec-self-review.md:22`) it was built as code and measured. Three formulations, in Chromium:
 
-  The reference must therefore be **independent of anything the page can redefine**: a width pinned in the test from the committed font's own metrics, for a fixed string at a fixed size. An impostor aliased as `Inter` fails it because Arial's advance widths are not Inter's, however the alias is spelled. That pinned figure is derived once from the committed file and re-derived only when §3.3's hashes change.
+  | Formulation | Real Inter | Arial aliased as `Inter` | Verdict |
+  | --- | --- | --- | --- |
+  | computed `font-family` | `Inter, "Inter Fallback", …` | **identical** | worthless alone |
+  | `document.fonts` family set | `Inter:loaded` | **identical** | worthless alone |
+  | width vs a **token-derived** reference | agree | agree | tautological — both sides resolve the same alias |
+  | **width vs an expectation computed from the committed bytes** | delta **0.008px** | delta **9.774px** | **discriminates, ~1200× margin** |
+
+  So the oracle is the last row. For a fixed string at a fixed size, the expected advance width is computed in-test from the committed file with fontkit — `font.layout(probe).advanceWidth / font.unitsPerEm * fontSize` (`unitsPerEm` 2048, one `wght` axis) — and compared to the rendered width within 0.5px.
+
+  Two properties matter and both are measured, not argued. It is **alias-independent**: an impostor fails on Arial's advance widths however the alias is spelled. And it is **environment-independent**: the expectation derives from the same bytes the browser renders, so there is no pinned literal to rot across platforms, Chromium builds or CI images — the failure mode the byte-gate discipline in AGENTS.md exists to prevent. It needs no baseline table and no per-environment figure, which is also why it is cheap enough to run on every surface in the census rather than a sample.
 - **Config** — add to the project that already runs `font-binding`, alongside it.
 - **CI** — that project's existing invocation names its specs explicitly, so this filename is added to it. (Contrast §4.2, whose standalone workflow is deliberately unfiltered and must not be touched — the two projects have opposite conventions and confusing them breaks a gate either way.)
 - **Workflow-coverage disposition** — `crew-e2e.yml`'s `pull_request` trigger carries `paths-ignore`, and `tests/ci/_metaE2eWorkflowCoverage.test.ts:229-231` treats a spec in such a job as not fully PR-covered unless it is dispositioned. `font-binding.spec.ts` is already classified `PATH_GATED_BY_EXCLUSION` there (`tests/ci/_metaE2eWorkflowCoverage.test.ts:133`); the new spec gets the same disposition. Round 10 caught this: without it, "every e2e spec is PR-covered or reason-allowlisted" fails the moment the file exists, even with config, workflow command and executed-spec registry all exactly as specified.
