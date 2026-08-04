@@ -754,6 +754,47 @@ git commit -m "fix(sync): derive crew_renamed from landed pairs, completing the 
 
 ---
 
+### Task 5b: Repair the eight downstream tests Unit A's correction invalidates
+
+**Files:**
+- Modify: `tests/db/undo-rename-reversal.test.ts` (3 tests), `tests/db/undo-change-direction-a.test.ts` (4), `tests/db/supersession-both-writers.test.ts` (1)
+
+**Why this task exists.** It was added DURING implementation, after Task 5 turned 8 previously-green tests red. They are not fixture rot — they encode the old behavior. Each drives `runAutoApply` with an **MI-12 triggered item and no `identityLinkRenames`**, then reads the `crew_renamed` row the old unconditional re-derivation produced. After Task 5 that row does not exist, which is the whole point of the unit.
+
+**Two different repairs, and the distinction is the task.**
+
+- **Seven are mechanical.** Pass `identityLinkRenames` alongside the MI-12 item. That models production faithfully — cron's `computeIdentityLinkRenames` emits MI-12 pairs ungated (`lib/sync/identityLinkRenames.ts:20-23`) — so the pair lands, the row appears, and the test's subject is restored unchanged.
+- **One is not.** The REPLACED-shape test (`tests/db/undo-change-direction-a.test.ts:169`, "successor (distinct id) deleted, prior id restored") asserts a shape no live apply can produce any more: a landed rename is an in-place UPDATE and preserves the id. **Seed its `crew_renamed` feed row directly** rather than driving an apply. Its coverage is still required — `undo_change` must keep handling historical rows of that shape — but its premise comment ("applied as delete-old + insert-new") must be corrected to say it is reproducing a historical row deliberately, not exercising a current path. See spec §8.
+
+**Do NOT weaken any assertion to make these pass.** If a test cannot be made green by one of the two repairs above, stop and report — it means Unit A changed something neither the spec nor this plan intends.
+
+- [ ] **Step 1: Confirm the failure set before changing anything**
+
+Run: `pnpm vitest run tests/db/undo-rename-reversal.test.ts tests/db/undo-change-direction-a.test.ts tests/db/supersession-both-writers.test.ts`
+Expected: 8 failed / 8 passed. If the count differs, the blast radius moved — report it rather than proceeding.
+
+- [ ] **Step 2: Apply the seven mechanical repairs**
+
+- [ ] **Step 3: Reseed the REPLACED-shape test and correct its premise comment**
+
+- [ ] **Step 4: Re-run the three files**
+
+Expected: 16/16 pass, with no assertion removed or loosened.
+
+- [ ] **Step 5: Full sync + db sweep, to catch any further instance of the same shape**
+
+Run: `pnpm vitest run tests/sync tests/db`
+Expected: green. Any further failure is the same class — repair it the same way and say so.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add tests/db/
+git commit -m "test(db): reseat the rename-shape tests Unit A's landed-pairs correction invalidated"
+```
+
+---
+
 ### Task 6: The forensic unlanded-rename emitter
 
 **Files:**
