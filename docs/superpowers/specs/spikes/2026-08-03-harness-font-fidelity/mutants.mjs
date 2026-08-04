@@ -41,6 +41,8 @@ const MUTANTS = {
   "R19a escaped duplicate s\\72 c": c => c.replace('src: url("/fonts/inter-greek.woff2") format("woff2");','src: url("/fonts/inter-greek.woff2") format("woff2");\n  s\\72 c: local("Times New Roman");'),
   "R19b second Inter Fallback, bold Times": c => c + '\n@font-face { font-family: "Inter Fallback"; src: local("Times New Roman"); font-weight: 700; }\n',
   "R19c uppercase @FONT-FACE impostor": c => c + '\n@FONT-FACE { font-family: "Inter"; src: local("Arial"); unicode-range: U+0370-03FF; }\n',
+  "R22a font-weight range collapsed to 400": c => c.replace(/font-weight: 100 900;/g,"font-weight: 400;"),
+  "R22b font-style reclassified italic": c => c.replace(/font-style: normal;/g,"font-style: italic;"),
   "R12 REPLACE font-style with size-adjust": c => c.replace(/  font-style: normal;/g,'  size-adjust: 200%;'),
   "R12b REPLACE font-weight with size-adjust": c => c.replace(/  font-weight: 100 900;/g,'  size-adjust: 200%;'),
 };

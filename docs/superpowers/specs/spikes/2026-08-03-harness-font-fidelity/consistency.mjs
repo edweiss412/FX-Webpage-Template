@@ -40,13 +40,44 @@ check("combining-mark feature", !/combining marks for cyrillic/.test(t),
 check("wait anchor", !/await is placed \*at the navigation site\*/.test(t),
   "placement stated as the navigation site, contradicting the content-present anchor");
 
+// 5b. Round 22: this file reported "consistent" over a paragraph that said the
+// guard parses with "the browser's own CSSOM" across "14 assertions". The parser
+// check only looked for `replaceSync`, and the count checks only asked whether a
+// numeral occurred SOMEWHERE. Both were weaker than the prose describing them --
+// the same defect class the guard itself kept hitting.
+check("guard parser (prose)", !/parses [^.]{0,40}with the browser's own CSSOM/.test(t),
+  "prose still names CSSOM as the guard's parser");
+// The assertion/mutant totals must agree with what the artifacts actually report,
+// read from the artifacts rather than trusted.
+import { readFileSync as rf } from "node:fs";
+const here = new URL(".", import.meta.url).pathname;
+const rows = (rf(here + "static-guard.mjs", "utf8").match(/^check\(/gm) || []).length;
+const muts = (rf(here + "mutants.mjs", "utf8").match(/^  "[A-Z]/gm) || []).length;
+const hRows = (rf(here + "harness-guard.mjs", "utf8").match(/add\("H/g) || []).length;
+const hMuts = (rf(here + "harness-mutants.mjs", "utf8").match(/^  \["H-/gm) || []).length;
+check("static totals match the artifact", new RegExp(`\\b${muts} mutants, all killed, across ${rows} assertions\\b`).test(t),
+  `artifact reports ${rows} rows / ${muts} mutants`);
+check("combined totals match the artifacts",
+  new RegExp(`\\b${rows + hRows} rows and ${muts + hMuts} mutants\\b`).test(t),
+  `artifacts total ${rows + hRows} rows / ${muts + hMuts} mutants`);
+// A count claim must match the list it introduces.
+// Sentence-splitting on "." fails here: the names themselves contain dots
+// (appHealthIndicator.layout). Bound the window by the prose that follows it.
+const decl = t.match(/because (\d+) of the 25 create more than one/);
+if (decl) {
+  const from = t.indexOf("Recomputed on this branch:");
+  const stop = Math.min(...["is the sixteenth", "An earlier draft"]
+    .map((k) => { const i = t.indexOf(k, from); return i === -1 ? Infinity : i; }));
+  const listed = new Set((t.slice(from, stop).match(/`[^`\s]+`/g) || []).map((x) => x));
+  check("multi-document count matches its list", Number(decl[1]) === listed.size,
+    `says ${decl[1]}, lists ${listed.size}`);
+}
+
 // 6. Coverage numbers must not contradict each other. Added after the harness
 // instrument landed and made an earlier "not among the 30" caveat false --
 // the same peer-staleness this file exists to catch, one level up.
 check("stale coverage caveat", !/they are \*\*not\*\* among the 30/.test(t),
   "still discloses the harness rows as uncovered");
-const rows = t.match(/\b22 rows and 38 mutants\b/);
-check("coverage totals present", !!rows, "the 22-rows/38-mutants total is missing or was reworded");
 
 // 7. Every count above should appear at least once (catches a rename losing a claim).
 for (const [k, v] of Object.entries(counts))

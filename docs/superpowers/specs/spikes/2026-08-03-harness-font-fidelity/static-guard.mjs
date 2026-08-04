@@ -95,6 +95,17 @@ check("14 --font-inter is EXACTLY the pinned two-family sequence",
   vars.length === 1 && JSON.stringify(tokens(vars[0])) ===
     JSON.stringify(["string:Inter", "comma:", "string:Inter Fallback"]),
   vars.length === 1 ? JSON.stringify(tokens(vars[0])) : "");
+// Round 22: inventory equality proves a descriptor EXISTS; it never proved the
+// VALUE. Collapsing 100 900 -> 400, or normal -> italic, passed all 15 rows and
+// app/harness equality allowed both blocks to be wrong together.
+check("16 every Inter face declares font-weight EXACTLY 100 900",
+  inter.every((f) => { const w = f.d["font-weight"];
+    const vals = (Array.isArray(w) ? w : []).map((x) => x?.value?.value).filter((v) => typeof v === "number");
+    return vals.length === 2 && vals[0] === 100 && vals[1] === 900; }),
+  JSON.stringify(inter.map((f) => (Array.isArray(f.d["font-weight"]) ? f.d["font-weight"] : []).map((x) => x?.value?.value))));
+check("17 every Inter face declares font-style EXACTLY normal",
+  inter.every((f) => f.d["font-style"]?.type === "normal"),
+  JSON.stringify(inter.map((f) => f.d["font-style"]?.type)));
 check("15 every committed woff2 hash-matches its pinned digest",
   SUBSETS.every((n) => { const f = join(DIR, `inter-${n}.woff2`);
     return existsSync(f) && createHash("sha256").update(readFileSync(f)).digest("hex") === DIGESTS[n]; }));
