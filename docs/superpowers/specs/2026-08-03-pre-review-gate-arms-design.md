@@ -173,7 +173,7 @@ So the plan declares its own task grain, in a **delimited region**:
 - A **closing line** is a non-fenced line matching `^<!-- tasks: end -->$` exactly.
 - Any non-fenced line beginning `<!-- tasks:` that is neither is `TASK_ENROLL_MALFORMED`. That single clause covers an out-of-range or non-integer depth, a missing depth, an unknown extra field (`depth=3 extra=x`), a repeated field (`depth=3 depth=4`), and every form not yet imagined — none of which may silently opt a plan out while visibly declaring enrollment.
 - A plan is **enrolled** iff it carries exactly one opening line. **Every** opening line after the first is `TASK_ENROLL_DUPLICATE` — whether or not a close intervenes. An earlier wording said "without an intervening close", which left `open → close → open → close` as two openings, therefore not enrolled, therefore unchecked, and matching no finding: a visibly enrolled plan receiving no task checking at all. Multiple regions are not supported, and the unsupported case must be loud.
-- A closing line with no preceding open is `TASK_ENROLL_MALFORMED`.
+- A closing line is `TASK_ENROLL_MALFORMED` only when **no opening line precedes it anywhere in the document**. Not "the region is not currently open" — that spelling cascades. Probed against `open → close → open → close`: the second opening correctly draws `TASK_ENROLL_DUPLICATE`, and because rejecting it leaves the region closed, its matching close then draws a second finding claiming no open precedes it, which is visibly false. One authoring mistake must not manufacture a misleading second finding; the duplicate is the whole defect.
 - A **task** is a heading of exactly the declared depth **lying inside the region**. Nothing else is a task, at any depth; no heading text is ever read. End of document closes an unclosed region.
 - An enrolled plan whose region contains **zero** tasks is `TASK_ENROLL_EMPTY`. A valid in-range depth can legitimately select nothing — wrong depth, or an opening line placed after the last matching heading — and a checker that reports nothing there has accepted a plan while checking no tasks at all. That is the silent-acceptance shape in its purest form, so it is a hard finding rather than a vacuous pass.
 
@@ -234,7 +234,7 @@ A new `taskContract` member of the `Check` union (`lib/specLint/types.ts:2`) and
 | Code | Fires when |
 | --- | --- |
 | `TASK_ENROLL_DUPLICATE` | any opening line after the first, intervening close or not |
-| `TASK_ENROLL_MALFORMED` | a `<!-- tasks:` line matches neither the opening nor the closing form exactly (§3.2), or a closing line has no preceding open |
+| `TASK_ENROLL_MALFORMED` | a `<!-- tasks:` line matches neither the opening nor the closing form exactly (§3.2), or a closing line has no opening line anywhere before it |
 | `TASK_ENROLL_EMPTY` | an enrolled plan's region contains zero headings at the declared depth |
 | `TASK_MARKER_MISSING` | an enrolled plan has a task with no marker in its extent |
 | `TASK_MARKER_DUPLICATE` | one task extent holds two or more markers |
@@ -257,7 +257,8 @@ Every non-fenced line in a plan falls into exactly one class:
 | `^<!-- tasks: depth=([1-6]) -->$` | no open yet | opens the region; plan is enrolled |
 | `^<!-- tasks: depth=([1-6]) -->$` | any open seen before | `TASK_ENROLL_DUPLICATE` |
 | `^<!-- tasks: end -->$` | region open | closes the region |
-| `^<!-- tasks: end -->$` | no open seen | `TASK_ENROLL_MALFORMED` |
+| `^<!-- tasks: end -->$` | no opening line anywhere earlier in the document | `TASK_ENROLL_MALFORMED` |
+| `^<!-- tasks: end -->$` | an opening line appeared earlier, region not currently open | consumed silently — no cascade after a rejected duplicate |
 | starts `<!-- tasks:`, matches neither form | any | `TASK_ENROLL_MALFORMED` |
 | marker form, `red` empty or whitespace | any | `TASK_RED_EMPTY` (occupies the slot) |
 | marker form except `ac=` absent or empty | any | `TASK_AC_MISSING` (occupies the slot) |
@@ -341,6 +342,8 @@ Nine artifacts burned on this shape; none was caught by review-time reasoning al
 **AC-23.** `<!-- tasks: depth=3 extra=x -->` and `<!-- tasks: depth=3 depth=4 -->` each report `TASK_ENROLL_MALFORMED`. Neither may parse to "not enrolled".
 
 **AC-24.** `TASK_AC_UNRESOLVED` fires for `ac=AC-1` when the plan's prose contains only `AC-10`, `AC-1a`, `AC-1.1`, or `AC-1-child` — one case per prefix family, none of which may resolve it.
+
+**AC-30.** `open → close → open → close` reports `TASK_ENROLL_DUPLICATE` exactly once and **no** `TASK_ENROLL_MALFORMED`. Pinned by asserting the full finding list, not merely that the duplicate is present — a cascade is invisible to a test that only checks for the expected code.
 
 **AC-29.** The §3.4.1 table is total: a table-driven test enumerates every line class against every region state and asserts each yields the stated outcome, with a final case asserting that an arbitrary line reaching no earlier row is classified as ordinary prose rather than falling through unhandled.
 
