@@ -369,6 +369,57 @@ screen-disposition 2026-08-04: PREREQ-FENCED + ANNOTATED, stays open, NOT claime
 
 screen-disposition 2026-08-04: KEEP — PROBED, and the entry's own premise is REFUTED. The body says "no current doc relies on the loose match — this is hardening, not a live bug." It is a live bug. Enumerating every bold/backtick candidate of six characters or fewer across `app/help/**` (17 of them) against a comment-stripped `app/` + `components/` haystack found two that have NO standalone UI-string occurrence and pass the crosswalk only by matching an IMPORT IDENTIFIER: `**Share**` (`app/help/getting-started/page.mdx:8`) first matches `import { loadShowShareToken } …`, and `**Viewer**` (`:10`) first matches `import { getShowForViewer, … } …`. Grepping `app` + `components` (excluding `app/help`) for `"Share"` / `'Share'` / `>Share<` and the same three shapes for `Viewer` returns zero hits each, and neither is registered in `tests/help/_uiLabelExceptions.ts`. The matching sites are `tests/help/_metaUiLabelCrosswalk.test.ts:328` (heuristic layer) and `:408` (declared registry), both `includes`. Stays open with the premise corrected: the guard is currently attesting two labels that the product does not render.
 
+## BL-LEDGER-MDAST-SHARED-HOME — DEMOTED, NO DEFECT TO SCHEDULE 2026-08-04
+
+Demoted by the 2026-08-04 ledger filing bar, and the only row in the screen with NO failure mode at
+all — not a conservative one, not a latent one. The entry's complaint is that `scripts/**` imports
+from `tests/**`, which "is backwards"; its own class field says `module placement` and its whole
+prescription is "Relocating it beside its consumers is the repair."
+
+**Probed 2026-08-04: nothing is broken, and nothing would break.** `tsconfig.json` carries one path
+alias (`"@/*": ["./*"]`), `include` is `**/*.ts` — covering `scripts/` and `tests/` alike — and
+`exclude` lists only `node_modules`, the `.next-*` dirs and four fixture dirs. There is no
+scripts/tests boundary to violate. `tests/docs/_ledgerMdast.ts` imports no vitest module and is an
+underscore helper that `**/*.test.ts` does not match, so it is not a test-only artifact. Both
+directions execute live: `pnpm ledger:mass` (`tsx scripts/ledger-mass.ts`) runs and prints a report,
+and `pnpm vitest run tests/scripts/ledgerFields.test.ts` passes. `pnpm preflight` does not touch the
+graph at all.
+
+**And the entry undercounts what the move costs.** It names "four importers plus three hardcoded path
+exemptions". The real numbers are five and five: one direct importer under `scripts/`
+(`scripts/lib/ledger-fields.ts:22`) plus four under `tests/`
+(`tests/docs/_metaDeferralLedgerGraduation.test.ts:49`, `tests/docs/_ledgerMdast.walker.test.ts:9`,
+`tests/docs/_metaLedgerReferentialIntegrity.test.ts:37`, `tests/scripts/ledgerFields.test.ts:18`),
+with five hardcoded `tests/docs/_ledgerMdast*` paths inside `_metaLedgerReferentialIntegrity.test.ts`
+(`:78`, `:80`, `:611`, `:612`, `:650`) — the last of which is a PURITY GUARD that reads the file and
+asserts it contains no banned tokens, so the move must relocate an assertion about the module's own
+path. That is a real lockstep edit buying a subjective tidiness improvement and zero behaviour.
+
+If the placement is ever worth changing, it is worth changing as part of work that is already in that
+code — not as a scheduled item of its own.
+
+screen-disposition 2026-08-04: DEMOTE — probed; no tooling constraint breaks today, the module is not
+vitest-bound, both directions run live, and the row asks for a relocation with no failure mode behind
+it. Counts corrected on the way out: five importers, not four; five hardcoded paths, not three.
+
+The original entry follows verbatim, with its in-flight status marker removed on archiving per
+invariant 12 — archives categorically reject in-progress work.
+
+## BL-LEDGER-MDAST-SHARED-HOME — the ledger walker lives under tests/ but is consumed by scripts/
+
+**Status:** OPEN · **Severity:** low · **Class:** module placement · **Filed:** 2026-08-03 (`chore/ledger-claim-visibility`, spec §9.3) · **Effort:** M
+
+`tests/docs/_ledgerMdast.ts` is the authoritative ledger walker and is pure by construction — the
+referential-integrity guard forbids `node:fs`, `node:path`, and `require(` inside it. Once a script
+consumes it, `scripts/**` imports from `tests/**`, which is backwards.
+
+Relocating it beside its consumers is the repair. Deferred out of `chore/ledger-claim-visibility`
+under exception (c): it spans four importers plus three hardcoded path exemptions inside
+`tests/docs/_metaLedgerReferentialIntegrity.test.ts` that must all move in lockstep, none of which
+that branch otherwise touches.
+
+---
+
 ## BL-FITWITHINCLIP-CLIP-SCROLL-STALE — DEMOTED TO A DOCUMENTED LIMIT 2026-08-04
 
 Demoted by the 2026-08-04 ledger filing bar (AGENTS.md "Ledger filing bar (2026-08-04)"; procedure in

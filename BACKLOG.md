@@ -122,23 +122,6 @@ existing guards walk, which is its own blast radius and its own review.
 
 screen-disposition 2026-08-04: ANNOTATE-INFERRED, stays open. It does NOT qualify for demotion: the worst case is a new ledger family silently invisible to three guards, and a SILENT miss is the opposite of the conservative-plus-surfaced shape the filing bar routes to documented limits. Verified 2026-08-04 that the claim is accurate and inert today — `scripts/lib/ledger-fields.ts:42-45` filters `readdirSync` on `/^(BACKLOG|DEFERRED)(-archive)?\.md$/`, `tests/docs/_metaLedgerReferentialIntegrity.test.ts:56-59` hardcodes the same four names independently, and the repo root holds exactly those four files. **Citation corrected:** the `readdirSync` + regex the body attributes to `tests/docs/_metaLedgerInProgress.test.ts:46` lives in `scripts/lib/ledger-fields.ts:42-45`; that test line is the closing brace of its import block.
 
-## BL-LEDGER-MDAST-SHARED-HOME — the ledger walker lives under tests/ but is consumed by scripts/
-
-**Status:** IN PROGRESS · **Branch:** chore/backlog-convergence
-
-**Status:** OPEN · **Severity:** low · **Class:** module placement · **Filed:** 2026-08-03 (`chore/ledger-claim-visibility`, spec §9.3) · **Effort:** M
-
-`tests/docs/_ledgerMdast.ts` is the authoritative ledger walker and is pure by construction — the
-referential-integrity guard forbids `node:fs`, `node:path`, and `require(` inside it. Once a script
-consumes it, `scripts/**` imports from `tests/**`, which is backwards.
-
-Relocating it beside its consumers is the repair. Deferred out of `chore/ledger-claim-visibility`
-under exception (c): it spans four importers plus three hardcoded path exemptions inside
-`tests/docs/_metaLedgerReferentialIntegrity.test.ts` that must all move in lockstep, none of which
-that branch otherwise touches.
-
----
-
 ## BL-TASK-ENROLLMENT-SINGLE-DEPTH — the declared task region cannot express hierarchical or interleaved plan shapes
 
 **Status:** OPEN · **Severity:** LOW (opt-in convention; conservative failure with a surfaced finding, never silent) · **Class:** spec-lint task contract, enrollment expressiveness · **Filed:** 2026-08-03, from `docs/superpowers/specs/2026-08-03-pre-review-gate-arms-design.md` §6 items 6 and 7
