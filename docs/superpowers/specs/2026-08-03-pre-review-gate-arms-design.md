@@ -44,6 +44,8 @@ This spec arms the three, without relitigating any ratified decision of the `spe
    attempted enrollment: 1 | enrolled: 1 | with findings: 0
    ```
 
+   534, not the 533 quoted elsewhere in this document: 533 is the legacy corpus measured at this branch's merge base, and the 534th is the plan implementing this spec. Both figures are correct and they describe different sets — the legacy corpus, and the legacy corpus plus this branch's own plan.
+
    The single enrolled plan is the one implementing this spec. No existing plan is accidentally enrolled by any incidental `<!-- tasks:`-shaped content, and none acquires a finding. The blast radius on the existing corpus is exactly zero documents.
 
 4. **The §3 contract is declared, never inferred.** No check in this spec recognizes a task's RED step, GREEN step, or acceptance criteria from prose. Rationale in §3.1; this is the single most important constraint in the document and the one most likely to be "helpfully" relaxed by a later round.
