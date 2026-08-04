@@ -2,6 +2,7 @@ import { checkCitations } from "./citations";
 import { checkCopy } from "./copyRules";
 import { checkNumerics } from "./numerics";
 import { parseDoc } from "./parse";
+import { checkTaskContract } from "./taskContract";
 import { checkSections } from "./sections";
 import type { Check, FileResolver, Finding, LintDoc, LintResult } from "./types";
 
@@ -32,6 +33,7 @@ export function runLint(doc: LintDoc, resolver: FileResolver): LintResult {
   const numerics = checkNumerics(model, citations.candidateSpans);
   const copy = checkCopy(model);
   const sections = checkSections(model, doc.kind, citations.resolvedPaths);
+  const taskContract = checkTaskContract(model, doc.kind);
 
   let findings: Finding[] = [
     ...model.documentFindings,
@@ -39,6 +41,7 @@ export function runLint(doc: LintDoc, resolver: FileResolver): LintResult {
     ...numerics.findings,
     ...copy,
     ...sections,
+    ...taskContract,
   ];
 
   // ---- ignore-waiver application (spec §3) ----
