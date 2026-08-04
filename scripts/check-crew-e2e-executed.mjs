@@ -36,13 +36,18 @@ export const REQUIRED = {
   // added by BL-INTER-NUMERAL-DISAMBIGUATION. All ten, or the oracle is dark on
   // whichever tree stopped binding or whichever feature stopped rendering.
   "font-binding.spec.ts": 10,
-  // The census: 56 static routes x 2 viewports (mobile-safari + desktop-chromium)
-  // + the derivation guard + the mono freshness assertion, per project. The
-  // checker enforces `executed >= min`, so THE NUMBER IS THE GUARD: a row of 1
-  // would let every case but one skip while CI stayed green, which is exactly
-  // what the registry exists to prevent. Derived from an actual --list run
-  // (112 tests across both projects); re-derive if the route census grows.
-  "font-rendering-census.spec.ts": 112,
+  // The census, across mobile-safari + desktop-chromium. The checker enforces
+  // `executed >= min`, so THE NUMBER IS THE GUARD: a row of 1 would let every
+  // case but one skip while CI stayed green, which is exactly what the registry
+  // exists to prevent.
+  //
+  // 88, derived from an actual --list run, NOT from arithmetic on the route
+  // count. It was 112 when the census asserted every page surface; two reasoned
+  // exclusions removed 12 cases per project -- /auth/sign-in, which redirects
+  // by design once the census has signed in, and the /admin/dev subtree, which
+  // is gated on a build flag this job does not set. Re-derive with --list after
+  // any change to the route census or the exclusions.
+  "font-rendering-census.spec.ts": 88,
 };
 
 // Importable table, runnable script. The wiring guard imports REQUIRED to pin these thresholds

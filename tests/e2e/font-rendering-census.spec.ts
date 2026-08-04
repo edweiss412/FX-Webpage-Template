@@ -33,17 +33,22 @@ import { ADMIN_FIXTURE } from "./helpers/fixtures";
 import { signInAs } from "./helpers/signInAs";
 
 /**
- * Follows the config's own port policy rather than hardcoding 3000.
+ * NAVIGATE RELATIVELY, through the project's own `baseURL`.
  *
- * `playwright.config.ts:8` reads `E2E_PORT` as a local sibling-worktree escape
- * hatch: a live sibling session's dev server on :3000 would otherwise be
- * silently reused and serve the WRONG code. A spec that hardcodes the port opts
- * out of that protection and measures whatever the sibling is running.
+ * An earlier version built an absolute `http://127.0.0.1:${E2E_PORT}` and passed
+ * it to `signInAs` as `baseUrl`. That looked like an improvement -- it followed
+ * the config's sibling-worktree escape hatch instead of hardcoding 3000 -- and
+ * it broke authentication on CI in a way no local run could show: the project's
+ * `baseURL` is `http://localhost:${E2E_PORT}` (`playwright.config.ts:44`), so
+ * the session cookie was set on `127.0.0.1` and every navigation went to
+ * `localhost`. Different host, no cookie, every admin and help route redirected
+ * to /auth/sign-in. 27 routes x 2 viewports failed for one wrong hostname.
  *
- * 127.0.0.1 rather than localhost, matching the explicit `-H 127.0.0.1`
- * binding, so a dual-stack ::1 vs 127.0.0.1 mismatch cannot split them.
+ * `tests/e2e/font-binding.spec.ts:355` is the pattern that works in this same
+ * job: `signInAs(page, ADMIN_FIXTURE)` with no baseUrl, then relative
+ * `page.goto("/admin")`. Playwright resolves both against the project baseURL,
+ * so the escape hatch still applies and the hosts cannot diverge.
  */
-const TEST_BASE_URL = `http://127.0.0.1:${process.env.E2E_PORT ?? "3000"}`;
 const APP_DIR = resolve(__dirname, "..", "..", "app");
 
 /**
@@ -92,17 +97,44 @@ const PARAMETERISED = new Map<string, string>([
   ["/show/[slug]/unpublish", "needs a published show"],
 ]);
 
+/**
+ * Reachable in production, NOT reachable in this job. Named with a reason each,
+ * so the exclusion is visible rather than silent -- an unreachable surface is a
+ * documentation fact, an unexamined one is a defect.
+ */
+const UNREACHABLE_HERE = new Map<string, string>([
+  [
+    "/auth/sign-in",
+    "the census signs in as an admin before measuring, and an authenticated " +
+      "visit to the sign-in page redirects away by design. font-binding.spec.ts " +
+      "covers this surface from a SIGNED-OUT context, which is the only state " +
+      "where it renders at all.",
+  ],
+  [
+    "/admin/dev",
+    "gated on the ADMIN_DEV_PANEL_ENABLED build flag; this job builds without " +
+      "it, so the route 404s. The dedicated dev-build / prod-build projects in " +
+      "playwright.config.ts exist to exercise exactly that gate.",
+  ],
+]);
+
+/** `/admin/dev/*` inherits the same build gate as its parent. */
+const isBuildGated = (route: string): boolean =>
+  route === "/admin/dev" || route.startsWith("/admin/dev/");
+
 /** Both viewports. The product is mobile-first; a desktop-only font guard has the guarantee backwards. */
 const VIEWPORTS = [
   { name: "mobile", width: 390, height: 844 },
   { name: "desktop", width: 1280, height: 800 },
 ] as const;
 
-const STATIC_ROUTES = routeCensus().filter((r) => !PARAMETERISED.has(r));
+const STATIC_ROUTES = routeCensus().filter(
+  (r) => !PARAMETERISED.has(r) && !UNREACHABLE_HERE.has(r) && !isBuildGated(r),
+);
 
 test.describe("font rendering census", () => {
   test.beforeEach(async ({ page }) => {
-    await signInAs(page, ADMIN_FIXTURE, { baseUrl: TEST_BASE_URL });
+    await signInAs(page, ADMIN_FIXTURE);
   });
 
   test("the census is derived, not hand-written", () => {
@@ -117,14 +149,25 @@ test.describe("font rendering census", () => {
     for (const route of STATIC_ROUTES) {
       test(`${route} @ ${viewport.name} renders the expected families`, async ({ page }) => {
         await page.setViewportSize({ width: viewport.width, height: viewport.height });
-        const response = await page.goto(`${TEST_BASE_URL}${route}`);
+        const response = await page.goto(route);
 
-        // REACHABILITY IS ASSERTED, NOT ASSUMED. `app/help/layout.tsx:19` calls
-        // requireAdmin(), so a fresh context visiting /help/** lands on
-        // /auth/sign-in -- a correctly-fonted page. Measuring that would turn
+        // REACHABILITY IS ASSERTED, NOT ASSUMED, and the assertion is about AUTH
+        // rather than about the URL. `app/help/layout.tsx:19` calls
+        // requireAdmin(), so an unauthenticated visit to /help/** lands on
+        // /auth/sign-in -- a correctly-fonted page whose measurement would turn
         // every help case green without executing a single help component.
+        //
+        // What is NOT asserted is that the final pathname equals the requested
+        // route: the app legitimately redirects in places, and pinning the URL
+        // would make this a routing test that fails on ordinary product
+        // decisions. Landing on the sign-in page is the one redirect that
+        // invalidates the measurement, so that is the one this checks.
         expect(response?.status(), `${route} did not return 200`).toBe(200);
-        expect(new URL(page.url()).pathname, `${route} redirected away`).toBe(route);
+        expect(
+          new URL(page.url()).pathname,
+          `${route} landed on the sign-in page -- the session did not apply, so ` +
+            `whatever renders here is not the surface under test`,
+        ).not.toBe("/auth/sign-in");
 
         // A URL and a 200 prove SERVER RENDERING, never hydration. Poll for
         // React having attached props, which appears once and only once the tree
@@ -244,7 +287,7 @@ test.describe("font rendering census", () => {
     for (const route of STATIC_ROUTES) {
       const entries = entriesForRoute(route);
       if (entries.length === 0) continue;
-      await page.goto(`${TEST_BASE_URL}${route}`);
+      await page.goto(route);
       for (const entry of entries) {
         const count = await page.locator(entry.selector).count();
         if (count === 0) stale.push(`${entry.route} ${entry.selector} matches nothing`);
