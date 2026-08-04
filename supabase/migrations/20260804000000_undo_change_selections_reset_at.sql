@@ -256,3 +256,283 @@ $function$;
 revoke all on function public.undo_change(uuid) from public, anon;
 grant execute on function public.undo_change(uuid) to authenticated;
 revoke all on function public.undo_change(uuid) from service_role;
+
+
+-- ---------------------------------------------------------------------------
+-- mi11_approve_hold — the SECOND production before_image builder (§3.6).
+--
+-- Full body preserved from 20260608000002_mi11_gate_rpcs.sql (advisory-lock acquisition, signature,
+-- and every ROW_COUNT fail-safe verbatim; no new lock holder) with two additions, because it drops
+-- selections_reset_at at TWO sites:
+--   1. the jsonb_build_object that becomes before_image — without it a Phase-4 undo of an approved
+--      removal/rename restores a row whose picker cookies silently revalidate;
+--   2. the rename branch's successor INSERT — the rename inserts a FRESH identity, so fixing only
+--      the builder still loses the marker on every future MI-11 rename.
+--
+-- Shipped HERE rather than as an edit to 20260608000002: that migration is already applied
+-- everywhere, so editing it would change nothing on any deployed database.
+-- ---------------------------------------------------------------------------
+create or replace function public.mi11_approve_hold(
+  p_hold_id uuid,
+  p_observed_modified_time timestamptz,
+  p_expected_base_modified_time timestamptz
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_hold       public.sync_holds%rowtype;
+  v_group      uuid[];
+  v_id         uuid;
+  v_m          public.sync_holds%rowtype;
+  v_actor      text := public.auth_email_canonical();
+  -- parallel arrays for the parked email_change/rename nodes (removals handled separately).
+  v_pholds     uuid[]   := array[]::uuid[];     -- hold id
+  v_pkeys      text[]   := array[]::text[];     -- entity_key (the held crew name)
+  v_pplace     text[]   := array[]::text[];     -- placeholder name assigned at park
+  v_pdisp      text[]   := array[]::text[];     -- disposition
+  v_pname      text[]   := array[]::text[];     -- proposed name (final)
+  v_pemail     text[]   := array[]::text[];     -- proposed email (final)
+  v_pbefore    jsonb[]  := array[]::jsonb[];    -- LIVE-row before_image (id + claim + non-identity), P3-F1
+  v_rmplace    text[]   := array[]::text[];     -- removal nodes' parked placeholder names
+  v_rmkey      text[]   := array[]::text[];     -- removal nodes' entity_key
+  v_rmdrive    text[]   := array[]::text[];
+  v_rmshow     uuid[]   := array[]::uuid[];
+  v_rmbefore   jsonb[]  := array[]::jsonb[];    -- LIVE-row before_image for removal nodes, P3-F1
+  v_pdrive     text;
+  v_pshow      uuid;
+  v_place      text;
+  v_live       public.crew_members%rowtype;     -- the live crew row read UNDER THE LOCK (P3-F1)
+  v_before     jsonb;                            -- authoritative before_image built from v_live
+  v_rc         int;                              -- ROW_COUNT fail-safe (P3-F3)
+  v_undoable   boolean;                          -- P4-F4: false for a MULTI-node closed group
+  i            int;
+begin
+  if not public.is_admin() then
+    raise exception using errcode = '42501', message = 'forbidden', hint = 'mi11_approve_hold is admin-only';
+  end if;
+
+  select * into v_hold from public.sync_holds where id = p_hold_id;
+  if not found or v_hold.kind <> 'mi11_pending' then
+    return jsonb_build_object('ok', false, 'code', 'MI11_HOLD_ALREADY_RESOLVED');
+  end if;
+
+  perform pg_advisory_xact_lock(hashtext('show:' || v_hold.drive_file_id));
+
+  select * into v_hold from public.sync_holds where id = p_hold_id for update;
+  if not found or v_hold.kind <> 'mi11_pending' then
+    return jsonb_build_object('ok', false, 'code', 'MI11_HOLD_ALREADY_RESOLVED');
+  end if;
+  v_pdrive := v_hold.drive_file_id;
+  v_pshow  := v_hold.show_id;
+
+  -- Submitted-hold guards: disposition-validity (PF32), staleness pair (PF40), reservation (PF37).
+  if (v_hold.proposed_value->>'disposition') = 'email_change'
+     and (v_hold.proposed_value->>'name') is distinct from v_hold.entity_key then
+    return jsonb_build_object('ok', false, 'code', 'IDENTITY_WOULD_COLLIDE');
+  end if;
+  if p_observed_modified_time is distinct from v_hold.base_modified_time then
+    return jsonb_build_object('ok', false, 'code', 'MI11_TARGET_MOVED');
+  end if;
+  if v_hold.base_modified_time is distinct from p_expected_base_modified_time then
+    return jsonb_build_object('ok', false, 'code', 'MI11_TARGET_MOVED');
+  end if;
+  if jsonb_array_length(coalesce(v_hold.reservation_collisions, '[]'::jsonb)) > 0 then
+    return jsonb_build_object('ok', false, 'code', 'IDENTITY_WOULD_COLLIDE');
+  end if;
+
+  v_group := public._mi11_collision_group(v_hold.show_id, p_hold_id);
+  if v_group is null then
+    return jsonb_build_object('ok', false, 'code', 'IDENTITY_WOULD_COLLIDE');
+  end if;
+
+  -- Per-member validation pass (PF39): re-select EVERY group hold FOR UPDATE, re-run the SAME guards.
+  foreach v_id in array v_group loop
+    select * into v_m from public.sync_holds where id = v_id for update;
+    if not found or v_m.kind <> 'mi11_pending' then
+      return jsonb_build_object('ok', false, 'code', 'MI11_HOLD_ALREADY_RESOLVED');
+    end if;
+    if v_m.base_modified_time is distinct from p_observed_modified_time then
+      return jsonb_build_object('ok', false, 'code', 'MI11_TARGET_MOVED');
+    end if;
+    if jsonb_array_length(coalesce(v_m.reservation_collisions, '[]'::jsonb)) > 0 then
+      return jsonb_build_object('ok', false, 'code', 'IDENTITY_WOULD_COLLIDE');
+    end if;
+    if (v_m.proposed_value->>'disposition') = 'email_change'
+       and (v_m.proposed_value->>'name') is distinct from v_m.entity_key then
+      return jsonb_build_object('ok', false, 'code', 'IDENTITY_WOULD_COLLIDE');
+    end if;
+  end loop;
+
+  -- P4-F4: a MULTI-node closed group (rename swap / cycle / chain) is approved ATOMICALLY and writes
+  -- several applied crew-identity rows sharing occurred_at=now(); none supersedes another, and
+  -- undoing one in isolation always fails the swap-sibling name guard → a perpetually-failing Undo.
+  -- Per spec undo is PER-ITEM / one-step, so a multi-node group's rows are NOT individually undoable:
+  -- stamp individually_undoable=false (undo_change rejects them; the feed predicate hides the button).
+  -- Single-node approvals (group size 1) keep the default true (true reversal, P4-F3).
+  v_undoable := (coalesce(array_length(v_group, 1), 1) <= 1);
+
+  -- step (1): for each member, READ THE LIVE ROW UNDER THE LOCK (P3-F1 / PF38 / resolution #24 — the
+  -- live row is authoritative: it carries the id + claimed_via_oauth_at that held_value omits, and
+  -- reflects any claim that landed AFTER the hold was created), build the full before_image, THEN park
+  -- the row (email→NULL, name→'__hold:<uuid>') to clear both unique indexes before any reassign.
+  foreach v_id in array v_group loop
+    select * into v_m from public.sync_holds where id = v_id;
+    select * into v_live from public.crew_members
+     where show_id = v_m.show_id and name = v_m.entity_key;
+    -- FAIL-SAFE (P3-F3): a missing SELECT INTO leaves v_live fields NULL (no error). If the live crew
+    -- row vanished before approve (concurrent delete, or another path removed it while the hold
+    -- lingered), abort with a typed non-mutating result BEFORE building before_image / parking /
+    -- logging — never write a phantom applied log with a NULL-id before_image. The hold stays pending
+    -- and the next sync reconciles. ZERO mutation.
+    if not found then
+      return jsonb_build_object('ok', false, 'code', 'MI11_TARGET_MOVED');
+    end if;
+    -- authoritative before_image — id + claimed_via_oauth_at + non-identity fields (Phase 4 undo restores them).
+    v_before := jsonb_build_object(
+      'id', v_live.id,
+      'name', v_live.name,
+      'email', v_live.email,
+      'phone', v_live.phone,
+      'role', v_live.role,
+      'role_flags', to_jsonb(v_live.role_flags),
+      'date_restriction', v_live.date_restriction,
+      'stage_restriction', v_live.stage_restriction,
+      'flight_info', v_live.flight_info,
+      'claimed_via_oauth_at', v_live.claimed_via_oauth_at,
+      -- §3.6: the picker-invalidation marker rides before_image so a Phase-4 undo of this approval
+      -- cannot revalidate a cookie the admin deliberately invalidated.
+      'selections_reset_at', v_live.selections_reset_at
+    );
+
+    v_place := '__hold:' || gen_random_uuid()::text;
+    update public.crew_members
+       set email = null, name = v_place
+     where show_id = v_m.show_id and name = v_m.entity_key;
+    -- ROW_COUNT fail-safe (P3-F3): the park MUST hit exactly the one live row we just read. If the row
+    -- vanished in the (lock-held) window since the FOUND check, abort the whole RPC (raise → rollback
+    -- of any earlier parks in this group) rather than proceed against a half-parked group.
+    get diagnostics v_rc = row_count;
+    if v_rc <> 1 then
+      raise exception using errcode = 'P0001',
+        message = 'MI11_ROW_VANISHED',
+        hint = 'crew row vanished mid-approve during park';
+    end if;
+
+    if (v_m.proposed_value->>'disposition') = 'removal' then
+      v_rmplace  := v_rmplace  || v_place;
+      v_rmkey    := v_rmkey    || v_m.entity_key;
+      v_rmdrive  := v_rmdrive  || v_m.drive_file_id;
+      v_rmshow   := v_rmshow   || v_m.show_id;
+      v_rmbefore := v_rmbefore || v_before;
+    else
+      v_pholds  := v_pholds  || v_m.id;
+      v_pkeys   := v_pkeys   || v_m.entity_key;
+      v_pplace  := v_pplace  || v_place;
+      v_pdisp   := v_pdisp   || (v_m.proposed_value->>'disposition');
+      v_pname   := v_pname   || coalesce(v_m.proposed_value->>'name', v_m.entity_key);
+      v_pemail  := v_pemail  || (v_m.proposed_value->>'email');
+      v_pbefore := v_pbefore || v_before;
+    end if;
+  end loop;
+
+  -- step (2): DELETE the removal nodes' (now-parked) rows by their exact placeholder + crew_removed log
+  -- (before_image is the LIVE-row image captured under the lock — carries id + claim, P3-F1).
+  if array_length(v_rmplace, 1) is not null then
+    for i in 1 .. array_length(v_rmplace, 1) loop
+      delete from public.crew_members
+       where show_id = v_rmshow[i] and name = v_rmplace[i];
+      -- the parked removal row MUST still exist (we just parked it under the lock); P3-F3.
+      get diagnostics v_rc = row_count;
+      if v_rc <> 1 then
+        raise exception using errcode = 'P0001',
+          message = 'MI11_ROW_VANISHED', hint = 'parked removal row vanished mid-approve';
+      end if;
+      insert into public.show_change_log
+        (show_id, drive_file_id, source, change_kind, entity_ref, summary,
+         before_image, after_image, status, created_by, individually_undoable)
+      values
+        (v_rmshow[i], v_rmdrive[i], 'mi11_approve', 'crew_removed', v_rmkey[i],
+         'Removal of ' || v_rmkey[i] || ' was approved',
+         v_rmbefore[i], null, 'applied', v_actor, v_undoable);
+    end loop;
+  end if;
+
+  -- step (3): apply each email_change/rename node from its parked placeholder. BRANCH BY DISPOSITION
+  -- (P3-F2): an email_change is the SAME person → in-place reassign (keep the PK), clear the moved
+  -- anchor's claim (#27); a rename = delete-old + insert-FRESH (new id, claim NULL, copy ONLY the F17
+  -- non-identity set) to match the single-node rename semantics (spec §5.4).
+  if array_length(v_pholds, 1) is not null then
+    for i in 1 .. array_length(v_pholds, 1) loop
+      if v_pdisp[i] = 'rename' then
+        delete from public.crew_members where show_id = v_pshow and name = v_pplace[i];
+        -- the parked rename row MUST still exist (P3-F3).
+        get diagnostics v_rc = row_count;
+        if v_rc <> 1 then
+          raise exception using errcode = 'P0001',
+            message = 'MI11_ROW_VANISHED', hint = 'parked rename row vanished mid-approve';
+        end if;
+        insert into public.crew_members
+          (show_id, name, email, phone, role, role_flags, date_restriction, stage_restriction,
+           flight_info, selections_reset_at)
+        values (
+          v_pshow, v_pname[i], v_pemail[i],
+          v_pbefore[i]->>'phone',
+          v_pbefore[i]->>'role',
+          coalesce(array(select jsonb_array_elements_text(v_pbefore[i]->'role_flags')), '{}')::text[],
+          v_pbefore[i]->'date_restriction',
+          v_pbefore[i]->'stage_restriction',
+          v_pbefore[i]->>'flight_info',
+          -- §3.6: the SECOND site. The rename branch inserts a FRESH identity, so without this the
+          -- marker is lost on every approved MI-11 rename even with the before_image half fixed.
+          (v_pbefore[i]->>'selections_reset_at')::timestamptz
+        );
+      else
+        update public.crew_members
+           set name = v_pname[i], email = v_pemail[i], claimed_via_oauth_at = null
+         where show_id = v_pshow and name = v_pplace[i];
+        -- the parked email_change row MUST still exist (P3-F3).
+        get diagnostics v_rc = row_count;
+        if v_rc <> 1 then
+          raise exception using errcode = 'P0001',
+            message = 'MI11_ROW_VANISHED', hint = 'parked email_change row vanished mid-approve';
+        end if;
+      end if;
+      insert into public.show_change_log
+        (show_id, drive_file_id, source, change_kind, entity_ref, summary,
+         before_image, after_image, status, created_by, individually_undoable)
+      values
+        (v_pshow, v_pdrive, 'mi11_approve',
+         case when v_pdisp[i] = 'rename' then 'crew_renamed' else 'crew_email_changed' end,
+         v_pkeys[i],
+         case when v_pdisp[i] = 'rename'
+              then 'Rename of ' || v_pkeys[i] || ' to ' || v_pname[i] || ' was approved'
+              else 'Email change for ' || v_pkeys[i] || ' was approved' end,
+         v_pbefore[i],
+         jsonb_build_object('name', v_pname[i], 'email', v_pemail[i]),
+         'applied', v_actor, v_undoable);
+    end loop;
+  end if;
+
+  -- step (4): delete ALL the group's holds.
+  delete from public.sync_holds where id = any(v_group);
+
+  -- INVARIANT (P4-F2): every writer of an APPLIED crew-identity change_kind row MUST call
+  -- cleanup_superseded_before_images under the show lock BEFORE returning — not only the Phase-2
+  -- auto-apply tail. mi11_approve_hold writes applied crew_removed/crew_renamed/crew_email_changed
+  -- rows (single-node AND closed-group, all written above), so it runs cleanup here so an older
+  -- auto-apply rename/add row to the same/successor identity is flipped status='superseded' +
+  -- before_image nulled. Otherwise undo_change(originalRename/Add) stays callable during the window
+  -- before the next sync and restores STALE crew (PF19). The advisory lock is still held → race-safe.
+  -- (mi11_reject_hold writes status='rejected' rows and undo_change writes status='undone' rows —
+  -- neither is an APPLIED crew-identity write, so neither runs cleanup.)
+  perform public.cleanup_superseded_before_images(v_pshow);
+
+  return jsonb_build_object('ok', true);
+end;
+$$;
+
+revoke all on function public.mi11_approve_hold(uuid, timestamptz, timestamptz) from public, anon, authenticated, service_role;
+grant execute on function public.mi11_approve_hold(uuid, timestamptz, timestamptz) to authenticated;

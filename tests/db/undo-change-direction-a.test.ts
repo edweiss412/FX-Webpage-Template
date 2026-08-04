@@ -13,6 +13,7 @@ import { afterAll, describe, expect, it, vi } from "vitest";
 import { encodePickerCookie } from "@/lib/auth/picker/cookieEnvelope";
 
 import {
+  callApproveAsAdmin,
   callUndoAsAdmin,
   callUndoAsNonAdmin,
   closeHoldsHelpers,
@@ -24,6 +25,7 @@ import {
   readHold,
   runAutoApply,
   runStagedApply,
+  seedMi11Hold,
   seedShowWithCrew,
   ADMIN_EMAIL,
 } from "./_holdsHelpers";
@@ -708,5 +710,101 @@ describe("undo_change — selections_reset_at continuity (§3.6)", () => {
     });
     expect((await callUndoAsAdmin(removed.id)).ok).toBe(true);
     expect((await readCrewByName(showId, "Reset Nl A"))!.selections_reset_at).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// §3.6 / Unit D — mi11_approve_hold is the SECOND production before_image builder.
+//
+// A sweep that stays in TypeScript misses it entirely, and it drops the marker at
+// TWO sites: the jsonb_build_object that becomes before_image, and the successor
+// INSERT its rename branch writes. Fixing only the builder still loses the marker
+// on every future MI-11 rename.
+// ---------------------------------------------------------------------------
+
+const MI11_MT = "2026-06-08T15:00:00.000Z";
+
+/** The crew_email held_value (prior live row) the approve path expects. */
+function mi11Held(name: string, email: string | null): Record<string, unknown> {
+  return {
+    name,
+    email,
+    phone: "555-OLD",
+    role: "A1",
+    role_flags: ["A1"],
+    date_restriction: { kind: "none" },
+    stage_restriction: { kind: "none" },
+    flight_info: null,
+  };
+}
+
+describe("mi11_approve_hold — selections_reset_at at BOTH write sites (§3.6)", () => {
+  it("mi11_approve_hold's before_image carries selections_reset_at, and an undo of an MI-11 removal round-trips it", async () => {
+    const show = await seedShowWithCrew([
+      { name: "Mi11 Rm A", email: "m11rma@x.example", selections_reset_at: RESET_AT },
+    ]);
+    const seeded = await readCrewByName(show.showId, "Mi11 Rm A");
+    expect(seeded!.selections_reset_at).not.toBeNull();
+
+    const hold = await seedMi11Hold(show, {
+      entityKey: "Mi11 Rm A",
+      heldValue: mi11Held("Mi11 Rm A", "m11rma@x.example"),
+      proposedValue: { disposition: "removal" },
+      baseModifiedTime: MI11_MT,
+    });
+    expect((await callApproveAsAdmin(hold.id, MI11_MT, hold.baseModifiedTime)).ok).toBe(true);
+    expect(await readCrewByName(show.showId, "Mi11 Rm A")).toBeNull();
+
+    const removed = await readChangeLog(show.showId, {
+      change_kind: "crew_removed",
+      entity_ref: "Mi11 Rm A",
+    });
+    expect(removed.source).toBe("mi11_approve");
+    expect(iso((removed.before_image?.selections_reset_at as string | null) ?? null)).toBe(
+      iso(seeded!.selections_reset_at),
+    );
+
+    expect((await callUndoAsAdmin(removed.id)).ok).toBe(true);
+    expect(iso((await readCrewByName(show.showId, "Mi11 Rm A"))!.selections_reset_at)).toBe(
+      iso(seeded!.selections_reset_at),
+    );
+  });
+
+  it("MI-11 RENAME with no post-rename stamp: the successor keeps the original marker", async () => {
+    // Deliberately does NOT stamp the successor after the rename. The clean-INSERT test above DOES,
+    // and that stamp MASKS a builder-only implementation via undo_change's D4 capture — here the
+    // successor INSERT inside mi11_approve_hold is the only possible source of the marker.
+    const show = await seedShowWithCrew([
+      { name: "Mi11 Ren A", email: "m11rena@x.example", selections_reset_at: RESET_AT },
+    ]);
+    const seeded = await readCrewByName(show.showId, "Mi11 Ren A");
+    expect(seeded!.selections_reset_at).not.toBeNull();
+
+    const hold = await seedMi11Hold(show, {
+      entityKey: "Mi11 Ren A",
+      heldValue: mi11Held("Mi11 Ren A", "m11rena@x.example"),
+      proposedValue: {
+        disposition: "rename",
+        name: "Mi11 Ren A2",
+        email: "m11rena@x.example",
+      },
+      baseModifiedTime: MI11_MT,
+    });
+    expect((await callApproveAsAdmin(hold.id, MI11_MT, hold.baseModifiedTime)).ok).toBe(true);
+
+    const successor = await readCrewByName(show.showId, "Mi11 Ren A2");
+    expect(successor).not.toBeNull();
+    expect(successor!.id).not.toBe(seeded!.id); // an MI-11 rename inserts a FRESH identity
+    expect(iso(successor!.selections_reset_at)).toBe(iso(seeded!.selections_reset_at));
+  });
+
+  it("the LIVE mi11_approve_hold body carries the column (pg_proc, not the migration file)", async () => {
+    // A file-reading assertion would pass on a change shipped as an edit to 20260608000002, which is
+    // already applied everywhere and would never re-run — so it would never reach any database.
+    const [row] = (await holdsSql`
+      select prosrc from pg_proc where proname = 'mi11_approve_hold'`) as unknown as Array<{
+      prosrc: string;
+    }>;
+    expect(String(row?.prosrc)).toContain("selections_reset_at");
   });
 });
