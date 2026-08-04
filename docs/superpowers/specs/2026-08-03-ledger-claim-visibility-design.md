@@ -5,7 +5,7 @@
 **Date:** 2026-08-03
 **Branch:** `chore/ledger-claim-visibility`
 **Backlog entries:** none opened for this work (see §9.1); one filed as a by-product (§9.2)
-**Status:** R1 repaired — 6 Codex findings and 5 self-findings, all accepted, all closed in §1/§2/§6/§7
+**Status:** R2 repaired — 14 Codex findings across two rounds plus 5 self-findings, all accepted, all closed
 **impeccable-gate: N/A — no UI surface**
 
 ---
@@ -40,15 +40,17 @@ it describes.
 | Decision | Status | Ratification |
 | --- | --- | --- |
 | The marker stays **on the branch**. It is not moved to main, not duplicated into a separate claims file, and not replaced by a PR-body convention | Ratified by the user at the design gate, 2026-08-03 | Any claim stored outside the branch survives the branch's death, which is precisely the stale-marker rot invariant 12 exists to stop (`AGENTS.md:36`) |
-| The reader is **additive**. `AGENTS.md:27-38` keeps its writer contract verbatim except for the two amendments in §6 | Ratified | §6 lists the complete AGENTS.md delta; anything not listed there is unchanged |
+| The reader is **additive**. Invariant 12 keeps its writer contract verbatim except for the amendments enumerated in §6 | Ratified | §6 lists the complete AGENTS.md delta; anything not listed there is unchanged |
 | The `inferred` signal ships alongside `declared`, and is **advisory only** | Ratified by the user at the design gate, 2026-08-03 | §2.3 measures that 3 of the 4 open PRs carry no marker, so a declared-only reader would be blind to most live work; §4.4 fences it to warn-not-fail so a reconciliation-log edit can never block a branch |
 | Stage 4.4's marker removal moves **into the PR's last commit**, before the merge | Ratified by the user at the design gate, 2026-08-03 | §2.4 shows the observed failure this closes |
 | No new guard asserting "main carries no marker" | Out of scope, deliberately | The existing staleness rule already fails on exactly that state and did so in production (§2.4). A second guard would restate it, and could not run on a branch anyway, since a branch's own checkout legitimately holds the marker |
 | The reader does **not** open a backlog row for its own work | Ratified | `AGENTS.md:38` — "A run that finds no matching ledger entry does nothing". See §9.1 |
 | `bodyDefinedIds` over-minting is **filed, not fixed** | Out of scope | Brief instruction, 2026-08-03; filed as §9.2. It is latent, not live, and belongs to `tests/docs/_ledgerMdast.ts:346`, a surface this spec does not touch |
 | **Stage 0 pushes the branch the moment it writes the marker.** Without this the reader is correct and useless | Ratified R1 (finding 1) | §2.8a — the only push in the pipeline today is `AGENTS.md:53`, after implementation and whole-diff review |
-| The CI candidate set is **open PRs**, not `git branch -r --merged` | Ratified R1 (finding 2) | §2.7b — ancestry is not computable under depth 1, and `origin/feat/sync-feed-undo-announce` is a live misclassification |
-| The claim is recognized by **an in-progress `Status` and a flight field on the same line**, at any depth in the entry body, replacing the 12-line window | Ratified R1 (self-finding) | §2.7a — measured: window sees 2, same-line sees 3, zero false positives, and the one miss is live |
+| The candidate set is **every non-main head**; the merged-exclusion is an optional narrowing applied only where ancestry is computable | Ratified R2 (findings 1-4), superseding R1's open-PR set | §2.7b — ancestry is not computable under depth 1; §3.2 step 2 — R2 measured that `feat/load-inter-app-wide` and `spec/harness-font-fidelity` both declare markers with no open PR, so a PR-scoped set returns a false all-clear |
+| The reader's correctness never depends on `gh` | Ratified R2 (findings 1, 5) | §3.2 step 7 — the workflow supplies no `GH_TOKEN`, and a `--limit`-truncated query cannot report what it omitted, so PR numbers are display only |
+| The current branch comes from `GITHUB_HEAD_REF` before git | Ratified R2 (finding 2) | §3.2 step 3 — `actions/checkout@v4` leaves a PR build on a detached merge ref, so a git-only reader attributes the PR's own marker to a stranger |
+| In-progress detection becomes **position-independent**, and flight-field extraction gains the same-line union. The 12-line window is retained for ordinary meta fields | Ratified R1 (self-finding), scoped by R2 (finding 7) | §2.7a — measured: window sees 2, position-independent sees 3, zero false positives, and the one miss is live. §3.1 — two predicates, because requiring a flight field for in-progress detection would make the guard's "IN PROGRESS with nothing to point at" rule unfireable |
 | `tests/docs/_metaLedgerInProgress.test.ts` adopts that recognizer too, as its own task | Ratified R1 (self-finding) | §7.4b — otherwise the guard keeps a blind spot the reader does not have |
 | The script is TypeScript run through `tsx`, not `.mjs` | Ratified | `tests/docs/_metaLedgerReferentialIntegrity.test.ts:106` scans tracked `*.md`/`*.ts`/`*.tsx` only. A `.mjs` reader would sit outside the citation guard's reach entirely; `package.json:132` already carries `tsx` as a devDependency and ~20 sibling scripts run that way |
 
@@ -219,8 +221,8 @@ $ git rev-list --count origin/feat/sync-feed-undo-announce..origin/main
 ```
 
 That branch is merged and retained, and sits 80 commits behind main — far beyond what depth 1
-reaches. §3.2 step 2 therefore splits the candidate rule by environment: ancestry exclusion locally,
-open-PR membership in CI.
+reaches. §3.2 step 2 therefore treats the merged-exclusion as an optional narrowing: applied locally, skipped
+in a shallow clone, with the candidate set always a superset rather than a subset.
 
 ### 2.8 Precedent for a script module shared with tests
 
@@ -263,7 +265,7 @@ workflow** and the added work costs CI nothing.
 
 ## 3. What ships
 
-<!-- spec-lint: ignore — this file is created by this spec; it is not tracked until Task 1 lands -->
+<!-- spec-lint: ignore — this file is created by this spec; it is created by this spec's implementation and is not tracked yet -->
 
 ### 3.1 `scripts/lib/ledger-fields.ts` — the shared field parser
 
@@ -279,16 +281,36 @@ imports the module, becoming the parser's regression coverage rather than a test
 The non-greedy bold-run split that keeps a meta line from collapsing into one field
 (`tests/docs/_metaLedgerInProgress.test.ts:70-86`) is load-bearing and moves unchanged.
 
-The module then **gains** one export, in a later task and a later commit: a same-line claim
-recognizer that takes an entry body and returns the entries carrying an in-progress `Status`
-alongside a `Branch` or `PR` on one line, at any depth. `isInProgress` and the 12-line
-`ledgerItems` window both survive as-is, because other rules in the guard read ordinary meta fields
-and have no reason to change. §7.4b then switches the in-progress rules over to the new recognizer
-and pins the corpus bound. Splitting the move from the behavior change is deliberate: a
-behavior-preserving extraction and a widening of what a guard sees must not land in one commit, or
-neither is reviewable.
+The module then gains, in a later task and a later commit, **two predicates rather than one**. R2
+finding 7 showed why a single same-line recognizer cannot serve both callers: the guard's existing
+rule that an in-progress entry with no branch and no PR is unactionable
+(`tests/docs/_metaLedgerInProgress.test.ts:243`) is about entries carrying a status and *no* flight
+field, so a predicate requiring a flight field would make that rule unfireable. The guard would stop
+catching the exact malformation it was written for.
 
-<!-- spec-lint: ignore — this file is created by this spec; it is not tracked until Task 2 lands -->
+| Predicate | Definition | Read by |
+| --- | --- | --- |
+| `isInProgress(entry)` | **any** line in the entry body carries an in-progress `Status`, at any depth | the guard's must-point-at-something rule, and the reader's claim detection |
+| `flightFieldsOn(entry)` | fields from the 12-line window **union** fields on any line that itself carries an in-progress `Status` | the guard's flight-field-without-status rule, and the reader's branch attribution |
+
+The union in the second predicate is what makes the pair coherent. Widening only `isInProgress`
+would break the out-of-window marker in the opposite direction: it would register as in-progress
+while its own same-line `Branch` stayed outside the window, so the entry would fail the
+must-point-at-something rule despite pointing at something. Every existing planted assertion
+survives this pair unchanged, which is the acceptance criterion in §7.4b:
+
+| Planted input | `isInProgress` | `flightFieldsOn` | Rule outcome |
+| --- | --- | --- | --- |
+| `**Status:** IN PROGRESS · **Severity:** low` | true | none | fires as unactionable, as today |
+| `**Status:** OPEN · **Branch:** feat/x` | false | `Branch` | fires as flight-field-without-status, as today |
+| `**Status:** OPEN`, then a `**Branch:**` fourteen paragraphs down | false | none | silent, because the deep quote's own line carries no in-progress status |
+| `**Status:** IN PROGRESS · **Branch:** X` seventeen lines down | true | `Branch` | silent, newly seen, and correctly not a violation |
+
+`ledgerItems`'s 12-line window survives for ordinary meta fields; nothing else in the guard changes.
+Splitting the move from the behavior change is deliberate: a behavior-preserving extraction and a
+widening of what a guard sees must not land in one commit, or neither is reviewable.
+
+<!-- spec-lint: ignore — this file is created by this spec; it is created by this spec's implementation and is not tracked yet -->
 
 ### 3.2 `scripts/ledger-claims.ts` — the reader
 
@@ -298,28 +320,38 @@ Wired as `"ledger:claims": "tsx scripts/ledger-claims.ts"` in `package.json`.
 
 1. `git fetch origin --prune --quiet`, 30 s timeout. On failure, fall through to whatever
    remote-tracking refs already exist locally and set the stale-data flag (§4.1).
-2. Candidate branches, **by environment**, because §2.7b measured that ancestry is not computable in
-   CI:
-   - **Full clone (local, the default):** every `refs/remotes/origin/*` except `origin/main` and
-     `origin/HEAD`, minus every branch reported by `git branch -r --merged origin/main`. A merged
-     claim has either landed or died; either way it is not in flight.
-   - **Shallow clone (CI):** every ref that appears in `gh pr list --state open`. A
-     merged-and-retained branch has no open PR, so the set is equivalent in intent and needs no
-     ancestry. Detected by `git rev-parse --is-shallow-repository`, not by sniffing `CI`, so a
-     shallow local clone behaves correctly too.
-   - The mode in force is printed in the report header, never inferred by the reader's caller.
-3. For each candidate, for each name in `ledgerFiles()`: `git show <ref>:<file>`, with the child's
+2. Candidate branches: every `refs/remotes/origin/*` except `origin/main` and `origin/HEAD`. The
+   **merged-exclusion is an optional narrowing**, not part of the definition:
+   - **Full clone:** subtract every branch reported by `git branch -r --merged origin/main`. A
+     merged claim has landed or died; either way it is not in flight.
+   - **Shallow clone:** §2.7b measured that ancestry is not computable there, so the subtraction is
+     skipped and the report says so once in its header. The candidate set is a **superset**, never a
+     subset — the failure direction is a false collision that names a real branch, which a human can
+     resolve in seconds, rather than a false all-clear, which is the defect this whole spec exists
+     to remove.
+   - Detected by `git rev-parse --is-shallow-repository`, not by sniffing `CI`, so a shallow local
+     clone behaves correctly too.
+   - **Open-PR membership is never the candidate set.** R2 measured why: `feat/load-inter-app-wide`
+     and `spec/harness-font-fidelity` each declare a marker and neither has an open PR, so a
+     PR-scoped reader would miss both and report a clean all-clear. PR numbers are display only
+     (step 6).
+3. Current branch, used to distinguish "somebody else claims this" from "I claim this":
+   `GITHUB_HEAD_REF` when set, else `git rev-parse --abbrev-ref HEAD`, else none. The environment
+   variable is not a convenience — `actions/checkout@v4` leaves a PR build on a detached merge ref,
+   so a reader that only asked git would find no current branch and attribute the PR's own marker to
+   a stranger, failing every PR that declares anything.
+4. For each candidate, for each name in `ledgerFiles()`: `git show <ref>:<file>`, with the child's
    stderr discarded. A file absent at that ref is skipped, since a branch may predate a ledger's
    creation. Discarding stderr is load-bearing rather than tidy: §2.3's 15 refs produce seven
    `fatal: path 'BACKLOG-archive.md' exists on disk, but not in …` lines that mean nothing, and
    preflight must not print seven fatal-looking lines on every healthy run.
-4. `declared` claims, recognized **position-independently**: any single line in the entry body
+5. `declared` claims, recognized **position-independently**: any single line in the entry body
    carrying both an in-progress `Status` and a `Branch` or `PR` field. Not the first 12 lines —
    §2.7a measures a live marker that window misses. Requiring `Status` on the same line as the
    flight field is what keeps a quoted `**Branch:**` deep in a discussion from registering, so no
    positional bound is needed. The claim carries the entry's own `Branch`/`PR` when present, and the
    ref name regardless.
-5. `inferred` claims: run `git diff --unified=0 $(git merge-base origin/main <ref>) <ref> -- <ledgers>`,
+6. `inferred` claims: run `git diff --unified=0 $(git merge-base origin/main <ref>) <ref> -- <ledgers>`,
    map each hunk's new-side line range back to the entry whose span contains it, and record any entry
    not already `declared` for that branch. Three mapping cases are specified rather than left to the
    implementation:
@@ -335,9 +367,11 @@ Wired as `"ledger:claims": "tsx scripts/ledger-claims.ts"` in `package.json`.
      graduation path is covered by the archive-side hunk.
    - **A hunk spanning a heading boundary** attributes to every entry its range overlaps, not just
      the first.
-6. PR numbers: `gh pr list --state open --json number,headRefName --limit 100`, joined on branch
-   name. In full-clone mode, absent or failing `gh` leaves the column blank and is never an error.
-   In shallow mode `gh` is load-bearing for step 2, so its absence is handled in §4.1.
+7. PR numbers, **display only**: `gh pr list --state open --json number,headRefName --limit 100`,
+   joined on branch name. Absent, unauthenticated, or failing `gh` leaves the column blank and is
+   never an error in any mode, because no claim resolution depends on it. Past 100 open PRs the
+   column is simply incomplete for the overflow, which is why it may not be load-bearing: a query
+   that cannot report what it truncated must not be something a correctness rule reads.
 
 **Output**, one row per (row id, branch), grouped by row id, branches sorted newest tip first:
 
@@ -400,19 +434,20 @@ Every input, and what the reader does with it.
 | --- | --- |
 | `git fetch` fails (offline, auth, timeout) | Use existing remote-tracking refs; print `WARN: claims computed from stale refs (fetch failed: <reason>)`; `--check` degrades to exit 0 with a WARN locally, and **fails** under `CI` (§7.3) |
 | No `refs/remotes/origin/*` at all | Print `no origin branches resolvable`; `--check` exits 0 locally, fails under `CI` |
-| `gh` absent or not authenticated, **full-clone mode** | PR column blank. Never an error, never a warning |
-| `gh` absent, not authenticated, or returning malformed JSON, **shallow mode** | `gh` is the candidate set there (§3.2 step 2), so there is nothing to fall back to. Print `cannot determine live branches without gh in a shallow clone` and exit 2. Never exit 0, which would be a false all-clear, and never exit 1, which would be a fabricated collision |
-| `gh` returns malformed JSON, full-clone mode | Same as absent |
+| `gh` absent, unauthenticated, or returning malformed JSON, **any mode** | PR column blank. Never an error, never a warning, never a change to which claims resolve. R2 measured that `unit-suite.yml` supplies no `GH_TOKEN`, so the unauthenticated path is the CI default, not an edge case |
+| More than 100 open PRs | The PR column is incomplete for the overflow and says so. No claim resolution reads it, which is the reason it is allowed to be incomplete: a query that cannot report its own truncation must not carry a correctness rule |
 | `git merge-base` unresolvable for a ref (shallow clone, unrelated histories) | `inferred` is disabled for that ref; `declared` is unaffected. Said once in the header, not once per branch |
-| Detached HEAD, or current branch unresolvable | Treated as "no current branch", so every declared claim counts as belonging to another branch. Fails loud rather than quiet |
+| Ancestry unavailable, so the merged-exclusion cannot run | Candidates stay a superset: merged-and-retained branches are included and may raise a false collision. Printed in the header. The failure direction is deliberate — a false collision names a real branch and a human clears it in seconds, while a false all-clear is the defect this spec exists to remove |
+| Detached HEAD with `GITHUB_HEAD_REF` set | The env var is the current branch (§3.2 step 3). This is the normal CI shape, not an edge case: `actions/checkout@v4` leaves every PR build detached |
+| Detached HEAD with no `GITHUB_HEAD_REF` | Treated as "no current branch", so every declared claim counts as another branch's. In `--check` this exits 2, not 1: without knowing who you are, a collision report is unattributable rather than true. Exiting 1 here would fail every PR that legitimately declares its own row |
 | More than 100 candidate branches | Report the first 100 by tip recency and print `N branches not shown`. A silent cap is the failure mode `AGENTS.md` names explicitly, so the count is always printed |
 
 ### 4.2 Data
 
 | Condition | Behavior |
 | --- | --- |
-| A ledger file missing at a branch's tip | Skipped for that branch, with `git show`'s stderr discarded (§3.2 step 3). A branch may predate the file |
-| A diff hunk landing outside every entry span | Dropped, contributing no `inferred` claim (§3.2 step 5). The reconciliation-log preamble is this case and occurs on every live ref |
+| A ledger file missing at a branch's tip | Skipped for that branch, with `git show`'s stderr discarded (§3.2 step 4). A branch may predate the file |
+| A diff hunk landing outside every entry span | Dropped, contributing no `inferred` claim (§3.2 step 6). The reconciliation-log preamble is this case and occurs on every live ref |
 | A ledger file present but unparseable at a ref | That file contributes no claims; print `WARN: <ref>:<file> parsed 0 entries` |
 | **Vacuity**: every branch yields 0 entries while `origin/main` yields more than 100 | Print `WARN: claim parser matched nothing across N branches — treat this report as unreliable` and exit 2 in `--check`. A parser that silently matches nothing would make the whole report a false all-clear, which is the one failure this tool must never produce quietly. The threshold sits far below the real floor: the probe parsed **4837** entries across 15 refs and 4 ledgers, so it cannot misfire on a healthy corpus |
 | An entry declared in-progress with no `Branch`/`PR` field | Still reported as `declared`, keyed on the ref it was found at. Field validity is `tests/docs/_metaLedgerInProgress.test.ts`'s job, not the reader's |
@@ -441,7 +476,7 @@ enclosing entry, which may or may not be what its session is working on.
 **It is not the reconciliation-log preamble.** The original draft justified the asymmetry by
 claiming a `BACKLOG.md:7` edit would over-report against dozens of ids. Measured, it does the
 opposite: line 7 sits above the first entry heading at line 11, so the hunk maps to no entry and is
-dropped (§3.2 step 5). All three live refs carrying that hunk produce zero claims from it. The
+dropped (§3.2 step 6). All three live refs carrying that hunk produce zero claims from it. The
 correct statement is that preamble edits are silent, not noisy.
 
 The soft signal earns its place by covering the three-in-four branches that carry no marker (§2.3);
@@ -456,8 +491,8 @@ Every numeric bound in this design, defined once here and referenced everywhere 
 | Fetch timeout | 30 s | §3.2, §7.3 |
 | Preflight budget for the claims subprocess | 15 s | §3.4 |
 | Branch report cap | 100, with the omitted count always printed | §4.1 |
-| Open-PR query limit | 100 | §3.2 |
-| Meta-line body window | 12 lines, inherited unchanged by `ledgerItems`; the claim recognizer is position-independent and uses no window | §3.1, §3.2 step 4 |
+| Open-PR query limit | 100, display only, and allowed to be incomplete because no rule reads it | §3.2 step 7, §4.1 |
+| Meta-line body window | 12 lines, inherited unchanged by `ledgerItems`; the claim recognizer is position-independent and uses no window | §3.1, §3.2 step 5 |
 | Vacuity floor | 100 entries on main, against a measured corpus of 4837 across 15 refs | §4.2 |
 
 No other numeric bound exists in this design.
@@ -466,36 +501,53 @@ No other numeric bound exists in this design.
 
 ## 5. Failure modes this design deliberately accepts
 
-Per the preparedness posture, each is signaled rather than silent.
+Each is **either** signaled at the moment it occurs **or** silent-by-construction with a named
+compensating gate. R2 finding 8 was that an earlier draft claimed all of them were signaled while
+three plainly were not; the distinction is now carried per item, because a silent window a reader
+believes is signaled is worse than one they can see.
 
-1. **A branch that has done no ledger work yet is invisible.** A session that cut a branch, skipped
-   Stage 0, and has not touched a ledger produces neither signal. The `--check` gate cannot see it.
-   Mitigated only by Stage 0 compliance, which §6 makes a named step.
-2. **`inferred` over-reports on reconciliation-log edits.** Accepted; that is why it warns rather
-   than fails (§4.4).
-3. **A ~15-minute window at the end of a run.** Under §6's amended Stage 4.4 the marker is removed
-   in the PR's last commit, so between that commit and the merge the branch declares nothing. The
-   `inferred` signal still covers it, and AGENTS.md requires the merge to follow CI-green in the
-   same turn.
-4. **Two sessions racing inside one fetch interval.** Both can pass `--check` if neither has pushed
-   its marker yet. Narrowed, not closed: §6.2 requires Stage 0 to push the marker the moment it is
-   written, so the window is the seconds between two Stage 0 runs rather than the hours §2.1
-   measured. This bound depends entirely on that push, which is why §2.8a treats its absence as
-   blocking rather than cosmetic.
-5. **The CI backstop cannot see a pre-PR branch.** In shallow mode the candidate set is open PRs
-   (§3.2 step 2), so a colliding branch that has not opened one yet is invisible to the guard. It is
-   caught when that branch's own PR opens and its CI runs, which is before the second merge — the
-   outcome the backstop exists to produce. The unguarded interval is the one Stage 0's `--check`
-   already covers on a full clone.
+**Signaled.**
 
----
+1. **Ancestry unavailable in a shallow clone.** Merged-and-retained branches stay in the candidate
+   set and can raise a false collision. Printed in the report header, and the remedy the failure
+   asks for — delete the branch, or clear a marker that survived its merge — is correct regardless.
+   Under §6.3's amended Stage 4.4 a merged branch should carry no marker at all, so this state is
+   itself a pipeline violation.
+2. **`inferred` is a heuristic over diff hunks.** A branch editing a long entry's body to mention a
+   sibling id claims the enclosing entry. Printed as `inferred`, never `declared`, and never able to
+   fail anything (§4.4). Note the corrected direction: the reconciliation-log preamble at
+   `BACKLOG.md:7` sits above the first entry heading and is *dropped*, so preamble edits are silent
+   rather than noisy.
+3. **`gh` unavailable.** PR numbers are blank and the report says so. No claim resolution changes.
+
+**Silent, with the gate that covers each.**
+
+4. **A branch that has done no ledger work yet is invisible.** A session that cut a branch, skipped
+   Stage 0, and touched no ledger produces neither signal, and no report can show it. Covered only
+   by Stage 0 compliance, which §6.2 makes a named step with a named command. This is the one
+   residual hole with no mechanical backstop, and it is stated here rather than papered over.
+5. **Two sessions racing inside one fetch interval.** Both can pass `--check` if neither has pushed.
+   Bounded by §6.2's requirement that Stage 0 push the marker the moment it writes it, which reduces
+   the window from the hours §2.1 measured to the seconds between two Stage 0 runs. The bound is
+   entirely that push, which is why §2.8a treats its absence as blocking.
+6. **A window at the end of a run.** Under §6.3 the marker is removed in the PR's last commit, so
+   between that commit and the merge the branch declares nothing. The `inferred` signal still covers
+   it, and AGENTS.md requires the merge to follow CI-green in the same turn.
+7. **Two branches that never overlap in CI.** R2 finding 4 is retained as a real limit rather than
+   argued away: if A is pushed pre-PR while B opens and merges, and A only opens afterward, neither
+   CI run ever sees the other. The CI backstop is a backstop, not the gate — it catches a collision
+   between two *concurrently open* PRs, and the pre-flight check at Stage 0 is what covers the rest.
+   Claiming otherwise, as an earlier draft did, would have overstated the guard.
+
 
 ## 6. AGENTS.md delta
 
-Four edits, in two places: invariant 12's own paragraph (`AGENTS.md:27-38`) and the Stage 0 / Stage
-4.4 lifecycle list that restates it (`AGENTS.md:133-136`). The second location is not optional — it
-carries its own copy of the marker instructions, and leaving it alone would put the two halves of
-AGENTS.md into direct contradiction.
+Six edits, in three places: invariant 12's own paragraph (`AGENTS.md:27-38`), the autonomous-pipeline
+sentence that orders the run (`AGENTS.md:53`), and the Stage 0 / Stage 4.4 lifecycle list that
+restates the marker instructions (`AGENTS.md:133-136`). None of the three is optional. R2 finding 6
+established the method the hard way: an earlier draft edited one location, declared the delta
+complete, and left two authoritative sentences contradicting it. **Any edit to invariant 12 must
+sweep all three locations**, because AGENTS.md states the marker contract three times.
 
 **6.1 — the reading rule.** A new paragraph after the "declared and never inferred" paragraph:
 
@@ -536,7 +588,22 @@ clearing stay exactly where they are, as do both `CronDelete` sites (`AGENTS.md:
 ledger marker moves out of that bullet, with a pointer to its new home so the pairing is not
 silently dropped.
 
-Nothing else in `AGENTS.md` changes.
+**6.5 — invariant 12's opening sentence stops promising merge-time removal.** `AGENTS.md:27` reads
+"the moment the PR merges, the marker goes away with it", which §6.3 makes false: removal is now the
+PR's last commit, before the merge. It becomes "the marker comes off in the PR's last commit, so it
+never reaches main". The parenthetical about an entry graduating to an archive carrying its marker
+with it stays true and stays as written.
+
+**6.6 — the pipeline sentence stops ordering the marker after spec and plan.** `AGENTS.md:53` lists
+"spec → self-review → … → plan → … → mark the ledger entries in progress (invariant 12)", which puts
+the marker after two full review cycles — hours during which §2.1's collision is exactly what
+happens. The clause moves to the front of that sentence, alongside the worktree creation it belongs
+to, and names the push:
+
+> relocate into a fresh worktree off `origin/main` (…); check and mark the ledger entries in
+> progress and push the branch (invariant 12); spec → self-review → …
+
+Nothing else in `AGENTS.md` changes. §7.5a asserts that claim mechanically rather than by promise.
 
 ---
 
@@ -544,7 +611,7 @@ Nothing else in `AGENTS.md` changes.
 
 TDD per task, invariant 1. Each names the failure it catches.
 
-<!-- spec-lint: ignore — this file is created by this spec; it is not tracked until Task 3 lands -->
+<!-- spec-lint: ignore — this file is created by this spec; it is created by this spec's implementation and is not tracked yet -->
 
 ### 7.1 `tests/scripts/ledgerClaims.test.ts` — the reader, against planted git state
 
@@ -558,7 +625,7 @@ a branch whose tip is 20 days old is reported under `stale` and not dropped; two
 one id both appear; an id declared only by the current branch is not a collision; a ledger file
 missing at a ref is skipped without error.
 
-<!-- spec-lint: ignore — this file is created by this spec; it is not tracked until Task 4 lands -->
+<!-- spec-lint: ignore — this file is created by this spec; it is created by this spec's implementation and is not tracked yet -->
 
 ### 7.2 `tests/scripts/ledgerClaimsCheck.test.ts` — exit codes
 
@@ -569,7 +636,7 @@ must exit 2 rather than reporting a false all-clear.
 Anti-tautology: expected ids are derived from the fixture repo's own planted ledger text, never
 hardcoded, so a reader that returns a fixed list cannot pass.
 
-<!-- spec-lint: ignore — this file is created by this spec; it is not tracked until Task 5 lands -->
+<!-- spec-lint: ignore — this file is created by this spec; it is created by this spec's implementation and is not tracked yet -->
 
 ### 7.3 `tests/docs/_metaLedgerClaimCollision.test.ts` — the CI backstop
 
@@ -582,11 +649,17 @@ branch declares in-progress, no other unmerged origin branch may declare the sam
   30 s timeout, measured at 1.8 s against a real depth-1 clone (§2.7b). Depth 1 is sufficient because
   only tip file content is read, and it respects the wall-clock constraint recorded at
   `.github/workflows/unit-suite.yml:148`.
-- Candidate set is open PRs, never `git branch -r --merged`. §2.7b shows the ancestry query silently
-  misclassifies `origin/feat/sync-feed-undo-announce` — merged, retained, and 80 commits behind main
-  — as a live candidate under depth 1, which would turn its stale declaration into a false collision
-  and a red PR. A test asserting the guard uses the PR-membership path in shallow mode pins this,
-  because the ancestry version passes locally and fails only in CI.
+- Candidate set is every non-main head, with the merged-exclusion skipped because ancestry is
+  unavailable (§3.2 step 2). Deliberately NOT scoped to open PRs: R2 measured two branches declaring
+  markers with no open PR, so a PR-scoped guard would pass while missing a real claim.
+- Uses no `gh` and no GitHub API. R2 measured that `unit-suite.yml` supplies no `GH_TOKEN`, and a
+  required check must not acquire a network-auth dependency it cannot satisfy.
+- Current branch from `GITHUB_HEAD_REF`, asserted explicitly. Without it the PR's own marker,
+  fetched back as an origin head, collides with itself and fails every PR that declares anything —
+  the guard's most damaging possible failure, since it fails precisely the sessions that complied.
+- A test that plants a self-collision (this branch's marker, present on its own origin head) and
+  asserts the guard stays silent. This is the anti-tautology case: a guard that compared everything
+  against everything would pass every other test here and fail every real PR.
 - Under `CI`, a fetch failure **fails** the test, matching the deliberate no-skip posture at
   `tests/docs/_metaLedgerInProgress.test.ts:199`. Locally, a fetch failure skips, so an offline
   `pnpm test` does not go red for an environmental reason.
@@ -624,6 +697,24 @@ a behavior widening of an existing guard, so it gets its own task and its own ca
 - Corpus regression bound: the recognizer must see at least the 2 markers the window sees and no
   more than the 3 the same-line rule measured (§2.7a), asserted against a fixture corpus rather than
   against origin, so the bound does not drift with live branch state.
+
+<!-- spec-lint: ignore — this file is created by this spec; it is created by this spec's implementation and is not tracked yet -->
+
+### 7.5a `tests/docs/_metaAgentsMarkerContract.test.ts` — the delta stays complete
+
+Catches the class R2 finding 6 caught twice by hand: an edit to one of AGENTS.md's three statements
+of the marker contract, leaving the other two contradicting it. The guard is literal and narrow, and
+that is the point — it does not model the prose, it pins the specific sentences that drifted:
+
+- All three locations still exist and still mention the marker, so a rename cannot silently delete
+  a rule.
+- None of them contains the retired orderings: "after the `0  0` check, removes it" and "the moment
+  the PR merges, the marker goes away with it".
+- The Stage 0 statement names both the check command and the push, since §6.2's whole load is
+  carried by those two words.
+
+Failure message points at §6 of this spec, so the next editor learns the sweep rule rather than
+rediscovering it.
 
 ### 7.5 Preflight isolation
 
