@@ -963,6 +963,65 @@ describe("runPhase2 destructive snapshot", () => {
     });
   });
 
+  // Unit A / Task 4 — arm (a) and arm (c) take DIFFERENT inputs. Arm (a) (prior-for-added) takes the
+  // LANDED pairs; arm (c) (loss suppression) takes landed ∪ unlanded-whose-source-survived. The two
+  // tests below pin the arm-(c) halves that do not need hold state; the survival halves live in
+  // tests/db/stagedApplyIdentityLink.db.test.ts because FakePhase2Tx has no holdPort.
+  test("capability: a landed rename with unchanged flags emits no notice", async () => {
+    const tx = new FakePhase2Tx();
+    tx.shows.set("file-1", {
+      id: "show-1",
+      driveFileId: "file-1",
+      lastSeenModifiedTime: "2026-05-08T11:00:00.000Z",
+      lastSyncStatus: "ok",
+      lastSyncError: null,
+      crewNames: ["Old"],
+      crewMembers: [crewWithFlags("Old", ["LEAD", "A1"])],
+    });
+
+    const result = await runWith(tx, {
+      parseResult: parseResult({ crewMembers: [crewWithFlags("New", ["LEAD", "A1"])] }),
+      identityLinkRenames: [{ removedName: "Old", addedName: "New" }],
+    });
+
+    if (result.outcome !== "applied") throw new Error(`expected applied, got ${result.outcome}`);
+    // Premise: the pair genuinely LANDED (the fake mirrors the production guard), so this exercises
+    // the landed input to both arms rather than the requested-pair fallback.
+    expect(tx.operations).toContain("renameCrewMember:show-1:Old→New");
+    expect(result.unlandedRenames ?? []).toEqual([]);
+    expect(result.roleFlagsNotice).toBeUndefined();
+  });
+
+  test("capability: an unlanded pair whose SOURCE DIED reports the loss suppressed today", async () => {
+    const tx = new FakePhase2Tx();
+    tx.shows.set("file-1", {
+      id: "show-1",
+      driveFileId: "file-1",
+      lastSeenModifiedTime: "2026-05-08T11:00:00.000Z",
+      lastSyncStatus: "ok",
+      lastSyncError: null,
+      crewNames: ["Old"],
+      crewMembers: [crewWithFlags("Old", ["LEAD"])],
+    });
+
+    // The target is absent from the parse, so the pair never lands and "Old" is not delete-protected
+    // — the LEAD row is genuinely gone. Keeping arm (c) on the REQUESTED pairs suppresses that loss
+    // silently, which is the bug this task fixes.
+    const result = await runWith(tx, {
+      parseResult: parseResult({ crewMembers: [crew("Other")] }),
+      identityLinkRenames: [{ removedName: "Old", addedName: "Nowhere" }],
+    });
+
+    if (result.outcome !== "applied") throw new Error(`expected applied, got ${result.outcome}`);
+    expect((result.unlandedRenames ?? [])[0]).toMatchObject({
+      reason: "target_absent",
+      sourceSurvived: false,
+    });
+    expect(result.roleFlagsNotice?.context.changes).toEqual([
+      { crew_name: "Old", prior_flags: ["LEAD"], new_flags: [] },
+    ]);
+  });
+
   test("removed crew auth floors are lifted to current_token_version", async () => {
     const tx = new FakePhase2Tx();
     tx.shows.set("file-1", {

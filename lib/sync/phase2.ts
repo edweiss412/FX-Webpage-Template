@@ -271,7 +271,12 @@ function capabilityDelta(prior: readonly string[], next: readonly string[]): boo
 function capabilityRoleChangesForNotice(
   previousCrewMembers: ParseResult["crewMembers"] | undefined,
   nextCrewMembers: ParseResult["crewMembers"],
-  identityLinkRenames: readonly IdentityLinkRename[] = [],
+  // Unit A: the two arms take DIFFERENT inputs — see each below. Passing one list to both is a
+  // defect in whichever direction it is done, so they arrive as separate named fields.
+  renames: {
+    landedRenames: readonly IdentityLinkRename[];
+    unlandedRenames: readonly UnlandedRename[];
+  } = { landedRenames: [], unlandedRenames: [] },
 ): Array<{ crew_name: string; prior_flags: string[]; new_flags: string[] }> {
   const previousByName = new Map(
     (previousCrewMembers ?? []).map((member) => [member.name, member]),
@@ -281,10 +286,23 @@ function capabilityRoleChangesForNotice(
   // row so a rename resolves to the real prior — otherwise a capability crew member renamed with
   // UNCHANGED flags is falsely reported as a fresh grant, and a rename that DOES flip a capability
   // would carry the wrong prior_flags.
+  // Arm (a) takes the LANDED pairs only: a requested pair that never landed did NOT carry the prior
+  // row's identity onto the added name, so mapping through it would report the added row's flags
+  // against a stranger's prior.
   const priorNameForAdded = new Map(
-    identityLinkRenames.map((rename) => [rename.addedName, rename.removedName]),
+    renames.landedRenames.map((rename) => [rename.addedName, rename.removedName]),
   );
-  const renamedAway = new Set(identityLinkRenames.map((rename) => rename.removedName));
+  // Arm (c) suppresses a loss when the prior row's absence from appliedCrewMembers is explained by
+  // something other than a real loss: the rename landed (the successor carries the capability, caught
+  // by arm (a)), OR the source row survived this apply without being in the applied list — held and
+  // delete-protected rows are exactly that shape. This is a SURVIVAL test, NOT a reason test: a pair
+  // skipped for `name_held` whose hold kind did not delete-protect it DOES lose its row, and that
+  // loss is real. Requested-but-unlanded pairs must NOT appear here at all, or a genuine loss (source
+  // deleted because its rename target was hold-suppressed) stays silently suppressed.
+  const renamedAway = new Set<string>([
+    ...renames.landedRenames.map((rename) => rename.removedName),
+    ...renames.unlandedRenames.filter((u) => u.sourceSurvived).map((u) => u.pair.removedName),
+  ]);
   const nextByName = new Set(nextCrewMembers.map((member) => member.name));
   const changes: Array<{ crew_name: string; prior_flags: string[]; new_flags: string[] }> = [];
 
@@ -592,7 +610,12 @@ export async function runPhase2(tx: Phase2Tx, args: Phase2Args): Promise<Phase2R
   const roleFlagChanges = capabilityRoleChangesForNotice(
     snapshot.previousCrewMembers,
     applyOutcome.appliedCrewMembers,
-    args.identityLinkRenames ?? [],
+    // P2-F2 applied to the pairs: the notice describes what the apply LANDED, never what was
+    // requested. The two arms consume these differently — see capabilityRoleChangesForNotice.
+    {
+      landedRenames: applyOutcome.landedRenames,
+      unlandedRenames: applyOutcome.unlandedRenames,
+    },
   );
   const roleFlagsNotice =
     roleFlagChanges.length > 0

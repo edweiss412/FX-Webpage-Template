@@ -18,6 +18,7 @@ import {
   runStagedApply,
   seedMi11Hold,
   seedShowWithCrew,
+  type SeededHoldsShow,
 } from "./_holdsHelpers";
 
 function heldValue(name: string, email: string | null): Record<string, unknown> {
@@ -34,6 +35,28 @@ function heldValue(name: string, email: string | null): Record<string, unknown> 
 }
 
 const LEAD_FLAGS: RoleFlag[] = ["LEAD", "A1"];
+
+/**
+ * Seed one `undo_override` hold directly (no helper exists — `seedMi11Hold` is hardcoded to
+ * `mi11_pending`/`crew_email`). The schema's `sync_holds_kind_shape_chk` requires
+ * `proposed_value IS NULL` for this kind. Raw insert is the established pattern for this kind
+ * (tests/sync/writeMi11Holds.test.ts:263, tests/db/sync-holds-schema.test.ts:264).
+ */
+async function seedUndoOverrideHold(
+  show: SeededHoldsShow,
+  opts: {
+    domain: "crew_email" | "crew_identity";
+    entityKey: string;
+    held: Record<string, unknown>;
+  },
+): Promise<void> {
+  await holdsSql`
+    insert into public.sync_holds
+      (show_id, drive_file_id, domain, entity_key, held_value, proposed_value,
+       base_modified_time, kind, created_by)
+    values (${show.showId}, ${show.driveFileId}, ${opts.domain}, ${opts.entityKey},
+            ${holdsSql.json(opts.held as never)}, null, null, 'undo_override', 'test-seed')`;
+}
 
 afterAll(async () => {
   await holdsSql`delete from public.shows where drive_file_id like 'drv-%'`;
@@ -191,5 +214,100 @@ describe("staged apply identity-link renames", () => {
       ]),
     );
     expect(changesC).toHaveLength(2);
+  });
+
+  /**
+   * Task 4 — the capability notice's arm (c) suppresses a loss on a SURVIVAL test, not a reason
+   * test. Both cases need real hold state, so neither can live in tests/sync/phase2.test.ts:
+   * `FakePhase2Tx` has no `holdPort` and `runPhase2` only enables the hold-aware apply through
+   * `tx.holdPort?.()`.
+   */
+  it("capability: an unlanded pair whose SOURCE SURVIVED emits no capability-loss notice", async () => {
+    // A crew_email undo_override delete-PROTECTS its entity_key without putting it back in the
+    // applied crew list — the exact shape arm (c) must suppress. Feeding landedRenames to BOTH arms
+    // (the naive swap) drops "Old" out of renamedAway and fires a phantom LEAD loss for a row that
+    // is still live and still holds LEAD.
+    const { showId, driveFileId } = await seedShowWithCrew([
+      { name: "Old", email: "old@x.example", role_flags: LEAD_FLAGS },
+    ]);
+    const PRIOR_ID = (await readCrewByName(showId, "Old"))!.id;
+    await seedUndoOverrideHold(
+      { showId, driveFileId },
+      { domain: "crew_email", entityKey: "Old", held: heldValue("Old", "old@x.example") },
+    );
+
+    const result = await runStagedApply(driveFileId, {
+      crew: [{ name: "New", email: "new@x.example" }],
+      triggeredItems: [
+        {
+          id: "1",
+          invariant: "MI-12",
+          removed_name: "Old",
+          added_name: "New",
+          email: "new@x.example",
+        },
+      ],
+      reviewerChoices: [{ item_id: "1", action: "rename", rename_value: "New" }],
+    });
+
+    expect(result).toMatchObject({ outcome: "applied" });
+    // Premise, asserted rather than assumed: the pair did NOT land (the held source was skipped, so
+    // the row keeps its own name AND its id) and the source row survived the delete carrying LEAD.
+    const survivor = await readCrewByName(showId, "Old");
+    expect(survivor).not.toBeNull();
+    expect(survivor!.id).toBe(PRIOR_ID);
+    expect(survivor!.role_flags).toEqual(LEAD_FLAGS);
+    // The added row landed as an ordinary, independent addition (no capability flags of its own).
+    expect((await readCrewByName(showId, "New"))!.id).not.toBe(PRIOR_ID);
+    expect(result).not.toHaveProperty("roleFlagsNotice");
+  });
+
+  it("capability: a held pair whose hold kind did NOT delete-protect it still reports the loss", async () => {
+    // The discriminator for a reason-proxy implementation. A crew_identity undo_override TOMBSTONE
+    // (held_value.absent) adds its entity_key to heldNames but NOT to protectedNames, so the pair is
+    // skipped for reason `name_held` while the source row is genuinely deleted. A renamedAway set
+    // built from the SKIP REASON suppresses this real loss; one built from `sourceSurvived` reports
+    // it. The sheet must keep listing "Old" with the held email or the tombstone releases itself
+    // (lib/sync/holds/holdAwareApply.ts:83-91) and the hold never reaches the apply.
+    const { showId, driveFileId } = await seedShowWithCrew([
+      { name: "Old", email: "old@x.example", role_flags: LEAD_FLAGS },
+    ]);
+    await seedUndoOverrideHold(
+      { showId, driveFileId },
+      {
+        domain: "crew_identity",
+        entityKey: "Old",
+        held: {
+          absent: true,
+          name: "Old",
+          email: "old@x.example",
+          baseline: { kind: "add", added: { name: "Old", email: "old@x.example" } },
+        },
+      },
+    );
+
+    const result = await runStagedApply(driveFileId, {
+      crew: [
+        { name: "Old", email: "old@x.example", role_flags: LEAD_FLAGS },
+        { name: "New", email: "new@x.example" },
+      ],
+      triggeredItems: [
+        {
+          id: "1",
+          invariant: "MI-12",
+          removed_name: "Old",
+          added_name: "New",
+          email: "new@x.example",
+        },
+      ],
+      reviewerChoices: [{ item_id: "1", action: "rename", rename_value: "New" }],
+    });
+
+    expect(result).toMatchObject({ outcome: "applied" });
+    // Premise: the tombstone suppressed the row, so the LEAD holder is genuinely gone.
+    expect(await readCrewByName(showId, "Old")).toBeNull();
+    const changes = (result as { roleFlagsNotice?: { context: { changes: unknown[] } } })
+      .roleFlagsNotice?.context.changes;
+    expect(changes).toEqual([{ crew_name: "Old", prior_flags: LEAD_FLAGS, new_flags: [] }]);
   });
 });
