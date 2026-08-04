@@ -5,7 +5,7 @@
 **Date:** 2026-08-03
 **Branch:** `chore/ledger-claim-visibility`
 **Backlog entries:** none opened for this work (see §9.1); three filed as by-products (§9.2, §9.3, §5 item 0a)
-**Status:** R17 repaired — 86 adversarial findings across seventeen rounds plus 5 self-findings, all accepted. R10 triggered the three-round cap: §3.1 is written from a spike, independently reproduced cross-model at R11
+**Status:** R18 repaired — 89 adversarial findings across eighteen rounds plus 5 self-findings, all accepted. R10 triggered the three-round cap: §3.1 is written from a spike, independently reproduced cross-model at R11
 **Review note:** R1-R4 were Codex (cross-model). R5 and R6 were fresh-eyes Opus sessions, because Codex hit a usage limit resetting 2026-08-10; see §10
 **impeccable-gate: N/A — no UI surface**
 
@@ -623,7 +623,11 @@ them into "non-zero means collision" would report a parser regression as somebod
 | --- | --- | --- |
 | **0** | No collision, or `inferred`-only collisions (printed as `WARN:`) | Proceed |
 | **1** | A named id is `declared` by a branch **positively known** to be other than the current one. Requires resolved identity: R17 finding 1 caught exit 1 previously covering both this and the identity-unresolved case, so an operator following §6.2 was told "another live branch declares that row" when the claim might be their own. Message names the id, the branch, and the PR if known | Stop and reconcile |
-| **2** | **The check could not be trusted**: usage error, parser vacuity (§4.2), an environment failure that §4.1 escalates, **or a claim found while identity is unresolved** (§3.2 step 3, third row). Unresolved identity is by definition an untrusted check, so it lands here rather than manufacturing a fourth code — and the caller's action is the same: stop and fix the check, then re-run | Stop and fix the check. This is never evidence about another branch, in either direction |
+| **2** | **The check could not be trusted**: usage error, parser vacuity (§4.2), an environment failure that §4.1 escalates, **or a `declared` claim found while identity is unresolved** (§3.2 step 3, third row). Scoped to
+`declared` deliberately: R18 finding 1 caught an unscoped version colliding with the ratified rule
+that `inferred` never fails anything, leaving an inferred-only check under unresolved identity
+specified as both 0 and 2. Inferred stays advisory in every identity case — an advisory signal that
+can fail a run is not advisory. Unresolved identity is by definition an untrusted check, so it lands here rather than manufacturing a fourth code — and the caller's action is the same: stop and fix the check, then re-run | Stop and fix the check. This is never evidence about another branch, in either direction |
 
 Also `--json` for machine consumption. It emits an **object**, not a bare array:
 `{ status, degraded, claims: [{id, branch, kind, pr, tipAgeDays, stale}] }`.
@@ -751,6 +755,8 @@ Every numeric bound in this design, defined once here and referenced everywhere 
 | --- | --- | --- |
 | Stale-tip threshold | 14 days | §2.3, §3.2, §7.1 |
 | Fetch timeout | 30 s | §3.2, §7.3 |
+| `ls-remote` timeout | 30 s, its own bound, skipped entirely under `--no-fetch` | §4.1 |
+| `gh` timeout | 10 s | §3.2 step 7, §7.5 |
 | Preflight budget for the claims subprocess | 15 s | §3.4 |
 | Branch report cap | 100, with the omitted count always printed | §4.1 |
 | Open-PR query limit | 100, display only, and allowed to be incomplete because no rule reads it | §3.2 step 7, §4.1 |
@@ -758,7 +764,7 @@ Every numeric bound in this design, defined once here and referenced everywhere 
 | Global vacuity floor | 100 entries on main, against a measured corpus of 4837 and then 6715 within 90 minutes | §4.2 |
 | Per-file vacuity | no numeric bound — a non-empty ledger yielding zero entries fails, whatever the count | §3.1, §4.2 |
 
-No other numeric bound exists in this design.
+No other numeric bound exists in this design. R18 finding 3 caught this table omitting the gh bound and naming only the fetch for 30 s while ls-remote carries its own — a plan derived from a table declaring itself the single source would have conflated or dropped them.
 
 ---
 
@@ -847,9 +853,9 @@ sweep all three locations**, because AGENTS.md states the marker contract three 
 
 **6.1 — the reading rule.** A new paragraph after the "declared and never inferred" paragraph:
 
-> **A claim is read from origin's branches, never from main.** The marker is written on the working
-> branch and reaches `origin/main` only at merge, which is the moment it stops being true, so main
-> is structurally the one place the signal can never appear. `pnpm ledger:claims` resolves claims
+> **A claim is read from origin's branches, never from main.** The marker lives on the working
+> branch for exactly as long as the work does, and comes off in the PR's last commit — so it never
+> reaches `origin/main` at all. Main is structurally the one place the signal can never appear. `pnpm ledger:claims` resolves claims
 > across every live, unmerged branch on origin. `pnpm preflight` prints that table, so any worktree
 > that runs preflight sees live claims before its first edit; a docs-only branch that skips
 > preflight per invariant 11 relies on the Stage 0 check below, which is not optional for anyone.
@@ -1203,7 +1209,7 @@ three-assertion draft, so the mapping is now exhaustive and stated as a table ra
 
 | §6 edit | Assertion | The mutant it stops |
 | --- | --- | --- |
-| 6.1 reading rule | `AGENTS.md` contains a sentence naming `ledger:claims` **and** stating claims are read from origin's branches | never adding §6.1 at all, which an earlier draft's assertions all tolerated |
+| 6.1 reading rule | `AGENTS.md` contains a sentence naming `ledger:claims` **and** stating claims are read from origin's branches, **and contains no sentence asserting the marker reaches main at merge** | never adding §6.1 at all; plus R18 finding 2's mutant, where §6.1's own prose paraphrases the retired merge-time ordering. The retired-phrase assertions in row 6.3 are literal, so a paraphrase walks past them while reinstating the PR #679 failure |
 | 6.2 Stage 0 check + push | **Both** `AGENTS.md:38`'s paragraph and the Stage 0 lifecycle bullet name the check command and the push. Asserted at both locations, not "the Stage 0 statement" singular | implementing at the invariant-12 paragraph only and leaving the lifecycle bullet unchanged |
 | 6.3 pre-merge removal | Neither retired ordering survives — "after the `0  0` check, removes it" and "the moment the PR merges, the marker goes away with it" — **and** `AGENTS.md` positively states that removal happens in the PR's last commit, before the merge | the original R2 drift, plus R6 finding 4's mutant: delete both retired strings, add nothing, and an absence-only row passes while AGENTS.md now says nowhere when the marker comes off, silently deleting the removal half of the writer contract |
 | 6.4 Stage 4.4 bullet | The Stage 4.4 bullet mentions the pane and the agent and does **not** mention the marker; pane, agent, and `CronDelete` instructions are all still present | R3 finding 4's mutant, plus a repair that "fixes" the contradiction by deleting the bullet wholesale |
