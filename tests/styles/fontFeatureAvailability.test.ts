@@ -251,9 +251,9 @@ describe("font feature availability", () => {
     });
 
     test("`zero` is declared in exactly one rule", () => {
-      const zeroRules = [...stripCssComments(css).matchAll(/font-feature-settings\s*:([^;}]*)[;}]/g)].filter((m) =>
-        extractFeatureTags(`font-feature-settings:${m[1] ?? ""};`).includes("zero"),
-      );
+      const zeroRules = [
+        ...stripCssComments(css).matchAll(/font-feature-settings\s*:([^;}]*)[;}]/g),
+      ].filter((m) => extractFeatureTags(`font-feature-settings:${m[1] ?? ""};`).includes("zero"));
       expect(zeroRules.length, "only `.code-value` slashes zeros").toBe(1);
     });
   });

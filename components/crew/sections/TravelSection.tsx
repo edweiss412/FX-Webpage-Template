@@ -484,7 +484,8 @@ export function TravelSection({
                     const resNotes = !shouldHideGenericOptional(res.notes) ? res.notes : null;
 
                     const stayRows: KeyValueRow[] = [];
-                    if (confirmation) stayRows.push({ k: "Confirmation", v: confirmation, code: true });
+                    if (confirmation)
+                      stayRows.push({ k: "Confirmation", v: confirmation, code: true });
                     if (resNotes) stayRows.push({ k: "Notes", v: resNotes });
 
                     return (
