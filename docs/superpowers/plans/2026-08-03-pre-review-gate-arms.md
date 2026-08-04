@@ -89,7 +89,7 @@ It reads the document correctly — `enrolled, depth=2, tasks=7` — and after t
 | M33 infra-as-findings | pre-adapter exit 1 with empty stdout; ENOENT; signal death | AC-36, AC-37: refuse, dispatch nothing |
 | M38 shape-check backstop | revert the AC-35 fix, leaving a truncating CLI at status 0 | AC-36: shape check refuses, verified `shapeOK=false` |
 | M34 id punctuation | ids `AC-1.`, `AC-1..1`, `AC-1.-child`, `AC-1-` | AC-38: `TASK_MARKER_MALFORMED` |
-| M35 left boundary | resolver dropping the preceding-character check | `XAC-1`, `0AC-1`, `.AC-1`, `MY-AC-1` must not resolve `AC-1` |
+| M35 left boundary | resolver dropping the preceding-character check | AC-42: `XAC-1`, `0AC-1`, `.AC-1`, `MY-AC-1` must not resolve `AC-1` |
 | M36 indented marker | 1-3 leading spaces on an enrollment or task marker | AC-39: 1-3 recognized, 4+ not |
 | M37 surplus close | `open -> close -> close` | `TASK_ENROLL_MALFORMED` on the surplus close |
 | M31 sentence-final id | `**Verify.** AC-14.` as the only occurrence | AC-34: resolves; naive boundary rule reports a false UNRESOLVED |
@@ -99,6 +99,14 @@ It reads the document correctly — `enrolled, depth=2, tasks=7` — and after t
 | M27 cascade | rejected duplicate open leaving its close to report a phantom unmatched-close | AC-30: exactly one finding, asserted as a full list |
 | M26 table totality | a line class reaching no row of design §3.4.1 | AC-29 table-driven test, incl. the fall-through case |
 | M25 post-close marker | marker after `tasks: end`, before the next equal-or-shallower heading | `TASK_MARKER_ORPHANED` plus the task's own `TASK_MARKER_MISSING` (AC-28) |
+| M39 grammar/table drift | an implementation reading design §3.4.1's rows while ignoring §3.2's indentation allowance | AC-39 + AC-29: the table restates the patterns verbatim, so an indented marker is recognized by both or neither |
+| M40 EOF region drop | region left unclosed at end of document; implementation drops the trailing tasks or reports it unterminated | AC-43 |
+| M41 enrollment ambiguity | duplicate openings, implementation picks a region and reports task findings against the guess | AC-26: duplicate fires AND no task-level finding for the well-formed task inside region one |
+| M42 sections leakage | `taskContract` wired by replacing the `kind === "plan"` short-circuit in `lib/specLint/sections.ts` | AC-40: plan draws `taskContract` findings and zero `sections`-family findings |
+| M43 embed drops findings | filter that removes findings alongside the `INVENTORY` block | AC-1: finding-line sets from raw stdout and embedded body compared, not merely `INVENTORY` absence |
+| M44 length-only compare | AC-35 asserted with `Buffer.byteLength` equality instead of buffer equality | AC-35: `Buffer.compare` — two different reports of equal length must fail |
+| M45 last-line-only shape | shape check validating only the `summary:` line | AC-36 third probe: real child emitting `wrong-header` + a valid `summary:` line must still refuse |
+| M46 unamended authority | shipping the arm while `docs/agents/spec-self-review.md:25` still demands "full output" | AC-41: the amended completeness clause lands in the same PR |
 
 ## Tasks
 
@@ -106,14 +114,14 @@ It reads the document correctly — `enrolled, depth=2, tasks=7` — and after t
 
 ## Task 1 — enrollment and task segmentation, pure
 
-<!-- task: red=`pnpm vitest run tests/specLint/taskContract.test.ts` ac=AC-7,AC-9,AC-12,AC-15,AC-16,AC-17,AC-22,AC-26,AC-28,AC-29,AC-30,AC-32,AC-33,AC-39 -->
+<!-- task: red=`pnpm vitest run tests/specLint/taskContract.test.ts` ac=AC-7,AC-9,AC-12,AC-15,AC-16,AC-17,AC-22,AC-26,AC-28,AC-29,AC-30,AC-32,AC-33,AC-39,AC-43 -->
 
 
 <!-- spec-lint: ignore — new file created by this plan; not tracked until implementation -->
 **RED.** Create `tests/specLint/taskContract.test.ts` covering, against in-memory `DocModel` values built through `parseDoc` (never hand-built objects, so the fence model under test is the real one):
 
 - **the design §3.4.1 classification table, driven as a table** (M26, AC-29): one case per row, every line class against every region state, plus a fall-through case asserting an arbitrary line is classified as ordinary prose rather than reaching no row. This is the structural defense for the class that produced findings in three consecutive rounds; write it first, because the individual family cases below are then rows of it rather than separate inventions;
-- families M1, M3, M4, M10, M13, M14, M15, M16, M23, M25, M27, M29, M30, M36, M37 from the closure table. M27 asserts the FULL finding list, not the presence of one code: a cascade is invisible to a test that only checks the expected code is there. M16 gets two fixtures, not one: a region whose declared depth matches no heading, and a region whose opening line follows the last matching heading. Both are valid in-range depths selecting nothing, and a checker silent on either has accepted a plan while checking no tasks at all;
+- families M1, M3, M4, M10, M13, M14, M15, M16, M23, M25, M27, M29, M30, M36, M37, M39, M40, M41 from the closure table. **M41 is the enrollment-ambiguity case and needs both halves in one fixture**: `open → close → open → close` with a well-formed task and a valid marker inside the first region, asserting the duplicate fires *and* that no task-level finding is reported for that task. Asserting only the duplicate would pass an implementation that silently picked one of the two declared regions and checked against the guess. **M40** leaves a region unclosed at EOF and asserts its tasks are still checked, with no unterminated-region finding — every other fixture closes its region explicitly, so nothing else covers it. **M39** runs the indentation cases through the table itself rather than as standalone assertions, since the defect it kills is the table and the prose grammar disagreeing about indentation. M27 asserts the FULL finding list, not the presence of one code: a cascade is invisible to a test that only checks the expected code is there. M16 gets two fixtures, not one: a region whose declared depth matches no heading, and a region whose opening line follows the last matching heading. Both are valid in-range depths selecting nothing, and a checker silent on either has accepted a plan while checking no tasks at all;
 - a plan whose enrolled depth is 2 with `###` sub-headings inside a task, asserting the sub-headings do not end the extent;
 - a plan with depth-N headings **both before the opening line and after `<!-- tasks: end -->`**, asserting neither is a task (M13, AC-15). The trailing half is the load-bearing one: it is the case that refuted the start-only model, and a fixture carrying only the leading half would have passed against the broken design;
 - a plan with a mid-document heading *shallower* than the enrolled depth, asserting it terminates the preceding task's extent (M15, AC-17). No plan in the current corpus exercises this branch, so the fixture is the only coverage it gets.
@@ -132,7 +140,7 @@ Each case states the mutant it kills. Confirm every case fails before implementa
 
 ## Task 2 — marker grammar and the ten codes
 
-<!-- task: red=`pnpm vitest run tests/specLint/taskContract.test.ts` ac=AC-6,AC-8,AC-11,AC-13,AC-23,AC-24,AC-27,AC-31,AC-34,AC-38 -->
+<!-- task: red=`pnpm vitest run tests/specLint/taskContract.test.ts` ac=AC-6,AC-8,AC-11,AC-13,AC-23,AC-24,AC-27,AC-31,AC-34,AC-38,AC-42 -->
 
 **RED.** Extend the Task 1 suite with families M2, M5, M6, M7, M8, M9, M11, M17, M18, M19, M24, M28, M31, M34, M35 — one case per code, each asserting the code fires on a fixture exhibiting it **and does not fire** on a sibling fixture exhibiting only the neighbouring defect. That negative half is what makes AC-8 non-tautological: a checker that returned every code on every input would pass the positive half alone.
 
@@ -150,13 +158,15 @@ Add the **inline-mention fixture**, from a live probe against this very plan. Ex
 
 ## Task 3 — wire the check into the run and the CLI
 
-<!-- task: red=`pnpm vitest run tests/specLint/run.test.ts tests/specLint/cli.test.ts` ac=AC-10,AC-25 -->
+<!-- task: red=`pnpm vitest run tests/specLint/run.test.ts tests/specLint/cli.test.ts` ac=AC-10,AC-25,AC-40 -->
 
 **RED.** Cover M21 first: assert the CLI's stdout carries a `taskContract:` section with code, line, and message (AC-25). `CHECK_ORDER` does not drive the renderer — `scripts/spec-lint.ts:46` iterates its own closed literal list — so a run can exit 1 while the embedded report shows only an aggregate count, which is exactly what a reviewer would receive under design §2. Then extend `tests/specLint/run.test.ts` with a plan-kind document producing a `taskContract` finding, and a spec-kind document with identical text producing none (AC-10, closure family M12 — the identical-text pairing is what makes it a leakage test rather than two unrelated fixtures). Extend `tests/specLint/cli.test.ts` asserting `taskContract` findings render under their own heading in the documented check order.
 
-**GREEN.** Add `"taskContract"` to the `Check` union (`lib/specLint/types.ts:2`), give it an entry in `CHECK_ORDER` (`lib/specLint/run.ts:8`), call `checkTaskContract` from `runLint`, and add it to the CLI's rendered check list (`scripts/spec-lint.ts:46`). Confirm the waiver machinery suppresses `taskContract` failures the same way it suppresses other hard findings, and pin that with a case — an undocumented interaction between the two is exactly the silent-acceptance hole §3.4 warns about.
+Add the **sections-leakage case (M42, AC-40)**: a plan fixture with task-contract defects asserts a non-empty `taskContract` finding list and a `sections` finding list that is exactly empty. `lib/specLint/sections.ts:27` short-circuits plans today, enforcing the prior spec's ratified decision that plans skip section-presence checks; the tempting wiring for a plan-only check is to reuse that branch, which would start every plan in the corpus drawing spec-only section failures. Assert on the finding lists, not by grepping the source for the unchanged line — a refactor could preserve the line and re-enable the checks through another path.
 
-**Verify.** AC-10. From this commit on, `pnpm spec:lint docs/superpowers/plans/2026-08-03-pre-review-gate-arms.md` checks this plan's own markers; run it and record the output in the commit body.
+**GREEN.** Add `"taskContract"` to the `Check` union (`lib/specLint/types.ts:2`), give it an entry in `CHECK_ORDER` (`lib/specLint/run.ts:8`), call `checkTaskContract` from `runLint`, and add it to the CLI's rendered check list (`scripts/spec-lint.ts:46`). **`lib/specLint/sections.ts` is not modified** — `taskContract` is a sibling check gated on `kind` in its own module. Confirm the waiver machinery suppresses `taskContract` failures the same way it suppresses other hard findings, and pin that with a case — an undocumented interaction between the two is exactly the silent-acceptance hole §3.4 warns about.
+
+**Verify.** AC-10, AC-40. From this commit on, `pnpm spec:lint docs/superpowers/plans/2026-08-03-pre-review-gate-arms.md` checks this plan's own markers; run it and record the output in the commit body.
 
 **Commit.** `feat(spec-lint): run the task-contract check for plans, render it in the CLI`
 
@@ -171,12 +181,12 @@ Add the **inline-mention fixture**, from a live probe against this very plan. Ex
 
 **RED.** Create `tests/codexGuard/lintDoc.test.ts` using that harness, covering:
 
-- AC-1 the embedded block's delimiters, and that its body equals the CLI's stdout for the same doc **with the `INVENTORY` section removed** — captured by running the CLI in the test and applying the documented filter, never by hardcoding expected text. Byte-equality against raw stdout is explicitly not the assertion: it would contradict AC-20 for any report carrying an inventory, which is nearly all of them;
+- AC-1 the embedded block's delimiters, and that its body equals the CLI's stdout for the same doc **with the `INVENTORY` section removed** — captured by running the CLI in the test and applying the documented filter, never by hardcoding expected text. Byte-equality against raw stdout is explicitly not the assertion: it would contradict AC-20 for any report carrying an inventory, which is nearly all of them. Add the property that replaces it (M43): extract the finding lines from raw stdout and from the embedded body and assert the two **sets are equal**. Without it the suite only proves `INVENTORY` is gone, which a transformation that dropped findings alongside it would also satisfy — and "findings may never be filtered" is the exact clause design §2.2.4 amends the self-review rule to require;
 - AC-2 `--lint-doc` without `--fallback`, and composed with `--artifact` under `--fallback`;
 - AC-3 a doc that makes the CLI exit 2 causes codex-guard to exit 2 and dispatch nothing — asserted by `readCalls` returning an empty array. **Create the symlink in the test's own fixture directory; do not point at the corpus.** The tracked symlink at `docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/handoffs/M11-user-facing-docs.md` (verified mode 120000, exit 2, `not a regular file (symlink)`) is the only one today, and a test depending on it silently stops testing anything the day someone de-symlinks that file. Assert the message too, so this exit 2 is distinguishable from AC-19's out-of-repo exit 2;
 - AC-4 a doc with hard findings still dispatches;
 - AC-5 `lintArm` is `"present"` or `"absent"` in the written result;
-- **M32/M33/M38, AC-35 through AC-37 — the CLI must survive being captured.** `scripts/spec-lint.ts:236` calls `process.exit()` one statement after writing stdout, which truncates on a pipe (async write) but not to a file (sync write). Fix it to `process.exitCode` + natural exit, and assert behaviorally that a piped capture ends with the `summary:` line and matches a redirect byte for byte. Then assert the three infra shapes — pre-adapter exit 1 with empty stdout, `ENOENT`, signal death — each refuse the dispatch;
+- **M32/M33/M38/M44/M45, AC-35 through AC-37 — the CLI must survive being captured.** `scripts/spec-lint.ts:236` calls `process.exit()` one statement after writing stdout, which truncates on a pipe (async write) but not to a file (sync write). Fix it to `process.exitCode` + natural exit, and assert behaviorally that a piped capture ends with the `summary:` line and is **byte-identical** to a redirect — `Buffer.compare(pipeBuf, fileBuf) === 0`, comparing buffers, not their lengths (M44). Equal `byteLength` is a proxy that two different reports of the same length both satisfy; reserve it for the failure message. Then assert the infra shapes each refuse the dispatch: pre-adapter exit 1 with empty stdout, `ENOENT`, signal death — **and a real child emitting `wrong-header` followed by a well-formed `summary:` line** (M45), which the first two do not catch. Both of them lack a summary, so a shape check validating only the last line passes them while accepting a report whose header names a different document than the reviewer was told they were reading;
 - **M20, AC-18 and AC-19 — launch geometry.** Run the guard with its process cwd set to a directory *other* than `--cwd`, and assert a doc valid in the `--cwd` repo lints identically either way. This is the case that breaks the feature in normal use, because invariant 11 makes launch-cwd and `--cwd` differ on every worktree run. Separately assert a doc outside the `--cwd` repo exits 2 with a message naming both the path and the repo root, distinguishable from the unreadable-file exit 2;
 - **M22, AC-20 and AC-21 — content and budget.** Assert the embedded block drops exactly the lines from the bare `INVENTORY` line to the line before `summary:`, and **keeps** the headers, every check section, and the summary line — asserting only that `INVENTORY` is gone would pass an implementation that also dropped the summary; then, with enough `--lint-doc` arguments to cross 200,000 bytes, assert argument order is preserved, the block truncates at a line boundary, the truncation notice is present, and the dispatch still proceeds. Build the oversize input from real corpus reports rather than synthetic padding, so the test exercises the byte profile that motivated the budget.
 
@@ -188,13 +198,15 @@ Add the **inline-mention fixture**, from a live probe against this very plan. Ex
 
 ## Task 5 — the two documentation rules
 
-<!-- task: red=`pnpm vitest run tests/docs` ac=AC-14 -->
+<!-- task: red=`pnpm vitest run tests/docs` ac=AC-14,AC-41 -->
 
 **RED.** The existing docs meta-tests are the RED surface: add the §4.1 accept-set rule and the §3.2 plus §3.3 marker convention to `docs/agents/spec-self-review.md`, and confirm `pnpm vitest run tests/docs` plus `pnpm spec:lint` on the edited file stay green. Where no existing guard asserts the rule's presence, state that plainly rather than inventing a test that only proves a string exists.
 
+**Amend the completeness clause in the same commit (M46, AC-41).** `docs/agents/spec-self-review.md:25` currently mandates attaching the CLI's *full* output. Task 4's embed removes the `INVENTORY` block and may truncate past the budget, so shipping the arm against the unamended rule would put it in standing violation of the authority design §2.2.4 cites for it — and a later reviewer resolving that conflict the other way would delete the filtering and reintroduce the composition-cap failure. Replace the clause with design §2.2.4's wording: every finding plus the `summary:` line, `INVENTORY` optional, abridgement disclosed with its size. This is a rule edit, not an addition, and it is the one place this plan changes text it did not author — flagged here so it is a deliberate act rather than a diff surprise.
+
 **GREEN.** The doc edits, plus the `--lint-doc` usage line in the AGENTS.md codex-guard section so the cross-CLI contract records it.
 
-**Verify.** AC-14.
+**Verify.** AC-14, AC-41.
 
 **Commit.** `docs(agents): accept-set discipline for detector specs, and the task-marker convention`
 

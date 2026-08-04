@@ -57,9 +57,19 @@ This spec arms the three, without relitigating any ratified decision of the `spe
 ### 1.2 Out of scope
 
 - Linting the legacy corpus, per §1.1 item 3.
-- Any change to `spec:lint`'s citation, numeric, or copy checks. This spec adds one new check family and touches no existing rule.
+- Any change to `spec:lint`'s citation, numeric, copy, or section checks. This spec adds one new check family and changes no existing check's behavior.
 - Cluster B (canonical tracked-file walker across 87 `_meta*` guards) and cluster C (round-repair transcript rule, pre-merge ledger IN PROGRESS check). Separate specs.
 - Auto-fixing or auto-authoring task markers.
+
+**What this spec does change, stated positively.** An earlier draft claimed it "touches no existing rule", which was false in two directions and hid a contract contradiction behind a scope sentence. The accurate list is three items, each with its own acceptance criterion:
+
+| Existing artifact | Change | Pinned by |
+| --- | --- | --- |
+| `docs/agents/spec-self-review.md:25` | the "attach its **full** output" clause is amended to define completeness mechanically (§2.2.4) | AC-41 |
+| `docs/agents/spec-self-review.md` | gains the §4.1 accept-set rule as a new item | AC-14 |
+| `scripts/spec-lint.ts:236` | `process.exit()` becomes `process.exitCode` (§2.2.3) | AC-35 |
+
+`lib/specLint/sections.ts` appears in none of those rows, deliberately — see §3.4.
 
 ### 1.3 Cluster decomposition
 
@@ -69,7 +79,11 @@ The audit produced six fixes across three surfaces. They ship as three PRs in or
 
 ### 2.1 Why codex-guard
 
-`AGENTS.md:178` establishes `codex-guard` as the dispatch path for all direct Codex review dispatches. It already composes the prompt once at startup (`scripts/codex-guard.mjs:254`) and already writes a machine-readable result contract (`scripts/codex-guard.mjs:580`). It is the only chokepoint every review dispatch passes through, and it runs pre-dispatch, which is where `spec:lint`'s own spec puts enforcement.
+`AGENTS.md:182` establishes `codex-guard` as the dispatch path for direct Codex review dispatches. It already composes the prompt once at startup (`scripts/codex-guard.mjs:254`) and already writes a machine-readable result contract (`scripts/codex-guard.mjs:580`), and it runs pre-dispatch, which is where `spec:lint`'s own spec puts enforcement.
+
+**It is the chokepoint for wrapper-routed dispatches, not for all of them, and the difference is load-bearing.** An earlier draft called it "the only chokepoint every review dispatch passes through". `AGENTS.md:182` says dispatches **SHOULD** go through the wrapper, and `AGENTS.md:203` names the residue outright — "Dispatches not routed through codex-guard are still exposed". A dispatch that never enters the wrapper has no lint report and no `lintArm` field at all, so it is not merely unarmed, it is invisible to the result contract that §2.4 relies on to make omission machine-visible. That is a strictly wider gap than "entered the wrapper and omitted the flag", and §2.4 and §6 item 1 record both halves rather than the narrower one.
+
+This is not an argument for making the wrapper mandatory here. AGENTS.md's `SHOULD` is a ratified posture, and A1's value does not depend on universality: it arms the path the project already prefers, and the same heartbeat and native-binary reasons that already recommend the wrapper (`AGENTS.md:203`) apply unchanged.
 
 ### 2.2 New flag
 
@@ -182,6 +196,26 @@ One trap the verification itself hit, worth carrying into the test: `spawnSync(.
 
 It also explains, retroactively, all three truncated measurements recorded during this spec's drafting. Those were attributed to buffer scheduling; the attribution was wrong, and the corrected explanation is here.
 
+### 2.2.4 The existing "full output" rule is amended, not silently violated
+
+`docs/agents/spec-self-review.md:25` already mandates the human form of this arm:
+
+> Run `pnpm spec:lint <doc>` and attach its full output to the review dispatch; … A dispatch without the lint output is incomplete.
+
+Taken literally, **A1 cannot satisfy the rule it is built to mechanize.** §2.2.2 removes the `INVENTORY` block, and AC-21 permits truncation past the budget — yet §2.4 would record `lintArm: "present"` either way. A dispatch could be machine-reported as armed while being, by the letter of the cited authority, incomplete. Leaving that unreconciled would put the arm and its own stated authority in direct conflict, which is worse than either posture alone: a future reviewer resolving the conflict the other way would delete §2.2.2's filtering and reintroduce the composition-cap failure it exists to prevent.
+
+The word doing the damage is "full", and it was written when a human pasted terminal output — a context where "full" meant "do not cherry-pick the findings that flatter you", not "include the numeric inventory verbatim". So the rule is amended to say what completeness actually requires, in mechanically checkable terms:
+
+> Run `pnpm spec:lint <doc>` and attach its report to the review dispatch — every finding it emitted, plus the `summary:` line. The numeric `INVENTORY` block may be omitted; findings may not. If the report is abridged for size, the dispatch says so explicitly and says how much was dropped. A dispatch without the lint report, or one whose findings were filtered, is incomplete. `codex-guard --lint-doc` (§2.2) satisfies this automatically and records `lintArm` in result.json.
+
+Three properties make the amended rule and the arm agree exactly:
+
+- **Findings are never dropped selectively.** §2.2.2's transformation is positional — it removes one contiguous block delimited by a bare `INVENTORY` line and the `summary:` line — so it cannot remove a finding regardless of the finding's content.
+- **Abridgement is always disclosed.** The only path that drops findings is the budget, and §2.2.2 requires the explicit `[truncated: N of M bytes shown]` notice, which is what the amended rule's "says how much was dropped" names.
+- **The `summary:` line survives both transformations**, so the totals a reviewer would use to detect a suspiciously short report are always present. §2.3 refuses the dispatch outright if it is not.
+
+AC-41 pins the amendment; it is a docs change in this PR, not a note for later. The class this belongs to is worth naming, since it is the same one A3 legislates in §4: a mechanization that quietly redefines its own authority's terms is the S1 shape pointed at a rule instead of at an input.
+
 ### 2.3 Failure posture
 
 | Condition | Behavior |
@@ -211,7 +245,13 @@ The first row is the useful surprise: the shape check **also** catches the §2.2
 
 ### 2.4 The recorded gap
 
-A caller who omits `--lint-doc` still dispatches. result.json gains a `lintArm` field taking `"present"` or `"absent"`, so the omission is machine-visible to the orchestrator reading the result contract, rather than invisible as it is today. Closing this fully would require codex-guard to infer the review target from brief prose, which is the S1 mistake this spec exists to stop. Recorded as a documented limit (§6).
+The gap has **two** levels, and only the inner one is narrowed here.
+
+**Inner — entered the wrapper, omitted the flag.** A caller who omits `--lint-doc` still dispatches. result.json gains a `lintArm` field taking `"present"` or `"absent"`, so the omission is machine-visible to the orchestrator reading the result contract, rather than invisible as it is today. Closing this fully would require codex-guard to infer the review target from brief prose, which is the S1 mistake this spec exists to stop.
+
+**Outer — never entered the wrapper.** Per §2.1, `AGENTS.md:182` is a `SHOULD`. A dispatch made by calling `codex exec` directly produces no result.json at all, so it has no `lintArm` field to read: it is not recorded as unarmed, it is simply absent from the record. **`lintArm: "absent"` therefore does not enumerate unarmed dispatches** — it enumerates unarmed *wrapper* dispatches, and an orchestrator counting them would undercount by exactly the bypass population. This spec does not close the outer level and does not attempt to; making the wrapper mandatory is a change to a ratified AGENTS.md posture, out of scope here.
+
+Both levels are recorded as documented limits (§6 item 1).
 
 ## 3. A2 — declared task contract for plans
 
@@ -246,10 +286,16 @@ So the plan declares its own task grain, in a **delimited region**:
 
 **The grammar is a narrow ACCEPT, and everything else is a finding.** §4.1 requires exactly this of detector specs, and an earlier draft of this section did not practise it: it listed the *rejected* depth values and left every other deviation unmodelled, which is the denylist shape §4.1 exists to forbid. Stated positively instead:
 
-- An **opening line** is a non-fenced line matching `^ {0,3}<!-- tasks: depth=([1-6]) -->\s*$` **exactly**. One field, one value, no other content.
-- A **closing line** is a non-fenced line matching `^ {0,3}<!-- tasks: end -->\s*$` exactly.
+**Matching convention, stated once and binding on every pattern in this spec.** A pattern is applied to a line with its terminator (`\n` or `\r\n`) already removed, so `$` cannot be satisfied by a newline. Trailing horizontal whitespace is written `[ \t]*` rather than `\s*` for the same reason — `\s` would have made the two spellings differ on a `\r`, which is exactly the kind of ambiguity a total classifier must not carry. **All three forms — opening, closing, and the §3.3 task marker — share the identical ` {0,3}` prefix and `[ \t]*$` suffix.** §3.4.1's table restates these same patterns verbatim; a draft in which the prose allowed indentation and the table anchored at column zero was two grammars wearing one name, and is precisely what AC-29's table-driven test exists to keep from recurring.
+
+- An **opening line** is a non-fenced line matching `^ {0,3}<!-- tasks: depth=([1-6]) -->[ \t]*$` **exactly**. One field, one value, no other content.
+- A **closing line** is a non-fenced line matching `^ {0,3}<!-- tasks: end -->[ \t]*$` exactly.
 - Any non-fenced line whose first non-space content begins `<!-- tasks:` (after up to three spaces) and matches neither form is `TASK_ENROLL_MALFORMED`. That single clause covers an out-of-range or non-integer depth, a missing depth, an unknown extra field (`depth=3 extra=x`), a repeated field (`depth=3 depth=4`), and every form not yet imagined — none of which may silently opt a plan out while visibly declaring enrollment.
-- A plan is **enrolled** iff it carries exactly one opening line. **Every** opening line after the first is `TASK_ENROLL_DUPLICATE` — whether or not a close intervenes. An earlier wording said "without an intervening close", which left `open → close → open → close` as two openings, therefore not enrolled, therefore unchecked, and matching no finding: a visibly enrolled plan receiving no task checking at all. Multiple regions are not supported, and the unsupported case must be loud.
+- **Region state and enrollment are two different things, computed in two passes, and conflating them is what made three earlier drafts contradict themselves.** The **line pass** tracks a purely mechanical region state — open or not open — used only to classify each line as it is read. **Enrollment** is a whole-document conclusion drawn *after* the line pass finishes: a plan is enrolled iff the document contains **exactly one** opening line. The line pass cannot decide enrollment, because the second opening line may be a thousand lines below the first; any table row claiming a line "enrolls the plan" is asserting something not yet knowable at that point in the scan. §3.4.1's first row said exactly that, while this section said "iff exactly one opening" — two rules giving opposite answers for `open → close → open → close`, with the task-level checks undefined in between.
+
+- **Every** opening line after the first is `TASK_ENROLL_DUPLICATE` — whether or not a close intervenes. An earlier wording said "without an intervening close", which left `open → close → open → close` matching no finding at all. Multiple regions are not supported, and the unsupported case must be loud.
+
+- **A duplicate opening leaves the plan unenrolled, and that is not the same as silent.** With two openings there is no single region to check against, so the task-level rows (`TASK_ENROLL_EMPTY`, `TASK_MARKER_MISSING`, `TASK_MARKER_DUPLICATE`) are skipped — the same rule as any other failure to establish one valid region. What makes this safe rather than the silent-acceptance shape is that `TASK_ENROLL_DUPLICATE` is *itself* the hard finding: the author is told plainly that the plan declares two regions, fixes it, and re-runs to get full task-level checking. Guessing which of two declared regions the author meant, and reporting task findings against that guess, would be a recognizer inventing intent from ambiguous input — the shape §1.1 item 4 forbids. AC-26 and AC-30 pin both halves: the duplicate fires, and the full finding list contains nothing else.
 - A closing line is consumed silently in exactly one circumstance: it matches an opening line that was itself rejected as `TASK_ENROLL_DUPLICATE`. Track a count of rejected openings; each close while the region is not open decrements it. A close with the counter at zero and the region not open is `TASK_ENROLL_MALFORMED`.
 
   Two wrong spellings were tried before this one. "Malformed whenever the region is not currently open" **cascades**: the close matching a rejected duplicate reports a phantom unmatched-close, so one authoring error manufactures a misleading second finding. "Consumed whenever any opening precedes it anywhere" **over-corrects**: `open → close → close` and any number of surplus closes after a completed region are then swallowed with no finding at all, which is the silent-acceptance shape again. Pairing each silent consumption with a specific rejected opening is what makes both cases come out right. Probed against `open → close → open → close`: the second opening correctly draws `TASK_ENROLL_DUPLICATE`, and because rejecting it leaves the region closed, its matching close then draws a second finding claiming no open precedes it, which is visibly false. One authoring mistake must not manufacture a misleading second finding; the duplicate is the whole defect.
@@ -283,8 +329,10 @@ Grammar, narrow ACCEPT on the same principle as §3.2:
 - A **marker** is a non-fenced line matching this pattern **exactly** — the two fields, in that order, one space between them, no other content:
 
   ```
-  ^<!-- task: red=`([^`]*)` ac=(AC-[A-Za-z0-9]+([.-][A-Za-z0-9]+)*(,AC-[A-Za-z0-9]+([.-][A-Za-z0-9]+)*)*) -->$
+  ^ {0,3}<!-- task: red=`([^`]*)` ac=(AC-[A-Za-z0-9]+([.-][A-Za-z0-9]+)*(,AC-[A-Za-z0-9]+([.-][A-Za-z0-9]+)*)*) -->[ \t]*$
   ```
+
+  The ` {0,3}` prefix and `[ \t]*$` suffix are the §3.2 matching convention, not a local variation. An earlier draft anchored this one pattern at column zero while §3.2 allowed three spaces on the enrollment lines and stated in the same breath that "the same allowance applies to task markers" — so the prose promised an allowance the grammar next to it withheld, and AC-39 asserted a behavior no pattern in the spec produced. A conforming implementation reading the regex alone would classify every indented marker as ordinary prose, leaving its task reported `TASK_MARKER_MISSING` with the marker sitting visibly right there.
 
 The command group excludes backticks and is deliberately neither `(.+)` nor `(.*)`. With `(.+)` an empty pair of backticks fails the marker form outright and falls to `TASK_MARKER_MALFORMED`, while a whitespace-only command matches and draws `TASK_RED_EMPTY` — two spellings of the same authoring slip getting different codes, contradicting the precedence rule below which names "empty or whitespace only" as one case. Probed against the stated grammar before it shipped: `` red=`` `` classified `TASK_MARKER_MALFORMED`, `` red=`  ` `` classified `TASK_RED_EMPTY`. Matching empty and delegating to precedence rule 1 makes both `TASK_RED_EMPTY`.
 
@@ -341,7 +389,7 @@ AC-1.-child  loose=legal  tight=illegal
 AC-1-        loose=legal  tight=illegal
 ```
 
-**The left boundary is load-bearing and separately pinned.** A mutant dropping only the preceding-character check passes every prefix-family case and the sentence-final case, while wrongly resolving `XAC-1`, `0AC-1`, `.AC-1`, and `MY-AC-1`. Both halves need their own coverage; a suite exercising only the right boundary certifies a broken resolver.
+**The left boundary is load-bearing and separately pinned by AC-42.** A mutant dropping only the preceding-character check passes every prefix-family case and the sentence-final case, while wrongly resolving `XAC-1`, `0AC-1`, `.AC-1`, and `MY-AC-1`. Both halves need their own coverage; a suite exercising only the right boundary certifies a broken resolver. An earlier draft asserted the pinning without providing it — AC-24 and AC-34 between them exercise only the right boundary, and no criterion named any of those four strings, so the sentence was an attribution to coverage that did not exist.
 
 A task's extent runs from its heading line to the line before whichever comes first: the next heading of the enrolled depth **or shallower**, the region's **closing line**, or end of document. Content under *deeper* headings therefore belongs to the enclosing task, which is deliberate: a task with `### RED` and `### GREEN` sub-headings is one task, and its marker and AC mentions count wherever they sit inside it.
 
@@ -351,7 +399,11 @@ A marker appearing **outside every task extent** — before the region, after th
 
 ### 3.4 New checks
 
-A new `taskContract` member of the `Check` union (`lib/specLint/types.ts:2`) and a corresponding entry in `CHECK_ORDER` (`lib/specLint/run.ts:8`). All are hard, and all run only when `kind === "plan"`, replacing the current unconditional short-circuit at `lib/specLint/sections.ts:27`.
+A new `taskContract` member of the `Check` union (`lib/specLint/types.ts:2`) and a corresponding entry in `CHECK_ORDER` (`lib/specLint/run.ts:8`). All are hard, and all run only when `kind === "plan"`.
+
+**`lib/specLint/sections.ts:27` is not touched, and an earlier draft saying otherwise was a scope violation, not a wording slip.** That draft placed the new checks "replacing the current unconditional short-circuit" there. But `if (kind === "plan") return [];` is not an implementation detail to route around — it is the entire mechanism enforcing the prior spec's ratified decision that plans skip section-presence checks (`docs/superpowers/specs/2026-07-19-spec-lint.md`, §1.1). Replacing it would let every plan in the corpus start drawing spec-only section failures: breaking one ratified contract to install an unrelated one, in a spec whose §1.2 simultaneously promised no existing check changes behavior.
+
+`taskContract` needs nothing from that branch. It is a sibling entry in `CHECK_ORDER`, gated on `kind === "plan"` in its own module; `checkSections` keeps returning `[]` for plans exactly as it does today. **AC-40** pins it behaviorally — the fixture plan draws `taskContract` findings and **zero** `sections`-family findings — rather than by asserting the line is unmodified, which a refactor could satisfy while still re-enabling the checks elsewhere.
 
 | Code | Fires when |
 | --- | --- |
@@ -374,15 +426,17 @@ The rule at `docs/agents/writing-plans.md:20` says to ship the structural defens
 
 Every non-fenced line in a plan falls into exactly one class:
 
+**Pass 1 — line classification.** State is two counters and a flag: `open` (is a region currently open), and `rejectedOpens` (how many openings were rejected as duplicates and are still awaiting their matching close, per §3.2). Patterns are quoted verbatim from §3.2 and §3.3 under the matching convention stated there — the ` {0,3}` prefix and `[ \t]*$` suffix are part of every one of them, not an omission tolerated here.
+
 | Line class | Region state | Outcome |
 | --- | --- | --- |
-| `^<!-- tasks: depth=([1-6]) -->$` | no open yet | opens the region; plan is enrolled |
-| `^<!-- tasks: depth=([1-6]) -->$` | any open seen before | `TASK_ENROLL_DUPLICATE` |
-| `^<!-- tasks: end -->$` | region open | closes the region |
-| `^<!-- tasks: end -->$` | no opening line anywhere earlier in the document | `TASK_ENROLL_MALFORMED` |
-| `^<!-- tasks: end -->$` | an opening line appeared earlier, region not currently open | consumed silently — no cascade after a rejected duplicate |
-| starts `<!-- tasks:`, matches neither form | any | `TASK_ENROLL_MALFORMED` |
-| any `<!-- task:` line, in an **enrolled** plan | outside every task extent | `TASK_MARKER_ORPHANED` **alone**, whatever its form |
+| `^ {0,3}<!-- tasks: depth=([1-6]) -->[ \t]*$` | no open seen yet | opens the region (enrollment is decided in pass 2, not here) |
+| `^ {0,3}<!-- tasks: depth=([1-6]) -->[ \t]*$` | any open seen before | `TASK_ENROLL_DUPLICATE`; `rejectedOpens += 1` |
+| `^ {0,3}<!-- tasks: end -->[ \t]*$` | region open | closes the region |
+| `^ {0,3}<!-- tasks: end -->[ \t]*$` | region not open, `rejectedOpens > 0` | consumed silently; `rejectedOpens -= 1` — the close belongs to a rejected duplicate, so reporting it would cascade |
+| `^ {0,3}<!-- tasks: end -->[ \t]*$` | region not open, `rejectedOpens == 0` | `TASK_ENROLL_MALFORMED` — covers both an unmatched close and a surplus close after a completed region |
+| starts `<!-- tasks:` (after 0–3 spaces), matches neither form | any | `TASK_ENROLL_MALFORMED` |
+| any `<!-- task:` line (after 0–3 spaces) | outside every task extent, in an enrolled plan | `TASK_MARKER_ORPHANED` **alone**, whatever its form |
 | marker form, `red` empty or whitespace | inside an extent | `TASK_RED_EMPTY` (occupies the slot) |
 | marker form except `ac=` absent or empty | inside an extent | `TASK_AC_MISSING` (occupies the slot) |
 | marker form, well-formed | inside an extent | satisfies that task; ids checked by `TASK_AC_UNRESOLVED` |
@@ -392,15 +446,21 @@ Every non-fenced line in a plan falls into exactly one class:
 | ATX heading at any other depth | any | ordinary prose; terminates an extent only if shallower |
 | anything else | any | ordinary prose |
 
-Whole-document classes, evaluated after the line pass:
+The three `tasks: end` rows are jointly exhaustive over the region state, which is what makes the surplus close come out right. An earlier table collapsed the last two into one row reading "an opening line appeared earlier, region not currently open → consumed silently", which swallowed every close after a completed region: `open → close → close` produced no finding, contradicting §3.2's counter rule and reinstating the silent-acceptance shape the counter was introduced to remove. The counter is the whole mechanism — a close is forgiven only when a specific rejected opening is there to forgive it.
+
+**End of document closes an unclosed region** (§3.2), which is a pass-1 terminal action rather than a line class: it needs no finding, since a region running to EOF is a legitimate way to enrol the tail of a plan. AC-43 pins it — the last task in an unclosed region is checked normally rather than being dropped or reported.
+
+**Pass 2 — whole-document conclusions**, evaluated after the line pass has finished and every enrollment line has been seen:
 
 | Condition | Outcome |
 | --- | --- |
 | plan contains **no** `<!-- tasks:` line at all | zero `taskContract` findings, whatever else it contains |
-| plan contains a `<!-- tasks:` line but never reaches exactly one valid opening | the line-pass findings stand; the task-level rows below are skipped |
-| enrolled, region holds zero tasks | `TASK_ENROLL_EMPTY` |
+| plan contains a `<!-- tasks:` line but does not contain exactly one opening line | the pass-1 findings stand; every row below is skipped |
+| enrolled (exactly one opening line), region holds zero tasks | `TASK_ENROLL_EMPTY` |
 | enrolled, a task's extent holds no marker line of any class | `TASK_MARKER_MISSING` |
 | enrolled, a task's extent holds two or more marker lines of any class | `TASK_MARKER_DUPLICATE` |
+
+The second row is where duplicate openings land, and it is the one the two passes previously disagreed about. Pass 1 rejects the extra opening and says nothing about enrollment; pass 2 sees two openings, concludes not-enrolled, and skips the task-level rows while every pass-1 finding survives. AC-32 pins the survival across all three not-enrolled shapes, AC-30 pins the exact finding list for the duplicate case.
 
 "Occupies the slot" is what keeps the two tables consistent: a marker line that drew `TASK_RED_EMPTY`, `TASK_AC_MISSING`, or `TASK_MARKER_MALFORMED` still counts for the missing and duplicate rules, so one defective line never produces two findings describing one defect.
 
@@ -424,11 +484,15 @@ Paired with the existing round-economy admissibility contract already in AGENTS.
 
 ### 4.2 Why this is prose and not a check
 
-Nine artifacts burned on this shape; none was caught by review-time reasoning alone, and each was ultimately closed by inverting to fail-closed narrow-ACCEPT plus a type table. A lint rule would first have to decide "is this a detector spec?" — itself a recognizer over prose, with exactly the failure mode being legislated against. The honest design is a rule the author applies and the reviewer checks, made visible at dispatch by §2.
+Nine artifacts burned on this shape; none was caught by review-time reasoning alone, and each was ultimately closed by inverting to fail-closed narrow-ACCEPT plus a type table. A lint rule would first have to decide "is this a detector spec?" — itself a recognizer over prose, with exactly the failure mode being legislated against. The honest design is a rule the author applies and the reviewer checks.
+
+**A3 gets no mechanical assist from A1, and an earlier draft claimed it did.** That draft ended this paragraph with "made visible at dispatch by §2". It is not: the report §2 embeds is `spec:lint` output, the CLI renderer iterates a closed list of lint check families (`scripts/spec-lint.ts:46`), and A3 deliberately has no lint rule to appear in it. Nothing about a spec's accept-set discipline reaches the reviewer through the embedded report. A3's enforcement is the self-review item and the reviewer reading it — which is the honest and complete statement of its strength. Claiming otherwise would have been this spec committing the attribution error A3 exists to catch, inside the section that introduces A3.
 
 ## 5. Acceptance criteria
 
 **AC-1.** `codex-guard review --brief B --lint-doc D` embeds a `===== SPEC-LINT: D =====` block into the composed prompt whose body is the CLI's stdout for `D` **with the `INVENTORY` section removed** (§2.2.2), and truncated if the budget requires (AC-21). The body is derived from a live CLI run in the test, never from hardcoded expected text — a hardcoded expectation passes against a broken embed. Byte-equality against *raw* stdout is explicitly **not** the contract: it would contradict AC-20 for any report carrying an inventory, which is nearly all of them.
+
+The property that replaces byte-equality, and the one §2.2.4 actually requires: **every finding line present in raw stdout is present in the embedded body**, asserted by extracting the finding lines from both and comparing them as sets. This is what makes "the inventory may go, findings may not" a tested behavior rather than a description of the intended diff. A test asserting only that `INVENTORY` is absent would pass a transformation that dropped findings alongside it.
 
 **AC-2.** `--lint-doc` is accepted without `--fallback`, and composes with `--artifact` when `--fallback` is present.
 
@@ -470,9 +534,19 @@ Nine artifacts burned on this shape; none was caught by review-time reasoning al
 
 **AC-39.** An enrollment line and a task marker indented by one, two, and three spaces are recognized; the same lines indented by four spaces are not, being indented code blocks under CommonMark. Both halves asserted — a suite testing only the accepted side would pass a grammar that accepted arbitrary indentation.
 
-**AC-35.** `scripts/spec-lint.ts` sets `process.exitCode` and exits naturally rather than calling `process.exit()`. Pinned behaviorally: the CLI spawned through a pipe returns a report whose last line begins `summary:`, and whose `Buffer.byteLength` equals that of the same run redirected to a file. Compare bytes, not `String.length` — see §2.2.3. Asserting the source no longer contains `process.exit` would pass a rewrite that reintroduced the truncation another way.
+**AC-35.** `scripts/spec-lint.ts` sets `process.exitCode` and exits naturally rather than calling `process.exit()`. Pinned behaviorally: the CLI spawned through a pipe returns a report whose last line begins `summary:`, and whose bytes are **identical** to those of the same run redirected to a file — `Buffer.compare(pipeBuf, fileBuf) === 0`, comparing the buffers themselves, never their lengths.
 
-**AC-36.** A `--lint-doc` whose child exits 0 or 1 with a malformed report — no `spec:lint` first line, or no `summary:` last line — refuses the dispatch with exit 2. Pinned with a real pre-adapter failure (a missing Node loader: `status=1`, empty stdout), not a hand-built string.
+Equal length is not equal content, and an earlier wording asked only for equal `Buffer.byteLength`. Two different reports of the same length both ending in `summary:` satisfy it; so does any truncation that happens to be compensated elsewhere. Since the defect under test is precisely "the pipe yields a *different, shorter* report", a length-only comparison tests a proxy for the property that matters while looking like the property itself. Use `Buffer.byteLength` only for the diagnostic message on failure — and never `String.length`, which counts UTF-16 code units and reads a byte-identical em-dash-heavy report as a shortfall (§2.2.3).
+
+**AC-36.** A `--lint-doc` whose child exits 0 or 1 with a malformed report refuses the dispatch with exit 2. §2.3 requires **both** halves of the shape — the `spec:lint <path>` first line and the `summary:` last line — so three cases are pinned, and the third exists because the first two do not discriminate:
+
+| Probe | first line | last line |
+| --- | --- | --- |
+| missing Node loader (`status=1`, empty stdout) | absent | absent |
+| the §2.2.3 truncation, unfixed (`status=0`) | present | absent |
+| **header-only corruption** (`status=1`) | **absent** | **present** |
+
+The first two are both "no summary", so a mutant validating only the last line passes both while accepting any report with a corrupt or missing header — including one for a different document than the reviewer was told they were reading. The third probe is a real child emitting `wrong-header` followed by a well-formed `summary:` line, and it must refuse. Use real child processes throughout, not hand-built strings; the first two are the genuine failures §2.3 was written from.
 
 **AC-37.** A `--lint-doc` whose child fails to spawn (`ENOENT`) or dies on a signal (`code === null`) refuses the dispatch with exit 2, asserted by `readCalls` returning an empty array.
 
@@ -484,11 +558,11 @@ Nine artifacts burned on this shape; none was caught by review-time reasoning al
 
 **AC-32.** A plan carrying a `<!-- tasks:` line that never reaches exactly one valid opening still reports its line-pass findings. Pinned across all three shapes: a malformed opening alone, an unmatched close alone, and duplicate openings — none may be silenced by the not-enrolled rule.
 
-**AC-30.** `open → close → open → close` reports `TASK_ENROLL_DUPLICATE` exactly once and **no** `TASK_ENROLL_MALFORMED`. Pinned by asserting the full finding list, not merely that the duplicate is present — a cascade is invisible to a test that only checks for the expected code.
+**AC-30.** `open → close → open → close` reports **exactly** `[TASK_ENROLL_DUPLICATE]` — asserted as a whole-array equality against the complete `taskContract` finding list, not as "contains DUPLICATE and not MALFORMED". The distinction is not pedantic: the weaker form is satisfied by a list of `[TASK_ENROLL_DUPLICATE, TASK_MARKER_ORPHANED]`, so an implementation that also mis-orphaned every marker in the unenrolled plan would pass a criterion written to prove exactly one finding. Whole-list equality is the only form that closes it, and the same form is required of AC-33 for the same reason.
 
 **AC-29.** The §3.4.1 table is total: a table-driven test enumerates every line class against every region state and asserts each yields the stated outcome, with a final case asserting that an arbitrary line reaching no earlier row is classified as ordinary prose rather than falling through unhandled.
 
-**AC-26.** `open → close → open → close` reports `TASK_ENROLL_DUPLICATE` on the second opening. It may not parse to "not enrolled", which would leave a visibly enrolled plan unchecked.
+**AC-26.** `open → close → open → close` reports `TASK_ENROLL_DUPLICATE` on the second opening, anchored to that line. The fixture carries a well-formed task with a valid marker inside the first region, and the test asserts that **no** task-level finding is reported for it — pinning §3.2's rule that duplicate openings leave the plan unenrolled. The pairing is the point: the duplicate must fire (never silent) *and* the task-level rows must be skipped (never guessed against one of two declared regions). A fixture asserting only the first half would pass an implementation that silently picked a region.
 
 **AC-27.** Each of the three overlapping marker defects — missing `ac=`, empty `ac=`, empty backticked `red` — yields exactly ONE code, the one the §3.3 precedence assigns, and a task whose only marker is malformed does not additionally report `TASK_MARKER_MISSING`.
 
@@ -506,9 +580,17 @@ Nine artifacts burned on this shape; none was caught by review-time reasoning al
 
 **AC-14.** `docs/agents/spec-self-review.md` carries the §4.1 rule text and the §3.2 plus §3.3 marker convention.
 
+**AC-40.** An enrolled fixture plan with task-contract defects reports its `taskContract` findings and **zero** findings of the `sections` family, proving `lib/specLint/sections.ts:27` still short-circuits for plans (§3.4). Asserted behaviorally on the finding list, not by grepping the source for the unchanged line — a refactor could preserve that line and still re-enable section checks for plans through another path.
+
+**AC-41.** `docs/agents/spec-self-review.md` carries the amended completeness clause (§2.2.4): findings may not be filtered, the `INVENTORY` block may be omitted, and an abridged report must disclose how much was dropped. Pinned as a docs assertion in the same PR as the arm, because the arm's conformance argument cites this text as its authority — leaving the old "full output" wording in place would leave §2.2.2 in standing violation of the rule it mechanizes.
+
+**AC-42.** The left boundary of AC-id resolution is pinned by its own mutant. For a marker citing `ac=AC-1`, a plan whose prose contains only `XAC-1`, `0AC-1`, `.AC-1`, or `MY-AC-1` reports `TASK_AC_UNRESOLVED` in every case. §3.3 calls this boundary "separately pinned"; before this criterion existed, no acceptance criterion named any of those four strings, so a resolver dropping the preceding-character check passed the whole suite — AC-24's prefix families and AC-34's sentence-final case exercise only the right boundary.
+
+**AC-43.** End of document closes an unclosed region: a plan whose opening line has no matching `<!-- tasks: end -->` still has its tasks checked normally through the last line, with no `TASK_ENROLL_MALFORMED`. Pinned because §3.2 states this in one clause and no other criterion exercises it — the fixtures elsewhere all close their regions explicitly, so an implementation that dropped the trailing region, or reported it unterminated, would pass everything else.
+
 ## 6. Documented limits
 
-1. **The lint arm is opt-in.** A dispatch omitting `--lint-doc` proceeds; only `lintArm: "absent"` records it. Inferring the target from brief prose is refused as an S1 reproduction (§2.4).
+1. **The lint arm is opt-in at two levels, and the outer one is not even counted.** A dispatch that omits `--lint-doc` proceeds, recorded as `lintArm: "absent"`. A dispatch that never enters `codex-guard` at all — permitted, since `AGENTS.md:182` is a `SHOULD` and `AGENTS.md:203` names the residue — writes no result.json and so has no `lintArm` to record. The field measures unarmed *wrapper* dispatches, never unarmed dispatches, and any orchestrator metric built on it inherits that bound (§2.4). Inferring the target from brief prose is refused as an S1 reproduction; making the wrapper mandatory is a ratified-posture change out of scope here.
 2. **Task enrollment is opt-in.** An author who writes no enrollment line gets no checks (§3.2). Accepted deliberately: it is what keeps the legacy corpus out of scope.
 3. **AC ids resolve within the plan only, so the check is weaker than its name.** A plan citing an AC that exists in its spec but not in itself reports `TASK_AC_UNRESOLVED`. Cross-document resolution needs a declared spec-link field on plans, which does not exist yet (§3.4). The consequence worth naming outright: the check proves an id is *mentioned*, not that the criterion *exists*, so `AC-1` mistyped as `AC-11` passes silently whenever AC-11 is also mentioned. Typo-aliasing within a live id set is out of reach until cross-document resolution lands.
 4. **`red=` is not executed.** The checks verify a declaration, never that the command runs or fails first. Executing arbitrary commands from a doc during a lint run is refused outright.
@@ -542,3 +624,5 @@ Nine artifacts burned on this shape; none was caught by review-time reasoning al
    Interloper counts run 1 to 5 per plan. Such a heading is classified as a task and draws `TASK_MARKER_MISSING`. That is a **conservative failure with a surfaced finding**, not silent corruption, so per the project's admissibility contract it files here rather than forcing a redesign: the author's remedy is to demote the grouping header a level or leave the plan unenrolled. Enrollment is opt-in, so nothing breaks until someone enrols a plan of this shape.
 
 8. **`--lint-doc` reports are budgeted, so a large enough set is shown truncated.** §2.2.2 caps embedded reports at 200,000 bytes combined with an explicit notice. A reviewer handed a truncated report sees that it was truncated; they do not see the omitted findings. Raising the cap trades against the wrapper's 2,000,000-byte composition limit, which a full corpus-scale set would cross on its own.
+
+   This is the one path on which an armed dispatch can still withhold findings, so it is exactly what §2.2.4's amended rule requires disclosure of: the `[truncated: N of M bytes shown]` notice is the disclosure, and it is why the amendment says "says how much was dropped" rather than merely permitting abridgement. `lintArm: "present"` on a truncated dispatch means the arm ran and reported honestly, never that the reviewer saw everything. Filtering does the real work — the corpus's worst report lands at 20 KB filtered against a 200 KB budget (§2.2.2) — so a truncated dispatch signals a pathological invocation worth looking at, not routine operation.
