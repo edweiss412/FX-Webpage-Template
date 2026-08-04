@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { childRun, INERT_TARGET } from "./source/childRun";
 import { evaluateGate } from "./source/gate";
 import { GUARD_SURFACES } from "./source/registry";
-import { runSurface } from "./source/runner";
+import { runControl, runSurface } from "./source/runner";
 
 /**
  * The nightly source-mutation gate (spec §3.6, AC-13/AC-15).
@@ -108,25 +108,27 @@ describe.each(GUARD_SURFACES.map((s) => [s.id, s] as const))(
       expect(readFileSync(surface.sourcePath).equals(before)).toBe(true);
     });
 
-    it("kills a deliberately-broken control mutant, proving the overlay is live (AC-3)", () => {
-      // Without this, a harness whose overlay silently failed to apply would
-      // report a PERFECT score — every mutant running against clean source —
-      // and every other assertion here would still pass. The control inverts
-      // the function's own kind guard, which the suite must notice.
+    it("kills THIS surface's own control mutant, proving the overlay is live (AC-3)", () => {
+      // Without this, a harness whose overlay silently failed to apply reports a
+      // PERFECT score -- every mutant running against clean source -- and every
+      // other assertion here still passes.
+      //
+      // The previous version READ as if it made this assertion and did not: it
+      // computed `broken`, asserted it differed from the source, and then called
+      // runSurface with the surface's own operators, never passing `broken` to
+      // anything. So it proved a string occurred in a file. It also hardcoded
+      // taskContract's text inside this describe.each, which meant enrolling a
+      // second surface red the gate.
       const source = readFileSync(surface.sourcePath, "utf8");
-      const broken = source.replace(
-        'if (kind !== "plan") return [];',
-        'if (kind === "plan") return [];',
-      );
-      expect(broken, "control mutation did not apply").not.toBe(source);
-
-      const control = runSurface(root, {
-        ...surface,
-        // One operator, one site: this is a liveness probe, not a second run.
-        operators: ["equality-flip"],
-      });
-      expect(control.mutantCount).toBeGreaterThan(0);
-      expect(control.killed).toBeGreaterThan(0);
+      const broken = source.replace(surface.control.from, surface.control.to);
+      expect(
+        broken,
+        "control did not apply; validateSurface should have rejected this row",
+      ).not.toBe(source);
+      expect(
+        runControl(root, surface, broken),
+        "the suite did not notice this surface's control mutant",
+      ).not.toBe(0);
     });
   },
 );

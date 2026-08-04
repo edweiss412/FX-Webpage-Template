@@ -156,3 +156,34 @@ export function runSurface(root: string, surface: GuardSurface): RunResult {
     rmSync(scratch, { recursive: true, force: true });
   }
 }
+
+/**
+ * Run ONE hand-written mutant against a surface's suites and return the child's
+ * exit code. Non-zero means the suite noticed.
+ *
+ * The liveness control needs this because the declared operator set cannot
+ * synthesize an arbitrary edit, and the control's whole point is an edit a
+ * human chose BECAUSE the suite must obviously notice it. The version this
+ * replaces computed the mutant text and then never ran it, so it asserted only
+ * that a string occurred in a file.
+ */
+export function runControl(root: string, surface: GuardSurface, mutantText: string): number {
+  const dir = mkdtempSync(join(tmpdir(), "mutation-control-"));
+  try {
+    const mutantFile = join(dir, "control.ts");
+    writeFileSync(mutantFile, mutantText, "utf8");
+    for (const suite of surface.suitePaths) {
+      const code = runSuite(
+        root,
+        resolve(root, surface.sourcePath),
+        mutantFile,
+        suite,
+        `${surface.id}:control`,
+      );
+      if (code !== 0) return code;
+    }
+    return 0;
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
