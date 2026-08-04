@@ -344,15 +344,17 @@ function embedReport(raw, requestedRel, allowance) {
   const totalBody = Buffer.byteLength(body.join("\n"));
   const notice = (n) => `[truncated: ${n} of ${totalBody} bytes shown]`;
   const frameBytes = (n) => Buffer.byteLength([...head, notice(n), summary].join("\n"));
+  // N and M must be measured the SAME way, or the notice reports a pair
+  // matching neither convention. `totalBody` is a join, so the retained count is
+  // a join too — not a running sum of per-line lengths plus a separator each.
   const kept = [];
-  let acc = 0;
   for (const l of body) {
-    const trial = acc + Buffer.byteLength(l) + 1;
+    const trial = Buffer.byteLength([...kept, l].join("\n"));
     if (frameBytes(trial) + trial > allowance) break;
     kept.push(l);
-    acc = trial;
   }
-  return { block: [...head, ...kept, notice(acc), summary].join("\n"), truncated: true };
+  const keptBytes = Buffer.byteLength(kept.join("\n"));
+  return { block: [...head, ...kept, notice(keptBytes), summary].join("\n"), truncated: true };
 }
 
 function composePrompt(cfg) {
@@ -926,14 +928,19 @@ if (cfg.lintDocs.length > 0) {
   // fixed constant under-counts long paths and lets the precheck pass while the
   // emitted total runs far over budget (measured: 909 docs at a 206-byte path
   // emitted 272,700 against a 200,000 budget).
+  // Worst-case digits, not a synthetic minimum: a floor computed from "0 of 0"
+  // and single-digit counts is SMALLER than the frame actually emitted, so a
+  // request can pass seating and then have every block exceed its allowance
+  // (measured: 1333 docs, floorSum 199,950, emitted 205,315).
+  const D = "9".repeat(10);
   const floorFor = (rel) =>
     Buffer.byteLength(
       [
         `spec:lint ${rel}`,
         "kind: plan (inferred)",
         "",
-        "[truncated: 0 of 0 bytes shown]",
-        "summary: 0 hard, 0 advisory",
+        `[truncated: ${D} of ${D} bytes shown]`,
+        `summary: ${D} hard, ${D} advisory`,
       ].join("\n"),
     );
   const relOf = (abs) =>
@@ -971,6 +978,14 @@ if (cfg.lintDocs.length > 0) {
     if (!embedded) usageError(`spec:lint produced a malformed report for ${rel}`);
     cfg.lintReports.push({ rel, block: embedded.block });
     remaining -= Buffer.byteLength(embedded.block);
+  }
+  // The seating precheck is a prediction; this is the invariant. Checking the
+  // EMITTED total is what turns "should fit" into "did fit".
+  const emitted = cfg.lintReports.reduce((a, r) => a + Buffer.byteLength(r.block), 0);
+  if (emitted > cfg.lintBudgetBytes) {
+    usageError(
+      `embedded lint reports total ${emitted} bytes, over the ${cfg.lintBudgetBytes}-byte budget`,
+    );
   }
 }
 

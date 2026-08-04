@@ -286,6 +286,138 @@ describe("codex-guard --lint-doc (design §2.2)", () => {
     T,
   );
 
+  /** A stub CLI at `--cwd/scripts/spec-lint.ts` emitting exactly `lines`. */
+  function stubCli(run: Run, lines: string[], exitCode = 1): Record<string, string> {
+    const stub = join(run.dir, `stub-${Math.abs(lines.join("").length)}.mjs`);
+    writeFileSync(
+      stub,
+      [
+        `const L = ${JSON.stringify(lines)};`,
+        `process.stdout.write(L.join(String.fromCharCode(10)) + String.fromCharCode(10));`,
+        `process.exitCode = ${exitCode};`,
+      ].join("\n"),
+    );
+    return { ...REAL_CLI, CODEX_GUARD_SPEC_LINT: stub };
+  }
+
+  it(
+    "AC-36/M45/M49/M70/M78/M84: every malformed FRAME refuses and dispatches nothing",
+    async () => {
+      const rel = "docs/superpowers/plans/p.md";
+      const OK = `spec:lint ${rel}`;
+      const cases: Record<string, string[]> = {
+        // Both ends correct is not enough — no kind: line, no blank.
+        prematureSummary: [OK, "summary: 0 hard, 0 advisory"],
+        // Well-formed header naming a DIFFERENT document.
+        wrongDocument: [
+          "spec:lint some-other.md",
+          "kind: plan (inferred)",
+          "",
+          "summary: 0 hard, 0 advisory",
+        ],
+        // Header shape corrupt, summary fine.
+        wrongHeader: ["wrong-header", "kind: plan (inferred)", "", "summary: 0 hard, 0 advisory"],
+        // Summary present but not final.
+        summaryNotFinal: [
+          OK,
+          "kind: plan (inferred)",
+          "",
+          "summary: 1 hard, 0 advisory",
+          "  FAIL X 1:1 late",
+        ],
+        // INVENTORY after summary.
+        inventoryAfterSummary: [
+          OK,
+          "kind: plan (inferred)",
+          "",
+          "summary: 0 hard, 0 advisory",
+          "INVENTORY",
+        ],
+        // Evidence hiding in the discard span — the class round 2 found.
+        findingInDiscardSpan: [
+          OK,
+          "kind: plan (inferred)",
+          "",
+          "INVENTORY",
+          "  FAIL X 9:1 hidden",
+          "summary: 1 hard, 0 advisory",
+        ],
+        detailInDiscardSpan: [
+          OK,
+          "kind: plan (inferred)",
+          "",
+          "INVENTORY",
+          "    detail: hidden evidence",
+          "summary: 0 hard, 0 advisory",
+        ],
+        labelInDiscardSpan: [
+          OK,
+          "kind: plan (inferred)",
+          "",
+          "INVENTORY",
+          "  taskContract:",
+          "summary: 0 hard, 0 advisory",
+        ],
+      };
+      for (const [name, lines] of Object.entries(cases)) {
+        const run = mkRun();
+        plantDoc(run, rel, PLAN_WITH_DEFECT);
+        writeScenario(run, APPROVE);
+        const r = await runGuard(run, ["--lint-doc", rel], stubCli(run, lines));
+        expect(`${name} exit=${r.code}`).toBe(`${name} exit=2`);
+        expect(readCalls(run)).toEqual([]);
+      }
+    },
+    T,
+  );
+
+  it(
+    "AC-37/M33: a lint child that cannot spawn refuses and dispatches nothing",
+    async () => {
+      const run = mkRun();
+      const rel = plantDoc(run, "docs/superpowers/plans/p.md", PLAN_WITH_DEFECT);
+      writeScenario(run, APPROVE);
+      const r = await runGuard(run, ["--lint-doc", rel], {
+        ...REAL_CLI,
+        CODEX_GUARD_SPEC_LINT: join(run.dir, "does-not-exist.mjs"),
+      });
+      expect(r.code).toBe(2);
+      expect(readCalls(run)).toEqual([]);
+    },
+    T,
+  );
+
+  it(
+    "AC-21.3/AC-21.5/AC-21.6/AC-21.7: a truncated block keeps its head, order and honest arithmetic",
+    async () => {
+      const run = mkRun();
+      const rel = plantDoc(run, "docs/superpowers/plans/p.md", PLAN_WITH_DEFECT);
+      writeScenario(run, APPROVE);
+      const r = await runGuard(run, ["--lint-doc", rel], {
+        ...REAL_CLI,
+        CODEX_GUARD_LINT_BUDGET_BYTES: "300",
+      });
+      expect(r.code).toBe(0);
+      const block = readCalls(run)[0]!
+        .stdin.split(`===== SPEC-LINT: ${rel} =====\n`)[1]!
+        .split("\n===== END SPEC-LINT =====")[0]!;
+      const bl = block.split("\n");
+      expect(bl[0]).toBe(`spec:lint ${rel}`);
+      expect(bl[1]).toMatch(/^kind: /);
+      expect(bl[2]).toBe("");
+      // summary LAST, notice immediately before it.
+      expect(bl[bl.length - 1]).toMatch(/^summary: /);
+      const notice = bl[bl.length - 2]!;
+      expect(notice).toMatch(/^\[truncated: \d+ of \d+ bytes shown\]$/);
+      // N recomputed from the retained body, never read back from the notice.
+      const [, n, m] = notice.match(/\[truncated: (\d+) of (\d+) bytes shown\]/)!;
+      const retained = bl.slice(3, bl.length - 2).join("\n");
+      expect(Number(n)).toBe(Buffer.byteLength(retained));
+      expect(Number(m)).toBeGreaterThan(Number(n));
+    },
+    T,
+  );
+
   it(
     "AC-3: a --lint-doc the CLI cannot read exits 2 and dispatches nothing",
     async () => {
