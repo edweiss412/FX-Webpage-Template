@@ -685,6 +685,31 @@ test.describe("font binding — the features render", () => {
     ).toBe(false);
   });
 
+  test("no rendered element carries an inline font-feature or reset style", async ({ page }) => {
+    // THE RUNTIME HALF OF THE INLINE GUARD. The static scan reads source, and
+    // round 13 showed what source cannot decide: an inline style built through
+    // indirection — `const s = { font: "16px Arial" }; <code style={s}>` — emits
+    // a live declaration that no regex over the file can see. That is
+    // undecidable in general, not a gap to patch.
+    //
+    // So this asks the DOM instead, on the routes the suite actually visits. It
+    // does not close the class (a route no test opens is not observed — recorded
+    // as a documented limit in the spec's §12.13), but it observes what actually
+    // rendered rather than what someone wrote.
+    for (const route of ["/auth/sign-in", "/", "/help/getting-started"]) {
+      await page.goto(route, { waitUntil: "load" });
+      const offenders = await page.evaluate(() =>
+        [...document.querySelectorAll("[style]")]
+          .filter((el) => {
+            const s = el.getAttribute("style") ?? "";
+            return /font-feature-settings|font-variant-numeric|(^|;)\s*(font|all)\s*:/i.test(s);
+          })
+          .map((el) => `${el.tagName.toLowerCase()}[style="${el.getAttribute("style")}"]`),
+      );
+      expect(offenders, `${route}: inline styles that override the font features`).toEqual([]);
+    }
+  });
+
   test("the code-value class DOES slash zeros", async ({ page }) => {
     await page.goto("/auth/sign-in", { waitUntil: "load" });
     const settings = await page.evaluate(() => {

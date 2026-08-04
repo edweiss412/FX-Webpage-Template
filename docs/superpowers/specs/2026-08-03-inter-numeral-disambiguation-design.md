@@ -603,7 +603,7 @@ A React `style={{ fontFeatureSettings: '"ZZ-Z" 1' }}` never appears in any style
 
 Explicitly cleared by the reviewer: both `ALLOWED_FEATURE_RESETS` entries are correctly justified, there is no second runtime CSS file and no CSS-in-JS dependency, and the existing `<style>` surfaces are unrelated or already documented as standalone limits.
 
-**The declaration surface is closed at every path** — the compiled stylesheet (§12.10), escaped or cased property names (§12.8, §12.9), non-canonical values (§12.7), and inline styles. Each is fail-closed. (Round 12 showed this section's "any occurrence" and "every path" claims were premature as written: the inline scan reached neither `.mdx` nor several spellings. §12.12 records what it actually took.)
+**The declaration surface is fail-closed at every path the guard can decide** (§12.13 withdraws the stronger claim this sentence once made) — the compiled stylesheet (§12.10), escaped or cased property names (§12.8, §12.9), non-canonical values (§12.7), and inline styles. Each is fail-closed. (Round 12 showed this section's "any occurrence" and "every path" claims were premature as written: the inline scan reached neither `.mdx` nor several spellings. §12.12 records what it actually took.)
 
 **Twenty-nine mutants across eleven rounds. All caught.**
 
@@ -624,3 +624,29 @@ Mutation-proven in five spellings: quoted property, computed property, inline `f
 The reviewer found no separate regression and measured the disk walk at 831 files / 7.3 MB in ~89 ms.
 
 **Thirty-four mutants across twelve rounds. All caught.**
+
+### 12.13 Round 13 — the shape named, and the limit written down
+
+`VERDICT: NEEDS-ATTENTION`, one P1, accepted. Two of its three probes are fixed; the third is **declared a documented limit rather than patched**, which is the honest end of this thread.
+
+The reviewer did what four rounds of instance-chasing needed and named the SHAPE:
+
+> The remaining open shape is semantic inline-style construction — CSSOM calls, indirection, dynamic construction, and CSS case normalization — not another isolated spelling. The current source regex cannot support an "any spelling/every path" closure claim.
+
+That is correct, and it is the reason to stop. Two of the three probes are decidable and are fixed:
+
+- `setProperty("FONT-FEATURE-SETTINGS", …)` — the CSS name is a string the browser lowercases, so a case-sensitive scan missed a live declaration. The property scan is now case-insensitive.
+- `setProperty("all", "initial")` — a reset with no `style=` region for the region scan to find. CSSOM writes are now matched directly, for all four guarded names.
+
+The third — a referenced object, `const s = { font: "16px Arial" }; <code style={s}>` — is **not fixable by a source scan, and pretending otherwise is how this thread stayed open**. Deciding what an arbitrary expression evaluates to is undecidable in general; each round has been one more instance of the same undecidable question.
+
+**Two things replace the closure claim:**
+
+1. **A runtime assertion.** `tests/e2e/font-binding.spec.ts` now walks the rendered DOM on every route the suite visits and asserts no element carries an inline style touching `font-feature-settings`, `font-variant-numeric`, `font` or `all`. It observes what actually rendered rather than what someone wrote.
+2. **A documented limit, stated plainly.** *An inline style constructed dynamically, on a route no test visits, is not caught by anything in this change.* The static scan cannot decide it and the runtime walk cannot see it. That residue is accepted, in line with the preparedness-audit posture this project already applies to detectors (`docs/audits/edge-case-preparedness-audit-2026-07-04.md:92`): the acceptance criterion is "parsed correctly or signaled, never silently wrong," not "no imaginable defeating input."
+
+The cost of the residue is bounded and small: it requires someone to deliberately construct an inline font-feature style through indirection, on an unexercised route, in a codebase whose baseline occurrence count is zero and where two classes and a root rule are the entire design.
+
+**§12.11's "closed at every path" claim is withdrawn.** It was wrong when written and round 12 already narrowed it; this section retires it. What is true: every path the guard CAN decide is fail-closed, one path is observed at runtime on exercised routes, and one residue is written down.
+
+**Thirty-six mutants across thirteen rounds. All caught.**

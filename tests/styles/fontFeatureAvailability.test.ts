@@ -537,11 +537,21 @@ describe("parseFeatureValue — recognises the canonical form, refuses everythin
  * and `all` mean what they mean in CSS.
  */
 const FEATURE_PROP_SPELLINGS =
-  /fontFeatureSettings|fontVariantNumeric|font-feature-settings|font-variant-numeric/;
+  /fontFeatureSettings|fontVariantNumeric|font-feature-settings|font-variant-numeric/i;
+
+/**
+ * CSSOM writes. `setProperty` takes the CSS name as a STRING, which the browser
+ * lowercases — so `setProperty("FONT-FEATURE-SETTINGS", …)` is a live
+ * declaration that a case-sensitive scan misses, and `setProperty("all",
+ * "initial")` is a reset that the `style=` region scan never sees because there
+ * is no `style=` region. Both were round-13 mutants.
+ */
+const CSSOM_WRITE =
+  /\.setProperty\s*\(\s*["'`]\s*(font-feature-settings|font-variant-numeric|font|all)\s*["'`]/i;
 
 /** `style={{ … }}` and `style="…"` regions, where `font`/`all` are CSS resetters. */
 const INLINE_STYLE_REGION = /style\s*=\s*(\{\{[\s\S]*?\}\}|"[^"]*"|'[^']*')/g;
-const INLINE_RESETTER = /\b(font|all)\s*:/;
+const INLINE_RESETTER = /\b(font|all)\s*:/i;
 
 const PRODUCT_ROOTS = ["app", "components", "lib"] as const;
 const SCANNED_EXTENSIONS = /\.(tsx?|jsx?|mdx?)$/;
@@ -566,6 +576,7 @@ export function inlineFeatureStyles(): string[] {
 
       for (const [i, line] of source.split("\n").entries()) {
         if (FEATURE_PROP_SPELLINGS.test(line)) hits.push(`${rel}:${i + 1} (feature property)`);
+        else if (CSSOM_WRITE.test(line)) hits.push(`${rel}:${i + 1} (CSSOM setProperty)`);
       }
       for (const region of source.matchAll(INLINE_STYLE_REGION)) {
         if (!INLINE_RESETTER.test(region[1] ?? "")) continue;
