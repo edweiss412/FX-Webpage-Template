@@ -242,6 +242,42 @@ A new `taskContract` member of the `Check` union (`lib/specLint/types.ts:2`) and
 | `TASK_AC_MISSING` | the line matches except that `ac=` is absent or its list is empty (precedence 2) |
 | `TASK_AC_UNRESOLVED` | an `ac=` id has no exact-token occurrence in the plan's own text outside a marker |
 
+### 3.4.1 Total classification table — the structural defense
+
+Three consecutive review rounds found the same defect class in §3: an input that parsed to **neither a valid construct nor a finding**. R1 found an empty region and enrollment lines with extra or repeated fields; R2 found sequential regions, an overlap with no precedence between the marker codes, and a marker that was simultaneously owned and orphaned. Each was repaired individually, which is exactly the per-instance whack-a-mole `docs/agents/writing-plans.md:19` warns produces another round.
+
+The rule at `docs/agents/writing-plans.md:20` says to ship the structural defense in the repair commit rather than wait for a fourth round to confirm the analysis was incomplete. For a grammar, that defense is a **total function**: every line the checker can see is classified, and the table below is exhaustive by construction. An input reaching no row is itself a spec defect, not an implementation choice.
+
+Every non-fenced line in a plan falls into exactly one class:
+
+| Line class | Region state | Outcome |
+| --- | --- | --- |
+| `^<!-- tasks: depth=([1-6]) -->$` | no open yet | opens the region; plan is enrolled |
+| `^<!-- tasks: depth=([1-6]) -->$` | any open seen before | `TASK_ENROLL_DUPLICATE` |
+| `^<!-- tasks: end -->$` | region open | closes the region |
+| `^<!-- tasks: end -->$` | no open seen | `TASK_ENROLL_MALFORMED` |
+| starts `<!-- tasks:`, matches neither form | any | `TASK_ENROLL_MALFORMED` |
+| marker form, `red` empty or whitespace | any | `TASK_RED_EMPTY` (occupies the slot) |
+| marker form except `ac=` absent or empty | any | `TASK_AC_MISSING` (occupies the slot) |
+| marker form, well-formed | inside a task extent | satisfies that task; ids checked by `TASK_AC_UNRESOLVED` |
+| marker form, well-formed | outside every extent | `TASK_MARKER_ORPHANED` |
+| starts `<!-- task:`, matches nothing above | any | `TASK_MARKER_MALFORMED` (occupies the slot) |
+| ATX heading at the declared depth | inside region | is a task |
+| ATX heading at the declared depth | outside region | ordinary prose |
+| ATX heading at any other depth | any | ordinary prose; terminates an extent only if shallower |
+| anything else | any | ordinary prose |
+
+Whole-document classes, evaluated after the line pass:
+
+| Condition | Outcome |
+| --- | --- |
+| plan not enrolled | zero `taskContract` findings, whatever else it contains |
+| enrolled, region holds zero tasks | `TASK_ENROLL_EMPTY` |
+| enrolled, a task's extent holds no marker line of any class | `TASK_MARKER_MISSING` |
+| enrolled, a task's extent holds two or more marker lines of any class | `TASK_MARKER_DUPLICATE` |
+
+"Occupies the slot" is what keeps the two tables consistent: a marker line that drew `TASK_RED_EMPTY`, `TASK_AC_MISSING`, or `TASK_MARKER_MALFORMED` still counts for the missing and duplicate rules, so one defective line never produces two findings describing one defect.
+
 `TASK_AC_UNRESOLVED` resolves against the plan document itself, not the linked spec. Cross-document AC resolution needs a declared spec link that plans do not currently carry; adding one is cluster-C-or-later work, and a check that silently resolves nothing is worse than no check. Recorded in §6. Resolution deliberately excludes marker lines themselves, so an id cannot satisfy itself by being cited.
 
 **The renderer is a third wiring point, not a consequence of the first two.** `CHECK_ORDER` governs sort order inside `runLint`; it does **not** drive the CLI's text report, which iterates its own closed literal list at `scripts/spec-lint.ts:46`. Adding the union member and the order entry without touching that list yields a run that exits 1 while the embedded report shows only an aggregate count — no code, no line, no message — which is precisely the report a reviewer receives under §2. All three wiring points land together: `lib/specLint/types.ts:2`, `lib/specLint/run.ts:8`, and `scripts/spec-lint.ts:46`.
@@ -303,6 +339,8 @@ Nine artifacts burned on this shape; none was caught by review-time reasoning al
 **AC-23.** `<!-- tasks: depth=3 extra=x -->` and `<!-- tasks: depth=3 depth=4 -->` each report `TASK_ENROLL_MALFORMED`. Neither may parse to "not enrolled".
 
 **AC-24.** `TASK_AC_UNRESOLVED` fires for `ac=AC-1` when the plan's prose contains only `AC-10`, `AC-1a`, `AC-1.1`, or `AC-1-child` — one case per prefix family, none of which may resolve it.
+
+**AC-29.** The §3.4.1 table is total: a table-driven test enumerates every line class against every region state and asserts each yields the stated outcome, with a final case asserting that an arbitrary line reaching no earlier row is classified as ordinary prose rather than falling through unhandled.
 
 **AC-26.** `open → close → open → close` reports `TASK_ENROLL_DUPLICATE` on the second opening. It may not parse to "not enrolled", which would leave a visibly enrolled plan unchecked.
 

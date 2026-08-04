@@ -74,6 +74,7 @@ impeccable-gate: N/A — no UI surface
 | M22 budget | embedded reports crossing 200,000 bytes | AC-21 truncation notice |
 | M23 sequential regions | `open -> close -> open -> close` | `TASK_ENROLL_DUPLICATE` on the second open (AC-26) |
 | M24 code overlap | missing `ac=`; empty `ac=`; empty backticked `red=` | exactly one code by §3.3 precedence (AC-27) |
+| M26 table totality | a line class reaching no row of design §3.4.1 | AC-29 table-driven test, incl. the fall-through case |
 | M25 post-close marker | marker after `tasks: end`, before the next equal-or-shallower heading | `TASK_MARKER_ORPHANED` plus the task's own `TASK_MARKER_MISSING` (AC-28) |
 
 ## Tasks
@@ -82,12 +83,13 @@ impeccable-gate: N/A — no UI surface
 
 ## Task 1 — enrollment and task segmentation, pure
 
-<!-- task: red=`pnpm vitest run tests/specLint/taskContract.test.ts` ac=AC-7,AC-9,AC-12,AC-15,AC-16,AC-17,AC-22,AC-26,AC-28 -->
+<!-- task: red=`pnpm vitest run tests/specLint/taskContract.test.ts` ac=AC-7,AC-9,AC-12,AC-15,AC-16,AC-17,AC-22,AC-26,AC-28,AC-29 -->
 
 
 <!-- spec-lint: ignore — new file created by this plan; not tracked until implementation -->
 **RED.** Create `tests/specLint/taskContract.test.ts` covering, against in-memory `DocModel` values built through `parseDoc` (never hand-built objects, so the fence model under test is the real one):
 
+- **the design §3.4.1 classification table, driven as a table** (M26, AC-29): one case per row, every line class against every region state, plus a fall-through case asserting an arbitrary line is classified as ordinary prose rather than reaching no row. This is the structural defense for the class that produced findings in three consecutive rounds; write it first, because the individual family cases below are then rows of it rather than separate inventions;
 - families M1, M3, M4, M10, M13, M14, M15, M16, M23, M25 from the closure table. M16 gets two fixtures, not one: a region whose declared depth matches no heading, and a region whose opening line follows the last matching heading. Both are valid in-range depths selecting nothing, and a checker silent on either has accepted a plan while checking no tasks at all;
 - a plan whose enrolled depth is 2 with `###` sub-headings inside a task, asserting the sub-headings do not end the extent;
 - a plan with depth-N headings **both before the opening line and after `<!-- tasks: end -->`**, asserting neither is a task (M13, AC-15). The trailing half is the load-bearing one: it is the case that refuted the start-only model, and a fixture carrying only the leading half would have passed against the broken design;
