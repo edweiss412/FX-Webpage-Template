@@ -16,6 +16,14 @@ import { describe, expect, it } from "vitest";
 
 const AGENTS = readFileSync(join(__dirname, "..", "..", "AGENTS.md"), "utf8");
 
+/** Invariant 12's own paragraph, isolated from the lifecycle list that restates it. */
+function invariant12Paragraph(): string {
+  const start = AGENTS.indexOf("12. **Work in flight is declared in the ledger");
+  expect(start, "AGENTS.md no longer has invariant 12").toBeGreaterThan(-1);
+  const next = AGENTS.indexOf("\n---", start);
+  return AGENTS.slice(start, next === -1 ? AGENTS.length : next);
+}
+
 /** The Stage 0 bullet of the pane/agent lifecycle list, isolated. */
 function stage0Bullet(): string {
   const start = AGENTS.indexOf("- **Stage 0**");
@@ -52,8 +60,13 @@ describe("AGENTS.md marker contract", () => {
     // shipping: the correct invariant paragraph masked a lifecycle bullet that
     // still said only "mark every ledger entry", so a session following the
     // lifecycle block recreated the invisible-marker window.
-    expect(AGENTS).toMatch(/ledger:claims --check/);
-    expect(AGENTS).toMatch(/push the branch/i);
+    // Scoped to the INVARIANT PARAGRAPH, not the whole document: a global match
+    // is satisfied by the lifecycle bullet alone, so deleting invariant 12's own
+    // Stage 0 contract escapes (whole-diff R3 F4). Both locations are asserted
+    // independently, which is the only way "in both places" means anything.
+    const para = invariant12Paragraph();
+    expect(para, "invariant 12 lost its check command").toMatch(/ledger:claims --check/);
+    expect(para, "invariant 12 lost its push requirement").toMatch(/push the branch/i);
 
     const bullet = stage0Bullet();
     expect(bullet, "the Stage 0 lifecycle bullet omits the check").toMatch(/ledger:claims --check/);

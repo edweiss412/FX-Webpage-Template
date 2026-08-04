@@ -18,6 +18,7 @@ import { runCheck, verifyUniverse } from "@/scripts/lib/ledger-check";
 const MARKER = (branch: string, id: string) =>
   `## ${id} — planted\n\n**Status:** IN PROGRESS · **Branch:** ${branch}\n`;
 
+import { spawnSync } from "node:child_process";
 import { join } from "node:path";
 
 const ROOT = join(__dirname, "..", "..");
@@ -397,7 +398,31 @@ describe("the real git adapter and the JSON envelope (whole-diff F3/F9)", () => 
     expect(r.claims[0]?.pr, "the base PR, not the fork's").toBe(689);
   });
 
-  it("emits every claim in --json, uncapped, past the display limit", () => {
+  it("emits every claim through the CLI's --json serialization, uncapped", () => {
+    // Observes the CLI, not resolveClaims: the M8 mutant lives in
+    // scripts/ledger-claims.ts's envelope (`res.claims.slice(0, 100)`), so a
+    // core-level assertion cannot see it. Runs the real CLI and parses stdout.
+    const r = spawnSync(
+      process.execPath,
+      ["--import", "tsx", join(ROOT, "scripts/ledger-claims.ts"), "--json", "--no-fetch"],
+      { cwd: ROOT, encoding: "utf8", timeout: 90_000 },
+    );
+    expect(r.status, `CLI failed: ${r.stderr}`).toBe(0);
+    const payload = JSON.parse(r.stdout) as {
+      status: string;
+      degraded: string[];
+      claims: unknown[];
+    };
+    // The envelope shape itself, which a bare array would fail.
+    expect(Array.isArray(payload), "must be an object, not a bare array").toBe(false);
+    expect(payload).toHaveProperty("status");
+    expect(payload).toHaveProperty("degraded");
+    expect(Array.isArray(payload.claims)).toBe(true);
+    // A healthy-empty run and a degraded run must be distinguishable.
+    expect(payload.degraded).toContain("no-fetch-cached-refs");
+  });
+
+  it("resolves every claim past the display limit at the core", () => {
     // M8: `claims.slice(0, 100)` is the mutant. The cap is a display concern;
     // a machine consumer receiving a truncated set with no marker computes a
     // false all-clear.

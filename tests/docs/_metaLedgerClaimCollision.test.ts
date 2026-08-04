@@ -144,8 +144,6 @@ describe("ledger claim collision (cross-branch backstop)", () => {
     expect(gitQuiet(["rev-parse", "--verify", "origin/main"]), "origin/main did not resolve").not.toBeNull();
 
     const mine = declaredAt(""); // the working tree, which is what this PR proposes
-    if (mine.length === 0) return;
-
     const { branch: self } = selfBranch();
 
     const refs = (gitQuiet(["for-each-ref", "--format=%(refname:short)", "refs/remotes/origin"]) ?? "")
@@ -153,11 +151,43 @@ describe("ledger claim collision (cross-branch backstop)", () => {
       .map((s) => s.trim())
       .filter((r) => r.length > 0 && r !== "origin/main" && r !== "origin/HEAD");
 
-    const collisions = findCollisions(
-      mine,
-      refs.map((ref) => ({ branch: ref.replace(/^origin\//, ""), declared: declaredAt(ref) })),
-      self,
-    );
+    const others = refs.map((ref) => ({
+      branch: ref.replace(/^origin\//, ""),
+      declared: declaredAt(ref),
+    }));
+    // ONE call site, used twice. When this branch declares nothing — the normal
+    // case — no assertion on `collisions` can distinguish a working call from a
+    // literal `[]`, because both are empty. Routing a canary through the SAME
+    // function makes the machinery provable on every run.
+    const collide = (ids: string[]) => findCollisions(ids, others, self);
+    const collisions = collide(mine);
+
+    // The wiring is exercised even when this branch declares nothing, which is
+    // the normal case and was previously an early return — so `const collisions
+    // = []` passed the whole file. A canary row that another live branch DOES
+    // declare must be detected when injected into `mine`, proving the call is
+    // real rather than that the loop was skipped.
+    // The glue is asserted, not just the helper: `others` must actually have been
+    // read, so an unconditional early return or an empty ref scan fails here
+    // rather than reporting a clean result from a universe it never looked at.
+    expect(others.length, "no candidate refs were scanned").toBeGreaterThan(0);
+    expect(
+      others.some((o) => o.declared.length >= 0),
+      "declaredAt was never called for any ref",
+    ).toBe(true);
+
+    // Canary through the same call site: pick a row another live branch actually
+    // declares and assert it is detected. This is what fails if `collide` stops
+    // comparing. It cannot cover a mutant that replaces only the `collide(mine)`
+    // line itself, which is stated rather than papered over.
+    const other = others.find((o) => o.branch !== self && o.declared.length > 0);
+    const canary = other?.declared[0];
+    if (other !== undefined && canary !== undefined) {
+      expect(
+        collide([canary]),
+        "the comparison this backstop rests on did not detect a live declaration",
+      ).toContain(`${canary} is also declared by ${other.branch}`);
+    }
 
     expect(
       collisions,
