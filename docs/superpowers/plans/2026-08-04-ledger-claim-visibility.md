@@ -425,7 +425,7 @@ git commit -m "feat(ledger): position-independent in-progress detection"
 
 **Files:**
 <!-- spec-lint: ignore — new files created by this plan; not yet tracked -->
-- Create: `scripts/lib/ledger-git.ts`, `scripts/lib/ledger-claims-core.ts`
+- Create: `scripts/lib/ledger-claims-core.ts` (NOT `ledger-git.ts` — that is Task 5's, per Step 4 below and plan-R4 finding 10)
 <!-- spec-lint: ignore — new files created by this plan; not yet tracked -->
 - Create: `tests/scripts/ledgerClaims.test.ts`
 
@@ -455,8 +455,7 @@ export type GitSurface = {
 ```
 
 `localRefs` and `lsRemote` are both name→OID maps because §4.1 compares them **as maps, in both
-directions** — a `string[]` cannot express the changed-OID-under-unchanged-name case. `prList` is a
-member so its 10 s bound and its `--no-fetch` suppression are observable; `type Claim = { id: string; branch: string; kind: "declared" | "inferred"; pr: number | null; tipAgeDays: number; stale: boolean }`; `resolveClaims(git: GitSurface, opts: { fetch: boolean }): { claims: Claim[]; degraded: string[]; identity: "local" | "ci-resolved" | "ci-unknown"; selfBranch: string | null }`.
+directions** — a `string[]` cannot express the changed-OID-under-unchanged-name case. `prList` is a member so its 10 s bound is observable. It is **not** suppressed by `--no-fetch` (plan-R4 finding 9: spec §4.1 requires the same gh behavior in any mode, and suppressing it would leave preflight cached reports permanently without PR numbers); `type Claim = { id: string; branch: string; kind: "declared" | "inferred"; pr: number | null; tipAgeDays: number; stale: boolean }`; `resolveClaims(git: GitSurface, opts: { fetch: boolean }): { claims: Claim[]; degraded: string[]; identity: "local" | "ci-resolved" | "ci-unknown"; selfBranch: string | null }`.
 
 <!-- spec-lint: ignore — new files created by this plan; not yet tracked -->
 `GitSurface` is injected so every test plants git state as data. `scripts/lib/ledger-git.ts` is the
@@ -582,6 +581,18 @@ Expected: FAIL — module not found.
 - [ ] **Step 3: Implement `ledger-claims-core.ts`**
 
 Candidate rule (§3.2 step 2): every `refs/remotes/origin/*` except `origin/main` and `origin/HEAD`; subtract `mergedIntoMain()` only when `!isShallow()`. Identity (§3.2 step 3): `inCI()` false → `local`, self = `currentBranch()`; `inCI()` true and `headRepo()` non-null → `ci-resolved`, self = `currentBranch()` unless `headRepo() !== repo()`; otherwise `ci-unknown`, self = `null`. Declared claims: for each candidate × `ledgerFiles()`, `showFile` then `ledgerItems`, keep `isInProgress`, key on the ref's short name. Stale when tip age > 14 days.
+
+<!-- spec-lint: ignore — new files created by this plan; not yet tracked -->
+- [ ] **Step 3b: Register the reader tests in `NOT_CITATIONS`**
+
+<!-- spec-lint: ignore — new files created by this plan; not yet tracked -->
+Add `tests/scripts/ledgerClaims.test.ts`, `tests/scripts/ledgerClaimsCheck.test.ts`, and
+<!-- spec-lint: ignore — new files created by this plan; not yet tracked -->
+`tests/docs/_metaLedgerClaimCollision.test.ts` to `NOT_CITATIONS`
+(`tests/docs/_metaLedgerReferentialIntegrity.test.ts:76`). Plan-R3 finding 7 and plan-R4 finding 5:
+this step was referenced by Task 7 while not existing, twice. Registering all three here means the
+later two arrive pre-exempted rather than red. Verify:
+`pnpm exec vitest run tests/docs/_metaLedgerReferentialIntegrity.test.ts`.
 
 <!-- spec-lint: ignore — new files created by this plan; not yet tracked -->
 - [ ] **Step 4: Do NOT implement `ledger-git.ts` here**
