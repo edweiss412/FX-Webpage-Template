@@ -28,13 +28,21 @@ const collected: { family: string; via: string }[] = [];
 const WALK = () => {
   const b = document.body;
   if (!b || b.childElementCount === 0) return null;
+  // Round 29: a TreeWalker does not cross a shadow boundary, so text inside an
+  // open shadow root was invisible to every vantage. Roots are collected and
+  // walked too. A CLOSED root is unreachable by construction and is a stated
+  // limit, not an oversight.
   const fams = new Set<string>();
-  const w = document.createTreeWalker(b, NodeFilter.SHOW_ELEMENT);
-  for (let n = w.currentNode as Element | null; n; n = w.nextNode() as Element | null) {
-    const hasText = Array.from(n.childNodes).some(
-      (c) => c.nodeType === 3 && (c.textContent ?? "").trim() !== "");
-    if (hasText) fams.add(getComputedStyle(n).fontFamily);
-  }
+  const walkRoot = (root: Node) => {
+    const w = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT);
+    for (let n = w.currentNode as Element | null; n; n = w.nextNode() as Element | null) {
+      const hasText = Array.from(n.childNodes).some(
+        (c) => c.nodeType === 3 && (c.textContent ?? "").trim() !== "");
+      if (hasText) fams.add(getComputedStyle(n).fontFamily);
+      if ((n as Element).shadowRoot) walkRoot((n as Element).shadowRoot as Node);
+    }
+  };
+  walkRoot(b);
   return [...fams].join(" ~ ");
 };
 
@@ -57,8 +65,10 @@ const test = base.extend<{ oracle: void }>({
       const origClose = ctx.close.bind(ctx);
       ctx.close = async (...c: Parameters<typeof origClose>) => {
         for (const pg of ctx.pages()) {
-          const f = await pg.evaluate(WALK).catch(() => null);
-          if (f) collected.push({ family: f, via: "pre-close" });
+          for (const fr of pg.frames()) {            // round 29: frames, not just pages
+            const f = await fr.evaluate(WALK).catch(() => null);
+            if (f) collected.push({ family: f, via: "pre-close" });
+          }
         }
         return origClose(...c);
       };
@@ -72,19 +82,33 @@ const test = base.extend<{ oracle: void }>({
     for (const k of ["goto", "setContent", "reload", "goBack", "goForward"] as const) {
       const orig = (page[k] as (...a: unknown[]) => Promise<unknown>).bind(page);
       (page as unknown as Record<string, unknown>)[k] = async (...a: unknown[]) => {
-        const f = await page.evaluate(WALK).catch(() => null);
-        if (f) collected.push({ family: f, via: "pre-navigate" });
+        for (const fr of page.frames()) {
+          const f = await fr.evaluate(WALK).catch(() => null);
+          if (f) collected.push({ family: f, via: "pre-navigate" });
+        }
         return orig(...a);
       };
     }
+    // page.close() is its own ending, distinct from context.close(): round 29's
+    // frame case closed the PAGE, so the context wrapper never ran.
+    const origClose = page.close.bind(page);
+    page.close = async (...a: Parameters<typeof origClose>) => {
+      for (const fr of page.frames()) {
+        const f = await fr.evaluate(WALK).catch(() => null);
+        if (f) collected.push({ family: f, via: "pre-close" });
+      }
+      return origClose(...a);
+    };
     await use(page);
   },
   oracle: [async ({ context }, use) => {
     await use();
     for (const p of context.pages()) {
       if (p.isClosed()) continue;
-      const f = await p.evaluate(WALK).catch(() => null);
-      if (f) collected.push({ family: f, via: "after-body" });
+      for (const fr of p.frames()) {
+        const f = await fr.evaluate(WALK).catch(() => null);
+        if (f) collected.push({ family: f, via: "after-body" });
+      }
     }
   }, { auto: true }],
 });
@@ -129,4 +153,21 @@ test("a caller-owned context that closes itself is still reported", async ({ bro
   const seen = () => collected.slice(before).map((c) => c.family).join(" | ");
   await expect.poll(seen, { timeout: 5000 }).toContain("OUTER");
   expect(seen(), "a descendant cannot hide behind its root").toContain("OWNED");
+});
+
+test("shadow-root and frame text are both observed", async ({ page }) => {
+  const before = collected.length;
+  await page.route("http://y.test/outer", (r) => r.fulfill({ contentType: "text/html",
+    body: `<style>body{font-family:"OUTER",serif}</style><div id="host"></div>
+           <iframe src="/inner"></iframe>
+           <script>document.getElementById("host").attachShadow({mode:"open"})
+             .innerHTML = '<span style="font-family:SHADOW_WRONG,serif">s</span>';</script>` }));
+  await page.route("http://y.test/inner", (r) => r.fulfill({ contentType: "text/html",
+    body: `<style>body{font-family:"FRAME_WRONG",serif}</style><p>f</p>` }));
+  await page.goto("http://y.test/outer");
+  await page.waitForLoadState("load");
+  await page.close();
+  const seen = collected.slice(before).map((c) => c.family).join(" | ");
+  expect(seen, "open shadow root is walked").toContain("SHADOW_WRONG");
+  expect(seen, "child frame document is walked").toContain("FRAME_WRONG");
 });

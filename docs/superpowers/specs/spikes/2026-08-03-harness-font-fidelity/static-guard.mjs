@@ -28,7 +28,7 @@ const FB_METRICS = {"ascent-override":0.9044,"descent-override":0.2252,"line-gap
 const pct = (v) => v?.[0]?.value?.type === "percentage" ? v[0].value.value : NaN;
 
 // ---- parse with the real CSS grammar -------------------------------------
-const faces = []; const vars = []; const conditionalFamily = [];
+const faces = []; const vars = [];
 transform({ filename: "fonts.css", code: Buffer.from(cssText), minify: false, visitor: {
   Rule: {
     "font-face"(r) {
@@ -39,18 +39,6 @@ transform({ filename: "fonts.css", code: Buffer.from(cssText), minify: false, vi
         d[name] = p.value;                       // LAST WINS, as CSS specifies
       }
       faces.push({ d, order });
-    },
-    media(r) {
-      // Round 28: an environment axis (viewport, color-scheme, reduced-motion)
-      // can re-point font-family without touching a single @font-face. Rather
-      // than sample the matrix at runtime, forbid the construct outright.
-      const q = JSON.stringify(r.value.query ?? "");
-      const scan = (rules) => { for (const x of rules ?? []) {
-        for (const p of x.value?.declarations?.declarations ?? [])
-          if (p.property === "font-family" || p.property === "font") conditionalFamily.push(q);
-        scan(x.value?.rules);
-      } };
-      scan(r.value.rules);
     },
     style(r) {
       for (const p of r.value.declarations?.declarations ?? []) {
@@ -110,8 +98,38 @@ check("14 --font-inter is EXACTLY the pinned two-family sequence",
 // Round 22: inventory equality proves a descriptor EXISTS; it never proved the
 // VALUE. Collapsing 100 900 -> 400, or normal -> italic, passed all 15 rows and
 // app/harness equality allowed both blocks to be wrong together.
-check("18 no font-family inside any conditional at-rule",
-  conditionalFamily.length === 0, conditionalFamily.join(" | "));
+// Round 29: the previous version registered a `media` visitor only, read only
+// this stylesheet, and ignored custom-property indirection -- so @supports,
+// @container, app/globals.css, and a conditionally-redefined --font-* token all
+// walked through a row whose prose claimed "any conditional at-rule". The scan
+// is now over the RULE TREE of every shipped stylesheet, and it treats a
+// conditional redefinition of a font token as equivalent to font-family itself,
+// because an unconditional font-family that reads it is exactly as conditional.
+const CONDITIONAL = new Set(["media", "supports", "container"]);
+const scanConditionals = (text, label) => {
+  const hits = [];
+  transform({ filename: label, code: Buffer.from(text), minify: false, visitor: {
+    Rule(r) {
+      if (!CONDITIONAL.has(r.type)) return;
+      const walk = (rules) => { for (const x of rules ?? []) {
+        for (const p of x.value?.declarations?.declarations ?? []) {
+          const name = p.property === "custom" ? p.value?.name : p.property;
+          if (name === "font-family" || name === "font" || /^--font/.test(name ?? ""))
+            hits.push(`${label}: @${r.type} sets ${name}`);
+        }
+        walk(x.value?.rules);
+      } };
+      walk(r.value?.rules);
+    },
+  }});
+  return hits;
+};
+const SHIPPED = [[cssText, "fonts.css"]];
+if (process.env.APP_CSS && existsSync(process.env.APP_CSS))
+  SHIPPED.push([readFileSync(process.env.APP_CSS, "utf8"), "globals.css"]);
+const conditionalHits = SHIPPED.flatMap(([t, l]) => scanConditionals(t, l));
+check("18 no font-family, font, or --font-* token set inside any conditional at-rule, in any shipped stylesheet",
+  conditionalHits.length === 0, conditionalHits.join(" | "));
 check("16 every Inter face declares font-weight EXACTLY 100 900",
   inter.every((f) => { const w = f.d["font-weight"];
     const vals = (Array.isArray(w) ? w : []).map((x) => x?.value?.value).filter((v) => typeof v === "number");
