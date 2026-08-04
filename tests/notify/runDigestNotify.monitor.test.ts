@@ -18,7 +18,7 @@ function digestModel(recipient: string): DigestModel {
     recipient,
     dateET: "2026-06-02",
     shows: [{ showTitle: "S", slug: "s", items: ["x"] }],
-    sourceTotals: { ingestions: 1, syncs: 0, shows: 1 },
+    sourceTotals: { ingestions: 1, syncs: 0, shows: 1, holdShows: 0 },
   };
 }
 
@@ -31,7 +31,7 @@ function deps(over: Partial<NotifyDeps> = {}): NotifyDeps {
     activeRecipients: async () => ({ kind: "ok", recipients: ["doug@fxav.net"] }),
     buildDigestModel: async () => ({
       kind: "no_send",
-      sourceTotals: { ingestions: 0, syncs: 0, shows: 0 },
+      sourceTotals: { ingestions: 0, syncs: 0, shows: 0, holdShows: 0 },
     }),
     buildMonitorDigestModel: async () => ({ kind: "ok", model: monitorModel }),
     deliverDigest: async () => ({ kind: "ok", sent: 1, failed: 0, skipped: 0, retryLater: 0 }),
@@ -43,7 +43,7 @@ function deps(over: Partial<NotifyDeps> = {}): NotifyDeps {
 describe("runDigestNotify — monitor wiring (spec §4.4, §5, §13.7)", () => {
   test("(a) needs-attention no_send + monitor ok → one email sent, watermark advanced once", async () => {
     const write = vi.fn(async () => ({ kind: "ok" as const }));
-    const deliver = vi.fn(async () => ({
+    const deliver = vi.fn(async (_input: { model: DigestModel; origin: string }) => ({
       kind: "ok" as const,
       sent: 1,
       failed: 0,
@@ -58,6 +58,16 @@ describe("runDigestNotify — monitor wiring (spec §4.4, §5, §13.7)", () => {
     expect(deliver).toHaveBeenCalledTimes(1);
     expect(write).toHaveBeenCalledTimes(1);
     expect(write).toHaveBeenCalledWith(NOW);
+    // Holds rollup (spec §9.13): the monitor-only path SYNTHESIZES its digest
+    // model rather than reusing a built one, so its zero literal is asserted at
+    // RUNTIME here — compile compatibility alone would let the field drift.
+    const synthesized = deliver.mock.calls[0]?.[0];
+    expect(synthesized?.model.sourceTotals).toEqual({
+      ingestions: 0,
+      syncs: 0,
+      shows: 0,
+      holdShows: 0,
+    });
   });
 
   test("(b) two recipients → buildMonitorDigestModel called ONCE, watermark advanced ONCE", async () => {
