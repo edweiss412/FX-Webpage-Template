@@ -679,8 +679,12 @@ it("roster_shift_counts reports zero renamed for an unlanded pair", async () => 
   const [counts] = await holdsSql`
     select added, removed, renamed
       from public.roster_shift_counts(${[showId]}::uuid[])`;
+  // Assert ALL THREE. Selecting `added` without asserting it lets { added: 999, removed: 1,
+  // renamed: 0 } pass, which is exactly the "correct rows, wrong counts" divergence this test
+  // claims to catch. Derive the expected numbers from the fixture's roster, never hardcode blind.
   expect(Number(counts?.renamed)).toBe(0);
   expect(Number(counts?.removed)).toBe(1);
+  expect(Number(counts?.added)).toBe(0); // target hold-suppressed, so nothing was added
 });
 
 it("field_changed attribution follows landed pairs, not requested ones", async () => {
@@ -827,7 +831,6 @@ git commit -m "feat(log): add the forensic IDENTITY_LINK_RENAME_UNLANDED emitter
 **Files:**
 - Modify: `lib/sync/runScheduledCronSync.ts` (result type ~line 396, emit beside the existing deferred notice emit)
 - Modify: `lib/sync/applyStagedCore.ts` (~line 474), `lib/sync/applyStaged.ts` (~line 265)
-- Modify: `lib/sync/runManualStageForFirstSeen.ts:170` (carrier only; its emit is Task 12)
 - Modify: `app/api/admin/pending-ingestions/[id]/retry/route.ts`
 - Test: `tests/sync/runScheduledCronSync.test.ts`, `tests/sync/applyStaged.test.ts`, `tests/sync/runManualSyncForShow.test.ts`
 
@@ -842,6 +845,8 @@ git commit -m "feat(log): add the forensic IDENTITY_LINK_RENAME_UNLANDED emitter
 | pending-ingestion retry (post-`withRowTryLock`) | **this task** |
 | ordinary finalize | **Task 11** |
 | finalize-cas, both handlers | **Task 11** |
+
+**`runManualStageForFirstSeen` gets NO `unlandedRenames` carrier — not here, not in Task 12.** It hardcodes `identityLinkRenames: []` (`lib/sync/runManualStageForFirstSeen.ts:125`), so that path can never produce an unlanded pair, and a carrier there would be a field that is provably always empty. A first-seen show has no prior roster to rename from — spec section 4 item 7 already records that first-seen is unaffected. Task 12 still gives it a `roleFlagsNotice` carrier, which it genuinely builds and drops.
 
 **Only the hops this task's tests exercise are added here.** An earlier revision had this task plumb the finalize routes' carrier while testing neither, which violates invariant 1 — an implementer cannot follow both that scope and TDD. The two finalize routes' carrier AND emit both belong to Task 11, which has the tests for them. This task touches `lib/sync/**` and the retry route only.
 
