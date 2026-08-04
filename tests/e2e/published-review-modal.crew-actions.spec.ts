@@ -265,3 +265,59 @@ test("confirm reset round-trips: success banner appears at the panel top; active
   );
   await expect(page.getByTestId(`crew-row-reset-confirm-${crewId}`)).toHaveCount(0);
 });
+
+// ── Undo announce channel: accessibility-tree reachability (spec §3.5.1/§3.5.2) ──
+//
+// The ONLY assertion in this feature that jsdom cannot make. While this modal is
+// open, ReviewModalShell sets `inert` + `aria-hidden="true"` on every
+// [data-inert-root] (the admin layout shells) and renders the dialog with
+// aria-modal="true". jsdom enforces neither attribute and Testing Library ignores
+// aria-hidden when querying, so every unit test in this feature stays green even
+// if the region is hidden from assistive technology — a completely dead feature
+// with a completely green suite.
+//
+// This test deliberately does NOT perform an undo: the seeded show has no
+// undoable change-log row, and announcement DELIVERY is already proven by
+// tests/components/admin/undoAnnounceSurvival.test.tsx. What only a real browser
+// can establish is that the region a modal undo would write into is actually in
+// the accessibility tree at that moment.
+test("the dialog undo region is inside the dialog and NOT hidden from assistive tech", async ({
+  page,
+}) => {
+  await openModal(page);
+
+  const result = await page.evaluate((base) => {
+    const dialog = document.querySelector<HTMLElement>(`[data-testid="${base}-modal"]`);
+    const region = document.querySelector<HTMLElement>(`[data-testid="${base}-undo-status"]`);
+    if (!dialog || !region) {
+      return { found: false, insideDialog: false, hiddenBy: "n/a", role: null, label: null };
+    }
+    // Walk ancestors for anything that would remove the region from the a11y
+    // tree. Reporting the offending testid makes a failure diagnosable rather
+    // than just red.
+    let hiddenBy = "";
+    for (let el: HTMLElement | null = region; el; el = el.parentElement) {
+      if (el.getAttribute("aria-hidden") === "true" || el.hasAttribute("inert")) {
+        hiddenBy = el.dataset.testid ?? el.tagName.toLowerCase();
+        break;
+      }
+    }
+    return {
+      found: true,
+      insideDialog: dialog.contains(region),
+      hiddenBy,
+      role: region.getAttribute("role"),
+      label: region.getAttribute("aria-label"),
+    };
+  }, BASE);
+
+  expect(result.found, "dialog channel region is rendered").toBe(true);
+  // Inside the dialog: content OUTSIDE an aria-modal dialog is excluded from the
+  // accessibility tree, which is why the layout channel alone is not enough.
+  expect(result.insideDialog, "region lives inside the aria-modal dialog").toBe(true);
+  // Not hidden: the layout shells ARE inerted while the modal is open, so a
+  // region placed inside one would silently never announce.
+  expect(result.hiddenBy, "no ancestor sets aria-hidden or inert").toBe("");
+  expect(result.role).toBe("log");
+  expect(result.label).toBe("Undo updates in this dialog");
+});

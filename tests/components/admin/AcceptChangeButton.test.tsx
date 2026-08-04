@@ -13,7 +13,7 @@
 //    invariant 5), not discard it.
 import "@testing-library/jest-dom/vitest";
 import { afterEach, expect, it, vi } from "vitest";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { AcceptChangeButton } from "@/components/admin/AcceptChangeButton";
 
 afterEach(cleanup);
@@ -49,11 +49,15 @@ it("surfaces a typed failure ({ok:false, code}) via ErrorExplainer (catalog copy
   await act(async () => {
     fireEvent.click(screen.getByRole("button", { name: /accept/i }));
   });
+  // Scoped INSIDE the result node: the region is always mounted now, so a bare
+  // presence check is true before the action runs and proves nothing.
   await waitFor(() => {
-    expect(screen.getByTestId("change-feed-accept-result")).toBeInTheDocument();
+    expect(
+      within(screen.getByTestId("change-feed-accept-result")).getByTestId(
+        "error-explainer-message",
+      ),
+    ).toHaveTextContent(/sync infrastructure step failed/i);
   });
-  // catalog copy renders; the raw code NEVER appears in the DOM (invariant 5).
-  expect(screen.getByText(/sync infrastructure step failed/i)).toBeInTheDocument();
   expect(screen.queryByText("SYNC_INFRA_ERROR")).toBeNull();
 });
 
@@ -66,7 +70,8 @@ it("renders NO error panel on a successful accept ({ok:true})", async () => {
   await waitFor(() => {
     expect(acceptAction).toHaveBeenCalled();
   });
-  expect(screen.queryByTestId("change-feed-accept-result")).toBeNull();
+  // Always-mounted live region: present but EMPTY is the no-failure state.
+  expect(screen.getByTestId("change-feed-accept-result")).toHaveTextContent("");
 });
 
 it("stretch=false (default) → button not w-full; stretch → form + button w-full", () => {
