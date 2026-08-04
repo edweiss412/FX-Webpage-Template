@@ -160,28 +160,27 @@ describe("LoadingShell no-JavaScript notice", () => {
     expect(wrapper.getAttribute("data-loading-shell-content")).toBe("");
   });
 
-  it("puts no hiding ancestor above the wrapper (a `<div hidden>` parent escapes the rest)", () => {
+  it("puts NOTHING between the shell root and the wrapper (any ancestor can hide it)", () => {
     const { outer } = renderShell();
     const wrapper = must(
       outer.querySelector("[data-loading-shell-content]"),
       "the content wrapper",
     );
-    // Walk root-ward. Assertion 13 pins the wrapper's OWN attributes, but
-    // wrapping it in `<div hidden>` leaves those untouched, keeps the status and
-    // children contained, keeps the notice visible as a sibling, and still hides
-    // every JavaScript-enabled fallback. Ancestors have to be checked too.
-    for (let el = wrapper.parentElement; el && el.tagName !== "BODY"; el = el.parentElement) {
-      expect(el.hasAttribute("hidden"), `<${el.tagName.toLowerCase()}> ancestor is hidden`).toBe(
-        false,
-      );
-      expect(el.className, `<${el.tagName.toLowerCase()}> ancestor hides via class`).not.toMatch(
-        /(^|\s)(hidden|invisible)(\s|$)/,
-      );
-      expect(
-        el.getAttribute("style") ?? "",
-        `<${el.tagName.toLowerCase()}> ancestor hides via inline style`,
-      ).not.toMatch(/display\s*:\s*none|visibility\s*:\s*hidden/i);
-    }
+
+    // Blacklisting hiding mechanisms is a losing game: `hidden`, then
+    // `display:none`, then `visibility:hidden`, then `opacity:0`, then
+    // `clip-path`, `height:0`, `content-visibility`... each round found the next
+    // one. So pin the SHAPE instead. Inside LoadingShell the wrapper's only
+    // ancestor is the testId'd root, and that root carries `data-testid` and
+    // nothing else. Any inserted element, and any class or style added to the
+    // root, fails here regardless of HOW it would hide the fallback.
+    const root = must(wrapper.parentElement, "the wrapper's parent");
+    expect(root.parentElement?.tagName).toBe("BODY");
+    expect(
+      Array.from(root.attributes)
+        .map((a) => a.name)
+        .sort(),
+    ).toEqual(["data-testid"]);
   });
 
   it("serializes the wrapper attribute as the empty string, not the bare-JSX true", () => {

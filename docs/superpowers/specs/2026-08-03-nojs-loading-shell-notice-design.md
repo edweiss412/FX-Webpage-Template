@@ -222,6 +222,7 @@ The test must NOT snapshot the whole string, which would fail on every unrelated
 | 11 | `notice.contains(h1)` and `notice.contains(bodyParagraph)`. | An empty padded card beside loose copy, which assertion 5 alone accepts. |
 | 12 | The serialized `outer` markup contains the literal `data-loading-shell-content=""`. | Regression to the bare JSX attribute, which serializes to `="true"`; the attribute *selector* matches either way. |
 | 13 | The wrapper's **entire** attribute set is exactly `["data-loading-shell-content"]`, value `""`. | `hidden`, `class="hidden"`, or `style="display:none"` on that element. Each breaks the JavaScript-**enabled** loading path on all nine routes while assertions 1-12 and every e2e case stay green, because they check the notice and the no-JS branch and never this element's own visibility. Verified by mutation. |
+| 14 | The wrapper's parent is the shell root itself, that root's parent is `<body>`, and the root's attribute set is exactly `["data-testid"]`. | Any hiding ANCESTOR. Blacklisting mechanisms loses — `hidden`, then `display:none`, then `visibility:hidden`, then `opacity:0`, then `clip`/`height:0` each defeated the previous round's list. This pins the chain's SHAPE instead, so any inserted element or any class/style on the root fails regardless of how it would hide the fallback. Verified against `opacity:0`, `sr-only`, and `height:0 overflow:hidden`. |
 
 ### 7.2 Real-browser probe — tests/e2e/nojs-loading-notice.spec.ts (new file, so the path is unlinked)
 

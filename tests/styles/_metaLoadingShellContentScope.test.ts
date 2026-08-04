@@ -1,8 +1,9 @@
 // Structural guard: `[data-loading-shell-content]` must be styled ONLY from the
 // <noscript>-scoped rule inside LoadingShell.
 //
-// Why this exists. The hide rule works because a browser with JavaScript enabled
-// never parses <noscript> contents. If the same selector ever appeared anywhere a
+// Why this exists. The hide rule works because a JavaScript-enabled browser
+// parses <noscript> contents only as raw text: it materializes no descendants and
+// applies none of their CSS. If the same selector ever appeared anywhere a
 // JS-on browser DOES read — app/globals.css, a component <style>, a Tailwind
 // @layer block — it would hide the loading fallback on all nine loading.tsx
 // routes for every visitor, and nothing would catch it: the component test asserts
