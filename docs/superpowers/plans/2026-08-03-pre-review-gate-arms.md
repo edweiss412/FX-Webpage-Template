@@ -125,7 +125,9 @@ Add the **inline-mention fixture**, from a live probe against this very plan. Ex
 
 
 <!-- spec-lint: ignore — new file created by this plan; not tracked until implementation -->
-**RED.** Create `tests/codexGuard/lintDoc.test.ts` using the existing harness at `tests/codexGuard/harness.ts`, covering:
+**Harness API, verified.** `tests/codexGuard/harness.ts` exports `mkRun` (`:107`), `writeScenario` (`:133`), `guardEnv` (`:148`), `runGuard` (`:162`), `readResult` (`:201`), and `readCalls` (`:205`). `readCalls` returns `CallRecord[]` (`:74`) carrying each invocation's `argv`, which is what makes AC-3's "dispatched nothing" directly assertable (empty array) and AC-1's embed assertable against the real composed prompt rather than a restatement of it.
+
+**RED.** Create `tests/codexGuard/lintDoc.test.ts` using that harness, covering:
 
 - AC-1 the embedded block's delimiters and that its body equals the CLI's stdout for the same doc (captured by running the CLI in the test, not by hardcoding expected text — a hardcoded expectation would pass against a broken embed);
 - AC-2 `--lint-doc` without `--fallback`, and composed with `--artifact` under `--fallback`;
