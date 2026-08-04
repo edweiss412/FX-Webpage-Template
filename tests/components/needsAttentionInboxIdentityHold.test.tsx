@@ -1,5 +1,5 @@
 /** @vitest-environment jsdom */
-import { render, screen, fireEvent, within } from "@testing-library/react";
+import { cleanup, render, screen, fireEvent, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { NeedsAttentionInbox } from "@/components/admin/NeedsAttentionInbox";
 import type { NeedsAttentionItem } from "@/lib/admin/needsAttention";
@@ -136,13 +136,41 @@ describe("identity_hold card", () => {
     ).toBe("Review held changes for spring-gala");
   });
 
-  it("a long summary is rendered in full, not truncated at the data layer", () => {
-    // Overflow is a CSS concern; what a jsdom test CAN pin is that the component
-    // never shortens the string itself (a silent slice would lose the addresses).
-    const long = `Jane Doe's email is changing from ${"a".repeat(120)}@old.com to ${"b".repeat(120)}@new.com`;
+  it("a long summary renders in full AND carries the wrap guard, in both modes", () => {
+    // A hold summary embeds raw email addresses, and a 64-character local-part is
+    // ONE unbreakable token: measured at 512px against a ~316px card interior at
+    // the 390px viewport, it forces horizontal scroll. jsdom computes no layout,
+    // so the assertable proxy is the wrap utility on the element that renders the
+    // string — asserting only that the text survives cannot see the overflow.
+    const long = `Jane Doe's email is changing from ${"a".repeat(64)}@old.com to ${"b".repeat(64)}@new.com`;
+
     renderInbox([holdItem({ summaries: [long], copy: long })]);
     const card = screen.getByTestId("needs-attention-item-identity-hold-sX");
     expect(card.textContent).toContain(long);
+    expect(within(card).getByText(long).className).toContain("wrap-break-word");
+    cleanup();
+
+    // Same guard on the disclosed lines, which is a different render path.
+    renderInbox([holdItem({ summaries: [long, "second"], copy: "2 held changes waiting" })]);
+    fireEvent.click(screen.getByTestId("identity-hold-toggle-sX"));
+    const panel = document.getElementById("identity-hold-panel-sX") as HTMLElement;
+    expect(within(panel).getByText(long).className).toContain("wrap-break-word");
+  });
+
+  it("visible card header reads Held change / Held changes with the count fork", () => {
+    // The help-label crosswalk can stay green through the disclosure's separate
+    // "Held changes for …" label, so a regression in the CARD HEADER fork would
+    // otherwise go unnoticed. Scoped to the card, and the singular case asserts
+    // the plural is absent so one cannot satisfy the other.
+    renderInbox([holdItem()]);
+    const singleCard = screen.getByTestId("needs-attention-item-identity-hold-sX");
+    expect(within(singleCard).getByText("Held change")).toBeTruthy();
+    expect(within(singleCard).queryByText("Held changes")).toBeNull();
+    cleanup();
+
+    renderInbox([holdItem({ summaries: ["a", "b"], copy: "2 held changes waiting" })]);
+    const multiCard = screen.getByTestId("needs-attention-item-identity-hold-sX");
+    expect(within(multiCard).getByText("Held changes")).toBeTruthy();
   });
 
   it("empty-string title: accessible names still carry slug via the truthy fork", () => {

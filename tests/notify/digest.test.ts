@@ -323,18 +323,23 @@ describe("buildDigestModel identity holds", () => {
     });
   });
 
-  test("source pins the mi11_pending / archived / ordering SQL shape", () => {
-    // Scoped to the sync_holds SQL literal with comments stripped, and the two
-    // predicates asserted as ONE conjunction. Three independent substring checks
-    // stay green when `and` becomes `or` — which would ship active undo_override
-    // rows and archived pending holds into the digest.
+  test("source pins the EXACT sync_holds SQL: no extra predicate, no cap", () => {
+    // Whole-statement equality, not substring presence. Presence checks accepted
+    // two mutants the fake sql can never see, because it dispatches on text and
+    // ignores clauses: an extra `and sh.domain = '...'` (a filter the PostgREST
+    // reader does not have, so the two transports would silently diverge) and a
+    // `limit 1` (which would cap the digest, contradicting D8's uncapped model).
     const raw = readFileSync("lib/notify/digest.ts", "utf8");
     const src = raw.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
-    const start = src.indexOf("from sync_holds sh");
+    const start = src.indexOf("select sh.id");
     expect(start, "the sync_holds SQL is gone entirely").toBeGreaterThan(-1);
-    const sql = src.slice(start, src.indexOf("`", start)).replace(/\s+/g, " ");
-    expect(sql).toContain("where sh.kind = 'mi11_pending' and s.archived = false");
-    expect(sql).toContain("order by sh.created_at desc, sh.id asc");
-    expect(sql).not.toMatch(/\bor\b/);
+    const sql = src.slice(start, src.indexOf("`", start)).replace(/\s+/g, " ").trim();
+    expect(sql).toBe(
+      "select sh.id, sh.show_id, sh.entity_key, sh.held_value, sh.proposed_value, " +
+        "sh.base_modified_time, sh.created_at, s.slug, s.title " +
+        "from sync_holds sh join shows s on s.id = sh.show_id " +
+        "where sh.kind = 'mi11_pending' and s.archived = false " +
+        "order by sh.created_at desc, sh.id asc",
+    );
   });
 });

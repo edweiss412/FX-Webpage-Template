@@ -162,7 +162,11 @@ function ItemCard({ item, now }: { item: NeedsAttentionItem; now: Date }) {
         />
         <p className="text-sm font-semibold text-text-strong">{item.title ?? item.slug}</p>
         {single ? (
-          <p className="text-sm text-text-subtle">{item.copy}</p>
+          // wrap-break-word: a hold summary carries raw email addresses, and a
+          // 64-character local-part is a single unbreakable token that overruns
+          // the ~316px card interior at 390px and forces horizontal scroll
+          // (BellPanel.tsx:399 precedent for the same hazard).
+          <p className="text-sm wrap-break-word text-text-subtle">{item.copy}</p>
         ) : (
           <>
             <p className="text-sm tabular-nums text-text-subtle">{item.copy}</p>
@@ -176,7 +180,7 @@ function ItemCard({ item, now }: { item: NeedsAttentionItem; now: Date }) {
               count={item.summaries.length}
             >
               {shown.map((summary, i) => (
-                <p key={`${item.showId}-${i}`} className="text-sm text-text-subtle">
+                <p key={`${item.showId}-${i}`} className="text-sm wrap-break-word text-text-subtle">
                   {summary}
                 </p>
               ))}

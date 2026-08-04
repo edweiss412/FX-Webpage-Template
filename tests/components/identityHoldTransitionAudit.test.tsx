@@ -61,11 +61,19 @@ describe("identity_hold transition audit — source tier", () => {
     }
   });
 
-  it("exactly one CollapsePanel usage, with region={false} and a label", () => {
-    const usages = islandSrc.match(/<CollapsePanel\b/g) ?? [];
+  it("exactly one CollapsePanel usage, LIVE-wired to open, with region={false} and a label", () => {
+    // Comments stripped: every predicate here is comment-satisfiable otherwise.
+    const src = islandSrc.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+    const usages = src.match(/<CollapsePanel\b/g) ?? [];
     expect(usages).toHaveLength(1);
-    expect(islandSrc).toContain("region={false}");
-    expect(islandSrc).toContain("label={");
+    const start = src.indexOf("<CollapsePanel");
+    const props = src.slice(start, src.indexOf(">", start));
+    // The LIVE wiring: `open={false}` would leave the toggle announcing
+    // aria-expanded="true" while the panel stayed collapsed and out of the AT
+    // tree, and nothing else in this file would notice.
+    expect(props).toMatch(/\bopen=\{open\}/);
+    expect(props).toContain("region={false}");
+    expect(props).toMatch(/\blabel=\{/);
     // The inbox itself never mounts a panel: the disclosure lives only in the island.
     expect(inboxSrc).not.toContain("<CollapsePanel");
   });
@@ -149,6 +157,17 @@ describe("identity_hold transition audit — behavioral tier", () => {
     const panel = document.getElementById("identity-hold-panel-sX");
     if (!panel) throw new Error("panel unmounted on collapse - that is not the morph contract");
     expect(panel.hasAttribute("inert")).toBe(true);
+  });
+
+  it("the EXPANDED panel is NOT inert (open content must reach the AT tree)", () => {
+    // The collapsed-inert assertion alone is satisfied by a panel that is ALWAYS
+    // inert, which would hide the summaries from assistive tech in both states.
+    renderInbox([holdItem(["one", "two"])]);
+    const panelClosed = document.getElementById("identity-hold-panel-sX") as HTMLElement;
+    expect(panelClosed.hasAttribute("inert")).toBe(true);
+    fireEvent.click(screen.getByTestId("identity-hold-toggle-sX"));
+    const panelOpen = document.getElementById("identity-hold-panel-sX") as HTMLElement;
+    expect(panelOpen.hasAttribute("inert")).toBe(false);
   });
 
   it("compound (b): the whole group clears while expanded — card unmounts, no exit animation", () => {
