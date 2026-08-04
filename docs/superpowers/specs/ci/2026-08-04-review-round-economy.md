@@ -26,6 +26,7 @@ Ratified during brainstorming on 2026-08-04. Each is a decision, not an oversigh
 | Threat model is **an arc that forgets**, not an arc that hides. Deliberate suppression is out of scope by declaration. | §8.1 |
 | Arc identity is **branch + merge-base SHA**, read from git, never from `--out` path naming. Branch alone is not unique over time. | §5.2 |
 | `--stage` and `--round` are **caller-declared and required**. Inference from brief text, `--out` path, or row-counting is rejected; see the probe in §3. | §5.1 |
+| `--stage` accepts a fourth value, **`task`**, recorded but never counted. The wrapper has one subcommand serving two call classes, so a review-only domain would either lie or lock out non-review dispatches. | §5.1 |
 | `findings[]` headline extraction is **deliberately not implemented**. `findingCount` comes from a declared line or is `null`. | §3, §5.3 |
 | Cross-arc filing automation is **out of scope**; `pnpm review:economy` is read-only and gates nothing. | §9 |
 | `no_verdict` rows — including wrapper failures — are **recorded but excluded from the threshold count**. | §5.4 |
@@ -94,10 +95,12 @@ Both are added to the value-taking flag set in `parseArgs` (`scripts/codex-guard
 
 | Flag | Accept-set | Missing / invalid |
 | --- | --- | --- |
-| `--stage` | Exactly one of `spec`, `plan`, `diff` | `usageError` (`codex-guard.mjs:43`), exit 2 |
+| `--stage` | Exactly one of `spec`, `plan`, `diff`, `task` | `usageError` (`codex-guard.mjs:43`), exit 2 |
 | `--round` | Decimal integer ≥ 1 | `usageError`, exit 2 |
 
 The accept-set is closed and keyed on value, not spelling: anything outside the three stage literals is rejected by name, never coerced or bucketed into an `unknown` stage. An `unknown` bucket would be a silent exemption from the gate, which is precisely the failure this design refuses.
+
+**`task` exists because the wrapper has one subcommand and two call classes.** `AGENTS.md:184` routes all direct `codex exec` **review/task** dispatches through `codex-guard review` — the only subcommand there is (`scripts/codex-guard.mjs:69`). A non-review task has no truthful value among `spec`/`plan`/`diff`; declaring it `diff` would record a review round that never happened, and four such tasks would manufacture a filing obligation out of nothing. `task` rows are **recorded and never counted toward the threshold**, the same treatment `no_verdict` gets (§5.4), so the corpus stays complete and the gate stays honest. Refusing to offer the value instead would make a hard-cutover required flag unusable for a currently supported call class.
 
 Both are **required**, a hard cutover. There is no dual-mode grace period: a mode where the flags are optional is a mode where forgetting them exempts the arc, and forgetting is the entire threat model (§8.1). `--label` already exists (`codex-guard.mjs:120`, validated `codex-guard.mjs:130` against `/^[A-Za-z0-9_-]{1,64}$/`) and is unchanged; it names a scope, not a stage.
 
@@ -157,7 +160,8 @@ Every dispatch appends a row. The threshold counts **distinct `round` values amo
 
 | `status` | `failureReason` | Recorded | Counts toward threshold |
 | --- | --- | --- | --- |
-| `verdict` | `null` | yes | yes |
+| `verdict`, `stage` in `spec`/`plan`/`diff` | `null` | yes | yes |
+| `verdict`, `stage: "task"` | `null` | yes | **no** — not a review round (§5.1) |
 | `no_verdict` | `"wrapper_error"` | yes | **no** |
 | `no_verdict` | any other value or `null` | yes | **no** |
 
@@ -251,6 +255,9 @@ Over-obligation — a filing demanded where nothing was mechanizable — costs o
 4. **Only the summary row is durable.** Transcripts stay in the machine-local `--out` directory. Losing one loses detail, not the count.
 5. **`--round` is caller-declared and can be wrong.** A wrong value shows as a contiguity gap (§7.1 assertion 2) unless it duplicates an existing round, in which case the wave undercounts by one. Accepted: the alternative is the derivation race (§5.5).
 6. **`findingCount` is `null` for any reviewer that omits the declared line.** Never inferred (§3).
+7. **Arcs merged before the adoption boundary are invisible to the report**, by construction (§9). They are reported as a count, never enumerated, and never called silent.
+8. **On a shallow clone the report declines the merged-arc scan entirely** (§9). CI checks out at depth 1 by design (`.github/workflows/unit-suite.yml:152`), so this is the normal CI state, not an edge case.
+9. **`stage: "task"` rows never oblige a filing** (§5.1). A non-review dispatch is recorded for completeness and is invisible to the threshold.
 
 ## 9. Report
 
@@ -262,6 +269,20 @@ Output:
 - Trigger rate by month — the success metric named in §1.1.
 - Finding-count totals by stage, over rows where the declared line was present. **Rows with `findingCount: null` are excluded from the total and reported separately as a count of undeclared rows.** Folding `null` into zero would state a false total; §5.3 makes `null` mean "not declared," never "none found."
 - **Silent arcs**: arcs that merged with zero rows in the corpus.
+
+**A merged arc's `baseSha` is reconstructed as `git merge-base <merge>^1 <merge>^2`, never as the merge commit's first parent.** The first parent is main's tip at merge time, which equals the merge base only when main did not advance after the branch diverged. Measured across the seven merges on the three reused branch names, **four of seven differ**:
+
+```
+#402  first-parent 902aa9a4d4e6   merge-base 902aa9a4d4e6   same
+#431  first-parent 243e3636d20a   merge-base 40f96820bd06   DIFFERS
+#524  first-parent c5e8250c818e   merge-base 83104efdf828   DIFFERS
+#526  first-parent c813a67140d4   merge-base c813a67140d4   same
+#529  first-parent 978029759b7e   merge-base b190a5721d1b   DIFFERS
+#597  first-parent fb87a84624b8   merge-base 8696436a223a   DIFFERS
+#620  first-parent 2d14b380ca7c   merge-base 2d14b380ca7c   same
+```
+
+Using the first parent makes the join miss a corpus that is present, and the report then lists a fully-recorded arc as silent. The reconstruction is the same call the writer used at record time (§5.2), which is what makes the two sides join at all.
 
 **Every join in the report is on the `(branch, baseSha)` arc identity of §5.2, never on branch alone.** This is the same defect the gate was repaired for, in the report's own aggregation: the three reused branch names each carry distinct merge bases per arc — `attention-alert-routing` at `83104efdf828` (#524), `c813a67140d4` (#526), `b190a5721d1b` (#529) — so a branch-only join reads an older arc's rows as evidence for a later one and suppresses the later arc from the silent-arc list. Every metric above except silent-arc presence is miscomputed the same way.
 
@@ -282,6 +303,10 @@ The accept-set is therefore **first-parent merges whose subject carries a PR ref
 
 A denylist over merge subjects would accept whatever it failed to model; this is the accept-set discipline applied to the report's own input.
 
+
+**The silent-arc universe is bounded by adoption, not by history.** 668 of the recognized PR merges predate this spec, and the corpus is empty for all of them: reported unbounded, every one would be listed as a silent arc, which is a mass false classification of arcs that merged before any recording contract existed. The universe therefore begins at the **adoption boundary** — the earliest `startedAt` present in the corpus. Arcs merged before it are excluded and reported once, as a single count of pre-adoption merges, never enumerated as silent. §12 declines backfill; this is what declining it costs and how it is contained.
+
+**The report refuses to present a shallow repository as complete history.** `git rev-parse --is-shallow-repository` gates it: on a shallow clone the merged-arc scan is skipped and the report says so by name, rather than emitting a silent-arc list computed over truncated history. A partial answer labelled complete is the §8.2 failure; a refusal labelled a refusal is not.
 
 Silent-arc listing is the observable form of limits §8.3.1 and §8.3.2. It is deliberately **not** a gate: many branches legitimately have no review at all. Converting an invisible hole into a visible one is as far as the threat model reaches. Read-only does not excuse a wrong number, though — the report presents its output as fact, so the producer is tested against real history (§11.3).
 
@@ -348,16 +373,25 @@ Two layers, because a pre-parsed fixture list would let the test pass while the 
 
 Every output §9 promises gets behavioral coverage. A report that presents a false number is the failure mode §9 declines to excuse, so "read-only" buys no test relief.
 
-1. **Producer against real history.** Run the merged-branch extractor over this repository's actual `git log --first-parent --merges` output and assert: every first-parent PR merge is recognized, zero non-first-parent merges are admitted, and the residue is surfaced as `unrecognized` with its subject rather than dropped. Derive expected counts from the git output at test time, never from literals — the numbers grow with the repo, and a hardcoded 676 makes this a tripwire on the calendar instead of on the producer. Catches the §9 accept-set being wrong about the input it actually gets.
-2. **Arc-identity join.** Fixture: one branch name, two arcs under distinct `baseSha` directories — the older with rows and a filing, the newer merged with zero rows. Assert the newer arc IS listed as silent. **A branch-only join fails this and passes every other test in this section**, which is exactly how the defect would ship. Fixture mirrors real history (§9).
-3. **Per-stage rounds, counted vs recorded.** Fixture with all three stages populated and a mix of `verdict` / `no_verdict` rows. Assert the per-stage counted and recorded numbers separately. Catches an implementation that collapses stages, or that counts every recorded row against a per-stage threshold.
-4. **Trigger rate by month.** Fixture arcs whose rows fall in two different months, with a known number tripping the threshold in each. Assert the per-month rate. Catches misbucketing and catches a rate computed over arcs rather than over triggered stages.
-5. **Finding-count totals exclude `null`.** Fixture mixing declared counts with `findingCount: null`. Assert the total is over declared rows only, and that undeclared rows appear as their own count. Catches `null` folded into zero, which would understate every total and is indistinguishable from "no findings."
-6. **Silent-arc detector.** Given a merged-arc list and a fixture corpus, the merged arc with zero rows is listed and the one with rows is not.
+1. **Producer against a synthesized fixture repository.** Build a repo in a temp dir (`mkdtempSync`, per `tests/docs/_metaLedgerClaimCollision.test.ts:166`) containing one of every shape the accept-set must decide: a standard `Merge pull request #N from …`, the second spelling `Merge PR #N: …`, a `Merge branch 'main'` into a feature branch, a non-first-parent merge, and a branch whose main advanced after divergence. Assert recognition, `unrecognized` reporting **with subject**, and — critically — the reconstructed `baseSha` equals `merge-base <merge>^1 <merge>^2` and NOT the first parent for the advanced-main case. Deterministic, network-free, and independent of clone depth.
+
+   **This layer must not be a real-history test.** CI checks out at depth 1 and deliberately fetches only `origin/main` at depth 1 (`.github/workflows/unit-suite.yml:152`) — the comment there records that full history was rejected because it took this gate from ~4.2 minutes back toward 9.1. A layer-1 test reading the live log would derive its expectations from a truncated history and pass over zero or one merge, which is a vacuous pass wearing a real-history costume.
+
+2. **Real history, when and only when it is available.** Gate on `git rev-parse --is-shallow-repository`. Unshallow: assert the producer's counts against the live log, deriving expectations from the log itself and never from literals — the numbers grow with the repo, and a hardcoded 676 makes this a tripwire on the calendar instead of on the producer. Shallow: **skip by name**, stating that the scan was skipped for a shallow clone. A named skip is a reported absence; a test that quietly passes on one merge is a false presence.
+3. **Arc-identity join.** Fixture: one branch name, two arcs under distinct `baseSha` directories — the older with rows and a filing, the newer merged with zero rows. Assert the newer arc IS listed as silent. **A branch-only join fails this and passes every other test in this section**, which is exactly how the defect would ship. Fixture mirrors real history (§9).
+4. **Per-stage rounds, counted vs recorded.** Fixture with all three stages populated and a mix of `verdict` / `no_verdict` rows. Assert the per-stage counted and recorded numbers separately. Catches an implementation that collapses stages, or that counts every recorded row against a per-stage threshold.
+5. **Trigger rate by month.** Fixture arcs whose rows fall in two different months, with a known number tripping the threshold in each. Assert the per-month rate. Catches misbucketing and catches a rate computed over arcs rather than over triggered stages.
+6. **Finding-count totals exclude `null`.** Fixture mixing declared counts with `findingCount: null`. Assert the total is over declared rows only, and that undeclared rows appear as their own count. Catches `null` folded into zero, which would understate every total and is indistinguishable from "no findings."
+7. **Silent-arc detector.** Given a merged-arc list and a fixture corpus, the merged arc with zero rows is listed and the one with rows is not.
 
 Expected values in every layer derive from fixture contents, never from literals.
 
-Layer 1 would have failed on an unqualified `git log --merges`; layer 2 is the one no earlier draft of this section could have failed.
+Two more layers, both from findings this section already earned:
+
+8. **Adoption boundary.** Fixture with merges before and after the earliest corpus `startedAt`. Assert pre-boundary merges are excluded from the silent list and surface as a single count. Catches the 668-arc mass false classification (§9).
+9. **`stage: "task"` never obliges.** Fixture arc with four `task` rounds and no filing. Assert PASS. Catches a threshold that counts every verdict row regardless of stage (§5.1).
+
+Layer 1 would have failed on an unqualified `git log --merges` and on a first-parent `baseSha`; layer 3 is the one no earlier draft of this section could have failed; layer 2 is the one that must never quietly pass.
 
 ### 11.4 Mutation enrollment
 
