@@ -25,40 +25,46 @@
 import { test, expect, type Page } from "@playwright/test";
 import { ADMIN_FIXTURE } from "./helpers/fixtures";
 import { signInAs, signOut } from "./helpers/signInAs";
+import { deleteSeededShow, seedShowWithCrew } from "./helpers/seedShowWithCrew";
 import { admin } from "./helpers/supabaseAdmin";
 
 const MOBILE = { width: 390, height: 844 };
 
 const FIXTURE_PREFIX = "e2e-needs-attention-holds-";
 
-// Deterministic show ids so hold rows can reference them without a round trip.
-function showId(n: number): string {
-  return `77777777-7777-4777-8777-${String(n).padStart(12, "0")}`;
-}
 function holdId(n: number): string {
   return `88888888-8888-4888-8888-${String(n).padStart(12, "0")}`;
 }
 const slugOf = (n: number) => `${FIXTURE_PREFIX}show-${n}`;
+const driveOf = (n: number) => `${FIXTURE_PREFIX}drive-${n}`;
+
+// Show rows are seeded through the shared helper (it owns the service-role
+// shows/crew/share-token writes and its own create-or-replace pre-clean), so
+// this spec adds NO unlocked PostgREST DML on a locked table. Ids come back
+// from the seed and are keyed by fixture number for the assertions below.
+const showIds = new Map<number, string>();
+function showId(n: number): string {
+  const id = showIds.get(n);
+  if (!id) throw new Error(`show ${n} was not seeded`);
+  return id;
+}
 
 // The MI-11 gate's optimistic-concurrency token: the reject RPC compares this
 // EXACTLY against the row's base_modified_time, so the seed and the hidden form
 // field must round-trip the same value.
 const BASE_MODIFIED = "2026-08-01T00:00:00+00:00";
 
-type ShowSeed = { n: number; archived: boolean };
-
-async function seedShow({ n, archived }: ShowSeed): Promise<void> {
-  const { error } = await admin.from("shows").insert({
-    id: showId(n),
-    drive_file_id: `${FIXTURE_PREFIX}drive-${n}`,
+async function seedShow({ n, archived }: { n: number; archived: boolean }): Promise<void> {
+  const seeded = await seedShowWithCrew({
+    driveFileId: driveOf(n),
     slug: slugOf(n),
     title: `Holds e2e show ${n}`,
-    client_label: "Holds e2e",
-    template_version: "v1",
+    clientLabel: "Holds e2e",
     archived,
     published: !archived,
+    crew: [],
   });
-  if (error) throw new Error(`shows fixture insert failed: ${error.message}`);
+  showIds.set(n, seeded.showId);
 }
 
 /**
@@ -80,7 +86,7 @@ async function seedHold(opts: {
   const { error } = await admin.from("sync_holds").insert({
     id: opts.id,
     show_id: showId(opts.show),
-    drive_file_id: `${FIXTURE_PREFIX}drive-${opts.show}`,
+    drive_file_id: driveOf(opts.show),
     domain: opts.domain,
     entity_key: opts.entityKey,
     held_value: { email: "old@x.com" },
@@ -150,12 +156,17 @@ async function seedFixtures(): Promise<void> {
 }
 
 async function cleanupFixtures(): Promise<void> {
-  // sync_holds cascades from shows, but delete it first so a partially-seeded
-  // run still cleans (its own drive_file_id carries the prefix).
-  for (const table of ["sync_holds", "shows"] as const) {
-    const { error } = await admin.from(table).delete().like("drive_file_id", `${FIXTURE_PREFIX}%`);
-    if (error) throw new Error(`${table} fixture cleanup failed: ${error.message}`);
-  }
+  // sync_holds cascades from shows (ON DELETE CASCADE), but clear it first so a
+  // partially-seeded run still cleans: its rows carry the prefixed drive_file_id
+  // even when no show row survived. sync_holds is not a locked table.
+  const { error } = await admin
+    .from("sync_holds")
+    .delete()
+    .like("drive_file_id", `${FIXTURE_PREFIX}%`);
+  if (error) throw new Error(`sync_holds fixture cleanup failed: ${error.message}`);
+  // Shows go through the helper's own service-role delete.
+  for (const n of [1, 2, 3, 4]) await deleteSeededShow(driveOf(n));
+  showIds.clear();
 }
 
 /**
@@ -183,10 +194,32 @@ async function waitForHydration(page: Page, testId: string): Promise<void> {
     .toBe(true);
 }
 
+/**
+ * Badge / chip counts are asserted as DELTAS against a pre-seed baseline, never
+ * as absolutes: this local database is shared with every other suite, and an
+ * unrelated open hold (or a pending row) left by a neighbour would make an
+ * absolute "2" fail for a reason that has nothing to do with this feature. The
+ * delta is also the sharper assertion — it is exactly the semantic under test
+ * (two held SHOWS carrying four holds must move the count by 2, not 4).
+ */
+async function readBadge(page: Page): Promise<number> {
+  const badge = page.getByTestId("admin-attention-badge");
+  if ((await badge.count()) === 0) return 0; // no badge renders at zero
+  const text = (await badge.innerText()).trim();
+  if (text.endsWith("+")) throw new Error(`badge is capped ("${text}") - baseline too high to test a delta`);
+  return Number.parseInt(text, 10);
+}
+
+async function readHeldChip(page: Page): Promise<number> {
+  const chip = page.getByTestId("summary-chip-identity-holds");
+  if ((await chip.count()) === 0) return 0; // chip renders only above zero
+  const text = (await chip.innerText()).trim();
+  return Number.parseInt(text.replace(/\s*held$/, ""), 10);
+}
+
 test.describe("needs-attention identity holds: cards, badge, chip, clear-through", () => {
   test.beforeEach(async ({ page }) => {
     await cleanupFixtures(); // residue from aborted runs
-    await seedFixtures();
     await signOut(page);
     await signInAs(page, ADMIN_FIXTURE);
   });
@@ -198,6 +231,7 @@ test.describe("needs-attention identity holds: cards, badge, chip, clear-through
   test("cards render for held ACTIVE shows only, with the single/multi copy fork", async ({
     page,
   }) => {
+    await seedFixtures();
     await page.goto("/admin/needs-attention");
 
     const single = page.getByTestId(`needs-attention-item-identity-hold-${showId(1)}`);
@@ -218,23 +252,33 @@ test.describe("needs-attention identity holds: cards, badge, chip, clear-through
     await expect(page.getByTestId(`needs-attention-item-identity-hold-${showId(4)}`)).toHaveCount(0);
   });
 
-  test("badge counts held SHOWS, not held rows (2 shows, 4 open holds)", async ({ page }) => {
+  test("badge counts held SHOWS, not held rows (2 shows, 4 open holds → +2)", async ({ page }) => {
     await page.setViewportSize(MOBILE);
     await page.goto("/admin");
-    await expect(page.getByTestId("admin-attention-badge")).toHaveText("2");
+    const before = await readBadge(page);
+
+    await seedFixtures();
+    await page.reload();
+    // +2, NOT +4: the badge counts shows with open holds, and show 2 carries
+    // three of the four. The archived show and the undo_override show add none.
+    await expect.poll(() => readBadge(page)).toBe(before + 2);
   });
 
   test("mobile summary card shows the held-changes chip at 390px", async ({ page }) => {
     await page.setViewportSize(MOBILE);
     await page.goto("/admin");
-    const chip = page.getByTestId("summary-chip-identity-holds");
-    await expect(chip).toBeVisible();
-    await expect(chip).toHaveText("2 held");
+    const before = await readHeldChip(page);
+
+    await seedFixtures();
+    await page.reload();
+    await expect(page.getByTestId("summary-chip-identity-holds")).toBeVisible();
+    await expect.poll(() => readHeldChip(page)).toBe(before + 2);
   });
 
   test("disclosure expands to all three summaries; a reload remounts it collapsed", async ({
     page,
   }) => {
+    await seedFixtures();
     await page.goto("/admin/needs-attention");
     const toggleId = `identity-hold-toggle-${showId(2)}`;
     await waitForHydration(page, toggleId);
@@ -256,6 +300,7 @@ test.describe("needs-attention identity holds: cards, badge, chip, clear-through
   test("card link opens the show's review surface with the MI-11 gate controls", async ({
     page,
   }) => {
+    await seedFixtures();
     await page.goto("/admin/needs-attention");
     await page.getByTestId(`needs-attention-link-identity-hold-${showId(1)}`).click();
     await expect(page).toHaveURL(new RegExp(`show=${slugOf(1)}`));
@@ -266,6 +311,12 @@ test.describe("needs-attention identity holds: cards, badge, chip, clear-through
   test("clear-through: rejecting show 1's only hold removes its card and decrements the badge", async ({
     page,
   }) => {
+    await seedFixtures();
+    await page.setViewportSize(MOBILE);
+    await page.goto("/admin");
+    const seededBadge = await readBadge(page);
+
+    await page.setViewportSize({ width: 1280, height: 800 });
     await page.goto(`/admin?show=${slugOf(1)}`);
     // Reject (not approve): approve needs a live Drive modifiedTime match plus a
     // crew_members row, neither of which is seedable here. Reject needs only the
@@ -281,6 +332,7 @@ test.describe("needs-attention identity holds: cards, badge, chip, clear-through
     await expect(page.getByTestId(`needs-attention-item-identity-hold-${showId(2)}`)).toBeVisible();
     await page.setViewportSize(MOBILE);
     await page.goto("/admin");
-    await expect(page.getByTestId("admin-attention-badge")).toHaveText("1");
+    // Exactly one fewer held show than the seeded state.
+    await expect.poll(() => readBadge(page)).toBe(seededBadge - 1);
   });
 });

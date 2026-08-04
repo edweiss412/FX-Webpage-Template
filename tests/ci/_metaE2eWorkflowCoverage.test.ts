@@ -143,6 +143,7 @@ const LOCAL_ONLY_ALLOWLIST: Record<string, string> = {
   "tests/e2e/help-typography.spec.ts": UNSEEN,
   "tests/e2e/layout-dimensions.spec.ts": UNSEEN,
   "tests/e2e/me-page.spec.ts": UNSEEN,
+  "tests/e2e/needs-attention-holds.spec.ts": PATH_GATED,
   "tests/e2e/needs-attention-page.spec.ts": UNSEEN,
   "tests/e2e/no-raw-codes.spec.ts": UNSEEN,
   "tests/e2e/notes-tile.spec.ts": UNSEEN,

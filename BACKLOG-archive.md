@@ -2665,3 +2665,19 @@ four shapes `buildShowReturnUrl` emits were 403ing, not only section deep links 
 an ordinary first-contact path. The two-step workaround in
 `tests/e2e/stage-restricted-crew-schedule.spec.ts` is retired at all three sites, and reverting the
 fix reds them, which is the end-to-end proof.
+
+## BL-NEEDS-ATTENTION-HOLDS-ROLLUP — RESOLVED (2026-08-03, `feat/needs-attention-holds-rollup`)
+
+## BL-NEEDS-ATTENTION-HOLDS-ROLLUP — pending MI-11 holds do not surface on the needs-attention page
+
+**Filed:** 2026-08-02 (retroactively; `docs/superpowers/specs/v1-pre-deployment-amendments/2026-06-10-mobile-needs-attention-design.md:285` lists it under §11 Deferred as a "BACKLOG candidate", and no row was created). **Class:** UX completeness. **Effort:** M (blocked on a read path).
+
+`/admin/needs-attention` rolls up the durable attention stream but shows no pending MI-11 holds, so a hold is visible only from the show it belongs to. Verified 2026-08-02: no cross-show holds read path exists in `lib/` or `app/`, which is the actual blocker — the page cannot roll up what nothing can query.
+
+**Work:** build the cross-show holds read, then add the rollup. Prerequisite first; the page change is small once the read exists. UI surface, so Opus-owned with the invariant-8 dual gate.
+
+**Status:** RESOLVED.
+
+**How it resolved:** the missing cross-show read landed as `lib/admin/identityHolds.ts` (service-role `sync_holds` read, `kind='mi11_pending'` on non-archived shows, bounded `.limit(HOLDS_ROW_CAP + 1)`) plus a pure `groupHoldRows` core shared by BOTH transports, so the needs-attention page, the dashboard inbox, the AdminNav badge, the mobile summary-card chip, and the daily digest all group holds identically (one card per show; a single hold shows its own summary, several collapse behind a count line and a disclosure). Spec `docs/superpowers/specs/2026-08-03-needs-attention-holds-rollup-design.md`, plan `docs/superpowers/plans/2026-08-03-needs-attention-holds-rollup.md`. Seeded e2e coverage in `tests/e2e/needs-attention-holds.spec.ts` pins the kind + archived filters, the badge counting SHOWS rather than rows, and reject clear-through.
+
+---
