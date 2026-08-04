@@ -26,7 +26,7 @@ Consequently these spec statements are **stale and superseded**, ratified by the
 | --- | --- |
 | §1 "`next/font/google` fetches from Google at build time… no lockfile entry, no hash" | **False today.** The binary is committed and checksummed. G2 and G3 are already satisfied by the current tree; this plan preserves them rather than achieving them. |
 | §3.3's seven Google **v20** subsets, their hashes, and the byte-identity claim | **Superseded.** Google's build has `ss04`, `zero`, `cv*` and the `opsz` axis **stripped** (`assets/fonts/PROVENANCE.md`, "Why upstream rather than Google Fonts"). Shipping them would revert `BL-INTER-NUMERAL-DISAMBIGUATION` and fail `tests/styles/fontFeatureAvailability.test.ts`. **One** face over the existing upstream binary ships instead. |
-| §3.4's Capsize table (90.44 / 22.52 / 0 / 107.12) | **Superseded.** `next/font/local` derives its override figures from *this* binary, not from a static family table; `DESIGN.md:139` already records `size-adjust: 107.89%` measured in the built output. Task 3 reads all four from a real build and pins those. |
+| §3.4's Capsize table (90.44 / 22.52 / 0 / 107.12) | **Superseded.** `next/font/local` derives its override figures from *this* binary, not from a static family table; `DESIGN.md:141` already records `size-adjust: 107.89%` measured in the built output. Task 3 reads all four from a real build and pins those. |
 | §4.2 "`fontkit` does not resolve in this repo today" | **False.** Declared at `package.json:126` as `^2.0.4`. No dependency task needed for it. |
 | The per-subset sweep over seven `unicode-range`s (§4.0, §4.1) | **Collapses to one.** The committed face has a single coverage band; there is no second subset to sweep. Non-Latin text falls back to the system font, which is the shipped behavior today and out of scope here. |
 
@@ -520,7 +520,7 @@ The guard is written first and must go red against a tree with no `app/fonts.css
   - `srcOf`, `weightOf`, `styleOf`, `displayOf`, `overridesOf`, `tokenDeclarations` — the accessors, ported from the spike rather than reimplemented
 <!-- spec-lint: ignore — new file created by this plan; not yet tracked -->
 
-  - **`assertFontsCss(css: string): void`** — runs every row against a stylesheet **string** and throws on the first violation. This is the entry point Task 7's mutation matrix drives; without it the rows are only callable against the file on disk and no mutant can be fed to them. `tests/styles/fontLoading.test.ts` holds the per-row `test()` bodies that name individual failures; every predicate lives here so Task 7 can call it.
+  - **`assertFontsCss(css: string, opts?: { shipped?: Array<{ label: string; css: string }> }): void`** — runs every row and throws on the first violation. Two inputs, because the rows need two: `css` is the fonts stylesheet, and `opts.shipped` is the **rest of the shipped stylesheet list** that rows 19, 20 and 21 iterate (`app/globals.css` plus the derived dependency sheets). Without that second channel the M16 dependency mutants cannot be driven at all — `dep-mutants.mjs` supplies exactly this via its `EXTRA_CSS` env var, and a single-string signature silently drops four of the plan's own mutation families. Defaults to reading the real derived list when omitted. `tests/styles/fontLoading.test.ts` holds the per-row `test()` bodies; every predicate lives here so Task 7 can call it.
 
 <!-- spec-lint: ignore — new file created by this plan; not yet tracked -->
 
@@ -564,10 +564,24 @@ function parseFontFaces(css: string) {
           const descriptors = new Map<string, unknown>();
           const duplicated: string[] = [];
           for (const property of rule.value.properties) {
+            // `FontFaceProperty` exposes `type` and `value`; there is NO
+            // `property` field. Reading `property.property` is both a compile
+            // error and `undefined` at runtime, which collapses every
+            // descriptor onto one key and leaves the face empty. The spike
+            // derives the name from `type`, mapping the two special cases:
+            //   { type: "source", ... }                    -> "src"
+            //   { type: "custom", value: { name, ... } }     -> value.name
+            //   { type: "font-family" | "font-style" | ... }  -> type
+            const name =
+              property.type === "custom"
+                ? (property.value as { name: string }).name
+                : property.type === "source"
+                  ? "src"
+                  : property.type;
             // CSS applies the LAST declaration; a guard that reads the first
             // checks behaviour the browser never exhibits (round 14).
-            if (descriptors.has(property.property)) duplicated.push(property.property);
-            descriptors.set(property.property, property.value);
+            if (descriptors.has(name)) duplicated.push(name);
+            descriptors.set(name, property.value);
           }
           descriptors.set("__duplicated", duplicated);
           faces.push({ family: String(descriptors.get("font-family") ?? ""), descriptors });
@@ -731,7 +745,7 @@ Expected: PASS, every row.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add app/fonts.css tests/styles/fontLoading.test.ts
+git add app/fonts.css tests/helpers/fontCss.ts tests/styles/fontLoading.test.ts
 git commit -m "feat(styles): declare the committed Inter face in app/fonts.css"
 ```
 
@@ -758,6 +772,10 @@ rg -ln 'from "\./fonts"|inter\.variable|NEXT_FONT_TEST_VARIABLE_CLASS' --glob '!
 
 `tests/assets/singleFontLoader.test.ts` — replace `CANONICAL_LOADER = "app/fonts.ts"` and its two assertions (lines 417, 440) with: no file in the repo-wide source census imports `next/font`, and exactly one file declares `@font-face`. **Keep the census walk exactly as it is** (`SOURCE_EXTENSIONS` and `TEXT_SCANNED_EXTENSIONS`, lines 163-164) — scoping it to `app/` is the already-refuted narrower reading a `components/`-hosted loader walks straight through.
 
+<!-- spec-lint: ignore — new file created by this plan; not yet tracked -->
+
+**Two censuses, not one, because they scan different file sets.** The `next/font`-import census keeps its existing extension list (`SOURCE_EXTENSIONS` = `.ts .tsx .mts .cts .js .jsx .mjs .cjs`, plus text-scanned `.mdx`) — that is the right set for import statements. But `@font-face` now lives in **`app/fonts.css`**, and `.css` is in neither list, so the "exactly one declaration site" assertion cannot see its own intended target. It gets a **second census over `.css` plus the source extensions** (a `@font-face` can be authored inside a template literal in a `.tsx`, which is mutant seven and the reason the source extensions stay in scope).
+
 **The exclusions are by path, named in the test, and there are THREE — not one.** Every one is a file whose job is to contain the thing the census forbids:
 
 - `docs/superpowers/specs/spikes/2026-08-03-harness-font-fidelity/` — the tracked spike corpus, which the spec already excludes for this reason
@@ -773,6 +791,8 @@ Exclusion is **by path, never by pattern**: a rule keyed on "looks like test dat
 <!-- spec-lint: ignore — new file created by this plan; not yet tracked -->
 
 `tests/styles/fontFeatureAvailability.test.ts:76` — derive the binary path from `app/fonts.css`'s `src` URL instead of the `app/fonts.ts` AST. **Keep the indirection**: naming `public/fonts/…` directly would keep passing after someone repointed the stylesheet, which is exactly what that file exists to close.
+
+**This one does NOT go red, and saying it would is false.** Task 4 moves the same bytes (`fada467…a54`) and Task 5 already writes CSS pointing at them, so the feature contract — every OpenType tag `app/globals.css` declares is present in the binary the resolver finds — holds before and after. Only the resolver changes. Its red-green proof is therefore a **mutation**, not a state: point the stylesheet's `src` at a fabricated path and confirm the test fails, then restore. Assert that, not a phantom failure.
 
 Run each retargeted file: `pnpm vitest run tests/assets/singleFontLoader.test.ts tests/observe/globalError.test.tsx tests/styles/fontFeatureAvailability.test.ts`
 <!-- spec-lint: ignore — new file created by this plan; not yet tracked -->
@@ -794,6 +814,21 @@ Expected: FAIL — `app/fonts.ts` still exists and still imports `next/font/loca
 ```
 
 `crossOrigin` is the JSX spelling; raw `crossorigin` fails `pnpm typecheck` against React's `LinkHTMLAttributes`. React 19 hoists it — `app/layout.tsx` renders `<html>` with no explicit `<head>`.
+
+<!-- spec-lint: ignore — new file created by this plan; not yet tracked -->
+
+**The preload needs its own failing assertion first, and neither the spike nor Task 5 has one.** The spec makes it a static row (the fourth escaping mutant: omitting the preload passes every other row, and `font-binding.spec.ts` cannot see it because it awaits `document.fonts.ready` and therefore cannot observe discovery latency). Add the row to `tests/styles/fontLoading.test.ts` in this task, watch it fail against a layout with no `<link rel="preload">`, then add the tag:
+
+```ts
+test("app/layout.tsx preloads the latin subset", () => {
+  const layout = readFileSync(resolve(REPO_ROOT, "app/layout.tsx"), "utf8");
+  expect(layout).toMatch(/rel="preload"/);
+  expect(layout).toMatch(/as="font"/);
+  expect(layout).toMatch(/type="font\/woff2"/);
+  expect(layout).toMatch(/crossOrigin=/);
+  expect(layout).toContain(PUBLIC_FONT_URL);
+});
+```
 
 `app/global-error.tsx`: same import swap, drop `className={inter.variable}` from its own `<html>` (line 31), and correct the comment at lines 7-13, which names `app/fonts.ts` and the loader.
 
@@ -820,7 +855,7 @@ None of these is executable, and every one of them would leave the tree assertin
 | --- | --- |
 | `app/globals.css:104` and `app/globals.css:111` | the token "is defined by next/font's generated class (`app/fonts.ts`)", and names the generated companion |
 | `app/show/[slug]/layout.tsx:18` | "The loader now lives at `app/fonts.ts`, shared by both" |
-| `tests/e2e/font-binding.spec.ts:5` and four more (54, 69, 100, 207) | "loaded via `next/font/local` from `app/fonts.ts`", and four references to "next/font's generated metric-matched companion" |
+| `tests/e2e/font-binding.spec.ts:5` and eleven more (54, 69, 100, 207, 217, 226, 271, 273, 289, 302, 307) | "loaded via `next/font/local` from `app/fonts.ts`", plus eleven further references to the loader and to "next/font's generated metric-matched companion". An earlier draft listed five and the sweep found twelve — correct all twelve, since a partial pass leaves the file self-contradicting |
 | `.github/workflows/crew-e2e.yml:11` | describes the font-binding oracle in terms of the loader |
 
 **`font-binding.spec.ts`'s ASSERTIONS do not change** — they read the family from the token and are agnostic to delivery (spec §4.2). Its comments and failure messages do.
@@ -847,6 +882,13 @@ The browser case PASSES (agnostic to delivery — green before and after is the 
 | `tests/docs/_retiredIdentifiers.ts:173` | the registry must NAME what was retired to register its historical exemptions. Note `--glob '!docs/**'` does not exclude `tests/docs/**` |
 | `tests/e2e/section-header-layout.layout.spec.ts:167` | still says "no `@font-face`, no next/font", and is corrected in Task 12 with the pin retarget it justifies, not here |
 | `docs/**` and `BACKLOG*.md` | history, already excluded above |
+<!-- spec-lint: ignore — new file created by this plan; not yet tracked -->
+
+| `app/fonts.css` | **only if its comment still names the retired mechanism** — see below |
+
+<!-- spec-lint: ignore — new file created by this plan; not yet tracked -->
+
+`app/fonts.css`'s header comment as drafted in Task 5 explains why the face is hand-written by contrasting it with `next/font`. That is genuinely useful context, but it puts the retired name in the one file the census is protecting. Resolve it deliberately rather than by accident: **reword the comment to describe the mechanism positively** ("the standalone harnesses have no Next runtime, so a build-time-generated face never reaches them") without naming the retired module. The rationale survives, the sweep stays clean, and no exclusion is needed.
 
 A fifth hit is the finding. This is the same evidence-versus-guard collision the spec solved for the tracked spike directory, and it resolves the same way: name the exceptions, do not widen the pattern.
 
@@ -931,6 +973,10 @@ git commit -m "test(styles): pin the static font guard with its mutation matrix"
 - Consumes: `parseFontFaces`, `EXPECTED_DESCRIPTORS`, `MEASURED_OVERRIDES` from **`tests/helpers/fontCss.ts`** (Task 5), and `PUBLIC_FONT_PATH` / `EXPECTED_SHA256` from `tests/helpers/fontManifest.ts` (Task 4). Both are Vitest-free modules, because `liveEntryToolchain.ts` runs inside Playwright processes.
 - Produces: the emitted-CSS contract every one of the 31 harnesses inherits.
 
+<!-- spec-lint: ignore — new file created by this plan; not yet tracked -->
+
+**The two guards parse different things, and only one of them may be strict.** Task 5 parses authored `app/fonts.css` — a file this plan writes — so it parses strictly and a syntax error there is a real defect. This task parses `compileEntryCss`'s **output**, which is ~174 KB of compiled Tailwind with an invalid attribute selector in it (see the parse row below), so it MUST pass `errorRecovery: true`. Copying Task 5's strict call here throws on every harness.
+
 **Which harness rows collapse under one face, and why that is not a weakening.** `harness-guard.mjs` ships H1-H9. H6 ("emitted faces map 1:1 onto the app faces by subset") and H7 ("each emitted face's range equals ITS OWN subset's app range") are round 23's repair of an existential-vs-map defect — over a **one-element domain** a bijection is not a claim, so both collapse, and the mutants they killed (filenames permuted among subsets, latin's bytes copied under all seven names) are void for the same reason. That is a consequence of the ratified one-face decision, not a coverage loss, and it is stated here so nobody reads the shorter row list as the old bug returning. H2, H3, H4, H5, H5b, H8 and H9 all survive at full strength.
 
 - [ ] **Step 1: Write BOTH failing guards — the Vitest rows and the browser case**
@@ -970,6 +1016,31 @@ test("the emitted descriptor inventory is exactly the expected set", () => {
   // Cross-block EQUALITY alone is satisfied by a rogue descriptor present in
   // BOTH blocks -- `size-adjust: 200%` scales real glyph outlines and kept
   // counts, pairings, URLs, hashes, display values, token and preload green.
+});
+
+test("exactly one Inter Fallback face is emitted, matching the app's", () => {
+  // M13. Every other row here filters or compares `Inter`, so DELETING the
+  // emitted fallback block passes all of them -- probed: emittedFallbackFaces=0
+  // with 10/10 rows still green. The harness would then lack the
+  // metric-matched swap-frame face while the emitted-block contract read as
+  // satisfied. Assert its presence, its count, and its descriptor equality
+  // against the app's fallback, exempting nothing.
+});
+
+test("the emitted stylesheet parses at all, and yields exactly one Inter face", () => {
+  // Parsing the emitted output requires `errorRecovery: true`, and that is NOT
+  // optional: the compiled Tailwind this block is appended to contains
+  //   .data-\[a\:b\]\:text-accent { &[data-a:b] { … } }
+  // generated from a literal string Tailwind's scanner picks out of
+  // tests/styles/_metaRawAccentText.test.ts:41. `[data-a:b]` is an invalid
+  // attribute selector, and lightningcss@1.32.0 THROWS on it rather than
+  // skipping the rule:
+  //   SyntaxError: Unexpected token in attribute selector: Colon (out.css:4681)
+  // Verified: with errorRecovery the same input parses and finds the face.
+  //
+  // So this row exists to keep a recovered parse honest -- a future Tailwind
+  // upgrade that breaks parsing must fail here, not silently recover into
+  // zero faces and pass every "no bad face" row vacuously.
 });
 ```
 
@@ -1228,8 +1299,15 @@ step3-schedule-bookend-layout, toggle-edge-layout, wizard-blocker-modal.layout
 
 - [ ] **Step 5: Run the meta-test and the standalone suite**
 
-Run: `pnpm vitest run tests/e2e/_metaFontFidelityWiring.test.ts && pnpm exec playwright test --config tests/e2e/standalone.config.ts`
-Expected: meta-test PASS — red at Step 1, green here, in one task. The standalone suite will show geometry failures: **that is expected and is Task 13's input**, not a defect. Record the failures; do not fix them here.
+```bash
+pnpm vitest run tests/e2e/_metaFontFidelityWiring.test.ts
+pnpm exec playwright test --config tests/e2e/standalone.config.ts
+pnpm exec playwright test --config tests/e2e/visual.config.ts
+```
+
+Expected: meta-test PASS — red at Step 1, green here, in one task. Both suites will show geometry failures: **that is expected and is Task 12's input**, not a defect. Record them; do not fix them here.
+
+**The second Playwright command is not optional.** `section-header-visual` is a `compileEntryCss` caller the standalone config does NOT resolve — `tests/e2e/visual.config.ts:36` is the only config matching it. Its import rewrite would otherwise go unexercised until the pixel rebaseline, and it is exactly the caller whose `boundingBox()` read precedes its screenshot.
 
 - [ ] **Step 6: Commit**
 
@@ -1252,38 +1330,48 @@ Per document. **Not** per file: 16 of the 25 create more than one document, and 
 
 Navigation sites are how the documents are **counted**, not where the await **goes**. In a loop body it lands once per iteration.
 
-- [ ] **Step 1: Write the failing coverage row, with an ORDER-AWARE algorithm**
+- [ ] **Step 1: Write the failing coverage row — anchored at the NAVIGATION SITE, not the test body**
 
-A count-based row is not enough, and the corpus proves it. In `tests/e2e/attention-pill-focus.spec.ts` the sites run:
+Two earlier formulations are dead, and both died on the corpus rather than on argument.
+
+**A count is not enough.** In `tests/e2e/attention-pill-focus.spec.ts` the navigation sits at line 104 and the first geometry read at 553-554. Hoisting the await to immediately after `goto` keeps the count at its expected value while settling the promise against a document with no measured content in it — the exact mis-anchoring the row claims to reject.
+
+**But a per-test-body region split cannot work either**, because navigation and geometry routinely live in different functions. AST-probed on this branch — every one of these files has a navigation-only helper:
 
 ```
-104  await page.goto(baseUrl)
-105  await page.waitForFunction(() => window.__hydrated === true)
-108  await page.evaluate(() => __setItems(...))     ← content appears here
-...
-554  el.getBoundingClientRect()                     ← first geometry read
+attention-pill-focus            boot
+hoverhelp-geometry              open, keyboardOpen
+popover-clip-fit                openMenu, openToggleBanner
+published-review-modal.layout   openHarness
+pusher-alignment.layout         open
+section-header-layout.layout    openHairline, sweepCell
+section-header-visual           openPage
+step3-review-modal.agenda       openAgenda
+step3-review-modal.interactions openLive, openLiveWithMotion, openMotion
+step3-review-modal.layout       openHarness
+wizard-blocker-modal.layout     openLive
 ```
 
-Inserting the wait immediately after line 104 keeps the count at the expected value while settling the promise against a document with no measured content in it. **That is exactly the mis-anchoring the row claims to reject, and a count cannot see it.**
+Associating an await inside `boot()` with a geometry read in the calling test needs an interprocedural call graph. Building one is out of proportion to what this guard protects, and a guard that needs one would either false-fail correct placements or silently skip those documents — both worse than a narrower rule that is exactly true.
 
-So the guard parses each caller with the TypeScript AST and, per document region, asserts an **order** rather than a total:
+**So the anchor is the navigation site itself, which is where the await physically goes.** For every navigation call in the file — wherever it lives, helper or test body — require a `document.fonts.ready` await that:
 
-1. Split each test body into document regions at every navigation site (`goto`, `setContent`, `reload`, `goBack`, `goForward`), treating a loop body as one region that repeats.
-2. Within a region, find the index of the first geometry read (`getBoundingClientRect`, `boundingBox()`, `offsetWidth`, `scrollWidth`, `clientWidth`) and the index of the `document.fonts.ready` await.
-3. Require the await to exist, to come **before** that first read, and to come **after** the region's last content-establishing statement — the readiness signal the caller already uses, in one of the four shapes the corpus contains:
+1. is in the **same function** as that navigation call, and
+2. appears **after** it, and
+3. appears after that function's last content-establishing statement, where one exists — the four readiness shapes the corpus uses:
 
    ```
-   page.waitForSelector(...)                             bulk-ignore-eyebrow.layout
-   await expect(page.locator(...)).toBeVisible()          collapse-panel-morph, wizard-blocker-modal.layout
-   page.getByTestId("harness-ready").waitFor(...)         hoverhelp-geometry
+   page.waitForSelector(...)                              bulk-ignore-eyebrow.layout
+   await expect(page.locator(...)).toBeVisible()           collapse-panel-morph, wizard-blocker-modal.layout
+   page.getByTestId("harness-ready").waitFor(...)          hoverhelp-geometry
    page.waitForFunction(() => window.__hydrated === true)  attention-pill-focus, popover-clip-fit
    ```
 
-   Only **2** of the 25 use `__hydrated`; the rule is "after this caller's own readiness signal", not after any one mechanism.
+   Only **2** of the 25 use `__hydrated`; the rule is "after this function's own readiness signal", never after one named mechanism.
 
-4. A region with no readiness signal at all requires the await after the last statement that mutates the document and before the first read.
+This is checkable with a single-function AST walk and needs no call graph. It is also **strictly weaker** than the per-document invariant §3.2 states, and the plan says so rather than pretending otherwise: it guarantees every navigation is followed by a wait in its own function, not that every measured document is awaited before its first read. The gap is a documented limit — a helper that navigates and awaits correctly, whose caller then mutates the document further before measuring, satisfies this row. **Nothing else available catches that without a call graph, and the per-document invariant remains the thing implementers are asked to satisfy; this row is the mechanical floor under it.**
 
-**Its own mutants, run in Step 3 (family M21):** (a) delete one await; (b) keep the count but hoist the await to immediately after `goto`; (c) put one await at the top of a file with two document regions; (d) move an await to after the first geometry read. All four must be rejected. Mutant (b) is the one that makes this an AST rule instead of a counter — if it survives, the row is decorative.
+**Its own mutants, run in Step 3 (family M21):** (a) delete one await; (b) keep the count but hoist the await above its navigation call; (c) move the await before the function's readiness signal; (d) add one await to a file with two navigation sites and leave the other bare. All four must be rejected. Mutant (b) is what makes this an order rule rather than a counter — if it survives, the row is decorative.
 
 Run it: FAIL for all 25 — every one has zero waits today, confirmed by probe.
 
@@ -1341,8 +1429,12 @@ git commit -m "test(e2e): await document.fonts.ready per measured document"
 
 - [ ] **Step 1: Run the standalone suite and record every failure**
 
-Run: `pnpm exec playwright test --config tests/e2e/standalone.config.ts --reporter=list`
-The suite run **is** the census — the set cannot be enumerated statically.
+```bash
+pnpm exec playwright test --config tests/e2e/standalone.config.ts --reporter=list
+pnpm exec playwright test --config tests/e2e/visual.config.ts    --reporter=list
+```
+
+The suite run **is** the census — the set cannot be enumerated statically. **Both configs**, because `section-header-visual` is a `compileEntryCss` caller that only `tests/e2e/visual.config.ts:36` resolves; running standalone alone silently skips one of the 28 font-sensitive callers, and specifically the one whose `boundingBox()` read precedes its screenshot.
 
 - [ ] **Step 2: Update each pinned figure to its measured value**
 
@@ -1521,20 +1613,22 @@ git commit -m "docs(plan): record the impeccable dual-gate dispositions"
 
 ## Task 16: Documentation and ledger, and the marker comes off HERE
 
-**Files:** `DESIGN.md:133`, `DESIGN.md:139`, `BACKLOG.md`, `BACKLOG-archive.md`
+**Files:** `DESIGN.md:133`, `DESIGN.md:139`, `DESIGN.md:141`, `BACKLOG.md`, `BACKLOG-archive.md`
 
 - [ ] **Step 1: Amend `DESIGN.md` §2.1**
 
 Line 133: replace the `next/font/local` mechanism sentence with the self-hosted stylesheet, naming both root import sites and the harness path. **The typeface commitment is unchanged** — call the amendment out explicitly so a later reader sees it was ratified, not drifted.
 
-Line 139: update the fallback-stack sentence to the live `--font-sans` value.
+Line 139: update the fallback-stack sentence to the live `--font-sans` value. Line 141 carries the `size-adjust` figure and is corrected in Step 5.
 
 Also note in §2.1 that the product ships a **monospace** family too. §2.1 commits to "a single contemporary sans for all UI" and never mentions mono, yet the tree renders it deliberately in many places. This change does not alter that typography; it records it, because the guard has to know about it and a design document that omits a shipped family misleads the next reader the same way it misled this one.
 
 - [ ] **Step 2: Verify the guard row holds**
 
 Run: `pnpm vitest run tests/styles/fontLoading.test.ts -t "DESIGN"`
-Expected: PASS. The row compares the `DESIGN.md` sentences against the live `app/globals.css` value, so G5 cannot regress silently.
+Expected: PASS.
+
+**That `-t` filter only works if the row exists and is named for it.** Neither `static-guard.mjs` nor any earlier task defines a DESIGN-parity row today, so Task 5 must add one titled with the word `DESIGN` — asserting the `DESIGN.md` §2.1 mechanism sentence and the fallback-stack sentence match the live `app/globals.css` value. Without it this command matches zero tests, exits 0, and reports success on a check that never ran.
 
 - [ ] **Step 3: Graduate the ledger entry, and STRIP the marker in the same commit**
 
@@ -1550,9 +1644,9 @@ Move `BL-HARNESS-FONT-FIDELITY` to `BACKLOG-archive.md` at its terminal state, a
 Run: `pnpm vitest run tests/docs`
 Expected: PASS — including `_metaLedgerInProgress` (no in-flight entry in an archive, and no flight field without the status that explains it) and `_metaInvariant8Closeout`, which Task 15 already turned green.
 
-- [ ] **Step 5: Correct `DESIGN.md:139` to what Task 3 measured**
+- [ ] **Step 5: Correct `DESIGN.md:141` to what Task 3 measured**
 
-`DESIGN.md:139` currently records `size-adjust: 107.89%` "measured in the built output". That figure matches the spec's *latin-only* derivation, while the committed binary is latin + latin-ext and its vertical metrics (ascent 96.88%, descent 24.12%, line-gap 0%) match the *latin-ext* row. Whatever Task 3 read out of the real build is the truth; replace the recorded figure with it rather than leaving two published numbers that disagree.
+`DESIGN.md:141` currently records `size-adjust: 107.89%` "measured in the built output". That figure matches the spec's *latin-only* derivation, while the committed binary is latin + latin-ext and its vertical metrics (ascent 96.88%, descent 24.12%, line-gap 0%) match the *latin-ext* row. Whatever Task 3 read out of the real build is the truth; replace the recorded figure with it rather than leaving two published numbers that disagree.
 
 - [ ] **Step 6: Commit**
 
@@ -1577,7 +1671,13 @@ Expected: clean, or every hit explained by the ratified deviation.
 
 - [ ] **Step 3: Whole-diff cross-model review to APPROVE**
 
-Dispatch via `codex-guard`, **split into tight-scope reviews** (app+styles; harness toolchain+fixture; census+wiring) rather than one whole-diff attempt. Every brief carries: fresh-eyes posture, `REVIEWER ONLY`, the consequence bound, the threat-model fence, the mutation-family closure set from this plan, and an `EXPLICITLY DO NOT RELITIGATE` block naming the §4.0 SCOPE DECISION and the ratified deviation above, each cited at `file:line`.
+**Two kinds of review, and the second is not optional.**
+
+First, **three tight-scope dispatches** via `codex-guard` — app+styles; harness toolchain+fixture; census+wiring — because whole-diff reviews died silently on four consecutive PRs and split scopes are the project default for a diff this size (`AGENTS.md`, "Split tight-scope reviews are the default").
+
+Then a **separate whole-milestone fresh-eyes pass** over the entire diff. Per `AGENTS.md` ("Whole-milestone close-out is its own gate"), per-scope reviews catch defects inside their scope; **integration defects between scopes are invisible to all three** — and this diff has exactly that shape, since the app stylesheet, the toolchain post-step and the runtime oracle are three surfaces that must agree about one face. Labelling the split dispatches "whole-diff" and stopping there is the failure that gate exists to prevent.
+
+Every brief carries: fresh-eyes posture, `REVIEWER ONLY`, the consequence bound, the threat-model fence, the mutation-family closure set from this plan, and an `EXPLICITLY DO NOT RELITIGATE` block naming the §4.0 SCOPE DECISION and the ratified deviation above, each cited at `file:line`.
 
 - [ ] **Step 4: Push and get REAL CI green**
 
@@ -1668,6 +1768,27 @@ Findings and dispositions go here.
 - **`gh run list --limit 1` can attach to another branch's run**; now `--branch`-scoped.
 
 Found in the same pass by self-verification: all 33 harness servers serve the copied `.woff2` as `text/html` (fine by tolerance, so the guard now asserts the request succeeded); all 31 callers write `outFile` flat into the served directory, which is what makes one edit reach 31; the waits have four distinct existing anchor shapes and only 2 callers use `__hydrated`; `U+0301` is `.notdef` with a NON-zero advance of 1344 in this binary, so the probe filter needs both conditions and my test asserted only one; the fontkit arithmetic reproduces the spec's 130.0938px exactly against the new bytes; the descriptor inventory is **five**, not the spec's six, because `unicode-range` is a seven-subset artifact; and `DESIGN.md:139`'s recorded `size-adjust: 107.89%` disagrees with this binary's latin-ext metrics, so Task 16 must correct it to whatever Task 3 measures.
+
+## Round 3 review (Codex, 2026-08-04) — BLOCKING, all findings repaired
+
+6 BLOCKING, 3 HIGH, 1 MEDIUM, all accepted. Round 3 went at the parts rounds 1 and 2 had only described:
+
+- **The pasted Lightning CSS parser could not have compiled.** `FontFaceProperty` exposes `type` and `value`; there is no `property` field, so `property.property` is a type error and `undefined` at runtime, collapsing every descriptor onto one key. The spike derives names from `type` (`source` to `src`, `custom` to `value.name`) and the plan now does too.
+<!-- spec-lint: ignore — new files created by this plan; not yet tracked -->
+
+- **`tests/helpers/fontCss.ts` was still absent from its producing commit** despite round 2 claiming it fixed. It is staged now.
+- **The harness guard let the emitted `Inter Fallback` face vanish** — probed: delete it and 10/10 rows still pass, leaving the harness with no metric-matched swap face. New rows assert its presence, count and descriptor equality.
+- **The fixture's four per-vantage tests had no home**: inside the imported helper they would register four extra cases in each of the 31 callers. They get their own registered spec.
+- **The wait guard's per-test-body algorithm could not analyse the corpus** — navigation lives in helper functions (`boot()`, `open*()`) in eleven files while geometry lives in the test callback, which needs an interprocedural call graph. The anchor moved to the navigation site inside its own function, with the resulting weakening stated as a documented limit rather than hidden.
+- **Three red claims were vacuous**: `fontFeatureAvailability` cannot fail after retargeting (same bytes, same contract, only the resolver moves) so its proof is a mutation; the preload had no failing assertion anywhere; and `-t "DESIGN"` matched no test, so a green run proved nothing.
+- **`assertFontsCss(css)` could not drive the M16 dependency mutants** without a second input channel; it now takes the shipped-stylesheet list.
+<!-- spec-lint: ignore — new files created by this plan; not yet tracked -->
+
+- **Task 6's censuses collided with the planned tree**: the extension list excludes `.css`, so the one-declaration-site row could not see `app/fonts.css` at all; that file's own comment named the retired module; and `font-binding.spec.ts` had twelve references, not five.
+- **Close-out had only the three scoped reviews**, missing the separate whole-milestone fresh-eyes pass that exists because integration defects between scopes are invisible to every scoped review.
+- **The round-2 renumbering left a class of stale cross-references**, and one citation was wrong in a way that corrected me: `size-adjust: 107.89%` is at `DESIGN.md:141`, not `DESIGN.md:139`.
+
+Found by probe in the same window, and the most expensive one had nothing to do with the review: **`lightningcss@1.32.0` THROWS on `compileEntryCss`'s output.** Tailwind generates `&[data-a:b]` from a literal string its scanner picks out of `tests/styles/_metaRawAccentText.test.ts:41`; that is an invalid attribute selector and the parser refuses the whole 174 KB sheet rather than skipping the rule. The spike never hit it because it parses a minimal entry, not real output. `errorRecovery: true` fixes it, verified — so the two guards are deliberately asymmetric, and Task 8 says so. Also probed: `section-header-visual` is a caller only `visual.config.ts` resolves, so the geometry census must run both configs; three callers run under two configs each, so the fixture meets real app pages too; the harness binds the face through the CSS **literal** rather than the token, which nothing asserted; and the committed subset genuinely covers latin plus latin-ext only.
 
 ## Round 1 review (Codex, 2026-08-04) — BLOCKING, all findings repaired
 
