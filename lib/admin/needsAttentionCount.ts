@@ -81,8 +81,17 @@ export async function loadNeedsAttentionCount(
   // identity hold — one per show, matching the inbox's one-card-per-show
   // grouping, so the badge never over-counts a show holding several changes.
   // A holds fault degrades the whole badge (never a silently low count).
-  const holds = await (opts.loadHolds ?? loadOpenIdentityHolds)();
-  if (holds.kind === "infra_error") return { kind: "infra_error" };
+  // Wrapped for the same reason as the loader: an injected loadHolds or a
+  // future reader edit that throws must degrade the badge, not reject the
+  // request (invariant 9 — no infra fault escapes as a rejection).
+  let holdShowCount: number;
+  try {
+    const holds = await (opts.loadHolds ?? loadOpenIdentityHolds)();
+    if (holds.kind === "infra_error") return { kind: "infra_error" };
+    holdShowCount = holds.groups.length;
+  } catch {
+    return { kind: "infra_error" };
+  }
 
-  return { kind: "ok", count: pendingTotal + syncProblemCount + holds.groups.length };
+  return { kind: "ok", count: pendingTotal + syncProblemCount + holdShowCount };
 }

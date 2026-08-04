@@ -297,14 +297,25 @@ export async function loadNeedsAttention(opts: {
   // Fourth stream: open MI-11 identity holds, grouped per show (spec §5). The
   // reader owns its own service-role client, so it is threaded as a dependency
   // rather than sharing this loader's session client.
-  const holdsResult = await (opts.loadHolds ?? loadOpenIdentityHolds)();
-  if (holdsResult.kind === "infra_error") {
+  // Wrapped even though the reader returns a typed result: an INJECTED
+  // loadHolds (or a future reader edit) could throw, and a rejection here would
+  // escape the loader's all-or-nothing typed contract entirely.
+  let identityHolds: NeedsAttentionIdentityHoldInput[];
+  try {
+    const holdsResult = await (opts.loadHolds ?? loadOpenIdentityHolds)();
+    if (holdsResult.kind === "infra_error") {
+      return {
+        kind: "infra_error",
+        message: `identity holds read failed: ${holdsResult.message}`,
+      };
+    }
+    identityHolds = holdsResult.groups;
+  } catch (err) {
     return {
       kind: "infra_error",
-      message: `identity holds read failed: ${holdsResult.message}`,
+      message: `identity holds read threw: ${err instanceof Error ? err.message : String(err)}`,
     };
   }
-  const identityHolds: NeedsAttentionIdentityHoldInput[] = holdsResult.groups;
 
   return buildNeedsAttention({
     ingestions: ingestionRows.map((r) => ({

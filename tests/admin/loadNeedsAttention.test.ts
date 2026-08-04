@@ -615,4 +615,23 @@ describe("loadNeedsAttention identity holds", () => {
     });
     expect(bad).toEqual({ kind: "infra_error", message: expect.stringContaining("holds") });
   });
+
+  test("a THROWING holds reader resolves to infra_error rather than rejecting", async () => {
+    // The reader returns a typed result today, but an injected stub (or a future
+    // reader edit) can throw, and a rejection would escape the loader's
+    // all-or-nothing typed contract entirely (invariant 9).
+    const loadNeedsAttention = await loader();
+    await expect(
+      loadNeedsAttention({
+        cap: 20,
+        supabase: makeClient({}).client as unknown as InjectedClient,
+        loadHolds: async () => {
+          throw new Error("PROBE_HOLDS_REJECTION");
+        },
+      }),
+    ).resolves.toEqual({
+      kind: "infra_error",
+      message: expect.stringContaining("identity holds read threw"),
+    });
+  });
 });

@@ -324,9 +324,17 @@ describe("buildDigestModel identity holds", () => {
   });
 
   test("source pins the mi11_pending / archived / ordering SQL shape", () => {
-    const src = readFileSync("lib/notify/digest.ts", "utf8");
-    expect(src).toContain("kind = 'mi11_pending'");
-    expect(src).toContain("s.archived = false");
-    expect(src).toContain("order by sh.created_at desc, sh.id asc");
+    // Scoped to the sync_holds SQL literal with comments stripped, and the two
+    // predicates asserted as ONE conjunction. Three independent substring checks
+    // stay green when `and` becomes `or` — which would ship active undo_override
+    // rows and archived pending holds into the digest.
+    const raw = readFileSync("lib/notify/digest.ts", "utf8");
+    const src = raw.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+    const start = src.indexOf("from sync_holds sh");
+    expect(start, "the sync_holds SQL is gone entirely").toBeGreaterThan(-1);
+    const sql = src.slice(start, src.indexOf("`", start)).replace(/\s+/g, " ");
+    expect(sql).toContain("where sh.kind = 'mi11_pending' and s.archived = false");
+    expect(sql).toContain("order by sh.created_at desc, sh.id asc");
+    expect(sql).not.toMatch(/\bor\b/);
   });
 });

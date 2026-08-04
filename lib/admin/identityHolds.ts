@@ -102,6 +102,30 @@ export async function loadOpenIdentityHolds(deps?: {
     };
   }
 
+  // Everything below is inside its own guarded region. groupHoldRows calls
+  // shapeHoldEntry, which resolves copy through getRequiredDougFacing — a
+  // function that THROWS when a catalog code carries no Doug-facing copy
+  // (lib/messages/lookup.ts:124-130). A malformed proposed_value would
+  // therefore reject this promise and escape the typed contract, which is
+  // exactly what invariant 9 forbids: an infra fault must surface as a
+  // discriminable typed result, never as a rejection.
+  try {
+    return { kind: "ok", groups: groupHoldRows(normalizeHoldRows(rows)) };
+  } catch (err) {
+    return {
+      kind: "infra_error",
+      message: `sync_holds shaping threw: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+}
+
+/**
+ * Cap enforcement + embed flattening for the rows the reader read. Split out so
+ * the guarded region above is one expression; every throw inside (including a
+ * catalog-copy throw from the shared summary generator) lands in that catch.
+ */
+function normalizeHoldRows(input: RawHoldRow[]): IdentityHoldRow[] {
+  let rows = input;
   if (rows.length > HOLDS_ROW_CAP) {
     void log.warn("sync_holds row cap exceeded", {
       source: "admin.loadOpenIdentityHolds",
@@ -114,7 +138,7 @@ export async function loadOpenIdentityHolds(deps?: {
   // Flatten the shows!inner embed (object under a to-one FK, array under some
   // PostgREST shapes) and skip any row whose embed carries no slug — a dead
   // /admin?show=undefined link is worse than a missing card.
-  const flat: IdentityHoldRow[] = rows.flatMap((r) => {
+  return rows.flatMap((r): IdentityHoldRow[] => {
     const embed = r.shows as
       | { slug?: string; title?: string | null }
       | Array<{ slug?: string; title?: string | null }>
@@ -141,6 +165,4 @@ export async function loadOpenIdentityHolds(deps?: {
       },
     ];
   });
-
-  return { kind: "ok", groups: groupHoldRows(flat) };
 }

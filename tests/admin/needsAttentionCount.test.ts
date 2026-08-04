@@ -160,12 +160,26 @@ it("adds shows-with-holds via loadOpenIdentityHolds; a holds fault is not maskab
     summaries: ["s"],
     newestCreatedAt: "2026-08-03T00:00:00+00:00",
   });
+  // GRAIN-DISCRIMINATING fixture: 2 groups carrying 4 hold ROWS between them.
+  // With one summary per group, counting groups and counting rows both yield the
+  // same number and the test proves nothing; here 80 (groups) and 82 (rows) differ.
   const ok = await loadNeedsAttentionCount({
-    loadHolds: async () => ({ kind: "ok" as const, groups: [g("sA"), g("sB")] }),
+    loadHolds: async () => ({
+      kind: "ok" as const,
+      groups: [{ ...g("sA"), summaries: ["s1", "s2", "s3"] }, g("sB")],
+    }),
   });
-  expect(ok).toEqual({ kind: "ok", count: 80 }); // 31+47 pending + 0 sync-problem + 2 hold shows
+  expect(ok).toEqual({ kind: "ok", count: 80 }); // 31+47 pending + 0 sync-problem + 2 hold SHOWS (not 4 rows)
   const bad = await loadNeedsAttentionCount({
     loadHolds: async () => ({ kind: "infra_error" as const, message: "x" }),
   });
   expect(bad).toEqual({ kind: "infra_error" });
+
+  // A THROWING reader must degrade the badge, not reject the request.
+  const threw = await loadNeedsAttentionCount({
+    loadHolds: async () => {
+      throw new Error("PROBE_COUNT_HOLDS_REJECTION");
+    },
+  });
+  expect(threw).toEqual({ kind: "infra_error" });
 });

@@ -104,7 +104,9 @@ describe("loadOpenIdentityHolds", () => {
     // idOf(CAP-1)'s show and exclude idOf(CAP)'s (plan-R1 F11: membership, not length).
     const tieTs = "2026-08-01T00:00:00+00:00";
     const over = [
-      ...Array.from({ length: HOLDS_ROW_CAP - 1 }, (_, i) => holdRow(i, `s${i}`, { slug: `s${i}` })),
+      ...Array.from({ length: HOLDS_ROW_CAP - 1 }, (_, i) =>
+        holdRow(i, `s${i}`, { slug: `s${i}` }),
+      ),
       holdRow(HOLDS_ROW_CAP - 1, "sTieKept", { slug: "s-tie-kept" }, tieTs),
       holdRow(HOLDS_ROW_CAP, "sTieDropped", { slug: "s-tie-dropped" }, tieTs),
     ];
@@ -121,20 +123,54 @@ describe("loadOpenIdentityHolds", () => {
       "sync_holds row cap exceeded",
       expect.objectContaining({ source: "admin.loadOpenIdentityHolds" }),
     );
+    // Exactly once: a per-row warn would emit HOLDS_ROW_CAP times and drown the
+    // log, and toHaveBeenCalledWith alone stays green on a duplicate.
+    expect(
+      warnSpy.mock.calls.filter((c: unknown[]) => c[0] === "sync_holds row cap exceeded"),
+    ).toHaveLength(1);
     // Sentinel-limit pin (plan-R5 S3): a .limit(HOLDS_ROW_CAP) mutant would kill
     // the sentinel and the overflow warning while every other assertion stays green.
     expect(seenLimits.every((n) => n === HOLDS_ROW_CAP + 1)).toBe(true);
+  });
+
+  it("a malformed row that throws in SHAPING resolves to infra_error, never a rejection", async () => {
+    // proposed_value is nullable in the DDL (the kind-shape CHECK constrains it
+    // only for kind='mi11_pending'), so a row that bypassed the CHECK reaches
+    // shapeHoldEntry, which dereferences it. That throw happens OUTSIDE the
+    // query try/catch unless the shaping region is guarded too — and a rejected
+    // promise escapes the typed contract entirely (invariant 9).
+    const malformed = { ...holdRow(1, "sA", { slug: "a", title: "A" }), proposed_value: null };
+    const res = await loadOpenIdentityHolds({
+      client: clientReturning({ data: [malformed], error: null }),
+    });
+    expect(res).toEqual({
+      kind: "infra_error",
+      message: expect.stringContaining("sync_holds shaping threw"),
+    });
   });
 
   // Source pin (lockstep fence, plan Task 2 Step 3b): mocked clients cannot see
   // query filters, so a dropped archived filter (R6) or a dropped order (G7)
   // would leave every behavioral assertion above green.
   it("source pins the mi11_pending / archived / ordering / sentinel-limit query shape", () => {
-    const src = readFileSync("lib/admin/identityHolds.ts", "utf8");
-    expect(src).toContain('.eq("kind", "mi11_pending")');
-    expect(src).toContain('.eq("shows.archived", false)');
-    expect(src).toContain('.order("created_at", { ascending: false })');
-    expect(src).toContain('.order("id", { ascending: true })');
-    expect(src).toContain(".limit(HOLDS_ROW_CAP + 1)");
+    // Scoped to the ACTUAL query chain with comments stripped. A whole-file
+    // `toContain` passes when the operations are deleted and their literals
+    // survive in a comment, which is exactly the regression this pin exists to
+    // catch (archived filter or ordering dropped in a refactor).
+    const raw = readFileSync("lib/admin/identityHolds.ts", "utf8");
+    const src = raw.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+    const start = src.indexOf('.from("sync_holds")');
+    expect(start, "the sync_holds query chain is gone entirely").toBeGreaterThan(-1);
+    const end = src.indexOf(";", start);
+    const chain = src.slice(start, end);
+    for (const op of [
+      '.eq("kind", "mi11_pending")',
+      '.eq("shows.archived", false)',
+      '.order("created_at", { ascending: false })',
+      '.order("id", { ascending: true })',
+      ".limit(HOLDS_ROW_CAP + 1)",
+    ]) {
+      expect(chain, `missing from the sync_holds query chain: ${op}`).toContain(op);
+    }
   });
 });

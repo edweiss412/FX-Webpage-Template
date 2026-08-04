@@ -9,11 +9,14 @@
 //             source is the only pinnable tier — plan-R1 F12), and the island
 //             root carrying NO gap utility (CollapsePanel.tsx:22-25 spacing
 //             contract, spec R6-K3).
-//   BEHAVIOR — exercises every mode-crossing pair and the compound rows: mode
-//             elements mount/unmount without throwing, an in-place summaries
-//             change while expanded updates the panel, and a count drop to
-//             exactly 1 while expanded unmounts the island (mode boundary wins
-//             over disclosure state, spec R7-L2).
+//   BEHAVIOR — every mode-crossing pair in the inventory plus all three compound
+//             rows: single<->multi mount/unmount, the collapsed->expanded morph
+//             AND its reverse via a second user toggle, (a) an in-place summaries
+//             change while expanded, (b) the whole group clearing while expanded,
+//             (c) a refresh landing while open, and the count dropping to exactly
+//             1 while expanded (mode boundary wins over disclosure state, R7-L2).
+//             The refresh-REMOUNT row is a full document load, which jsdom cannot
+//             stage; the e2e spec pins it (tests/e2e/needs-attention-holds.spec.ts).
 import { readFileSync } from "node:fs";
 import { render, screen, fireEvent, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -131,10 +134,74 @@ describe("identity_hold transition audit — behavioral tier", () => {
     expect(within(panelAfter).queryByText("two")).toBeNull();
   });
 
+  it("multi-expanded → multi-collapsed by a SECOND user toggle (the reverse morph)", () => {
+    // The inventory lists the user-toggle collapse as its own row. Expanding once
+    // and never collapsing leaves that row unexercised, and a handler that only
+    // ever sets open=true would pass every other case here.
+    renderInbox([holdItem(["one", "two", "three"])]);
+    const toggle = screen.getByTestId("identity-hold-toggle-sX");
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    // The panel stays MOUNTED through the collapse (height morph, not unmount)
+    // and returns to inert.
+    const panel = document.getElementById("identity-hold-panel-sX");
+    if (!panel) throw new Error("panel unmounted on collapse - that is not the morph contract");
+    expect(panel.hasAttribute("inert")).toBe(true);
+  });
+
+  it("compound (b): the whole group clears while expanded — card unmounts, no exit animation", () => {
+    const { rerender } = renderInbox([holdItem(["one", "two"])]);
+    fireEvent.click(screen.getByTestId("identity-hold-toggle-sX"));
+    expect(screen.getByTestId("identity-hold-toggle-sX").getAttribute("aria-expanded")).toBe(
+      "true",
+    );
+
+    // An approve deletes every hold row for the show, so the next payload carries
+    // no item for it at all.
+    rerender(
+      <NeedsAttentionInbox
+        items={[]}
+        totalCount={0}
+        renderedCount={0}
+        overflowCount={0}
+        now={NOW}
+      />,
+    );
+    expect(screen.queryByTestId("needs-attention-item-identity-hold-sX")).toBeNull();
+    expect(document.getElementById("identity-hold-panel-sX")).toBeNull();
+    expect(screen.queryByTestId("identity-hold-toggle-sX")).toBeNull();
+  });
+
+  it("compound (c): a toggle DURING a refresh keeps local open state and the refreshed payload", () => {
+    // Local island state and the server payload update independently; the island
+    // must not reset just because new children arrived.
+    const { rerender } = renderInbox([holdItem(["one", "two", "three"])]);
+    const toggle = screen.getByTestId("identity-hold-toggle-sX");
+    fireEvent.click(toggle);
+    rerender(
+      <NeedsAttentionInbox
+        items={[holdItem(["one", "refreshed", "three"])]}
+        totalCount={1}
+        renderedCount={1}
+        overflowCount={0}
+        now={NOW}
+      />,
+    );
+    expect(screen.getByTestId("identity-hold-toggle-sX").getAttribute("aria-expanded")).toBe(
+      "true",
+    );
+    const panel = document.getElementById("identity-hold-panel-sX") as HTMLElement;
+    expect(within(panel).getByText("refreshed")).toBeTruthy();
+  });
+
   it("compound: count drops to exactly 1 while expanded — mode boundary unmounts the island (R7-L2)", () => {
     const { rerender } = renderInbox([holdItem(["one", "two"])]);
     fireEvent.click(screen.getByTestId("identity-hold-toggle-sX"));
-    expect(screen.getByTestId("identity-hold-toggle-sX").getAttribute("aria-expanded")).toBe("true");
+    expect(screen.getByTestId("identity-hold-toggle-sX").getAttribute("aria-expanded")).toBe(
+      "true",
+    );
 
     const next = [holdItem(["only"])];
     rerender(

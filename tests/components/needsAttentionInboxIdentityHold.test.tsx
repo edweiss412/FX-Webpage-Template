@@ -38,7 +38,9 @@ describe("identity_hold card", () => {
     expect(within(card).getByText("Jane Doe's email is changing")).toBeTruthy();
     const link = within(card).getByTestId("needs-attention-link-identity-hold-sX");
     expect(link.getAttribute("href")).toBe("/admin?show=spring-gala");
-    expect(link.getAttribute("aria-label")).toBe("Review held change for Spring Gala (spring-gala)");
+    expect(link.getAttribute("aria-label")).toBe(
+      "Review held change for Spring Gala (spring-gala)",
+    );
     expect(link.textContent).toContain("Review"); // visible text (plan-R8 V2)
     expect(link.className).toContain("min-h-tap-min"); // shared reviewLinkClass (NeedsAttentionInbox.tsx:27-28)
     expect(within(card).queryByTestId("identity-hold-toggle-sX")).toBeNull();
@@ -65,10 +67,17 @@ describe("identity_hold card", () => {
     );
     expect(linkCollapsed.textContent).toContain("Review"); // visible text, not aria-only (plan-R8 V2)
     expect(linkCollapsed.className).toContain("min-h-tap-min"); // shared reviewLinkClass tap floor (NeedsAttentionInbox.tsx:27-28)
-    // OUTSIDE the always-mounted panel subtree: a link nested in the collapsed
-    // inert CollapsePanel region would still "exist" (CollapsePanel.tsx:53-64).
+    // The panel is ALWAYS mounted (CollapsePanel height-morph), which is what
+    // makes aria-controls resolve while collapsed. Assert that unconditionally:
+    // the previous `if (panelPre)` guard silently vanished on an implementation
+    // that mounted the panel only after expansion, leaving aria-controls
+    // dangling AND skipping the containment check below.
     const panelPre = document.getElementById("identity-hold-panel-sX");
-    if (panelPre) expect(panelPre.contains(linkCollapsed)).toBe(false);
+    if (!panelPre) throw new Error("panel must be mounted while collapsed (aria-controls target)");
+    expect(panelPre.hasAttribute("inert")).toBe(true); // collapsed subtree leaves tab order + AT tree
+    // The footer link must live OUTSIDE that inert subtree, or it is unreachable
+    // exactly while collapsed.
+    expect(panelPre.contains(linkCollapsed)).toBe(false);
     const toggle = within(card).getByTestId("identity-hold-toggle-sX");
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
     expect(toggle.getAttribute("aria-controls")).toBe("identity-hold-panel-sX");
@@ -93,6 +102,47 @@ describe("identity_hold card", () => {
     expect(within(panel).queryByText("summary 10")).toBeNull();
     const more = within(panel).getByText(`and ${summaries.length - 10} more`);
     expect(more.className).toContain("tabular-nums"); // spec R5-J2
+  });
+
+  it("EXACTLY ten summaries: all ten render and no tail line appears (cap boundary)", () => {
+    // The off-by-one that a 13-summary case cannot catch: at exactly the cap the
+    // list is complete and "and 0 more" must NOT render.
+    const summaries = Array.from({ length: 10 }, (_, i) => `boundary ${i}`);
+    renderInbox([holdItem({ summaries, copy: "10 held changes waiting" })]);
+    fireEvent.click(screen.getByTestId("identity-hold-toggle-sX"));
+    const panel = document.getElementById("identity-hold-panel-sX") as HTMLElement;
+    for (const s of summaries) expect(within(panel).getByText(s)).toBeTruthy();
+    expect(within(panel).queryByText(/and \d+ more/)).toBeNull();
+  });
+
+  it("null title: the toggle and the expanded Hide-details name both fall back to the slug", () => {
+    renderInbox([holdItem({ title: null, summaries: ["a", "b"], copy: "2 held changes waiting" })]);
+    const toggle = screen.getByTestId("identity-hold-toggle-sX");
+    expect(toggle.getAttribute("aria-label")).toBe(
+      "Show details for 2 held changes for spring-gala",
+    );
+    fireEvent.click(toggle);
+    // The verb flips with state, so the collapsed name alone does not pin it.
+    expect(toggle.getAttribute("aria-label")).toBe(
+      "Hide details for 2 held changes for spring-gala",
+    );
+    expect(toggle.textContent).toContain("Hide details");
+  });
+
+  it("empty-string title: the FOOTER link name also falls back to the slug", () => {
+    renderInbox([holdItem({ title: "", summaries: ["a", "b"], copy: "2 held changes waiting" })]);
+    expect(
+      screen.getByTestId("needs-attention-link-identity-hold-sX").getAttribute("aria-label"),
+    ).toBe("Review held changes for spring-gala");
+  });
+
+  it("a long summary is rendered in full, not truncated at the data layer", () => {
+    // Overflow is a CSS concern; what a jsdom test CAN pin is that the component
+    // never shortens the string itself (a silent slice would lose the addresses).
+    const long = `Jane Doe's email is changing from ${"a".repeat(120)}@old.com to ${"b".repeat(120)}@new.com`;
+    renderInbox([holdItem({ summaries: [long], copy: long })]);
+    const card = screen.getByTestId("needs-attention-item-identity-hold-sX");
+    expect(card.textContent).toContain(long);
   });
 
   it("empty-string title: accessible names still carry slug via the truthy fork", () => {

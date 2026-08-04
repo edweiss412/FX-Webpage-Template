@@ -108,10 +108,23 @@ describe("held-changes copy contract — phrase tier", () => {
     expect(normalized("tour")).not.toContain("Each queue is scoped to one show");
     // Sync-problem cards DO clear themselves, so the absolute claim is wrong.
     expect(norm(dashboardSlices().inventory)).not.toContain("Nothing here clears itself.");
+    // review-queues now presents THREE rows, so the intro count must match.
+    expect(normalized("reviewQueues")).toContain("Three kinds of change need your attention");
   });
 
-  it("replacement behavior: the inventory says which cards clear on their own", () => {
-    expect(dashboardSlices().inventory).toMatch(/sync problem cards clear on their own/i);
+  it("replacement behavior: BOTH auto-clear paths are named, not just the sync-problem one", () => {
+    // The original copy claimed "Nothing here clears itself", which was false for
+    // sync problems. The first repair said sheets and held changes "stay until you
+    // act", which is false the other way: an open mi11_pending hold is DELETED
+    // when the sheet reconciles to the held identity (mi11Reconciled -> deleteHold,
+    // lib/sync/holds/holdAwareApply.ts:121-171), so a held change can leave the
+    // inbox with no decision from Doug. Pin both halves so neither can regress.
+    const { inventory } = dashboardSlices();
+    expect(inventory).toMatch(/sync problem card goes once the sheet is readable again/i);
+    expect(inventory).toMatch(/held change goes if the sheet is edited back/i);
+    // and the absolute claim in either direction stays gone
+    expect(norm(inventory)).not.toContain("Nothing here clears itself.");
+    expect(norm(inventory)).not.toContain("stay in the inbox until you act on them");
   });
 });
 
