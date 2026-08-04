@@ -52,7 +52,7 @@ Declared before tasks, per `docs/agents/writing-plans.md:16`.
 
 | Meta-test | Action |
 |---|---|
-| `tests/components/admin/review/sectionFreshnessCss.test.ts (new)` | **CREATES.** Pins the constant against its declaration, the normative CSS block byte for byte, the four keyframe names, the `-1` and `-2` bodies being identical apart from name, the reduced-motion override, and the staged surface emitting nothing. |
+| `tests/components/admin/review/sectionFreshnessCss.test.ts (new)` | **CREATES.** Pins the constant against its declaration, the normative CSS block byte for byte, the two keyframe names, the `-1` and `-2` bodies being identical apart from name, the reduced-motion override, and the staged surface emitting nothing. |
 | `tests/styles/status-token-contrast.test.ts` | **EXTENDS.** Rows for the outline against both grounds it touches. The `--color-accent-tint` background this row once named was cut on design review before implementation; the cue animates `outline-color` only. |
 | `tests/ci/_metaE2eWorkflowCoverage.test.ts` | **RUNS, does not extend.** Both e2e additions land in specs that already have a `testMatch` row and a workflow. Running it is the proof of that claim, not an assumption. It is NOT sufficient on its own, for the reason in T5: it treats a `grep`-narrowed invocation as still covering the spec (`tests/ci/_metaE2eWorkflowCoverage.test.ts:207-208`), so coverage at spec granularity does not imply coverage at case granularity. |
 | `tests/auth/advisoryLockRpcDeadlock.test.ts` | **N/A.** No `pg_advisory` call is added or touched; no SQL of any kind is in the diff. |
@@ -160,7 +160,7 @@ CSS-only, so it lands before any JS wiring and the structural pins can go RED ag
 
 Then add the spec §4.5 block verbatim to `app/globals.css`, immediately after the share-link block so the three one-shot flashes read as a family.
 
-Then `DESIGN.md` §5.5 gains the entry in the animation-durations list: name, owning module, both keyframe pairs, the reduced-motion posture, and the four measured ratios, in the shape the `SHARE_LINK_FLASH_MS` entry already uses at `DESIGN.md:295`.
+Then `DESIGN.md` §5.5 gains the entry in the animation-durations list: name, owning module, both keyframes, the reduced-motion posture, and the four measured ratios, in the shape the `SHARE_LINK_FLASH_MS` entry already uses at `DESIGN.md:295`.
 
 **Anti-tautology note on N2.** Comparing the stylesheet against the spec's fenced block is only meaningful if the fence is located by content rather than by index; the test extracts the fence following the §4.5 heading and asserts the block sits at brace depth zero in `app/globals.css` with an end-of-file balance self-check, mirroring `tests/components/admin/showpage/shareHubFlashTransitions.test.ts`.
 
@@ -342,11 +342,25 @@ they did not already see.
 
 Round 4 touched one MORE file under `components/`, and it is a real rendering
 component, so it is named rather than folded into the sentence above:
-`components/admin/review/AttentionBanner.tsx`. The change is two `export`
-keywords and their explaining comments — `FAILED_KEYS_CAP` and
-`usableFailedKeys` are now importable so the detector applies the SAME cap and
-the SAME key-dropping the banner renders under, instead of re-typing either.
-No JSX, no class, no token, no copy, and no control flow moved; `git diff` on
-that file is ten lines, all of them either the word `export` or a comment. A
-critique looks at what a surface shows and an audit at how it behaves, and
-neither changed.
+`components/admin/review/AttentionBanner.tsx`. `FAILED_KEYS_CAP` and
+`usableFailedKeys` moved to `components/admin/review/attentionBannerPaint.ts`
+and are re-imported, so the detector applies the SAME cap and the SAME
+key-dropping the banner renders under instead of re-typing either. No JSX, no
+class, no token, no copy, and no control flow moved.
+
+Round 5 does the same thing twice more, for the same reason, and the same
+disposition holds. `components/crew/AgendaScheduleBlock.tsx` gives up its
+private `driftNote`, and `components/admin/wizard/step3ReviewSections.tsx` its
+private `agendaOverflowNotes`; both move VERBATIM to the React-free
+`lib/agenda/agendaPaint.ts` and are re-imported at their original call sites.
+The detector now calls the shipped derivation rather than a second copy of it —
+which is the whole finding that forced round 5, since a re-typed derivation is
+what let the agenda projection hash a raw drift string the renderer never
+paints. Each function's body is unchanged character for character; what moved is
+the file it lives in.
+
+A critique looks at what a surface shows and an audit at how it behaves.
+Across rounds 4 and 5 the rendered output of every one of these components is
+byte-identical before and after — the extractions are provably paint-neutral,
+and the component tests over both files pass untouched. Neither gate has new
+material to evaluate.

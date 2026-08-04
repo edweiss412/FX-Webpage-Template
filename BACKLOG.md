@@ -86,6 +86,26 @@ S19's comment used to claim a behavioural twin lived in the realtime e2e. Round-
 
 **What would close it:** one case on `tests/e2e/published-review-modal.realtime.spec.ts` that arms a cue, begins a close, aborts it inside the flash window, and asserts no card carries the attribute on reopen. A real browser can drive the animated exit that jsdom cannot.
 
+## BL-FRESHNESS-PROJECTION-NARROWING — seven freshness projections hash a wider model than their renderer paints, so they can over-cue
+
+**Filed:** 2026-08-03 (class-sweep triggered by the whole-diff review of `feat/modal-freshness-cue`) · **Class:** correctness (cosmetic) · **Effort:** M (seven independent projections, each needing its own probe) · **Severity:** low
+
+`components/admin/review/sectionFreshness.ts` holds one contract: the signature reads what the RENDERER reads. The whole-diff review found two violations where the detector read NARROWER than the renderer, which is the severe direction — content changes on screen and no cue fires. Both are fixed (the diagrams `{current,pending}` unwrap; the agenda projection), as are the two further missed-cue instances the follow-up class-sweep turned up (the uncapped `roomHasScope` rail count; the strike/load-out entry cap exemption).
+
+The sweep also found seven places where the detector reads WIDER than the renderer. Each is over-cue only — the renderer collapses or drops something the detector already hashes, so the worst case is a card that flashes without a visible change, never a change that fails to flash:
+
+- **venue** — `googleLink` is gated through `isParseableUrl` before it reaches `VenueMapTile` (`step3ReviewSections.tsx:1253`); an unparseable-to-unparseable edit paints nothing.
+- **event** — `opening_reel` is painted as `stripOpeningReelText(text).trim()` (`:2224`).
+- **crew** — `date_restriction` is painted through `partialAttendanceLabel(..., { humanize: false })` (`:1682`), which collapses `kind:"none"`, ignores `days` for `unknown_asterisk`, and drops blank days.
+- **contacts** — `contactBlocks` drops any block with no name and no content rows (`:1155`), so an all-blank contact row moves the hash and nothing else.
+- **hotels** — names run through `.filter(hasContent)` and the dates through `formatIsoDate` (`:2726-2728`).
+- **transport** — inside a surviving leg, `assigned_names` is filtered by `hasContent` and date+time are joined into one `when` string (`:1351-1354`).
+- **packlist** — `packItemLabel` erases `TBD`/`N/A`/`TBA` from `cat`/`subCat` via `shouldHideGenericOptional` (`:2379-2380`).
+
+**Why backlog, not land-now:** each fix is an independent projection rewrite, and this project's finding-admissibility rule says a recognizer is not tightened without a probe demonstrating the corruption it prevents. Seven unprobed tightenings landed at merge time is precisely how a projection drifts from its renderer — the same failure this row documents. The severity asymmetry sets the ordering: a missed cue breaks the feature silently and was fixed immediately; an extra flash is visible, self-explaining, and costs nothing to leave.
+
+**What would close it:** per projection, a probe that renders the section with and without the candidate edit, asserts the HTML is byte-identical, then a `D`-row in `tests/components/admin/review/sectionFreshness.test.ts` asserting no cue. Import the shipped predicate rather than re-typing it — every instance above is a re-typed derivation waiting to happen. One further sweep claim, that the schedule day domain misses the `aggregateDays` bookends, was REFUTED by probe: `pick(d.dates, DATE_KEYS)` already covers them and `D20` pins it. Do not re-raise it.
+
 ## BL-SOURCE-ANCHORS-STALE-AFTER-FAILED-GID-FETCH — a preserved anchor map has no revision stamp, so a stale range reads as a valid deep link
 
 **Filed:** 2026-08-03 (surfaced by the cross-model review of the `fix/onboarding-cas-source-anchors` spec). **Class:** data fidelity. **Effort:** M (needs a schema decision first).
