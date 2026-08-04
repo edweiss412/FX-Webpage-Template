@@ -16,16 +16,16 @@ Every claim below was verified against this branch's merge base before drafting.
 | `Check` union has 5 members | `lib/specLint/types.ts:2` |
 | `CHECK_ORDER` maps every `Check` | `lib/specLint/run.ts:8` |
 | plans short-circuit out of section checks | `lib/specLint/sections.ts:27` |
-| `parseDoc` exposes `lines`, `fencedInfo`, `headings` | `lib/specLint/parse.ts:64` |
+| `parseDoc` exposes `lines`, `fencedInfo`, `headings` | `lib/specLint/parse.ts:65` |
 | waiver regex is prefix `spec-lint:`, so `<!-- task: -->` cannot collide | `lib/specLint/parse.ts:35` |
-| CLI renders checks from a literal list | `scripts/spec-lint.ts:44` |
+| CLI renders checks from a literal list | `scripts/spec-lint.ts:46` |
 | `--artifact` requires `--fallback` | `scripts/codex-guard.mjs:147` |
 | prompt composed once at startup | `scripts/codex-guard.mjs:254` |
 | result contract written by one function | `scripts/codex-guard.mjs:580` |
 | codex-guard test harness exists | `tests/codexGuard/harness.ts` |
 | specLint tests are per-module | `tests/specLint/run.test.ts`, `tests/specLint/cli.test.ts` |
 
-**Consequence for Task 2 that the spec did not pin:** `extractSpans` (`lib/specLint/parse.ts:38`) turns the marker's backticked `red=` command into an inline-code span, which the citation checker then sees as a candidate. Commands containing whitespace are excluded from the candidate domain by the ratified rule at `docs/superpowers/specs/2026-07-19-spec-lint.md:23`, so realistic `red=` values are safe — but a single-token dotted command (`` `foo.ts` ``) would be read as a citation. Task 2 pins this with an explicit fixture rather than leaving it to be discovered in review.
+**Consequence for Task 2 that the spec did not pin:** `extractSpans` (`lib/specLint/parse.ts:37`) turns the marker's backticked `red=` command into an inline-code span, which the citation checker then sees as a candidate. Commands containing whitespace are excluded from the candidate domain by the ratified rule at `docs/superpowers/specs/2026-07-19-spec-lint.md:23`, so realistic `red=` values are safe — but a single-token dotted command (`` `foo.ts` ``) would be read as a citation. Task 2 pins this with an explicit fixture rather than leaving it to be discovered in review.
 
 ## Meta-test inventory (mandatory declaration)
 
@@ -111,7 +111,7 @@ Add the citation-collision fixture the pre-draft pass surfaced: a marker whose `
 
 **RED.** Extend `tests/specLint/run.test.ts` with a plan-kind document producing a `taskContract` finding, and a spec-kind document with identical text producing none (AC-10). Extend `tests/specLint/cli.test.ts` asserting `taskContract` findings render under their own heading in the documented check order.
 
-**GREEN.** Add `"taskContract"` to the `Check` union (`lib/specLint/types.ts:2`), give it an entry in `CHECK_ORDER` (`lib/specLint/run.ts:8`), call `checkTaskContract` from `runLint`, and add it to the CLI's rendered check list (`scripts/spec-lint.ts:44`). Confirm the waiver machinery suppresses `taskContract` failures the same way it suppresses other hard findings, and pin that with a case — an undocumented interaction between the two is exactly the silent-acceptance hole §3.4 warns about.
+**GREEN.** Add `"taskContract"` to the `Check` union (`lib/specLint/types.ts:2`), give it an entry in `CHECK_ORDER` (`lib/specLint/run.ts:8`), call `checkTaskContract` from `runLint`, and add it to the CLI's rendered check list (`scripts/spec-lint.ts:46`). Confirm the waiver machinery suppresses `taskContract` failures the same way it suppresses other hard findings, and pin that with a case — an undocumented interaction between the two is exactly the silent-acceptance hole §3.4 warns about.
 
 **Verify.** AC-10. From this commit on, `pnpm spec:lint docs/superpowers/plans/2026-08-03-pre-review-gate-arms.md` checks this plan's own markers; run it and record the output in the commit body.
 
