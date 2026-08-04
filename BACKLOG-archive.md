@@ -8,6 +8,73 @@ Same split as [DEFERRED.md](./DEFERRED.md) ↔ [DEFERRED-archive.md](./DEFERRED-
 
 ---
 
+## BL-FITWITHINCLIP-CLIP-SCROLL-STALE — DEMOTED TO A DOCUMENTED LIMIT 2026-08-04
+
+Demoted by the 2026-08-04 ledger filing bar (AGENTS.md "Ledger filing bar (2026-08-04)"; procedure in
+`docs/superpowers/specs/2026-08-04-backlog-convergence-design.md` §2). The entry states its own
+disqualification in its body: "Not reachable on today's surfaces — every current clip ancestor is the
+review-modal panel (`overflow-clip`, non-scrolling). This is a latent gap in the hook's stated
+contract, not a live defect."
+
+**Verified 2026-08-04 against the live hook.** `components/admin/useFitWithinClip.ts:47-50` does
+accept any non-`visible` `overflowX`/`overflowY` as the clip edge, and the file registers no
+`scroll` listener at all — its signals are the two ResizeObservers around `:144`, a `transitionend`
+on the positioned element at `:173`, and a window `resize` at `:174`. So the gap is real as
+described. What makes it a documented limit rather than queue work is the second half: there is no
+scrolling clip ancestor in this tree, so the stale cap has nothing to be stale on, and the worst case
+if one ever appears is a cap computed against the pre-scroll geometry — a conservative
+under-measurement, not a wrong write.
+
+**THE LIMIT, recorded here rather than in the hook file.** `components/**` is an invariant-8 UI
+surface, and this arc's PR 1 is a docs/scripts/tests unit carrying `impeccable-gate: N/A`. Putting a
+comment block into the hook would have pulled a UI-surface file into a PR with no UI gate, so the
+archive entry is the limits record — one of the three locations §2.1 names, alongside a spec § and a
+guard-file header.
+
+> `findClippingAncestor` treats any non-`visible` overflow as the clip edge, including
+> `overflow-y: auto`, but the effect subscribes only to ResizeObserver, `transitionend` and window
+> resize. A clip ancestor that SCROLLS therefore leaves the computed cap stale until one of those
+> three fires.
+>
+> **Fix when prioritized:** a passive `scroll` listener on the resolved clip ancestor, routed through
+> the same coalescer as the other signals.
+>
+> **Un-defer trigger:** any surface gains a scrolling clip ancestor — i.e. `findClippingAncestor`
+> resolves to an element with `overflow-y: auto`/`scroll` rather than the review-modal panel's
+> `overflow-clip`.
+
+screen-disposition 2026-08-04: DEMOTE — self-declared unreachable on every current surface, worst
+case is a conservative under-measurement, and the limit now lives in this record with its un-defer
+trigger intact.
+
+The original entry follows verbatim, with its in-flight status marker removed on archiving per
+invariant 12 — archives categorically reject in-progress work.
+
+## BL-FITWITHINCLIP-CLIP-SCROLL-STALE — a SCROLLING clip ancestor is never re-measured on scroll
+
+**Effort:** S
+
+Surfaced by the non-degraded impeccable gate rerun on PR #658 (2026-08-02).
+
+`findClippingAncestor` (`components/admin/useFitWithinClip.ts`) accepts ANY non-`visible`
+overflow as the clip edge, which deliberately includes `overflow-y: auto` — a scrolling
+ancestor clips just as a `overflow-clip` panel does. But the effect subscribes to resize
+(ResizeObserver on the clip ancestor and the offsetParent), `transitionend`, and window
+resize. It never listens for `scroll`.
+
+So on a surface where the clip edge SCROLLS, the fitted cap is computed once against the
+ancestor's position at mount and then goes stale: scrolling moves the clip edge relative to
+the overlay without resizing anything, and nothing re-measures.
+
+Not reachable on today's surfaces — every current clip ancestor is the review-modal panel
+(`overflow-clip`, non-scrolling). This is a latent gap in the hook's stated contract, not a
+live defect.
+
+**Trigger:** the first consumer whose clip ancestor scrolls. Fix is a passive `scroll` listener
+on the resolved clip ancestor, routed through the same coalescer as the other signals.
+
+---
+
 ## BL-FINALIZE-CAS-ROLEFLAGS-NOTICE-DROP — RESOLVED (2026-08-04, PR #697 `fix/apply-undo-audit-fidelity`, merge `644f8bb06`)
 
 **The entry named ONE discard site; the class sweep found four.** The shape it describes — a path

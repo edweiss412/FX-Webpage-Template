@@ -991,33 +991,6 @@ a surface with many simultaneous overlays. Not worth a standalone change at two 
 
 ---
 
-## BL-FITWITHINCLIP-CLIP-SCROLL-STALE — a SCROLLING clip ancestor is never re-measured on scroll
-
-**Status:** IN PROGRESS · **Branch:** chore/backlog-convergence
-
-**Effort:** S
-
-Surfaced by the non-degraded impeccable gate rerun on PR #658 (2026-08-02).
-
-`findClippingAncestor` (`components/admin/useFitWithinClip.ts`) accepts ANY non-`visible`
-overflow as the clip edge, which deliberately includes `overflow-y: auto` — a scrolling
-ancestor clips just as a `overflow-clip` panel does. But the effect subscribes to resize
-(ResizeObserver on the clip ancestor and the offsetParent), `transitionend`, and window
-resize. It never listens for `scroll`.
-
-So on a surface where the clip edge SCROLLS, the fitted cap is computed once against the
-ancestor's position at mount and then goes stale: scrolling moves the clip edge relative to
-the overlay without resizing anything, and nothing re-measures.
-
-Not reachable on today's surfaces — every current clip ancestor is the review-modal panel
-(`overflow-clip`, non-scrolling). This is a latent gap in the hook's stated contract, not a
-live defect.
-
-**Trigger:** the first consumer whose clip ancestor scrolls. Fix is a passive `scroll` listener
-on the resolved clip ancestor, routed through the same coalescer as the other signals.
-
----
-
 ## BL-FITWITHINCLIP-DOUBLE-ANCESTOR-WALK — `findClippingAncestor` walks the tree twice per effect run
 
 Surfaced by the non-degraded impeccable gate rerun on PR #658 (2026-08-02).
@@ -1685,8 +1658,6 @@ Four route handlers build and return a complete `<html>` document as a string, s
 
 ---
 
----
-
 screen-disposition 2026-08-04: KEEP — and the entry's own dichotomy is REFUTED by a precedent already in the tree. The body argues both directions are bad ("either inlining an `@font-face` into each hand-built document, which is a SECOND font-delivery mechanism … or routing them through React"), but `app/auth/sign-out/route.ts:33` already takes a THIRD: an inline `body{font:16px/1.5 system-ui,sans-serif;…}` — a stack DECLARATION, not a delivery mechanism, with zero external assets and no React. Probed 2026-08-04: the other three documents (`app/api/auth/google/start/route.ts:24-37`, `app/api/auth/picker-bootstrap/route.ts:38-48`, `app/auth/callback/route.ts:49-62`) carry charset/title/viewport and nothing else, so they fall to browser-default serif while their sibling does not. Closing on `feat/sweep-ui-a11y` by extending the sign-out precedent to the other three; `app/auth/**` is an invariant-8 UI surface, which is why it lands on the dual-gate branch.
 
 ## BL-HARNESS-FONT-FIDELITY — the 31 standalone harnesses measure a different font than the product renders
@@ -1697,7 +1668,5 @@ screen-disposition 2026-08-04: KEEP — and the entry's own dichotomy is REFUTED
 The 31 standalone e2e harnesses route through `compileEntryCss` (`tests/e2e/helpers/liveEntryToolchain.ts:124-141`), which runs the Tailwind CLI over `app/globals.css` and serves the result as a static file beside harness-rendered markup. There is no Next.js runtime, so no `next/font` `@font-face` — they resolve `--font-sans`'s literal fallback pair and land on the ambient host font (SF Pro locally, DejaVu Sans on the Ubuntu runner). The product now renders Inter on every React-root surface; the harnesses measure something the product never shows.
 **Cost today is zero**, which is why this is backlog and not deferred: CI is green, and the one measurement that was font-sensitive carries a deliberate Arial / Liberation Sans metric-compatible pin with its reason inline (`tests/e2e/section-header-layout.layout.spec.ts:165-183`). Widening that tolerance is refused — it hides the finding.
 **Work:** give `compileEntryCss` a font asset to emit alongside the stylesheet it already writes, and an `@font-face` to match. It is a single choke point, so all 31 harnesses gain fidelity at once. The tradeoff to decide first: that is a SECOND font-delivery mechanism alongside `next/font`, and two sources for one family can drift. The alternative — self-hosting the face and having both the app and the harnesses read it — is a larger change that would supersede `DESIGN.md` §2.1's ratified `next/font` mechanism, so it needs a spec, not a patch.
-
----
 
 ---
