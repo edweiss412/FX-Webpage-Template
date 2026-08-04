@@ -135,9 +135,18 @@ describe("retired-identifier guard — synthetic family proofs", () => {
     // "dated record end to end" shape as BACKLOG-archive.md, so it archives.
     expect(isArchivePath("tests/fixtures/ledger-mass/2026-08-04.ledgers.json")).toBe(true);
     // Narrow by construction: ONE snapshot directory, never `tests/fixtures/`.
-    // A live fixture naming a retired component is still a defect to repair.
-    expect(isArchivePath("tests/fixtures/shows/raw/east-coast.md")).toBe(false);
-    expect(isArchivePath("tests/fixtures/RightNowCard.fixture.ts")).toBe(false);
+    // A live fixture naming a retired component is still a defect to repair,
+    // so its every sibling stays in the walk. Both paths are real files.
+    for (const sibling of [
+      "tests/fixtures/showForViewer.ts",
+      "tests/fixtures/diagrams/buildEmbeddedSampleXlsx.ts",
+    ]) {
+      // Cited by path, so a rename must not leave this asserting about a ghost:
+      // `isArchivePath` is pure string logic and would answer `false` either way.
+      expect(existsSync(join(ROOT, sibling)), `${sibling} no longer exists — pick a live sibling`)
+        .toBe(true);
+      expect(isArchivePath(sibling)).toBe(false);
+    }
     // The trailing slash is load-bearing — a prefix-sharing sibling is not covered.
     expect(isArchivePath("tests/fixtures/ledger-massive/x.json")).toBe(false);
   });
