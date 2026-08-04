@@ -4,8 +4,8 @@
 
 **Date:** 2026-08-03
 **Branch:** `chore/ledger-claim-visibility`
-**Backlog entries:** none opened for this work (see §9.1); one filed as a by-product (§9.2)
-**Status:** R6 repaired — 39 adversarial findings across six rounds plus 5 self-findings, all accepted, all closed
+**Backlog entries:** none opened for this work (see §9.1); two filed as by-products (§9.2, §9.3)
+**Status:** R7 repaired — 42 adversarial findings across seven rounds plus 5 self-findings, all accepted, all closed
 **Review note:** R1-R4 were Codex (cross-model). R5 and R6 were fresh-eyes Opus sessions, because Codex hit a usage limit resetting 2026-08-10; see §10
 **impeccable-gate: N/A — no UI surface**
 
@@ -148,7 +148,8 @@ sitting on a branch, invisible to any session reading main.
 `ledgerFiles` (:46), `ledgerItems` (:94), `isInProgress` (:119), `flightFieldsOn` (:120), and the
 `LedgerItem` type (:55), built on the private `fieldsOfLine` (:70). It is a distinct concern from
 `tests/docs/_ledgerMdast.ts`, whose `bodyDefinedIds` (:346) and `ledgerIds` (:390) handle id
-definition and reference integrity rather than meta-line fields. Only the field parser moves.
+definition and reference integrity rather than meta-line fields. The field logic moves; entry
+recognition does **not** move, it is replaced by that file's `extractEntries` (§3.1, R7 finding 1).
 
 ### 2.6 Where the guard will run
 
@@ -309,9 +310,43 @@ workflow** and the added work costs CI nothing.
 
 ### 3.1 `scripts/lib/ledger-fields.ts` — the shared field parser
 
-Moved verbatim from `tests/docs/_metaLedgerInProgress.test.ts`. **No network and no `git`**; the one
-piece of I/O is `ledgerFiles`'s single `readdirSync` of the repo root, which moves with the rest
-rather than being left behind. R6 finding 2 caught an earlier "a pure module, no I/O" here: taken
+Moved from `tests/docs/_metaLedgerInProgress.test.ts`. **No network and no `git`**; the one piece of
+I/O is `ledgerFiles`'s single `readdirSync` of the repo root, which moves with the rest rather than
+being left behind.
+
+**Entry boundaries come from the authoritative parser, not from a second grammar.** This is the one
+part that does not move verbatim. `tests/docs/_metaLedgerInProgress.test.ts:63` carries a local
+`HEADING` regex requiring an em dash after the id; `tests/docs/_ledgerMdast.ts:302`
+(`extractEntries`) is the repo's authoritative ledger walker and does not. R7 measured the
+divergence as live and silent:
+
+```
+$ grep -n 'BL-NULLCODE-STAMP-BATCH-2' BACKLOG.md
+537:## BL-NULLCODE-STAMP-BATCH-2 residuals (2026-07-03)
+
+field-parser HEADING match: False        # no em dash
+authoritative extractEntries:  True
+```
+
+A marker on that entry is attributed to the **preceding** entry, `BL-DEV-GATE-GALLERY-SPEC-ROT`,
+and nothing catches it: the file still parses 91 entries, so neither the per-file "parsed 0 entries"
+warning nor the §4.2 global vacuity gate fires. Silent misattribution is the worst failure this tool
+can produce — it does not merely miss a claim, it asserts a false one about a real entry. R7 found
+5 such mismatches across 20 refs, in `BACKLOG.md` and `DEFERRED-archive.md` both, in both directions
+(ids only the authoritative parser sees, and one only the legacy regex sees).
+
+So the shared parser module **consumes `extractEntries` for ids and spans** and owns only
+field extraction within a span. The local `HEADING` regex is deleted rather than moved; two grammars
+for one file format is the defect, and keeping the stricter one merely relabels it.
+
+Importing `tests/docs/_ledgerMdast.ts` from a script is safe and pinned: it is a plain module, not a
+test file, and `tests/docs/_metaLedgerReferentialIntegrity.test.ts` already bans `node:fs`,
+`node:path`, and `require(` inside it, so it cannot acquire I/O or side effects. Verified: the file
+has zero hits for any of the three. The import direction is still backwards architecturally, and
+relocating `_ledgerMdast.ts` beside its new consumer would be cleaner — deferred under exception (c)
+of `AGENTS.md:227`, since it spans four importers plus three hardcoded path exemptions in the
+referential-integrity guard, none of which this branch otherwise touches. Filed as
+`BL-LEDGER-MDAST-SHARED-HOME`. R6 finding 2 caught an earlier "a pure module, no I/O" here: taken
 literally it strands `ledgerFiles` in the test file, forcing the §3.2 reader to import a vitest
 module whose top-level `describe`/`it` run on import — precisely the coupling §2.8's
 precedent exists to avoid. It exports
@@ -440,7 +475,11 @@ Wired as `"ledger:claims": "tsx scripts/ledger-claims.ts"` in `package.json`.
      graduation path is covered by the archive-side hunk.
    - **A hunk spanning a heading boundary** attributes to every entry its range overlaps, not just
      the first.
-7. PR numbers, **display only**: `gh pr list --state open --json number,headRefName --limit 100`,
+7. PR numbers, **display only**, and **bounded at 10 s**: `gh` honors no timeout of its own (R7
+   probed `gh help environment` for one and found none), so an unresponsive call would otherwise
+   hang inside preflight's 15 s child and cost the whole table rather than one column. On timeout the
+   column is blank, exactly as when `gh` is absent.
+   `gh pr list --state open --json number,headRefName --limit 100`,
    joined on branch name. Absent, unauthenticated, or failing `gh` leaves the column blank and is
    never an error in any mode, because no claim resolution depends on it. Past 100 open PRs the
    column is simply incomplete for the overflow, which is why it may not be load-bearing: a query
@@ -823,6 +862,16 @@ so anything not excluded is scanned by default:
 | §7.1 / §7.2 reader tests | **Yes if** their planted ledgers use `BL-`-shaped ids, which they do |
 | The §3.1 shared parser module | No — contains no ids |
 | The §3.2 reader script | No — contains no ids |
+| **This spec document** | **Yes** — R7 finding 2 |
+
+The last row is the one an exhaustive-looking table missed twice. `tests/docs/_metaLedgerReferentialIntegrity.test.ts:106`
+walks every tracked `*.md`, and a spec is a tracked `*.md`. This document carries eight synthetic ids
+in its worked examples — `BL-SOME-OTHER-ROW` in §3.2's sample output, `BL-A` and `BL-B` in §3.3's
+usage line, and `BL-DEFINED` / `BL-MENTIONED` / `BL-COLON` / `BL-NESTED` / `BL-ONE` in §9.2's probe
+table — none of which resolves to a real entry. Registering only the *test* files would leave the
+guard red on the spec that asked for them. The real row §9.2 files
+(`BL-LEDGER-BODY-DEFINED-ID-OVERMINT`) is excluded from that count: it resolves, because §9.2 opens
+it.
 
 The rows land in the same commit as the file that needs them, never as a follow-up: a missing row
 fails CI immediately, so deferring it just means a red branch.
@@ -831,9 +880,30 @@ fails CI immediately, so deferring it just means a red branch.
 
 Two separate tasks, in this order, so the second is not confounded by the first.
 
-**7.4a — the extraction is behavior-preserving.** The existing planted-input suite runs against the
-imported module with no assertion changes; a diff to those assertions is itself the signal that
-§3.1's move was not clean.
+**7.4a — the extraction is behavior-preserving for fields, and deliberately widening for entries.**
+Two claims, tested separately, because R7 finding 1 made the second one true.
+
+*Fields.* The existing planted-input suite runs against the imported module with no assertion
+changes; a diff to those assertions is the signal that §3.1's move was not clean.
+
+*Entries.* Replacing the local `HEADING` regex with `extractEntries` makes the guard see entries it
+previously did not, so this is a widening of an existing guard and needs its own measurement rather
+than an assurance. Approximating `extractEntries` with a no-em-dash-required heading match across
+all four ledgers on `origin/main`:
+
+```
+BACKLOG.md:          91 recognized today,  2 newly visible
+BACKLOG-archive.md: 229 recognized today,  0 newly visible
+DEFERRED.md:         15 recognized today,  0 newly visible
+DEFERRED-archive.md:139 recognized today,  4 newly visible
+newly FLAGGED by any existing rule: 0
+```
+
+Six entries become visible and **none** trips an existing rule, so the switch widens coverage
+without turning main red. The approximation is stated as such: the implementation task re-runs this
+against the real `extractEntries` before the switch lands, and a non-zero newly-flagged count is a
+stop-and-reconcile, not a fix-forward — the entries it would flag are pre-existing ledger content
+this branch did not author.
 
 **7.4b — the guard adopts position-independent detection.** §2.7a measured that the 12-line window misses
 a live marker, and that the guard is therefore blind to a marker it is supposed to validate. This is
@@ -898,10 +968,14 @@ recognizable line, under **all three** exits that print `env ✓`: the default D
 `--no-db` (`scripts/preflight-env.mjs:132`), and `psql` absent from `PATH`
 (`scripts/preflight-env.mjs:142`).
 
-**The spawn arguments are asserted, not just the spawn.** R6 finding 3a: with only "the child was
-spawned and its output reached preflight" asserted, spawning it *without* `--no-fetch` passes every
-case here while restoring the 30 s fetch inside the 15 s budget that R5 finding 3 closed. The
-assertion names the flag.
+**`--no-fetch` is asserted behaviorally, not as an argument string.** R6 finding 3a caught the
+spawn-only version; R7 finding 3 caught the repair, which asserted the flag was *passed* and stopped
+there. An implementation that accepts `--no-fetch`, skips `git fetch`, and still runs the shortfall
+check's `ls-remote` satisfies an argument assertion while keeping an unbounded network call inside
+the 15 s budget — the same defect wearing the flag. The test therefore runs the real reader against
+a fixture with an unreachable remote and asserts it **completes**, which no implementation touching
+the network can do. A companion case asserts the same for `gh`: under `--no-fetch` the PR column is
+populated only if `gh` answers within its 10 s bound, and the table still prints when it does not.
 
 **The test must clear `CI` from the child's environment.** R5 finding 4: §3.4 suppresses the claims
 step under `CI`, and `tests/scripts/**` is not in `PARALLEL_TEST_GLOBS` (`vitest.projects.ts:86`) so
@@ -997,5 +1071,29 @@ inner timeout exceeding its outer bound, and a local-passes-CI-fails env leak �
 every probe in §2 — R5 catching that the absolute counts had already decayed, R6 re-verifying 40-odd
 `file:line` anchors clean. R6's findings were also the shape a converging review produces: one
 self-contradiction introduced by an R5 repair, three repairs that existed only in prose with no test
-pinning them, and two smaller gaps. What cannot be claimed is that a same-model round substitutes for a cross-model one in
-general; it did not here, and the disposition of that gap is the user's call, recorded here once made.
+pinning them, and two smaller gaps. What could not be claimed then was that a same-model round substitutes for a cross-model one, and
+R7 settled it in the negative. Codex's usage window reopened, R7 ran cross-model against the same
+document, and its first finding was a class six prior rounds had all walked past: the spec preserved
+a heading grammar requiring an em dash while the repository's authoritative ledger walker does not,
+so a marker on a live entry would have been **silently attributed to the preceding entry** with
+every vacuity gate satisfied. Two Opus rounds had reviewed the parser section and neither questioned
+the grammar, because both inherited the same assumption the implementer did — which is exactly the
+blind spot the cross-CLI discipline exists to cover, demonstrated rather than argued.
+
+The practical rule this run supports: a same-model round is a real gate and worth running when the
+cross-model one is unavailable, and it is not a substitute for one. R5 and R6 found 14 defects that
+would otherwise have shipped; R7 found one that neither could see.
+
+### 9.3 Filed as a by-product: `BL-LEDGER-MDAST-SHARED-HOME`
+
+§3.1 has `scripts/**` importing `tests/docs/_ledgerMdast.ts`. That direction is backwards, and the
+right repair is relocating the module beside its new consumer. Deferred under **exception (c)** of
+`AGENTS.md:227` — a redesign of a surface this branch does not otherwise touch, spanning four
+importers (`_metaDeferralLedgerGraduation.test.ts`, `_ledgerMdast.walker.test.ts`,
+`_metaLedgerReferentialIntegrity.test.ts`, and the new reader) plus three hardcoded path exemptions
+inside the referential-integrity guard that would all have to move in lockstep.
+
+The import is safe in the meantime, and pinned rather than merely asserted: `_ledgerMdast.ts` is a
+plain module rather than a test file, and `tests/docs/_metaLedgerReferentialIntegrity.test.ts`
+already forbids `node:fs`, `node:path`, and `require(` inside it, so it cannot acquire I/O or
+import-time side effects. Probed: zero hits for all three.
