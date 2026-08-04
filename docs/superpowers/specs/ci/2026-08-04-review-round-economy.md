@@ -412,3 +412,5 @@ Layer 1 would have failed on an unqualified `git log --merges` and on a first-pa
 - Grading, scoring, or classifying findings automatically (§7.2).
 - Any anti-tamper posture (§8.1).
 - Retroactive backfill of the historical corpus. The corpus starts empty and accumulates forward; the `/private/tmp` artifacts in §3 are a draft-time probe input, not a migration source.
+
+**This arc is invisible to its own gate, and that is correct.** The spec stage of the branch that introduces this system burned rounds before any writer existed to record them, so its arc is pre-adoption by construction (§9, limit 7). Backfilling them by hand to make the system's first customer be itself would be exactly the retroactive construction this section declines, and it would put un-recorded rounds in a corpus whose whole value is that every row was written by the wrapper at dispatch time. The first arc the gate can oblige is the first one dispatched after this merges.

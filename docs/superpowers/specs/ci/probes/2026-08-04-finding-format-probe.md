@@ -16,6 +16,8 @@ v1 reported n=45 and described it as "every last-message file present on the mac
 
 Every figure below is the recursive measurement. The v1 numbers (75% inferred / 24% none) are superseded; the direction of the conclusion is unchanged and the gap is wider.
 
+**`n` is as-of-run and grows.** The corpus is live scratch output, so every dispatch adds to it — a re-run during review r4 already read 682. The ratios are what the probe asserts; the absolute `n` is a timestamp, not a constant. Nothing re-runs this measurement (see Resolved scope), so no gate depends on the number.
+
 ## Question
 
 Can a durable round record extract a finding count from reviewer output by recognizing its shape, or must the count be declared?
