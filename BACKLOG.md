@@ -712,6 +712,24 @@ The rec-5 mutation-testing harness (`tests/parser/mutationHarness.test.ts`, nigh
 
 ---
 
+### BL-TASKCONTRACT-SORT-COMPARATOR-EQUALKEY — finding-order comparator is unpinnable for equal `(docLine, code)` pairs
+
+**Status:** OPEN (2026-08-04, `feat/mutation-gate-guard-surfaces`) · **Severity:** low · **Class:** TEST COVERAGE · **Effort:** S
+
+Two source mutants of the `findings.sort(...)` comparator at `lib/specLint/taskContract.ts:247` survive the suite and cannot be killed through the function's output: `a.code > b.code` → `>=` and the final `: 0` → `: 1`. Both are reached only when `a.docLine - b.docLine` is `0`, and each differs from clean behavior only when the two `code` values are ALSO equal — for unequal codes both take an identical path.
+
+Such a pair is reachable: `ac=AC-90,AC-91` with both ids unresolved emits two `TASK_AC_UNRESOLVED` findings on one line, sharing `(docLine, code)` and differing only in `message`. Probed against the real `checkTaskContract` on `node v20.20.1` — clean `AC-90,AC-91`; `>=` mutant `AC-90,AC-91`; `: 0`→`: 1` mutant `AC-90,AC-91`. Neither reorders.
+
+A **third** mutant of the same comparator, `a.code < b.code` → `<=`, was originally filed here and does NOT belong: it reverses the pair to `AC-91,AC-90`, so it is killable and was repaid by test in the same arc. It was misfiled because the first probe sorted elements identical in every field, a fixture that cannot express a reversal and therefore reported "no difference" for a mutant that plainly reorders real findings. That trap is recorded as documented limit **L-8** of `docs/superpowers/specs/ci/2026-08-04-source-mutation-guard-gate.md`.
+
+The two survivors are ledgered `accepted-gap` (not `equivalent`) in the source-mutation registry and counted as survivors, costing ~2.4 points of that surface's mutation score. `equivalent` would overclaim: an inconsistent comparator is implementation-defined in ECMA-262, so the argument rests on V8's stable sort rather than on control flow — documented limit **L-7** of the same spec.
+
+**Closing this** means making the comparator total so no equal-key pair exists — add a third tiebreak (e.g. `message`), after which both mutants become killable and their ledger rows go stale, which the gate reports rather than absorbs.
+
+**Deferred from `feat/mutation-gate-guard-surfaces` under class-sweep exception (a) — it needs a product decision this PR cannot settle.** Ordering for same-line, same-code findings is `spec:lint`'s user-visible report contract; that arc ships a mutation harness plus test debt and touches no `taskContract.ts` product code. The sweep itself was complete — all three comparator sites were found and classified together, one repaid and two ledgered — so this entry covers every remaining instance of the class, not one peer of several.
+
+---
+
 ### BL-EXPORT-BLANK-ROW-SEGMENTATION — blank-row block segmentation fuses/splits sections silently (audit #10)
 
 **Status:** PARTIALLY CLOSED (2026-07-27, `fix/export-blank-row-segmentation` — spec `docs/superpowers/specs/2026-07-27-export-blank-row-segmentation.md`) · **Severity:** medium · **Class:** EXPORT/PARSER ROBUSTNESS
