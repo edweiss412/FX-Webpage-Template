@@ -769,7 +769,7 @@ export async function Dashboard(
               >
                 <p>
                   Sheets and changes waiting on you: new shows to review, staged edits to approve,
-                  or sheets that couldn&apos;t be processed.
+                  held crew identity changes, or sheets that couldn&apos;t be processed.
                 </p>
               </HoverHelp>
             </div>
