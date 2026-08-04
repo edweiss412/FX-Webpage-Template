@@ -6,6 +6,14 @@ import {
   latestResetValidationDataBody,
   latestResetValidationDataFile,
 } from "../db/_resetRpcSource.js";
+import {
+  declaredFunctionNames,
+  extractFunctionBodies,
+  migrationFiles,
+  migrationsDefining,
+  readMigrationSource,
+  shippedFunctionBody,
+} from "../db/_sqlFunctionBodies.js";
 
 const ROOT = process.cwd();
 
@@ -24,8 +32,15 @@ function assertAdvisoryBeforeRowLock(label: string, name: string, body: string):
   ).toBe(true);
 }
 
-function lockTakingRpcNames(): string[] {
-  const migrationFiles = [
+/**
+ * Migrations that INTRODUCE a family of lock-taking RPCs. This list seeds NAME discovery only —
+ * every body is then resolved per FUNCTION to its last definition (see shippedLockTakerBodies), so
+ * a `create or replace` in a newer migration is followed automatically and a file here going stale
+ * costs nothing. A brand-new lock-taking function still needs an entry, which is the point: adding
+ * one is a deliberate topology decision (invariant 2).
+ */
+function lockTakerSeedMigrations(): string[] {
+  return [
     "supabase/migrations/20260502000000_dev_schema_clone.sql",
     "supabase/migrations/20260523000003_reset_picker_epoch_atomic.sql",
     "supabase/migrations/20260523000004_rotate_show_share_token.sql",
@@ -43,6 +58,7 @@ function lockTakingRpcNames(): string[] {
     "supabase/migrations/20260608000002_mi11_gate_rpcs.sql",
     // Sync changes-feed Phase 4 — undo_change acquires the per-show advisory lock itself
     // (admin path, §4.1); _undo_tombstone runs inside that lock and never re-takes it.
+    // Two later migrations `create or replace` undo_change; per-function resolution follows them.
     "supabase/migrations/20260608000003_undo_change_rpc.sql",
     // Task 2 — reset_validation_data() acquires the per-show advisory lock for
     // EVERY affected drive_file_id (sorted, single-holder) before any delete.
@@ -70,22 +86,49 @@ function lockTakingRpcNames(): string[] {
     // (sole show: holder; the JS route app/api/admin/show/pull-sheet-override never locks).
     "supabase/migrations/20260723090000_published_pull_sheet_override.sql",
   ];
+}
 
-  const names = new Set<string>();
-  for (const file of migrationFiles) {
-    const source = stripCommentsForFile(readFileSync(join(ROOT, file), "utf8"), file);
-    const functionBlocks = source.matchAll(
-      /create\s+(?:or\s+replace\s+)?function\s+public\.([a-z0-9_]+)\s*\([\s\S]*?\$\$([\s\S]*?)\$\$/gi,
-    );
-    for (const match of functionBlocks) {
-      const [, name, body] = match;
-      if (!name || !body) continue;
-      if (/\bpg_(?:try_)?advisory_xact_lock\s*\(/i.test(body)) {
-        names.add(name);
-      }
+/**
+ * The (name, file, body) triples the PF11 guards actually inspect: for every function any seed
+ * migration declares, the body from the LAST migration that defines it, kept if that SHIPPED body
+ * takes an advisory lock.
+ *
+ * Resolution is per FUNCTION and not per file, because `create or replace` routinely replaces ONE
+ * member of an older migration's function set — the 2026-08-04 migration replaces undo_change and
+ * mi11_approve_hold while mi11_reject_hold still ships from 20260608000002. Swapping file entries
+ * would drop the reject side entirely; a union over per-function resolutions cannot.
+ *
+ * The seed set is expanded once through each resolved file, so a companion function introduced
+ * ALONGSIDE a replacement (same migration, new name) is discovered rather than skipped.
+ */
+function shippedLockTakerBodies(): Array<{ name: string; file: string; body: string }> {
+  const candidates = new Set<string>();
+  for (const file of lockTakerSeedMigrations()) {
+    for (const name of declaredFunctionNames(readMigrationSource(file))) candidates.add(name);
+  }
+  for (const name of [...candidates]) {
+    const { file } = shippedFunctionBody(name);
+    for (const sibling of declaredFunctionNames(readMigrationSource(file))) {
+      candidates.add(sibling);
     }
   }
-  return [...names].sort();
+
+  const inspected: Array<{ name: string; file: string; body: string }> = [];
+  for (const name of [...candidates].sort()) {
+    const { file, body } = shippedFunctionBody(name);
+    if (/\bpg_(?:try_)?advisory_xact_lock\s*\(/i.test(body)) inspected.push({ name, file, body });
+  }
+  // Non-empty self-check: a discovery that silently returns nothing turns every assertion built on
+  // it into a vacuous pass. This is the failure mode the `$$`-only extractor produced for years.
+  expect(
+    inspected.length,
+    "no lock-taking RPC bodies discovered — the PF11 guards would pass vacuously",
+  ).toBeGreaterThan(0);
+  return inspected;
+}
+
+function lockTakingRpcNames(): string[] {
+  return shippedLockTakerBodies().map((entry) => entry.name);
 }
 
 describe("advisory-lock RPC deadlock guard", () => {
@@ -229,52 +272,78 @@ describe("advisory-lock RPC deadlock guard", () => {
     ).toBeLessThan(firstShowTouch);
   });
 
+  test("PF11 guards inspect the SHIPPED bodies: dollar-tag tolerant, resolved per FUNCTION, non-empty", () => {
+    // Invariant 2 is a P0, and for most of this guard's life it verified bodies no database runs.
+    // Two mechanical hazards produced that, and each one makes a naive repointing WORSE than the
+    // stale file list it replaces, because both fail by passing.
+    const inspected = shippedLockTakerBodies();
+
+    // NON-EMPTY SELF-CHECK. Everything below is an assertion over a discovered set; a discovery that
+    // silently returns nothing makes all of it vacuous instead of red. Probed before this test was
+    // written: pointing the `$$`-only extractor this guard shipped with at the migration that
+    // actually ships undo_change discovers ZERO functions.
+    expect(
+      inspected.length,
+      "no lock-taking RPC bodies discovered — the guard is a no-op",
+    ).toBeGreaterThan(0);
+    const byName = new Map(inspected.map((entry) => [entry.name, entry]));
+    expect([...byName.keys()].sort()).toEqual(lockTakingRpcNames());
+
+    // HAZARD 1 — the dollar-quote tag is not always `$$`. The shipped undo_change body is delimited
+    // by `$function$`, and in a file that MIXES the two forms a `$$`-only non-greedy match runs from
+    // one declaration to a later function's `$$`: it reports the right name with the wrong body and
+    // drops the later function entirely. Pinned as the general invariant over the whole corpus, so a
+    // future delimiter change fails loudly rather than emptying a guard: every declared function has
+    // exactly one body extracted, in declaration order.
+    for (const file of migrationFiles()) {
+      const source = readMigrationSource(file);
+      expect(
+        extractFunctionBodies(source).map((fn) => fn.name),
+        `${file}: extracted function bodies do not match the declarations — a dollar-quote tag was ` +
+          `not accepted, or one body swallowed the next declaration`,
+      ).toEqual(declaredFunctionNames(source));
+    }
+
+    // HAZARD 2 — resolution must UNION over the shipped catalog, never swap one file for another.
+    // mi11_reject_hold is defined ONLY in 20260608000002; the 2026-08-04 migration replaces
+    // mi11_approve_hold alone. Swapping the file entry stops discovering the reject side.
+    expect(byName.has("mi11_reject_hold"), "mi11_reject_hold dropped from the discovered set").toBe(
+      true,
+    );
+    expect(migrationsDefining("mi11_reject_hold")).toHaveLength(1);
+    expect(migrationsDefining("mi11_approve_hold").length).toBeGreaterThan(1);
+
+    // …and per-function resolution must actually reach the LAST definition. undo_change is the
+    // instance that made this a P0: three migrations define it, and the guard read the first.
+    const undoDefining = migrationsDefining("undo_change");
+    expect(undoDefining.length, "undo_change resolution is not exercised").toBeGreaterThan(1);
+    const undo = byName.get("undo_change");
+    expect(undo, "undo_change must be inspected as a lock taker").toBeTruthy();
+    expect(undo!.file).toBe(undoDefining[undoDefining.length - 1]);
+    expect(
+      undo!.file,
+      "undo_change is still being read from the migration that INTRODUCED it",
+    ).not.toBe(undoDefining[0]);
+    expect(
+      undo!.body,
+      "the SHIPPED undo_change body must still acquire the per-show advisory lock in-RPC",
+    ).toMatch(/pg_advisory_xact_lock\s*\(/i);
+  });
+
   test("lock-order: no lock-taking RPC row-locks (FOR UPDATE) before its first pg_advisory_xact_lock (PF11)", () => {
     // resolution #15 / PF11 CRITICAL — the sync path holds the show advisory lock THEN touches rows;
     // a lock-taking admin RPC that grabbed a FOR UPDATE row lock first and then waited on the advisory
     // lock deadlocks under burst (M5 R20). Pin advisory-before-row for EVERY lock-taking RPC body.
-    const lockTakingMigrations = [
-      "supabase/migrations/20260523000003_reset_picker_epoch_atomic.sql",
-      "supabase/migrations/20260523000004_rotate_show_share_token.sql",
-      "supabase/migrations/20260703000001_reset_crew_member_selection.sql",
-      "supabase/migrations/20260523000007_select_identity_atomic.sql",
-      "supabase/migrations/20260524000002_claim_oauth_identity.sql",
-      "supabase/migrations/20260527210000_mint_validation_fixture_atomic.sql",
-      "supabase/migrations/20260527210001_validation_finalize_all_atomic.sql",
-      "supabase/migrations/20260608000002_mi11_gate_rpcs.sql",
-      "supabase/migrations/20260608000003_undo_change_rpc.sql",
-      // Developer tier Task 2c — set_admin_developer_rpc takes its advisory
-      // lock BEFORE its FOR UPDATE row lock; the re-created revoke_admin_email_rpc
-      // takes the advisory lock and no FOR UPDATE. Pin advisory-before-row here.
-      "supabase/migrations/20260703230100_admin_emails_developer_tier.sql",
-      // Part B (2026-07-04 §3.2) — the re-created upsert_admin_email_rpc takes its
-      // advisory lock BEFORE its FOR UPDATE row lock; the re-created
-      // revoke_admin_email_rpc takes the advisory lock and no FOR UPDATE. The
-      // added post-lock developer re-check (a non-locking exists()) must not have
-      // moved the advisory lock after the row lock — pin advisory-before-row here.
-      "supabase/migrations/20260704000000_admin_mgmt_requires_developer.sql",
-      // Pull-sheet-on-archived-tab override (spec §5.4, Task 8) — set_pull_sheet_override
-      // takes its show: advisory lock FIRST and issues no FOR UPDATE (plain SELECT/UPDATE).
-      "supabase/migrations/20260706000000_pull_sheet_override.sql",
-      // Published-show archived-tab override (spec 2026-07-23) — set_published_pull_sheet_override
-      // takes its show: advisory lock FIRST and issues no FOR UPDATE (plain SELECT/UPDATE).
-      "supabase/migrations/20260723090000_published_pull_sheet_override.sql",
-      // NOTE: reset_validation_data is NOT scanned from a hardcoded file here — it is
-      // `create or replace`d by hotfix migrations, so a pinned path validates a
-      // superseded body (audit idx78). It is checked below from the SHIPPED body via
-      // latestResetValidationDataBody(), which auto-follows a future replace.
-    ];
-
-    for (const file of lockTakingMigrations) {
-      const source = stripCommentsForFile(readFileSync(join(ROOT, file), "utf8"), file);
-      const functionBlocks = source.matchAll(
-        /create\s+(?:or\s+replace\s+)?function\s+public\.([a-z0-9_]+)\s*\([\s\S]*?\$\$([\s\S]*?)\$\$/gi,
-      );
-      for (const match of functionBlocks) {
-        const [, name, body] = match;
-        if (!name || !body) continue;
-        assertAdvisoryBeforeRowLock(file, name, body);
-      }
+    // This was a SECOND hardcoded migration list, and it went stale the same way the name-discovery
+    // list did — repairing only one leaves the guard half-blind, since a body could be discovered as
+    // a lock taker here and never order-checked, or vice versa. Both now read the same per-function
+    // resolution: every SHIPPED lock-taking body, from whichever migration last defined it.
+    // Non-lock-taking bodies need no entry — assertAdvisoryBeforeRowLock is a no-op for them, so
+    // scanning the lock takers is exactly the coverage the old file walk produced.
+    // (reset_validation_data was already excluded from the hardcoded list for this reason and is
+    // re-asserted below from latestResetValidationDataBody(); it is also covered by the loop now.)
+    for (const { name, file, body } of shippedLockTakerBodies()) {
+      assertAdvisoryBeforeRowLock(file, name, body);
     }
 
     // reset_validation_data() takes its advisory locks before any mutation and takes no
