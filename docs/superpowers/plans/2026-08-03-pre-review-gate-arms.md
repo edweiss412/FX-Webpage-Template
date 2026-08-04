@@ -124,7 +124,7 @@ Add the **inline-mention fixture**, from a live probe against this very plan. Ex
 
 <!-- task: red=`pnpm vitest run tests/specLint/run.test.ts tests/specLint/cli.test.ts` ac=AC-10,AC-25 -->
 
-**RED.** Cover M21 first: assert the CLI's stdout carries a `taskContract:` section with code, line, and message (AC-25). `CHECK_ORDER` does not drive the renderer — `scripts/spec-lint.ts:46` iterates its own closed literal list — so a run can exit 1 while the embedded report shows only an aggregate count, which is exactly what a reviewer would receive under design §2. Then extend `tests/specLint/run.test.ts` with a plan-kind document producing a `taskContract` finding, and a spec-kind document with identical text producing none (AC-10). Extend `tests/specLint/cli.test.ts` asserting `taskContract` findings render under their own heading in the documented check order.
+**RED.** Cover M21 first: assert the CLI's stdout carries a `taskContract:` section with code, line, and message (AC-25). `CHECK_ORDER` does not drive the renderer — `scripts/spec-lint.ts:46` iterates its own closed literal list — so a run can exit 1 while the embedded report shows only an aggregate count, which is exactly what a reviewer would receive under design §2. Then extend `tests/specLint/run.test.ts` with a plan-kind document producing a `taskContract` finding, and a spec-kind document with identical text producing none (AC-10, closure family M12 — the identical-text pairing is what makes it a leakage test rather than two unrelated fixtures). Extend `tests/specLint/cli.test.ts` asserting `taskContract` findings render under their own heading in the documented check order.
 
 **GREEN.** Add `"taskContract"` to the `Check` union (`lib/specLint/types.ts:2`), give it an entry in `CHECK_ORDER` (`lib/specLint/run.ts:8`), call `checkTaskContract` from `runLint`, and add it to the CLI's rendered check list (`scripts/spec-lint.ts:46`). Confirm the waiver machinery suppresses `taskContract` failures the same way it suppresses other hard findings, and pin that with a case — an undocumented interaction between the two is exactly the silent-acceptance hole §3.4 warns about.
 
@@ -147,11 +147,13 @@ Add the **inline-mention fixture**, from a live probe against this very plan. Ex
 - AC-2 `--lint-doc` without `--fallback`, and composed with `--artifact` under `--fallback`;
 - AC-3 a doc that makes the CLI exit 2 (a tracked symlink) causes codex-guard to exit 2 and dispatch nothing — asserted by the fake-codex fixture recording zero invocations;
 - AC-4 a doc with hard findings still dispatches;
-- AC-5 `lintArm` is `"present"` or `"absent"` in the written result.
+- AC-5 `lintArm` is `"present"` or `"absent"` in the written result;
+- **M20, AC-18 and AC-19 — launch geometry.** Run the guard with its process cwd set to a directory *other* than `--cwd`, and assert a doc valid in the `--cwd` repo lints identically either way. This is the case that breaks the feature in normal use, because invariant 11 makes launch-cwd and `--cwd` differ on every worktree run. Separately assert a doc outside the `--cwd` repo exits 2 with a message naming both the path and the repo root, distinguishable from the unreadable-file exit 2;
+- **M22, AC-20 and AC-21 — content and budget.** Assert the embedded block excludes the `INVENTORY` section; then, with enough `--lint-doc` arguments to cross 200,000 bytes, assert argument order is preserved, the block truncates at a line boundary, the truncation notice is present, and the dispatch still proceeds. Build the oversize input from real corpus reports rather than synthetic padding, so the test exercises the byte profile that motivated the budget.
 
-**GREEN.** Add the flag to `parseArgs`/`buildConfig`, spawn the CLI per doc, embed in `composePrompt` (`scripts/codex-guard.mjs:254`), and add `lintArm` in `writeResult` (`scripts/codex-guard.mjs:580`).
+**GREEN.** Add the flag to `parseArgs`/`buildConfig`, spawn the CLI per doc with cwd = `--cwd`, embed in `composePrompt` (`scripts/codex-guard.mjs:254`), and add `lintArm` in `writeResult` (`scripts/codex-guard.mjs:580`).
 
-**Verify.** AC-1 through AC-5.
+**Verify.** AC-1 through AC-5, AC-18 through AC-21, closure families M20 and M22.
 
 **Commit.** `feat(codex-guard): embed spec:lint output in the brief, and record whether it was asked for`
 
