@@ -329,7 +329,8 @@ export function fontShorthandRules(cssSource: string): string[] {
       decl.parent && "selector" in decl.parent ? String(decl.parent.selector).trim() : "";
     if (/^inherit$/i.test(decl.value.trim()) && INHERIT_IS_SAFE.has(parentSel)) return;
     const parent = decl.parent;
-    out.push(parent && "selector" in parent ? String(parent.selector) : "(unknown)");
+    const selector = parent && "selector" in parent ? String(parent.selector) : "(unknown)";
+    out.push(selector);
   });
   return out;
 }
@@ -347,12 +348,13 @@ export function fontShorthandRules(cssSource: string): string[] {
  * rediscovered. A NEW reset, from any source, fails the build.
  */
 const ALLOWED_FEATURE_RESETS = new Map<string, string>([
-  ["html, :host", "Tailwind preflight's own root default; our later `html` rule wins the cascade."],
   [
-    "code, kbd, samp, pre",
-    "Tailwind preflight. These render in a monospace family where I/l/1 are already " +
-      "distinct, so ss04 has nothing to add. `.code-value` is a class and still wins " +
-      "on any element that opts in.",
+    "html, :host :: var(--default-font-feature-settings, normal)",
+    "Tailwind preflight's root default; the app's later `html` rule wins the cascade.",
+  ],
+  [
+    "code, kbd, samp, pre :: var(--default-mono-font-feature-settings, normal)",
+    "Tailwind preflight. These render in a monospace family where I/l/1 are already distinct, so ss04 has nothing to add. `.code-value` still wins where applied.",
   ],
 ]);
 
@@ -370,35 +372,27 @@ const ALLOWED_FEATURE_RESETS = new Map<string, string>([
  * declaration renders nothing, which is this whole change's subject.
  */
 const ALLOWED_FONT_FAMILY_RULES = new Map<string, string>([
-  ["html", "the app's own root binding: `var(--font-sans)`, which reads `--font-inter`."],
-  [".code-value", "binds the UI family so the features are not inert on a <code> (§12.2)."],
   [
-    "html, :host",
+    ':root, :host :: --font-sans: var(--font-inter, "Inter", "Inter Fallback"), ui-sans-serif, system-ui, -apple-system, "Segoe UI", "Helvetica Neue", sans-serif',
+    "the `@theme` block where `--font-sans` is DEFINED. Defining the token is the binding; REASSIGNING it lower is the face swap this census catches.",
+  ],
+  [
+    'html, :host :: font-family: var(--default-font-family, ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji")',
     "Tailwind preflight's root default; the app's later `html` rule wins the cascade.",
   ],
   [
-    "code, kbd, samp, pre",
-    "Tailwind preflight's monospace default — the §2.4 documented exception.",
+    'code, kbd, samp, pre :: font-family: var(--default-mono-font-family, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace)',
+    "Tailwind preflight's monospace default \u2014 the \u00a72.4 documented exception.",
   ],
   [
-    "button, input, select, optgroup, textarea, ::file-selector-button",
-    "Tailwind preflight: `font-family: inherit`, so controls keep the page's typography.",
-  ],
-  ["::backdrop", "Tailwind preflight's root-variable mirror for the backdrop pseudo-element."],
-  [
-    ":root, :host",
-    "the `@theme` token block itself, where `--font-sans` is DEFINED. Defining the " +
-      "token is the binding; a rule that REASSIGNS it lower in the cascade is the " +
-      "face swap this list exists to catch.",
+    ".font-mono :: font-family: var(--font-mono)",
+    "Tailwind's `font-mono` utility, used deliberately on sheet ids, warning payloads and the shows-table heading. Monospace faces already distinguish I/l/1.",
   ],
   [
-    ".font-mono",
-    "Tailwind's `font-mono` utility, used deliberately on sheet ids, warning payloads " +
-      "and the shows-table heading. Same disposition as the preflight mono rule: those " +
-      "surfaces render in a monospace face where I/l/1 are already distinct, so ss04 has " +
-      "nothing to add. A `.code-value` on such an element still wins, being later and " +
-      "equally specific.",
+    ".code-value :: font-family: var(--font-sans)",
+    "binds the UI family so the features are not inert on a <code> (\u00a712.2).",
   ],
+  ["html :: font-family: var(--font-sans)", "the app's own root binding."],
 ]);
 
 /**
@@ -519,9 +513,15 @@ export function fontVariantTags(
 export function fontFamilyRules(cssSource: string): string[] {
   const out: string[] = [];
   postcss.parse(cssSource).walkDecls((decl) => {
-    if (!FACE_PROPERTIES.has(normalizeProp(decl.prop).name)) return;
+    const prop = normalizeProp(decl.prop).name;
+    if (!FACE_PROPERTIES.has(prop)) return;
     const parent = decl.parent;
-    out.push(parent && "selector" in parent ? String(parent.selector) : "(unknown)");
+    const selector = parent && "selector" in parent ? String(parent.selector) : "(unknown)";
+    // Selector, property AND VALUE. Round 22's mutant added a SECOND
+    // `code, kbd, samp, pre { font-family: … }` rule with different content; a key
+    // without the value matched the existing entry and approved it. What a rule
+    // DOES is the thing being allowed, so it belongs in the key.
+    out.push(`${selector} :: ${prop}: ${decl.value.replace(/\s+/g, " ").trim()}`);
   });
   return out;
 }
@@ -540,7 +540,7 @@ export function featureResetRules(cssSource: string): string[] {
         // the root's `ss04` alone and silently lost `tnum` and `zero`.
         !(/^inherit$/i.test(r.raw.trim()) && INHERIT_IS_SAFE.has(r.selectors.join(", "))),
     )
-    .map((r) => r.selectors.join(", "));
+    .map((r) => `${r.selectors.join(", ")} :: ${r.raw.replace(/\s+/g, " ").trim()}`);
 }
 
 /** The ENABLED tags declared by the rule whose selector list contains `selector`. */
@@ -941,7 +941,11 @@ describe("only one first-party stylesheet exists, so compiling it is sufficient"
     // was itself incomplete: it lists only TRACKED files, so a module that had
     // not been committed yet escaped. A developer writing one will `git add` it,
     // so the walk cannot depend on that having happened.
-    const IGNORED_DIRS = new Set([
+    // ROOT-LEVEL ONLY. Round 22: excluding any directory NAMED `docs` or `tests`
+    // also excluded `app/docs/`, `app/tests/` and `components/docs/` — ordinary
+    // places for a production CSS Module to live, and entirely outside the
+    // census. A path-based exclusion and a name-based one are not the same rule.
+    const IGNORED_ROOTS = new Set([
       "node_modules",
       ".git",
       "docs", // mocks and specs, never served by this app
@@ -953,7 +957,8 @@ describe("only one first-party stylesheet exists, so compiling it is sufficient"
     const walk = (dir: string): void => {
       for (const entry of readdirSync(dir, { withFileTypes: true })) {
         if (entry.isDirectory()) {
-          if (IGNORED_DIRS.has(entry.name) || entry.name.startsWith(".next")) continue;
+          const rel = join(dir, entry.name).slice(REPO_ROOT.length + 1);
+          if (IGNORED_ROOTS.has(rel) || entry.name.startsWith(".next")) continue;
           walk(join(dir, entry.name));
         } else if (/\.(css|scss|sass|less)$/.test(entry.name)) {
           found.push(join(dir, entry.name).slice(REPO_ROOT.length + 1));
@@ -1302,7 +1307,14 @@ describe("font feature availability", () => {
       // Family 9's compiled-sheet half. A face swap makes a correct feature
       // declaration render nothing — the failure this whole change is about — and
       // a plain CSS rule does it just as well as an inline style.
-      const unknown = fontFamilyRules(css).filter((sel) => !ALLOWED_FONT_FAMILY_RULES.has(sel));
+      const actualFaces = fontFamilyRules(css);
+      const unknown = actualFaces.filter((k) => !ALLOWED_FONT_FAMILY_RULES.has(k));
+      // BOTH DIRECTIONS. A stale entry is a claim about CSS that no longer exists,
+      // and it silently pre-approves whatever takes that selector next.
+      const staleFaces = [...ALLOWED_FONT_FAMILY_RULES.keys()].filter(
+        (k) => !actualFaces.includes(k),
+      );
+      expect(staleFaces, "these ALLOWED_FONT_FAMILY_RULES entries match no rule").toEqual([]);
       expect(
         unknown,
         `these rules set font-family without a recorded reason: ${unknown.join(" | ")}. ` +
@@ -1316,7 +1328,12 @@ describe("font feature availability", () => {
       // bare <code> renders without ss04 — invisible in the source we wrote, and
       // real in the browser. Pinned rather than hidden: each known reset carries
       // its reason, and a new one from any source fails the build.
-      const unknown = featureResetRules(css).filter((sel) => !ALLOWED_FEATURE_RESETS.has(sel));
+      const actualResets = featureResetRules(css);
+      const unknown = actualResets.filter((k) => !ALLOWED_FEATURE_RESETS.has(k));
+      const staleResets = [...ALLOWED_FEATURE_RESETS.keys()].filter(
+        (k) => !actualResets.includes(k),
+      );
+      expect(staleResets, "these ALLOWED_FEATURE_RESETS entries match no rule").toEqual([]);
       expect(
         unknown,
         `these rules reset font-feature-settings without a recorded reason: ` +

@@ -819,3 +819,16 @@ That is the fourth time in this review the answer has been *stop deciding, start
 **The lesson, and it generalises past this file:** *an allowlist entry is a claim about the world, and a claim with no test decays into a comment.* Three of this guard's censuses — `ALLOWED_FEATURE_RESETS`, `ALLOWED_FONT_FAMILY_RULES`, `ALLOWED_UNSUPPORTED_VARIANTS` — carry reasons that were true when written. Only the third had a way to notice if its reason stopped being true, and only after this round.
 
 **Eighty-one mutants across twenty-one rounds. All caught.**
+
+### 12.22 Round 22 — the censuses were one-way, and the exclusion was name-based
+
+`VERDICT: NEEDS-ATTENTION`, two P1s, both accepted and fixed. Round 21 asked the reviewer to look for exemptions that can rot; it found two more, in the two censuses that had no such check.
+
+| # | Sev | Finding | Disposition |
+| --- | --- | --- | --- |
+| 1 | **P1** | **Both remaining censuses were fail-open, in two ways at once.** They keyed on SELECTOR alone and ran only actual→allowed. So changing an allowed rule's CONTENT went unnoticed — a probe swapping `code, kbd, samp, pre`'s family to `var(--font-sans)` kept matching its entry while changing what the browser does — and a stale entry survived removal of the rule it described, silently pre-approving whatever took that selector next. Two entries were already stale: the form-controls rule (which sets `font: inherit`, not `font-family`) and `::backdrop` (which sets neither). | **FIXED.** Both censuses now key on **selector + property + value**, whitespace-normalised, and assert **both directions**: nothing unlisted, and nothing listed that no longer matches. The two stale entries are gone, and the six real ones were regenerated from the compiled sheet rather than written from memory. Mutation-proven by adding a second rule on an allowed selector and by changing `.code-value`'s own family. |
+| 2 | **P1** | **Family 10's walk excluded any directory NAMED `docs` or `tests`,** not just the root-level ones — so `app/docs/`, `app/tests/` and `components/docs/` were outside the census entirely, all ordinary places for a production CSS Module. | **FIXED.** The exclusion is path-based now, matching only root-level `docs/` and `tests/`. Mutation-proven with `app/docs/Feature.module.css`. |
+
+This is the same lesson as §12.21, arriving one level up: **a census is a claim in two directions, and checking one of them is checking half.** Rounds 21 and 22 between them converted every allowlist in this guard from a comment into an assertion.
+
+**Eighty-five mutants across twenty-two rounds. All caught.**
