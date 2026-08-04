@@ -114,16 +114,27 @@ So the contract is declared. This is AGENTS.md invariant 12's design, adopted fo
 
 The naive design has a hole that only surfaces on close reading: to report "this task has no marker" the checker must know **which headings are tasks**, and the obvious way to know is a regex over heading text (`Task 3`, `T2b`). That is a spelling recognizer over prose — the very thing §1.1 item 4 forbids, reintroduced through the back door. The corpus already shows the forms are irregular (`## Task 0`, `### Task 1`, `### T2b`).
 
-So the plan declares its own task grain, once, in a single enrollment line:
+So the plan declares its own task grain, in a **delimited region**:
 
 ```
 <!-- tasks: depth=3 -->
+...tasks live here...
+<!-- tasks: end -->
 ```
 
 - `depth` is an integer 1 through 6: the ATX heading depth at which tasks live in this plan.
-- A plan is **enrolled** iff it carries exactly one well-formed enrollment line on a non-fenced line.
-- In an enrolled plan, a **task** is every heading of exactly that depth appearing after the enrollment line. Nothing else is a task; no heading text is ever read.
-- Two enrollment lines is `TASK_ENROLL_DUPLICATE`. A malformed one (non-integer, out of range) is `TASK_ENROLL_MALFORMED` — a hard finding, not a silent non-enrollment, so a typo cannot quietly opt a plan out.
+- A plan is **enrolled** iff it carries exactly one well-formed opening line on a non-fenced line.
+- A **task** is a heading of exactly that depth **lying inside the region**. Nothing else is a task, at any depth; no heading text is ever read.
+- `<!-- tasks: end -->` closes the region. End of document also closes it.
+- Two opening lines without an intervening close is `TASK_ENROLL_DUPLICATE`. A malformed one (non-integer, out of range) or a close with no preceding open is `TASK_ENROLL_MALFORMED` — a hard finding, not a silent non-enrollment, so a typo cannot quietly opt a plan out.
+
+**The region has two ends because one is provably not enough.** An earlier draft of this section made a task "every heading of that depth after the opening line", and the plan implementing this spec refuted it on its first probe:
+
+```
+awk 'NR>6 && /^## /{print NR": "$0}' docs/superpowers/plans/2026-08-03-pre-review-gate-arms.md
+```
+
+Twelve depth-2 headings, seven of them tasks. Front matter (`## Pre-draft verification`, `## Meta-test inventory`, `## Mutation-family closure`, `## Tasks`) could have been dodged by moving the opening line down. `## Blocking note`, which **follows** the last task at the same depth, could not: no start-only marker excludes a trailing section. The failure was in the model, not the placement.
 
 An unenrolled plan produces zero `taskContract` findings. That is what keeps §1.1 item 3 true: the 533 legacy plans are untouched, and the convention costs nothing until first used.
 
@@ -150,8 +161,8 @@ A new `taskContract` member of the `Check` union (`lib/specLint/types.ts:2`) and
 
 | Code | Fires when |
 | --- | --- |
-| `TASK_ENROLL_DUPLICATE` | a plan carries two or more enrollment lines |
-| `TASK_ENROLL_MALFORMED` | an enrollment line's `depth` is absent, non-integer, or outside 1 through 6 |
+| `TASK_ENROLL_DUPLICATE` | a plan carries two or more opening lines without an intervening close |
+| `TASK_ENROLL_MALFORMED` | an opening line's `depth` is absent, non-integer, or outside 1 through 6; or a `tasks: end` has no preceding open |
 | `TASK_MARKER_MISSING` | an enrolled plan has a task with no marker in its extent |
 | `TASK_MARKER_DUPLICATE` | one task extent holds two or more markers |
 | `TASK_MARKER_ORPHANED` | a marker sits outside every task extent |
@@ -206,6 +217,12 @@ Nine artifacts burned on this shape; none was caught by review-time reasoning al
 
 **AC-12.** Headings at a depth other than the enrolled one are never treated as tasks, and their content never satisfies or violates a task check. Pinned with a fixture whose non-task headings carry markerless bodies.
 
+**AC-15.** A heading at the enrolled depth **outside** the region yields nothing — whether it precedes the opening line or follows `<!-- tasks: end -->`. Pinned with a fixture carrying both, since only the trailing case refutes a start-only model.
+
+**AC-16.** A `<!-- tasks: end -->` with no preceding opening line is `TASK_ENROLL_MALFORMED`, not a silent no-op.
+
+**AC-17.** A task extent ends at the next heading of the enrolled depth **or shallower**. Pinned with a fixture carrying a mid-document heading shallower than the enrolled depth, because no plan in the current corpus exercises that branch.
+
 **AC-13.** An `ac=` id that appears only inside marker lines, and nowhere else in the plan, is `TASK_AC_UNRESOLVED` — an id cannot satisfy itself.
 
 **AC-14.** `docs/agents/spec-self-review.md` carries the §4.1 rule text and the §3.2 plus §3.3 marker convention.
@@ -214,6 +231,6 @@ Nine artifacts burned on this shape; none was caught by review-time reasoning al
 
 1. **The lint arm is opt-in.** A dispatch omitting `--lint-doc` proceeds; only `lintArm: "absent"` records it. Inferring the target from brief prose is refused as an S1 reproduction (§2.4).
 2. **Task enrollment is opt-in.** An author who writes no enrollment line gets no checks (§3.2). Accepted deliberately: it is what keeps the legacy corpus out of scope.
-3. **AC ids resolve within the plan only.** A plan citing an AC that exists in its spec but not in itself reports `TASK_AC_UNRESOLVED`. Cross-document resolution needs a declared spec-link field on plans, which does not exist yet (§3.4).
+3. **AC ids resolve within the plan only, so the check is weaker than its name.** A plan citing an AC that exists in its spec but not in itself reports `TASK_AC_UNRESOLVED`. Cross-document resolution needs a declared spec-link field on plans, which does not exist yet (§3.4). The consequence worth naming outright: the check proves an id is *mentioned*, not that the criterion *exists*, so `AC-1` mistyped as `AC-11` passes silently whenever AC-11 is also mentioned. Typo-aliasing within a live id set is out of reach until cross-document resolution lands.
 4. **`red=` is not executed.** The checks verify a declaration, never that the command runs or fails first. Executing arbitrary commands from a doc during a lint run is refused outright.
 5. **Nothing here addresses S2 or S8.** Incomplete class sweeps and regressed round-repairs are cluster B and C work respectively.

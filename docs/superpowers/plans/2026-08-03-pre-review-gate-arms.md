@@ -3,9 +3,9 @@
 Spec: `docs/superpowers/specs/2026-08-03-pre-review-gate-arms-design.md`
 Branch: `feat/pre-review-gate-arms`
 
-<!-- tasks: depth=2 -->
-
 This plan is the **first enrolled plan** under the convention it ships. Its own task markers are inert until Task 3 lands, at which point `pnpm spec:lint` on this file begins checking them. That is deliberate dogfooding: if the convention is unusable, this plan is where it shows.
+
+**It already showed.** The spec's first enrollment model made a task "every heading of the declared depth after the enrollment line". Probed against this file, that selected 12 headings where 7 are tasks — and `## Blocking note`, which trails the last task at the same depth, proved no start-only marker could ever exclude it. The spec now delimits a region at both ends (design §3.2), and the probe below returns exactly 7. The convention earned its first correction before shipping a line of code.
 
 ## Pre-draft verification (run, not described)
 
@@ -62,8 +62,13 @@ impeccable-gate: N/A — no UI surface
 | M10 depth confusion | add headings above and below the enrolled depth | AC-12: neither satisfies nor violates |
 | M11 self-satisfaction | cite an `ac=` id that appears only in markers | `TASK_AC_UNRESOLVED` (AC-13) |
 | M12 kind leakage | lint the same text as `kind=spec` | AC-10: zero findings |
+| M13 region escape | depth-N heading before the open, or after `tasks: end` | AC-15 |
+| M14 unmatched close | `tasks: end` with no preceding open | AC-16 (`TASK_ENROLL_MALFORMED`) |
+| M15 shallower boundary | mid-document heading shallower than enrolled depth | AC-17 extent termination |
 
 ## Tasks
+
+<!-- tasks: depth=2 -->
 
 ## Task 1 — enrollment and task segmentation, pure
 
@@ -73,9 +78,10 @@ impeccable-gate: N/A — no UI surface
 <!-- spec-lint: ignore — new file created by this plan; not tracked until implementation -->
 **RED.** Create `tests/specLint/taskContract.test.ts` covering, against in-memory `DocModel` values built through `parseDoc` (never hand-built objects, so the fence model under test is the real one):
 
-- families M1, M3, M4, M10 from the closure table;
+- families M1, M3, M4, M10, M13, M14, M15 from the closure table;
 - a plan whose enrolled depth is 2 with `###` sub-headings inside a task, asserting the sub-headings do not end the extent;
-- a plan with headings at the enrolled depth *before* the enrollment line, asserting they are not tasks.
+- a plan with depth-N headings **both before the opening line and after `<!-- tasks: end -->`**, asserting neither is a task (M13, AC-15). The trailing half is the load-bearing one: it is the case that refuted the start-only model, and a fixture carrying only the leading half would have passed against the broken design;
+- a plan with a mid-document heading *shallower* than the enrolled depth, asserting it terminates the preceding task's extent (M15, AC-17). No plan in the current corpus exercises this branch, so the fixture is the only coverage it gets.
 
 Each case states the mutant it kills. Confirm every case fails before implementation, for the stated reason.
 
@@ -171,6 +177,8 @@ Add the **inline-mention fixture**, from a live probe against this very plan. Ex
 <!-- task: red=`gh pr checks` ac=AC-1,AC-14 -->
 
 **BLOCKED — see the note below.** Whole-diff cross-model review, then push, real CI green, `gh pr merge --merge`, fast-forward local `main` and verify `git rev-list --left-right --count main...origin/main` reports `0  0`. Stage 4.4 then removes the cron nudge and both herdr labels.
+
+<!-- tasks: end -->
 
 ## Blocking note — the cross-model review gate is unavailable
 
