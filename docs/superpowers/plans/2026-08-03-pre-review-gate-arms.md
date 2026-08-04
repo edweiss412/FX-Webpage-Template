@@ -44,6 +44,17 @@ Every claim below was verified against this branch's merge base before drafting.
 
 impeccable-gate: N/A — no UI surface
 
+## Design validation — a reference implementation was built and run
+
+`docs/agents/writing-plans.md:19` caps prose iteration on a surviving design vector: after three rounds, build the probe rather than patch the wording again. The §3 grammar reached that point, so a throwaway reference implementation of design §3.2, §3.3 and §3.4.1 was written and run against **this plan**, which is enrolled under the convention.
+
+It reads the document correctly — `enrolled, depth=2, tasks=7` — and after the repairs below reports **zero findings**. Two real defects surfaced only when the rules were executed rather than read:
+
+1. The AC boundary rule rejected `**Verify.** AC-14.` — `.` is legal inside an id (`AC-1.1`) and therefore sat in the boundary class, so the commonest citation form an author writes never resolved. Three spurious findings on this plan alone; shipped as written it would have fired on nearly every plan.
+2. `TASK_MARKER_ORPHANED` overlapped the form codes for a malformed marker outside every extent, producing two findings for one line against a stated one-code rule.
+
+**Task 1 ports this reference implementation's case table rather than inventing fixtures.** The AC-29 table-driven test is that port. Writing the cases fresh would re-derive, and probably re-miss, the two defects above.
+
 ## Mutation-family closure (guard surface, mandatory)
 
 `taskContract` is a structural guard, so its mutation-operator families are enumerated up front. **This enumeration is the closure set the review converges against.** A reviewer-proposed new family is admissible only with a live escaping mutant demonstrated against the shipped guard.
