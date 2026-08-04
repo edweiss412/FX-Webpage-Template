@@ -31,6 +31,9 @@ import { revalidateShow } from "@/lib/data/showCacheTag";
 import { log } from "@/lib/log";
 import { logAdminOutcome, type AdminOutcome } from "@/lib/log/logAdminOutcome";
 import { emitIdentityLinkRenameUnlanded } from "@/lib/log/emitIdentityLinkRenameUnlanded";
+import { emitRoleFlagsNotice, ROLE_FLAGS_EMIT_SOURCE } from "@/lib/sync/emitRoleFlagsNotice";
+import { serializeError } from "@/lib/log/serializeError";
+import type { RoleFlagsNotice } from "@/lib/sync/phase2";
 import type { UnlandedRename } from "@/lib/sync/applyParseResult";
 
 export type LivePendingIngestionRouteTx = LockedShowTx<{
@@ -380,6 +383,12 @@ export async function handleLivePendingIngestionRetry(
       showId: string;
       driveFileId: string;
     } | null = null;
+    // Unit C (spec §2.3): the LAST TWO discard sites, and both live on this route. The existing-show
+    // branch bypasses processOneFile's post-commit tail exactly as above, and the first-seen branch's
+    // callee (runManualStageForFirstSeen) now CARRIES its notice out rather than dropping it —
+    // neither can emit where it obtains the notice, because both run inside withRowTryLock
+    // (invariant 10). Captured here, emitted once the lock resolves.
+    let roleFlagsNotice: RoleFlagsNotice | null = null;
     const result = await deps.withRowTryLock(driveFileId, async (tx) => {
       const row = await readLockedPendingIngestion(tx, id);
       if (!row) return transitioned();
@@ -445,6 +454,8 @@ export async function handleLivePendingIngestionRetry(
               driveFileId: row.drive_file_id,
             };
           }
+          // Unit C: same narrowing, same post-commit emit site below. Absent → stays null.
+          if (syncResult.roleFlagsNotice) roleFlagsNotice = syncResult.roleFlagsNotice;
         }
         return await manualSyncResponse(tx, row.drive_file_id, syncResult);
       }
@@ -477,6 +488,8 @@ export async function handleLivePendingIngestionRetry(
       const stageResult = await deps.runManualStageForFirstSeen(tx, row.drive_file_id, stageDeps);
       if (stageResult.outcome === "applied") {
         appliedShowId = stageResult.showId;
+        // Unit C: the notice runManualStageForFirstSeen now carries out of its own lock.
+        if (stageResult.roleFlagsNotice) roleFlagsNotice = stageResult.roleFlagsNotice;
         outcome = {
           source: "api.admin.pending-ingestions.retry",
           actorEmail: adminEmail,
@@ -512,6 +525,34 @@ export async function handleLivePendingIngestionRetry(
         showId: unlandedRef.showId,
         driveFileId: unlandedRef.driveFileId,
       });
+    }
+    // Unit C: the bell alert + durable LEAD audit for a capability change this retry applied — the
+    // shared helper, so the durable-audit-BEFORE-alert-upsert order has one implementation. Same
+    // resolved-lock site as the two emits above.
+    //
+    // FAIL-OPEN, matching the finalize routes (flushDeferredApplyEmits) rather than the propagating
+    // sync-pipeline callers: `upsertAdminAlert` throws on RPC failure, and this runs AFTER the apply
+    // committed. Letting it escape would hit the outer PENDING_INGESTION_RETRY_FAILED guard and turn
+    // a successful retry into a 500, inviting the operator to re-run an apply that already landed.
+    // The helper's internal ordering is unchanged, so the durable record is attempted first and a
+    // throw is caught strictly after it (invariant 9 — surfaced under its own code, never swallowed).
+    if (roleFlagsNotice) {
+      const noticeRef: RoleFlagsNotice = roleFlagsNotice;
+      try {
+        await emitRoleFlagsNotice(noticeRef, { source: ROLE_FLAGS_EMIT_SOURCE });
+      } catch (error) {
+        await log
+          .error("pending-ingestion retry role-flags notice emit failed", {
+            source: "api.admin.pending-ingestions.retry",
+            code: "ROLE_FLAGS_NOTICE_EMIT_FAILED",
+            showId: noticeRef.showId,
+            driveFileId,
+            error: serializeError(error),
+          })
+          .catch(() => {
+            /* best-effort: the escalation itself must never change the route's outcome */
+          });
+      }
     }
     return result;
   } catch (error) {

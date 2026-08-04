@@ -13,7 +13,7 @@ import {
   type Phase1PendingSyncRow,
   type Phase1Result,
 } from "@/lib/sync/phase1";
-import { runPhase2, type Phase2Tx } from "@/lib/sync/phase2";
+import { runPhase2, type Phase2Tx, type RoleFlagsNotice } from "@/lib/sync/phase2";
 import { normalizeRoleTokenMappings } from "@/lib/sync/roleMappingOverlay";
 import {
   emitSuccessfulPhase2Tail,
@@ -40,7 +40,13 @@ export type RunManualStageForFirstSeenResult =
   | { outcome: "parsed_pending_review"; stagedId: string }
   | { outcome: "hard_failed"; errorCode: string }
   | { outcome: "deferred"; reason: "mi8_modtime_unstable" | "mi8b_modtime_unstable" }
-  | { outcome: "applied"; showId: string }
+  // Unit C (spec 2026-08-03-apply-undo-audit-fidelity §2.3): this function BUILDS a roleFlagsNotice
+  // and used to return only { outcome, showId }, discarding it. It runs INSIDE the pending-ingestion
+  // retry route's withRowTryLock, so emitting here would put a post-commit emit inside a held lock
+  // (invariant 10). It therefore CARRIES the notice out and the caller emits once that lock resolves
+  // (app/api/admin/pending-ingestions/[id]/retry/route.ts). OPTIONAL, mirroring the same field on
+  // Phase2Result / ProcessOneFileResult — absent means "no capability change to report".
+  | { outcome: "applied"; showId: string; roleFlagsNotice?: RoleFlagsNotice }
   | { outcome: "parsed"; stagedId?: string };
 
 export type RunManualStageForFirstSeenDeps = {
@@ -167,7 +173,14 @@ async function toResult(
       sheetName: args.parseResult.show.title,
     });
     await resolveStaleSyncProblemAlerts_unlocked(tx, applied.showId, null);
-    return { outcome: "applied", showId: phase2.showId };
+    // Unit C: carry the notice built at `applied.roleFlagsNotice` above out to the caller instead of
+    // dropping it here. Conditional spread because `exactOptionalPropertyTypes` forbids assigning an
+    // explicit `undefined` to an optional property.
+    return {
+      outcome: "applied",
+      showId: phase2.showId,
+      ...(applied.roleFlagsNotice ? { roleFlagsNotice: applied.roleFlagsNotice } : {}),
+    };
   }
   if (result.outcome === "defer") {
     return { outcome: "deferred", reason: result.reason };

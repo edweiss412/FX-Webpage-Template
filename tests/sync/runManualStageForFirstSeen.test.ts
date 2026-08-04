@@ -1,5 +1,8 @@
 import { describe, expect, test, vi } from "vitest";
-import type { RunManualStageForFirstSeenTx } from "@/lib/sync/runManualStageForFirstSeen";
+import type {
+  RunManualStageForFirstSeenDeps,
+  RunManualStageForFirstSeenTx,
+} from "@/lib/sync/runManualStageForFirstSeen";
 import { runManualStageForFirstSeen } from "@/lib/sync/runManualStageForFirstSeen";
 import type { ParseResult } from "@/lib/parser/types";
 
@@ -530,4 +533,113 @@ describe("runManualStageForFirstSeen", () => {
       }),
     ).rejects.toMatchObject({ code: "LOCK_OWNERSHIP_ASSERTION_FAILED" });
   });
+
+  // Unit C (spec 2026-08-03-apply-undo-audit-fidelity §2.3): this function BUILDS a roleFlagsNotice
+  // (lib/sync/runManualStageForFirstSeen.ts:139) and used to return { outcome, showId }, dropping it
+  // on the floor. It runs INSIDE the retry route's withRowTryLock, so the repair is to CARRY the
+  // notice out and let the caller emit post-commit — asserting a co-emit here would demand an emit
+  // inside a held lock and contradict invariant 10. The route-side emit is pinned separately in
+  // tests/admin/pendingIngestionsLiveActions.test.ts.
+  test("carries the role-flags notice on its applied return instead of dropping it", async () => {
+    const tx = new FakeManualStageTx();
+    const roleFlagsNotice = {
+      showId: "show-1",
+      code: "ROLE_FLAGS_NOTICE" as const,
+      context: {
+        drive_file_id: "file-1",
+        changes: [{ crew_name: "Alex Crew", prior_flags: [], new_flags: ["LEAD"] }],
+      },
+    };
+    const upsertAdminAlert = vi.fn(
+      async (input: { showId: string | null; code: string; context: Record<string, unknown> }) => {
+        tx.alerts.push(input);
+        return "alert-1";
+      },
+    );
+
+    const result = await runManualStageForFirstSeen(tx as never, "file-1", {
+      ...firstSeenStageDeps(),
+      upsertAdminAlert,
+      runPhase2: vi.fn(async () => ({
+        outcome: "applied" as const,
+        showId: "show-1",
+        appliedRoleMappings: [],
+        parseWarnings: [],
+        roleFlagsNotice,
+      })) as unknown as NonNullable<RunManualStageForFirstSeenDeps["runPhase2"]>,
+    });
+
+    expect(result).toEqual({ outcome: "applied", showId: "show-1", roleFlagsNotice });
+    // ...and it is NOT emitted here. The only alert this path raises is the first-published one;
+    // a ROLE_FLAGS_NOTICE upsert appearing in this list would be an emit inside the caller's lock.
+    expect(upsertAdminAlert.mock.calls.map(([input]) => input.code)).toEqual([
+      "SHOW_FIRST_PUBLISHED",
+    ]);
+  });
+
+  test("an applied first-seen with no role-flags notice returns no notice key", async () => {
+    const tx = new FakeManualStageTx();
+
+    const result = await runManualStageForFirstSeen(tx as never, "file-1", {
+      ...firstSeenStageDeps(),
+      runPhase2: vi.fn(async () => ({
+        outcome: "applied" as const,
+        showId: "show-1",
+        appliedRoleMappings: [],
+        parseWarnings: [],
+      })) as unknown as NonNullable<RunManualStageForFirstSeenDeps["runPhase2"]>,
+    });
+
+    expect(result).toEqual({ outcome: "applied", showId: "show-1" });
+    expect(result).not.toHaveProperty("roleFlagsNotice");
+  });
 });
+
+// Shared auto-publish-ready inputs for the carry tests above. Phase 2 is stubbed in both, so the
+// parse payload only has to be structurally valid, not interesting.
+function firstSeenStageDeps(): RunManualStageForFirstSeenDeps {
+  return {
+    fileMeta: {
+      driveFileId: "file-1",
+      name: "First Seen Sheet.xlsx",
+      mimeType: "application/vnd.google-apps.spreadsheet",
+      modifiedTime: "2026-05-08T12:00:00.000Z",
+      parents: ["folder-1"],
+    },
+    parseResult: {
+      show: {
+        title: "First Seen",
+        client_label: "Client",
+        client_contact: null,
+        template_version: "v4",
+        venue: null,
+        dates: { travelIn: null, set: "2026-05-08", showDays: [], travelOut: null },
+        schedule_phases: {},
+        event_details: {},
+        agenda_links: [],
+        coi_status: null,
+        po: null,
+        proposal: null,
+        invoice: null,
+        invoice_notes: null,
+      },
+      crewMembers: [],
+      hotelReservations: [],
+      rooms: [],
+      transportation: null,
+      contacts: [],
+      pullSheet: null,
+      diagrams: { linkedFolder: null, embeddedImages: [], linkedFolderItems: [] },
+      openingReel: null,
+      raw_unrecognized: [],
+      warnings: [],
+      archivedPullSheetTabs: [],
+      hardErrors: [],
+    },
+    binding: { bindingToken: "rev-1", modifiedTime: "2026-05-08T12:00:00.000Z" },
+    runPhase1: vi.fn(async () => ({ outcome: "auto_publish_ready" as const })),
+    createUnpublishToken: () => "11111111-1111-4111-8111-111111111111",
+    now: () => new Date("2026-05-08T12:00:00.000Z"),
+    publishShowInvalidation: vi.fn(async () => {}),
+  };
+}
