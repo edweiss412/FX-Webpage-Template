@@ -228,6 +228,16 @@ Nine review rounds have killed twelve escaping mutants against this design. They
 
 So Kind B is closed by **one general oracle**, not a list: walk every visible text-bearing element on every rendered surface and, for each, measure a normalised child probe against the byte-derived expectation (§4.2). Computed-family resolution alone is NOT the oracle — it was measured identical across a real face and two impostors. It has no privileged place to look and therefore no blind spot to enumerate; the only thing that can be incomplete is the *surface census*, which §4.2's census derives from the framework's own config rather than from a hand list.
 
+**Demonstrated against the hardest Kind B case, not argued.** Mutant nine — a rogue face registered at runtime via `new FontFace("Inter", "local('Arial')")`, added to `document.fonts`, applied through a CSSOM `replaceSync` rule, with the string `@font-face` appearing in no source anywhere:
+
+| check | clean | under mutant nine |
+| --- | --- | --- |
+| computed `font-family` | `Inter, "Inter Fallback", …` | `Inter, sans-serif` — looks canonical, **passes** |
+| `document.fonts` family set | `{Inter}` | `{Inter}` — the mutant adds a second same-named entry, **passes** |
+| byte-derived child probe | 194.141 (δ 0.008) | **184.359 (δ 9.774) — fires** |
+
+Both rejected formulations pass the actual attack; the child probe catches it. That is what makes the one-oracle claim above load-bearing rather than aspirational.
+
 The acceptance criterion is the project's preparedness posture (`docs/agents/spec-self-review.md:24`) — every surface renders the committed family or a test says otherwise — **not** "no imaginable mutant survives". A new Kind B instance that the general oracle already catches is not a finding. A new Kind B instance that reveals a *surface the census misses* is, and it is fixed by widening the census, not by adding a row.
 
 ### 4.1 Static guard
