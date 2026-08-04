@@ -137,9 +137,15 @@ function buildConfig(flags) {
   cfg.out = expandPath(flags.out);
   cfg.artifacts = flags.artifacts.map(expandPath);
   cfg.lintBudgetBytes = Number(process.env.CODEX_GUARD_LINT_BUDGET_BYTES ?? 200000);
+  // Resolve the child against --cwd, NEVER the guard's launch cwd. Invariant 11
+  // makes them differ on every worktree run, and defaulting to the launch
+  // checkout lints the target with MAIN's older linter: the report is
+  // well-formed, the dispatch looks armed, and any check the target adds is
+  // silently absent. That is the exact silent-corruption shape this arm exists
+  // to prevent, committed inside the arm itself.
   cfg.lintCliArgs = [
-    resolve(process.env.CODEX_GUARD_TSX ?? join(process.cwd(), "node_modules/tsx/dist/cli.mjs")),
-    resolve(process.env.CODEX_GUARD_SPEC_LINT ?? join(process.cwd(), "scripts/spec-lint.ts")),
+    resolve(process.env.CODEX_GUARD_TSX ?? join(cfg.cwd, "node_modules/tsx/dist/cli.mjs")),
+    resolve(process.env.CODEX_GUARD_SPEC_LINT ?? join(cfg.cwd, "scripts/spec-lint.ts")),
   ];
   cfg.codexHome = expandPath(process.env.CODEX_HOME || join(homedir(), ".codex"));
 
@@ -304,8 +310,17 @@ function embedReport(raw, requestedRel, allowance) {
   // while leaving the primary finding above it, and both are then discarded
   // with every clause still green. Only indented inventory entries and blanks
   // may sit between INVENTORY and summary.
+  // The span must match the INVENTORY grammar EXACTLY (scripts/spec-lint.ts:62-63):
+  // `  <raw>: <n> occurrence(s)` and `    <line>:<col> <snippet>`. An
+  // indentation-only test is not an allowlist — every evidence class the
+  // renderer emits is also indented, so a finding, a `detail:` line or a
+  // section label can sit there, validate, and vanish from the prompt while the
+  // surviving summary still counts it.
+  const INV_GROUP = /^ {2}\S.*: \d+ occurrences?$/;
+  const INV_OCCURRENCE = /^ {4}\d+:\d+ /;
   const discardClean =
-    inv === -1 || lines.slice(inv + 1, sum).every((l) => l === "" || /^ {2,}\S/.test(l));
+    inv === -1 ||
+    lines.slice(inv + 1, sum).every((l) => l === "" || INV_GROUP.test(l) || INV_OCCURRENCE.test(l));
   if (
     !firstOk ||
     !kindOk ||
@@ -907,10 +922,27 @@ const cfg = buildConfig(parseArgs(process.argv.slice(2)));
 // up front: each report's allowance reserves the floors of every report still
 // to come, so an earlier one cannot expand into a later one's frame.
 if (cfg.lintDocs.length > 0) {
-  const FLOOR = 220; // head + a worst-case notice + summary
-  if (FLOOR * cfg.lintDocs.length > cfg.lintBudgetBytes) {
+  // A report's floor is its OWN frame, which scales with the document path — a
+  // fixed constant under-counts long paths and lets the precheck pass while the
+  // emitted total runs far over budget (measured: 909 docs at a 206-byte path
+  // emitted 272,700 against a 200,000 budget).
+  const floorFor = (rel) =>
+    Buffer.byteLength(
+      [
+        `spec:lint ${rel}`,
+        "kind: plan (inferred)",
+        "",
+        "[truncated: 0 of 0 bytes shown]",
+        "summary: 0 hard, 0 advisory",
+      ].join("\n"),
+    );
+  const relOf = (abs) =>
+    abs.startsWith(resolve(cfg.cwd) + "/") ? abs.slice(resolve(cfg.cwd).length + 1) : abs;
+  const floors = cfg.lintDocs.map((a) => floorFor(relOf(a)));
+  const floorSum = floors.reduce((a, b) => a + b, 0);
+  if (floorSum > cfg.lintBudgetBytes) {
     usageError(
-      `${cfg.lintDocs.length} --lint-doc reports cannot be seated in ${cfg.lintBudgetBytes} bytes`,
+      `${cfg.lintDocs.length} --lint-doc reports cannot be seated in ${cfg.lintBudgetBytes} bytes (frames alone need ${floorSum})`,
     );
   }
   cfg.lintReports = [];
@@ -934,7 +966,7 @@ if (cfg.lintDocs.length > 0) {
     if (r.error || r.status === null || (r.status !== 0 && r.status !== 1)) {
       usageError(`spec:lint could not run for ${rel} (status ${r.status ?? "signal"})`);
     }
-    const downstream = FLOOR * (cfg.lintDocs.length - i - 1);
+    const downstream = floors.slice(i + 1).reduce((a, b) => a + b, 0);
     const embedded = embedReport(r.stdout ?? "", rel, remaining - downstream);
     if (!embedded) usageError(`spec:lint produced a malformed report for ${rel}`);
     cfg.lintReports.push({ rel, block: embedded.block });

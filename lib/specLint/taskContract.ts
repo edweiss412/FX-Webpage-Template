@@ -31,9 +31,12 @@ const ID = "AC-[A-Za-z0-9]+(?:[.-][A-Za-z0-9]+)*";
 // silently re-opens every structure the "two fields, no other content" rule
 // forbids. A command needing a nested backtick belongs in a script.
 const MARKER = new RegExp(`^ {0,3}<!-- task: red=\`([^\`]*)\` ac=(${ID}(?:,${ID})*) -->[ \\t]*$`);
-// Same shape, but with the ac list relaxed, so "matches everything except that
-// `ac=` is absent or empty" is decidable separately from "is malformed".
-const MARKER_NO_AC = new RegExp("^ {0,3}<!-- task: red=`([^`]*)` -->[ \\t]*$");
+// "Matches everything EXCEPT that `ac=` is absent or its list is empty" — the
+// prerequisite is load-bearing. Both the omitted form and the explicit `ac=`
+// form qualify, and the `red` command must itself be valid: a line carrying two
+// defects at once is malformed, whatever else is also wrong with it, or the
+// catch-all is unreachable for anything overlapping.
+const MARKER_AC_ABSENT = new RegExp("^ {0,3}<!-- task: red=`([^`]*)`(?: ac=)? -->[ \\t]*$");
 
 /**
  * §3.3 boundary rule. An id resolves only where it appears delimited, never as
@@ -203,7 +206,10 @@ export function checkTaskContract(model: DocModel, kind: "spec" | "plan"): Findi
         continue;
       }
       if (!m) {
-        if (MARKER_NO_AC.test(text)) {
+        const noAc = MARKER_AC_ABSENT.exec(text);
+        // Precedence rule 2 requires an OTHERWISE well-formed marker, so a line
+        // that ALSO has an empty `red` is malformed rather than AC_MISSING.
+        if (noAc && noAc[1]!.trim() !== "") {
           findings.push(fail("TASK_AC_MISSING", line, "marker has no `ac=` list"));
         } else {
           findings.push(

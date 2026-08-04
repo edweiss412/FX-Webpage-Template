@@ -182,8 +182,19 @@ describe("checkTaskContract — marker grammar and codes (design §3.3)", () => 
     expect(codes(withMarker("<!-- task: red=`  ` ac=AC-1 -->"))).toEqual(["TASK_RED_EMPTY"]);
   });
 
-  it("M8/AC-27: an absent or empty ac list is TASK_AC_MISSING", () => {
+  it("M8/AC-27: an absent OR EXPLICITLY EMPTY ac list is TASK_AC_MISSING", () => {
     expect(codes(withMarker("<!-- task: red=`x` -->"))).toEqual(["TASK_AC_MISSING"]);
+    // The explicit-empty spelling is the same authoring slip and draws the same
+    // code; testing only the omitted form leaves it unclassified.
+    expect(codes(withMarker("<!-- task: red=`x` ac= -->"))).toEqual(["TASK_AC_MISSING"]);
+  });
+
+  it("M55: AC_MISSING requires an OTHERWISE well-formed marker — an empty red too is malformed", () => {
+    // Precedence rule 2 names a marker that matches in every other respect. A
+    // line carrying two defects at once is malformed, or the catch-all is
+    // unreachable for anything overlapping.
+    expect(codes(withMarker("<!-- task: red=`` -->"))).toEqual(["TASK_MARKER_MALFORMED"]);
+    expect(codes(withMarker("<!-- task: red=`  ` -->"))).toEqual(["TASK_MARKER_MALFORMED"]);
   });
 
   it("M55: a specific code requires an OTHERWISE well-formed marker — junk makes it malformed", () => {

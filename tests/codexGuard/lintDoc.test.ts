@@ -1,12 +1,17 @@
 import { describe, expect, it } from "vitest";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { mkRun, readCalls, readResult, runGuard, writeScenario, type Run } from "./harness";
 
 const ROOT = process.cwd();
 const TSX = join(ROOT, "node_modules/tsx/dist/cli.mjs");
 const T = 60000;
+
+const REAL_CLI = {
+  CODEX_GUARD_TSX: TSX,
+  CODEX_GUARD_SPEC_LINT: join(ROOT, "scripts/spec-lint.ts"),
+};
 
 const APPROVE = [
   {
@@ -28,7 +33,8 @@ function plantDoc(run: Run, rel: string, text: string): string {
   const abs = join(run.cwdDir, rel);
   mkdirSync(join(abs, ".."), { recursive: true });
   writeFileSync(abs, text);
-  // codex-guard resolves --lint-doc against --cwd's repository.
+  // codex-guard resolves --lint-doc AND its lint child against --cwd, so the
+  // fixture has to be a realistic checkout rather than a bare directory.
   execFileSync("git", ["init", "-q"], { cwd: run.cwdDir });
   return rel;
 }
@@ -71,7 +77,7 @@ describe("codex-guard --lint-doc (design §2.2)", () => {
       const run = mkRun();
       const rel = plantDoc(run, "docs/superpowers/plans/p.md", PLAN_WITH_DEFECT);
       writeScenario(run, APPROVE);
-      const r = await runGuard(run, ["--lint-doc", rel]);
+      const r = await runGuard(run, ["--lint-doc", rel], REAL_CLI);
       expect(r.code).toBe(0);
       expect(readResult(run).verdict).toBe("APPROVE");
     },
@@ -84,7 +90,7 @@ describe("codex-guard --lint-doc (design §2.2)", () => {
       const run = mkRun();
       const rel = plantDoc(run, "docs/superpowers/plans/p.md", PLAN_WITH_DEFECT);
       writeScenario(run, APPROVE);
-      await runGuard(run, ["--lint-doc", rel]);
+      await runGuard(run, ["--lint-doc", rel], REAL_CLI);
 
       const prompt = readCalls(run)[0]!.stdin;
       expect(prompt).toContain(`===== SPEC-LINT: ${rel} =====`);
@@ -131,7 +137,7 @@ describe("codex-guard --lint-doc (design §2.2)", () => {
       const run = mkRun();
       const rel = plantDoc(run, "docs/superpowers/plans/p.md", PLAN_WITH_DEFECT);
       writeScenario(run, APPROVE);
-      const r = await runGuard(run, ["--lint-doc", rel]);
+      const r = await runGuard(run, ["--lint-doc", rel], REAL_CLI);
       expect(r.code).toBe(0);
       expect(readCalls(run).length).toBeGreaterThan(0);
     },
@@ -144,12 +150,12 @@ describe("codex-guard --lint-doc (design §2.2)", () => {
       const a = mkRun();
       const rel = plantDoc(a, "docs/superpowers/plans/p.md", PLAN_WITH_DEFECT);
       writeScenario(a, APPROVE);
-      await runGuard(a, ["--lint-doc", rel]);
+      await runGuard(a, ["--lint-doc", rel], REAL_CLI);
       expect(readResult(a).lintArm).toBe("present");
 
       const b = mkRun();
       writeScenario(b, APPROVE);
-      await runGuard(b, []);
+      await runGuard(b, [], REAL_CLI);
       expect(readResult(b).lintArm).toBe("absent");
     },
     T,
@@ -161,7 +167,7 @@ describe("codex-guard --lint-doc (design §2.2)", () => {
       const run = mkRun();
       plantDoc(run, "docs/superpowers/plans/p.md", PLAN_WITH_DEFECT);
       writeScenario(run, APPROVE);
-      const r = await runGuard(run, ["--lint-doc", "/etc/hosts"]);
+      const r = await runGuard(run, ["--lint-doc", "/etc/hosts"], REAL_CLI);
       expect(r.code).toBe(2);
       expect(r.stderr).toMatch(/outside the repository/i);
       expect(readCalls(run)).toEqual([]);
@@ -177,7 +183,7 @@ describe("codex-guard --lint-doc (design §2.2)", () => {
       const run = mkRun();
       const rel = plantDoc(run, "docs/superpowers/plans/p.md", PLAN_WITH_DEFECT);
       writeScenario(run, APPROVE);
-      const r = await runGuard(run, ["--lint-doc", rel]);
+      const r = await runGuard(run, ["--lint-doc", rel], REAL_CLI);
       expect(r.code).toBe(0);
       expect(readCalls(run)[0]!.stdin).toContain("TASK_MARKER_MISSING");
     },
@@ -199,9 +205,82 @@ describe("codex-guard --lint-doc (design §2.2)", () => {
           `process.stdout.write("spec:lint ${rel}\\nkind: plan (inferred)\\n\\nsummary: 0 hard, 0 advisory\\n");\nprocess.exit(${status});\n`,
         );
         writeScenario(run, APPROVE);
-        const r = await runGuard(run, ["--lint-doc", rel], { CODEX_GUARD_SPEC_LINT: stub });
+        const r = await runGuard(run, ["--lint-doc", rel], {
+          ...REAL_CLI,
+          CODEX_GUARD_SPEC_LINT: stub,
+        });
         expect(`status=${status} exit=${r.code}`).toBe(`status=${status} exit=2`);
         expect(readCalls(run)).toEqual([]);
+      }
+    },
+    T,
+  );
+
+  it(
+    "M87: the lint child defaults to --cwd's checkout, never the guard's launch cwd",
+    async () => {
+      // Defaulting to the launch checkout lints the TARGET with MAIN's linter:
+      // well-formed report, armed-looking dispatch, and any check the target
+      // adds silently absent — the exact silent-corruption shape this arm
+      // exists to prevent, committed inside the arm itself.
+      //
+      // The fixture --cwd has NO scripts/spec-lint.ts. Resolving against the
+      // launch checkout finds a working CLI and dispatches; resolving against
+      // --cwd finds nothing and must refuse. That difference IS the assertion.
+      const run = mkRun();
+      const rel = plantDoc(run, "docs/superpowers/plans/p.md", PLAN_WITH_DEFECT);
+      writeScenario(run, APPROVE);
+      const r = await runGuard(run, ["--lint-doc", rel]); // no env override
+      expect(r.code).toBe(2);
+      expect(readCalls(run)).toEqual([]);
+    },
+    T,
+  );
+
+  it(
+    "AC-21.1/AC-21.4/M51/M59: the aggregate budget holds, and an unseatable request refuses",
+    async () => {
+      // The floor is each report's OWN frame, which scales with the document
+      // path. A fixed constant under-counts long paths: the precheck passes and
+      // the emitted total runs far over budget (measured on the previous logic:
+      // 909 docs at a 206-byte path emitted 272,700 against 200,000).
+      const run = mkRun();
+      const rel = plantDoc(run, "docs/superpowers/plans/p.md", PLAN_WITH_DEFECT);
+      writeScenario(run, APPROVE);
+      const many = Array.from({ length: 40 }, () => ["--lint-doc", rel]).flat();
+      const r = await runGuard(run, many, { ...REAL_CLI, CODEX_GUARD_LINT_BUDGET_BYTES: "4000" });
+      expect(r.code).toBe(2);
+      expect(r.stderr).toMatch(/cannot be seated/);
+      expect(readCalls(run)).toEqual([]);
+    },
+    T,
+  );
+
+  it(
+    "AC-21.1: a seatable multi-doc request stays within the aggregate budget",
+    async () => {
+      const run = mkRun();
+      const rel = plantDoc(run, "docs/superpowers/plans/p.md", PLAN_WITH_DEFECT);
+      writeScenario(run, APPROVE);
+      const budget = 3000;
+      const r = await runGuard(run, ["--lint-doc", rel, "--lint-doc", rel], {
+        ...REAL_CLI,
+        CODEX_GUARD_LINT_BUDGET_BYTES: String(budget),
+      });
+      expect(r.code).toBe(0);
+      const stdin = readCalls(run)[0]!.stdin;
+      const blocks = stdin.split("===== SPEC-LINT: ").slice(1);
+      expect(blocks.length).toBe(2);
+      const emitted = blocks.reduce(
+        (a, b) => a + Buffer.byteLength(b.split("\n===== END SPEC-LINT =====")[0]!),
+        0,
+      );
+      expect(emitted).toBeLessThanOrEqual(budget);
+      // Every emitted block keeps its summary, truncated or not.
+      for (const b of blocks) {
+        expect(b.split("\n===== END SPEC-LINT =====")[0]!.trimEnd().split("\n").pop()).toMatch(
+          /^summary: /,
+        );
       }
     },
     T,
@@ -213,7 +292,11 @@ describe("codex-guard --lint-doc (design §2.2)", () => {
       const run = mkRun();
       plantDoc(run, "docs/superpowers/plans/p.md", PLAN_WITH_DEFECT);
       writeScenario(run, APPROVE);
-      const r = await runGuard(run, ["--lint-doc", "docs/superpowers/plans/does-not-exist.md"]);
+      const r = await runGuard(
+        run,
+        ["--lint-doc", "docs/superpowers/plans/does-not-exist.md"],
+        REAL_CLI,
+      );
       expect(r.code).toBe(2);
       expect(readCalls(run)).toEqual([]);
     },
