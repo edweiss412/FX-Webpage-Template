@@ -140,6 +140,45 @@ export function reportForQueue(file: string, items: LedgerItem[]): QueueReport {
   return { file, entries: items.length, byTier, mass, unsized, severityUnrecognized };
 }
 
+/**
+ * One ledger file as committed at `rev`.
+ *
+ * A truncated object store and a mistyped rev both surface from `git show` as
+ * `fatal: invalid object name`, and only one of them is the reader's mistake.
+ * Shallow checkouts are the common case here — `actions/checkout` defaults to
+ * `fetch-depth: 1` — so when the repo IS shallow the message says so and names
+ * the fetch that repairs it, rather than sending the reader to re-check a rev
+ * that was correct all along.
+ */
+function showAtRev(rev: string, file: string): string {
+  try {
+    return execFileSync("git", ["show", `${rev}:${file}`], {
+      cwd: ROOT,
+      encoding: "utf8",
+      maxBuffer: 64 * 1024 * 1024,
+      timeout: 60_000,
+    });
+  } catch (cause) {
+    const shallow =
+      execFileSync("git", ["rev-parse", "--is-shallow-repository"], {
+        cwd: ROOT,
+        encoding: "utf8",
+        timeout: 30_000,
+      }).trim() === "true";
+    throw new Error(
+      `--at could not read \`${file}\` at \`${rev}\`. ` +
+        (shallow
+          ? "This checkout is SHALLOW, so the rev is very likely absent rather than wrong. "
+          : "This checkout is NOT shallow, so the rev is unknown here — check the spelling first; " +
+            "if it is right, it lives on a branch this checkout has never fetched. ") +
+        `Recover it with \`git fetch --no-tags ${shallow ? "--depth=1 " : ""}origin ${rev}\` ` +
+        "(fetch-by-SHA needs the full 40 characters). " +
+        `Underlying: ${cause instanceof Error ? cause.message : String(cause)}`,
+      { cause },
+    );
+  }
+}
+
 /** Ledger text for each open queue, from whichever source the flags selected. */
 function readQueues(source: MassReport["source"]): { file: string; text: string }[] {
   if (source.kind === "rev") {
@@ -149,15 +188,7 @@ function readQueues(source: MassReport["source"]): { file: string; text: string 
     // has no directory to walk without a second git call per candidate.
     return ledgerFiles(ROOT)
       .filter((f) => !isArchive(f))
-      .map((file) => ({
-        file,
-        text: execFileSync("git", ["show", `${source.value}:${file}`], {
-          cwd: ROOT,
-          encoding: "utf8",
-          maxBuffer: 64 * 1024 * 1024,
-          timeout: 60_000,
-        }),
-      }));
+      .map((file) => ({ file, text: showAtRev(source.value, file) }));
   }
   const root = source.kind === "root" ? source.value : ROOT;
   return ledgerFiles(root)

@@ -222,6 +222,22 @@ describe("--at reads the same numbers back out of git history", () => {
     ).toHaveLength(1);
   });
 
+  it("an unreachable rev fails with the shallow-clone cause, not `invalid object name`", () => {
+    // What CI actually printed was `fatal: invalid object name '8d78cdf13'`,
+    // which reads as a WRONG rev — the rev was right and the object store was
+    // truncated. The workflow step above is the fix for CI; this is the fix for
+    // every other shallow context, where nobody has a workflow to edit.
+    let message = "";
+    try {
+      buildReport({ kind: "rev", value: "0".repeat(40) });
+    } catch (e) {
+      message = e instanceof Error ? e.message : String(e);
+    }
+    expect(message).toContain("0".repeat(40));
+    expect(message).toMatch(/shallow/i);
+    expect(message).toContain("git fetch");
+  });
+
   it(`--at ${ORACLE.rev} equals the committed fixture`, () => {
     const fromGit = buildReport({ kind: "rev", value: ORACLE.rev });
     expect(fromGit.totals.mass).toBe(ORACLE.total.mass);
