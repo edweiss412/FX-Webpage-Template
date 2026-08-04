@@ -281,4 +281,45 @@ export const GUARD_SURFACES: GuardSurface[] = [
       },
     ],
   },
+  {
+    id: "ledgerClaimsCore",
+    sourcePath: "scripts/lib/ledger-claims-core.ts",
+    suitePaths: ["tests/scripts/ledgerClaimsCheck.test.ts", "tests/scripts/ledgerClaims.test.ts"],
+    operators: [...OPERATOR_NAMES],
+    // Measured 58/58 counted (61 mutants, 3 equivalent) on this branch. The
+    // floor is a FLOOR, not a snapshot: pinning it at the measured value turns
+    // every future line of this module into a gate failure before it has a
+    // test, which is how a ratchet becomes a wall.
+    scoreFloor: 0.95,
+    // Inverting the fetch branch makes `--no-fetch` fetch and stop emitting
+    // `no-fetch-cached-refs`, which ledgerClaims.test.ts asserts IN PROCESS.
+    control: { from: "if (opts.fetch) {", to: "if (!opts.fetch) {" },
+    accepted: [
+      // ---- equivalent: cannot change observable behavior (spec §2.4) -------
+      //
+      // All three are the same argument: `tipOf` is constructed FROM
+      // `candidates` (ledger-claims-core.ts:193-195), and every later lookup is
+      // keyed on a member of that same array, so no `?? 0` fallback can ever be
+      // taken. `candidates.sort` at :198 reorders the array in place; it adds
+      // and removes nothing, so the key set the sort and the loop read is the
+      // key set the map was built from.
+      {
+        siteId: "integer-literal:198:46:0>1",
+        kind: "equivalent",
+        reason:
+          "the comparator at ledger-claims-core.ts:198 sorts `candidates`, and `tipOf` was built from `candidates` at :193-195, so `tipOf.get(b)` is always present and the `?? 0` fallback is unreachable",
+      },
+      {
+        siteId: "integer-literal:198:68:0>1",
+        kind: "equivalent",
+        reason: "same reachability argument for `tipOf.get(a)` in the same comparator",
+      },
+      {
+        siteId: "integer-literal:216:57:0>1",
+        kind: "equivalent",
+        reason:
+          "the age loop at ledger-claims-core.ts:212 iterates the same `candidates` array `tipOf` was built from, so `tipOf.get(ref)` is always present and this `?? 0` is unreachable too",
+      },
+    ],
+  },
 ];

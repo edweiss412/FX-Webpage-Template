@@ -471,6 +471,49 @@ describe("staleness boundary (integer-literal:80, relational-boundary:224)", () 
   });
 });
 
+describe("age arithmetic (integer-literal:194, integer-literal:216)", () => {
+  /**
+   * A clock sitting exactly one second past a day boundary.
+   *
+   * `Math.ceil` absorbs a one-second shift at every other instant, so this is
+   * the only shape of fixture at which a one-second change to either operand of
+   * the age division is observable at all. Both cases below are premised on it
+   * rather than trusting the constant to stay what it says.
+   */
+  const ONE_SECOND_PAST_A_DAY = 20_371 * DAY + 1;
+
+  it("dates a declaredOnly claim from the epoch itself, not one second later", () => {
+    // Kills `declaredOnly ? 0 : git.tipEpoch(pin(ref))` -> `? 1`. declaredOnly
+    // deliberately never reads a tip, so every claim in that mode is aged from
+    // the Unix epoch; the existing declaredOnly cases assert only that tipEpoch
+    // is NOT called, which a different sentinel satisfies just as well.
+    premiseHolds(
+      "the fixture's clock is one second past a day boundary, where a 0/1 sentinel differs",
+      ONE_SECOND_PAST_A_DAY % DAY === 1,
+    );
+    const r = resolveClaims(
+      fake({
+        tipEpoch: () => {
+          throw new Error("declaredOnly must not read tips");
+        },
+      }),
+      { fetch: false, now: ONE_SECOND_PAST_A_DAY, declaredOnly: true },
+    );
+    expect(r.claims[0]?.tipAgeDays, "the tip sentinel is not the epoch").toBe(
+      Math.ceil(ONE_SECOND_PAST_A_DAY / DAY),
+    );
+  });
+
+  it("rounds a tip one second past a full day up to two days", () => {
+    // Kills `/ 86_400` -> `/ 86_401`. At a whole number of days the two
+    // divisors agree — ceil absorbs the 0.001% — so every age in this suite is
+    // blind to it. One second past the day is the smallest age at which they
+    // disagree, and it is also the boundary the `ageDays` comment argues for.
+    const r = resolveClaims(fake({ tipEpoch: () => NOW - (DAY + 1) }), opts);
+    expect(r.claims[0]?.tipAgeDays, "a day and a second did not round up").toBe(2);
+  });
+});
+
 describe("the fetch leg (statement-removal:137, :139, :142)", () => {
   it("fetches when opts.fetch is set", () => {
     // The ordering guard in ledgerClaimsCheck.test.ts pins `ledger-check.ts`'s

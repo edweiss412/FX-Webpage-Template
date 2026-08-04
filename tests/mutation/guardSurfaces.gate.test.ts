@@ -33,6 +33,13 @@ const root = process.cwd();
  */
 const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
   taskContract: { equivalent: 18, "accepted-gap": 2 },
+  // Counted from the surface, not read back off its ledger: `scripts/lib/
+  // ledger-claims-core.ts` has exactly THREE `?? 0` fallbacks whose key is
+  // always present -- two in the tip comparator, one in the age loop -- and
+  // nothing else that survives. No accepted-gap: every other survivor was
+  // repaid by a test, so a row appearing here later is a regression to
+  // explain rather than a number to update.
+  ledgerClaimsCore: { equivalent: 3 },
 };
 
 describe("guard-surface registry — ledger-kind expectations", () => {
@@ -143,8 +150,8 @@ describe.each(GUARD_SURFACES.map((s) => [s.id, s] as const))(
  */
 describe("the per-mutant config's timeout is in force", () => {
   it("runs a fixture that outlives vitest's 5000ms default", () => {
-    expect(
-      childRun(root, "tests/mutation/source/fixtures/slowTest.fixture.ts", INERT_TARGET),
-    ).toBe(0);
+    expect(childRun(root, "tests/mutation/source/fixtures/slowTest.fixture.ts", INERT_TARGET)).toBe(
+      0,
+    );
   });
 });
