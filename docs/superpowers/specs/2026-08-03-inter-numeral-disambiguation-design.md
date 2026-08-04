@@ -592,3 +592,17 @@ Compiling surfaced two more truths the source could not show, both now handled r
 Mutation-proven: `all: initial` on the real surface, an arbitrary Tailwind utility emitting an unsupported tag, and a new unexplained reset rule.
 
 **Twenty-eight mutants across ten rounds. All caught.**
+
+### 12.11 Round 11 — the last declaration path
+
+`VERDICT: NEEDS-ATTENTION`, one P1, accepted and fixed.
+
+A React `style={{ fontFeatureSettings: '"ZZ-Z" 1' }}` never appears in any stylesheet, so the compiled-sheet guard from §12.10 cannot see it — and inline precedence beats every class. Proved against the wizard's real transcribe-back surface: the compiled sheet still held exactly six declarations while the browser honoured a seventh.
+
+**FIXED** with the same fail-closed posture, applied to the one path left. There is no legitimate use for setting these properties inline in this codebase — the whole design is two classes and a root rule — so rather than try to VALIDATE an inline value (the mistake rounds 3–7 kept making), any occurrence of `fontFeatureSettings` or `fontVariantNumeric` in product source fails the build. Walked from disk over `app/`, `components/` and `lib/`, so a new file is covered by default, with a non-vacuity assertion that the walk actually reaches source. Mutation-proven on the real wizard element.
+
+Explicitly cleared by the reviewer: both `ALLOWED_FEATURE_RESETS` entries are correctly justified, there is no second runtime CSS file and no CSS-in-JS dependency, and the existing `<style>` surfaces are unrelated or already documented as standalone limits.
+
+**The declaration surface is now closed at every path:** the compiled stylesheet (§12.10), escaped or cased property names (§12.8, §12.9), non-canonical values (§12.7), and now inline styles. Each is fail-closed — the guard refuses what it does not recognise rather than interpreting it.
+
+**Twenty-nine mutants across eleven rounds. All caught.**

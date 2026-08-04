@@ -20,9 +20,9 @@
  */
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import * as fontkit from "fontkit";
 import postcss from "postcss";
 import ts from "typescript";
@@ -496,6 +496,77 @@ describe("parseFeatureValue — recognises the canonical form, refuses everythin
         `escape terminated by ${JSON.stringify(ws)}`,
       ).toBe(false);
     }
+  });
+});
+
+/**
+ * INLINE STYLES ARE THE LAST DECLARATION PATH, AND THEY ARE REFUSED.
+ *
+ * The guard reads the compiled stylesheet, which is what the browser gets — but
+ * a React `style={{ fontFeatureSettings: '"ZZ-Z" 1' }}` never appears in any
+ * stylesheet at all, and inline precedence beats every class. Round 11 proved it
+ * against the wizard's real transcribe-back surface: the compiled sheet still
+ * held exactly six declarations while the browser honoured a seventh.
+ *
+ * There is no legitimate use for setting these properties inline in this
+ * codebase — the whole design is two classes and a root rule — so rather than
+ * try to VALIDATE an inline value (the mistake rounds 3–7 kept making), any
+ * occurrence in product source fails the build. That is the same fail-closed
+ * posture §12.7 settled on, applied to the one path left.
+ *
+ * Walked from disk over `app/`, `components/` and `lib/`, so a new file is
+ * covered by default rather than silently exempt.
+ */
+const INLINE_STYLE_PROPS = /\b(fontFeatureSettings|fontVariantNumeric)\s*:/;
+const PRODUCT_ROOTS = ["app", "components", "lib"] as const;
+
+export function inlineFeatureStyles(): string[] {
+  const hits: string[] = [];
+  const walk = (dir: string): void => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const path = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        if (entry.name !== "node_modules") walk(path);
+        continue;
+      }
+      if (!/\.(tsx?|jsx?)$/.test(entry.name)) continue;
+      const source = readFileSync(path, "utf8");
+      for (const [i, line] of source.split("\n").entries()) {
+        if (INLINE_STYLE_PROPS.test(line))
+          hits.push(`${path.slice(REPO_ROOT.length + 1)}:${i + 1}`);
+      }
+    }
+  };
+  for (const root of PRODUCT_ROOTS) walk(resolve(REPO_ROOT, root));
+  return hits;
+}
+
+describe("inline styles cannot set the font features", () => {
+  test("no product source sets fontFeatureSettings or fontVariantNumeric inline", () => {
+    const hits = inlineFeatureStyles();
+    expect(
+      hits,
+      `these set a font-feature property inline, where it beats every class and ` +
+        `never appears in any stylesheet the guard can read: ${hits.join(", ")}. ` +
+        `Use \`.tabular-nums\` or \`.code-value\`, or extend this guard deliberately.`,
+    ).toEqual([]);
+  });
+
+  test("the walk actually reaches product source", () => {
+    // Non-vacuity: a walk that found no files would pass the assertion above
+    // while proving nothing, which is the exact shape of the bug this file exists
+    // to catch.
+    let files = 0;
+    const count = (dir: string): void => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const path = join(dir, entry.name);
+        if (entry.isDirectory()) {
+          if (entry.name !== "node_modules") count(path);
+        } else if (/\.(tsx?|jsx?)$/.test(entry.name)) files += 1;
+      }
+    };
+    for (const root of PRODUCT_ROOTS) count(resolve(REPO_ROOT, root));
+    expect(files).toBeGreaterThan(100);
   });
 });
 
