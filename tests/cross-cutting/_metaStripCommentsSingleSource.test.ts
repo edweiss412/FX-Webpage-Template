@@ -61,6 +61,18 @@ export type StandingRow = { file: string; family: string; marker: string; reason
  *  still fails. This list is EXACTLY the plan-time simulation's offender set. */
 export const STANDING_ALLOWLIST: StandingRow[] = [
   {
+    file: "tests/styles/fontFeatureAvailability.test.ts",
+    family: "startswith-filter",
+    marker: "--",
+    reason:
+      "NOT comment handling. `--` opens a comment in SQL, but here it is the CSS " +
+      'CUSTOM PROPERTY prefix: the guard checks `prop.startsWith("--")` to decide ' +
+      "whether a declaration is a custom property that might CARRY a font-variant " +
+      "keyword (`--tw-numeric-figure: oldstyle-nums`, or any other name — see the " +
+      "inter-numeral-disambiguation spec §12.21). This file already imports " +
+      "stripCommentsForFile from tests/_shared for its actual comment stripping.",
+  },
+  {
     file: "tests/ci/_workflowCoverageScan.ts",
     family: "name-family",
     marker: "stripCommentLines",
