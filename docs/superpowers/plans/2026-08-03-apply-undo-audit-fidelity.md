@@ -85,7 +85,7 @@ Unit E repairs the guards that *pin* this topology — they have been reading su
 
 ## Task order and why
 
-Tasks 1–5 (Unit A) are the spine: nothing downstream is testable until the outcome type carries landed/unlanded. Unit B (6–7) needs A's data. Unit D (8–10) is independent of A/B/C and could run in parallel, but is sequenced after so the migration lands against a settled `crewImage`. Unit C (11–13) is last among the features because its four sites are the widest blast radius. Unit E (14) is independent and last, since it repairs guards over the migration Task 8 ships.
+Tasks 1–5 (Unit A) are the spine: nothing downstream is testable until the outcome type carries landed/unlanded. Unit B (6–7) needs A's data. Unit D (8–10) is independent of A/B/C and could run in parallel, but is sequenced after so the migration lands against a settled `crewImage`. Unit C (11-12) is last among the features because its four sites are the widest blast radius. Unit E (13) is independent and comes after, since it repairs guards over the migration Task 8 ships. Task 14 is close-out.
 
 ---
 
@@ -139,7 +139,7 @@ it("renameCrewMember returns false when the source name is absent", async () => 
 });
 ```
 
-**Verified helpers** (do not invent others): this file imports `seedShow`, `seedCrew`, `readCrew`, `crew`, `prevMember`, `snapshot`, `applyTx`, `holdPort`, `parseResult` from `./_holdAwareTestkit` (`tests/sync/applyParseResult.identityLink.db.test.ts:16-26`), plus `inRollback` (local, line 38) and `makeSyncPipelineTx` from `@/lib/sync/runScheduledCronSync` (line 14). Match the existing tests' call shapes for `seedShow`/`seedCrew` rather than the illustrative ones above.
+**Verified helpers** (do not invent others). Note `seedCrew` takes a SINGLE `CrewMemberRow`, not an array, and the established call is `makeSyncPipelineTx(tx as never)` — the illustrative snippets above pass arrays and omit the cast; reconcile both against the neighbouring tests before running. This file imports `seedShow`, `seedCrew`, `readCrew`, `crew`, `prevMember`, `snapshot`, `applyTx`, `holdPort`, `parseResult` from `./_holdAwareTestkit` (`tests/sync/applyParseResult.identityLink.db.test.ts:16-26`), plus `inRollback` (local, line 38) and `makeSyncPipelineTx` from `@/lib/sync/runScheduledCronSync` (line 14). Match the existing tests' call shapes for `seedShow`/`seedCrew` rather than the illustrative ones above.
 
 **Failure mode this catches:** a pair that clears all five loop guards can still silently no-op. Today nothing observes that, so `unlandedRenames` would under-report and the notice would keep describing a rename that did not happen.
 
@@ -516,7 +516,7 @@ Expected: PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add lib/sync/phase2.ts tests/sync/phase2.test.ts
+git add lib/sync/phase2.ts tests/sync/phase2.test.ts tests/db/stagedApplyIdentityLink.db.test.ts
 git commit -m "feat(sync): surface unlandedRenames on the phase2 result"
 ```
 
@@ -537,51 +537,64 @@ git commit -m "feat(sync): surface unlandedRenames on the phase2 result"
 
 A naive swap of both arms to `landedRenames` would fire a **false capability-loss notice** for every pair whose source row survived — a new defect pointing the opposite way from the one this unit fixes. Conversely, keeping the requested pairs in arm (c) means a genuine loss (source deleted because its rename target was hold-suppressed) stays silently suppressed, which is the bug being fixed.
 
-- [ ] **Step 1: Write the failing tests**
+- [ ] **Step 1: Write the failing tests — SPLIT ACROSS TWO FILES**
 
-**`capabilityRoleChangesForNotice` is MODULE-LOCAL — not exported** (`lib/sync/phase2.ts:265`). Do NOT import or call it directly. Existing tests exercise it only through `runPhase2`'s `roleFlagsNotice`; the closest neighbours are `tests/sync/phase2.test.ts:869-920`. All four tests below go through `runWith` and assert on the resulting notice.
+Three verified constraints decide where each test lives:
 
-Because the input now comes from the apply outcome rather than from args, driving these cases means controlling whether the pair lands. Extend the `FakePhase2Tx` crew setup the existing rename tests already use, rather than stubbing the notice function.
+1. **`capabilityRoleChangesForNotice` is module-local, not exported** (`lib/sync/phase2.ts:265`). Never call it directly; assert on `runPhase2`'s `roleFlagsNotice`.
+2. **`FakePhase2Tx` has no `holdPort`** — zero occurrences in `tests/sync/phase2.test.ts`. `runPhase2` only enables hold-aware apply via `tx.holdPort?.()` (`lib/sync/phase2.ts:479`), so **any case needing hold state is impossible in this file**. That is both survival cases, not just one.
+3. **The crew helpers are `crew(name, email?)` (`tests/sync/phase2.test.ts:21`) and `crewWithFlags(name, roleFlags)` (`tests/sync/phase2.test.ts:34`).** `crew()`'s second parameter is an email string — use `crewWithFlags` whenever flags matter.
+
+**In `tests/sync/phase2.test.ts`** (no hold state needed):
 
 ```ts
-it("a landed rename with unchanged flags still emits no capability notice", async () => {
+it("capability: a landed rename with unchanged flags emits no notice", async () => {
   const tx = new FakePhase2Tx();
-  // crew state where Old(LEAD) renames to New(LEAD) and the rename LANDS
+  // seed prior crew Old(LEAD) on tx per the pattern at tests/sync/phase2.test.ts:869-920
   const result = await runWith(tx, {
-    parseResult: parseResult({ crewMembers: [crew("New", { role_flags: ["LEAD"] })] }),
+    parseResult: parseResult({ crewMembers: [crewWithFlags("New", ["LEAD"])] }),
     identityLinkRenames: [{ removedName: "Old", addedName: "New" }],
   });
   expect(result.roleFlagsNotice).toBeUndefined();
 });
 
-it("an unlanded pair whose SOURCE SURVIVED emits no capability-loss notice", async () => {
-  // Old(LEAD) is held, so its row survives; the pair does not land.
-  expect(result.roleFlagsNotice).toBeUndefined();
-});
-
-it("an unlanded pair whose SOURCE DIED emits the capability-loss notice suppressed today", async () => {
-  // Old(LEAD), target absent from the parse, source not protected -> deleted -> a REAL loss.
+it("capability: an unlanded pair whose SOURCE DIED reports the loss suppressed today", async () => {
+  const tx = new FakePhase2Tx();
+  // prior Old(LEAD); target absent from the parse and source not protected -> Old is deleted.
+  const result = await runWith(tx, {
+    parseResult: parseResult({ crewMembers: [crewWithFlags("Other", [])] }),
+    identityLinkRenames: [{ removedName: "Old", addedName: "Nowhere" }],
+  });
   expect(result.roleFlagsNotice?.context.changes).toEqual([
     { crew_name: "Old", prior_flags: ["LEAD"], new_flags: [] },
   ]);
 });
+```
 
-it("a held pair whose hold kind did NOT delete-protect it still reports the loss", async () => {
-  // reason name_held but sourceSurvived false -> the loss is real and must be reported.
-  expect(result.roleFlagsNotice?.context.changes).toHaveLength(1);
+**In `tests/db/stagedApplyIdentityLink.db.test.ts`** (real holds via `holdPort`) — both survival cases, since neither can run above:
+
+```ts
+it("capability: an unlanded pair whose SOURCE SURVIVED emits no capability-loss notice", async () => {
+  // Hold Old(LEAD) with a kind that DOES delete-protect it, request Old -> New, assert no notice.
+});
+
+it("capability: a held pair whose hold kind did NOT delete-protect it still reports the loss", async () => {
+  // Same shape, hold kind that holds without delete-protecting. THIS is the reason-proxy
+  // discriminator: a reason-based implementation passes the test above and fails only here.
+  // If no hold kind produces hold-without-delete-protect, say so in the commit message and
+  // record it as a documented gap rather than faking planner state.
 });
 ```
 
-Use the file's `crew()` builder for crew literals — the real `CrewMemberRow` has more fields than the shorthand above.
+Every title starts with `capability:` so the `-t "capability"` filter in Step 2 selects all four across both files.
 
-**If the fourth case cannot be driven through `FakePhase2Tx`** — its hold planner may expose no kind that holds a name without also delete-protecting it — move that one test to `tests/db/stagedApplyIdentityLink.db.test.ts`, which drives real holds through `holdPort`. Do NOT fake a planner state production never produces; note the move in the commit message.
 
 **Failure mode each catches:** test 2 catches the naive both-arms-landed implementation (the false-loss regression); test 3 catches leaving arm (c) on requested pairs (a real loss stays silent); test 4 catches the reason-proxy implementation, which passes tests 2 and 3 and fails only here.
 
 - [ ] **Step 2: Run to verify they fail**
 
-Run: `pnpm vitest run tests/sync/phase2.test.ts -t "capability"`
-Expected: FAIL — the third argument is still a flat `IdentityLinkRename[]`.
+Run: `pnpm vitest run tests/sync/phase2.test.ts tests/db/stagedApplyIdentityLink.db.test.ts -t "capability"`
+Expected: FAIL — the notice still derives from the requested pairs.
 
 - [ ] **Step 3: Change the signature and the two arms**
 
@@ -605,13 +618,13 @@ Update the call site at `lib/sync/phase2.ts:586-590` to pass `{ landedRenames: a
 
 - [ ] **Step 4: Run to verify they pass**
 
-Run: `pnpm vitest run tests/sync/phase2.test.ts`
-Expected: PASS, including line 548, line 879 and line 901.
+Run: `pnpm vitest run tests/sync/phase2.test.ts tests/db/stagedApplyIdentityLink.db.test.ts`
+Expected: PASS, including the pre-existing rename tests at tests/sync/phase2.test.ts lines 548, 879 and 901.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add lib/sync/phase2.ts tests/sync/phase2.test.ts
+git add lib/sync/phase2.ts tests/sync/phase2.test.ts tests/db/stagedApplyIdentityLink.db.test.ts
 git commit -m "fix(sync): split the notice's rename arms so a surviving source suppresses, a dead one reports"
 ```
 
@@ -671,7 +684,13 @@ it("roster_shift_counts reports zero renamed for an unlanded pair", async () => 
 });
 
 it("field_changed attribution follows landed pairs, not requested ones", async () => {
+  // FIXTURE REQUIREMENT: the successor must carry a NON-LEAD field delta versus the prior row,
+  // because writeAutoApplyChanges only writes a field_changed row in that case
+  // (lib/sync/changeLog/writeAutoApplyChanges.ts lines 151-169). With unchanged fields this test is
+  // green BEFORE the implementation and proves nothing. Give "New" a different role (or phone /
+  // date_restriction) from "Old", then request an UNLANDED pair Old -> New.
   const rows = (await readChangeLog(showId)).all;
+  // With the pair unlanded, the delta must NOT be attributed through the prior name.
   expect(rows.filter((r) => r.change_kind === "field_changed")).toEqual([]);
 });
 ```
@@ -724,9 +743,11 @@ git commit -m "fix(sync): derive crew_renamed from landed pairs, completing the 
 **Interfaces:**
 - Produces: `emitIdentityLinkRenameUnlanded(unlanded: UnlandedRename[], ctx: { source: string; showId: string; driveFileId: string }): Promise<void>`
 
+**Spec-amendment note (payload key casing).** Spec section 2.2 writes the payload as `{ showId, driveFileId, removedName, addedName, reason }`. The house convention for `app_events` **context** keys is snake_case — its own stated precedent `emitLeadRoleApplied` uses `crew_name` / `prior_flags` / `new_flags` in context while passing `showId` and `driveFileId` as top-level event fields. This plan follows the precedent the spec points at rather than the spec's inline casing: `showId` and `driveFileId` stay top-level, and the three context keys are `removed_name`, `added_name`, `reason`. **Confirm this reading before implementing** — if the reviewer or the spec author intends literal camelCase context keys, the spec wins and this note is the thing to correct.
+
 **Context:** Model this file on `lib/log/emitLeadRoleApplied.ts` — read it in full first, including its header comment (lines 10-30), which documents the whole pattern. Key properties to copy: `persistAppEventStrict` (`lib/log/persist.ts:60`) as the writer; `{ ok: false }` escalates loudly via `log.error` with a distinct code and is never swallowed (invariant 9); the emitter never throws; the code is **not** a §12.4 user-facing code, so no catalog row, no `pnpm gen:spec-codes`, no lockstep update.
 
-Payload: `{ removed_name, added_name, reason }` per event. Redaction-safe — crew names only, no email/phone/token.
+Payload per event: `{ removed_name, added_name, reason }`, with `showId` and `driveFileId` as top-level event fields (NOT context keys), matching `emitLeadRoleApplied`'s shape where `crew_name`/`prior_flags` are snake_case context and `showId`/`driveFileId` are top-level. See the spec-amendment note below. Redaction-safe — crew names only, no email/phone/token.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -829,7 +850,7 @@ Three tests, in the harness that already drives each path:
 |---|---|
 | cron/manual | `tests/sync/runScheduledCronSync.test.ts` |
 | dashboard staged | `tests/sync/applyStaged.test.ts` |
-| pending-ingestion retry | `tests/sync/runManualSyncForShow.test.ts`, or the retry route's own test if one exists — check before choosing |
+| pending-ingestion retry | **a route harness, not the sync helper.** The sink is the route *after* `withRowTryLock` resolves; `runManualSyncForShow_unlocked` runs INSIDE that lock, so a test there cannot observe the emit. Verified existing harnesses: `tests/admin/pendingIngestionsLiveActions.test.ts`, `tests/api/admin/pendingIngestionRetry-telemetry.test.ts`. Pick whichever already drives the retry POST. |
 
 Each asserts the event fires end-to-end for an unlanded pair. The two finalize sinks get their integration tests in Task 11, alongside the flush that makes them possible.
 
@@ -837,8 +858,8 @@ Each asserts the event fires end-to-end for an unlanded pair. The two finalize s
 
 - [ ] **Step 2: Run to verify they fail**
 
-Run: `pnpm vitest run tests/sync/runScheduledCronSync.test.ts tests/sync/applyStaged.test.ts tests/sync/runManualSyncForShow.test.ts -t "unlanded"`
-Expected: FAIL — no emit.
+Run: `pnpm vitest run tests/sync/runScheduledCronSync.test.ts tests/sync/applyStaged.test.ts tests/api/admin/pendingIngestionRetry-telemetry.test.ts -t "unlanded"`
+Expected: FAIL — no emit. (Swap the third file if a different harness drives the retry POST.)
 
 - [ ] **Step 3: Add the field at each hop, then emit**
 
@@ -862,7 +883,7 @@ git commit -m "feat(sync): emit IDENTITY_LINK_RENAME_UNLANDED from every post-co
 
 **Files:**
 - Modify: `lib/sync/changeLog/writeAutoApplyChanges.ts:53-66` (`crewImage`)
-- Create: supabase/migrations/20260803000000_undo_change_selections_reset_at.sql (new)
+- Create: supabase/migrations/20260804000000_undo_change_selections_reset_at.sql (new)
 - Modify: `tests/db/_holdsHelpers.ts:62-71`, lines 92-97, line 275
 - Test: `tests/db/undo-change-direction-a.test.ts`
 
@@ -922,7 +943,7 @@ Preserve the `ROW_COUNT` fail-safe (lines 199-204) and the advisory-lock acquisi
 - [ ] **Step 6: Apply locally and run**
 
 ```bash
-psql "$DATABASE_URL" -f supabase/migrations/20260803000000_undo_change_selections_reset_at.sql
+psql "$DATABASE_URL" -f supabase/migrations/20260804000000_undo_change_selections_reset_at.sql
 psql "$DATABASE_URL" -c "notify pgrst, 'reload schema';"
 pnpm vitest run tests/db/undo-change-direction-a.test.ts
 ```
@@ -985,7 +1006,7 @@ Copy the entire current body of `mi11_approve_hold` (`supabase/migrations/202606
 - [ ] **Step 4: Apply and run**
 
 ```bash
-psql "$DATABASE_URL" -f supabase/migrations/20260803000000_undo_change_selections_reset_at.sql
+psql "$DATABASE_URL" -f supabase/migrations/20260804000000_undo_change_selections_reset_at.sql
 psql "$DATABASE_URL" -c "notify pgrst, 'reload schema';"
 pnpm vitest run tests/db/undo-change-direction-a.test.ts tests/db/undo-change-guards.test.ts tests/db/undo_change_lifecycle_guard.test.ts
 ```
@@ -1009,7 +1030,10 @@ git commit -m "fix(db): carry selections_reset_at through both mi11_approve_hold
 
 - [ ] **Step 1: Repoint and extend**
 
-Resolve the migration by scanning for the **last** `create or replace function public.undo_change` across `supabase/migrations/` rather than naming a file, and add `selections_reset_at` to `REAL_CREW_COLUMNS`.
+Two edits, and the second is the one that makes the guard bite:
+
+1. Resolve the migration by scanning for the **last** `create or replace function public.undo_change` across `supabase/migrations/` rather than naming a file.
+2. Add `selections_reset_at` to `REAL_CREW_COLUMNS` **and to the required-column subset**. `REAL_CREW_COLUMNS` is an *allowlist* — it asserts every INSERT column is real, so adding an entry can never make an omission fail. The required subset is the assertion that a column is *present* (`expect(insertCols).toContain(required)`). Adding to only the allowlist leaves Step 2's mutation passing, which is exactly the vacuity this task exists to remove.
 
 - [ ] **Step 2: Verify it now guards something**
 
@@ -1044,7 +1068,16 @@ git commit -m "test(db): point the phantom-columns guard at the shipped undo_cha
 
 - [ ] **Step 1: Write the failing tests**
 
-Per route: a LEAD-bit change reaches bell + durable event; **durability** — row 1 commits, a later row throws (and separately the outer commit fails), assert row 1's notice still emits; **ordering** — no emit while `tryFinalizeLock` is held; **response shape** — `per_row` contains neither `roleFlagsNotice` nor `unlandedRenames`; and for finalize-cas, a throwing `upsertAdminAlert` still reaches `markFinalCasDone`. Run the durability and ordering tests against the **streaming** handler too.
+Per route:
+
+- **Unit C:** a LEAD-bit change reaches the bell + durable event.
+- **Unit B, and this is the one Task 7 deferred here:** an **unlanded rename pair produces `IDENTITY_LINK_RENAME_UNLANDED`** end-to-end through this route. The response-shape assertion below does NOT cover this — it passes if the field is stripped before ever being emitted, so without this test a dropped finalize emit is invisible.
+- **Durability:** row 1 commits, a later row throws (and separately the outer commit fails); assert row 1's notice AND its unlanded event still emit.
+- **Ordering:** no emit of either kind while `tryFinalizeLock` is held.
+- **Response shape:** `per_row` contains neither `roleFlagsNotice` nor `unlandedRenames`.
+- **finalize-cas only:** a throwing `upsertAdminAlert` still reaches `markFinalCasDone`.
+
+Run the durability, ordering and unlanded tests against the **streaming** handler too — it is the one in production use.
 
 **Failure mode:** the durability test is the whole reason for the `finally` — the rejected success-path placement satisfies every other test here. The ordering test is the only thing separating the two rejected placements. The response-shape test catches leaking crew names and capability flags into the public API.
 
@@ -1146,7 +1179,7 @@ pnpm tsc --noEmit && pnpm lint && npx prettier --check . && pnpm vitest run
 - [ ] **Step 2: Apply BOTH replaced functions to the validation project**
 
 ```bash
-supabase db query --linked -f supabase/migrations/20260803000000_undo_change_selections_reset_at.sql
+supabase db query --linked -f supabase/migrations/20260804000000_undo_change_selections_reset_at.sql
 supabase db query --linked "notify pgrst, 'reload schema';"
 ```
 
@@ -1162,7 +1195,7 @@ The plan carries `impeccable-gate: N/A — no UI surface`. Verify with `git diff
 
 ## Self-review
 
-**1. Spec coverage.** Unit A → Tasks 1-5. Unit B → Tasks 6-7. Unit C → Tasks 11-12. Unit D → Tasks 8-10. Unit E → Task 13. Spec §7's test table: every row maps to a task above. §5.1's validation caveat → Task 14 Step 2. §8's documented limits are limits, not work.
+**1. Spec coverage.** Unit A → Tasks 1-5. Unit B → Tasks 6-7. Unit C → Tasks 11-12. Unit D → Tasks 8-10. Unit E → Task 13. Close-out → Task 14. Spec §7's test table: every row maps to a task above. §5.1's validation caveat → Task 14 Step 2. §8's documented limits are limits, not work.
 
 **2. Placeholder scan.** Tasks 7, 11, 12 and 13 carry compressed step bodies (the failing-test step names each test and its failure mode, but does not paste every assertion). This is deliberate for the multi-site wiring tasks, where the test bodies are near-duplicates across four sinks and the exact fixtures depend on each route's existing harness. **The executing agent must read the spec section named in each task's Context block before writing those tests.**
 
