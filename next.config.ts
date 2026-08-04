@@ -108,6 +108,23 @@ const nextConfig: NextConfig = {
       { key: "Cache-Control", value: "no-store" },
     ];
     return [
+      {
+        // The committed font, cached for a year and immutable.
+        //
+        // `next/font` served this from `/_next/static/media/<hash>.woff2`, which
+        // Next's own router gives `public, max-age=31536000, immutable`. Moving
+        // the binary under `public/` to make it readable by the standalone
+        // harnesses (BL-HARNESS-FONT-FIDELITY) silently dropped it to the `send`
+        // default of `max-age=0` -- so every cold navigation paid a conditional
+        // round-trip before the swap could resolve. On a crew phone on venue 4G
+        // that is the first paint, which is the visit that matters.
+        //
+        // `immutable` is only honest because the FILENAME CARRIES A CONTENT
+        // HASH: replacing the font means renaming the file, so a client can
+        // never hold stale bytes under a live URL.
+        source: "/fonts/:path*",
+        headers: [{ key: "Cache-Control", value: "public, max-age=31536000, immutable" }],
+      },
       { source: "/show/:slug/unpublish", headers: noLeak },
       { source: "/api/show/:slug/unpublish", headers: noLeak },
     ];

@@ -111,12 +111,9 @@
      app/fonts.css whole, so its :root definition travels with the face. The
      literal below is the safety net for a surface that somehow lacks the token;
      tests/styles/fontLoading.test.ts pins it to the declared family so it stays
-     correct if it is ever the thing that resolves. The
-     var() fallback literals now reach only a surface without the generated class
-     -- notably the standalone test harnesses, which compile this file with no
-     Next runtime, where they name a host-INSTALLED Inter if one exists
-     (BL-HARNESS-FONT-FIDELITY) -- so the declaration is never invalid at
-     computed-value time. DESIGN.md 2.1. */
+     correct if it is ever the thing that resolves, so this
+     declaration is never invalid at computed-value time on any surface.
+     DESIGN.md 2.1. */
   --font-sans:
     var(--font-inter, "Inter", "Inter Fallback"), ui-sans-serif, system-ui, -apple-system,
     "Segoe UI", "Helvetica Neue", sans-serif;

@@ -58,9 +58,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className="h-full antialiased" suppressHydrationWarning>
-      <head>
-        <FontPreload />
-      </head>
+      <FontPreload />
       <body className="min-h-full">
         <script dangerouslySetInnerHTML={{ __html: NO_FOUC_SCRIPT }} />
         <GlobalErrorListener />
