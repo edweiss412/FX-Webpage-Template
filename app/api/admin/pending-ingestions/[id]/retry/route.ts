@@ -500,11 +500,51 @@ export async function handleLivePendingIngestionRetry(
       return await firstSeenStageResponse(tx, row.drive_file_id, stageResult);
     });
     if ("skipped" in result) return errorResponse(409, "CONCURRENT_SYNC_SKIPPED");
-    // nav-perf tag-caching (Task 5): post-commit revalidate — withRowTryLock (the
-    // outer sql.begin tx) has resolved here, so the apply has committed. Bust the
-    // show's cache tag before returning the Response. Non-applied retries leave
-    // appliedShowId null → no revalidate.
-    if (appliedShowId) revalidateShow(appliedShowId);
+    // ── POST-COMMIT TAIL ────────────────────────────────────────────────────────────────────────
+    // withRowTryLock (the outer sql.begin tx) has RESOLVED here: the apply is committed and the
+    // roster already changed. Every step below is therefore INDEPENDENTLY isolated (whole-diff
+    // review HIGH 1 + HIGH 2). Two properties, per step, neither of which held before:
+    //
+    //   1. A throwing step must not SUPPRESS a later one. `revalidateShow` ran un-isolated ahead of
+    //      both emits, so a revalidate throw meant neither the forensic unlanded-rename event NOR
+    //      the LEAD audit + bell notice ever ran; likewise a throwing unlanded emit swallowed the
+    //      role-flags emit.
+    //   2. A throwing step must not turn a committed apply into a failed response. An escaping
+    //      throw reaches the outer PENDING_INGESTION_RETRY_FAILED guard, which RETHROWS → a 500
+    //      that invites the operator to re-run an apply that already landed.
+    //
+    // These are deliberately SEPARATE try/catch sites, not one wrapper around the region: a single
+    // catch would reintroduce exactly the suppression above. Each escalates under its own forensic
+    // code via log.error (invariant 9 — surfaced, never swallowed) and never propagates.
+    // Pinned by tests/api/admin/pendingIngestionRetryPostCommitIsolation.test.ts.
+    //
+    // `logAdminOutcome` is the one step with NO wrapper here, because it cannot throw by
+    // construction: it catches everything internally for this exact reason
+    // (lib/log/logAdminOutcome.ts:34-50, "telemetry must never throw over a committed mutation").
+    //
+    // nav-perf tag-caching (Task 5): bust the show's cache tag before returning the Response.
+    // Non-applied retries leave appliedShowId null → no revalidate.
+    if (appliedShowId) {
+      const revalidatedShowId: string = appliedShowId;
+      try {
+        revalidateShow(revalidatedShowId);
+      } catch (error) {
+        // Assigned to a local (NOT chained) so prettier keeps `log.error(` on ONE line — a chained
+        // `.catch()` splits `log` / `.error` across lines, which stripLogEmissionCalls cannot
+        // match, leaking this app_events-only forensic code into the §12.4 / internal-code-enum
+        // producer scans. Same constraint as the role-flags escalation below.
+        const escalation = log.error("pending-ingestion retry revalidate failed", {
+          source: "api.admin.pending-ingestions.retry",
+          code: "PENDING_INGESTION_RETRY_REVALIDATE_FAILED",
+          showId: revalidatedShowId,
+          driveFileId,
+          error: serializeError(error),
+        });
+        await escalation.catch(() => {
+          /* best-effort: the escalation itself must never change the route's outcome */
+        });
+      }
+    }
     // Observability (R4): post-commit durable telemetry — withRowTryLock has resolved
     // (apply committed) before we emit. Non-applied retries leave outcome null → no emit.
     if (outcome) {
@@ -515,16 +555,35 @@ export async function handleLivePendingIngestionRetry(
     }
     // Unit A: the forensic unlanded-rename event, POST-COMMIT on the same resolved-lock site as the
     // admin outcome above. Only a committed applied sync ever populates this ref.
+    //
+    // Independently isolated per the tail contract above: this event is the ONLY signal an unlanded
+    // pair produces (R4), so its failure must be LOUD — but it must not take the role-flags emit
+    // down with it, and it must not fail a committed apply. Same fail-open shape and the same
+    // escalation code as the finalize routes' flush (lib/sync/emitRoleFlagsNotice.ts:109-121).
     if (unlandedRenames) {
       // Same TS closure-narrowing workaround as outcomeRef above: a `let` assigned inside the
       // withRowTryLock callback narrows to `never` on member access.
       const unlandedRef: { pairs: UnlandedRename[]; showId: string; driveFileId: string } =
         unlandedRenames;
-      await emitIdentityLinkRenameUnlanded(unlandedRef.pairs, {
-        source: "sync.identityLink",
-        showId: unlandedRef.showId,
-        driveFileId: unlandedRef.driveFileId,
-      });
+      try {
+        await emitIdentityLinkRenameUnlanded(unlandedRef.pairs, {
+          source: "sync.identityLink",
+          showId: unlandedRef.showId,
+          driveFileId: unlandedRef.driveFileId,
+        });
+      } catch (error) {
+        // Unchained for the same stripLogEmissionCalls reason as the revalidate escalation above.
+        const escalation = log.error("pending-ingestion retry unlanded-rename emit failed", {
+          source: "api.admin.pending-ingestions.retry",
+          code: "IDENTITY_LINK_RENAME_UNLANDED_EMIT_FAILED",
+          showId: unlandedRef.showId,
+          driveFileId: unlandedRef.driveFileId,
+          error: serializeError(error),
+        });
+        await escalation.catch(() => {
+          /* best-effort: the escalation itself must never change the route's outcome */
+        });
+      }
     }
     // Unit C: the bell alert + durable LEAD audit for a capability change this retry applied — the
     // shared helper, so the durable-audit-BEFORE-alert-upsert order has one implementation. Same

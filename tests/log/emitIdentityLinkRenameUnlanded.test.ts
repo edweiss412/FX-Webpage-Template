@@ -61,24 +61,40 @@ describe("emitIdentityLinkRenameUnlanded (spec §2.2)", () => {
         source: "sync.identityLink",
         showId: "s1",
         driveFileId: "d1",
-        context: expect.objectContaining({
+        // EXACT, not objectContaining: §2.2 ratifies the context key set, and an objectContaining
+        // match would let an unratified key ride along silently (which is how `sourceSurvived`
+        // reached production ahead of the spec). Adding or renaming a key must fail HERE.
+        context: {
           removedName: "Old",
           addedName: "New",
           reason: "target_absent",
-        }),
+          sourceSurvived: false,
+        },
       }),
     );
-    // Per-pair, not per-batch: the second pair must carry its OWN reason, not the first one's.
+    // Per-pair, not per-batch: the second pair must carry its OWN reason and OWN survival flag,
+    // not the first one's. Exact key set again, for the same contract reason.
     expect(persistAppEventStrict).toHaveBeenNthCalledWith(
       2,
       expect.objectContaining({
-        context: expect.objectContaining({
+        context: {
           removedName: "A",
           addedName: "B",
           reason: "name_held",
-        }),
+          sourceSurvived: true,
+        },
       }),
     );
+    // Key-set assertion stated once more as a set, so a future edit that loosens the two matches
+    // above still trips on a stray key.
+    for (const call of persistAppEventStrict.mock.calls) {
+      expect(Object.keys(call[0]!.context as Record<string, unknown>).sort()).toEqual([
+        "addedName",
+        "reason",
+        "removedName",
+        "sourceSurvived",
+      ]);
+    }
     // Redaction posture: crew names only — no email, phone or token reaches the payload.
     const contexts = persistAppEventStrict.mock.calls.map((c) => c[0]!.context);
     expect(JSON.stringify(contexts)).not.toMatch(/@|\bphone\b|\btoken\b/i);
