@@ -105,7 +105,7 @@ describe("LoadingShell no-JavaScript notice", () => {
     expect(text).not.toMatch(/[A-Z]{2,}_[A-Z0-9_]+/);
   });
 
-  it("gives the notice its own gutter and width cap (page padding is inside the hidden half)", () => {
+  it("gives the notice its own gutter and width cap (most routes pad inside the hidden half)", () => {
     const { noscriptInner } = renderShell();
     const notice = must(noscriptInner.querySelector(NOTICE), "the notice");
     const gutter = notice.parentElement;

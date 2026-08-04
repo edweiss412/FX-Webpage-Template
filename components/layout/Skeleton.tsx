@@ -60,8 +60,10 @@ export function LoadingShell({
         <style dangerouslySetInnerHTML={{ __html: "[data-loading-shell-content]{display:none}" }} />
         {/*
          * The notice carries its OWN gutter and width cap. It cannot inherit the
-         * page's: every loading.tsx puts its layout padding on a child of
-         * `data-loading-shell-content`, which the rule above hides. Without this
+         * page's: seven of the nine loading.tsx routes put their layout padding
+         * on a child of `data-loading-shell-content`, which the rule above hides.
+         * (/me and /help pad from a parent instead, so there the gutter simply
+         * double-applies -- a ~32px narrower card, accepted.) Without this
          * the card runs flush to both edges of a 390px phone on the crew route
          * and stretches past 1500px on a wide admin viewport.
          */}

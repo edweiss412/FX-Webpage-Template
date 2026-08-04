@@ -12,10 +12,15 @@
 // control too, testing the same configuration twice.
 //
 // Runs on desktop-chromium (playwright.config.ts) AND is named explicitly in
-// .github/workflows/admin-layout-e2e.yml. Both registrations are required:
-// every Playwright workflow in this repo passes an explicit spec-file list, so
-// a spec present only in `testMatch` executes on no CI job at all. That is how
-// this test's predecessor sat failing on main from M12.11 until it was deleted.
+// .github/workflows/admin-layout-e2e.yml. Both registrations are required.
+// Most Playwright workflows here pass an explicit spec-file list -- 8 of the 11
+// that invoke `playwright test`; the exceptions (standalone-e2e, help-affordances,
+// dev-gate-e2e) run whole configs or projects, and desktop-chromium is in none of
+// them. So a spec present only in `testMatch` executes on no CI job at all. That
+// is how this test's predecessor sat failing on main from M12.11 until it was
+// deleted. A third registration is also required: a reasoned row in
+// tests/ci/_metaE2eWorkflowCoverage.test.ts, because the coverage scanner treats
+// a path-filtered workflow as not PR-blocking-capable.
 import { test, expect } from "@playwright/test";
 import { ADMIN_FIXTURE } from "./helpers/fixtures";
 import { signInAs } from "./helpers/signInAs";
