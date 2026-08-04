@@ -58,6 +58,10 @@ function crewImage(member: PreviousCrewMember): Record<string, unknown> {
     stage_restriction: member.stage_restriction,
     flight_info: member.flight_info,
     claimed_via_oauth_at: member.claimed_via_oauth_at,
+    // §3.6: the picker-invalidation marker rides the before_image so an undo cannot revalidate a
+    // deliberately invalidated picker cookie. undo_change merges it with the live successor's
+    // marker (greatest), so a reset stamped AFTER this change still survives the restore.
+    selections_reset_at: member.selections_reset_at,
   };
 }
 

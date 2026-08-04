@@ -68,6 +68,11 @@ export type CrewSeed = {
   claimed?: boolean | string;
   /** Capability flags for the seeded/parsed row; defaults to ["A1"] on both sides. */
   role_flags?: RoleFlag[];
+  /**
+   * §3.6 picker-invalidation marker. A timestamptz string → that value; undefined/null → NULL
+   * (no admin reset). Seeded so undo tests can observe the marker surviving a restore.
+   */
+  selections_reset_at?: string | null;
 };
 
 export type SeededHoldsShow = { showId: string; driveFileId: string };
@@ -88,13 +93,17 @@ export async function seedShowWithCrew(crew: CrewSeed[]): Promise<SeededHoldsSho
         : typeof member.claimed === "string"
           ? sql`${member.claimed}::timestamptz`
           : null;
+    const reset =
+      typeof member.selections_reset_at === "string"
+        ? sql`${member.selections_reset_at}::timestamptz`
+        : null;
     await sql`
       insert into public.crew_members
         (show_id, name, email, phone, role, role_flags, date_restriction, stage_restriction,
-         flight_info, claimed_via_oauth_at)
+         flight_info, claimed_via_oauth_at, selections_reset_at)
       values (${showId}, ${member.name}, ${member.email}, ${member.phone ?? "555-OLD"},
               ${member.role ?? "A1"}, ${member.role_flags ?? ["A1"]}, ${sql.json({ kind: "none" })},
-              ${sql.json({ kind: "none" })}, null, ${claim})`;
+              ${sql.json({ kind: "none" })}, null, ${claim}, ${reset})`;
   }
   return { showId, driveFileId };
 }
@@ -266,13 +275,14 @@ export type CrewMemberDbRow = {
   flight_info: string | null;
   last_changed_at: string | Date | null;
   claimed_via_oauth_at: string | Date | null;
+  selections_reset_at: string | Date | null;
 };
 
 /** Read crew rows for a show (alphabetical by name). */
 export async function readCrew(showId: string): Promise<CrewMemberDbRow[]> {
   return (await sql`
     select id, name, email, phone, role, role_flags, date_restriction, stage_restriction,
-           flight_info, last_changed_at, claimed_via_oauth_at
+           flight_info, last_changed_at, claimed_via_oauth_at, selections_reset_at
       from public.crew_members where show_id = ${showId} order by name`) as unknown as CrewMemberDbRow[];
 }
 
