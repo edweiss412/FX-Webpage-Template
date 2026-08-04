@@ -541,17 +541,20 @@ export async function handleLivePendingIngestionRetry(
       try {
         await emitRoleFlagsNotice(noticeRef, { source: ROLE_FLAGS_EMIT_SOURCE });
       } catch (error) {
-        await log
-          .error("pending-ingestion retry role-flags notice emit failed", {
-            source: "api.admin.pending-ingestions.retry",
-            code: "ROLE_FLAGS_NOTICE_EMIT_FAILED",
-            showId: noticeRef.showId,
-            driveFileId,
-            error: serializeError(error),
-          })
-          .catch(() => {
-            /* best-effort: the escalation itself must never change the route's outcome */
-          });
+        // Assigned to a local (NOT chained) so prettier keeps `log.error(` on ONE line —
+        // stripLogEmissionCalls cannot match a `log` / `.error` split across lines, which would
+        // leak the app_events-only ROLE_FLAGS_NOTICE_EMIT_FAILED forensic code into the §12.4 /
+        // internal-code-enum producer scans.
+        const escalation = log.error("pending-ingestion retry role-flags notice emit failed", {
+          source: "api.admin.pending-ingestions.retry",
+          code: "ROLE_FLAGS_NOTICE_EMIT_FAILED",
+          showId: noticeRef.showId,
+          driveFileId,
+          error: serializeError(error),
+        });
+        await escalation.catch(() => {
+          /* best-effort: the escalation itself must never change the route's outcome */
+        });
       }
     }
     return result;

@@ -377,9 +377,8 @@ describe("applyStaged live-scope", () => {
   // the applyStagedCore → applyStaged → live-tail chain. The cron sink passing says nothing about
   // this one; each carrier is a separate result type.
   test("an unlanded identity-link pair emits IDENTITY_LINK_RENAME_UNLANDED from the staged tail", async () => {
-    const { emitIdentityLinkRenameUnlanded } = await import(
-      "@/lib/log/emitIdentityLinkRenameUnlanded"
-    );
+    const { emitIdentityLinkRenameUnlanded } =
+      await import("@/lib/log/emitIdentityLinkRenameUnlanded");
     vi.mocked(emitIdentityLinkRenameUnlanded).mockClear();
     const tx = fakeTx() as LockedShowTx<FakeTx>;
     const unlanded = [
@@ -426,9 +425,8 @@ describe("applyStaged live-scope", () => {
   });
 
   test("a staged apply with NO unlanded pairs emits no IDENTITY_LINK_RENAME_UNLANDED at all", async () => {
-    const { emitIdentityLinkRenameUnlanded } = await import(
-      "@/lib/log/emitIdentityLinkRenameUnlanded"
-    );
+    const { emitIdentityLinkRenameUnlanded } =
+      await import("@/lib/log/emitIdentityLinkRenameUnlanded");
     vi.mocked(emitIdentityLinkRenameUnlanded).mockClear();
     const tx = fakeTx() as LockedShowTx<FakeTx>;
     const syncDeps = deps({

@@ -83,16 +83,20 @@ export async function flushDeferredApplyEmits(
     try {
       await emitRoleFlagsNotice(notice, { source: ROLE_FLAGS_EMIT_SOURCE });
     } catch (error) {
-      await log
-        .error("deferred role-flags notice emit failed", {
-          source: ctx.source,
-          code: "ROLE_FLAGS_NOTICE_EMIT_FAILED",
-          showId: notice.showId,
-          error: serializeError(error),
-        })
-        .catch(() => {
-          /* best-effort: the escalation itself must never throw out of a finally */
-        });
+      // Assigned to a local (NOT chained) so prettier keeps `log.error(` on ONE line — a chained
+      // `.catch()` makes prettier split `log` / `.error` across lines, which stripLogEmissionCalls
+      // cannot match, leaking the app_events-only ROLE_FLAGS_NOTICE_EMIT_FAILED forensic code into
+      // the §12.4 / internal-code-enum producer scans (same constraint as runScheduledCronSync.ts
+      // PARSE_SHEET_THREW).
+      const escalation = log.error("deferred role-flags notice emit failed", {
+        source: ctx.source,
+        code: "ROLE_FLAGS_NOTICE_EMIT_FAILED",
+        showId: notice.showId,
+        error: serializeError(error),
+      });
+      await escalation.catch(() => {
+        /* best-effort: the escalation itself must never throw out of a finally */
+      });
     }
   }
   for (const entry of pending.unlandedRenames) {
@@ -103,17 +107,17 @@ export async function flushDeferredApplyEmits(
         driveFileId: entry.driveFileId,
       });
     } catch (error) {
-      await log
-        .error("deferred unlanded-rename emit failed", {
-          source: ctx.source,
-          code: "IDENTITY_LINK_RENAME_UNLANDED_EMIT_FAILED",
-          showId: entry.showId,
-          driveFileId: entry.driveFileId,
-          error: serializeError(error),
-        })
-        .catch(() => {
-          /* best-effort: the escalation itself must never throw out of a finally */
-        });
+      // Unchained for the same stripLogEmissionCalls reason as the role-flags escalation above.
+      const escalation = log.error("deferred unlanded-rename emit failed", {
+        source: ctx.source,
+        code: "IDENTITY_LINK_RENAME_UNLANDED_EMIT_FAILED",
+        showId: entry.showId,
+        driveFileId: entry.driveFileId,
+        error: serializeError(error),
+      });
+      await escalation.catch(() => {
+        /* best-effort: the escalation itself must never throw out of a finally */
+      });
     }
   }
 }

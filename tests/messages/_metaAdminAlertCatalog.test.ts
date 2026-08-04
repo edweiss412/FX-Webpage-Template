@@ -132,9 +132,12 @@ const ADMIN_ALERTS_WRITE_SITES: Record<
     path: "app/api/admin/onboarding/scan/route.ts",
     pattern: /upsertAdminAlert\(\{[\s\S]*code:\s*"ONBOARDING_SHEET_UNREADABLE"/,
   },
+  // Unit C (spec 2026-08-03-apply-undo-audit-fidelity §2.3): the single production write site
+  // moved out of runScheduledCronSync.ts / applyStaged.ts into the shared helper every apply
+  // path (cron, staged, retry route, both finalize routes) now calls.
   ROLE_FLAGS_NOTICE: {
-    path: "lib/sync/runScheduledCronSync.ts",
-    pattern: /upsertAdminAlert\(result\.roleFlagsNotice\)/,
+    path: "lib/sync/emitRoleFlagsNotice.ts",
+    pattern: /upsertAdminAlert\(roleFlagsNotice\)/,
   },
   DRIVE_FETCH_FAILED: {
     path: "lib/sync/runScheduledCronSync.ts",
