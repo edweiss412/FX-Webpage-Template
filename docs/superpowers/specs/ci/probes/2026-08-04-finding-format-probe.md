@@ -1,6 +1,6 @@
 # Probe — finding-shape recognizability in real Codex review output
 
-**Run:** 2026-08-04 · **Feeds:** [review-round-economy](../2026-08-04-review-round-economy.md) §3
+**Run:** 2026-08-04 · **Revised:** 2026-08-04 (v2, see Correction) · **Feeds:** [review-round-economy](../2026-08-04-review-round-economy.md) §3
 
 ## Resolved scope — do not relitigate
 
@@ -8,55 +8,59 @@
 | --- | --- |
 | The corpus is **machine-local and deliberately not committed**. It is the accumulated scratch output the parent spec exists to make durable; committing it retroactively is explicitly out of scope. | Parent spec §12 |
 | The measurement is a **draft-time input**, not a gate. Nothing re-runs it. | Parent spec §3 |
-| Conclusion 3 (the hook's tally is wrong) is **in scope for the parent spec's work items**, not a separate filing. | Parent spec §10 item 6 |
+| Conclusions 3 and 4 name defects that are **in scope for the parent spec's work items**, not separate filings. | Parent spec §10 |
+
+## Correction (v1 → v2)
+
+v1 reported n=45 and described it as "every last-message file present on the machine." That was wrong: the glob `/private/tmp/*/attempt-*.last-message.txt` is one level deep and missed every nested scratchpad output. A recursive walk finds **681**. Surfaced by adversarial review r2.
+
+Every figure below is the recursive measurement. The v1 numbers (75% inferred / 24% none) are superseded; the direction of the conclusion is unchanged and the gap is wider.
 
 ## Question
 
 Can a durable round record extract a finding count from reviewer output by recognizing its shape, or must the count be declared?
 
-## Corpus
-
-45 `attempt-*.last-message.txt` files under `/private/tmp/*/`, the accumulated `--out` directories of real `codex-guard review` dispatches on 2026-08-03 and 2026-08-04. Not a curated sample — every last-message file present on the machine at probe time.
-
-The corpus is machine-local and ephemeral by construction (§2 of the spec is about exactly that), so it is not committed. The script below reproduces the measurement wherever such directories exist.
-
-## Script
+## Method
 
 ```python
-import re, glob
-files = sorted(glob.glob('/private/tmp/*/attempt-*.last-message.txt'))
+import re, os
+rec = []
+for root, d, fs in os.walk('/private/tmp'):
+    for f in fs:
+        if re.match(r'attempt-.*\.last-message\.txt$', f):
+            rec.append(os.path.join(root, f))
+
 pats = {
   'numbered-bold':   re.compile(r'^[0-9]+\. \*\*', re.M),
   'bullet-severity': re.compile(r'^[-*] +\*{0,2}(BLOCKING|NEEDS-ATTENTION|CRITICAL|HIGH|MEDIUM|LOW|P[0-3])', re.M),
   'heading':         re.compile(r'^#{1,4} +.*(BLOCKING|Finding|NEEDS)', re.M | re.I),
-  'VERDICT-line':    re.compile(r'^ *\**VERDICT:', re.M),
 }
-c = {k: 0 for k in pats}; none = 0
-for f in files:
-    t = open(f, encoding='utf-8', errors='replace').read()
-    hits = {k: bool(p.search(t)) for k, p in pats.items()}
-    for k, v in hits.items(): c[k] += v
-    if not any(hits[k] for k in ('numbered-bold', 'bullet-severity', 'heading')): none += 1
+wrapper = re.compile(r'^\s*VERDICT:\s*\S', re.M)   # codex-guard.mjs:392, verbatim
+loose   = re.compile(r'^\s*\**VERDICT:', re.M)
 ```
 
 ## Result
 
 ```
-corpus: n=45
+n=681
 
-  numbered-bold     23/45   51%
-  bullet-severity    9/45   20%
-  heading            3/45    6%
-  VERDICT-line      45/45  100%
-  NONE-of-inferred  11/45   24%
+  numbered-bold      327/681   48.0%
+  bullet-severity     81/681   11.9%
+  heading             68/681   10.0%
+  union-of-inferred  441/681   64.8%
+  NONE-of-inferred   240/681   35.2%
+
+  wrapper VERDICT    678/681   99.6%    <- codex-guard.mjs:392 accept-set
+  loose VERDICT      681/681  100.0%    <- permissive; the delta is bold **VERDICT:
 ```
-
-Three stacked inferred recognizers cover 75%. The one declared contract covers 100%.
 
 ## Conclusions
 
-1. **Finding shape is not reliably recognizable.** A quarter of real reviews match none of the three most plausible patterns. Codex formats findings as it likes — numbered-bold lists, severity-prefixed bullets, headings, and prose that is none of these.
-2. **Declared contracts hold.** `VERDICT:` is mandated by the brief and detected by the wrapper, and it is present in every single output. This is the mechanism to extend, not the recognizer.
-3. **The existing hook's finding tally is wrong about half the time.** `$HOME/.claude/hooks/review-convergence-gate.sh` tallies findings with `grep -cE '^[0-9]+\. \*\*'` alone, so the "~N findings" figure in its block message reads near-zero on the 49% of reviews that use another shape.
+1. **Finding shape is not reliably recognizable.** Three stacked recognizers cover 64.8%. Better than a third of real reviews match none of them. Codex formats findings as it likes — numbered lists, severity-prefixed bullets, headings, and prose that is none of these.
+2. **Declared contracts hold.** The mandated `VERDICT:` line is present in every one of the 681 outputs. Declared 99.6% (by the wrapper's own accept-set) against inferred 64.8% is the whole argument for §5.1 and §5.3: the record declares, and never infers.
+3. **The existing hook's finding tally is 48% accurate.** `$HOME/.claude/hooks/review-convergence-gate.sh` tallies findings with the numbered-bold pattern alone, so the "~N findings" figure in its block message reads zero for the other 52% of reviews.
+4. **The wrapper drops bold verdict lines.** `parseVerdict` filters on `/^\s*VERDICT:\s*\S/` (`scripts/codex-guard.mjs:392`), which a line beginning `**VERDICT:` fails. Three outputs in the corpus do exactly that; each was recorded as `no_verdict` — a whole dispatch spent and then classified as an infrastructure fault. Small in rate (0.4%) and entirely deterministic.
 
-Conclusion 3 was not the question the probe was asked. It is a pre-existing defect the probe surfaced, and it is the archetype of what the round-economy loop is for: a deterministic, mechanically-checkable wrongness that no amount of adversarial review would have found, because no reviewer reads the hook's advisory line against a corpus.
+Conclusions 3 and 4 were not the question the probe was asked. Both are pre-existing defects it surfaced, and both are the archetype of what the round-economy loop is for: deterministic, mechanically-checkable wrongness that no amount of adversarial review would find, because no reviewer reads a hook's advisory line or a regex's accept-set against a corpus of 681 real outputs.
+
+That the probe itself shipped a v1 undercount, and that adversarial review caught it, is the same lesson pointing the other way: a measurement is only as good as the accept-set of the thing doing the measuring.

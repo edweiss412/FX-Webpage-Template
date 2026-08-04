@@ -42,24 +42,27 @@ Ratified during brainstorming on 2026-08-04. Each is a decision, not an oversigh
 
 Per the probe-before-argue rule in `docs/agents/spec-self-review.md`, candidate recognizers were run against the live corpus of real codex-guard outputs before drafting.
 
-Corpus: 45 `attempt-*.last-message.txt` files under `/private/tmp/*/`, produced by real dispatches on 2026-08-03 and 2026-08-04.
+Corpus: **681** `attempt-*.last-message.txt` files found by a recursive walk of `/private/tmp`, the accumulated `--out` directories of real dispatches. (An earlier draft reported 45 from a one-level glob; adversarial review r2 caught the undercount. The correction is recorded in the probe and widens the gap below.)
 
 | Signal | Kind | Hit rate |
 | --- | --- | --- |
-| `VERDICT:` line | **declared** in the brief | **45/45 — 100%** |
-| `^[0-9]+\. \*\*` numbered-bold | inferred | 23/45 — 51% |
-| `^[-*] +(BLOCKING\|…)` bullet-severity | inferred | 9/45 — 20% |
-| `^#{1,4} .*(BLOCKING\|Finding\|NEEDS)` heading | inferred | 3/45 — 6% |
-| **none of the three inferred shapes** | — | **11/45 — 24%** |
+| `VERDICT:` line, wrapper accept-set (`scripts/codex-guard.mjs:392`) | **declared** in the brief | **678/681 — 99.6%** |
+| `^[0-9]+\. \*\*` numbered-bold | inferred | 327/681 — 48.0% |
+| `^[-*] +(BLOCKING\|…)` bullet-severity | inferred | 81/681 — 11.9% |
+| `^#{1,4} .*(BLOCKING\|Finding\|NEEDS)` heading | inferred | 68/681 — 10.0% |
+| union of all three inferred shapes | inferred | 441/681 — 64.8% |
+| **none of the three inferred shapes** | — | **240/681 — 35.2%** |
 
-Three stacked inferred recognizers reach 75%. The single declared contract reaches 100%.
+Three stacked inferred recognizers reach 64.8%. The declared contract reaches 99.6% against the wrapper's own accept-set, and 100% if the three bold `**VERDICT:` lines it rejects are counted (conclusion 4 below).
 
 Two consequences, both load-bearing:
 
-1. **This spec never infers a finding shape.** Everything the row needs is declared by the caller or by a mandated brief line. A recognizer over free-form reviewer prose is the exact denylist shape the accept-set rule forbids, and the corpus says it would be wrong a quarter of the time.
-2. **The existing hook's finding tally is ~51% accurate.** `$HOME/.claude/hooks/review-convergence-gate.sh` counts findings with the numbered-bold pattern alone, so its advisory "~N findings" line reads near-zero on most real reviews. Repairing it is in scope (§10, Task list) because this spec's own probe surfaced it, and leaving a known-wrong number in an operator-facing message is the defect class this whole system exists to close.
+1. **This spec never infers a finding shape.** Everything the row needs is declared by the caller or by a mandated brief line. A recognizer over free-form reviewer prose is the exact denylist shape the accept-set rule forbids, and the corpus says it would be wrong for better than a third of real reviews.
+2. **The existing hook's finding tally is 48% accurate.** `$HOME/.claude/hooks/review-convergence-gate.sh` counts findings with the numbered-bold pattern alone, so its advisory "~N findings" line reads zero for the other 52%. Repairing it is in scope (§10) because this spec's own probe surfaced it, and leaving a known-wrong number in an operator-facing message is the defect class this whole system exists to close.
 
-Reproduce: docs/superpowers/specs/ci/probes/2026-08-04-finding-format-probe.md.
+3. **The wrapper silently drops bold verdict lines.** `parseVerdict` filters on `/^\s*VERDICT:\s*\S/` (`scripts/codex-guard.mjs:392`); a line beginning `**VERDICT:` fails it and the dispatch is recorded `no_verdict`. Three outputs in the corpus do exactly that — a full review spent, then classified as an infrastructure fault. Also in scope (§10).
+
+Reproduce: docs/superpowers/specs/ci/probes/2026-08-04-finding-format-probe.md. Arc-identity stability is measured separately in docs/superpowers/specs/ci/probes/2026-08-04-mergebase-stability-probe.md.
 
 ## 4. Architecture
 
@@ -199,15 +202,23 @@ Mechanization work items are ordinary `BL-` rows in `BACKLOG.md`. They reuse the
 
 ### 7.1 What it asserts
 
-tests/docs/_metaReviewRoundEconomy.test.ts walks **every** `.jsonl` under docs/review-rounds/ **recursively, discovered from disk**, so a new arc's corpus file is covered by default and can never be silently exempt.
+tests/docs/_metaReviewRoundEconomy.test.ts walks **every** `.jsonl` **and every** `.md` under docs/review-rounds/ **recursively, discovered from disk**, so a new arc's files are covered by default and can never be silently exempt.
 
-Per file, per stage:
+**Discovery is over both extensions, not over corpora alone.** Enumerating `.jsonl` and reaching for a sibling filing leaves an orphan `.md` — a filing with no corpus — unvisited, which makes assertion 5 vacuous in exactly the case it exists to catch. The walk collects arc directories, and an arc is any directory holding either file.
+
+Per arc, per stage:
 
 1. Every row parses as JSON and satisfies the schema; `stage` is in the accept-set; `round` is an integer ≥ 1; `status` is one of the two literals (§5.4).
 2. Declared `round` values form a contiguous run `1..N`. **Duplicates are permitted** (§5.5). A gap means rows were lost or hand-edited.
 3. Counted rounds (§5.4) ≥ `ROUND_THRESHOLD` → the sibling `.md` exists and has a well-formed section for that stage (§6).
 4. Every `BL-`/`DEF-` id cited in a filing section resolves.
 5. A filing section naming a stage with zero rows fails — catches copy-paste between arcs.
+6. **Every row's `branch` and `baseSha` match its containing path** (§5.2). A row claiming `feat/wrong@bbbb…` inside `feat/right/aaaa…/` is a false identity in the committed corpus, and the report would read it as fact.
+7. **A filing heading's round count equals the counted rounds for that stage.** `## diff — 999 rounds` over a four-round corpus is a false count, not a matter of prose quality.
+8. **At most one section per stage.** §6 specifies one; two contradictory sections for `diff` otherwise both pass, and nothing says which is the filing.
+9. **An orphan filing fails** — an `.md` in an arc directory with no `.jsonl` beside it. Either the corpus was deleted or the filing was written for an arc that never ran.
+
+Assertions 6 through 9 are checks on **structural values** — an id, a count, a cardinality, a file's existence. None of them reads the free-text shapes or judges a classification, so none crosses the §7.2 line.
 
 Id resolution reuses `tests/docs/_ledgerMdast.ts` (`extractEntries` at `_ledgerMdast.ts:313`, `ledgerIds` at `_ledgerMdast.ts:402`) rather than importing from `_metaLedgerReferentialIntegrity.test.ts`, whose `definedIds` (`_metaLedgerReferentialIntegrity.test.ts:126`) is exported from a test module; importing a `*.test.ts` re-registers its suite.
 
@@ -251,9 +262,27 @@ Output:
 - Rounds per stage per arc, and counted-vs-recorded rows.
 - Trigger rate by month — the success metric named in §1.1.
 - Finding-count totals by stage, over arcs where the declared line was present.
-- **Silent arcs**: branches appearing as merged in `git log --merges` with zero rows in the corpus.
+- **Silent arcs**: branches that merged with zero rows in the corpus.
 
-Silent-arc listing is the observable form of limit §8.3.1 and §8.3.2. It is deliberately **not** a gate: many branches legitimately have no review at all. Converting an invisible hole into a visible one is as far as the threat model reaches.
+**The merged-branch accept-set is declared, and everything outside it is reported by name.** Reading `git log --merges` unqualified is wrong here. Measured against this repository's history:
+
+```
+all merge commits                  916
+  first-parent merges              677
+  NOT first-parent                 239   <- overwhelmingly "merge main into feature"
+    of which `Merge branch 'main'`  183
+first-parent w/ PR-merge subject   676
+first-parent unrecognized            1
+```
+
+The 239 non-first-parent merges are main being merged _into_ a feature branch. Counting them as merged feature arcs would invent hundreds of silent arcs that never existed.
+
+The accept-set is therefore **first-parent merges whose subject carries a PR reference**, from which the branch name is taken. Everything outside it is **counted and reported as `unrecognized`, with its subject** — never dropped, never guessed at. Today that residue is exactly one commit, and it is worth naming because it shows why the residue must be reported rather than assumed empty: `Merge PR #4: M12.2 Phase B1 — admin nav shell + settings shell` is a genuine PR merge in a second spelling, not noise. A recognizer tuned to the 676-instance form alone would silently lose it.
+
+A denylist over merge subjects would accept whatever it failed to model; this is the accept-set discipline applied to the report's own input.
+
+
+Silent-arc listing is the observable form of limits §8.3.1 and §8.3.2. It is deliberately **not** a gate: many branches legitimately have no review at all. Converting an invisible hole into a visible one is as far as the threat model reaches. Read-only does not excuse a wrong number, though — the report presents its output as fact, so the producer is tested against real history (§11.3).
 
 ## 10. Work items
 
@@ -265,7 +294,8 @@ Silent-arc listing is the observable form of limit §8.3.1 and §8.3.2. It is de
 6. Repair the finding tally in `$HOME/.claude/hooks/review-convergence-gate.sh` to match the corpus (§3, consequence 2), or drop the number rather than print a wrong one.
 7. Update repo-tracked codex-guard call sites and `AGENTS.md` for the new required flags.
 8. Enroll `_metaReviewRoundEconomy` in `tests/mutation/source/registry.ts` (`GUARD_SURFACES` at `registry.ts:120`, `GuardSurface` at `registry.ts:12-23`, `validateSurface` at `registry.ts:41`). Two things block a second surface today and are part of this item: the gate requires an `EXPECTED_LEDGER_KINDS` entry keyed by surface id (`tests/mutation/guardSurfaces.gate.test.ts:33`), and its control mutation is hardcoded to a `taskContract` source string (`tests/mutation/guardSurfaces.gate.test.ts:110-129`), so the control must be generalized per surface before any second row can pass.
-9. Row in `docs/superpowers/specs/ci/README.md`.
+9. Widen `parseVerdict` to tolerate surrounding markdown emphasis on the final line (`scripts/codex-guard.mjs:392`), or report the rejected shape explicitly instead of recording a silent `no_verdict`. Three dispatches in the probe corpus were lost this way (§3, consequence 3) — a full review spent, then filed as an infrastructure fault.
+10. Row in `docs/superpowers/specs/ci/README.md`.
 
 ## 11. Testing
 
@@ -303,13 +333,22 @@ Fixture corpus for determinism, plus a live-tree pass over the real `docs/review
 | malformed JSON row | **FAIL**, message naming file and line |
 | corpus file **nested two levels deep** (`feat/foo/*.jsonl`), 4 verdict rounds, no filing | **FAIL** — a flat walk would miss it, which is how this defect shipped in draft 1 |
 | same branch dir, two `<sha>` files: an old arc with a filing, a new arc with 4 rounds and none | **FAIL** — the new arc must not inherit the old filing |
+| row's `branch`/`baseSha` disagree with the containing path | **FAIL** — assertion 6; a false identity the report would print as fact |
+| filing heading says `999 rounds` over a 4-round corpus | **FAIL** — assertion 7 |
+| two `## diff` sections in one filing | **FAIL** — assertion 8; §6 specifies one |
+| orphan `.md` in an arc directory with no `.jsonl` beside it | **FAIL** — assertion 9; the case a `.jsonl`-first walk never visits |
 | **new fixture arc dropped in, 4 verdict rounds, no filing** | **FAIL without editing the test** — fails-by-default |
 
 Expected values derive from fixture contents; no hardcoded counts.
 
 ### 11.3 Report
 
-Silent-arc detection against a fixture merged-branch list and a fixture corpus, asserting the merged branch with zero rows is listed and the one with rows is not. Catches the §9 observability claim being vapor.
+Two layers, because a pre-parsed fixture list would let the test pass while the git-to-branch producer is wrong:
+
+1. **Producer against real history.** Run the merged-branch extractor over this repository's actual `git log --first-parent --merges` output and assert: every first-parent PR merge is recognized, zero non-first-parent merges are admitted, and the residue is surfaced as `unrecognized` with its subject rather than dropped. Derive expected counts from the git output at test time, never from literals — the numbers grow with the repo, and a hardcoded 676 makes this a tripwire on the calendar instead of on the producer. Catches the §9 accept-set being wrong about the input it actually gets.
+2. **Detector against a fixture corpus.** Given a merged-branch list and a fixture corpus, the merged branch with zero rows is listed and the one with rows is not. Catches the §9 observability claim being vapor.
+
+Layer 1 is the one that would have failed on an unqualified `git log --merges`.
 
 ### 11.4 Mutation enrollment
 
