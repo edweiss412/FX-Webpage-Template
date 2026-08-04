@@ -26,7 +26,9 @@
 ## Meta-test inventory (mandatory declaration)
 
 **CREATES:**
+<!-- spec-lint: ignore — new files created by this plan; not yet tracked -->
 - `tests/docs/_metaLedgerClaimCollision.test.ts` — cross-branch declared-collision backstop (Task 7).
+<!-- spec-lint: ignore — new files created by this plan; not yet tracked -->
 - `tests/docs/_metaAgentsMarkerContract.test.ts` — pins that AGENTS.md's three statements of the marker contract cannot drift apart (Task 8).
 
 **EXTENDS:**
@@ -59,14 +61,20 @@ This plan ships structural guards, so the mutation families it converges against
 
 | File | Responsibility |
 | --- | --- |
+<!-- spec-lint: ignore — new files created by this plan; not yet tracked -->
 | `scripts/lib/ledger-fields.ts` (create) | Pure parsing: entry spans via `extractEntries` + `parseLedger`, meta-field extraction, the two predicates. No git, no network, one `readdirSync` in `ledgerFiles`. |
+<!-- spec-lint: ignore — new files created by this plan; not yet tracked -->
 | `scripts/lib/ledger-claims-core.ts` (create) | Claim resolution over an injected git surface: candidates, identity, declared/inferred, degraded flags. No subprocess spawning of its own. |
+<!-- spec-lint: ignore — new files created by this plan; not yet tracked -->
 | `scripts/lib/ledger-git.ts` (create) | The only module that spawns `git`/`gh`. Bounded, injectable, so Task 6's non-invocation spy has a single seam. |
+<!-- spec-lint: ignore — new files created by this plan; not yet tracked -->
 | `scripts/ledger-claims.ts` (create) | CLI adapter: argv, report rendering, `--check`/`--json` modes, exit codes. |
 | `scripts/preflight-env.mjs` (modify) | Claims print, placed before the DB probe. |
 | `tests/docs/_metaLedgerInProgress.test.ts` (modify) | Imports the shared module; predicates widen. |
 | `tests/scripts/ledgerClaims*.test.ts` (create) | Reader and `--check` behavior against planted git fixtures. |
+<!-- spec-lint: ignore — new files created by this plan; not yet tracked -->
 | `tests/docs/_metaLedgerClaimCollision.test.ts` (create) | CI backstop. |
+<!-- spec-lint: ignore — new files created by this plan; not yet tracked -->
 | `tests/docs/_metaAgentsMarkerContract.test.ts` (create) | AGENTS delta completeness. |
 | `AGENTS.md` (modify) | The six edits of §6. |
 
@@ -77,7 +85,9 @@ This plan ships structural guards, so the mutation families it converges against
 ### Task 1: Shared parser module with authoritative entry spans
 
 **Files:**
+<!-- spec-lint: ignore — new files created by this plan; not yet tracked -->
 - Create: `scripts/lib/ledger-fields.ts`
+<!-- spec-lint: ignore — new files created by this plan; not yet tracked -->
 - Create: `tests/scripts/ledgerFields.test.ts`
 
 **Interfaces:**
@@ -106,12 +116,20 @@ describe("ledger-fields entry spans", () => {
     expect(hit!.endLine).toBeGreaterThanOrEqual(hit!.line);
   });
 
-  it("gives every entry a span, strictly increasing, in every ledger (M1)", () => {
+  it("points each id at the line its own heading is on (M1)", () => {
+    // Positivity + monotonicity are NOT enough: plan-R1 finding 6 built a mutant
+    // adding 1 to every resolved line, which passes both while shifting every span
+    // and silently dropping inferred edits made on a heading line. This asserts the
+    // line's CONTENT contains the id, which only the correct line can satisfy.
     for (const f of ["BACKLOG.md", "BACKLOG-archive.md", "DEFERRED.md", "DEFERRED-archive.md"]) {
-      const items = ledgerItems(f, read(f));
+      const text = read(f);
+      const lines = text.split("\n");
+      const items = ledgerItems(f, text);
       expect(items.length, `${f} parsed nothing`).toBeGreaterThan(0);
       items.forEach((it, n) => {
-        expect(it.line, `${f}:${it.id} has no span`).toBeGreaterThan(0);
+        const heading = lines[it.line - 1] ?? "";
+        expect(heading.startsWith("#"), `${f}:${it.line} is not a heading`).toBe(true);
+        expect(heading, `${f}:${it.line} does not name ${it.id}`).toContain(it.id);
         if (n > 0) expect(it.line).toBeGreaterThan(items[n - 1]!.line);
       });
     }
@@ -133,6 +151,7 @@ Expected: FAIL — `Cannot find module '@/scripts/lib/ledger-fields'`.
 
 - [ ] **Step 3: Write minimal implementation**
 
+<!-- spec-lint: ignore — new files created by this plan; not yet tracked -->
 Create `scripts/lib/ledger-fields.ts`. Move `fieldsOfLine` verbatim from `tests/docs/_metaLedgerInProgress.test.ts:70-86` and `ledgerFiles` from the same file. Delete the local `HEADING` regex — do not move it.
 
 ```ts
@@ -243,6 +262,7 @@ git commit -m "feat(ledger): shared parser module with authoritative entry spans
 ### Task 2: Widen the guard's predicates
 
 **Files:**
+<!-- spec-lint: ignore — new files created by this plan; not yet tracked -->
 - Modify: `scripts/lib/ledger-fields.ts`
 - Modify: `tests/docs/_metaLedgerInProgress.test.ts`
 
@@ -304,6 +324,7 @@ Expected: FAIL — the window-only `fields` returns `undefined` for `Branch`, an
 
 - [ ] **Step 3: Implement**
 
+<!-- spec-lint: ignore — new files created by this plan; not yet tracked -->
 In `scripts/lib/ledger-fields.ts`, union the same-line-with-status fields into `fields` (window value wins), and make detection scan lines:
 
 ```ts
@@ -330,7 +351,14 @@ for (const l of bodyLines) {
 }
 ```
 
-Then update `tests/docs/_metaLedgerInProgress.test.ts` to import `isInProgress`, `flightFieldsOn`, `ledgerItems`, `ledgerFiles`, and `LedgerItem` from `@/scripts/lib/ledger-fields`, deleting the local copies. Leave every pre-existing assertion untouched — a diff to one is the signal the move was not behavior-preserving.
+Also move and export `FLIGHT_FIELDS`, `BRANCH_SHAPE`, and `PR_SHAPE` (currently declared near the top of
+`tests/docs/_metaLedgerInProgress.test.ts`, at lines 117, 123, and 124). Plan-R1 finding 8: §3.1 lists them
+in the shared module's API, and leaving them behind either strands them as private or deletes them
+into unresolved identifiers — the guard's shape rules read all three.
+
+Then update `tests/docs/_metaLedgerInProgress.test.ts` to import `isInProgress`, `flightFieldsOn`,
+`ledgerItems`, `ledgerFiles`, `FLIGHT_FIELDS`, `BRANCH_SHAPE`, `PR_SHAPE`, and the `LedgerItem` type
+from `@/scripts/lib/ledger-fields`, deleting the local copies. Leave every pre-existing assertion untouched — a diff to one is the signal the move was not behavior-preserving.
 
 - [ ] **Step 4: Run the full docs suite**
 
@@ -349,13 +377,44 @@ git commit -m "feat(ledger): position-independent in-progress detection"
 ### Task 3: Claim resolution core — candidates, identity, declared
 
 **Files:**
+<!-- spec-lint: ignore — new files created by this plan; not yet tracked -->
 - Create: `scripts/lib/ledger-git.ts`, `scripts/lib/ledger-claims-core.ts`
+<!-- spec-lint: ignore — new files created by this plan; not yet tracked -->
 - Create: `tests/scripts/ledgerClaims.test.ts`
 
 **Interfaces:**
-- Produces: `type GitSurface = { lsRemote(): Map<string,string>; remoteRefs(): string[]; mergedIntoMain(): string[]; showFile(ref: string, file: string): string | null; mergeBase(ref: string): string | null; diffHunks(base: string, ref: string, files: string[]): Hunk[]; tipEpoch(ref: string): number; isShallow(): boolean; currentBranch(): string | null; headRepo(): string | null; repo(): string | null; inCI(): boolean }`; `type Claim = { id: string; branch: string; kind: "declared" | "inferred"; pr: number | null; tipAgeDays: number; stale: boolean }`; `resolveClaims(git: GitSurface, opts: { fetch: boolean }): { claims: Claim[]; degraded: string[]; identity: "local" | "ci-resolved" | "ci-unknown"; selfBranch: string | null }`.
+- Produces: the complete subprocess seam. **Every** network or `git` operation is a member, so Task 6's spy has one boundary and nothing can spawn outside it:
 
-`GitSurface` is injected so every test plants git state as data. The real implementation is the only module that spawns.
+```ts
+export type Hunk = { file: string; start: number; count: number };
+export type PrRow = { number: number; headRefName: string; headRepositoryOwner: string | null; isCrossRepository: boolean };
+
+export type GitSurface = {
+  fetch(): void;                                   // +refs/heads/*, --prune, 30 s
+  lsRemote(): Map<string, string>;                 // name -> OID, HEAD filtered out, 30 s
+  localRefs(): Map<string, string>;                // name -> OID for refs/remotes/origin/*, origin/HEAD excluded
+  mergedIntoMain(): string[];
+  showFile(ref: string, file: string): string | null;   // stderr discarded
+  mergeBase(ref: string): string | null;
+  diffHunks(base: string, ref: string, files: string[]): Hunk[];
+  tipEpoch(ref: string): number;
+  isShallow(): boolean;
+  currentBranch(): string | null;
+  headRepo(): string | null;                       // event payload; null when unreadable
+  repo(): string | null;
+  inCI(): boolean;
+  prList(): PrRow[];                               // gh, 10 s, [] on any failure
+};
+```
+
+`localRefs` and `lsRemote` are both name→OID maps because §4.1 compares them **as maps, in both
+directions** — a `string[]` cannot express the changed-OID-under-unchanged-name case. `prList` is a
+member so its 10 s bound and its `--no-fetch` suppression are observable; `type Claim = { id: string; branch: string; kind: "declared" | "inferred"; pr: number | null; tipAgeDays: number; stale: boolean }`; `resolveClaims(git: GitSurface, opts: { fetch: boolean }): { claims: Claim[]; degraded: string[]; identity: "local" | "ci-resolved" | "ci-unknown"; selfBranch: string | null }`.
+
+<!-- spec-lint: ignore — new files created by this plan; not yet tracked -->
+`GitSurface` is injected so every test plants git state as data. `scripts/lib/ledger-git.ts` is the
+only module that spawns, and it spawns **only** to implement these members — which is what makes
+Task 6's non-invocation assertion meaningful rather than decorative.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -446,10 +505,12 @@ describe("resolveClaims", () => {
 Run: `pnpm exec vitest run tests/scripts/ledgerClaims.test.ts`
 Expected: FAIL — module not found.
 
+<!-- spec-lint: ignore — new files created by this plan; not yet tracked -->
 - [ ] **Step 3: Implement `ledger-claims-core.ts`**
 
 Candidate rule (§3.2 step 2): every `refs/remotes/origin/*` except `origin/main` and `origin/HEAD`; subtract `mergedIntoMain()` only when `!isShallow()`. Identity (§3.2 step 3): `inCI()` false → `local`, self = `currentBranch()`; `inCI()` true and `headRepo()` non-null → `ci-resolved`, self = `currentBranch()` unless `headRepo() !== repo()`; otherwise `ci-unknown`, self = `null`. Declared claims: for each candidate × `ledgerFiles()`, `showFile` then `ledgerItems`, keep `isInProgress`, key on the ref's short name. Stale when tip age > 14 days.
 
+<!-- spec-lint: ignore — new files created by this plan; not yet tracked -->
 - [ ] **Step 4: Implement `ledger-git.ts`**
 
 The real `GitSurface`. Every call bounded per §4.4; `showFile` discards the child's stderr (`stdio: ["ignore","pipe","ignore"]`) so a missing ledger is silent; `lsRemote` returns a name→OID map with `HEAD` filtered out.
@@ -457,7 +518,7 @@ The real `GitSurface`. Every call bounded per §4.4; `showFile` discards the chi
 - [ ] **Step 5: Run to verify pass**
 
 Run: `pnpm exec vitest run tests/scripts/ledgerClaims.test.ts && pnpm typecheck`
-Expected: PASS, 7 tests; no type errors.
+Expected: PASS, 8 tests; no type errors.
 
 - [ ] **Step 6: Commit**
 
@@ -471,7 +532,9 @@ git commit -m "feat(ledger): claim resolution core with injected git surface"
 ### Task 4: Inferred claims and hunk mapping
 
 **Files:**
+<!-- spec-lint: ignore — new files created by this plan; not yet tracked -->
 - Modify: `scripts/lib/ledger-claims-core.ts`
+<!-- spec-lint: ignore — new files created by this plan; not yet tracked -->
 - Modify: `tests/scripts/ledgerClaims.test.ts`
 
 - [ ] **Step 1: Write the failing tests** — one per §3.2 step 6 rule.
@@ -526,12 +589,29 @@ git commit -m "feat(ledger): inferred claims with specified hunk mapping"
 ### Task 5: CLI, exit codes, and universe verification
 
 **Files:**
+<!-- spec-lint: ignore — new files created by this plan; not yet tracked -->
 - Create: `scripts/ledger-claims.ts`, `tests/scripts/ledgerClaimsCheck.test.ts`
 - Modify: `package.json`
 
 - [ ] **Step 1: Write the failing tests** — the exit table (§3.3) plus every §4.1 universe row, and the identity matrix.
 
 Required cases, each asserting an exit code: declared collision with resolved identity → **1**; inferred-only collision → **0** with `WARN`; zero ids → **2**; per-file vacuity (a non-empty ledger yielding zero entries) → **2**; fetch failure → **2**; zero refs → **2**; head map differing by OID under an unchanged name → **2**; head map with an extra local name → **2**; head map missing a remote-advertised name → **2**; `ls-remote` throwing → **2**; deferred ledger parsed with backlog opts → **2**; 101 candidates with the collision in the 101st → **1**; `--json` with 101 candidates → all 101 emitted; `origin/HEAD` present and otherwise healthy → **0**; only `main` on origin → **0**; a candidate predating the ledgers → **0**; genuinely empty candidate ledgers → **0**; merged-main snapshot carrying a marker → **0**; local identity on the declaring branch → **0**; CI + readable payload + same repo → **0**; CI + readable payload + fork with a same-name base branch → **1**; CI + absent payload + `GITHUB_HEAD_REF` naming the declaring branch → **2**.
+
+Plus the six cases plan-R1 finding 3 found omitted, each with the mutant it catches:
+
+| Case | Required | Mutant it catches |
+| --- | --- | --- |
+| Global vacuity: every candidate yields 0 while main yields >100 **and** a non-empty candidate exists | **2** | a parser regression answering 0 everywhere while main clears the floor |
+| `resolved = {main, stale}` vs `remote = {main, claimed}` | **2** | a count-plus-shared-OID comparison that trusts equal-cardinality substitution |
+| `--json` healthy-empty vs fetch-failed | distinguishable payloads | a bare array serializing both as `[]` |
+| `isShallow()` given the literal string `"false"` | treated as **not** shallow | `Boolean("false") === true`, which classifies every full clone as shallow and permanently disables the merged-exclusion |
+| A genuinely shallow fixture clone (`git clone --depth=1`) | merged-exclusion skipped, `declared` still resolves | a shallow branch that is dead code no test enters |
+| §4.3 argument handling: lowercase and backticked ids, duplicates, an id defined nowhere | normalized / de-duplicated / noted-and-continued | an implementation that only ever sees canonical input |
+
+**PR display (plan-R1 finding 4).** `prList()` is exercised too, since nothing else assigns it: a
+fork PR and a base branch sharing a head name must join to **different** rows (`headRepositoryOwner`
+discriminates), and a `prList()` that throws or exceeds its 10 s bound leaves the column blank while
+the table still prints and the exit code is unchanged.
 
 Derive every expected id from the planted fixture text; never hardcode a literal the fixture does not produce.
 
@@ -560,6 +640,7 @@ git commit -m "feat(ledger): ledger:claims CLI with distinct exit-code semantics
 
 **Files:**
 - Modify: `scripts/preflight-env.mjs`
+<!-- spec-lint: ignore — new files created by this plan; not yet tracked -->
 - Create: `tests/scripts/preflightClaims.test.ts`
 
 - [ ] **Step 1: Write the failing tests**
@@ -567,17 +648,87 @@ git commit -m "feat(ledger): ledger:claims CLI with distinct exit-code semantics
 Positive wiring first — every assertion below is conditional on it (§7.5):
 
 ```ts
-// The child is stubbed to print a sentinel; we assert it reaches preflight's stdout
-// on ALL THREE success paths, because a step appended at the end of the file is
-// dark on both early exits (scripts/preflight-env.mjs:132 and :142).
-it.each([["default", []], ["--no-db", ["--no-db"]]])("spawns claims on the %s path", …);
-it("spawns claims when psql is absent from PATH", …);
-it("passes --no-fetch", …);
-it("does NOT spawn claims when CI is set", …);
-it("does NOT spawn claims under --no-claims", …);
-it("does NOT spawn claims under PREFLIGHT_NO_CLAIMS=1", …);
-it("exits 0 when the claims child fails, times out, or exits non-zero", …);
+import { spawnSync } from "node:child_process";
+import { join } from "node:path";
+import { describe, expect, it } from "vitest";
+
+const ROOT = join(__dirname, "..", "..");
+const SENTINEL = "CLAIMS-CHILD-RAN";
+
+/**
+ * Runs preflight with a stub `tsx` earlier on PATH, so the claims child is
+ * observable without touching the network. `CI` is cleared explicitly: this file
+ * runs in the `serial` project (vitest.config.ts:96), which has CI=true in
+ * Actions, and §3.4 suppresses claims under CI. Without this, the one assertion
+ * that makes this file non-vacuous is green locally and red in CI.
+ */
+function runPreflight(args: string[], env: Record<string, string | undefined> = {}) {
+  const r = spawnSync("node", [join(ROOT, "scripts/preflight-env.mjs"), ...args], {
+    cwd: ROOT,
+    encoding: "utf8",
+    timeout: 60_000,
+    env: { ...process.env, CI: undefined, PATH: `${join(ROOT, "tests/scripts/__stubbin__")}:${process.env.PATH ?? ""}`, ...env },
+  });
+  return { status: r.status, out: `${r.stdout ?? ""}${r.stderr ?? ""}` };
+}
+
+describe("preflight claims wiring", () => {
+  it.each([
+    ["default", [] as string[]],
+    ["--no-db", ["--no-db"]],
+  ])("spawns the claims child on the %s success path", (_label, args) => {
+    // Both paths print `env ✓`; --no-db exits at scripts/preflight-env.mjs:132,
+    // so a step appended after the DB probe is dark there.
+    expect(runPreflight(args).out).toContain(SENTINEL);
+  });
+
+  it("spawns the claims child when psql is absent from PATH", () => {
+    // The ENOENT path exits at scripts/preflight-env.mjs:142.
+    const r = runPreflight([], { PATH: join(ROOT, "tests/scripts/__stubbin__") });
+    expect(r.out).toContain(SENTINEL);
+  });
+
+  it("passes --no-fetch to the child", () => {
+    // The stub echoes its argv, so this asserts the flag actually reaches it.
+    expect(runPreflight([]).out).toContain("--no-fetch");
+  });
+
+  it.each([
+    ["CI set", [] as string[], { CI: "true" }],
+    ["--no-claims", ["--no-claims"], {}],
+    ["PREFLIGHT_NO_CLAIMS=1", [], { PREFLIGHT_NO_CLAIMS: "1" }],
+  ])("does NOT spawn the child under %s", (_label, args, env) => {
+    // Asserts non-spawn, not absent output: a suppression that runs the child and
+    // discards its stdout would pass an output-only assertion (M10).
+    expect(runPreflight(args, env).out).not.toContain(SENTINEL);
+  });
+
+  it("exits 0 when the claims child fails", () => {
+    expect(runPreflight([], { CLAIMS_STUB_MODE: "fail" }).status).toBe(0);
+  });
+
+  it("exits 0 when the claims child times out", () => {
+    expect(runPreflight([], { CLAIMS_STUB_MODE: "hang" }).status).toBe(0);
+  });
+});
+
+describe("the reader honors --no-fetch behaviorally (M9)", () => {
+  it("creates no git fetch and no git ls-remote child", () => {
+    // NOT a completion assertion: connection refusal is immediate (0.03 s for
+    // ls-remote, 0.04 s for gh), so "it finished" proves nothing. This asserts
+    // non-invocation at the seam by counting spawns through a recording GitSurface.
+    const spawned: string[] = [];
+    const spy = recordingGitSurface(spawned); // records member names, spawns nothing
+    resolveClaims(spy, { fetch: false });
+    expect(spawned).not.toContain("fetch");
+    expect(spawned).not.toContain("lsRemote");
+  });
+});
 ```
+
+The `tests/scripts/__stubbin__/tsx` stub is created by this task: an executable shell script that
+echoes `CLAIMS-CHILD-RAN` plus its argv, then honors `CLAIMS_STUB_MODE` (`fail` exits 1, `hang`
+sleeps past the 15 s budget). Create it with `printf` and `chmod +x`, never `echo >>`.
 
 **Every spawn in these tests sets `env: { ...process.env, CI: undefined }`.** `tests/scripts/**` runs in the `serial` project (`vitest.config.ts:96`), which runs with `CI=true` in Actions — without clearing it, the one assertion that makes this file non-vacuous is green locally and red in CI.
 
@@ -599,8 +750,9 @@ git commit -m "feat(ledger): surface live claims in preflight"
 ### Task 7: CI collision backstop
 
 **Files:**
+<!-- spec-lint: ignore — new files created by this plan; not yet tracked -->
 - Create: `tests/docs/_metaLedgerClaimCollision.test.ts`
-- Modify: `tests/docs/_metaLedgerReferentialIntegrity.test.ts` (add this file to `NOT_CITATIONS` — it plants synthetic ids)
+- Modify: `tests/docs/_metaLedgerReferentialIntegrity.test.ts` — add **three** paths to `NOT_CITATIONS`, not one: this guard plus the two reader test files, all of which plant `BL-X`/`BL-Y` fixtures. Plan-R1 finding 5: the citation guard walks every tracked `*.ts` (`tests/docs/_metaLedgerReferentialIntegrity.test.ts:106`), so the reader tests turn CI red the moment Tasks 3-5 commit — before Task 7 runs. **Move this registration into Task 3's commit** rather than leaving it here; a row that arrives two tasks after the file it exempts is two tasks of red CI.
 
 - [ ] **Step 1: Write the test**
 
@@ -621,6 +773,7 @@ git commit -m "test(ledger): CI backstop for cross-branch declared collisions"
 
 **Files:**
 - Modify: `AGENTS.md`
+<!-- spec-lint: ignore — new files created by this plan; not yet tracked -->
 - Create: `tests/docs/_metaAgentsMarkerContract.test.ts`
 
 - [ ] **Step 1: Write the failing guard** — one assertion per §6 edit, six rows, per §7.5a's table. Row 6.1 asserts the reading rule is present **and** that no sentence asserts the marker reaches main at merge (a paraphrase walks past literal retired-phrase checks). Row 6.6 asserts an **ordering**, the only one in the set.
