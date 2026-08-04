@@ -428,7 +428,17 @@ it("threads hold groups and total; holds-leg infra_error fails the whole call", 
 _Failure mode: a holds fault silently degrading to an empty stream (violates the loader's all-or-nothing posture, spec §8)._
 
 - [ ] **Step 2: Run — FAIL.** **Step 3: Implement:** `loadHolds?: typeof loadOpenIdentityHolds` opt; call after the sync-problem block; `infra_error` → `{ kind: "infra_error", message: \`identity holds read failed: ${...}\` }`; thread groups + `totalCounts.identityHolds`.
-- [ ] **Step 4: Fix the default-path companions (plan-R2 P3).** The holds reader now runs by default inside `loadNeedsAttention`; every existing success-path suite stubbing `createSupabaseServiceRoleClient` as a bare `vi.fn()` (returns undefined) collapses to `infra_error`. Update those server mocks to return an empty-holds chainable client (`data: [], error: null`) in: `tests/admin/loadNeedsAttention.test.ts:127`, `tests/components/admin/Dashboard.test.tsx:25-31` + `Dashboard.test.tsx:102`, `tests/admin/fetchDashboardData.test.ts:238` (reached via the real loader call at `components/admin/Dashboard.tsx:439-446`). Run those suites + this file's invariant-9 source-regex test + tsc — PASS.
+- [ ] **Step 4: Fix the default-path companions (plan-R2 P3).** The holds reader now runs by default inside `loadNeedsAttention`; every existing success-path suite stubbing `createSupabaseServiceRoleClient` as a bare `vi.fn()` (returns undefined) collapses to `infra_error`. Update those server mocks to return an empty-holds chainable client (`data: [], error: null`) in ALL SEVEN affected suites (plan-R4 sweep — grep-driven per the reconciliation-sweep rule; command and 2026-08-03 output below): `tests/admin/loadNeedsAttention.test.ts:127`, `tests/components/admin/Dashboard.test.tsx:25-31` + `Dashboard.test.tsx:102`, `tests/admin/fetchDashboardData.test.ts:238`, `tests/admin/fetchDashboardData-archived.test.ts:132-149`, `tests/components/admin/Dashboard-archived.test.tsx:84-104` (all five Dashboard-path files reach the real loader call at `components/admin/Dashboard.tsx:439-446`), plus the two count suites handled in Task 5. Completeness proof, rerun before committing:
+
+```bash
+grep -rln "createSupabaseServiceRoleClient" tests/ | xargs grep -l "loadNeedsAttention\|fetchDashboardData\|Dashboard\|needsAttentionCount"
+# 2026-08-03 output: 11 files; the 4 non-affected are _metaInfraContract.test.ts
+# (registry, no execution), bellFeed.test.ts (comment-only mention),
+# show-lifecycle-actions.test.ts + adminOutcomeBehavior.test.ts (never reach the
+# loaders), and needsAttentionCountRoute.test.ts mocks loadNeedsAttentionCount itself.
+```
+
+Run those suites + this file's invariant-9 source-regex test + tsc — PASS.
 - [ ] **Step 5: Commit** `feat(admin): thread identity holds through loadNeedsAttention`
 
 ---
