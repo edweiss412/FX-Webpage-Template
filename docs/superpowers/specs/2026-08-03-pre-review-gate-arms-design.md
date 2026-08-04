@@ -129,11 +129,11 @@ wc -c < /tmp/r.txt      # 290909    — 3,206 lines, summary "0 hard, 89 advisor
 
 The redirect is not incidental. An earlier draft published this same reproduction as a pipe into `wc -c`, one paragraph above its own warning that captured output truncates — and the pipe duly reported a short count, so the command contradicted the number it was offered as evidence for.
 
-Worse, the truncated value is **not stable**: the same pipe has been observed at `65536` and at `81920` on this machine, because where the reader stops depends on buffer scheduling rather than a fixed boundary. A measurement that silently varies by 20 KB between runs is not a measurement. Redirect to a file.
+Worse, the truncated value is **not stable**: the same pipe has been observed at `65536`, `81920`, and `8171`. That is not buffer scheduling — §2.2.3 identifies the actual cause, which A1 must fix before it can work at all.
 
 A quarter-megabyte report for a document with **zero** hard findings is the shape of the problem: the bytes are inventory, not signal. The 13 largest reports together reach 2,008,482 bytes, crossing the wrapper's cap before any brief text, so a repeatable flag whose every individual run exits 0 or 1 could still fail composition.
 
-Measure this with output redirected to a file, never through a captured pipe or a subprocess capture: those truncate at a buffer boundary that varies between runs, making the problem look several times smaller than it is.
+Measure this with output redirected to a file, never through a captured pipe — for the reason given in §2.2.3, which is a defect in the CLI rather than a property of measurement.
 
 **Filtering does most of the work; the budget is a safety net, not a routine constraint.** Applying the transformation above to the corpus's largest report:
 
@@ -148,17 +148,39 @@ The worst report in the corpus lands at 20 KB filtered, so the 200,000-byte budg
 - The embedded reports carry a combined budget of 200,000 bytes. When a report would cross it, it is truncated at a line boundary and the block ends with an explicit `[truncated: N of M bytes shown]` line, so the reviewer is never shown a silently shortened report.
 - Truncation is never a refusal. Exceeding the budget is an expected consequence of a valid input, not a fault.
 
+### 2.2.3 Precondition — the CLI truncates its own output on a pipe
+
+`scripts/spec-lint.ts:234` writes the report with `process.stdout.write`, then `scripts/spec-lint.ts:236` calls `process.exit(r.exitCode)` on the next statement. **On a pipe `process.stdout.write` is asynchronous**, so the process exits before the buffer drains; to a file or TTY it is synchronous and the write completes. Same command, two capture modes, two different reports:
+
+```
+npx tsx scripts/spec-lint.ts <this spec> > /tmp/f.txt   # 23300 bytes, summary present
+spawnSync("npx", ["tsx", "scripts/spec-lint.ts", <this spec>])
+                                                        #  8171 bytes, summary ABSENT
+```
+
+Not `maxBuffer` — identical at 64 MB, `status=0`, no error reported. The consumer is handed a short report and a success code.
+
+**A1 cannot work until this is fixed.** codex-guard spawns the CLI and captures stdout through a pipe by construction, so every dispatch would embed a truncated report, and §2.2.2's "keep the `summary:` line" would silently fail on all of them — the reviewer receiving a report whose most informative line is exactly the one always missing.
+
+The repair is `process.exitCode = r.exitCode` and a natural exit, which drains stdout. This is a pre-existing defect in a file A1 already modifies (§3.4 wires the renderer at `scripts/spec-lint.ts:46`), and it blocks the feature outright rather than sitting beside it, so it is repaired in this PR rather than deferred — the class-sweep disposition rule's default.
+
+It also explains, retroactively, all three truncated measurements recorded during this spec's drafting. Those were attributed to buffer scheduling; the attribution was wrong, and the corrected explanation is here.
+
 ### 2.3 Failure posture
 
 | Condition | Behavior |
 | --- | --- |
-| lint exits 0 or 1 (clean, advisories, or findings) | embed findings, dispatch proceeds |
+| lint exits 0 or 1 **and** the report is well-formed | embed findings, dispatch proceeds |
+| lint exits 0 or 1 but the report is malformed — missing the `spec:lint <path>` first line or the `summary:` last line | **refuse to dispatch**, exit 2: the tool did not run to completion |
+| the child fails to spawn (`ENOENT`), or dies on a signal (`code === null`) | **refuse to dispatch**, exit 2 |
 | lint exits 2 (usage or infra fault, including a tracked symlink) | **refuse to dispatch**, exit 2, no result.json Codex outcome |
 | `--lint-doc` resolves outside `--cwd`'s repo, or is unreadable | refuse, exit 2, message names path and repo root (§2.2.1) |
 | embedded reports exceed the 200,000-byte budget | truncate at a line boundary with an explicit notice; dispatch proceeds (§2.2.2) |
 | no `--lint-doc` given | dispatch proceeds; result.json records `lintArm: "absent"` |
 
 Findings never block dispatch. A doc with 40 citation failures is exactly the doc a reviewer most needs the report for. Only a tool that could not run blocks, which matches the exit-2-is-infra semantics `spec:lint` already defines.
+
+**Exit code alone cannot carry that distinction, so the report's shape is checked too.** A failure *before* the adapter runs also exits 1, with empty stdout and no error — a missing Node loader does exactly this (`status=1, signal=null, stdoutBytes=0`). A spawn failure surfaces as `error.code === "ENOENT"` with no exit code at all, and a signalled death gives `code === null`. None of the three is exit 2, so a contract keyed only on the exit code treats every one of them as a valid findings report and dispatches with no lint output — precisely what this section says must block.
 
 ### 2.4 The recorded gap
 
@@ -197,11 +219,15 @@ So the plan declares its own task grain, in a **delimited region**:
 
 **The grammar is a narrow ACCEPT, and everything else is a finding.** §4.1 requires exactly this of detector specs, and an earlier draft of this section did not practise it: it listed the *rejected* depth values and left every other deviation unmodelled, which is the denylist shape §4.1 exists to forbid. Stated positively instead:
 
-- An **opening line** is a non-fenced line matching `^<!-- tasks: depth=([1-6]) -->$` **exactly**. One field, one value, no other content.
-- A **closing line** is a non-fenced line matching `^<!-- tasks: end -->$` exactly.
-- Any non-fenced line beginning `<!-- tasks:` that is neither is `TASK_ENROLL_MALFORMED`. That single clause covers an out-of-range or non-integer depth, a missing depth, an unknown extra field (`depth=3 extra=x`), a repeated field (`depth=3 depth=4`), and every form not yet imagined — none of which may silently opt a plan out while visibly declaring enrollment.
+- An **opening line** is a non-fenced line matching `^ {0,3}<!-- tasks: depth=([1-6]) -->\s*$` **exactly**. One field, one value, no other content.
+- A **closing line** is a non-fenced line matching `^ {0,3}<!-- tasks: end -->\s*$` exactly.
+- Any non-fenced line whose first non-space content begins `<!-- tasks:` (after up to three spaces) and matches neither form is `TASK_ENROLL_MALFORMED`. That single clause covers an out-of-range or non-integer depth, a missing depth, an unknown extra field (`depth=3 extra=x`), a repeated field (`depth=3 depth=4`), and every form not yet imagined — none of which may silently opt a plan out while visibly declaring enrollment.
 - A plan is **enrolled** iff it carries exactly one opening line. **Every** opening line after the first is `TASK_ENROLL_DUPLICATE` — whether or not a close intervenes. An earlier wording said "without an intervening close", which left `open → close → open → close` as two openings, therefore not enrolled, therefore unchecked, and matching no finding: a visibly enrolled plan receiving no task checking at all. Multiple regions are not supported, and the unsupported case must be loud.
-- A closing line is `TASK_ENROLL_MALFORMED` only when **no opening line precedes it anywhere in the document**. Not "the region is not currently open" — that spelling cascades. Probed against `open → close → open → close`: the second opening correctly draws `TASK_ENROLL_DUPLICATE`, and because rejecting it leaves the region closed, its matching close then draws a second finding claiming no open precedes it, which is visibly false. One authoring mistake must not manufacture a misleading second finding; the duplicate is the whole defect.
+- A closing line is consumed silently in exactly one circumstance: it matches an opening line that was itself rejected as `TASK_ENROLL_DUPLICATE`. Track a count of rejected openings; each close while the region is not open decrements it. A close with the counter at zero and the region not open is `TASK_ENROLL_MALFORMED`.
+
+  Two wrong spellings were tried before this one. "Malformed whenever the region is not currently open" **cascades**: the close matching a rejected duplicate reports a phantom unmatched-close, so one authoring error manufactures a misleading second finding. "Consumed whenever any opening precedes it anywhere" **over-corrects**: `open → close → close` and any number of surplus closes after a completed region are then swallowed with no finding at all, which is the silent-acceptance shape again. Pairing each silent consumption with a specific rejected opening is what makes both cases come out right. Probed against `open → close → open → close`: the second opening correctly draws `TASK_ENROLL_DUPLICATE`, and because rejecting it leaves the region closed, its matching close then draws a second finding claiming no open precedes it, which is visibly false. One authoring mistake must not manufacture a misleading second finding; the duplicate is the whole defect.
+**The leading-space allowance is not cosmetic.** CommonMark permits an HTML block up to three spaces of indentation, and such lines occur in the tracked corpus. Anchoring at column zero classifies an indented marker as ordinary prose, so a plan that visibly declares enrollment is treated as never having attempted it: silently unenrolled, zero findings, no diagnostic at all. Four or more leading spaces is an indented code block in CommonMark and correctly is not a marker. The same allowance applies to task markers (§3.3).
+
 - A **task** is a heading of exactly the declared depth **lying inside the region**. Nothing else is a task, at any depth; no heading text is ever read. End of document closes an unclosed region.
 - An enrolled plan whose region contains **zero** tasks is `TASK_ENROLL_EMPTY`. A valid in-range depth can legitimately select nothing — wrong depth, or an opening line placed after the last matching heading — and a checker that reports nothing there has accepted a plan while checking no tasks at all. That is the silent-acceptance shape in its purest form, so it is a hard finding rather than a vacuous pass.
 
@@ -230,7 +256,7 @@ Grammar, narrow ACCEPT on the same principle as §3.2:
 - A **marker** is a non-fenced line matching this pattern **exactly** — the two fields, in that order, one space between them, no other content:
 
   ```
-  ^<!-- task: red=`([^`]*)` ac=(AC-[A-Za-z0-9.-]+(,AC-[A-Za-z0-9.-]+)*) -->$
+  ^<!-- task: red=`([^`]*)` ac=(AC-[A-Za-z0-9]+([.-][A-Za-z0-9]+)*(,AC-[A-Za-z0-9]+([.-][A-Za-z0-9]+)*)*) -->$
   ```
 
 The command group excludes backticks and is deliberately neither `(.+)` nor `(.*)`. With `(.+)` an empty pair of backticks fails the marker form outright and falls to `TASK_MARKER_MALFORMED`, while a whitespace-only command matches and draws `TASK_RED_EMPTY` — two spellings of the same authoring slip getting different codes, contradicting the precedence rule below which names "empty or whitespace only" as one case. Probed against the stated grammar before it shipped: `` red=`` `` classified `TASK_MARKER_MALFORMED`, `` red=`  ` `` classified `TASK_RED_EMPTY`. Matching empty and delegating to precedence rule 1 makes both `TASK_RED_EMPTY`.
@@ -258,7 +284,7 @@ A command containing a backtick is not expressible in this grammar, which is a d
 
 The first matching rule wins and no further code is emitted for that line.
 
-**Placement outranks form.** A `<!-- task:` line outside every task extent reports `TASK_MARKER_ORPHANED` and nothing else, regardless of whether its form is valid. Without this the "any region state" reading gives a malformed orphan two findings — one for its form, one for its placement — contradicting the one-code rule directly above. Reporting placement alone is also the more useful half: the form of a line that belongs to no task is moot until it is moved, and once moved it is re-checked normally. Separately: **a marker line occupies its task's marker slot regardless of which code it drew.** A task whose only marker is malformed reports that code alone, never also `TASK_MARKER_MISSING`; two such lines in one extent still report `TASK_MARKER_DUPLICATE`. Otherwise every malformed marker would produce two findings describing one defect.
+**Placement outranks form, and both are conditional on enrollment.** In an enrolled plan, a `<!-- task:` line outside every task extent reports `TASK_MARKER_ORPHANED` and nothing else, regardless of whether its form is valid. In a plan that never attempted enrollment there are no extents to be outside of, and the whole-document rule already gives such a plan zero findings — so no marker in it is orphaned, malformed, or anything else. Stating ORPHANED unconditionally contradicted that rule directly: a plan with no enrollment line and one malformed marker satisfied "zero findings" and "exactly `TASK_MARKER_ORPHANED`" at the same time. Without this the "any region state" reading gives a malformed orphan two findings — one for its form, one for its placement — contradicting the one-code rule directly above. Reporting placement alone is also the more useful half: the form of a line that belongs to no task is moot until it is moved, and once moved it is re-checked normally. Separately: **a marker line occupies its task's marker slot regardless of which code it drew.** A task whose only marker is malformed reports that code alone, never also `TASK_MARKER_MISSING`; two such lines in one extent still report `TASK_MARKER_DUPLICATE`. Otherwise every malformed marker would produce two findings describing one defect.
 
 **AC ids resolve on exact-token boundaries, and the boundary rule is not the obvious one.** An id resolves only where it appears delimited — never as a prefix of a longer id. The naive rule is "not preceded or followed by any character the id grammar allows", i.e. `[A-Za-z0-9.-]`. That is **wrong**, because `.` is legal *inside* an id (`AC-1.1`) and is also the commonest sentence terminator, so it rejects the single most typical citation an author writes.
 
@@ -277,7 +303,18 @@ AC-1     "AC-1."                    false   true
 AC-1.1   "see AC-1.1."              false   true
 ```
 
-The rule is therefore: an occurrence resolves when it is not preceded by `[A-Za-z0-9.-]`, and not followed by `[A-Za-z0-9-]`, **and not followed by a `.` that is itself followed by an alphanumeric**. A period continues an id only when something id-shaped follows it; otherwise it is punctuation. All four prefix families (`AC-10`, `AC-1a`, `AC-1.1`, `AC-1-child` against a wanted `AC-1`) still fail to resolve, which is the property the boundary exists for.
+The rule is therefore: an occurrence resolves when it is **not preceded by** `[A-Za-z0-9.-]`, **not followed by** `[A-Za-z0-9-]`, and **not followed by a `.` that is itself followed by an alphanumeric**. A period continues an id only when something id-shaped follows it; otherwise it is punctuation. All four prefix families (`AC-10`, `AC-1a`, `AC-1.1`, `AC-1-child` against a wanted `AC-1`) still fail to resolve, which is the property the boundary exists for.
+
+**The id grammar is tightened to match, and that is what closes the aliasing.** An id is `AC-[A-Za-z0-9]+([.-][A-Za-z0-9]+)*`: it must end alphanumeric, and punctuation may never repeat or trail. Under the looser `AC-[A-Za-z0-9.-]+`, the ids `AC-1.`, `AC-1..1`, `AC-1.-child` and `AC-1-` were all legal, and each would have been resolved by a wanted `AC-1` — a marker silently satisfied by a *different, legal* id. Tightening removes them from the id space entirely, so there is no wrong id left to alias to:
+
+```
+AC-1.        loose=legal  tight=illegal
+AC-1..1      loose=legal  tight=illegal
+AC-1.-child  loose=legal  tight=illegal
+AC-1-        loose=legal  tight=illegal
+```
+
+**The left boundary is load-bearing and separately pinned.** A mutant dropping only the preceding-character check passes every prefix-family case and the sentence-final case, while wrongly resolving `XAC-1`, `0AC-1`, `.AC-1`, and `MY-AC-1`. Both halves need their own coverage; a suite exercising only the right boundary certifies a broken resolver.
 
 A task's extent runs from its heading line to the line before whichever comes first: the next heading of the enrolled depth **or shallower**, the region's **closing line**, or end of document. Content under *deeper* headings therefore belongs to the enclosing task, which is deliberate: a task with `### RED` and `### GREEN` sub-headings is one task, and its marker and AC mentions count wherever they sit inside it.
 
@@ -318,7 +355,7 @@ Every non-fenced line in a plan falls into exactly one class:
 | `^<!-- tasks: end -->$` | no opening line anywhere earlier in the document | `TASK_ENROLL_MALFORMED` |
 | `^<!-- tasks: end -->$` | an opening line appeared earlier, region not currently open | consumed silently — no cascade after a rejected duplicate |
 | starts `<!-- tasks:`, matches neither form | any | `TASK_ENROLL_MALFORMED` |
-| any `<!-- task:` line | outside every task extent | `TASK_MARKER_ORPHANED` **alone**, whatever its form |
+| any `<!-- task:` line, in an **enrolled** plan | outside every task extent | `TASK_MARKER_ORPHANED` **alone**, whatever its form |
 | marker form, `red` empty or whitespace | inside an extent | `TASK_RED_EMPTY` (occupies the slot) |
 | marker form except `ac=` absent or empty | inside an extent | `TASK_AC_MISSING` (occupies the slot) |
 | marker form, well-formed | inside an extent | satisfies that task; ids checked by `TASK_AC_UNRESOLVED` |
@@ -401,6 +438,12 @@ Nine artifacts burned on this shape; none was caught by review-time reasoning al
 **AC-23.** `<!-- tasks: depth=3 extra=x -->` and `<!-- tasks: depth=3 depth=4 -->` each report `TASK_ENROLL_MALFORMED`. Neither may parse to "not enrolled".
 
 **AC-24.** `TASK_AC_UNRESOLVED` fires for `ac=AC-1` when the plan's prose contains only `AC-10`, `AC-1a`, `AC-1.1`, or `AC-1-child` — one case per prefix family, none of which may resolve it.
+
+**AC-35.** `scripts/spec-lint.ts` sets `process.exitCode` and exits naturally rather than calling `process.exit()`. Pinned behaviorally: the CLI spawned through a pipe returns a report whose last line begins `summary:`, byte-identical to the same run redirected to a file. Asserting the source no longer contains `process.exit` would pass a rewrite that reintroduced the truncation another way.
+
+**AC-36.** A `--lint-doc` whose child exits 0 or 1 with a malformed report — no `spec:lint` first line, or no `summary:` last line — refuses the dispatch with exit 2. Pinned with a real pre-adapter failure (a missing Node loader: `status=1`, empty stdout), not a hand-built string.
+
+**AC-37.** A `--lint-doc` whose child fails to spawn (`ENOENT`) or dies on a signal (`code === null`) refuses the dispatch with exit 2, asserted by `readCalls` returning an empty array.
 
 **AC-34.** An id cited only as a sentence-final `AC-14.` resolves. Pinned alongside the four prefix families, because the boundary rule has to reject those AND accept this, and a rule satisfying only one half looks correct in isolation.
 

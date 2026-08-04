@@ -85,6 +85,12 @@ It reads the document correctly — `enrolled, depth=2, tasks=7` — and after t
 | M22 budget | embedded reports crossing 200,000 bytes | AC-21 truncation notice |
 | M23 sequential regions | `open -> close -> open -> close` | `TASK_ENROLL_DUPLICATE` on the second open (AC-26) |
 | M24 code overlap | missing `ac=`; empty `ac=`; `red=` with empty backticks AND with whitespace-only backticks | exactly one code by §3.3 precedence, and the two empty-`red` spellings draw the SAME code (AC-27) |
+| M32 pipe truncation | capture the CLI through a pipe rather than a file | AC-35: summary line present, byte-identical to redirect |
+| M33 infra-as-findings | pre-adapter exit 1 with empty stdout; ENOENT; signal death | AC-36, AC-37: refuse, dispatch nothing |
+| M34 id punctuation | ids `AC-1.`, `AC-1..1`, `AC-1.-child`, `AC-1-` | illegal under the tightened grammar, so no alias target exists |
+| M35 left boundary | resolver dropping the preceding-character check | `XAC-1`, `0AC-1`, `.AC-1`, `MY-AC-1` must not resolve `AC-1` |
+| M36 indented marker | 1-3 leading spaces on an enrollment or task marker | still recognized; 4+ is an indented code block and is not |
+| M37 surplus close | `open -> close -> close` | `TASK_ENROLL_MALFORMED` on the surplus close |
 | M31 sentence-final id | `**Verify.** AC-14.` as the only occurrence | AC-34: resolves; naive boundary rule reports a false UNRESOLVED |
 | M30 orphan-form overlap | malformed marker outside every extent | AC-33: ORPHANED alone, asserted as a full list |
 | M28 greedy escape | repeated `ac=`, unknown key, empty-then-junk, repeated `red=` absorbed by a greedy command group | AC-31 |
@@ -106,7 +112,7 @@ It reads the document correctly — `enrolled, depth=2, tasks=7` — and after t
 **RED.** Create `tests/specLint/taskContract.test.ts` covering, against in-memory `DocModel` values built through `parseDoc` (never hand-built objects, so the fence model under test is the real one):
 
 - **the design §3.4.1 classification table, driven as a table** (M26, AC-29): one case per row, every line class against every region state, plus a fall-through case asserting an arbitrary line is classified as ordinary prose rather than reaching no row. This is the structural defense for the class that produced findings in three consecutive rounds; write it first, because the individual family cases below are then rows of it rather than separate inventions;
-- families M1, M3, M4, M10, M13, M14, M15, M16, M23, M25, M27, M29, M30 from the closure table. M27 asserts the FULL finding list, not the presence of one code: a cascade is invisible to a test that only checks the expected code is there. M16 gets two fixtures, not one: a region whose declared depth matches no heading, and a region whose opening line follows the last matching heading. Both are valid in-range depths selecting nothing, and a checker silent on either has accepted a plan while checking no tasks at all;
+- families M1, M3, M4, M10, M13, M14, M15, M16, M23, M25, M27, M29, M30, M36, M37 from the closure table. M27 asserts the FULL finding list, not the presence of one code: a cascade is invisible to a test that only checks the expected code is there. M16 gets two fixtures, not one: a region whose declared depth matches no heading, and a region whose opening line follows the last matching heading. Both are valid in-range depths selecting nothing, and a checker silent on either has accepted a plan while checking no tasks at all;
 - a plan whose enrolled depth is 2 with `###` sub-headings inside a task, asserting the sub-headings do not end the extent;
 - a plan with depth-N headings **both before the opening line and after `<!-- tasks: end -->`**, asserting neither is a task (M13, AC-15). The trailing half is the load-bearing one: it is the case that refuted the start-only model, and a fixture carrying only the leading half would have passed against the broken design;
 - a plan with a mid-document heading *shallower* than the enrolled depth, asserting it terminates the preceding task's extent (M15, AC-17). No plan in the current corpus exercises this branch, so the fixture is the only coverage it gets.
@@ -127,7 +133,7 @@ Each case states the mutant it kills. Confirm every case fails before implementa
 
 <!-- task: red=`pnpm vitest run tests/specLint/taskContract.test.ts` ac=AC-6,AC-8,AC-11,AC-13,AC-23,AC-24,AC-27,AC-31,AC-34 -->
 
-**RED.** Extend the Task 1 suite with families M2, M5, M6, M7, M8, M9, M11, M17, M18, M19, M24, M28, M31 — one case per code, each asserting the code fires on a fixture exhibiting it **and does not fire** on a sibling fixture exhibiting only the neighbouring defect. That negative half is what makes AC-8 non-tautological: a checker that returned every code on every input would pass the positive half alone.
+**RED.** Extend the Task 1 suite with families M2, M5, M6, M7, M8, M9, M11, M17, M18, M19, M24, M28, M31, M34, M35 — one case per code, each asserting the code fires on a fixture exhibiting it **and does not fire** on a sibling fixture exhibiting only the neighbouring defect. That negative half is what makes AC-8 non-tautological: a checker that returned every code on every input would pass the positive half alone.
 
 Add the citation-collision fixture the pre-draft pass surfaced: a marker whose `red=` is a single dotted token, asserting the interaction with the citations check is whatever the implementation actually does, pinned rather than assumed.
 
@@ -155,7 +161,7 @@ Add the **inline-mention fixture**, from a live probe against this very plan. Ex
 
 ## Task 4 — codex-guard `--lint-doc`
 
-<!-- task: red=`pnpm vitest run tests/codexGuard/lintDoc.test.ts` ac=AC-1,AC-2,AC-3,AC-4,AC-5,AC-18,AC-19,AC-20,AC-21 -->
+<!-- task: red=`pnpm vitest run tests/codexGuard/lintDoc.test.ts` ac=AC-1,AC-2,AC-3,AC-4,AC-5,AC-18,AC-19,AC-20,AC-21,AC-35,AC-36,AC-37 -->
 
 
 **Harness API, verified.** `tests/codexGuard/harness.ts` exports `mkRun` (`tests/codexGuard/harness.ts:107`), `writeScenario` (`tests/codexGuard/harness.ts:133`), `guardEnv` (`tests/codexGuard/harness.ts:148`), `runGuard` (`tests/codexGuard/harness.ts:162`), `readResult` (`tests/codexGuard/harness.ts:201`), and `readCalls` (`tests/codexGuard/harness.ts:205`). `readCalls` returns the `CallRecord` shape at `tests/codexGuard/harness.ts:74`, carrying each invocation's `argv` — which is what makes AC-3's "dispatched nothing" directly assertable (empty array) and AC-1's embed assertable against the real composed prompt rather than a restatement of it.
@@ -169,6 +175,7 @@ Add the **inline-mention fixture**, from a live probe against this very plan. Ex
 - AC-3 a doc that makes the CLI exit 2 causes codex-guard to exit 2 and dispatch nothing — asserted by `readCalls` returning an empty array. **Create the symlink in the test's own fixture directory; do not point at the corpus.** The tracked symlink at `docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/handoffs/M11-user-facing-docs.md` (verified mode 120000, exit 2, `not a regular file (symlink)`) is the only one today, and a test depending on it silently stops testing anything the day someone de-symlinks that file. Assert the message too, so this exit 2 is distinguishable from AC-19's out-of-repo exit 2;
 - AC-4 a doc with hard findings still dispatches;
 - AC-5 `lintArm` is `"present"` or `"absent"` in the written result;
+- **M32/M33, AC-35 through AC-37 — the CLI must survive being captured.** `scripts/spec-lint.ts:236` calls `process.exit()` one statement after writing stdout, which truncates on a pipe (async write) but not to a file (sync write). Fix it to `process.exitCode` + natural exit, and assert behaviorally that a piped capture ends with the `summary:` line and matches a redirect byte for byte. Then assert the three infra shapes — pre-adapter exit 1 with empty stdout, `ENOENT`, signal death — each refuse the dispatch;
 - **M20, AC-18 and AC-19 — launch geometry.** Run the guard with its process cwd set to a directory *other* than `--cwd`, and assert a doc valid in the `--cwd` repo lints identically either way. This is the case that breaks the feature in normal use, because invariant 11 makes launch-cwd and `--cwd` differ on every worktree run. Separately assert a doc outside the `--cwd` repo exits 2 with a message naming both the path and the repo root, distinguishable from the unreadable-file exit 2;
 - **M22, AC-20 and AC-21 — content and budget.** Assert the embedded block drops exactly the lines from the bare `INVENTORY` line to the line before `summary:`, and **keeps** the headers, every check section, and the summary line — asserting only that `INVENTORY` is gone would pass an implementation that also dropped the summary; then, with enough `--lint-doc` arguments to cross 200,000 bytes, assert argument order is preserved, the block truncates at a line boundary, the truncation notice is present, and the dispatch still proceeds. Build the oversize input from real corpus reports rather than synthetic padding, so the test exercises the byte profile that motivated the budget.
 
