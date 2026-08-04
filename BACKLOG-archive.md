@@ -2891,6 +2891,28 @@ The shipped Doug-visible copy was corrected on that branch (§12.4 helpfulContex
 
 ---
 
+### BL-SYNC-FEED-UI-POLISH — impeccable v3 LOW/no-harm follow-ups (changes-feed UI)
+
+**Filed:** 2026-06-10 from the Phase-6 impeccable v3 dual-gate (gate PASSED; zero HIGH after the Approve-button accent fix; these are LOW / no-user-harm, no concrete trigger — same shape as the `BACKLOG-B2UI-*` batch below (`:1303-1305`): one parent entry, the individual findings as sub-bullets under it). Citation corrected 2026-08-02: this line gave that family a `BL-` prefix, which resolves to nothing — the real ids carry the `BACKLOG-` prefix. A one-word prefix typo, not a vanished family; the analogy it draws was always sound. The wrong spelling is described rather than written out, since re-typing it would re-create the dangling reference.
+
+- **BL-SYNCFEED-UI-1** — `UndoChangeButton`: post-submit success relies on page revalidation flipping the row to `undone`; consider an `aria-live` region announcing undo success (the failure path already surfaces via `ErrorExplainer`).
+- **BL-SYNCFEED-UI-2** — `ChangeFeedBadge`: `title` tooltips are hover-only (desktop); acceptable since the visible text label already carries meaning (color-blind floor met) — only act if touch-discoverability is raised.
+- **BL-SYNCFEED-UI-3** — `Disposition` test fixtures pass `{disposition:'removal', name:…}` where the canonical union has no `name` on `removal` (off-type but harmless at runtime; `dispositionName` returns null for removal). Tighten the fixtures if/when the `Disposition` type is hardened.
+
+**GRADUATED 2026-08-03** (`feat/sync-feed-undo-announce`). All three children disposed:
+
+- **BL-SYNCFEED-UI-1 — RESOLVED, with its own premise corrected.** The note proposed an `aria-live` region inside `UndoChangeButton`. That placement cannot work: a successful undo moves the row out of `status='applied'`, `action` flips to `none` (`lib/sync/feed/shapeChangeFeed.ts:65`), `canUndo` goes false and the whole button subtree unmounts before assistive technology can read anything. Six adversarial rounds then established that no surface-level owner works either — the group empties, the strip returns null, the dashboard returns a different tree, the feed is swapped for its error rendering. The channel now lives in `AdminAnnounceProvider`, mounted by `app/admin/layout.tsx` and by `ReviewModalShell` (a modal needs its own, because content outside an `aria-modal` dialog is excluded from the accessibility tree). Append-shaped `role="log"`, because two shows dropping a same-named crew member produce byte-identical announcements.
+- **BL-SYNCFEED-UI-2 — RATIFIED as untriggered, no code.** The entry conditions action on touch-discoverability being raised; it has not been. `ChangeFeedBadge` renders the status as a real text node (`components/admin/ChangeFeedBadge.tsx:55`) with `title` as pure supplement, so no information is hover-only. **Re-open trigger preserved:** raise it if touch discoverability of the badge tooltips is ever reported as a problem.
+- **BL-SYNCFEED-UI-3 — GRADUATED as already-shipped.** The off-type fixture was corrected at `c3920fe6a`; `tests/components/admin/ChangeFeedEntry.test.tsx:192` reads `{ disposition: "removal" as const }`, and a tree-wide sweep finds no removal literal carrying `name`. The `Disposition` union at `lib/sync/holds/types.ts:7-10` never moved, so the entry's "tighten if/when the type is hardened" premise was moot.
+
+**Filed from this work, not fixed:** `BL-FEED-BUTTON-SUCCESS-ANNOUNCE`, `BL-BULK-UNDO-ANNOUNCE-UNMOUNT`, `BL-ANNOUNCE-REGION-UNMOUNT-CLASS`.
+
+Spec `docs/superpowers/specs/2026-08-03-undo-success-announcement-design.md`; plan `docs/superpowers/plans/admin/2026-08-03-undo-success-announcement.md`.
+
+---
+
+---
+
 ## BL-HEADER-FONT-FALLBACK-WRAP — RESOLVED (2026-08-03, `feat/font-binding-modal-freshness-cue`)
 
 **Resolution.** The browser check the entry asked for was run first, and it changed the shape of the finding.

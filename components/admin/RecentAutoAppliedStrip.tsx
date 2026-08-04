@@ -298,6 +298,7 @@ function StripRow({
           <UndoChangeButton
             changeLogId={row.id}
             undoAction={actions.undoFromDashboardAction}
+            announceLabel={row.summary}
             stretch
             quiet
           />

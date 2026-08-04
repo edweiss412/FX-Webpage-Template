@@ -41,6 +41,7 @@ import {
 import type { LucideIcon } from "lucide-react";
 import { sectionStatus, warningsBySection, type SectionId } from "@/lib/admin/step3SectionStatus";
 import type { RoutedWarnings } from "@/lib/admin/routedWarnings";
+import { AnnounceLogRegion, useAnnounceLog } from "@/components/admin/announceLog";
 import {
   NOOP_WARNING_ANNOUNCE,
   WarningAnnounceContext,
@@ -62,10 +63,6 @@ import { isStaged, type SectionData } from "@/components/admin/review/sectionDat
 // is call-time only (used inside a handler, never at module-eval), so the
 // modal↔surface cycle never touches an uninitialized binding.
 import { WARNING_HIGHLIGHT_MS } from "@/components/admin/wizard/Step3ReviewModal";
-
-/** Announcer spec 2026-07-22 §2.2 cap: the append-only log keeps at most 50
- *  entries so an unbounded admin session cannot grow the DOM without bound. */
-const ANNOUNCE_CAP = 50;
 
 // ── Interaction constants (spec §6.3a; DESIGN.md §5 note) ───────────────────
 // Behavioral thresholds, not rendered visual values — they never paint a px.
@@ -382,21 +379,14 @@ export function ShowReviewSurface({
   const getActiveSection = useCallback((): SectionId => activeRef.current as SectionId, []);
 
   // Announcer spec 2026-07-22 §2.2: actions-only, append-only message log.
-  // Entry ids come from a per-mount monotonic ref counter (unique even for
-  // calls batched into one commit; never timestamp-derived — spec R3 F5).
-  // Cap 50 (spec §2.2): appending the 51st removes the oldest; an entry is
-  // removed only when it is 50 announcements old, far beyond any plausible
-  // AT delivery-queue residence (spec R3 F2 / R4 F1).
-  const announceIdRef = useRef(0);
-  const [announceLog, setAnnounceLog] = useState<ReadonlyArray<{ id: number; text: string }>>([]);
-  const announce = useCallback((message: string) => {
-    if (message.trim() === "") return; // spec §2.5: empty/whitespace no-op
-    const id = announceIdRef.current++;
-    setAnnounceLog((log) => {
-      const next = [...log, { id, text: message }];
-      return next.length > ANNOUNCE_CAP ? next.slice(next.length - ANNOUNCE_CAP) : next;
-    });
-  }, []);
+  // The mechanism now lives in components/admin/announceLog (extracted 2026-08-03
+  // so the undo channel shares it rather than copying it a third time). Behavior
+  // is unchanged: per-mount monotonic ids, whitespace no-op, cap 50 dropping the
+  // oldest, and NO timer-based pruning — this call deliberately passes no ttlMs,
+  // because the announcer spec 2026-07-22 §2.2 ratifies that a recent entry is
+  // never removed (a trimmed node may still be queued and unspoken, R3 F2).
+  // This surface's MutationObserver suite pins that.
+  const { announce, entries: announceLog } = useAnnounceLog();
   const announceCtx = useMemo(() => ({ announce }), [announce]);
 
   /** Rail/chip status-dot appearance (§6.2/§6.3; §S3C-1 WCAG 1.4.1). Carries
@@ -1171,18 +1161,11 @@ export function ShowReviewSurface({
                   mutates (spec §2.6). */}
                   {/* §11: instant — deliberate (sr-only additions; no visual transition; spec §2.6) */}
                   {s.id === "warnings" && routedWarningsRenderElsewhere ? (
-                    <span
-                      role="log"
-                      aria-label="Warning updates"
-                      className="sr-only"
-                      data-testid="warnings-panel-status"
-                    >
-                      {announceLog.map((e) => (
-                        <span key={e.id} data-announce-id={e.id}>
-                          {e.text}
-                        </span>
-                      ))}
-                    </span>
+                    <AnnounceLogRegion
+                      entries={announceLog}
+                      label="Warning updates"
+                      testId="warnings-panel-status"
+                    />
                   ) : null}
                 </section>
               );

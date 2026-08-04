@@ -21,6 +21,7 @@
 import type { ReactNode } from "react";
 import { AdminInfraError, requireAdminIdentity } from "@/lib/auth/requireAdmin";
 import { isCurrentUserDeveloper } from "@/lib/auth/requireDeveloper";
+import { AdminAnnounceProvider } from "@/components/admin/AdminAnnounceProvider";
 import { DeveloperFlagProvider } from "@/components/admin/dev/DeveloperFlagContext";
 import { AdminNav } from "@/components/admin/nav/AdminNav";
 import { OnboardingTopBar } from "@/components/admin/nav/OnboardingTopBar";
@@ -88,19 +89,21 @@ export default async function AdminLayout({ children }: { children: ReactNode })
       // scanner does not flag the code string inside a JSX expression.
       const infraMessage = getRequiredDougFacing("ADMIN_ROUTE_LOAD_FAILED");
       return (
-        <div
-          data-testid="admin-layout-infra-error"
-          className="mx-auto flex min-h-screen max-w-md flex-col items-center justify-center p-page-pad-mobile sm:p-page-pad-desktop text-center"
-        >
-          <h1 className="text-2xl font-semibold">Admin session unavailable</h1>
-          <p className="mt-4 text-base text-text-subtle">{infraMessage}</p>
-          <a
-            href="/admin"
-            className="mt-section-gap inline-flex min-h-tap-min items-center px-4 py-2 text-base text-text-strong underline underline-offset-2"
+        <AdminAnnounceProvider testId="admin-undo-status" label="Undo updates">
+          <div
+            data-testid="admin-layout-infra-error"
+            className="mx-auto flex min-h-screen max-w-md flex-col items-center justify-center p-page-pad-mobile sm:p-page-pad-desktop text-center"
           >
-            Try again
-          </a>
-        </div>
+            <h1 className="text-2xl font-semibold">Admin session unavailable</h1>
+            <p className="mt-4 text-base text-text-subtle">{infraMessage}</p>
+            <a
+              href="/admin"
+              className="mt-section-gap inline-flex min-h-tap-min items-center px-4 py-2 text-base text-text-strong underline underline-offset-2"
+            >
+              Try again
+            </a>
+          </div>
+        </AdminAnnounceProvider>
       );
     }
     throw err;
@@ -153,62 +156,71 @@ export default async function AdminLayout({ children }: { children: ReactNode })
 
   if (inOnboarding) {
     return (
-      <div
-        data-testid="admin-layout"
-        // §S3C-2: stable hook the Step-3 review modal inerts while open (it
-        // portals to <body>, so it can inert this shell without inerting itself).
-        data-inert-root=""
-        // No `pb-20`: the slim onboarding bar has no fixed mobile bottom tab
-        // bar to clear, so the mobile-bottom-bar reservation is dropped.
-        className="mx-auto max-w-[1600px] p-page-pad-mobile sm:p-page-pad-desktop"
-      >
-        <OnboardingTopBar
-          email={adminEmail}
-          healthRollup={healthRollup}
-          isDeveloper={viewerIsDeveloper}
-        />
-        <DeveloperFlagProvider viewerIsDeveloper={viewerIsDeveloper}>
-          <PageTransition>{children}</PageTransition>
-        </DeveloperFlagProvider>
-      </div>
+      <AdminAnnounceProvider testId="admin-undo-status" label="Undo updates">
+        <div
+          data-testid="admin-layout"
+          // §S3C-2: stable hook the Step-3 review modal inerts while open (it
+          // portals to <body>, so it can inert this shell without inerting itself).
+          data-inert-root=""
+          // No `pb-20`: the slim onboarding bar has no fixed mobile bottom tab
+          // bar to clear, so the mobile-bottom-bar reservation is dropped.
+          className="mx-auto max-w-[1600px] p-page-pad-mobile sm:p-page-pad-desktop"
+        >
+          <OnboardingTopBar
+            email={adminEmail}
+            healthRollup={healthRollup}
+            isDeveloper={viewerIsDeveloper}
+          />
+          <DeveloperFlagProvider viewerIsDeveloper={viewerIsDeveloper}>
+            <PageTransition>{children}</PageTransition>
+          </DeveloperFlagProvider>
+        </div>
+      </AdminAnnounceProvider>
     );
   }
 
   return (
-    <div
-      data-testid="admin-layout"
-      // §S3C-2: stable hook the Step-3 review modal inerts while open (see the
-      // onboarding-branch note above).
-      data-inert-root=""
-      // Bottom padding reserves space for the fixed mobile bottom tab bar so
-      // the last content row is never occluded (spec §6). It MUST stay large
-      // across the entire mobile band (< 720px) and only drop at >= 720px when
-      // the bar is hidden. Splitting the padding per-edge (px/pt vs pb) keeps
-      // the `sm:` (640px) desktop padding from clobbering `pb` in the 640-719px
-      // band — a global-`sm:`-shorthand-resets-pb collapse the jsdom Phase-3
-      // tests could not catch (Tailwind v4, no global `md`; DESIGN §7). The
-      // bottom tab bar is ~58px tall; pb-20 (80px) clears it with margin.
-      className="mx-auto max-w-[1600px] px-page-pad-mobile pt-page-pad-mobile pb-20 sm:px-page-pad-desktop sm:pt-page-pad-desktop min-[840px]:pb-page-pad-desktop"
-    >
-      <AdminNav
-        email={adminEmail}
-        bellCount={bellCount}
-        initialBadgeCount={needsAttentionCount.kind === "ok" ? needsAttentionCount.count : null}
-        viewerIsDeveloper={viewerIsDeveloper}
-        healthRollup={healthRollup}
-      />
+    // §3.5.1: the provider is the OUTERMOST element of each return, so its
+    // region is a SIBLING of [data-inert-root], never a descendant. Nesting it
+    // inside would put the region in the subtree ReviewModalShell sets
+    // aria-hidden while a modal is open, silently killing every feed
+    // announcement.
+    <AdminAnnounceProvider testId="admin-undo-status" label="Undo updates">
+      <div
+        data-testid="admin-layout"
+        // §S3C-2: stable hook the Step-3 review modal inerts while open (see the
+        // onboarding-branch note above).
+        data-inert-root=""
+        // Bottom padding reserves space for the fixed mobile bottom tab bar so
+        // the last content row is never occluded (spec §6). It MUST stay large
+        // across the entire mobile band (< 720px) and only drop at >= 720px when
+        // the bar is hidden. Splitting the padding per-edge (px/pt vs pb) keeps
+        // the `sm:` (640px) desktop padding from clobbering `pb` in the 640-719px
+        // band — a global-`sm:`-shorthand-resets-pb collapse the jsdom Phase-3
+        // tests could not catch (Tailwind v4, no global `md`; DESIGN §7). The
+        // bottom tab bar is ~58px tall; pb-20 (80px) clears it with margin.
+        className="mx-auto max-w-[1600px] px-page-pad-mobile pt-page-pad-mobile pb-20 sm:px-page-pad-desktop sm:pt-page-pad-desktop min-[840px]:pb-page-pad-desktop"
+      >
+        <AdminNav
+          email={adminEmail}
+          bellCount={bellCount}
+          initialBadgeCount={needsAttentionCount.kind === "ok" ? needsAttentionCount.count : null}
+          viewerIsDeveloper={viewerIsDeveloper}
+          healthRollup={healthRollup}
+        />
 
-      {/* bell notification center §8: the global AlertBanner is retired. Its
+        {/* bell notification center §8: the global AlertBanner is retired. Its
           role — surfacing unresolved admin alerts — now lives in the <NotifBell>
           panel in the nav above (both chromes), so there is no banner slot and
           no `<div id="alerts">` anchor anywhere in the admin tree. */}
-      {/* M12.11: animate the page content on every /admin/* navigation. The nav
+        {/* M12.11: animate the page content on every /admin/* navigation. The nav
           above persists (it's outside the wrapper); only the content below
           transitions. loading.tsx skeletons render INSIDE this wrapper, so the
           skeleton fades in on click and the real content swaps in when ready. */}
-      <DeveloperFlagProvider viewerIsDeveloper={viewerIsDeveloper}>
-        <PageTransition>{children}</PageTransition>
-      </DeveloperFlagProvider>
-    </div>
+        <DeveloperFlagProvider viewerIsDeveloper={viewerIsDeveloper}>
+          <PageTransition>{children}</PageTransition>
+        </DeveloperFlagProvider>
+      </div>
+    </AdminAnnounceProvider>
   );
 }
