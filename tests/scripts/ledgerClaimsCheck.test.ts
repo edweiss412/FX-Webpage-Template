@@ -18,6 +18,9 @@ import { runCheck, verifyUniverse } from "@/scripts/lib/ledger-check";
 const MARKER = (branch: string, id: string) =>
   `## ${id} — planted\n\n**Status:** IN PROGRESS · **Branch:** ${branch}\n`;
 
+import { join } from "node:path";
+
+const ROOT = join(__dirname, "..", "..");
 const NOW = 1_760_000_000;
 
 function fake(over: Partial<GitSurface> = {}): GitSurface {
@@ -347,8 +350,18 @@ describe("the real git adapter and the JSON envelope (whole-diff F3/F9)", () => 
     // git prints the literal "false". Boolean("false") is true, which would call
     // every full clone shallow and disable the merged-exclusion permanently.
     const { realGitSurface } = await import("@/scripts/lib/ledger-git");
-    // This worktree is a full clone; the assertion fails under a Boolean() mutant.
-    expect(realGitSurface().isShallow()).toBe(false);
+    const { execFileSync } = await import("node:child_process");
+    const truth =
+      execFileSync("git", ["rev-parse", "--is-shallow-repository"], {
+        cwd: ROOT,
+        encoding: "utf8",
+      }).trim() === "true";
+    // Asserted against git's OWN answer, not against this checkout's shape: a
+    // local full clone and a CI shallow checkout give opposite values, and
+    // hardcoding either makes the test environment-dependent rather than
+    // behavioural. Under a Boolean(output) mutant this returns true in BOTH
+    // environments, so it fails wherever git says "false".
+    expect(realGitSurface().isShallow()).toBe(truth);
   });
 
   it("resolves real refs, and origin/HEAD is absent from both maps", async () => {
