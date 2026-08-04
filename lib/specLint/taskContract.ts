@@ -134,6 +134,14 @@ export function checkTaskContract(model: DocModel, kind: "spec" | "plan"): Findi
 
     if (MARKER_ANY.test(line)) markerLines.push(n);
   }
+  // A marker-shaped line inside a fence is inert (AC-9), so it must not resolve
+  // a real marker's ac= either — otherwise a documentation example silently
+  // satisfies a citation that has no genuine occurrence. Recorded separately
+  // from `markerLines`, which drives ownership and must stay non-fenced.
+  const markerShaped = new Set(markerLines);
+  for (let i = 0; i < model.lines.length; i++) {
+    if (MARKER_ANY.test(model.lines[i]!)) markerShaped.add(i + 1);
+  }
   // End of document closes an unclosed region.
   if (open) regionEnd = model.lines.length + 1;
 
@@ -150,7 +158,10 @@ export function checkTaskContract(model: DocModel, kind: "spec" | "plan"): Findi
     findings.push(
       fail("TASK_ENROLL_EMPTY", regionStart, `task region selects no depth-${depth} heading`),
     );
-    return findings;
+    // NOT an early return. TASK_ENROLL_EMPTY and per-marker classification are
+    // independent: with zero extents every recorded marker lies outside all of
+    // them and is orphaned. Returning here silently dropped markers before,
+    // inside, and after the region.
   }
 
   // A task's extent runs to the next heading of the enrolled depth or
@@ -166,7 +177,7 @@ export function checkTaskContract(model: DocModel, kind: "spec" | "plan"): Findi
     return { start: t.line, end };
   });
 
-  const markerSet = new Set(markerLines);
+  const markerSet = markerShaped;
 
   const owned = new Map<number, number[]>(extents.map((e) => [e.start, []]));
   for (const line of markerLines) {

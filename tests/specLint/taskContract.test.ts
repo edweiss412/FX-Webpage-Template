@@ -64,6 +64,39 @@ describe("checkTaskContract — enrollment (design §3.2)", () => {
     expect(codes(doc("## A", "## B", OPEN, END))).toEqual(["TASK_ENROLL_EMPTY"]);
   });
 
+  it("M88: an empty region still classifies its markers — EMPTY and ORPHANED are independent", () => {
+    // With zero extents every marker lies outside all of them. A marker-free
+    // fixture cannot see the difference, which is how the early return that
+    // silently dropped markers before, inside and after the region survived.
+    for (const d of [
+      doc(WELL, OPEN, "### deep", END),
+      doc(OPEN, WELL, "### deep", END),
+      doc(OPEN, "### deep", END, WELL),
+    ]) {
+      expect(codes(d)).toEqual(["TASK_ENROLL_EMPTY", "TASK_MARKER_ORPHANED"]);
+    }
+  });
+
+  it("AC-9/M4: a FENCED task marker is inert — it cannot resolve a real marker's ac=", () => {
+    // Both CommonMark fence dialects. A documentation example must not silently
+    // satisfy a citation that has no genuine occurrence in the plan.
+    for (const fence of ["```", "~~~"]) {
+      expect(
+        codes(
+          doc(
+            OPEN,
+            "## A",
+            "<!-- task: red=`x` ac=AC-99 -->",
+            fence,
+            "<!-- task: red=`y` ac=AC-99 -->",
+            fence,
+            END,
+          ),
+        ),
+      ).toEqual(["TASK_AC_UNRESOLVED"]);
+    }
+  });
+
   it("M4/AC-9: a fenced enrollment line is inert — the depth-2 heading below it is not a task", () => {
     // The heading carries no marker, so a fence-blind implementation enrols and
     // reports TASK_MARKER_MISSING against an expected empty list.
