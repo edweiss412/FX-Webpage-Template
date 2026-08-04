@@ -59,7 +59,26 @@ export const ARCHIVE_GLOBS = [
   "docs/superpowers/plans/",
   "docs/audits/",
   "docs/superpowers/artifacts/",
+  // Byte-frozen copies of the ledgers at a named date, cross-checked against git
+  // history by the `pnpm ledger:mass` oracle. A snapshot of BACKLOG.md carries
+  // every name the repo had retired by that date BY CONSTRUCTION, and the one
+  // repair this guard asks for — edit the line — is precisely the mutant the
+  // oracle exists to kill. Scoped to this ONE directory, never `tests/fixtures/`:
+  // a live fixture naming a retired component is still a defect. The naming
+  // assertion below keeps a non-snapshot file from landing here unnoticed.
+  "tests/fixtures/ledger-mass/",
 ] as const;
+
+/**
+ * Every file under the frozen-snapshot glob is a dated ledger snapshot.
+ *
+ * The glob exempts a whole directory, so without this a hand-written helper
+ * dropped beside the snapshots would inherit the exemption silently — the
+ * "archive globs matching nothing" assertion catches a typo that WIDENS by
+ * matching nothing, not one that widens by matching too much.
+ */
+export const FROZEN_LEDGER_SNAPSHOT_GLOB = "tests/fixtures/ledger-mass/";
+export const FROZEN_LEDGER_SNAPSHOT_NAME = /^\d{4}-\d{2}-\d{2}\.ledgers\.json$/;
 
 /** Whole files that are archives by name rather than by directory. */
 export const ARCHIVE_FILES = ["BACKLOG-archive.md", "DEFERRED-archive.md"] as const;
