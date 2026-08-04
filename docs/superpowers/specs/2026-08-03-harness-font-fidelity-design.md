@@ -226,7 +226,7 @@ Nine review rounds have killed twelve escaping mutants against this design. They
 
 **Kind B — something, somewhere, renders the wrong family.** A route-local override, a runtime-registered face, a descendant rule, a state no navigation reaches. This class does **not** terminate by enumeration: any list of places to look is a list someone can render outside. Rounds 6 through 9 each produced another instance — a `.css` file, then source-authored `<style>` text, then `new FontFace`, then `.help-prose`, then an `<h1>`, then `page.mdx`, then `loading.tsx` — and each time the fix was to widen where we look rather than to find the last hiding place.
 
-So Kind B is closed by **one general oracle**, not a list: walk every visible text-bearing element on every rendered surface and, for each, measure a normalised child probe against the byte-derived expectation (§4.2). Computed-family resolution alone is NOT the oracle — it was measured identical across a real face and two impostors. It has no privileged place to look and therefore no blind spot to enumerate; the only thing that can be incomplete is the *surface census*, which §4.2's census derives from the framework's own config rather than from a hand list.
+So Kind B is closed by **one general oracle**, not a list: walk every visible text-bearing element on every rendered surface and, for each, measure a normalised child probe against the byte-derived expectation (§4.2). Computed-family resolution alone is NOT the oracle — it was measured identical across a real face and two impostors. It has no privileged place to look within the elements it can reach. **Completeness has two dimensions, not one — round 15 refuted the earlier single-dimension claim.** One is the *surface census*, which §4.2's census derives from the framework's own config rather than from a hand list. The other is the *element class*: two classes cannot host a probe at all, and §4.2 closes them by a different mechanism rather than by pretending they do not exist.
 
 **Demonstrated against the hardest Kind B case, not argued.** Mutant nine — a rogue face registered at runtime via `new FontFace("Inter", "local('Arial')")`, added to `document.fonts`, applied through a CSSOM `replaceSync` rule, with the string `@font-face` appearing in no source anywhere:
 
@@ -321,6 +321,21 @@ Round 11 caught that "everything except `font-display`" rejected the measured ta
   | wrapper overridden to Arial | 184.359 | 194.133 | **9.774** | fires |
 
   The probe carries `text-transform: none; font-variant: normal; font-feature-settings: normal; font-stretch: normal; letter-spacing: normal; word-spacing: normal; font-weight: 400`, is `position: absolute; visibility: hidden`, and is removed after measuring. It inherits `font-family` from its parent and neutralises everything that changes the glyph run.
+
+  **Two element classes cannot host a probe, and get a different check — measured, not assumed.** `<input>` is void, and ::placeholder / ::marker / ::before / ::after cannot contain a child span. That reaches 16 native controls across 11 files, nine runtime placeholders, the alert caret (`app/globals.css:710-714`) and list markers (`app/globals.css:1021-1024`). The demonstrated escape is `::placeholder { font-family: Arial }`, which no child probe anywhere in the document can see.
+
+  `getComputedStyle(el, pseudo)` does reach them:
+
+  | | clean | overridden | discriminates |
+  | --- | --- | --- | --- |
+  | ::placeholder | `Inter, sans-serif` | `Arial` | yes |
+  | ::marker | `Inter, sans-serif` | `Arial` | yes |
+  | ::after | `Inter, sans-serif` | `Arial` | yes |
+  | the input element itself | `Inter, sans-serif` | `Inter, sans-serif` | no — correctly, since the override is on the pseudo |
+
+  So the oracle is a three-way split by element class: **can host a child** → byte-derived child probe; **void/replaced controls** → computed family on the element (Tailwind preflight emits `button, input, select, optgroup, textarea { font: inherit }`, so an override is visible there); **pseudo-elements** → computed family on the pseudo.
+
+  Classes two and three are **family-level, not byte-level**: they catch a family override, which is the demonstrated attack, but would not catch an alias impostor confined to a placeholder. Recorded as a documented limit rather than papered over — it is a real narrowing, and naming it is what keeps §4.0's boundary honest.
 
   **This also retires the weight problem entirely.** Instancing the variable font at each element's weight is impossible here — `getVariation` throws on this WOFF2 in both the Next-vendored fontkit and a real `fontkit@2.0.4`, at every weight including the default. Because the probe is forced to weight 400, no instancing is needed: the base-font `layout()` that does work is the only fontkit call required, and bold elements are covered because the probe inside them is not bold. The earlier weight-400 documented limit is withdrawn as unnecessary.
 
