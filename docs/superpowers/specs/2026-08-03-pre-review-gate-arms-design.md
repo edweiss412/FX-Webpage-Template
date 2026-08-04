@@ -210,13 +210,26 @@ The word doing the damage is "full", and it was written when a human pasted term
 
 **"Every finding" is unachievable in general, and pretending otherwise made four requirements that cannot all hold.** A report whose findings alone exceed 200,000 bytes cannot be embedded whole under a 200,000-byte budget while also dispatching. Probed against the corpus's largest report: `requiredFindingPlusSummaryBytes=220056` against `budget=200000`. So the contract is stated **conditionally**, in three properties whose conjunction is satisfiable for every input:
 
-- **P1, unconditional — the transformation is content-blind.** It removes one contiguous block delimited by a bare `INVENTORY` line and the `summary:` line, and if the result exceeds the budget it drops whole lines from the **end**. No finding is ever selected against by what it says. This is what "findings may not be filtered" means, and it is the property that matters: a filter that could drop a finding for its content could hide the one that mattered.
-- **P2, untruncated case — the finding lines are preserved exactly**, compared as a **multiset** (line, with multiplicity), not a set. Set comparison would let a transformation collapse two identical finding lines into one and still pass, which is silent loss of a real finding.
-- **P3, truncated case — the retained finding lines are a prefix of the raw ones**, and the `[truncated: N of M bytes shown]` notice is present. Nothing is reordered or reselected; the reviewer sees a documented head of the report.
+Define the **frame** of a report as its two header lines, the blank after them, and the `summary:` line — everything that is not a finding, an inventory entry, or a finding's subordinate `detail:` line. The frame is what makes a report readable as a report; the body is what varies.
+
+- **P1, unconditional — the transformation is content-blind, and the frame is never dropped.** It removes one contiguous block delimited by a bare `INVENTORY` line and the `summary:` line. If the result exceeds its allowance, it drops whole lines **from the end of the body**, never from the frame: the emitted block is the header, a prefix of the body, the `[truncated: …]` notice, and the `summary:` line last. No line is ever selected against by what it says.
+
+  An earlier draft said "drops whole lines from the end" without excepting the frame — and `summary:` **is** the last line, so the very first line truncation removed was the one the next paragraph promised always survives. The prototype written for this section made exactly that mistake and its assertions missed it, because they checked summary-survival on the filtered body *before* budgeting rather than on the emitted block.
+
+- **P2, untruncated case — the emitted body is raw stdout with exactly the `INVENTORY` block removed**, compared as a **full ordered line sequence**, not as a set or multiset of finding lines. Finding-line comparison is too weak in a way that matters: the renderer emits subordinate `detail:` lines (`scripts/spec-lint.ts:55`), and a mutant deleting every one of them preserves the finding lines, the summary, and the absence of `INVENTORY` — passing while silently discarding the diagnostic evidence a reviewer needs. Sequence comparison subsumes findings, details, headers, blanks, and ordering in one assertion.
+
+- **P3, truncated case — the emitted block is the frame plus a prefix of the body plus the notice.** Nothing is reordered or reselected; the reviewer sees a documented head of the report, and always sees the totals it should have had.
 
 **§6 item 8 is therefore not in conflict with this section — it is P3.** An earlier draft asserted "every finding" unconditionally here while §6 admitted truncation withholds findings, which is a flat contradiction rather than a tension. The amended rule's "if the report is abridged for size, the dispatch says so explicitly and says how much was dropped" is precisely the clause that makes P3 conformant rather than a violation.
 
-**The `summary:` line survives all three cases**, so the totals a reviewer would use to notice a suspiciously short report are always present — and under P3 the summary's counts against the visible findings are what makes truncation self-evident even without the notice. §2.3 refuses the dispatch outright if the summary is absent.
+**The `summary:` line survives all three cases** *because P1 excludes it from truncation*, not by luck of position. Under P3 the summary's counts read against the visible findings are what makes truncation self-evident even without the notice. §2.3 refuses the dispatch outright if the summary is absent.
+
+**Seating is bounded, and past the bound the wrapper refuses rather than degrades.** `--lint-doc` is repeatable without limit, and each report needs its frame plus a notice — a floor of roughly 100 bytes even for a clean document. Enough requested documents therefore cannot all be seated: 2,500 minimum-size reports need 242,500 bytes against a 200,000-byte budget, and 2,500 arguments sit comfortably under `ARG_MAX` (1,048,576), so this is a reachable input rather than a theoretical one. Four requirements — stay under budget, keep every frame, never refuse, embed every requested report — cannot all hold there.
+
+The one that yields is "never refuse", and only in this specific case, because the alternative is worse: silently dropping whole reports would hand a reviewer a dispatch that looks armed for documents it never saw. So:
+
+- Each report is seated with at least its frame and notice. **Content** truncation within a seated report is never a refusal — that remains true and is what §2.2.2 means.
+- If the requested reports cannot all be seated at that floor, the wrapper **refuses with exit 2** and a usage error naming the count and the budget. This is a caller error of the same kind as §2.2.1's out-of-repo path — an invocation that cannot be served, distinguished from a valid input that must be abridged.
 
 AC-41 pins the amendment; it is a docs change in this PR, not a note for later. The class this belongs to is worth naming, since it is the same one A3 legislates in §4: a mechanization that quietly redefines its own authority's terms is the S1 shape pointed at a rule instead of at an input.
 
@@ -424,7 +437,7 @@ This catalog is a **summary of §3.4.1, never a second source of truth.** Where 
 | `TASK_MARKER_MALFORMED` | 2 | **in an enrolled plan**, a `<!-- task:` line inside an extent does not match the marker form exactly and is not claimed by a higher-precedence code (§3.3) |
 | `TASK_RED_EMPTY` | 2 | **in an enrolled plan**, the marker matches except that its backticked command is empty or whitespace only (precedence 1) |
 | `TASK_AC_MISSING` | 2 | **in an enrolled plan**, the line matches except that `ac=` is absent or its list is empty (precedence 2) |
-| `TASK_AC_UNRESOLVED` | 2 | an `ac=` id has no exact-token occurrence in the plan's own text outside a marker |
+| `TASK_AC_UNRESOLVED` | 2 | **in an enrolled plan**, an `ac=` id cited by a **well-formed marker inside a task extent** has no exact-token occurrence in the plan's own text outside a marker. The gate matters: without it the row also fires for an orphaned marker's ids, contradicting the table's `TASK_MARKER_ORPHANED` **alone** |
 
 **Every marker code is pass 2, and that is a correctness requirement rather than an implementation preference.** Marker classification depends on extents; extents depend on the region; and whether the region counts at all is the pass-2 enrollment conclusion. An implementation that classified markers during the line scan would emit `TASK_MARKER_MALFORMED` inside a *provisional* extent, then learn at the end of the document that a second opening line left the plan unenrolled — with the form finding already reported. Two documents differing only in a trailing duplicate opening would then disagree about a marker finding a thousand lines above it. Pass 1 records where marker-shaped lines are; it does not judge them.
 
@@ -452,7 +465,7 @@ Every non-fenced line in a plan falls into exactly one class:
 | ATX heading at any other depth | any | ordinary prose; terminates an extent only if shallower |
 | anything else | any | ordinary prose |
 
-Pass 1 emits **only** the three enrollment codes. It records marker-shaped lines and task headings without judging either, because both judgements need state pass 1 does not yet have.
+Pass 1 emits **only** `TASK_ENROLL_DUPLICATE` and `TASK_ENROLL_MALFORMED` — two codes, not three. `TASK_ENROLL_EMPTY` is a pass-2 conclusion, since whether a region holds zero tasks is unknowable until the region has ended and enrollment has been decided; an earlier draft said "the three enrollment codes" and contradicted its own catalog one paragraph above. Pass 1 records marker-shaped lines and task headings without judging either, because both judgements need state pass 1 does not yet have.
 
 The three `tasks: end` rows are jointly exhaustive over the region state, which is what makes the surplus close come out right. An earlier table collapsed the last two into one row reading "an opening line appeared earlier, region not currently open → consumed silently", which swallowed every close after a completed region: `open → close → close` produced no finding, contradicting §3.2's counter rule and reinstating the silent-acceptance shape the counter was introduced to remove. The counter is the whole mechanism — a close is forgiven only when a specific rejected opening is there to forgive it.
 
@@ -468,10 +481,12 @@ The three `tasks: end` rows are jointly exhaustive over the region state, which 
 | enrolled, a task's extent holds no marker line of any class | `TASK_MARKER_MISSING` |
 | enrolled, a task's extent holds two or more marker lines of any class | `TASK_MARKER_DUPLICATE` |
 | enrolled, a recorded marker line lies outside every task extent | `TASK_MARKER_ORPHANED` **alone**, whatever its form |
-| enrolled, marker inside an extent, `red` empty or whitespace | `TASK_RED_EMPTY` (occupies the slot) |
-| enrolled, marker inside an extent, `ac=` absent or its list empty | `TASK_AC_MISSING` (occupies the slot) |
-| enrolled, marker inside an extent, matches nothing above | `TASK_MARKER_MALFORMED` (occupies the slot) |
-| enrolled, marker inside an extent, well-formed | satisfies that task; ids checked by `TASK_AC_UNRESOLVED` |
+| enrolled, inside an extent, **matches the marker form in every respect except** that `red`'s backticked command is empty or whitespace | `TASK_RED_EMPTY` (occupies the slot) |
+| enrolled, inside an extent, **matches the marker form in every respect except** that `ac=` is absent or its list is empty | `TASK_AC_MISSING` (occupies the slot) |
+| enrolled, inside an extent, matches nothing above | `TASK_MARKER_MALFORMED` (occupies the slot) |
+| enrolled, inside an extent, well-formed | satisfies that task; its ids are checked by `TASK_AC_UNRESOLVED` |
+
+**The "in every respect except" prerequisite is load-bearing on the first two rows**, and an earlier draft omitted it. Because this table is declared authoritative over the §3.4 catalog, dropping the prerequisite made it override §3.3's precedence rule outright: `` <!-- task: red=`` foo=x ac=AC-1 --> `` has an empty command *and* an unknown key, so the shortened row classified it `TASK_RED_EMPTY` where precedence rule 3 and AC-11 both require `TASK_MARKER_MALFORMED`. Likewise `` <!-- task: red=`cmd` foo=x --> `` read as `TASK_AC_MISSING` rather than malformed. The specific codes describe a marker that is *otherwise well-formed*; a line carrying junk as well is malformed, whatever else is also wrong with it.
 
 The first two rows are what make the enrollment gate real rather than nominal. A marker-shaped line in a plan that never enrolled, or in one whose enrollment failed, is **discarded without a finding** — matching §3.3's rule that placement and form are both conditional on enrollment, and matching AC-7's promise that a plan with no enrollment line yields zero findings "regardless of heading count or stray markers".
 
@@ -515,9 +530,18 @@ Nine artifacts burned on this shape; none was caught by review-time reasoning al
 
 ## 5. Acceptance criteria
 
-**AC-1.** `codex-guard review --brief B --lint-doc D` embeds a `===== SPEC-LINT: D =====` block into the composed prompt whose body is the CLI's stdout for `D` **with the `INVENTORY` section removed** (§2.2.2), and truncated if the budget requires (AC-21). The body is derived from a live CLI run in the test, never from hardcoded expected text — a hardcoded expectation passes against a broken embed. Byte-equality against *raw* stdout is explicitly **not** the contract: it would contradict AC-20 for any report carrying an inventory, which is nearly all of them.
+**AC-1.** `codex-guard review --brief B --lint-doc D` embeds a `===== SPEC-LINT: D =====` block into the composed prompt whose body is the CLI's stdout for `D` **with the `INVENTORY` section removed** (§2.2.2), and truncated if the budget requires (AC-21). The body is derived from a live CLI run in the test, never from hardcoded expected text — a hardcoded expectation passes against a broken embed. **The document under test must produce a report that actually has an `INVENTORY` block** — nearly all do, but a fixture without one makes AC-20 and the removal half of this criterion vacuously true. Byte-equality against *raw* stdout is explicitly **not** the contract: it would contradict AC-20 for any report carrying an inventory, which is nearly all of them.
 
-The property that replaces byte-equality is §2.2.4's P2, and it is asserted **only on a report that fits the budget** — where "every finding survives" is achievable. Extract the finding lines from raw stdout and from the embedded body and compare them as **multisets**: same lines, same multiplicities, same order. Set comparison is insufficient, since a transformation collapsing two identical finding lines into one satisfies it while losing a real finding (`rawCount=2, embeddedCount=1, setEquality=true`).
+The property that replaces byte-equality is §2.2.4's P2, asserted **only on a report that fits the budget** — where preserving everything is achievable. Compare the embedded body against raw stdout as a **full ordered line sequence**, the two differing by exactly the removed `INVENTORY` block.
+
+Two weaker forms were tried and both admit a live mutant. Comparing finding lines as *sets* passes a transformation that collapses two identical finding lines into one (`rawCount=2, embeddedCount=1, setEquality=true`). Comparing them as *multisets* fixes that but still ignores every line that is not a primary finding — and the renderer emits subordinate `detail:` lines (`scripts/spec-lint.ts:55`). Probed against a real report, a mutant deleting every `detail:` line while correctly removing `INVENTORY` passes both the multiset comparison and AC-20:
+
+```
+rawDetailLines=2  mutantDetailLines=0  p2FindingArraysEqual=true
+summaryPreserved=true  inventoryPresent=false  findingLinesPresent=4
+```
+
+The diagnostic evidence a reviewer needs is gone and every stated assertion is green. Sequence comparison closes it, and closes the header and blank-line cases at the same time without enumerating them.
 
 The over-budget case is AC-21's, and its assertion is P3 rather than P2: the retained finding lines are a **prefix** of the raw ones and the truncation notice is present. Stating P2 unconditionally would have made AC-1 and AC-21 contradict each other on any report large enough to truncate. A test asserting only that `INVENTORY` is absent would pass a transformation that dropped findings alongside it, which is why neither case is left to the diff's good intentions.
 
@@ -531,13 +555,13 @@ The over-budget case is AC-21's, and its assertion is P3 rather than P2: the ret
 
 **AC-6.** An enrolled plan whose depth-N heading carries no marker yields exactly one `TASK_MARKER_MISSING`, anchored to that heading's line.
 
-**AC-7.** A plan with no enrollment line yields zero `taskContract` findings regardless of heading count or stray markers.
+**AC-7.** A plan with no enrollment line yields zero `taskContract` findings regardless of heading count or stray markers. The "regardless" is a fixture requirement, not a flourish: the plan **must** carry headings at a plausible task depth and at least one marker-shaped line, including a malformed one. Against an empty plan the criterion passes for any implementation.
 
 **AC-8.** Each of `TASK_ENROLL_DUPLICATE`, `TASK_ENROLL_MALFORMED`, `TASK_MARKER_DUPLICATE`, `TASK_MARKER_ORPHANED`, `TASK_MARKER_MALFORMED`, `TASK_RED_EMPTY`, `TASK_AC_MISSING`, `TASK_AC_UNRESOLVED` fires on a fixture exhibiting it and on no fixture exhibiting only its siblings.
 
-**AC-9.** An enrollment line or a task marker inside a fenced code block is inert: it neither enrolls a plan nor satisfies a task.
+**AC-9.** An enrollment line or a task marker inside a fenced code block is inert: it neither enrolls a plan nor satisfies a task. Each half needs the consequence visible. The fenced *enrollment* fixture carries a marker-less heading at that depth, so a fence-blind implementation enrolls and reports `TASK_MARKER_MISSING` against an expected empty list. The fenced *marker* fixture sits in a genuinely enrolled region, so a fence-blind implementation reports `[]` where correct reports `[TASK_MARKER_MISSING]` — the marker is decoration, not satisfaction.
 
-**AC-10.** `taskContract` findings never fire for `kind === "spec"`.
+**AC-10.** `taskContract` findings never fire for `kind === "spec"`. Pinned by a **pair of fixtures with byte-identical text**, linted once as `plan` and once as `spec`, where the plan-kind run produces at least one finding. Two unrelated documents would not discriminate: a spec fixture with no defects reports nothing under any implementation, including one that ignores `kind` entirely.
 
 **AC-11.** An unknown key in a marker is `TASK_MARKER_MALFORMED`, not silently ignored — the fail-closed direction, pinned by its own mutant. Likewise a malformed `depth` is `TASK_ENROLL_MALFORMED` and not a silent opt-out.
 
@@ -549,7 +573,12 @@ The over-budget case is AC-21's, and its assertion is P3 rather than P2: the ret
 
 **AC-20.** The embedded block excludes the CLI's `INVENTORY` section and contains its findings.
 
-**AC-21.** Reports embed in argument order; when the combined 200,000-byte budget is crossed, the block truncates at a line boundary and ends with an explicit truncation notice, and the dispatch still proceeds.
+**AC-21.** Reports embed in argument order; when the combined 200,000-byte budget is crossed, the block truncates at a line boundary, carries an explicit truncation notice, and the dispatch still proceeds. Four assertions, because the first two alone leave three live mutants:
+
+1. **The sum of the emitted blocks is `<= 200,000` bytes, notices included.** The obvious implementation truncates the body to the remaining allowance and *then* appends the notice, so every truncated block overshoots by the notice's length. Measured on a prototype over two real reports with the budget forced to 6,000: the running total finished at `-29` and `-64`. P1, P2 and P3 all passed there — nothing in the earlier criteria looked at the running total, which is exactly how it survived.
+2. **The `summary:` line is present in every emitted block, truncated or not** — asserted on the *emitted block*, never on the pre-budget body. This is the assertion the same prototype got wrong: it checked summary-survival before budgeting, so it could not see that dropping "whole lines from the end" removes the summary first (§2.2.4 P1).
+3. **The retained body lines are a prefix of the untruncated body**, so nothing is reordered or reselected.
+4. **A request whose reports cannot all be seated at their frame-plus-notice floor exits 2** with a message naming the count and the budget, rather than silently dropping whole reports (§2.2.4). Distinguishable from AC-3's and AC-19's exit 2 by its message.
 
 **AC-22.** An enrolled plan whose region selects zero tasks reports `TASK_ENROLL_EMPTY` — pinned both by a wrong-depth fixture and by one whose opening line follows the last matching heading.
 
@@ -615,11 +644,13 @@ A criterion asserting the absence of a finding only discriminates when the wrong
 
 **AC-25.** `taskContract` findings render in the CLI text report under their own `taskContract:` heading with code, line, and message — asserted against the CLI's actual stdout, not against `runLint`'s return value.
 
-**AC-15.** A heading at the enrolled depth **outside** the region yields nothing — whether it precedes the opening line or follows `<!-- tasks: end -->`. Pinned with a fixture carrying both, since only the trailing case refutes a start-only model.
+**AC-15.** A heading at the enrolled depth **outside** the region yields nothing — whether it precedes the opening line or follows `<!-- tasks: end -->`. Pinned with a fixture carrying both, since only the trailing case refutes a start-only model. **Neither out-of-region heading carries a marker**, which is what makes the absence observable: an implementation treating them as tasks reports `TASK_MARKER_MISSING` for each, against an expected empty list. Give them markers and both the correct and the broken implementation report nothing.
 
 **AC-16.** A `<!-- tasks: end -->` with no preceding opening line is `TASK_ENROLL_MALFORMED`, not a silent no-op.
 
 **AC-17.** A task extent ends at the next heading of the enrolled depth **or shallower**. Pinned with a fixture carrying a mid-document heading shallower than the enrolled depth, because no plan in the current corpus exercises that branch.
+
+**The task's marker must sit *after* that shallower heading**, which is the placement that exposes the mutant. With the marker before it, correct behavior and a mutant ignoring the shallower boundary both report `[]` and the criterion certifies nothing. With the marker after it, the extent has correctly ended, so the task is marker-less and the marker belongs to no task: correct reports `[TASK_MARKER_MISSING, TASK_MARKER_ORPHANED]` while the mutant silently reports `[]`, accepting a task whose marker is stranded outside it.
 
 **AC-13.** An `ac=` id that appears only inside marker lines, and nowhere else in the plan, is `TASK_AC_UNRESOLVED` — an id cannot satisfy itself.
 
@@ -629,7 +660,7 @@ A criterion asserting the absence of a finding only discriminates when the wrong
 
 The zero half is an absence assertion, so the fixture must be a document that **would** draw `sections` findings if the short-circuit were removed — that is, one missing the headings `checkSections` requires of a spec. This costs nothing to arrange: a plan is missing them by nature, which is why the short-circuit exists at all. State it in the test anyway, because a fixture that happened to satisfy the section requirements would report zero either way and certify nothing.
 
-**AC-41.** `docs/agents/spec-self-review.md` carries the amended completeness clause (§2.2.4): findings may not be filtered, the `INVENTORY` block may be omitted, and an abridged report must disclose how much was dropped. Pinned as a docs assertion in the same PR as the arm, because the arm's conformance argument cites this text as its authority — leaving the old "full output" wording in place would leave §2.2.2 in standing violation of the rule it mechanizes.
+**AC-41.** `docs/agents/spec-self-review.md` carries the amended completeness clause (§2.2.4), asserted property by property: findings may not be filtered, **the `summary:` line is required**, the `INVENTORY` block may be omitted, and an abridged report must disclose how much was dropped. The summary property is listed explicitly because an earlier wording omitted it while §2.2.4 attributed the whole amendment to this criterion — a docs mutant deleting "plus the `summary:` line" satisfied every property AC-41 named (`findingsNotFiltered=true, inventoryMayBeOmitted=true, abridgementDisclosed=true, summaryRequired=false`), so the attribution was false for exactly one of the four. Pinned as a docs assertion in the same PR as the arm, because the arm's conformance argument cites this text as its authority — leaving the old "full output" wording in place would leave §2.2.2 in standing violation of the rule it mechanizes.
 
 **AC-42.** The left boundary of AC-id resolution is pinned by its own mutant. For a marker citing `ac=AC-1`, a plan whose prose contains only `XAC-1`, `0AC-1`, `.AC-1`, or `MY-AC-1` reports `TASK_AC_UNRESOLVED` in every case. §3.3 calls this boundary "separately pinned"; before this criterion existed, no acceptance criterion named any of those four strings, so a resolver dropping the preceding-character check passed the whole suite — AC-24's prefix families and AC-34's sentence-final case exercise only the right boundary.
 
