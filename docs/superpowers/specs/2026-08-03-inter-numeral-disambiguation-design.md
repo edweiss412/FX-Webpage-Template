@@ -642,7 +642,7 @@ The third — a referenced object, `const s = { font: "16px Arial" }; <code styl
 
 **Two things replace the closure claim:**
 
-1. **A runtime assertion.** `tests/e2e/font-binding.spec.ts` now walks the rendered DOM on every route the suite visits and asserts no element carries an inline style touching `font-feature-settings`, `font-variant-numeric`, `font` or `all`. It observes what actually rendered rather than what someone wrote.
+1. **A runtime assertion.** `tests/e2e/font-binding.spec.ts` walks the rendered DOM and asserts no element carries an inline style touching `font-feature-settings`, `font-variant-numeric`, `font` or `all`. It observes what actually rendered rather than what someone wrote. (This section first claimed it covered "every route the suite visits" while checking three hardcoded ones — round 14 caught that; §12.14 records the correction.)
 2. **A documented limit, stated plainly.** *An inline style constructed dynamically, on a route no test visits, is not caught by anything in this change.* The static scan cannot decide it and the runtime walk cannot see it. That residue is accepted, in line with the preparedness-audit posture this project already applies to detectors (`docs/audits/edge-case-preparedness-audit-2026-07-04.md:92`): the acceptance criterion is "parsed correctly or signaled, never silently wrong," not "no imaginable defeating input."
 
 The cost of the residue is bounded and small: it requires someone to deliberately construct an inline font-feature style through indirection, on an unexercised route, in a codebase whose baseline occurrence count is zero and where two classes and a root rule are the entire design.
@@ -650,3 +650,17 @@ The cost of the residue is bounded and small: it requires someone to deliberatel
 **§12.11's "closed at every path" claim is withdrawn.** It was wrong when written and round 12 already narrowed it; this section retires it. What is true: every path the guard CAN decide is fail-closed, one path is observed at runtime on exercised routes, and one residue is written down.
 
 **Thirty-six mutants across thirteen rounds. All caught.**
+
+### 12.14 Round 14 — three overclaims, corrected
+
+`VERDICT: NEEDS-ATTENTION`, three P1s, all accepted and fixed. Every one is a claim §12.13 made that the code did not support — which is the useful kind of finding to get on a section whose whole subject is being honest about limits.
+
+| # | Sev | Finding | Disposition |
+| --- | --- | --- | --- |
+| 1 | **P1** | The crew-e2e executed-count oracle still demanded 10 while `font-binding.spec.ts` had 11. A synthetic report with only 10 passed as `ok`, so the new runtime assertion could skip while CI stayed green. **The same miss as the earlier 4→10 drift.** | **FIXED**, and this time the number was read from `playwright --list` rather than counted by hand. |
+| 2 | **P1** | §12.13 claimed "CSSOM writes are matched directly". They were not: **eight** decidable literal forms escaped — `.style.font=`, `.style.all=`, `.style["font"]=`, a multiline `setProperty(…)`, `["setProperty"](…)`, `.style.cssText=`, `setAttribute("style", …)`, and `Object.assign(el.style, …)`. All live in a JSDOM probe, all inside the category the spec said was closed. | **FIXED.** Two groups: name-targeted patterns where `.style` has legitimate uses in this codebase (`overflow`, `maxHeight`, `visibility`), and wholesale bans for the three forms carrying ARBITRARY CSS (`cssText`, `setAttribute("style")`, `Object.assign` onto `.style`), whose baseline is zero. Matched against the whole file, since a call can straddle a line break. All eight mutation-proven. |
+| 3 | **P1** | The runtime walk checked three hardcoded routes while the suite also visits `/admin`, `/admin?show=…` and the seeded crew route — so §12.13's "every route the suite visits" was false, and the accepted residue was broader than "a route no test visits". | **FIXED** by moving the census onto the `FontReport` the per-surface helper already gathers, so it now runs on every tree the suite exercises rather than a subset. The residue is now what §12.13 said it was. |
+
+The pattern across all three is worth stating: **each was a sentence in the disposition table that outran the code.** A limits section is only useful if its scope claims are exact, and twice now this one has been generous with itself.
+
+**Forty-five mutants across fourteen rounds. All caught.**

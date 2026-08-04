@@ -540,14 +540,46 @@ const FEATURE_PROP_SPELLINGS =
   /fontFeatureSettings|fontVariantNumeric|font-feature-settings|font-variant-numeric/i;
 
 /**
- * CSSOM writes. `setProperty` takes the CSS name as a STRING, which the browser
- * lowercases — so `setProperty("FONT-FEATURE-SETTINGS", …)` is a live
- * declaration that a case-sensitive scan misses, and `setProperty("all",
- * "initial")` is a reset that the `style=` region scan never sees because there
- * is no `style=` region. Both were round-13 mutants.
+ * CSSOM writes that can set or reset the guarded features.
+ *
+ * Round 13 claimed "CSSOM writes are matched directly"; round 14 produced EIGHT
+ * decidable literal forms that escaped, all live in a JSDOM probe. They fall in
+ * two groups.
+ *
+ * NAME-TARGETED — `.style` has legitimate uses in this codebase (`overflow`,
+ * `maxHeight`, `visibility`), so these match the guarded property specifically:
+ * `.style.font =`, `.style.all =`, `.style["font"] =`, `.setProperty("font", …)`
+ * in any spelling including a bracketed method name, and across line breaks
+ * (matched against the whole file, not line by line — a multiline call was one
+ * of the escapes).
+ *
+ * WHOLESALE — these carry ARBITRARY CSS, so no name-targeting is possible and
+ * none has a legitimate use here (baseline: zero occurrences): `.style.cssText =`,
+ * `setAttribute("style", …)`, and `Object.assign(el.style, …)`.
  */
-const CSSOM_WRITE =
-  /\.setProperty\s*\(\s*["'`]\s*(font-feature-settings|font-variant-numeric|font|all)\s*["'`]/i;
+const GUARDED_CSS_NAME = String.raw`font-feature-settings|font-variant-numeric|font|all`;
+const GUARDED_JS_NAME = String.raw`fontFeatureSettings|fontVariantNumeric|font|all`;
+
+const CSSOM_WRITES: [RegExp, string][] = [
+  [new RegExp(String.raw`\.style\s*\.\s*(${GUARDED_JS_NAME})\s*=`, "i"), "CSSOM property write"],
+  [
+    new RegExp(
+      String.raw`\.style\s*\[\s*["'\`]\s*(${GUARDED_JS_NAME}|${GUARDED_CSS_NAME})\s*["'\`]\s*\]\s*=`,
+      "i",
+    ),
+    "CSSOM computed write",
+  ],
+  [
+    new RegExp(
+      String.raw`(?:\.setProperty|\[\s*["'\`]setProperty["'\`]\s*\])\s*\(\s*["'\`]\s*(${GUARDED_CSS_NAME})\s*["'\`]`,
+      "i",
+    ),
+    "CSSOM setProperty",
+  ],
+  [/\.style\s*\.\s*cssText\s*=/i, "cssText write (arbitrary CSS)"],
+  [/setAttribute\s*\(\s*["'`]\s*style\s*["'`]/i, "setAttribute('style') (arbitrary CSS)"],
+  [/Object\.assign\s*\([^)]*\.style\b/i, "Object.assign onto .style (arbitrary CSS)"],
+];
 
 /** `style={{ … }}` and `style="…"` regions, where `font`/`all` are CSS resetters. */
 const INLINE_STYLE_REGION = /style\s*=\s*(\{\{[\s\S]*?\}\}|"[^"]*"|'[^']*')/g;
@@ -576,7 +608,11 @@ export function inlineFeatureStyles(): string[] {
 
       for (const [i, line] of source.split("\n").entries()) {
         if (FEATURE_PROP_SPELLINGS.test(line)) hits.push(`${rel}:${i + 1} (feature property)`);
-        else if (CSSOM_WRITE.test(line)) hits.push(`${rel}:${i + 1} (CSSOM setProperty)`);
+      }
+      // Whole-file, because a `setProperty(` call can straddle a line break.
+      for (const [pattern, label] of CSSOM_WRITES) {
+        const m = pattern.exec(source);
+        if (m) hits.push(`${rel}:${source.slice(0, m.index).split("\n").length} (${label})`);
       }
       for (const region of source.matchAll(INLINE_STYLE_REGION)) {
         if (!INLINE_RESETTER.test(region[1] ?? "")) continue;

@@ -40,6 +40,8 @@ type FontReport = {
   forcedInter: number;
   forcedSansSerif: number;
   faces: { family: string; status: string; style: string; weight: string; unicodeRange: string }[];
+  /** Elements whose INLINE style touches the guarded font properties. */
+  inlineOverrides: string[];
   htmlFontFamily: string;
   fontInterToken: string;
   /** The family `--font-inter` names first — what the loader actually generated. */
@@ -96,6 +98,12 @@ async function measureFonts(page: Page): Promise<FontReport> {
       // bound through the same token indirection (review R15).
       forcedInter: measure(loaderFamily ? `"${loaderFamily}"` : '"Inter"'),
       forcedSansSerif: measure("sans-serif"),
+      inlineOverrides: Array.from(document.querySelectorAll("[style]"))
+        .filter((el) => {
+          const style = el.getAttribute("style") || "";
+          return /font-feature-settings|font-variant-numeric|(^|;)\s*(font|all)\s*:/i.test(style);
+        })
+        .map((el) => el.tagName.toLowerCase() + '[style="' + el.getAttribute("style") + '"]'),
       faces: Array.from(document.fonts).map((f) => ({
         family: f.family,
         status: f.status,
@@ -282,6 +290,17 @@ function assertExposesFontInterToken(report: FontReport, surface: string): void 
   // passes against a cascade naming a face that was never registered. Review R5
   // was right that this was the whole of the assertion. The face must actually
   // exist in the document.
+  // (7) NO INLINE OVERRIDE ON THIS ROUTE. The static scan reads source and cannot
+  //     decide a dynamically constructed inline style (spec §12.13). This asks
+  //     the DOM instead — and it lives HERE, inside the per-surface helper, so it
+  //     runs on every tree this suite visits (admin, public auth, seeded crew)
+  //     rather than on a hardcoded subset. Review R14 caught the earlier version
+  //     claiming "every route the suite visits" while checking three of them.
+  expect(
+    report.inlineOverrides,
+    `${surface}: inline styles overriding or resetting the font features`,
+  ).toEqual([]);
+
   const fallbackFaces = report.faces.filter((f) => f.family === report.companionFamily);
   expect(
     fallbackFaces.length,
@@ -683,31 +702,6 @@ test.describe("font binding — the features render", () => {
       `.tabular-nums resolved to ${settings}, which slashes zeros — that reaches ` +
         `running prose; move it to .code-value`,
     ).toBe(false);
-  });
-
-  test("no rendered element carries an inline font-feature or reset style", async ({ page }) => {
-    // THE RUNTIME HALF OF THE INLINE GUARD. The static scan reads source, and
-    // round 13 showed what source cannot decide: an inline style built through
-    // indirection — `const s = { font: "16px Arial" }; <code style={s}>` — emits
-    // a live declaration that no regex over the file can see. That is
-    // undecidable in general, not a gap to patch.
-    //
-    // So this asks the DOM instead, on the routes the suite actually visits. It
-    // does not close the class (a route no test opens is not observed — recorded
-    // as a documented limit in the spec's §12.13), but it observes what actually
-    // rendered rather than what someone wrote.
-    for (const route of ["/auth/sign-in", "/", "/help/getting-started"]) {
-      await page.goto(route, { waitUntil: "load" });
-      const offenders = await page.evaluate(() =>
-        [...document.querySelectorAll("[style]")]
-          .filter((el) => {
-            const s = el.getAttribute("style") ?? "";
-            return /font-feature-settings|font-variant-numeric|(^|;)\s*(font|all)\s*:/i.test(s);
-          })
-          .map((el) => `${el.tagName.toLowerCase()}[style="${el.getAttribute("style")}"]`),
-      );
-      expect(offenders, `${route}: inline styles that override the font features`).toEqual([]);
-    }
   });
 
   test("the code-value class DOES slash zeros", async ({ page }) => {
