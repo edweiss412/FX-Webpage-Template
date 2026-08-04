@@ -278,7 +278,7 @@ Findings never block dispatch. A doc with 40 citation failures is exactly the do
 
 **The shape check validates the frame, not merely its two ends**, because §2.2.4's construction assumes a frame and must not be handed a report that lacks one. A well-formed report has, in order: line 1 `spec:lint <path>` naming the **requested** document; line 2 beginning `kind: `; line 3 empty; a last line beginning `summary:` that is **not** among the first three. All four are required.
 
-A fifth clause is required for the same reason, and it is about what the transformation *discards* rather than what it keeps: **between the `INVENTORY` line and the `summary:` line, no line may match the finding shape**, and `summary:` may appear only once. Without it a child emitting a bare `INVENTORY` before a later finding section, or a non-final `summary:` before one, passes the frame check — and steps 1–4 then stop the body at that early sentinel, dispatching a report whose surviving summary counts findings the embedded block does not contain:
+A fifth clause is required for the same reason, and it is about what the transformation *discards* rather than what it keeps: **every line between the `INVENTORY` line and the `summary:` line must be an inventory entry**, and `summary:` may appear only once. Stated as an allowlist over what may sit there, not a denylist of finding-shaped lines — an earlier wording rejected only primary findings, so a renderer could move a check-section label and a subordinate `detail:` line into that span while leaving the finding above it, pass all five clauses, and have both pieces of evidence silently discarded (`shape5=true rawSections=1 emittedSections=0 rawDetails=1 emittedDetails=0`). The allowlist form is the §4.1 discipline this spec legislates, applied to its own validator. Without it a child emitting a bare `INVENTORY` before a later finding section, or a non-final `summary:` before one, passes the frame check — and steps 1–4 then stop the body at that early sentinel, dispatching a report whose surviving summary counts findings the embedded block does not contain:
 
 ```
 earlyInventory  shapeOK=true  rawFails=1  emittedFails=0  emittedSummary="summary: 1 hard, 0 advisory"
@@ -665,9 +665,18 @@ The rejecting half asserts an *absence*, so its fixture must make the wrong beha
 
 **AC-35.** `scripts/spec-lint.ts` sets `process.exitCode` and exits naturally rather than calling `process.exit()`. Pinned behaviorally: the CLI spawned through a pipe returns a report whose last line begins `summary:`, and whose bytes are **identical** to those of the same run redirected to a file — `Buffer.compare(pipeBuf, fileBuf) === 0`, comparing the buffers themselves, never their lengths.
 
+**The fixture must be a document whose report is large enough to truncate**, and this is the assertion, not a detail of it. Pipe truncation is a race with the process exiting; a small report wins the race and flushes completely, so the **known-bad** `process.exit()` implementation passes every stated assertion against it:
+
+```
+nav-perf/README.md      sourceProcessExit=true  expected=305    piped=305    bufferEqual=true   summary=true
+this spec               sourceProcessExit=true  expected=56006  piped=16384  bufferEqual=false  summary=false
+```
+
+A 305-byte fixture certifies the exact defect AC-35 exists to pin. Use a document whose raw report exceeds 64 KB — this spec's own is 56 KB and already truncates at 16384 — and assert the fixture's raw size before comparing, so a corpus change that shrinks it fails loudly rather than quietly re-admitting the mutant. A small fixture may be kept as a second case, but it discriminates nothing on its own.
+
 Equal length is not equal content, and an earlier wording asked only for equal `Buffer.byteLength`. Two different reports of the same length both ending in `summary:` satisfy it; so does any truncation that happens to be compensated elsewhere. Since the defect under test is precisely "the pipe yields a *different, shorter* report", a length-only comparison tests a proxy for the property that matters while looking like the property itself. Use `Buffer.byteLength` only for the diagnostic message on failure — and never `String.length`, which counts UTF-16 code units and reads a byte-identical em-dash-heavy report as a shortfall (§2.2.3).
 
-**AC-36.** A `--lint-doc` whose child exits 0 or 1 with a malformed report refuses the dispatch with exit 2. §2.3 requires the **whole frame** — four clauses: a `spec:lint <path>` first line naming the requested document, a `kind: ` second line, an empty third line, and a `summary:` last line that is not among the first three. Five cases are pinned, each killing a mutant the previous one leaves alive:
+**AC-36.** A `--lint-doc` whose child exits 0 or 1 with a malformed report refuses the dispatch with exit 2. §2.3 requires the **whole frame** — five clauses: a `spec:lint <path>` first line naming the requested document, a `kind: ` second line, an empty third line, and a `summary:` last line that is not among the first three. Nine cases are pinned, each killing a mutant the previous ones leave alive. The last four exist because the fifth clause and the exit-status row were added to §2.3 without criteria, so a validator retaining the earlier four-clause form passed every fixture while accepting both early-sentinel reports:
 
 | Probe | frame defect |
 | --- | --- |
@@ -676,6 +685,10 @@ Equal length is not equal content, and an earlier wording asked only for equal `
 | **header-shape corruption** — child emits `wrong-header` | malformed first line, summary present |
 | **wrong-document header** — child emits `spec:lint some-other.md` | well-formed first line naming the **wrong** document |
 | **premature summary** — child emits `spec:lint <path>` then `summary: …` | both ends correct, **no `kind:` line and no blank** |
+| **early inventory** — a bare `INVENTORY` line before a later finding section | frame intact, but the transform would discard a real finding |
+| **early summary** — a non-final `summary:` before a later finding section | frame intact, `summary:` appears twice |
+| **non-standard body line in the discard span** — a check-section label or `detail:` line between `INVENTORY` and `summary:` | frame intact, evidence silently dropped |
+| **unmodelled exit status** — child exits 3 with a well-formed report | shape passes; the status is not one the CLI defines |
 
 The first two are both "no summary", so a mutant validating only the last line passes both. The third kills that mutant but only forces the header to *exist*; a validator checking `^spec:lint .+` passes a report for a **different artifact**, and the wrapper would then hand the reviewer a clean-looking lint report for a document nobody asked about — the failure being invisible precisely because the report is well-formed. Probed:
 
@@ -735,7 +748,9 @@ markers.length === 2                        passes every listed row, accepts THR
 markers.length >= 2 && some(isWellFormed)   passes every listed row, omits duplication when BOTH are defective
 ```
 
-So two more cases are required, and they are the minimum that closes both dimensions: **an extent holding three markers**, and **an extent holding two markers that are both defective** — the ten unordered defective pairs are one class, so one representative suffices (`TASK_RED_EMPTY` + `TASK_AC_MISSING`), asserted as a full list carrying `TASK_MARKER_DUPLICATE` alongside both defect codes.
+So two more cases are required, and they are the minimum that closes both dimensions: **an extent holding three markers**, and **an extent holding two markers that are both defective** — the defective pairs split into **two** classes and each needs a representative.
+
+The ten unordered defective pairs are six **cross-class** and four **same-class** (`RED_EMPTY`+`RED_EMPTY`, `AC_MISSING`+`AC_MISSING`, `MARKER_MALFORMED`+`MARKER_MALFORMED`, `AC_UNRESOLVED`+`AC_UNRESOLVED`). An implementation that deduplicates markers **by classification** before counting cardinality passes well+well, every defect+well row, a cross-class pair, and the three-marker case — and omits `TASK_MARKER_DUPLICATE` on exactly the four same-class pairs. So both are asserted as full lists: `TASK_RED_EMPTY`+`TASK_AC_MISSING` gives `[TASK_AC_MISSING, TASK_MARKER_DUPLICATE, TASK_RED_EMPTY]`, and `TASK_RED_EMPTY`+`TASK_RED_EMPTY` gives `[TASK_MARKER_DUPLICATE, TASK_RED_EMPTY, TASK_RED_EMPTY]` — the repeated code is the point, and a set-based assertion would lose it.
 
 **AC-28.** A marker on a line after `<!-- tasks: end -->` but before the next equal-or-shallower heading reports `TASK_MARKER_ORPHANED`, and the preceding task reports `TASK_MARKER_MISSING` if it has no marker of its own. Pinned as one fixture asserting both, since the defect was that these two rules disagreed about the same line.
 
@@ -759,7 +774,14 @@ That is the whole feature failing silently with every criterion green. `taskCont
 
 **AC-13.** An `ac=` id that appears only inside marker lines, and nowhere else in the plan, is `TASK_AC_UNRESOLVED` — an id cannot satisfy itself.
 
-**Resolution is quantified over *every* id in the marker, and one criterion must use a multi-id marker.** For `ac=AC-1,AC-2` in a plan whose prose resolves only `AC-1`, the correct result reports `TASK_AC_UNRESOLVED` for `AC-2`; an implementation checking `ids[0]` alone reports nothing and silently accepts the task. Every other resolution criterion — AC-24, AC-34, AC-42 — uses a single-id marker, so none of them can see the difference, and a comma-separated `ac=` list appears in no acceptance fixture at all. Higher arities are the same escape, so one two-id case closes the class.
+**Resolution is quantified over *every* id in the marker, and one criterion must use a multi-id marker.** For `ac=AC-1,AC-2` in a plan whose prose resolves only `AC-1`, the correct result reports `TASK_AC_UNRESOLVED` for `AC-2`; an implementation checking `ids[0]` alone reports nothing and silently accepts the task. Every other resolution criterion — AC-24, AC-34, AC-42 — uses a single-id marker, so none of them can see the difference, and a comma-separated `ac=` list appears in no acceptance fixture at all. **Two mirrored cases are required, not one.** The mutation class is "examines one endpoint" and it has two members. A fixture where only the **last** id is unresolvable kills first-only but not last-only; the mirror — only the **first** id unresolvable — kills last-only:
+
+```
+stated    ac=AC-1,AC-2, prose resolves AC-1   correct=[AC-2]  lastOnlyMutant=[AC-2]   survives
+mirrored  ac=AC-1,AC-2, prose resolves AC-2   correct=[AC-1]  lastOnlyMutant=[]       killed
+```
+
+Both verified against the reference implementation. Higher arities are the same escape, so the two two-id cases close the class.
 
 **AC-14.** `docs/agents/spec-self-review.md` carries the §4.1 rule text and the §3.2 plus §3.3 marker convention. Both are asserted; §1.2's change inventory names both for the same reason.
 
