@@ -169,10 +169,23 @@ describe("no assertion in this diff is silently vacuous", () => {
       files = git(["diff", "--name-only", "origin/main...HEAD"]);
     } catch {
       try {
-        execFileSync("git", ["fetch", "--no-tags", "--depth=1", "origin", "main"], {
-          cwd: ROOT,
-          timeout: 60_000,
-        });
+        // --depth=1 ONLY when the checkout is ALREADY shallow. Passing it to a
+        // full clone CONVERTS that clone to shallow, breaking merge-base and
+        // ancestry for every later command in the worktree -- a test that
+        // silently damages the developer's repository. Measured on this very
+        // branch: an unconditional --depth=1 here left `rev-list --count` at
+        // 12781 against a merge-base that was in fact origin/main.
+        const shallow =
+          execFileSync("git", ["rev-parse", "--is-shallow-repository"], {
+            cwd: ROOT,
+            encoding: "utf8",
+            timeout: 30_000,
+          }).trim() === "true";
+        execFileSync(
+          "git",
+          ["fetch", "--no-tags", ...(shallow ? ["--depth=1"] : []), "origin", "main"],
+          { cwd: ROOT, timeout: 60_000 },
+        );
         // Two-dot against the fetched tip: --depth=1 leaves no common history,
         // so a three-dot merge-base would fail exactly where this runs.
         files = git(["diff", "--name-only", "FETCH_HEAD"]);
