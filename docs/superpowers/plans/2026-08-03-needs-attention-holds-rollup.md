@@ -788,6 +788,27 @@ impeccable-gate: critique=RAN-DEGRADED audit=RAN-DEGRADED p0=0 p1=1 dispositions
 
 No P0 findings. No `DEFERRED.md` entry is required: the single P1 was fixed in-branch.
 
+## 13. Cross-model review record (Task 11 Step 4)
+
+Split into three tight-scope passes per the AGENTS.md default for large diffs (47 files): **1** read path / grouping core / builder / badge count, **2** UI surfaces and copy, **3** digest transport / e2e / CI wiring / ledgers. Verdicts by round:
+
+| Round | Scope 1 | Scope 2 | Scope 3 |
+| --- | --- | --- | --- |
+| 1 | NEEDS-ATTENTION (5) | NEEDS-ATTENTION (6) | NEEDS-ATTENTION (1) |
+| 2 | NEEDS-ATTENTION (3) | NEEDS-ATTENTION (3) | NEEDS-ATTENTION (2) |
+| 3 | NEEDS-ATTENTION (1) | NEEDS-ATTENTION (3) | **APPROVE** |
+| 4 | **APPROVE** | see below | — |
+
+**The three defects that were real code bugs**, as opposed to test-strength findings:
+
+1. **Rejection containment (round 1, 2 HIGH).** The two holds awaits were unguarded, and the root cause sat one layer deeper: `groupHoldRows` ran OUTSIDE the reader's try, and it calls `shapeHoldEntry` → `getRequiredDougFacing`, which throws. A row with `proposed_value: null` (nullable in the DDL; the kind-shape CHECK constrains it only for `mi11_pending`) rejected the promise and escaped the typed contract. Fixed at all three sites; the digest's call was verified already inside its try rather than assumed.
+2. **Copy that was factually false (rounds 1 and 3, 2 MEDIUM).** "Held changes stay in the inbox until you act" is wrong — `mi11Reconciled` → `deleteHold` releases an open hold when the sheet is edited back (`lib/sync/holds/holdAwareApply.ts:121-171`). Separately the page tooltip claimed everything awaits a decision, which is wrong for sync-problem cards. Both rewritten; both halves pinned.
+3. **Mobile overflow (round 2, 1 HIGH).** Hold summaries embed raw email addresses; a 64-character local-part is one unbreakable token measuring ~512px against a ~316px card interior at 390px. Both render paths now carry `wrap-break-word`.
+
+**Refuted, with its probe, so no later reviewer re-derives it** (AGENTS.md: log refuted diff-only claims): the round-2 em-dash finding on `app/help/admin/dashboard/page.mdx` lines 37 and 45. Whole-line diffs make pre-existing clause text look added; `git show main:app/help/admin/dashboard/page.mdx | grep -c "—"` returns 10 on that file. Every clause authored on this branch is em-dash free.
+
+**Round-economy note for future plans.** Rounds 2-4 produced almost no behavior findings — they were dominated by ONE recurring shape: *source pins asserted by substring rather than by structure*. A whole-file `toContain` stays green when the operation is deleted and its literal survives in a comment; a partial projection pin stays green when a different column is dropped; three independent predicate checks stay green when `and` becomes `or`. Each round named one more instance. What ended it was switching instrument rather than naming another instance: **assert the query projection and the SQL statement by EQUALITY, and strip comments via the shared `tests/_shared/stripComments` before matching.** A plan that writes source pins should reach for equality first.
+
 ## Meta-test inventory (declared)
 
 - EXTENDS: `tests/admin/_metaInfraContract.test.ts` (new `loadOpenIdentityHolds` row; expanded `loadNeedsAttentionCount` contract), `tests/admin/_metaBoundedReads.test.ts` (module in `READ_MODULES`; `sync_holds` in `UNBOUNDED_TABLES`).
