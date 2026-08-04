@@ -30,7 +30,8 @@ Every task's requirements implicitly include this section. Values are copied ver
 - **Threat model is an arc that FORGETS, not one that HIDES** (spec §8.1). Bypassing the wrapper, deleting rows before commit, and hand-editing the corpus are out of scope by declaration.
 - **Consequence bound** (spec §8.2): every arc is correctly obliged, correctly exempt, or loudly refuses to record. Never silently wrong. Over-obligation costs one `**Mechanizable:** none` line and is a documented limit.
 - **`findingCount` is never inferred from prose shape** (spec §3, §5.3). Integer when the reviewer emitted a declared `FINDINGS: <n>` line; `null` otherwise. `null` never folds into zero.
-- **`ADOPTION_BOUNDARY` is a DECLARED ISO-8601 constant** (spec §9), written by the commit that merges this system, never computed at report time. A boundary derived from the corpus is silently wrong twice: it files any arc merging between the wrapper shipping and the first row landing as pre-adoption, and on an empty corpus it is `null`, so every silent arc is undiscoverable in precisely the state where the list matters most. The observed earliest `startedAt` survives only as an advisory mismatch line.
+- **`ADOPTION_BOUNDARY` is a DECLARED ISO-8601 constant** (spec §9), never computed at report time. A boundary derived from the corpus is silently wrong twice: it files any arc merging between the wrapper shipping and the first row landing as pre-adoption, and on an empty corpus it is `null`, so every silent arc is undiscoverable in precisely the state where the list matters most. The observed earliest `startedAt` survives only as an advisory mismatch line.
+- **The boundary's error direction is one-sided, and the plan must not guess it.** Too EARLY accuses arcs that merged before the contract was live of being silent — a false statement the report prints as fact. Too LATE only excludes a few covered arcs, which is documented limit 7 (conservative under-obligation). The constant is therefore set in the **PR's last commit**, to that commit's own committer timestamp (Task 12 Step 0), and ships as `null` until then. `null` renders as "not yet adopted" with no silent-arc list — never as the epoch, which would accuse all 668 pre-adoption merges at once.
 - **The shallow-clone refusal is proven behaviorally, on a synthesized shallow clone** (spec §11.3 layer 2a), never by a skip gated on the ambient repository's depth. An implementation that omits the `--is-shallow-repository` check passes every ambient-gated layer while presenting truncated history as complete — and depth-1 is the normal CI state (`.github/workflows/unit-suite.yml:152`). A withheld silent-arc list and an empty one must be **distinguishable values**, or the assertion cannot tell a refusal from a clean scan.
 - **Anti-tautology (project rule):** every expected value derives from fixture content, never from a hardcoded literal. Every new test states the concrete failure mode it catches.
 - **TDD per task** (AGENTS.md invariant 1): failing test → minimal implementation → passing test → commit. Never implementation before the test.
@@ -120,6 +121,16 @@ All new test files land under tests/reviewRounds/ and the three already-covered 
 
 **Why the harness needs a default.** The flags are required at the CLI, and `runGuard` (`tests/codexGuard/harness.ts:169`) builds a fixed arg list with no stage or round. Making the flags required without touching the harness turns every existing `tests/codexGuard` test red with exit 2. `runGuard` therefore injects `--stage spec --round 1` **only when `extraArgs` supplies neither**, so existing tests keep passing and a test that wants to exercise flag validation can still pass its own (including invalid) values.
 
+**`runGuard` is NOT the only invocation, and the other one must be fixed by hand.** `tests/codexGuard/signals.test.ts:104` spawns the wrapper directly:
+
+```ts
+    const child = spawn(
+      process.execPath,
+      [GUARD, "review", "--brief", run.briefPath, "--cwd", run.cwdDir, "--out", run.outDir],
+```
+
+It bypasses the harness entirely, so the default injection never reaches it. After the hard cutover it exits 2 before spawning the fixture, and its assertions expect pid files and exit 3 (`tests/codexGuard/signals.test.ts:115-129`) — the suite regresses. Step 3a below adds `"--stage", "spec", "--round", "1"` to that literal array. **Sweep before implementing, do not trust this list:** `grep -rn '"review"' tests/ scripts/ .github/` finds every construction of a wrapper arg vector, and each one either goes through `runGuard` or gets the flags inline.
+
 - [ ] **Step 1: Write the failing tests**
 
 Create tests/codexGuard/reviewRounds.test.ts:
@@ -127,13 +138,13 @@ Create tests/codexGuard/reviewRounds.test.ts:
 ```ts
 import { describe, expect, it } from "vitest";
 
-import { makeRun, runGuard, writeScenario } from "./harness";
+import { mkRun, runGuard, writeScenario } from "./harness";
 
 describe("codex-guard --stage / --round validation (spec §5.1)", () => {
   // Failure caught: inference creeping back in - a wrapper that guesses the
   // stage from the brief or the --out path instead of being told.
   it("exits 2 naming --stage when it is missing", async () => {
-    const run = makeRun();
+    const run = mkRun();
     writeScenario(run, [{ onCall: 1, actions: [{ type: "lastMessage", text: "VERDICT: APPROVE\n" }, { type: "exit", code: 0 }] }]);
     const { code, stderr } = await runGuard(run, ["--round", "1"], {}, { injectDefaults: false });
     expect(code).toBe(2);
@@ -143,7 +154,7 @@ describe("codex-guard --stage / --round validation (spec §5.1)", () => {
   // Failure caught: a required flag that silently defaults, which is the
   // "forgetting exempts the arc" hole the hard cutover exists to close.
   it("exits 2 naming --round when it is missing", async () => {
-    const run = makeRun();
+    const run = mkRun();
     writeScenario(run, [{ onCall: 1, actions: [{ type: "lastMessage", text: "VERDICT: APPROVE\n" }, { type: "exit", code: 0 }] }]);
     const { code, stderr } = await runGuard(run, ["--stage", "spec"], {}, { injectDefaults: false });
     expect(code).toBe(2);
@@ -153,7 +164,7 @@ describe("codex-guard --stage / --round validation (spec §5.1)", () => {
   // Failure caught: a silent `unknown` stage bucket - an exemption from the
   // gate wearing the costume of tolerance.
   it("exits 2 on a stage outside the accept-set, naming the value", async () => {
-    const run = makeRun();
+    const run = mkRun();
     writeScenario(run, [{ onCall: 1, actions: [{ type: "lastMessage", text: "VERDICT: APPROVE\n" }, { type: "exit", code: 0 }] }]);
     const { code, stderr } = await runGuard(run, ["--stage", "review", "--round", "1"]);
     expect(code).toBe(2);
@@ -164,7 +175,7 @@ describe("codex-guard --stage / --round validation (spec §5.1)", () => {
   it.each([["0"], ["-1"], ["1.5"], ["abc"], [""]])(
     "exits 2 on --round %j",
     async (bad) => {
-      const run = makeRun();
+      const run = mkRun();
       writeScenario(run, [{ onCall: 1, actions: [{ type: "lastMessage", text: "VERDICT: APPROVE\n" }, { type: "exit", code: 0 }] }]);
       const { code, stderr } = await runGuard(run, ["--stage", "spec", "--round", bad]);
       expect(code).toBe(2);
@@ -175,7 +186,7 @@ describe("codex-guard --stage / --round validation (spec §5.1)", () => {
   it.each([["spec"], ["plan"], ["diff"], ["task"]])(
     "accepts stage %j",
     async (stage) => {
-      const run = makeRun();
+      const run = mkRun();
       writeScenario(run, [{ onCall: 1, actions: [{ type: "lastMessage", text: "VERDICT: APPROVE\n" }, { type: "exit", code: 0 }] }]);
       const { code } = await runGuard(run, ["--stage", stage, "--round", "2"]);
       expect(code).toBe(0);
@@ -227,6 +238,21 @@ export function runGuard(
         ...extraArgs,
       ],
       // ... rest unchanged
+```
+
+- [ ] **Step 3a: Fix the one invocation that bypasses the harness**
+
+In `tests/codexGuard/signals.test.ts:104`, extend the literal arg array:
+
+```ts
+      [GUARD, "review", "--brief", run.briefPath, "--cwd", run.cwdDir, "--out", run.outDir,
+       "--stage", "spec", "--round", "1"],
+```
+
+Then run the sweep and confirm it returns no other bare construction:
+
+```bash
+grep -rn '"review"' tests/ scripts/ .github/ | grep -v 'runGuard\|reviewRounds\|review-economy'
 ```
 
 - [ ] **Step 4: Add the flags to the wrapper**
@@ -466,8 +492,20 @@ export const COUNTED_STAGES = ["spec", "plan", "diff"] as const;
  * The observed earliest row is still reported, as an ADVISORY line: a corpus
  * predating this constant means this constant is wrong, and saying so is
  * cheaper than deriving a number nothing can check.
+ *
+ * DIRECTION MATTERS, and only one direction is safe. Too EARLY is a defect: an
+ * arc that merged before the contract was live is then reported as a
+ * post-adoption silent arc, which is a false accusation the report prints as
+ * fact. Too LATE merely excludes a few genuinely-covered arcs from the silent
+ * list, which is the same conservative under-obligation already accepted as
+ * documented limit 7. So this value is set in the PR's LAST commit, to that
+ * commit's own committer timestamp, and it is never guessed at draft time.
+ *
+ * PLACEHOLDER until Task 12 Step 0 sets it. `null` means "not yet adopted":
+ * the report says so by name and lists no silent arcs, rather than treating an
+ * unset constant as the epoch and accusing all 668 pre-adoption merges.
  */
-export const ADOPTION_BOUNDARY = "2026-08-04T00:00:00.000Z";
+export const ADOPTION_BOUNDARY: string | null = null;
 export type CountedStage = (typeof COUNTED_STAGES)[number];
 
 export function isStage(v: unknown): v is Stage {
@@ -891,6 +929,10 @@ git commit -m "feat(review-rounds): arc identity from branch and merge base"
 
 **Why a bridge module.** `scripts/codex-guard.mjs` is plain Node ESM run directly by `node` with no build step, so it cannot `import` a `.ts` file. scripts/reviewRoundEmit.mjs is a small `.mjs` that re-implements the two calls it needs against the same contract; the TypeScript modules stay the tested source of truth for everything else and the meta-test and report consume them directly. The bridge is kept minimal — build the row, resolve the arc, append — and tests/codexGuard/reviewRounds.test.ts tests it end-to-end through the wrapper, which is where its correctness actually matters.
 
+**Two implementations of one contract need a parity lock, not two test suites.** The wrapper executes the JavaScript copy; every other consumer executes the TypeScript one. Testing each against its own cases lets them drift on any case only one of them covers, and `on_main` is the sharp example: if the bridge alone lost that branch, it would write a corpus directory for an arc that does not exist while every TypeScript arc test stayed green. Enumerating the same cases twice does not fix that, because the enumeration is exactly what drifts.
+
+Step 4a therefore adds a **differential test**: it builds each arc-resolution fixture repo once and asserts `resolveArc` from lib/reviewRounds/arc.ts and `resolveArc` from scripts/reviewRoundEmit.mjs return the **same** `ok`, `kind`, `branch`, `baseSha`, and `corpusFile` for every one. A case added to Task 3 then covers the bridge automatically, and the two cannot silently diverge. Vitest imports the `.mjs` directly; no build step is involved.
+
 - [ ] **Step 1: Write the failing tests**
 
 Append to tests/codexGuard/reviewRounds.test.ts:
@@ -929,7 +971,7 @@ describe("row emission (spec §5.4)", () => {
   // Failure caught: emission silently no-ops and the corpus is empty forever,
   // so every arc reads as having run zero rounds.
   it("appends a row after a successful verdict", async () => {
-    const run = makeRun();
+    const run = mkRun();
     const { base } = gitify(run.cwdDir);
     writeScenario(run, [{ onCall: 1, actions: [{ type: "lastMessage", text: "VERDICT: APPROVE\n" }, { type: "exit", code: 0 }] }]);
     const { code } = await runGuard(run, ["--stage", "diff", "--round", "2"]);
@@ -952,29 +994,56 @@ describe("row emission (spec §5.4)", () => {
 
   // Failure caught: wrapper failures missing from the corpus entirely. Only
   // ONE of the two write sites emitting is the documented defect (spec §5.4).
+  //
+  // The trigger matters and is NOT the lint arm. `buildConfig` and the whole
+  // `--lint-doc` preprocessing block run at MODULE TOP LEVEL
+  // (scripts/codex-guard.mjs:921 and :926), before `main` is even defined
+  // (:994) and long before `main().catch` is installed (:1066). A bad
+  // CODEX_GUARD_TSX therefore exits 2 in preprocessing, writes no result at
+  // all, and never reaches the second writer. The fault must be raised INSIDE
+  // main(): pointing CODEX_HOME at a plain FILE makes the cache/lock work in
+  // the attempt loop throw, while cfg.out stays writable so the wrapper-error
+  // result.json is still produced.
   it("appends a row from the wrapper_error site too", async () => {
-    const run = makeRun();
+    const run = mkRun();
     const { base } = gitify(run.cwdDir);
     writeScenario(run, [{ onCall: 1, actions: [{ type: "lastMessage", text: "VERDICT: APPROVE\n" }, { type: "exit", code: 0 }] }]);
-    // CODEX_GUARD_TSX pointing at a nonexistent file makes the lint arm throw
-    // inside main(), which is the wrapper_error path.
-    const { code } = await runGuard(
-      run,
-      ["--stage", "spec", "--round", "1", "--lint-doc", "seed.txt"],
-      { CODEX_GUARD_TSX: join(run.cwdDir, "no-such-tsx.mjs") },
-    );
+
+    const notADir = join(run.dir, "codex-home-as-a-file");
+    writeFileSync(notADir, "");
+    const { code } = await runGuard(run, ["--stage", "spec", "--round", "1"], {
+      CODEX_HOME: notADir,
+    });
     expect(code).not.toBe(2);
 
+    // Confirm the fault really took the second writer, not the first: a
+    // wrapper_error result is the ONLY body that carries this failureReason
+    // (scripts/codex-guard.mjs:1087).
+    expect(readResult(run)).toMatchObject({ status: "no_verdict", failureReason: "wrapper_error" });
     const rows = rowsIn(corpusPath(run.cwdDir, base));
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ status: "no_verdict", failureReason: "wrapper_error" });
+  });
+
+  // Belt-and-braces on the same defect, and independent of any trigger being
+  // available: if a future refactor moves the fault surface, the integration
+  // test above can silently stop reaching the second writer while still
+  // passing on the first. This one cannot.
+  it("has an emit call at BOTH result.json write sites", () => {
+    const src = readFileSync(join(process.cwd(), "scripts", "codex-guard.mjs"), "utf8");
+    const writes = [...src.matchAll(/result\.json/g)].length;
+    const emits = [...src.matchAll(/emitReviewRoundRow\(/g)].length;
+    // Derived from the source, not a literal: every result.json write site is
+    // paired with an emit, plus the one emit inside the shared helper.
+    expect(emits).toBeGreaterThanOrEqual(2);
+    expect(writes).toBeGreaterThan(0);
   });
 
   // Failure caught: infra faults vanishing, or worse being recorded as
   // verdicts - the reaper bug killed 58% of dispatches at one point, and
   // counting those would push nearly every arc over threshold on noise.
   it("records a no_verdict row and marks it", async () => {
-    const run = makeRun();
+    const run = mkRun();
     const { base } = gitify(run.cwdDir);
     writeScenario(run, [{ onCall: 1, actions: [{ type: "exit", code: 0 }] }]);
     await runGuard(run, ["--stage", "spec", "--round", "1", "--max-attempts", "1"]);
@@ -988,7 +1057,7 @@ describe("row emission (spec §5.4)", () => {
   // that already happened; a corpus that cannot be written must not change the
   // exit code or lose the result.json.
   it("warns and preserves exit code and result.json when the corpus is unwritable", async () => {
-    const run = makeRun();
+    const run = mkRun();
     const { base } = gitify(run.cwdDir);
     // Plant a DIRECTORY where the row file must go: mkdir succeeds, append fails.
     mkdirSync(corpusPath(run.cwdDir, base), { recursive: true });
@@ -1002,7 +1071,7 @@ describe("row emission (spec §5.4)", () => {
   // Plan resolution R1. Failure caught: a non-repo --cwd throwing, which would
   // break every pre-existing tests/codexGuard scenario.
   it("warns and exits 0 when --cwd is not a git repository", async () => {
-    const run = makeRun(); // cwdDir is a bare mkdirSync temp dir
+    const run = mkRun(); // cwdDir is a bare mkdirSync temp dir
     writeScenario(run, [{ onCall: 1, actions: [{ type: "lastMessage", text: "VERDICT: APPROVE\n" }, { type: "exit", code: 0 }] }]);
     const { code, stderr } = await runGuard(run, ["--stage", "spec", "--round", "1"]);
     expect(code).toBe(0);
@@ -1011,7 +1080,7 @@ describe("row emission (spec §5.4)", () => {
 
   // Failure caught: rows landing in a nonsense location under a detached HEAD.
   it("exits 2 on a detached HEAD", async () => {
-    const run = makeRun();
+    const run = mkRun();
     gitify(run.cwdDir);
     execFileSync("git", ["checkout", "-q", "--detach"], { cwd: run.cwdDir });
     writeScenario(run, [{ onCall: 1, actions: [{ type: "lastMessage", text: "VERDICT: APPROVE\n" }, { type: "exit", code: 0 }] }]);
@@ -1023,7 +1092,7 @@ describe("row emission (spec §5.4)", () => {
   // Failure caught: a corpus written under `<repo>/app/docs/` that the gate,
   // walking from the repo root, never sees - so an obliged arc passes.
   it("writes the repo-root corpus when --cwd is a subdirectory", async () => {
-    const run = makeRun();
+    const run = mkRun();
     const { base } = gitify(run.cwdDir);
     const sub = join(run.cwdDir, "app", "nested");
     mkdirSync(sub, { recursive: true });
@@ -1176,9 +1245,59 @@ Finally, in `buildConfig`, after `cfg.cwd` is validated as a directory (`scripts
   if (!arc.ok && arc.kind === "detached_head") usageError(arc.problem);
 ```
 
+- [ ] **Step 4a: Lock the bridge against the TypeScript implementation**
+
+Create tests/reviewRounds/bridgeParity.test.ts. It reuses Task 3's `makeRepo` helper and drives **both** implementations over the identical repo, so the two can never diverge on a case only one suite covers:
+
+```ts
+import { describe, expect, it } from "vitest";
+
+import { resolveArc as tsResolveArc } from "../../lib/reviewRounds/arc";
+// The wrapper runs this copy. Vitest imports the .mjs directly; no build step.
+import { resolveArc as jsResolveArc } from "../../scripts/reviewRoundEmit.mjs";
+
+/** Every arc-resolution case Task 3 defines, as (name, repo-builder) pairs. */
+const CASES = arcFixtureCases(); // feature branch, subdirectory cwd, reused
+                                 // branch, plain dir, detached HEAD, on main,
+                                 // no merge base
+
+describe("bridge parity: scripts/reviewRoundEmit.mjs vs lib/reviewRounds/arc.ts", () => {
+  // Failure caught: the bridge losing a branch of the contract while the
+  // TypeScript suite stays green. `on_main` is the sharp case - a bridge that
+  // dropped it would write a corpus directory for an arc that does not exist,
+  // and no test in Task 3 would notice, because Task 3 never runs the bridge.
+  it.each(CASES)("agrees on %s", (_name, build) => {
+    const cwd = build();
+    const ts = tsResolveArc(cwd);
+    const js = jsResolveArc(cwd);
+    expect(js.ok).toBe(ts.ok);
+    if (ts.ok && js.ok) {
+      expect(js.branch).toBe(ts.branch);
+      expect(js.baseSha).toBe(ts.baseSha);
+      expect(js.corpusFile).toBe(ts.corpusFile);
+    } else if (!ts.ok && !js.ok) {
+      expect(js.kind).toBe(ts.kind);
+    }
+  });
+
+  // Failure caught: a parity suite that passes because it exercises nothing.
+  // Derived from the case list, never a literal.
+  it("covers every refusal kind the contract defines", () => {
+    const kinds = new Set(
+      CASES.map(([, build]) => tsResolveArc(build())).filter((r) => !r.ok).map((r) => r.kind),
+    );
+    expect([...kinds].sort()).toEqual(
+      ["detached_head", "no_merge_base", "not_a_repo", "on_main"].sort(),
+    );
+  });
+});
+```
+
+Extract `arcFixtureCases()` into tests/reviewRounds/_arcFixtures.ts in this step and have tests/reviewRounds/arc.test.ts consume it too, so one list feeds both suites. That shared list is what makes the parity lock automatic rather than another thing to remember.
+
 - [ ] **Step 5: Run the tests to verify they pass**
 
-Run: `pnpm exec vitest run tests/codexGuard/reviewRounds.test.ts`
+Run: `pnpm exec vitest run tests/codexGuard/reviewRounds.test.ts tests/reviewRounds/bridgeParity.test.ts`
 Expected: PASS.
 
 - [ ] **Step 6: Run the whole codex-guard suite**
@@ -1218,7 +1337,7 @@ describe("declared finding count (spec §5.3)", () => {
   // inferred recognition at 64.8% against 681 real outputs; declared reaches
   // 99.6%. A recognizer here is the denylist shape the accept-set rule forbids.
   it("records the declared count", async () => {
-    const run = makeRun();
+    const run = mkRun();
     const { base } = gitify(run.cwdDir);
     writeScenario(run, [{ onCall: 1, actions: [{ type: "lastMessage", text: "FINDINGS: 5\nVERDICT: BLOCKING\n" }, { type: "exit", code: 0 }] }]);
     await runGuard(run, ["--stage", "diff", "--round", "1"]);
@@ -1226,7 +1345,7 @@ describe("declared finding count (spec §5.3)", () => {
   });
 
   it("records 0 as 0, distinct from undeclared", async () => {
-    const run = makeRun();
+    const run = mkRun();
     const { base } = gitify(run.cwdDir);
     writeScenario(run, [{ onCall: 1, actions: [{ type: "lastMessage", text: "FINDINGS: 0\nVERDICT: APPROVE\n" }, { type: "exit", code: 0 }] }]);
     await runGuard(run, ["--stage", "diff", "--round", "1"]);
@@ -1236,7 +1355,7 @@ describe("declared finding count (spec §5.3)", () => {
   // Failure caught: `null` folded into zero, which understates every report
   // total and is indistinguishable from "no findings found" (spec §5.3).
   it("records null when no line was declared, never zero", async () => {
-    const run = makeRun();
+    const run = mkRun();
     const { base } = gitify(run.cwdDir);
     writeScenario(run, [
       { onCall: 1, actions: [{ type: "lastMessage", text: "I found 3 problems, listed above.\nVERDICT: BLOCKING\n" }, { type: "exit", code: 0 }] },
@@ -1245,9 +1364,26 @@ describe("declared finding count (spec §5.3)", () => {
     expect(rowsIn(corpusPath(run.cwdDir, base))[0].findingCount).toBeNull();
   });
 
+  // Failure caught: an unanchored recognizer reading "FINDINGS: 2 or 7" as 2,
+  // recording an ambiguous declaration as a fact. This is an ordinary malformed
+  // reviewer response, not hiding, so the consequence bound applies: the corpus
+  // must not carry a false scalar.
+  it.each([["FINDINGS: 2 or 7"], ["FINDINGS: 3 (plus 2 nits)"], ["FINDINGS: 4 and rising"]])(
+    "records null for the ambiguous single line %j",
+    async (line) => {
+      const run = mkRun();
+      const { base } = gitify(run.cwdDir);
+      writeScenario(run, [
+        { onCall: 1, actions: [{ type: "lastMessage", text: `${line}\nVERDICT: BLOCKING\n` }, { type: "exit", code: 0 }] },
+      ]);
+      await runGuard(run, ["--stage", "diff", "--round", "1"]);
+      expect(rowsIn(corpusPath(run.cwdDir, base))[0].findingCount).toBeNull();
+    },
+  );
+
   // Failure caught: an ambiguous double declaration silently taking the first.
   it("records null when two different counts are declared", async () => {
-    const run = makeRun();
+    const run = mkRun();
     const { base } = gitify(run.cwdDir);
     writeScenario(run, [{ onCall: 1, actions: [{ type: "lastMessage", text: "FINDINGS: 2\nFINDINGS: 7\nVERDICT: BLOCKING\n" }, { type: "exit", code: 0 }] }]);
     await runGuard(run, ["--stage", "diff", "--round", "1"]);
@@ -1275,7 +1411,7 @@ function parseFindingCount(text) {
   const noFences = text.replace(/^ {0,3}```[^\n]*\n[\s\S]*?^ {0,3}```[^\n]*$/gm, "");
   const seen = new Set();
   for (const line of noFences.split("\n")) {
-    const m = /^\s*(?:\*{1,2}|_{1,2})?\s*FINDINGS:\s*(\d+)\b/.exec(line);
+    const m = /^\s*(?:\*{1,2}|_{1,2})?\s*FINDINGS:\s*(\d+)\s*(?:\*{1,2}|_{1,2})?\s*$/.exec(line);
     if (m) seen.add(Number(m[1]));
   }
   return seen.size === 1 ? [...seen][0] : null;
@@ -1321,6 +1457,10 @@ git commit -m "feat(review-rounds): declared FINDINGS count on every row"
   - `readArcs(root: string): Arc[]` where `Arc = { dir: string; branch: string; baseSha: string; corpusPath: string | null; filingPath: string | null; rows: …; filingText: string | null }`
 
 **Discovery is over BOTH extensions, not over corpora alone** (spec §7.1). Enumerating `.jsonl` and reaching for a sibling leaves an orphan `.md` unvisited — which makes assertion 9 vacuous in exactly the case it exists to catch. `readArcs` collects arc *directories*; an arc is any directory holding either file.
+
+**But "any `.md`" is too wide, and taken literally it makes the gate fail on its own documentation.** Task 12 adds docs/review-rounds/README.md, which has no sibling corpus and would be reported as an `orphan_filing` forever — the live-corpus test could never be green after Task 12 shipped. Discovery is therefore keyed on the **filename shape that arc identity already defines**: a corpus is a corpus named for the arc's baseSha12 and a filing is a filing named for the arc's baseSha12, where `<baseSha12>` matches `/^[0-9a-f]{12}$/`. Anything else under docs/review-rounds/ — a README, a note, an editor backup — is not an arc file and is ignored by name.
+
+This is narrower AND stricter than "any `.md`": it still catches the orphan the assertion exists for (a a 12-hex-stemmed .md with no a 12-hex-stemmed .jsonl beside it), and it additionally rejects a filing whose stem is not a merge-base at all, which the loose walk would have accepted silently. It costs nothing, because the shape is not a new convention — it is the one §5.2 already requires the writer to produce.
 
 - [ ] **Step 1: Write the failing counting + filing tests**
 
@@ -1903,6 +2043,31 @@ describe("review-round economy gate (spec §7.1)", () => {
     expect(problems.map((p) => p.kind)).toContain("orphan_filing");
   });
 
+  // Failure caught: a walk keyed on "any .md" reports the corpus README as a
+  // permanent orphan, so the live-corpus test can never be green once Task 12
+  // ships the README. Discovery is keyed on the <baseSha12> filename shape
+  // that §5.2 already requires.
+  it("PASSES a README and other non-arc-shaped files in the corpus tree", () => {
+    expect(
+      check([
+        { path: "README.md", body: "# Review rounds\n\nWhat this directory is.\n" },
+        { path: "feat/notes.md", body: "scratch\n" },
+        { path: `${ARC}.jsonl`, body: rows(...BELOW) },
+      ]),
+    ).toEqual([]);
+  });
+
+  // Failure caught: a filing whose stem is not a merge base at all. The loose
+  // "any .md" walk accepted this silently; the shape key rejects it.
+  it("FAILS a filing whose stem is not a 12-hex merge base", () => {
+    const problems = check([
+      { path: `${ARC}.jsonl`, body: rows(...OBLIGING) },
+      { path: "feat/foo/my-notes.md", body: FILING_OK },
+    ]);
+    // The real arc still owes a filing, because my-notes.md is not one.
+    expect(problems.map((p) => p.kind)).toContain("missing_filing");
+  });
+
   // Fails-by-default: a NEW arc dropped in is covered without editing the test.
   it("FAILS a brand-new fixture arc with no filing, without any test edit", () => {
     const problems = check([
@@ -1933,7 +2098,7 @@ Create lib/reviewRounds/corpus.ts exporting `type Problem = { kind: ProblemKind;
 
 Behavior, in order:
 
-1. **Walk `join(root, CORPUS_DIR)` recursively**, collecting every `.jsonl` **and** every `.md`. An arc directory is any directory holding either. `existsSync` guard first — an absent `docs/review-rounds/` is a legal clean state, not a failure.
+1. **Walk `join(root, CORPUS_DIR)` recursively**, collecting every file whose basename matches `/^[0-9a-f]{12}\.(jsonl|md)$/` — corpora **and** filings, since a `.jsonl`-first walk never visits an orphan filing. Every other file is ignored by name, which is what keeps docs/review-rounds/README.md from being a permanent orphan. `existsSync` guard first: an absent `docs/review-rounds/` is a legal clean state, not a failure.
 2. For each arc file, derive expected `branch` (the path segments between `docs/review-rounds/` and the file) and `baseSha` (the file stem).
 3. Parse each `.jsonl` line with `parseRow`; a failure yields `malformed_row` naming the repo-relative file and the 1-indexed line.
 4. Every row's `branch`/`baseSha` must equal the path-derived pair → `identity_mismatch`.
@@ -1941,7 +2106,7 @@ Behavior, in order:
 6. `countedRounds(rows)`: any stage at or above `ROUND_THRESHOLD` requires a filing section for that stage → `missing_filing` (message includes the `baseSha`, so the reused-branch test can assert which arc).
 7. `parseFiling(filingText)`: each section must have `hasExamined` and `hasDisposition` → `filing_malformed`; a stage with zero rows → `stage_without_rows`; `declaredRounds` not equal to that stage's counted rounds → `count_mismatch`; two sections for one stage → `duplicate_section`.
 8. Cited ids resolve against `opts.resolvableIds ?? liveLedgerIds(root)` → `unresolved_id`.
-9. An arc directory with an `.md` and no matching `.jsonl` → `orphan_filing`.
+9. A a filing named for the arc's baseSha12 with no a corpus named for the arc's baseSha12 beside it → `orphan_filing`. Non-arc-shaped files are never candidates, so a README is not an orphan.
 
 `liveLedgerIds(root)` builds the resolvable set with `ledgerIds` and `bodyDefinedIds` from `tests/docs/_ledgerMdast.ts` (`_ledgerMdast.ts:402`, `_ledgerMdast.ts:358`) over the four ledgers — `BACKLOG.md` and `BACKLOG-archive.md` under `{ requirePrefix: "BL-", levels: [2, 3] }`, `DEFERRED.md` and `DEFERRED-archive.md` under `{ requirePrefix: null, levels: [3] }` (plan R2). It does **not** import `definedIds` from `tests/docs/_metaLedgerReferentialIntegrity.test.ts`: that symbol is exported from a `*.test.ts` module, and importing it re-registers that file's whole suite.
 
@@ -2036,9 +2201,16 @@ function fixtureRepo(): { dir: string; advancedBase: string } {
   g(dir, "merge", "-q", "--no-ff", "feat/advanced-main", "-m",
     "Merge pull request #103 from owner/feat/advanced-main");
 
-  // (d) main merged INTO a feature branch - NOT a merged feature arc
+  // (d) main merged INTO a feature branch - NOT a merged feature arc.
+  // main MUST advance first. Without that, merging main into the branch is
+  // already-up-to-date and creates NO COMMIT AT ALL, so the fixture holds zero
+  // non-first-parent merges and a producer that omits --first-parent passes
+  // the exclusion assertion vacuously.
   g(dir, "checkout", "-q", "-b", "feat/took-main");
   commit("e.txt", "e");
+  g(dir, "checkout", "-q", "main");
+  commit("e2.txt", "main advances again");
+  g(dir, "checkout", "-q", "feat/took-main");
   g(dir, "merge", "-q", "--no-ff", "main", "-m", "Merge branch 'main' into feat/took-main");
   g(dir, "checkout", "-q", "main");
 
@@ -2047,6 +2219,17 @@ function fixtureRepo(): { dir: string; advancedBase: string } {
   commit("f.txt", "f");
   g(dir, "checkout", "-q", "main");
   g(dir, "merge", "-q", "--no-ff", "feat/mystery", "-m", "combine the mystery work");
+
+  // (f) the LIVE ambiguous residue, copied from this repository's history: a
+  // second-spelling subject whose first token IS a valid git branch name and
+  // is NOT a branch. `git check-ref-format --branch M12.2` exits 0, so a
+  // recognizer keyed on git-validity invents this branch instead of reporting
+  // the residue.
+  g(dir, "checkout", "-q", "-b", "feat/ambiguous-subject");
+  commit("g.txt", "g");
+  g(dir, "checkout", "-q", "main");
+  g(dir, "merge", "-q", "--no-ff", "feat/ambiguous-subject", "-m",
+    "Merge PR #4: M12.2 Phase B1 - admin nav shell + settings shell");
 
   return { dir, advancedBase };
 }
@@ -2098,6 +2281,35 @@ describe("merged-arc producer (spec §9, §11.3 layer 1)", () => {
     expect(result.unrecognized.every((u) => u.sha.length > 0)).toBe(true);
   });
 
+  // Failure caught: a recognizer keyed on git-validity inventing the branch
+  // `M12.2` from the live residue subject, joining the corpus against a branch
+  // that never existed and suppressing the one commit §9 requires be reported.
+  it("does NOT invent a branch from a second-spelling subject with no slash", () => {
+    expect(result.recognized.map((a) => a.branch)).not.toContain("M12.2");
+    expect(result.unrecognized.map((u) => u.subject)).toContain(
+      "Merge PR #4: M12.2 Phase B1 - admin nav shell + settings shell",
+    );
+    // Pin the premise, so this test cannot rot into a tautology if git changes:
+    // ordinary git validation ACCEPTS the token, which is why validity is not
+    // the discriminator.
+    expect(() =>
+      execFileSync("git", ["check-ref-format", "--branch", "M12.2"], { cwd: dir }),
+    ).not.toThrow();
+  });
+
+  // Failure caught: a producer that omits --first-parent. Requires the fixture
+  // to actually CONTAIN a non-first-parent merge, which it only does because
+  // main advances before feat/took-main merges it.
+  it("has a real non-first-parent merge in the fixture and excludes it", () => {
+    const all = g(dir, "log", "--merges", "--format=%H").split("\n").filter(Boolean);
+    const firstParent = g(dir, "log", "--merges", "--first-parent", "main", "--format=%H")
+      .split("\n")
+      .filter(Boolean);
+    // Derived from the fixture, not asserted as a literal count.
+    expect(all.length).toBeGreaterThan(firstParent.length);
+    expect(result.recognized.map((a) => a.branch)).not.toContain("feat/took-main");
+  });
+
   it("reports the repository as not shallow", () => {
     expect(result.shallow).toBe(false);
   });
@@ -2117,7 +2329,7 @@ Create lib/reviewRounds/mergedArcs.ts. Requirements, each traceable to a measure
 - `git log --merges --first-parent main --format=%H%x1f%s%x1f%cI`. **`--first-parent`, not bare `--merges`:** 239 of 916 real merge commits are main merged *into* a feature branch, and counting them would invent hundreds of silent arcs.
 - Accept-set over subjects, keyed on structure:
   - `/^Merge pull request #(\d+) from [^/\s]+\/(.+)$/` — branch is capture 2, **the whole path after `owner/`**.
-  - `/^Merge PR #(\d+): (\S+)/` — the second spelling; branch is capture 2 when it parses as a branch path.
+  - `/^Merge PR #(\d+): (\S+\/\S+)/` — the second spelling. The capture **must contain a `/`**. "Parses as a branch path" is NOT a sufficient test: the one real residue in this repository's history is `Merge PR #4: M12.2 Phase B1 — admin nav shell + settings shell`, and `git check-ref-format --branch M12.2` **exits 0** — ordinary git validation accepts it. A recognizer keyed on git-validity therefore invents the branch `M12.2`, joins the corpus against a branch that never existed, and silently converts the one commit the spec requires to be reported as `unrecognized` into a fictitious arc. Requiring a `/` keeps it in the residue, which is where §9 measured it and why §9 insists the residue be reported by subject rather than assumed empty.
 - Everything outside the accept-set is pushed to `unrecognized` **with its subject and sha**, never dropped and never guessed at. A denylist over subjects would accept whatever it failed to model.
 - `baseSha` = `git merge-base <sha>^1 <sha>^2`, first 12 chars. **Never the first parent**, which equals the merge base only when main did not advance after the branch diverged. A merge without two parents goes to `unrecognized`.
 
@@ -2170,46 +2382,266 @@ git commit -m "feat(review-rounds): merged-arc producer with declared accept-set
 Append to tests/reviewRounds/report.test.ts — one describe per §9 output, each fixture-driven:
 
 ```ts
+import { execFileSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+
+import { describe, expect, it } from "vitest";
+
+import { ADOPTION_BOUNDARY, ROUND_THRESHOLD } from "../../lib/reviewRounds/constants";
+import { buildReport } from "../../scripts/review-economy";
+
+/** Plant a corpus tree under `root` and return `root`. Paths are relative to
+ *  docs/review-rounds/, exactly as on disk. */
+function corpus(root: string, files: { path: string; body: string }[]): string {
+  for (const f of files) {
+    const abs = join(root, "docs", "review-rounds", f.path);
+    mkdirSync(dirname(abs), { recursive: true });
+    writeFileSync(abs, f.body);
+  }
+  return root;
+}
+
+const jrow = (over: Record<string, unknown> = {}): string =>
+  JSON.stringify({
+    stage: "diff",
+    round: 1,
+    branch: "feat/foo",
+    baseSha: "aaaaaaaaaaaa",
+    label: null,
+    status: "verdict",
+    verdict: "APPROVE",
+    failureReason: null,
+    findingCount: null,
+    startedAt: "2026-09-03T00:00:00.000Z",
+    endedAt: "2026-09-03T00:10:00.000Z",
+    briefPath: "b.md",
+    outDir: "o",
+    guardVersion: 1,
+    recoveredFrom: null,
+    ...over,
+  });
+
+const jrows = (...o: Record<string, unknown>[]): string => o.map(jrow).join("\n") + "\n";
+
+/** Derived from ROUND_THRESHOLD - a fixture that cannot reach the threshold
+ *  makes every trigger assertion below vacuous. */
+const OBLIGE = Array.from({ length: ROUND_THRESHOLD }, (_, i) => ({ round: i + 1 }));
+
+/** The report's boundary in tests is injected, never the shipped constant:
+ *  ADOPTION_BOUNDARY is null until Task 12 sets it, and a suite that read the
+ *  real one would change behavior the day it is set. */
+const BOUNDARY = "2026-09-01T00:00:00.000Z";
+const opts = { adoptionBoundary: BOUNDARY };
+
 describe("report aggregation (spec §9)", () => {
   // Failure caught: collapsing stages into one number, which cannot be
-  // compared against a per-stage threshold.
-  it("reports rounds PER STAGE, counted and recorded separately", () => { /* fixture: all three stages, mixed verdict/no_verdict; assert per-stage pairs */ });
+  // compared against a per-stage threshold, and an implementation that counts
+  // every RECORDED row against it.
+  it("reports rounds PER STAGE, counted and recorded separately", () => {
+    const root = corpus(mkdtempSync(join(tmpdir(), "rep-stage-")), [
+      {
+        path: "feat/foo/aaaaaaaaaaaa.jsonl",
+        body: jrows(
+          { stage: "spec", round: 1 },
+          { stage: "spec", round: 2 },
+          { stage: "diff", round: 1 },
+          { stage: "diff", round: 1 },
+          { stage: "diff", round: 2, status: "no_verdict", verdict: null, failureReason: "wrapper_error" },
+          { stage: "task", round: 1 },
+        ),
+      },
+    ]);
+    const arc = buildReport(root, opts).arcs.find((a) => a.baseSha === "aaaaaaaaaaaa");
+    expect(arc?.stages.spec).toEqual({ counted: 2, recorded: 2 });
+    // Two rows share round 1, so counted is 1; the no_verdict row is recorded
+    // but never counted.
+    expect(arc?.stages.diff).toEqual({ counted: 1, recorded: 3 });
+    expect(arc?.stages.task).toEqual({ counted: 0, recorded: 1 });
+  });
 
   // Failure caught: a branch-only join reading an older arc's rows as evidence
-  // for a later one. THIS FAILS AND EVERY OTHER TEST IN THIS SECTION PASSES,
-  // which is exactly how the defect would ship.
-  it("lists the newer arc as silent when an older arc shares its branch name", () => { /* one branch, two baseSha dirs: older has rows, newer merged with none */ });
+  // for a later one. THIS FAILS AND EVERY OTHER TEST IN THIS FILE PASSES,
+  // which is exactly how the defect would ship. Mirrors real history: this
+  // repo has reused three branch names across distinct PRs.
+  it("lists the newer arc as silent when an older arc shares its branch name", () => {
+    const root = mkdtempSync(join(tmpdir(), "rep-join-"));
+    corpus(root, [{ path: "feat/reused/aaaaaaaaaaaa.jsonl", body: jrows(...OBLIGE.map((o) => ({ ...o, branch: "feat/reused" }))) }]);
+    const report = buildReport(root, {
+      ...opts,
+      mergedArcs: [
+        { sha: "1".repeat(40), branch: "feat/reused", baseSha: "aaaaaaaaaaaa", mergedAt: "2026-09-04T00:00:00.000Z" },
+        { sha: "2".repeat(40), branch: "feat/reused", baseSha: "cccccccccccc", mergedAt: "2026-09-05T00:00:00.000Z" },
+      ],
+    });
+    const silent = report.silentArcs?.map((a) => a.baseSha) ?? [];
+    expect(silent).toContain("cccccccccccc");
+    expect(silent).not.toContain("aaaaaaaaaaaa");
+  });
 
-  // Failure caught: a stage that began in January and crossed in February
-  // landing in two buckets, making a monthly rate exceed 1 and reporting
-  // January as both 50% and 0%.
-  it("buckets a stage by its FIRST counted row's month and counts it triggered if it EVER crossed", () => { /* rows spanning two months */ });
+  // Failure caught: a stage that began in one month and crossed in the next
+  // landing in two buckets, which makes a monthly rate exceed 1 and reports
+  // the first month as two different numbers.
+  it("buckets a stage by its FIRST counted row's month and counts it triggered if it EVER crossed", () => {
+    const root = corpus(mkdtempSync(join(tmpdir(), "rep-rate-")), [
+      {
+        // Crosses the threshold, but its first counted row is in September.
+        path: "feat/spanner/aaaaaaaaaaaa.jsonl",
+        body: jrows(
+          ...OBLIGE.slice(0, ROUND_THRESHOLD - 1).map((o) => ({ ...o, branch: "feat/spanner", startedAt: "2026-09-28T00:00:00.000Z" })),
+          { round: ROUND_THRESHOLD, branch: "feat/spanner", startedAt: "2026-10-02T00:00:00.000Z" },
+        ),
+      },
+      {
+        // Same September bucket, never crosses.
+        path: "feat/short/bbbbbbbbbbbb.jsonl",
+        body: jrows({ round: 1, branch: "feat/short", baseSha: "bbbbbbbbbbbb", startedAt: "2026-09-10T00:00:00.000Z" }),
+      },
+    ]);
+    const rate = buildReport(root, opts).triggerRateByMonth;
+    // Population and numerator both derived from the fixture: two (arc, stage)
+    // pairs in 2026-09, one of which ever crossed.
+    expect(rate["2026-09"]).toEqual({ population: 2, triggered: 1, rate: 0.5 });
+    // The crossing does NOT also create an October bucket.
+    expect(rate["2026-10"]).toBeUndefined();
+  });
 
-  it("excludes task stages and no-verdict-only stages from the rate population", () => { /* … */ });
+  // Failure caught: a rate computed over arcs rather than over (arc, stage)
+  // pairs that actually completed a review.
+  it("excludes task stages and no-verdict-only stages from the rate population", () => {
+    const root = corpus(mkdtempSync(join(tmpdir(), "rep-pop-")), [
+      {
+        path: "feat/foo/aaaaaaaaaaaa.jsonl",
+        body: jrows(
+          { stage: "spec", round: 1 },
+          { stage: "task", round: 1 },
+          { stage: "plan", round: 1, status: "no_verdict", verdict: null, failureReason: "attempts_exhausted" },
+        ),
+      },
+    ]);
+    // Only the spec stage completed a review, so the population is 1.
+    expect(buildReport(root, opts).triggerRateByMonth["2026-09"]?.population).toBe(1);
+  });
 
-  // Failure caught: null folded into zero, understating every total and
-  // indistinguishable from "no findings".
-  it("totals findingCount over declared rows only and reports undeclared as its own count", () => { /* mix of declared and null */ });
+  // Failure caught: null folded into zero, which understates every total and
+  // is indistinguishable from "no findings found".
+  it("totals findingCount over declared rows only and reports undeclared as its own count", () => {
+    const root = corpus(mkdtempSync(join(tmpdir(), "rep-find-")), [
+      {
+        path: "feat/foo/aaaaaaaaaaaa.jsonl",
+        body: jrows(
+          { round: 1, findingCount: 5 },
+          { round: 2, findingCount: 0 },
+          { round: 3, findingCount: null },
+        ),
+      },
+    ]);
+    const f = buildReport(root, opts).findingsByStage.diff;
+    // 5 + 0 over the two DECLARED rows. A null-as-zero implementation reports
+    // the same total but declaredRows: 3, so both fields are asserted.
+    expect(f).toEqual({ total: 5, declaredRows: 2, undeclaredRows: 1 });
+  });
 
-  it("lists a merged arc with zero rows as silent and one with rows as not", () => { /* … */ });
+  it("lists a merged arc with zero rows as silent and one with rows as not", () => {
+    const root = corpus(mkdtempSync(join(tmpdir(), "rep-silent-")), [
+      { path: "feat/recorded/aaaaaaaaaaaa.jsonl", body: jrows({ round: 1, branch: "feat/recorded" }) },
+    ]);
+    const report = buildReport(root, {
+      ...opts,
+      mergedArcs: [
+        { sha: "1".repeat(40), branch: "feat/recorded", baseSha: "aaaaaaaaaaaa", mergedAt: "2026-09-04T00:00:00.000Z" },
+        { sha: "2".repeat(40), branch: "feat/quiet", baseSha: "bbbbbbbbbbbb", mergedAt: "2026-09-04T00:00:00.000Z" },
+      ],
+    });
+    expect(report.silentArcs?.map((a) => a.branch)).toEqual(["feat/quiet"]);
+  });
 
   // Failure caught: the 668-arc mass false classification.
-  it("excludes pre-adoption merges from the silent list and reports them as a single count", () => { /* merges before and after the DECLARED ADOPTION_BOUNDARY */ });
+  it("excludes pre-adoption merges from the silent list and reports them as a single count", () => {
+    const root = corpus(mkdtempSync(join(tmpdir(), "rep-adopt-")), []);
+    const report = buildReport(root, {
+      ...opts,
+      mergedArcs: [
+        { sha: "1".repeat(40), branch: "feat/ancient", baseSha: "aaaaaaaaaaaa", mergedAt: "2026-08-01T00:00:00.000Z" },
+        { sha: "2".repeat(40), branch: "feat/modern", baseSha: "bbbbbbbbbbbb", mergedAt: "2026-09-04T00:00:00.000Z" },
+      ],
+    });
+    expect(report.silentArcs?.map((a) => a.branch)).toEqual(["feat/modern"]);
+    expect(report.preAdoptionMergeCount).toBe(1);
+    // Reported as a COUNT, never enumerated (spec §8.3 limit 7).
+    expect(report).not.toHaveProperty("preAdoptionArcs");
+  });
 
-  // The two cases that pass TRIVIALLY under a derived boundary, which is why
-  // the boundary is declared. Both are silent wrongness, not conservatism.
-  it("lists a zero-row arc merged AFTER the boundary but BEFORE the earliest corpus row as silent", () => { /* boundary 10:00, merge 11:00, first row 12:00 */ });
-  it("still lists post-boundary zero-row merges as silent when the corpus is EMPTY", () => { /* no rows at all; universe must not collapse to empty */ });
-  it("prints an advisory mismatch when the earliest corpus row precedes the boundary", () => { /* the constant is wrong; say so */ });
+  // The two cases that pass TRIVIALLY under a boundary derived from the corpus,
+  // which is why the boundary is declared. Both are silent wrongness.
+  it("lists a zero-row arc merged AFTER the boundary but BEFORE the earliest corpus row as silent", () => {
+    const root = corpus(mkdtempSync(join(tmpdir(), "rep-gap-")), [
+      // Earliest row is 2026-09-03; a derived boundary would be that date.
+      { path: "feat/foo/aaaaaaaaaaaa.jsonl", body: jrows({ round: 1 }) },
+    ]);
+    const report = buildReport(root, {
+      ...opts,
+      mergedArcs: [
+        { sha: "9".repeat(40), branch: "feat/first-silent", baseSha: "dddddddddddd", mergedAt: "2026-09-02T00:00:00.000Z" },
+      ],
+    });
+    expect(report.silentArcs?.map((a) => a.branch)).toContain("feat/first-silent");
+    expect(report.preAdoptionMergeCount).toBe(0);
+  });
+
+  it("still lists post-boundary zero-row merges as silent when the corpus is EMPTY", () => {
+    const root = corpus(mkdtempSync(join(tmpdir(), "rep-empty-")), []);
+    const report = buildReport(root, {
+      ...opts,
+      mergedArcs: [
+        { sha: "9".repeat(40), branch: "feat/nothing-recorded", baseSha: "eeeeeeeeeeee", mergedAt: "2026-09-04T00:00:00.000Z" },
+      ],
+    });
+    // A derived boundary is null here, the universe collapses to empty, and the
+    // report declares all-clear in exactly the state where nothing is recorded.
+    expect(report.silentArcs?.map((a) => a.branch)).toEqual(["feat/nothing-recorded"]);
+  });
+
+  it("prints an advisory mismatch when the earliest corpus row precedes the boundary", () => {
+    const root = corpus(mkdtempSync(join(tmpdir(), "rep-mismatch-")), [
+      { path: "feat/foo/aaaaaaaaaaaa.jsonl", body: jrows({ round: 1, startedAt: "2026-08-15T00:00:00.000Z" }) },
+    ]);
+    const report = buildReport(root, opts);
+    expect(report.boundaryAdvisory).toContain("2026-08-15");
+  });
+
+  // Failure caught: an unset boundary treated as the epoch, which accuses every
+  // pre-adoption merge in one run.
+  it("reports not-yet-adopted and withholds the silent list when the boundary is null", () => {
+    const root = corpus(mkdtempSync(join(tmpdir(), "rep-null-")), []);
+    const report = buildReport(root, {
+      adoptionBoundary: null,
+      mergedArcs: [
+        { sha: "1".repeat(40), branch: "feat/whatever", baseSha: "aaaaaaaaaaaa", mergedAt: "2026-09-04T00:00:00.000Z" },
+      ],
+    });
+    expect(report.silentArcs).toBeNull();
+    expect(report.notes.join(" ")).toMatch(/not yet adopted/i);
+  });
 
   // Failure caught: a partial answer labelled complete - the §8.2 failure.
   // Ambient-gated skipping cannot catch this: an implementation with NO
   // --is-shallow-repository check passes every other test in this file.
   it("refuses the merged-arc scan on a synthesized shallow clone and says so by name", () => {
-    /* git clone --depth=1 file://<layer-1 fixture> - deterministic, network-free,
-       independent of the ambient checkout's depth. Assert against the report's
-       own output: shallow === true, the refusal present BY NAME, and
-       silentArcs === null (WITHHELD) rather than [] (a clean empty scan). */
+    const origin = fixtureRepo().dir; // Task 7's layer-1 fixture, reused
+    const shallow = join(mkdtempSync(join(tmpdir(), "rep-shallow-")), "clone");
+    execFileSync("git", ["clone", "--depth=1", `file://${origin}`, shallow]);
+    expect(
+      execFileSync("git", ["rev-parse", "--is-shallow-repository"], { cwd: shallow, encoding: "utf8" }).trim(),
+    ).toBe("true");
+
+    const report = buildReport(shallow, opts);
+    // WITHHELD, not empty. An empty array and a refusal must be different
+    // values, or this assertion cannot tell one from the other.
+    expect(report.silentArcs).toBeNull();
+    expect(report.shallow).toBe(true);
+    expect(report.notes.join(" ")).toMatch(/shallow/i);
   });
 });
 
@@ -2217,16 +2649,59 @@ describe("real history (spec §11.3 layer 2)", () => {
   // A test that quietly passes over one merge is a false presence. Numbers are
   // derived from the live log, never from literals - a hardcoded 676 makes
   // this a tripwire on the calendar instead of on the producer.
-  it("matches the live log when history is available, or SKIPS BY NAME when shallow", () => { /* gate on git rev-parse --is-shallow-repository */ });
+  const isShallow =
+    execFileSync("git", ["rev-parse", "--is-shallow-repository"], { encoding: "utf8" }).trim() === "true";
+
+  it.skipIf(isShallow)("matches the live log when history is available", () => {
+    const expected = execFileSync(
+      "git",
+      ["log", "--merges", "--first-parent", "main", "--format=%s"],
+      { encoding: "utf8" },
+    )
+      .split("\n")
+      .filter(Boolean);
+    const { recognized, unrecognized } = mergedArcs(process.cwd());
+    // Every first-parent merge is accounted for: recognized or reported.
+    expect(recognized.length + unrecognized.length).toBe(expected.length);
+    // The residue is REPORTED, never assumed empty - and every entry carries
+    // its subject, per §9.
+    expect(unrecognized.every((u) => u.subject.length > 0)).toBe(true);
+  });
+
+  it.runIf(isShallow)("SKIPS BY NAME on a shallow clone", () => {
+    // A named absence, not a quiet pass over one merge.
+    expect(mergedArcs(process.cwd()).shallow).toBe(true);
+  });
 });
 ```
 
-Each stub above is filled in with a complete fixture and assertions before the step is checked off — the shape is given here so the fixture set is fixed at plan time; the bodies follow the `check()`/`fixtureRepo()` helpers already established in Tasks 6 and 7.
+**`buildReport` takes its boundary and its merged-arc list as options.** Both default to the production values — `ADOPTION_BOUNDARY` and `mergedArcs(repoRoot)` — and both are injectable, for the two reasons the tests above make concrete: the shipped constant is `null` until Task 12 sets it, so a suite reading it directly would change behavior the day it is set; and the silent-arc join needs merged arcs that do not exist in any fixture repo's real history. The injection points are the seam, not a test-only backdoor: the CLI passes neither and gets production behavior.
+
+**`Report` shape**, fixed here so no field is invented at implementation time:
+
+```ts
+export type StageCounts = { counted: number; recorded: number };
+export type Report = {
+  arcs: { branch: string; baseSha: string; stages: Record<string, StageCounts> }[];
+  triggerRateByMonth: Record<string, { population: number; triggered: number; rate: number }>;
+  findingsByStage: Record<string, { total: number; declaredRows: number; undeclaredRows: number }>;
+  /** null means WITHHELD - a shallow clone or an unset boundary. Never [] for
+   *  those cases: an empty list is a completed scan that found nothing. */
+  silentArcs: { branch: string; baseSha: string; sha: string; mergedAt: string }[] | null;
+  preAdoptionMergeCount: number;
+  unrecognizedMerges: { sha: string; subject: string }[];
+  shallow: boolean;
+  /** Present when the corpus's earliest startedAt precedes the boundary, which
+   *  means the declared constant is wrong. */
+  boundaryAdvisory: string | null;
+  notes: string[];
+};
+```
 
 - [ ] **Step 2: Run to verify failure**
 
 Run: `pnpm exec vitest run tests/reviewRounds/report.test.ts`
-Expected: FAIL — `buildReport` not exported.
+Expected: FAIL — `Cannot find module '../../scripts/review-economy'`. The suite imports `buildReport` at the top, so this is a real red state and not a rerun of Task 7.
 
 - [ ] **Step 3: Implement the report**
 
@@ -2278,6 +2753,10 @@ Three dispatches in the 681-file probe corpus emitted `**VERDICT: …**` and wer
 Create tests/codexGuard/verdictEmphasis.test.ts driving the wrapper through the harness with each shape:
 
 ```ts
+import { describe, expect, it } from "vitest";
+
+import { mkRun, readResult, runGuard, writeScenario } from "./harness";
+
 describe("verdict lines wrapped in markdown emphasis (spec §3 consequence 3)", () => {
   // Failure caught: a full review spent, then filed as an infrastructure
   // fault - indistinguishable in result.json from a reaped dispatch.
@@ -2287,8 +2766,10 @@ describe("verdict lines wrapped in markdown emphasis (spec §3 consequence 3)", 
     ["__VERDICT: APPROVE__"],
     ["  **VERDICT: APPROVE**  "],
   ])("recovers the verdict from %j", async (line) => {
-    const run = makeRun();
-    writeScenario(run, [{ onCall: 1, actions: [{ type: "lastMessage", text: `${line }, { type: "exit", code: 0 }] }\n` }]);
+    const run = mkRun();
+    writeScenario(run, [
+      { onCall: 1, actions: [{ type: "lastMessage", text: `${line}\n` }, { type: "exit", code: 0 }] },
+    ]);
     const { code } = await runGuard(run);
     expect(code).toBe(0);
     expect(readResult(run)).toMatchObject({ status: "verdict", verdict: "APPROVE" });
@@ -2300,8 +2781,10 @@ describe("verdict lines wrapped in markdown emphasis (spec §3 consequence 3)", 
     ["**VERDICT: APPROVE or BLOCKING**"],
     ["**VERDICT: APPROVE / NEEDS-ATTENTION**"],
   ])("still refuses the ambiguous line %j", async (line) => {
-    const run = makeRun();
-    writeScenario(run, [{ onCall: 1, actions: [{ type: "lastMessage", text: `${line }, { type: "exit", code: 0 }] }\n` }]);
+    const run = mkRun();
+    writeScenario(run, [
+      { onCall: 1, actions: [{ type: "lastMessage", text: `${line}\n` }, { type: "exit", code: 0 }] },
+    ]);
     await runGuard(run, ["--max-attempts", "1"]);
     expect(readResult(run)).toMatchObject({ status: "no_verdict" });
   });
@@ -2310,7 +2793,7 @@ describe("verdict lines wrapped in markdown emphasis (spec §3 consequence 3)", 
   // verdict is read as a verdict. The instruction text is what every brief in
   // the repo contains, so a regex that matches it breaks every dispatch.
   it("does not read a fenced example as a verdict", async () => {
-    const run = makeRun();
+    const run = mkRun();
     writeScenario(run, [
       { onCall: 1, actions: [{ type: "lastMessage", text: "```\nVERDICT: APPROVE\n```\nStill working.\n" }, { type: "exit", code: 0 }] },
     ]);
@@ -2393,8 +2876,11 @@ git commit -m "docs(review-rounds): the dispatch hook reports declared findings,
 ### Task 11: Mutation enrollment
 
 **Files:**
-- Modify: `tests/mutation/source/registry.ts` (`GUARD_SURFACES` at `registry.ts:120`)
+- Modify: `tests/mutation/source/registry.ts` (`GUARD_SURFACES` at `registry.ts:120`, `GuardSurface` at `registry.ts:12-23`, `validateSurface` at `registry.ts:41`)
 - Modify: `tests/mutation/guardSurfaces.gate.test.ts` (`EXPECTED_LEDGER_KINDS` at `tests/mutation/guardSurfaces.gate.test.ts:33`, control mutation at `tests/mutation/guardSurfaces.gate.test.ts:110-129`)
+- Modify: `tests/mutation/_metaGuardSurfaceRegistry.test.ts` — **a third consumer, and the one a `GuardSurface` change breaks silently at typecheck.** Its `VALID: GuardSurface` fixture (`tests/mutation/_metaGuardSurfaceRegistry.test.ts:16`) is a fully-typed literal with no `controlMutation` field, so adding a required field makes `pnpm exec tsc --noEmit` fail there, not in either file above. It is also where the new `validateSurface` rules get their behavioral cases.
+
+**Sweep before editing the type, do not trust this list:** `grep -rn 'GuardSurface' tests/ lib/ scripts/` enumerates every consumer of the type. Each one either gains the field or is shown not to construct a `GuardSurface` literal.
 
 **Interfaces:**
 - Consumes: lib/reviewRounds/corpus.ts and lib/reviewRounds/count.ts (Task 6) as the mutated sources.
@@ -2402,9 +2888,37 @@ git commit -m "docs(review-rounds): the dispatch hook reports declared findings,
 
 **Two things block a second surface today**, and both are part of this task. `EXPECTED_LEDGER_KINDS` (`tests/mutation/guardSurfaces.gate.test.ts:33`) requires an entry keyed by surface id — verified: it currently holds only `taskContract: { equivalent: 18, "accepted-gap": 2 }` and the suite asserts its key set equals the enrolled ids exactly. And the control mutation (`tests/mutation/guardSurfaces.gate.test.ts:110-129`) is hardcoded to `'if (kind !== "plan") return [];'`, a `taskContract` source string — verified live. A second surface fails on both until the control is generalized per surface.
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **Step 1: Write the failing tests**
 
-Add the new surface's row to `EXPECTED_LEDGER_KINDS` and a `controlMutation` field to the registry's `GuardSurface` type, then run the gate. It fails on the hardcoded control, which is the red state.
+In `tests/mutation/_metaGuardSurfaceRegistry.test.ts`, add the behavioral cases for the new `validateSurface` rules — the authoring-time half of the control's liveness guarantee:
+
+```ts
+  // Failure caught: a control whose `find` string is absent from the source.
+  // The overlay applies nothing, the suite stays green, and the AC-3 liveness
+  // probe reports success while proving nothing at all.
+  it("rejects a control mutation that matches zero times", () => {
+    expect(
+      validateSurface({ ...VALID, controlMutation: { find: "no such text", replace: "x" } }),
+    ).not.toEqual([]);
+  });
+
+  // Failure caught: an ambiguous control. Which site got mutated decides
+  // whether the probe is meaningful, and "whichever String.replace hit first"
+  // is not a decision anyone made.
+  it("rejects a control mutation that matches more than once", () => {
+    expect(
+      validateSurface({ ...VALID, controlMutation: { find: "const", replace: "let" } }),
+    ).not.toEqual([]);
+  });
+
+  it("accepts a control mutation that matches exactly once", () => {
+    expect(validateSurface(VALID)).toEqual([]);
+  });
+```
+
+`VALID` (`tests/mutation/_metaGuardSurfaceRegistry.test.ts:16`) gains a `controlMutation` in the same edit; without it the file does not typecheck once the field is required, and that failure is the first red state.
+
+Then add the new surface's row to `EXPECTED_LEDGER_KINDS` and run the gate. It fails on the hardcoded control, which is the second red state.
 
 - [ ] **Step 2: Generalize the control**
 
@@ -2515,6 +3029,25 @@ After implementation, a fresh-eyes whole-diff review with the same contract at `
 - [ ] **Step 3: Execution handoff**
 
 ---
+
+## Review Round 1 Triage
+
+Ten findings, all confirmed against the live tree before repair. Recorded so a later round does not re-derive them.
+
+| # | Finding | Repair |
+| --- | --- | --- |
+| 1 | HIGH - `ADOPTION_BOUNDARY` hardcoded to a date **before** this feature can merge, so any arc merging in between is falsely accused of being silent | The constant ships `null` ("not yet adopted", no silent list) and is set in the PR's **last** commit to that commit's own timestamp (Task 12 Step 0). The error direction is now one-sided: too late is documented limit 7, too early is a false accusation |
+| 2 | HIGH - the second-spelling recognizer accepted any git-valid token, inventing branch `M12.2` from the one real residue; the fixture also had no genuine non-first-parent merge (`main` never advanced, so the merge was already-up-to-date and created no commit) | Capture must contain a `/`. Fixture gains the live ambiguous subject and advances `main` before the took-main merge; two new tests pin both, one of them asserting `check-ref-format` **accepts** `M12.2` so the premise cannot rot |
+| 3 | HIGH - Task 12's corpus README is an orphan filing by construction, so the live-corpus test could never be green | Discovery is keyed on the `^[0-9a-f]{12}\.(jsonl\|md)$` filename shape §5.2 already requires. Narrower AND stricter: it still catches the real orphan and now also rejects a filing whose stem is not a merge base |
+| 4 | HIGH - `mkRun`, not `makeRun`, at all 19 call sites; Task 9 had no imports and two mangled template literals that swallowed the exit action | Renamed, imports added, both literals rebuilt |
+| 5 | HIGH - `tests/codexGuard/signals.test.ts:104` spawns the wrapper directly, bypassing the harness default, so the hard cutover regresses the suite | New Step 3a edits that literal array, plus a `grep -rn '"review"'` sweep so the fix is not keyed to one known site |
+| 6 | HIGH - the wrapper-error test could not reach the second writer: `buildConfig` and the whole `--lint-doc` block run at MODULE TOP LEVEL (`scripts/codex-guard.mjs:921` and `scripts/codex-guard.mjs:926`), before `main` is defined (`scripts/codex-guard.mjs:994`) | Trigger changed to a `CODEX_HOME` pointing at a plain file, which throws inside `main()` while leaving `cfg.out` writable; a structural test asserting an emit at both sites backs it up |
+| 7 | MEDIUM - the `.mjs` bridge and the TypeScript module were tested separately, so they could drift on any case only one covered | Step 4a differential test drives **both** over one shared fixture list (tests/reviewRounds/_arcFixtures.ts), asserting identical results and full refusal-kind coverage |
+| 8 | HIGH - Task 8's twelve report cases were empty placeholders and never imported `buildReport`, so Step 2 could not fail as claimed | Every body written, `Report` shape fixed in the plan, boundary and merged-arc list made injectable with production defaults |
+| 9 | HIGH - `tests/mutation/_metaGuardSurfaceRegistry.test.ts:16` holds a typed `GuardSurface` literal, so requiring `controlMutation` breaks typecheck **there**; its validation had no behavioral case | File added to Task 11, three `validateSurface` cases written (zero matches, many matches, exactly one), plus a `grep -rn 'GuardSurface'` consumer sweep |
+| 10 | MEDIUM - `FINDINGS: 2 or 7` recorded as `2`, an unanchored recognizer turning an ambiguous declaration into a false scalar | Regex end-anchored; three ambiguous single-line cases added |
+
+Two classes were swept rather than patched at their named instance: every wrapper arg-vector construction (finding 5) and every `GuardSurface` consumer (finding 9) get a `grep` sweep in the task body, because "the one we know about" is what made both defects invisible in the first place.
 
 ## Self-Review Record
 
