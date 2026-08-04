@@ -627,7 +627,9 @@ export function TravelSection({
                                 ) : null}
                                 {seg.conf ? (
                                   <p className="text-xs text-text-faint tabular-nums">
-                                    Conf {seg.conf}
+                                    {/* Same transcribe-back class as the itinerary
+                                        locator below; only the code gets the slash. */}
+                                    Conf <span className="code-value">{seg.conf}</span>
                                   </p>
                                 ) : null}
                               </div>

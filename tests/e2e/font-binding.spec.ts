@@ -641,4 +641,43 @@ test.describe("font binding — the features render", () => {
     expect(settings).toContain("zero");
     expect(settings, "and it keeps what it inherits").toContain("ss04");
   });
+
+  test("code-value works on a <code> element, not only where it inherits the UI font", async ({
+    page,
+  }) => {
+    // Tailwind preflight gives <code>/<kbd>/<samp>/<pre> a `ui-monospace` default.
+    // `.code-value` shipped WITHOUT declaring a family, so on the one <code>
+    // element it was applied to (the wizard's service-account address) it
+    // resolved to a mono face carrying none of these features and rendered
+    // nothing — the same silent dead declaration this whole change exists to
+    // kill, reintroduced by its own fix. Impeccable audit P1.
+    //
+    // Asserting the resolved FAMILY rather than the feature string is the point:
+    // a feature declaration is inert unless the face beneath it can honor it, and
+    // the static guard cannot see which element a class lands on.
+    await page.goto("/auth/sign-in", { waitUntil: "load" });
+    const resolved = await page.evaluate(() => {
+      const loaderFamily = getComputedStyle(document.documentElement)
+        .getPropertyValue("--font-inter")
+        .split(",")[0]
+        ?.trim()
+        .replace(/^["']|["']$/g, "");
+      const el = document.createElement("code");
+      el.className = "code-value";
+      el.textContent = "45846091";
+      document.body.appendChild(el);
+      const style = getComputedStyle(el);
+      return {
+        loaderFamily,
+        fontFamily: style.fontFamily,
+        settings: style.fontFeatureSettings,
+      };
+    });
+    expect(
+      resolved.fontFamily,
+      `.code-value on a <code> resolved to ${resolved.fontFamily}, which is not ` +
+        `the loaded family — its font-feature-settings render nothing there`,
+    ).toContain(resolved.loaderFamily ?? "\u0000");
+    expect(resolved.settings).toContain("zero");
+  });
 });

@@ -694,6 +694,16 @@ time,
  * above. DESIGN.md 2.4.
  */
 .code-value {
+  /* The family is declared HERE, not inherited, and that is load-bearing. Tailwind
+     preflight gives <code>/<kbd>/<samp>/<pre> a `ui-monospace` default, so a
+     `.code-value` on a <code> element resolved to a mono face that carries none
+     of these features and rendered NOTHING -- the same silent dead declaration
+     this whole change exists to kill, reintroduced by its own fix. Measured by
+     pixel oracle at 48px: <code class="code-value"> was byte-identical to a bare
+     <code>. Impeccable audit P1, 2026-08-03. Binding the family makes the class
+     self-contained, so it works wherever it is applied rather than only on
+     elements that happen to inherit the UI font. */
+  font-family: var(--font-sans);
   font-variant-numeric: tabular-nums;
   font-feature-settings:
     "ss04" 1,
