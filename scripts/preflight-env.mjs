@@ -90,6 +90,31 @@ if (missing.length || invalid.length) {
   process.exit(1);
 }
 
+// --- live ledger claims ------------------------------------------------------
+// Placed HERE, after the env checks and BEFORE the DB probe, because both DB
+// paths exit 0 below (--no-db and psql-ENOENT) and a step appended at the end of
+// this file would be dark in exactly the two modes a docs-only or DB-less
+// worktree uses.
+//
+// NEVER changes preflight's exit code: this is a display, not a gate.
+// `--no-fetch` keeps it instant and offline-safe — the authoritative read is
+// `pnpm ledger:claims`, which fetches on its own 30 s budget.
+const skipClaims =
+  process.argv.includes("--no-claims") ||
+  process.env.PREFLIGHT_NO_CLAIMS === "1" ||
+  process.env.CI === "true";
+
+if (!skipClaims) {
+  const claims = spawnSync("pnpm", ["exec", "tsx", "scripts/ledger-claims.ts", "--no-fetch"], {
+    cwd: repoRoot,
+    encoding: "utf8",
+    timeout: 15_000,
+  });
+  const out = `${claims.stdout ?? ""}`.trim();
+  if (out) console.log(`\n${out}`);
+  else if (claims.error) console.log(`preflight: live claims unavailable (${claims.error.code ?? "error"})`);
+}
+
 // --- non-loopback WARNINGS: this is a LOCAL preflight ------------------------
 // SUPABASE_URL / NEXT_PUBLIC_SUPABASE_URL should point at local Supabase and
 // TEST_DATABASE_URL at local Postgres. A remote value here silently makes

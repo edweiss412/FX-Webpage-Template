@@ -200,6 +200,17 @@ export function isFamilyReference(text: string, end: number, stem: string, defin
  * as dead, and a row whose id becomes real fails as stale.
  */
 const NOT_A_CITATION: Record<string, Record<string, string>> = {
+  "scripts/ledger-claims.ts": {
+    "BL-A": "usage example in the CLI docstring",
+    "BL-B": "usage example in the CLI docstring",
+  },
+  "tests/scripts/ledgerClaimsCheck.test.ts": {
+    "BL-X": "planted declared claim in the exit-code fixtures",
+    "BL-Z": "planted inferred-only claim",
+    "BL-DEEP": "the collision planted past the 100-branch display cap",
+    "BL-NOT-A-ROW": "an id defined nowhere, for the note-and-continue case",
+    "BL-UNRELATED": "an id with no claim, for the degraded-universe cases",
+  },
   "tests/scripts/ledgerClaims.test.ts": {
     "BL-X": "planted marker id in the resolver fixtures",
     "BL-Y": "the second planted entry, for the boundary-overlap hunk fixture",
