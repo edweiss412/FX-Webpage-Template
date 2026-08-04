@@ -573,3 +573,22 @@ Mutation-proven in three spellings: an escaped property hiding a bad tag, an esc
 **Twenty-five mutants across nine rounds. All caught.**
 
 **A note on what these last rounds are finding.** Rounds 8 and 9 are adversarial-only vectors: nobody writes `FONT-FEATURE-SETTINGS` or `f\6f nt-` by accident, and neither could arise from the ordinary editing this guard exists to protect against. They are still worth closing — fail-closed is cheap, and a guard with a known bypass is a guard someone will eventually route around — but they are a different class from rounds 1–3, which found ways the guard could miss an ORDINARY mistake. That distinction is recorded so a future reader can calibrate how hard to keep pulling this thread.
+
+### 12.10 Round 10 — the guard was reading the wrong file
+
+`VERDICT: NEEDS-ATTENTION`, two P1s, both accepted and fixed. **The first is a real product finding, not a guard bypass** — the first such finding since the impeccable audit, and it was hiding behind a wrong question.
+
+**P1.1 — the guard analysed the source, and the browser gets something else.** `app/globals.css` opens with `@import "tailwindcss"`, so the shipped cascade contains rules this repo never typed. Compiling it: 3 feature declarations in the source, **6 in the output**. Two of the extra three matter:
+
+- `code, kbd, samp, pre { font-feature-settings: var(--default-mono-font-feature-settings, normal) }` — preflight, and it **overrides the inherited `html { "ss04" 1 }` on every bare `<code>` in the product**. There are live ones, e.g. `app/help/errors/page.tsx:53`. §2.4's "every string" claim was false.
+- An arbitrary utility such as `[font-feature-settings:'ZZ-Z'_1]` in a `className` compiles to a real declaration that raw parsing cannot see **at all** — mutation-proved.
+
+The disposition splits. The `<code>` behaviour is **correct and now documented**: preflight also gives those elements a monospace family, where `I`/`l`/`1` are already distinct by design, so `ss04` has nothing to add — and `.code-value` is a class, so it still wins wherever an element opts in. `DESIGN.md` §2.4 now states the exception. The guard's blindness is **fixed**: it compiles `app/globals.css` through Tailwind and analyses the OUTPUT. Answering "what did we type?" was the wrong question; the question is "what does the browser get?"
+
+Compiling surfaced two more truths the source could not show, both now handled rather than asserted away: preflight's `font: inherit` on form controls **inherits** the features rather than resetting them (so the shorthand ban exempts `inherit`), and rules that declare the property while enabling nothing are **resets**, which are now enumerated in `ALLOWED_FEATURE_RESETS` with a reason each. A new reset from any source fails the build.
+
+**P1.2 — `all: initial` also resets, and was not banned.** Mutation-proved against the real `data-testid` of the wizard's transcribe-back value. The shorthand ban now covers `all` as well as `font`.
+
+Mutation-proven: `all: initial` on the real surface, an arbitrary Tailwind utility emitting an unsupported tag, and a new unexplained reset rule.
+
+**Twenty-eight mutants across ten rounds. All caught.**

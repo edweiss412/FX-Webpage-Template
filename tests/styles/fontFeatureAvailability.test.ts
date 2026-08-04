@@ -18,8 +18,10 @@
  * exists to close. So the `src` is parsed out of `app/fonts.ts` and resolved
  * relative to that module, the same way the bundler resolves it.
  */
+import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import * as fontkit from "fontkit";
 import postcss from "postcss";
@@ -27,6 +29,34 @@ import ts from "typescript";
 import { describe, expect, test } from "vitest";
 
 const REPO_ROOT = resolve(__dirname, "..", "..");
+
+/**
+ * The stylesheet the BROWSER gets, not the one we wrote.
+ *
+ * `app/globals.css` begins `@import "tailwindcss"`, so the shipped cascade
+ * contains rules this repo never typed. Round 10 found two consequences at once:
+ * Tailwind's preflight emits `code, kbd, samp, pre { font-feature-settings: … }`,
+ * which overrides the inherited `html { "ss04" 1 }` on every `<code>` in the
+ * product; and an arbitrary utility like `[font-feature-settings:'ZZ-Z'_1]` in a
+ * className compiles to a real declaration that raw parsing cannot see at all.
+ *
+ * Analysing the source was answering "what did we write?" when the question is
+ * "what ships?". Compilation is ~250ms once per file.
+ */
+let compiledCssCache: string | null = null;
+function compiledCss(): string {
+  if (compiledCssCache !== null) return compiledCssCache;
+  const out = resolve(tmpdir(), `fxav-tw-${process.pid}.css`);
+  execFileSync(
+    "npx",
+    ["@tailwindcss/cli", "-i", "app/globals.css", "-o", out, "--content", "app/**/*.tsx"],
+    { cwd: REPO_ROOT, stdio: "pipe" },
+  );
+  compiledCssCache = readFileSync(out, "utf8");
+  rmSync(out, { force: true });
+  return compiledCssCache;
+}
+
 const GLOBALS_CSS = resolve(REPO_ROOT, "app", "globals.css");
 const FONTS_MODULE = resolve(REPO_ROOT, "app", "fonts.ts");
 const GOOGLE_FIXTURE = resolve(__dirname, "fixtures", "inter-google-latin-v20.woff2");
@@ -97,6 +127,9 @@ const CANONICAL_ENTRY = /^"([A-Za-z0-9]{4})"(?:[ \t\n\r]+(on|off|\+?\d+))?$/;
 /** `normal` is the initial value and declares no features. */
 const IS_NORMAL = /^normal$/i;
 
+/** Tailwind preflight's own spelling: a custom property defaulting to `normal`. */
+const DECLARES_NOTHING = /^var\(\s*--[\w-]+\s*,\s*normal\s*\)$/i;
+
 export type ParsedValue =
   | { recognized: true; settings: FeatureSetting[] }
   | { recognized: false; reason: string };
@@ -104,7 +137,13 @@ export type ParsedValue =
 /** Parse a value, or REFUSE it. Refusal is a build failure, not a shrug. */
 export function parseFeatureValue(value: string): ParsedValue {
   const trimmed = value.trim();
-  if (IS_NORMAL.test(trimmed)) return { recognized: true, settings: [] };
+  // `normal` is the initial value; `inherit` takes the parent's; and Tailwind's
+  // preflight writes `var(--default-…-font-feature-settings, normal)`. None of
+  // the three declares a feature, and all three are legitimate in the compiled
+  // sheet, so they are recognised as declaring nothing rather than refused.
+  if (IS_NORMAL.test(trimmed) || /^inherit$/i.test(trimmed) || DECLARES_NOTHING.test(trimmed)) {
+    return { recognized: true, settings: [] };
+  }
 
   const bySpelling = new Map<string, boolean>();
   for (const rawEntry of trimmed.split(",")) {
@@ -199,7 +238,14 @@ export function featureRules(
 }
 
 /**
- * Rules using the `font` SHORTHAND, which silently resets `font-feature-settings`
+ * Shorthands that reset `font-feature-settings` to its initial value while naming
+ * neither property. `font` per CSS Fonts 4 §2.7; `all` per CSS Cascade — round 10
+ * mutation-proved `all: initial` on a real transcribe-back surface.
+ */
+const RESETTING_SHORTHANDS = new Set(["font", "all"]);
+
+/**
+ * Rules using a RESETTING SHORTHAND, which silently resets `font-feature-settings`
  * and `font-variant-numeric` to their initial values (CSS Fonts 4 §2.7).
  *
  * Round 3's mutant was `main .code-value { font: 400 16px var(--font-sans); }` —
@@ -210,11 +256,52 @@ export function featureRules(
 export function fontShorthandRules(cssSource: string): string[] {
   const out: string[] = [];
   postcss.parse(cssSource).walkDecls((decl) => {
-    if (normalizeProp(decl.prop).name !== "font") return;
+    if (!RESETTING_SHORTHANDS.has(normalizeProp(decl.prop).name)) return;
+    // `font: inherit` INHERITS the features rather than resetting them, which is
+    // exactly what Tailwind preflight does to form controls so a <button> keeps
+    // the page's typography. Only a shorthand that resets is a problem.
+    if (/^inherit$/i.test(decl.value.trim())) return;
     const parent = decl.parent;
     out.push(parent && "selector" in parent ? String(parent.selector) : "(unknown)");
   });
   return out;
+}
+
+/**
+ * Selectors allowed to RESET `font-feature-settings` — i.e. to declare it while
+ * enabling nothing, overriding what they inherit.
+ *
+ * Round 10's finding: Tailwind preflight emits these, they are invisible in the
+ * source we wrote, and one of them means every bare `<code>` in the product
+ * renders WITHOUT `ss04`. That is acceptable — preflight also gives those
+ * elements a monospace family, where `I`/`l`/`1` are already distinct by design,
+ * so the disambiguation has nothing to add — but it is a real exception to
+ * DESIGN.md §2.4's reach, and it is pinned here rather than left to be
+ * rediscovered. A NEW reset, from any source, fails the build.
+ */
+const ALLOWED_FEATURE_RESETS = new Map<string, string>([
+  ["html, :host", "Tailwind preflight's own root default; our later `html` rule wins the cascade."],
+  [
+    "code, kbd, samp, pre",
+    "Tailwind preflight. These render in a monospace family where I/l/1 are already " +
+      "distinct, so ss04 has nothing to add. `.code-value` is a class and still wins " +
+      "on any element that opts in.",
+  ],
+]);
+
+/** Rules that declare the property but enable nothing — i.e. that RESET it. */
+export function featureResetRules(cssSource: string): string[] {
+  return featureRules(cssSource)
+    .filter(
+      (r) =>
+        r.refusal === null &&
+        r.settings.every((f) => !f.enabled) &&
+        // `inherit` takes the parent's value — it does not reset anything. This is
+        // preflight's treatment of form controls, so a <button> keeps the page's
+        // typography rather than the UA's.
+        !/^inherit$/i.test(r.raw.trim()),
+    )
+    .map((r) => r.selectors.join(", "));
 }
 
 /** The ENABLED tags declared by the rule whose selector list contains `selector`. */
@@ -413,7 +500,9 @@ describe("parseFeatureValue — recognises the canonical form, refuses everythin
 });
 
 describe("font feature availability", () => {
-  const css = readFileSync(GLOBALS_CSS, "utf8");
+  // The SHIPPED sheet, Tailwind included. Analysing the source we wrote answers
+  // "what did we type?"; the question is "what does the browser get?" (§12.10).
+  const css = compiledCss();
   const declaredTags = extractFeatureTags(css);
 
   test("the loaded font path resolves to a file that exists", () => {
@@ -520,17 +609,28 @@ describe("font feature availability", () => {
     // span containing letters — `A1 · Audio Lead`, a stage label, a plate number —
     // would silently lose disambiguation. Stated structurally so a fourth rule
     // added later cannot reintroduce the hole quietly.
-    const rules = featureRules(css).map((r) =>
-      r.settings
-        .filter((f) => f.enabled)
-        .map((f) => f.tag)
-        .sort(),
-    );
+    // Only rules that ENABLE something. A rule declaring nothing is a RESET, and
+    // resets are governed by ALLOWED_FEATURE_RESETS below, not by this invariant.
+    const rules = featureRules(css)
+      .map((r) =>
+        r.settings
+          .filter((f) => f.enabled)
+          .map((f) => f.tag)
+          .sort(),
+      )
+      .filter((tags) => tags.length > 0);
     expect(rules.length, "there are multiple rules for this check to compare").toBeGreaterThan(1);
     // Addressed by SELECTOR, never by position. Finding the root rule as "the one
     // with ss04 and no tnum" would silently pass if the html rule vanished and
     // some other rule happened to match that shape.
-    const rootTags = tagsForSelector(css, "html");
+    // Compiled output has TWO `html` feature rules: preflight's, which declares
+    // nothing, and ours, which comes later and wins. Take the last.
+    const htmlRules = featureRules(css).filter((r) => r.selectors.includes("html"));
+    const rootTags = htmlRules.length
+      ? htmlRules[htmlRules.length - 1]!.settings.filter((f) => f.enabled)
+          .map((f) => f.tag)
+          .sort()
+      : null;
     expect(
       rootTags,
       "the `html` rule declares font-feature-settings — without it, ordinary prose " +
@@ -554,7 +654,10 @@ describe("font feature availability", () => {
     // stop it collapsing back.
     const ruleTags = (selector: string): string[] => {
       const tags = tagsForSelector(css, selector);
-      expect(tags, `${selector} declares font-feature-settings in app/globals.css`).not.toBeNull();
+      expect(
+        tags,
+        `${selector} declares font-feature-settings in the compiled sheet`,
+      ).not.toBeNull();
       return tags ?? [];
     };
 
@@ -586,6 +689,20 @@ describe("font feature availability", () => {
         `these rules use the \`font\` shorthand, which resets font-feature-settings ` +
           `to its initial value and would silently undo ss04/tnum/zero: ` +
           `${shorthand.join(", ")}. Set the longhands instead.`,
+      ).toEqual([]);
+    });
+
+    test("every rule that RESETS the features is a known, justified one", () => {
+      // Round 10: preflight resets the property on `code, kbd, samp, pre`, so a
+      // bare <code> renders without ss04 — invisible in the source we wrote, and
+      // real in the browser. Pinned rather than hidden: each known reset carries
+      // its reason, and a new one from any source fails the build.
+      const unknown = featureResetRules(css).filter((sel) => !ALLOWED_FEATURE_RESETS.has(sel));
+      expect(
+        unknown,
+        `these rules reset font-feature-settings without a recorded reason: ` +
+          `${unknown.join(" | ")}. A reset silently undoes ss04 for everything it ` +
+          `matches — add it to ALLOWED_FEATURE_RESETS with why, or remove it.`,
       ).toEqual([]);
     });
 
