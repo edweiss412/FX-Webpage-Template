@@ -616,7 +616,7 @@ Inbox branch (server side, before the `existing_staged` fallthrough): fork on `i
 
 **Files:**
 
-- Modify: `components/admin/NeedsAttentionSummaryCard.tsx` (required `identityHoldTotal: number` prop + chip after the sync-problems chip, `NeedsAttentionSummaryCard.tsx:54-69` pattern — chips render only when > 0), `components/admin/Dashboard.tsx:738-744` (thread `identityHoldTotal={result.needsAttention.identityHoldTotal}`), Dashboard tooltip (`Dashboard.tsx:769-772`), page tooltip (`app/admin/needs-attention/page.tsx:64-67`).
+- Modify: `components/admin/NeedsAttentionSummaryCard.tsx` (required `identityHoldTotal: number` prop + chip after the sync-problems chip, `NeedsAttentionSummaryCard.tsx:54-69` pattern — chips render only when > 0), `components/admin/Dashboard.tsx:738-744` (thread `identityHoldTotal={result.needsAttention.identityHoldTotal}`). BOTH tooltip edits live in Task 9 (plan-R2 P5 / plan-R3 Q3) — no tooltip file here.
 - Test: `tests/components/admin/NeedsAttentionSummaryCard.test.tsx` PLUS companion `tests/components/needsAttentionSummaryCardSyncProblem.test.tsx:12-41` (three renders gain the new required prop — plan-R1 F6).
 
 - [ ] **Step 1: Failing tests (BOTH surfaces get task-local red, plan-R2 P5):** (a) summary card: chip `summary-chip-identity-holds` renders `2 held` (fixture total 2) with `aria-label` `2 held identity changes`; absent at 0; holds-only state (`identityHoldTotal: 3`, other totals 0) yields a non-empty breakdown. (b) Dashboard threading: in `tests/components/admin/Dashboard.test.tsx`, a fixture with nonzero `needsAttention.identityHoldTotal` renders the chip through the REAL threading at `components/admin/Dashboard.tsx:738-745` (red until Step 3). _Failure modes: G2 holds-only empty breakdown; threading omitted while the direct-prop card test passes._
@@ -632,7 +632,7 @@ Inbox branch (server side, before the `existing_staged` fallthrough): fork on `i
 
 TOOLTIP COPY MOVED TO TASK 9 (plan-R2 P5): the two tooltip edits get their task-local red test there (the copy-contract source-walk); landing them here would put production copy ahead of any failing test.
 
-- [ ] **Step 4:** Update the three companion renders; run both summary-card test files + `tsc` — PASS. **Step 5: Commit** `feat(admin): summary-card held-changes chip + tooltip copy`
+- [ ] **Step 4:** Update the three companion renders; run BOTH summary-card test files AND `tests/components/admin/Dashboard.test.tsx` (the Step 1b threading test must go green here — plan-R3 Q1) + `tsc` — PASS. **Step 5: Commit** `feat(admin): summary-card held-changes chip + dashboard threading`
 
 ---
 
@@ -676,7 +676,7 @@ const identityHolds = groupHoldRows(
 Thread `identityHolds`, `totalCounts.identityHolds`, `cap: ingestions.length + syncs.length + identityHolds.length` (D8), `sourceTotals.holdShows` (D9); helper arms in `groupTitleFor`/`itemCopy`/`slugFor`; `holdShows: 0` in both zero literals (`digest.ts:127`, `runNotify.ts:457`).
 
 - [ ] **Step 3b: SQL source pin.** Source-regex assertion: `lib/notify/digest.ts` contains `kind = 'mi11_pending'`, `s.archived = false`, and `order by sh.created_at desc, sh.id asc`.
-- [ ] **Step 4: Run digest suite + tsc — PASS.** **Step 5: Commit** `feat: digest includes open identity holds (uncapped model, holdShows total)`
+- [ ] **Step 4: Run** the digest suite PLUS every companion suite this task touches (plan-R3 Q2): `tests/notify/deliver.test.ts`, `tests/notify/run-notify.test.ts`, `tests/notify/runDigestNotify.monitor.test.ts`, `tests/notify/email-delivery-failed-reconcile.test.ts` — the monitor-only constructor's `holdShows: 0` gets a RUNTIME assertion in `runDigestNotify.monitor.test.ts`, not just compile compatibility (spec §9.13) — + `tsc` — PASS. **Step 5: Commit** `feat: digest includes open identity holds (uncapped model, holdShows total)`
 
 ---
 
@@ -685,7 +685,7 @@ Thread `identityHolds`, `totalCounts.identityHolds`, `cap: ingestions.length + s
 **Files:**
 
 - Create: tests/help/heldChangesCopy.test.ts
-- Modify: `app/help/admin/dashboard/page.mdx`, `app/help/admin/review-queues/page.mdx`, `app/help/daily-rhythm/page.mdx`, `app/help/admin/settings/page.mdx`, `app/help/tour/page.mdx` (tooltips already landed in Task 7; the test covers those two component files too)
+- Modify: `app/help/admin/dashboard/page.mdx`, `app/help/admin/review-queues/page.mdx`, `app/help/daily-rhythm/page.mdx`, `app/help/admin/settings/page.mdx`, `app/help/tour/page.mdx`, `components/admin/Dashboard.tsx` (tooltip), `app/admin/needs-attention/page.tsx` (tooltip) — the tooltips are edited HERE, under this task's red copy test (plan-R2 P5 / plan-R3 Q3)
 
 - [ ] **Step 0: Write the failing copy-contract test** — the new file tests/help/heldChangesCopy.test.ts (idiom: `tests/help/sheetChangesCopy.test.ts:11-29` source-walk), implementing spec §9.14a's TWO-TIER contract (spec R9-N1, phrase tier amended by plan-R2 P1). PHRASE tier (normalized: `replaceAll("**", "")` then `replace(/\s+/g, " ")` — the tour sentence wraps a newline, `app/help/tour/page.mdx:32-34`, spec R8-M1) carries NINE per-passage LITERAL anchors (exact Step 1 insertions; one regex provably cannot match all nine word orders):
   1. `components/admin/Dashboard.tsx` tooltip: `held crew identity changes`
@@ -738,6 +738,7 @@ Thread `identityHolds`, `totalCounts.identityHolds`, `cap: ingestions.length + s
 
 - [ ] **Step 1: Impeccable dual gate FIRST** (invariant 8): `/impeccable critique` AND `/impeccable audit` on the affected diff with the v3 setup gates; fix or defer P0/P1 via DEFERRED.md; REPLACE the template marker line below with the real RAN form (`impeccable-gate: critique=RAN audit=RAN p0=<n> p1=<n> dispositions=recorded`). Fill BEFORE the full-suite run — `tests/docs/_metaInvariant8Closeout.test.ts` accepts only the RAN/N-A/template forms (plan-R1 F3).
 - [ ] **Step 2: BACKLOG graduation** (invariant 12): MOVE the entire `BL-NEEDS-ATTENTION-HOLDS-ROLLUP` entry from `BACKLOG.md` to `BACKLOG-archive.md` (per `BACKLOG.md:5`; `tests/docs/_metaDeferralLedgerGraduation.test.ts:425-448` rejects terminal entries left in the open queue) and add the reconciliation-line segment at `BACKLOG.md:7` naming this branch/spec (plan-R1 F17).
+- [ ] **Step 2b: Commit the closeout mutations** (plan-R3 Q4): the filled marker line, the BACKLOG move + reconciliation segment, and any impeccable-fix / DEFERRED.md edits — `docs(plan): closeout — impeccable marker, BACKLOG graduation` (further review-fix commits in Step 4 as needed; nothing reaches `git push` uncommitted).
 - [ ] **Step 3: Full local suite** — `pnpm vitest run`, `pnpm exec tsc --noEmit`, `pnpm exec playwright test tests/e2e/needs-attention-holds.spec.ts tests/e2e/needs-attention-page.spec.ts --project=desktop-chromium` — all green.
 - [ ] **Step 4: Whole-diff cross-model review** to APPROVE (fresh-eyes; REVIEWER ONLY; split tight-scope briefs per the AGENTS.md default for large diffs).
 - [ ] **Step 5:** Sync with origin/main (`git fetch origin && git merge origin/main`, resolve, re-run the suite if anything merged), push, PR, REAL CI green, `gh pr merge --merge`, fast-forward local main, verify `git rev-list --left-right --count main...origin/main` → `0  0`, then CronDelete the session nudge and clear both herdr labels.
