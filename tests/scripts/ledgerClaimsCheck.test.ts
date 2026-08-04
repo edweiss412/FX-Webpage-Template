@@ -12,7 +12,7 @@
  */
 import { describe, expect, it } from "vitest";
 
-import { type GitSurface } from "@/scripts/lib/ledger-claims-core";
+import { type GitSurface, resolveClaims } from "@/scripts/lib/ledger-claims-core";
 import { runCheck, verifyUniverse } from "@/scripts/lib/ledger-check";
 
 const MARKER = (branch: string, id: string) =>
@@ -339,5 +339,66 @@ describe("untrusted dominates a collision (whole-diff review F1)", () => {
       { verify: true, fetch: true },
     );
     expect(r.code).toBe(2);
+  });
+});
+
+describe("the real git adapter and the JSON envelope (whole-diff F3/F9)", () => {
+  it("parses is-shallow-repository as a STRING, not for truthiness", async () => {
+    // git prints the literal "false". Boolean("false") is true, which would call
+    // every full clone shallow and disable the merged-exclusion permanently.
+    const { realGitSurface } = await import("@/scripts/lib/ledger-git");
+    // This worktree is a full clone; the assertion fails under a Boolean() mutant.
+    expect(realGitSurface().isShallow()).toBe(false);
+  });
+
+  it("resolves real refs, and origin/HEAD is absent from both maps", async () => {
+    const { realGitSurface } = await import("@/scripts/lib/ledger-git");
+    const local = realGitSurface().localRefs();
+    expect(local.size, "no refs resolved from a real worktree").toBeGreaterThan(0);
+    expect([...local.keys()], "origin/HEAD must never enter the map").not.toContain("HEAD");
+    for (const oid of local.values()) expect(oid).toMatch(/^[0-9a-f]{40}$/);
+  });
+
+  it("attaches a base-repo PR number and never a fork's", () => {
+    // prList is display-only, but a fork PR sharing a head name must not attach
+    // its number to the base branch's claim.
+    const r = resolveClaims(
+      fake({
+        prList: () => [
+          {
+            number: 999,
+            headRefName: "feat/a",
+            headRepositoryOwner: "fork",
+            isCrossRepository: true,
+          },
+          {
+            number: 689,
+            headRefName: "feat/a",
+            headRepositoryOwner: "base",
+            isCrossRepository: false,
+          },
+        ],
+      }),
+      { fetch: false, now: NOW },
+    );
+    expect(r.claims[0]?.pr, "the base PR, not the fork's").toBe(689);
+  });
+
+  it("emits every claim in --json, uncapped, past the display limit", () => {
+    // M8: `claims.slice(0, 100)` is the mutant. The cap is a display concern;
+    // a machine consumer receiving a truncated set with no marker computes a
+    // false all-clear.
+    const many: [string, string][] = [["main", "a"]];
+    for (let i = 0; i < 101; i++) many.push([`b${i}`, `oid${i}`]);
+    const r = resolveClaims(
+      fake({
+        localRefs: () => new Map(many),
+        lsRemote: () => new Map(many),
+        showFile: (ref, f) =>
+          f === "BACKLOG.md" ? MARKER(ref.replace("origin/", ""), "BL-MANY") : null,
+      }),
+      { fetch: false, now: NOW },
+    );
+    expect(r.claims.length, "every candidate must appear").toBe(101);
   });
 });

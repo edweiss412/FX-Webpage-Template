@@ -217,6 +217,7 @@ const NOT_A_CITATION: Record<string, Record<string, string>> = {
     "BL-DEEP": "the collision planted past the 100-branch display cap",
     "BL-NOT-A-ROW": "an id defined nowhere, for the note-and-continue case",
     "BL-UNRELATED": "an id with no claim, for the degraded-universe cases",
+    "BL-MANY": "the id planted on 101 candidates for the uncapped --json case",
   },
   "tests/scripts/ledgerClaims.test.ts": {
     "BL-X": "planted marker id in the resolver fixtures",
