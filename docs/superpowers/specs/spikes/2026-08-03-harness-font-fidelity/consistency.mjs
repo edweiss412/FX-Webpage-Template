@@ -103,6 +103,31 @@ for (const f of created.match(/`[^`]+\.(ts|tsx|css)`/g) || []) {
     `${stem} appears in §3.0 but nothing in the §7 table mentions it`);
 }
 
+// 5d. Round 25: a declared enumeration size that disagrees with the items
+// actually enumerated. Checked GENERICALLY rather than by adding one more
+// hard-coded pair -- every previous round added a specific check for the
+// specific contradiction it found, which is the same whack-a-mole the
+// class-sweep rule exists to prevent, one level up.
+const WORD = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7 };
+for (const m of t.matchAll(/\b(?:has|have) (one|two|three|four|five|six|seven|\d+) ([a-z][a-z -]{3,30}?)s?\b/g)) {
+  const want = WORD[m[1]] ?? Number(m[1]);
+  const noun = m[2].trim();
+  const ord = ["first", "second", "third", "fourth", "fifth", "sixth", "seventh"];
+  // Count "The Nth is" markers appearing after the declaration.
+  const after = t.slice(m.index);
+  const seen = ord.filter((o) => new RegExp(`\\bThe ${o} is\\b`).test(after)).length;
+  if (seen > 0)
+    check("enumeration size disagrees with its items", seen === want,
+      `"${m[0]}" but ${seen} ordinal item(s) follow`);
+}
+
+// 5e. The census criterion is stated in more than one place and must not be
+// stated in the form round 24 rejected.
+check("census criterion", !/census is derived the way the route census is: the existing interaction coverage/.test(t),
+  "census still derived from existing e2e coverage rather than production reachability");
+check("census criterion (restated)", !/every surface an existing test can reach is measured/.test(t),
+  "the 'existing test can reach' criterion survives");
+
 // 6. Coverage numbers must not contradict each other. Added after the harness
 // instrument landed and made an earlier "not among the 30" caveat false --
 // the same peer-staleness this file exists to catch, one level up.
