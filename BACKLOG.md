@@ -8,6 +8,28 @@ Last reconciled: 2026-08-03 — `chore/scanner-precision-cluster` graduated `BL-
 
 ---
 
+## BL-ROLEFLAGSNOTICE-DROP-GUARD — no guard detects a caller that discards `roleFlagsNotice`
+
+**Status:** OPEN · **Severity:** LOW-MEDIUM (one known instance closed; the class is unguarded) · **Class:** guard completeness · **Filed:** 2026-08-03 (`fix/apply-undo-audit-fidelity`, spec §2.3 / §9, deferred under class-sweep exception (c)) · **Effort:** M
+
+`tests/sync/_metaLeadRoleAppliedTopology.test.ts:29` matches `upsertAdminAlert(<expr>roleFlagsNotice` and asserts the discovered site list. That shape detects an emit site that upserts the alert **without** the durable event. It cannot detect the opposite and more damaging shape: a caller that reads `applyStagedCore`'s result and **discards `roleFlagsNotice` entirely**, emitting nothing at all. That is exactly what `BL-FINALIZE-CAS-ROLEFLAGS-NOTICE-DROP` was, and the pin was green throughout.
+
+Consolidating the emit into one helper (same branch) does not change this: the "expected one site" assertion still passes if a new caller drops the notice. **Work:** a guard that walks every `applyStagedCore` caller and asserts the `roleFlagsNotice` field is consumed on the applied branch — a field-liveness check on the result type, not a regex over emit sites. Deferred rather than folded in because it is a new guard mechanism on a surface the closing PR does not otherwise touch; that PR closes the one known instance, and this guard is what stops the next.
+
+---
+
+## BL-CAPABILITY-LOSS-SURVIVING-ROW-FALSE-POSITIVE — arm (c) reports a capability loss for a row that is still live
+
+**Status:** OPEN · **Severity:** LOW-MEDIUM (false operator alert; no data impact) · **Class:** notice fidelity · **Filed:** 2026-08-03 (`fix/apply-undo-audit-fidelity`, spec §9, deferred under class-sweep exception (c)) · **Effort:** M · **Reachability: INFERRED, NOT PROBED — confirm before scheduling.**
+
+`capabilityRoleChangesForNotice` arm (c) (`lib/sync/phase2.ts:323-331`) reports a capability loss for any `previousCrewMembers` entry that is absent from `nextByName` and absent from `renamedAway`. `nextByName` is built from `appliedCrewMembers`, which is the post-hold **parse** list (`lib/sync/applyParseResult.ts:163`), while `deleteKeepNames` (`lib/sync/applyParseResult.ts:152`) protects rows from deletion **without** adding them to that list. A row can therefore survive the apply with its capability flags intact and still be reported as a loss.
+
+The rename-linked instances of this shape are fixed in the closing PR via the survival test in its spec §2.1 A3. The non-rename instances are not: a held or delete-protected member absent from the parse, named by no rename pair, has no `renamedAway` entry to spare it.
+
+**Not yet probed.** `heldNames.add(...)` is unconditional per surviving hold (`lib/sync/holds/holdAwareApply.ts:216`) but `protectedNames.add(...)` fires only in specific hold-kind branches (`lib/sync/holds/holdAwareApply.ts:237`, `lib/sync/holds/holdAwareApply.ts:434`, `lib/sync/holds/holdAwareApply.ts:448`), so which hold kinds actually produce a surviving-but-unlisted row is unestablished. **First step is a probe per hold kind, not a patch** — if no hold kind produces the shape, this closes as unreachable. Deferred because the fix is a redesign of arm (c)'s absence predicate on a path no unit in the closing PR touches.
+
+---
+
 ## BL-COVERAGE-CLAIMS-CITE-SKIPPED-SUITES — contract artifacts claim e2e coverage from suites that do not execute
 
 **Status:** OPEN · **Severity:** LOW-MEDIUM (dark coverage on documented contracts; no product impact) · **Class:** docs/contract, test-coverage claims · **Filed:** 2026-08-03 (`docs/settle-lead-capability-prose`, descoped at spec review R3 after three rounds of under-counting) · **Effort:** L
