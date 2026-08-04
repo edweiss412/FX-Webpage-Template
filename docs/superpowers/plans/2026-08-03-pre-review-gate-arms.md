@@ -228,16 +228,16 @@ Two corrections to what an earlier draft of this task asserted, both verified ag
 
 <!-- task: red=`gh pr checks` ac=AC-1,AC-14 -->
 
-**BLOCKED — see the note below.** Whole-diff cross-model review, then push, real CI green, `gh pr merge --merge`, fast-forward local `main` and verify `git rev-list --left-right --count main...origin/main` reports `0  0`. Stage 4.4 then removes the cron nudge and both herdr labels.
+Whole-diff cross-model review, then push, real CI green, `gh pr merge --merge`, fast-forward local `main` and verify `git rev-list --left-right --count main...origin/main` reports `0  0`. Stage 4.4 then removes the cron nudge and both herdr labels.
 
 <!-- tasks: end -->
 
-## Blocking note — the cross-model review gate is unavailable
+## Note — the cross-model review gate was briefly unavailable, and is not
 
-Dispatched 2026-08-03 20:5x CDT; three attempts, each exiting 1 in ~10s with:
+Recorded because the transient looked permanent and a stale blocker is worse than none.
 
-```
-ERROR: You've hit your usage limit. ... try again at Aug 10th, 2026 6:16 PM.
-```
+Three dispatches on 2026-08-03 around 20:5x CDT each exited 1 in ~10s with `ERROR: You've hit your usage limit … try again at Aug 10th, 2026 6:16 PM`, and `~/.codex/` holds a single account with no alternate profile. Read literally, that put the spec gate, the plan gate, and the whole-diff gate out of reach for a week, and this section was written as the escalation `docs/agents/writing-plans.md:15` calls for.
 
-This is not the documented silent-death shape (`failureShape: "nonzero_exit"`, not `"no_o_file"`; no reaper involvement). `~/.codex/` holds a single account with no alternate profile, so the spec gate, the plan gate, and the whole-diff gate are all unavailable for approximately seven days. `docs/agents/writing-plans.md:15` makes cross-model review mandatory and says to escalate genuine ambiguity rather than resolve it unilaterally. This is that escalation; the disposition is the user's call.
+**The limit cleared the same evening.** Spec rounds have since dispatched and returned verdicts normally through `codex-guard`. The gate is available and Task 7 is not blocked.
+
+Two things worth keeping from the episode. The failure shape was `nonzero_exit`, not the `no_o_file` silent-death documented in `AGENTS.md` — a usage limit is a loud, fast, self-describing failure, and mistaking it for the reaper bug would send an investigator down a wrong and expensive path. And a quoted reset timestamp is a **ceiling, not a schedule**: treating it as a commitment converted a several-hour wait into a seven-day plan change. Re-probe before believing it.
