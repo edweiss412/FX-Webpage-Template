@@ -1032,8 +1032,8 @@ it("the LIVE mi11_approve_hold body carries the column (pg_proc, not the migrati
 
 - [ ] **Step 2: Run to verify they fail**
 
-Run: `pnpm vitest run tests/db/undo-change-direction-a.test.ts -t "mi11"`
-Expected: FAIL.
+Run: `pnpm vitest run tests/db/undo-change-direction-a.test.ts -t "MI-11"`
+Expected: FAIL. (Vitest builds a case-sensitive RegExp from `-t`, so a lowercase `mi11` filter matches neither the `MI-11 RENAME` test nor the `mi11_approve_hold` ones.)
 
 - [ ] **Step 3: Add the second function to the migration**
 
