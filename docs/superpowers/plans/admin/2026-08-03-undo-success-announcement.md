@@ -235,4 +235,8 @@ Failure caught: an implementer "improving" the error card with a fade, which del
 
 Findings and dispositions land here.
 
-impeccable-gate: critique=PENDING audit=PENDING p0=- p1=- dispositions=pending
+<!-- The impeccable-gate marker lands here when Task 15 runs the dual gate. It is
+deliberately absent until then: the grammar admits only RAN or RAN-DEGRADED, so a
+placeholder would either be malformed or would assert a gate result that has not
+happened. tests/docs/_metaInvariant8Closeout.test.ts §4.1.1 stays red until the
+gate actually runs, which is the guard working as intended. -->
