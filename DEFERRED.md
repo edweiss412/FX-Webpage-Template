@@ -10,6 +10,8 @@ Last reconciled: 2026-07-24 — swept every merged PR body (#445–#570) for def
 
 ### PSQL-GUARD-RECALL-RESIDUAL — three hypothetical gaps in the psql `-X` guard (2026-08-03)
 
+**Status:** IN PROGRESS · **Branch:** chore/backlog-convergence
+
 **Effort:** S
 
 The `-X` class is CLOSED on this repository: `tests/cross-cutting/psqlStartupFiles/scan.ts` walks
@@ -96,6 +98,8 @@ a documented deliberate revert from `next/image` (which drops cookies), mirrorin
 `components/diagrams/Gallery.tsx:130-144`.
 
 ### NEWTAB-GUARD-UNDECIDABLE-2 — statically undecidable guard limits (2026-07-25; item (b) closed same day)
+
+**Status:** IN PROGRESS · **Branch:** chore/backlog-convergence
 
 **Effort:** XS
 
