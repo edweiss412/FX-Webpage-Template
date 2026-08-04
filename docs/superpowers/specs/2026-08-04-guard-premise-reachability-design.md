@@ -56,7 +56,7 @@ Neither surfaced because the one enrolled surface's suite (`tests/specLint/taskC
 
 ### 1.4.1 What enrollment found that fourteen review rounds did not
 
-The strongest argument for enrolling is not an argument. `statement-removal` on `git.fetch()` (`scripts/lib/ledger-claims-core.ts:137`) survives, and the test that exists to catch exactly that is `tests/scripts/ledgerClaimsCheck.test.ts:546-565`:
+The strongest argument for enrolling is not an argument. `statement-removal` on `git.fetch()` (`scripts/lib/ledger-claims-core.ts:137`) survives, and the ordering test at `tests/scripts/ledgerClaimsCheck.test.ts:546-565` reads as though it is the guard for it:
 
 ```ts
 expect(calls.indexOf("fetch"), "fetch must precede the snapshot").toBeLessThan(
@@ -64,7 +64,11 @@ expect(calls.indexOf("fetch"), "fetch must precede the snapshot").toBeLessThan(
 );
 ```
 
-With the fetch deleted, `calls` is `["localRefs"]`, so `indexOf("fetch")` is `-1`, `indexOf("localRefs")` is `0`, and `-1 < 0` passes. Verified by applying the mutant and running that test alone: `1 passed`. A guard for the ordering of two events passes when the first event never happens.
+With a fetch deleted, `calls` is `["localRefs"]`, so `indexOf("fetch")` is `-1`, `indexOf("localRefs")` is `0`, and `-1 < 0` passes. A guard for the ordering of two events holds when the first event never happens.
+
+**Two distinct defects sit here, and separating them matters.** The ordering test drives `runCheck`, which owns its *own* fetch at `scripts/lib/ledger-check.ts:83` — so that is the call it guards, and it guarded it vacuously. Meanwhile `resolveClaims`'s fetch (`scripts/lib/ledger-claims-core.ts:137`) has **no ordering guard at all**, which is why the harness reported its removal as SURVIVED. An earlier draft of this section conflated the two and named `claims-core:137` as the call the ordering test covers; it does not.
+
+Both were established by running the mutants rather than reading the code. With the premise added, deleting `ledger-check.ts:83` now fails with `premise not met: fetch occurred at all; an absent event indexes to -1. Got -1, which does not exceed -1`, and `claims-core:137` is repaid by a test of its own (plan Task 6).
 
 That is a **third vacuity shape**, it was shipped through fourteen whole-diff rounds, and the gate found it in one run.
 

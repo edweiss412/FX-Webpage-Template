@@ -12,6 +12,8 @@
  */
 import { describe, expect, it } from "vitest";
 
+import { premise, premiseHolds } from "@/tests/_shared/premise";
+
 import { type GitSurface, resolveClaims } from "@/scripts/lib/ledger-claims-core";
 import { reportEnvelope } from "@/scripts/ledger-claims";
 import { runCheck, verifyUniverse } from "@/scripts/lib/ledger-check";
@@ -390,22 +392,59 @@ describe("untrusted dominates a collision (whole-diff review F1)", () => {
 });
 
 describe("the real git adapter and the JSON envelope (whole-diff F3/F9)", () => {
-  it("parses is-shallow-repository as a STRING, not for truthiness", async () => {
-    // git prints the literal "false". Boolean("false") is true, which would call
-    // every full clone shallow and disable the merged-exclusion permanently.
+  it("parses is-shallow-repository as a STRING, against BOTH values", async () => {
+    // git prints the literal "false". Boolean("false") is true, which would
+    // call every full clone shallow and disable the merged-exclusion forever.
+    //
+    // Asserted against a CONSTRUCTED pair, not the ambient checkout. The
+    // version this replaces compared isShallow() to git's answer in the same
+    // repository, and CI's checkout is shallow -- so `truth` was true, the
+    // Boolean(out) mutant returned true, and the guard could not discriminate
+    // in exactly the environment that merge-gates. Its own comment conceded it
+    // "fails wherever git says false", which is a developer's full clone and
+    // not CI (spec §3.3.4).
+    //
+    // Both arms are required: with only the shallow arm, Boolean(out) still
+    // passes.
     const { realGitSurface } = await import("@/scripts/lib/ledger-git");
-    const { execFileSync } = await import("node:child_process");
-    const truth =
-      execFileSync("git", ["rev-parse", "--is-shallow-repository"], {
-        cwd: ROOT,
-        encoding: "utf8",
-      }).trim() === "true";
-    // Asserted against git's OWN answer, not against this checkout's shape: a
-    // local full clone and a CI shallow checkout give opposite values, and
-    // hardcoding either makes the test environment-dependent rather than
-    // behavioural. Under a Boolean(output) mutant this returns true in BOTH
-    // environments, so it fails wherever git says "false".
-    expect(realGitSurface().isShallow()).toBe(truth);
+    const full = mkdtempSync(join(tmpdir(), "ledger-full-"));
+    const shallow = mkdtempSync(join(tmpdir(), "ledger-shallow-"));
+    const prev = process.env.LEDGER_GIT_ROOT;
+    try {
+      const g = (cwd: string, ...args: string[]) =>
+        execFileSync("git", args, { cwd, encoding: "utf8", timeout: 30_000 });
+      g(full, "init", "--quiet", "--initial-branch=main");
+      g(full, "config", "user.email", "t@example.com");
+      g(full, "config", "user.name", "t");
+      g(full, "commit", "--quiet", "--allow-empty", "-m", "one");
+      g(full, "commit", "--quiet", "--allow-empty", "-m", "two");
+      execFileSync(
+        "git",
+        ["clone", "--quiet", "--depth", "1", `file://${full}`, shallow],
+        { encoding: "utf8", timeout: 60_000 },
+      );
+
+      for (const [expected, repo] of [
+        [false, full],
+        [true, shallow],
+      ] as const) {
+        process.env.LEDGER_GIT_ROOT = repo;
+        // The fixture's own premise: git must agree the repo has the shape this
+        // arm is named for, or the arm proves nothing about the reader.
+        const asGit =
+          execFileSync("git", ["rev-parse", "--is-shallow-repository"], {
+            cwd: repo,
+            encoding: "utf8",
+          }).trim() === "true";
+        premiseHolds(`the constructed repo is ${expected ? "shallow" : "full"}`, asGit === expected);
+        expect(realGitSurface().isShallow(), `shallow=${expected}`).toBe(expected);
+      }
+    } finally {
+      if (prev === undefined) delete process.env.LEDGER_GIT_ROOT;
+      else process.env.LEDGER_GIT_ROOT = prev;
+      rmSync(full, { recursive: true, force: true });
+      rmSync(shallow, { recursive: true, force: true });
+    }
   });
 
   it("resolves real refs, and origin/HEAD is absent from both maps", async () => {
@@ -505,9 +544,20 @@ describe("the real git adapter and the JSON envelope (whole-diff F3/F9)", () => 
     // own count so it cannot rot as the corpus changes.
     const { realGitSurface } = await import("@/scripts/lib/ledger-git");
     const core = resolveClaims(realGitSurface(), { fetch: false });
-    expect(payload.claims.length, "the CLI truncated what the core resolved").toBe(
-      core.claims.length,
-    );
+    if (core.claims.length === 0) {
+      // Stated rather than hidden: CI checks this repository out with zero
+      // refs/remotes/origin/*, so both sides are 0 there and this comparison
+      // cannot tell a correct envelope from `claims: []`. It is the same
+      // degenerate-truth-source shape as whole-diff R13 (spec §1.2). The
+      // cardinality contract itself is proven against a CONSTRUCTED 101-claim
+      // corpus in the reportEnvelope case below, which is reachable in every
+      // environment -- so this branch asserts what it can and claims no more.
+      expect(payload.claims).toEqual([]);
+    } else {
+      expect(payload.claims.length, "the CLI truncated what the core resolved").toBe(
+        core.claims.length,
+      );
+    }
     expect(payload).toHaveProperty("status");
     expect(payload).toHaveProperty("degraded");
     expect(Array.isArray(payload.claims)).toBe(true);
@@ -559,9 +609,16 @@ describe("ordering and identity edges (whole-diff R3)", () => {
       },
     });
     runCheck(g, ["BL-UNRELATED"], { now: NOW, fetch: true, verify: true });
-    expect(calls.indexOf("fetch"), "fetch must precede the snapshot").toBeLessThan(
-      calls.indexOf("localRefs"),
-    );
+    const fetchAt = calls.indexOf("fetch");
+    const snapshotAt = calls.indexOf("localRefs");
+    // Without these, deleting git.fetch() entirely LEAVES THIS TEST GREEN:
+    // indexOf returns -1 for the absent event and -1 is less than every real
+    // index. Probed against that mutant -- it passed. An ordering guard that
+    // holds when the first event never happens is the defect this whole arc is
+    // about (spec §1.4.1, vacuity shape V3).
+    premise("fetch occurred at all; an absent event indexes to -1", fetchAt, -1);
+    premise("the snapshot occurred at all; an absent event indexes to -1", snapshotAt, -1);
+    expect(fetchAt, "fetch must precede the snapshot").toBeLessThan(snapshotAt);
   });
 
   it("exits 2, not 1, on a detached HEAD with a collision", () => {

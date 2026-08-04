@@ -28,7 +28,7 @@ describe("premise", () => {
 
   it("premiseHolds carries the non-numeric form, with the same message shape", () => {
     expect(() => premiseHolds("git reported at least one ref", false)).toThrow(
-      /premise not met.*git reported at least one ref/s,
+      /premise not met: git reported at least one ref/,
     );
     expect(() => premiseHolds("git reported at least one ref", false)).toThrow(/proves nothing/i);
     expect(() => premiseHolds("git reported at least one ref", true)).not.toThrow();
