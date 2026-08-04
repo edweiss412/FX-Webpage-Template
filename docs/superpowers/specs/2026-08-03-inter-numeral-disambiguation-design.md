@@ -127,7 +127,7 @@ Three new devDependencies in total, added as the guard's needs became clear: `fo
 
 `assets/fonts/PROVENANCE.md` — release tag, both checksums, the upstream URL, and the date fetched, so a future reader can verify the binary without trusting this document.
 
-The `_` prefix makes the directory private to the App Router, so it never becomes a route.
+These live OUTSIDE `app/`. They were `app/_fonts/` at first, on the reasoning that the `_` prefix makes a directory private to the App Router — true, but beside the point: CI's page-candidate tripwire rejects any tracked `.md` under `app/` at all, because that tree is the only page-capable one. The font is an asset, not route code, and `assets/` is where assets go (§12.3).
 
 `scripts/subset-inter.sh` is the regeneration path: it fetches the pinned release, verifies its checksum, builds an isolated fontTools environment, and writes the subset. The output checksum is recorded in the provenance file as a record, explicitly not as a contract.
 
@@ -139,7 +139,7 @@ The `_` prefix makes the directory private to the App Router, so it never become
 import localFont from "next/font/local";
 
 export const inter = localFont({
-  src: "./_fonts/InterVariable-latin.woff2",
+  src: "../assets/fonts/InterVariable-latin.woff2",
   weight: "100 900",
   style: "normal",
   display: "swap",
@@ -260,11 +260,11 @@ tests/styles/fontFeatureAvailability.test.ts, exporting a pure `missingTags(tags
 
 The assertions below are the core three, and the distinction between them matters. Review rounds 1–3 added more against demonstrated mutants — the file now carries twelve, including the fixture-identity pin, the axis check, the scope split, and the `font`-shorthand ban:
 
-1. **Current state.** `missingTags(globals.css, derivedPath)` is empty. The tag list is extracted from CSS, not hardcoded, so any tag a future rule adds is covered by default.
+1. **Current state.** `missingTags(extractFeatureTags(globals.css), derivedPath)` is empty. The tag list is extracted from CSS, not hardcoded, so any tag a future rule adds is covered by default.
 2. **Non-vacuity.** The extracted tag list is non-empty and is exactly `{ss04, tnum, zero}` — the set §3.3 specifies. Without this, a regex that silently stopped matching would pass assertion 1 against an empty set.
-3. **Regression proof against the historical bug.** `missingTags(HISTORICAL_CSS, googleFixture)` reports `cv11` missing, where `HISTORICAL_CSS` is the literal two-tag declaration `app/globals.css` carried at `78662acb5` and the fixture is tests/styles/fixtures/inter-google-latin-v20.woff2 (47.3 KB, the exact binary measured in §2.1). **`HISTORICAL_CSS` is hardcoded, and that is correct:** it is a frozen fact about a past commit, not a moving target, and deriving it from today's CSS is impossible — today's CSS no longer contains `cv11`. An earlier draft asked the *extracted current* list to report `cv11` missing, which no implementation can satisfy: the current list is `{ss04, tnum, zero}` and `cv11` is not in it. That contradiction is resolved by separating "what the guard checks now" from "what the guard would have caught then".
+3. **Regression proof against the historical bug.** `missingTags(HISTORICAL_TAGS, googleFixture)` reports `cv11` missing, where `HISTORICAL_TAGS` is the literal two-tag set `app/globals.css` carried at `78662acb5` and the fixture is tests/styles/fixtures/inter-google-latin-v20.woff2 (47.3 KB, the exact binary measured in §2.1). **`HISTORICAL_CSS` is hardcoded, and that is correct:** it is a frozen fact about a past commit, not a moving target, and deriving it from today's CSS is impossible — today's CSS no longer contains `cv11`. An earlier draft asked the *extracted current* list to report `cv11` missing, which no implementation can satisfy: the current list is `{ss04, tnum, zero}` and `cv11` is not in it. That contradiction is resolved by separating "what the guard checks now" from "what the guard would have caught then".
 
-A fourth assertion is cheap and worth having: `missingTags(globals.css, googleFixture)` reports `ss04` and `zero` missing — proving the *new* tags would also have been inert on the old font, which is the whole reason the font had to change.
+A fourth assertion is cheap and worth having: the same extracted tags checked against the Google fixture report `ss04` and `zero` missing — proving the *new* tags would also have been inert on the old font, which is the whole reason the font had to change.
 
 ### 4.2 Tabular-rule inheritance guard
 
@@ -468,6 +468,21 @@ The reviewer confirmed the sha256 fixture pin is sound and creates no regenerati
 | 3 | **P1** | `parseFeatureValue` was still regex-shaped and diverged from CSS Fonts 4 §6.12 four ways: well-formed tags containing punctuation were skipped entirely (`"ZZ-Z" 1` never reached the does-the-font-have-it check), negative integers read as enabled, duplicates were not last-value-wins, and unrecognised tokens like `var(--state)` read as an omitted value and therefore ON. | **FIXED.** Rewritten to the spec: full `U+0020–U+007E` tag charset, non-negative integers only, last-value-wins, and unparseable values **fail closed**. |
 | 4 | P2 | Five more documentation contradictions: "one new devDependency" against three; "three assertions" against a file that now holds twelve tests; "gains one test" against six; "22 files" against 14 changed WebPs; and `font-binding.spec.ts:10` still contradicting itself two lines later. | **ALL FIXED.** |
 
-Separately, CI's own `sheetIconLinkContainment` tripwire — *no tracked `.md` under `app/`, because `app/` is the only page-capable tree* — correctly rejected `app/_fonts/PROVENANCE.md`. The font assets moved to `assets/fonts/`, which is where they belonged: they are not route code, and `app/` is Next's routing tree.
+Separately, CI's own `sheetIconLinkContainment` tripwire — *no tracked `.md` under `app/`, because `app/` is the only page-capable tree* — correctly rejected `assets/fonts/PROVENANCE.md`. The font assets moved to `assets/fonts/`, which is where they belonged: they are not route code, and `app/` is Next's routing tree.
 
 **Seven mutants across three rounds, all replayed against the current guard, all caught.**
+
+### 12.4 Whole-diff cross-model review — round 4
+
+`VERDICT: NEEDS-ATTENTION`, four findings, **all accepted and fixed**. Two of the three P1s are about coverage the guards never had rather than parsing they got wrong — which is the shape of a review running out of parser defects to find.
+
+| # | Sev | Finding | Disposition |
+| --- | --- | --- | --- |
+| 1 | **P1** | `screenshots-drift.yml`'s path filter lists `app/**` but not `assets/fonts/**`. Moving the font out of `app/` (§12.3, to satisfy the page-candidate tripwire) silently took it off the gate that exists to catch exactly this — a font swap re-rasterises every glyph in every capture. A live matcher returned zero matching paths for the font. An asset-only change could merge with stale baselines until the nightly backstop. | **FIXED.** `assets/fonts/**` added, with the reason recorded inline so the next mover sees it. |
+| 2 | **P1** | **No guard bounded the payload** — the entire reason the subset exists. Probed: 176,696 bytes and 352,240 bytes both report `missing=[] axes=[opsz,wght]`, so swapping the verbatim release back in stays green while recreating the P1 latency regression this branch was revised to avoid (§12 row 3). | **FIXED.** A budget assertion on the loaded font, deliberately loose (220 KB) — a tripwire against a category change like dropping the subset step or adding italics, not a byte pin. Mutation-proven by swapping the 344 KB release back in. |
+| 3 | **P1** | `parseFeatureValue` split on EVERY comma, including commas inside strings. A tag is any four characters in `U+0020–U+007E`, so `"A,B!"` is well-formed; the mutant used it, the splitter tore it in half, and a tag the font lacks read as absent rather than missing. Signed `+1` also failed closed when the spec permits it. | **FIXED.** A string-aware splitter, and `+`-signed non-negative integers accepted. Mutation-proven. |
+| 4 | P2 | Four documentation contradictions: the spec still called the removed `_fonts` directory private and still showed `./_fonts/…` in the loader snippet; §4.1 passed CSS strings to `missingTags`, whose signature takes a tag array; `crew-e2e.yml` still said the binding rests on the literal `Inter`; and the archive said six corrected source comments against the spec's eight. | **ALL FIXED.** |
+
+Explicitly cleared by the reviewer: the `font`-shorthand ban is not overbroad in its present scope (it covers only `app/globals.css`, leaving standalone documents alone), and the new asset path resolves, bundles, is tracked, and is not gitignored.
+
+**Ten mutants across four rounds. All replayed against the current guard; all caught.**

@@ -66,6 +66,47 @@ const HISTORICAL_TAGS = ["tnum", "cv11"] as const;
 export type FeatureSetting = { tag: string; enabled: boolean };
 
 /**
+ * Split on commas that are NOT inside a string.
+ *
+ * A feature tag is any four characters in U+0020–U+007E, which INCLUDES the
+ * comma: `"A,B!"` is a well-formed tag. Round 4's mutant used exactly that, and
+ * a plain `value.split(",")` tore it in half, so the tag never reached the
+ * does-the-font-have-it check and a feature the font lacks read as absent
+ * rather than as missing.
+ */
+export function splitTopLevelCommas(value: string): string[] {
+  const parts: string[] = [];
+  let current = "";
+  let quote: '"' | "'" | null = null;
+  for (let i = 0; i < value.length; i += 1) {
+    const ch = value[i]!;
+    if (quote) {
+      current += ch;
+      if (ch === "\\" && i + 1 < value.length) {
+        current += value[i + 1]!;
+        i += 1;
+      } else if (ch === quote) {
+        quote = null;
+      }
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      quote = ch;
+      current += ch;
+      continue;
+    }
+    if (ch === ",") {
+      parts.push(current);
+      current = "";
+      continue;
+    }
+    current += ch;
+  }
+  parts.push(current);
+  return parts;
+}
+
+/**
  * Parse a `font-feature-settings` VALUE per CSS Fonts 4 §6.12.
  *
  * Round 3 enumerated four ways the previous regex diverged from the spec, each
@@ -82,7 +123,7 @@ export type FeatureSetting = { tag: string; enabled: boolean };
  */
 export function parseFeatureValue(value: string): FeatureSetting[] {
   const bySpelling = new Map<string, boolean>();
-  for (const rawEntry of value.split(",")) {
+  for (const rawEntry of splitTopLevelCommas(value)) {
     const entry = rawEntry.trim();
     if (entry === "") continue;
     const m = /^(?:"([\u0020-\u007E]{4})"|'([\u0020-\u007E]{4})')\s*(.*)$/.exec(entry);
@@ -279,6 +320,27 @@ describe("font feature availability", () => {
       `app/globals.css declares ${missing.join(", ")}, which the loaded font ` +
         `cannot honor — the declaration would render nothing`,
     ).toEqual([]);
+  });
+
+  test("the font the app loads stays within its payload budget", () => {
+    // The features and axes survive a swap back to the 344 KB verbatim release,
+    // so nothing above notices the exact regression the subset exists to prevent:
+    // measured cold on slow 4G, the verbatim file cost FCP +136-164ms and pushed
+    // the fallback->Inter swap to 3720ms after navigation (8049ms on regular 3G).
+    // The font is PRELOADED, so its weight is on the first-visit critical path —
+    // the venue-floor visit PRODUCT.md cares about. Whole-diff review R4 P1.
+    //
+    // The bound is deliberately loose: it is a tripwire against a category change
+    // (dropping the subset step, adding italics), not a byte pin. Raising it is a
+    // payload decision of the kind recorded in the spec's §2.6, not a maintenance
+    // step — say why in the commit.
+    const BUDGET_BYTES = 220_000;
+    const bytes = readFileSync(resolveLoadedFontPath()).byteLength;
+    expect(
+      bytes,
+      `the loaded font is ${bytes} bytes, over the ${BUDGET_BYTES}-byte budget. It is ` +
+        `preloaded, so this lands on first paint for crew on venue-floor connections.`,
+    ).toBeLessThanOrEqual(BUDGET_BYTES);
   });
 
   test("the font the app loads exposes both variation axes DESIGN.md claims", () => {

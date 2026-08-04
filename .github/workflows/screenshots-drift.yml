@@ -22,6 +22,11 @@ on:
       - "supabase/seed.ts"
       - "supabase/seedWalkerFixtures.ts"
       - "supabase/migrations/**"
+      # The FONT is a screenshot input: changing it re-rasterises every glyph in
+      # every capture. It lived under app/** until 2026-08-03, when the
+      # page-candidate tripwire moved it out and silently took it off this
+      # filter with it (whole-diff review R4).
+      - "assets/fonts/**"
       # The committed baselines themselves: the drift job re-captures and
       # `git diff --exit-code public/help/screenshots/`, so a PR that edits these
       # bytes directly must re-trigger verification (else a bad baseline ships

@@ -36,7 +36,7 @@ declared tags and both axes against whatever the loader points at — rather tha
 so no pinned-image gate is owed. The `opsz` axis survives the subset, making `DESIGN.md` §2.1's
 long-standing optical-sizing claim true for the first time.
 
-**Fourteen false claims corrected** across `DESIGN.md`, the font-binding spec and plan, and six source
+**Fourteen false claims corrected** across `DESIGN.md`, the font-binding spec and plan, and eight source
 comments — including that plan's own P3 disposition, which had recorded "now deterministically activates
 Inter's alternates … for the first time" as an accepted consequence. It activated nothing.
 
