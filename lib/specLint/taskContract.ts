@@ -1,0 +1,166 @@
+import type { DocModel } from "./parse";
+import type { Finding } from "./types";
+
+/**
+ * Declared task contract for plans (design §3.2–§3.4.1).
+ *
+ * Two passes. Pass 1 classifies lines mechanically and records marker-shaped
+ * lines WITHOUT judging them; pass 2 draws the whole-document enrollment
+ * conclusion and only then classifies markers. The split is a correctness
+ * requirement: whether a region counts at all is not knowable until every
+ * enrollment line has been seen, so a single-pass checker would report marker
+ * findings inside a region a later duplicate opening invalidates.
+ *
+ * Pure: reads only `model.lines`, `model.fencedInfo` and `model.headings`.
+ */
+
+// The matching convention (§3.2) — identical prefix and suffix on all three
+// forms. `model.lines` is already CRLF-normalised by `splitLines`.
+const OPEN = /^ {0,3}<!-- tasks: depth=([1-6]) -->[ \t]*$/;
+const END = /^ {0,3}<!-- tasks: end -->[ \t]*$/;
+const TASKS_ANY = /^ {0,3}<!-- tasks:/;
+const MARKER_ANY = /^ {0,3}<!-- task:/;
+
+const fail = (code: string, docLine: number, message: string): Finding => ({
+  check: "taskContract",
+  code,
+  severity: "fail",
+  docLine,
+  column: 1,
+  message,
+});
+
+export function checkTaskContract(model: DocModel, kind: "spec" | "plan"): Finding[] {
+  if (kind !== "plan") return [];
+
+  const findings: Finding[] = [];
+  const nonFenced = (i: number) => model.fencedInfo[i] === undefined;
+
+  // ---- pass 1 — line classification --------------------------------------
+  let open = false;
+  let rejectedOpens = 0;
+  let openCount = 0;
+  let depth: number | null = null;
+  let sawTasksLine = false;
+  let regionStart = 0;
+  let regionEnd = 0;
+  const markerLines: number[] = [];
+
+  for (let i = 0; i < model.lines.length; i++) {
+    if (!nonFenced(i)) continue;
+    const line = model.lines[i]!;
+    const n = i + 1;
+
+    const om = OPEN.exec(line);
+    if (om) {
+      sawTasksLine = true;
+      openCount++;
+      if (openCount === 1) {
+        open = true;
+        depth = Number(om[1]);
+        regionStart = n;
+      } else {
+        findings.push(
+          fail("TASK_ENROLL_DUPLICATE", n, "second task-region opening; only one is supported"),
+        );
+        rejectedOpens++;
+      }
+      continue;
+    }
+
+    if (END.test(line)) {
+      sawTasksLine = true;
+      if (open) {
+        open = false;
+        regionEnd = n;
+      } else if (rejectedOpens > 0) {
+        // Belongs to an opening already rejected as a duplicate. Consuming it
+        // silently is what stops one authoring error manufacturing a second,
+        // misleading finding.
+        rejectedOpens--;
+      } else {
+        findings.push(
+          fail("TASK_ENROLL_MALFORMED", n, "task-region close with no matching opening"),
+        );
+      }
+      continue;
+    }
+
+    if (TASKS_ANY.test(line)) {
+      sawTasksLine = true;
+      findings.push(
+        fail(
+          "TASK_ENROLL_MALFORMED",
+          n,
+          "malformed task-region line; expected `depth=<1-6>` or `end`",
+        ),
+      );
+      continue;
+    }
+
+    if (MARKER_ANY.test(line)) markerLines.push(n);
+  }
+  // End of document closes an unclosed region.
+  if (open) regionEnd = model.lines.length + 1;
+
+  // ---- pass 2 — whole-document conclusion --------------------------------
+  if (!sawTasksLine) return [];
+  // Exactly one opening, or enrollment is not established: pass-1 findings
+  // stand and every recorded marker is discarded unjudged.
+  if (openCount !== 1 || depth === null) return findings;
+
+  const tasks = model.headings.filter(
+    (h) => h.depth === depth && h.line > regionStart && h.line < regionEnd,
+  );
+  if (tasks.length === 0) {
+    findings.push(
+      fail("TASK_ENROLL_EMPTY", regionStart, `task region selects no depth-${depth} heading`),
+    );
+    return findings;
+  }
+
+  // A task's extent runs to the next heading of the enrolled depth or
+  // shallower, the region's close, or end of document — whichever is first.
+  const extents = tasks.map((t) => {
+    let end = regionEnd;
+    for (const h of model.headings) {
+      if (h.line > t.line && h.depth <= depth!) {
+        end = Math.min(end, h.line);
+        break;
+      }
+    }
+    return { start: t.line, end };
+  });
+
+  const owned = new Map<number, number[]>(extents.map((e) => [e.start, []]));
+  for (const line of markerLines) {
+    const e = extents.find((x) => line > x.start && line < x.end);
+    if (!e) {
+      findings.push(fail("TASK_MARKER_ORPHANED", line, "task marker outside every task extent"));
+      continue;
+    }
+    owned.get(e.start)!.push(line);
+  }
+
+  for (const e of extents) {
+    const ms = owned.get(e.start)!;
+    if (ms.length === 0) {
+      findings.push(
+        fail("TASK_MARKER_MISSING", e.start, "task has no `<!-- task: ... -->` marker"),
+      );
+      continue;
+    }
+    // Cardinality is independent of classification: a defective marker still
+    // occupies the slot, and still counts toward duplication.
+    if (ms.length > 1) {
+      findings.push(
+        fail("TASK_MARKER_DUPLICATE", ms[1]!, "task extent holds more than one marker"),
+      );
+    }
+  }
+
+  findings.sort(
+    (a, b) => a.docLine - b.docLine || (a.code < b.code ? -1 : a.code > b.code ? 1 : 0),
+  );
+  return findings;
+}
