@@ -619,13 +619,13 @@ console.log(JSON.stringify({ killed: r.killed, count: r.mutantCount, survivors: 
 
 | survivor | the test that kills it |
 | --- | --- |
-| `integer-literal:80` `STALE_DAYS 14>15` | a tip exactly 14 days old reads **fresh**, 15 days reads stale |
+| `integer-literal:80` `STALE_DAYS 14>15` | a tip exactly **15** days old reads stale. **Corrected during implementation:** the 14-day case kills nothing here, since `14 > 14` and `14 > 15` are both false; it is what kills `relational-boundary:224`. Two separate cases. |
 | `logical-connector:111` `\|\|>&&`, `integer-literal:111` `0>1` | `base = ""` (empty, not null) still yields `ci-unknown` |
 | `integer-literal:133` `1000>1001` | call `resolveClaims` with **no** `opts.now` and assert `tipAgeDays` against a tip one day old — every existing test pins `now`, so the `Date.now()` default is untested, and `/1001` shifts the epoch about twenty days |
 | `statement-removal:137` `git.fetch()` | the Task 9 repair of the ordering guard kills this; do it there, not here |
 | `statement-removal:139` `degraded.push(fetch-failed)` | a fake whose `fetch` throws surfaces `fetch-failed: …` |
 | `statement-removal:142` `degraded.push(no-fetch-cached-refs)` | an **in-process** assertion on `resolveClaims(fake(), { fetch: false }).degraded` — the only current assertion is through a spawned CLI, which the overlay cannot reach (spec L-7) |
-| `logical-connector:170` `&&>\|\|` | a shallow clone **with** main must not push `merged-exclusion-skipped-no-main` |
+| `logical-connector:170` `&&>\|\|` | an ordinary **full clone with a main** must not push `merged-exclusion-skipped-no-main`. **Corrected during implementation:** the shallow-with-main case cannot kill it, since `!true && x` and `!true \|\| x` are both false; only a full clone separates them, and only an ABSENCE assertion sees it, because every existing assertion is a `toContain`. |
 | `statement-removal:198` `candidates.sort(...)` | two candidates with distinct tip epochs come back newest-first |
 | `relational-boundary:224` `>>>=` | a tip exactly `STALE_DAYS` old is fresh, not stale |
 | `statement-removal:243` `blobCache.set` | two refs sharing a blob call `readBlob` **once**; count the calls on the fake |
