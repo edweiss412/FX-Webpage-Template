@@ -104,3 +104,26 @@ describe("ledgerItems", () => {
     expect(entry?.fields.Severity).toBe("low");
   });
 });
+
+describe("the spawn seam is structural, not merely conventional", () => {
+  // Whole-diff review F9 / mutation family M9: a recorder wrapping GitSurface
+  // cannot see a mutant that imports node:child_process directly inside the
+  // core, so the ban is asserted at the source level. Follows the P5-noio
+  // precedent that already keeps node:fs out of _ledgerMdast.ts.
+  it.each([
+    "scripts/lib/ledger-fields.ts",
+    "scripts/lib/ledger-claims-core.ts",
+    "scripts/lib/ledger-check.ts",
+  ])("%s spawns nothing", (rel) => {
+    const src = readFileSync(join(ROOT, rel), "utf8");
+    expect(src, `${rel} must not import node:child_process`).not.toMatch(
+      /from\s+["']node:child_process["']|require\(["']node:child_process["']\)/,
+    );
+  });
+
+  it("ledger-git.ts is the module that DOES spawn, so the ban above is meaningful", () => {
+    // Without this, deleting every spawn everywhere would satisfy the bans.
+    const src = readFileSync(join(ROOT, "scripts/lib/ledger-git.ts"), "utf8");
+    expect(src).toMatch(/from\s+["']node:child_process["']/);
+  });
+});

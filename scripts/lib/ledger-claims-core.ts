@@ -117,6 +117,13 @@ export function resolveClaims(git: GitSurface, opts: { fetch: boolean; now?: num
     .map((name) => `origin/${name}`)
     .filter((ref) => !merged.has(ref));
 
+  // Tip epochs resolved ONCE per ref. Calling git.tipEpoch inside a comparator
+  // would spawn O(n log n) subprocesses for a cosmetic ordering.
+  const tipOf = new Map<string, number>(candidates.map((ref) => [ref, git.tipEpoch(ref)]));
+  // Newest tip first, so the table leads with what is most likely live rather
+  // than with whatever order the ref map happened to yield.
+  candidates.sort((a, b) => (tipOf.get(b) ?? 0) - (tipOf.get(a) ?? 0));
+
   const prByBranch = new Map<string, PrRow>();
   for (const row of git.prList()) {
     // Base-repo PRs only: a fork PR sharing a head name must not attach its
@@ -129,7 +136,9 @@ export function resolveClaims(git: GitSurface, opts: { fetch: boolean; now?: num
 
   for (const ref of candidates) {
     const branch = shortName(ref);
-    const ageDays = Math.floor((now - git.tipEpoch(ref)) / 86_400);
+    // Ceil, not floor: flooring leaves a 14.5-day tip reading 14 and therefore
+    // fresh until day 15, which is a boundary that silently drifts a day.
+    const ageDays = Math.ceil((now - (tipOf.get(ref) ?? 0)) / 86_400);
 
     const mk = (id: string, kind: Claim["kind"]): Claim => ({
       id,

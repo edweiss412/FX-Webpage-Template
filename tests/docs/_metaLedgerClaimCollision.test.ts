@@ -75,6 +75,27 @@ function selfBranch(): { branch: string | null; identity: string } {
   return { branch: process.env.GITHUB_HEAD_REF ?? null, identity: "ci-resolved" };
 }
 
+/**
+ * The comparison itself, pure and therefore testable.
+ *
+ * Extracted because the live rule above is conditional on this branch declaring
+ * something, and this branch declares nothing — so a mutant replacing the loop
+ * with `[]` passed the entire file. The planted suite below exercises THIS.
+ */
+export function findCollisions(
+  mine: string[],
+  others: { branch: string; declared: string[] }[],
+  self: string | null,
+): string[] {
+  const wanted = new Set(mine);
+  const out: string[] = [];
+  for (const { branch, declared } of others) {
+    if (self !== null && branch === self) continue; // my own pushed head
+    for (const id of declared) if (wanted.has(id)) out.push(`${id} is also declared by ${branch}`);
+  }
+  return out;
+}
+
 /** Declared claims at a ref, keyed by the ref rather than by the marker's own field. */
 function declaredAt(ref: string): string[] {
   const out: string[] = [];
@@ -132,15 +153,11 @@ describe("ledger claim collision (cross-branch backstop)", () => {
       .map((s) => s.trim())
       .filter((r) => r.length > 0 && r !== "origin/main" && r !== "origin/HEAD");
 
-    const wanted = new Set(mine);
-    const collisions: string[] = [];
-    for (const ref of refs) {
-      const branch = ref.replace(/^origin\//, "");
-      if (self !== null && branch === self) continue; // my own pushed head
-      for (const id of declaredAt(ref)) {
-        if (wanted.has(id)) collisions.push(`${id} is also declared by ${branch}`);
-      }
-    }
+    const collisions = findCollisions(
+      mine,
+      refs.map((ref) => ({ branch: ref.replace(/^origin\//, ""), declared: declaredAt(ref) })),
+      self,
+    );
 
     expect(
       collisions,
@@ -172,5 +189,44 @@ describe("the backstop catches what it claims to", () => {
     const body = ["**Status:** OPEN", ...Array<string>(15).fill("filler"), "**Status:** IN PROGRESS · **Branch:** feat/x"].join("\n\n");
     const items = ledgerItems("BACKLOG.md", `## BL-PLANTED-DEEP — planted\n\n${body}\n`);
     expect(items.filter(isInProgress).map((i) => i.id)).toEqual(["BL-PLANTED-DEEP"]);
+  });
+});
+
+describe("findCollisions — the comparison the live rule cannot exercise here", () => {
+  // Whole-diff review F5: this branch declares nothing, so the live test returns
+  // early and `const collisions = []` passed the whole file. These plant the
+  // comparison directly.
+  it("reports a row another branch declares", () => {
+    expect(findCollisions(["BL-X"], [{ branch: "feat/other", declared: ["BL-X"] }], "feat/mine")).toEqual([
+      "BL-X is also declared by feat/other",
+    ]);
+  });
+
+  it("does not report my own pushed head", () => {
+    expect(findCollisions(["BL-X"], [{ branch: "feat/mine", declared: ["BL-X"] }], "feat/mine")).toEqual([]);
+  });
+
+  it("reports my own head when identity is unresolved, because nothing is self", () => {
+    // The fork and ci-unknown cases both pass self=null, which is deliberate:
+    // over-report rather than go quiet.
+    expect(findCollisions(["BL-X"], [{ branch: "feat/mine", declared: ["BL-X"] }], null)).toEqual([
+      "BL-X is also declared by feat/mine",
+    ]);
+  });
+
+  it("ignores rows this branch does not declare", () => {
+    expect(findCollisions(["BL-X"], [{ branch: "feat/other", declared: ["BL-OTHER"] }], null)).toEqual([]);
+  });
+
+  it("reports every colliding branch, not just the first", () => {
+    const out = findCollisions(
+      ["BL-X"],
+      [
+        { branch: "feat/a", declared: ["BL-X"] },
+        { branch: "feat/b", declared: ["BL-X"] },
+      ],
+      null,
+    );
+    expect(out).toHaveLength(2);
   });
 });

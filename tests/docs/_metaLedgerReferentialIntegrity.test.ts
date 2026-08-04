@@ -204,6 +204,8 @@ const NOT_A_CITATION: Record<string, Record<string, string>> = {
     "BL-PLANTED-COLLISION": "planted declared claim proving the backstop reads one",
     "BL-PLANTED-OPEN": "planted OPEN entry proving it does not read one",
     "BL-PLANTED-DEEP": "planted out-of-window marker, the shape that started this",
+    "BL-X": "planted id in the findCollisions comparison fixtures",
+    "BL-OTHER": "the non-colliding control in those fixtures",
   },
   "scripts/ledger-claims.ts": {
     "BL-A": "usage example in the CLI docstring",
