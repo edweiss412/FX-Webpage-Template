@@ -100,6 +100,7 @@ This plan ships structural guards, so the mutation families it converges against
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { extractEntries } from "@/tests/docs/_ledgerMdast";
 import { ledgerItems, optsFor } from "@/scripts/lib/ledger-fields";
 
 const ROOT = join(__dirname, "..", "..");
@@ -133,6 +134,34 @@ describe("ledger-fields entry spans", () => {
         if (n > 0) expect(it.line).toBeGreaterThan(items[n - 1]!.line);
       });
     }
+  });
+
+  it("returns exactly the authoritative entry set, per ledger (M1/M2)", () => {
+    // Plan-R2 findings 3 and 4: asserting only over RETURNED entries lets two
+    // mutants through. A grammar accepting no-em-dash headings but dropping the
+    // live struck heading `### ~~MODAL-CLOSE-EXIT-ANIM-1~~` loses one entry from
+    // DEFERRED-archive.md; a `levels: [2]` mutant on the archive loses 85. Both
+    // pass every per-entry assertion. Count parity against extractEntries is what
+    // catches them, so the assertion is against the authoritative source itself,
+    // not a hardcoded number that would rot as the corpus grows.
+    for (const f of ["BACKLOG.md", "BACKLOG-archive.md", "DEFERRED.md", "DEFERRED-archive.md"]) {
+      const text = read(f);
+      const want = extractEntries(text, optsFor(f)).map((e) => e.id);
+      expect(ledgerItems(f, text).map((i) => i.id), `${f} entry set drifted`).toEqual(want);
+    }
+  });
+
+  it("resolves a struck heading and an archive H3 entry (M1/M2)", () => {
+    const arch = read("DEFERRED-archive.md");
+    expect(ledgerItems("DEFERRED-archive.md", arch).map((i) => i.id))
+      .toContain("MODAL-CLOSE-EXIT-ANIM-1");
+    // BACKLOG-archive.md carries H3 entries; a levels:[2] mutant drops them all
+    // while leaving the file non-empty, so no vacuity gate fires.
+    const backArch = read("BACKLOG-archive.md");
+    const h3 = extractEntries(backArch, { requirePrefix: "BL-", levels: [3] }).map((e) => e.id);
+    expect(h3.length, "fixture premise: the archive has H3 entries").toBeGreaterThan(0);
+    const got = ledgerItems("BACKLOG-archive.md", backArch).map((i) => i.id);
+    for (const id of h3) expect(got, `H3 entry ${id} dropped`).toContain(id);
   });
 
   it("uses per-ledger opts, so the deferred pair is not empty (M2)", () => {
@@ -223,7 +252,7 @@ export function ledgerItems(file: string, text: string): LedgerItem[] {
   //
   // The comparison is endsWith + id presence rather than equality, because
   // extractEntries strips a struck id from headingLine.text while flattenLines
-  // keeps it — `### ~~MODAL-CLOSE-EXIT-ANIM-1~~ — RESOLVED` is the live instance,
+  // keeps it: `### ~~MODAL-CLOSE-EXIT-ANIM-1~~, RESOLVED` is the live instance,
   // and equality alone leaves it unresolved.
   //
   // Measured over all four ledgers: 478 entries, 0 unresolved, spans monotonic.
@@ -442,10 +471,16 @@ import { resolveClaims, type GitSurface } from "@/scripts/lib/ledger-claims-core
 
 const MARKER = (b: string) => `## BL-X\n\n**Status:** IN PROGRESS · **Branch:** ${b}\n`;
 
+// Must satisfy the FULL GitSurface: plan-R2 finding 5 caught an earlier fake
+// declaring `remoteRefs` (which does not exist on the type) while omitting
+// `fetch`, `localRefs`, and `prList`. `Partial<GitSurface>` on the override
+// parameter does not excuse the base object from being complete.
 function fake(over: Partial<GitSurface> = {}): GitSurface {
   return {
+    fetch: () => {},
     lsRemote: () => new Map([["main", "aaa"], ["feat/a", "bbb"]]),
-    remoteRefs: () => ["origin/main", "origin/HEAD", "origin/feat/a"],
+    localRefs: () => new Map([["main", "aaa"], ["feat/a", "bbb"]]),
+    prList: () => [],
     mergedIntoMain: () => [],
     showFile: (ref, file) =>
       file === "BACKLOG.md" && ref === "origin/feat/a" ? MARKER("feat/a") : null,
@@ -475,6 +510,26 @@ describe("resolveClaims", () => {
       { fetch: false },
     );
     expect(r.claims[0]?.branch, "source ref wins over fields.Branch").toBe("feat/a");
+  });
+
+  it("keys by the ref when the named branch EXISTS (M6)", () => {
+    // Plan-R2 finding 6: the mismatch fixture above uses feat/b, which the fake
+    // does not have, so an existence-aware `fields.Branch` mutant falls back to
+    // the ref and passes. When the named branch exists the mutant misattributes.
+    const r = resolveClaims(fake({
+      lsRemote: () => new Map([["main", "aaa"], ["feat/a", "bbb"], ["feat/b", "ccc"]]),
+      localRefs: () => new Map([["main", "aaa"], ["feat/a", "bbb"], ["feat/b", "ccc"]]),
+      showFile: (ref, f) => (f === "BACKLOG.md" && ref === "origin/feat/a" ? MARKER("feat/b") : null),
+    }), { fetch: false });
+    expect(r.claims[0]?.branch, "an existing named branch must not steal the claim").toBe("feat/a");
+  });
+
+  it("keys by the ref when the marker names NO branch (M6)", () => {
+    const r = resolveClaims(fake({
+      showFile: (ref, f) => (f === "BACKLOG.md" && ref === "origin/feat/a"
+        ? "## BL-X\n\n**Status:** IN PROGRESS · **Severity:** low\n" : null),
+    }), { fetch: false });
+    expect(r.claims[0]).toMatchObject({ id: "BL-X", branch: "feat/a", kind: "declared" });
   });
 
   it("excludes origin/main and origin/HEAD as candidates (M5)", () => {
@@ -529,9 +584,14 @@ Expected: FAIL — module not found.
 Candidate rule (§3.2 step 2): every `refs/remotes/origin/*` except `origin/main` and `origin/HEAD`; subtract `mergedIntoMain()` only when `!isShallow()`. Identity (§3.2 step 3): `inCI()` false → `local`, self = `currentBranch()`; `inCI()` true and `headRepo()` non-null → `ci-resolved`, self = `currentBranch()` unless `headRepo() !== repo()`; otherwise `ci-unknown`, self = `null`. Declared claims: for each candidate × `ledgerFiles()`, `showFile` then `ledgerItems`, keep `isInProgress`, key on the ref's short name. Stale when tip age > 14 days.
 
 <!-- spec-lint: ignore — new files created by this plan; not yet tracked -->
-- [ ] **Step 4: Implement `ledger-git.ts`**
+- [ ] **Step 4: Do NOT implement `ledger-git.ts` here**
 
-The real `GitSurface`. Every call bounded per §4.4; `showFile` discards the child's stderr (`stdio: ["ignore","pipe","ignore"]`) so a missing ledger is silent; `lsRemote` returns a name→OID map with `HEAD` filtered out.
+Plan-R2 finding 7: writing the real subprocess adapter in this task would ship an
+entire module with no test exercising it, which violates invariant 1. Nothing in
+<!-- spec-lint: ignore — new files created by this plan; not yet tracked -->
+Task 3 touches it — these tests inject `fake()`. `ledger-git.ts` is written in
+**Task 5**, where its `fetch`, head-map, and `prList` behavior are the things
+under assertion, and its non-invocation seam is asserted in Task 6.
 
 - [ ] **Step 5: Run to verify pass**
 
@@ -541,7 +601,8 @@ Expected: PASS, 8 tests; no type errors.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add scripts/lib/ledger-git.ts scripts/lib/ledger-claims-core.ts tests/scripts/ledgerClaims.test.ts
+git add scripts/lib/ledger-claims-core.ts tests/scripts/ledgerClaims.test.ts \
+        tests/docs/_metaLedgerReferentialIntegrity.test.ts
 git commit -m "feat(ledger): claim resolution core with injected git surface"
 ```
 
@@ -613,23 +674,27 @@ git commit -m "feat(ledger): inferred claims with specified hunk mapping"
 
 - [ ] **Step 1: Write the failing tests** — the exit table (§3.3) plus every §4.1 universe row, and the identity matrix.
 
-Required cases, each asserting an exit code: declared collision with resolved identity → **1**; inferred-only collision → **0** with `WARN`; zero ids → **2**; per-file vacuity (a non-empty ledger yielding zero entries) → **2**; fetch failure → **2**; zero refs → **2**; head map differing by OID under an unchanged name → **2**; head map with an extra local name → **2**; head map missing a remote-advertised name → **2**; `ls-remote` throwing → **2**; deferred ledger parsed with backlog opts → **2**; 101 candidates with the collision in the 101st → **1**; `--json` with 101 candidates → all 101 emitted; `origin/HEAD` present and otherwise healthy → **0**; only `main` on origin → **0**; a candidate predating the ledgers → **0**; genuinely empty candidate ledgers → **0**; merged-main snapshot carrying a marker → **0**; local identity on the declaring branch → **0**; CI + readable payload + same repo → **0**; CI + readable payload + fork with a same-name base branch → **1**; CI + absent payload + `GITHUB_HEAD_REF` naming the declaring branch → **2**.
+Required cases, each asserting an exit code: declared collision with resolved identity → **1**; inferred-only collision → **0** with `WARN`; zero ids → **2**; per-file vacuity (a non-empty ledger yielding zero entries) → **2**; fetch failure → **2**; zero refs → **2**; head map differing by OID under an unchanged name → **2**; head map with an extra local name → **2**; head map missing a remote-advertised name → **2**; `ls-remote` throwing → **2**; a declared claim planted in `DEFERRED.md` → **1**, and the claim is **found** (plan-R2 finding 10: "parsed with backlog opts → 2" is not executable against the correct program, since no opts-mutation seam exists; the positive form is what a wrong mapping actually fails); 101 candidates with the collision in the 101st → **1**; `--json` with 101 candidates → all 101 emitted; `origin/HEAD` present and otherwise healthy → **0**; only `main` on origin → **0**; a candidate predating the ledgers → **0**; genuinely empty candidate ledgers → **0**; merged-main snapshot carrying a marker → **0**; local identity on the declaring branch → **0**; CI + readable payload + same repo → **0**; CI + readable payload + fork with a same-name base branch → **1**; CI + absent payload + `GITHUB_HEAD_REF` naming the declaring branch → **2**.
 
 Plus the six cases plan-R1 finding 3 found omitted, each with the mutant it catches:
 
 | Case | Required | Mutant it catches |
 | --- | --- | --- |
-| Global vacuity: every candidate yields 0 while main yields >100 **and** a non-empty candidate exists | **2** | a parser regression answering 0 everywhere while main clears the floor |
+| Global vacuity, **isolated from per-file** | **2** | plan-R2 finding 8: the naive form cannot fail. A non-empty candidate yielding zero already trips per-file vacuity, so deleting the global gate changes the outcome not at all. The fixture must make per-file PASS and global FAIL: one candidate whose ledger files are genuinely empty on disk (per-file stays silent) beside one whose files are non-empty and parse normally, with every branch still yielding zero claims |
+| `resolved = {main, stale-a, stale-b}` vs `remote = {main, claimed}`, strictly **larger** | **2** | plan-R2 finding 9: a validator rejecting changed OIDs, isolated extras, isolated missing names, AND equal-cardinality substitution still trusts a larger cache whose extras conceal the missing claimed branch |
 | `resolved = {main, stale}` vs `remote = {main, claimed}` | **2** | a count-plus-shared-OID comparison that trusts equal-cardinality substitution |
 | `--json` healthy-empty vs fetch-failed | distinguishable payloads | a bare array serializing both as `[]` |
 | `isShallow()` given the literal string `"false"` | treated as **not** shallow | `Boolean("false") === true`, which classifies every full clone as shallow and permanently disables the merged-exclusion |
 | A genuinely shallow fixture clone (`git clone --depth=1`) | merged-exclusion skipped, `declared` still resolves | a shallow branch that is dead code no test enters |
 | §4.3 argument handling: lowercase and backticked ids, duplicates, an id defined nowhere | normalized / de-duplicated / noted-and-continued | an implementation that only ever sees canonical input |
 
-**PR display (plan-R1 finding 4).** `prList()` is exercised too, since nothing else assigns it: a
-fork PR and a base branch sharing a head name must join to **different** rows (`headRepositoryOwner`
-discriminates), and a `prList()` that throws or exceeds its 10 s bound leaves the column blank while
-the table still prints and the exit code is unchanged.
+**PR display (plan-R1 finding 4, corrected by plan-R2 finding 11).** `prList()` is exercised here,
+since nothing else assigns it. The earlier phrasing was incoherent with the data model: `Claim` rows
+key on base-repository `origin` heads and carry no repository identity, so there is no fork claim row
+for a second PR to attach to. The assertion is **non-attachment** — given two open PRs sharing the
+head name `fix/shared`, one from the base repo and one from a fork, the claim on the base branch
+shows the **base** PR number and not the fork's. A `prList()` that throws or exceeds its 10 s bound
+leaves the column blank while the table still prints and the exit code is unchanged.
 
 Derive every expected id from the planted fixture text; never hardcode a literal the fixture does not produce.
 
@@ -669,6 +734,9 @@ Positive wiring first — every assertion below is conditional on it (§7.5):
 import { spawnSync } from "node:child_process";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+
+import { resolveClaims, type GitSurface } from "@/scripts/lib/ledger-claims-core";
+import { recordingGitSurface } from "./_recordingGitSurface";
 
 const ROOT = join(__dirname, "..", "..");
 const SENTINEL = "CLAIMS-CHILD-RAN";
@@ -735,14 +803,27 @@ describe("the reader honors --no-fetch behaviorally (M9)", () => {
     // NOT a completion assertion: connection refusal is immediate (0.03 s for
     // ls-remote, 0.04 s for gh), so "it finished" proves nothing. This asserts
     // non-invocation at the seam by counting spawns through a recording GitSurface.
-    const spawned: string[] = [];
-    const spy = recordingGitSurface(spawned); // records member names, spawns nothing
+    const argv: string[][] = [];
+    // Records at the PROCESS boundary, not the GitSurface interface: a mutant
+    // running `git ls-remote` inside localRefs() would be invisible to a
+    // member-name spy (plan-R2 finding 14).
+    const spy: GitSurface = recordingGitSurface((a: string[]) => { argv.push(a); return ""; });
     resolveClaims(spy, { fetch: false });
-    expect(spawned).not.toContain("fetch");
-    expect(spawned).not.toContain("lsRemote");
+    expect(argv.filter((a) => a[0] === "git" && a[1] === "fetch")).toEqual([]);
+    expect(argv.filter((a) => a[0] === "git" && a[1] === "ls-remote")).toEqual([]);
   });
 });
 ```
+
+<!-- spec-lint: ignore — new files created by this plan; not yet tracked -->
+`tests/scripts/_recordingGitSurface.ts` is created by this task too — plan-R2 finding 12 caught both
+`recordingGitSurface` and `resolveClaims` used but never imported or defined, so the block did not
+compile. **And plan-R2 finding 14 refutes the member-name spy it was going to be**: recording which
+`GitSurface` members were called proves nothing, because a mutant running `git ls-remote` *inside*
+`localRefs()` records only `localRefs`. The recorder therefore wraps the **process boundary**, not
+the interface: it takes an injected spawn function, records every argv it receives, and returns
+canned data without spawning. The assertion is over recorded argv (`no argv beginning
+["git","fetch"]`, none beginning `["git","ls-remote"]`), which is the boundary §7.5 specifies.
 
 The `tests/scripts/__stubbin__/tsx` stub is created by this task: an executable shell script that
 echoes `CLAIMS-CHILD-RAN` plus its argv, then honors `CLAIMS_STUB_MODE` (`fail` exits 1, `hang`
