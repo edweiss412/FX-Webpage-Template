@@ -534,6 +534,8 @@ The property that replaces byte-equality, and the one §2.2.4 actually requires:
 
 **AC-39.** An enrollment line and a task marker indented by one, two, and three spaces are recognized; the same lines indented by four spaces are not, being indented code blocks under CommonMark. Both halves asserted — a suite testing only the accepted side would pass a grammar that accepted arbitrary indentation.
 
+The rejecting half asserts an *absence*, so its fixture must make the wrong behavior produce something: the four-space enrollment line is followed by a depth-N heading carrying **no marker**. A grammar accepting arbitrary indentation then enrolls the plan and reports `TASK_MARKER_MISSING`, against an expected empty list. The four-space *marker* case is the mirror image and needs no such care — placed inside a correctly enrolled region it yields `TASK_MARKER_MISSING` positively.
+
 **AC-35.** `scripts/spec-lint.ts` sets `process.exitCode` and exits naturally rather than calling `process.exit()`. Pinned behaviorally: the CLI spawned through a pipe returns a report whose last line begins `summary:`, and whose bytes are **identical** to those of the same run redirected to a file — `Buffer.compare(pipeBuf, fileBuf) === 0`, comparing the buffers themselves, never their lengths.
 
 Equal length is not equal content, and an earlier wording asked only for equal `Buffer.byteLength`. Two different reports of the same length both ending in `summary:` satisfy it; so does any truncation that happens to be compensated elsewhere. Since the defect under test is precisely "the pipe yields a *different, shorter* report", a length-only comparison tests a proxy for the property that matters while looking like the property itself. Use `Buffer.byteLength` only for the diagnostic message on failure — and never `String.length`, which counts UTF-16 code units and reads a byte-identical em-dash-heavy report as a shortfall (§2.2.3).
@@ -562,7 +564,16 @@ The first two are both "no summary", so a mutant validating only the last line p
 
 **AC-29.** The §3.4.1 table is total: a table-driven test enumerates every line class against every region state and asserts each yields the stated outcome, with a final case asserting that an arbitrary line reaching no earlier row is classified as ordinary prose rather than falling through unhandled.
 
-**AC-26.** `open → close → open → close` reports `TASK_ENROLL_DUPLICATE` on the second opening, anchored to that line. The fixture carries a well-formed task with a valid marker inside the first region, and the test asserts that **no** task-level finding is reported for it — pinning §3.2's rule that duplicate openings leave the plan unenrolled. The pairing is the point: the duplicate must fire (never silent) *and* the task-level rows must be skipped (never guessed against one of two declared regions). A fixture asserting only the first half would pass an implementation that silently picked a region.
+**AC-26.** `open → close → open → close` reports exactly `[TASK_ENROLL_DUPLICATE]`, anchored to the second opening. The first region must contain **a task that would itself draw a task-level finding if it were checked** — the fixture uses a depth-N heading with no marker at all. The full-list assertion then pins both halves at once: the duplicate fires (never silent), and the task-level rows are skipped (never guessed against one of two declared regions).
+
+The fixture's shape is load-bearing and an earlier draft got it wrong in a way that is worth stating, because it is the anti-tautology trap in its purest form. That draft put a **well-formed** task with a valid marker in the first region and asserted no task-level finding. A well-formed task produces no task-level findings under *either* behavior, so the criterion could not fail. Verified by mutation against a reference implementation of §3.4.1 — flipping the pass-2 conclusion from `openCount === 1` to `openCount >= 1`:
+
+```
+fixture with a valid marker    correct=[DUPLICATE]  mutant=[DUPLICATE]                   survives
+fixture with no marker         correct=[DUPLICATE]  mutant=[DUPLICATE, MARKER_MISSING]   killed
+```
+
+A criterion asserting the absence of a finding only discriminates when the wrong implementation would have produced one.
 
 **AC-27.** Each of the three overlapping marker defects — missing `ac=`, empty `ac=`, empty backticked `red` — yields exactly ONE code, the one the §3.3 precedence assigns, and a task whose only marker is malformed does not additionally report `TASK_MARKER_MISSING`.
 
@@ -581,6 +592,8 @@ The first two are both "no summary", so a mutant validating only the last line p
 **AC-14.** `docs/agents/spec-self-review.md` carries the §4.1 rule text and the §3.2 plus §3.3 marker convention.
 
 **AC-40.** An enrolled fixture plan with task-contract defects reports its `taskContract` findings and **zero** findings of the `sections` family, proving `lib/specLint/sections.ts:27` still short-circuits for plans (§3.4). Asserted behaviorally on the finding list, not by grepping the source for the unchanged line — a refactor could preserve that line and still re-enable section checks for plans through another path.
+
+The zero half is an absence assertion, so the fixture must be a document that **would** draw `sections` findings if the short-circuit were removed — that is, one missing the headings `checkSections` requires of a spec. This costs nothing to arrange: a plan is missing them by nature, which is why the short-circuit exists at all. State it in the test anyway, because a fixture that happened to satisfy the section requirements would report zero either way and certify nothing.
 
 **AC-41.** `docs/agents/spec-self-review.md` carries the amended completeness clause (§2.2.4): findings may not be filtered, the `INVENTORY` block may be omitted, and an abridged report must disclose how much was dropped. Pinned as a docs assertion in the same PR as the arm, because the arm's conformance argument cites this text as its authority — leaving the old "full output" wording in place would leave §2.2.2 in standing violation of the rule it mechanizes.
 
