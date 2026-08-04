@@ -216,11 +216,12 @@ The test must NOT snapshot the whole string, which would fail on every unrelated
 | 5 | The `h1` has `textContent` exactly `JavaScript is required`; the `p` exactly `This page needs JavaScript to load. Turn it on, then reload.` | A benign but wrong message, which every other assertion tolerates. |
 | 6 | The notice's title element is an `h1` (assert `tagName`). | Silent regression to a styled `<p>`. |
 | 7 | The notice text contains no U+2014 and no `/[A-Z]{2,}_[A-Z0-9_]+/`. | Copy-convention drift, which no existing scan reaches (§7.0). |
-| 8 | The notice's **parent** carries `mx-auto`, `max-w-2xl`, `px-4`. | Loss of the gutter. Every `loading.tsx` puts its page padding inside the hidden half, so without this the card runs edge-to-edge at 390px and past 1500px on wide admin. |
+| 8 | The notice's **parent** carries `mx-auto`, `max-w-2xl`, `px-4`. | Loss of the gutter: only three `loading.tsx` files pad below the wrapper and the mobile-primary crew route is one of them, so without this the card runs edge-to-edge at 390px there and past 1500px on wide admin. |
 | 9 | The notice's class list contains `rounded-md`, `border`, `border-border`, `bg-surface`, `p-tile-pad` (membership, so order is not pinned). | A classless card that keeps the copy and discards the treatment. |
 | 10 | The heading's class list contains `text-2xl`, `font-semibold`, `text-text-strong`; the body's contains `mt-2`, `text-base`, `text-text-subtle`. | Token drift on the text elements — separate from 9 because fixing the card does not imply fixing these. |
 | 11 | `notice.contains(h1)` and `notice.contains(bodyParagraph)`. | An empty padded card beside loose copy, which assertion 5 alone accepts. |
 | 12 | The serialized `outer` markup contains the literal `data-loading-shell-content=""`. | Regression to the bare JSX attribute, which serializes to `="true"`; the attribute *selector* matches either way. |
+| 13 | The wrapper's **entire** attribute set is exactly `["data-loading-shell-content"]`, value `""`. | `hidden`, `class="hidden"`, or `style="display:none"` on that element. Each breaks the JavaScript-**enabled** loading path on all nine routes while assertions 1-12 and every e2e case stay green, because they check the notice and the no-JS branch and never this element's own visibility. Verified by mutation. |
 
 ### 7.2 Real-browser probe — tests/e2e/nojs-loading-notice.spec.ts (new file, so the path is unlinked)
 

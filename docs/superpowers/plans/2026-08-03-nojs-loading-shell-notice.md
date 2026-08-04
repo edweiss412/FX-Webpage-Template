@@ -10,7 +10,7 @@ impeccable-gate: critique=RAN audit=RAN p0=0 p1=1 dispositions=recorded
 
 ## Meta-test inventory (mandatory declaration)
 
-**Creates:** none.
+**Creates:** `tests/styles/_metaLoadingShellContentScope.test.ts` — asserts `[data-loading-shell-content]` is styled only from the `<noscript>`-scoped rule inside `LoadingShell`: it appears in no stylesheet a JS-on browser parses, and exactly one component writes it. Filesystem-walked, so a new stylesheet or component fails by default. Closes the round-4 MEDIUM: a duplicate or global rule would hide the loading fallback on all nine routes for every visitor, and neither the component test nor the e2e observes a rule arriving from elsewhere.
 **Extends:** `tests/ci/_metaE2eWorkflowCoverage.test.ts` — one `LOCAL_ONLY_ALLOWLIST` row for the new e2e spec (reason constant `PATH_GATED`). Required, not optional: the coverage scanner treats a path-filtered workflow as not PR-blocking-capable, so without the row its filesystem-walked assertion reports the spec dark and the required Vitest suite fails.
 
 Explicit reason: the invariant-9 Supabase call-boundary registry (`tests/auth/_metaInfraContract.test.ts`) applies to helpers that call Supabase — this change calls nothing. The invariant-10 mutation-surface registries (`tests/log/_auditableMutations.ts`, `tests/log/mutationSurface/exemptions.ts`) apply to route handlers and `"use server"` actions — `components/layout/Skeleton.tsx` is neither, and adds no new file under `app/api/` or any `"use server"` module. The advisory-lock topology test applies to `pg_advisory*` callers — none here. `tests/docs/_metaLedgerInProgress.test.ts` is *exercised* by Task 4 but not extended: the marker convention is already implemented and this branch is an ordinary consumer of it.
@@ -59,7 +59,7 @@ Each task: failing test → minimal implementation → passing test → commit (
 
 ### Task 1 — component test for the no-JS block (RED)
 
-Create tests/components/layout/loadingShellNoJs.test.tsx (new file, path unlinked) with the twelve assertions from spec §7.1. It must fail against unmodified `LoadingShell` (no `<noscript>` exists yet).
+Create tests/components/layout/loadingShellNoJs.test.tsx (new file, path unlinked) with the thirteen assertions from spec §7.1. It must fail against unmodified `LoadingShell` (no `<noscript>` exists yet).
 
 Pragma `// @vitest-environment jsdom` — the file renders via `react-dom/server` but needs jsdom's `DOMParser` to make structural assertions (spec §7.1). Typechecked against the repo's strict tsconfig before commit, per the paste-time rule: `noUncheckedIndexedAccess` means every `querySelector` result is `Element | null` and every regex `exec` result is nullable, so each is narrowed with an explicit non-null assertion after an `expect(...).not.toBeNull()`.
 
@@ -102,13 +102,14 @@ Assertions, one `it` each, each named for the failure it catches:
 5. The `h1` in `noscriptInner` has `textContent` exactly `JavaScript is required`; the `p` has exactly `This page needs JavaScript to load. Turn it on, then reload.`. Catches: a benign but wrong message, which every other assertion tolerates.
 6. `noscriptInner.querySelector("h1")` is non-null (assert on tag, not on class). Catches: silent regression to a styled `<p>`.
 7. The notice text contains no em-dash and does not match `/[A-Z]{2,}_[A-Z0-9_]+/`. Catches: copy-convention drift, which no existing scan reaches (spec §7.0).
-8. The notice's PARENT carries `mx-auto`, `max-w-2xl`, `px-4`. Catches: loss of the gutter — page padding lives inside the hidden half, so without it the card runs edge-to-edge at 390px and past 1500px on wide admin.
+8. The notice's PARENT carries `mx-auto`, `max-w-2xl`, `px-4`. Catches: loss of the gutter — only three `loading.tsx` files pad below the wrapper and the mobile-primary crew route is one of them, so without this the card runs edge-to-edge at 390px there and past 1500px on wide admin.
 9. The notice's `classList` contains each of `rounded-md`, `border`, `border-border`, `bg-surface`, `p-tile-pad` (membership, so order is not pinned). Catches: a classless card that keeps the copy and discards the treatment the user chose.
 10. The heading's `classList` contains `text-2xl`, `font-semibold`, `text-text-strong`; the body's contains `mt-2`, `text-base`, `text-text-subtle`. Catches: token drift on the text elements — separate from 9 because fixing the card does not imply fixing these.
 11. `notice.contains(h1)` and `notice.contains(bodyParagraph)`. Catches: an empty padded card beside loose copy, which assertion 5 alone accepts because it searches the whole `noscriptInner` document.
 12. The serialized `outer` string contains the literal `data-loading-shell-content=""`. Catches: regression to the bare JSX attribute, which serializes to `="true"` and which the attribute *selector* in assertions 3-4 matches either way.
+13. The wrapper's ENTIRE attribute set is exactly `["data-loading-shell-content"]` with value `""`. Catches: `hidden` / `class="hidden"` / `style="display:none"` on that element — each breaks the JavaScript-ENABLED path on all nine routes while assertions 1-12 and all four e2e cases stay green. Verified by mutation.
 
-All twelve come from spec §7.1; the plan does not add or reinterpret any.
+All thirteen come from spec §7.1; the plan does not add or reinterpret any.
 
 Verify RED: `pnpm vitest run tests/components/layout/loadingShellNoJs.test.tsx` fails on assertion 1 (no `<noscript>` in the markup, so the `indexOf` guard trips first). Commit: `test(ui): no-JS block assertions for LoadingShell (RED)`.
 
@@ -116,7 +117,7 @@ Verify RED: `pnpm vitest run tests/components/layout/loadingShellNoJs.test.tsx` 
 
 Apply spec §2 verbatim to `components/layout/Skeleton.tsx`. Update the `LoadingShell` docblock to describe the two branches and to point at spec §7.0 so nobody "fixes" the test to use `@testing-library/react`.
 
-Verify GREEN: `pnpm vitest run tests/components/layout/loadingShellNoJs.test.tsx` passes 12/12.
+Verify GREEN: `pnpm vitest run tests/components/layout/loadingShellNoJs.test.tsx` passes 13/13.
 
 Verify no collateral damage — the three files from spec §7.3, which passed 31/31 against a throwaway patch at spec time and must be re-confirmed against the real commit:
 
@@ -132,12 +133,13 @@ This task's test cannot be written RED-first against an unmodified component in 
 
 Create tests/e2e/nojs-loading-notice.spec.ts (new file, path unlinked) per spec §7.2: two `test.describe` blocks, each with its own `test.use`, never a file-scoped one.
 
-**Two registrations, both required. Either one alone leaves the test dark.**
+**Three registrations, all required. Any one missing leaves the test dark or fails the suite.**
 
 1. `playwright.config.ts:78` — add `nojs-loading-notice` to the `desktop-chromium` `testMatch` alternation. Do **not** add it to `mobile-safari`: one project is enough for a no-JS assertion, and the WebKit cookie limitation documented at `playwright.config.ts:55-64` makes the auth path there unnecessarily fragile.
-2. `.github/workflows/admin-layout-e2e.yml` — add a run step naming this spec file explicitly.
+2. `.github/workflows/admin-layout-e2e.yml` — name this spec file explicitly in the run step, and add `components/layout/Skeleton.tsx` + the spec to the trigger's `paths:` filter.
+3. `tests/ci/_metaE2eWorkflowCoverage.test.ts` — a `LOCAL_ONLY_ALLOWLIST` row with reason constant `PATH_GATED`. Mandatory: the coverage scanner treats a path-filtered workflow as not PR-blocking-capable, so without the row the required Vitest suite fails outright.
 
-Registration 2 is the one that is easy to skip and fatal to skip. **Every** Playwright workflow in this repo passes an explicit list of spec files (`crew-e2e.yml:151`, `published-modal-e2e.yml:149`, `admin-layout-e2e.yml:110`, `step3-live-bundle.yml:75`); none runs the suite by project alone. A spec present only in `testMatch` therefore runs on no CI job at all — which is precisely how the predecessor test this branch is replacing sat failing on `main` unnoticed from M12.11 until it was deleted. Shipping the replacement into the same blind spot would repeat the original defect while appearing to fix it.
+Registration 2 is the one that is easy to skip and fatal to skip. Most Playwright workflows here pass an explicit spec-file list — 8 of the 11 that invoke `playwright test` (`crew-e2e.yml:151`, `published-modal-e2e.yml:149`, `admin-layout-e2e.yml:120`, `step3-live-bundle.yml:75` among them); the three exceptions (`standalone-e2e.yml`, `help-affordances.yml`, `dev-gate-e2e.yml`) run whole configs or projects, and `desktop-chromium` appears in none of them. A spec present only in `testMatch` therefore runs on no CI job at all — which is precisely how the predecessor test this branch is replacing sat failing on `main` unnoticed from M12.11 until it was deleted. Shipping the replacement into the same blind spot would repeat the original defect while appearing to fix it.
 
 `admin-layout-e2e.yml` is the right host, and it is the host whose own header documents this failure class: "the spec ran in NO workflow… this gate has been dark since it was written" (`.github/workflows/admin-layout-e2e.yml:1-12`). It already runs `--project=desktop-chromium` on every `pull_request` (`.github/workflows/admin-layout-e2e.yml:29`), boots only the :3000 baseline via `BASELINE_SERVER_ONLY` (`.github/workflows/admin-layout-e2e.yml:87`), and seeds the corpus that `signInAs(ADMIN_FIXTURE)` needs (`.github/workflows/admin-layout-e2e.yml:102`). The simplest wiring appends the new spec to the existing run step's file list (`.github/workflows/admin-layout-e2e.yml:120`) rather than adding a step:
 
@@ -187,7 +189,7 @@ Whole-diff cross-model review to APPROVE → push → **real CI green**, not jus
 
 ## Layout-dimensions task
 
-**Not applicable, per spec §5.** There is no fixed-dimension parent: `LoadingShell` renders unstyled block `<div>` elements that impose no dimension on their children. The one width-relative first child in the corpus (`app/help/loading.tsx:13`, `w-2/3`) resolves against the same containing-block width before and after the change.
+**Not applicable, per spec §5.** There is no fixed-dimension parent: `LoadingShell` renders unstyled block `<div>` elements that impose no dimension on their children. The two width-relative first children in the corpus (`app/help/loading.tsx:13`, `w-2/3`; and the `w-full` skeleton at `app/admin/show/[slug]/preview/[crewId]/loading.tsx:29`) resolve against the same containing-block width before and after the change.
 
 Verification is folded into Task 3 rather than skipped: the JS-on control case loads `/admin` in a real browser and asserts the dashboard settles, which exercises the new wrapper on the JS-on path end to end.
 
@@ -201,7 +203,7 @@ Both halves run by EXTERNAL attestors (fresh subagents, not the implementing ses
 
 | # | Gate | Sev | Finding | Disposition |
 |---|---|---|---|---|
-| 1 | critique | **P1** | The notice inherited no page padding. Only three `loading.tsx` files put horizontal padding below `data-loading-shell-content` (`app/show/[slug]/[shareToken]/loading.tsx:38`, `app/admin/show/[slug]/preview/[crewId]/loading.tsx:33`, `app/admin/settings/admins/loading.tsx:12`); four more admin fallbacks inherit it from `app/admin/layout.tsx`, and `/me` and `/help` pad from a parent of `LoadingShell`. So the notice gets **no** horizontal padding on the mobile-primary crew route, and the gutter double-applies on the rest.
+| 1 | critique | **P1** | The notice inherited no page padding. Only three `loading.tsx` files put horizontal padding below `data-loading-shell-content` (`app/show/[slug]/[shareToken]/loading.tsx:38`, `app/admin/show/[slug]/preview/[crewId]/loading.tsx:33`, `app/admin/settings/admins/loading.tsx:12`); four more admin fallbacks inherit it from `app/admin/layout.tsx`, and `/me` and `/help` pad from a parent of `LoadingShell`. So the notice gets **no** horizontal padding on the mobile-primary crew route, and the gutter double-applies on the rest. | **Fixed** (`9475a1657`). The notice carries its own `mx-auto w-full max-w-2xl px-4 py-8 sm:px-8` gutter, pinned by component assertion 8. |
 | 2 | critique | P2 | Off the house scale: `rounded-lg` is the 16px radius DESIGN.md §4 reserves for modal/dialog surfaces, and on `border-border` cards the repo runs `rounded-md` ~129 times to `rounded-lg`'s 9 (9 of 10 being popovers). `p-4` vs the 64-use `p-tile-pad`. | **Fixed** (`9475a1657`). Now `rounded-md` + `p-tile-pad`, matching `components/admin/RecentAutoAppliedStrip.tsx:676`. |
 | 3 | critique | P2 | Copy named a location that does not exist on the primary persona's device: on iOS, JavaScript is under Settings → Apps → Safari → Advanced, not "your browser settings". | **Fixed** (`9475a1657`). Now "Turn it on, then reload", correct on every platform because it names none. |
 | 4 | audit | P2 | Type scale one to two steps below every comparable dead-end screen — `ShowUnavailable.tsx:33-38`, `app/admin/layout.tsx:95-96` all pair `text-2xl` with `text-base`, while the notice carried the page's only instruction in the caption token. | **Fixed.** Now `text-2xl` heading + `text-base` body. Same job, same vocabulary. |
