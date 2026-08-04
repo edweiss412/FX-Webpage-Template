@@ -21,6 +21,37 @@ const END = /^ {0,3}<!-- tasks: end -->[ \t]*$/;
 const TASKS_ANY = /^ {0,3}<!-- tasks:/;
 const MARKER_ANY = /^ {0,3}<!-- task:/;
 
+// An AC id must end alphanumeric; punctuation may never repeat or trail. The
+// tightening is what closes the aliasing — under a looser `AC-[A-Za-z0-9.-]+`
+// the ids `AC-1.`, `AC-1..1`, `AC-1.-child` and `AC-1-` are all legal and each
+// would be resolved by a wanted `AC-1`.
+const ID = "AC-[A-Za-z0-9]+(?:[.-][A-Za-z0-9]+)*";
+// The command group excludes backticks deliberately. `(.+)` would give the two
+// empty-command spellings different codes; `(.*)` is greedy across backticks and
+// silently re-opens every structure the "two fields, no other content" rule
+// forbids. A command needing a nested backtick belongs in a script.
+const MARKER = new RegExp(`^ {0,3}<!-- task: red=\`([^\`]*)\` ac=(${ID}(?:,${ID})*) -->[ \\t]*$`);
+// Same shape, but with the ac list relaxed, so "matches everything except that
+// `ac=` is absent or empty" is decidable separately from "is malformed".
+const MARKER_NO_AC = new RegExp("^ {0,3}<!-- task: red=`([^`]*)` -->[ \\t]*$");
+
+/**
+ * §3.3 boundary rule. An id resolves only where it appears delimited, never as
+ * a prefix of a longer id — and the naive "not adjacent to any id character" is
+ * wrong, because `.` is legal INSIDE an id (`AC-1.1`) and is also the commonest
+ * sentence terminator. A period continues an id only when something id-shaped
+ * follows it.
+ */
+function resolvesId(id: string, lines: string[], markerLines: Set<number>): boolean {
+  const esc = id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const re = new RegExp(`(?<![A-Za-z0-9.-])${esc}(?![A-Za-z0-9-])(?!\\.[A-Za-z0-9])`);
+  for (let i = 0; i < lines.length; i++) {
+    if (markerLines.has(i + 1)) continue; // an id cannot satisfy itself
+    if (re.test(lines[i]!)) return true;
+  }
+  return false;
+}
+
 const fail = (code: string, docLine: number, message: string): Finding => ({
   check: "taskContract",
   code,
@@ -132,6 +163,8 @@ export function checkTaskContract(model: DocModel, kind: "spec" | "plan"): Findi
     return { start: t.line, end };
   });
 
+  const markerSet = new Set(markerLines);
+
   const owned = new Map<number, number[]>(extents.map((e) => [e.start, []]));
   for (const line of markerLines) {
     const e = extents.find((x) => line > x.start && line < x.end);
@@ -156,6 +189,40 @@ export function checkTaskContract(model: DocModel, kind: "spec" | "plan"): Findi
       findings.push(
         fail("TASK_MARKER_DUPLICATE", ms[1]!, "task extent holds more than one marker"),
       );
+    }
+    // Every marker is then classified on its own. Cardinality and
+    // classification are separate groups, so a defective marker in a
+    // two-marker extent draws BOTH its own code and the duplicate.
+    for (const line of ms) {
+      const text = model.lines[line - 1]!;
+      const m = MARKER.exec(text);
+
+      // Precedence (§3.3): first match wins, exactly one code per line.
+      if (m && m[1]!.trim() === "") {
+        findings.push(fail("TASK_RED_EMPTY", line, "marker `red=` command is empty"));
+        continue;
+      }
+      if (!m) {
+        if (MARKER_NO_AC.test(text)) {
+          findings.push(fail("TASK_AC_MISSING", line, "marker has no `ac=` list"));
+        } else {
+          findings.push(
+            fail(
+              "TASK_MARKER_MALFORMED",
+              line,
+              "marker does not match ``red=`…` ac=AC-…`` exactly",
+            ),
+          );
+        }
+        continue;
+      }
+      for (const id of m[2]!.split(",")) {
+        if (!resolvesId(id, model.lines, markerSet)) {
+          findings.push(
+            fail("TASK_AC_UNRESOLVED", line, `\`${id}\` has no occurrence in this plan's own text`),
+          );
+        }
+      }
     }
   }
 

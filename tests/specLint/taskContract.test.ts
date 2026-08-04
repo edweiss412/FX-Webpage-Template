@@ -157,3 +157,132 @@ describe("checkTaskContract — segmentation (design §3.3)", () => {
     expect(checkTaskContract(parseDoc(text), "spec")).toEqual([]);
   });
 });
+
+/** One task, its marker under test, with `AC-1` resolvable in the prose. */
+const withMarker = (marker: string, prose = "AC-1 here.") => doc(OPEN, "## A", marker, prose, END);
+
+describe("checkTaskContract — marker grammar and codes (design §3.3)", () => {
+  it("M8/M18/AC-11/AC-31: any form that is not the marker exactly is TASK_MARKER_MALFORMED", () => {
+    const malformed = [
+      "<!-- task: red=`x` ac=AC-1 foo=bar -->", // unknown key
+      "<!-- task: ac=AC-1 red=`x` -->", // reordered
+      "<!-- task: red=x ac=AC-1 -->", // unbackticked red
+      "<!-- task: red=`x` ac=AC-1,,AC-2 -->", // empty list element
+      "<!-- task: red=`x` ac=NOTANID -->", // id not matching the grammar
+      "<!-- task: red=`a` red=`b` ac=AC-1 -->", // repeated red
+      "<!-- task: red=`x` ac=AC-1 ac=AC-2 -->", // repeated ac
+    ];
+    for (const m of malformed) {
+      expect(codes(withMarker(m))).toEqual(["TASK_MARKER_MALFORMED"]);
+    }
+  });
+
+  it("M9/AC-27: an empty or whitespace-only red is TASK_RED_EMPTY — both spellings, one code", () => {
+    expect(codes(withMarker("<!-- task: red=`` ac=AC-1 -->"))).toEqual(["TASK_RED_EMPTY"]);
+    expect(codes(withMarker("<!-- task: red=`  ` ac=AC-1 -->"))).toEqual(["TASK_RED_EMPTY"]);
+  });
+
+  it("M8/AC-27: an absent or empty ac list is TASK_AC_MISSING", () => {
+    expect(codes(withMarker("<!-- task: red=`x` -->"))).toEqual(["TASK_AC_MISSING"]);
+  });
+
+  it("M55: a specific code requires an OTHERWISE well-formed marker — junk makes it malformed", () => {
+    // Empty red AND an unknown key: precedence rule 3 wins, not RED_EMPTY.
+    expect(codes(withMarker("<!-- task: red=`` ac=AC-1 foo=x -->"))).toEqual([
+      "TASK_MARKER_MALFORMED",
+    ]);
+    expect(codes(withMarker("<!-- task: red=`cmd` foo=x -->"))).toEqual(["TASK_MARKER_MALFORMED"]);
+  });
+
+  it("M67/AC-27: a defective marker occupies the slot — never also TASK_MARKER_MISSING", () => {
+    for (const m of [
+      "<!-- task: red=`` ac=AC-1 -->",
+      "<!-- task: red=`x` -->",
+      "<!-- task: red=x ac=AC-1 -->",
+      "<!-- task: red=`x` ac=AC-99 -->",
+    ]) {
+      expect(codes(withMarker(m))).not.toContain("TASK_MARKER_MISSING");
+    }
+  });
+
+  it("M11/AC-13: an id cited only inside markers is TASK_AC_UNRESOLVED — it cannot satisfy itself", () => {
+    expect(codes(doc(OPEN, "## A", WELL, END))).toEqual(["TASK_AC_UNRESOLVED"]);
+  });
+
+  it("M19/AC-24: no prefix family resolves a shorter id", () => {
+    for (const near of ["AC-10", "AC-1a", "AC-1.1", "AC-1-child"]) {
+      expect(codes(withMarker(WELL, `only ${near} here`))).toEqual(["TASK_AC_UNRESOLVED"]);
+    }
+  });
+
+  it("M35/AC-42: the LEFT boundary is load-bearing — a prefixed occurrence does not resolve", () => {
+    for (const near of ["XAC-1", "0AC-1", ".AC-1", "MY-AC-1"]) {
+      expect(codes(withMarker(WELL, `prose ${near} here`))).toEqual(["TASK_AC_UNRESOLVED"]);
+    }
+  });
+
+  it("M31/AC-34: a sentence-final citation resolves — `.` is punctuation, not id continuation", () => {
+    expect(codes(withMarker("<!-- task: red=`x` ac=AC-14 -->", "**Verify.** AC-14."))).toEqual([]);
+  });
+
+  it("M34/AC-38: ids may not trail or repeat punctuation", () => {
+    for (const bad of ["AC-1.", "AC-1..1", "AC-1.-child", "AC-1-"]) {
+      expect(codes(withMarker(`<!-- task: red=\`x\` ac=${bad} -->`))).toEqual([
+        "TASK_MARKER_MALFORMED",
+      ]);
+    }
+  });
+
+  it("M79/M85: resolution covers EVERY id, both endpoints", () => {
+    const two = "<!-- task: red=`x` ac=AC-1,AC-2 -->";
+    // Only the last unresolvable: kills a first-id-only implementation.
+    expect(codes(withMarker(two, "Implements AC-1."))).toEqual(["TASK_AC_UNRESOLVED"]);
+    // Mirror — only the first unresolvable: kills a last-id-only implementation.
+    expect(codes(withMarker(two, "Implements AC-2."))).toEqual(["TASK_AC_UNRESOLVED"]);
+    // Both resolvable: clean.
+    expect(codes(withMarker(two, "Implements AC-1 and AC-2."))).toEqual([]);
+  });
+
+  it("M63/M73/M74/M86/AC-44: duplication is cardinality, independent of classification", () => {
+    const RE = "<!-- task: red=`` ac=AC-1 -->";
+    const AM = "<!-- task: red=`x` -->";
+    // defect + well-formed: both codes.
+    expect(codes(doc(OPEN, "## A", RE, WELL, "AC-1 here.", END))).toEqual([
+      "TASK_MARKER_DUPLICATE",
+      "TASK_RED_EMPTY",
+    ]);
+    // three well-formed markers: kills `length === 2`.
+    expect(codes(doc(OPEN, "## A", WELL, WELL, WELL, "AC-1 here.", END))).toEqual([
+      "TASK_MARKER_DUPLICATE",
+    ]);
+    // two defectives, cross-class: kills `some(isWellFormed)`.
+    expect(codes(doc(OPEN, "## A", RE, AM, "AC-1 here.", END))).toEqual([
+      "TASK_AC_MISSING",
+      "TASK_MARKER_DUPLICATE",
+      "TASK_RED_EMPTY",
+    ]);
+    // two defectives, SAME class: kills dedupe-by-classification. The repeated
+    // code is the assertion, so this can never be a set comparison.
+    expect(codes(doc(OPEN, "## A", RE, RE, "AC-1 here.", END))).toEqual([
+      "TASK_MARKER_DUPLICATE",
+      "TASK_RED_EMPTY",
+      "TASK_RED_EMPTY",
+    ]);
+  });
+
+  it("M56: an orphan's ids are never resolved — ORPHANED alone, no UNRESOLVED", () => {
+    expect(
+      codes(doc(OPEN, "<!-- task: red=`x` ac=AC-99 -->", "## A", WELL, "AC-1 here.", END)),
+    ).toEqual(["TASK_MARKER_ORPHANED"]);
+  });
+
+  it("M28/AC-31: the red command may not span a backtick — greedy escapes are rejected", () => {
+    // Each of these parses under a greedy `(.*)` group and must not here.
+    for (const m of [
+      "<!-- task: red=`` ac=AC-1 -->` ac=AC-2 -->",
+      "<!-- task: red=`x` ac=AC-1 --> extra `y` -->",
+    ]) {
+      expect(codes(withMarker(m))).toEqual(["TASK_MARKER_MALFORMED"]);
+    }
+  });
+});
