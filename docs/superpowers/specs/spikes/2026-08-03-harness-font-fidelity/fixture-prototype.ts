@@ -23,19 +23,51 @@ import { test as base, expect } from "@playwright/test";
 const collected: { family: string; via: string }[] = [];
 
 const test = base.extend<{ oracle: void }>({
-  context: async ({ context }, use) => {
-    await context.exposeBinding("__fontOracle", (_s, p: { family: string; via: string }) =>
-      void collected.push(p));
-    await context.addInitScript(() => {
-      const report = (via: string) => {
-        const b = document.body;
-        if (!b || b.childElementCount === 0) return; // nothing rendered yet
-        (window as unknown as { __fontOracle?: (p: unknown) => void })
-          .__fontOracle?.({ family: getComputedStyle(b).fontFamily, via });
+  // Caller-owned contexts must be covered BY THE FIXTURE, not by the test.
+  browser: async ({ browser }, use) => {
+    const orig = browser.newContext.bind(browser);
+    (browser as unknown as { newContext: unknown }).newContext = async (...a: unknown[]) => {
+      const ctx = await (orig as (...x: unknown[]) => Promise<import("@playwright/test").BrowserContext>)(...a);
+      await ctx.exposeBinding("__fontOracle", (_s, q: { family: string; via: string }) =>
+        void collected.push(q));
+      await ctx.addInitScript(() => {
+        const report = (via: string) => {
+          const b = document.body;
+          if (!b || b.childElementCount === 0) return;
+          const fams = new Set<string>();
+          const w = document.createTreeWalker(b, NodeFilter.SHOW_ELEMENT);
+          for (let n = w.currentNode as Element | null; n; n = w.nextNode() as Element | null) {
+            const hasText = Array.from(n.childNodes).some(
+              (c) => c.nodeType === 3 && (c.textContent ?? "").trim() !== "");
+            if (hasText) fams.add(getComputedStyle(n).fontFamily);
+          }
+          (window as unknown as { __fontOracle?: (p: unknown) => void })
+            .__fontOracle?.({ family: [...fams].join(" ~ "), via });
+        };
+        addEventListener("pagehide", () => report("pagehide"));
+      });
+      const origClose = ctx.close.bind(ctx);
+      ctx.close = async (...c: Parameters<typeof origClose>) => {
+        for (const pg of ctx.pages()) {
+          const f = await pg.evaluate(() => {
+            const b = document.body;
+            if (!b || b.childElementCount === 0) return null;
+            const fams = new Set<string>();
+            const w = document.createTreeWalker(b, NodeFilter.SHOW_ELEMENT);
+            for (let n = w.currentNode as Element | null; n; n = w.nextNode() as Element | null) {
+              const hasText = Array.from(n.childNodes).some(
+                (x) => x.nodeType === 3 && (x.textContent ?? "").trim() !== "");
+              if (hasText) fams.add(getComputedStyle(n).fontFamily);
+            }
+            return [...fams].join(" ~ ");
+          }).catch(() => null);
+          if (f) collected.push({ family: f, via: "pre-close" });
+        }
+        return origClose(...c);
       };
-      addEventListener("pagehide", () => report("pagehide"));
-    });
-    await use(context);
+      return ctx;
+    };
+    await use(browser);
   },
   // Second vantage: wrap the programmatic replacements pagehide cannot see, and
   // sweep anything still alive after the body.
@@ -88,24 +120,15 @@ test("a browser-originated navigation reports the outgoing document", async ({ p
 
 test("a caller-owned context that closes itself is still reported", async ({ browser }) => {
   const before = collected.length;
+  // Round 27: an earlier version hand-installed the binding and pushed the
+  // pre-close result itself, which BYPASSED the fixture instead of testing it.
+  // The context now comes from the wrapped `browser` fixture, so everything
+  // below is the fixture's own behaviour.
   const ctx = await browser.newContext({ reducedMotion: "reduce" });
-  await ctx.exposeBinding("__fontOracle", (_s, p: { family: string; via: string }) =>
-    void collected.push(p));
-  await ctx.addInitScript(() => {
-    addEventListener("pagehide", () => {
-      const b = document.body;
-      if (b && b.childElementCount > 0)
-        (window as unknown as { __fontOracle?: (p: unknown) => void })
-          .__fontOracle?.({ family: getComputedStyle(b).fontFamily, via: "pagehide" });
-    });
-  });
   const p = await ctx.newPage();
-  await p.setContent(`<style>body{font-family:"OWNED",serif}</style><p>o</p>`);
-  // the real fixture wraps context.close(); done inline here to keep the
-  // prototype's own plumbing visible rather than hidden in a helper
-  const f = await p.evaluate(() => getComputedStyle(document.body).fontFamily);
-  collected.push({ family: f, via: "pre-close" });
+  await p.setContent(`<style>body{font-family:"OUTER",serif}</style><p>o</p><span style="font-family:'OWNED',serif">x</span>`);
   await ctx.close();
-  await expect.poll(() => collected.slice(before).map((c) => c.family).join(" | "))
-    .toContain("OWNED");
+  const seen = () => collected.slice(before).map((c) => c.family).join(" | ");
+  await expect.poll(seen, { timeout: 5000 }).toContain("OUTER");
+  expect(seen(), "a descendant cannot hide behind its root").toContain("OWNED");
 });
