@@ -116,6 +116,8 @@ import { listRoleVocabDriftEligibleFileIds } from "@/lib/sync/roleVocabDrift";
 import { resolveUnreadableAlertIfHealed } from "@/lib/adminAlerts/resolveOnboardingSheetUnreadable";
 import { emitRoleTokenMapped } from "@/lib/log/emitRoleTokenMapped";
 import { emitLeadRoleApplied } from "@/lib/log/emitLeadRoleApplied";
+import { emitIdentityLinkRenameUnlanded } from "@/lib/log/emitIdentityLinkRenameUnlanded";
+import type { UnlandedRename } from "@/lib/sync/applyParseResult";
 
 export const STAGED_PARSE_REVISION_RACE = "STAGED_PARSE_REVISION_RACE" as const;
 export const STAGED_PARSE_REVISION_RACE_COOLDOWN = "STAGED_PARSE_REVISION_RACE_COOLDOWN" as const;
@@ -394,6 +396,13 @@ export type ProcessOneFileResult =
       outcome: "applied";
       showId: string;
       roleFlagsNotice?: RoleFlagsNotice;
+      // Unit A: identity-link pairs this apply did NOT land, carried out of the locked tx so the
+      // post-commit sinks can write the forensic event (the ONLY signal an unlanded pair produces).
+      // Two sinks read it off THIS type: processOneFile's tail (cron + manual) and the
+      // pending-ingestion retry route, which calls runManualSyncForShow_unlocked and so bypasses
+      // that tail entirely. OPTIONAL, mirroring roleFlagsNotice? above — absent and [] both mean
+      // "nothing unlanded", and every consumer defaults with `?? []`.
+      unlandedRenames?: UnlandedRename[];
       snapshotRevisionId?: string;
       // §02 (FIX-3 / R16 structural defense): REQUIRED so tsc forces EVERY tail caller that builds
       // an applied result (cron / manual / staged) to supply it — a future 4th caller cannot
@@ -2753,6 +2762,17 @@ export async function processOneFile(
     await (deps.promoteSnapshotUpload ?? defaultPromoteSnapshotUpload)(result.snapshotRevisionId);
   }
   await emitDeferredRoleFlagsNotice(result, deps);
+  // Unit A: IDENTITY_LINK_RENAME_UNLANDED — POST-COMMIT, outside the show-lock tx (invariant 10),
+  // on the SAME site as the notice above so cron AND manual are both covered (runManualSyncForShow
+  // routes through processOneFile). The pending-ingestion retry does NOT reach here — it calls
+  // runManualSyncForShow_unlocked directly — so it carries its own emit in the route.
+  if (!("skipped" in result) && result.outcome === "applied" && result.unlandedRenames?.length) {
+    await emitIdentityLinkRenameUnlanded(result.unlandedRenames, {
+      source: "sync.identityLink",
+      showId: result.showId,
+      driveFileId,
+    });
+  }
   // §10 point 5: ROLE_TOKEN_MAPPED emission — POST-COMMIT, outside the show-lock tx (invariant 10).
   // Reads the committed apply outcome; a skipped / rolled-back / non-applied result carries no
   // entries, so nothing is emitted. This wrapper covers cron AND manual (runManualSyncForShow runs
@@ -3620,6 +3640,11 @@ export async function processOneFile_unlocked(
     appliedRoleMappings: phase2.appliedRoleMappings,
   };
   if (phase2.roleFlagsNotice) result.roleFlagsNotice = phase2.roleFlagsNotice;
+  // Unit A: carry the unlanded pairs out to the post-commit sinks. Set only when non-empty,
+  // mirroring roleFlagsNotice — nothing here emits, the emit is outside the lock (invariant 10).
+  if (phase2.unlandedRenames && phase2.unlandedRenames.length > 0) {
+    result.unlandedRenames = phase2.unlandedRenames;
+  }
   if (phase2.snapshotRevisionId) result.snapshotRevisionId = phase2.snapshotRevisionId;
   await emitSuccessfulPhase2Tail({
     tx,

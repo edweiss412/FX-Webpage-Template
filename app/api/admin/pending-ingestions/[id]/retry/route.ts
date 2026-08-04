@@ -30,6 +30,8 @@ import { readShowArchived_unlocked } from "@/lib/sync/lifecycleGuards";
 import { revalidateShow } from "@/lib/data/showCacheTag";
 import { log } from "@/lib/log";
 import { logAdminOutcome, type AdminOutcome } from "@/lib/log/logAdminOutcome";
+import { emitIdentityLinkRenameUnlanded } from "@/lib/log/emitIdentityLinkRenameUnlanded";
+import type { UnlandedRename } from "@/lib/sync/applyParseResult";
 
 export type LivePendingIngestionRouteTx = LockedShowTx<{
   queryOne<T>(sql: string, params: unknown[]): Promise<T>;
@@ -367,6 +369,17 @@ export async function handleLivePendingIngestionRetry(
     // still_failed, so it must NOT emit PENDING_INGESTION_RETRIED). The `code`
     // literal rides ONLY the logAdminOutcome emit below, never this ref object.
     let outcome: Omit<AdminOutcome, "code"> | null = null;
+    // Unit A: this route calls runManualSyncForShow_unlocked, which routes AROUND processOneFile's
+    // post-commit tail (lib/sync/runManualSyncForShow.ts:287-288) — the site where cron and manual
+    // emit the forensic unlanded-rename event. So the pairs are captured inside the lock here and
+    // emitted below, after withRowTryLock resolves (invariant 10: never inside the held tx). The
+    // first-seen branch gets no capture: runManualStageForFirstSeen hardcodes identityLinkRenames
+    // to [] (lib/sync/runManualStageForFirstSeen.ts:125), so it can never produce an unlanded pair.
+    let unlandedRenames: {
+      pairs: UnlandedRename[];
+      showId: string;
+      driveFileId: string;
+    } | null = null;
     const result = await deps.withRowTryLock(driveFileId, async (tx) => {
       const row = await readLockedPendingIngestion(tx, id);
       if (!row) return transitioned();
@@ -423,6 +436,15 @@ export async function handleLivePendingIngestionRetry(
             driveFileId: row.drive_file_id,
             showId: syncResult.showId,
           };
+          // ManualSyncResult is a discriminated union; the `applied` narrowing above is what makes
+          // unlandedRenames reachable. Absent / empty → stays null, and nothing is emitted.
+          if (syncResult.unlandedRenames?.length) {
+            unlandedRenames = {
+              pairs: syncResult.unlandedRenames,
+              showId: syncResult.showId,
+              driveFileId: row.drive_file_id,
+            };
+          }
         }
         return await manualSyncResponse(tx, row.drive_file_id, syncResult);
       }
@@ -477,6 +499,19 @@ export async function handleLivePendingIngestionRetry(
       // to `never` at a spread position; bind to a ref-typed const first (see PR #218).
       const outcomeRef: Omit<AdminOutcome, "code"> = outcome;
       await logAdminOutcome({ code: "PENDING_INGESTION_RETRIED", ...outcomeRef });
+    }
+    // Unit A: the forensic unlanded-rename event, POST-COMMIT on the same resolved-lock site as the
+    // admin outcome above. Only a committed applied sync ever populates this ref.
+    if (unlandedRenames) {
+      // Same TS closure-narrowing workaround as outcomeRef above: a `let` assigned inside the
+      // withRowTryLock callback narrows to `never` on member access.
+      const unlandedRef: { pairs: UnlandedRename[]; showId: string; driveFileId: string } =
+        unlandedRenames;
+      await emitIdentityLinkRenameUnlanded(unlandedRef.pairs, {
+        source: "sync.identityLink",
+        showId: unlandedRef.showId,
+        driveFileId: unlandedRef.driveFileId,
+      });
     }
     return result;
   } catch (error) {

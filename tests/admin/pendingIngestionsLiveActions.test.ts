@@ -9,6 +9,13 @@ import { handleLivePendingIngestionDiscard } from "@/app/api/admin/pending-inges
 
 const logAdminOutcomeMock = vi.hoisted(() => vi.fn(async () => {}));
 vi.mock("@/lib/log/logAdminOutcome", () => ({ logAdminOutcome: logAdminOutcomeMock }));
+// Unit A: this route is the fourth post-commit sink for the forensic unlanded-rename event. It needs
+// its OWN emit because it calls runManualSyncForShow_unlocked, routing around processOneFile's
+// post-commit tail (lib/sync/runManualSyncForShow.ts:287-288) where the other manual sink emits.
+const emitUnlandedRenamesMock = vi.hoisted(() => vi.fn(async () => {}));
+vi.mock("@/lib/log/emitIdentityLinkRenameUnlanded", () => ({
+  emitIdentityLinkRenameUnlanded: emitUnlandedRenamesMock,
+}));
 
 const ID1 = "33333333-3333-4333-8333-333333333333";
 
@@ -378,5 +385,82 @@ describe("live pending-ingestions retry — PENDING_INGESTION_RETRIED telemetry"
     await handleLivePendingIngestionRetry(req(), context, routeDeps);
 
     expect(logAdminOutcomeMock).not.toHaveBeenCalled();
+  });
+});
+
+// Unit A sink #4 — the retry ROUTE, not the sync helper. runManualSyncForShow_unlocked runs INSIDE
+// withRowTryLock, so the emit cannot live there (invariant 10) and processOneFile's tail — where the
+// cron/manual sink emits — is bypassed entirely on this path. The other three sinks passing says
+// nothing about this one.
+describe("live pending-ingestions retry — IDENTITY_LINK_RENAME_UNLANDED emit", () => {
+  const unlanded = [
+    {
+      pair: { removedName: "Old", addedName: "New" },
+      reason: "rename_no_op" as const,
+      sourceSurvived: false,
+    },
+  ];
+
+  test("existing-show applied carrying an unlanded pair → emits once, after the row lock resolves", async () => {
+    emitUnlandedRenamesMock.mockClear();
+    const tx = new FakeLivePendingTx();
+    tx.showExists = true;
+    const events: string[] = [];
+    emitUnlandedRenamesMock.mockImplementationOnce(async () => {
+      events.push("emit");
+    });
+    const routeDeps = deps(tx, {
+      withRowTryLock: vi.fn(async (_driveFileId, fn) => {
+        events.push("lock:start");
+        const locked = await fn(tx as unknown as LivePendingIngestionRouteTx);
+        events.push("lock:release");
+        return locked;
+      }) as unknown as NonNullable<LivePendingIngestionRouteDeps["withRowTryLock"]>,
+      runManualSyncForShowUnlocked: vi.fn(async () => ({
+        outcome: "applied" as const,
+        showId: "show-1",
+        parseWarnings: [],
+        appliedRoleMappings: [],
+        unlandedRenames: unlanded,
+      })) as unknown as NonNullable<LivePendingIngestionRouteDeps["runManualSyncForShowUnlocked"]>,
+    });
+
+    const response = await handleLivePendingIngestionRetry(req(), context, routeDeps);
+
+    expect(response.status).toBe(200);
+    expect(emitUnlandedRenamesMock).toHaveBeenCalledTimes(1);
+    expect(emitUnlandedRenamesMock).toHaveBeenCalledWith(unlanded, {
+      source: "sync.identityLink",
+      showId: "show-1",
+      driveFileId: "file-1",
+    });
+    expect(events).toEqual(["lock:start", "lock:release", "emit"]);
+  });
+
+  test("existing-show applied with no unlanded pairs → no emit", async () => {
+    emitUnlandedRenamesMock.mockClear();
+    const tx = new FakeLivePendingTx();
+    tx.showExists = true;
+
+    await handleLivePendingIngestionRetry(req(), context, deps(tx));
+
+    expect(emitUnlandedRenamesMock).not.toHaveBeenCalled();
+  });
+
+  test("a non-applied retry never emits, even when the outcome carries a showId", async () => {
+    emitUnlandedRenamesMock.mockClear();
+    const tx = new FakeLivePendingTx();
+    tx.showExists = true;
+    const routeDeps = deps(tx, {
+      runManualSyncForShowUnlocked: vi.fn(async () => ({
+        outcome: "source_gone" as const,
+        code: "SHEET_UNAVAILABLE",
+        showId: "show-1",
+      })) as unknown as NonNullable<LivePendingIngestionRouteDeps["runManualSyncForShowUnlocked"]>,
+    });
+
+    await handleLivePendingIngestionRetry(req(), context, routeDeps);
+
+    expect(emitUnlandedRenamesMock).not.toHaveBeenCalled();
   });
 });
