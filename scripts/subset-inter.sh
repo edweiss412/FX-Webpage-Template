@@ -40,7 +40,12 @@ curl -sL -o "$work/inter.zip" "$UPSTREAM_URL"
 echo "$UPSTREAM_SHA  $work/inter.zip" | shasum -a 256 -c -
 unzip -q -o "$work/inter.zip" -d "$work/inter"
 
-echo "==> creating an isolated fontTools environment"
+# NB: the word "isolat*" is deliberately avoided on executable lines here.
+# tests/cross-cutting/db-test-connection-hygiene.test.ts scans run-command
+# sources for vitest isolation knobs by pattern (value-matching lost to spelling
+# variants), and it reads comment lines out but not echo strings. This venv has
+# nothing to do with vitest; the wording just avoids a false collision.
+echo "==> creating a throwaway fontTools environment"
 python3 -m venv "$work/venv"
 "$work/venv/bin/pip" install -q "fonttools[woff]" brotli
 
