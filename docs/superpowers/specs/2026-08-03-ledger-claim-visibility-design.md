@@ -5,7 +5,7 @@
 **Date:** 2026-08-03
 **Branch:** `chore/ledger-claim-visibility`
 **Backlog entries:** none opened for this work (see §9.1); three filed as by-products (§9.2, §9.3, §5 item 0a)
-**Status:** R16 repaired — 84 adversarial findings across sixteen rounds plus 5 self-findings, all accepted. R10 triggered the three-round cap: §3.1 is written from a spike, independently reproduced cross-model at R11
+**Status:** R17 repaired — 86 adversarial findings across seventeen rounds plus 5 self-findings, all accepted. R10 triggered the three-round cap: §3.1 is written from a spike, independently reproduced cross-model at R11
 **Review note:** R1-R4 were Codex (cross-model). R5 and R6 were fresh-eyes Opus sessions, because Codex hit a usage limit resetting 2026-08-10; see §10
 **impeccable-gate: N/A — no UI surface**
 
@@ -622,8 +622,8 @@ them into "non-zero means collision" would report a parser regression as somebod
 | Exit | Meaning | What the caller does |
 | --- | --- | --- |
 | **0** | No collision, or `inferred`-only collisions (printed as `WARN:`) | Proceed |
-| **1** | A named id is `declared` by a branch other than the current one. Message names the id, the branch, and the PR if known | Stop and reconcile |
-| **2** | **The check could not be trusted**: usage error, parser vacuity (§4.2), or an environment failure that §4.1 escalates | Stop and fix the check. This is never evidence about another branch, in either direction |
+| **1** | A named id is `declared` by a branch **positively known** to be other than the current one. Requires resolved identity: R17 finding 1 caught exit 1 previously covering both this and the identity-unresolved case, so an operator following §6.2 was told "another live branch declares that row" when the claim might be their own. Message names the id, the branch, and the PR if known | Stop and reconcile |
+| **2** | **The check could not be trusted**: usage error, parser vacuity (§4.2), an environment failure that §4.1 escalates, **or a claim found while identity is unresolved** (§3.2 step 3, third row). Unresolved identity is by definition an untrusted check, so it lands here rather than manufacturing a fourth code — and the caller's action is the same: stop and fix the check, then re-run | Stop and fix the check. This is never evidence about another branch, in either direction |
 
 Also `--json` for machine consumption. It emits an **object**, not a bare array:
 `{ status, degraded, claims: [{id, branch, kind, pr, tipAgeDays, stale}] }`.
@@ -802,8 +802,8 @@ believes is signaled is worse than one they can see.
    extra row naming a real branch, never a missed claim. If an instance ever appears, the fix is a
    negation-aware recognizer with that instance as its test.
 1b. **In CI with an unreadable event payload, a branch collides with itself.** Self-exclusion is off
-   in that case (§3.2 step 3, third row), so a run's own declarations are reported as another
-   branch's and `--check` exits 1. Distinct from the shallow-ancestry false collision above: this
+   in that case (§3.2 step 3, third row), so a run's own declarations surface as claims and
+   `--check` exits **2**, not 1 — the check is untrusted, not decided. Distinct from the shallow-ancestry false collision above: this
    one names the caller's *own* branch, which reads as nonsense until you know the rule. The report
    therefore says so explicitly — `identity unresolved; not excluding any branch as self` — rather
    than leaving a reader to infer it. Deliberate, per the ratified asymmetry, and bounded to CI:
@@ -945,11 +945,19 @@ three pushed declarations, checked against its own ids.
 | --- | --- |
 | No `GITHUB_ACTIONS`, on the declaring branch | exit **0** — self-exclusion by branch name. A "payload absent means unknown" mutant exits 1 here, failing every local Stage 0 pre-flight |
 | `GITHUB_ACTIONS` set, payload readable, same repository | exit **0** |
-| `GITHUB_ACTIONS` set, payload absent, `GITHUB_HEAD_REF` naming that same branch | exit **1** — all three claims visible. A name-only fallback mutant exits 0, which is the false all-clear R15 ratified against |
+| `GITHUB_ACTIONS` set, payload absent, `GITHUB_HEAD_REF` naming that same branch | exit **2** — all three claims visible, and the check declared untrusted rather than decided. A name-only fallback mutant exits 0, the false all-clear R15 ratified against; an exit-1 implementation asserts another branch owns a claim that may be the caller's own |
+
+| `GITHUB_ACTIONS` set, payload readable, **fork** — a same-name base branch declares the row | exit **1** — the base branch is not "me". A mutant treating every readable payload as same-repository self-excludes it and returns a false all-clear |
 
 The third row is the one with no natural home: it looks like the first (no payload) and reads like
-the second (a head ref that matches), so only an explicit fixture separates them. Both the reader
-tests and the CI backstop carry it, since each resolves identity independently.
+the second (a head ref that matches), so only an explicit fixture separates them.
+
+**Both surfaces carry all four rows.** R17 finding 2 found two uncovered leaves rather than one, and
+they are in different surfaces — the reader was missing the readable-payload fork case, the CI
+backstop the unreadable-payload case. Each admits a distinct escaping mutant, and because the two
+resolve identity independently, a fixture in one proves nothing about the other. The fork shape is
+live rather than hypothetical: `origin/fix/apply-undo-audit-fidelity` currently carries three
+declarations, so a same-name fork PR is a real false-all-clear today.
 
 **Attribution cases (R12 finding 3).** The ref is the claim's key (§3.2 step 5), and nothing
 previously distinguished that from reading `fields.Branch`, which agrees with the ref in every
