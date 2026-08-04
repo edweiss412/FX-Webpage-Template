@@ -5,7 +5,7 @@
 **Date:** 2026-08-03
 **Branch:** `chore/ledger-claim-visibility`
 **Backlog entries:** none opened for this work (see §9.1); three filed as by-products (§9.2, §9.3, §5 item 0a)
-**Status:** R18 repaired — 89 adversarial findings across eighteen rounds plus 5 self-findings, all accepted. R10 triggered the three-round cap: §3.1 is written from a spike, independently reproduced cross-model at R11
+**Status:** APPROVED at R19 (Codex, cross-model). 89 adversarial findings across nineteen rounds plus 5 self-findings, all accepted, none refuted. R10 triggered the three-round cap: §3.1 is written from a spike, independently reproduced cross-model at R11
 **Review note:** R1-R4 were Codex (cross-model). R5 and R6 were fresh-eyes Opus sessions, because Codex hit a usage limit resetting 2026-08-10; see §10
 **impeccable-gate: N/A — no UI surface**
 
