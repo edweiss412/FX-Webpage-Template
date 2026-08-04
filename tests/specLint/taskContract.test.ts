@@ -377,3 +377,84 @@ describe("checkTaskContract — marker grammar and codes (design §3.3)", () => 
     }
   });
 });
+
+describe("checkTaskContract — mutation-gate repayments (groups F-J)", () => {
+  it("M36e/AC-17: a SAME-depth sibling heading ends a task's extent", () => {
+    // Mutation group F. The existing M15/AC-17 case uses a strictly SHALLOWER
+    // heading, which ends the extent under both `h.depth <= depth` and the
+    // mutant `h.depth < depth` — so the "or shallower" half of the rule was
+    // never pinned. With two depth-2 siblings each owning its own marker, the
+    // mutant runs T1's extent past T2, `extents.find` hands BOTH markers to T1,
+    // and T2 is left bare.
+    expect(
+      codes(
+        doc("# P", OPEN, "## T1", WELL, "## T2", "<!-- task: red=`y` ac=AC-1 -->", END, "AC-1"),
+      ),
+    ).toEqual([]);
+  });
+
+  it("M36f: TASK_MARKER_DUPLICATE is reported on the SECOND marker's line", () => {
+    // Mutation group G. `ms[1]` -> `ms[2]` leaves docLine undefined for a
+    // two-marker extent; only an assertion on the LINE can see it, since the
+    // code is unchanged either way.
+    const findings = checkTaskContract(
+      parseDoc(doc("# P", OPEN, "## T", WELL, "<!-- task: red=`y` ac=AC-1 -->", END, "AC-1")),
+      "plan",
+    );
+    const dup = findings.filter((f) => f.code === "TASK_MARKER_DUPLICATE");
+    expect(dup).toHaveLength(1);
+    expect(dup[0]!.docLine).toBe(5);
+  });
+
+  it("M36g: a TASK_RED_EMPTY marker draws exactly one code, even with an unresolved ac id", () => {
+    // Mutation group H. Precedence (§3.3) is first-match-wins, one code per
+    // line. Removing the `continue` lets the same marker ALSO draw
+    // TASK_AC_UNRESOLVED — invisible unless the fixture's ac id is unresolved,
+    // which no existing case combined with an empty red.
+    expect(codes(doc("# P", OPEN, "## T", "<!-- task: red=`` ac=AC-99 -->", END))).toEqual([
+      "TASK_RED_EMPTY",
+    ]);
+  });
+
+  it("M36h: findings are ordered by docLine, not by emission order", () => {
+    // Mutation group I. Pass 1 emits enrollment findings before pass 2 emits
+    // marker findings, so a LATE malformed tasks-line and an EARLY marker
+    // finding come out reversed unless the sort runs. Deleting
+    // `findings.sort(...)` outright survived the entire suite before this.
+    // A malformed `<!-- tasks: ... -->` line is the only pass-1 finding that
+    // leaves openCount at 1; a duplicate opening would return at
+    // lib/specLint/taskContract.ts:152 before any marker finding exists.
+    const findings = checkTaskContract(
+      parseDoc(
+        doc(
+          "# P",
+          OPEN,
+          "## T1",
+          "<!-- task: red=`` ac=AC-1 -->",
+          "## T2",
+          WELL,
+          "<!-- tasks: bogus -->",
+          END,
+          "AC-1 here.",
+        ),
+      ),
+      "plan",
+    );
+    expect(findings.map((f) => f.docLine)).toEqual([4, 7]);
+    expect(findings.map((f) => f.code)).toEqual(["TASK_RED_EMPTY", "TASK_ENROLL_MALFORMED"]);
+  });
+
+  it("M36i: two findings sharing (docLine, code) keep their relative order", () => {
+    // Mutation group J. `a.code < b.code` -> `<=` returns -1 for an equal pair
+    // and V8 reverses it. The two findings differ ONLY in `message`, so an
+    // assertion on codes or lines cannot see it — which is exactly why an
+    // earlier probe over identical elements wrongly reported this mutant
+    // unobservable (spec limit L-8).
+    const findings = checkTaskContract(
+      parseDoc(doc("# P", OPEN, "## T", "<!-- task: red=`x` ac=AC-90,AC-91 -->", END)),
+      "plan",
+    );
+    expect(findings.map((f) => f.code)).toEqual(["TASK_AC_UNRESOLVED", "TASK_AC_UNRESOLVED"]);
+    expect(findings.map((f) => /AC-\d+/.exec(f.message)?.[0])).toEqual(["AC-90", "AC-91"]);
+  });
+});
