@@ -74,6 +74,7 @@ impeccable-gate: N/A — no UI surface
 | M22 budget | embedded reports crossing 200,000 bytes | AC-21 truncation notice |
 | M23 sequential regions | `open -> close -> open -> close` | `TASK_ENROLL_DUPLICATE` on the second open (AC-26) |
 | M24 code overlap | missing `ac=`; empty `ac=`; `red=` with empty backticks AND with whitespace-only backticks | exactly one code by §3.3 precedence, and the two empty-`red` spellings draw the SAME code (AC-27) |
+| M31 sentence-final id | `**Verify.** AC-14.` as the only occurrence | AC-34: resolves; naive boundary rule reports a false UNRESOLVED |
 | M30 orphan-form overlap | malformed marker outside every extent | AC-33: ORPHANED alone, asserted as a full list |
 | M28 greedy escape | repeated `ac=`, unknown key, empty-then-junk, repeated `red=` absorbed by a greedy command group | AC-31 |
 | M29 enroll-failure silencing | malformed open alone; unmatched close alone; duplicate opens | AC-32 line-pass findings survive |
@@ -113,9 +114,9 @@ Each case states the mutant it kills. Confirm every case fails before implementa
 
 ## Task 2 — marker grammar and the ten codes
 
-<!-- task: red=`pnpm vitest run tests/specLint/taskContract.test.ts` ac=AC-6,AC-8,AC-11,AC-13,AC-23,AC-24,AC-27,AC-31 -->
+<!-- task: red=`pnpm vitest run tests/specLint/taskContract.test.ts` ac=AC-6,AC-8,AC-11,AC-13,AC-23,AC-24,AC-27,AC-31,AC-34 -->
 
-**RED.** Extend the Task 1 suite with families M2, M5, M6, M7, M8, M9, M11, M17, M18, M19, M24, M28 — one case per code, each asserting the code fires on a fixture exhibiting it **and does not fire** on a sibling fixture exhibiting only the neighbouring defect. That negative half is what makes AC-8 non-tautological: a checker that returned every code on every input would pass the positive half alone.
+**RED.** Extend the Task 1 suite with families M2, M5, M6, M7, M8, M9, M11, M17, M18, M19, M24, M28, M31 — one case per code, each asserting the code fires on a fixture exhibiting it **and does not fire** on a sibling fixture exhibiting only the neighbouring defect. That negative half is what makes AC-8 non-tautological: a checker that returned every code on every input would pass the positive half alone.
 
 Add the citation-collision fixture the pre-draft pass surfaced: a marker whose `red=` is a single dotted token, asserting the interaction with the citations check is whatever the implementation actually does, pinned rather than assumed.
 

@@ -249,16 +249,24 @@ The first matching rule wins and no further code is emitted for that line.
 
 **Placement outranks form.** A `<!-- task:` line outside every task extent reports `TASK_MARKER_ORPHANED` and nothing else, regardless of whether its form is valid. Without this the "any region state" reading gives a malformed orphan two findings — one for its form, one for its placement — contradicting the one-code rule directly above. Reporting placement alone is also the more useful half: the form of a line that belongs to no task is moot until it is moved, and once moved it is re-checked normally. Separately: **a marker line occupies its task's marker slot regardless of which code it drew.** A task whose only marker is malformed reports that code alone, never also `TASK_MARKER_MISSING`; two such lines in one extent still report `TASK_MARKER_DUPLICATE`. Otherwise every malformed marker would produce two findings describing one defect.
 
-**AC ids resolve on exact-token boundaries.** An id resolves only where it appears delimited — not as a prefix of a longer id. A substring test would resolve `AC-1` against every one of these:
+**AC ids resolve on exact-token boundaries, and the boundary rule is not the obvious one.** An id resolves only where it appears delimited — never as a prefix of a longer id. The naive rule is "not preceded or followed by any character the id grammar allows", i.e. `[A-Za-z0-9.-]`. That is **wrong**, because `.` is legal *inside* an id (`AC-1.1`) and is also the commonest sentence terminator, so it rejects the single most typical citation an author writes.
+
+Probed against a reference implementation of this section run over the plan that implements it: the naive rule reported three spurious `TASK_AC_UNRESOLVED` findings, because `AC-14` was cited only as `**Verify.** AC-14.` — a period, at the end of a sentence.
 
 ```
-wanted=AC-1  prose=AC-10       naiveIncludes=true
-wanted=AC-1  prose=AC-1a       naiveIncludes=true
-wanted=AC-1  prose=AC-1.1      naiveIncludes=true
-wanted=AC-1  prose=AC-1-child  naiveIncludes=true
+id       prose                      naive   refined
+AC-14    "**Verify.** AC-14."       false   true
+AC-14    "AC-14 and more"           true    true
+AC-14    "(AC-14)"                  true    true
+AC-1     "only AC-10 here"          false   false
+AC-1     "only AC-1a here"          false   false
+AC-1     "only AC-1.1 here"         false   false
+AC-1     "only AC-1-child here"     false   false
+AC-1     "AC-1."                    false   true
+AC-1.1   "see AC-1.1."              false   true
 ```
 
-All four are ids the `[A-Za-z0-9.-]+` grammar permits, so all four are reachable, and each would make `TASK_AC_UNRESOLVED` silently pass on a typo.
+The rule is therefore: an occurrence resolves when it is not preceded by `[A-Za-z0-9.-]`, and not followed by `[A-Za-z0-9-]`, **and not followed by a `.` that is itself followed by an alphanumeric**. A period continues an id only when something id-shaped follows it; otherwise it is punctuation. All four prefix families (`AC-10`, `AC-1a`, `AC-1.1`, `AC-1-child` against a wanted `AC-1`) still fail to resolve, which is the property the boundary exists for.
 
 A task's extent runs from its heading line to the line before whichever comes first: the next heading of the enrolled depth **or shallower**, the region's **closing line**, or end of document. Content under *deeper* headings therefore belongs to the enclosing task, which is deliberate: a task with `### RED` and `### GREEN` sub-headings is one task, and its marker and AC mentions count wherever they sit inside it.
 
@@ -382,6 +390,8 @@ Nine artifacts burned on this shape; none was caught by review-time reasoning al
 **AC-23.** `<!-- tasks: depth=3 extra=x -->` and `<!-- tasks: depth=3 depth=4 -->` each report `TASK_ENROLL_MALFORMED`. Neither may parse to "not enrolled".
 
 **AC-24.** `TASK_AC_UNRESOLVED` fires for `ac=AC-1` when the plan's prose contains only `AC-10`, `AC-1a`, `AC-1.1`, or `AC-1-child` — one case per prefix family, none of which may resolve it.
+
+**AC-34.** An id cited only as a sentence-final `AC-14.` resolves. Pinned alongside the four prefix families, because the boundary rule has to reject those AND accept this, and a rule satisfying only one half looks correct in isolation.
 
 **AC-33.** A malformed `<!-- task:` line outside every task extent reports `TASK_MARKER_ORPHANED` and nothing else. Pinned by asserting the full finding list — a test checking only that ORPHANED is present would pass an implementation that also emitted the form code.
 
