@@ -203,12 +203,12 @@ Both throw on violation with a message that names the failure as a premise failu
 
 #### 3.3.2 The rule
 
-> For every test in a suite named by any `GuardSurface.suitePaths`, if the test's body — or a file-local helper it calls — references a member of the closed `ENVIRONMENT_SOURCES` set, the body must contain at least one `premise` / `premiseHolds` call, or an inline `// no-premise: <reason>` comment with a non-empty reason.
+> For every test in a suite named by any `GuardSurface.suitePaths`, if anything in the test's **reachable body set** (§3.3.2.1) references a member of the closed `ENVIRONMENT_SOURCES` set, the test body must contain at least one `premise` / `premiseHolds` call, or an inline `// no-premise: <reason>` comment with a non-empty reason.
 
 Three terms, defined so the checker has no latitude:
 
 - **test** — a call to `it` or `test`, including `.each` / `.skip` / `.only` forms. The body is the callback.
-- **file-local helper** — a function declared at module scope in the same file and called by name from the body. One level, resolved syntactically. Deeper chains and cross-module helpers are L-2.
+- **reachable body set** — the test body plus every function body reachable from it, following same-file calls by name and imported bindings to the modules they resolve to, to a cycle-safe fixed point. Defined in full in §3.3.2.1. Depth is not a parameter.
 - **exemption** — a `// no-premise: <reason>` line comment inside the body, reason non-empty after trimming. Placement outside the body does not count, mirroring the registry's rejection of an empty `reason` (`tests/mutation/source/registry.ts:85-87`).
 
 `ENVIRONMENT_SOURCES` is closed and declared, in the same spirit as `OPERATOR_NAMES`. It is keyed on **module provenance, never on spelling** — a spelling-keyed set is defeated by `import { spawnSync as run }`, and this repository has already spent six adversarial rounds establishing that every syntactic mechanism is defeated by a spelling (`BL-INTERNAL-CODE-ENUM-SCAN-WIDEN`, archived 2026-08-03).
@@ -242,19 +242,32 @@ The corpus count cannot substitute for these fixtures, and the reason is worth s
 
 **Hook-mediated reads** apply to every provenance rather than being a form of one: a read in a `beforeEach` / `beforeAll` classifies every test in its enclosing `describe` subtree, because that is where the value those tests consume comes from. The fixture matrix carries one hook-mediated pair per provenance.
 
-#### 3.3.2.1 Provenance is traced through the repository module graph
+#### 3.3.2.1 Provenance is a fixed point over the reachable body set
 
 The first draft of this section claimed every untraceable read would be reported while §5 L-2 simultaneously said cross-module reads were not traced. Both could not be true, and the contradiction hid a real hole (spec R3): at a call site, `runCheck(g, …)` and a helper that spawns internally are **syntactically identical**. Reporting every unresolved imported call rejects nearly every enrolled test; allowing them lets an ordinary refactor — moving a `spawnSync` behind a helper — walk straight through the guard. Neither is acceptable, so the checker resolves the question instead of assuming an answer.
 
-**The traversal.** From each enrolled test file, every imported binding is resolved to a module path (the `@` alias and relative specifiers; the same resolution `vitest.config.ts:150` declares). That module's own imports are followed transitively. A binding is environment-touching if the module it resolves to, or anything in its transitive import closure, imports a declared provenance.
+**The traversal is a fixed point over reachable bodies, not an import closure.** The first version of this section followed imports only and treated same-file helpers at one level, and both halves leaked (spec R4): `process.env` is a global, so a helper `readRoot = () => process.env.LEDGER_GIT_ROOT` has no environment-touching *import* and classified as pure; and `outer() → inner() → spawnSync()` stopped one call short. Both are ordinary refactors squarely inside the fence, and the seam existed because two mechanisms ran at two different depths. One rule replaces both:
 
-**It terminates and it is small.** The closure is over repository files only; it stops at `node_modules`, at a declared provenance, and at a module already visited. `scripts/lib/ledger-check.ts:6-7` imports exactly `./ledger-claims-core` and `./ledger-fields`, neither of which imports `node:child_process` — the surface takes its git access by injection — so `runCheck` resolves to pure, correctly, and a wrapper that did spawn would resolve to environment-touching, also correctly. That is the whole point: the graph answers a question the call site cannot.
+> Starting from a test body, collect the **reachable body set**: every function body the test can reach, following same-file calls by name and imported bindings to the modules they resolve to, iterating to a cycle-safe fixed point. The test is environment-touching if **any body in that set** either references a binding imported from a declared module provenance, or accesses `process.env` directly.
 
-**What the traversal genuinely cannot see, stated as the bound it is.** A binding imported from outside the repository — a third-party test utility that reads the environment on the test's behalf — resolves to `node_modules` and is treated as pure. That is a documented limit (L-2) and it is inside the threat-model fence: refactoring a spawn behind a *local* helper is ordinary authoring and is now covered; reaching the environment through a third-party package to escape the checker is not ordinary authoring.
+Resolution uses the `@` alias and relative specifiers — the same resolution `vitest.config.ts:150` declares. Depth is not a parameter: there is no "one level" to get wrong, and a chain of any length through any mixture of same-file helpers and repository modules reaches the same answer.
+
+**It terminates and it is small.** The fixed point ranges over repository files only; it stops at `node_modules`, at a declared provenance, and at an already-visited body. `scripts/lib/ledger-check.ts:6-7` imports exactly `./ledger-claims-core` and `./ledger-fields`, neither of which imports `node:child_process` or reads `process.env` — the surface takes its git access by injection — so `runCheck` resolves to pure, correctly, and a wrapper that spawned or read the environment at any depth would resolve to environment-touching, also correctly. That is the whole point: the graph answers a question the call site cannot.
+
+**Over-classification is the risk on the other side, and it is measured rather than assumed.** A fixed point that reached too far would mark every test environment-touching and turn the premise into a ritual. The plan reports the classified counts for both enrolled suites before the contract is declared done; if the traversal marks a dependency-injected test as environment-touching, the traversal is wrong, not the test.
+
+**What the traversal genuinely cannot see, stated as the bound it is.** A binding imported from outside the repository — a third-party test utility that reads the environment on the test's behalf — resolves to `node_modules` and is treated as pure. That is a documented limit (L-2) and it is outside the threat-model fence: refactoring a spawn or an env read behind a *local* helper, at any depth, is ordinary authoring and is covered; reaching the environment through a third-party package to escape the checker is not ordinary authoring.
 
 **What remains unclassifiable fails closed.** A computed member access, a re-export chain the resolver cannot follow, or a dynamic import whose specifier is not a literal is reported as **unclassifiable** and reds the run. It is not silently treated as environment-free. Clearing one is an explicit `// no-premise: <reason>` like any other, so the residue is visible in the diff rather than absorbed.
 
-Two fixtures pin the distinction the finding turned on, and they are the pair that matters most in §3.3.3's matrix: a **pure local wrapper** (a helper importing only pure repo modules) must classify as environment-free, and a **cross-module environment wrapper** (a helper importing `node:child_process`) must classify as environment-touching. Without both, the traversal could be `return true` or `return false` and one of them would still pass.
+Four fixtures pin the traversal, and they are the ones that matter most in §3.3.3's matrix. Each of the three positives has the pure wrapper as its foil, so the traversal cannot pass by being a constant in either direction:
+
+| fixture | must classify as | closes |
+| --- | --- | --- |
+| pure local wrapper — a helper importing only pure repo modules | environment-free | the `return true` degenerate traversal |
+| cross-module wrapper importing `node:child_process` | environment-touching | spec R3 |
+| cross-module wrapper reading `process.env` and importing nothing | environment-touching | spec R4 — a global has no import edge to follow |
+| two-level same-file chain, `outer() → inner() → spawnSync()` | environment-touching | spec R4 — depth is not a parameter |
 
 Deliberately **excluded**, stated so review does not re-derive it: `node:fs` reads of a tracked path are byte-identical in every environment, and the throwaway-repository construction that is this spec's recommended *cure* is built from `mkdtempSync`/`rmSync` — classifying it as a hazard would tax the fix; wall-clock is already pinned by the suites' `NOW` constant; unit tests reach no network.
 
@@ -299,7 +312,7 @@ The five ad-hoc `premise` strings already in the tree (`tests/scripts/ledgerFiel
 
 Stated here so the review briefs can cite rather than re-derive them, per `AGENTS.md`'s convergence-criterion section.
 
-**Consequence bound**, stated as what the analysis can prove rather than as what would be nice. Every test in an enrolled suite reaches one of exactly four states, and there is no fifth: it carries a premise; it carries an explicit exemption with a non-empty reason; it is classified environment-free by a provenance **traced through the repository module graph** (§3.3.2.1); or it is **reported as unclassifiable and reds the run**. Nothing within the repository graph is silently unclassified — including an environment read moved behind a local helper, which is the ordinary refactor the first draft of this bound would have let through.
+**Consequence bound**, stated as what the analysis can prove rather than as what would be nice. Every test in an enrolled suite reaches one of exactly four states, and there is no fifth: it carries a premise; it carries an explicit exemption with a non-empty reason; it is classified environment-free by a **fixed point over its reachable body set** (§3.3.2.1); or it is **reported as unclassifiable and reds the run**. Nothing within the repository graph is silently unclassified — including a spawn or a `process.env` read moved behind a local helper at any depth, which is the ordinary refactor the first two drafts of this bound would have let through.
 
 The one thing outside it is named rather than implied: a binding resolving into `node_modules` is treated as pure (L-2). Widening `ENVIRONMENT_SOURCES` is a proposal carrying its own before/after counts, not a review round.
 
@@ -366,7 +379,8 @@ Each of these was settled by probe or by an existing ratification. Reopening one
 - **AC-8a** An unclassifiable fixture — an environment read through a form the checker cannot trace — is REPORTED and reds, not passed as environment-free. This is the executable proof of the fail-closed claim, without which §4's consequence bound is prose.
 - **AC-9** The meta-test's non-vacuity assertions (§3.3.3, items 1-3) are present and each fails against a corresponding degenerate input; the declared per-suite count map's key set is asserted equal to the enrolled suite set, so a newly enrolled suite fails until it declares its own.
 - **AC-10** Every qualifying test in the two enrolled suites carries a premise or a reasoned exemption. **Two are construction-based repairs and an exemption is not permitted for either**: `tests/scripts/ledgerClaimsCheck.test.ts:508-510` constructs its own corpus, and `tests/scripts/ledgerClaimsCheck.test.ts:393-409` asserts `isShallow()` against a controlled repository covering BOTH values — a throwaway repo for non-shallow and a `--depth=1` `file://` clone of it for shallow — so it discriminates in CI, where it currently does not.
-- **AC-10a** The premise checker resolves provenance through the repository module graph, with fixtures for BOTH a pure local wrapper (classifies environment-free) and a cross-module environment wrapper importing `node:child_process` (classifies environment-touching). Without both, the traversal could be a constant and one fixture would still pass.
+- **AC-10a** The premise checker computes a cycle-safe fixed point over the reachable body set (§3.3.2.1), with all four fixtures of that section: pure local wrapper (environment-free), cross-module `node:child_process` wrapper, cross-module `process.env` wrapper importing nothing, and a two-level same-file chain. The pure wrapper is the foil for the other three, so a constant traversal fails in both directions.
+- **AC-10b** The classified counts for both enrolled suites are reported, and no dependency-injected test (one whose git access arrives through `fake()`) is classified environment-touching. Over-classification turns the premise into a ritual and is a defect in the traversal, not in the test.
 - **AC-11** `docs/agents/writing-plans.md` carries the rule with the §1.2 table; `AGENTS.md` points at it and does not restate it.
 - **AC-12** `pnpm test` and `pnpm typecheck` pass; real CI is green.
 
