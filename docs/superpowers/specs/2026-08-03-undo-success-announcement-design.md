@@ -498,7 +498,7 @@ All three children disposed. The parent graduates to `BACKLOG-archive.md` at its
 
 **`BL-LEDGER-GUARD-BODY-DEFINED-IDS` keeps all eight ids.** An earlier draft of this spec dropped the three from its enumeration on the theory that the entry tracks body-defined ids of *open* parents. It does not say that. Its contract is a body-leading bullet inside a parent whose own heading resolves (`BACKLOG.md:75-86`), and an archived parent's heading resolves through the same scanned ledger set — so the three ids remain exactly the examples the future body-definition guard will have to understand. Narrowing that entry to five would quietly shrink its documented scope while its actual work stayed the same size.
 
-The edit that does land is additive: a parenthetical on the `BL-SYNCFEED-UI-*` bullet noting that its parent now lives in `BACKLOG-archive.md`, so a reader chasing the reference knows where to look. The count stays eight.
+The edit that does land is additive: a parenthetical on the bullet naming the three `BL-SYNCFEED-UI-1` / `-2` / `-3` ids noting that its parent now lives in `BACKLOG-archive.md`, so a reader chasing the reference knows where to look. The count stays eight.
 
 ### 9.5 Filed, not fixed
 
