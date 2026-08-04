@@ -104,7 +104,16 @@ Same document, same wrapper contract, opposite outcomes — and under §2.3 the 
 
 Only the **findings** portion of the report is embedded. The CLI's numeric `INVENTORY` block is excluded: it is the bulk of the bytes and is drafting-aid output, not review signal.
 
-This matters because the wrapper refuses composed prompts over 2,000,000 bytes (`scripts/codex-guard.mjs:41`), and full reports are large. Measured across the tracked corpus: largest single report 290,909 bytes over 3,206 lines — for a document with **zero** hard findings and 89 advisories — and the 13 largest reports together reach 2,008,482 bytes, crossing the cap before any brief text. A repeatable flag whose every individual run exits 0 or 1 could therefore still fail composition.
+This matters because the wrapper refuses composed prompts over 2,000,000 bytes (`scripts/codex-guard.mjs:41`), and full reports are large. The largest single report in the tracked corpus reproduces with:
+
+```
+npx tsx scripts/spec-lint.ts docs/superpowers/specs/parser/2026-07-27-inline-later-group-own-hotel-design.md | wc -c
+# 290909    — 3,206 lines, and its summary is "0 hard, 89 advisory"
+```
+
+A quarter-megabyte report for a document with **zero** hard findings is the shape of the problem: the bytes are inventory, not signal. The 13 largest reports together reach 2,008,482 bytes, crossing the wrapper's cap before any brief text, so a repeatable flag whose every individual run exits 0 or 1 could still fail composition.
+
+Measure this with output redirected to a file, not through a captured pipe: a 64 KiB-buffered capture silently truncates every report to exactly 65,536 bytes and makes the problem look four times smaller than it is.
 
 - Reports are embedded in `--lint-doc` argument order, and that order is preserved.
 - The embedded reports carry a combined budget of 200,000 bytes. When a report would cross it, it is truncated at a line boundary and the block ends with an explicit `[truncated: N of M bytes shown]` line, so the reviewer is never shown a silently shortened report.
