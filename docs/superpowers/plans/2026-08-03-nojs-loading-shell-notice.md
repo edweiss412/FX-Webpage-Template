@@ -41,14 +41,14 @@ Run 2026-08-03 against the worktree at `81e0aa216`. Every name below was grepped
 
 - **(a) Server boot.** The baseline `webServer`, a `next dev -H 127.0.0.1 -p $E2E_PORT` (`playwright.config.ts:248`), reached at `http://127.0.0.1:${E2E_PORT}` (`playwright.config.ts:250`, default 3000 at `playwright.config.ts:8`). No new project and no new server: Task 3 adds the spec name to the existing `testMatch` regex.
 
-  **`BASELINE_SERVER_ONLY=1` is mandatory for every local run of this spec, and it is not optional advice.** `playwright test` boots EVERY `webServer` entry in the config regardless of `--project`, and four of the other entries run a cold `pnpm build` first. Measured at plan time: without the flag, a single-spec run had not reached its first assertion after 25 minutes and was killed. `playwright.config.ts:406` filters the array down to the :3000 baseline when `BASELINE_SERVER_ONLY` or its older alias `CREW_E2E_ONLY` is set. CI's `admin-layout-e2e` job sets `BASELINE_SERVER_ONLY` for the same reason (`.github/workflows/admin-layout-e2e.yml:80`), so the local command and the CI job boot the same single server — though CI's takes the `process.env.CI` branch and serves a production build (`playwright.config.ts:245-247`) where local serves `next dev` (`playwright.config.ts:248`). The canonical local command is therefore:
+  **`BASELINE_SERVER_ONLY=1` is mandatory for every local run of this spec, and it is not optional advice.** `playwright test` boots EVERY `webServer` entry in the config regardless of `--project`, and four of the other entries run a cold `pnpm build` first. Measured at plan time: without the flag, a single-spec run had not reached its first assertion after 25 minutes and was killed. `playwright.config.ts:406` filters the array down to the :3000 baseline when `BASELINE_SERVER_ONLY` or its older alias `CREW_E2E_ONLY` is set. CI's `admin-layout-e2e` job sets `BASELINE_SERVER_ONLY` for the same reason (`.github/workflows/admin-layout-e2e.yml:87`), so the local command and the CI job boot the same single server — though CI's takes the `process.env.CI` branch and serves a production build (`playwright.config.ts:245-247`) where local serves `next dev` (`playwright.config.ts:248`). The canonical local command is therefore:
 
   ```
   BASELINE_SERVER_ONLY=1 E2E_PORT=3070 pnpm exec playwright test --project=desktop-chromium tests/e2e/nojs-loading-notice.spec.ts
   ```
 
   **Known local blocker, measured at plan time.** With the baseline server up, `page.goto("/admin")` in this harness fails with `net::ERR_ABORTED` — **with JavaScript enabled as well as disabled**, so it is not a no-JS defect. `/` loads fine (200, redirects to `/auth/sign-in`). The most likely cause is that the local DB lacks the seeded corpus and `app_settings` rows that `admin-layout-e2e.yml:95` provisions in CI. Task 3 therefore runs `pnpm db:seed` (and, if that is insufficient, the fresh-DB prelude) before treating any `/admin` failure as a defect in the code under test. Do not redesign the spec around this symptom before seeding.
-- **(b) Readiness gate.** The JS-off cases await `expect(page.getByTestId("admin-dashboard-loading")).toBeAttached()` — the fallback is in the initial HTML (spec §1.0), so no hydration gate exists or is possible; attachment of the fallback IS the readiness signal, and it is the only one available when nothing will ever hydrate. The JS-on control case awaits **nothing**: it navigates with `waitUntil: "commit"` and asserts immediately, because the fallback must still be on screen for the assertion to mean anything (spec §7.2 case 4). There is no settle wait anywhere in this spec, and therefore no `networkidle` and no timeout-shaped gate.
+- **(b) Readiness gate.** The JS-off cases await `expect(page.getByTestId("admin-dashboard-loading")).toBeAttached()` — the fallback is in the initial HTML (spec §1.0), so no hydration gate exists or is possible; attachment of the fallback IS the readiness signal, and it is the only one available when nothing will ever hydrate. The JS-on control reads the notice count twice: once at `commit`, then again after the fallback disappears, using `toHaveCount(0)` on the loading testId as the settle edge — a positive edge, never `networkidle` and never a timeout-shaped gate. It does NOT assert the fallback attached with JS on: measured, `/admin` resolves before any assertion can poll, so that read is unobservable (spec §7.2 case 4).
 - **(c) Detach safety.** No sampler, no `locator.evaluate`, no polling of a node that can unmount. The JS-off cases run against a page that never changes after first paint. The JS-on control's only locator call is a `toHaveCount(0)` assertion, which is detach-safe by construction (it polls a count, not an element handle).
 
 ---
@@ -59,7 +59,7 @@ Each task: failing test → minimal implementation → passing test → commit (
 
 ### Task 1 — component test for the no-JS block (RED)
 
-Create tests/components/layout/loadingShellNoJs.test.tsx (new file, path unlinked) with the eleven assertions from spec §7.1. It must fail against unmodified `LoadingShell` (no `<noscript>` exists yet).
+Create tests/components/layout/loadingShellNoJs.test.tsx (new file, path unlinked) with the twelve assertions from spec §7.1. It must fail against unmodified `LoadingShell` (no `<noscript>` exists yet).
 
 Pragma `// @vitest-environment jsdom` — the file renders via `react-dom/server` but needs jsdom's `DOMParser` to make structural assertions (spec §7.1). Typechecked against the repo's strict tsconfig before commit, per the paste-time rule: `noUncheckedIndexedAccess` means every `querySelector` result is `Element | null` and every regex `exec` result is nullable, so each is narrowed with an explicit non-null assertion after an `expect(...).not.toBeNull()`.
 
@@ -99,15 +99,16 @@ Assertions, one `it` each, each named for the failure it catches:
 2. `noscriptInner.querySelector("style")?.textContent` equals `HIDE_RULE` exactly. Catches: typo'd selector, renamed attribute, or React hoisting the `<style>` out of the block.
 3. Extract the selector with `/^(\[[^\]]+\])\{/.exec(styleText)`, then `outer.querySelector(extracted)` is non-null. Catches: style and wrapper attribute disagreeing — independently satisfiable while 2 and 4 both pass.
 4. `wrapper = outer.querySelector("[data-loading-shell-content]")` is non-null; `wrapper.contains(outer.querySelector('[role="status"]'))` and `wrapper.contains(outer.querySelector('[data-testid="child"]'))` are both true. Catches: an empty wrapper rendered as a *sibling* of the status and children — the round-1 false-green. Containment, never ordering.
-5. The `h1` in `noscriptInner` has `textContent` exactly `JavaScript is required`; the `p` has exactly `This page needs JavaScript to load. Turn it on in your browser settings, then reload.`. Catches: a benign but wrong message, which every other assertion tolerates.
+5. The `h1` in `noscriptInner` has `textContent` exactly `JavaScript is required`; the `p` has exactly `This page needs JavaScript to load. Turn it on, then reload.`. Catches: a benign but wrong message, which every other assertion tolerates.
 6. `noscriptInner.querySelector("h1")` is non-null (assert on tag, not on class). Catches: silent regression to a styled `<p>`.
-7. The concatenated notice text contains no em-dash and does not match `/[A-Z]{2,}_[A-Z0-9_]+/`. Catches: copy-convention drift, which no existing scan reaches (spec §7.0).
-8. The notice element's `classList` contains each of `rounded-lg`, `border`, `border-border`, `bg-surface`, `p-4` (membership, so order is not pinned). Catches: a classless card that keeps the copy and discards the treatment the user chose.
-9. The heading's `classList` contains `text-base`, `font-semibold`, `text-text-strong`; the body's contains `mt-1`, `text-sm`, `text-text-subtle`. Catches: token drift on the text elements — separate from 8 because fixing the card does not imply fixing these.
-10. `notice.contains(h1)` and `notice.contains(bodyParagraph)`. Catches: an empty padded card beside loose copy, which assertion 5 alone accepts because it searches the whole `noscriptInner` document.
-11. The serialized `outer` string contains the literal `data-loading-shell-content=""`. Catches: regression to the bare JSX attribute, which serializes to `="true"` and which the attribute *selector* in assertions 3-4 matches either way.
+7. The notice text contains no em-dash and does not match `/[A-Z]{2,}_[A-Z0-9_]+/`. Catches: copy-convention drift, which no existing scan reaches (spec §7.0).
+8. The notice's PARENT carries `mx-auto`, `max-w-2xl`, `px-4`. Catches: loss of the gutter — page padding lives inside the hidden half, so without it the card runs edge-to-edge at 390px and past 1500px on wide admin.
+9. The notice's `classList` contains each of `rounded-md`, `border`, `border-border`, `bg-surface`, `p-tile-pad` (membership, so order is not pinned). Catches: a classless card that keeps the copy and discards the treatment the user chose.
+10. The heading's `classList` contains `text-2xl`, `font-semibold`, `text-text-strong`; the body's contains `mt-2`, `text-base`, `text-text-subtle`. Catches: token drift on the text elements — separate from 9 because fixing the card does not imply fixing these.
+11. `notice.contains(h1)` and `notice.contains(bodyParagraph)`. Catches: an empty padded card beside loose copy, which assertion 5 alone accepts because it searches the whole `noscriptInner` document.
+12. The serialized `outer` string contains the literal `data-loading-shell-content=""`. Catches: regression to the bare JSX attribute, which serializes to `="true"` and which the attribute *selector* in assertions 3-4 matches either way.
 
-All eleven come from spec §7.1; the plan does not add or reinterpret any.
+All twelve come from spec §7.1; the plan does not add or reinterpret any.
 
 Verify RED: `pnpm vitest run tests/components/layout/loadingShellNoJs.test.tsx` fails on assertion 1 (no `<noscript>` in the markup, so the `indexOf` guard trips first). Commit: `test(ui): no-JS block assertions for LoadingShell (RED)`.
 
@@ -115,7 +116,7 @@ Verify RED: `pnpm vitest run tests/components/layout/loadingShellNoJs.test.tsx` 
 
 Apply spec §2 verbatim to `components/layout/Skeleton.tsx`. Update the `LoadingShell` docblock to describe the two branches and to point at spec §7.0 so nobody "fixes" the test to use `@testing-library/react`.
 
-Verify GREEN: `pnpm vitest run tests/components/layout/loadingShellNoJs.test.tsx` passes 11/11.
+Verify GREEN: `pnpm vitest run tests/components/layout/loadingShellNoJs.test.tsx` passes 12/12.
 
 Verify no collateral damage — the three files from spec §7.3, which passed 31/31 against a throwaway patch at spec time and must be re-confirmed against the real commit:
 
@@ -138,14 +139,14 @@ Create tests/e2e/nojs-loading-notice.spec.ts (new file, path unlinked) per spec 
 
 Registration 2 is the one that is easy to skip and fatal to skip. **Every** Playwright workflow in this repo passes an explicit list of spec files (`crew-e2e.yml:151`, `published-modal-e2e.yml:149`, `lifecycle-layout-e2e.yml:110`, `step3-live-bundle.yml:75`); none runs the suite by project alone. A spec present only in `testMatch` therefore runs on no CI job at all — which is precisely how the predecessor test this branch is replacing sat failing on `main` unnoticed from M12.11 until it was deleted. Shipping the replacement into the same blind spot would repeat the original defect while appearing to fix it.
 
-`admin-layout-e2e.yml` is the right host, and it is the host whose own header documents this failure class: "the spec ran in NO workflow… this gate has been dark since it was written" (`.github/workflows/admin-layout-e2e.yml:1-12`). It already runs `--project=desktop-chromium` on every `pull_request` (`.github/workflows/admin-layout-e2e.yml:29`), boots only the :3000 baseline via `BASELINE_SERVER_ONLY` (`.github/workflows/admin-layout-e2e.yml:80`), and seeds the corpus that `signInAs(ADMIN_FIXTURE)` needs (`.github/workflows/admin-layout-e2e.yml:95`). The simplest wiring appends the new spec to the existing run step's file list (`.github/workflows/admin-layout-e2e.yml:113`) rather than adding a step:
+`admin-layout-e2e.yml` is the right host, and it is the host whose own header documents this failure class: "the spec ran in NO workflow… this gate has been dark since it was written" (`.github/workflows/admin-layout-e2e.yml:1-12`). It already runs `--project=desktop-chromium` on every `pull_request` (`.github/workflows/admin-layout-e2e.yml:29`), boots only the :3000 baseline via `BASELINE_SERVER_ONLY` (`.github/workflows/admin-layout-e2e.yml:87`), and seeds the corpus that `signInAs(ADMIN_FIXTURE)` needs (`.github/workflows/admin-layout-e2e.yml:102`). The simplest wiring appends the new spec to the existing run step's file list (`.github/workflows/admin-layout-e2e.yml:120`) rather than adding a step:
 
 ```yaml
       - name: Run admin layout e2e (desktop-chromium, :3000 only)
         run: pnpm exec playwright test --project=desktop-chromium tests/e2e/bell-panel-layout.spec.ts tests/e2e/admin-nav-layout-dimensions.spec.ts tests/e2e/nojs-loading-notice.spec.ts
 ```
 
-The job's `timeout-minutes` (`.github/workflows/admin-layout-e2e.yml:55`, currently 25) is re-checked after the first real CI run and raised if the added spec pushes the job near it.
+The job's `timeout-minutes` (`.github/workflows/admin-layout-e2e.yml:62`, currently 25) is re-checked after the first real CI run and raised if the added spec pushes the job near it.
 
 **The backlog entry's "No CI workflow runs Playwright" is stale and must not be carried forward** into the archive note — ten workflows run Playwright today (`rg -l playwright .github/workflows/`). Task 4's resolution paragraph says so explicitly, because that stale sentence is exactly the reasoning that would justify skipping registration 2.
 
@@ -200,7 +201,7 @@ Both halves run by EXTERNAL attestors (fresh subagents, not the implementing ses
 
 | # | Gate | Sev | Finding | Disposition |
 |---|---|---|---|---|
-| 1 | critique | **P1** | The notice inherited no page padding. Every `loading.tsx` puts its layout padding on a child of `data-loading-shell-content` — the half the rule hides — so the card ran flush to both edges of a 390px phone on the crew route (`app/show/[slug]/layout.tsx:47` adds none) and stretched past 1500px on wide admin. | **Fixed** (`9475a1657`). The notice carries its own `mx-auto w-full max-w-2xl px-4 py-8 sm:px-8` gutter, pinned by a component assertion. |
+| 1 | critique | **P1** | The notice inherited no page padding. Every `loading.tsx` puts its layout padding on a child of `data-loading-shell-content` — the half the rule hides — so the card ran flush to both edges of a 390px phone on the crew route (`app/show/[slug]/layout.tsx:37` adds none) and stretched past 1500px on wide admin. | **Fixed** (`9475a1657`). The notice carries its own `mx-auto w-full max-w-2xl px-4 py-8 sm:px-8` gutter, pinned by a component assertion. |
 | 2 | critique | P2 | Off the house scale: `rounded-lg` is the 16px radius DESIGN.md §4 reserves for modal/dialog surfaces, and on `border-border` cards the repo runs `rounded-md` ~129 times to `rounded-lg`'s 9 (9 of 10 being popovers). `p-4` vs the 64-use `p-tile-pad`. | **Fixed** (`9475a1657`). Now `rounded-md` + `p-tile-pad`, matching `components/admin/RecentAutoAppliedStrip.tsx:676`. |
 | 3 | critique | P2 | Copy named a location that does not exist on the primary persona's device: on iOS, JavaScript is under Settings → Apps → Safari → Advanced, not "your browser settings". | **Fixed** (`9475a1657`). Now "Turn it on, then reload", correct on every platform because it names none. |
 | 4 | audit | P2 | Type scale one to two steps below every comparable dead-end screen — `ShowUnavailable.tsx:33-38`, `app/admin/layout.tsx:95-96`, `app/admin/error.tsx:37` all pair `text-2xl` with `text-base`, while the notice carried the page's only instruction in the caption token. | **Fixed.** Now `text-2xl` heading + `text-base` body. Same job, same vocabulary. |
