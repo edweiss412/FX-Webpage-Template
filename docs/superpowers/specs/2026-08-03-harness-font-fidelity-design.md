@@ -119,7 +119,7 @@ The fonts stylesheet declares, in this order:
 
 It is imported by both Next roots — `app/layout.tsx` and `app/global-error.tsx` — for the same reason `app/fonts.ts` is imported by both today: the global error boundary renders its own `<html>` and replaces the root layout, so anything the root sets up is absent there (`app/global-error.tsx:8-13` states this inline).
 
-`app/layout.tsx` also gains a preload link for the latin subset only, matching what `next/font` preloads today:
+`app/layout.tsx` also gains a preload link for the latin subset only, matching what `next/font` preloads today — verified, not assumed: the production build's font manifest lists exactly **one** preloaded file across every app route, the 48,432-byte latin subset (Next marks it with a `-s.p.` infix in the emitted filename). This is also where the `subsets: ["latin"]` declaration actually has its effect, which is the distinction N2 above turns on: it chose the preload, never the download set.
 
 ```tsx
 <link rel="preload" as="font" type="font/woff2" href="/fonts/inter-latin.woff2" crossOrigin="anonymous" />
