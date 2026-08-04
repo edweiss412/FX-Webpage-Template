@@ -5,7 +5,7 @@
 **Date:** 2026-08-03
 **Branch:** `chore/ledger-claim-visibility`
 **Backlog entries:** none opened for this work (see §9.1); three filed as by-products (§9.2, §9.3, §5 item 0a)
-**Status:** R13 repaired — 75 adversarial findings across thirteen rounds plus 5 self-findings, all accepted. R10 triggered the three-round cap: §3.1 is written from a spike, independently reproduced cross-model at R11
+**Status:** R14 repaired — 78 adversarial findings across fourteen rounds plus 5 self-findings, all accepted. R10 triggered the three-round cap: §3.1 is written from a spike, independently reproduced cross-model at R11
 **Review note:** R1-R4 were Codex (cross-model). R5 and R6 were fresh-eyes Opus sessions, because Codex hit a usage limit resetting 2026-08-10; see §10
 **impeccable-gate: N/A — no UI surface**
 
@@ -512,7 +512,16 @@ Wired as `"ledger:claims": "tsx scripts/ledger-claims.ts"` in `package.json`.
      PR-scoped reader would miss both and report a clean all-clear. PR numbers are display only
      (step 7).
 3. Current branch, used to distinguish "somebody else claims this" from "I claim this":
-   `GITHUB_HEAD_REF` when set, else `git rev-parse --abbrev-ref HEAD`, else none. The environment
+   `GITHUB_HEAD_REF` when set, else `git rev-parse --abbrev-ref HEAD`, else none.
+
+   **A bare branch name is not an identity across repositories.** R14 finding 1: candidates come
+   from `refs/remotes/origin/*`, which is the base repository only, while a fork PR's head lives in
+   the fork — and `GITHUB_HEAD_REF` carries just the branch name, so a fork branch named
+   `fix/apply-undo-audit-fidelity` reads as identical to the base branch of that name. That base
+   branch currently carries three declarations, and a fork PR reusing the name would have all three
+   excluded as "self", exiting 0 on a real collision. So self-exclusion compares the full head:
+   when `GITHUB_HEAD_REPOSITORY` differs from `GITHUB_REPOSITORY`, the run is a fork PR and **no
+   base ref is "me"** — self-exclusion is disabled outright rather than matched by name. The environment
    variable is not a convenience — `actions/checkout@v4` leaves a PR build on a detached merge ref,
    so a reader that only asked git would find no current branch and attribute the PR's own marker to
    a stranger, failing every PR that declares anything.
@@ -556,8 +565,10 @@ Wired as `"ledger:claims": "tsx scripts/ledger-claims.ts"` in `package.json`.
    hang inside preflight's 15 s child and cost the whole table rather than one column. On timeout the
    column is blank, exactly as when `gh` is absent.
    `gh pr list --state open --json number,headRefName --limit 100`,
-   joined on branch name. Absent, unauthenticated, or failing `gh` leaves the column blank and is
-   never an error in any mode, because no claim resolution depends on it. Past 100 open PRs the
+   joined on branch name **and head repository** — `gh pr list` also returns `headRepositoryOwner`,
+   and joining on name alone attaches a fork's PR number to a base branch of the same name (R14
+   finding 1's second instance). Absent, unauthenticated, or failing `gh` leaves the column blank
+   and is never an error in any mode, because no claim resolution depends on it. Past 100 open PRs the
    column is simply incomplete for the overflow, which is why it may not be load-bearing: a query
    that cannot report what it truncated must not be something a correctness rule reads.
 
@@ -932,6 +943,7 @@ a false all-clear through five distinct doors while passing everything above:
 | Detached HEAD with no `GITHUB_HEAD_REF` | 2 | exit 1 attributing the caller's own marker to a stranger |
 | `git ls-remote` fails after a successful fetch | 2 | R9 finding 3: `execFileSync` throws (status 128) and an uncaught throw exits **1**, which §3.3 and §6.2 both define as another branch's collision. An implementation that simply omits the catch passes every other row here |
 | **Equal or larger head count, wrong members** | 2 | R11 finding 3: the case must plant `resolved = {main, stale-deleted}` against `remote = {main, claimed-live}`, and a second with `resolved` strictly larger. Both have no count shortfall while the claimed branch is absent, so a cardinality assertion passes over exactly the branch that matters |
+| **A merged-main snapshot carrying an in-progress marker** | **0** | R14 finding 3, planted from a real one: `90aae0e60^` has `BL-ORPHANED-COMPONENTS-ZERO-PROD-IMPORTERS` reading `**Status:** IN PROGRESS · **Branch:** chore/orphan-components-lead-prose` on main. Both `origin/main` and `origin/HEAD` must be excluded **as candidates**, not merely from map verification. Two mutants, each exiting 1 on a healthy repo: excluding only `origin/HEAD` reports main's marker as a stranger's claim, and excluding only `origin/main` does the same through the alias, since both resolve to the same OID |
 | **`origin/HEAD` present, otherwise healthy** | **0** | R13 finding 3: the symref is excluded before comparison. Without the exclusion this exits 2 on every healthy repository, which no other row here would catch |
 | **Only `main` on origin** | **0** | R11 finding 2: a legitimate empty universe, not a parser failure. Also planted: a candidate that predates the ledgers, and a candidate whose ledgers are genuinely empty. All three satisfy "every branch yields 0" and must NOT exit 2, which is the assertion that fails if the non-empty-candidate clause is dropped |
 | **`--json` envelope shape** | n/a | R11 finding 4: assert the payload is an object with `status` and `degraded`, that a healthy empty run and a fetch-failed run are **distinguishable**, and that `degraded` names the state. A bare-array implementation passes the 101-entry cap test while making those two runs byte-identical |
@@ -987,8 +999,12 @@ branch declares in-progress, no other unmerged origin branch may declare the sam
 - Under `CI`, a fetch failure **fails** the test, matching the deliberate no-skip posture at
   `tests/docs/_metaLedgerInProgress.test.ts:199`. Locally, a fetch failure skips, so an offline
   `pnpm test` does not go red for an environmental reason.
-- Vacuous-pass guard: asserts the fetch resolved at least one non-main head before asserting
-  anything about collisions.
+- Vacuous-pass guard: asserts the fetch **resolved `origin/main`**, not that a non-main head exists.
+  R14 finding 2: a fork PR's head lives in the fork, so on a base repository holding only `main` a
+  perfectly valid fork PR has zero candidates — and a non-main-head assertion would fail it
+  structurally while the semantic answer is a correct exit 0. The repo's CI contract covers every
+  `pull_request` including forks, so that guard would reject legitimate PRs. Resolving `origin/main`
+  proves the fetch worked without assuming anybody else is in flight.
 - Planted-input suite proving the rule fires, in the shape of
   `tests/docs/_metaLedgerInProgress.test.ts:224`.
 
