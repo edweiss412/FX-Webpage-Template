@@ -139,10 +139,16 @@ test.describe("font rendering census", () => {
 
   test("the census is derived, not hand-written", () => {
     // Non-vacuity: a census that resolved to nothing would pass every walk below
-    // while proving nothing. 19 page.tsx + 13 page.mdx = 32 at the time of
-    // writing; asserted as a floor so adding a page does not fail the guard.
+    // while proving nothing.
+    //
+    // 32 page surfaces today (19 page.tsx + 13 page.mdx), 21 of them measured
+    // here -- five need params or fixtures and six are excluded with a written
+    // reason. Floors rather than equalities, so adding a page does not fail the
+    // guard. The 21 was WRONG as >= 25 for one CI run: the exclusions landed
+    // without the floor being re-derived, which is the same
+    // count-and-its-consumer-drift this plan warns about elsewhere.
     expect(routeCensus().length).toBeGreaterThanOrEqual(30);
-    expect(STATIC_ROUTES.length).toBeGreaterThanOrEqual(25);
+    expect(STATIC_ROUTES.length).toBeGreaterThanOrEqual(20);
   });
 
   for (const viewport of VIEWPORTS) {

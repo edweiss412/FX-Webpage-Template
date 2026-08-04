@@ -1641,3 +1641,27 @@ Four route handlers build and return a complete `<html>` document as a string, s
 ---
 
 ---
+
+---
+
+## BL-HARNESS-FIXTURE-ENFORCEMENT — the shared font fixture observes every harness document but asserts nothing about it
+
+**Status:** OPEN.
+
+**Filed:** 2026-08-04 (`feat/harness-font-fidelity`, PR #705, the descoped half of `BL-HARNESS-FONT-FIDELITY`). **Class:** test fidelity. **Effort:** M.
+
+`tests/e2e/helpers/fontFidelityFixture.ts` distributes five vantages across all 32 `compileEntryCss` callers and reliably OBSERVES the documents they render — proven by its own spec, where removing any single mechanism turns exactly one test red. What it does not do is CHECK what it observed: families are collected into an array nothing reads.
+
+**Cost today is bounded, which is why this is backlog and not deferred.** The contract it would enforce is already proven end-to-end in CI by `tests/e2e/harness-font-face.spec.ts`, which asserts the emitted face is requested (200), reaches `loaded` with its variable axis intact, and renders within 0.5px of an expectation computed from the committed bytes with fontkit. The static guard (16 rows, 30 mutants) and the emitted-block guard (9 rows) cover the stylesheet and the toolchain. What is missing is per-caller defense in depth: a caller-local `font-family` override inside one harness document would not be caught.
+
+**Work, and START FROM THE EVIDENCE rather than re-deriving it.** An enforcement layer was built on these vantages during PR #705 and removed again, because mutation refused it three times. The live mutant: emit an impostor face from `compileEntryCss` — `@font-face{font-family:"NotInter";src:local("Arial")}` plus `:root{--font-inter:"NotInter"}` — and `toggle-edge-layout` stays GREEN.
+
+What instrumenting the vantages established, so the next attempt does not repeat it:
+
+- enforcement IS reached (`via=pre-navigate` and `via=after-body` both fire)
+- `pre-navigate` inspects the **outgoing** document, which before the first `goto` is blank
+- by fixture teardown the page is back on `about:blank` — measured directly as `faces=[] body=Times` — so the loaded harness document is not what the after-body sweep sees
+- adding a `post-navigate` vantage did not close it either; the remaining gap is not yet understood
+- gating the walk on `document.body.childElementCount` was itself wrong and made enforcement unreachable for every `goto`-based caller; whether a face is REGISTERED is independent of whether the body has children
+
+**A check that cannot fail is worse than no check**, because it reads as coverage — which is why this shipped as an explicit non-guarantee in the fixture's own header rather than as a quiet TODO.

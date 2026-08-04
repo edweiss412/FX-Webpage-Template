@@ -20,6 +20,29 @@
 // for a context being closed. So the fixture uses BOTH, plus an after-body
 // sweep for documents that simply outlive the test.
 //
+// WHAT THIS FIXTURE DOES AND DOES NOT GUARANTEE — read before citing it.
+//
+// It OBSERVES. Every document each of the 32 callers renders is inspected by at
+// least one vantage, and that is proven rather than asserted: this fixture's own
+// spec has one test per vantage, and removing any single mechanism turns exactly
+// one of them red.
+//
+// It does NOT ENFORCE per-caller font fidelity, and saying so plainly is the
+// point. An enforcement layer was built on top of these vantages and REMOVED
+// again, because mutation refused it: emitting an impostor face from
+// compileEntryCss (family "NotInter", src local("Arial"), token repointed) left
+// `toggle-edge-layout` green through three successive fixes. Instrumenting the
+// vantages showed pre-navigate inspecting the OUTGOING document and the page
+// sitting on about:blank by teardown (`faces=[] body=Times`), so the loaded
+// harness document was never the one a firing vantage saw. Shipping a check
+// that cannot fail would be worse than shipping none: it reads as coverage.
+//
+// THE CONTRACT IS PROVEN ELSEWHERE, in CI, end to end:
+// `tests/e2e/harness-font-face.spec.ts` asserts the emitted face is requested
+// (200), reaches `loaded` with its variable axis intact, and renders within
+// 0.5px of an expectation computed from the committed bytes with fontkit.
+// `BL-HARNESS-FIXTURE-ENFORCEMENT` tracks wiring the oracle into these vantages.
+//
 // THE VANTAGES DIFFER IN WHAT THEY CAN RUN, and pretending otherwise would
 // specify something the platform does not offer. `pagehide` fires as a document
 // is being destroyed and cannot postpone that destruction, so it cannot await
