@@ -95,6 +95,7 @@ const successResult: NeedsAttention = {
   ingestionTotal: 1,
   syncTotal: 1,
   syncProblemTotal: 0,
+  identityHoldTotal: 0,
 };
 
 // A raw infra message that must NEVER surface in the DOM (invariant 5 — the

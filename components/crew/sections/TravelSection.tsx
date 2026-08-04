@@ -484,7 +484,8 @@ export function TravelSection({
                     const resNotes = !shouldHideGenericOptional(res.notes) ? res.notes : null;
 
                     const stayRows: KeyValueRow[] = [];
-                    if (confirmation) stayRows.push({ k: "Confirmation", v: confirmation });
+                    if (confirmation)
+                      stayRows.push({ k: "Confirmation", v: confirmation, code: true });
                     if (resNotes) stayRows.push({ k: "Notes", v: resNotes });
 
                     return (
@@ -627,7 +628,9 @@ export function TravelSection({
                                 ) : null}
                                 {seg.conf ? (
                                   <p className="text-xs text-text-faint tabular-nums">
-                                    Conf {seg.conf}
+                                    {/* Same transcribe-back class as the itinerary
+                                        locator below; only the code gets the slash. */}
+                                    Conf <span className="code-value">{seg.conf}</span>
                                   </p>
                                 ) : null}
                               </div>
@@ -644,7 +647,10 @@ export function TravelSection({
                       })}
                       {flightItinerary.confirmation ? (
                         <p className="px-1 text-xs text-text-faint tabular-nums">
-                          Confirmation {flightItinerary.confirmation}
+                          {/* Only the CODE gets the slashed zero, not the label
+                              beside it. DESIGN.md §2.4. */}
+                          Confirmation{" "}
+                          <span className="code-value">{flightItinerary.confirmation}</span>
                         </p>
                       ) : null}
                     </div>

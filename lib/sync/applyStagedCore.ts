@@ -11,6 +11,7 @@ import {
   type Phase2Result,
   type RoleFlagsNotice,
 } from "@/lib/sync/phase2";
+import type { UnlandedRename } from "@/lib/sync/applyParseResult";
 import type { SyncPipelineTx } from "@/lib/sync/runScheduledCronSync";
 import type { PullSheetOverride } from "@/lib/sync/pullSheetOverride";
 import type { UseRawDecision } from "@/lib/sync/useRawOverlay";
@@ -472,6 +473,10 @@ export type ApplyStagedCoreResult =
       syncAuditId: string | null;
       derivedSideEffects: { revokeFloorForNames: string[] };
       roleFlagsNotice?: RoleFlagsNotice;
+      // Unit A: identity-link pairs this apply did NOT land, surfaced to the applyStaged tail for
+      // its post-commit forensic emit. OPTIONAL, mirroring roleFlagsNotice? — absent and [] both
+      // mean "nothing unlanded"; consumers default with `?? []`.
+      unlandedRenames?: UnlandedRename[];
       snapshotRevisionId?: string;
       // §02 (FIX-3 / R16/R17): surface the apply outcome's parse warnings so the staged tail caller
       // (applyStaged.ts) can source sync_log's parse_warnings from coreResult.parseWarnings — the
@@ -678,6 +683,11 @@ export async function applyStagedCore(
     appliedRoleMappings: phase2.appliedRoleMappings,
   };
   if (phase2.roleFlagsNotice) applied.roleFlagsNotice = phase2.roleFlagsNotice;
+  // Unit A: carry the unlanded pairs to the applyStaged tail's post-commit emit (invariant 10 — the
+  // emit is NOT here; this function still runs inside the held show lock). Set only when non-empty.
+  if (phase2.unlandedRenames && phase2.unlandedRenames.length > 0) {
+    applied.unlandedRenames = phase2.unlandedRenames;
+  }
   if (phase2.snapshotRevisionId) applied.snapshotRevisionId = phase2.snapshotRevisionId;
   return applied;
 }

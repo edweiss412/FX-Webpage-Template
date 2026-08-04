@@ -99,7 +99,19 @@ function emptyClient() {
 }
 
 vi.mock("@/lib/supabase/server", () => ({
-  createSupabaseServiceRoleClient: vi.fn(),
+  // Holds rollup Task 4: loadNeedsAttention reads sync_holds through its OWN
+  // service-role client by default. A bare vi.fn() resolves to undefined and
+  // collapses every success path here to infra_error, so return an
+  // empty-holds chainable client.
+  createSupabaseServiceRoleClient: () => {
+    const holdsChain = {
+      select: () => holdsChain,
+      eq: () => holdsChain,
+      order: () => holdsChain,
+      limit: () => Promise.resolve({ data: [], error: null }),
+    };
+    return { from: () => holdsChain };
+  },
   createSupabaseServerClient: async () => {
     if (state.throwOnConstruct) throw new Error("boom");
     return emptyClient();
@@ -282,6 +294,7 @@ describe("Dashboard composition", () => {
       ingestionTotal: 31,
       syncTotal: 47,
       syncProblemTotal: 0,
+      identityHoldTotal: 0,
     };
     await renderDashboard();
 
@@ -395,5 +408,31 @@ describe("Dashboard composition", () => {
       '[data-testid="needs-attention-summary-card"]',
     ) as HTMLElement;
     expect(within(card).queryByTestId("summary-chip-auto-applied")).toBeNull();
+  });
+  it("threads identityHoldTotal from the loader into the summary card chip", async () => {
+    // Threading test: the fixture total (4) is set on the LOADER result only.
+    // A card rendered without the Dashboard's identityHoldTotal prop pass-through
+    // shows no chip at all, so this fails on a missing thread even though the
+    // direct-prop card test passes.
+    naState.override = {
+      items: [],
+      renderedCount: 0,
+      totalCount: 4,
+      overflowCount: 4,
+      ingestionTotal: 0,
+      syncTotal: 0,
+      syncProblemTotal: 0,
+      identityHoldTotal: 4,
+    };
+    await renderDashboard();
+
+    const col = screen.getByTestId("dashboard-inbox-col");
+    const clone = col.cloneNode(true) as HTMLElement;
+    clone.querySelector('[data-testid="dashboard-inbox-desktop"]')?.remove();
+    const card = clone.querySelector<HTMLElement>('[data-testid="needs-attention-summary-card"]');
+    expect(card).not.toBeNull();
+    expect(
+      card!.querySelector('[data-testid="summary-chip-identity-holds"]')?.textContent,
+    ).toContain("4 held");
   });
 });

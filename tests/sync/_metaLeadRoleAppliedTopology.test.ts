@@ -31,11 +31,14 @@ const EMISSION_RE = /upsertAdminAlert\(\s*[A-Za-z0-9_.]*roleFlagsNotice\b/;
 describe("LEAD_ROLE_APPLIED cross-caller emission topology (§3.4)", () => {
   const emissionSites = walk(SYNC_ROOT).filter((f) => EMISSION_RE.test(readFileSync(f, "utf8")));
 
-  test("at least the two known emission sites are discovered (cron/manual + staged)", () => {
-    expect(emissionSites.sort()).toEqual([
-      "lib/sync/applyStaged.ts",
-      "lib/sync/runScheduledCronSync.ts",
-    ]);
+  // Unit C (spec 2026-08-03-apply-undo-audit-fidelity §2.3) consolidated the emit: the cron helper
+  // and its near-verbatim applyStaged copy both delegate to ONE shared helper, which now owns the
+  // only `upsertAdminAlert(<x>roleFlagsNotice` call under lib/sync. Stated precisely, because the
+  // obvious reading is wrong: this pin detects a site that upserts the alert WITHOUT the durable
+  // event. It never could, and still cannot, detect a caller that DISCARDS the notice entirely —
+  // the shape this branch's per-site behavioral tests cover instead (BL-ROLEFLAGSNOTICE-DROP-GUARD).
+  test("the single shared emission site is discovered", () => {
+    expect(emissionSites.sort()).toEqual(["lib/sync/emitRoleFlagsNotice.ts"]);
   });
 
   test.each(

@@ -1,9 +1,11 @@
+import { readFileSync } from "node:fs";
+import { stripCommentsForFile } from "@/tests/_shared/stripComments";
 import postgres from "postgres";
 import { describe, expect, test, vi } from "vitest";
 import { DIGEST_MAX_ITEMS_PER_SHOW } from "@/lib/notify/constants";
 import { buildDigestModel, type DigestBuilderSql } from "@/lib/notify/digest";
 
-function fakeSql() {
+function fakeSql(opts: { holds?: Record<string, unknown>[]; rejectHolds?: boolean } = {}) {
   const calls: Array<{ text: string; values: unknown[] }> = [];
   const sql = vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => {
     const text = String.raw(strings, ...values.map((_value, index) => `$${index + 1}`));
@@ -47,6 +49,10 @@ function fakeSql() {
         },
       ]);
     }
+    if (/from\s+sync_holds/i.test(text)) {
+      if (opts.rejectHolds) return Promise.reject(new Error("SIMULATED sync_holds failure"));
+      return Promise.resolve(opts.holds ?? []);
+    }
     return Promise.resolve([]);
   }) as unknown as DigestBuilderSql;
   return { sql, calls };
@@ -66,7 +72,7 @@ describe("buildDigestModel", () => {
 
     expect(result.kind).toBe("ok");
     if (result.kind !== "ok") return;
-    expect(result.model.sourceTotals).toEqual({ ingestions: 1, syncs: 2, shows: 3 });
+    expect(result.model.sourceTotals).toEqual({ ingestions: 1, syncs: 2, shows: 3, holdShows: 0 });
     expect(result.model.shows).toEqual([
       {
         showTitle: "New Sheet",
@@ -110,7 +116,7 @@ describe("buildDigestModel", () => {
 
     await expect(buildDigestModel("doug@fxav.net", "2026-06-02", { sql })).resolves.toEqual({
       kind: "no_send",
-      sourceTotals: { ingestions: 0, syncs: 0, shows: 0 },
+      sourceTotals: { ingestions: 0, syncs: 0, shows: 0, holdShows: 0 },
     });
   });
 
@@ -211,4 +217,130 @@ describe("buildDigestModel real DB filters", () => {
       }
     },
   );
+});
+
+// ── Holds rollup Task 8: the digest's identity-holds leg (spec §8). Same pure
+// grouping core as the admin surfaces, different transport — postgres.js hands
+// back Date objects where PostgREST hands back ISO strings, so the adapter
+// normalizes with asIso before the shared core ever sees a row.
+describe("buildDigestModel identity holds", () => {
+  function holdRow(over: Record<string, unknown> = {}): Record<string, unknown> {
+    return {
+      id: "hold-1",
+      show_id: "show-h1",
+      entity_key: "Jane Doe",
+      held_value: { email: "jane@old.com" },
+      proposed_value: { disposition: "email_change", name: "Jane Doe", email: "jane@new.com" },
+      base_modified_time: new Date("2026-06-01T00:00:00.000Z"),
+      created_at: new Date("2026-06-02T13:30:00.000Z"),
+      slug: "held-show",
+      title: "Held Show",
+      ...over,
+    };
+  }
+
+  test("postgres.js Date timestamps normalize and sort BETWEEN the two pending items (spec §9.12)", async () => {
+    // Fixture pendings sit at 14:00 (ingestion) and 13:00 / 12:00 (syncs); the
+    // hold at 13:30 must land between them. A Date left un-normalized would sort
+    // as "[object Date]" and fall to the bottom, so ORDER is the assertion.
+    const { sql } = fakeSql({ holds: [holdRow()] });
+    const result = await buildDigestModel("doug@fxav.net", "2026-06-02", { sql });
+    expect(result.kind).toBe("ok");
+    if (result.kind !== "ok") return;
+    expect(result.model.shows.map((s) => s.showTitle)).toEqual([
+      "New Sheet", // ingestion 14:00
+      "Held Show", // hold 13:30
+      "First Seen Show", // sync 13:00
+      "Existing Show", // sync 12:00
+    ]);
+    const held = result.model.shows.find((s) => s.showTitle === "Held Show");
+    expect(held?.slug).toBe("held-show");
+    // Copy comes from the shared generator, never authored here.
+    expect(held?.items[0]).toContain("jane@old.com");
+    expect(held?.items[0]).toContain("jane@new.com");
+  });
+
+  test("holds are UNCAPPED in the digest and counted in sourceTotals.holdShows (spec §9.13, D8/D9)", async () => {
+    // 21 pending syncs exceed the admin RENDER_CAP of 20; a hold OLDER than all
+    // of them still ships, which can only happen if the digest raises the cap to
+    // the full merged length.
+    const syncs = Array.from({ length: 21 }, (_, i) => ({
+      staged_id: `sync-${i}`,
+      drive_file_id: `drive-${i}`,
+      candidate_title: `Show ${i}`,
+      staged_modified_time: `2026-06-02T15:${String(i).padStart(2, "0")}:00.000Z`,
+    }));
+    const sql = vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => {
+      const text = String.raw(strings, ...values.map((_v, i) => `$${i + 1}`));
+      if (/from\s+public\.pending_syncs/i.test(text)) return Promise.resolve(syncs);
+      if (/from\s+sync_holds/i.test(text))
+        return Promise.resolve([holdRow({ created_at: new Date("2026-06-01T00:00:00.000Z") })]);
+      return Promise.resolve([]);
+    }) as unknown as DigestBuilderSql;
+
+    const result = await buildDigestModel("doug@fxav.net", "2026-06-02", { sql });
+    expect(result.kind).toBe("ok");
+    if (result.kind !== "ok") return;
+    expect(result.model.shows.some((s) => s.showTitle === "Held Show")).toBe(true);
+    expect(result.model.shows).toHaveLength(syncs.length + 1);
+    expect(result.model.sourceTotals).toEqual({
+      ingestions: 0,
+      syncs: 21,
+      shows: 22,
+      holdShows: 1,
+    });
+  });
+
+  test("holds-only source is NOT no_send (the shows query never fires; text dispatch is order-immune)", async () => {
+    const sql = vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => {
+      const text = String.raw(strings, ...values.map((_v, i) => `$${i + 1}`));
+      if (/from\s+sync_holds/i.test(text)) return Promise.resolve([holdRow()]);
+      return Promise.resolve([]);
+    }) as unknown as DigestBuilderSql;
+
+    const result = await buildDigestModel("doug@fxav.net", "2026-06-02", { sql });
+    expect(result.kind).toBe("ok");
+    if (result.kind !== "ok") return;
+    expect(result.model.sourceTotals).toEqual({
+      ingestions: 0,
+      syncs: 0,
+      shows: 1,
+      holdShows: 1,
+    });
+  });
+
+  test("invalid recipient short-circuits with holdShows: 0 on the no_send literal", async () => {
+    const { sql } = fakeSql({ holds: [holdRow()] });
+    await expect(buildDigestModel("   ", "2026-06-02", { sql })).resolves.toEqual({
+      kind: "no_send",
+      sourceTotals: { ingestions: 0, syncs: 0, shows: 0, holdShows: 0 },
+    });
+  });
+
+  test("selective holds-query fault RESOLVES to the typed infra result (spec §9.14; never throws)", async () => {
+    const { sql } = fakeSql({ rejectHolds: true });
+    await expect(buildDigestModel("doug@fxav.net", "2026-06-02", { sql })).resolves.toEqual({
+      kind: "infra_error",
+    });
+  });
+
+  test("source pins the EXACT sync_holds SQL: no extra predicate, no cap", () => {
+    // Whole-statement equality, not substring presence. Presence checks accepted
+    // two mutants the fake sql can never see, because it dispatches on text and
+    // ignores clauses: an extra `and sh.domain = '...'` (a filter the PostgREST
+    // reader does not have, so the two transports would silently diverge) and a
+    // `limit 1` (which would cap the digest, contradicting D8's uncapped model).
+    const path = "lib/notify/digest.ts";
+    const src = stripCommentsForFile(readFileSync(path, "utf8"), path);
+    const start = src.indexOf("select sh.id");
+    expect(start, "the sync_holds SQL is gone entirely").toBeGreaterThan(-1);
+    const sql = src.slice(start, src.indexOf("`", start)).replace(/\s+/g, " ").trim();
+    expect(sql).toBe(
+      "select sh.id, sh.show_id, sh.entity_key, sh.held_value, sh.proposed_value, " +
+        "sh.base_modified_time, sh.created_at, s.slug, s.title " +
+        "from sync_holds sh join shows s on s.id = sh.show_id " +
+        "where sh.kind = 'mi11_pending' and s.archived = false " +
+        "order by sh.created_at desc, sh.id asc",
+    );
+  });
 });

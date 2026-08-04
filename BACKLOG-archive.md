@@ -8,6 +8,63 @@ Same split as [DEFERRED.md](./DEFERRED.md) ↔ [DEFERRED-archive.md](./DEFERRED-
 
 ---
 
+## BL-INTER-NUMERAL-DISAMBIGUATION — RESOLVED (2026-08-03, `feat/inter-numeral-disambiguation`)
+
+**Resolved by changing the font, not the CSS — the entry's premise was false.**
+
+The row asked for `"zero" 1, "cv05" 1` on the tabular rule. Probing the actual binaries first showed
+those features do not exist in the Inter build Google Fonts serves: measured live, the latin subset
+carries `calt ccmp dnom frac kern locl mark mkmk numr pnum tnum` and a `wght` axis, nothing more. The
+requested change would have rendered nothing — exactly as the `"cv11" 1` beside it had been rendering
+nothing since `78662acb5` (2026-05-03), silently, on every route, for three months.
+
+Two further defects in the row itself, independent of availability: `cv05` moves lowercase `l` only and
+never touches capital `I`, so the pair named in the row's own title was incomplete; and `ss04` is
+Inter's own "disambiguation without zero", which covers both letterforms in one tag.
+
+**Shipped:** a latin + latin-ext SUBSET of the upstream `rsms/inter` v4.1 release at
+`assets/fonts/InterVariable-latin.woff2` (173 KB, built by `scripts/subset-inter.sh` from a
+checksum-pinned input, OFL text alongside) and loaded via `next/font/local`. The verbatim 344 KB
+release was the decision at the gate; the impeccable audit then measured it costing FCP +136-164ms
+and a fallback-to-Inter swap landing 3.7s in on slow 4G, and the owner revised. CSS: `ss04` at
+`html`, `ss04`/`tnum` on the tabular rule, and `zero` on a narrower `.code-value` — `.tabular-nums`
+turned out to sit on whole prose sentences, including the Right Now hero's 30px bold `<h2>`, so the
+slash was landing mid-sentence. `ss04` is repeated on each rule because `font-feature-settings`
+inherits as a whole value rather than a merged list. The generated-artifact objection that
+argued for verbatim is answered by asserting the binary SEMANTICALLY — the guard checks the
+declared tags and both axes against whatever the loader points at — rather than by byte-equality,
+so no pinned-image gate is owed. The `opsz` axis survives the subset, making `DESIGN.md` §2.1's
+long-standing optical-sizing claim true for the first time.
+
+**Fourteen false claims corrected** across `DESIGN.md`, the font-binding spec and plan, and eight source
+comments — including that plan's own P3 disposition, which had recorded "now deterministically activates
+Inter's alternates … for the first time" as an accepted consequence. It activated nothing.
+
+**The guard is the real deliverable.** `tests/styles/fontFeatureAvailability.test.ts` derives the font
+path from `app/fonts.ts` and asserts every tag `app/globals.css` declares exists in that binary, so this
+class of silent failure fails the build instead. It carries a regression proof against the committed
+Google-served binary showing it would have caught the dead `cv11` on the day it was written. In the
+browser, `zero` is proven by a PIXEL oracle rather than a width one: `zero` and `zero.slash` share an
+xAdvance of 1292 units, so a width assertion can never see the feature work.
+
+## BL-ADMIN-NOJS-LOADING-CONFLICT — RESOLVED (2026-08-03, `fix/nojs-loading-shell-notice`)
+
+### BL-ADMIN-NOJS-LOADING-CONFLICT — no-JS contract vs loading.tsx streaming
+
+Filed 2026-06-10 (discovered during mobile needs-attention T5 e2e run; pre-existing since M12.11 `f2f7f7b4`). The `admin-banner.spec.ts` "no-JS native summary" e2e fails on main: with `javaScriptEnabled:false` the admin dashboard never leaves the `app/admin/loading.tsx` skeleton because React streams suspense content into a hidden div swapped by an inline `$RC()` script that needs JS. No CI workflow runs Playwright, so it went unnoticed. Structurally: the no-JS banner contract and instant loading skeletons are incompatible as shipped. Options when picked up: drop the no-JS contract test, gate loading.tsx behind JS detection (not really possible server-side), or accept skeleton-only no-JS rendering and retarget the test. Technical home: `tests/e2e/admin-banner.spec.ts:261` + `app/admin/loading.tsx`.
+
+**Resolved 2026-08-03 (`fix/nojs-loading-shell-notice`).** Two halves, only one of which was still live.
+
+_The named symptom was already gone._ `tests/e2e/admin-banner.spec.ts` was deleted wholesale in `67ce6d082` ("feat(admin): mount bell in both chromes; retire AlertBanner"), together with `components/admin/AlertBanner.tsx` and the `<details>`-based no-JS contract that test asserted. At pickup, `rg noscript app components` returned zero hits: no no-JS contract survived anywhere in the app.
+
+_The structural half was real, and is fixed._ A probe against a throwaway `force-dynamic` route confirmed the mechanism exactly as this entry described it — the fallback renders inline, the real content ships inside `<div hidden id="S:1">`, and only an inline `$RC()` call reveals it. Of the three options this entry listed, the first is moot (the test is gone) and the second is not implementable (the server cannot know whether the client will run the script). The third shipped, in the strongest available form: `LoadingShell` now carries a `<noscript>` block with a "JavaScript is required" notice plus a `<noscript>`-scoped `<style>` that hides the shell content, so a no-JS visitor gets one clear message instead of an eternal shimmer. One insertion point covers all nine `loading.tsx` routes — crew as well as admin, which is broader than this entry's admin-only framing.
+
+_One claim in this entry was stale and should not be carried forward._ "No CI workflow runs Playwright" was true when filed; thirteen workflow files reference it today and eleven invoke `playwright test`. That sentence is precisely the reasoning that would justify skipping CI registration, so the replacement e2e (`tests/e2e/nojs-loading-notice.spec.ts`) is named explicitly in `.github/workflows/admin-layout-e2e.yml` as well as in `playwright.config.ts`. Registering only the latter would have left it dark — most Playwright workflows here pass an explicit spec-file list, and `desktop-chromium` appears in none of the three that instead run whole configs or projects — which is how the predecessor test sat failing on `main` from M12.11 until it was deleted.
+
+Spec: `docs/superpowers/specs/2026-08-03-nojs-loading-shell-notice-design.md`. Plan: `docs/superpowers/plans/2026-08-03-nojs-loading-shell-notice.md`.
+
+---
+
 ## BL-INTERNAL-CODE-ENUM-SCAN-WIDEN — RESOLVED (2026-08-03, `chore/scanner-precision-cluster`)
 
 **Filed:** 2026-08-02 (retroactively; cited by `lib/dev/attentionScenarios/tier1.ts:127` and `docs/superpowers/specs/2026-07-20-attention-scenario-gallery-design.md:165` as if already filed, with no row anywhere). **Class:** generated-registry completeness. **Effort:** S.
@@ -2943,3 +3000,19 @@ Spec: `docs/superpowers/specs/2026-08-03-app-wide-font-binding.md` · Plan: `doc
 The dashboard staged-apply path (`applyStagedCore`) applies an identity-linked rename (MI-12/13/14) as **remove-old + add-new** by ratified contract (R33-2, `applyStagedCore.ts:552`; passes zero `identityLinkRenames`), so crew identity (id/oauth link) is NOT preserved across a rename on that path. The capability AUDIT is already complete (arm (c) audits the removed old identity's loss + arm (b) the added new identity's grant, path-independent), so this is NOT an audit gap. If identity-PRESERVATION on the staged path is ever wanted, thread `identityLinkRenames` through `applyStagedCore` (compute via `computeIdentityLinkRenames` from the staged `triggeredReviewItems`) — but resolve the double-apply / R33-2-override risk first. Trigger: a report of a staged rename losing a crew member's oauth link.
 
 **Resolved.** `docs/superpowers/specs/2026-08-03-staged-identitylink-rename-identity.md`, branch `feat/staged-identitylink-rename-identity`: `computeStagedIdentityLinkRenames` links a pair only when its validated reviewer choice is `rename` (the per-item admin vouch, the staged analogue of cron's version-bound accept), and `applyStagedCore` threads the result into `runPhase2` behind a length gate. A staged rename now preserves `crew_members.id` and `claimed_via_oauth_at`; `independent` still applies as remove+add, so the R33-2 feed assertions are untouched. The double-apply / override risk this entry flagged resolved as a choice gate, not a path override — the role-flags spec's staged loss+grant audit shape is superseded in part, banner-fenced in both directions.
+
+## BL-NEEDS-ATTENTION-HOLDS-ROLLUP — RESOLVED (2026-08-03, `feat/needs-attention-holds-rollup`)
+
+## BL-NEEDS-ATTENTION-HOLDS-ROLLUP — pending MI-11 holds do not surface on the needs-attention page
+
+**Filed:** 2026-08-02 (retroactively; `docs/superpowers/specs/v1-pre-deployment-amendments/2026-06-10-mobile-needs-attention-design.md:285` lists it under §11 Deferred as a "BACKLOG candidate", and no row was created). **Class:** UX completeness. **Effort:** M (blocked on a read path).
+
+`/admin/needs-attention` rolls up the durable attention stream but shows no pending MI-11 holds, so a hold is visible only from the show it belongs to. Verified 2026-08-02: no cross-show holds read path exists in `lib/` or `app/`, which is the actual blocker — the page cannot roll up what nothing can query.
+
+**Work:** build the cross-show holds read, then add the rollup. Prerequisite first; the page change is small once the read exists. UI surface, so Opus-owned with the invariant-8 dual gate.
+
+**Status:** RESOLVED.
+
+**How it resolved:** the missing cross-show read landed as `lib/admin/identityHolds.ts` (service-role `sync_holds` read, `kind='mi11_pending'` on non-archived shows, bounded `.limit(HOLDS_ROW_CAP + 1)`) plus a pure `groupHoldRows` core shared by BOTH transports, so the needs-attention page, the dashboard inbox, the AdminNav badge, the mobile summary-card chip, and the daily digest all group holds identically (one card per show; a single hold shows its own summary, several collapse behind a count line and a disclosure). Spec `docs/superpowers/specs/2026-08-03-needs-attention-holds-rollup-design.md`, plan `docs/superpowers/plans/2026-08-03-needs-attention-holds-rollup.md`. Seeded e2e coverage in `tests/e2e/needs-attention-holds.spec.ts` pins the kind + archived filters, the badge counting SHOWS rather than rows, and reject clear-through.
+
+---

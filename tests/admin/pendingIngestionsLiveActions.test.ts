@@ -9,6 +9,24 @@ import { handleLivePendingIngestionDiscard } from "@/app/api/admin/pending-inges
 
 const logAdminOutcomeMock = vi.hoisted(() => vi.fn(async () => {}));
 vi.mock("@/lib/log/logAdminOutcome", () => ({ logAdminOutcome: logAdminOutcomeMock }));
+// Unit A: this route is the fourth post-commit sink for the forensic unlanded-rename event. It needs
+// its OWN emit because it calls runManualSyncForShow_unlocked, routing around processOneFile's
+// post-commit tail (lib/sync/runManualSyncForShow.ts:287-288) where the other manual sink emits.
+const emitUnlandedRenamesMock = vi.hoisted(() => vi.fn(async () => {}));
+vi.mock("@/lib/log/emitIdentityLinkRenameUnlanded", () => ({
+  emitIdentityLinkRenameUnlanded: emitUnlandedRenamesMock,
+}));
+// Unit C (spec §2.3): this route is a roleFlagsNotice discard site on BOTH of its branches — the
+// existing-show branch calls runManualSyncForShow_unlocked (bypassing processOneFile's post-commit
+// tail, where cron/manual emit) and the first-seen branch calls runManualStageForFirstSeen, which
+// carries the notice out of its own lock for the route to emit. Partial mock: the module also
+// exports the shared source constants and the finalize-route flush, which other modules in this
+// import graph load at module scope.
+const emitRoleFlagsNoticeMock = vi.hoisted(() => vi.fn(async () => {}));
+vi.mock("@/lib/sync/emitRoleFlagsNotice", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/sync/emitRoleFlagsNotice")>()),
+  emitRoleFlagsNotice: emitRoleFlagsNoticeMock,
+}));
 
 const ID1 = "33333333-3333-4333-8333-333333333333";
 
@@ -378,5 +396,228 @@ describe("live pending-ingestions retry — PENDING_INGESTION_RETRIED telemetry"
     await handleLivePendingIngestionRetry(req(), context, routeDeps);
 
     expect(logAdminOutcomeMock).not.toHaveBeenCalled();
+  });
+});
+
+// Unit A sink #4 — the retry ROUTE, not the sync helper. runManualSyncForShow_unlocked runs INSIDE
+// withRowTryLock, so the emit cannot live there (invariant 10) and processOneFile's tail — where the
+// cron/manual sink emits — is bypassed entirely on this path. The other three sinks passing says
+// nothing about this one.
+describe("live pending-ingestions retry — IDENTITY_LINK_RENAME_UNLANDED emit", () => {
+  const unlanded = [
+    {
+      pair: { removedName: "Old", addedName: "New" },
+      reason: "rename_no_op" as const,
+      sourceSurvived: false,
+    },
+  ];
+
+  test("existing-show applied carrying an unlanded pair → emits once, after the row lock resolves", async () => {
+    emitUnlandedRenamesMock.mockClear();
+    const tx = new FakeLivePendingTx();
+    tx.showExists = true;
+    const events: string[] = [];
+    emitUnlandedRenamesMock.mockImplementationOnce(async () => {
+      events.push("emit");
+    });
+    const routeDeps = deps(tx, {
+      withRowTryLock: vi.fn(async (_driveFileId, fn) => {
+        events.push("lock:start");
+        const locked = await fn(tx as unknown as LivePendingIngestionRouteTx);
+        events.push("lock:release");
+        return locked;
+      }) as unknown as NonNullable<LivePendingIngestionRouteDeps["withRowTryLock"]>,
+      runManualSyncForShowUnlocked: vi.fn(async () => ({
+        outcome: "applied" as const,
+        showId: "show-1",
+        parseWarnings: [],
+        appliedRoleMappings: [],
+        unlandedRenames: unlanded,
+      })) as unknown as NonNullable<LivePendingIngestionRouteDeps["runManualSyncForShowUnlocked"]>,
+    });
+
+    const response = await handleLivePendingIngestionRetry(req(), context, routeDeps);
+
+    expect(response.status).toBe(200);
+    expect(emitUnlandedRenamesMock).toHaveBeenCalledTimes(1);
+    expect(emitUnlandedRenamesMock).toHaveBeenCalledWith(unlanded, {
+      source: "sync.identityLink",
+      showId: "show-1",
+      driveFileId: "file-1",
+    });
+    expect(events).toEqual(["lock:start", "lock:release", "emit"]);
+  });
+
+  test("existing-show applied with no unlanded pairs → no emit", async () => {
+    emitUnlandedRenamesMock.mockClear();
+    const tx = new FakeLivePendingTx();
+    tx.showExists = true;
+
+    await handleLivePendingIngestionRetry(req(), context, deps(tx));
+
+    expect(emitUnlandedRenamesMock).not.toHaveBeenCalled();
+  });
+
+  test("a non-applied retry never emits, even when the outcome carries a showId", async () => {
+    emitUnlandedRenamesMock.mockClear();
+    const tx = new FakeLivePendingTx();
+    tx.showExists = true;
+    const routeDeps = deps(tx, {
+      runManualSyncForShowUnlocked: vi.fn(async () => ({
+        outcome: "source_gone" as const,
+        code: "SHEET_UNAVAILABLE",
+        showId: "show-1",
+      })) as unknown as NonNullable<LivePendingIngestionRouteDeps["runManualSyncForShowUnlocked"]>,
+    });
+
+    await handleLivePendingIngestionRetry(req(), context, routeDeps);
+
+    expect(emitUnlandedRenamesMock).not.toHaveBeenCalled();
+  });
+});
+
+// Unit C sites #3 and #4 — the last two discard sites. Both branches of this route obtain a real
+// roleFlagsNotice and emitted nothing: the existing-show branch bypasses processOneFile's tail, and
+// the first-seen branch's callee builds the notice inside the row lock. The emit belongs HERE, after
+// withRowTryLock resolves (invariant 10).
+describe("live pending-ingestions retry — ROLE_FLAGS_NOTICE emit", () => {
+  const roleFlagsNotice = {
+    showId: "show-1",
+    code: "ROLE_FLAGS_NOTICE" as const,
+    context: {
+      drive_file_id: "file-1",
+      changes: [{ crew_name: "Alex Crew", prior_flags: [] as string[], new_flags: ["LEAD"] }],
+    },
+  };
+
+  test("existing-show applied carrying a notice → emits once, after the row lock resolves", async () => {
+    emitRoleFlagsNoticeMock.mockClear();
+    const tx = new FakeLivePendingTx();
+    tx.showExists = true;
+    const events: string[] = [];
+    emitRoleFlagsNoticeMock.mockImplementationOnce(async () => {
+      events.push("emit");
+    });
+    const routeDeps = deps(tx, {
+      withRowTryLock: vi.fn(async (_driveFileId, fn) => {
+        events.push("lock:start");
+        const locked = await fn(tx as unknown as LivePendingIngestionRouteTx);
+        events.push("lock:release");
+        return locked;
+      }) as unknown as NonNullable<LivePendingIngestionRouteDeps["withRowTryLock"]>,
+      runManualSyncForShowUnlocked: vi.fn(async () => ({
+        outcome: "applied" as const,
+        showId: "show-1",
+        parseWarnings: [],
+        appliedRoleMappings: [],
+        roleFlagsNotice,
+      })) as unknown as NonNullable<LivePendingIngestionRouteDeps["runManualSyncForShowUnlocked"]>,
+    });
+
+    const response = await handleLivePendingIngestionRetry(req(), context, routeDeps);
+
+    expect(response.status).toBe(200);
+    expect(emitRoleFlagsNoticeMock).toHaveBeenCalledTimes(1);
+    expect(emitRoleFlagsNoticeMock).toHaveBeenCalledWith(roleFlagsNotice, {
+      source: "sync.roleFlags",
+    });
+    expect(events).toEqual(["lock:start", "lock:release", "emit"]);
+  });
+
+  test("first-seen applied carrying a notice → emits once, after the row lock resolves", async () => {
+    emitRoleFlagsNoticeMock.mockClear();
+    const tx = new FakeLivePendingTx();
+    const events: string[] = [];
+    emitRoleFlagsNoticeMock.mockImplementationOnce(async () => {
+      events.push("emit");
+    });
+    const routeDeps = deps(tx, {
+      withRowTryLock: vi.fn(async (_driveFileId, fn) => {
+        events.push("lock:start");
+        const locked = await fn(tx as unknown as LivePendingIngestionRouteTx);
+        events.push("lock:release");
+        return locked;
+      }) as unknown as NonNullable<LivePendingIngestionRouteDeps["withRowTryLock"]>,
+      runManualStageForFirstSeen: vi.fn(async () => ({
+        outcome: "applied",
+        showId: "show-1",
+        roleFlagsNotice,
+      })) as unknown as NonNullable<LivePendingIngestionRouteDeps["runManualStageForFirstSeen"]>,
+    });
+
+    const response = await handleLivePendingIngestionRetry(req(), context, routeDeps);
+
+    expect(response.status).toBe(200);
+    expect(emitRoleFlagsNoticeMock).toHaveBeenCalledTimes(1);
+    expect(emitRoleFlagsNoticeMock).toHaveBeenCalledWith(roleFlagsNotice, {
+      source: "sync.roleFlags",
+    });
+    expect(events).toEqual(["lock:start", "lock:release", "emit"]);
+  });
+
+  test("an applied retry with no notice on either branch → no emit", async () => {
+    emitRoleFlagsNoticeMock.mockClear();
+    const tx = new FakeLivePendingTx();
+    tx.showExists = true;
+
+    await handleLivePendingIngestionRetry(req(), context, deps(tx));
+
+    const firstSeenTx = new FakeLivePendingTx();
+    await handleLivePendingIngestionRetry(
+      req(),
+      context,
+      deps(firstSeenTx, {
+        runManualStageForFirstSeen: vi.fn(async () => ({
+          outcome: "applied",
+          showId: "show-1",
+        })) as unknown as NonNullable<LivePendingIngestionRouteDeps["runManualStageForFirstSeen"]>,
+      }),
+    );
+
+    expect(emitRoleFlagsNoticeMock).not.toHaveBeenCalled();
+  });
+
+  test("a non-applied retry never emits, even when the outcome carries a showId", async () => {
+    emitRoleFlagsNoticeMock.mockClear();
+    const tx = new FakeLivePendingTx();
+    tx.showExists = true;
+    const routeDeps = deps(tx, {
+      runManualSyncForShowUnlocked: vi.fn(async () => ({
+        outcome: "source_gone" as const,
+        code: "SHEET_UNAVAILABLE",
+        showId: "show-1",
+        roleFlagsNotice,
+      })) as unknown as NonNullable<LivePendingIngestionRouteDeps["runManualSyncForShowUnlocked"]>,
+    });
+
+    await handleLivePendingIngestionRetry(req(), context, routeDeps);
+
+    expect(emitRoleFlagsNoticeMock).not.toHaveBeenCalled();
+  });
+
+  // `upsertAdminAlert` throws on RPC failure and the helper deliberately does not catch it. This
+  // emit is POST-COMMIT: the apply already landed, so a failing bell alert must not convert a
+  // successful retry into a 500 that invites the operator to re-run it. Same fail-open posture the
+  // finalize routes take through flushDeferredApplyEmits.
+  test("a throwing emit leaves the committed retry's 200 response intact", async () => {
+    emitRoleFlagsNoticeMock.mockClear();
+    emitRoleFlagsNoticeMock.mockRejectedValueOnce(new Error("alert rpc down"));
+    const tx = new FakeLivePendingTx();
+    tx.showExists = true;
+    const routeDeps = deps(tx, {
+      runManualSyncForShowUnlocked: vi.fn(async () => ({
+        outcome: "applied" as const,
+        showId: "show-1",
+        parseWarnings: [],
+        appliedRoleMappings: [],
+        roleFlagsNotice,
+      })) as unknown as NonNullable<LivePendingIngestionRouteDeps["runManualSyncForShowUnlocked"]>,
+    });
+
+    const response = await handleLivePendingIngestionRetry(req(), context, routeDeps);
+
+    expect(response.status).toBe(200);
+    expect(await json(response)).toEqual({ status: "applied", slug: "show-slug" });
+    expect(emitRoleFlagsNoticeMock).toHaveBeenCalledTimes(1);
   });
 });

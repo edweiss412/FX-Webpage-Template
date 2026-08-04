@@ -31,6 +31,9 @@ const READ_MODULES = [
   "components/admin/Dashboard.tsx",
   "lib/admin/healthRollup.ts",
   "lib/admin/healthAlerts.ts",
+  // Needs-attention holds rollup Task 2 (spec 2026-08-03 §4): the cross-show
+  // open-holds service-role read, bounded via .limit(HOLDS_ROW_CAP + 1).
+  "lib/admin/identityHolds.ts",
   "lib/admin/loadNeedsAttention.ts",
   // Flow-4 auto-applied strip Task 3 (spec §6.1): the un-dispositioned
   // show_change_log auto-apply read, bounded via .limit(STRIP_RENDER_CAP + 1).
@@ -64,6 +67,9 @@ const UNBOUNDED_TABLES = [
   "app_events",
   "admin_alerts",
   "show_change_log",
+  // Needs-attention holds rollup Task 2: cross-show open-hold reads are
+  // unbounded by nature (every active show can hold), so they carry a cap.
+  "sync_holds",
   // observe CLI telemetry gaps plan Task 10.
   "sync_log",
   "deferred_ingestions",

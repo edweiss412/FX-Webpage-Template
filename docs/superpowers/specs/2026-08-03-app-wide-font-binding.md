@@ -95,6 +95,8 @@ The backlog entry frames the exposure as *"reachable only on a desktop Linux bro
 
 That is a live violation of a ratified design contract on every device, not just bare Linux. It also means the `font-feature-settings: "tnum" 1, "cv11" 1` commitment (`app/globals.css:649-652`, `DESIGN.md:170-175`) is applied to a font whose `cv11` alternate — described at `DESIGN.md:175` as *"Inter's single-storey 'a' alternate"* — does not exist outside Inter, so admin numerics silently lose the intended treatment.
 
+> **Correction, 2026-08-03 (`BL-INTER-NUMERAL-DISAMBIGUATION`).** The sentence above understates the problem in a way worth recording. `cv11` did not exist *inside* the app's Inter either: the build Google Fonts serves has the character variants stripped, so the alternate was unreachable on every tree, not merely on trees that fell through to a host font. Binding the family app-wide therefore fixed the `tnum` half of the commitment and left the `cv11` half exactly as dead as it had been since `78662acb5`. Reaching it required self-hosting the upstream release, which is what that backlog entry did.
+
 Scoping statement for the closeout, per the brief: **the DejaVu wrap itself is fixed only for Next-rendered surfaces with a React root** — every page of the product proper. Two exclusions, both documented rather than implied: the standalone measurement harnesses keep their ambient font by construction (R4, §5.2), and four hand-built auth error documents mount no React root and ARE read when they appear (§5.0).
 
 ---

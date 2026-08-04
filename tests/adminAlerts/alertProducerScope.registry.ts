@@ -91,18 +91,18 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
     optionalContextKeys: ["error_code"],
     code: "PARSE_ERROR_LAST_GOOD",
     scope: "per-show",
-    note: "context built by buildParseErrorContext(lib/sync/runManualSyncForShow.ts:261); keys mirror the cron twin at lib/sync/runScheduledCronSync.ts:3387",
+    note: "context built by buildParseErrorContext(lib/sync/runManualSyncForShow.ts:261); keys mirror the cron twin at lib/sync/runScheduledCronSync.ts:3414",
   },
   {
-    site: "lib/sync/runScheduledCronSync.ts:375",
+    site: "lib/sync/runScheduledCronSync.ts:377",
     computedContext: true,
     contextKeys: ["drive_file_id", "sheet_name"],
     code: "RESYNC_QUALITY_REGRESSED",
     scope: "per-show",
-    note: "context forwarded as a shorthand variable (lib/sync/runScheduledCronSync.ts:375)",
+    note: "context forwarded as a shorthand variable (lib/sync/runScheduledCronSync.ts:377)",
   },
   {
-    site: "lib/sync/runScheduledCronSync.ts:2365",
+    site: "lib/sync/runScheduledCronSync.ts:2381",
     contextKeys: [
       "crew_count",
       "drive_file_id",
@@ -115,13 +115,13 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
     scope: "per-show",
   },
   {
-    site: "lib/sync/runScheduledCronSync.ts:2574",
+    site: "lib/sync/runScheduledCronSync.ts:2590",
     contextKeys: ["drive_file_id", "previous_last_seen_modified_time", "sheet_name"],
     code: "SHEET_UNAVAILABLE",
     scope: "per-show",
   },
   {
-    site: "lib/sync/runScheduledCronSync.ts:2634",
+    site: "lib/sync/runScheduledCronSync.ts:2650",
     contextKeys: [
       "drive_file_id",
       "failure_code",
@@ -132,7 +132,7 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
     scope: "per-show",
   },
   {
-    site: "lib/sync/runScheduledCronSync.ts:2653",
+    site: "lib/sync/runScheduledCronSync.ts:2669",
     contextKeys: [
       "drive_file_id",
       "failure_code",
@@ -143,7 +143,7 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
     scope: "per-show",
   },
   {
-    site: "lib/sync/runScheduledCronSync.ts:3387",
+    site: "lib/sync/runScheduledCronSync.ts:3414",
     computedContext: true,
     contextKeys: ["drive_file_id", "sheet_name"],
     // error_code is spread-conditional on the failure code being allowlisted
@@ -151,10 +151,10 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
     optionalContextKeys: ["error_code"],
     code: "PARSE_ERROR_LAST_GOOD",
     scope: "per-show",
-    note: "context built by buildParseErrorContext(lib/sync/runScheduledCronSync.ts:3387)",
+    note: "context built by buildParseErrorContext(lib/sync/runScheduledCronSync.ts:3414)",
   },
   {
-    site: "lib/sync/runScheduledCronSync.ts:3422",
+    site: "lib/sync/runScheduledCronSync.ts:3449",
     contextKeys: ["detail", "drive_file_id", "held_modified_time", "sheet_name"],
     code: "RESYNC_SHRINK_HELD",
     scope: "per-show",
@@ -251,7 +251,7 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
     note: "showId null; only when error.code === BOT_LOGIN_MISSING",
   },
   {
-    site: "lib/sync/applyStaged.ts:1953",
+    site: "lib/sync/applyStaged.ts:1964",
     contextKeys: ["drive_file_id"],
     code: "EMBEDDED_RECOVERY_REQUIRES_RESTAGE",
     scope: "per-show",
@@ -259,7 +259,7 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
     note: "result.adminAlertCode",
   },
   {
-    site: "lib/sync/applyStaged.ts:1963",
+    site: "lib/sync/applyStaged.ts:1974",
     contextKeys: ["drive_file_id"],
     code: "EMBEDDED_RECOVERY_REQUIRES_RESTAGE",
     scope: "per-show",
@@ -267,7 +267,7 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
     note: "result.adminAlertCodes[]",
   },
   {
-    site: "lib/sync/applyStaged.ts:1963",
+    site: "lib/sync/applyStaged.ts:1974",
     contextKeys: ["drive_file_id"],
     code: "OPENING_REEL_PERMISSION_DENIED",
     scope: "per-show",
@@ -275,7 +275,7 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
     note: "result.adminAlertCodes[]",
   },
   {
-    site: "lib/sync/applyStaged.ts:1963",
+    site: "lib/sync/applyStaged.ts:1974",
     contextKeys: ["drive_file_id"],
     code: "OPENING_REEL_NOT_VIDEO",
     scope: "per-show",
@@ -283,7 +283,7 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
     note: "result.adminAlertCodes[]",
   },
   {
-    site: "lib/sync/applyStaged.ts:1963",
+    site: "lib/sync/applyStaged.ts:1974",
     contextKeys: ["drive_file_id"],
     code: "REEL_DRIFTED",
     scope: "per-show",
@@ -291,7 +291,7 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
     note: "result.adminAlertCodes[]",
   },
   {
-    site: "lib/sync/applyStaged.ts:1963",
+    site: "lib/sync/applyStaged.ts:1974",
     contextKeys: ["drive_file_id"],
     code: "EMBEDDED_ASSET_DRIFTED",
     scope: "per-show",
@@ -299,13 +299,18 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
     note: "result.adminAlertCodes[]",
   },
   {
-    site: "lib/sync/applyStaged.ts:2001",
+    // Unit C (spec 2026-08-03-apply-undo-audit-fidelity §2.3): the ONE role-flags emit. Replaces
+    // the former lib/sync/applyStaged.ts:2012 + lib/sync/runScheduledCronSync.ts:2344 rows — the
+    // producer did not change shape, it MOVED here, and both former sites now delegate to it.
+    // The two finalize routes reach the same alert through this site too, so it is the single
+    // per-show ROLE_FLAGS_NOTICE producer for the whole codebase.
+    site: "lib/sync/emitRoleFlagsNotice.ts:40",
     computedContext: true,
     contextKeys: ["drive_file_id", "changes"],
     code: "ROLE_FLAGS_NOTICE",
     scope: "per-show",
     dynamic: true,
-    note: "upsertAdminAlert(result.roleFlagsNotice); showId=snapshot.showId (phase2.ts:591)",
+    note: "upsertAdminAlert(roleFlagsNotice); showId=snapshot.showId (phase2.ts:591)",
   },
   {
     site: "lib/sync/assetRecovery.ts:482",
@@ -369,15 +374,6 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
     scope: "global",
     dynamic: true,
     note: "const; showId hard-coded null",
-  },
-  {
-    site: "lib/sync/runScheduledCronSync.ts:2330",
-    computedContext: true,
-    contextKeys: ["drive_file_id", "changes"],
-    code: "ROLE_FLAGS_NOTICE",
-    scope: "per-show",
-    dynamic: true,
-    note: "upsertAdminAlert(result.roleFlagsNotice); showId=snapshot.showId",
   },
   {
     site: "app/api/drive/webhook/route.ts:298",
