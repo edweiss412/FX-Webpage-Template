@@ -16,9 +16,11 @@
  * Registered in tests/admin/_metaInfraContract.test.ts (infraRegistry).
  */
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { loadOpenIdentityHolds } from "@/lib/admin/identityHolds";
 import {
   buildNeedsAttention,
   type NeedsAttention,
+  type NeedsAttentionIdentityHoldInput,
   type NeedsAttentionSyncProblemInput,
   type ShowExistence,
 } from "@/lib/admin/needsAttention";
@@ -30,6 +32,10 @@ export type LoadNeedsAttentionResult = NeedsAttention | { kind: "infra_error"; m
 export async function loadNeedsAttention(opts: {
   cap: number;
   supabase?: Awaited<ReturnType<typeof createSupabaseServerClient>>;
+  // Injectable identity-holds reader (holds rollup Task 4). Defaults to the
+  // service-role reader; tests inject a stub. A holds fault fails the whole
+  // call — the loader's posture is all-or-nothing (spec §8).
+  loadHolds?: typeof loadOpenIdentityHolds;
 }): Promise<LoadNeedsAttentionResult> {
   let supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>;
   if (opts.supabase) {
@@ -288,6 +294,18 @@ export async function loadNeedsAttention(opts: {
     ];
   });
 
+  // Fourth stream: open MI-11 identity holds, grouped per show (spec §5). The
+  // reader owns its own service-role client, so it is threaded as a dependency
+  // rather than sharing this loader's session client.
+  const holdsResult = await (opts.loadHolds ?? loadOpenIdentityHolds)();
+  if (holdsResult.kind === "infra_error") {
+    return {
+      kind: "infra_error",
+      message: `identity holds read failed: ${holdsResult.message}`,
+    };
+  }
+  const identityHolds: NeedsAttentionIdentityHoldInput[] = holdsResult.groups;
+
   return buildNeedsAttention({
     ingestions: ingestionRows.map((r) => ({
       id: r.id as string,
@@ -306,11 +324,13 @@ export async function loadNeedsAttention(opts: {
       };
     }),
     syncProblems,
+    identityHolds,
     existence,
     totalCounts: {
       ingestions: ingestionCount,
       syncs: syncCount,
       syncProblems: syncProblemCount,
+      identityHolds: identityHolds.length,
     },
     cap: opts.cap,
   });

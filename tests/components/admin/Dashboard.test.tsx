@@ -99,7 +99,19 @@ function emptyClient() {
 }
 
 vi.mock("@/lib/supabase/server", () => ({
-  createSupabaseServiceRoleClient: vi.fn(),
+  // Holds rollup Task 4: loadNeedsAttention reads sync_holds through its OWN
+  // service-role client by default. A bare vi.fn() resolves to undefined and
+  // collapses every success path here to infra_error, so return an
+  // empty-holds chainable client.
+  createSupabaseServiceRoleClient: () => {
+    const holdsChain = {
+      select: () => holdsChain,
+      eq: () => holdsChain,
+      order: () => holdsChain,
+      limit: () => Promise.resolve({ data: [], error: null }),
+    };
+    return { from: () => holdsChain };
+  },
   createSupabaseServerClient: async () => {
     if (state.throwOnConstruct) throw new Error("boom");
     return emptyClient();

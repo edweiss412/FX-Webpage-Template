@@ -124,7 +124,19 @@ function makeClient(opts: FakeOpts) {
 
 const serverMock = vi.hoisted(() => ({ throwOnConstruct: false }));
 vi.mock("@/lib/supabase/server", () => ({
-  createSupabaseServiceRoleClient: vi.fn(),
+  // Holds rollup Task 4: loadNeedsAttention reads sync_holds through its OWN
+  // service-role client by default. A bare vi.fn() resolves to undefined and
+  // collapses every success path here to infra_error, so return an
+  // empty-holds chainable client.
+  createSupabaseServiceRoleClient: () => {
+    const holdsChain = {
+      select: () => holdsChain,
+      eq: () => holdsChain,
+      order: () => holdsChain,
+      limit: () => Promise.resolve({ data: [], error: null }),
+    };
+    return { from: () => holdsChain };
+  },
   createSupabaseServerClient: async () => {
     if (serverMock.throwOnConstruct) {
       throw new Error("SIMULATED server-client construction fault");
@@ -569,5 +581,38 @@ describe("loadNeedsAttention", () => {
     });
     if ("kind" in result) throw new Error("unreachable");
     expect(result.items.some((i) => i.variant === "sync_problem")).toBe(false);
+  });
+});
+
+// ── Needs-attention holds rollup Task 4: the identity-holds leg. The loader is
+// all-or-nothing (spec §8) — a holds-read fault fails the whole call rather
+// than degrading to an empty fourth stream.
+describe("loadNeedsAttention identity holds", () => {
+  test("threads hold groups and total; holds-leg infra_error fails the whole call", async () => {
+    const groups = [
+      {
+        showId: "sH",
+        slug: "sh",
+        title: "H",
+        summaries: ["x", "y"],
+        newestCreatedAt: "2026-08-03T09:00:00+00:00",
+      },
+    ];
+    const loadNeedsAttention = await loader();
+    const ok = await loadNeedsAttention({
+      cap: 20,
+      supabase: makeClient({}).client as unknown as InjectedClient,
+      loadHolds: async () => ({ kind: "ok" as const, groups }),
+    });
+    if ("kind" in ok) throw new Error("expected NeedsAttention");
+    expect(ok.identityHoldTotal).toBe(1);
+    expect(ok.items.some((i) => i.variant === "identity_hold")).toBe(true);
+
+    const bad = await loadNeedsAttention({
+      cap: 20,
+      supabase: makeClient({}).client as unknown as InjectedClient,
+      loadHolds: async () => ({ kind: "infra_error" as const, message: "holds down" }),
+    });
+    expect(bad).toEqual({ kind: "infra_error", message: expect.stringContaining("holds") });
   });
 });
