@@ -87,10 +87,7 @@ function resolveIdentity(git: GitSurface): { identity: Identity; selfBranch: str
   return { identity: "ci-resolved", selfBranch: git.currentBranch() };
 }
 
-export function resolveClaims(
-  git: GitSurface,
-  opts: { fetch: boolean; now?: number },
-): Resolution {
+export function resolveClaims(git: GitSurface, opts: { fetch: boolean; now?: number }): Resolution {
   const degraded: string[] = [];
   const now = opts.now ?? Math.floor(Date.now() / 1000);
 
@@ -146,7 +143,10 @@ export function resolveClaims(
       const text = git.showFile(ref, file);
       if (text === null) continue;
       const items = ledgerItems(file, text);
-      spansByFile.set(file, items.map((i) => ({ id: i.id, line: i.line, endLine: i.endLine })));
+      spansByFile.set(
+        file,
+        items.map((i) => ({ id: i.id, line: i.line, endLine: i.endLine })),
+      );
       for (const item of items) {
         if (!isInProgress(item)) continue;
         declaredHere.add(item.id);

@@ -84,7 +84,11 @@ export function fieldsOfLine(line: string): Record<string, string> {
   marks.forEach((mark, i) => {
     const next = marks[i + 1];
     const stop = next ? next.at : line.length;
-    const raw = line.slice(mark.end, stop).replace(/^[:\s]*/, "").replace(/\s*·\s*$/, "").trim();
+    const raw = line
+      .slice(mark.end, stop)
+      .replace(/^[:\s]*/, "")
+      .replace(/\s*·\s*$/, "")
+      .trim();
     if (out[mark.key] === undefined) out[mark.key] = raw;
   });
   return out;
@@ -111,7 +115,8 @@ export function ledgerItems(file: string, text: string): LedgerItem[] {
 
     const fields: Record<string, string> = {};
     for (const l of bodyLines.slice(0, 12)) {
-      for (const [k, v] of Object.entries(fieldsOfLine(l))) if (fields[k] === undefined) fields[k] = v;
+      for (const [k, v] of Object.entries(fieldsOfLine(l)))
+        if (fields[k] === undefined) fields[k] = v;
     }
     for (const l of bodyLines) {
       const f = fieldsOfLine(l);

@@ -36,7 +36,8 @@ function git(args: string[], timeout: number, quiet = false): string | null {
 function gitOrThrow(args: string[], timeout: number): string {
   const r = spawnSync("git", args, { cwd: ROOT, encoding: "utf8", timeout });
   if (r.error) throw r.error;
-  if (r.status !== 0) throw new Error(`git ${args[0]} failed: ${(r.stderr ?? "").trim() || "unknown"}`);
+  if (r.status !== 0)
+    throw new Error(`git ${args[0]} failed: ${(r.stderr ?? "").trim() || "unknown"}`);
   return r.stdout ?? "";
 }
 
@@ -53,7 +54,10 @@ export function realGitSurface(): GitSurface {
       // Explicit refspec, never the configured one: a clone with a narrow
       // `remote.origin.fetch` resolves only main and still exits 0, silently
       // shrinking the branch universe while every command reports success.
-      gitOrThrow(["fetch", "--no-tags", "--prune", "origin", "+refs/heads/*:refs/remotes/origin/*"], FETCH_MS);
+      gitOrThrow(
+        ["fetch", "--no-tags", "--prune", "origin", "+refs/heads/*:refs/remotes/origin/*"],
+        FETCH_MS,
+      );
     },
 
     lsRemote() {
@@ -67,7 +71,11 @@ export function realGitSurface(): GitSurface {
     },
 
     localRefs() {
-      const out = git(["for-each-ref", "--format=%(objectname) %(refname)", "refs/remotes/origin"], LS_REMOTE_MS) ?? "";
+      const out =
+        git(
+          ["for-each-ref", "--format=%(objectname) %(refname)", "refs/remotes/origin"],
+          LS_REMOTE_MS,
+        ) ?? "";
       const map = new Map<string, string>();
       for (const line of out.split("\n")) {
         const [oid, ref] = line.trim().split(/\s+/);
@@ -83,7 +91,16 @@ export function realGitSurface(): GitSurface {
     prList(): PrRow[] {
       const r = spawnSync(
         "gh",
-        ["pr", "list", "--state", "open", "--json", "number,headRefName,headRepositoryOwner,isCrossRepository", "--limit", "100"],
+        [
+          "pr",
+          "list",
+          "--state",
+          "open",
+          "--json",
+          "number,headRefName,headRepositoryOwner,isCrossRepository",
+          "--limit",
+          "100",
+        ],
         { cwd: ROOT, encoding: "utf8", timeout: GH_MS },
       );
       if (r.status !== 0 || !r.stdout) return [];
@@ -106,8 +123,15 @@ export function realGitSurface(): GitSurface {
     },
 
     mergedIntoMain() {
-      const out = git(["branch", "-r", "--merged", "origin/main", "--format=%(refname:short)"], LS_REMOTE_MS) ?? "";
-      return out.split("\n").map((s) => s.trim()).filter((s) => s.length > 0 && s !== "origin/main");
+      const out =
+        git(
+          ["branch", "-r", "--merged", "origin/main", "--format=%(refname:short)"],
+          LS_REMOTE_MS,
+        ) ?? "";
+      return out
+        .split("\n")
+        .map((s) => s.trim())
+        .filter((s) => s.length > 0 && s !== "origin/main");
     },
 
     showFile(ref, file) {
@@ -146,7 +170,9 @@ export function realGitSurface(): GitSurface {
       // Parsed as a STRING: git prints the literal `false`, and Boolean("false")
       // is true, which would classify every full clone as shallow and disable the
       // merged-exclusion permanently.
-      return (git(["rev-parse", "--is-shallow-repository"], LS_REMOTE_MS, true) ?? "").trim() === "true";
+      return (
+        (git(["rev-parse", "--is-shallow-repository"], LS_REMOTE_MS, true) ?? "").trim() === "true"
+      );
     },
 
     currentBranch() {

@@ -23,8 +23,16 @@ const NOW = 1_760_000_000;
 function fake(over: Partial<GitSurface> = {}): GitSurface {
   return {
     fetch: () => {},
-    lsRemote: () => new Map([["main", "aaa"], ["feat/a", "bbb"]]),
-    localRefs: () => new Map([["main", "aaa"], ["feat/a", "bbb"]]),
+    lsRemote: () =>
+      new Map([
+        ["main", "aaa"],
+        ["feat/a", "bbb"],
+      ]),
+    localRefs: () =>
+      new Map([
+        ["main", "aaa"],
+        ["feat/a", "bbb"],
+      ]),
     prList: () => [],
     mergedIntoMain: () => [],
     showFile: (ref, file) =>
@@ -78,7 +86,10 @@ describe("--check exit codes", () => {
   it("exits 2 for a DECLARED claim found while identity is unresolved", () => {
     // Not 1: without knowing who you are, the claim may be your own. Exit 2 says
     // the check is untrusted rather than deciding wrongly.
-    const r = check(fake({ inCI: () => true, headRepo: () => null, currentBranch: () => "feat/a" }), ["BL-X"]);
+    const r = check(
+      fake({ inCI: () => true, headRepo: () => null, currentBranch: () => "feat/a" }),
+      ["BL-X"],
+    );
     expect(r.code).toBe(2);
   });
 
@@ -102,7 +113,16 @@ describe("universe verification", () => {
   });
 
   it("accepts an identical map", () => {
-    const { local, remote } = maps([["main", "a"], ["feat/a", "b"]], [["main", "a"], ["feat/a", "b"]]);
+    const { local, remote } = maps(
+      [
+        ["main", "a"],
+        ["feat/a", "b"],
+      ],
+      [
+        ["main", "a"],
+        ["feat/a", "b"],
+      ],
+    );
     expect(verifyUniverse(local, remote).ok).toBe(true);
   });
 
@@ -110,40 +130,83 @@ describe("universe verification", () => {
     // The real 52247dcd1 shape: every name matches, the resolved tip carries 0
     // declarations and the remote tip carries 2. A name-only check reports a
     // verified universe with zero claims.
-    const { local, remote } = maps([["main", "a"], ["feat/a", "OLD"]], [["main", "a"], ["feat/a", "NEW"]]);
+    const { local, remote } = maps(
+      [
+        ["main", "a"],
+        ["feat/a", "OLD"],
+      ],
+      [
+        ["main", "a"],
+        ["feat/a", "NEW"],
+      ],
+    );
     const v = verifyUniverse(local, remote);
     expect(v.ok).toBe(false);
     expect(v.reasons.join(" ")).toContain("feat/a");
   });
 
   it("rejects an extra local name the remote does not advertise", () => {
-    const { local, remote } = maps([["main", "a"], ["gone", "b"]], [["main", "a"]]);
+    const { local, remote } = maps(
+      [
+        ["main", "a"],
+        ["gone", "b"],
+      ],
+      [["main", "a"]],
+    );
     expect(verifyUniverse(local, remote).ok).toBe(false);
   });
 
   it("rejects a remote name missing locally, with every shared OID matching", () => {
     // The narrowed-refspec case: a fetch that resolves only main still exits 0.
-    const { local, remote } = maps([["main", "a"]], [["main", "a"], ["claimed", "b"]]);
+    const { local, remote } = maps(
+      [["main", "a"]],
+      [
+        ["main", "a"],
+        ["claimed", "b"],
+      ],
+    );
     expect(verifyUniverse(local, remote).ok).toBe(false);
   });
 
   it("rejects equal-cardinality substitution", () => {
-    const { local, remote } = maps([["main", "a"], ["stale", "x"]], [["main", "a"], ["claimed", "y"]]);
+    const { local, remote } = maps(
+      [
+        ["main", "a"],
+        ["stale", "x"],
+      ],
+      [
+        ["main", "a"],
+        ["claimed", "y"],
+      ],
+    );
     expect(verifyUniverse(local, remote).ok).toBe(false);
   });
 
   it("rejects a strictly LARGER local map whose extras conceal a missing name", () => {
     // A count-based check trusts this one: local is bigger, so nothing "shrank".
     const { local, remote } = maps(
-      [["main", "a"], ["stale-a", "x"], ["stale-b", "y"]],
-      [["main", "a"], ["claimed", "z"]],
+      [
+        ["main", "a"],
+        ["stale-a", "x"],
+        ["stale-b", "y"],
+      ],
+      [
+        ["main", "a"],
+        ["claimed", "z"],
+      ],
     );
     expect(verifyUniverse(local, remote).ok).toBe(false);
   });
 
   it("ignores origin/HEAD, which ls-remote never advertises", () => {
     // Without this, EVERY healthy repository exits 2 forever.
-    const { local, remote } = maps([["main", "a"], ["HEAD", "a"]], [["main", "a"]]);
+    const { local, remote } = maps(
+      [
+        ["main", "a"],
+        ["HEAD", "a"],
+      ],
+      [["main", "a"]],
+    );
     expect(verifyUniverse(local, remote).ok).toBe(true);
   });
 });
@@ -151,7 +214,14 @@ describe("universe verification", () => {
 describe("--check on a degraded universe", () => {
   it("exits 2 when the head map disagrees, even with no collision", () => {
     const r = check(
-      fake({ lsRemote: () => new Map([["main", "aaa"], ["feat/a", "CHANGED"]]), currentBranch: () => "other" }),
+      fake({
+        lsRemote: () =>
+          new Map([
+            ["main", "aaa"],
+            ["feat/a", "CHANGED"],
+          ]),
+        currentBranch: () => "other",
+      }),
       ["BL-UNRELATED"],
       { verify: true },
     );
@@ -185,7 +255,10 @@ describe("--check on a degraded universe", () => {
     // A whole ledger disappearing is the same false-all-clear class as an
     // unverified universe, reached through a different door.
     const r = check(
-      fake({ showFile: () => "this file is not empty but has no entries\n", currentBranch: () => "other" }),
+      fake({
+        showFile: () => "this file is not empty but has no entries\n",
+        currentBranch: () => "other",
+      }),
       ["BL-X"],
       { verify: true },
     );

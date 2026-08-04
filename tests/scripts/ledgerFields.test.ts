@@ -50,7 +50,10 @@ describe("ledgerItems", () => {
       const text = read(f);
       const want = extractEntries(text, optsFor(f)).map((e) => e.id);
       expect(want.length, `${f} fixture premise: it has entries`).toBeGreaterThan(0);
-      expect(ledgerItems(f, text).map((i) => i.id), `${f} entry set drifted`).toEqual(want);
+      expect(
+        ledgerItems(f, text).map((i) => i.id),
+        `${f} entry set drifted`,
+      ).toEqual(want);
     }
   });
 
@@ -72,10 +75,12 @@ describe("ledgerItems", () => {
   });
 
   it("resolves the entries whose heading shapes broke the retired recognizer", () => {
-    expect(ledgerItems("BACKLOG.md", read("BACKLOG.md")).map((i) => i.id))
-      .toContain("BL-NULLCODE-STAMP-BATCH-2"); // no em dash
-    expect(ledgerItems("DEFERRED-archive.md", read("DEFERRED-archive.md")).map((i) => i.id))
-      .toContain("MODAL-CLOSE-EXIT-ANIM-1"); // struck id
+    expect(ledgerItems("BACKLOG.md", read("BACKLOG.md")).map((i) => i.id)).toContain(
+      "BL-NULLCODE-STAMP-BATCH-2",
+    ); // no em dash
+    expect(
+      ledgerItems("DEFERRED-archive.md", read("DEFERRED-archive.md")).map((i) => i.id),
+    ).toContain("MODAL-CLOSE-EXIT-ANIM-1"); // struck id
   });
 
   it("gives every entry a span ending before the next entry starts", () => {

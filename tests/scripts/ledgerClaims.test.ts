@@ -17,8 +17,16 @@ const NOW = 1_760_000_000; // fixed clock; tipEpoch is relative to `now`
 function fake(over: Partial<GitSurface> = {}): GitSurface {
   return {
     fetch: () => {},
-    lsRemote: () => new Map([["main", "aaa"], ["feat/a", "bbb"]]),
-    localRefs: () => new Map([["main", "aaa"], ["feat/a", "bbb"]]),
+    lsRemote: () =>
+      new Map([
+        ["main", "aaa"],
+        ["feat/a", "bbb"],
+      ]),
+    localRefs: () =>
+      new Map([
+        ["main", "aaa"],
+        ["feat/a", "bbb"],
+      ]),
     prList: () => [],
     mergedIntoMain: () => [],
     showFile: (ref, file) =>
@@ -50,8 +58,18 @@ describe("resolveClaims — candidates", () => {
     // every healthy case, and only diverges when the named branch is real.
     const r = resolveClaims(
       fake({
-        lsRemote: () => new Map([["main", "a"], ["feat/a", "b"], ["feat/b", "c"]]),
-        localRefs: () => new Map([["main", "a"], ["feat/a", "b"], ["feat/b", "c"]]),
+        lsRemote: () =>
+          new Map([
+            ["main", "a"],
+            ["feat/a", "b"],
+            ["feat/b", "c"],
+          ]),
+        localRefs: () =>
+          new Map([
+            ["main", "a"],
+            ["feat/a", "b"],
+            ["feat/b", "c"],
+          ]),
         showFile: (ref, f) =>
           f === "BACKLOG.md" && ref === "origin/feat/a" ? MARKER("feat/b") : null,
       }),
@@ -77,7 +95,9 @@ describe("resolveClaims — candidates", () => {
     // main has genuinely carried an in-progress marker (90aae0e60^). Including it
     // reports main's own marker as a stranger's claim.
     const r = resolveClaims(
-      fake({ showFile: (ref, f) => (f === "BACKLOG.md" && ref === "origin/main" ? MARKER("x") : null) }),
+      fake({
+        showFile: (ref, f) => (f === "BACKLOG.md" && ref === "origin/main" ? MARKER("x") : null),
+      }),
       opts,
     );
     expect(r.claims).toEqual([]);
@@ -85,7 +105,9 @@ describe("resolveClaims — candidates", () => {
 
   it("excludes origin/HEAD, which aliases main to the same OID", () => {
     const r = resolveClaims(
-      fake({ showFile: (ref, f) => (f === "BACKLOG.md" && ref === "origin/HEAD" ? MARKER("x") : null) }),
+      fake({
+        showFile: (ref, f) => (f === "BACKLOG.md" && ref === "origin/HEAD" ? MARKER("x") : null),
+      }),
       opts,
     );
     expect(r.claims).toEqual([]);
@@ -169,8 +191,21 @@ describe("resolveClaims — identity", () => {
 
 describe("resolveClaims — inferred hunks", () => {
   const TWO = "## BL-X — first\n\nbody\n\n## BL-Y — second\n\nbody\n";
-  const PREAMBLE = ["reconciliation prose", "", "", "", "", "", "", "", "",
-    "## BL-X — first", "", "body", ""].join("\n");
+  const PREAMBLE = [
+    "reconciliation prose",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "## BL-X — first",
+    "",
+    "body",
+    "",
+  ].join("\n");
 
   it("drops a hunk landing outside every entry span", () => {
     // BACKLOG.md:7 is the reconciliation preamble; the first entry heading is at
@@ -210,7 +245,10 @@ describe("resolveClaims — inferred hunks", () => {
   });
 
   it("does not downgrade a declared claim to inferred", () => {
-    const r = resolveClaims(fake({ diffHunks: () => [{ file: "BACKLOG.md", start: 1, count: 5 }] }), opts);
+    const r = resolveClaims(
+      fake({ diffHunks: () => [{ file: "BACKLOG.md", start: 1, count: 5 }] }),
+      opts,
+    );
     expect(r.claims.map((c) => c.kind)).toEqual(["declared"]);
   });
 

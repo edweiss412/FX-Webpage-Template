@@ -44,7 +44,8 @@ export function verifyUniverse(local: Map<string, string>, remote: Map<string, s
     }
   }
   for (const name of remote.keys()) {
-    if (!localNames.includes(name)) reasons.push(`origin advertises a ref we did not resolve: ${name}`);
+    if (!localNames.includes(name))
+      reasons.push(`origin advertises a ref we did not resolve: ${name}`);
   }
 
   return { ok: reasons.length === 0, reasons };
@@ -69,7 +70,10 @@ export function runCheck(
 
   const fetchOpt = opts.fetch ?? true;
   const now = opts.now;
-  const resolution = resolveClaims(git, now === undefined ? { fetch: fetchOpt } : { fetch: fetchOpt, now });
+  const resolution = resolveClaims(
+    git,
+    now === undefined ? { fetch: fetchOpt } : { fetch: fetchOpt, now },
+  );
 
   // --- universe verification -------------------------------------------------
   let untrusted = false;
@@ -134,14 +138,26 @@ export function runCheck(
   // Identity unresolved makes a declared claim unattributable, not decided.
   if (declared.length > 0 && resolution.identity === "ci-unknown") {
     reasons.push("identity unresolved; not excluding any branch as self");
-    return { code: 2, collisions: declared.map((c) => ({ id: c.id, branch: c.branch })), warnings, notes, reasons };
+    return {
+      code: 2,
+      collisions: declared.map((c) => ({ id: c.id, branch: c.branch })),
+      warnings,
+      notes,
+      reasons,
+    };
   }
 
   // A collision is a collision even past the display cap, so this precedes the
   // untrusted check only in the sense that both are reported; 1 wins because it
   // is actionable and specific.
   if (declared.length > 0) {
-    return { code: 1, collisions: declared.map((c) => ({ id: c.id, branch: c.branch })), warnings, notes, reasons };
+    return {
+      code: 1,
+      collisions: declared.map((c) => ({ id: c.id, branch: c.branch })),
+      warnings,
+      notes,
+      reasons,
+    };
   }
   if (untrusted) return { code: 2, collisions: [], warnings, notes, reasons };
   return { code: 0, collisions: [], warnings, notes, reasons };

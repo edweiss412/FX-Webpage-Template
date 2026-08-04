@@ -112,7 +112,8 @@ if (!skipClaims) {
   });
   const out = `${claims.stdout ?? ""}`.trim();
   if (out) console.log(`\n${out}`);
-  else if (claims.error) console.log(`preflight: live claims unavailable (${claims.error.code ?? "error"})`);
+  else if (claims.error)
+    console.log(`preflight: live claims unavailable (${claims.error.code ?? "error"})`);
 }
 
 // --- non-loopback WARNINGS: this is a LOCAL preflight ------------------------

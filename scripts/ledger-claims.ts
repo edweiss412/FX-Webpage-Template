@@ -24,7 +24,9 @@ function main(argv: string[]): number {
   const noFetch = argv.includes("--no-fetch");
   const checkAt = argv.indexOf("--check");
 
-  const unknown = argv.find((a) => a.startsWith("--") && !["--json", "--no-fetch", "--check"].includes(a));
+  const unknown = argv.find(
+    (a) => a.startsWith("--") && !["--json", "--no-fetch", "--check"].includes(a),
+  );
   if (unknown) {
     process.stderr.write(`unknown flag: ${unknown}\n`);
     return 2;
