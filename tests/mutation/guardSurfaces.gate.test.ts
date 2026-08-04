@@ -17,6 +17,31 @@ import { runSurface } from "./source/runner";
  */
 const root = process.cwd();
 
+/**
+ * Per-surface ledger-kind expectations.
+ *
+ * Declared HERE rather than counted from the surface's own ledger, because
+ * counting a list and comparing it to itself proves nothing — the point (whole-diff
+ * R1 F4) is that the deliberately coarse score floor cannot catch one or two rows
+ * migrating between kinds, so the target has to be stated independently.
+ *
+ * Keyed by surface id, and every enrolled surface must appear: a NEW surface fails
+ * by default until it declares its own counts, rather than silently inheriting the
+ * first customer's (whole-diff R2 MEDIUM — the previous version asserted
+ * taskContract's 18/2 against every surface in `describe.each`).
+ */
+const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
+  taskContract: { equivalent: 18, "accepted-gap": 2 },
+};
+
+describe("guard-surface registry — ledger-kind expectations", () => {
+  it("declares expected ledger-kind counts for every enrolled surface", () => {
+    expect(Object.keys(EXPECTED_LEDGER_KINDS).sort()).toEqual(
+      GUARD_SURFACES.map((s) => s.id).sort(),
+    );
+  });
+});
+
 describe.each(GUARD_SURFACES.map((s) => [s.id, s] as const))(
   "source-mutation gate — %s",
   (_id, surface) => {
@@ -41,16 +66,18 @@ describe.each(GUARD_SURFACES.map((s) => [s.id, s] as const))(
       expect(result.passed).toBe(true);
     });
 
-    it("holds the exact ledger-kind counts AC-13 requires", () => {
+    it("holds the exact ledger-kind counts declared for THIS surface (AC-13)", () => {
       // The score floor is deliberately COARSE (spec §4.3): from the shipping
-      // state it takes three further blessed gaps to breach 0.95. So the floor
-      // cannot detect one or two rows silently migrating between kinds, and
-      // AC-13's numeric authority would go unenforced without this.
+      // state it takes three further blessed gaps to breach 0.95, so the floor
+      // cannot detect one or two rows silently migrating between kinds.
+      // Expectations are per-surface: §4.3's numbers belong to the FIRST
+      // CUSTOMER, while §3.7 enrollment is per-surface, so a legitimate second
+      // surface must not be measured against taskContract's ledger.
       const kinds = surface.accepted.reduce<Record<string, number>>((acc, row) => {
         acc[row.kind] = (acc[row.kind] ?? 0) + 1;
         return acc;
       }, {});
-      expect(kinds).toEqual({ equivalent: 18, "accepted-gap": 2 });
+      expect(kinds).toEqual(EXPECTED_LEDGER_KINDS[surface.id]);
     });
 
     it("classifies every generated mutant exactly once", () => {
