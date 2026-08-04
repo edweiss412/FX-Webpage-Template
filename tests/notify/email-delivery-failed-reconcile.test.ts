@@ -567,7 +567,7 @@ describe("EMAIL_DELIVERY_FAILED reconciliation real DB", () => {
         recipient,
         dateET: todayET,
         shows: [{ showTitle: "Digest Pending Sheet", slug: null, items: ["Sheet needs review"] }],
-        sourceTotals: { ingestions: 1, syncs: 0, shows: 1 },
+        sourceTotals: { ingestions: 1, syncs: 0, shows: 1, holdShows: 0 },
       };
       let openedByTest = false;
 

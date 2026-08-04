@@ -23,7 +23,18 @@ function resetTables() {
 }
 
 vi.mock("@/lib/supabase/server", () => ({
-  createSupabaseServiceRoleClient: vi.fn(),
+  // Holds rollup Task 5: the badge now reads sync_holds through its OWN
+  // service-role client by default. A bare vi.fn() resolves to undefined and
+  // collapses the healthy-count and concurrency assertions to infra_error.
+  createSupabaseServiceRoleClient: () => {
+    const holdsChain = {
+      select: () => holdsChain,
+      eq: () => holdsChain,
+      order: () => holdsChain,
+      limit: () => Promise.resolve({ data: [], error: null }),
+    };
+    return { from: () => holdsChain };
+  },
   createSupabaseServerClient: async () => {
     if (state.throwOnConstruct) throw new Error("construct boom");
     return {
@@ -137,4 +148,38 @@ it("invariant 9: destructures { data, error } from BOTH queries (not bare { coun
   expect(src).toMatch(
     /const\s*\{\s*data:\s*_syncData\s*,\s*count:\s*syncCount\s*,\s*error:\s*syncError\s*,?\s*\}\s*=\s*syncResult/,
   );
+});
+
+// ── Holds rollup Task 5: the badge counts SHOWS with open identity holds (one
+// per show, matching the one-card-per-show inbox), not individual holds.
+it("adds shows-with-holds via loadOpenIdentityHolds; a holds fault is not maskable by healthy counts", async () => {
+  const g = (id: string) => ({
+    showId: id,
+    slug: id,
+    title: null,
+    summaries: ["s"],
+    newestCreatedAt: "2026-08-03T00:00:00+00:00",
+  });
+  // GRAIN-DISCRIMINATING fixture: 2 groups carrying 4 hold ROWS between them.
+  // With one summary per group, counting groups and counting rows both yield the
+  // same number and the test proves nothing; here 80 (groups) and 82 (rows) differ.
+  const ok = await loadNeedsAttentionCount({
+    loadHolds: async () => ({
+      kind: "ok" as const,
+      groups: [{ ...g("sA"), summaries: ["s1", "s2", "s3"] }, g("sB")],
+    }),
+  });
+  expect(ok).toEqual({ kind: "ok", count: 80 }); // 31+47 pending + 0 sync-problem + 2 hold SHOWS (not 4 rows)
+  const bad = await loadNeedsAttentionCount({
+    loadHolds: async () => ({ kind: "infra_error" as const, message: "x" }),
+  });
+  expect(bad).toEqual({ kind: "infra_error" });
+
+  // A THROWING reader must degrade the badge, not reject the request.
+  const threw = await loadNeedsAttentionCount({
+    loadHolds: async () => {
+      throw new Error("PROBE_COUNT_HOLDS_REJECTION");
+    },
+  });
+  expect(threw).toEqual({ kind: "infra_error" });
 });

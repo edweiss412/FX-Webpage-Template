@@ -88,6 +88,12 @@ const GRADUATED = [
  * that recorded the finding.
  */
 const BACKLOG_GRADUATED = [
+  // feat/needs-attention-holds-rollup (2026-08-03): the cross-show open-holds read
+  // the entry was blocked on, plus the fourth needs-attention stream it unblocked.
+  {
+    id: "BL-NEEDS-ATTENTION-HOLDS-ROLLUP",
+    provenance: "feat/needs-attention-holds-rollup",
+  },
   // chore/scanner-precision-cluster (2026-08-03): one bug shape, two entries — a
   // static scanner opening too small a set of files while a hand-maintained
   // residue covers the gap and rots invisibly. Both residues had already rotted.

@@ -7,6 +7,7 @@ export function NeedsAttentionSummaryCard({
   ingestionTotal,
   syncTotal,
   syncProblemTotal,
+  identityHoldTotal,
   autoAppliedCount,
   className,
 }: {
@@ -14,6 +15,9 @@ export function NeedsAttentionSummaryCard({
   ingestionTotal: number;
   syncTotal: number;
   syncProblemTotal: number;
+  // Shows with at least one open MI-11 identity hold (holds rollup, spec §6) —
+  // one per show, matching the inbox's one-card-per-show grouping.
+  identityHoldTotal: number;
   // Mobile parity (spec 2026-07-16-mobile-autoapplied-parity §D5): the count of
   // un-dispositioned auto-applied changes. Optional so the pre-existing card
   // render sites keep compiling; undefined/non-finite/≤0 → chip absent.
@@ -65,6 +69,15 @@ export function NeedsAttentionSummaryCard({
               {syncProblemTotal > 0 && (
                 <span data-testid="summary-chip-sync-problems" className="tabular-nums">
                   {syncProblemTotal} sync problem{syncProblemTotal === 1 ? "" : "s"}
+                </span>
+              )}
+              {identityHoldTotal > 0 && (
+                <span
+                  data-testid="summary-chip-identity-holds"
+                  className="tabular-nums"
+                  aria-label={`${identityHoldTotal} held identity changes`}
+                >
+                  {identityHoldTotal} held
                 </span>
               )}
               {autoApplied > 0 && (

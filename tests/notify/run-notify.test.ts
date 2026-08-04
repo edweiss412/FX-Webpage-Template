@@ -44,7 +44,7 @@ function baseDeps(events: string[] = []): NotifyDeps {
     },
     buildDigestModel: async () => {
       events.push("build-digest");
-      return { kind: "no_send", sourceTotals: { ingestions: 0, syncs: 0, shows: 0 } };
+      return { kind: "no_send", sourceTotals: { ingestions: 0, syncs: 0, shows: 0, holdShows: 0 } };
     },
     deliverDigest: async () => {
       events.push("deliver-digest");
@@ -66,7 +66,7 @@ function digestModel(recipient: string): DigestModel {
     recipient,
     dateET: "2026-06-02",
     shows: [{ showTitle: "Show One", slug: "show-one", items: ["Changes staged for review"] }],
-    sourceTotals: { ingestions: 0, syncs: 1, shows: 1 },
+    sourceTotals: { ingestions: 0, syncs: 1, shows: 1, holdShows: 0 },
   };
 }
 

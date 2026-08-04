@@ -14,6 +14,7 @@ describe("NeedsAttentionSummaryCard sync-problem breakdown", () => {
         ingestionTotal={0}
         syncTotal={0}
         syncProblemTotal={3}
+        identityHoldTotal={0}
       />,
     );
     expect(screen.getByTestId("summary-chip-sync-problems")).toHaveTextContent("3 sync problems");
@@ -26,6 +27,7 @@ describe("NeedsAttentionSummaryCard sync-problem breakdown", () => {
         ingestionTotal={0}
         syncTotal={0}
         syncProblemTotal={1}
+        identityHoldTotal={0}
       />,
     );
     expect(screen.getByTestId("summary-chip-sync-problems")).toHaveTextContent("1 sync problem");
@@ -38,6 +40,7 @@ describe("NeedsAttentionSummaryCard sync-problem breakdown", () => {
         ingestionTotal={1}
         syncTotal={0}
         syncProblemTotal={0}
+        identityHoldTotal={0}
       />,
     );
     expect(screen.queryByTestId("summary-chip-sync-problems")).toBeNull();

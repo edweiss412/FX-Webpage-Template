@@ -10,6 +10,8 @@
 // resolved in the item; this component never renders a raw code/message.
 import Link from "next/link";
 import type { NeedsAttentionItem } from "@/lib/admin/needsAttention";
+import { HOLD_SUMMARIES_RENDER_CAP } from "@/lib/admin/identityHolds";
+import { IdentityHoldDisclosure } from "@/components/admin/IdentityHoldDisclosure";
 import { StatusIndicator } from "@/components/admin/StatusIndicator";
 import { formatRelative } from "@/lib/admin/showDisplay";
 import { PendingPanelRetryButton } from "@/components/admin/PendingPanelRetryButton";
@@ -134,6 +136,72 @@ function ItemCard({ item, now }: { item: NeedsAttentionItem; now: Date }) {
           className={reviewLinkClass}
         >
           Check it →
+        </Link>
+      </li>
+    );
+  }
+
+  if (item.variant === "identity_hold") {
+    // One card per SHOW, not per hold (spec §5). A show holding a single change
+    // shows that change's summary outright; several collapse behind a count line
+    // plus a disclosure island, so a busy show cannot crowd out the other cards.
+    const single = item.summaries.length === 1;
+    const forShow = item.title ? `${item.title} (${item.slug})` : item.slug;
+    const shown = item.summaries.slice(0, HOLD_SUMMARIES_RENDER_CAP);
+    const overflow = item.summaries.length - shown.length;
+    return (
+      <li
+        data-testid={`needs-attention-item-identity-hold-${item.showId}`}
+        className="flex flex-col gap-2 rounded-md border border-border bg-surface p-tile-pad shadow-tile"
+      >
+        <CardHeader
+          item={item}
+          now={now}
+          status="warn"
+          label={single ? "Held change" : "Held changes"}
+        />
+        <p className="text-sm font-semibold text-text-strong">{item.title ?? item.slug}</p>
+        {single ? (
+          // wrap-break-word: a hold summary carries raw email addresses, and a
+          // 64-character local-part is a single unbreakable token that overruns
+          // the ~316px card interior at 390px and forces horizontal scroll
+          // (BellPanel.tsx:399 precedent for the same hazard).
+          <p className="text-sm wrap-break-word text-text-subtle">{item.copy}</p>
+        ) : (
+          <>
+            <p className="text-sm tabular-nums text-text-subtle">{item.copy}</p>
+            {/* Summaries are server-rendered children; the island owns only the
+                open/closed state (IgnoredSheetsDisclosure composition), so the
+                render cap stays in the server module. */}
+            <IdentityHoldDisclosure
+              showId={item.showId}
+              title={item.title}
+              slug={item.slug}
+              count={item.summaries.length}
+            >
+              {shown.map((summary, i) => (
+                <p key={`${item.showId}-${i}`} className="text-sm wrap-break-word text-text-subtle">
+                  {summary}
+                </p>
+              ))}
+              {overflow > 0 ? (
+                <p className="text-sm tabular-nums text-text-faint">and {overflow} more</p>
+              ) : null}
+            </IdentityHoldDisclosure>
+          </>
+        )}
+        {/* Footer link sits OUTSIDE the island so it stays reachable while the
+            panel is collapsed (the closed panel is inert). Row-specific
+            aria-label with the unique slug discriminator (WCAG 2.4.4). */}
+        <Link
+          data-testid={`needs-attention-link-identity-hold-${item.showId}`}
+          href={`/admin?show=${encodeURIComponent(item.slug)}`}
+          aria-label={
+            single ? `Review held change for ${forShow}` : `Review held changes for ${forShow}`
+          }
+          className={reviewLinkClass}
+        >
+          Review →
         </Link>
       </li>
     );

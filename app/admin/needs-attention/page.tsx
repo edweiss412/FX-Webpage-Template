@@ -62,8 +62,9 @@ export default async function NeedsAttentionPage() {
             learnMore={{ href: "/help/admin/review-queues#first-seen" }}
           >
             <p>
-              Everything waiting on a decision from you: sheets we could not auto-apply and staged
-              changes to review. Items leave this list as soon as you resolve them.
+              Everything waiting on you, across all shows: sheets we could not auto-apply, staged
+              changes to review, and held crew identity changes. Sync problems appear here too, and
+              those clear on their own once the sheet is readable again.
             </p>
           </HoverHelp>
         }
