@@ -265,7 +265,7 @@ AC-41 pins the amendment; it is a docs change in this PR, not a note for later. 
 | Condition | Behavior |
 | --- | --- |
 | lint exits 0 or 1 **and** the report is well-formed | embed findings, dispatch proceeds |
-| lint exits 0 or 1 but the report is malformed — the first line is not `spec:lint <path>` **naming the requested document**, or the last line does not begin `summary:` | **refuse to dispatch**, exit 2: the tool did not run to completion, or ran on the wrong artifact |
+| lint exits 0 or 1 but the report is malformed — see the four-part shape below | **refuse to dispatch**, exit 2: the tool did not run to completion, or ran on the wrong artifact |
 | the child fails to spawn (`ENOENT`), or dies on a signal (`code === null`) | **refuse to dispatch**, exit 2 |
 | lint exits 2 (usage or infra fault, including a tracked symlink) | **refuse to dispatch**, exit 2, no result.json Codex outcome |
 | `--lint-doc` resolves outside `--cwd`'s repo, or is unreadable | refuse, exit 2, message names path and repo root (§2.2.1) |
@@ -274,6 +274,17 @@ AC-41 pins the amendment; it is a docs change in this PR, not a note for later. 
 | no `--lint-doc` given | dispatch proceeds; result.json records `lintArm: "absent"` |
 
 Findings never block dispatch. A doc with 40 citation failures is exactly the doc a reviewer most needs the report for. Only a tool that could not run blocks, which matches the exit-2-is-infra semantics `spec:lint` already defines.
+
+**The shape check validates the frame, not merely its two ends**, because §2.2.4's construction assumes a frame and must not be handed a report that lacks one. A well-formed report has, in order: line 1 `spec:lint <path>` naming the **requested** document; line 2 beginning `kind: `; line 3 empty; a last line beginning `summary:` that is **not** among the first three. All four are required.
+
+The fourth clause is the one an earlier draft omitted, and its absence made the construction non-total over reports §2.3 itself called well-formed. A two-line child emitting `spec:lint <path>` then `summary: …` passed a check keyed on the two ends — and then step 1 takes "the first three lines" as head while step 4 appends the summary, so the emitted block carries the summary **twice**:
+
+```
+summary_on_line_2  shapeOK=true  emittedSummaryCopies=2
+summary_on_line_3  shapeOK=true  emittedSummaryCopies=2
+```
+
+The real CLI cannot produce those reports — `renderText` always emits two headers and a blank before anything else — but the check exists precisely to catch a child that is *not* the real CLI, which is the case where a malformed frame is reachable. Validating the whole frame makes every accepted report transformable, so P1/P2/P3 are total over exactly the set §2.3 admits.
 
 **Exit code alone cannot carry that distinction, so the report's shape is checked too.** A failure *before* the adapter runs also exits 1, with empty stdout and no error — a missing Node loader does exactly this (`status=1, signal=null, stdoutBytes=0`). A spawn failure surfaces as `error.code === "ENOENT"` with no exit code at all, and a signalled death gives `code === null`. None of the three is exit 2, so a contract keyed only on the exit code treats every one of them as a valid findings report and dispatches with no lint output — precisely what this section says must block.
 
@@ -558,7 +569,15 @@ Nine artifacts burned on this shape; none was caught by review-time reasoning al
 
 ## 5. Acceptance criteria
 
-**AC-1.** `codex-guard review --brief B --lint-doc D` embeds a `===== SPEC-LINT: D =====` block into the composed prompt whose body is the CLI's stdout for `D` **with the `INVENTORY` section removed** (§2.2.2), and truncated if the budget requires (AC-21). The body is derived from a live CLI run in the test, never from hardcoded expected text — a hardcoded expectation passes against a broken embed. **The document under test must produce a report that actually has an `INVENTORY` block** — nearly all do, but a fixture without one makes AC-20 and the removal half of this criterion vacuously true. Byte-equality against *raw* stdout is explicitly **not** the contract: it would contradict AC-20 for any report carrying an inventory, which is nearly all of them.
+**AC-1.** `codex-guard review --brief B --lint-doc D` embeds a `===== SPEC-LINT: D =====` block into the composed prompt whose body is the CLI's stdout for `D` **with the `INVENTORY` section removed** (§2.2.2), and truncated if the budget requires (AC-21). The body is derived from a live CLI run in the test, never from hardcoded expected text — a hardcoded expectation passes against a broken embed. **The document under test must produce a report exercising every optional line class** — an `INVENTORY` block, **at least one check-section label, at least one finding, and at least one `detail:` line**. Requiring only the inventory leaves the sequence assertion vacuous for the rest: a tracked report can have zero sections, zero findings and zero details, and against such a fixture the mutants that delete each of those classes all pass while silently removing real review evidence elsewhere. Measured across three real reports:
+
+```
+2026-07-22-attention-gallery-…   sections=0 findings=0 details=0   dropSection=PASS dropFinding=PASS dropDetail=PASS
+schedule/README.md               sections=2 findings=2 details=0   dropSection=fail dropFinding=fail dropDetail=PASS
+modal-header-…/APPROVAL.md       sections=2 findings=4 details=1   dropSection=fail dropFinding=fail dropDetail=fail
+```
+
+Only the third fixture kills all three mutants, and `detail:` lines are the scarcest class — a fixture chosen for its findings alone will usually have none. Assert the fixture's own class counts are non-zero before asserting the sequence, so a corpus change that empties one class fails loudly instead of silently going vacuous. Byte-equality against *raw* stdout is explicitly **not** the contract: it would contradict AC-20 for any report carrying an inventory, which is nearly all of them.
 
 The property that replaces byte-equality is §2.2.4's P2, asserted **only on a report that fits the budget** — where preserving everything is achievable. Compare the embedded body against raw stdout as a **full ordered line sequence**, the two differing by exactly the removed `INVENTORY` block.
 
@@ -601,7 +620,7 @@ The over-budget case is AC-21's, and its assertion is P3 rather than P2: the ret
 
 **AC-19.** A `--lint-doc` resolving outside `--cwd`'s repository exits 2 with a message naming both the path and the repo root, distinguishable from an unreadable-file exit 2.
 
-**AC-20.** The embedded block excludes the CLI's `INVENTORY` section and contains its findings.
+**AC-20.** The embedded block excludes the CLI's `INVENTORY` section and contains its findings — asserted on **AC-1's fixture**, which is required to carry an inventory, a check-section label, a finding, and a `detail:` line. Sharing the fixture is deliberate: AC-20 and AC-1 make claims about the same transformation, and a criterion pair that could be satisfied by two differently-impoverished fixtures proves less than either appears to.
 
 **AC-21.** Reports embed in argument order. When the combined 200,000-byte budget is crossed **and every report is still seatable**, blocks truncate at a line boundary, carry an explicit notice, and the dispatch proceeds; when they are not all seatable, the dispatch refuses (item 4). Seven assertions, because the obvious three leave six live mutants:
 
@@ -633,12 +652,13 @@ Equal length is not equal content, and an earlier wording asked only for equal `
 
 **AC-36.** A `--lint-doc` whose child exits 0 or 1 with a malformed report refuses the dispatch with exit 2. §2.3 requires **both** halves of the shape — a `spec:lint <path>` first line **naming the requested document** and a `summary:` last line — so four cases are pinned, each killing a mutant the previous one leaves alive:
 
-| Probe | first line | last line |
-| --- | --- | --- |
-| missing Node loader (`status=1`, empty stdout) | absent | absent |
-| the §2.2.3 truncation, unfixed (`status=0`) | correct | absent |
-| **header-shape corruption** — child emits `wrong-header` | malformed | present |
-| **wrong-document header** — child emits `spec:lint some-other.md` | well-formed, **wrong path** | present |
+| Probe | frame defect |
+| --- | --- |
+| missing Node loader (`status=1`, empty stdout) | no first line, no summary |
+| the §2.2.3 truncation, unfixed (`status=0`) | correct first line, no summary |
+| **header-shape corruption** — child emits `wrong-header` | malformed first line, summary present |
+| **wrong-document header** — child emits `spec:lint some-other.md` | well-formed first line naming the **wrong** document |
+| **premature summary** — child emits `spec:lint <path>` then `summary: …` | both ends correct, **no `kind:` line and no blank** |
 
 The first two are both "no summary", so a mutant validating only the last line passes both. The third kills that mutant but only forces the header to *exist*; a validator checking `^spec:lint .+` passes a report for a **different artifact**, and the wrapper would then hand the reviewer a clean-looking lint report for a document nobody asked about — the failure being invisible precisely because the report is well-formed. Probed:
 
@@ -646,7 +666,7 @@ The first two are both "no summary", so a mutant validating only the last line p
 empty=false  no-summary=false  wrong-header=false  wrong-valid-path=true
 ```
 
-So the check compares the header's path to the requested `--lint-doc`, resolved the same way (§2.2.1), rather than merely matching a shape. Use real child processes throughout, not hand-built strings; the first two are the genuine failures §2.3 was written from.
+So the check compares the header's path to the requested `--lint-doc`, resolved the same way (§2.2.1), rather than merely matching a shape. The fifth probe closes the last gap: both ends can be correct while the frame is not, and that report is the one the construction duplicates the summary on. Use real child processes throughout, not hand-built strings; the first two are the genuine failures §2.3 was written from.
 
 **AC-37.** A `--lint-doc` whose child fails to spawn (`ENOENT`) or dies on a signal (`code === null`) refuses the dispatch with exit 2, asserted by `readCalls` returning an empty array.
 
