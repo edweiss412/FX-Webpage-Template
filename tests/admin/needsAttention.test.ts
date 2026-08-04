@@ -13,6 +13,7 @@ import {
   buildNeedsAttention,
   resolveIngestionCopy,
   type BuildNeedsAttentionInput,
+  type NeedsAttentionIdentityHoldInput,
 } from "@/lib/admin/needsAttention";
 import { MESSAGE_CATALOG } from "@/lib/messages/catalog";
 
@@ -209,5 +210,135 @@ describe("resolveIngestionCopy (catalog-safe, spec §7)", () => {
     expect(resolveIngestionCopy({ code: "GOOGLE_NO_CREW_MATCH", driveFileName: "x" })).toBe(
       GENERIC,
     );
+  });
+});
+
+// ── Needs-attention holds rollup Task 3 (spec 2026-08-03 §5): the fourth
+// stream. Groups arrive from lib/admin/identityHolds (one per show, summaries
+// newest-first); the builder sorts them among the other streams by
+// newestCreatedAt and forks copy on summary count.
+describe("identity_hold stream", () => {
+  const holdGroup = (
+    over: Partial<NeedsAttentionIdentityHoldInput> = {},
+  ): NeedsAttentionIdentityHoldInput => ({
+    showId: "sX",
+    slug: "sx",
+    title: "Show X",
+    summaries: ["Jane Doe's email is changing"],
+    newestCreatedAt: "2026-08-03T12:00:00+00:00",
+    ...over,
+  });
+
+  it("single-hold copy is summaries[0]; multi-hold copy is the count line", () => {
+    const single = buildNeedsAttention({
+      ingestions: [],
+      syncs: [],
+      existence: {},
+      totalCounts: { ingestions: 0, syncs: 0, identityHolds: 1 },
+      identityHolds: [holdGroup()],
+    });
+    const item = single.items[0];
+    if (item?.variant !== "identity_hold") throw new Error("wrong variant");
+    expect(item.copy).toBe("Jane Doe's email is changing");
+    const multi = buildNeedsAttention({
+      ingestions: [],
+      syncs: [],
+      existence: {},
+      totalCounts: { ingestions: 0, syncs: 0, identityHolds: 1 },
+      identityHolds: [holdGroup({ summaries: ["a", "b", "c"] })],
+    });
+    const m = multi.items[0];
+    if (m?.variant !== "identity_hold") throw new Error("wrong variant");
+    expect(m.copy).toBe("3 held changes waiting");
+  });
+
+  it("sorts by newestCreatedAt among other streams, asserted BY KEY (fixture-timestamp-derived)", () => {
+    // hold T3 > sync st1 T2 > sync st2 T1. Keys distinguish the two first_seen
+    // items, so a T2/T1 swap FAILS (plan-R1 F10; variant-only assertions cannot).
+    const out = buildNeedsAttention({
+      ingestions: [],
+      syncs: [
+        {
+          stagedId: "st1",
+          driveFileId: "d1",
+          candidateTitle: "A",
+          stagedModifiedTime: "2026-08-03T02:00:00+00:00",
+        },
+        {
+          stagedId: "st2",
+          driveFileId: "d2",
+          candidateTitle: "B",
+          stagedModifiedTime: "2026-08-03T01:00:00+00:00",
+        },
+      ],
+      existence: {},
+      identityHolds: [holdGroup({ newestCreatedAt: "2026-08-03T03:00:00+00:00" })],
+      totalCounts: { ingestions: 0, syncs: 2, identityHolds: 1 },
+    });
+    expect(out.items.map((i) => i.key)).toEqual(["hold-show:sX", "sync:st1", "sync:st2"]);
+    expect(out.totalCount).toBe(3);
+    expect(out.identityHoldTotal).toBe(1);
+  });
+
+  it("over-cap arithmetic: stream total above rendered cards keeps totals honest (spec §9.2)", () => {
+    const out = buildNeedsAttention({
+      ingestions: [],
+      syncs: [],
+      existence: {},
+      identityHolds: [
+        holdGroup({ showId: "s1", slug: "s1", newestCreatedAt: "2026-08-03T05:00:00+00:00" }),
+        holdGroup({ showId: "s2", slug: "s2", newestCreatedAt: "2026-08-03T04:00:00+00:00" }),
+      ],
+      totalCounts: { ingestions: 0, syncs: 0, identityHolds: 2 },
+      cap: 1,
+    });
+    expect(out.items).toHaveLength(1);
+    expect(out.renderedCount).toBe(1);
+    expect(out.identityHoldTotal).toBe(2);
+    expect(out.totalCount).toBe(2);
+    expect(out.overflowCount).toBe(1);
+  });
+
+  it("omitted new keys: additive identityHoldTotal 0, everything else the pre-change shape (digest regression fence)", () => {
+    const args = { ingestions: [], syncs: [], existence: {}, totalCounts: { ingestions: 0, syncs: 0 } };
+    // Expected shape built by hand, NEVER a second call to the same function
+    // (self-comparison is tautological).
+    expect(buildNeedsAttention(args)).toEqual({
+      items: [],
+      renderedCount: 0,
+      totalCount: 0,
+      overflowCount: 0,
+      ingestionTotal: 0,
+      syncTotal: 0,
+      syncProblemTotal: 0,
+      identityHoldTotal: 0,
+    });
+  });
+
+  it("skips a defensive empty-summaries group", () => {
+    const out = buildNeedsAttention({
+      ingestions: [],
+      syncs: [],
+      existence: {},
+      totalCounts: { ingestions: 0, syncs: 0, identityHolds: 1 },
+      identityHolds: [holdGroup({ summaries: [] })],
+    });
+    expect(out.items).toEqual([]);
+  });
+
+  it("equal newestCreatedAt tie-breaks by showId ascending", () => {
+    const t = "2026-08-03T05:00:00+00:00";
+    const out = buildNeedsAttention({
+      ingestions: [],
+      syncs: [],
+      existence: {},
+      totalCounts: { ingestions: 0, syncs: 0, identityHolds: 2 },
+      identityHolds: [
+        holdGroup({ showId: "zz", slug: "zz", newestCreatedAt: t }),
+        holdGroup({ showId: "aa", slug: "aa", newestCreatedAt: t }),
+      ],
+    });
+    const ids = out.items.map((i) => (i.variant === "identity_hold" ? i.showId : ""));
+    expect(ids).toEqual(["aa", "zz"]);
   });
 });

@@ -139,6 +139,12 @@ function ItemCard({ item, now }: { item: NeedsAttentionItem; now: Date }) {
     );
   }
 
+  if (item.variant === "identity_hold") {
+    // Card body lands in Task 6 of the holds-rollup plan; this guard keeps the
+    // existing_staged branch below narrowed in the meantime.
+    return null;
+  }
+
   // existing_staged
   return (
     <li
