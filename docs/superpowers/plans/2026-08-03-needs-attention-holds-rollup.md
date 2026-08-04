@@ -524,6 +524,8 @@ describe("identity_hold card", () => {
     const link = within(card).getByTestId("needs-attention-link-identity-hold-sX");
     expect(link.getAttribute("href")).toBe("/admin?show=spring-gala");
     expect(link.getAttribute("aria-label")).toBe("Review held change for Spring Gala (spring-gala)");
+    expect(link.textContent).toContain("Review"); // visible text (plan-R8 V2)
+    expect(link.className).toContain("min-h-tap-min"); // shared reviewLinkClass (NeedsAttentionInbox.tsx:27-28)
     expect(within(card).queryByTestId("identity-hold-toggle-sX")).toBeNull();
   });
 
@@ -543,6 +545,12 @@ describe("identity_hold card", () => {
     expect(countLine.className).toContain("tabular-nums"); // spec R5-J2
     const linkCollapsed = within(card).getByTestId("needs-attention-link-identity-hold-sX"); // BEFORE expansion
     expect(linkCollapsed.getAttribute("aria-label")).toBe("Review held changes for Spring Gala (spring-gala)");
+    expect(linkCollapsed.textContent).toContain("Review"); // visible text, not aria-only (plan-R8 V2)
+    expect(linkCollapsed.className).toContain("min-h-tap-min"); // shared reviewLinkClass tap floor (NeedsAttentionInbox.tsx:27-28)
+    // OUTSIDE the always-mounted panel subtree: a link nested in the collapsed
+    // inert CollapsePanel region would still "exist" (CollapsePanel.tsx:53-64).
+    const panelPre = document.getElementById("identity-hold-panel-sX");
+    if (panelPre) expect(panelPre.contains(linkCollapsed)).toBe(false);
     const toggle = within(card).getByTestId("identity-hold-toggle-sX");
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
     expect(toggle.getAttribute("aria-controls")).toBe("identity-hold-panel-sX");
@@ -626,7 +634,7 @@ export function IdentityHoldDisclosure({ showId, title, slug, count, children }:
 }
 ```
 
-Inbox branch (server side, before the `existing_staged` fallthrough): fork on `item.summaries.length === 1`; tile + `CardHeader status="warn"` label `Held change`/`Held changes`; visible title line `item.title ?? item.slug`; single mode = summary copy line + footer link (aria `Review held change for …` truthy fork); multi mode = count line (`text-sm text-text-subtle tabular-nums`) + island whose children are `item.summaries.slice(0, HOLD_SUMMARIES_RENDER_CAP)` lines (`text-sm text-text-subtle`) plus, when longer, the `and N more` line (`tabular-nums`); footer `Link` OUTSIDE the island (aria `Review held changes for …` truthy fork); `HOLD_SUMMARIES_RENDER_CAP` imported from `@/lib/admin/identityHolds`.
+Inbox branch (server side, before the `existing_staged` fallthrough): fork on `item.summaries.length === 1`; tile + `CardHeader status="warn"` label `Held change`/`Held changes`; visible title line `item.title ?? item.slug`; single mode = summary copy line + footer link (aria `Review held change for …` truthy fork); multi mode = count line (`text-sm text-text-subtle tabular-nums`) + island whose children are `item.summaries.slice(0, HOLD_SUMMARIES_RENDER_CAP)` lines (`text-sm text-text-subtle`) plus, when longer, the `and N more` line (`tabular-nums`); footer `Link` OUTSIDE the island (aria `Review held changes for …` truthy fork), rendered with the SHARED `reviewLinkClass` (`NeedsAttentionInbox.tsx:27-28`) and visible `Review →` text in both modes (plan-R8 V2); `HOLD_SUMMARIES_RENDER_CAP` imported from `@/lib/admin/identityHolds`.
 
 - [ ] **Step 4: Run both test files + tsc — PASS.**
 - [ ] **Step 5: Commit** `feat(admin): identity-hold inbox card with disclosure island + transition audit`
@@ -661,7 +669,7 @@ TOOLTIP COPY MOVED TO TASK 9 (plan-R2 P5): the two tooltip edits get their task-
 
 **Files:**
 
-- Modify: `lib/notify/digest.ts` (holds query + adapter + `identityHolds` + `cap` + `holdShows` + helper arms + `no_send` literal at `digest.ts:127`), `lib/notify/runNotify.ts:457` (literal), `tests/notify/digest.test.ts`, and the SIX strict-typed `sourceTotals` companions (plan-R2 P4): `tests/notify/deliver.test.ts:149`, `tests/notify/run-notify.test.ts:47` + `run-notify.test.ts:69`, `tests/notify/runDigestNotify.monitor.test.ts:21` + `runDigestNotify.monitor.test.ts:34`, `tests/notify/email-delivery-failed-reconcile.test.ts:570` — each gains `holdShows: 0` (or the fixture-appropriate value).
+- Modify: `lib/notify/digest.ts` (holds query + adapter + `identityHolds` + `cap` + `holdShows` + helper arms + `no_send` literal at `digest.ts:127`), `lib/notify/runNotify.ts:457` (literal), `tests/notify/digest.test.ts`, and the NINE `sourceTotals` companion sites (plan-R2 P4 + plan-R8 V1): the six typed constructors — `tests/notify/deliver.test.ts:149`, `tests/notify/run-notify.test.ts:47` + `run-notify.test.ts:69`, `tests/notify/runDigestNotify.monitor.test.ts:21` + `runDigestNotify.monitor.test.ts:34`, `tests/notify/email-delivery-failed-reconcile.test.ts:570` — PLUS the three exact-value expectations the new field breaks: `tests/notify/digest.test.ts:69` (successful-model totals), `digest.test.ts:111-114` (empty-source no_send result), `tests/notify/deliver.test.ts:585` (persisted source_totals context). Each gains `holdShows: 0` (or the fixture-appropriate value).
 
 **Interfaces:** consumes `groupHoldRows`/`IdentityHoldRow` (Task 1), builder inputs (Task 3), `asIso` (`lib/notify/digest.ts:76-79` — returns `string | null`, plan-R1 F5). Produces `DigestModel.sourceTotals.holdShows: number`.
 
