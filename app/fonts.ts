@@ -18,10 +18,18 @@
  * latin subset carries only `calt ccmp dnom frac kern locl mark mkmk numr pnum
  * tnum` and a `wght` axis. So `app/globals.css` spent three months declaring
  * `"cv11" 1` against a font that could not honor it, rendering nothing on every
- * route. The vendored upstream release carries the full feature set plus the
- * `opsz` axis. `app/_fonts/PROVENANCE.md` records the version and checksums;
+ * route. The upstream release carries the full feature set plus the `opsz` axis.
+ * `app/_fonts/PROVENANCE.md` records the version and checksums;
  * `tests/styles/fontFeatureAvailability.test.ts` makes a repeat of that silent
  * failure fail the build instead.
+ *
+ * WHY A SUBSET RATHER THAN THE VERBATIM RELEASE. The 344 KB release file is
+ * PRELOADED, and measured cold on slow 4G it cost FCP +136-164ms and pushed the
+ * fallback->Inter swap to 3.7s after navigation (8.0s on regular 3G). PRODUCT.md's
+ * crew are on personal phones on venue floors, and first visit is the visit that
+ * matters. `scripts/subset-inter.sh` cuts it to Google's `latin` + `latin-ext`
+ * ranges — 173 KB, the same scripts that actually served this product. Cyrillic,
+ * Greek and Vietnamese are dropped and fall back to the system font.
  *
  * EVERY OPTION BELOW IS LOAD-BEARING:
  *   - `weight` and `style` are emitted as `@font-face` descriptors only when
@@ -33,7 +41,7 @@
  *     local loader it computes its size-adjust from THIS file's own metrics
  *     rather than a static table.
  *   - `preload` is left at its default, which is `true`, matching prior
- *     behaviour. The preloaded payload grows from 47 KB to 344 KB; that cost is
+ *     behaviour. The preloaded payload grows from 47 KB to 173 KB; that cost is
  *     accepted in the spec's §2.6.
  *
  * WHAT BINDS THE FONT: `--font-sans` consumes `var(--font-inter)`, the token
@@ -54,7 +62,7 @@
 import localFont from "next/font/local";
 
 export const inter = localFont({
-  src: "./_fonts/InterVariable.woff2",
+  src: "./_fonts/InterVariable-latin.woff2",
   weight: "100 900",
   style: "normal",
   display: "swap",
