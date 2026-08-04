@@ -4,11 +4,14 @@
 // shapes match loadNeedsAttention's head-count probes exactly
 // (lib/admin/loadNeedsAttention.ts:71-73 and :115-117).
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { loadOpenIdentityHolds } from "@/lib/admin/identityHolds";
 import { INBOX_ROUTED_CODES } from "@/lib/messages/adminSurface";
 
 export type NeedsAttentionCountResult = { kind: "ok"; count: number } | { kind: "infra_error" };
 
-export async function loadNeedsAttentionCount(): Promise<NeedsAttentionCountResult> {
+export async function loadNeedsAttentionCount(
+  opts: { loadHolds?: typeof loadOpenIdentityHolds } = {},
+): Promise<NeedsAttentionCountResult> {
   let supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>;
   try {
     supabase = await createSupabaseServerClient();
@@ -74,5 +77,21 @@ export async function loadNeedsAttentionCount(): Promise<NeedsAttentionCountResu
     }
   }
 
-  return { kind: "ok", count: pendingTotal + syncProblemCount };
+  // Fourth stream (holds rollup, spec §6): SHOWS with at least one open MI-11
+  // identity hold — one per show, matching the inbox's one-card-per-show
+  // grouping, so the badge never over-counts a show holding several changes.
+  // A holds fault degrades the whole badge (never a silently low count).
+  // Wrapped for the same reason as the loader: an injected loadHolds or a
+  // future reader edit that throws must degrade the badge, not reject the
+  // request (invariant 9 — no infra fault escapes as a rejection).
+  let holdShowCount: number;
+  try {
+    const holds = await (opts.loadHolds ?? loadOpenIdentityHolds)();
+    if (holds.kind === "infra_error") return { kind: "infra_error" };
+    holdShowCount = holds.groups.length;
+  } catch {
+    return { kind: "infra_error" };
+  }
+
+  return { kind: "ok", count: pendingTotal + syncProblemCount + holdShowCount };
 }

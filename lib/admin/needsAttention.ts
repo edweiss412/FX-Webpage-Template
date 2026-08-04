@@ -10,6 +10,7 @@
 // via the existence map. Counts come from the exact totals (totalCounts), never
 // the capped array — so "+N more" and the Need-review stat reflect reality.
 
+import type { IdentityHoldGroup } from "@/lib/admin/identityHolds";
 import {
   MESSAGE_CATALOG,
   messageFor,
@@ -61,6 +62,12 @@ export type NeedsAttentionSyncProblemInput = {
   raisedAt: string | null;
 };
 
+// A per-show group of OPEN MI-11 identity holds (spec 2026-08-03 §5). Produced
+// by lib/admin/identityHolds.groupHoldRows for BOTH transports (PostgREST reader
+// and the digest's raw SQL), so the builder never re-derives grouping semantics.
+// Re-exported under the stream's own name so callers import one module.
+export type NeedsAttentionIdentityHoldInput = IdentityHoldGroup;
+
 export type BuildNeedsAttentionInput = {
   ingestions: NeedsAttentionIngestionInput[];
   syncs: NeedsAttentionSyncInput[];
@@ -68,9 +75,17 @@ export type BuildNeedsAttentionInput = {
   // `syncProblems` nor `totalCounts.syncProblems`; both default to []/0 so the
   // digest produces zero sync_problem items (byte-identical behavior).
   syncProblems?: NeedsAttentionSyncProblemInput[];
+  // OPTIONAL like syncProblems: a caller that passes neither `identityHolds` nor
+  // `totalCounts.identityHolds` produces zero identity_hold items (spec §5).
+  identityHolds?: NeedsAttentionIdentityHoldInput[];
   // keyed by drive_file_id; spans ALL shows (published/unpublished/archived)
   existence: Record<string, ShowExistence>;
-  totalCounts: { ingestions: number; syncs: number; syncProblems?: number };
+  totalCounts: {
+    ingestions: number;
+    syncs: number;
+    syncProblems?: number;
+    identityHolds?: number;
+  };
   // Render cap for the merged slice; defaults to RENDER_CAP (dashboard inbox).
   // The needs-attention page threads PAGE_RENDER_CAP (spec §4.1).
   cap?: number;
@@ -117,6 +132,19 @@ export type NeedsAttentionItem =
       code: string; // SHEET_UNAVAILABLE | PARSE_ERROR_LAST_GOOD (unconstrained DB string)
       copy: string; // catalog-safe, already resolved
       activityAt: string | null;
+    }
+  | {
+      variant: "identity_hold";
+      key: string;
+      showId: string;
+      slug: string; // routes to /admin?show={slug} (Sheet changes feed + MI-11 gate)
+      title: string | null;
+      // Every open hold's summary for this show, newest-first, length >= 1. The
+      // card renders summaries[0] alone when there is one, or a count line plus
+      // a disclosure listing them when there are several.
+      summaries: string[];
+      copy: string; // summaries[0] (single) | "N held changes waiting" (multi)
+      activityAt: string | null;
     };
 
 export type NeedsAttention = {
@@ -129,6 +157,7 @@ export type NeedsAttention = {
   ingestionTotal: number;
   syncTotal: number;
   syncProblemTotal: number;
+  identityHoldTotal: number;
 };
 
 // Per-code generic fallbacks for a sync-problem card when no sheet name is
@@ -226,6 +255,12 @@ type MergedEntry =
       title: string | null;
       code: string;
       sheetName: string | null;
+    }
+  | {
+      kind: "identity_hold";
+      sortKey: string;
+      id: string; // showId (tie-break + card key)
+      group: NeedsAttentionIdentityHoldInput;
     };
 
 export function buildNeedsAttention(input: BuildNeedsAttentionInput): NeedsAttention {
@@ -264,6 +299,19 @@ export function buildNeedsAttention(input: BuildNeedsAttentionInput): NeedsAtten
           title: sp.title,
           code: sp.code,
           sheetName: sp.sheetName,
+        }),
+      ),
+    // Skip any group with zero summaries (defensive — the reader only emits a
+    // group for a row it saw, so length >= 1; an empty one would render a card
+    // with no copy at all).
+    ...(input.identityHolds ?? [])
+      .filter((g) => g.summaries.length > 0)
+      .map(
+        (g): MergedEntry => ({
+          kind: "identity_hold",
+          sortKey: g.newestCreatedAt ?? "",
+          id: g.showId,
+          group: g,
         }),
       ),
   ];
@@ -309,6 +357,23 @@ export function buildNeedsAttention(input: BuildNeedsAttentionInput): NeedsAtten
         activityAt,
       };
     }
+    if (entry.kind === "identity_hold") {
+      const g = entry.group;
+      const first = g.summaries[0];
+      return {
+        variant: "identity_hold",
+        key: `hold-show:${g.showId}`,
+        showId: g.showId,
+        slug: g.slug,
+        title: g.title,
+        summaries: g.summaries,
+        copy:
+          g.summaries.length === 1 && first !== undefined
+            ? first
+            : `${g.summaries.length} held changes waiting`,
+        activityAt,
+      };
+    }
     const existing = input.existence[entry.driveFileId];
     if (existing) {
       return {
@@ -332,7 +397,9 @@ export function buildNeedsAttention(input: BuildNeedsAttentionInput): NeedsAtten
   });
 
   const syncProblemsTotal = input.totalCounts.syncProblems ?? 0;
-  const totalCount = input.totalCounts.ingestions + input.totalCounts.syncs + syncProblemsTotal;
+  const identityHoldsTotal = input.totalCounts.identityHolds ?? 0;
+  const totalCount =
+    input.totalCounts.ingestions + input.totalCounts.syncs + syncProblemsTotal + identityHoldsTotal;
   const renderedCount = items.length;
   return {
     items,
@@ -342,5 +409,6 @@ export function buildNeedsAttention(input: BuildNeedsAttentionInput): NeedsAtten
     ingestionTotal: input.totalCounts.ingestions,
     syncTotal: input.totalCounts.syncs,
     syncProblemTotal: syncProblemsTotal,
+    identityHoldTotal: identityHoldsTotal,
   };
 }

@@ -50,6 +50,25 @@ on:
       # step" class this workflow's header was written about.
       - "components/layout/Skeleton.tsx"
       - "tests/e2e/nojs-loading-notice.spec.ts"
+      - "tests/e2e/needs-attention-holds.spec.ts"
+      # Every production surface the needs-attention holds rollup touches: a
+      # later regression in any of them must not leave the holds spec dark.
+      - "lib/admin/identityHolds.ts"
+      - "lib/admin/needsAttention.ts"
+      - "lib/admin/loadNeedsAttention.ts"
+      - "lib/admin/needsAttentionCount.ts"
+      - "components/admin/NeedsAttentionInbox.tsx"
+      - "components/admin/NeedsAttentionSummaryCard.tsx"
+      - "components/admin/IdentityHoldDisclosure.tsx"
+      - "components/admin/Dashboard.tsx"
+      - "app/admin/needs-attention/page.tsx"
+      - "lib/notify/digest.ts"
+      - "lib/notify/runNotify.ts"
+      - "app/help/admin/dashboard/page.mdx"
+      - "app/help/admin/review-queues/page.mdx"
+      - "app/help/daily-rhythm/page.mdx"
+      - "app/help/admin/settings/page.mdx"
+      - "app/help/tour/page.mdx"
       - "tests/e2e/helpers/**"
       - "playwright.config.ts"
       - ".github/workflows/admin-layout-e2e.yml"
@@ -122,7 +141,7 @@ jobs:
       - run: pnpm exec playwright install-deps chromium
       - run: pnpm exec playwright install chromium
       - name: Run admin layout e2e (desktop-chromium, :3000 only)
-        run: pnpm exec playwright test --project=desktop-chromium tests/e2e/bell-panel-layout.spec.ts tests/e2e/admin-nav-layout-dimensions.spec.ts tests/e2e/nojs-loading-notice.spec.ts
+        run: pnpm exec playwright test --project=desktop-chromium tests/e2e/bell-panel-layout.spec.ts tests/e2e/admin-nav-layout-dimensions.spec.ts tests/e2e/nojs-loading-notice.spec.ts tests/e2e/needs-attention-holds.spec.ts
       - name: Upload Playwright traces/report (diagnosis artifact)
         if: failure()
         uses: actions/upload-artifact@v4

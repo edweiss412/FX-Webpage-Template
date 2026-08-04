@@ -34,13 +34,15 @@ The empty state (no shows yet) reads "You do not have any shows yet." and tells 
 
 <h2 id="pending-ingestion">The Needs attention inbox</h2>
 
-The right-hand column collects everything waiting on you, across all shows, with a count chip showing the total. On a phone it appears as a summary card instead — tap it to open the full **Needs attention** page. Three kinds of cards show up here:
+The right-hand column collects everything waiting on you, across all shows, with a count chip showing the total. On a phone it appears as a summary card instead — tap it to open the full **Needs attention** page. Five kinds of cards show up here:
 
 - **Couldn't process a sheet.** A new sheet appeared in your Drive folder, but the app couldn't fetch or read it, so it never became a show. The card names the file and explains what went wrong in plain words. Your options: **Retry now** (the app tries again), **Defer until modified** (the card stays out of the way until the sheet is edited again), or **Permanently ignore** (the card is dismissed for good). A successful retry doesn't skip your sign-off — the sheet moves along the same path as any other new sheet.
 - **New sheet to review.** The sheet parsed fine, but it needs your sign-off before going live: it came in through the onboarding wizard's scan, or auto-publish is off. Tap **Review** to open the staged-review surface, where you confirm the show before it goes live or discard it without ever creating a crew link.
 - **Changes to review.** Uncommon: a whole sheet for a show that already exists is held for sign-off (for example, after a re-scan). Tap **Open show** to open it. Routine live-show edits are not here; they auto-apply into the show's Sheet changes feed.
+- **Sync problem.** A live show's sheet went missing or its latest edit didn't parse. The card explains the problem and links to the show; it clears on its own once the underlying problem is fixed.
+- **Held identity change.** A crew member's identity change (usually an email) is waiting for your Approve or Reject. The card names the person for a single change, or shows a count you can expand when several are waiting; tap **Review** to open the show's Sheet changes feed and decide there.
 
-A card stays in the inbox until you act on it. Nothing here clears itself. When it's empty it says "Nothing waiting on you." — the best way to read the dashboard.
+Most cards wait for your decision. Some clear on their own: a sync problem card goes once the sheet is readable again, and a held change goes if the sheet is edited back to the original details. When it's empty it says "Nothing waiting on you." — the best way to read the dashboard.
 
 <h2 id="archived">Archived shows</h2>
 
@@ -50,4 +52,4 @@ You archive from a show's own page: open the show, tap **Share link** (or the **
 
 ## Changes and review
 
-Most edits to an already-live show apply on their own and land in that show's **Sheet changes** feed; open the show to see them, and most crew changes can be undone there. The app only holds a change for your sign-off in two cases: a **brand-new sheet** it hasn't published yet (it appears in the **Needs attention** inbox as **New sheet to review**; tap **Review** to Apply or discard it), and a **crew member's identity change** (usually an email), which waits for **Approve** or **Reject** in the show's Sheet changes feed. For the full picture see [Review queues](/help/admin/review-queues).
+Most edits to an already-live show apply on their own and land in that show's **Sheet changes** feed; open the show to see them, and most crew changes can be undone there. The app only holds a change for your sign-off in two cases: a **brand-new sheet** it hasn't published yet (it appears in the **Needs attention** inbox as **New sheet to review**; tap **Review** to Apply or discard it), and a **crew member's identity change** (usually an email), which waits for **Approve** or **Reject** in the show's Sheet changes feed. That held change also appears as a card in the **Needs attention** inbox, so you can find it without opening the show first. For the full picture see [Review queues](/help/admin/review-queues).
