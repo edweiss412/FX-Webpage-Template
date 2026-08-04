@@ -22,6 +22,23 @@ import { test as base, expect } from "@playwright/test";
  */
 const collected: { family: string; via: string }[] = [];
 
+/** The ONE walk. Round 28 found two vantages still reading document.body, so an
+ *  Inter body with an Arial descendant passed through pre-navigate and
+ *  after-body. Every vantage now calls this. */
+const WALK = () => {
+  const b = document.body;
+  if (!b || b.childElementCount === 0) return null;
+  const fams = new Set<string>();
+  const w = document.createTreeWalker(b, NodeFilter.SHOW_ELEMENT);
+  for (let n = w.currentNode as Element | null; n; n = w.nextNode() as Element | null) {
+    const hasText = Array.from(n.childNodes).some(
+      (c) => c.nodeType === 3 && (c.textContent ?? "").trim() !== "");
+    if (hasText) fams.add(getComputedStyle(n).fontFamily);
+  }
+  return [...fams].join(" ~ ");
+};
+
+
 const test = base.extend<{ oracle: void }>({
   // Caller-owned contexts must be covered BY THE FIXTURE, not by the test.
   browser: async ({ browser }, use) => {
@@ -30,37 +47,17 @@ const test = base.extend<{ oracle: void }>({
       const ctx = await (orig as (...x: unknown[]) => Promise<import("@playwright/test").BrowserContext>)(...a);
       await ctx.exposeBinding("__fontOracle", (_s, q: { family: string; via: string }) =>
         void collected.push(q));
-      await ctx.addInitScript(() => {
-        const report = (via: string) => {
-          const b = document.body;
-          if (!b || b.childElementCount === 0) return;
-          const fams = new Set<string>();
-          const w = document.createTreeWalker(b, NodeFilter.SHOW_ELEMENT);
-          for (let n = w.currentNode as Element | null; n; n = w.nextNode() as Element | null) {
-            const hasText = Array.from(n.childNodes).some(
-              (c) => c.nodeType === 3 && (c.textContent ?? "").trim() !== "");
-            if (hasText) fams.add(getComputedStyle(n).fontFamily);
-          }
-          (window as unknown as { __fontOracle?: (p: unknown) => void })
-            .__fontOracle?.({ family: [...fams].join(" ~ "), via });
-        };
-        addEventListener("pagehide", () => report("pagehide"));
+      await ctx.addInitScript({
+        content: `const WALK = ${WALK.toString()};
+          addEventListener("pagehide", () => {
+            const f = WALK();
+            if (f) window.__fontOracle && window.__fontOracle({ family: f, via: "pagehide" });
+          });`,
       });
       const origClose = ctx.close.bind(ctx);
       ctx.close = async (...c: Parameters<typeof origClose>) => {
         for (const pg of ctx.pages()) {
-          const f = await pg.evaluate(() => {
-            const b = document.body;
-            if (!b || b.childElementCount === 0) return null;
-            const fams = new Set<string>();
-            const w = document.createTreeWalker(b, NodeFilter.SHOW_ELEMENT);
-            for (let n = w.currentNode as Element | null; n; n = w.nextNode() as Element | null) {
-              const hasText = Array.from(n.childNodes).some(
-                (x) => x.nodeType === 3 && (x.textContent ?? "").trim() !== "");
-              if (hasText) fams.add(getComputedStyle(n).fontFamily);
-            }
-            return [...fams].join(" ~ ");
-          }).catch(() => null);
+          const f = await pg.evaluate(WALK).catch(() => null);
           if (f) collected.push({ family: f, via: "pre-close" });
         }
         return origClose(...c);
@@ -75,9 +72,7 @@ const test = base.extend<{ oracle: void }>({
     for (const k of ["goto", "setContent", "reload", "goBack", "goForward"] as const) {
       const orig = (page[k] as (...a: unknown[]) => Promise<unknown>).bind(page);
       (page as unknown as Record<string, unknown>)[k] = async (...a: unknown[]) => {
-        const f = await page.evaluate(() =>
-          document.body && document.body.childElementCount > 0
-            ? getComputedStyle(document.body).fontFamily : null).catch(() => null);
+        const f = await page.evaluate(WALK).catch(() => null);
         if (f) collected.push({ family: f, via: "pre-navigate" });
         return orig(...a);
       };
@@ -88,9 +83,7 @@ const test = base.extend<{ oracle: void }>({
     await use();
     for (const p of context.pages()) {
       if (p.isClosed()) continue;
-      const f = await p.evaluate(() =>
-        document.body && document.body.childElementCount > 0
-          ? getComputedStyle(document.body).fontFamily : null).catch(() => null);
+      const f = await p.evaluate(WALK).catch(() => null);
       if (f) collected.push({ family: f, via: "after-body" });
     }
   }, { auto: true }],
@@ -98,11 +91,16 @@ const test = base.extend<{ oracle: void }>({
 
 test("a reused page reports every document, not only the last", async ({ page }) => {
   const before = collected.length;
+  // Round 28: this varied only body families, so it could not tell whether the
+  // pre-navigate vantage walked. Each document now hides a descendant.
   for (const f of ["AAA", "BBB", "CCC"])
-    await page.setContent(`<style>body{font-family:"${f}",serif}</style><p>${f}</p>`);
+    await page.setContent(
+      `<style>body{font-family:"${f}",serif}</style><p>${f}</p>` +
+      `<span style="font-family:'${f}_CHILD',serif">c</span>`);
   const fams = () => collected.slice(before).map((c) => c.family).join(" | ");
   await expect.poll(() => fams()).toContain("AAA");
   expect(fams()).toContain("BBB");
+  expect(fams(), "pre-navigate walks descendants, not just body").toContain("AAA_CHILD");
 });
 
 test("a browser-originated navigation reports the outgoing document", async ({ page }) => {
