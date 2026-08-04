@@ -94,6 +94,17 @@ export type FlatLine = {
 
 export type LedgerEntry = {
   id: string;
+  /**
+   * 1-based line of the entry's own heading, carried straight off the mdast node.
+   *
+   * Exists because a consumer needing spans would otherwise have to re-derive
+   * them by matching heading TEXT, which is a second grammar and demonstrably
+   * ambiguous: a prose heading whose text ends the same way as a real entry's
+   * (`## Notes: BL-X — actual` before `## BL-X — actual`) captures the id. The
+   * position is already in hand here, so handing it over costs nothing and
+   * removes the whole class.
+   */
+  line: number;
   headingLine: FlatLine;
   body: RootContent[];
 };
@@ -311,6 +322,7 @@ export function extractEntries(text: string, opts: ExtractOpts): LedgerEntry[] {
   });
   return found.map((f, k) => ({
     id: f.id,
+    line: f.heading.position?.start.line ?? 0,
     headingLine: flattenLines([f.heading], "claim")[0] ?? {
       text: "",
       strongSpans: [],

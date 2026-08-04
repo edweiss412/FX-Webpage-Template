@@ -82,6 +82,30 @@ This plan ships structural guards, so the mutation families it converges against
 
 ---
 
+### Task 0: Expose the entry heading line on `LedgerEntry`
+
+**Files:** Modify `tests/docs/_ledgerMdast.ts`; modify `tests/docs/_ledgerMdast.walker.test.ts`.
+
+**Why this is a task and not a deferral.** The spec deferred *relocating* `_ledgerMdast.ts` under
+exception (c) of `AGENTS.md:227`. This is a different, additive change to the same file, and three
+plan rounds established that skipping it forces a text-matching heuristic that is a second grammar
+by definition — plan-R1 finding 1, plan-R2 finding 1, and plan-R3 finding 1 each killed a different
+variant of it. `extractEntries` already holds the mdast `Heading` node; it simply discards the
+position. Handing it over is two lines and removes the entire class.
+
+- [ ] **Step 1: Failing test** — assert every entry's `line` points at a heading naming its own id,
+      across all four ledgers, and that lines are strictly increasing.
+- [ ] **Step 2: Run** — FAIL, `line` does not exist on `LedgerEntry`.
+- [ ] **Step 3: Implement** — add `line: number` to the `LedgerEntry` type and
+      `line: f.heading.position?.start.line ?? 0` to the returned object. Purely additive; the four
+      existing consumers read `id`, `headingLine`, and `body` only.
+- [ ] **Step 4: Run** — PASS, and `pnpm exec vitest run tests/docs/` stays green.
+      **Verified while planning: 478 entries across the four ledgers, 0 mismatched, all monotonic,
+      281 docs tests passing.**
+- [ ] **Step 5: Commit** — `test(docs): expose the entry heading line on LedgerEntry`
+
+---
+
 ### Task 1: Shared parser module with authoritative entry spans
 
 **Files:**
@@ -245,44 +269,20 @@ export function ledgerItems(file: string, text: string): LedgerItem[] {
   );
   const lines = text.split("\n");
 
-  // Pair each entry with its heading by NORMALIZED TEXT, not by substring.
-  // Plan-R1 finding 1: `.includes(id)` pairs `## Notes about BL-X` with BL-X,
-  // putting the span on the mention rather than the entry. Probed: that rule gives
-  // line 1 where the answer is line 5.
-  //
-  // The comparison is endsWith + id presence rather than equality, because
-  // extractEntries strips a struck id from headingLine.text while flattenLines
-  // keeps it: `### ~~MODAL-CLOSE-EXIT-ANIM-1~~, RESOLVED` is the live instance,
-  // and equality alone leaves it unresolved.
-  //
-  // Measured over all four ledgers: 478 entries, 0 unresolved, spans monotonic.
-  const norm = entries.map(() => "");
-  const headNorm = heads.map((h) => ({
-    line: h.position.start.line,
-    text: flattenLines([h as never], "id")[0]?.text ?? "",
-  }));
-
-  const starts: number[] = [];
-  let cursor = 0;
-  for (const e of entries) {
-    const want = e.headingLine.text;
-    const idx = headNorm.findIndex(
-      (n, i) => i >= cursor && n.text.endsWith(want) && n.text.includes(e.id),
-    );
-    if (idx === -1) continue;
-    cursor = idx + 1;
-    starts.push(headNorm[idx]!.line);
-  }
-  void norm;
-
-  return ids.slice(0, starts.length).map((id, n) => {
-    const line = starts[n]!;
-    const endLine = (starts[n + 1] ?? lines.length + 1) - 1;
+  // No pairing, no matching, no second grammar: `extractEntries` hands back the
+  // heading line directly (Task 0). Plan-R3 finding 1 killed the last text-matching
+  // variant: a prose heading whose text ends the same way as a real entry's
+  // (`## Notes: BL-X: actual` before `## BL-X, actual`) captured the id, truncated
+  // the enclosing entry, and misattributed its hunks, while every planned assertion
+  // stayed green.
+  return entries.map((e, n) => {
+    const line = e.line;
+    const endLine = (entries[n + 1]?.line ?? lines.length + 1) - 1;
     const fields: Record<string, string> = {};
     for (const l of lines.slice(line, Math.min(endLine, line + 12))) {
       for (const [k, v] of Object.entries(fieldsOfLine(l))) if (fields[k] === undefined) fields[k] = v;
     }
-    return { file, id, line, endLine, fields };
+    return { file, id: e.id, line, endLine, fields, bodyLines };
   });
 }
 ```
