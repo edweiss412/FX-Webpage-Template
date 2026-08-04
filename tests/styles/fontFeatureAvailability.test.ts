@@ -50,7 +50,21 @@ function compiledCss(): string {
   const out = resolve(tmpdir(), `fxav-tw-${process.pid}.css`);
   execFileSync(
     "npx",
-    ["@tailwindcss/cli", "-i", "app/globals.css", "-o", out, "--content", "app/**/*.tsx"],
+    [
+      "@tailwindcss/cli",
+      "-i",
+      "app/globals.css",
+      "-o",
+      out,
+      // EVERY product tree, not just `app/`. Tailwind only emits a utility it
+      // finds in scanned content, so a `--content` glob narrower than the code
+      // makes the compiled sheet a partial view — and round 19's `oldstyle-nums`
+      // mutant, placed in `components/`, compiled to nothing at all under an
+      // `app/**` glob. A guard reading a partial sheet is a guard with a hole
+      // shaped like whatever it forgot to scan.
+      "--content",
+      "{app,components,lib}/**/*.{tsx,ts,jsx,js,mdx}",
+    ],
     { cwd: REPO_ROOT, stdio: "pipe" },
   );
   compiledCssCache = readFileSync(out, "utf8");
@@ -246,6 +260,14 @@ export function featureRules(
 const RESETTING_SHORTHANDS = new Set(["font", "all"]);
 
 /**
+ * The only selectors where `inherit` is not lossy: Tailwind preflight's, which
+ * sit at the top of the cascade and hand elements the page's own typography.
+ */
+const INHERIT_IS_SAFE = new Set([
+  "button, input, select, optgroup, textarea, ::file-selector-button",
+]);
+
+/**
  * Rules using a RESETTING SHORTHAND, which silently resets `font-feature-settings`
  * and `font-variant-numeric` to their initial values (CSS Fonts 4 §2.7).
  *
@@ -258,10 +280,14 @@ export function fontShorthandRules(cssSource: string): string[] {
   const out: string[] = [];
   postcss.parse(cssSource).walkDecls((decl) => {
     if (!RESETTING_SHORTHANDS.has(normalizeProp(decl.prop).name)) return;
-    // `font: inherit` INHERITS the features rather than resetting them, which is
-    // exactly what Tailwind preflight does to form controls so a <button> keeps
-    // the page's typography. Only a shorthand that resets is a problem.
-    if (/^inherit$/i.test(decl.value.trim())) return;
+    // `font: inherit` INHERITS rather than resets — but only Tailwind preflight's
+    // form-control rule earns the exemption. Round 19: a rule scoped to a real
+    // element with `font: inherit` makes `.code-value` inherit the ROOT's `ss04`
+    // alone, silently dropping `tnum` and `zero` while every tag count stays
+    // green. Inheriting is safe at the top of the cascade and lossy below it.
+    const parentSel =
+      decl.parent && "selector" in decl.parent ? String(decl.parent.selector).trim() : "";
+    if (/^inherit$/i.test(decl.value.trim()) && INHERIT_IS_SAFE.has(parentSel)) return;
     const parent = decl.parent;
     out.push(parent && "selector" in parent ? String(parent.selector) : "(unknown)");
   });
@@ -320,6 +346,12 @@ const ALLOWED_FONT_FAMILY_RULES = new Map<string, string>([
   ],
   ["::backdrop", "Tailwind preflight's root-variable mirror for the backdrop pseudo-element."],
   [
+    ":root, :host",
+    "the `@theme` token block itself, where `--font-sans` is DEFINED. Defining the " +
+      "token is the binding; a rule that REASSIGNS it lower in the cascade is the " +
+      "face swap this list exists to catch.",
+  ],
+  [
     ".font-mono",
     "Tailwind's `font-mono` utility, used deliberately on sheet ids, warning payloads " +
       "and the shows-table heading. Same disposition as the preflight mono rule: those " +
@@ -329,11 +361,117 @@ const ALLOWED_FONT_FAMILY_RULES = new Map<string, string>([
   ],
 ]);
 
-/** Every rule that sets `font-family`, by selector. */
+/**
+ * Every rule that sets `font-family` OR the tokens it resolves through.
+ *
+ * `html { font-family: var(--font-sans) }`, so a rule setting `--font-sans` swaps
+ * the active face without ever writing `font-family` — round 19's mutant was
+ * Tailwind's ordinary arbitrary-property class `[--font-sans:ui-monospace]`,
+ * which emits exactly that and nothing else.
+ */
+const FACE_PROPERTIES = new Set(["font-family", "--font-sans", "--font-inter"]);
+
+/**
+ * FAMILY 11 — the semantic `font-variant-*` properties.
+ *
+ * `font-feature-settings` is the low-level door; `font-variant-numeric` and its
+ * siblings are the one an ordinary developer actually walks through, usually via
+ * a Tailwind utility. Round 19's mutant is as ordinary as it gets: the class
+ * `oldstyle-nums` compiles to `font-variant-numeric: oldstyle-nums`, requesting
+ * OpenType `onum` — and a fontkit probe produced IDENTICAL glyph ids and advances
+ * with `onum` on or off, because the shipped font has no such feature. Silent,
+ * exactly like `cv11`, and squarely inside §13.1's threat model.
+ */
+const FONT_VARIANT_KEYWORD_TAGS = new Map<string, string>([
+  ["ordinal", "ordn"],
+  ["slashed-zero", "zero"],
+  ["lining-nums", "lnum"],
+  ["oldstyle-nums", "onum"],
+  ["proportional-nums", "pnum"],
+  ["tabular-nums", "tnum"],
+  ["diagonal-fractions", "frac"],
+  ["stacked-fractions", "afrc"],
+  ["small-caps", "smcp"],
+  ["all-small-caps", "c2sc"],
+  ["petite-caps", "pcap"],
+  ["all-petite-caps", "c2pc"],
+  ["unicase", "unic"],
+  ["titling-caps", "titl"],
+  ["common-ligatures", "liga"],
+  ["discretionary-ligatures", "dlig"],
+  ["historical-ligatures", "hlig"],
+  ["contextual", "calt"],
+]);
+
+/**
+ * The properties that can CARRY a font-variant keyword.
+ *
+ * The obvious ones, plus Tailwind v4's indirection: `.oldstyle-nums` does not
+ * emit `font-variant-numeric: oldstyle-nums`. It emits
+ * `--tw-numeric-figure: oldstyle-nums` and composes the longhand from five
+ * `var()`s, so reading the longhand's VALUE sees only `var(…)` and never the
+ * keyword. Round 19's mutant compiled to exactly that and sailed past a scan
+ * that only looked at `font-variant-*`.
+ */
+const FONT_VARIANT_PROPS =
+  /^(font-variant(-numeric|-caps|-ligatures|-east-asian|-alternates)?|--tw-[a-z-]*(ordinal|zero|numeric|caps|ligatures)[a-z-]*)$/;
+
+/**
+ * Class tokens that actually appear in a `className` / `class` attribute.
+ *
+ * Tailwind's content scanner is TEXT-based: it emits `.ordinal` because the word
+ * `ordinal` appears in `components/crew/DiagramsBlock.tsx` as a JS PARAMETER
+ * NAME, not because any element uses the class. So "present in the compiled
+ * sheet" is not "reaches an element", and checking every emitted utility reports
+ * features nothing requests.
+ *
+ * A utility rule is only checked when its class is genuinely applied somewhere.
+ * Non-class selectors — elements, attributes, our own hand-written rules — are
+ * always checked, since those apply by construction.
+ */
+function appliedClassTokens(): Set<string> {
+  const tokens = new Set<string>();
+  const walk = (dir: string): void => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const path = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        if (entry.name !== "node_modules") walk(path);
+        continue;
+      }
+      if (!SCANNED_EXTENSIONS.test(entry.name)) continue;
+      const source = readFileSync(path, "utf8");
+      for (const attr of source.matchAll(
+        /class(?:Name)?\s*=\s*(?:"([^"]*)"|'([^']*)'|\{`([^`]*)`\})/g,
+      )) {
+        for (const token of (attr[1] ?? attr[2] ?? attr[3] ?? "").split(/\s+/)) {
+          if (token !== "") tokens.add(token.replace(/^[a-z-]+:/, ""));
+        }
+      }
+    }
+  };
+  for (const root of PRODUCT_ROOTS) walk(resolve(REPO_ROOT, root));
+  return tokens;
+}
+
+/** Every OpenType tag the sheet requests through a `font-variant-*` keyword. */
+export function fontVariantTags(cssSource: string): { tag: string; selector: string }[] {
+  const out: { tag: string; selector: string }[] = [];
+  postcss.parse(cssSource).walkDecls((decl) => {
+    if (!FONT_VARIANT_PROPS.test(normalizeProp(decl.prop).name)) return;
+    const selector =
+      decl.parent && "selector" in decl.parent ? String(decl.parent.selector) : "(unknown)";
+    for (const word of decl.value.toLowerCase().split(/\s+/)) {
+      const tag = FONT_VARIANT_KEYWORD_TAGS.get(word.trim());
+      if (tag) out.push({ tag, selector });
+    }
+  });
+  return out;
+}
+
 export function fontFamilyRules(cssSource: string): string[] {
   const out: string[] = [];
   postcss.parse(cssSource).walkDecls((decl) => {
-    if (normalizeProp(decl.prop).name !== "font-family") return;
+    if (!FACE_PROPERTIES.has(normalizeProp(decl.prop).name)) return;
     const parent = decl.parent;
     out.push(parent && "selector" in parent ? String(parent.selector) : "(unknown)");
   });
@@ -347,10 +485,12 @@ export function featureResetRules(cssSource: string): string[] {
       (r) =>
         r.refusal === null &&
         r.settings.every((f) => !f.enabled) &&
-        // `inherit` takes the parent's value — it does not reset anything. This is
-        // preflight's treatment of form controls, so a <button> keeps the page's
-        // typography rather than the UA's.
-        !/^inherit$/i.test(r.raw.trim()),
+        // `inherit` is only non-lossy where preflight uses it — form controls, at
+        // the top of the cascade, taking the page's typography. Scoped LOWER it
+        // drops whatever the element would otherwise have declared: round 19's
+        // mutant put it on the real transcribe-back element, which then inherited
+        // the root's `ss04` alone and silently lost `tnum` and `zero`.
+        !(/^inherit$/i.test(r.raw.trim()) && INHERIT_IS_SAFE.has(r.selectors.join(", "))),
     )
     .map((r) => r.selectors.join(", "));
 }
@@ -860,6 +1000,60 @@ describe("font feature availability", () => {
       `app/globals.css declares ${missing.join(", ")}, which the loaded font ` +
         `cannot honor — the declaration would render nothing`,
     ).toEqual([]);
+  });
+
+  test("every font-variant-* keyword requests a feature the font actually has", () => {
+    // The door an ordinary developer walks through. `oldstyle-nums` is a Tailwind
+    // utility; it compiles to `font-variant-numeric: oldstyle-nums`, requests
+    // `onum`, and renders nothing at all on a font without it — silent, exactly
+    // like the `cv11` this whole change exists to kill.
+    const applied = appliedClassTokens();
+    const reaches = (selector: string): boolean => {
+      const classes = [...selector.matchAll(/\.([A-Za-z0-9_-]+)/g)].map((m) => m[1]!);
+      // A rule with no class in its selector applies by construction.
+      return classes.length === 0 || classes.some((c) => applied.has(c));
+    };
+    const requested = fontVariantTags(css).filter((r) => reaches(r.selector));
+    const available = new Set(availableFeatures(resolveLoadedFontPath()));
+    const missing = requested.filter((r) => !available.has(r.tag));
+    expect(
+      missing.map((m) => `${m.selector} requests ${m.tag}`),
+      "these font-variant keywords request OpenType features the loaded font does " +
+        "not have, so they render nothing",
+    ).toEqual([]);
+    // Non-vacuity: the tabular rule alone requests `tnum`, so an empty result
+    // would mean the walk stopped finding declarations.
+    expect(requested.length, "font-variant declarations are being found at all").toBeGreaterThan(0);
+  });
+
+  test("the subset still covers the scripts the coverage decision chose", () => {
+    // Round 19 P2: the spec claimed the guard "fails on any lossy regeneration",
+    // and it did not — features, axes and a byte budget all survive dropping
+    // LATIN_EXT, which would silently lose the Polish/Czech/Turkish coverage the
+    // payload decision explicitly bought (§2.6). Codepoints are the only thing
+    // that actually pins that decision.
+    const font = fontkit.openSync(resolveLoadedFontPath());
+    const has = (cp: number): boolean =>
+      "hasGlyphForCodePoint" in font && font.hasGlyphForCodePoint(cp);
+    const SAMPLES: [string, number][] = [
+      ["basic latin 'A'", 0x41],
+      ["latin-1 'é'", 0xe9],
+      ["latin-ext Polish 'ł'", 0x142],
+      ["latin-ext Czech 'č'", 0x10d],
+      ["latin-ext Turkish 'ğ'", 0x11f],
+      ["latin-ext Romanian 'ș'", 0x219],
+      ["latin-ext Hungarian 'ő'", 0x151],
+    ];
+    const missing = SAMPLES.filter(([, cp]) => !has(cp)).map(([name]) => name);
+    expect(
+      missing,
+      `the subset lost codepoints the coverage decision chose: ${missing.join(", ")}. ` +
+        `Narrowing coverage is a payload decision of the kind recorded in §2.6, not a ` +
+        `maintenance step.`,
+    ).toEqual([]);
+    // …and the scripts deliberately DROPPED stay dropped, so this assertion is
+    // pinning a decision rather than just asserting a big font.
+    expect(has(0x0416), "Cyrillic Ж is deliberately not covered").toBe(false);
   });
 
   test("the font the app loads stays within its payload budget", () => {

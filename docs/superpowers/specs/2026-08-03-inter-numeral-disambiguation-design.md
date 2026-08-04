@@ -730,9 +730,11 @@ It is **not** an adversarial control. Nothing here defends against someone delib
 | 7 | An inline style overriding the cascade | source scan + runtime DOM census | §12.11–§12.16 |
 | 8 | The font itself swapped for one lacking the features or blowing the payload | feature, axis and byte-budget checks | §4.1, §12.4 |
 | 9 | The active FACE swapped beneath a valid declaration (`font-family`), making the features inert without touching them | `font-family` added to the inline scan and the runtime census | §12.17 |
-| 10 | A first-party stylesheet the compiled analysis never sees (a CSS Module) | assertion that exactly one first-party stylesheet exists | §12.17 |
+| 10 | A first-party stylesheet the compiled analysis never sees (a CSS Module) | assertion that exactly one first-party stylesheet exists, walked from the repo root | §12.17, §12.18 |
+| 11 | A semantic `font-variant-*` keyword requesting a feature the font lacks | keyword→tag mapping checked against the binary, including Tailwind's `--tw-*` carrier properties | §12.19 |
+| 12 | The subset regenerated with narrower Unicode coverage than the payload decision chose | codepoint samples for every script the decision kept, and one it dropped | §12.19 |
 
-**Families 1–10 are the closure set.** A live escaping mutant inside one of them is a defect. A new SPELLING of an already-closed family — a different escape sequence, a different assignment operator, a different member-access form — is not a new family, and is out of scope by this declaration.
+**Families 1–12 are the closure set.** A live escaping mutant inside one of them is a defect. A new SPELLING of an already-closed family — a different escape sequence, a different assignment operator, a different member-access form — is not a new family, and is out of scope by this declaration.
 
 ### 13.3 Documented limits, accepted
 
@@ -770,3 +772,18 @@ Enumerate the closure set **in the spec, before the first review round**. It cos
 The pattern across rounds 17 and 18 is worth stating: **a family is not closed until every mechanism that reaches it is closed.** Round 17 named two real families and shut the door each had arrived through; round 18 found each had a second door. That is a better failure than rounds 13–16's spellings, and it is the closure set doing its job — the finding is "family 9 is partly open", which is actionable, rather than "here is another escape sequence", which is not.
 
 **Sixty-seven mutants across eighteen rounds. All caught.**
+
+### 12.19 Round 19 — the semantic door, and three partly-open families
+
+`VERDICT: NEEDS-ATTENTION`, four findings, all accepted and fixed. One is a genuinely new family that is the **most ordinary mistake anyone has found in this whole review**.
+
+| # | Sev | Finding | Disposition |
+| --- | --- | --- | --- |
+| 1 | **P1** | **`inherit` exemptions were universal.** Families 3/4/6 exempted `font: inherit` and `font-feature-settings: inherit` from every check. A rule scoped to the real transcribe-back element with either value makes `.code-value` inherit the ROOT's `ss04` alone — silently losing `tnum` and `zero` — while tag counts and the one-zero-rule assertion stay green. | **FIXED.** The exemption is scoped to Tailwind preflight's form-control selector, which is where it is earned. `inherit` is safe at the top of the cascade and lossy below it. |
+| 2 | **P1** | **Family 9 through the token.** `[--font-sans:ui-monospace]` — an ordinary Tailwind arbitrary-property class — emits only `--font-sans: ui-monospace`, and `html { font-family: var(--font-sans) }` resolves the face to monospace. No `font-family` declaration appears anywhere. | **FIXED.** The face census now covers `--font-sans` and `--font-inter` as well as `font-family`. |
+| 3 | **P1, NEW FAMILY 11** | **The semantic door.** `font-feature-settings` is the low-level property; `font-variant-numeric` is the one a developer actually reaches for, via a utility class. Tailwind's `oldstyle-nums` requests OpenType `onum`, which **this font does not have** — a fontkit probe returned identical glyph ids and advances with it on or off. Silent, exactly like `cv11`. | **FIXED.** A keyword→tag map for `font-variant-numeric`, `-caps` and `-ligatures`, checked against the binary. Two further gaps surfaced while proving it: the guard's Tailwind compile scanned only `app/**`, so a utility used in `components/` compiled to nothing (**a hole shaped like whatever it forgot to scan**); and Tailwind v4 routes the keyword through `--tw-numeric-figure` rather than the longhand, so reading the longhand's value sees only `var(…)`. Both closed. |
+| 4 | P2 | **Coverage was not certified.** §2.6 claimed the guard "fails on any lossy regeneration"; it checked features, axes and a byte budget — all of which survive dropping `LATIN_EXT`. Proven: a latin-only regeneration is **69,444 bytes**, well under budget, with every feature and both axes intact, and the Polish/Czech/Turkish coverage the payload decision explicitly bought silently gone. | **FIXED.** Codepoint samples for every script the decision kept, plus one it deliberately dropped, so the assertion pins the decision rather than just asserting a large font. Mutation-proven with a real latin-only rebuild. |
+
+**A false positive worth recording**, because it taught something about reading compiled CSS: the first version of the family-11 check flagged `.ordinal requests ordn` on a clean tree. Nothing applies that class — Tailwind's content scanner is TEXT-based and emitted the utility because the word `ordinal` appears in `components/crew/DiagramsBlock.tsx` as a **JS parameter name**. "Present in the compiled sheet" is not "reaches an element". The check now only considers utilities whose class actually appears in a `className`, while non-class selectors are always checked because they apply by construction.
+
+**Seventy-three mutants across nineteen rounds. All caught.**
