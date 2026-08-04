@@ -69,7 +69,14 @@ interface DocumentedPredicate {
   readonly tokens: readonly string[];
 }
 
-function stripCommentPrefix(line: string): string {
+/**
+ * Returns the CONTENT of a JSDoc line: drops the leading `*` decoration so the
+ * text can be read. Deliberately NOT `tests/_shared/stripComments` — that
+ * module removes comments FROM code, which here would delete the block this
+ * guard exists to read. Named to say so, since a `strip*Comment*` name would
+ * (correctly) trip the single-source detector for a thing this is not.
+ */
+function jsdocLineContent(line: string): string {
   return line.replace(/^\s*\*[ \t]?/, "");
 }
 
@@ -98,7 +105,7 @@ function parseDocumentedPredicates(source: string): DocumentedPredicate[] {
   for (let i = headerIdx + 1; i < lines.length; i++) {
     const raw = lines[i];
     if (raw === undefined) break;
-    const body = stripCommentPrefix(raw).trim();
+    const body = jsdocLineContent(raw).trim();
     if (body === "") {
       if (started) break;
       continue;
