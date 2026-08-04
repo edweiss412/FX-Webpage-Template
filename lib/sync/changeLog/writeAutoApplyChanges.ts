@@ -3,6 +3,7 @@ import type { ParseResult, TriggeredReviewItem } from "@/lib/parser/types";
 import { buildFieldChangesRow, type ExtraRoleChange } from "@/lib/sync/changeLog/fieldChanges";
 import type { PreviousCrewMember } from "@/lib/sync/applyParseResult";
 import type { HoldPort } from "@/lib/sync/holds/holdPort";
+import type { IdentityLinkRename } from "@/lib/sync/identityLinkRenames";
 
 /**
  * Task 2.9 — write one show_change_log row per AUTO-APPLIED notable change.
@@ -33,22 +34,17 @@ export type WriteAutoApplyChangesArgs = {
   previousCrewMembers: PreviousCrewMember[];
   nextCrewMembers: ParseResult["crewMembers"];
   triggeredItems: TriggeredReviewItem[];
+  /**
+   * P2-F2: the identity-link pairs the apply ACTUALLY LANDED (applyParseResult's `landedRenames`).
+   * REQUIRED, never defaulted — a `?? []` here would silently reproduce the very defect this field
+   * exists to fix, since a caller that forgot it would write no rename rows at all and the compiler
+   * would say nothing.
+   */
+  landedRenames: IdentityLinkRename[];
   /** Names whose change is gated by an open MI-11 hold — excluded from the auto-apply feed. */
   heldNames: Set<string>;
   occurredAt?: string;
 };
-
-type RenamePair = { prior: string; added: string };
-
-function renamePairs(items: TriggeredReviewItem[]): RenamePair[] {
-  const pairs: RenamePair[] = [];
-  for (const item of items) {
-    if (item.invariant === "MI-12" || item.invariant === "MI-13" || item.invariant === "MI-14") {
-      pairs.push({ prior: item.removed_name, added: item.added_name });
-    }
-  }
-  return pairs;
-}
 
 function crewImage(member: PreviousCrewMember): Record<string, unknown> {
   return {
@@ -75,7 +71,11 @@ function hasInvariant(
 export async function writeAutoApplyChanges(args: WriteAutoApplyChangesArgs): Promise<void> {
   const prevByName = new Map(args.previousCrewMembers.map((m) => [m.name, m]));
   const nextByName = new Map(args.nextCrewMembers.map((m) => [m.name, m]));
-  const renames = renamePairs(args.triggeredItems);
+  // P2-F2: renames come from what the apply LANDED, never re-derived from triggeredItems. The old
+  // renamePairs() accepted any MI-12/13/14 item unconditionally -- no accept gate, no suppression
+  // check -- so it wrote a crew_renamed row for pairs that never landed and, worse, suppressed the
+  // crew_removed row describing what actually happened.
+  const renames = args.landedRenames.map((r) => ({ prior: r.removedName, added: r.addedName }));
   const renamedPriorNames = new Set(renames.map((r) => r.prior));
   const renamedAddedNames = new Set(renames.map((r) => r.added));
 

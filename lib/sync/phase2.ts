@@ -568,6 +568,9 @@ export async function runPhase2(tx: Phase2Tx, args: Phase2Args): Promise<Phase2R
         // raw parse — a reservation-suppressed row never landed in crew_members, so it must not
         // get a phantom auto_apply crew_added feed row.
         nextCrewMembers: applyOutcome.appliedCrewMembers,
+        // The same P2-F2 principle for the rename pairs: crew_renamed follows what the apply
+        // LANDED, never the raw requested pairs (no accept gate, no suppression check).
+        landedRenames: applyOutcome.landedRenames,
         triggeredItems: args.notableItems ?? [],
         heldNames,
       }),
