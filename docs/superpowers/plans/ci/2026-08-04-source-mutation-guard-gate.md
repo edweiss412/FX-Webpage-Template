@@ -88,7 +88,17 @@ Restated from spec §8 so each id resolves in this plan's own text; the spec rem
 <!-- spec-lint: ignore — new file created by this plan; not tracked until implementation -->
 Create `tests/mutation/source/operators.ts` (declared operator names + per-node site emission) and its test.
 
-**Failure mode caught:** the text-scan probe's real defect — a mutant spliced into user-visible message copy. Assertions: the declared set is exactly the six of §3.1 and equals the set of implemented emitters; a fixture containing a digit inside a message string yields **zero** `integer-literal` sites at that line; zero sites inside line and block comments; zero `relational-boundary` sites on `Map<number, number[]>` or on `=>`.
+**Failure mode caught:** the text-scan probe's real defect — a mutant spliced into user-visible message copy. Assertions: a fixture containing a digit inside a message string yields **zero** `integer-literal` sites at that line; zero sites inside line and block comments; zero `relational-boundary` sites on `Map<number, number[]>` or on `=>`.
+
+**Operator completeness is SET EQUALITY, both directions** — the R3 correction. A subset check (`emitted ⊆ declared`) stops a seventh emitter being smuggled in but says nothing about a declared operator that emits nothing, and that direction is the dangerous one: the surface's promised mutants are never generated, so they appear neither as killed nor as survivors, no ledger row goes stale, the mutant count stays non-zero, and the score still clears the floor. The gate reports green having silently dropped the mutants it promised — a direct violation of the consequence bound.
+
+Three assertions, because set equality alone is not enough either:
+
+- `emitted === declared` as sets;
+- **at least one site per declared operator**, which catches a partially-broken emitter that still fires somewhere;
+- an `integer-literal` site for a numeric inside a `PropertyAssignment`. That is the concrete near-miss: an ordinary AST mistake is to walk statement-position numerics only, and `column: 1` at `lib/specLint/taskContract.ts:63` is exactly that shape AND one of the surface's genuine gaps, so dropping it deletes a real mutant while every gate condition stays green.
+
+The guard is itself falsified: disabling the `integer-literal` emitter must fail these tests. Verified — 3 failures including "integer-literal emitted nothing"; the subset-only version passed.
 
 Anti-tautology: assert against the enumerated site list, not against a count — a count passes if the right number of wrong sites is found.
 
@@ -126,9 +136,12 @@ Anti-tautology: expected score derived from fixture bucket counts, so a fixture 
 
 <!-- task: red=`pnpm vitest run tests/mutation/source/gate.test.ts` ac=AC-7,AC-9,AC-16,AC-17 -->
 
-Seven cases: one all-clean pass, and six failures each flipping exactly ONE input from the passing fixture — no-op present, baseline red, unaccepted survivor, stale row, score below floor, and **zero mutants / non-finite score**.
+Eight cases: one all-clean pass, and seven failures each flipping exactly ONE input from the passing fixture — no-op present, baseline red, unaccepted survivor, stale row, score below floor, **zero mutants**, and **non-finite score with mutants present**.
 
-The last case is the R1 HIGH: `0/0` is `NaN` and `NaN < floor` is `false`, so every other condition passes on a surface that was never tested. Driven with a zero-mutant result directly, so it holds even if the registry check is bypassed.
+The last two are the R1 HIGH, and they are **two independent cases, not one combined case** — the R3 correction. `0/0` is `NaN` and `NaN < floor` is `false`, so every other condition passes on a surface that was never tested. But a single case driven with zero mutants is satisfied by an implementation that checks only `mutantCount === 0` and omits the finite-score test, and NaN has a second reachable source: a non-zero mutant count where every survivor is `equivalent`, which also empties the denominator. Each case must drive its own state:
+
+- **zero mutants** — `mutantCount: 0`, and the assertion additionally proves the vacuity claim by checking that NO other condition fires, so condition 6 is demonstrably the only thing between an empty run and a green gate.
+- **non-finite score** — `mutantCount: 18`, `killed: 0`, all 18 survivors ledgered `equivalent`. A zero-count-only implementation passes this state; the finite-score check is what fails it.
 
 Flipping exactly one input per case is what stops a case passing for the wrong reason.
 
@@ -149,7 +162,7 @@ Extend the existing `tests/specLint/taskContract.test.ts:106` case rather than d
 
 Each assertion is verified by running its mutant and observing the test fail — demonstrated, not asserted.
 
-## Task 9 — repay groups F, G, H, I on `taskContract.ts`
+## Task 9 — repay groups F, G, H, I, J on `taskContract.ts`
 
 <!-- task: red=`pnpm vitest run tests/specLint/taskContract.test.ts` ac=AC-12 -->
 
@@ -168,7 +181,7 @@ Group I's fixture needs a pass-1 finding on a LATE line plus a pass-2 finding on
 <!-- spec-lint: ignore — new file created by this plan; not tracked until implementation -->
 `tests/mutation/guardSurfaces.gate.test.ts` asserting measured score ≥ floor, zero unaccepted survivors, exactly 18 `equivalent` and 2 `accepted-gap` rows, plus the end-to-end known-killing-mutant self-check.
 
-Wiring, all five rows of spec §5: `MUTATION_TEST_GLOBS`; `NIGHTLY_ONLY_EXCLUDES`; `tests/mutation/**/*.test.{ts,tsx}` into `PARALLEL_TEST_GLOBS`; `"mutation:guards": "VITEST_INCLUDE_MUTATION_HARNESS=1 vitest run --project mutation tests/mutation/guardSurfaces.gate.test.ts"`; the workflow path filter. **And** the nightly count at `tests/cross-cutting/vitest-projects-partition.test.ts:200-202` from 9 to 10 with its message updated — the R1 MEDIUM.
+Wiring, all six rows of spec §5: `MUTATION_TEST_GLOBS`; `NIGHTLY_ONLY_EXCLUDES`; `tests/mutation/**/*.test.{ts,tsx}` into `PARALLEL_TEST_GLOBS`; `"mutation:guards": "VITEST_INCLUDE_MUTATION_HARNESS=1 vitest run --project mutation tests/mutation/guardSurfaces.gate.test.ts"`; the workflow path filter. **And** the nightly count at `tests/cross-cutting/vitest-projects-partition.test.ts:200-202` from 9 to 10 with its message updated — the R1 MEDIUM.
 
 Also adds `BL-TASKCONTRACT-SORT-COMPARATOR-EQUALKEY` to `BACKLOG.md`; spec §3.7 makes `ref` mandatory, so the row ships in this diff rather than as a promise.
 

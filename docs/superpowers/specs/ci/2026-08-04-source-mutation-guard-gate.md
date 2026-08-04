@@ -208,7 +208,7 @@ type AcceptedSurvivor = {
 | `equivalent` | ledger row on a registry entry | authored by hand when a survivor is shown unable to change observable behavior; `reason` carries the argument + citation | score-denominator filter; registry meta-test | removed from the denominator; not an unaccepted survivor |
 | `accepted-gap` | ledger row on a registry entry | authored when a real gap is deliberately deferred; `ref` required | score denominator (counted as a survivor); registry meta-test enforces `ref` | depresses the score; not an unaccepted survivor |
 
-Both kinds have a real instance on the first enrolled surface (§4.2: 18 `equivalent`, 3 `accepted-gap`), so neither ships with an unexercised read path. Had `accepted-gap` had no real instance, the unit tests would have been required to exercise it through a fixture ledger — an empty-list-only read path is the same defect wearing a different hat.
+Both kinds have a real instance on the first enrolled surface (§4.2: 18 `equivalent`, 2 `accepted-gap`), so neither ships with an unexercised read path. Had `accepted-gap` had no real instance, the unit tests would have been required to exercise it through a fixture ledger — an empty-list-only read path is the same defect wearing a different hat.
 
 Reconciliation is the bidirectional set diff already proven in `reconcileLedger` (`tests/parser/mutation/knownHoles.ts:43-71`): `newAlarms` (actual ∖ ledger) and `staleRows` (ledger ∖ actual). A stale row fails the gate — a ledger that outlives its survivor is how a ratchet rots.
 
@@ -337,7 +337,7 @@ So the floor is a **coarse** ratchet: from the shipping state it takes three fur
 | `vitest.projects.ts:83` | add the gate file to `MUTATION_TEST_GLOBS` |
 | `vitest.projects.ts:84` | add it to `NIGHTLY_ONLY_EXCLUDES` |
 | `vitest.projects.ts:90-124` | add `tests/mutation/**/*.test.{ts,tsx}` to `PARALLEL_TEST_GLOBS` (the unit tests are pure; the gate file is excluded from both default projects by the line above) |
-| `package.json` | `"mutation:guards": "vitest run --config tests/mutation/source/gate.config.ts"` — the on-demand entry point |
+| `package.json` | `"mutation:guards": "VITEST_INCLUDE_MUTATION_HARNESS=1 vitest run --project mutation tests/mutation/guardSurfaces.gate.test.ts"` — the on-demand entry point, byte-identical in mechanism to the nightly job (`.github/workflows/mutation-harness.yml:51-54`) and differing only by file filter. An earlier draft invented a separate gate config file; two mechanisms for one job is how they drift. |
 | `.github/workflows/mutation-harness.yml:13-32` | add `tests/mutation/**` to the `pull_request` path filter; the existing nightly job already runs `--project mutation` |
 | `tests/cross-cutting/vitest-projects-partition.test.ts:200-202` | **bump the nightly-file count from 9 to 10 and update its message** — required, not optional (see below) |
 

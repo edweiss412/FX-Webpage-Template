@@ -15,6 +15,7 @@ const RE = /^ {0,3}<!-- x -->[ \\t]*$/;
 const CLASS = /[1-6]/;
 export function f(m: Map<number, number[]>, s: Set<string>): number {
   const msg = "expected depth=<1-6>, got 7 instead";
+  const finding = { column: 1, depth: 2 };
   let n = 0;
   for (let i = 0; i < 10; i++) {
     if (i >= 3 && i !== 4) n++;
@@ -49,11 +50,38 @@ describe("source-mutation operators — the declared accept-set (spec §3.1, AC-
       "relational-boundary",
       "statement-removal",
     ]);
-    // Every operator that actually emits must be declared. Asserting the
-    // produced set is a subset of the declaration is what stops a seventh
-    // emitter being added without widening the accept-set.
-    const emitted = new Set(sites().map((s) => s.operator));
-    for (const op of emitted) expect(OPERATOR_NAMES).toContain(op);
+    // SET EQUALITY, both directions. A subset check alone (emitted ⊆ declared)
+    // stops a seventh emitter being smuggled in, but says nothing about a
+    // declared operator that emits NOTHING — and that direction is the
+    // dangerous one: the surface's promised mutants are never generated, so
+    // they appear neither as killed nor as survivors, no ledger row goes
+    // stale, the mutant count stays non-zero, and the score can still clear
+    // the floor. The gate reports green having silently dropped the mutants it
+    // promised, which violates the consequence bound outright.
+    const emitted = new Set<string>(sites().map((s) => s.operator));
+    expect([...emitted].sort()).toEqual([...OPERATOR_NAMES].sort());
+  });
+
+  it("emits at least one site for EVERY declared operator, so none is silently dark", () => {
+    // The per-operator form of the same guarantee: a partially-broken emitter
+    // that still fires somewhere would satisfy set equality above.
+    for (const op of OPERATOR_NAMES) {
+      expect(
+        sites().filter((s) => s.operator === op).length,
+        `${op} emitted nothing`,
+      ).toBeGreaterThan(0);
+    }
+  });
+
+  it("emits an integer-literal site for a numeric inside a property assignment", () => {
+    // The concrete near-miss: an ordinary AST mistake is to walk only
+    // statement-position numerics and skip `PropertyAssignment` initialisers.
+    // `column: 1` in `lib/specLint/taskContract.ts:63` is exactly that shape and
+    // is one of the surface's genuine gaps, so dropping it would delete a real
+    // mutant while every gate condition stayed green.
+    const propLine = lineOf("const finding = { column: 1, depth: 2 };");
+    const there = sites().filter((s) => s.operator === "integer-literal" && s.line === propLine);
+    expect(there.map((s) => `${s.from}->${s.to}`).sort()).toEqual(["1->2", "2->3"]);
   });
 
   it("honours a per-surface operator subset instead of always emitting all six", () => {
