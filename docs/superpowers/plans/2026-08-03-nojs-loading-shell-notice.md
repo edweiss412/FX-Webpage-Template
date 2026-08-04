@@ -109,7 +109,9 @@ Assertions, one `it` each, each named for the failure it catches:
 12. The serialized `outer` string contains the literal `data-loading-shell-content=""`. Catches: regression to the bare JSX attribute, which serializes to `="true"` and which the attribute *selector* in assertions 3-4 matches either way.
 13. The wrapper's ENTIRE attribute set is exactly `["data-loading-shell-content"]` with value `""`. Catches: `hidden` / `class="hidden"` / `style="display:none"` on that element — each breaks the JavaScript-ENABLED path on all nine routes while assertions 1-12 and all four e2e cases stay green. Verified by mutation.
 14. The wrapper's parent is the shell root, the root's parent is `<body>`, and the root's attributes are exactly `["data-testid"]`. Catches: any hiding ANCESTOR, by pinning the chain's shape rather than blacklisting mechanisms — verified against `opacity:0`, `sr-only`, and `height:0 overflow:hidden`, each of which defeated a property blacklist.
-15. Both the root and the wrapper are `DIV` elements, and every assertion above runs for the no-`testId` variant too. Catches: element-type substitution (a `<dialog>` keeps every attribute assertion true while UA styling hides the fallback) and prop-keyed mutations (a class applied only when `testId` is absent hides `/me` while leaving the probe render and the `/admin` e2e byte-identical). Verified against both.
+15. Both the root and the wrapper are `DIV` elements. Catches: element-type substitution — a `<dialog>` keeps every attribute assertion true while UA styling hides the fallback.
+
+The `describe` is parameterized over both `testId` variants, so all fifteen run twice. Catches prop-keyed mutations: a class applied only when `testId` is absent hides `/me` while leaving the probe render and the `/admin` e2e byte-identical. Parameterize the BLOCK, not individual cases — per-case coverage reached two of the fifteen and the mutant escaped the other thirteen.
 
 All fifteen come from spec §7.1; the plan does not add or reinterpret any.
 
@@ -119,7 +121,7 @@ Verify RED: `pnpm vitest run tests/components/layout/loadingShellNoJs.test.tsx` 
 
 Apply spec §2 verbatim to `components/layout/Skeleton.tsx`. Update the `LoadingShell` docblock to describe the two branches and to point at spec §7.0 so nobody "fixes" the test to use `@testing-library/react`.
 
-Verify GREEN: `pnpm vitest run tests/components/layout/loadingShellNoJs.test.tsx` passes 15/15.
+Verify GREEN: `pnpm vitest run tests/components/layout/loadingShellNoJs.test.tsx` passes 28/28 — fourteen `it` blocks covering the fifteen assertions (rows 14 and 15 share one block), each run for both `testId` variants.
 
 Verify no collateral damage — the three files from spec §7.3, which passed 31/31 against a throwaway patch at spec time and must be re-confirmed against the real commit:
 

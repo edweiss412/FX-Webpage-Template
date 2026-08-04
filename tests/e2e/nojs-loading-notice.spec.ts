@@ -4,8 +4,11 @@
 // React streams the real content into a `hidden` div and reveals it with an
 // inline `$RC()` call that cannot run. LoadingShell's <noscript> block says so,
 // and its scoped <style> hides the shell so nothing pretends to still be
-// loading. jsdom can evaluate neither <noscript> semantics nor CSS, so this is
-// the only place the behavior is actually observed.
+// loading. jsdom cannot evaluate <noscript> semantics -- scripting is always
+// "enabled" there, so a <noscript>-scoped rule never applies, and React's client
+// renderer leaves the subtree empty besides. (Its CSS support is not the gap: it
+// does compute display:none from a stylesheet-backed rule.) So this is the only
+// place the behavior is actually observed.
 //
 // TWO describe blocks, each with its own test.use. NEVER a file-scoped one — a
 // file-scoped `javaScriptEnabled: false` would silently apply to the JS-on

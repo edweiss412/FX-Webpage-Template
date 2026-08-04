@@ -26,11 +26,20 @@ const TITLE = "JavaScript is required";
 const BODY = "This page needs JavaScript to load. Turn it on, then reload.";
 
 /**
- * `testId` is optional and `app/me/loading.tsx` omits it, so every structural
- * assertion runs against BOTH variants. A mutation keyed on the prop —
- * `className={testId ? undefined : "hidden"}` — leaves the probe render and the
- * /admin e2e byte-identical while hiding /me, and a single-variant test never
- * sees it.
+ * `testId` is optional and `app/me/loading.tsx` omits it, so a mutation keyed on
+ * the prop — `className={testId ? undefined : "hidden"}` on the wrapper — leaves
+ * the probe render and the /admin e2e byte-identical while hiding /me. Any
+ * assertion that runs for one variant only is blind to it.
+ *
+ * So the parameterization is on the DESCRIBE, not on individual cases. Running
+ * both variants per-assertion was the first fix and it failed the way partial
+ * fixes do: it closed the two cases it was applied to and left the other
+ * thirteen single-variant, and the escaping mutant above was found against
+ * exactly that state (cross-model review round 9, live mutant: 15/15 component
+ * cases green, style guard green, /admin e2e markup byte-identical, `/me`
+ * wrapper rendered `class="hidden"`). With the block parameterized there is no
+ * per-assertion decision left to get wrong, and a NEW assertion is covered by
+ * construction instead of by remembering.
  */
 const VARIANTS = [
   { name: "with testId", testId: "probe" as string | undefined },
@@ -72,21 +81,21 @@ function must(el: Element | null, what: string): Element {
   return el as Element;
 }
 
-describe("LoadingShell no-JavaScript notice", () => {
+describe.each(VARIANTS)("LoadingShell no-JavaScript notice — $name", ({ testId }) => {
   it("renders the notice INSIDE <noscript> and nowhere else (else every visitor sees it)", () => {
-    const { noscriptInner, outer } = renderShell("probe");
+    const { noscriptInner, outer } = renderShell(testId);
     expect(noscriptInner.querySelector(NOTICE)).not.toBeNull();
     expect(outer.querySelector(NOTICE)).toBeNull();
   });
 
   it("carries the exact hide rule (a typo'd selector leaves the skeleton visible)", () => {
-    const { noscriptInner } = renderShell("probe");
+    const { noscriptInner } = renderShell(testId);
     const style = must(noscriptInner.querySelector("style"), "a <style> inside <noscript>");
     expect(style.textContent).toBe(HIDE_RULE);
   });
 
   it("hide rule's selector actually matches the content wrapper (they can disagree)", () => {
-    const { noscriptInner, outer } = renderShell("probe");
+    const { noscriptInner, outer } = renderShell(testId);
     const style = must(noscriptInner.querySelector("style"), "a <style> inside <noscript>");
     const match = /^(\[[^\]]+\])\{/.exec(style.textContent ?? "");
     expect(match, "style text is not a single attribute-selector rule").not.toBeNull();
@@ -95,7 +104,7 @@ describe("LoadingShell no-JavaScript notice", () => {
   });
 
   it("wrapper CONTAINS the announcement and the children (not merely precedes them)", () => {
-    const { outer } = renderShell("probe");
+    const { outer } = renderShell(testId);
     const wrapper = must(
       outer.querySelector("[data-loading-shell-content]"),
       "the content wrapper",
@@ -107,26 +116,26 @@ describe("LoadingShell no-JavaScript notice", () => {
   });
 
   it("says exactly what it should say (any benign wrong message passes the rest)", () => {
-    const { noscriptInner } = renderShell("probe");
+    const { noscriptInner } = renderShell(testId);
     expect(must(noscriptInner.querySelector("h1"), "the notice heading").textContent).toBe(TITLE);
     expect(must(noscriptInner.querySelector("p"), "the notice body").textContent).toBe(BODY);
   });
 
   it("titles with a heading element, not a styled paragraph", () => {
-    const { noscriptInner } = renderShell("probe");
+    const { noscriptInner } = renderShell(testId);
     const notice = must(noscriptInner.querySelector(NOTICE), "the notice");
     expect(must(notice.querySelector("h1"), "an h1 inside the notice").tagName).toBe("H1");
   });
 
   it("keeps the copy conventions no existing scan reaches", () => {
-    const { noscriptInner } = renderShell("probe");
+    const { noscriptInner } = renderShell(testId);
     const text = must(noscriptInner.querySelector(NOTICE), "the notice").textContent ?? "";
     expect(text).not.toContain("—");
     expect(text).not.toMatch(/[A-Z]{2,}_[A-Z0-9_]+/);
   });
 
   it("gives the notice its own gutter and width cap (the crew route supplies none)", () => {
-    const { noscriptInner } = renderShell("probe");
+    const { noscriptInner } = renderShell(testId);
     const notice = must(noscriptInner.querySelector(NOTICE), "the notice");
     const gutter = notice.parentElement;
     expect(gutter, "the notice has no wrapping gutter element").not.toBeNull();
@@ -136,7 +145,7 @@ describe("LoadingShell no-JavaScript notice", () => {
   });
 
   it("keeps the card's token classes (a classless card passes every other check)", () => {
-    const { noscriptInner } = renderShell("probe");
+    const { noscriptInner } = renderShell(testId);
     const notice = must(noscriptInner.querySelector(NOTICE), "the notice");
     for (const cls of ["rounded-md", "border", "border-border", "bg-surface", "p-tile-pad"]) {
       expect(notice.classList.contains(cls), `notice is missing ${cls}`).toBe(true);
@@ -144,7 +153,7 @@ describe("LoadingShell no-JavaScript notice", () => {
   });
 
   it("keeps the heading and body token classes", () => {
-    const { noscriptInner } = renderShell("probe");
+    const { noscriptInner } = renderShell(testId);
     const notice = must(noscriptInner.querySelector(NOTICE), "the notice");
     const heading = must(notice.querySelector("h1"), "the heading");
     const body = must(notice.querySelector("p"), "the body paragraph");
@@ -157,14 +166,14 @@ describe("LoadingShell no-JavaScript notice", () => {
   });
 
   it("nests the copy inside the card (loose copy beside an empty card would pass)", () => {
-    const { noscriptInner } = renderShell("probe");
+    const { noscriptInner } = renderShell(testId);
     const notice = must(noscriptInner.querySelector(NOTICE), "the notice");
     expect(notice.contains(must(noscriptInner.querySelector("h1"), "the heading"))).toBe(true);
     expect(notice.contains(must(noscriptInner.querySelector("p"), "the body"))).toBe(true);
   });
 
   it("leaves the wrapper intrinsically visible (a `hidden` attr would pass everything else)", () => {
-    const { outer } = renderShell("probe");
+    const { outer } = renderShell(testId);
     const wrapper = must(
       outer.querySelector("[data-loading-shell-content]"),
       "the content wrapper",
@@ -174,13 +183,18 @@ describe("LoadingShell no-JavaScript notice", () => {
     // break the JavaScript-ENABLED loading path on all nine routes while every
     // other assertion here and all four e2e cases stayed green, because they
     // check the notice and the no-JS branch, never this element's visibility.
+    //
+    // The describe is parameterized, so this runs for the no-`testId` variant
+    // too. That matters: when it ran only against the probe, a wrapper class
+    // applied solely when `testId` was absent hid `/me` with the whole suite
+    // green (round 9's escaping mutant).
     expect(Array.from(wrapper.attributes).map((a) => a.name)).toEqual([
       "data-loading-shell-content",
     ]);
     expect(wrapper.getAttribute("data-loading-shell-content")).toBe("");
   });
 
-  it.each(VARIANTS)("puts NOTHING between the shell root and the wrapper ($name)", ({ testId }) => {
+  it("puts NOTHING between the shell root and the wrapper", () => {
     const { outer } = renderShell(testId);
     const wrapper = must(
       outer.querySelector("[data-loading-shell-content]"),
@@ -209,7 +223,7 @@ describe("LoadingShell no-JavaScript notice", () => {
   });
 
   it("serializes the wrapper attribute as the empty string, not the bare-JSX true", () => {
-    const { html } = renderShell("probe");
+    const { html } = renderShell(testId);
     expect(html).toContain('data-loading-shell-content=""');
   });
 });
