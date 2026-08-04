@@ -105,6 +105,10 @@ Same document, same wrapper contract, opposite outcomes — and under §2.3 the 
 
 Only the **findings** portion of the report is embedded. The CLI's numeric `INVENTORY` block is excluded: it is the bulk of the bytes and is drafting-aid output, not review signal.
 
+Stated as an exact transformation, because "exclude the inventory" alone leaves an implementer guessing what else goes. `renderText` (`scripts/spec-lint.ts:40`) emits, in order: two header lines, a blank, zero or more check sections, an optional `INVENTORY` block, and a final `summary:` line. The embed **drops the lines from the one reading exactly `INVENTORY` up to but not including the line beginning `summary:`**, and keeps everything else — headers, every check section, and the summary line. The summary is deliberately retained: it is the single most informative line in the report, and dropping it alongside the inventory would leave a reviewer unable to see totals at a glance.
+
+The boundary is unambiguous by construction: findings and inventory entries are both indented, so a line equal to `INVENTORY` at column zero cannot be anything else.
+
 This matters because the wrapper refuses composed prompts over 2,000,000 bytes (`scripts/codex-guard.mjs:41`), and full reports are large. The largest single report in the tracked corpus reproduces with:
 
 ```
@@ -115,6 +119,15 @@ npx tsx scripts/spec-lint.ts docs/superpowers/specs/parser/2026-07-27-inline-lat
 A quarter-megabyte report for a document with **zero** hard findings is the shape of the problem: the bytes are inventory, not signal. The 13 largest reports together reach 2,008,482 bytes, crossing the wrapper's cap before any brief text, so a repeatable flag whose every individual run exits 0 or 1 could still fail composition.
 
 Measure this with output redirected to a file, not through a captured pipe: a 64 KiB-buffered capture silently truncates every report to exactly 65,536 bytes and makes the problem look four times smaller than it is.
+
+**Filtering does most of the work; the budget is a safety net, not a routine constraint.** Applying the transformation above to the corpus's largest report:
+
+```
+raw=290909 bytes | filtered=20051 bytes | reduction=93.1%
+INVENTORY at line 179 | summary lines found: 1 | bare-INVENTORY collisions: 1
+```
+
+The worst report in the corpus lands at 20 KB filtered, so the 200,000-byte budget accommodates roughly ten of the largest documents in one dispatch and the wrapper's 2,000,000-byte composition cap is never approached in realistic use. Truncation is the guard against a pathological invocation, not a thing reviewers should expect to see.
 
 - Reports are embedded in `--lint-doc` argument order, and that order is preserved.
 - The embedded reports carry a combined budget of 200,000 bytes. When a report would cross it, it is truncated at a line boundary and the block ends with an explicit `[truncated: N of M bytes shown]` line, so the reviewer is never shown a silently shortened report.
