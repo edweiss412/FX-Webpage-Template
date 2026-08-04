@@ -26,7 +26,7 @@ Each item below is a decision already taken, with its ratification. A reviewer s
 
 7. **No §12.4 lockstep.** The master-spec edit is in §6.8 (MI-9), not the §12.4 error-code catalog, so the three-way lockstep (spec prose + `pnpm gen:spec-codes` + `lib/messages/catalog.ts`) does not apply. `pnpm test:audit:x1-catalog-parity` is run anyway as a negative check (§5).
 
-8. **No DB, no advisory lock, no migration, no mutation surface.** Invariants 2, 9, and 10 are structurally inapplicable; the tier × domain matrix, CHECK/enum migration matrix, and flag lifecycle table required by `docs/agents/spec-self-review.md` are N/A for the same reason and are declared so in §6 rather than omitted.
+8. **No advisory lock, no migration, no mutation surface, and no DB *change* — but one DB-bound TEST.** `tests/db/isAdminRoleFlagsContract.test.ts` opens a connection and calls `public.is_admin()`, so the DB dimension is reduced rather than inapplicable (§6 carries the matrix). Invariants 2, 9, and 10 are structurally inapplicable; the CHECK/enum migration matrix and flag lifecycle table are N/A and are declared so in §6 rather than omitted.
 
 9. **No component, no visual state, no fixed-dimension parent.** Dimensional Invariants and Transition Inventory sections are N/A (§6).
 

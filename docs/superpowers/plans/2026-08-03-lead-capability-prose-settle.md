@@ -2,7 +2,7 @@
 
 **Spec:** `docs/superpowers/specs/2026-08-03-lead-capability-prose-settle-design.md` (canonical) · **Branch:** `docs/settle-lead-capability-prose` · **Implementer:** Opus / Claude Code
 
-Six instances of one class — a hand-maintained restatement of a predicate or structure that nothing forces to stay true — plus two structural guards that make the load-bearing ones self-enforcing, plus the ledger graduation and one descoped-class filing. No UI, no DB, no migration, no advisory lock, no runtime behavior change.
+Six instances of one class — a hand-maintained restatement of a predicate or structure that nothing forces to stay true — plus two structural guards that make the load-bearing ones self-enforcing, plus the ledger graduation and one descoped-class filing. No UI, no migration, no advisory lock, no runtime behavior change. It DOES add one DB-bound test (`tests/db/isAdminRoleFlagsContract.test.ts`), which runs in the `unit-suite-db` legs — see §3's reduced tier × domain matrix.
 
 ---
 

@@ -76,13 +76,23 @@ function stripCommentPrefix(line: string): string {
 /** Pure -- takes source text so the negative cases can drive it directly. */
 function parseDocumentedPredicates(source: string): DocumentedPredicate[] {
   const lines = source.split("\n");
-  const headerIdx = lines.findIndex((line) => line.includes(BLOCK_SENTINEL));
-  if (headerIdx === -1) {
+  const sentinelLines = lines.filter((line) => line.includes(BLOCK_SENTINEL));
+  if (sentinelLines.length === 0) {
     throw new Error(
       `documented-predicate block not found: no line contains "${BLOCK_SENTINEL}". ` +
         `If the comment was re-wrapped, restore the sentinel to a single line.`,
     );
   }
+  // Uniqueness matters: findIndex would bind to the FIRST occurrence, so a
+  // second (correct) block could shadow drift in the real one and the whole
+  // powerset sweep would pass against the decoy.
+  if (sentinelLines.length > 1) {
+    throw new Error(
+      `documented-predicate block is ambiguous: ${sentinelLines.length} lines contain ` +
+        `"${BLOCK_SENTINEL}". Exactly one block may carry the sentinel.`,
+    );
+  }
+  const headerIdx = lines.findIndex((line) => line.includes(BLOCK_SENTINEL));
   const out: DocumentedPredicate[] = [];
   let started = false;
   for (let i = headerIdx + 1; i < lines.length; i++) {
@@ -238,6 +248,13 @@ describe("the parser fails loudly rather than silently passing", () => {
     const short = ` * (verbatim branch logic from x):\n *\n *   audioScopeVisible = A1\n *\n`;
     expect(parseDocumentedPredicates(short)).toHaveLength(1);
     expect(parseDocumentedPredicates(short).length).toBeLessThan(GATED.length);
+  });
+
+  test("M25: a duplicate sentinel block is ambiguous, not silently preferred", () => {
+    const decoy =
+      ` * (verbatim branch logic from x):\n *\n *   financialsVisible = isAdmin || LEAD || FINANCIALS\n *\n` +
+      ` * (verbatim branch logic from x):\n *\n *   financialsVisible = isAdmin || LEAD\n *\n`;
+    expect(() => parseDocumentedPredicates(decoy)).toThrow(/ambiguous: 2 lines contain/);
   });
 
   test("M9: an unsupported operator throws", () => {
