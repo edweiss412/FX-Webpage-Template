@@ -20,7 +20,8 @@
  * every state); no hardcoded pixel value. The no-wrap check compares the two-chip
  * badge to the single-chip badge height.
  */
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect } from "./helpers/fontFidelityFixture";
+import type { Page } from "@playwright/test";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";

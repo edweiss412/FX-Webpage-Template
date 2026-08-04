@@ -25,7 +25,8 @@ import { execFileSync } from "node:child_process";
 import { createServer, type Server } from "node:http";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { expect, test, type Locator, type Page } from "@playwright/test";
+import { test, expect } from "./helpers/fontFidelityFixture";
+import type { Locator, Page } from "@playwright/test";
 import { compileEntryCss } from "./helpers/liveEntryToolchain";
 import { ROW_WIDTHS } from "./_sectionHeaderWidths";
 

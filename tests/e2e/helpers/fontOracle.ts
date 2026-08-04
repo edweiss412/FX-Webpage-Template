@@ -132,6 +132,16 @@ export const PROBE_STYLE = [
   "letter-spacing: normal",
   "word-spacing: normal",
   "font-weight: 400",
+  // The binary carries an `opsz` axis, and `font-optical-sizing: auto` is the
+  // CSS DEFAULT -- so Chromium instances the font at the probe's px size while
+  // fontkit lays out the default instance. Measured: that alone puts
+  // "Hamburgefonstiv" 1.125px off a 130px expectation, more than twice the
+  // 0.5px contract, on a completely correct face. Neutralising it is not a
+  // tolerance concession; it is the same class as `font-feature-settings:
+  // normal` -- switch off everything that changes the glyph run so the
+  // comparison is about WHICH FACE rendered, not how it was instanced.
+  "font-optical-sizing: none",
+  "font-variation-settings: normal",
   "position: absolute",
   "visibility: hidden",
   "white-space: pre",

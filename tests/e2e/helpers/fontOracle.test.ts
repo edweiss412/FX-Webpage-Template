@@ -99,6 +99,14 @@ describe("probe styling", () => {
       "letter-spacing: normal",
       "word-spacing: normal",
       "font-weight: 400",
+      // Measured, not defensive: the binary carries an `opsz` axis and
+      // `font-optical-sizing: auto` is the CSS default, so Chromium instances
+      // the font at the probe's size while fontkit lays out the default
+      // instance. That alone put "Hamburgefonstiv" 1.125px off a 130px
+      // expectation -- more than twice the 0.5px contract -- on a completely
+      // correct face.
+      "font-optical-sizing: none",
+      "font-variation-settings: normal",
     ]) {
       expect(PROBE_STYLE).toContain(declaration);
     }

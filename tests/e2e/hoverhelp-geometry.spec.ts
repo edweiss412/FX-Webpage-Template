@@ -20,7 +20,8 @@
  * clipping/visibility proof (BACKLOG.md documents it lying about clipping);
  * true visibility uses document.elementFromPoint.
  */
-import { test, expect, type CDPSession, type Page } from "@playwright/test";
+import { test, expect } from "./helpers/fontFidelityFixture";
+import type { CDPSession, Page } from "@playwright/test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
