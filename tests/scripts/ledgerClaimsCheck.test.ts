@@ -52,6 +52,14 @@ function fake(over: Partial<GitSurface> = {}): GitSurface {
 const check = (git: GitSurface, ids: string[], extra: Record<string, unknown> = {}) =>
   runCheck(git, ids, { now: NOW, fetch: false, ...extra });
 
+/**
+ * Verification implies a fetch: `--no-fetch` is a NO-NETWORK contract, and
+ * `ls-remote` is a network call, so verify is only meaningful on the fetching
+ * path. This is what a real `--check` invocation looks like.
+ */
+const checkVerified = (git: GitSurface, ids: string[], extra: Record<string, unknown> = {}) =>
+  runCheck(git, ids, { now: NOW, fetch: true, verify: true, ...extra });
+
 describe("--check exit codes", () => {
   it("exits 1 on a declared collision with resolved identity", () => {
     const r = check(fake({ inCI: () => false, currentBranch: () => "other" }), ["BL-X"]);
@@ -213,7 +221,7 @@ describe("universe verification", () => {
 
 describe("--check on a degraded universe", () => {
   it("exits 2 when the head map disagrees, even with no collision", () => {
-    const r = check(
+    const r = checkVerified(
       fake({
         lsRemote: () =>
           new Map([
@@ -223,7 +231,6 @@ describe("--check on a degraded universe", () => {
         currentBranch: () => "other",
       }),
       ["BL-UNRELATED"],
-      { verify: true },
     );
     expect(r.code).toBe(2);
   });
@@ -231,7 +238,7 @@ describe("--check on a degraded universe", () => {
   it("exits 2 when ls-remote itself throws", () => {
     // An uncaught throw exits 1, which §3.3 defines as another branch's claim —
     // an environment fault reported as somebody else's work.
-    const r = check(
+    const r = checkVerified(
       fake({
         lsRemote: () => {
           throw new Error("could not read Username");
@@ -239,28 +246,30 @@ describe("--check on a degraded universe", () => {
         currentBranch: () => "other",
       }),
       ["BL-UNRELATED"],
-      { verify: true },
     );
     expect(r.code).toBe(2);
   });
 
   it("exits 2 when no origin refs resolve at all", () => {
-    const r = check(fake({ localRefs: () => new Map(), lsRemote: () => new Map() }), ["BL-X"], {
-      verify: true,
-    });
+    const r = checkVerified(
+      fake({ localRefs: () => new Map(), lsRemote: () => new Map() }),
+      ["BL-X"],
+      {
+        verify: true,
+      },
+    );
     expect(r.code).toBe(2);
   });
 
   it("exits 2 when a non-empty ledger parses zero entries", () => {
     // A whole ledger disappearing is the same false-all-clear class as an
     // unverified universe, reached through a different door.
-    const r = check(
+    const r = checkVerified(
       fake({
         showFile: () => "this file is not empty but has no entries\n",
         currentBranch: () => "other",
       }),
       ["BL-X"],
-      { verify: true },
     );
     expect(r.code).toBe(2);
   });
@@ -270,7 +279,7 @@ describe("--check on a degraded universe", () => {
     // collision, and a "everything degraded exits 2" rule would mask it.
     const many: [string, string][] = [["main", "a"]];
     for (let i = 0; i < 101; i++) many.push([`b${i}`, `oid${i}`]);
-    const r = check(
+    const r = checkVerified(
       fake({
         localRefs: () => new Map(many),
         lsRemote: () => new Map(many),
@@ -279,7 +288,6 @@ describe("--check on a degraded universe", () => {
         currentBranch: () => "other",
       }),
       ["BL-DEEP"],
-      { verify: true },
     );
     expect(r.code).toBe(1);
   });
@@ -290,7 +298,7 @@ describe("untrusted dominates a collision (whole-diff review F1)", () => {
   // about the world. It may only be made from a universe that was verified.
   // Returning 1 from an unverifiable universe is the same error as returning 0.
   it("exits 2, not 1, when ls-remote fails and a collision is also present", () => {
-    const r = check(
+    const r = checkVerified(
       fake({
         lsRemote: () => {
           throw new Error("auth failed");
@@ -298,14 +306,13 @@ describe("untrusted dominates a collision (whole-diff review F1)", () => {
         currentBranch: () => "other",
       }),
       ["BL-X"],
-      { verify: true },
     );
     expect(r.code).toBe(2);
     expect(r.collisions, "the finding is still reported, just not as decided").toHaveLength(1);
   });
 
   it("exits 2, not 1, when the head map mismatches and a collision is present", () => {
-    const r = check(
+    const r = checkVerified(
       fake({
         lsRemote: () =>
           new Map([
@@ -315,14 +322,13 @@ describe("untrusted dominates a collision (whole-diff review F1)", () => {
         currentBranch: () => "other",
       }),
       ["BL-X"],
-      { verify: true },
     );
     expect(r.code).toBe(2);
   });
 
   it("exits 2, not 0, when the fetch failed and no collision was found", () => {
     // Cached refs may predate the very push being checked for.
-    const r = check(
+    const r = checkVerified(
       fake({
         fetch: () => {
           throw new Error("network down");

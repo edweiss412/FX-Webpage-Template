@@ -102,7 +102,9 @@ if (missing.length || invalid.length) {
 const skipClaims =
   process.argv.includes("--no-claims") ||
   process.env.PREFLIGHT_NO_CLAIMS === "1" ||
-  process.env.CI === "true";
+  // Any truthy CI value, not just the string "true": CI=1 is equally
+  // conventional and would otherwise spawn the child and pay its latency.
+  (process.env.CI !== undefined && process.env.CI !== "" && process.env.CI !== "false");
 
 if (!skipClaims) {
   const claims = spawnSync("pnpm", ["exec", "tsx", "scripts/ledger-claims.ts", "--no-fetch"], {

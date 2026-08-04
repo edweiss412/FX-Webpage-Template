@@ -215,7 +215,7 @@ branch-existence rule never fires for it and main will inherit an unvalidated ma
 the exact rot invariant 12 exists to stop, happening now.
 
 The window is not arbitrary: it stops a `**Branch:**` quoted deep in a discussion from registering
-as the entry's own field, which `tests/docs/_metaLedgerInProgress.test.ts:277` plants and asserts.
+as the entry's own field, which `tests/docs/_metaLedgerInProgress.test.ts:236` plants and asserts.
 Two measurements settle what replaces it, across `origin/main`, all 15 live refs, and all four
 ledgers:
 
@@ -422,7 +422,7 @@ next person to add a ledger family learns it from the spec instead of from a sil
 `BL-LEDGER-DISCOVERY-FAMILY-SCOPED`, exception (c) per `AGENTS.md:227`.
 
 The move is behavior-preserving: no regex, no bound, and no field name changes. The existing
-planted-input suite (`tests/docs/_metaLedgerInProgress.test.ts:224-287`) stays where it is and
+planted-input suite (`tests/docs/_metaLedgerInProgress.test.ts:152-246`) stays where it is and
 imports the module, becoming the parser's regression coverage rather than a test of a local helper.
 
 The non-greedy bold-run split that keeps a meta line from collapsing into one field
@@ -715,7 +715,7 @@ an extra cached head and `--check` exits 2 permanently. R12 finding 2: names alo
 | A diff hunk landing outside every entry span | Dropped, contributing no `inferred` claim (§3.2 step 6). The reconciliation-log preamble is this case and occurs on every live ref |
 | A ledger file that is non-empty on disk but yields **zero** entries | Exit **2** in `--check`, not a warning. This is the per-file vacuity rule (§3.1): a whole ledger silently disappearing — which a wrong `ExtractOpts` mapping does to both deferred files — is the same false-all-clear class as R3 finding 1 reached through a different door. The condition is self-contained and never compares the parser against another run of itself |
 | A ledger file that is genuinely empty, or absent at a ref | Contributes no claims, no warning. A branch may predate the file |
-| **Vacuity**: every branch yields 0 entries while `origin/main` yields more than 100, **and at least one candidate branch exists whose ledger files are non-empty** | R10 finding 2: without that last clause the predicate is true in three legitimate universes — origin holding only `main`, every candidate predating the ledgers, and genuinely empty candidate ledgers — so a repo with no side branches would exit 2 forever. The clause is what distinguishes "the parser broke" from "there is nothing to parse" Print `WARN: claim parser matched nothing across N branches — treat this report as unreliable` and exit 2 in `--check`. A parser that silently matches nothing would make the whole report a false all-clear, which is the one failure this tool must never produce quietly. The threshold sits far below the real floor: the probe parsed 4837 entries across 15 refs and 4 ledgers at 19:11 CDT, and 6715 across 19 refs 90 minutes later. Both are an order of magnitude clear of 100, and the margin grows as the corpus does |
+| ~~**Global vacuity**~~ — **DELETED, amended post-approval (whole-diff review F4)** | The isolated fixture R10 finding 2 required is logically impossible: "some candidate has a non-empty file" AND "all candidates yield zero entries" together entail a non-empty file yielding zero entries, which IS per-file vacuity. Exhaustive enumeration over candidate sets up to size 3 returns **zero** satisfying assignments, so the gate is fully subsumed and could never fail independently. Per-file vacuity is the rule, and it scans `origin/main` PLUS the same candidate set claims resolve over — excluding main missed a parser regression confined to it, and including merged branches failed on content resolution never reads |
 | An entry declared in-progress with no `Branch`/`PR` field | Still reported as `declared`, keyed on the ref it was found at. Field validity is `tests/docs/_metaLedgerInProgress.test.ts`'s job, not the reader's |
 | The same id declared by two branches | Both rows printed. This IS the collision; `--check` exits 1 |
 | An id declared on a branch and also present on `origin/main` as in-progress | Reported once per branch. Main is never a candidate, so main's own copy contributes nothing |
@@ -761,7 +761,7 @@ Every numeric bound in this design, defined once here and referenced everywhere 
 | Branch report cap | 100, with the omitted count always printed | §4.1 |
 | Open-PR query limit | 100, display only, and allowed to be incomplete because no rule reads it | §3.2 step 7, §4.1 |
 | Meta-line body window | 12 lines, inherited unchanged by `ledgerItems`; the claim recognizer is position-independent and uses no window | §3.1, §3.2 step 5 |
-| Global vacuity floor | 100 entries on main, against a measured corpus of 4837 and then 6715 within 90 minutes | §4.2 |
+| ~~Global vacuity floor~~ | **removed** — the gate is subsumed by per-file vacuity, which carries no numeric bound: a non-empty ledger yielding zero entries fails whatever the count | §4.2 |
 | Per-file vacuity | no numeric bound — a non-empty ledger yielding zero entries fails, whatever the count | §3.1, §4.2 |
 
 No other numeric bound exists in this design. R18 finding 3 caught this table omitting the gh bound and naming only the fetch for 30 s while ls-remote carries its own — a plan derived from a table declaring itself the single source would have conflated or dropped them.
@@ -1170,7 +1170,7 @@ a behavior widening of an existing guard, so it gets its own task and its own ca
 - The out-of-window marker on `chore/ledger-body-ids-enum-scan-widen` is now seen. Planted as a
   fixture with its measured shape, not read from the live branch, so the test does not decay when
   that branch merges.
-- The existing plant at `tests/docs/_metaLedgerInProgress.test.ts:277` — a bare `**Branch:**`
+- The existing plant at `tests/docs/_metaLedgerInProgress.test.ts:236` — a bare `**Branch:**`
   fourteen paragraphs deep — must still be ignored. This is the case the window existed for, and the
   same-line `Status` requirement is what replaces it. If this assertion is relaxed rather than
   preserved, the recognizer is wrong.

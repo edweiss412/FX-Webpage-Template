@@ -70,14 +70,26 @@ export function runCheck(
 
   const fetchOpt = opts.fetch ?? true;
   const now = opts.now;
+
+  // ONE snapshot of the ref map, taken before resolution and reused for
+  // verification and vacuity. Three independent reads race with any other
+  // worktree fetching concurrently: a branch appearing between reads is verified
+  // but not resolved (exit 0 on a real collision), and one disappearing is
+  // resolved but not verified (exit 1 for a branch already deleted).
+  const snapshot = git.localRefs();
+  const pinned: GitSurface = { ...git, localRefs: () => snapshot };
+
   const resolution = resolveClaims(
-    git,
+    pinned,
     now === undefined ? { fetch: fetchOpt } : { fetch: fetchOpt, now },
   );
 
   // --- universe verification -------------------------------------------------
   let untrusted = false;
-  if (opts.verify) {
+  // `--no-fetch` means NO NETWORK, and `ls-remote` is a network call. Verifying
+  // a cached read against the live remote would both violate that contract and
+  // fail offline, which is exactly when the cached read is wanted.
+  if (opts.verify && fetchOpt) {
     let remote: Map<string, string> | null = null;
     try {
       remote = git.lsRemote();
@@ -88,7 +100,7 @@ export function runCheck(
       untrusted = true;
     }
     if (remote !== null) {
-      const local = git.localRefs();
+      const local = snapshot;
       if (local.size === 0 && remote.size === 0) {
         reasons.push("no origin refs resolvable");
         untrusted = true;
@@ -103,12 +115,25 @@ export function runCheck(
     // Per-file vacuity: a ledger that is non-empty on disk but yields zero
     // entries means a whole ledger vanished, which is the same false-all-clear
     // class as an unverified universe.
-    for (const ref of [...git.localRefs().keys()].filter((n) => n !== "main" && n !== "HEAD")) {
+    //
+    // Scans main PLUS the same candidate set claims resolve over — not a
+    // different one. Excluding main missed a parser regression confined to it
+    // (a main-only repository returned a trusted exit 0), and including merged
+    // branches failed on legacy content that resolution never reads.
+    const merged = new Set(git.isShallow() ? [] : git.mergedIntoMain());
+    const scanRefs = [
+      "origin/main",
+      ...[...snapshot.keys()]
+        .filter((n) => n !== "main" && n !== "HEAD")
+        .map((n) => `origin/${n}`)
+        .filter((r) => !merged.has(r)),
+    ];
+    for (const ref of scanRefs) {
       for (const file of ledgerFiles()) {
-        const text = git.showFile(`origin/${ref}`, file);
+        const text = git.showFile(ref, file);
         if (text === null || text.trim().length === 0) continue;
         if (ledgerItems(file, text).length === 0) {
-          reasons.push(`${file} is non-empty at origin/${ref} but parsed zero entries`);
+          reasons.push(`${file} is non-empty at ${ref} but parsed zero entries`);
           untrusted = true;
         }
       }
