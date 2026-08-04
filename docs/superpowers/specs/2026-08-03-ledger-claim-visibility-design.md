@@ -5,7 +5,7 @@
 **Date:** 2026-08-03
 **Branch:** `chore/ledger-claim-visibility`
 **Backlog entries:** none opened for this work (see §9.1); two filed as by-products (§9.2, §9.3)
-**Status:** R8 repaired — 49 adversarial findings across eight rounds plus 5 self-findings, all accepted, all closed
+**Status:** R9 repaired — 52 adversarial findings across nine rounds plus 5 self-findings, all accepted, all closed
 **Review note:** R1-R4 were Codex (cross-model). R5 and R6 were fresh-eyes Opus sessions, because Codex hit a usage limit resetting 2026-08-10; see §10
 **impeccable-gate: N/A — no UI surface**
 
@@ -348,10 +348,14 @@ can produce — it does not merely miss a claim, it asserts a false one about a 
 R8 finding 1 measured the cost of getting this wrong: applying the backlog opts to the deferred
 ledgers yields **0** entries for each, against 15 and 139 correct, so a planted deferred claim
 vanishes entirely — and the global vacuity gate stays quiet because the 321 surviving backlog
-entries clear the 100 floor on their own. §4.2's vacuity rule is therefore **per file as well as
-global**: any ledger that parses zero entries while its counterpart on `origin/main` parses more
-than ten is an exit-2 condition, not a warning. A whole ledger silently disappearing is the same
-false-all-clear class as R3 finding 1, reached through a different door.
+entries clear the 100 floor on their own.
+
+§4.2's vacuity rule is therefore **per file, and self-contained**: a ledger file that is non-empty on
+disk but yields zero entries is an exit-2 condition. R9 finding 1 refuted the first repair of this,
+which compared each file against its counterpart on `origin/main` — a wrong opts mapping applies to
+main too, so both baselines read zero, the comparison is false, and the gate never fires. Any rule
+that measures the parser against itself is defeated by the parser being wrong, which is the only
+case it exists for. Comparing against the file's own non-emptiness has no such dependency.
 
 So the shared parser module **consumes `extractEntries` for ids and spans** and owns only
 field extraction within a span. The local `HEADING` regex is deleted rather than moved; two grammars
@@ -601,7 +605,8 @@ Every input, and what the reader does with it.
 | --- | --- |
 | A ledger file missing at a branch's tip | Skipped for that branch, with `git show`'s stderr discarded (§3.2 step 4). A branch may predate the file |
 | A diff hunk landing outside every entry span | Dropped, contributing no `inferred` claim (§3.2 step 6). The reconciliation-log preamble is this case and occurs on every live ref |
-| A ledger file present but unparseable at a ref | That file contributes no claims; print `WARN: <ref>:<file> parsed 0 entries` |
+| A ledger file that is non-empty on disk but yields **zero** entries | Exit **2** in `--check`, not a warning. This is the per-file vacuity rule (§3.1): a whole ledger silently disappearing — which a wrong `ExtractOpts` mapping does to both deferred files — is the same false-all-clear class as R3 finding 1 reached through a different door. The condition is self-contained and never compares the parser against another run of itself |
+| A ledger file that is genuinely empty, or absent at a ref | Contributes no claims, no warning. A branch may predate the file |
 | **Vacuity**: every branch yields 0 entries while `origin/main` yields more than 100 | Print `WARN: claim parser matched nothing across N branches — treat this report as unreliable` and exit 2 in `--check`. A parser that silently matches nothing would make the whole report a false all-clear, which is the one failure this tool must never produce quietly. The threshold sits far below the real floor: the probe parsed 4837 entries across 15 refs and 4 ledgers at 19:11 CDT, and 6715 across 19 refs 90 minutes later. Both are an order of magnitude clear of 100, and the margin grows as the corpus does |
 | An entry declared in-progress with no `Branch`/`PR` field | Still reported as `declared`, keyed on the ref it was found at. Field validity is `tests/docs/_metaLedgerInProgress.test.ts`'s job, not the reader's |
 | The same id declared by two branches | Both rows printed. This IS the collision; `--check` exits 1 |
@@ -646,7 +651,8 @@ Every numeric bound in this design, defined once here and referenced everywhere 
 | Branch report cap | 100, with the omitted count always printed | §4.1 |
 | Open-PR query limit | 100, display only, and allowed to be incomplete because no rule reads it | §3.2 step 7, §4.1 |
 | Meta-line body window | 12 lines, inherited unchanged by `ledgerItems`; the claim recognizer is position-independent and uses no window | §3.1, §3.2 step 5 |
-| Vacuity floor | 100 entries on main, against a measured corpus of 4837 and then 6715 within 90 minutes | §4.2 |
+| Global vacuity floor | 100 entries on main, against a measured corpus of 4837 and then 6715 within 90 minutes | §4.2 |
+| Per-file vacuity | no numeric bound — a non-empty ledger yielding zero entries fails, whatever the count | §3.1, §4.2 |
 
 No other numeric bound exists in this design.
 
@@ -814,6 +820,8 @@ a false all-clear through five distinct doors while passing everything above:
 | Zero `refs/remotes/origin/*` resolved | 2 | exit 0 from an empty universe |
 | Fetch succeeds but resolves fewer heads than `git ls-remote` reports | 2 | exit 0 from a silently narrowed universe (the configured-refspec case) |
 | Detached HEAD with no `GITHUB_HEAD_REF` | 2 | exit 1 attributing the caller's own marker to a stranger |
+| `git ls-remote` fails after a successful fetch | 2 | R9 finding 3: `execFileSync` throws (status 128) and an uncaught throw exits **1**, which §3.3 and §6.2 both define as another branch's collision. An implementation that simply omits the catch passes every other row here |
+| A deferred ledger parsed with the backlog `ExtractOpts` | 2 | R8 finding 1 / R9 finding 1: both deferred files yield zero entries, a planted deferred claim vanishes, and the global floor stays satisfied by the backlog entries alone. **The case plants a claim in `DEFERRED.md` and asserts it is found**, which is the only assertion that fails when the opts mapping is wrong |
 | 101 candidates, the collision in the 101st | **1** | exit 0 from a collision hidden behind the display cap |
 
 The last row is the one that must NOT be exit 2: the cap is display-only (§4.1), so a collision past
@@ -881,16 +889,36 @@ so anything not excluded is scanned by default:
 | §7.1 / §7.2 reader tests | **Yes if** their planted ledgers use `BL-`-shaped ids, which they do |
 | The §3.1 shared parser module | No — contains no ids |
 | The §3.2 reader script | No — contains no ids |
-| **This spec document** | **Yes** — R7 finding 2 |
+| **This spec document** | **Yes, and in the other registry** — see below |
 
-The last row is the one an exhaustive-looking table missed twice. `tests/docs/_metaLedgerReferentialIntegrity.test.ts:106`
-walks every tracked `*.md`, and a spec is a tracked `*.md`. This document carries eight synthetic ids
-in its worked examples — `BL-SOME-OTHER-ROW` in §3.2's sample output, `BL-A` and `BL-B` in §3.3's
-usage line, and `BL-DEFINED` / `BL-MENTIONED` / `BL-COLON` / `BL-NESTED` / `BL-ONE` in §9.2's probe
-table — none of which resolves to a real entry. Registering only the *test* files would leave the
-guard red on the spec that asked for them. The real row §9.2 files
-(`BL-LEDGER-BODY-DEFINED-ID-OVERMINT`) is excluded from that count: it resolves, because §9.2 opens
-it.
+The last row belongs in a **different registry than every row above it**, and took three rounds to
+get right. `tests/docs/_metaLedgerReferentialIntegrity.test.ts:106` walks every tracked `*.md`, and
+a spec is a tracked `*.md`.
+
+The two registries are not interchangeable, which R8 finding 3 caught an earlier draft conflating:
+
+| Registry | Granularity | Effect |
+| --- | --- | --- |
+| `NOT_CITATIONS` (`tests/docs/_metaLedgerReferentialIntegrity.test.ts:76`) | whole file | the file is **never scanned**, so every citation in it goes unchecked |
+| `NOT_A_CITATION` (`tests/docs/_metaLedgerReferentialIntegrity.test.ts:202`) | per file, per id, each with a reason string | those ids are exempt; every other citation in the file is still verified |
+
+Putting this spec in `NOT_CITATIONS` would silence its synthetic ids **and** its real ones —
+including the two rows §9.2 and §9.3 file, so a later typo in either would become invisible. It goes
+in `NOT_A_CITATION`, one row per synthetic id with its reason, following the precedent already set
+for a sibling spec at `tests/docs/_metaLedgerReferentialIntegrity.test.ts:203`. That registry also
+fails a row whose id later becomes real, so the exemptions cannot quietly outlive their examples.
+
+**Nine ids, enumerated rather than counted.** R9 finding 2 caught an earlier "eight", which had
+dropped `BL-TWO` — and an off-by-one in a registry is a red CI run, not a wording slip:
+
+| Id | Where | Why synthetic |
+| --- | --- | --- |
+| `BL-SOME-OTHER-ROW` | §3.2 sample output | placeholder in the report example |
+| `BL-A`, `BL-B` | §3.3 usage line | `--check` argument example |
+| `BL-DEFINED`, `BL-MENTIONED`, `BL-COLON`, `BL-NESTED`, `BL-ONE`, `BL-TWO` | §9.2 probe table | the over-mint probe's planted inputs |
+
+`BL-LEDGER-BODY-DEFINED-ID-OVERMINT` and `BL-LEDGER-MDAST-SHARED-HOME` are deliberately **not** in
+that list: both resolve, because §9.2 and §9.3 open them.
 
 The rows land in the same commit as the file that needs them, never as a follow-up: a missing row
 fails CI immediately, so deferring it just means a red branch.
