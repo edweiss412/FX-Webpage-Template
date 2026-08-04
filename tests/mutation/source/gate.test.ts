@@ -13,8 +13,18 @@ const PASSING: GateInput = {
   killed: 82,
   survivors: ["g0", "g1", ...Array.from({ length: 18 }, (_, i) => `e${i}`)],
   ledger: [
-    { siteId: "g0", kind: "accepted-gap", reason: "not observable", ref: "BL-X" },
-    { siteId: "g1", kind: "accepted-gap", reason: "not observable", ref: "BL-X" },
+    {
+      siteId: "g0",
+      kind: "accepted-gap",
+      reason: "not observable",
+      ref: "BL-TASKCONTRACT-SORT-COMPARATOR-EQUALKEY",
+    },
+    {
+      siteId: "g1",
+      kind: "accepted-gap",
+      reason: "not observable",
+      ref: "BL-TASKCONTRACT-SORT-COMPARATOR-EQUALKEY",
+    },
     ...Array.from({ length: 18 }, (_, i) => ({
       siteId: `e${i}`,
       kind: "equivalent" as const,
