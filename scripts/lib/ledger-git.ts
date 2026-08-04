@@ -135,7 +135,25 @@ export function realGitSurface(): GitSurface {
     },
 
     showFile(ref, file) {
-      return git(["show", `${ref}:${file}`], LS_REMOTE_MS, true);
+      // "Absent" and "failed" are different answers, and collapsing them loses
+      // declared claims silently: an object-read failure or a timeout would read
+      // as "this branch has no ledger" and drop every marker on it.
+      const r = spawnSync("git", ["show", `${ref}:${file}`], {
+        cwd: ROOT,
+        encoding: "utf8",
+        timeout: LS_REMOTE_MS,
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+      if (r.status === 0) return r.stdout ?? "";
+      const stderr = `${r.stderr ?? ""}`;
+      // git's own wording for a path that simply is not in that tree. Anything
+      // else — a corrupt object, a timeout, a bad ref — is a fault, not absence.
+      if (
+        /does not exist|exists on disk, but not in|unknown revision|invalid object/i.test(stderr)
+      ) {
+        return null;
+      }
+      throw new Error(`git show ${ref}:${file} failed: ${stderr.trim() || `status ${r.status}`}`);
     },
 
     mergeBase(ref) {

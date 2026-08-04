@@ -149,7 +149,11 @@ describe("ledger claim collision (cross-branch backstop)", () => {
     const refs = (gitQuiet(["for-each-ref", "--format=%(refname:short)", "refs/remotes/origin"]) ?? "")
       .split("\n")
       .map((s) => s.trim())
-      .filter((r) => r.length > 0 && r !== "origin/main" && r !== "origin/HEAD");
+      // `%(refname:short)` renders refs/remotes/origin/HEAD as plain "origin",
+      // NOT "origin/HEAD" — so filtering the latter never excluded it and main
+      // entered the candidate set, where its own markers read as another
+      // branch's claims on a branch literally named "origin".
+      .filter((r) => r.length > 0 && r !== "origin/main" && r !== "origin" && r !== "origin/HEAD");
 
     const others = refs.map((ref) => ({
       branch: ref.replace(/^origin\//, ""),
@@ -167,14 +171,17 @@ describe("ledger claim collision (cross-branch backstop)", () => {
     // = []` passed the whole file. A canary row that another live branch DOES
     // declare must be detected when injected into `mine`, proving the call is
     // real rather than that the loop was skipped.
-    // The glue is asserted, not just the helper: `others` must actually have been
-    // read, so an unconditional early return or an empty ref scan fails here
-    // rather than reporting a clean result from a universe it never looked at.
-    expect(others.length, "no candidate refs were scanned").toBeGreaterThan(0);
-    expect(
-      others.some((o) => o.declared.length >= 0),
-      "declaredAt was never called for any ref",
-    ).toBe(true);
+    // NOT asserted: that a non-main candidate exists. §7.3 makes an origin
+    // holding only `main` a valid pass — a fork PR against such a repo has zero
+    // candidates and is correct — so requiring one would reject legitimate PRs.
+    //
+    // What IS asserted, when there is anything to assert it against: some other
+    // branch declares something. `declared.length >= 0` was tautological, so a
+    // `declared: []` mutant killed the canary and passed. This bites.
+    const anyDeclared = others.some((o) => o.declared.length > 0);
+    if (others.length > 0) {
+      expect(anyDeclared, "declaredAt returned nothing for every ref — it is not reading").toBe(true);
+    }
 
     // Canary through the same call site: pick a row another live branch actually
     // declares and assert it is detected. This is what fails if `collide` stops
