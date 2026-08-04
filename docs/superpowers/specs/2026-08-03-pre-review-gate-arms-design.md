@@ -63,7 +63,7 @@ The audit produced six fixes across three surfaces. They ship as three PRs in or
 ### 2.2 New flag
 
 ```
---lint-doc <path>   repeatable; a spec or plan doc under docs/superpowers/ to lint and embed
+--lint-doc <path>   repeatable; a document in the --cwd repository to lint and embed
 ```
 
 For each `--lint-doc`, the wrapper **spawns the `spec:lint` CLI** as a child process and appends its captured stdout to the composed prompt, in a delimited block matching the existing artifact-embedding shape at `scripts/codex-guard.mjs:254`. It spawns rather than imports because `scripts/codex-guard.mjs` is plain ESM JavaScript and the lint core under `lib/specLint/` is TypeScript; spawning also means the report is the CLI's real output rather than a reimplementation of it — the filtering and budgeting in §2.2.2 are applied to that output, never a substitute for producing it.
@@ -112,13 +112,17 @@ The boundary is unambiguous by construction: findings and inventory entries are 
 This matters because the wrapper refuses composed prompts over 2,000,000 bytes (`scripts/codex-guard.mjs:41`), and full reports are large. The largest single report in the tracked corpus reproduces with:
 
 ```
-npx tsx scripts/spec-lint.ts docs/superpowers/specs/parser/2026-07-27-inline-later-group-own-hotel-design.md | wc -c
-# 290909    — 3,206 lines, and its summary is "0 hard, 89 advisory"
+npx tsx scripts/spec-lint.ts docs/superpowers/specs/parser/2026-07-27-inline-later-group-own-hotel-design.md > /tmp/r.txt
+wc -c < /tmp/r.txt      # 290909    — 3,206 lines, summary "0 hard, 89 advisory"
 ```
+
+The redirect is not incidental. An earlier draft published this same reproduction as a pipe into `wc -c`, one paragraph above its own warning that captured output truncates — and the pipe duly reported a short count, so the command contradicted the number it was offered as evidence for.
+
+Worse, the truncated value is **not stable**: the same pipe has been observed at `65536` and at `81920` on this machine, because where the reader stops depends on buffer scheduling rather than a fixed boundary. A measurement that silently varies by 20 KB between runs is not a measurement. Redirect to a file.
 
 A quarter-megabyte report for a document with **zero** hard findings is the shape of the problem: the bytes are inventory, not signal. The 13 largest reports together reach 2,008,482 bytes, crossing the wrapper's cap before any brief text, so a repeatable flag whose every individual run exits 0 or 1 could still fail composition.
 
-Measure this with output redirected to a file, not through a captured pipe: a 64 KiB-buffered capture silently truncates every report to exactly 65,536 bytes and makes the problem look four times smaller than it is.
+Measure this with output redirected to a file, never through a captured pipe or a subprocess capture: those truncate at a buffer boundary that varies between runs, making the problem look several times smaller than it is.
 
 **Filtering does most of the work; the budget is a safety net, not a routine constraint.** Applying the transformation above to the corpus's largest report:
 
@@ -198,7 +202,9 @@ awk 'NR>6 && /^## /{print NR": "$0}' docs/superpowers/plans/2026-08-03-pre-revie
 
 Twelve depth-2 headings, seven of them tasks. Front matter (`## Pre-draft verification`, `## Meta-test inventory`, `## Mutation-family closure`, `## Tasks`) could have been dodged by moving the opening line down. `## Blocking note`, which **follows** the last task at the same depth, could not: no start-only marker excludes a trailing section. The failure was in the model, not the placement.
 
-An unenrolled plan produces zero `taskContract` findings. That is what keeps §1.1 item 3 true: the 533 legacy plans are untouched, and the convention costs nothing until first used.
+A plan that **never attempts enrollment** — no `<!-- tasks:` line anywhere — produces zero `taskContract` findings. That is what keeps §1.1 item 3 true: the 533 legacy plans are untouched, and the convention costs nothing until first used.
+
+**"Never attempted" is not the same as "attempted and failed", and conflating them erases findings.** An earlier wording made enrollment hold "iff there is exactly one valid opening" and then gave every unenrolled plan zero findings — which deletes the very errors the line pass just raised. A malformed opening has zero valid openings; an unmatched close has zero; duplicate openings have two. All three would be silenced, including the duplicate case AC-26 explicitly requires to be reported. So: any plan carrying a `<!-- tasks:` line has attempted enrollment, its line-pass findings always stand, and only the task-level rows (`TASK_ENROLL_EMPTY`, `TASK_MARKER_MISSING`, `TASK_MARKER_DUPLICATE`) are skipped when a single valid region could not be established.
 
 ### 3.3 The task marker
 
@@ -210,9 +216,27 @@ One HTML comment per task, anywhere in that task's extent:
 
 Grammar, narrow ACCEPT on the same principle as §3.2:
 
-- A **marker** is a non-fenced line matching `^<!-- task: red=` + backtick + `(.*)` + backtick + ` ac=(AC-[A-Za-z0-9.-]+(,AC-[A-Za-z0-9.-]+)*) -->$` **exactly**: the two fields, in that order, one space between them, no other content.
+- A **marker** is a non-fenced line matching this pattern **exactly** — the two fields, in that order, one space between them, no other content:
 
-The command group is `(.*)` and deliberately **not** `(.+)`. With `(.+)` an empty pair of backticks fails the marker form outright and falls to `TASK_MARKER_MALFORMED`, while a whitespace-only command matches and draws `TASK_RED_EMPTY` — two spellings of the same authoring slip getting different codes, contradicting the precedence rule below which names "empty or whitespace only" as one case. Probed against the stated grammar before it shipped: `` red=`` `` classified `TASK_MARKER_MALFORMED`, `` red=`  ` `` classified `TASK_RED_EMPTY`. Matching empty and delegating to precedence rule 1 makes both `TASK_RED_EMPTY`.
+  ```
+  ^<!-- task: red=`([^`]*)` ac=(AC-[A-Za-z0-9.-]+(,AC-[A-Za-z0-9.-]+)*) -->$
+  ```
+
+The command group excludes backticks and is deliberately neither `(.+)` nor `(.*)`. With `(.+)` an empty pair of backticks fails the marker form outright and falls to `TASK_MARKER_MALFORMED`, while a whitespace-only command matches and draws `TASK_RED_EMPTY` — two spellings of the same authoring slip getting different codes, contradicting the precedence rule below which names "empty or whitespace only" as one case. Probed against the stated grammar before it shipped: `` red=`` `` classified `TASK_MARKER_MALFORMED`, `` red=`  ` `` classified `TASK_RED_EMPTY`. Matching empty and delegating to precedence rule 1 makes both `TASK_RED_EMPTY`.
+
+But `(.*)` alone is **greedy across backticks**, which silently re-opens every structure the "two fields, no other content" rule forbids: the group runs to the last usable backtick and swallows the junk. Probed:
+
+```
+repeated ac          greedy=ACCEPT  strict=reject
+unknown key          greedy=ACCEPT  strict=reject
+empty red then junk  greedy=ACCEPT  strict=reject
+repeated red         greedy=ACCEPT  strict=reject
+legit                greedy=ACCEPT  strict=ACCEPT  red="pnpm vitest run tests/x.test.ts"
+legit empty          greedy=ACCEPT  strict=ACCEPT  red=""
+legit ws             greedy=ACCEPT  strict=ACCEPT  red="  "
+```
+
+A command containing a backtick is not expressible in this grammar, which is a deliberate domain boundary and not a bypass: `red=` names a shell command for a human to run, and one needing a nested backtick can be wrapped in a script. Excluding backticks is what makes the ACCEPT actually narrow.
 - Any non-fenced line beginning `<!-- task:` that does not match is `TASK_MARKER_MALFORMED`. That covers an unknown key, a repeated key, reordered fields, a missing or unbackticked `red`, an empty `ac` list, an empty element inside the list (`AC-1,,AC-2`), and any form not yet imagined.
 
 **Exactly one code per marker line, by a stated precedence.** The catch-all above overlaps the specific codes — a line missing `ac=` is both "does not match" and "ac absent" — and an overlap with no ordering makes the output undefined: one implementation emits both codes, another suppresses the generic one, a third treats the line as no marker at all and adds `TASK_MARKER_MISSING` on top. AC-8 would have no deterministic expected result. So:
@@ -287,7 +311,8 @@ Whole-document classes, evaluated after the line pass:
 
 | Condition | Outcome |
 | --- | --- |
-| plan not enrolled | zero `taskContract` findings, whatever else it contains |
+| plan contains **no** `<!-- tasks:` line at all | zero `taskContract` findings, whatever else it contains |
+| plan contains a `<!-- tasks:` line but never reaches exactly one valid opening | the line-pass findings stand; the task-level rows below are skipped |
 | enrolled, region holds zero tasks | `TASK_ENROLL_EMPTY` |
 | enrolled, a task's extent holds no marker line of any class | `TASK_MARKER_MISSING` |
 | enrolled, a task's extent holds two or more marker lines of any class | `TASK_MARKER_DUPLICATE` |
@@ -356,6 +381,10 @@ Nine artifacts burned on this shape; none was caught by review-time reasoning al
 
 **AC-24.** `TASK_AC_UNRESOLVED` fires for `ac=AC-1` when the plan's prose contains only `AC-10`, `AC-1a`, `AC-1.1`, or `AC-1-child` — one case per prefix family, none of which may resolve it.
 
+**AC-31.** A marker whose backticked command would have to span a backtick is rejected. Pinned with the four escapes a greedy group admits: a repeated `ac=`, an unknown key, an empty command followed by junk, and a repeated `red=` — each `TASK_MARKER_MALFORMED`, alongside a legitimate marker, an empty command, and a whitespace-only command that all still parse.
+
+**AC-32.** A plan carrying a `<!-- tasks:` line that never reaches exactly one valid opening still reports its line-pass findings. Pinned across all three shapes: a malformed opening alone, an unmatched close alone, and duplicate openings — none may be silenced by the not-enrolled rule.
+
 **AC-30.** `open → close → open → close` reports `TASK_ENROLL_DUPLICATE` exactly once and **no** `TASK_ENROLL_MALFORMED`. Pinned by asserting the full finding list, not merely that the duplicate is present — a cascade is invisible to a test that only checks for the expected code.
 
 **AC-29.** The §3.4.1 table is total: a table-driven test enumerates every line class against every region state and asserts each yields the stated outcome, with a final case asserting that an arbitrary line reaching no earlier row is classified as ordinary prose rather than falling through unhandled.
@@ -398,4 +427,10 @@ Nine artifacts burned on this shape; none was caught by review-time reasoning al
 
    A plan shaped like those must either normalize its task units to one depth or stay unenrolled; enrolling one depth would silently exclude the units at the other. Multi-depth enrollment is deliberately **not** specified here, because it forces a nesting model — a depth-3 task inside a depth-2 task extent — whose marker ownership, extent boundaries, and `TASK_MARKER_MISSING` semantics are a larger design than this cluster carries. Seven of 533 plans are affected, and enrollment is opt-in, so the limit costs nothing until someone enrols such a plan and is then told plainly rather than checked wrongly.
 
-7. **`--lint-doc` reports are budgeted, so a large enough set is shown truncated.** §2.2.2 caps embedded reports at 200,000 bytes combined with an explicit notice. A reviewer handed a truncated report sees that it was truncated; they do not see the omitted findings. Raising the cap trades against the wrapper's 2,000,000-byte composition limit, which a full corpus-scale set would cross on its own.
+7. **A single region cannot exclude same-depth non-task headings interleaved among the tasks.** Distinct from limit 6, which is about task units at *different* depths. A fence-aware scan of tracked plans found six single-depth plans carrying non-task headings at the task depth *between* their first and last task — grouping headers like `Tasks 5-22: A3-A20 (PROC each)`, and process sections like `Fix-round regression budget (mandatory per AGENTS.md)`. Region delimiters cannot exclude a heading that sits in the middle of the region:
+
+   `docs/superpowers/plans/2026-07-26-stripcomments-shared.md`, `docs/superpowers/plans/admin/2026-07-07-admin-field-overrides/PLAN.md`, `docs/superpowers/plans/observability/2026-07-01-durable-outcome-telemetry.md`, `docs/superpowers/plans/observability/2026-07-02-observability-coverage-completion.md`, `docs/superpowers/plans/step3-onboarding/2026-06-11-onboarding-fixups/HANDOFF-NOTES-F5A.md`, and `docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-30-m12.2-admin-redesign/M12.2-phase-b3-email-delivery.md`.
+
+   Such a heading is classified as a task and draws `TASK_MARKER_MISSING`. That is a **conservative failure with a surfaced finding**, not silent corruption, so per the project's admissibility contract it files here rather than forcing a redesign: the author's remedy is to demote the grouping header a level or leave the plan unenrolled. Enrollment is opt-in, so nothing breaks until someone enrols a plan of this shape.
+
+8. **`--lint-doc` reports are budgeted, so a large enough set is shown truncated.** §2.2.2 caps embedded reports at 200,000 bytes combined with an explicit notice. A reviewer handed a truncated report sees that it was truncated; they do not see the omitted findings. Raising the cap trades against the wrapper's 2,000,000-byte composition limit, which a full corpus-scale set would cross on its own.
