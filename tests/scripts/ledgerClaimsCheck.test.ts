@@ -52,7 +52,14 @@ function fake(over: Partial<GitSurface> = {}): GitSurface {
     headRepo: () => null,
     repo: () => null,
     inCI: () => false,
-    fileOids: (ref, files) => {
+    fileOids: (refOrOid, files) => {
+      // The reader pins content reads to the VERIFIED TIP OID, so this receives
+      // an OID in normal operation. Fixtures are written against branch names,
+      // so resolve an OID back to its ref before delegating to showFile — the
+      // fixture keeps meaning what it says.
+      const refs = (over.localRefs ?? base.localRefs)();
+      let ref = refOrOid;
+      for (const [name, oid] of refs) if (oid === refOrOid) ref = `origin/${name}`;
       const m = new Map<string, string>();
       for (const f of files) {
         const t = (over.showFile ?? base.showFile)(ref, f);
@@ -557,5 +564,29 @@ describe("post-resolution faults are also untrusted (whole-diff R6)", () => {
       ["BL-X"],
     );
     expect(r.code).toBe(2);
+  });
+});
+
+describe("content is read from the verified OID (whole-diff R10 F2)", () => {
+  it("does not read content through a movable branch name", () => {
+    // Verifying `feat/a == tipA` and then reading `origin/feat/a` decides against
+    // whatever that name points at by read time. An A->B->A force-push race
+    // verifies tipA while the content came from B — a trusted false all-clear.
+    const asked: string[] = [];
+    resolveClaims(
+      fake({
+        localRefs: () =>
+          new Map([
+            ["main", "aaa"],
+            ["feat/a", "TIP-A"],
+          ]),
+        fileOids: (refOrOid) => {
+          asked.push(refOrOid);
+          return new Map();
+        },
+      }),
+      { fetch: false, now: NOW },
+    );
+    expect(asked, "content must be requested by OID, not by branch name").toEqual(["TIP-A"]);
   });
 });

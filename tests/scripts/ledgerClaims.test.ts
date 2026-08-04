@@ -42,7 +42,14 @@ function fake(over: Partial<GitSurface> = {}): GitSurface {
     headRepo: () => null,
     repo: () => null,
     inCI: () => false,
-    fileOids: (ref, files) => {
+    fileOids: (refOrOid, files) => {
+      // The reader pins content reads to the VERIFIED TIP OID, so this receives
+      // an OID in normal operation. Fixtures are written against branch names,
+      // so resolve an OID back to its ref before delegating to showFile — the
+      // fixture keeps meaning what it says.
+      const refs = (over.localRefs ?? base.localRefs)();
+      let ref = refOrOid;
+      for (const [name, oid] of refs) if (oid === refOrOid) ref = `origin/${name}`;
       const m = new Map<string, string>();
       for (const f of files) {
         const t = (over.showFile ?? base.showFile)(ref, f);

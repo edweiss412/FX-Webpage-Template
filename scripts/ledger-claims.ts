@@ -52,7 +52,19 @@ function main(argv: string[]): number {
       // it plain text made the JSON contract conditional on which mode you used.
       // `status` mirrors the exit code here, as the envelope promises.
       process.stdout.write(
-        `${JSON.stringify({ status: r.code, collisions: r.collisions, warnings: r.warnings, notes: r.notes, reasons: r.reasons }, null, 2)}\n`,
+        `${JSON.stringify(
+          {
+            status: r.code,
+            // Same envelope keys as report mode: a machine consumer should not
+            // have to branch on which flag produced the JSON.
+            degraded: r.reasons,
+            claims: r.collisions,
+            warnings: r.warnings,
+            notes: r.notes,
+          },
+          null,
+          2,
+        )}\n`,
       );
       return r.code;
     }
@@ -61,7 +73,8 @@ function main(argv: string[]): number {
     for (const w of r.warnings) process.stdout.write(`${w}\n`);
     for (const reason of r.reasons) process.stderr.write(`${reason}\n`);
     for (const c of r.collisions) {
-      process.stderr.write(`COLLISION: ${c.id} is already declared by ${c.branch}\n`);
+      const pr = c.pr === null ? "" : ` (PR #${c.pr})`;
+      process.stderr.write(`COLLISION: ${c.id} is already declared by ${c.branch}${pr}\n`);
     }
     if (r.code === 0 && r.collisions.length === 0 && r.warnings.length === 0) {
       process.stdout.write("no collision\n");

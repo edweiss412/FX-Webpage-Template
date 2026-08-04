@@ -9,7 +9,8 @@ import { ledgerFiles, ledgerItems } from "./ledger-fields";
 export type CheckResult = {
   /** 0 no collision · 1 declared collision, identity resolved · 2 untrusted */
   code: 0 | 1 | 2;
-  collisions: { id: string; branch: string }[];
+  /** `pr` is carried when known: reconciling a collision means finding that PR. */
+  collisions: { id: string; branch: string; pr: number | null }[];
   warnings: string[];
   notes: string[];
   reasons: string[];
@@ -191,8 +192,17 @@ export function runCheck(
       if (!resolution.claims.some((c) => normalizeId(c.id) === id)) {
         // Every ledger on main, not just BACKLOG.md: a DEF- row or an archived id
         // would otherwise be reported as defined nowhere.
-        const known = ledgerFiles().flatMap((f) =>
-          ledgerItems(f, git.showFile("origin/main", f) ?? ""),
+        // Every ref the resolver looked at, not just main: a row a live branch
+        // has only just minted as OPEN does exist, and calling it "defined
+        // nowhere" tells the caller the opposite of the truth.
+        const scan = [
+          "origin/main",
+          ...[...snapshot.keys()]
+            .filter((k) => k !== "main" && k !== "HEAD")
+            .map((k) => `origin/${k}`),
+        ];
+        const known = scan.flatMap((r) =>
+          ledgerFiles().flatMap((f) => ledgerItems(f, git.showFile(r, f) ?? "")),
         );
         if (!known.some((k) => normalizeId(k.id) === id)) {
           notes.push(`note: ${id} is not yet defined anywhere`);
@@ -221,7 +231,7 @@ export function runCheck(
     // universe that was actually verified. Returning 1 from an unverifiable
     // universe is the same error as returning 0 from one — both answer a question
     // the reader was not in a position to answer.
-    const found = declared.map((c) => ({ id: c.id, branch: c.branch }));
+    const found = declared.map((c) => ({ id: c.id, branch: c.branch, pr: c.pr }));
     if (untrusted) return { code: 2, collisions: found, warnings, notes, reasons };
     if (declared.length > 0) return { code: 1, collisions: found, warnings, notes, reasons };
     return { code: 0, collisions: [], warnings, notes, reasons };

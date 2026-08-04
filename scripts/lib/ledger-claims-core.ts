@@ -136,7 +136,8 @@ export function resolveClaims(
   const merged = shallow ? new Set<string>() : new Set(git.mergedIntoMain());
   if (shallow) degraded.push("merged-exclusion-skipped");
 
-  const candidates = [...git.localRefs().keys()]
+  const snapshotRefs = git.localRefs();
+  const candidates = [...snapshotRefs.keys()]
     .filter((name) => name !== "main" && name !== "HEAD")
     .map((name) => `origin/${name}`)
     .filter((ref) => !merged.has(ref));
@@ -159,6 +160,10 @@ export function resolveClaims(
 
   const files = ledgerFiles();
   const claims: Claim[] = [];
+  // origin/<name> -> the tip OID the universe check verified.
+  const refOids = new Map<string, string>(
+    [...snapshotRefs.entries()].map(([name, oid]) => [`origin/${name}`, oid]),
+  );
   // Distinct blobs, read once each: most branches share main's ledger blobs.
   const blobCache = new Map<string, string>();
 
@@ -180,8 +185,14 @@ export function resolveClaims(
     const spansByFile = new Map<string, { id: string; line: number; endLine: number }[]>();
     const declaredHere = new Set<string>();
 
-    // One ls-tree per ref, then one read per DISTINCT blob across all refs.
-    const oids = git.fileOids(ref, [...files]);
+    // Content is read from the VERIFIED TIP OID, not the movable branch name.
+    // Verifying `feat/a == tipA` and then reading `origin/feat/a` decides against
+    // whatever that name points at by the time of the read — an A->B->A race
+    // verifies tipA while the content came from B, and the result is a trusted
+    // false all-clear. Passing the OID makes the thing verified and the thing
+    // read the same object.
+    const tipOid = refOids.get(ref);
+    const oids = git.fileOids(tipOid ?? ref, [...files]);
     for (const file of files) {
       const oid = oids.get(file);
       if (oid === undefined) continue; // absent at this ref
