@@ -112,7 +112,9 @@ const scanConditionals = (text, label) => {
     Rule(r) {
       if (!CONDITIONAL.has(r.type)) return;
       const walk = (rules) => { for (const x of rules ?? []) {
-        for (const p of x.value?.declarations?.declarations ?? []) {
+        const decls = [...(x.value?.declarations?.declarations ?? []),
+                       ...(x.value?.declarations?.importantDeclarations ?? [])];
+        for (const p of decls) {
           const name = p.property === "custom" ? p.value?.name : p.property;
           if (name === "font-family" || name === "font" || /^--font/.test(name ?? ""))
             hits.push(`${label}: @${r.type} sets ${name}`);
@@ -124,9 +126,16 @@ const scanConditionals = (text, label) => {
   }});
   return hits;
 };
+// "Every shipped stylesheet" must mean every one. Round 30 found two imported
+// dependency stylesheets (react-pdf) outside the array, so a dependency update
+// could ship a conditional override past a row whose prose claimed exhaustive.
+// EXTRA_CSS is a colon-separated list the caller derives from the source tree's
+// CSS imports, so a newly imported stylesheet joins by derivation, not memory.
 const SHIPPED = [[cssText, "fonts.css"]];
 if (process.env.APP_CSS && existsSync(process.env.APP_CSS))
   SHIPPED.push([readFileSync(process.env.APP_CSS, "utf8"), "globals.css"]);
+for (const f of (process.env.EXTRA_CSS ?? "").split(":").filter(Boolean))
+  if (existsSync(f)) SHIPPED.push([readFileSync(f, "utf8"), f.split("/").pop()]);
 const conditionalHits = SHIPPED.flatMap(([t, l]) => scanConditionals(t, l));
 check("18 no font-family, font, or --font-* token set inside any conditional at-rule, in any shipped stylesheet",
   conditionalHits.length === 0, conditionalHits.join(" | "));
