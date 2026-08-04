@@ -787,3 +787,21 @@ The pattern across rounds 17 and 18 is worth stating: **a family is not closed u
 **A false positive worth recording**, because it taught something about reading compiled CSS: the first version of the family-11 check flagged `.ordinal requests ordn` on a clean tree. Nothing applies that class — Tailwind's content scanner is TEXT-based and emitted the utility because the word `ordinal` appears in `components/crew/DiagramsBlock.tsx` as a **JS parameter name**. "Present in the compiled sheet" is not "reaches an element". The check now only considers utilities whose class actually appears in a `className`, while non-class selectors are always checked because they apply by construction.
 
 **Seventy-three mutants across nineteen rounds. All caught.**
+
+### 12.20 Round 20 — and the reachability question, abandoned
+
+`VERDICT: NEEDS-ATTENTION`, three findings, all accepted and fixed. All three sit inside families 11 and 12 as declared.
+
+| # | Sev | Finding | Disposition |
+| --- | --- | --- | --- |
+| 1 | **P1** | **An unmapped keyword was silently skipped.** `FONT_VARIANT_PROPS` accepts `font-variant-alternates`, but the keyword map had no `historical-forms`, and `fontVariantTags` dropped what it did not recognise. So `font-variant-alternates: historical-forms` requested `hist` — absent from this font — and passed. | **FIXED by failing closed**, not by adding one keyword. An unmapped keyword is now reported with a null tag and stops the build: *map it, do not assume it is harmless.* That is the same posture as §12.7's value recogniser, and it is what makes the map's incompleteness safe. |
+| 2 | **P1** | **The reachability filter missed ordinary class construction.** `className={["oldstyle-nums", active && "x"].filter(Boolean).join(" ")}` — an established idiom in this repo (`components/crew/RightNowHero.tsx:586`) — yields no tokens under a regex anchored on `className="…"`, while Tailwind, scanning plain text, emits the utility anyway. | **THE FILTER IS GONE.** See below. |
+| 3 | P2 | **Family 12's evidence was far narrower than its claim.** Seven sampled codepoints against ranges covering thousands: dropping `U+1E00–1E9F` preserves every sample, every feature, both axes, the budget and the negative Cyrillic check, while removing 159 codepoints of ratified coverage. | **FIXED.** The ranges are now parsed out of `scripts/subset-inter.sh` — the file that makes the decision — and each one's covered count is pinned. A dropped range goes to zero, a narrowed one falls below its number, and a range added to the script without a pin also fails. Counts rather than membership, because Google's ranges are supersets of what Inter contains (`U+0329` is legitimately 0). Mutation-proven with a real latin-ext-less rebuild. |
+
+**On finding 2, and why the answer was to delete rather than fix.** Two rounds went into deciding whether an emitted utility is actually applied. It cannot be decided from source. Tailwind's scanner is text-based — `.ordinal` is emitted because the word appears as a **JS parameter name** in `components/crew/DiagramsBlock.tsx` — and any token scan that mirrors Tailwind inherits precisely the same over-approximation. Round 19 filtered on `className="…"` and missed the array-join idiom; round 20 widened to every string literal and `.ordinal` came straight back.
+
+So the over-approximation is **accepted and made explicit** instead. Every emitted font-variant rule is checked, and a utility requesting a feature this font lacks must be listed in `ALLOWED_UNSUPPORTED_VARIANTS` with a reason — the same shape as `ALLOWED_FEATURE_RESETS` and `ALLOWED_FONT_FAMILY_RULES`, and fail-closed. One entry today: `.ordinal`, with its provenance recorded and the instruction that if a real element ever takes the class, the entry goes and the utility goes with it.
+
+That is the fourth time in this review the answer has been *stop deciding, start declaring*. It is reliably the move that ends a vector.
+
+**Seventy-eight mutants across twenty rounds. All caught.**

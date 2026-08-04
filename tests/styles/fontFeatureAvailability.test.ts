@@ -76,6 +76,46 @@ const GLOBALS_CSS = resolve(REPO_ROOT, "app", "globals.css");
 const FONTS_MODULE = resolve(REPO_ROOT, "app", "fonts.ts");
 const GOOGLE_FIXTURE = resolve(__dirname, "fixtures", "inter-google-latin-v20.woff2");
 /** The exact latin subset fonts.gstatic.com served on 2026-08-03, pinned by identity. */
+/**
+ * Covered-codepoint count per range declared in `scripts/subset-inter.sh`.
+ * Regenerate with the probe in §12.20 after a deliberate coverage change.
+ */
+const PINNED_RANGE_COVERAGE = new Map<string, number>([
+  ["U+0000-00FF", 191],
+  ["U+0131", 1],
+  ["U+0152-0153", 2],
+  ["U+02BB-02BC", 2],
+  ["U+02C6", 1],
+  ["U+02DA", 1],
+  ["U+02DC", 1],
+  ["U+0304", 1],
+  ["U+0308", 1],
+  ["U+0329", 0],
+  ["U+2000-206F", 77],
+  ["U+20AC", 1],
+  ["U+2122", 1],
+  ["U+2191", 1],
+  ["U+2193", 1],
+  ["U+2212", 1],
+  ["U+2215", 0],
+  ["U+FEFF", 1],
+  ["U+FFFD", 0],
+  ["U+0100-02BA", 435],
+  ["U+02BD-02C5", 9],
+  ["U+02C7-02CC", 6],
+  ["U+02CE-02D7", 10],
+  ["U+02DD-02FF", 35],
+  ["U+1D00-1DBF", 23],
+  ["U+1E00-1E9F", 159],
+  ["U+1EF2-1EFF", 14],
+  ["U+2020", 1],
+  ["U+20A0-20AB", 12],
+  ["U+20AD-20C0", 16],
+  ["U+2113", 1],
+  ["U+2C60-2C7F", 2],
+  ["U+A720-A7FF", 1],
+]);
+
 const GOOGLE_FIXTURE_SHA256 = "c940764593d0fe5d596be327ca7558855e018039fb78509aa21921fd3644c3e4";
 
 /**
@@ -416,53 +456,52 @@ const FONT_VARIANT_KEYWORD_TAGS = new Map<string, string>([
 const FONT_VARIANT_PROPS =
   /^(font-variant(-numeric|-caps|-ligatures|-east-asian|-alternates)?|--tw-[a-z-]*(ordinal|zero|numeric|caps|ligatures)[a-z-]*)$/;
 
-/**
- * Class tokens that actually appear in a `className` / `class` attribute.
- *
- * Tailwind's content scanner is TEXT-based: it emits `.ordinal` because the word
- * `ordinal` appears in `components/crew/DiagramsBlock.tsx` as a JS PARAMETER
- * NAME, not because any element uses the class. So "present in the compiled
- * sheet" is not "reaches an element", and checking every emitted utility reports
- * features nothing requests.
- *
- * A utility rule is only checked when its class is genuinely applied somewhere.
- * Non-class selectors — elements, attributes, our own hand-written rules — are
- * always checked, since those apply by construction.
- */
-function appliedClassTokens(): Set<string> {
-  const tokens = new Set<string>();
-  const walk = (dir: string): void => {
-    for (const entry of readdirSync(dir, { withFileTypes: true })) {
-      const path = join(dir, entry.name);
-      if (entry.isDirectory()) {
-        if (entry.name !== "node_modules") walk(path);
-        continue;
-      }
-      if (!SCANNED_EXTENSIONS.test(entry.name)) continue;
-      const source = readFileSync(path, "utf8");
-      for (const attr of source.matchAll(
-        /class(?:Name)?\s*=\s*(?:"([^"]*)"|'([^']*)'|\{`([^`]*)`\})/g,
-      )) {
-        for (const token of (attr[1] ?? attr[2] ?? attr[3] ?? "").split(/\s+/)) {
-          if (token !== "") tokens.add(token.replace(/^[a-z-]+:/, ""));
-        }
-      }
-    }
-  };
-  for (const root of PRODUCT_ROOTS) walk(resolve(REPO_ROOT, root));
-  return tokens;
-}
-
 /** Every OpenType tag the sheet requests through a `font-variant-*` keyword. */
-export function fontVariantTags(cssSource: string): { tag: string; selector: string }[] {
-  const out: { tag: string; selector: string }[] = [];
+/** Keywords that request NO OpenType feature — the property's own vocabulary. */
+/**
+ * Emitted font-variant utilities that request a feature this font lacks, and why
+ * that is harmless. Each entry is a claim that nothing APPLIES the class.
+ */
+const ALLOWED_UNSUPPORTED_VARIANTS = new Map<string, string>([
+  [
+    ".ordinal",
+    "requests `ordn`, absent from this font. Tailwind emits it because the word " +
+      "`ordinal` appears as a JS PARAMETER NAME in components/crew/DiagramsBlock.tsx, " +
+      "not because any element uses the class — verified by grep. If a real element " +
+      "ever takes it, this entry must go and the utility must be removed.",
+  ],
+]);
+
+/** Keywords that request NO OpenType feature — the property's own vocabulary. */
+const FONT_VARIANT_NEUTRAL = new Set([
+  "normal",
+  "none",
+  "inherit",
+  "initial",
+  "unset",
+  "revert",
+  "revert-layer",
+  "",
+]);
+
+export function fontVariantTags(
+  cssSource: string,
+): { tag: string | null; keyword: string; selector: string }[] {
+  const out: { tag: string | null; keyword: string; selector: string }[] = [];
   postcss.parse(cssSource).walkDecls((decl) => {
     if (!FONT_VARIANT_PROPS.test(normalizeProp(decl.prop).name)) return;
     const selector =
       decl.parent && "selector" in decl.parent ? String(decl.parent.selector) : "(unknown)";
-    for (const word of decl.value.toLowerCase().split(/\s+/)) {
-      const tag = FONT_VARIANT_KEYWORD_TAGS.get(word.trim());
-      if (tag) out.push({ tag, selector });
+    for (const raw of decl.value.toLowerCase().split(/\s+/)) {
+      const keyword = raw.trim();
+      if (FONT_VARIANT_NEUTRAL.has(keyword) || keyword.startsWith("var(")) continue;
+      // An UNMAPPED keyword is reported with a null tag, not skipped. Round 20:
+      // `font-variant-alternates: historical-forms` requests `hist`, which this
+      // font lacks, and silently passed a scan that ignored what it did not
+      // recognise — the same shrug this whole guard exists to eliminate. Failing
+      // closed here means a keyword nobody has mapped stops the build rather
+      // than being assumed harmless.
+      out.push({ tag: FONT_VARIANT_KEYWORD_TAGS.get(keyword) ?? null, keyword, selector });
     }
   });
   return out;
@@ -1007,15 +1046,32 @@ describe("font feature availability", () => {
     // utility; it compiles to `font-variant-numeric: oldstyle-nums`, requests
     // `onum`, and renders nothing at all on a font without it — silent, exactly
     // like the `cv11` this whole change exists to kill.
-    const applied = appliedClassTokens();
-    const reaches = (selector: string): boolean => {
-      const classes = [...selector.matchAll(/\.([A-Za-z0-9_-]+)/g)].map((m) => m[1]!);
-      // A rule with no class in its selector applies by construction.
-      return classes.length === 0 || classes.some((c) => applied.has(c));
-    };
-    const requested = fontVariantTags(css).filter((r) => reaches(r.selector));
+    // NO REACHABILITY FILTER. Two rounds were spent trying to decide whether an
+    // emitted utility is actually applied, and it cannot be decided from source:
+    // Tailwind's scanner is text-based, so `.ordinal` is emitted because the word
+    // appears as a JS parameter name, and ANY token scan that mirrors Tailwind
+    // inherits exactly the same over-approximation. Round 19 filtered on
+    // `className="…"` and missed the array-join idiom; round 20 widened to all
+    // string literals and `.ordinal` came straight back.
+    //
+    // So the over-approximation is accepted and made explicit instead: every
+    // emitted font-variant rule is checked, and a utility that requests a feature
+    // this font lacks must be listed with a reason. Same shape as
+    // ALLOWED_FEATURE_RESETS and ALLOWED_FONT_FAMILY_RULES, and fail-closed — a
+    // NEW unsupported variant stops the build until someone says why it is there.
+    const requested = fontVariantTags(css);
     const available = new Set(availableFeatures(resolveLoadedFontPath()));
-    const missing = requested.filter((r) => !available.has(r.tag));
+    const unmapped = requested.filter((r) => r.tag === null);
+    expect(
+      unmapped.map((m) => `${m.selector} uses ${m.keyword}`),
+      "these font-variant keywords are not in FONT_VARIANT_KEYWORD_TAGS, so the guard " +
+        "cannot tell which OpenType feature they request — map them, do not assume " +
+        "they are harmless",
+    ).toEqual([]);
+    const missing = requested.filter(
+      (r) =>
+        r.tag !== null && !available.has(r.tag) && !ALLOWED_UNSUPPORTED_VARIANTS.has(r.selector),
+    );
     expect(
       missing.map((m) => `${m.selector} requests ${m.tag}`),
       "these font-variant keywords request OpenType features the loaded font does " +
@@ -1026,34 +1082,57 @@ describe("font feature availability", () => {
     expect(requested.length, "font-variant declarations are being found at all").toBeGreaterThan(0);
   });
 
-  test("the subset still covers the scripts the coverage decision chose", () => {
-    // Round 19 P2: the spec claimed the guard "fails on any lossy regeneration",
-    // and it did not — features, axes and a byte budget all survive dropping
-    // LATIN_EXT, which would silently lose the Polish/Czech/Turkish coverage the
-    // payload decision explicitly bought (§2.6). Codepoints are the only thing
-    // that actually pins that decision.
+  test("the subset covers every declared range, at its pinned density", () => {
+    // Round 19 pinned SEVEN sample codepoints; round 20 showed that is far short
+    // of the claim — dropping `U+1E00-1E9F` preserves every sample, every feature,
+    // both axes, the budget and the negative Cyrillic check, while narrowing the
+    // ratified coverage by 159 codepoints.
+    //
+    // So the ranges come from `scripts/subset-inter.sh` itself — the file that
+    // MAKES the decision — and each one's covered count is pinned. A dropped
+    // range goes to zero; a narrowed one drops below its number. Counts rather
+    // than membership because the ranges are Google's and are supersets of what
+    // Inter actually contains: `U+0329` is legitimately 0 and must stay legal.
+    const script = readFileSync(resolve(REPO_ROOT, "scripts/subset-inter.sh"), "utf8");
+    const declared: string[] = [];
+    for (const m of script.matchAll(/^(?:LATIN|LATIN_EXT)="([^"]+)"/gm)) {
+      for (const part of (m[1] ?? "").split(",")) declared.push(part.trim());
+    }
+    expect(declared.length, "ranges were parsed out of the subset script").toBeGreaterThan(20);
+
     const font = fontkit.openSync(resolveLoadedFontPath());
-    const has = (cp: number): boolean =>
-      "hasGlyphForCodePoint" in font && font.hasGlyphForCodePoint(cp);
-    const SAMPLES: [string, number][] = [
-      ["basic latin 'A'", 0x41],
-      ["latin-1 'é'", 0xe9],
-      ["latin-ext Polish 'ł'", 0x142],
-      ["latin-ext Czech 'č'", 0x10d],
-      ["latin-ext Turkish 'ğ'", 0x11f],
-      ["latin-ext Romanian 'ș'", 0x219],
-      ["latin-ext Hungarian 'ő'", 0x151],
-    ];
-    const missing = SAMPLES.filter(([, cp]) => !has(cp)).map(([name]) => name);
+    const covered = (range: string): number => {
+      const t = range.replace(/^U\+/, "");
+      const [a, b] = t.includes("-") ? t.split("-") : [t, t];
+      let n = 0;
+      for (let cp = Number.parseInt(a!, 16); cp <= Number.parseInt(b!, 16); cp += 1) {
+        if ("hasGlyphForCodePoint" in font && font.hasGlyphForCodePoint(cp)) n += 1;
+      }
+      return n;
+    };
+
+    const drift = declared
+      .filter((range) => PINNED_RANGE_COVERAGE.has(range))
+      .map((range) => ({ range, now: covered(range), pinned: PINNED_RANGE_COVERAGE.get(range)! }))
+      .filter((r) => r.now < r.pinned);
     expect(
-      missing,
-      `the subset lost codepoints the coverage decision chose: ${missing.join(", ")}. ` +
-        `Narrowing coverage is a payload decision of the kind recorded in §2.6, not a ` +
-        `maintenance step.`,
+      drift.map((d) => `${d.range}: ${d.now} covered, was ${d.pinned}`),
+      "the subset lost coverage the payload decision bought. Narrowing coverage is a " +
+        "decision of the kind recorded in §2.6, not a maintenance step — if it is " +
+        "deliberate, change the ranges in scripts/subset-inter.sh and re-pin here.",
     ).toEqual([]);
-    // …and the scripts deliberately DROPPED stay dropped, so this assertion is
-    // pinning a decision rather than just asserting a big font.
-    expect(has(0x0416), "Cyrillic Ж is deliberately not covered").toBe(false);
+
+    // Every declared range is pinned, so a range added to the script without a
+    // pin cannot pass unnoticed.
+    const unpinned = declared.filter((r) => !PINNED_RANGE_COVERAGE.has(r));
+    expect(unpinned, "every declared range carries a pinned coverage count").toEqual([]);
+
+    // …and the scripts deliberately DROPPED stay dropped, so this pins a decision
+    // rather than just asserting a large font.
+    expect(
+      "hasGlyphForCodePoint" in font && font.hasGlyphForCodePoint(0x0416),
+      "Cyrillic Ж is deliberately not covered",
+    ).toBe(false);
   });
 
   test("the font the app loads stays within its payload budget", () => {
