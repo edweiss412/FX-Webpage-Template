@@ -85,6 +85,9 @@ const NOT_CITATIONS = new Set([
   // friends to prove archives are skipped and an unrecognized severity is
   // reported by id. They are fixtures, not references to real work.
   "tests/scripts/ledgerMass.test.ts",
+  // Same reason: its scratch ledgers plant `BL-PLANTED-*`, `BL-NEW-UNSIZED`
+  // and the four tier spellings to prove the sizing guard fails by name.
+  "tests/docs/_metaLedgerSizing.test.ts",
 ]);
 
 /**
