@@ -179,10 +179,12 @@ test.describe("CASP-2 inline toggle strip — 390px geometry (spec §8.10)", () 
     const DESKTOP = { width: 800, height: 900 };
     await page.setViewportSize(DESKTOP);
     await page.goto(`${baseUrl}idleShort.html`);
+    await page.evaluate(() => document.fonts.ready);
     const idleH = await page
       .getByTestId("show-status-strip")
       .evaluate((n) => n.getBoundingClientRect().height);
     await page.goto(`${baseUrl}finalizeShort.html`);
+    await page.evaluate(() => document.fonts.ready);
     const finalizeH = await page
       .getByTestId("show-status-strip")
       .evaluate((n) => n.getBoundingClientRect().height);

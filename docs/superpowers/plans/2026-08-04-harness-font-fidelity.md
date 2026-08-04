@@ -142,6 +142,24 @@ Per `docs/agents/writing-plans.md` and the round-economy contract, these are the
 | M19 | Pseudo-element override (::placeholder, ::marker, ::before, ::after) | runtime oracle (computed family on the pseudo) |
 | M20 | Cross-family misclassification (mono ↔ sans in either direction) | mono manifest + freshness assertion |
 | M21 | Wait removal / mis-anchoring (removed, once-per-file, or anchored to navigation) | static wait-coverage row |
+| M22 | Geometry read hidden inside an `evaluate` arrow (the dominant spelling in this corpus) | wait-coverage row, attribution by enclosing CALL |
+| M23 | A second shipped stylesheet declaring a face (new `app/*.css`, or third-party via side-effect import) | discovery-based row in `fontLoading.test.ts` |
+
+**M22 and M23 were added at whole-diff review, and both closed a gap this plan
+had already specified.** M21's own mutant (d) below — "two navigation sites, one
+left bare" — was written into this plan and NOT rejected by the row that shipped:
+the check asked whether SOME wait followed the FIRST navigation and SOME wait
+preceded the FIRST geometry read, two independent `some()` calls one wait could
+satisfy. M22 is the reason it looked green anyway: geometry attributed by
+enclosing FUNCTION files every `locator.evaluate((n) => n.getBoundingClientRect())`
+under the arrow, and arrow buckets contain no navigation, so 48 reads across the
+e2e tree were invisible to the ordering check. Both are now killed by
+`tests/e2e/_metaFontWaitCoverageMutants.test.ts`, and the strengthened row found
+two live defects (`statusStripToggleLayout.spec.ts:181,185` — navigate, measure,
+navigate, measure, one wait far above all four, in a test that compares two strip
+heights). The lesson worth carrying: a guard whose only input is the corpus it
+guards cannot be shown to fail, which is why the analysis core is now a pure
+function with a synthetic mutation corpus beside it.
 
 ---
 

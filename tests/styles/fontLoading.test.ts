@@ -11,8 +11,8 @@
 // `--font-sans`, and the "defined exactly once" row would count two on a
 // perfectly correct tree. Measured: authored 1, compiled 2.
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { dirname, relative, resolve, sep } from "node:path";
 import { describe, expect, test } from "vitest";
 
 import {
@@ -38,6 +38,86 @@ import {
 const REPO_ROOT = resolve(__dirname, "..", "..");
 const FONTS_CSS = readFileSync(resolve(REPO_ROOT, "app/fonts.css"), "utf8");
 const GLOBALS_CSS = readFileSync(resolve(REPO_ROOT, "app/globals.css"), "utf8");
+
+interface Stylesheet {
+  /** Repo-relative for authored files, package-relative for node_modules. */
+  readonly label: string;
+  readonly text: string;
+}
+
+/**
+ * Every stylesheet that reaches a browser, found by walking rather than listing.
+ *
+ * Two entry points, because a stylesheet ships either way: any `.css` under
+ * `app/` (Next compiles the tree), and any side-effect `import "….css"` from
+ * app or component source, which is how third-party CSS arrives. Each is then
+ * followed through its own `@import` graph, so a face reachable two hops away
+ * is still in scope.
+ *
+ * Unresolvable specifiers are skipped rather than failed: this row's job is to
+ * catch a face someone added, and a specifier this resolver cannot follow is a
+ * limit of the resolver. `app/globals.css` is asserted present by the caller,
+ * so a discovery that silently collapses to nothing cannot pass as clean.
+ */
+function discoverShippedStylesheets(): Stylesheet[] {
+  const found = new Map<string, Stylesheet>();
+
+  const read = (absolute: string, label: string): void => {
+    if (found.has(absolute)) return;
+    let text: string;
+    try {
+      text = readFileSync(absolute, "utf8");
+    } catch {
+      return;
+    }
+    found.set(absolute, { label, text });
+
+    for (const match of text.matchAll(/@import\s+(?:url\()?["']([^"']+)["']/g)) {
+      const specifier = match[1]!;
+      const next = specifier.startsWith(".")
+        ? resolve(dirname(absolute), specifier)
+        : resolveBare(specifier);
+      if (next) read(next, relative(REPO_ROOT, next));
+    }
+  };
+
+  const resolveBare = (specifier: string): string | null => {
+    for (const candidate of [specifier, `${specifier}/index.css`, `${specifier}.css`]) {
+      const guess = resolve(REPO_ROOT, "node_modules", candidate);
+      if (existsSync(guess) && statSync(guess).isFile()) return guess;
+    }
+    return null;
+  };
+
+  const walk = (dir: string, visit: (file: string) => void): void => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      if (entry.name === "node_modules" || entry.name.startsWith(".")) continue;
+      const full = resolve(dir, entry.name);
+      if (entry.isDirectory()) walk(full, visit);
+      else visit(full);
+    }
+  };
+
+  for (const root of ["app", "components"]) {
+    walk(resolve(REPO_ROOT, root), (file) => {
+      if (file.endsWith(".css")) {
+        if (file.includes(`${sep}app${sep}`)) read(file, relative(REPO_ROOT, file));
+        return;
+      }
+      if (!/\.tsx?$/.test(file)) return;
+      const source = readFileSync(file, "utf8");
+      for (const match of source.matchAll(/^import\s+["']([^"']+\.css)["']/gm)) {
+        const specifier = match[1]!;
+        const target = specifier.startsWith(".")
+          ? resolve(dirname(file), specifier)
+          : resolveBare(specifier);
+        if (target) read(target, relative(REPO_ROOT, target));
+      }
+    });
+  }
+
+  return [...found.values()];
+}
 
 /**
  * Measured 2026-08-04 from a clean production build of the pre-swap tree, which
@@ -198,12 +278,37 @@ describe("app/fonts.css", () => {
     expect(firstVarFallbackFamily(GLOBALS_CSS, "--font-inter")).toBe(familyOf(interFaces[0]!));
   });
 
-  test("app/globals.css declares no @font-face of its own", () => {
-    // compileEntryCss compiles this file for all 32 harnesses. A face here would
-    // emit absolute /fonts/ URLs into every harness output, which 404 against
-    // each caller's local static server -- and a wrong url() 404s and renders
-    // identically, so no pixel gate can see it.
-    expect(parseFontFaces(GLOBALS_CSS)).toHaveLength(0);
+  test("app/fonts.css is the ONLY shipped stylesheet that declares a face", () => {
+    // compileEntryCss compiles globals.css for all 32 harnesses. A face there
+    // would emit absolute /fonts/ URLs into every harness output, which 404
+    // against each caller's local static server -- and a wrong url() 404s and
+    // renders identically, so no pixel gate can see it.
+    //
+    // THE SET IS DISCOVERED, NOT LISTED. Naming `app/globals.css` by hand made
+    // this row assert something narrower than it claimed: a second stylesheet --
+    // a new `app/*.css`, or a third-party sheet pulled in by a side-effect
+    // `import "…css"` -- could declare a competing face and every row here would
+    // still pass. Discovery makes a new stylesheet fail by default, which is the
+    // only version of this row worth having.
+    //
+    // Third-party sheets are IN SCOPE and not hypothetical: `components/agenda/
+    // AgendaPdfViewer.tsx:44-45` ships two react-pdf stylesheets. Probed
+    // 2026-08-04 — neither declares a face today, and this row is what notices
+    // if a version bump changes that.
+    const stylesheets = discoverShippedStylesheets();
+    expect(
+      stylesheets.map((s) => s.label),
+      "discovery found no stylesheets, so this row would pass vacuously",
+    ).toContain("app/globals.css");
+
+    const offenders = stylesheets
+      .filter((s) => s.label !== "app/fonts.css")
+      .filter((s) => parseFontFaces(s.text, { errorRecovery: true }).length > 0)
+      .map((s) => s.label);
+    expect(
+      offenders,
+      `these declare a face besides app/fonts.css: ${offenders.join(", ")}`,
+    ).toEqual([]);
   });
 
   test("DESIGN.md describes the mechanism that actually ships", () => {
