@@ -60,7 +60,7 @@
 import postgres, { type Sql } from "postgres";
 import { afterAll, describe, expect, it } from "vitest";
 
-import type { TriggeredReviewItem } from "@/lib/parser/types";
+import type { RoleFlag, TriggeredReviewItem } from "@/lib/parser/types";
 import { runPhase2 } from "@/lib/sync/phase2";
 
 import { crew, parseResult, phase2Tx, readCrew, seedCrew, seedShow } from "./_holdAwareTestkit";
@@ -93,7 +93,7 @@ const MT1 = "2026-06-08T12:00:00.000Z";
 const MT2 = "2026-06-09T12:00:00.000Z";
 
 /** Arm (c) only fires for a prior row carrying a capability flag (`lib/sync/phase2.ts:255`). */
-const LEAD = ["A1", "LEAD"];
+const LEAD: RoleFlag[] = ["A1", "LEAD"];
 
 function runArgs(driveFileId: string, next: ReturnType<typeof parseResult>) {
   return {
