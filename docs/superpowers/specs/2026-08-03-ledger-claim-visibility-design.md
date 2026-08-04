@@ -960,6 +960,20 @@ Latent, not live: main mints exactly the intended eight ids today. But it over-m
 direction the guard exists to prevent, so a bullet naming a sibling id in bold makes that id
 resolve and a typo can define itself. Filed OPEN with this probe output. Not fixed here.
 
+**Deferral reason, per the class-sweep disposition rule (`AGENTS.md:227`).** That rule makes
+in-branch repair the default and requires any deferred peer to name which exception applies, with
+"same defect, different file" explicitly insufficient. This filing claims **exception (b): a
+ratified scope decision already fences it** — the originating brief instructed "Open a `BACKLOG.md`
+row with this probe output; do not fix it as part of the invariant-12 work", ratified 2026-08-03 and
+recorded in §1.
+
+Exception (c) would also hold on its own: the defect lives in `bodyDefinedIds`
+(`tests/docs/_ledgerMdast.ts:346`), an id-definition surface this branch does not otherwise touch,
+and tightening its recognizer requires a probe demonstrating the corruption prevented — which is a
+spec of its own, not a line in this one. The sweep for peers of this shape was run and found none:
+`bodyDefinedIds` is the only body-scanning id recognizer in the tree, pinned as sole-caller by
+`tests/docs/_metaLedgerReferentialIntegrity.test.ts` P5-sole.
+
 ---
 
 ## 10. Review provenance
