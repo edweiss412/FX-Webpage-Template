@@ -664,3 +664,25 @@ The cost of the residue is bounded and small: it requires someone to deliberatel
 The pattern across all three is worth stating: **each was a sentence in the disposition table that outran the code.** A limits section is only useful if its scope claims are exact, and twice now this one has been generous with itself.
 
 **Forty-five mutants across fourteen rounds. All caught.**
+
+### 12.15 Round 15 — enumeration abandoned for the fourth and last time
+
+`VERDICT: NEEDS-ATTENTION`, one P1, accepted and fixed. Five more decidable CSSOM writes escaped: `cssText +=`, `["cssText"] =`, `font ||=`, `setProperty?.(…)`, `setAttribute?.(…)`.
+
+Every one is the same write through a form the patterns had not been told about — a compound assignment, a computed member, an optional-chained call. **This file has now made the enumerate-the-spellings mistake in four separate positions** (value tokens §12.7, property names §12.9, inline properties §12.12, CSSOM writes §12.14), and each time the fix was to stop enumerating and describe the SHAPE instead.
+
+So the matcher now describes three shapes rather than a list of spellings:
+
+| | |
+| --- | --- |
+| **ACCESS** | `.x`, `?.x`, `["x"]`, `?.["x"]` |
+| **ASSIGN** | `=` and every compound form — `+=`, `\|\|=`, `&&=`, `??=`, … |
+| **CALL** | `.f(`, `?.f(`, `["f"](`, and the optional-chain call `f?.(` |
+
+`.style` itself is not bannable — `overflow`, `maxHeight` and `visibility` are legitimate uses in this codebase — so writes are matched by PROPERTY NAME, except the three forms carrying arbitrary CSS (`cssText`, `setAttribute("style")`, `Object.assign` onto `.style`), which are banned outright and whose baseline is zero.
+
+All **thirteen** CSSOM forms from rounds 14 and 15 were replayed against the generalised matcher. Twelve caught on the first attempt; `setAttribute?.(` escaped because the optional-chain was allowed on the ACCESS but not before the CALL paren, which is itself an instance of the same lesson. Fixed and re-verified: **13/13**.
+
+The runtime census is unchanged and correct: it rides the `FontReport` the per-surface helper gathers, so it covers admin, public auth and the seeded crew route — every tree this suite visits. Routes no test visits remain the documented limit of §12.13.
+
+**Fifty-eight mutants across fifteen rounds. All caught.**

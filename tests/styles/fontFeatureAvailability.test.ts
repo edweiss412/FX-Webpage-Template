@@ -560,24 +560,56 @@ const FEATURE_PROP_SPELLINGS =
 const GUARDED_CSS_NAME = String.raw`font-feature-settings|font-variant-numeric|font|all`;
 const GUARDED_JS_NAME = String.raw`fontFeatureSettings|fontVariantNumeric|font|all`;
 
+/**
+ * Access and assignment are GENERALISED, not enumerated.
+ *
+ * Round 14 closed eight spellings; round 15 produced five more — `cssText +=`,
+ * `["cssText"] =`, `font ||=`, `setProperty?.(…)`, `setAttribute?.(…)` — every
+ * one of them the same write through a form the patterns had not been told
+ * about. Enumerating spellings is the mistake this file has now made in four
+ * different positions, so these three fragments cover the shapes instead:
+ *
+ *   ACCESS      `.x`, `?.x`, `["x"]`, `?.["x"]`
+ *   ASSIGN      `=` and every compound form (`+=`, `||=`, `&&=`, `??=`, …)
+ *   CALL        `.f(`, `?.f(`, `["f"](`
+ *
+ * `.style` itself is NOT bannable — `overflow`, `maxHeight` and `visibility` are
+ * legitimate uses in this codebase — so writes are matched by PROPERTY NAME,
+ * except the three forms carrying arbitrary CSS, which are banned outright.
+ */
+const ACCESS = String.raw`(?:\??\.\s*|\??\[\s*["'\`]\s*)`;
+const ACCESS_END = String.raw`(?:\s*["'\`]\s*\])?`;
+const ASSIGN = String.raw`\s*(?:[-+*/%&|^?]{0,2}=)(?!=)`;
+const CALL = String.raw`(?:\??\.\s*|\[\s*["'\`])`;
+/** `(`, or the optional-chaining call form `?.(`. */
+const CALL_OPEN = String.raw`\s*\??\.?\s*\(`;
+
 const CSSOM_WRITES: [RegExp, string][] = [
-  [new RegExp(String.raw`\.style\s*\.\s*(${GUARDED_JS_NAME})\s*=`, "i"), "CSSOM property write"],
   [
     new RegExp(
-      String.raw`\.style\s*\[\s*["'\`]\s*(${GUARDED_JS_NAME}|${GUARDED_CSS_NAME})\s*["'\`]\s*\]\s*=`,
+      String.raw`\bstyle\s*${ACCESS}(?:${GUARDED_JS_NAME}|${GUARDED_CSS_NAME})${ACCESS_END}${ASSIGN}`,
       "i",
     ),
-    "CSSOM computed write",
+    "CSSOM property write",
+  ],
+  [
+    new RegExp(String.raw`\bstyle\s*${ACCESS}cssText${ACCESS_END}${ASSIGN}`, "i"),
+    "cssText write (arbitrary CSS)",
   ],
   [
     new RegExp(
-      String.raw`(?:\.setProperty|\[\s*["'\`]setProperty["'\`]\s*\])\s*\(\s*["'\`]\s*(${GUARDED_CSS_NAME})\s*["'\`]`,
+      String.raw`${CALL}setProperty["'\`]?\s*\]?${CALL_OPEN}\s*["'\`]\s*(?:${GUARDED_CSS_NAME})\s*["'\`]`,
       "i",
     ),
     "CSSOM setProperty",
   ],
-  [/\.style\s*\.\s*cssText\s*=/i, "cssText write (arbitrary CSS)"],
-  [/setAttribute\s*\(\s*["'`]\s*style\s*["'`]/i, "setAttribute('style') (arbitrary CSS)"],
+  [
+    new RegExp(
+      String.raw`${CALL}setAttribute["'\`]?\s*\]?${CALL_OPEN}\s*["'\`]\s*style\s*["'\`]`,
+      "i",
+    ),
+    "setAttribute('style') (arbitrary CSS)",
+  ],
   [/Object\.assign\s*\([^)]*\.style\b/i, "Object.assign onto .style (arbitrary CSS)"],
 ];
 
@@ -610,9 +642,12 @@ export function inlineFeatureStyles(): string[] {
         if (FEATURE_PROP_SPELLINGS.test(line)) hits.push(`${rel}:${i + 1} (feature property)`);
       }
       // Whole-file, because a `setProperty(` call can straddle a line break.
+      // Newlines collapsed for the CSSOM scan: a call can straddle lines, and
+      // round 14's multiline `setProperty(` escape was exactly that.
+      const flat = source.replace(/\s+/g, " ");
       for (const [pattern, label] of CSSOM_WRITES) {
-        const m = pattern.exec(source);
-        if (m) hits.push(`${rel}:${source.slice(0, m.index).split("\n").length} (${label})`);
+        const m = pattern.exec(flat);
+        if (m) hits.push(`${rel} (${label})`);
       }
       for (const region of source.matchAll(INLINE_STYLE_REGION)) {
         if (!INLINE_RESETTER.test(region[1] ?? "")) continue;
