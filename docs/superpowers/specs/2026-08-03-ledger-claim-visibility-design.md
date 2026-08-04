@@ -4,8 +4,8 @@
 
 **Date:** 2026-08-03
 **Branch:** `chore/ledger-claim-visibility`
-**Backlog entries:** none opened for this work (see §9.1); two filed as by-products (§9.2, §9.3)
-**Status:** R9 repaired — 52 adversarial findings across nine rounds plus 5 self-findings, all accepted, all closed
+**Backlog entries:** none opened for this work (see §9.1); three filed as by-products (§9.2, §9.3, §5 item 0a)
+**Status:** R10 repaired — 61 adversarial findings across ten rounds plus 5 self-findings, all accepted. R10 triggered the three-round cap: §3.1 is now written from a spike, not from prose
 **Review note:** R1-R4 were Codex (cross-model). R5 and R6 were fresh-eyes Opus sessions, because Codex hit a usage limit resetting 2026-08-10; see §10
 **impeccable-gate: N/A — no UI surface**
 
@@ -357,9 +357,40 @@ main too, so both baselines read zero, the comparison is false, and the gate nev
 that measures the parser against itself is defeated by the parser being wrong, which is the only
 case it exists for. Comparing against the file's own non-emptiness has no such dependency.
 
-So the shared parser module **consumes `extractEntries` for ids and spans** and owns only
-field extraction within a span. The local `HEADING` regex is deleted rather than moved; two grammars
-for one file format is the defect, and keeping the stricter one merely relabels it.
+So the shared parser module **consumes the authoritative grammar and owns only field extraction**.
+The local `HEADING` regex is deleted rather than moved; two grammars for one file format is the
+defect, and keeping the stricter one merely relabels it.
+
+**Spans come from pairing two calls, because `extractEntries` alone cannot supply them.** R10
+finding 1 established that `LedgerEntry` is `{ id, headingLine, body }`
+(`tests/docs/_ledgerMdast.ts:95`) and that `headingLine` carries no position, so the earlier text
+here — "consumes `extractEntries` for ids and spans" — was not implementable. It was also not as
+fatal as it looked: `parseLedger` returns the raw mdast root, whose heading nodes carry full
+positions, and entry `body` nodes carry them too on real input. The remedy is a pairing rather than
+a descope:
+
+| Call | Supplies |
+| --- | --- |
+| `extractEntries(text, opts)` | **which** headings are id-headings, and their ids — the grammar, unduplicated |
+| `parseLedger(text)` | **where** those headings are — `position.start.line` on each heading node |
+
+Walking the two together in document order, forward-only, yields one span per entry. Spiked against
+the live corpus before this design was committed to:
+
+```
+BACKLOG.md:          entries=94  unresolved=0  monotonic=true
+BACKLOG-archive.md:  entries=229 unresolved=0  monotonic=true
+DEFERRED.md:         entries=15  unresolved=0  monotonic=true
+DEFERRED-archive.md: entries=139 unresolved=0  monotonic=true
+TOTAL checked=477 unresolved=0
+
+no-em-dash entry span: {"id":"BL-NULLCODE-STAMP-BATCH-2","start":573,"end":580}
+```
+
+Every entry in every ledger resolves to a span, the spans are strictly increasing, and the
+no-em-dash entry that started this whole thread resolves correctly — which is the acceptance
+condition §7.1 pins. The per-ledger counts also independently confirm the `ExtractOpts` mapping
+above: 15 and 139 for the deferred pair, not the 0 and 0 that the wrong opts produce.
 
 Importing `tests/docs/_ledgerMdast.ts` from a script is safe and pinned: it is a plain module, not a
 test file, and `tests/docs/_metaLedgerReferentialIntegrity.test.ts` already bans `node:fs`,
@@ -375,6 +406,20 @@ precedent exists to avoid. It exports
 `LedgerItem`, `fieldsOfLine`, `ledgerItems`, `isInProgress`, `flightFieldsOn`, `FLIGHT_FIELDS`,
 `BRANCH_SHAPE`, and `PR_SHAPE`. It exports no heading pattern of its own — R8 finding 2 caught the export list still promising one after §3.1 deleted it, which a literal implementer would have satisfied by recreating the very grammar R7 finding 1 removed. `ledgerFiles` moves too, taking its root
 directory as an argument as it already does today (`tests/docs/_metaLedgerInProgress.test.ts:46`).
+
+**Its discovery is family-scoped, and the spec says so rather than repeating the claim it inherits.**
+`AGENTS.md:36` states that "Ledger files are discovered from disk, so a new one is covered by
+default". That is true only within one naming family: the function does `readdirSync` but filters on
+`/^(BACKLOG|DEFERRED)(-archive)?\.md$/`, so a second archive file under a different suffix, or an entirely new ledger family
+is invisible to it — and, per R10 finding 5, to
+`tests/docs/_metaLedgerReferentialIntegrity.test.ts` as well, which hardcodes the same four names
+independently. Both discovery surfaces share the hole.
+
+The reader inherits the limitation rather than fixing it, because widening discovery would change
+which files three existing guards walk, and that is a separate decision with its own blast radius.
+What changes here is only that it is written down: **§5 carries it as a documented limit**, so the
+next person to add a ledger family learns it from the spec instead of from a silent miss. Filed as
+`BL-LEDGER-DISCOVERY-FAMILY-SCOPED`, exception (c) per `AGENTS.md:227`.
 
 The move is behavior-preserving: no regex, no bound, and no field name changes. The existing
 planted-input suite (`tests/docs/_metaLedgerInProgress.test.ts:224-287`) stays where it is and
@@ -532,8 +577,15 @@ them into "non-zero means collision" would report a parser regression as somebod
 | **1** | A named id is `declared` by a branch other than the current one. Message names the id, the branch, and the PR if known | Stop and reconcile |
 | **2** | **The check could not be trusted**: usage error, parser vacuity (§4.2), or an environment failure that §4.1 escalates | Stop and fix the check. This is never evidence about another branch, in either direction |
 
-Also `--json` for machine consumption, emitting an array of
-`{id, branch, kind, pr, tipAgeDays, stale}`. **`--json` is never capped** — the 100-branch limit is a
+Also `--json` for machine consumption. It emits an **object**, not a bare array:
+`{ status, degraded, claims: [{id, branch, kind, pr, tipAgeDays, stale}] }`.
+
+The envelope is the point. R10 finding 7: a bare array makes a healthy empty result and a
+stale-cache false all-clear both serialize as `[]`, and every report-level state the human table
+prints in its header — fetch failed, `--no-fetch` cached, merge-base unavailable, merged-exclusion
+skipped — is absent from the payload a machine reads. `degraded` carries those flags by name and
+`status` mirrors the exit code, so a consumer can never mistake "verified, nothing in flight" for
+"could not verify". **`--json` is never capped** — the 100-branch limit is a
 display concern for human output only. A machine consumer receiving a truncated set with no
 truncation marker would compute a false all-clear, which is the same defect as the capped `--check`
 R3 finding 1 closed.
@@ -590,7 +642,7 @@ Every input, and what the reader does with it.
 | `git fetch` fails (offline, auth, timeout) | Use existing remote-tracking refs and print `WARN: claims computed from stale refs (fetch failed: <reason>)`. The report still prints, because a stale report beats none. **`--check` exits 2**, never 0: R3's case is a checkout that cannot reach origin while a cached ref already carries another branch's live declaration, and answering "no collision" from a universe you could not verify is the false all-clear this spec exists to remove |
 | No `refs/remotes/origin/*` at all | Print `no origin branches resolvable`; `--check` exits 2 |
 | `git ls-remote` itself fails after a successful fetch | Exit **2**, explicitly caught. R8 finding 6: `execFileSync` throws on a failed `ls-remote` (status 128), and an uncaught throw exits the process with 1 — which §3.3 and §6.2 both define as "another branch declares this row". An environment failure reported as somebody else's claim is worse than either a crash or a warning |
-| Fetch succeeded but resolved fewer heads than `git ls-remote --heads origin` reports | The universe is incomplete for a reason the reader cannot see. Print the shortfall; `--check` exits 2. The `ls-remote` carries its own **30 s** bound, matching `tests/docs/_metaLedgerInProgress.test.ts:201`, and is **skipped entirely under `--no-fetch`** — it verifies a fetch, so with no fetch there is nothing to verify. R6 finding 5 caught it otherwise reopening the budget conflict R5 finding 3 closed: an unbounded network call still sat inside preflight's 15 s |
+| Fetch succeeded but the resolved head **set** is missing any name `git ls-remote --heads origin` reports | Compared as sets, never as counts. R10 finding 3: churn that deletes two branches and creates one leaves the count equal or larger while a newly created claimed branch is absent, so a cardinality check passes over exactly the branch that matters. Print the missing names; `--check` exits 2. The `ls-remote` carries its own **30 s** bound, matching `tests/docs/_metaLedgerInProgress.test.ts:201`, and is **skipped entirely under `--no-fetch`** — it verifies a fetch, so with no fetch there is nothing to verify. R6 finding 5 caught it otherwise reopening the budget conflict R5 finding 3 closed: an unbounded network call still sat inside preflight's 15 s |
 | `gh` absent, unauthenticated, or returning malformed JSON, **any mode** | PR column blank. Never an error, never a warning, never a change to which claims resolve. R2 measured that `unit-suite.yml` supplies no `GH_TOKEN`, so the unauthenticated path is the CI default, not an edge case |
 | More than 100 open PRs | The PR column is incomplete for the overflow and says so. No claim resolution reads it, which is the reason it is allowed to be incomplete: a query that cannot report its own truncation must not carry a correctness rule |
 | `git merge-base` unresolvable for a ref (shallow clone, unrelated histories) | `inferred` is disabled for that ref; `declared` is unaffected. Said once in the header, not once per branch |
@@ -607,7 +659,8 @@ Every input, and what the reader does with it.
 | A diff hunk landing outside every entry span | Dropped, contributing no `inferred` claim (§3.2 step 6). The reconciliation-log preamble is this case and occurs on every live ref |
 | A ledger file that is non-empty on disk but yields **zero** entries | Exit **2** in `--check`, not a warning. This is the per-file vacuity rule (§3.1): a whole ledger silently disappearing — which a wrong `ExtractOpts` mapping does to both deferred files — is the same false-all-clear class as R3 finding 1 reached through a different door. The condition is self-contained and never compares the parser against another run of itself |
 | A ledger file that is genuinely empty, or absent at a ref | Contributes no claims, no warning. A branch may predate the file |
-| **Vacuity**: every branch yields 0 entries while `origin/main` yields more than 100 | Print `WARN: claim parser matched nothing across N branches — treat this report as unreliable` and exit 2 in `--check`. A parser that silently matches nothing would make the whole report a false all-clear, which is the one failure this tool must never produce quietly. The threshold sits far below the real floor: the probe parsed 4837 entries across 15 refs and 4 ledgers at 19:11 CDT, and 6715 across 19 refs 90 minutes later. Both are an order of magnitude clear of 100, and the margin grows as the corpus does |
+| **Vacuity**: every branch yields 0 entries while `origin/main` yields more than 100, **and at least one candidate branch exists whose ledger files are non-empty** | R10 finding 2: without that last clause the predicate is true in three legitimate universes — origin holding only `main`, every candidate predating the ledgers, and genuinely empty candidate ledgers — so a repo with no side branches would exit 2 forever. The clause is what distinguishes "the parser broke" from "there is nothing to parse" |
+| Legacy row, superseded by the above | Print `WARN: claim parser matched nothing across N branches — treat this report as unreliable` and exit 2 in `--check`. A parser that silently matches nothing would make the whole report a false all-clear, which is the one failure this tool must never produce quietly. The threshold sits far below the real floor: the probe parsed 4837 entries across 15 refs and 4 ledgers at 19:11 CDT, and 6715 across 19 refs 90 minutes later. Both are an order of magnitude clear of 100, and the margin grows as the corpus does |
 | An entry declared in-progress with no `Branch`/`PR` field | Still reported as `declared`, keyed on the ref it was found at. Field validity is `tests/docs/_metaLedgerInProgress.test.ts`'s job, not the reader's |
 | The same id declared by two branches | Both rows printed. This IS the collision; `--check` exits 1 |
 | An id declared on a branch and also present on `origin/main` as in-progress | Reported once per branch. Main is never a candidate, so main's own copy contributes nothing |
@@ -672,6 +725,13 @@ believes is signaled is worse than one they can see.
    threshold moves a row under a heading and nothing else — stale branches are still listed and
    their claims still participate in `--check` — so the only cost is a display label, and the bias
    is deliberately toward calling a dead branch live rather than the reverse.
+0a. **Ledger discovery is family-scoped.** `ledgerFiles` filters `readdirSync` to
+   `BACKLOG`/`DEFERRED` with an optional `-archive` suffix, so a new ledger family is invisible to
+   the reader — and equally to the two existing guards, which hardcode the same four names. Signaled
+   only in the sense that this section names it; there is no runtime warning, because the reader
+   cannot know about a file it never looks for. Widening discovery changes which files three guards
+   walk and is filed separately as `BL-LEDGER-DISCOVERY-FAMILY-SCOPED`. Until then, `AGENTS.md:36`'s
+   "a new one is covered by default" holds only within that family.
 1. **Ancestry unavailable in a shallow clone.** Merged-and-retained branches stay in the candidate
    set and can raise a false collision. Printed in the report header, and the remedy the failure
    asks for — delete the branch, or clear a marker that survived its merge — is correct regardless.
@@ -740,7 +800,16 @@ a marker written at Stage 0 stays local for the entire run (§2.8a).
 
 **6.3 — Stage 4.4's removal moves earlier, in both places.** `AGENTS.md:38` currently reads
 "**Stage 4.4**, after the `0  0` check, removes it", and `AGENTS.md:136` independently instructs
-clearing the marker in the same post-`0  0` turn as the pane and agent labels. Both become:
+clearing the marker in the same post-`0  0` turn as the pane and agent labels. The two locations get
+**different** treatments, which R10 finding 4 caught an earlier draft conflating by saying "both
+become" and then asking §6.4 to delete one of them outright:
+
+- `AGENTS.md:38`, the invariant paragraph, is **rewritten** to the text below. It is where the rule
+  now lives.
+- `AGENTS.md:136`, the Stage 4.4 lifecycle line, is **deleted** (§6.4). A bullet that restates a
+  rule it no longer owns is the drift this whole delta exists to remove.
+
+The invariant paragraph becomes:
 
 > The marker is removed in the PR's last commit, before the merge, not in the post-`0  0` turn. A
 > marker that merges into main names a branch the merge just deleted, and the origin-existence rule
@@ -821,6 +890,8 @@ a false all-clear through five distinct doors while passing everything above:
 | Fetch succeeds but resolves fewer heads than `git ls-remote` reports | 2 | exit 0 from a silently narrowed universe (the configured-refspec case) |
 | Detached HEAD with no `GITHUB_HEAD_REF` | 2 | exit 1 attributing the caller's own marker to a stranger |
 | `git ls-remote` fails after a successful fetch | 2 | R9 finding 3: `execFileSync` throws (status 128) and an uncaught throw exits **1**, which §3.3 and §6.2 both define as another branch's collision. An implementation that simply omits the catch passes every other row here |
+| **The no-em-dash boundary entry** | n/a — a positive case | R10 finding 6: no test planted the shape R7 finding 1 was about. A fixture entry whose heading carries no em dash must resolve, with its span, and be attributable. This is the one case the deleted `HEADING` regex fails and the authoritative grammar passes, so it is the only assertion that catches a silent reversion to the old recognizer |
+| **`levels: [2]` instead of `[2, 3]` on the backlog pair** | 2 | R10 finding 6's second mutant, and the reason the zero-result vacuity gate is not sufficient on its own: dropping H3 keeps 46 of 92 backlog entries and 144 of 229 archive entries, so **no file is empty and the global floor is cleared** while 74 unique ids vanish. The case asserts a known H3 entry resolves, which is the only thing that fails |
 | A deferred ledger parsed with the backlog `ExtractOpts` | 2 | R8 finding 1 / R9 finding 1: both deferred files yield zero entries, a planted deferred claim vanishes, and the global floor stays satisfied by the backlog entries alone. **The case plants a claim in `DEFERRED.md` and asserts it is found**, which is the only assertion that fails when the opts mapping is wrong |
 | 101 candidates, the collision in the 101st | **1** | exit 0 from a collision hidden behind the display cap |
 
@@ -908,8 +979,12 @@ in `NOT_A_CITATION`, one row per synthetic id with its reason, following the pre
 for a sibling spec at `tests/docs/_metaLedgerReferentialIntegrity.test.ts:203`. That registry also
 fails a row whose id later becomes real, so the exemptions cannot quietly outlive their examples.
 
-**Nine ids, enumerated rather than counted.** R9 finding 2 caught an earlier "eight", which had
-dropped `BL-TWO` — and an off-by-one in a registry is a red CI run, not a wording slip:
+**Eight rows, enumerated rather than counted — and `BL-TWO` deliberately absent.** R9 finding 2
+caught an earlier count that dropped `BL-TWO`; R10 finding 9 then established that `BL-TWO` needs no
+row at all, because the guard suppresses it as a family stem before consulting the registry
+(`BL-TWO-WAY-SHEET-SYNC` is real). Confirmed by running the guard: it reported five unresolved ids,
+never `BL-TWO`, and passes with eight rows. Counting was wrong twice in a row, in both directions,
+which is why this is a table:
 
 | Id | Where | Why synthetic |
 | --- | --- | --- |

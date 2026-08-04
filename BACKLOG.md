@@ -28,6 +28,23 @@ contract.
 
 ---
 
+## BL-LEDGER-DISCOVERY-FAMILY-SCOPED — "discovered from disk" holds only inside one naming family
+
+**Status:** OPEN · **Severity:** low · **Class:** guard coverage · **Filed:** 2026-08-03 (`chore/ledger-claim-visibility`, spec §5) · **Effort:** M
+
+`AGENTS.md` states that ledger files are discovered from disk so a new one is covered by default.
+That is true only within one naming family. `ledgerFiles` (`tests/docs/_metaLedgerInProgress.test.ts:46`)
+does `readdirSync` and then filters on a regex accepting `BACKLOG` or `DEFERRED` with an optional
+`-archive` suffix; `tests/docs/_metaLedgerReferentialIntegrity.test.ts` hardcodes the same four names
+independently. A new ledger family would be silently invisible to both, and to the claim reader that
+consumes the same helper.
+
+Not currently live — the repo has exactly the four files. Deferred out of
+`chore/ledger-claim-visibility` under exception (c): widening discovery changes which files three
+existing guards walk, which is its own blast radius and its own review.
+
+---
+
 ## BL-LEDGER-MDAST-SHARED-HOME — the ledger walker lives under tests/ but is consumed by scripts/
 
 **Status:** OPEN · **Severity:** low · **Class:** module placement · **Filed:** 2026-08-03 (`chore/ledger-claim-visibility`, spec §9.3) · **Effort:** M
