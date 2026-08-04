@@ -374,7 +374,10 @@ export function ShowReviewSurface({
   // The mechanism now lives in components/admin/announceLog (extracted 2026-08-03
   // so the undo channel shares it rather than copying it a third time). Behavior
   // is unchanged: per-mount monotonic ids, whitespace no-op, cap 50 dropping the
-  // oldest. This surface's MutationObserver suite pins that.
+  // oldest, and NO timer-based pruning — this call deliberately passes no ttlMs,
+  // because the announcer spec 2026-07-22 §2.2 ratifies that a recent entry is
+  // never removed (a trimmed node may still be queued and unspoken, R3 F2).
+  // This surface's MutationObserver suite pins that.
   const { announce, entries: announceLog } = useAnnounceLog();
   const announceCtx = useMemo(() => ({ announce }), [announce]);
 

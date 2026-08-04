@@ -28,7 +28,11 @@
 // user navigating by region.
 "use client";
 import { useMemo, type ReactNode } from "react";
-import { AnnounceLogRegion, useAnnounceLog } from "@/components/admin/announceLog";
+import {
+  ANNOUNCE_LOG_TTL_MS,
+  AnnounceLogRegion,
+  useAnnounceLog,
+} from "@/components/admin/announceLog";
 import { UndoAnnounceContext } from "@/components/admin/undoAnnounceContext";
 
 export function AdminAnnounceProvider({
@@ -40,7 +44,11 @@ export function AdminAnnounceProvider({
   testId: string;
   label: string;
 }) {
-  const { announce, entries } = useAnnounceLog();
+  // TTL pruning is opted INTO here, not defaulted in the hook: the layout
+  // instance outlives every announcement it carries, so unpruned entries pile up
+  // in the a11y tree for a whole session. The warnings channel deliberately does
+  // NOT opt in — its spec ratifies never removing recent entries.
+  const { announce, entries } = useAnnounceLog({ ttlMs: ANNOUNCE_LOG_TTL_MS });
   const ctx = useMemo(() => ({ announce }), [announce]);
   return (
     <UndoAnnounceContext.Provider value={ctx}>

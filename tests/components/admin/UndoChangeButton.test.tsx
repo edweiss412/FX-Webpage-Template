@@ -101,7 +101,11 @@ function renderWithSpy(
   const announce = vi.fn();
   const ui = render(
     <UndoAnnounceContext.Provider value={{ announce }}>
-      <UndoChangeButton changeLogId="cl-1" undoAction={undoAction} announceLabel={announceLabel} />
+      <UndoChangeButton
+        changeLogId="cl-1"
+        undoAction={undoAction}
+        {...(announceLabel === undefined ? {} : { announceLabel })}
+      />
     </UndoAnnounceContext.Provider>,
   );
   return { announce, ...ui };
@@ -162,6 +166,9 @@ it("does not throw or announce when mounted with NO provider", async () => {
   render(<UndoChangeButton changeLogId="cl-1" undoAction={undoAction} announceLabel="X" />);
   await clickUndo();
   expect(undoAction).toHaveBeenCalledTimes(1);
+  // The "or announce" half, which was previously unasserted: with no provider
+  // the no-op default runs, so nothing reaches any region on the page.
+  expect(document.querySelector('[role="log"]')).toBeNull();
 });
 
 it("keeps the SAME result node across a failure (never a node insertion)", async () => {

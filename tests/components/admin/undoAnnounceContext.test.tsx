@@ -4,10 +4,7 @@
 // (spec 2026-08-03-undo-success-announcement-design §3.2, §4.1).
 import "@testing-library/jest-dom/vitest";
 import { describe, expect, it } from "vitest";
-import {
-  NOOP_UNDO_ANNOUNCE,
-  undoneAnnouncement,
-} from "@/components/admin/undoAnnounceContext";
+import { NOOP_UNDO_ANNOUNCE, undoneAnnouncement } from "@/components/admin/undoAnnounceContext";
 
 describe("undoneAnnouncement", () => {
   it("prefixes a real summary and supplies the terminal period", () => {

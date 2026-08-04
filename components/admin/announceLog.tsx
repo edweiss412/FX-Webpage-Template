@@ -18,32 +18,44 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 
-/** Cap 50 (announcer spec §2.2): appending the 51st drops the oldest. An entry is
- *  removed only once it is 50 announcements old, far beyond any plausible
- *  assistive-technology delivery-queue residence. Removals are silent under
- *  role="log" (aria-relevant defaults to "additions text"), so the drop is safe. */
+/** Cap 50 (announcer spec §2.2): appending the 51st drops the oldest. Under the
+ *  default (no TTL) an entry is removed only once it is 50 announcements old,
+ *  far beyond any plausible assistive-technology delivery-queue residence.
+ *  Removals are silent under role="log" (aria-relevant defaults to "additions
+ *  text"), so the drop is safe. */
 export const ANNOUNCE_LOG_CAP = 50;
 
 export type AnnounceLogEntry = { id: number; text: string };
 
-/** How long a spoken entry stays in the DOM before it is pruned.
+/** Optional per-entry pruning delay, used ONLY by channels that outlive their
+ *  announcements. OFF by default, and that default is load-bearing.
  *
- *  The cap alone bounds MEMORY, not accessibility-tree noise. The layout channel
- *  lives for the whole admin session, and its region is the first content in the
- *  admin subtree, so without pruning a virtual-cursor user reading the dashboard
- *  top-down hears every stale announcement of the session before reaching the nav
- *  (impeccable audit P2: 12 undos measured 12 sibling nodes / 686 chars).
+ *  Why it exists: the cap bounds MEMORY, not accessibility-tree noise. The admin
+ *  layout channel lives for a whole session and its region is the first content
+ *  in the admin subtree, so unpruned it makes a top-down screen-reader read
+ *  recite every undo of the session before reaching the nav (impeccable audit
+ *  P2: 12 undos measured 12 sibling nodes / 686 chars).
  *
- *  30 seconds, not the 5 the audit suggested: removing a node that assistive
- *  technology has not spoken yet can strand it unsaid, which is the hazard the
- *  cap-only design was avoiding. 30s is far past any plausible delivery-queue
- *  residence and still keeps the region effectively empty at rest. */
+ *  Why it is NOT the default: `docs/superpowers/specs/2026-07-22-warning-announcer-copy-design.md`
+ *  §2.2 ratifies the opposite for the warnings channel — "a freshly trimmed node
+ *  could still be queued, unspoken … removal can strand it (R3 finding 2)", and
+ *  "No timers, no requestAnimationFrame". That channel unmounts with its panel,
+ *  so it never accumulates across a session and the audit finding does not apply
+ *  to it. Turning pruning on there would silently supersede a ratified contract
+ *  in another spec (AGENTS.md invariant 7), so the retrofit passes no TTL and
+ *  keeps its cap-only behavior exactly.
+ *
+ *  30 seconds rather than a few: removing a node assistive technology has not
+ *  spoken yet is the strand hazard above, so the window is far past any
+ *  plausible delivery-queue residence while still leaving the region empty at
+ *  rest. */
 export const ANNOUNCE_LOG_TTL_MS = 30_000;
 
-export function useAnnounceLog(): {
+export function useAnnounceLog(options?: { ttlMs?: number }): {
   announce: (message: string) => void;
   entries: ReadonlyArray<AnnounceLogEntry>;
 } {
+  const ttlMs = options?.ttlMs;
   // Ids come from a per-mount monotonic ref, NEVER a timestamp or the log length:
   // two announces batched into one commit must not collide, or React drops a node
   // on the duplicate key.
@@ -61,21 +73,25 @@ export function useAnnounceLog(): {
     };
   }, []);
 
-  const announce = useCallback((message: string) => {
-    if (message.trim() === "") return; // empty/whitespace is a no-op, never a blank entry
-    const id = idRef.current++;
-    setEntries((log) => {
-      const next = [...log, { id, text: message }];
-      return next.length > ANNOUNCE_LOG_CAP ? next.slice(next.length - ANNOUNCE_LOG_CAP) : next;
-    });
-    const timer = setTimeout(() => {
-      timersRef.current.delete(timer);
-      // Removals are silent under role="log" (aria-relevant defaults to
-      // "additions text"), so pruning never re-announces or interrupts.
-      setEntries((log) => log.filter((e) => e.id !== id));
-    }, ANNOUNCE_LOG_TTL_MS);
-    timersRef.current.add(timer);
-  }, []);
+  const announce = useCallback(
+    (message: string) => {
+      if (message.trim() === "") return; // empty/whitespace is a no-op, never a blank entry
+      const id = idRef.current++;
+      setEntries((log) => {
+        const next = [...log, { id, text: message }];
+        return next.length > ANNOUNCE_LOG_CAP ? next.slice(next.length - ANNOUNCE_LOG_CAP) : next;
+      });
+      if (ttlMs === undefined) return; // cap-only channel: never prune (see above)
+      const timer = setTimeout(() => {
+        timersRef.current.delete(timer);
+        // Removals are silent under role="log" (aria-relevant defaults to
+        // "additions text"), so pruning never re-announces or interrupts.
+        setEntries((log) => log.filter((e) => e.id !== id));
+      }, ttlMs);
+      timersRef.current.add(timer);
+    },
+    [ttlMs],
+  );
 
   return { announce, entries };
 }

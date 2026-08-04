@@ -61,10 +61,31 @@ export function a2Ok(src: string, isLayout: boolean): boolean {
  *  each return, so it must appear BEFORE that return's inert-root attribute. */
 export function a3Ok(src: string): boolean {
   const lines = src.split("\n");
-  const firstProvider = lines.findIndex((l) => l.includes("<AdminAnnounceProvider"));
-  const firstInertRoot = lines.findIndex((l) => l.includes("data-inert-root"));
-  if (firstProvider === -1 || firstInertRoot === -1) return true;
-  return firstProvider < firstInertRoot;
+  const providers: number[] = [];
+  const inertRoots: number[] = [];
+  lines.forEach((l, i) => {
+    if (l.includes("<AdminAnnounceProvider")) providers.push(i);
+    if (l.includes("data-inert-root")) inertRoots.push(i);
+  });
+  if (providers.length === 0 || inertRoots.length === 0) return true;
+  // EVERY inert root must be preceded by a provider that is still "open" for it,
+  // i.e. each inert root has strictly more providers before it than the count of
+  // inert roots already seen. Comparing only the FIRST of each passed a layout
+  // whose second or third return nested its provider inside the inert div — the
+  // live-traffic branches, and exactly the regression A3 exists to catch.
+  // Two clauses, because one is not enough. (1) Every inert root must have more
+  // providers before it than inert roots before it. (2) The LAST provider must
+  // still precede the LAST inert root — clause 1 alone passes a layout whose
+  // final return nested its provider inside the inert div, since the earlier
+  // returns' providers keep the running count satisfied. Clause 2 is what
+  // catches the live-traffic branch, and a first-vs-first comparison caught
+  // neither.
+  const everyRootCovered = inertRoots.every(
+    (rootLine, seen) => providers.filter((p) => p < rootLine).length > seen,
+  );
+  const lastProviderPrecedesLastRoot =
+    providers[providers.length - 1]! < inertRoots[inertRoots.length - 1]!;
+  return everyRootCovered && lastProviderPrecedesLastRoot;
 }
 
 /** A4: every DIRECT renderer of the button lives under the admin tree. The
@@ -72,9 +93,7 @@ export function a3Ok(src: string): boolean {
  *  property and this reads source. */
 export function a4Ok(path: string, src: string): boolean {
   if (!/<UndoChangeButton/.test(src)) return true;
-  return (
-    path.includes(join("app", "admin")) || path.includes(join("components", "admin"))
-  );
+  return path.includes(join("app", "admin")) || path.includes(join("components", "admin"));
 }
 
 describe("META undo announce channel (spec §5)", () => {
@@ -111,11 +130,45 @@ describe("META undo announce channel (spec §5)", () => {
     expect(bad, "a second provider would shadow the sanctioned channels").toEqual([]);
   });
 
+  it("A2 planted violation: a second raw context provider FAILS", () => {
+    // The header promises a planted violation per assertion; this half of A2 had
+    // none. A raw <UndoAnnounceContext.Provider> anywhere outside the provider
+    // module shadows both sanctioned channels with a shorter-lived one.
+    const planted =
+      "export const X = () => <UndoAnnounceContext.Provider value={v}>{c}</UndoAnnounceContext.Provider>;";
+    const detects = (src: string) => /<UndoAnnounceContext\.Provider/.test(src);
+    expect(detects(planted)).toBe(true);
+    expect(detects('export const Y = () => <AdminAnnounceProvider testId="a" label="b" />;')).toBe(
+      false,
+    );
+  });
+
   it("A3: the provider is never inside a [data-inert-root] subtree", () => {
     expect(a3Ok(read(LAYOUT))).toBe(true);
   });
 
-  it("A3 planted violation: provider nested inside the inert root FAILS", () => {
+  it("A3 planted violation: the THIRD return nesting its provider inside FAILS", () => {
+    // The realistic regression, and the one a first-vs-first comparison missed:
+    // returns 1 and 2 stay correct while return 3 nests. Built from the real
+    // layout source so the mutant cannot drift from the file it guards.
+    const real = read(LAYOUT);
+    const lines = real.split("\n");
+    const providerLines = lines.flatMap((l, i) =>
+      l.includes("<AdminAnnounceProvider") ? [i] : [],
+    );
+    const lastProvider = providerLines[providerLines.length - 1]!;
+    const inertAfter = lines.findIndex((l, i) => i > lastProvider && l.includes("data-inert-root"));
+    expect(inertAfter, "layout still has an inert root after its last provider").toBeGreaterThan(
+      -1,
+    );
+    // Swap them: the provider now sits INSIDE that return's inert-root element.
+    const mutated = [...lines];
+    const [providerLine] = mutated.splice(lastProvider, 1);
+    mutated.splice(inertAfter, 0, providerLine!);
+    expect(a3Ok(mutated.join("\n"))).toBe(false);
+  });
+
+  it("A3 planted violation: a single-return nesting FAILS", () => {
     const planted = [
       "return (",
       '  <div data-inert-root="">',
@@ -134,7 +187,7 @@ describe("META undo announce channel (spec §5)", () => {
   });
 
   it("A4 planted violation: a renderer outside the admin tree FAILS", () => {
-    const planted = "export const X = () => <UndoChangeButton changeLogId=\"1\" />;";
+    const planted = 'export const X = () => <UndoChangeButton changeLogId="1" />;';
     expect(a4Ok(join(ROOT, "components", "shared", "X.tsx"), planted)).toBe(false);
     expect(a4Ok(join(ROOT, "components", "admin", "X.tsx"), planted)).toBe(true);
   });

@@ -202,18 +202,33 @@ it("probe 5: the feed is replaced wholesale by its infra-error rendering", async
   expect(screen.getByTestId("change-feed-infra-error")).toBeInTheDocument();
 });
 
-it("probe 6: the layout's own branch flips to a different return", async () => {
-  // §3.5's central claim: the provider wraps EACH layout return, so even a
-  // layout-level branch change preserves the region. Until now this shipped
-  // with no falsifier at all.
-  const { rerender } = render(wrap(feed([undoableEntry])));
+it("probe 6: the layout's own branch flips to a DIFFERENT return's provider", async () => {
+  // §3.5's central claim: the provider wraps EACH layout return. The earlier
+  // version of this probe mounted ONE provider and swapped only children, which
+  // is probes 1-5's shape and stays green even if a wrapper is deleted from
+  // layout.tsx. This models the real thing: each branch renders its OWN provider
+  // element at the same position, so React reconciles them as the same element
+  // type and the region node must survive the swap.
+  const branchA = (
+    <AdminAnnounceProvider testId="admin-undo-status" label="Undo updates">
+      <div data-testid="admin-layout">{feed([undoableEntry])}</div>
+    </AdminAnnounceProvider>
+  );
+  const branchB = (
+    <AdminAnnounceProvider testId="admin-undo-status" label="Undo updates">
+      <div data-testid="admin-layout-infra-error">Admin session unavailable</div>
+    </AdminAnnounceProvider>
+  );
+  const { rerender } = render(branchA);
   const before = regionNode();
   await act(async () => {
     fireEvent.click(screen.getByTestId("change-feed-undo"));
   });
-  rerender(wrap(<div data-testid="admin-layout-infra-error">Admin session unavailable</div>));
+  rerender(branchB);
   expect(regionNode()).toBe(before);
   expect(before).toHaveTextContent(ANNOUNCED);
+  expect(screen.getByTestId("admin-layout-infra-error")).toBeInTheDocument();
+  expect(screen.queryByTestId("admin-layout")).toBeNull();
 });
 
 it("probe 7: two undos across two different branches both survive", async () => {

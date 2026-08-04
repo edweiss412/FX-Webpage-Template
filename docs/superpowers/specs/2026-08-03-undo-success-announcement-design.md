@@ -47,6 +47,16 @@ Each row is a decision already made, with its ratification. A reviewer should ve
 | R10 | `BL-SYNCFEED-UI-3` ships **no code**. The off-type fixture it describes was corrected at commit `c3920fe6a`; `tests/components/admin/ChangeFeedEntry.test.tsx:192` now reads `{ disposition: "removal" as const }` and no fixture in the tree carries `name` on a removal literal. The `Disposition` union is unchanged (`lib/sync/holds/types.ts:7-10`). | §9.3 |
 | R11 | Announcing the undo **failure** path through the catalog (routing `code` → copy inside the announcement string) is **out of scope**. The fix here makes the existing `ErrorExplainer` card announce by making its wrapper always-mounted; the card already owns the copy and already satisfies invariant 5. No catalog lookup moves into the announcement. | §4.2 |
 
+### 1.3 Amendment: TTL pruning is opt-in, and the warnings channel does not opt in
+
+Added after the whole-diff review, which caught this shipping without spec coverage.
+
+The impeccable audit found that the layout channel accumulates announcements for a whole admin session, and that its region is the first content in the admin subtree — so a top-down screen-reader read recites every undo of the session before reaching the nav (measured: 12 undos, 686 chars). The fix is a per-entry TTL that prunes 30 seconds after an entry is spoken.
+
+**That mechanism must not reach the warnings channel.** `docs/superpowers/specs/2026-07-22-warning-announcer-copy-design.md` §2.2 ratifies the opposite for it, from a named adversarial finding: a freshly trimmed node could still be queued and unspoken, so removal can strand it (R3 F2), and that spec also states "No timers, no `requestAnimationFrame`". Because this work extracted the shared module out of that surface, a TTL defaulted ON inside `useAnnounceLog` would have silently superseded a ratified contract in another spec — exactly what AGENTS.md invariant 7 forbids.
+
+So `useAnnounceLog(options?: { ttlMs?: number })` prunes only when a caller opts in. `AdminAnnounceProvider` opts in; `ShowReviewSurface` passes nothing and keeps cap-only behavior byte-for-byte. The distinction is principled rather than a compromise: the warnings channel unmounts with its panel, so it never accumulates across a session and the audit finding does not apply to it. A test pins the default (`tests/components/admin/announceLog.test.tsx`, "does NOT prune when no ttlMs is given").
+
 ### 1.2 Why identical announcements are reachable
 
 The choice of an append-shaped region rests on two undoable rows being able to carry byte-identical announcement text.
@@ -87,7 +97,7 @@ Under `role="status"` the second undo would be silent. Under `role="log"` both a
 <!-- spec-lint: ignore — new file created by this plan; not tracked until implementation -->
 ### 3.1 `components/admin/announceLog.tsx`
 
-Extracted verbatim in behavior from `ShowReviewSurface.tsx:382-392` (state + `announce`) and `ShowReviewSurface.tsx:1160-1171` (the region JSX).
+Extracted verbatim in behavior from `ShowReviewSurface.tsx:381` post-retrofit (state + `announce`) and `ShowReviewSurface.tsx:1150` post-retrofit (the region JSX).
 
 ```ts
 export const ANNOUNCE_LOG_CAP = 50;
@@ -419,7 +429,7 @@ So A4 claims only what a filesystem scan can actually support. Ancestry is a run
 
 ## 6. Retrofit contract for `ShowReviewSurface`
 
-The swap is behavior-preserving and must be provably so. The retrofit replaces `ShowReviewSurface.tsx:382-392` with `useAnnounceLog()` and `ShowReviewSurface.tsx:1160-1171` with `<AnnounceLogRegion entries={announceLog} label="Warning updates" testId="warnings-panel-status" />`.
+The swap is behavior-preserving and must be provably so. The retrofit replaces `ShowReviewSurface.tsx:381` post-retrofit with `useAnnounceLog()` and `ShowReviewSurface.tsx:1150` post-retrofit with `<AnnounceLogRegion entries={announceLog} label="Warning updates" testId="warnings-panel-status" />`.
 
 Pinned invariants, all already asserted by that surface's existing tests:
 
@@ -430,7 +440,7 @@ Pinned invariants, all already asserted by that surface's existing tests:
 | `aria-label` | `Warning updates` | `ShowReviewSurface.tsx:1162` |
 | `className` | `sr-only` | `ShowReviewSurface.tsx:1163` |
 | `data-testid` | `warnings-panel-status` | `ShowReviewSurface.tsx:1164` |
-| Child shape | `<span key={id} data-announce-id={id}>{text}</span>` | `ShowReviewSurface.tsx:1167-1169` |
+| Child shape | `<span key={id} data-announce-id={id}>{text}</span>` | `ShowReviewSurface.tsx:1150` post-retrofit |
 | Cap | 50, oldest dropped | `ShowReviewSurface.tsx:389` |
 | Empty no-op | whitespace message appends nothing | `ShowReviewSurface.tsx:385` |
 | Local `ANNOUNCE_CAP` const | deleted, replaced by the shared export | `ShowReviewSurface.tsx:68` |

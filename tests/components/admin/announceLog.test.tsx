@@ -18,17 +18,24 @@ import {
 } from "@/components/admin/announceLog";
 
 /** Harness exposing the hook's api to the test body. */
-function Harness({ onReady }: { onReady: (api: ReturnType<typeof useAnnounceLog>) => void }) {
-  const api = useAnnounceLog();
+function Harness({
+  onReady,
+  ttlMs,
+}: {
+  onReady: (api: ReturnType<typeof useAnnounceLog>) => void;
+  ttlMs?: number | undefined;
+}) {
+  const api = useAnnounceLog(ttlMs === undefined ? undefined : { ttlMs });
   onReady(api);
   return <AnnounceLogRegion entries={api.entries} label="Test updates" testId="test-status" />;
 }
 
-function mount() {
+function mount(ttlMs?: number) {
   let api!: ReturnType<typeof useAnnounceLog>;
   const identities: Array<(m: string) => void> = [];
   const utils = render(
     <Harness
+      ttlMs={ttlMs}
       onReady={(a) => {
         api = a;
         identities.push(a.announce);
@@ -173,7 +180,7 @@ describe("useAnnounceLog pruning (impeccable audit P2)", () => {
     // session before reaching the nav.
     vi.useFakeTimers();
     try {
-      const h = mount();
+      const h = mount(ANNOUNCE_LOG_TTL_MS);
       act(() => {
         h.api.announce("first");
       });
@@ -197,7 +204,7 @@ describe("useAnnounceLog pruning (impeccable audit P2)", () => {
   it("prunes each entry on its own clock, not all at once", () => {
     vi.useFakeTimers();
     try {
-      const h = mount();
+      const h = mount(ANNOUNCE_LOG_TTL_MS);
       act(() => {
         h.api.announce("older");
       });
@@ -212,6 +219,26 @@ describe("useAnnounceLog pruning (impeccable audit P2)", () => {
       });
       // The older one has aged out; the newer one has not.
       expect(children().map((c) => c.textContent)).toEqual(["newer"]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does NOT prune when no ttlMs is given — the cap-only contract", () => {
+    // Load-bearing default. The warnings channel relies on it: its spec ratifies
+    // that a recent entry is never removed, because a trimmed node may still be
+    // queued and unspoken (2026-07-22 announcer spec §2.2, R3 F2). A TTL
+    // defaulted ON here would silently supersede that contract.
+    vi.useFakeTimers();
+    try {
+      const h = mount(); // no ttlMs
+      act(() => {
+        h.api.announce("stays");
+      });
+      act(() => {
+        vi.advanceTimersByTime(ANNOUNCE_LOG_TTL_MS * 10);
+      });
+      expect(children().map((c) => c.textContent)).toEqual(["stays"]);
     } finally {
       vi.useRealTimers();
     }

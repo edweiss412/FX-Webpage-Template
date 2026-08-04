@@ -63,7 +63,7 @@ Covered by Task 9.
 - [ ] Write `tests/components/admin/announceLog.test.tsx` (`// @vitest-environment jsdom` pragma on line 1), red against a non-existent module.
 <!-- spec-lint: ignore — new file created by this plan; not tracked until implementation -->
 - [ ] Create `components/admin/announceLog.tsx` (`"use client"`), exporting `ANNOUNCE_LOG_CAP = 50`, `type AnnounceLogEntry`, `useAnnounceLog()`, `AnnounceLogRegion`.
-- [ ] Behavior is transcribed from `components/admin/review/ShowReviewSurface.tsx:382-392` and `ShowReviewSurface.tsx:1160-1170`, not reinvented.
+- [ ] Behavior is transcribed from `components/admin/review/ShowReviewSurface.tsx:382-392` and `ShowReviewSurface.tsx:1150` post-retrofit, not reinvented.
 - [ ] Green; commit `feat(admin): extract the shared announce-log channel`.
 
 **Assertions and the failure each catches** (spec §11):
@@ -81,7 +81,7 @@ Derive the cap assertion from the exported `ANNOUNCE_LOG_CAP`, never a hardcoded
 
 ## Task 2 — Retrofit `ShowReviewSurface` onto the shared module
 
-- [ ] Replace `ShowReviewSurface.tsx:382-392` with `useAnnounceLog()` and `ShowReviewSurface.tsx:1160-1170` with `<AnnounceLogRegion entries={announceLog} label="Warning updates" testId="warnings-panel-status" />`. Delete the local `ANNOUNCE_CAP` at `ShowReviewSurface.tsx:68`.
+- [ ] Replace `ShowReviewSurface.tsx:381` post-retrofit with `useAnnounceLog()` and `ShowReviewSurface.tsx:1150` post-retrofit with `<AnnounceLogRegion entries={announceLog} label="Warning updates" testId="warnings-panel-status" />`. Delete the local `ANNOUNCE_CAP` at `ShowReviewSurface.tsx:68`.
 - [ ] Run `tests/components/admin/review/warningsPanelStatusMount.test.tsx` **unedited**.
 - [ ] Commit `refactor(admin): retrofit the warnings channel onto the shared announce log`.
 
