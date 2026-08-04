@@ -101,7 +101,13 @@ async function measureFonts(page: Page): Promise<FontReport> {
       inlineOverrides: Array.from(document.querySelectorAll("[style]"))
         .filter((el) => {
           const style = el.getAttribute("style") || "";
-          return /font-feature-settings|font-variant-numeric|(^|;)\s*(font|all)\s*:/i.test(style);
+          // `font-family` is here for the reason round 17 found: swapping the
+          // ACTIVE FACE beneath a valid feature declaration makes the features
+          // inert without touching them — the same failure the impeccable audit
+          // measured on a bare <code>, reachable again through an inline override.
+          return /font-feature-settings|font-variant-numeric|font-family|(^|;)\s*(font|all)\s*:/i.test(
+            style,
+          );
         })
         .map((el) => el.tagName.toLowerCase() + '[style="' + el.getAttribute("style") + '"]'),
       faces: Array.from(document.fonts).map((f) => ({

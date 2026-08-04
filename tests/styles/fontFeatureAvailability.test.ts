@@ -537,7 +537,7 @@ describe("parseFeatureValue — recognises the canonical form, refuses everythin
  * and `all` mean what they mean in CSS.
  */
 const FEATURE_PROP_SPELLINGS =
-  /fontFeatureSettings|fontVariantNumeric|font-feature-settings|font-variant-numeric/i;
+  /fontFeatureSettings|fontVariantNumeric|font-feature-settings|font-variant-numeric|fontFamily|font-family/i;
 
 /**
  * CSSOM writes that can set or reset the guarded features.
@@ -557,8 +557,8 @@ const FEATURE_PROP_SPELLINGS =
  * none has a legitimate use here (baseline: zero occurrences): `.style.cssText =`,
  * `setAttribute("style", …)`, and `Object.assign(el.style, …)`.
  */
-const GUARDED_CSS_NAME = String.raw`font-feature-settings|font-variant-numeric|font|all`;
-const GUARDED_JS_NAME = String.raw`fontFeatureSettings|fontVariantNumeric|font|all`;
+const GUARDED_CSS_NAME = String.raw`font-feature-settings|font-variant-numeric|font-family|font|all`;
+const GUARDED_JS_NAME = String.raw`fontFeatureSettings|fontVariantNumeric|fontFamily|font|all`;
 
 /**
  * Access and assignment are GENERALISED, not enumerated.
@@ -630,7 +630,7 @@ const CSSOM_WRITES: [RegExp, string][] = [
 
 /** `style={{ … }}` and `style="…"` regions, where `font`/`all` are CSS resetters. */
 const INLINE_STYLE_REGION = /style\s*=\s*(\{\{[\s\S]*?\}\}|"[^"]*"|'[^']*')/g;
-const INLINE_RESETTER = /\b(font|all)\s*:/i;
+const INLINE_RESETTER = /\b(font|all|fontFamily|font-family)\s*:/i;
 
 const PRODUCT_ROOTS = ["app", "components", "lib"] as const;
 const SCANNED_EXTENSIONS = /\.(tsx?|jsx?|mdx?)$/;
@@ -674,6 +674,48 @@ export function inlineFeatureStyles(): string[] {
   for (const root of PRODUCT_ROOTS) walk(resolve(REPO_ROOT, root));
   return hits;
 }
+
+/**
+ * The guard compiles ONE stylesheet: `app/globals.css`, the entrypoint both Next
+ * roots import. A CSS Module or any other first-party sheet imported by a
+ * component would never reach that compilation, so a `"cv11"` declaration or a
+ * `font` reset inside one escapes every check here — round 17's second finding,
+ * and `components/agenda/AgendaPdfViewer.tsx:44` proves component-imported
+ * stylesheet entrypoints already exist in this codebase.
+ *
+ * Today there is exactly one first-party stylesheet, which is why the compiled
+ * analysis is sound. This assertion is what keeps that true: adding a second one
+ * fails the build and says to extend the guard rather than silently opening a
+ * path around it.
+ *
+ * Third-party CSS (`react-pdf`'s layer stylesheets) is out of scope by
+ * declaration — vendor CSS for a PDF viewer cannot meaningfully declare this
+ * product's font features, and scanning `node_modules` is not proportionate.
+ */
+const FIRST_PARTY_STYLESHEETS = ["app/globals.css"];
+
+describe("only one first-party stylesheet exists, so compiling it is sufficient", () => {
+  test("no stylesheet under app/, components/ or lib/ escapes the compiled analysis", () => {
+    const found: string[] = [];
+    const walk = (dir: string): void => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const path = join(dir, entry.name);
+        if (entry.isDirectory()) {
+          if (entry.name !== "node_modules") walk(path);
+        } else if (/\.(css|scss|sass|less)$/.test(entry.name)) {
+          found.push(path.slice(REPO_ROOT.length + 1));
+        }
+      }
+    };
+    for (const root of PRODUCT_ROOTS) walk(resolve(REPO_ROOT, root));
+    expect(
+      found.sort(),
+      `the guard compiles only ${FIRST_PARTY_STYLESHEETS.join(", ")}. A stylesheet it ` +
+        `does not compile can declare a feature the font lacks, or reset one, entirely ` +
+        `unseen — extend the compilation deliberately rather than adding a blind spot.`,
+    ).toEqual(FIRST_PARTY_STYLESHEETS);
+  });
+});
 
 describe("inline styles cannot set the font features", () => {
   test("no product source sets fontFeatureSettings or fontVariantNumeric inline", () => {

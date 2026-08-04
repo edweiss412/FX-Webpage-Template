@@ -729,8 +729,10 @@ It is **not** an adversarial control. Nothing here defends against someone delib
 | 6 | The declaration scoped so it never reaches the intended element | selector-addressed lookup + browser assertions | §12.8 |
 | 7 | An inline style overriding the cascade | source scan + runtime DOM census | §12.11–§12.16 |
 | 8 | The font itself swapped for one lacking the features or blowing the payload | feature, axis and byte-budget checks | §4.1, §12.4 |
+| 9 | The active FACE swapped beneath a valid declaration (`font-family`), making the features inert without touching them | `font-family` added to the inline scan and the runtime census | §12.17 |
+| 10 | A first-party stylesheet the compiled analysis never sees (a CSS Module) | assertion that exactly one first-party stylesheet exists | §12.17 |
 
-**Families 1–8 are the closure set.** A live escaping mutant inside one of them is a defect. A new SPELLING of an already-closed family — a different escape sequence, a different assignment operator, a different member-access form — is not a new family, and is out of scope by this declaration.
+**Families 1–10 are the closure set.** A live escaping mutant inside one of them is a defect. A new SPELLING of an already-closed family — a different escape sequence, a different assignment operator, a different member-access form — is not a new family, and is out of scope by this declaration.
 
 ### 13.3 Documented limits, accepted
 
@@ -742,3 +744,16 @@ Both satisfy the preparedness-audit posture this project applies to detectors (`
 ### 13.4 The lesson, for the next guard
 
 Enumerate the closure set **in the spec, before the first review round**. It costs ten minutes and it is what lets a review converge. Without it a guard review is an open-ended search, and the round count is set by the reviewer's patience rather than by the work being done. Sixteen rounds here; the last four found spellings of families already closed, and every one of those rounds was preventable by a paragraph written at spec time.
+
+### 12.17 Round 17 — the closure set earning its keep
+
+`VERDICT: NEEDS-ATTENTION`, two P1s, both accepted and fixed. **Both are genuinely new FAMILIES, not spellings** — which is exactly what §13 asked the reviewer to look for, and it worked on the first round after the enumeration existed.
+
+| # | Sev | Finding | Disposition |
+| --- | --- | --- | --- |
+| 1 | **P1** | **The active face, swapped beneath a valid declaration.** `style={{ fontFamily: "ui-monospace" }}` on the real `.code-value` `<code>` recreates the inert-feature failure — the features are declared, correct, and honoured by a font that does not have them. This is the impeccable audit's `<code>` bug reachable again by another route, and neither the static scan nor the runtime census looked at `font-family` at all. | **FIXED.** `font-family` / `fontFamily` added to the inline property scan, the CSSOM write patterns, the inline-resetter scan and the runtime DOM census. Mutation-proven on the real element. **Added to the closure set as family 9.** |
+| 2 | **P1** | **A first-party stylesheet the compiled analysis never sees.** The guard compiles only `app/globals.css`, and the filesystem scan excludes `.css`, so a CSS Module declaring an unsupported tag or a `font` reset escapes everything. `components/agenda/AgendaPdfViewer.tsx:44` proves component-imported stylesheet entrypoints already exist here, so `DESIGN.md`'s "a new reset from any source fails the build" was unsupported. | **FIXED.** Today exactly one first-party stylesheet exists, which is *why* compiling it is sufficient — and a new assertion keeps that true: a second one under `app/`, `components/` or `lib/` fails the build and says to extend the compilation rather than open a blind spot. `DESIGN.md` no longer claims "any source". Third-party CSS (`react-pdf`'s layer stylesheets) is out of scope by declaration. **Added as family 10.** |
+
+**This is what the enumeration bought.** Rounds 13–16 produced four rounds of spellings inside already-closed families. Round 17, given a declared closure set and asked to argue the enumeration instead, produced two real families in one pass — one of which reopens a bug the impeccable audit had already found once. The lesson in §13.4 stands, with a corollary: the closure set is not only a convergence device, it is a better prompt.
+
+**Sixty-four mutants across seventeen rounds. All caught.**
