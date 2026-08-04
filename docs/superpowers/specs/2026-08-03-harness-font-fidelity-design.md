@@ -46,7 +46,7 @@ Cost is zero because nothing has drifted, not because few tests are exposed. Twe
 
 **Goals**
 
-- G1. Every Next-rendered surface **with a React root**, and all 31 harnesses, resolve the same Inter face from the same files. The four rootless HTML responses are excluded by a ratified limit — see §1.1.
+- G1. Every Next-rendered surface **with a React root**, and all 31 harnesses, resolve **the family their cascade selects** — Inter, from the same committed files, wherever the sans token applies. The four rootless HTML responses are excluded by a ratified limit (§1.1), and monospace text is deliberately out of scope (§4.2): the app ships **two** families, and an earlier wording of this goal said "the same Inter face", which would have made the guard reject correct pages.
 - G2. The font bytes are pinned in the repo by hash, so an upstream change is a reviewable diff rather than silent baseline drift.
 - G3. No build-time network fetch for fonts.
 - G4. The metric-matched fallback #676 introduced stays reachable, and its absence is caught statically.
@@ -226,7 +226,7 @@ Nine review rounds have killed twelve escaping mutants against this design. They
 
 **Kind B — something, somewhere, renders the wrong family.** A route-local override, a runtime-registered face, a descendant rule, a state no navigation reaches. This class does **not** terminate by enumeration: any list of places to look is a list someone can render outside. Rounds 6 through 9 each produced another instance — a `.css` file, then source-authored `<style>` text, then `new FontFace`, then `.help-prose`, then an `<h1>`, then `page.mdx`, then `loading.tsx` — and each time the fix was to widen where we look rather than to find the last hiding place.
 
-So Kind B is closed by **one general oracle**, not a list: walk every visible text-bearing element on every rendered surface and, for each, measure a normalised child probe against the byte-derived expectation (§4.2). Computed-family resolution alone is NOT the oracle — it was measured identical across a real face and two impostors. It has no privileged place to look within the elements it can reach. **Completeness has two dimensions, not one — round 15 refuted the earlier single-dimension claim.** One is the *surface census*, which §4.2's census derives from the framework's own config rather than from a hand list. The other is the *element class*: two classes cannot host a probe at all, and §4.2 closes them by a different mechanism rather than by pretending they do not exist.
+So Kind B is closed by **one general oracle**, not a list: walk every visible text-bearing element on every rendered surface, classify it by the family its cascade selects, and assert that family — for sans text, a normalised child probe against the byte-derived expectation (§4.2); for the app's monospace text, the mono chain. Computed-family resolution alone is NOT the oracle — it was measured identical across a real face and two impostors. It has no privileged place to look within the elements it can reach. **Completeness has two dimensions, not one — round 15 refuted the earlier single-dimension claim.** One is the *surface census*, which §4.2's census derives from the framework's own config rather than from a hand list. The other is the *element class*: two classes cannot host a probe at all, and §4.2 closes them by a different mechanism rather than by pretending they do not exist.
 
 **Demonstrated against the hardest Kind B case, not argued.** Mutant nine — a rogue face registered at runtime via `new FontFace("Inter", "local('Arial')")`, added to `document.fonts`, applied through a CSSOM `replaceSync` rule, with the string `@font-face` appearing in no source anywhere:
 
@@ -322,6 +322,12 @@ Round 11 caught that "everything except `font-display`" rejected the measured ta
 
   The probe carries `text-transform: none; font-variant: normal; font-feature-settings: normal; font-stretch: normal; letter-spacing: normal; word-spacing: normal; font-weight: 400`, is `position: absolute; visibility: hidden`, and is removed after measuring. It inherits `font-family` from its parent and neutralises everything that changes the glyph run.
 
+  **The walk partitions by the family the cascade selects, because the app ships two.** `DESIGN.md` §2.1 commits to one *sans* family and says nothing about monospace, but the tree renders mono in **34** places: 6 files using the `font-mono` utility, and 28 semantic `code` / `kbd` / `samp` / `pre` elements picking up Tailwind preflight's mono stack. `/help/errors` is an always-reachable member of the 32-route census, and `/admin/dev` puts `font-mono` on its entire `<main>` — so this is not a fringe case behind an interaction or an exclusion.
+
+  A probe inherits its parent's `font-family` by design (that is how it catches descendant overrides), so on any of those 34 surfaces it inherits the *mono* chain and fails both the canonical-chain assertion and the Inter byte-derived width. **The guard would have gone red on a correct, unchanged application** — which is worse than not having it, and round 16 blocked on exactly that.
+
+  So each walked element is classified by its computed family first: elements resolving to the sans token get the Inter assertions; elements resolving to the mono chain are asserted to resolve to *that* chain and carry no Inter width check. The partition is computed, not hand-listed, so a new `code` element or `font-mono` site joins the right side automatically.
+
   **Two element classes cannot host a probe, and get a different check — measured, not assumed.** `<input>` is void, and ::placeholder / ::marker / ::before / ::after cannot contain a child span. That reaches 16 native controls across 11 files, nine runtime placeholders, the alert caret (`app/globals.css:710-714`) and list markers (`app/globals.css:1021-1024`). The demonstrated escape is `::placeholder { font-family: Arial }`, which no child probe anywhere in the document can see.
 
   `getComputedStyle(el, pseudo)` does reach them:
@@ -415,6 +421,7 @@ This is where the entry's "Effort: M" lives. **Harness rendering changes by desi
 
 - `DESIGN.md:133` — amend §2.1's mechanism sentence from `next/font/google` in `app/fonts.ts` to the self-hosted stylesheet, naming both root import sites and the harness path. **The typeface commitment is unchanged**; call the amendment out explicitly so a later reader can see it was ratified (§1.1) rather than drifted.
 - `DESIGN.md` fallback-stack sentence — update to the live `--font-sans` value, now pinned by a §4.1 row.
+- `DESIGN.md` §2.1 — note that the product also ships a monospace family. §2.1 commits to "a single contemporary sans for all UI" and never mentions mono, yet 34 surfaces render it deliberately (§4.2). This spec does not change that typography; it records it, because the guard has to know about it and a design document that omits a shipped family will mislead the next reader the same way it misled this one. If the omission is deliberate, that reason belongs in §2.1 too.
 - BACKLOG.md — mark `BL-HARNESS-FONT-FIDELITY` resolved and graduate it to `BACKLOG-archive.md`, removing the in-flight marker per invariant 12.
 
 ---
