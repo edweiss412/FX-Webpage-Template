@@ -192,6 +192,7 @@ async function openLive(page: Page, viewport: { width: number; height: number })
   await page.emulateMedia({ reducedMotion: "reduce" }); // see header note
   await page.setViewportSize(viewport);
   await page.goto(baseUrl + "live.html");
+  await page.evaluate(() => document.fonts.ready);
   await expect(page.locator(PANEL)).toBeVisible();
 }
 
@@ -806,6 +807,7 @@ test.describe("§K11/§K12 with motion enabled", () => {
     await page.emulateMedia({ reducedMotion: "no-preference" });
     await page.setViewportSize(viewport);
     await page.goto(baseUrl + "live.html");
+    await page.evaluate(() => document.fonts.ready);
     await expect(page.locator(PANEL)).toBeVisible();
     // Motion is ON here, so the panel entrance animation actually runs — wait
     // for it to finish so geometry is final before any measurement or click.
@@ -1071,6 +1073,7 @@ test.describe("MODAL-CLOSE-EXIT-ANIM-1 — exit window (motion enabled)", () => 
     await page.emulateMedia({ reducedMotion: "no-preference" });
     await page.setViewportSize(viewport);
     await page.goto(`${baseUrl}live.html${query}`);
+    await page.evaluate(() => document.fonts.ready);
     await expect(page.locator(PANEL)).toBeVisible();
     // With motion ENABLED the entrance keyframes are still running here. The
     // drag machinery hands control to the inline transform only once the

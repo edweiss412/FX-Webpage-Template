@@ -198,6 +198,7 @@ async function openHarness(page: Page, viewport: { width: number; height: number
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.setViewportSize(viewport);
   await page.goto(baseUrl + htmlPath);
+  await page.evaluate(() => document.fonts.ready);
   await expect(page.locator(MODAL)).toBeVisible();
 }
 

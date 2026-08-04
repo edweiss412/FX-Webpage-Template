@@ -103,6 +103,7 @@ const MENU = '[data-testid="published-show-review-attention-menu"]';
 
 async function boot(page: Page, a: number, n: number, s: number) {
   await page.goto(baseUrl);
+  await page.evaluate(() => document.fonts.ready);
   await page.waitForFunction(
     () => (window as unknown as { __hydrated?: boolean }).__hydrated === true,
   );

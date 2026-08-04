@@ -188,6 +188,7 @@ test.describe("AppHealthIndicator nav layout invariants (spec §8)", () => {
   }) => {
     await page.setViewportSize({ width: 640, height: 400 });
     await page.goto(baseUrl);
+    await page.evaluate(() => document.fonts.ready);
 
     await expect(page.locator('[data-testid="app-health-indicator"]')).toBeVisible();
     await expect(page.locator('[data-testid="admin-notif-bell"]')).toBeVisible();
@@ -245,6 +246,7 @@ test.describe("Admin topbar mobile overflow with the health indicator (Codex R1)
   test("(320px) icon-only brand; four controls fit with no overflow", async ({ page }) => {
     await page.setViewportSize({ width: 320, height: 640 });
     await page.goto(`${baseUrl}fulltopbar.html`);
+    await page.evaluate(() => document.fonts.ready);
     // Below 360px BOTH the wordmark and the pill collapse; only the icon anchors.
     await expect(page.locator(wordmark())).toBeHidden();
     await expect(page.locator(pill())).toBeHidden();
@@ -254,6 +256,7 @@ test.describe("Admin topbar mobile overflow with the health indicator (Codex R1)
   test("(390px) wordmark returns, pill stays collapsed, still fits", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 640 });
     await page.goto(`${baseUrl}fulltopbar.html`);
+    await page.evaluate(() => document.fonts.ready);
     await expect(page.locator(wordmark())).toBeVisible();
     await expect(page.locator(pill())).toBeHidden();
     await assertNoOverflow(page);
@@ -262,6 +265,7 @@ test.describe("Admin topbar mobile overflow with the health indicator (Codex R1)
   test("(480px) wordmark and pill both present, still fits", async ({ page }) => {
     await page.setViewportSize({ width: 480, height: 640 });
     await page.goto(`${baseUrl}fulltopbar.html`);
+    await page.evaluate(() => document.fonts.ready);
     await expect(page.locator(wordmark())).toBeVisible();
     await expect(page.locator(pill())).toBeVisible();
     await assertNoOverflow(page);

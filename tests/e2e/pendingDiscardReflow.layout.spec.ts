@@ -143,6 +143,7 @@ async function measure(page: import("@playwright/test").Page, panelId: string): 
 test("fixed panel: armed ignore box == idle ignore box at 360px (no reflow)", async ({ page }) => {
   await page.setViewportSize({ width: 360, height: 900 });
   await page.goto(baseUrl);
+  await page.evaluate(() => document.fonts.ready);
   const idle = await measure(page, "fixed-idle");
   const armed = await measure(page, "fixed-armed");
   expect(Math.abs(armed.nx - idle.nx)).toBeLessThanOrEqual(TOL);
@@ -167,6 +168,7 @@ test("NEGATIVE CONTROL: pre-fix classes DO reflow (idle one line, armed wraps)",
   // cannot fit, so the contrast is real on both platforms rather than marginal on one.
   await page.setViewportSize({ width: 420, height: 900 });
   await page.goto(baseUrl);
+  await page.evaluate(() => document.fonts.ready);
   const idle = await measure(page, "nofix-idle");
   const armed = await measure(page, "nofix-armed");
   // idle ignore rides line 1 next to Defer; armed ignore drops to a new row.
@@ -178,6 +180,7 @@ test("NEGATIVE CONTROL: pre-fix classes DO reflow (idle one line, armed wraps)",
 test("fixed panel: >= sm the row does NOT wrap (buttons side by side)", async ({ page }) => {
   await page.setViewportSize({ width: 720, height: 900 });
   await page.goto(baseUrl);
+  await page.evaluate(() => document.fonts.ready);
   const armed = await measure(page, "fixed-armed");
   // basis-auto restored: armed ignore shares Defer's row (top above Defer's bottom).
   expect(armed.ignoreTop).toBeLessThan(armed.deferBottom - TOL);

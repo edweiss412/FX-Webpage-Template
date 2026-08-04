@@ -190,6 +190,7 @@ for (const rail of Object.keys(RAILS) as RailName[]) {
     test(`${state}: D2 — both buttons clear ${TAP_MIN}px`, async ({ page }) => {
       await page.setViewportSize({ width: 1280, height: 900 });
       await page.goto(baseUrl);
+      await page.evaluate(() => document.fonts.ready);
       const p = await probe(page, state);
       expect(p.found, `${state}: buttons not found`).toBe(true);
       /* RAILS' numeric values were declared and never read — only its keys were, via
@@ -212,6 +213,7 @@ for (const rail of Object.keys(RAILS) as RailName[]) {
     }) => {
       await page.setViewportSize({ width: 1280, height: 900 });
       await page.goto(baseUrl);
+      await page.evaluate(() => document.fonts.ready);
       const p = await probe(page, state);
       const oneLine = Math.abs(p.ignore.y - p.defer.y) <= TOL;
       if (oneLine) {
@@ -237,6 +239,7 @@ for (const rail of Object.keys(RAILS) as RailName[]) {
   test(`${rail}: D4 — arming never moves Ignore's box origin`, async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto(baseUrl);
+    await page.evaluate(() => document.fonts.ready);
     const idle = await probe(page, rail);
     const armed = await probe(page, `${rail}armed`);
     // Structural, two mechanisms: Ignore is the first flex item, fixing its origin
@@ -277,6 +280,7 @@ test("D4 under enlarged text: arming still cannot change Ignore's width", async 
    * across a wrap boundary. Asserted at the 440px rail where that actually happened. */
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.goto(baseUrl);
+  await page.evaluate(() => document.fonts.ready);
   const idle = await probe(page, "bigtext440");
   const armed = await probe(page, "bigtext440armed");
   expect(
@@ -318,6 +322,7 @@ test("exactly one Ignore label variant is painted, in every panel", async ({ pag
    * where selection is covered. Verified by running that mutant, not assumed. */
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.goto(baseUrl);
+  await page.evaluate(() => document.fonts.ready);
   const result = await page.evaluate((id) => {
     const rows: { panel: string; painted: string[]; text: string[]; innerText: string }[] = [];
     for (const sec of Array.from(document.querySelectorAll("[data-state]"))) {
@@ -474,6 +479,7 @@ test("the spec and plan name exactly the rails this suite runs", () => {
 test("D7: shipped markup contains no basis-full or sm:basis-auto", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.goto(baseUrl);
+  await page.evaluate(() => document.fonts.ready);
   const markup = await page.evaluate(() => document.body.innerHTML);
   expect(markup.includes("basis-full"), "D7: basis-full still in shipped markup").toBe(false);
   expect(markup.includes("sm:basis-auto"), "D7: sm:basis-auto still in shipped markup").toBe(false);
@@ -482,6 +488,7 @@ test("D7: shipped markup contains no basis-full or sm:basis-auto", async ({ page
 test("a card too narrow for the pair MUST stack, with Ignore above", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.goto(baseUrl);
+  await page.evaluate(() => document.fonts.ready);
   for (const state of MUST_STACK_RAILS.flatMap((r) => [r, `${r}armed`])) {
     const p = await probe(page, state);
     expect(p.ignore.bottom, `${state}: must stack, Ignore above Defer`).toBeLessThanOrEqual(
@@ -501,6 +508,7 @@ test("cards with real slack must NOT stack", async ({ page }) => {
   // basis, a wrap forced by a container change). R9 F2.
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.goto(baseUrl);
+  await page.evaluate(() => document.fonts.ready);
   for (const state of SLACK_RAILS.flatMap((r) => [r, `${r}armed`])) {
     const p = await probe(page, state);
     expect(Math.abs(p.ignore.y - p.defer.y), `${state} must share one line`).toBeLessThanOrEqual(
@@ -518,6 +526,7 @@ test("D4 regression: arming never moves Ignore, at the width where it once did",
   // 107px right and 52px up, between tap 1 and tap 2.
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.goto(baseUrl);
+  await page.evaluate(() => document.fonts.ready);
   const idle = await probe(page, "band440");
   const armed = await probe(page, "band440armed");
   expect(

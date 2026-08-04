@@ -167,6 +167,7 @@ for (const vw of VIEWPORTS) {
   test(`agenda area: no child overflows the column @ ${vw}px (§6)`, async ({ page }) => {
     await page.setViewportSize({ width: vw, height: 1200 });
     await page.goto(baseUrl);
+    await page.evaluate(() => document.fonts.ready);
 
     const col = await rectOf(page.getByTestId("agenda-col"));
 
@@ -250,6 +251,7 @@ for (const vw of VIEWPORTS) {
   test(`fold: rows fill the column and stay inside it @ ${vw}px (§5.1)`, async ({ page }) => {
     await page.setViewportSize({ width: vw, height: 900 });
     await page.goto(baseUrl);
+    await page.evaluate(() => document.fonts.ready);
     await page.waitForSelector('[data-testid="agenda-schedule"]');
 
     const parent = await page.locator('[data-testid="agenda-schedule"]').evaluate((el) => {
@@ -277,6 +279,7 @@ for (const vw of VIEWPORTS) {
   test(`fold: summary is a 44px tap target in BOTH states @ ${vw}px`, async ({ page }) => {
     await page.setViewportSize({ width: vw, height: 900 });
     await page.goto(baseUrl);
+    await page.evaluate(() => document.fonts.ready);
     await page.waitForSelector('[data-testid="agenda-schedule"]');
 
     // Row 0 is open (the viewer's), rows 1-2 are folded — so both states are measured. A
@@ -292,6 +295,7 @@ for (const vw of VIEWPORTS) {
   test(`fold: the marker is VISIBLE, not merely present @ ${vw}px`, async ({ page }) => {
     await page.setViewportSize({ width: vw, height: 900 });
     await page.goto(baseUrl);
+    await page.evaluate(() => document.fonts.ready);
     await page.waitForSelector('[data-testid="agenda-schedule"]');
 
     // This is the assertion the jsdom suite cannot make: there, `hidden` on the marker leaves
@@ -339,6 +343,7 @@ for (const vw of VIEWPORTS) {
   test(`fold: the native disclosure triangle is suppressed @ ${vw}px`, async ({ page }) => {
     await page.setViewportSize({ width: vw, height: 900 });
     await page.goto(baseUrl);
+    await page.evaluate(() => document.fonts.ready);
     await page.waitForSelector('[data-testid="agenda-schedule"]');
 
     // Its own assertion, not a rider on another behaviour: without the marker-hiding classes
@@ -362,6 +367,7 @@ for (const vw of VIEWPORTS) {
 test("chevron: rotation has a real transition-duration (§5.2)", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 900 });
   await page.goto(baseUrl);
+  await page.evaluate(() => document.fonts.ready);
   await page.waitForSelector('[data-testid="agenda-schedule"]');
 
   const chevron = page.locator("[data-agenda-day-chevron]").first();
@@ -386,6 +392,7 @@ test("chevron: reduced motion collapses a duration that is otherwise NON-zero (�
   const normal = await browser.newContext({ viewport: { width: 390, height: 900 } });
   const normalPage = await normal.newPage();
   await normalPage.goto(baseUrl);
+  await normalPage.evaluate(() => document.fonts.ready);
   await normalPage.waitForSelector('[data-testid="agenda-schedule"]');
   const moving = await normalPage
     .locator("[data-agenda-day-chevron]")
@@ -416,6 +423,7 @@ test("fold: the session count is hidden on an OPEN row and survives toggling (§
 }) => {
   await page.setViewportSize({ width: 390, height: 900 });
   await page.goto(baseUrl);
+  await page.evaluate(() => document.fonts.ready);
   await page.waitForSelector('[data-testid="agenda-schedule"]');
 
   // Row 0 is the viewer's (open), row 1 is folded.
@@ -434,6 +442,7 @@ test("fold: the session count is hidden on an OPEN row and survives toggling (§
 test("chevron: the rotation actually changes between states (§5.2)", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 900 });
   await page.goto(baseUrl);
+  await page.evaluate(() => document.fonts.ready);
   await page.waitForSelector('[data-testid="agenda-schedule"]');
 
   // Whole-diff review, LOW: asserting a non-zero duration proves a transition EXISTS, not that
@@ -467,6 +476,7 @@ test("a11y: the disclosure keeps BOTH its expandable state and its heading", asy
   // BL-AGENDA-A11Y-WEBKIT-COVERAGE, filed when review R5's Desktop Safari measurement (green in
   // 5.0s) was hand-run rather than wired.
   await page.goto(baseUrl);
+  await page.evaluate(() => document.fonts.ready);
 
   // 0. The DISCLOSURE ROLE is exposed. Review R8 (MEDIUM) was right that this file asserted
   //    headings and then read `HTMLDetailsElement.open`, which is a DOM property, not the

@@ -121,6 +121,7 @@ async function open(page: Page, file: string, width: number) {
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.setViewportSize({ width, height: 700 });
   await page.goto(`${baseUrl}${file}`, { waitUntil: "load" });
+  await page.evaluate(() => document.fonts.ready);
 }
 
 for (const { key, page: pageFile, row } of ROWS) {

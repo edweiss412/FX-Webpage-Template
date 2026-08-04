@@ -150,6 +150,7 @@ test.afterAll(async () => {
 async function openPage(page: Page, file: string, width: number, theme: string) {
   await page.setViewportSize({ width, height: 900 });
   await page.goto(`${baseUrl}${file}`, { waitUntil: "load" });
+  await page.evaluate(() => document.fonts.ready);
   await page.evaluate((t) => document.documentElement.setAttribute("data-theme", t), theme);
   const applied = await page.evaluate(() => document.documentElement.getAttribute("data-theme"));
   expect(applied, "requested theme is applied before capture").toBe(theme);

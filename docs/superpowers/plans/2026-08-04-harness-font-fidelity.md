@@ -18,6 +18,8 @@
 
 ## Ratified deviation from the spec — read this first
 
+<!-- spec-lint: ignore — path retired or moved by this plan; cited as the pre-change state -->
+
 The spec was drafted and reviewed against a tree where the app used **`next/font/google`**. `origin/main` moved underneath it: `ca8efc694` (2026-08-03 18:09) and `6c2615e9c` (19:27) switched the app to **`next/font/local`** over a vendored **upstream Inter v4.1** subset at `assets/fonts/InterVariable-latin.woff2` (176,696 bytes, Google's `latin` + `latin-ext` ranges combined, built by `scripts/subset-inter.sh`, provenance in `assets/fonts/PROVENANCE.md`). The spec's last commit (2026-08-04 07:05) postdates that merge and mentions `next/font/local`, `assets/fonts` and `InterVariable` **zero times** — it never reconciled.
 
 Consequently these spec statements are **stale and superseded**, ratified by the user 2026-08-04:
@@ -25,6 +27,8 @@ Consequently these spec statements are **stale and superseded**, ratified by the
 | Spec claim | Status |
 | --- | --- |
 | §1 "`next/font/google` fetches from Google at build time… no lockfile entry, no hash" | **False today.** The binary is committed and checksummed. G2 and G3 are already satisfied by the current tree; this plan preserves them rather than achieving them. |
+<!-- spec-lint: ignore — path retired or moved by this plan; cited as the pre-change state -->
+
 | §3.3's seven Google **v20** subsets, their hashes, and the byte-identity claim | **Superseded.** Google's build has `ss04`, `zero`, `cv*` and the `opsz` axis **stripped** (`assets/fonts/PROVENANCE.md`, "Why upstream rather than Google Fonts"). Shipping them would revert `BL-INTER-NUMERAL-DISAMBIGUATION` and fail `tests/styles/fontFeatureAvailability.test.ts`. **One** face over the existing upstream binary ships instead. |
 | §3.4's Capsize table (90.44 / 22.52 / 0 / 107.12) | **Superseded.** `next/font/local` derives its override figures from *this* binary, not from a static family table; `DESIGN.md:141` already records `size-adjust: 107.89%` measured in the built output. Task 3 reads all four from a real build and pins those. |
 | §4.2 "`fontkit` does not resolve in this repo today" | **False.** Declared at `package.json:126` as `^2.0.4`. No dependency task needed for it. |
@@ -51,6 +55,8 @@ Three spec citations are off by a line or two against the live tree; use these:
 - **Invariant 8 applies.** The diff touches `app/layout.tsx`, `app/global-error.tsx`, `app/globals.css` and `DESIGN.md`, so `/impeccable critique` AND `/impeccable audit` both run before close-out, with P0/P1 fixed or deferred via `DEFERRED.md`. Closeout marker line required: `impeccable-gate: …`.
 - **Invariant 12.** `BL-HARNESS-FONT-FIDELITY` is already marked `**Status:** IN PROGRESS · **Branch:** feat/harness-font-fidelity` (commit `21aa715ed`). It is cleared **in Task 16, the PR's last content commit, pre-merge** — in the same edit that archives the entry, because `tests/docs/_metaLedgerInProgress.test.ts:77-81` rejects an archived entry that is still in flight. Task 18 verifies none remains; it does not do the removal.
 - **`lightningcss` is pinned EXACTLY `1.32.0`** — no caret. The `@tailwindcss/node` package (version 4.2.4 in this tree) pins that exact version; a caret installs 1.33.0 as a second copy and silently voids the guard's "same parser that compiles the file" argument.
+<!-- spec-lint: ignore — path retired or moved by this plan; cited as the pre-change state -->
+
 - **The font binary is never regenerated in this branch.** Its bytes move directories; they do not change. `pyftsubset` output varies by host, so a regeneration would be an unreviewable diff (`assets/fonts/PROVENANCE.md`).
 - **Pre-push gates, all of them:** `pnpm test`, `pnpm typecheck`, `pnpm lint`, `pnpm format:check`, `pnpm spec:lint`. Then real CI green before merge.
 - **No em-dashes in user-visible copy**; apostrophes are literal `'`; 44px tap targets; canonical type/token classes. (Pre-code mechanical UI gate — nothing in this plan renders new copy, but the preload `<link>` and `DESIGN.md` edits are in scope.)
@@ -66,6 +72,8 @@ Three spec citations are off by a line or two against the live tree; use these:
 - `tests/assets/_metaLightningCssSingleVersion.test.ts` — exactly one `lightningcss` version resolves in the tree.
 
 **Extends / retargets:**
+<!-- spec-lint: ignore — path retired or moved by this plan; cited as the pre-change state -->
+
 - `tests/assets/singleFontLoader.test.ts` — contract moves from "one `next/font` loader in `app/fonts.ts`" to "no `next/font` import anywhere in the repo-wide source census, and exactly one `@font-face` declaration site".
 <!-- spec-lint: ignore — new file created by this plan; not yet tracked -->
 - `tests/styles/fontFeatureAvailability.test.ts` — derives the binary path from `app/fonts.css` instead of the `app/fonts.ts` AST.
@@ -169,6 +177,8 @@ Per `docs/agents/writing-plans.md` and the round-economy contract, these are the
 | `tests/e2e/_metaFontFidelityWiring.test.ts` | Fixture-wiring meta-test. |
 <!-- spec-lint: ignore — new file created by this plan; not yet tracked -->
 | `tests/e2e/font-rendering-census.spec.ts` | The route-census oracle. |
+
+<!-- spec-lint: ignore — path retired or moved by this plan; cited as the pre-change state -->
 
 **Delete:** `app/fonts.ts`, `assets/fonts/` (contents moved).
 
@@ -319,6 +329,8 @@ git commit -m "infra: pin lightningcss at exactly 1.32.0 with a single-version g
 
 ## Task 3: Measure the faces `next/font/local` emits today
 
+<!-- spec-lint: ignore — path retired or moved by this plan; cited as the pre-change state -->
+
 **This task runs BEFORE the bytes move, and the order is load-bearing.** `app/fonts.ts:65` resolves
 the vendored path under assets/fonts/; moving that file first makes `pnpm build` fail, and a
 failed build leaves whatever `.next` was already there — so the extraction reads a stale artifact and
@@ -374,6 +386,8 @@ A hand-written `@font-face` needs a URL the browser can fetch, and `assets/` is 
 <!-- spec-lint: ignore — new files created by this plan; not yet tracked -->
 
 - Create: `public/fonts/InterVariable-latin.woff2`, `public/fonts/OFL.txt`, `public/fonts/PROVENANCE.md`
+<!-- spec-lint: ignore — path retired or moved by this plan; cited as the pre-change state -->
+
 - Delete: `assets/fonts/InterVariable-latin.woff2`, `assets/fonts/LICENSE.txt`, `assets/fonts/PROVENANCE.md`
 - Modify: `scripts/subset-inter.sh`
 
@@ -392,6 +406,8 @@ A hand-written `@font-face` needs a URL the browser can fetch, and `assets/` is 
 ```bash
 shasum -a 256 assets/fonts/InterVariable-latin.woff2
 ```
+
+<!-- spec-lint: ignore — path retired or moved by this plan; cited as the pre-change state -->
 
 Record the digest. `assets/fonts/PROVENANCE.md` states `fada467be8d8ebb5dccc346d29dc6ea37423da14c87dafed009631cb85632a54`; use whatever the command actually prints, and if it differs, stop and investigate rather than pinning a value you did not measure.
 
@@ -468,6 +484,8 @@ Then update every path inside `public/fonts/PROVENANCE.md` (`assets/fonts/` → 
 - [ ] **Step 6: Run it, and confirm the app still builds**
 
 Run: `pnpm vitest run tests/styles/fontAssets.test.ts && pnpm build 2>&1 | tail -3`
+<!-- spec-lint: ignore — path retired or moved by this plan; cited as the pre-change state -->
+
 Expected: PASS on all three cases, and a clean build. The build is the check that Step 5's `app/fonts.ts` repoint actually landed.
 
 - [ ] **Step 7: Confirm nothing still points at the old path**
@@ -787,8 +805,10 @@ rg -ln 'from "\./fonts"|inter\.variable|NEXT_FONT_TEST_VARIABLE_CLASS' --glob '!
 
 **Files:**
 
+<!-- spec-lint: ignore — path retired or moved by this plan; cited as the pre-change state -->
+
 - Delete: `app/fonts.ts`
-- Modify (executable): `tests/assets/singleFontLoader.test.ts:218`, `tests/assets/singleFontLoader.test.ts:417`, `tests/assets/singleFontLoader.test.ts:440`, `tests/observe/globalError.test.tsx:61`, `tests/styles/fontFeatureAvailability.test.ts:76`, `tests/setup.ts:138`, `tests/setup.ts:146`
+- Modify (executable): `tests/assets/singleFontLoader.test.ts:218`, `tests/assets/singleFontLoader.test.ts:417`, `tests/assets/singleFontLoader.test.ts:440`, `tests/observe/globalError.test.tsx:61`, `tests/styles/fontFeatureAvailability.test.ts:76`, the two `vi.mock("next/font/*")` blocks in `tests/setup.ts` (both removed by this task, so the line numbers no longer resolve)
 - Modify (roots): `app/layout.tsx:2`, `app/layout.tsx:58`, `app/global-error.tsx:7`, `app/global-error.tsx:31`
 - Modify (prose that names the retired mechanism): `app/globals.css:104`, `app/globals.css:111-112`, `app/show/[slug]/layout.tsx:18`, `tests/e2e/font-binding.spec.ts:5`, `tests/e2e/font-binding.spec.ts:54`, `tests/e2e/font-binding.spec.ts:69`, `tests/e2e/font-binding.spec.ts:100`, `tests/e2e/font-binding.spec.ts:207`, `.github/workflows/crew-e2e.yml:11`
 - Modify (registry): `tests/docs/_retiredIdentifiers.ts`
@@ -855,6 +875,8 @@ test("app/layout.tsx preloads the latin subset", () => {
 });
 ```
 
+<!-- spec-lint: ignore — path retired or moved by this plan; cited as the pre-change state -->
+
 `app/global-error.tsx`: same import swap, drop `className={inter.variable}` from its own `<html>` (line 31), and correct the comment at lines 7-13, which names `app/fonts.ts` and the loader.
 
 - [ ] **Step 3: Delete the module and its mocks**
@@ -878,14 +900,22 @@ None of these is executable, and every one of them would leave the tree assertin
 
 | Surface | What it says today |
 | --- | --- |
+<!-- spec-lint: ignore — path retired or moved by this plan; cited as the pre-change state -->
+
 | `app/globals.css:104` and `app/globals.css:111` | the token "is defined by next/font's generated class (`app/fonts.ts`)", and names the generated companion |
+<!-- spec-lint: ignore — path retired or moved by this plan; cited as the pre-change state -->
+
 | `app/show/[slug]/layout.tsx:18` | "The loader now lives at `app/fonts.ts`, shared by both" |
+<!-- spec-lint: ignore — path retired or moved by this plan; cited as the pre-change state -->
+
 | `tests/e2e/font-binding.spec.ts:5` and eleven more (54, 69, 100, 207, 217, 226, 271, 273, 289, 302, 307) | "loaded via `next/font/local` from `app/fonts.ts`", plus eleven further references to the loader and to "next/font's generated metric-matched companion". An earlier draft listed five and the sweep found twelve — correct all twelve, since a partial pass leaves the file self-contradicting |
 | `.github/workflows/crew-e2e.yml:11` | describes the font-binding oracle in terms of the loader |
 
 **`font-binding.spec.ts`'s ASSERTIONS do not change** — they read the family from the token and are agnostic to delivery (spec §4.2). Its comments and failure messages do.
 
 - [ ] **Step 6: Reconcile the retired-identifier registry**
+
+<!-- spec-lint: ignore — path retired or moved by this plan; cited as the pre-change state -->
 
 `tests/docs/retiredIdentifierReferences.test.ts` walks `git ls-files` for references to what was retired, keyed by LINE CONTENT with per-row reasoned exemptions (`tests/docs/_retiredIdentifiers.ts`). Retiring `app/fonts.ts` and `inter.variable` means either registering them with exemptions for the legitimate history — `BACKLOG-archive.md`, the two prior font specs, the reconciliation log — or a stated decision not to register them. Decide explicitly; leaving it unconsidered is how this guard goes red on a later branch for reasons nobody remembers.
 
@@ -1482,10 +1512,21 @@ git commit -m "test(e2e): await document.fonts.ready per measured document"
 
 ```bash
 pnpm exec playwright test --config tests/e2e/standalone.config.ts --reporter=list
-pnpm exec playwright test --config tests/e2e/visual.config.ts    --reporter=list
 ```
 
-The suite run **is** the census — the set cannot be enumerated statically. **Both configs**, because `section-header-visual` is a `compileEntryCss` caller that only `tests/e2e/visual.config.ts:36` resolves; running standalone alone silently skips one of the 28 font-sensitive callers, and specifically the one whose `boundingBox()` read precedes its screenshot.
+**The visual config CANNOT be run here, and that is deliberate on its side.**
+`tests/e2e/visual.config.ts:26` throws on load outside the pinned container:
+
+> section-header visual baselines are byte-pinned to the mcr.microsoft.com/playwright jammy image on native amd64 … a bare-host run would compare host-font bytes against container bytes and is refused.
+
+So `section-header-visual` is exercised only through
+`.github/workflows/section-header-visual.yml` (gate) and
+`section-header-visual-regen.yml` (rebaseline). Its geometry figures are
+therefore re-derived in Task 14, inside the image, not here — and an earlier
+draft of this task asking for a local run of both configs was asking for
+something the repo refuses by construction.
+
+The standalone suite run **is** the census — the set cannot be enumerated statically. **Both configs**, because `section-header-visual` is a `compileEntryCss` caller that only `tests/e2e/visual.config.ts:36` resolves; running standalone alone silently skips one of the 28 font-sensitive callers, and specifically the one whose `boundingBox()` read precedes its screenshot.
 
 - [ ] **Step 2: Update each pinned figure to its measured value**
 

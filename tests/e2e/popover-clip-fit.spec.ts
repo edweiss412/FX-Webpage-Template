@@ -148,6 +148,7 @@ async function setItems(page: Page, a: number, n: number, s: number) {
 /** Boots the modal page and leaves the attention menu OPEN. */
 async function openMenu(page: Page, a: number, n: number, s: number) {
   await page.goto(baseUrl);
+  await page.evaluate(() => document.fonts.ready);
   await page.waitForFunction(
     () => (window as unknown as { __hydrated?: boolean }).__hydrated === true,
   );
@@ -225,6 +226,7 @@ async function fittedGeometry(page: Page) {
 /** Boots the toggle page and drives the refusal so the banner renders. */
 async function openToggleBanner(page: Page) {
   await page.goto(`${baseUrl}toggle.html`);
+  await page.evaluate(() => document.fonts.ready);
   await page.waitForFunction(
     () => (window as unknown as { __hydrated?: boolean }).__hydrated === true,
   );

@@ -108,6 +108,7 @@ test.describe("CollapsePanel height morph (real browser, reduced-motion)", () =>
     await page.emulateMedia({ reducedMotion: "reduce" });
     await page.setViewportSize({ width: 640, height: 480 });
     await page.goto(baseUrl + "live.html");
+    await page.evaluate(() => document.fonts.ready);
     await expect(page.locator(TOGGLE)).toBeVisible();
 
     // CSS sanity guard: the morph utilities actually resolved (not an unstyled

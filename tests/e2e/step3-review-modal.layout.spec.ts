@@ -199,6 +199,7 @@ async function openHarness(
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.setViewportSize(viewport);
   await page.goto(baseUrl + path);
+  await page.evaluate(() => document.fonts.ready);
 }
 
 async function rect(page: Page, selector: string) {

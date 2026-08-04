@@ -99,6 +99,7 @@ async function openLive(page: Page) {
   // load (matches step3-review-modal.layout.spec.ts).
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.goto(baseUrl + "live.html");
+  await page.evaluate(() => document.fonts.ready);
   await expect(page.locator(FLIP)).toBeVisible();
 }
 

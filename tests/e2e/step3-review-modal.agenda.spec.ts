@@ -180,6 +180,7 @@ async function openAgenda(page: Page, width: number) {
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.setViewportSize({ width, height: 900 });
   await page.goto(baseUrl + "live.html");
+  await page.evaluate(() => document.fonts.ready);
   await expect(page.locator(PANEL)).toBeVisible();
   // READY GATE: the parsing status line is gone and every fixture session has
   // painted. Sessions render only in the `ready` state, so this IS the state

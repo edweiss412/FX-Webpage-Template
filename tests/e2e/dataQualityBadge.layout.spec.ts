@@ -84,6 +84,7 @@ test("badge height equals its glyph height (leading-none holds the count line bo
   page,
 }) => {
   await page.goto(baseUrl);
+  await page.evaluate(() => document.fonts.ready);
   for (const id of ["badge-gap", "badge-roster", "badge-both"]) {
     const badge = await boxHeight(page, `#${id} [role="img"]`);
     const glyph = await boxHeight(page, `#${id} [role="img"] svg`);
@@ -93,6 +94,7 @@ test("badge height equals its glyph height (leading-none holds the count line bo
 
 test("adding the second chip does not wrap (both ≈ single-chip height)", async ({ page }) => {
   await page.goto(baseUrl);
+  await page.evaluate(() => document.fonts.ready);
   const roster = await boxHeight(page, `#badge-roster [role="img"]`);
   const both = await boxHeight(page, `#badge-both [role="img"]`);
   expect(Math.abs(both - roster), "both vs roster-only height").toBeLessThanOrEqual(0.5);
