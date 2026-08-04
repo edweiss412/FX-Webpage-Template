@@ -31,6 +31,8 @@ function makeTx() {
     }),
     renameCrewMember: vi.fn(async (_showId: string, removedName: string, addedName: string) => {
       ops.push(`renameCrewMember:${removedName}→${addedName}`);
+      // Default models a rename that LANDED; per-test overrides use mockResolvedValue(false).
+      return true;
     }),
     provisionAddedCrewAuth: vi.fn(),
     revokeRemovedCrewAuth: vi.fn(),
@@ -131,5 +133,95 @@ describe("applyParseResult — identity-link renames (spec §3.4)", () => {
     expect(opsEmpty).toEqual(opsAbsent);
     expect(txAbsent.renameCrewMember).not.toHaveBeenCalled();
     expect(txEmpty.renameCrewMember).not.toHaveBeenCalled();
+  });
+});
+
+// Spec §2.1 A2/A3: the outcome reports which pairs LANDED and, for each that did not, why — plus
+// whether the source row survived the apply anyway. The name_held reason and the survived-because-
+// held case live in applyParseResult.identityLink.db.test.ts, which wires a real hold port;
+// baseArgs has no hold knob and must not grow one to fake a planner shape production never emits.
+describe("applyParseResult — landed / unlanded rename reporting (spec §2.1)", () => {
+  it("reports a landed pair in landedRenames and nothing in unlandedRenames", async () => {
+    const { tx } = makeTx();
+    tx.renameCrewMember.mockResolvedValue(true);
+    const outcome = await applyParseResult(
+      tx,
+      baseArgs(["Old"], [crew("New")], [{ removedName: "Old", addedName: "New" }]),
+    );
+    expect(outcome.landedRenames).toEqual([{ removedName: "Old", addedName: "New" }]);
+    expect(outcome.unlandedRenames).toEqual([]);
+  });
+
+  it("reports rename_no_op when the guarded update matched nothing", async () => {
+    const { tx } = makeTx();
+    tx.renameCrewMember.mockResolvedValue(false);
+    const outcome = await applyParseResult(
+      tx,
+      baseArgs(["Old"], [crew("New")], [{ removedName: "Old", addedName: "New" }]),
+    );
+    expect(outcome.landedRenames).toEqual([]);
+    expect(outcome.unlandedRenames).toHaveLength(1);
+    expect(outcome.unlandedRenames[0]?.reason).toBe("rename_no_op");
+    expect(outcome.unlandedRenames[0]?.sourceSurvived).toBe(false);
+  });
+
+  it("maps source_absent, target_absent and pair_already_consumed to distinct reasons", async () => {
+    const { tx } = makeTx();
+    tx.renameCrewMember.mockResolvedValue(true);
+
+    const sourceAbsent = await applyParseResult(
+      tx,
+      baseArgs(["Old"], [crew("New")], [{ removedName: "Ghost", addedName: "New" }]),
+    );
+    expect(sourceAbsent.unlandedRenames[0]?.reason).toBe("source_absent");
+
+    const targetAbsent = await applyParseResult(
+      tx,
+      baseArgs(["Old"], [crew("New")], [{ removedName: "Old", addedName: "Nowhere" }]),
+    );
+    expect(targetAbsent.unlandedRenames[0]?.reason).toBe("target_absent");
+
+    const duplicate = await applyParseResult(
+      tx,
+      baseArgs(
+        ["Old"],
+        [crew("New"), crew("Other")],
+        [
+          { removedName: "Old", addedName: "New" },
+          { removedName: "Old", addedName: "Other" },
+        ],
+      ),
+    );
+    expect(duplicate.unlandedRenames[0]?.reason).toBe("pair_already_consumed");
+  });
+
+  it("a same-name pair (source === target) is handled without corrupting state", async () => {
+    const { tx } = makeTx();
+    tx.renameCrewMember.mockResolvedValue(false);
+    // Spec section 7 names this as a required boundary input. "Old" is both sides of the pair, so it
+    // is present in previousCrewNames AND in the parse: the source/target guards both pass and the
+    // consumed-once belt sees the same name twice. Assert we neither crash nor report a landed
+    // rename of a row onto itself. The `reason` is deliberately NOT pinned — which of the guards
+    // fires first for an identical source and target is an implementation detail of the loop order.
+    const outcome = await applyParseResult(
+      tx,
+      baseArgs(["Old"], [crew("Old")], [{ removedName: "Old", addedName: "Old" }]),
+    );
+    expect(outcome.landedRenames).toEqual([]);
+    expect(outcome.unlandedRenames).toHaveLength(1);
+    expect(outcome.unlandedRenames[0]?.sourceSurvived).toBe(true);
+  });
+
+  it("sets sourceSurvived=true when the source name is still in the parsed crew", async () => {
+    const { tx } = makeTx();
+    tx.renameCrewMember.mockResolvedValue(true);
+    // "Old" is BOTH the rename source and a parsed row, so it is in deleteKeepNames and survives.
+    // The pair is unlanded because its target is absent from the parse.
+    const outcome = await applyParseResult(
+      tx,
+      baseArgs(["Old"], [crew("Old")], [{ removedName: "Old", addedName: "Nowhere" }]),
+    );
+    expect(outcome.unlandedRenames[0]?.reason).toBe("target_absent");
+    expect(outcome.unlandedRenames[0]?.sourceSurvived).toBe(true);
   });
 });

@@ -8,9 +8,12 @@
  * held_value. All expected values are derived from the seeded/captured live row, never hardcoded.
  */
 import type { TriggeredReviewItem } from "@/lib/parser/types";
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it, vi } from "vitest";
+
+import { encodePickerCookie } from "@/lib/auth/picker/cookieEnvelope";
 
 import {
+  callApproveAsAdmin,
   callUndoAsAdmin,
   callUndoAsNonAdmin,
   closeHoldsHelpers,
@@ -22,6 +25,7 @@ import {
   readHold,
   runAutoApply,
   runStagedApply,
+  seedMi11Hold,
   seedShowWithCrew,
   ADMIN_EMAIL,
 } from "./_holdsHelpers";
@@ -167,33 +171,59 @@ describe("undo_change Direction A — restore removed/renamed crew", () => {
   });
 
   it("REPLACED-shape rename undo regression (spec test 16): successor (distinct id) deleted, prior id restored", async () => {
+    // HISTORICAL ROW, REPRODUCED DELIBERATELY — this test does NOT drive an apply, because no live
+    // apply can produce this shape any more (spec 2026-08-03 §8). Since the landed-pairs correction,
+    // the only source of a crew_renamed row is a rename that LANDED, and landing means
+    // renameCrewMember's in-place `update ... set name` succeeded, which preserves crew_members.id
+    // by construction. The "successor carries a DISTINCT id" shape is what the old triggeredItems
+    // re-derivation wrote whenever a rename degraded to delete-old + insert-new. undo_change's
+    // Direction A branch for it is historical-only, not dead: rows of this shape are already in the
+    // change log and must stay undoable. So the crew state and the feed row are both seeded here to
+    // the exact shape that path used to leave behind.
     const { showId, driveFileId } = await seedShowWithCrew([
       { name: "Undo Repl A", email: "ura@x.example" },
     ]);
-    const PRIOR_ID = (await readCrewByName(showId, "Undo Repl A"))!.id;
+    const prior = (await readCrewByName(showId, "Undo Repl A"))!;
+    const PRIOR_ID = prior.id;
 
-    const items: TriggeredReviewItem[] = [
-      {
-        id: "1",
-        invariant: "MI-12",
-        removed_name: "Undo Repl A",
-        added_name: "Undo Repl A2",
-        email: "ura@x.example",
-      },
-    ];
-    // NO identityLinkRenames → historical delete+insert shape: successor gets a fresh id.
-    await runAutoApply(driveFileId, {
-      crew: [{ name: "Undo Repl A2", email: "ura@x.example" }],
-      triggeredItems: items,
-    });
+    // The crew mutation the historical delete+insert apply left: prior row gone, successor inserted
+    // fresh (so it gets a NEW id — the whole point of the shape).
+    await holdsSql`delete from public.crew_members where id = ${PRIOR_ID}`;
+    await holdsSql`
+      insert into public.crew_members
+        (show_id, name, email, phone, role, role_flags, date_restriction, stage_restriction,
+         flight_info, claimed_via_oauth_at)
+      values (${showId}, 'Undo Repl A2', ${prior.email}, ${prior.phone}, ${prior.role},
+              ${prior.role_flags}, ${holdsSql.json(prior.date_restriction as never)},
+              ${holdsSql.json(prior.stage_restriction as never)}, ${prior.flight_info}, null)`;
     const successor = await readCrewByName(showId, "Undo Repl A2");
-    expect(successor!.id).not.toBe(PRIOR_ID); // proves the replaced shape, not linked
+    expect(successor!.id).not.toBe(PRIOR_ID); // the replaced shape, not linked
 
-    const renamed = await readChangeLog(showId, {
-      change_kind: "crew_renamed",
-      entity_ref: "Undo Repl A",
-    });
-    const res = await callUndoAsAdmin(renamed.id);
+    // The feed row that apply wrote, in the shape writeAutoApplyChanges' crew_renamed branch
+    // produced: entity_ref = the PRIOR name, before_image = the pre-apply live row (id + claim).
+    const [seeded] = (await holdsSql`
+      insert into public.show_change_log
+        (show_id, drive_file_id, source, change_kind, entity_ref, summary,
+         before_image, after_image, status, created_by)
+      values (${showId}, ${driveFileId}, 'auto_apply', 'crew_renamed', ${prior.name},
+              ${`Crew member ${prior.name} renamed to Undo Repl A2`},
+              ${holdsSql.json({
+                id: PRIOR_ID,
+                name: prior.name,
+                email: prior.email,
+                phone: prior.phone,
+                role: prior.role,
+                role_flags: prior.role_flags,
+                date_restriction: prior.date_restriction,
+                stage_restriction: prior.stage_restriction,
+                flight_info: prior.flight_info,
+                claimed_via_oauth_at: prior.claimed_via_oauth_at,
+              } as never)},
+              ${holdsSql.json({ name: "Undo Repl A2", email: prior.email } as never)},
+              'applied', 'system')
+      returning id`) as unknown as Array<{ id: string }>;
+
+    const res = await callUndoAsAdmin(seeded!.id);
     expect(res.ok).toBe(true);
 
     expect(await readCrewByName(showId, "Undo Repl A2")).toBeNull(); // successor deleted
@@ -220,6 +250,9 @@ describe("undo_change Direction A — restore removed/renamed crew", () => {
     await runAutoApply(driveFileId, {
       crew: [{ name: "Alicia", email: "alicia@new" }],
       triggeredItems: items,
+      // The feed derives renames from the pairs the apply LANDED, so the identity-link pair cron
+      // emits for this MI-12 item rides along too (`lib/sync/identityLinkRenames.ts:20-23`).
+      identityLinkRenames: [{ removedName: "Alice", addedName: "Alicia" }],
     });
     const renamed = await readChangeLog(showId, {
       change_kind: "crew_renamed",
@@ -272,6 +305,7 @@ describe("undo_change Direction A — restore removed/renamed crew", () => {
     await runAutoApply(driveFileId, {
       crew: [{ name: "Alicia", email: "alicia@new" }],
       triggeredItems: items,
+      identityLinkRenames: [{ removedName: "Alice", addedName: "Alicia" }],
     });
     const renamed = await readChangeLog(showId, {
       change_kind: "crew_renamed",
@@ -319,6 +353,7 @@ describe("undo_change Direction A — restore removed/renamed crew", () => {
     await runAutoApply(b.driveFileId, {
       crew: [{ name: "Alicia", email: "alicia@new" }],
       triggeredItems: items,
+      identityLinkRenames: [{ removedName: "Alice", addedName: "Alicia" }],
     });
     const renamed = await readChangeLog(b.showId, {
       change_kind: "crew_renamed",
@@ -409,5 +444,367 @@ describe("undo_change Direction A — restore removed/renamed crew", () => {
       new Date(LINK_CLAIM as string).toISOString(),
     );
     expect(await readCrewByName(showId, "Stage Undo A2")).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// §3.6 / Unit D — selections_reset_at survives an undo.
+//
+// The marker is the picker-invalidation stamp: an admin reset writes
+// clock_timestamp() onto crew_members.selections_reset_at and every device cookie
+// picked at or before that instant is forced back to the picker. An undo that
+// drops the marker silently REVALIDATES those cookies. Two producers had to carry
+// it (crewImage → before_image) and the restore had to merge it with whatever the
+// live successor holds — a before_image-only restore loses a reset stamped AFTER
+// the change being undone.
+// ---------------------------------------------------------------------------
+
+const RESET_AT = "2026-06-15T08:00:00.000Z";
+const RESET_OLDER = "2026-06-01T08:00:00.000Z";
+const RESET_NEWER = "2026-06-20T08:00:00.000Z";
+
+const iso = (value: string | Date | null): string | null =>
+  value === null ? null : new Date(value).toISOString();
+
+/** The admin picker-reset stamp, applied directly (the RPC path is covered elsewhere). */
+async function stampReset(showId: string, name: string, at: string): Promise<void> {
+  await holdsSql`
+    update public.crew_members set selections_reset_at = ${at}::timestamptz
+     where show_id = ${showId} and name = ${name}`;
+}
+
+/** Seed one linked rename (prior → successor) through the real Phase-2 apply. */
+async function applyLinkedRename(
+  driveFileId: string,
+  from: string,
+  to: string,
+  email: string,
+): Promise<void> {
+  const items: TriggeredReviewItem[] = [
+    { id: "1", invariant: "MI-12", removed_name: from, added_name: to, email },
+  ];
+  await runAutoApply(driveFileId, {
+    crew: [{ name: to, email }],
+    triggeredItems: items,
+    identityLinkRenames: [{ removedName: from, addedName: to }],
+  });
+}
+
+describe("undo_change — selections_reset_at continuity (§3.6)", () => {
+  it("an undo of a crew_removed restores selections_reset_at from before_image", async () => {
+    const { showId, driveFileId } = await seedShowWithCrew([
+      { name: "Reset Rm A", email: "rra@x.example", selections_reset_at: RESET_AT },
+      { name: "Reset Rm B", email: "rrb@x.example" },
+    ]);
+    const seeded = await readCrewByName(showId, "Reset Rm A");
+    expect(seeded!.selections_reset_at).not.toBeNull();
+
+    await runAutoApply(driveFileId, { crew: [{ name: "Reset Rm B", email: "rrb@x.example" }] });
+    const removed = await readChangeLog(showId, {
+      change_kind: "crew_removed",
+      entity_ref: "Reset Rm A",
+    });
+    // crewImage is the producer: the marker must reach before_image at all.
+    expect(iso((removed.before_image?.selections_reset_at as string | null) ?? null)).toBe(
+      iso(seeded!.selections_reset_at),
+    );
+
+    expect((await callUndoAsAdmin(removed.id)).ok).toBe(true);
+    const back = await readCrewByName(showId, "Reset Rm A");
+    expect(iso(back!.selections_reset_at)).toBe(iso(seeded!.selections_reset_at));
+  });
+
+  it("CLEAN-INSERT path: a rename undo keeps a reset stamped on the successor after the rename", async () => {
+    // THE COMMON PATH. A crew_renamed undo deletes the live successor first precisely so the restore
+    // INSERT slot is free, so it never reaches ON CONFLICT — a greatest() living only in the
+    // do-update branch fails HERE while every other test in this block still passes.
+    const { showId, driveFileId } = await seedShowWithCrew([
+      { name: "Reset Ren A", email: "rena@x.example" },
+    ]);
+    await applyLinkedRename(driveFileId, "Reset Ren A", "Reset Ren A2", "rena@x.example");
+    // The admin resets AFTER the rename landed, so before_image (captured pre-apply) holds NULL and
+    // only the live successor carries the marker.
+    await stampReset(showId, "Reset Ren A2", RESET_AT);
+    const successor = await readCrewByName(showId, "Reset Ren A2");
+    expect(successor!.selections_reset_at).not.toBeNull();
+
+    const renamed = await readChangeLog(showId, {
+      change_kind: "crew_renamed",
+      entity_ref: "Reset Ren A",
+    });
+    expect(renamed.before_image?.selections_reset_at ?? null).toBeNull();
+
+    expect((await callUndoAsAdmin(renamed.id)).ok).toBe(true);
+    const back = await readCrewByName(showId, "Reset Ren A");
+    expect(iso(back!.selections_reset_at)).toBe(iso(successor!.selections_reset_at));
+  });
+
+  it("historical before_image with no selections_reset_at key falls through to the successor's marker", async () => {
+    // Rows written before this unit have NO key at all. `->>'selections_reset_at'` on an absent key
+    // is SQL NULL, so greatest() falls through to the captured successor value — old rows are
+    // rescued by the capture, with no backfill migration.
+    const { showId, driveFileId } = await seedShowWithCrew([
+      { name: "Reset Hist A", email: "rha@x.example" },
+    ]);
+    await applyLinkedRename(driveFileId, "Reset Hist A", "Reset Hist A2", "rha@x.example");
+    const renamed = await readChangeLog(showId, {
+      change_kind: "crew_renamed",
+      entity_ref: "Reset Hist A",
+    });
+    await holdsSql`
+      update public.show_change_log
+         set before_image = before_image - 'selections_reset_at'
+       where id = ${renamed.id}`;
+    const [stripped] = (await holdsSql`
+      select before_image from public.show_change_log where id = ${renamed.id}`) as unknown as Array<{
+      before_image: Record<string, unknown>;
+    }>;
+    expect(Object.keys(stripped!.before_image)).not.toContain("selections_reset_at");
+
+    await stampReset(showId, "Reset Hist A2", RESET_AT);
+    const successor = await readCrewByName(showId, "Reset Hist A2");
+
+    expect((await callUndoAsAdmin(renamed.id)).ok).toBe(true);
+    const back = await readCrewByName(showId, "Reset Hist A");
+    expect(iso(back!.selections_reset_at)).toBe(iso(successor!.selections_reset_at));
+  });
+
+  it("ON CONFLICT branch keeps the NEWER of the live and before_image markers", async () => {
+    // Reaching the do-update branch takes a live row already sitting on the restore slot with the
+    // SAME email (the name-collision guard only rejects a DIFFERENT-email occupant).
+    const occupy = async (
+      showId: string,
+      name: string,
+      email: string,
+      at: string,
+    ): Promise<void> => {
+      await holdsSql`
+        insert into public.crew_members
+          (show_id, name, email, phone, role, role_flags, date_restriction, stage_restriction,
+           flight_info, claimed_via_oauth_at, selections_reset_at)
+        values (${showId}, ${name}, ${email}, '555-OLD', 'A1', ${["A1"]},
+                ${holdsSql.json({ kind: "none" })}, ${holdsSql.json({ kind: "none" })},
+                null, null, ${at}::timestamptz)`;
+    };
+
+    // (a) the LIVE marker is newer → it must survive the restore.
+    const a = await seedShowWithCrew([
+      { name: "Reset Cf A", email: "rcfa@x.example", selections_reset_at: RESET_OLDER },
+    ]);
+    await runAutoApply(a.driveFileId, { crew: [] });
+    const removedA = await readChangeLog(a.showId, {
+      change_kind: "crew_removed",
+      entity_ref: "Reset Cf A",
+    });
+    await occupy(a.showId, "Reset Cf A", "rcfa@x.example", RESET_NEWER);
+    expect((await callUndoAsAdmin(removedA.id)).ok).toBe(true);
+    expect(iso((await readCrewByName(a.showId, "Reset Cf A"))!.selections_reset_at)).toBe(
+      new Date(RESET_NEWER).toISOString(),
+    );
+
+    // (b) the BEFORE_IMAGE marker is newer → it must win instead. A bare `excluded.` assignment
+    // passes (b) and fails (a); a bare `crew_members.` assignment passes (a) and fails (b).
+    const b = await seedShowWithCrew([
+      { name: "Reset Cf B", email: "rcfb@x.example", selections_reset_at: RESET_NEWER },
+    ]);
+    await runAutoApply(b.driveFileId, { crew: [] });
+    const removedB = await readChangeLog(b.showId, {
+      change_kind: "crew_removed",
+      entity_ref: "Reset Cf B",
+    });
+    await occupy(b.showId, "Reset Cf B", "rcfb@x.example", RESET_OLDER);
+    expect((await callUndoAsAdmin(removedB.id)).ok).toBe(true);
+    expect(iso((await readCrewByName(b.showId, "Reset Cf B"))!.selections_reset_at)).toBe(
+      new Date(RESET_NEWER).toISOString(),
+    );
+  });
+
+  it("an invalidated picker cookie stays invalidated across an undo", async () => {
+    // Column-only assertions would miss a reader-side regression, so this drives the REAL resolver
+    // over the REAL restored row (read back from the database, never hand-built).
+    const { showId, driveFileId } = await seedShowWithCrew([
+      { name: "Reset Pk A", email: "rpa@x.example", selections_reset_at: RESET_AT },
+    ]);
+    await runAutoApply(driveFileId, { crew: [] });
+    const removed = await readChangeLog(showId, {
+      change_kind: "crew_removed",
+      entity_ref: "Reset Pk A",
+    });
+    expect((await callUndoAsAdmin(removed.id)).ok).toBe(true);
+
+    const back = await readCrewByName(showId, "Reset Pk A");
+    const [showRow] = (await holdsSql`
+      select picker_epoch, published, archived from public.shows
+       where id = ${showId}`) as unknown as Array<{
+      picker_epoch: number;
+      published: boolean;
+      archived: boolean;
+    }>;
+    const epoch = Number(showRow!.picker_epoch);
+    // A pick made one second BEFORE the reset — invalidated iff the marker survived.
+    const cookie = encodePickerCookie(
+      {
+        v: 1,
+        selections: { [showId]: { id: back!.id, e: epoch, t: Date.parse(RESET_AT) - 1000 } },
+      },
+      "0".repeat(64),
+    );
+
+    type Chain = {
+      select: () => Chain;
+      eq: () => Chain;
+      maybeSingle: () => Promise<{ data: unknown; error: null }>;
+      single: () => Promise<{ data: unknown; error: null }>;
+    };
+    const chainFor = (row: unknown): Chain => {
+      const chain: Chain = {
+        select: () => chain,
+        eq: () => chain,
+        maybeSingle: async () => ({ data: row, error: null }),
+        single: async () => ({ data: row, error: null }),
+      };
+      return chain;
+    };
+    const crewRow = {
+      id: back!.id,
+      email: back!.email,
+      claimed_via_oauth_at: iso(back!.claimed_via_oauth_at),
+      selections_reset_at: iso(back!.selections_reset_at),
+    };
+    vi.doMock("@/lib/supabase/server", () => ({
+      createSupabaseServerClient: async () => ({
+        rpc: async () => ({ data: null, error: null }),
+      }),
+      createSupabaseServiceRoleClient: () => ({
+        from: (table: string) =>
+          chainFor(
+            table === "shows"
+              ? {
+                  picker_epoch: epoch,
+                  published: showRow!.published,
+                  archived: showRow!.archived,
+                }
+              : crewRow,
+          ),
+      }),
+    }));
+    try {
+      const { resolvePickerSelection } = await import("@/lib/auth/picker/resolvePickerSelection");
+      const result = await resolvePickerSelection({ showId, cookie });
+      expect(result.kind).toBe("selection_reset");
+    } finally {
+      vi.doUnmock("@/lib/supabase/server");
+      vi.resetModules();
+    }
+  });
+
+  it("a NULL selections_reset_at stays NULL through an undo (no spurious marker)", async () => {
+    const { showId, driveFileId } = await seedShowWithCrew([
+      { name: "Reset Nl A", email: "rnla@x.example" },
+    ]);
+    expect((await readCrewByName(showId, "Reset Nl A"))!.selections_reset_at).toBeNull();
+    await runAutoApply(driveFileId, { crew: [] });
+    const removed = await readChangeLog(showId, {
+      change_kind: "crew_removed",
+      entity_ref: "Reset Nl A",
+    });
+    expect((await callUndoAsAdmin(removed.id)).ok).toBe(true);
+    expect((await readCrewByName(showId, "Reset Nl A"))!.selections_reset_at).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// §3.6 / Unit D — mi11_approve_hold is the SECOND production before_image builder.
+//
+// A sweep that stays in TypeScript misses it entirely, and it drops the marker at
+// TWO sites: the jsonb_build_object that becomes before_image, and the successor
+// INSERT its rename branch writes. Fixing only the builder still loses the marker
+// on every future MI-11 rename.
+// ---------------------------------------------------------------------------
+
+const MI11_MT = "2026-06-08T15:00:00.000Z";
+
+/** The crew_email held_value (prior live row) the approve path expects. */
+function mi11Held(name: string, email: string | null): Record<string, unknown> {
+  return {
+    name,
+    email,
+    phone: "555-OLD",
+    role: "A1",
+    role_flags: ["A1"],
+    date_restriction: { kind: "none" },
+    stage_restriction: { kind: "none" },
+    flight_info: null,
+  };
+}
+
+describe("mi11_approve_hold — selections_reset_at at BOTH write sites (§3.6)", () => {
+  it("mi11_approve_hold's before_image carries selections_reset_at, and an undo of an MI-11 removal round-trips it", async () => {
+    const show = await seedShowWithCrew([
+      { name: "Mi11 Rm A", email: "m11rma@x.example", selections_reset_at: RESET_AT },
+    ]);
+    const seeded = await readCrewByName(show.showId, "Mi11 Rm A");
+    expect(seeded!.selections_reset_at).not.toBeNull();
+
+    const hold = await seedMi11Hold(show, {
+      entityKey: "Mi11 Rm A",
+      heldValue: mi11Held("Mi11 Rm A", "m11rma@x.example"),
+      proposedValue: { disposition: "removal" },
+      baseModifiedTime: MI11_MT,
+    });
+    expect((await callApproveAsAdmin(hold.id, MI11_MT, hold.baseModifiedTime)).ok).toBe(true);
+    expect(await readCrewByName(show.showId, "Mi11 Rm A")).toBeNull();
+
+    const removed = await readChangeLog(show.showId, {
+      change_kind: "crew_removed",
+      entity_ref: "Mi11 Rm A",
+    });
+    expect(removed.source).toBe("mi11_approve");
+    expect(iso((removed.before_image?.selections_reset_at as string | null) ?? null)).toBe(
+      iso(seeded!.selections_reset_at),
+    );
+
+    expect((await callUndoAsAdmin(removed.id)).ok).toBe(true);
+    expect(iso((await readCrewByName(show.showId, "Mi11 Rm A"))!.selections_reset_at)).toBe(
+      iso(seeded!.selections_reset_at),
+    );
+  });
+
+  it("MI-11 RENAME with no post-rename stamp: the successor keeps the original marker", async () => {
+    // Deliberately does NOT stamp the successor after the rename. The clean-INSERT test above DOES,
+    // and that stamp MASKS a builder-only implementation via undo_change's D4 capture — here the
+    // successor INSERT inside mi11_approve_hold is the only possible source of the marker.
+    const show = await seedShowWithCrew([
+      { name: "Mi11 Ren A", email: "m11rena@x.example", selections_reset_at: RESET_AT },
+    ]);
+    const seeded = await readCrewByName(show.showId, "Mi11 Ren A");
+    expect(seeded!.selections_reset_at).not.toBeNull();
+
+    const hold = await seedMi11Hold(show, {
+      entityKey: "Mi11 Ren A",
+      heldValue: mi11Held("Mi11 Ren A", "m11rena@x.example"),
+      proposedValue: {
+        disposition: "rename",
+        name: "Mi11 Ren A2",
+        email: "m11rena@x.example",
+      },
+      baseModifiedTime: MI11_MT,
+    });
+    expect((await callApproveAsAdmin(hold.id, MI11_MT, hold.baseModifiedTime)).ok).toBe(true);
+
+    const successor = await readCrewByName(show.showId, "Mi11 Ren A2");
+    expect(successor).not.toBeNull();
+    expect(successor!.id).not.toBe(seeded!.id); // an MI-11 rename inserts a FRESH identity
+    expect(iso(successor!.selections_reset_at)).toBe(iso(seeded!.selections_reset_at));
+  });
+
+  it("the LIVE mi11_approve_hold body carries the column (pg_proc, not the migration file)", async () => {
+    // A file-reading assertion would pass on a change shipped as an edit to 20260608000002, which is
+    // already applied everywhere and would never re-run — so it would never reach any database.
+    const [row] = (await holdsSql`
+      select prosrc from pg_proc where proname = 'mi11_approve_hold'`) as unknown as Array<{
+      prosrc: string;
+    }>;
+    expect(String(row?.prosrc)).toContain("selections_reset_at");
   });
 });

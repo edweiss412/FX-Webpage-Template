@@ -146,7 +146,7 @@ function digestModel(overrides: Partial<DigestModel> = {}): DigestModel {
     recipient: " Doug@FXAV.NET ",
     dateET: "2026-06-02",
     shows: [{ showTitle: "Show One", slug: "show-one", items: ["Changes staged for review"] }],
-    sourceTotals: { ingestions: 1, syncs: 1, shows: 1 },
+    sourceTotals: { ingestions: 1, syncs: 1, shows: 1, holdShows: 0 },
     ...overrides,
   };
 }
@@ -582,7 +582,7 @@ describe("deliverDigest", () => {
       code: "EMAIL_DELIVERY_FAILED",
       context: {
         date_et: "2026-06-02",
-        source_totals: { ingestions: 1, syncs: 1, shows: 1 },
+        source_totals: { ingestions: 1, syncs: 1, shows: 1, holdShows: 0 },
       },
     });
   });

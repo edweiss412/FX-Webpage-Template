@@ -52,6 +52,7 @@ describe("writeAutoApplyChanges (Task 2.9)", () => {
         previousCrewMembers: [prevMember(aliceRow, aliceLive), prevMember(bobRow, bobLive)],
         nextCrewMembers: [crew("Alice", { email: "a@x" })],
         triggeredItems: [],
+        landedRenames: [],
         heldNames: new Set(),
       });
 
@@ -83,6 +84,7 @@ describe("writeAutoApplyChanges (Task 2.9)", () => {
         previousCrewMembers: [prevMember(bobRow, bobLive)],
         nextCrewMembers: [],
         triggeredItems: [],
+        landedRenames: [],
         heldNames: new Set(),
       });
       const removed = (await readChangeLog(tx, showId)).find(
@@ -107,6 +109,9 @@ describe("writeAutoApplyChanges (Task 2.9)", () => {
         previousCrewMembers: [prevMember(aliceRow, aliceLive)],
         nextCrewMembers: [crew("Dana", { email: "a@x" })],
         triggeredItems: items,
+        // The pair the apply LANDED. Passing [] here would delete this test's subject — no
+        // crew_renamed row would be written at all and the assertions below would pass vacuously.
+        landedRenames: [{ removedName: "Alice", addedName: "Dana" }],
         heldNames: new Set(),
       });
       const renamed = (await readChangeLog(tx, showId)).find(
@@ -131,6 +136,7 @@ describe("writeAutoApplyChanges (Task 2.9)", () => {
         previousCrewMembers: [prevMember(aliceRow, aliceLive)],
         nextCrewMembers: [crew("Alice", { email: "a@x", phone: "555-NEW" })],
         triggeredItems: [],
+        landedRenames: [],
         heldNames: new Set(),
       });
       expect(await readChangeLog(tx, showId)).toHaveLength(0);
@@ -150,6 +156,7 @@ describe("writeAutoApplyChanges (Task 2.9)", () => {
         previousCrewMembers: [prevMember(aliceRow, aliceLive)],
         nextCrewMembers: [],
         triggeredItems: [],
+        landedRenames: [],
         heldNames: new Set(["Alice"]),
       });
       const log = await readChangeLog(tx, showId);
@@ -171,6 +178,7 @@ describe("writeAutoApplyChanges (Task 2.9)", () => {
         previousCrewMembers: [],
         nextCrewMembers: [],
         triggeredItems: items,
+        landedRenames: [],
         heldNames: new Set(),
       });
       const log = await readChangeLog(tx, showId);
@@ -200,6 +208,7 @@ describe("writeAutoApplyChanges (Task 2.9)", () => {
         previousCrewMembers: [],
         nextCrewMembers: [],
         triggeredItems: items,
+        landedRenames: [],
         heldNames: new Set(),
       });
       const log = await readChangeLog(tx, showId);
@@ -230,6 +239,7 @@ describe("writeAutoApplyChanges (Task 2.9)", () => {
         previousCrewMembers: [],
         nextCrewMembers: [],
         triggeredItems: items,
+        landedRenames: [],
         heldNames: new Set(),
       });
       const fieldRow = (await readChangeLog(tx, showId)).find(
@@ -257,6 +267,7 @@ describe("writeAutoApplyChanges (Task 2.9)", () => {
         triggeredItems: [
           { id: "i", invariant: "MI-9", crew_name: "Sam", prior_flags: [], new_flags: ["LEAD"] },
         ] as TriggeredReviewItem[],
+        landedRenames: [],
         heldNames: new Set(),
       });
       const row = (await readChangeLog(tx, showId)).find((r) => r.change_kind === "field_changed")!;
@@ -281,6 +292,7 @@ describe("writeAutoApplyChanges (Task 2.9)", () => {
         triggeredItems: [
           { id: "b", invariant: "MI-8", field: "bogus" },
         ] as unknown as TriggeredReviewItem[],
+        landedRenames: [],
         heldNames: new Set(),
       });
       const row = (await readChangeLog(tx, showId)).find((r) => r.change_kind === "field_changed")!;
@@ -313,6 +325,7 @@ describe("writeAutoApplyChanges (Task 2.9)", () => {
             new_flags: ["A1", "LEAD"],
           },
         ] as TriggeredReviewItem[],
+        landedRenames: [],
         heldNames: new Set(),
       });
       const summary = (await readChangeLog(tx, showId)).find(
@@ -340,6 +353,7 @@ describe("writeAutoApplyChanges (Task 2.9)", () => {
           { id: "a", invariant: "MI-8b", prior: "pending", next: "received" },
           { id: "b", invariant: "MI-8", field: "bogus" },
         ] as unknown as TriggeredReviewItem[],
+        landedRenames: [],
         heldNames: new Set(),
       });
       const summary = (await readChangeLog(tx, showId)).find(

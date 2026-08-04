@@ -8,6 +8,191 @@ Same split as [DEFERRED.md](./DEFERRED.md) ↔ [DEFERRED-archive.md](./DEFERRED-
 
 ---
 
+## BL-FINALIZE-CAS-ROLEFLAGS-NOTICE-DROP — RESOLVED (2026-08-04, PR #697 `fix/apply-undo-audit-fidelity`, merge `644f8bb06`)
+
+**The entry named ONE discard site; the class sweep found four.** The shape it describes — a path
+that obtains a real `roleFlagsNotice` and emits nothing — held equally for the first-seen onboarding
+finalize, for `runManualStageForFirstSeen` (which builds the notice and then returns a shape without
+it), and for the pending-ingestion retry route, which bypasses `processOneFile`'s post-commit tail
+altogether and was therefore dark for everything that tail emits, not only this notice. All four are
+repaired here under the class-sweep disposition default; none qualified for a deferral exception,
+since each was the same defect in code the branch was already touching.
+
+**Shipped:** one shared helper, `lib/sync/emitRoleFlagsNotice.ts`. It is the `emitDeferredRoleFlagsNotice`
+body that already existed inside `lib/sync/runScheduledCronSync.ts` — exported and relocated, with the
+near-verbatim copy in `lib/sync/applyStaged.ts` collapsed into it — and every discard site now routes
+through it. Three of the four accumulate their notices and flush them in a `finally` AFTER the outer
+transaction, because the obvious position (beside the existing `SHOW_FINALIZED` `logAdminOutcome`) is
+post-**row**-commit but still inside the route's outer finalize lock, which invariant 10 forbids. Both
+finalize-cas handlers are wired, including the STREAMING one: it owns its own `withTx` and its own
+`finally`, and it is the handler the admin finalize button actually reaches, so wiring only the
+non-streaming fallback would have left the production path dark. `_metaLeadRoleAppliedTopology` now
+expects exactly one emit site.
+
+**The structural guard against a fifth site is DESCOPED, not shipped** — refiled as
+`BL-ROLEFLAGSNOTICE-DROP-GUARD`. `roleFlagsNotice` reaches its sink through import aliases and
+dependency-injection seams, so a guard keyed on direct consumers would bless an envelope-preserving
+wrapper while staying blind to the retry route that drops it; catching that needs recursive carrier
+tracking to terminal sinks, which is its own design rather than a bullet in this spec. What ships in
+its place is a behavioral test per instance, on all four.
+
+Spec: `docs/superpowers/specs/2026-08-03-apply-undo-audit-fidelity-design.md` §2.3 and §9.
+
+The original entry follows, its in-flight marker stripped — an archive cannot hold work in
+flight (invariant 12). Nothing else is edited.
+
+## BL-FINALIZE-CAS-ROLEFLAGS-NOTICE-DROP — the wizard Phase D apply discards its capability notice
+
+**Filed:** 2026-08-03 (`2026-08-03-staged-identitylink-rename-identity` §1.1 #7, review R1 finding 1) · **Class:** audit emission gap (onboarding Phase D) · **Effort:** S-M (a post-commit sink on the finalize-cas route)
+
+`applyStagedCore` returns `roleFlagsNotice` on every path, and the dashboard staged-apply tail emits it post-commit. `finalize-cas` (`app/api/admin/onboarding/finalize-cas/route.ts`) does not: its per-row return carries only `drive_file_id`, `code`, and `showId`, and no `ROLE_FLAGS_NOTICE` alert or durable `LEAD_ROLE_APPLIED` event is emitted anywhere on that route. A capability gain or loss landed by a Phase D existing-show apply is therefore audited by the change-log row but never reaches the bell or the durable event.
+
+Pre-existing and independent of the staged identity-link threading — verified live 2026-08-03 against both the core result shape and the route body. **Fix (when prioritized):** emit from `coreResult.roleFlagsNotice` post-commit, outside the advisory-lock transaction (invariant 10), mirroring the dashboard tail in `lib/sync/applyStaged.ts`.
+
+---
+
+## BL-IDENTITYLINK-LANDED-VS-REQUESTED — RESOLVED (2026-08-04, PR #697 `fix/apply-undo-audit-fidelity`, merge `644f8bb06`)
+
+**The notice and the feed now derive from the pairs that actually LANDED**, reported by the apply
+rather than assumed from the request. `renameCrewMember` reports whether a row changed,
+`ApplyParseResultOutcome` carries the landed and unlanded pairs with a `reason` on each, and an
+`IDENTITY_LINK_RENAME_UNLANDED` durable event records the ones that did not land.
+
+**The entry's premise was partly wrong, and the truth was wider.** It claimed the feed writer consumed
+the requested `identityLinkRenames`. The feed never saw them: `writeAutoApplyChanges` re-derived its
+own pairs from `triggeredItems` through a `renamePairs` helper that accepted any MI-12/MI-13/MI-14
+item unconditionally — no accept gate at all, so the feed could record a rename that was never even
+requested by an accepted item, a wider defect than the row described. That derivation is deleted and
+the feed takes the landed pairs from its call site.
+
+**The notice needed a two-arm split, not a swap.** `capabilityRoleChangesForNotice` uses the pairs
+twice for opposite purposes. Arm (a) maps an added name back to its linked prior so an unchanged-flag
+rename is not reported as a fresh grant, and it takes landed pairs. Arm (c) SUPPRESSES a
+capability-loss notice, and feeding it landed pairs alone would have fired a **false** capability-loss
+notice for every pair whose source row survived the apply — a new defect in the opposite direction
+from the one being fixed. Its correct input is landed pairs ∪ unlanded pairs whose source SURVIVED,
+computed as a survival test inside `applyParseResult` where `deleteKeepNames` lives, and deliberately
+not as a reason test: `name_held` is recorded for every surviving hold while delete-protection is
+recorded only in specific hold-kind branches, so a held pair can genuinely lose its row. A real
+capability loss that the requested-pairs suppression hid is now reported.
+
+The remaining false-loss shape — arm (c) firing for a held row that no rename pair names — is out of
+scope under class-sweep exception (c) and filed as `BL-CAPABILITY-LOSS-SURVIVING-ROW-FALSE-POSITIVE`.
+
+Spec: `docs/superpowers/specs/2026-08-03-apply-undo-audit-fidelity-design.md` §2.1 and §2.2.
+
+The original entry follows, its in-flight marker stripped — an archive cannot hold work in
+flight (invariant 12). Nothing else is edited.
+
+## BL-IDENTITYLINK-LANDED-VS-REQUESTED — the notice and feed consume requested rename pairs, not landed ones
+
+**Filed:** 2026-08-03 (`2026-08-03-staged-identitylink-rename-identity` §1.1 #8, review R1 finding 2) · **Class:** sync audit fidelity (cron + staged, shared) · **Effort:** M (the reconciler must report what it landed)
+
+Hold-aware reconciliation can suppress a rename TARGET (P2-F4 added-row reservation collision, `lib/sync/holds/holdAwareApply.ts`). The pair then no-ops inside `applyParseResult` — no successor row lands — yet `capabilityRoleChangesForNotice` and the feed writer both consume the **requested** `identityLinkRenames`, so the notice and the feed describe a rename that did not happen. `renameCrewMember`'s no-op on target collision / missing source is the same class (it returns void, unobservable to callers).
+
+Shared verbatim with the cron path — same producer/consumer wiring — and neither introduced nor widened by the staged threading, which only adds a second producer. **Fix (when prioritized):** have the apply return the pairs it actually landed and feed the notice/feed writers from that, not from the request.
+
+---
+
+## BL-UNDO-SELECTIONS-RESET-AT-DROP — RESOLVED (2026-08-04, PR #697 `fix/apply-undo-audit-fidelity`, merge `644f8bb06`)
+
+**`selections_reset_at` now survives an undo.** `crewImage` carries the column into `before_image`
+and the Direction A re-insert restores it
+(`supabase/migrations/20260804000000_undo_change_selections_reset_at.sql`).
+
+**The real fix was capturing the successor's marker BEFORE the delete, not merging in `ON CONFLICT`.**
+A normal `crew_renamed` undo deletes the live successor first, precisely so the INSERT slot is free —
+so the common rename path takes the clean-INSERT branch and a merge living only in the conflict branch
+would never run. Worse, a reset stamped on that successor _after_ the rename is destroyed by the
+delete, so the conflict-branch `greatest(...)` never sees it either. The successor row is already
+`select … for update`'d before the delete, so its marker is captured there at zero extra cost and the
+restored row takes the later of the two values.
+
+**`undo_change` was not the only producer.** `mi11_approve_hold` omits the column from BOTH its
+`before_image` builder and the fresh successor INSERT it writes; both sites are repaired in the same
+migration, which therefore replaces two functions rather than one. The guard that should have caught
+the original drop was reading a migration superseded a month earlier and asserted nothing about
+omissions — it is repointed at the live body with the column added, so repairing the drop does not
+leave its blind guard to queue the next one.
+
+**Two historical shapes stay unrescuable, and are documented limits rather than hidden.** The fix
+works by falling through to the live successor's marker, so it helps only where a successor carries
+one: a pre-change `crew_removed` has no successor at all, and a pre-change MI-11 rename has NULL on
+both inputs. Both are bounded to rows written before this change, and neither is backfillable — the
+information no longer exists anywhere.
+
+Spec: `docs/superpowers/specs/2026-08-03-apply-undo-audit-fidelity-design.md` §2.4 and §8.
+
+The original entry follows, its in-flight marker stripped — an archive cannot hold work in
+flight (invariant 12). Nothing else is edited.
+
+## BL-UNDO-SELECTIONS-RESET-AT-DROP — any crew undo resets `selections_reset_at` to null
+
+**Filed:** 2026-08-03 (`2026-08-03-staged-identitylink-rename-identity` §1.1 #9, review R1 finding 3) · **Class:** undo lifecycle fidelity · **Effort:** S (one column through `before_image` + the Direction A re-insert)
+
+`crewImage` omits `selections_reset_at` from `before_image`, and the `undo_change` Direction A re-insert omits the column, so ANY crew undo — removed or renamed, either apply shape, either path — restores the row with a null marker. A picker cookie that was deliberately invalidated before the undone change can validate again afterward.
+
+Pre-existing and shape-agnostic: the cron in-place rename already round-trips through the same RPC, so the staged threading does not widen it. **Fix (when prioritized):** carry the column in `before_image` and restore it on re-insert, with a db test asserting an invalidated cookie stays invalidated across an undo.
+
+---
+
+## BL-INTER-NUMERAL-DISAMBIGUATION — RESOLVED (2026-08-03, `feat/inter-numeral-disambiguation`)
+
+**Resolved by changing the font, not the CSS — the entry's premise was false.**
+
+The row asked for `"zero" 1, "cv05" 1` on the tabular rule. Probing the actual binaries first showed
+those features do not exist in the Inter build Google Fonts serves: measured live, the latin subset
+carries `calt ccmp dnom frac kern locl mark mkmk numr pnum tnum` and a `wght` axis, nothing more. The
+requested change would have rendered nothing — exactly as the `"cv11" 1` beside it had been rendering
+nothing since `78662acb5` (2026-05-03), silently, on every route, for three months.
+
+Two further defects in the row itself, independent of availability: `cv05` moves lowercase `l` only and
+never touches capital `I`, so the pair named in the row's own title was incomplete; and `ss04` is
+Inter's own "disambiguation without zero", which covers both letterforms in one tag.
+
+**Shipped:** a latin + latin-ext SUBSET of the upstream `rsms/inter` v4.1 release at
+`assets/fonts/InterVariable-latin.woff2` (173 KB, built by `scripts/subset-inter.sh` from a
+checksum-pinned input, OFL text alongside) and loaded via `next/font/local`. The verbatim 344 KB
+release was the decision at the gate; the impeccable audit then measured it costing FCP +136-164ms
+and a fallback-to-Inter swap landing 3.7s in on slow 4G, and the owner revised. CSS: `ss04` at
+`html`, `ss04`/`tnum` on the tabular rule, and `zero` on a narrower `.code-value` — `.tabular-nums`
+turned out to sit on whole prose sentences, including the Right Now hero's 30px bold `<h2>`, so the
+slash was landing mid-sentence. `ss04` is repeated on each rule because `font-feature-settings`
+inherits as a whole value rather than a merged list. The generated-artifact objection that
+argued for verbatim is answered by asserting the binary SEMANTICALLY — the guard checks the
+declared tags and both axes against whatever the loader points at — rather than by byte-equality,
+so no pinned-image gate is owed. The `opsz` axis survives the subset, making `DESIGN.md` §2.1's
+long-standing optical-sizing claim true for the first time.
+
+**Fourteen false claims corrected** across `DESIGN.md`, the font-binding spec and plan, and eight source
+comments — including that plan's own P3 disposition, which had recorded "now deterministically activates
+Inter's alternates … for the first time" as an accepted consequence. It activated nothing.
+
+**The guard is the real deliverable.** `tests/styles/fontFeatureAvailability.test.ts` derives the font
+path from `app/fonts.ts` and asserts every tag `app/globals.css` declares exists in that binary, so this
+class of silent failure fails the build instead. It carries a regression proof against the committed
+Google-served binary showing it would have caught the dead `cv11` on the day it was written. In the
+browser, `zero` is proven by a PIXEL oracle rather than a width one: `zero` and `zero.slash` share an
+xAdvance of 1292 units, so a width assertion can never see the feature work.
+
+## BL-ADMIN-NOJS-LOADING-CONFLICT — RESOLVED (2026-08-03, `fix/nojs-loading-shell-notice`)
+
+### BL-ADMIN-NOJS-LOADING-CONFLICT — no-JS contract vs loading.tsx streaming
+
+Filed 2026-06-10 (discovered during mobile needs-attention T5 e2e run; pre-existing since M12.11 `f2f7f7b4`). The `admin-banner.spec.ts` "no-JS native summary" e2e fails on main: with `javaScriptEnabled:false` the admin dashboard never leaves the `app/admin/loading.tsx` skeleton because React streams suspense content into a hidden div swapped by an inline `$RC()` script that needs JS. No CI workflow runs Playwright, so it went unnoticed. Structurally: the no-JS banner contract and instant loading skeletons are incompatible as shipped. Options when picked up: drop the no-JS contract test, gate loading.tsx behind JS detection (not really possible server-side), or accept skeleton-only no-JS rendering and retarget the test. Technical home: `tests/e2e/admin-banner.spec.ts:261` + `app/admin/loading.tsx`.
+
+**Resolved 2026-08-03 (`fix/nojs-loading-shell-notice`).** Two halves, only one of which was still live.
+
+_The named symptom was already gone._ `tests/e2e/admin-banner.spec.ts` was deleted wholesale in `67ce6d082` ("feat(admin): mount bell in both chromes; retire AlertBanner"), together with `components/admin/AlertBanner.tsx` and the `<details>`-based no-JS contract that test asserted. At pickup, `rg noscript app components` returned zero hits: no no-JS contract survived anywhere in the app.
+
+_The structural half was real, and is fixed._ A probe against a throwaway `force-dynamic` route confirmed the mechanism exactly as this entry described it — the fallback renders inline, the real content ships inside `<div hidden id="S:1">`, and only an inline `$RC()` call reveals it. Of the three options this entry listed, the first is moot (the test is gone) and the second is not implementable (the server cannot know whether the client will run the script). The third shipped, in the strongest available form: `LoadingShell` now carries a `<noscript>` block with a "JavaScript is required" notice plus a `<noscript>`-scoped `<style>` that hides the shell content, so a no-JS visitor gets one clear message instead of an eternal shimmer. One insertion point covers all nine `loading.tsx` routes — crew as well as admin, which is broader than this entry's admin-only framing.
+
+_One claim in this entry was stale and should not be carried forward._ "No CI workflow runs Playwright" was true when filed; thirteen workflow files reference it today and eleven invoke `playwright test`. That sentence is precisely the reasoning that would justify skipping CI registration, so the replacement e2e (`tests/e2e/nojs-loading-notice.spec.ts`) is named explicitly in `.github/workflows/admin-layout-e2e.yml` as well as in `playwright.config.ts`. Registering only the latter would have left it dark — most Playwright workflows here pass an explicit spec-file list, and `desktop-chromium` appears in none of the three that instead run whole configs or projects — which is how the predecessor test sat failing on `main` from M12.11 until it was deleted.
+
+Spec: `docs/superpowers/specs/2026-08-03-nojs-loading-shell-notice-design.md`. Plan: `docs/superpowers/plans/2026-08-03-nojs-loading-shell-notice.md`.
+
+---
+
 ## BL-INTERNAL-CODE-ENUM-SCAN-WIDEN — RESOLVED (2026-08-03, `chore/scanner-precision-cluster`)
 
 **Filed:** 2026-08-02 (retroactively; cited by `lib/dev/attentionScenarios/tier1.ts:127` and `docs/superpowers/specs/2026-07-20-attention-scenario-gallery-design.md:165` as if already filed, with no row anywhere). **Class:** generated-registry completeness. **Effort:** S.
@@ -2943,3 +3128,19 @@ Spec: `docs/superpowers/specs/2026-08-03-app-wide-font-binding.md` · Plan: `doc
 The dashboard staged-apply path (`applyStagedCore`) applies an identity-linked rename (MI-12/13/14) as **remove-old + add-new** by ratified contract (R33-2, `applyStagedCore.ts:552`; passes zero `identityLinkRenames`), so crew identity (id/oauth link) is NOT preserved across a rename on that path. The capability AUDIT is already complete (arm (c) audits the removed old identity's loss + arm (b) the added new identity's grant, path-independent), so this is NOT an audit gap. If identity-PRESERVATION on the staged path is ever wanted, thread `identityLinkRenames` through `applyStagedCore` (compute via `computeIdentityLinkRenames` from the staged `triggeredReviewItems`) — but resolve the double-apply / R33-2-override risk first. Trigger: a report of a staged rename losing a crew member's oauth link.
 
 **Resolved.** `docs/superpowers/specs/2026-08-03-staged-identitylink-rename-identity.md`, branch `feat/staged-identitylink-rename-identity`: `computeStagedIdentityLinkRenames` links a pair only when its validated reviewer choice is `rename` (the per-item admin vouch, the staged analogue of cron's version-bound accept), and `applyStagedCore` threads the result into `runPhase2` behind a length gate. A staged rename now preserves `crew_members.id` and `claimed_via_oauth_at`; `independent` still applies as remove+add, so the R33-2 feed assertions are untouched. The double-apply / override risk this entry flagged resolved as a choice gate, not a path override — the role-flags spec's staged loss+grant audit shape is superseded in part, banner-fenced in both directions.
+
+## BL-NEEDS-ATTENTION-HOLDS-ROLLUP — RESOLVED (2026-08-03, `feat/needs-attention-holds-rollup`)
+
+## BL-NEEDS-ATTENTION-HOLDS-ROLLUP — pending MI-11 holds do not surface on the needs-attention page
+
+**Filed:** 2026-08-02 (retroactively; `docs/superpowers/specs/v1-pre-deployment-amendments/2026-06-10-mobile-needs-attention-design.md:285` lists it under §11 Deferred as a "BACKLOG candidate", and no row was created). **Class:** UX completeness. **Effort:** M (blocked on a read path).
+
+`/admin/needs-attention` rolls up the durable attention stream but shows no pending MI-11 holds, so a hold is visible only from the show it belongs to. Verified 2026-08-02: no cross-show holds read path exists in `lib/` or `app/`, which is the actual blocker — the page cannot roll up what nothing can query.
+
+**Work:** build the cross-show holds read, then add the rollup. Prerequisite first; the page change is small once the read exists. UI surface, so Opus-owned with the invariant-8 dual gate.
+
+**Status:** RESOLVED.
+
+**How it resolved:** the missing cross-show read landed as `lib/admin/identityHolds.ts` (service-role `sync_holds` read, `kind='mi11_pending'` on non-archived shows, bounded `.limit(HOLDS_ROW_CAP + 1)`) plus a pure `groupHoldRows` core shared by BOTH transports, so the needs-attention page, the dashboard inbox, the AdminNav badge, the mobile summary-card chip, and the daily digest all group holds identically (one card per show; a single hold shows its own summary, several collapse behind a count line and a disclosure). Spec `docs/superpowers/specs/2026-08-03-needs-attention-holds-rollup-design.md`, plan `docs/superpowers/plans/2026-08-03-needs-attention-holds-rollup.md`. Seeded e2e coverage in `tests/e2e/needs-attention-holds.spec.ts` pins the kind + archived filters, the badge counting SHOWS rather than rows, and reject clear-through.
+
+---

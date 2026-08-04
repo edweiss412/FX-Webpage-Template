@@ -54,18 +54,30 @@ const RAISE_SITE_PINS: RaiseSitePin[] = [
     pins: "drive_file_id enters the notice context at the constructor",
   },
   {
+    // Unit C (spec 2026-08-03-apply-undo-audit-fidelity §2.3) consolidated the emit: the literal
+    // `upsertAdminAlert(...)` write left BOTH callers for the shared lib/sync/emitRoleFlagsNotice.ts.
+    // The two per-caller rows below therefore pin what is still each caller's own concern — that it
+    // reaches the write boundary WITH the constructed notice — and this row pins the boundary
+    // itself. Collapsing the three into one would let a caller drop its emit with the guard green.
+    code: "ROLE_FLAGS_NOTICE",
+    file: "lib/sync/emitRoleFlagsNotice.ts",
+    pattern: /upsertAdminAlert\(roleFlagsNotice\)/g,
+    expectedMatches: 1,
+    pins: "the shared write boundary persists the constructed notice",
+  },
+  {
     code: "ROLE_FLAGS_NOTICE",
     file: "lib/sync/runScheduledCronSync.ts",
-    pattern: /upsertAdminAlert\(result\.roleFlagsNotice\)/g,
+    pattern: /emitRoleFlagsNotice\(result\.roleFlagsNotice,/g,
     expectedMatches: 1,
-    pins: "cron write boundary persists the constructed notice",
+    pins: "cron path reaches the write boundary with the constructed notice",
   },
   {
     code: "ROLE_FLAGS_NOTICE",
     file: "lib/sync/applyStaged.ts",
-    pattern: /upsertAdminAlert\(result\.roleFlagsNotice\)/g,
+    pattern: /emitRoleFlagsNotice\(result\.roleFlagsNotice,/g,
     expectedMatches: 1,
-    pins: "staged-apply write boundary persists the constructed notice",
+    pins: "staged-apply path reaches the write boundary with the constructed notice",
   },
   {
     code: "LIVE_ROW_CONFLICT",
