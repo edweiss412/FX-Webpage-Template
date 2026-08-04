@@ -66,7 +66,7 @@ The audit produced six fixes across three surfaces. They ship as three PRs in or
 --lint-doc <path>   repeatable; a spec or plan doc under docs/superpowers/ to lint and embed
 ```
 
-For each `--lint-doc`, the wrapper runs the `spec:lint` core over that doc and appends the rendered output to the composed prompt, in a delimited block matching the existing artifact-embedding shape at `scripts/codex-guard.mjs:254`:
+For each `--lint-doc`, the wrapper **spawns the `spec:lint` CLI** as a child process and appends its captured stdout to the composed prompt, in a delimited block matching the existing artifact-embedding shape at `scripts/codex-guard.mjs:254`. It spawns rather than imports because `scripts/codex-guard.mjs` is plain ESM JavaScript and the lint core under `lib/specLint/` is TypeScript; spawning also makes AC-1's "byte-identical to what the CLI prints" true by construction rather than by reimplementation.
 
 ```
 ===== SPEC-LINT: <basename> =====
