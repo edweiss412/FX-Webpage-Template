@@ -398,6 +398,16 @@ describe("codex-guard --lint-doc (design §2.2)", () => {
         CODEX_GUARD_LINT_BUDGET_BYTES: "300",
       });
       expect(r.code).toBe(0);
+      let raw = "";
+      try {
+        raw = execFileSync(process.execPath, [TSX, join(ROOT, "scripts/spec-lint.ts"), rel], {
+          cwd: run.cwdDir,
+          encoding: "utf8",
+          maxBuffer: 64 * 1024 * 1024,
+        });
+      } catch (e) {
+        raw = String((e as { stdout?: string }).stdout ?? "");
+      }
       const block = readCalls(run)[0]!
         .stdin.split(`===== SPEC-LINT: ${rel} =====\n`)[1]!
         .split("\n===== END SPEC-LINT =====")[0]!;
@@ -413,7 +423,14 @@ describe("codex-guard --lint-doc (design §2.2)", () => {
       const [, n, m] = notice.match(/\[truncated: (\d+) of (\d+) bytes shown\]/)!;
       const retained = bl.slice(3, bl.length - 2).join("\n");
       expect(Number(n)).toBe(Buffer.byteLength(retained));
-      expect(Number(m)).toBeGreaterThan(Number(n));
+      // M must be pinned too. `M > N` passes a mutant reporting 999999 — it
+      // lies about how much was omitted while every other assertion holds. M is
+      // the UNTRUNCATED body: raw minus the head and everything from INVENTORY on.
+      const rawLines = raw.split("\n");
+      const rawInv = rawLines.indexOf("INVENTORY");
+      const rawSum = rawLines.findIndex((l) => l.startsWith("summary:"));
+      const fullBody = rawLines.slice(3, rawInv === -1 ? rawSum : rawInv).join("\n");
+      expect(Number(m)).toBe(Buffer.byteLength(fullBody));
     },
     T,
   );
