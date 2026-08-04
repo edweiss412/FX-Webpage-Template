@@ -354,6 +354,36 @@ async function runScenario(browser: Browser): Promise<ScenarioOutcome> {
       await expect(targetRow).toContainText(OLD_ROLE);
       expect(await page.locator(MODAL).getByText(NEW_ROLE).count()).toBe(0);
 
+      // ── Freshness cue observers, ARMED BEFORE the stimulus ────────────────
+      //
+      // A post-hoc DOM poll cannot distinguish "never armed" from "armed and
+      // already expired", so E2 in particular would pass against a completely
+      // broken implementation. Both cases record attribute mutations as they
+      // happen instead. The record lives on `window`; the observer is
+      // disconnected in the page's own teardown below, so no sampler outlives
+      // its element and hangs Playwright's auto-wait.
+      await page.evaluate(() => {
+        const w = window as unknown as {
+          __freshnessSeen?: string[];
+          __freshnessObserver?: MutationObserver;
+        };
+        w.__freshnessSeen = [];
+        const observer = new MutationObserver((records) => {
+          for (const r of records) {
+            const el = r.target as Element;
+            if (!el.hasAttribute?.("data-section-freshness-flash")) continue;
+            const id = el.getAttribute("data-testid") ?? "(no testid)";
+            w.__freshnessSeen?.push(id);
+          }
+        });
+        observer.observe(document.body, {
+          subtree: true,
+          attributes: true,
+          attributeFilter: ["data-section-freshness-flash"],
+        });
+        w.__freshnessObserver = observer;
+      });
+
       // ── Mutate (the pinned key-stable stimulus: role swap on ONE row) ──────
       const commitAt = Date.now();
       const { error: mutErr } = await admin
@@ -409,6 +439,110 @@ async function runScenario(browser: Browser): Promise<ScenarioOutcome> {
       // Phase (iii): row-scoped swap, in place.
       await expect(targetRow).toContainText(NEW_ROLE, { timeout: CONTENT_SWAP_TIMEOUT_MS });
       expect(new URL(page.url()).searchParams.get("show"), "URL unchanged").toBe(seeded.slug);
+
+      // ── E1: the crew card was cued, and only the crew card ────────────────
+      // The freshness cue's whole claim is that a reader can attribute the swap.
+      // This is the only place it is proven end to end: a REAL write, a REAL
+      // broadcast, and the attribute landing on the section that changed.
+      const cued = await page.evaluate(
+        () => (window as unknown as { __freshnessSeen?: string[] }).__freshnessSeen ?? [],
+      );
+      expect(cued.length, "the reconcile must cue at least one card").toBeGreaterThan(0);
+      expect(
+        cued.every((id) => id.includes("-section-crew-panel-card")),
+        `only the crew card may be cued; saw ${JSON.stringify([...new Set(cued)])}`,
+      ).toBe(true);
+
+      // ── E2: a broadcast that changes NOTHING cues nothing ─────────────────
+      // The honest half. Reset the record, publish an invalidation with no write
+      // behind it, wait past the debounce plus an RSC round trip, and assert the
+      // record stayed empty. Without the pre-armed observer this assertion is
+      // unfalsifiable.
+      await page.evaluate(() => {
+        (window as unknown as { __freshnessSeen?: string[] }).__freshnessSeen = [];
+      });
+      const noopAt = Date.now();
+      const noopRes = await admin.rpc("publish_show_invalidation", { p_show_id: seeded.showId });
+      expect(noopRes.error, "no-op publish rpc").toBeNull();
+
+      // PROVE THE TRIGGER FIRED before asserting that nothing came of it.
+      //
+      // Round-3 review: waiting a fixed interval and asserting an empty record
+      // makes this row pass for the WRONG reason whenever the frame never
+      // arrives — a dropped broadcast, a disconnected socket, a debounce that
+      // never elapsed all look identical to "the refresh correctly cued
+      // nothing". The claim here is "a refresh THAT HAPPENED changed nothing",
+      // so the refresh has to be observed, exactly as E1 observes it: the
+      // invalidation frame, then the ?show= RSC request it debounces into, then
+      // that request completing. Only then is an empty record evidence.
+      const noopInval = await poll(
+        () =>
+          frames.find(
+            (f) =>
+              f.at > noopAt &&
+              !f.text.startsWith("SENT") &&
+              isInvalidationFrame(f.text, seeded.showId),
+          ),
+        INVALIDATION_FRAME_TIMEOUT_MS,
+      );
+      // A MISSING no-op frame is a FLAKE, not a failure — unlike phase (i),
+      // where the frame IS the behaviour under test.
+      //
+      // Local broadcast delivery is silently lossy at a measured ~9% (see the
+      // phase (i) note). Requiring a SECOND frame squares that exposure, and the
+      // first CI run of this row proved it: the no-op frame never arrived and a
+      // hard `expect` failed the whole scenario twice. E2's claim is "a refresh
+      // that changed nothing cues nothing", so a broadcast that never reached
+      // the client has not set up the claim at all — there is nothing to assert
+      // and nothing to conclude. Handing it to the same bounded-retry machinery
+      // that already absorbs delivery loss is the honest disposition; asserting
+      // over it would be measuring the transport, not the cue.
+      if (!noopInval) {
+        return { kind: "flake", reason: "no-op invalidation frame never arrived" };
+      }
+      const noopRsc = await poll(
+        () =>
+          requests.find(
+            (r) =>
+              r.at > noopInval.at &&
+              r.text.startsWith("REQ RSC") &&
+              r.text.includes(`show=${seeded.slug}`),
+          ),
+        POST_FRAME_REQUEST_TIMEOUT_MS,
+      );
+      if (!noopRsc) {
+        return { kind: "flake", reason: "no-op frame produced no ?show= RSC request" };
+      }
+      const noopRscDone = await poll(
+        () =>
+          requests.find(
+            (r) =>
+              r.at > noopRsc.at &&
+              r.text.startsWith("RESP RSC") &&
+              r.text.includes(`show=${seeded.slug}`),
+          ),
+        CONTENT_SWAP_TIMEOUT_MS,
+      );
+      if (!noopRscDone) {
+        return { kind: "flake", reason: "no-op ?show= RSC response never completed" };
+      }
+
+      // The reconcile has now demonstrably happened. Give the arming commit a
+      // beat to land, so an empty record cannot mean "measured too early".
+      await page.waitForTimeout(CONTENT_SWAP_TIMEOUT_MS);
+      const cuedAfterNoop = await page.evaluate(
+        () => (window as unknown as { __freshnessSeen?: string[] }).__freshnessSeen ?? [],
+      );
+      expect(
+        cuedAfterNoop,
+        "a refresh that changed nothing must cue nothing; the Synced readout is that signal",
+      ).toEqual([]);
+
+      await page.evaluate(() => {
+        const w = window as unknown as { __freshnessObserver?: MutationObserver | undefined };
+        w.__freshnessObserver?.disconnect();
+        w.__freshnessObserver = undefined;
+      });
 
       // Reconnect flake guard BEFORE the attribution assertion: a close/error or
       // re-join in the window legitimately fetches /version → environmental flake.

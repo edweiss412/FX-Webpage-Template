@@ -181,6 +181,12 @@ jobs:
       # project but invoked by no step runs nowhere.
       - name: Section-header width chain (real route)
         run: pnpm exec playwright test --reporter=list --project=desktop-chromium tests/e2e/admin-layout-dimensions.spec.ts -g "width chain"
+      # Its OWN step, for the reason the comment above gives: a case matched by a
+      # project but selected by no `-g` filter runs NOWHERE. The freshness-cue
+      # geometry case matches neither filter above, and the e2e coverage guard
+      # tracks the FILE rather than the filters, so it cannot see that gap.
+      - name: Freshness cue geometry (real route)
+        run: pnpm exec playwright test --reporter=list --project=desktop-chromium tests/e2e/admin-layout-dimensions.spec.ts -g "T-FRESHNESS-GEOMETRY"
       - name: Upload Playwright traces/report (diagnosis artifact)
         if: failure()
         uses: actions/upload-artifact@v4

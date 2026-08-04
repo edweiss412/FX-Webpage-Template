@@ -36,6 +36,7 @@ import type { ViewerAgendaDays } from "@/lib/crew/agendaViewerDays";
 import type { JSX } from "react";
 
 import { normalizeAgendaExtraction } from "@/lib/agenda/normalizeAgendaExtraction";
+import { driftNote } from "@/lib/agenda/agendaPaint";
 
 type AgendaScheduleBlockProps = {
   /** Raw `agenda_links[i].extracted` jsonb — narrowed at the render boundary. */
@@ -60,11 +61,6 @@ type AgendaScheduleBlockProps = {
 /** Turn the stored drift string ("start→12:25 PM (source: 12:25 AM)") into a
  *  short, crew-readable, VISIBLE note. Falls back gracefully if the shape
  *  differs. The corrected value is already shown as `session.time`. */
-function driftNote(drift: string): string {
-  const src = drift.match(/source:\s*([^)]+)\)/)?.[1]?.trim();
-  return src ? `Adjusted from ${src}` : "Adjusted from the sheet";
-}
-
 export function AgendaScheduleBlock({
   extraction,
   label = null,
