@@ -61,44 +61,6 @@ are false positives: raw `<img>` with a required runtime `src` prop and an `onEr
 a documented deliberate revert from `next/image` (which drops cookies), mirroring
 `components/diagrams/Gallery.tsx:130-144`.
 
-### NEWTAB-GUARD-UNDECIDABLE-2 — statically undecidable guard limits (2026-07-25; item (b) closed same day)
-
-**Status:** IN PROGRESS · **Branch:** chore/backlog-convergence
-
-**Effort:** XS
-
-Ratified as accepted limits in spec §6.4 of
-`docs/superpowers/specs/2026-07-25-newtab-announcement-family.md`, surfaced by whole-diff review
-R4 on `fix/newtab-announcement-family`. Neither exists in the tree today; both are recorded so a
-future reader does not mistake them for oversights.
-
-**(a) Document-level `<base target="_blank">`.** It makes every relative anchor open a new tab
-with no per-anchor syntax to inspect, so the per-anchor guard cannot see it. **Fix when
-prioritized:** a one-line lexical assertion that no `<base target=` appears under `app/` or
-`components/` (cheap, and it would make the family closed under the base-target case too).
-Un-defer trigger: anyone proposing a `<base>` element, or the next pass on this guard.
-
-**(b) An effectful predicate evaluated twice — CLOSED 2026-07-25 by the R6 model change.** The
-original entry read: `{...(next() ? { target: "_blank" } : {})}` with `next()` also gating the hint
-passes, because the guard compared predicate TEXT and could not prove two calls agree (R4
-demonstrated it with a deterministic `next()` true only once). Its own prescribed fix was
-"restrict approved gating predicates to pure member/identifier expressions (reject call
-expressions)" — which is exactly what R6's fix did for an unrelated reason. A call expression is
-no longer an approved gating shape, so this case is now REPORTED, not accepted. Pinned by
-"an effectful gating predicate is reported, closing the R4 deferral" in
-`tests/styles/_metaNewTabAnnouncement.test.ts`. No follow-up work remains.
-
-**(c) A COMPOUND gating predicate is reported, not compared (new accepted limit, 2026-07-25).**
-Only an identifier, a property-access chain, or `!` over either is an approved gate. Deciding
-whether two DIFFERENT compound predicates denote the same runtime condition is not something a
-static pass can do: six review rounds each produced a new pair that a textual normalizer wrongly
-equated, and R6 alone enumerated eleven operator families. So the question is no longer asked.
-**If you hit this as a false positive** — a legitimate anchor gated on something like
-`isExternal && ready` — the fix is one line at the call site: hoist the condition into a named
-boolean (`const opensNewTab = isExternal && ready;`) and gate both the spread and the hint on
-that identifier. Do NOT widen the classifier; that is the loop this limit exists to end. Ratified
-in spec §6.4. Un-defer trigger: a case where hoisting is genuinely impossible.
-
 ### NEWTAB-A11Y-RESIDUE-1 — two P3s from the new-tab announcement dual gate (2026-07-25)
 
 Both surfaced by the invariant-8 gate on `fix/newtab-announcement-family`, both
