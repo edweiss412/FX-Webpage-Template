@@ -480,9 +480,24 @@ Separately, CI's own `sheetIconLinkContainment` tripwire — *no tracked `.md` u
 | --- | --- | --- | --- |
 | 1 | **P1** | `screenshots-drift.yml`'s path filter lists `app/**` but not `assets/fonts/**`. Moving the font out of `app/` (§12.3, to satisfy the page-candidate tripwire) silently took it off the gate that exists to catch exactly this — a font swap re-rasterises every glyph in every capture. A live matcher returned zero matching paths for the font. An asset-only change could merge with stale baselines until the nightly backstop. | **FIXED.** `assets/fonts/**` added, with the reason recorded inline so the next mover sees it. |
 | 2 | **P1** | **No guard bounded the payload** — the entire reason the subset exists. Probed: 176,696 bytes and 352,240 bytes both report `missing=[] axes=[opsz,wght]`, so swapping the verbatim release back in stays green while recreating the P1 latency regression this branch was revised to avoid (§12 row 3). | **FIXED.** A budget assertion on the loaded font, deliberately loose (220 KB) — a tripwire against a category change like dropping the subset step or adding italics, not a byte pin. Mutation-proven by swapping the 344 KB release back in. |
-| 3 | **P1** | `parseFeatureValue` split on EVERY comma, including commas inside strings. A tag is any four characters in `U+0020–U+007E`, so `"A,B!"` is well-formed; the mutant used it, the splitter tore it in half, and a tag the font lacks read as absent rather than missing. Signed `+1` also failed closed when the spec permits it. | **FIXED.** A string-aware splitter, and `+`-signed non-negative integers accepted. Mutation-proven. |
+| 3 | **P1** | `parseFeatureValue` split on EVERY comma, including commas inside strings. A tag is any four characters in `U+0020–U+007E`, so `"A,B!"` is well-formed; the mutant used it, the splitter tore it in half, and a tag the font lacks read as absent rather than missing. Signed `+1` also failed closed when the spec permits it. | **FIXED.** A string-aware splitter. The accompanying `+`-signed-integer change did NOT land — prettier had reformatted the target line and the replacement silently missed. Round 5 caught it and it is fixed there; §12.5 records it, because a disposition that claims a fix which is not in the tree is worse than an open finding. |
 | 4 | P2 | Four documentation contradictions: the spec still called the removed `_fonts` directory private and still showed `./_fonts/…` in the loader snippet; §4.1 passed CSS strings to `missingTags`, whose signature takes a tag array; `crew-e2e.yml` still said the binding rests on the literal `Inter`; and the archive said six corrected source comments against the spec's eight. | **ALL FIXED.** |
 
 Explicitly cleared by the reviewer: the `font`-shorthand ban is not overbroad in its present scope (it covers only `app/globals.css`, leaving standalone documents alone), and the new asset path resolves, bundles, is tracked, and is not gitignored.
 
-**Ten mutants across four rounds. All replayed against the current guard; all caught.**
+**Ten mutants across four rounds, all replayed and caught — with one exception round 5 found: see §12.5.**
+
+### 12.5 Whole-diff cross-model review — round 5
+
+`VERDICT: NEEDS-ATTENTION`, two findings, **both accepted and fixed**. The narrowest round yet: one P1 confined to CSS value tokenization, one count.
+
+| # | Sev | Finding | Disposition |
+| --- | --- | --- | --- |
+| 1 | **P1** | `parseFeatureValue` still diverged from CSS Syntax three ways, each with a live mutant that kept the expected tag set while declaring an unsupported feature: `"A,B!" +1` (a leading `+` is valid on an `<integer>` and read as disabled), `"A\2c B!" 1` (CSS escapes are decoded during tokenization, so this is the SAME tag as `"A,B!"`, and it was skipped), and `"ZZ-Z"/**/1` (postcss preserves comments inside `decl.value`, and a comment is consumed before grammar matching). | **FIXED.** Escapes decoded, comments stripped inside the same string-aware scan that splits on commas, `+`-signed non-negative integers accepted, negatives still failing closed. All three mutants replayed and caught, plus a control confirming `"tnum" +1` reads as ENABLED rather than merely not-crashing. |
+| 2 | P2 | The `BACKLOG.md` reconciliation line still said six corrected source comments where the archive and this spec say eight, and its pinned copy in `_retiredIdentifiers.ts` repeated it. | **FIXED** in all three, which is what "pinned by line content" costs and is the point of pinning. |
+
+**The reviewer also caught a false disposition of mine.** §12.4 claimed round 4 had accepted `+`-signed integers; it had not — prettier reformatted the target line, my replacement silently missed, and I recorded the intent rather than the result. §12.4 now says so. A disposition table that claims a fix not in the tree is worse than an open finding, because it stops anyone looking.
+
+Explicitly cleared: the 220 KB budget is correctly shaped (176,696 bytes leaves 24.5% headroom while rejecting the 352,240-byte verbatim regression), and tsc, prettier, spec lint and `git diff --check` all pass.
+
+**Thirteen mutants across five rounds. All replayed against the current guard; all caught.**

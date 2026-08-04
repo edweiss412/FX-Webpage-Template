@@ -66,13 +66,33 @@ const HISTORICAL_TAGS = ["tnum", "cv11"] as const;
 export type FeatureSetting = { tag: string; enabled: boolean };
 
 /**
- * Split on commas that are NOT inside a string.
+ * Decode CSS string escapes: `\\2c ` → `,`, `\\"` → `"`, and so on.
  *
- * A feature tag is any four characters in U+0020–U+007E, which INCLUDES the
- * comma: `"A,B!"` is a well-formed tag. Round 4's mutant used exactly that, and
- * a plain `value.split(",")` tore it in half, so the tag never reached the
- * does-the-font-have-it check and a feature the font lacks read as absent
- * rather than as missing.
+ * CSS Syntax decodes escapes during tokenization, so `"A\\2c B!"` and `"A,B!"` are
+ * the SAME tag. Round 5's mutant used the escaped spelling to smuggle a tag the
+ * font lacks past a matcher that only understood the literal one.
+ */
+export function decodeCssEscapes(raw: string): string {
+  return raw.replace(/\\(?:([0-9a-fA-F]{1,6})[ \t\n]?|([\s\S]))/g, (_all, hex, ch) =>
+    hex ? String.fromCodePoint(Number.parseInt(hex, 16)) : (ch ?? ""),
+  );
+}
+
+/**
+ * Scan a declaration value: remove comments, then split on commas — both only
+ * where they are NOT inside a string.
+ *
+ * Three round-5 mutants live here, and all three are the same mistake in
+ * different clothes: treating a CSS value as text rather than as tokens.
+ *
+ *   `"A,B!" 1`      a comma is a legal tag character, so a plain split tore the
+ *                   tag in half and it never reached the availability check
+ *   `"ZZ-Z"\/**\/1`  postcss preserves comments inside `decl.value`, so the value
+ *                   token was `"ZZ-Z"\/**\/1` and the integer never matched
+ *   `"A\\2c B!" 1`   an escaped comma is the same tag as a literal one
+ *
+ * Comments are stripped BEFORE splitting, per CSS Syntax: a comment is consumed
+ * during tokenization and cannot be part of a value's grammar.
  */
 export function splitTopLevelCommas(value: string): string[] {
   const parts: string[] = [];
@@ -93,6 +113,12 @@ export function splitTopLevelCommas(value: string): string[] {
     if (ch === '"' || ch === "'") {
       quote = ch;
       current += ch;
+      continue;
+    }
+    if (ch === "/" && value[i + 1] === "*") {
+      const end = value.indexOf("*/", i + 2);
+      i = end === -1 ? value.length : end + 1;
+      current += " "; // a comment is a token separator, not nothing
       continue;
     }
     if (ch === ",") {
@@ -126,15 +152,21 @@ export function parseFeatureValue(value: string): FeatureSetting[] {
   for (const rawEntry of splitTopLevelCommas(value)) {
     const entry = rawEntry.trim();
     if (entry === "") continue;
-    const m = /^(?:"([\u0020-\u007E]{4})"|'([\u0020-\u007E]{4})')\s*(.*)$/.exec(entry);
+    // Capture the raw string body (escapes intact), then decode — a tag is four
+    // characters AFTER decoding, so the length check cannot precede it.
+    const m = /^(?:"((?:[^"\\]|\\[\s\S])*)"|'((?:[^'\\]|\\[\s\S])*)')\s*(.*)$/.exec(entry);
     if (!m) continue; // `normal`, or a malformed entry: declares no tag
-    const tag = m[1] ?? m[2]!;
+    const tag = decodeCssEscapes(m[1] ?? m[2] ?? "");
+    // Four characters in the printable-ASCII range, per CSS Fonts 4 §6.12. A
+    // string that is not a well-formed tag declares nothing.
+    if (!/^[\u0020-\u007E]{4}$/.test(tag)) continue;
     const rest = (m[3] ?? "").trim().toLowerCase();
     let enabled: boolean;
     if (rest === "" || rest === "on") enabled = true;
     else if (rest === "off") enabled = false;
-    else if (/^\d+$/.test(rest))
-      enabled = rest !== "0"; // non-negative integer
+    // CSS Syntax accepts a leading `+` on an <integer>; CSS Fonts requires the
+    // value be non-negative. `-1` therefore fails closed below, `+1` does not.
+    else if (/^\+?\d+$/.test(rest)) enabled = !/^\+?0+$/.test(rest);
     else enabled = false; // negative, var(), or anything unparseable — fail closed
     bySpelling.set(tag, enabled); // later entry wins
   }
