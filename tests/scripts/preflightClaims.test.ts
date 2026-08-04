@@ -140,8 +140,8 @@ exec /usr/bin/git "$@"
 
     const calls = existsSync(logFile) ? readFileSync(logFile, "utf8") : "";
     expect(calls.length, "the git shim recorded nothing — it was not on PATH").toBeGreaterThan(0);
-    expect(calls, "--no-fetch must not fetch").not.toMatch(/^fetch/m);
-    expect(calls, "--no-fetch must not contact the remote").not.toMatch(/^ls-remote/m);
+    expect(calls, "--no-fetch must not fetch").not.toMatch(/^fetch\b/m);
+    expect(calls, "--no-fetch must not contact the remote").not.toMatch(/^ls-remote\b/m);
   });
 });
 

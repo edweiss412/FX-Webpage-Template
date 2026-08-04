@@ -102,7 +102,16 @@ function resolveIdentity(git: GitSurface): { identity: Identity; selfBranch: str
   return { identity: "ci-resolved", selfBranch: branch };
 }
 
-export function resolveClaims(git: GitSurface, opts: { fetch: boolean; now?: number }): Resolution {
+export function resolveClaims(
+  git: GitSurface,
+  opts: { fetch: boolean; now?: number; declaredOnly?: boolean },
+): Resolution {
+  // `declaredOnly` exists for the CI backstop, which is declared-versus-declared
+  // by spec. Without it that consumer pays for — and can FAIL on — four surfaces
+  // it never reads: a `gh` call it is forbidden to make here, plus tip dates,
+  // merge-bases and diffs that only feed the advisory `inferred` signal. An
+  // inference fault must not turn a healthy declaration check red.
+  const declaredOnly = opts.declaredOnly === true;
   const degraded: string[] = [];
   const now = opts.now ?? Math.floor(Date.now() / 1000);
 
@@ -130,13 +139,15 @@ export function resolveClaims(git: GitSurface, opts: { fetch: boolean; now?: num
 
   // Tip epochs resolved ONCE per ref. Calling git.tipEpoch inside a comparator
   // would spawn O(n log n) subprocesses for a cosmetic ordering.
-  const tipOf = new Map<string, number>(candidates.map((ref) => [ref, git.tipEpoch(ref)]));
+  const tipOf = new Map<string, number>(
+    candidates.map((ref) => [ref, declaredOnly ? 0 : git.tipEpoch(ref)]),
+  );
   // Newest tip first, so the table leads with what is most likely live rather
   // than with whatever order the ref map happened to yield.
   candidates.sort((a, b) => (tipOf.get(b) ?? 0) - (tipOf.get(a) ?? 0));
 
   const prByBranch = new Map<string, PrRow>();
-  for (const row of git.prList()) {
+  for (const row of declaredOnly ? [] : git.prList()) {
     // Base-repo PRs only: a fork PR sharing a head name must not attach its
     // number to the base branch's claim.
     if (!row.isCrossRepository) prByBranch.set(row.headRefName, row);
@@ -180,6 +191,7 @@ export function resolveClaims(git: GitSurface, opts: { fetch: boolean; now?: num
 
     // Inferred: a branch that edited an entry's span is working on it, marker or
     // not. Advisory only — it never fails anything, in any identity case.
+    if (declaredOnly) continue;
     const base = git.mergeBase(ref);
     if (base === null) {
       if (!degraded.includes("merge-base-unavailable")) degraded.push("merge-base-unavailable");

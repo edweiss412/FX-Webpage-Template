@@ -93,6 +93,19 @@ describe("AGENTS.md marker contract", () => {
     expect(bullet).toMatch(/herdr agent rename/);
   });
 
+  it("6.4 — both CronDelete sites survive the Stage 4.4 edit", () => {
+    // The nudge is cancelled at exactly two places: Stage 4.4 after the `0  0`
+    // check, and the supersession stand-down. §6.4 edits the bullet those live
+    // near, and nothing asserted they survived — a mutant deleting every
+    // CronDelete passed all the Stage 4.4 assertions (whole-diff R8 F3).
+    expect(AGENTS, "the Stage 4.4 CronDelete site is gone").toMatch(
+      /CronDelete[\s\S]{0,400}?0  0|0  0[\s\S]{0,400}?CronDelete/,
+    );
+    expect(AGENTS, "the supersession CronDelete site is gone").toMatch(
+      /superseded[\s\S]{0,400}?CronDelete/i,
+    );
+  });
+
   it("6.5 — the archive parenthetical is gone", () => {
     // It was already false: tests/docs/_metaLedgerInProgress.test.ts rejects
     // in-progress entries in archives, so an entry following it into an archive

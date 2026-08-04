@@ -98,7 +98,11 @@ describe("ledger claim collision (cross-branch backstop)", () => {
     // One shared reader. Every git fault in it THROWS rather than yielding an
     // empty answer, so a failure surfaces as a red test instead of a clean pass
     // over a universe that was never inspected.
-    const res = resolveClaims(realGitSurface(), { fetch: false });
+    // declaredOnly: this guard is declared-versus-declared by spec, and without
+    // it the shared resolver would call `gh` (forbidden here), plus tip dates,
+    // merge-bases and diffs that only feed the advisory inferred signal — work
+    // this never reads and can fail on.
+    const res = resolveClaims(realGitSurface(), { fetch: false, declaredOnly: true });
 
     const byBranch = new Map<string, string[]>();
     for (const c of res.claims) {

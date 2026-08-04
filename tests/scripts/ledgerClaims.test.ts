@@ -258,3 +258,55 @@ describe("resolveClaims — inferred hunks", () => {
     expect(r.degraded).toContain("merge-base-unavailable");
   });
 });
+
+describe("declaredOnly — the backstop's mode (whole-diff R8 F2)", () => {
+  it("touches none of the four surfaces it never reads", () => {
+    // The CI backstop is declared-versus-declared by spec. Calling the
+    // unrestricted resolver made it invoke `gh` — which it is forbidden to do —
+    // plus tip dates, merge-bases and diffs that only feed the advisory
+    // inferred signal.
+    const touched: string[] = [];
+    const r = resolveClaims(
+      fake({
+        prList: () => {
+          touched.push("prList");
+          return [];
+        },
+        tipEpoch: () => {
+          touched.push("tipEpoch");
+          return NOW;
+        },
+        mergeBase: () => {
+          touched.push("mergeBase");
+          return "base";
+        },
+        diffHunks: () => {
+          touched.push("diffHunks");
+          return [];
+        },
+      }),
+      { fetch: false, now: NOW, declaredOnly: true },
+    );
+    expect(touched, "declaredOnly must read none of these").toEqual([]);
+    expect(
+      r.claims.map((c) => c.id),
+      "declared claims still resolve",
+    ).toEqual(["BL-X"]);
+  });
+
+  it("does not fail when the inference surfaces would throw", () => {
+    // An advisory-signal fault must not turn a healthy declaration check red.
+    const r = resolveClaims(
+      fake({
+        mergeBase: () => {
+          throw new Error("diff unavailable");
+        },
+        diffHunks: () => {
+          throw new Error("diff unavailable");
+        },
+      }),
+      { fetch: false, now: NOW, declaredOnly: true },
+    );
+    expect(r.claims.map((c) => c.kind)).toEqual(["declared"]);
+  });
+});
