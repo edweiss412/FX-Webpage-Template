@@ -124,6 +124,8 @@ screen-disposition 2026-08-04: ANNOTATE-INFERRED, stays open. It does NOT qualif
 
 ## BL-LEDGER-MDAST-SHARED-HOME — the ledger walker lives under tests/ but is consumed by scripts/
 
+**Status:** IN PROGRESS · **Branch:** chore/backlog-convergence
+
 **Status:** OPEN · **Severity:** low · **Class:** module placement · **Filed:** 2026-08-03 (`chore/ledger-claim-visibility`, spec §9.3) · **Effort:** M
 
 `tests/docs/_ledgerMdast.ts` is the authoritative ledger walker and is pure by construction — the
@@ -711,6 +713,8 @@ trailing. What remains is prose that names a day without any of those tokens.
 6-PDF corpus first; today every label there is a clean single date.
 
 ### BL-AGENDA-PERLINK-COMPLETENESS — date-partitioned multi-PDF agendas never fold
+
+**Status:** IN PROGRESS · **Branch:** chore/backlog-convergence
 
 **Status:** OPEN — surfaced by PR #610 review R5 (MEDIUM) · **Severity:** low · **Class:** FEATURE REACH
 
