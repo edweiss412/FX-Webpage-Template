@@ -686,3 +686,15 @@ All **thirteen** CSSOM forms from rounds 14 and 15 were replayed against the gen
 The runtime census is unchanged and correct: it rides the `FontReport` the per-surface helper gathers, so it covers admin, public auth and the seeded crew route — every tree this suite visits. Routes no test visits remain the documented limit of §12.13.
 
 **Fifty-eight mutants across fifteen rounds. All caught.**
+
+### 12.16 Round 16 — a shape, not a spelling
+
+`VERDICT: NEEDS-ATTENTION`, one P1, accepted and fixed. `el.style = \`font: 16px Arial\`` — assignment to the style OBJECT rather than through it to a named property.
+
+This one is worth distinguishing from rounds 14 and 15. Those were spellings of a shape already modelled; this is a **shape that was not modelled at all**. Every pattern in the matcher described a write *through* `.style` to a property, so none of them could see a write *to* `.style`. The generalised ACCESS/ASSIGN/CALL fragments were correct and still missed it, because the thing being written was one level up.
+
+**FIXED**, and the fix taught something on the way: the first attempt matched a bare `style\s*=`, which also matches JSX's `style={{ … }}` attribute — **19 files** of false positives, on a codebase whose real baseline is zero. Requiring the member-access form (`.style =`, `["style"] =`) is what separates a CSSOM write from an attribute that happens to share the name. Mutation-proven in three spellings, with `el.style.overflow = "hidden"` as a control that must keep passing, since `overflow`, `maxHeight` and `visibility` are legitimate uses here.
+
+`Object.assign(el, { style: … })` was closed in the same pass, being the same shape by another route.
+
+**Sixty-two mutants across sixteen rounds. All caught.**

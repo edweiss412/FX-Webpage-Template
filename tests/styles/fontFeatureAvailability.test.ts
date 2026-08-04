@@ -611,6 +611,21 @@ const CSSOM_WRITES: [RegExp, string][] = [
     "setAttribute('style') (arbitrary CSS)",
   ],
   [/Object\.assign\s*\([^)]*\.style\b/i, "Object.assign onto .style (arbitrary CSS)"],
+  // Assignment to the STYLE OBJECT itself, not to a member of it:
+  // `el.style = "font: 16px Arial"`. Round 16's escape, and a genuinely different
+  // shape — every pattern above models a write THROUGH `.style` to a named
+  // property, so none of them saw a write TO `.style`. Carries arbitrary CSS, so
+  // it is banned outright; baseline is zero.
+  // MEMBER ACCESS REQUIRED. A bare `style\s*=` also matches JSX's `style={{ … }}`
+  // attribute — not a CSSOM write, and present on 19 files here. The leading
+  // `.`/`["…"]` is what distinguishes a write to the style OBJECT from an
+  // attribute that happens to share its name.
+  [
+    new RegExp(String.raw`${ACCESS}style${ACCESS_END}${ASSIGN}`, "i"),
+    "assignment to .style itself (arbitrary CSS)",
+  ],
+  // …and the same thing through a spread/assign onto the ELEMENT.
+  [/Object\.assign\s*\([^)]*\{[^}]*\bstyle\s*:/i, "Object.assign setting .style (arbitrary CSS)"],
 ];
 
 /** `style={{ … }}` and `style="…"` regions, where `font`/`all` are CSS resetters. */
