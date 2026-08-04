@@ -202,6 +202,7 @@ export function isFamilyReference(text: string, end: number, stem: string, defin
 const NOT_A_CITATION: Record<string, Record<string, string>> = {
   "tests/scripts/ledgerClaims.test.ts": {
     "BL-X": "planted marker id in the resolver fixtures",
+    "BL-Y": "the second planted entry, for the boundary-overlap hunk fixture",
   },
   "tests/scripts/ledgerFields.test.ts": {
     "BL-PLANT": "planted meta line proving fields parse into separate keys",
