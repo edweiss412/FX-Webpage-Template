@@ -52,6 +52,22 @@ The gate (`tests/mutation/source/**`, registry `tests/mutation/source/registry.t
 
 Neither surfaced because the one enrolled surface's suite (`tests/specLint/taskContract.test.ts`) uses relative imports and fast tests.
 
+**And the gate's own liveness control is single-surface.** `tests/mutation/guardSurfaces.gate.test.ts:116-120` builds `broken` by replacing the literal `if (kind !== "plan") return [];`, which exists only in `lib/specLint/taskContract.ts`, then asserts `broken !== source`. Inside a `describe.each` over the registry, that assertion fails for any second surface — enrolling one reds the gate. Worse, `broken` is then **never passed to `runSurface`**: the control run uses the surface's own operators, so the assertion proves only that a string exists in a file. Unit 2.1 repairs the shape.
+
+### 1.4.1 What enrollment found that fourteen review rounds did not
+
+The strongest argument for enrolling is not an argument. `statement-removal` on `git.fetch()` (`scripts/lib/ledger-claims-core.ts:137`) survives, and the test that exists to catch exactly that is `tests/scripts/ledgerClaimsCheck.test.ts:546-565`:
+
+```ts
+expect(calls.indexOf("fetch"), "fetch must precede the snapshot").toBeLessThan(
+  calls.indexOf("localRefs"),
+);
+```
+
+With the fetch deleted, `calls` is `["localRefs"]`, so `indexOf("fetch")` is `-1`, `indexOf("localRefs")` is `0`, and `-1 < 0` passes. Verified by applying the mutant and running that test alone: `1 passed`. A guard for the ordering of two events passes when the first event never happens.
+
+That is a **third vacuity shape**, it was shipped through fourteen whole-diff rounds, and the gate found it in one run.
+
 ### 1.5 Probe transcript
 
 ```
@@ -74,7 +90,7 @@ FAIL … "emits every claim through the CLI's --json serialization, uncapped"
 Error: Test timed out in 5000ms.
 ```
 
-Numbers for the enrolled surfaces are in §3.2.
+Numbers for the enrolled surfaces are in §3.2.2.
 
 ---
 
@@ -84,10 +100,14 @@ Both instances are one defect wearing two faces. A guard's assertion has **discr
 
 - **V1, unreachable boundary.** The fixture cannot reach the value the assertion discriminates at. 13 claims against a cap of 100.
 - **V2, degenerate truth source.** The expected value is derived from the same source as the actual value, and both collapse together. `truth = 0`, `size = 0`.
+- **V3, sentinel-satisfied comparison.** An absent event is encoded as a sentinel that happens to satisfy the comparison. `indexOf` returns `-1`, and `-1` is less than every real index, so an ordering assertion holds when the first event never occurred (§1.4.1).
+- **V4, premise for a mechanism since refactored away.** The assertion still guards a precondition, but the thing it was a precondition *for* no longer runs. `guardSurfaces.gate.test.ts:120` asserts a control mutation "applies" to a `broken` value the control run never receives (§1.4).
 
-They are not two problems. V1's instance also read the environment — it spawned the CLI against the live checkout — so a single mechanism reaches both.
+Four faces, one defect: the condition under which the assertion has discriminating power is unstated, and nothing re-checks it when the surroundings move.
 
-**A live third instance,** found by applying this taxonomy to the merged branch: `tests/scripts/ledgerClaimsCheck.test.ts:508-510` asserts `payload.claims.length` equals `core.claims.length`, both read from the live checkout. In CI both are zero and the assertion cannot distinguish a correct envelope from `claims: []`. It is the V2 shape exactly, still shipped, and it is this spec's first retro-application target (§3.3.4).
+They are also not four separate mechanisms to build. V1's instance read the environment (it spawned the CLI against the live checkout), V2's read git, and V3's is caught by the mutation gate the moment its surface is enrolled. V4 is caught by making the control executable (§3.2.1).
+
+**A further live instance of V2,** found by applying this taxonomy to the merged branch: `tests/scripts/ledgerClaimsCheck.test.ts:508-510` asserts `payload.claims.length` equals `core.claims.length`, both read from the live checkout. In CI both are zero and the assertion cannot distinguish a correct envelope from `claims: []`. It is the V2 shape exactly, still shipped, and it is this spec's first retro-application target (§3.3.4).
 
 ---
 
@@ -125,7 +145,24 @@ Every survivor is dispositioned exactly one of three ways, and the count of each
 
 **A stability question this surface raises and taskContract did not.** `scripts/lib/ledger-git.ts` is an adapter over the checkout, so a mutant's verdict can differ between a developer's full clone and CI's zero-ref checkout — which is this spec's own thesis turned on the gate. The plan measures it: the ledger is triaged locally, and the nightly CI run's survivor set is compared against it before the surface is declared stable. Any mutant whose verdict is environment-dependent is killed by a test that constructs its own ref namespace (the `484824b9e` pattern), never ledgered — a ledger row whose truth depends on where it ran is exactly the thing this spec exists to stop.
 
-#### 3.2.1 What the numbers mean, and the volume they imply
+#### 3.2.1 Unit 2.1 — the liveness control becomes per-surface and actually runs
+
+A prerequisite for enrolling anything, per §1.4. The control exists to prove the overlay is live: without it, a harness whose overlay silently failed to apply would report a perfect score with every mutant running against clean source.
+
+`GuardSurface` gains one field:
+
+```ts
+/** A deliberately behavior-changing edit the suite MUST notice. Proves the overlay is live. */
+control: { from: string; to: string };
+```
+
+- `validateSurface` rejects a row whose `from` does not occur **exactly once** in `sourcePath`. Not "at least once": an ambiguous anchor makes the control's target unknowable, and a zero-occurrence anchor is the taskContract bug generalized rather than fixed.
+- The gate **runs** the control text as the mutant — `runSurface` receives it — and asserts KILLED. That is the assertion `guardSurfaces.gate.test.ts:120` reads as if it makes and does not.
+- `lib/specLint/taskContract.ts` keeps its existing control text, moved from the test body into its registry row, so the first customer's behavior is unchanged and the change is a pure generalization.
+
+Each new surface declares its own. Both ledger surfaces' controls invert a guard whose suite demonstrably notices it; the plan names the text and shows the KILLED verdict rather than asserting it in prose.
+
+#### 3.2.2 What the numbers mean, and the volume they imply
 
 Both runs are against this branch's tree with Unit 1's config fixes applied, on a full clone. **64 survivors between them, on two modules that had just cleared fourteen whole-diff adversarial rounds.** That figure is the arc's plainest result: a review process that exhausts its reviewer leaves roughly half the single-site mutants of its own subject alive.
 
@@ -161,15 +198,29 @@ Three terms, defined so the checker has no latitude:
 - **file-local helper** — a function declared at module scope in the same file and called by name from the body. One level, resolved syntactically. Deeper chains and cross-module helpers are L-2.
 - **exemption** — a `// no-premise: <reason>` line comment inside the body, reason non-empty after trimming. Placement outside the body does not count, mirroring the registry's rejection of an empty `reason` (`tests/mutation/source/registry.ts:85-87`).
 
-`ENVIRONMENT_SOURCES` is closed and declared, in the same spirit as `OPERATOR_NAMES`:
+`ENVIRONMENT_SOURCES` is closed and declared, in the same spirit as `OPERATOR_NAMES`. It is keyed on **module provenance, never on spelling** — a spelling-keyed set is defeated by `import { spawnSync as run }`, and this repository has already spent six adversarial rounds establishing that every syntactic mechanism is defeated by a spelling (`BL-INTERNAL-CODE-ENUM-SCAN-WIDEN`, archived 2026-08-03).
 
-| source | why |
-| --- | --- |
-| `spawnSync`, `execFileSync`, `execSync` | the output is the checkout's state, which differs between a developer's clone and CI's |
-| `process.env` | ambient configuration, absent or different in CI |
-| `realGitSurface` | this repository's named adapter over the checkout |
+| provenance | matches | why |
+| --- | --- | --- |
+| any binding imported from `node:child_process` | `spawnSync`, `execFileSync`, `execSync`, and any alias of them | the output is the checkout's state, which differs between a developer's clone and CI's |
+| any member access on the `process` global whose object path starts `process.env` | `process.env.X`, destructured `const { env } = process` | ambient configuration, absent or different in CI |
+| any binding imported from `scripts/lib/ledger-git` | `realGitSurface` and any alias | this repository's named adapter over the checkout |
 
-Deliberately **excluded**, stated so review does not re-derive it: `readFileSync` of a tracked path is byte-identical in every environment; wall-clock is already pinned by the suites' `NOW` constant; unit tests reach no network.
+**Accepted binding forms**, each with its own rejection fixture (§3.3.3):
+
+| form | example | present in the corpus today |
+| --- | --- | --- |
+| static named | `import { spawnSync } from "node:child_process"` | yes — `tests/scripts/ledgerClaimsCheck.test.ts:22` |
+| static aliased | `import { spawnSync as run } from "node:child_process"` | no |
+| static namespace | `import * as cp from "node:child_process"`, then `cp.spawnSync(…)` | no |
+| dynamic destructured | `const { realGitSurface } = await import("@/scripts/lib/ledger-git")` | yes — `tests/scripts/ledgerClaimsCheck.test.ts:396` |
+| hook-mediated | the read is in a `beforeEach` / `beforeAll` in an enclosing `describe` | no |
+
+The last row propagates: a hook's environment read classifies every test in its `describe` subtree, because that is where the value the tests consume comes from.
+
+**Unrecognized forms fail closed, and that is what makes the consequence bound true.** A call whose callee resolves to none of the three provenances and whose binding the checker cannot trace — a re-export chain, a computed member access, an indirection through another module — is reported as **unclassifiable** and reds the run. It is not silently treated as environment-free. Clearing one is an explicit `// no-premise: <reason>` like any other, so the residue is visible in the diff rather than absorbed.
+
+Deliberately **excluded**, stated so review does not re-derive it: `node:fs` reads of a tracked path are byte-identical in every environment, and the throwaway-repository construction that is this spec's recommended *cure* is built from `mkdtempSync`/`rmSync` — classifying it as a hazard would tax the fix; wall-clock is already pinned by the suites' `NOW` constant; unit tests reach no network.
 
 #### 3.3.3 The meta-test, and why it cannot pass vacuously
 
@@ -177,14 +228,15 @@ Deliberately **excluded**, stated so review does not re-derive it: `readFileSync
 
 The declared per-suite counts assertion 3 compares against live in that file, keyed by suite path, not in `GuardSurface` — `GuardSurface` belongs to the #703 spec and this contract does not need to widen it. Their key set is asserted equal to the enrolled suite set, so a newly enrolled suite fails until it declares its own count rather than silently inheriting another's; that is the same failure mode `EXPECTED_LEDGER_KINDS` was corrected for in that spec's whole-diff R2.
 
-Four assertions exist solely to keep the checker from reporting green on nothing:
+Five assertions exist solely to keep the checker from reporting green on nothing:
 
 1. the enrolled-suite set is non-empty;
 2. the set of tests examined is non-empty;
 3. **per enrolled suite**, the number of tests classified as environment-touching equals a count declared independently in the registry — not counted from the classification itself, which would compare a list to itself. A recognizer that silently stops matching (a `spawnSync` call moved behind a wrapper, say) drops that count to zero and reds, instead of reporting a clean corpus it no longer understands. A genuinely pure suite declares `0` honestly and is not forced to invent a match. This mirrors `EXPECTED_LEDGER_KINDS` (`tests/mutation/guardSurfaces.gate.test.ts:33`), which exists for the same reason;
-4. a paired positive/negative fixture: one synthetic test source containing an environment source and no premise must be REJECTED, and the same source with a premise added must be ACCEPTED. The pair differs in exactly one thing, so a rejection is attributable to the premise and not to anything else.
+4. a **fixture matrix**, one row per accepted binding form in §3.3.2's table: for each form, a synthetic test source using that form with no premise must be REJECTED, and the same source with a premise added must be ACCEPTED. Each pair differs in exactly one thing, so a rejection is attributable to the premise. One pair per form, not one pair overall — a single pair validates only the spelling it happens to use, which is the defect the provenance keying exists to avoid;
+5. an **unclassifiable fixture**: a source whose environment read arrives through a form the checker cannot trace must be REPORTED, not passed. This is the executable half of the fail-closed claim in §3.3.2; without it, "unrecognized forms fail closed" is prose.
 
-Assertion 4 is the one that matters. Without it the checker could be `return []` and the first three would still pass. Assertion 3 is the one that keeps mattering after the fixture stops changing.
+Assertion 4 is the one that matters. Without it the checker could be `return []` and the first three would still pass. Assertion 3 is the one that keeps mattering after the fixtures stop changing — **with the caveat the design owes it**: a declared count catches a recognizer that stops matching, but it does *not* catch a newly added test the recognizer never matched, because the recognized count is unchanged and still equals the declaration. That gap is closed by assertion 5, not by the count: a new test using an untraceable form is reported as unclassifiable rather than counted as environment-free.
 
 #### 3.3.4 Retro-application
 
@@ -204,7 +256,7 @@ The five ad-hoc `premise` strings already in the tree (`tests/scripts/ledgerFiel
 
 Stated here so the review briefs can cite rather than re-derive them, per `AGENTS.md`'s convergence-criterion section.
 
-**Consequence bound.** Every test in an enrolled suite that references a declared environment source is classified: it carries a premise, or an explicit exemption with a reason. Nothing is silently unclassified. A test whose environment read is laundered through an undeclared indirection is **not detected** — that is a documented limit (§5 L-2), and widening `ENVIRONMENT_SOURCES` is a proposal carrying its own before/after counts, not a review round.
+**Consequence bound.** Every test in an enrolled suite reaches one of exactly four states, and there is no fifth: it carries a premise; it carries an explicit exemption with a non-empty reason; it is classified environment-free by a traced provenance; or it is **reported as unclassifiable and reds the run**. Nothing is silently unclassified. A test whose environment read arrives through a form the checker cannot trace is therefore loud, not invisible — that is the difference between this bound and a recognizer's coverage claim. Widening `ENVIRONMENT_SOURCES` is a proposal carrying its own before/after counts, not a review round.
 
 **Threat-model fence.** The mechanism models **ordinary authoring mistakes by a contributor** — a fixture that cannot reach a boundary, an expected value read from the same degenerate source as the actual. Deliberate evasion of the recognizer is out of scope and files to documented limits.
 
@@ -225,6 +277,9 @@ Each of these was settled by probe or by an existing ratification. Reopening one
 | PR #701's individual findings are not re-reviewed (§6) | the brief that opened this arc | — |
 | The gate is nightly and not merge-gating (§5 L-5) | `.github/workflows/mutation-harness.yml` header; `vitest.projects.ts:87` | — |
 | Premise strength is a review judgement, not a checker rule (§5 L-3) | strength is undecidable; presence is not | — |
+| `ENVIRONMENT_SOURCES` is keyed on module provenance, not on spelling (§3.3.2) | spec R1 finding 2; a spelling-keyed set is defeated by an alias, established over six rounds on `BL-INTERNAL-CODE-ENUM-SCAN-WIDEN` | a traced form the provenance keying still misses, shown by fixture |
+| An untraceable form reds as unclassifiable rather than passing (§3.3.2, AC-8a) | spec R1 finding 2; it is what makes §4's consequence bound true rather than aspirational | — |
+| The liveness control is per-surface and is actually run (§3.2.1) | spec R1 finding 1, confirmed against `tests/mutation/guardSurfaces.gate.test.ts:116-120` | — |
 
 ---
 
@@ -233,7 +288,7 @@ Each of these was settled by probe or by an existing ratification. Reopening one
 | id | limit | consequence |
 | --- | --- | --- |
 | L-1 | The premise contract binds only suites named in the mutation registry | An unenrolled suite may still ship a vacuous guard. Deliberate: a repo-wide recognizer over 1788 test files is the ratchet this spec exists to avoid. Enrollment is how a surface opts in, and it is now cheap (Unit 1). |
-| L-2 | The recognizer is syntactic and one level deep | An environment read reached through a helper in another module is invisible to it. Loud when it matters — the enrolled surfaces' own gate still runs — but not detected here. |
+| L-2 | The recognizer traces provenance within one file, not across modules | An environment read reached through a helper in another module cannot be traced to its provenance. It is **reported as unclassifiable and reds the run** rather than passing as environment-free (§3.3.2), so the limit costs an explicit exemption, never a silent miss. |
 | L-3 | A premise can itself be trivially true | `premise("x", 1, 0)` satisfies the checker and proves nothing. The checker enforces presence, not strength; strength is a review judgement, as it is for every assertion. |
 | L-4 | V1 with no environment read is uncovered | A pure fixture too small to cross a boundary, with no spawn and no `process.env`, is not classified as environment-touching. Both shipped instances read the environment, so the mechanism reaches both, but the pure-fixture variant remains the prose rule's job (`docs/agents/writing-plans.md:13`). |
 | L-5 | The mutation gate is nightly and not merge-gating | An enrolled surface's new gap surfaces one cycle after it lands. Unchanged by this spec; stated because §1.4 depends on it. |
@@ -256,10 +311,13 @@ Each of these was settled by probe or by an existing ratification. Reopening one
 - **AC-2** A merge-gating meta-test fails when either value is reverted, demonstrated by running the reverted config, not asserted in prose.
 - **AC-3** A fixture suite importing through `@/` passes through the real overlay config and the real runner, and the guard asserts the fixture still contains an `@/` import.
 - **AC-4** `scripts/lib/ledger-claims-core.ts` and `scripts/lib/ledger-git.ts` are enrolled; `pnpm mutation:guards` passes; every survivor is killed, `equivalent` with an argument, or `accepted-gap` with a resolving ledger ref.
+- **AC-4a** `GuardSurface.control` exists; `validateSurface` rejects a row whose `from` occurs zero times or more than once in `sourcePath`, each demonstrated by a rejection case; `lib/specLint/taskContract.ts` carries its existing control text as a registry row with no behavior change.
+- **AC-4b** The gate **runs** each surface's control as the mutant and asserts KILLED — the run receives the control text, which `guardSurfaces.gate.test.ts:120` today does not. Demonstrated per enrolled surface by the recorded verdict, not asserted in prose.
 - **AC-5** Each enrolled surface has its own `EXPECTED_LEDGER_KINDS` row.
 - **AC-6** No `accepted` row on `ledger-git.ts` has an environment-dependent verdict; each such mutant is killed by a test that constructs its own ref namespace.
 - **AC-7** `premise` / `premiseHolds` exist, fail loudly, and name the failure as a premise failure.
-- **AC-8** `tests/mutation/_metaPremiseContract.test.ts (new)` rejects the negative fixture and accepts the positive one, which differ in exactly one thing.
+- **AC-8** `tests/mutation/_metaPremiseContract.test.ts (new)` carries one rejection/acceptance fixture pair **per accepted binding form** in §3.3.2's table — static named, static aliased, static namespace, dynamic destructured, hook-mediated — each pair differing in exactly one thing.
+- **AC-8a** An unclassifiable fixture — an environment read through a form the checker cannot trace — is REPORTED and reds, not passed as environment-free. This is the executable proof of the fail-closed claim, without which §4's consequence bound is prose.
 - **AC-9** The meta-test's non-vacuity assertions (§3.3.3, items 1-3) are present and each fails against a corresponding degenerate input; the declared per-suite count map's key set is asserted equal to the enrolled suite set, so a newly enrolled suite fails until it declares its own.
 - **AC-10** Every qualifying test in the two enrolled suites carries a premise or a reasoned exemption, including `tests/scripts/ledgerClaimsCheck.test.ts:508-510`, whose repair constructs its own corpus.
 - **AC-11** `docs/agents/writing-plans.md` carries the rule with the §1.2 table; `AGENTS.md` points at it and does not restate it.
