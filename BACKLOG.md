@@ -8,6 +8,24 @@ Last reconciled: 2026-08-03 — `chore/scanner-precision-cluster` graduated `BL-
 
 ---
 
+## BL-CODE-ENUM-PROVENANCE-COMMENT-BLIND — a doc comment silently rewrites generated code provenance
+
+**Status:** OPEN · **Severity:** LOW (no consumer keys on the widened field today; the exposure is that generated provenance stops meaning what it says) · **Class:** generator fidelity · **Filed:** 2026-08-04 (`fix/apply-undo-audit-fidelity`, surfaced while reconciling the Unit C registry drift) · **Effort:** S
+
+`scripts/extract-internal-code-enums.ts:161` decides whether a file's codes claim `admin_alerts.code` provenance by regexing the **raw source**:
+
+```
+if (/\badmin_alerts?\b|upsertAdminAlert|upsert_admin_alert/i.test(source)) {
+```
+
+That test is comment-blind. Adding a doc comment that merely _names_ `upsertAdminAlert` — as the apply/undo branch did at `app/api/admin/onboarding/finalize/route.ts` and `app/api/admin/onboarding/finalize-cas/route.ts`, explaining why an emit does NOT belong at a given point — flips provenance for **every** code in that file. Six §12.4 codes widened to claim `admin_alerts.code` on that regeneration (`ONBOARDING_FINALIZE_INTERNAL_ERROR`, `ONBOARDING_LEGACY_ROW_AMBIGUOUS`, `ROLE_MAPPINGS_OUTDATED_AT_PUBLISH`, `STAGED_PARSE_OUTDATED_AT_PHASE_D`, `STAGED_PARSE_REVISION_RACE_DURING_FINALIZE`, `WIZARD_REVIEWER_CHOICES_VERSION_UNSUPPORTED`) without any of them gaining a write site.
+
+**Benign as shipped, which is exactly why it is worth filing.** Code membership is unchanged and no consumer keys on `admin_alerts.code` — the live filters key on `parse_warnings.code` — so the widening changed nothing observable and the regenerated manifest was committed rather than the extractor patched mid-branch. The defect is that a generated artifact's provenance field can be rewritten by prose, so it cannot be trusted as evidence of a write site, and the next person to rely on it will not know that.
+
+**Work:** gate on parsed source rather than raw text — strip comments and string literals before the provenance test, the same shape `stripLogEmissionCalls` already uses for the §12.4 scans. A regression fixture is a file whose only mention of the writer is in a comment.
+
+---
+
 ## BL-SHADOW-REBUILD-EXHAUSTED-EMIT-PLACEMENT — a durable event for a committed row is skipped when the outer finalize rolls back
 
 **Status:** OPEN · **Severity:** LOW-MEDIUM (lost forensic event; no data impact) · **Class:** telemetry durability · **Filed:** 2026-08-03 (`fix/apply-undo-audit-fidelity`, spec §2.3, deferred under class-sweep exception (a)) · **Effort:** S once the product question is settled
