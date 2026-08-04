@@ -499,7 +499,7 @@ The stronger protocol already exists and was used for the original 2026-06-23 pa
 
 **Reachability:** INFERRED, NOT PROBED — the probe that settles it: run the `parallel` project once with the DB port closed and once with a DB present, and diff the PER-FILE assertion counts. A file whose count drops without a skip is the shape the entry describes. That probe, not the audit, is the first scheduled step.
 
-screen-disposition 2026-08-04: ANNOTATE-INFERRED, stays open. The entry names no instance, and the escape hatch it needs is the one the filing bar prescribes. Static facts re-verified 2026-08-04: the job is `.github/workflows/unit-suite.yml:135-136` (3 legs, `--project=parallel`, boots nothing), rolled up at `:177-187`, over `PARALLEL_TEST_GLOBS` at `vitest.projects.ts:94-140`. **Count corrected:** the body's "~691 current parallel-project files" is stale — the same globs now resolve 875 `.test.ts(x)` files, which makes the unmeasured surface ~27% larger than the row claims, not smaller.
+screen-disposition 2026-08-04: ANNOTATE-INFERRED, stays open. The entry names no instance, and the escape hatch it needs is the one the filing bar prescribes. Static facts re-verified 2026-08-04: the job is `.github/workflows/unit-suite.yml:146-147` (3 legs, `--project=parallel`, boots nothing), rolled up at `:188-198`, over `PARALLEL_TEST_GLOBS` at `vitest.projects.ts:94-140`. **Count corrected:** the body's "~691 current parallel-project files" is stale — the same globs now resolve 875 `.test.ts(x)` files, which makes the unmeasured surface ~27% larger than the row claims, not smaller.
 
 ## BL-CI-RECLASSIFY-PARALLEL-STABILITY — revive the serial→parallel reclassification only with a concurrency-stability + clean-wall proof
 
