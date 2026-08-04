@@ -8,6 +8,18 @@ Last reconciled: 2026-08-03 — `chore/scanner-precision-cluster` graduated `BL-
 
 ---
 
+## BL-SHADOW-REBUILD-EXHAUSTED-EMIT-PLACEMENT — a durable event for a committed row is skipped when the outer finalize rolls back
+
+**Status:** OPEN · **Severity:** LOW-MEDIUM (lost forensic event; no data impact) · **Class:** telemetry durability · **Filed:** 2026-08-03 (`fix/apply-undo-audit-fidelity`, spec §2.3, deferred under class-sweep exception (a)) · **Effort:** S once the product question is settled
+
+`logAdminOutcome({ code: "ONBOARDING_SHADOW_REBUILD_EXHAUSTED", … })` (`app/api/admin/onboarding/finalize-cas/route.ts:1025-1038`) fires inside `runFinalizeCas`, which runs inside the outer `deps.withTx` holding `tryFinalizeLock` (`app/api/admin/onboarding/finalize-cas/route.ts:905`). The row mutation it describes commits in its own `withRowTx`, independently of that outer transaction — so when the outer commit fails, the mutation stands and the event describing it is silently skipped.
+
+Its neighbour `SHOW_FINALIZED` (`app/api/admin/onboarding/finalize-cas/route.ts:982-989`) has the same placement but is **correct** there: it reports the session finalizing, which genuinely did not happen on rollback, and `tests/onboarding/finalize.test.ts:864` pins that suppression deliberately. The rebuild event is the one whose semantics do not match its placement.
+
+**Why this is exception (a), not a mechanical fix.** Whether an operator should be told about an exhausted shadow rebuild that belongs to a finalize attempt which then rolled back is a product question about the operator's mental model, not a relocation. If the answer is yes, the fix is the accumulator-and-`finally` pattern the closing branch establishes for its own emits. Surfaced by cross-model review R9 of that branch, which correctly identified the placement while the branch had no basis to settle the semantics.
+
+---
+
 ## BL-ROLEFLAGSNOTICE-DROP-GUARD — no guard detects a path that obtains a `roleFlagsNotice` and never emits it
 
 **Status:** OPEN · **Severity:** LOW-MEDIUM (all four known instances closed; the class is unguarded) · **Class:** guard completeness, static analysis · **Filed:** 2026-08-03 (`fix/apply-undo-audit-fidelity`, descoped at spec review R5 after the vector produced a finding in four consecutive rounds) · **Effort:** L
