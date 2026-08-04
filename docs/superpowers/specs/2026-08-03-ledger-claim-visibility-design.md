@@ -5,8 +5,8 @@
 **Date:** 2026-08-03
 **Branch:** `chore/ledger-claim-visibility`
 **Backlog entries:** none opened for this work (see §9.1); one filed as a by-product (§9.2)
-**Status:** R5 repaired — 33 adversarial findings across five rounds plus 5 self-findings, all accepted, all closed
-**Review note:** R1-R4 were Codex (cross-model). R5 was a fresh-eyes Opus session, because Codex hit a usage limit resetting 2026-08-10; see §10
+**Status:** R6 repaired — 39 adversarial findings across six rounds plus 5 self-findings, all accepted, all closed
+**Review note:** R1-R4 were Codex (cross-model). R5 and R6 were fresh-eyes Opus sessions, because Codex hit a usage limit resetting 2026-08-10; see §10
 **impeccable-gate: N/A — no UI surface**
 
 ---
@@ -103,8 +103,16 @@ the claim is gone with it.
 | under 4 hours | 7 | live work, several sessions shipping concurrently |
 | 7 days to 2 weeks | 8 | abandoned spikes, CI probes, scratch branches |
 
-Nothing sits between 4 hours and 7 days, so a staleness threshold anywhere in that gap separates the
-two populations. §4.4 sets it at 14 days, well clear of the boundary on the conservative side.
+Nothing sits between 4 hours and 7 days. §4.4 sets the threshold at **14 days**, which is
+deliberately *outside* that gap rather than inside it — R6 finding 6 correctly observed that 14 days
+lands among the abandoned cluster rather than cleanly above it, with two branches at 14.0 and 14.6
+days straddling the line.
+
+That is the intended bias. The threshold controls a **display label only**: a stale-tipped branch is
+listed under a heading, never dropped, and its claims still participate in `--check`. So the
+asymmetry runs one way — labelling a dead branch "live" costs a reader one glance, while labelling a
+live branch "stale" risks it being skimmed past. A threshold inside the gap would be tighter and
+strictly worse on the axis that matters. Filed as a documented limit in §5 rather than tuned.
 
 Of the 4 branches with open PRs, **exactly 1 carries a marker**. A declared-only reader would
 report one claim and stay silent about three live PRs, so the `inferred` signal is what gives the
@@ -301,7 +309,12 @@ workflow** and the added work costs CI nothing.
 
 ### 3.1 `scripts/lib/ledger-fields.ts` — the shared field parser
 
-A pure module, no I/O, moved verbatim from `tests/docs/_metaLedgerInProgress.test.ts`. It exports
+Moved verbatim from `tests/docs/_metaLedgerInProgress.test.ts`. **No network and no `git`**; the one
+piece of I/O is `ledgerFiles`'s single `readdirSync` of the repo root, which moves with the rest
+rather than being left behind. R6 finding 2 caught an earlier "a pure module, no I/O" here: taken
+literally it strands `ledgerFiles` in the test file, forcing the §3.2 reader to import a vitest
+module whose top-level `describe`/`it` run on import — precisely the coupling §2.8's
+precedent exists to avoid. It exports
 `LedgerItem`, `fieldsOfLine`, `ledgerItems`, `isInProgress`, `flightFieldsOn`, `FLIGHT_FIELDS`,
 `BRANCH_SHAPE`, `PR_SHAPE`, and the `HEADING` pattern. `ledgerFiles` moves too, taking its root
 directory as an argument as it already does today (`tests/docs/_metaLedgerInProgress.test.ts:46`).
@@ -515,7 +528,7 @@ Every input, and what the reader does with it.
 | --- | --- |
 | `git fetch` fails (offline, auth, timeout) | Use existing remote-tracking refs and print `WARN: claims computed from stale refs (fetch failed: <reason>)`. The report still prints, because a stale report beats none. **`--check` exits 2**, never 0: R3's case is a checkout that cannot reach origin while a cached ref already carries another branch's live declaration, and answering "no collision" from a universe you could not verify is the false all-clear this spec exists to remove |
 | No `refs/remotes/origin/*` at all | Print `no origin branches resolvable`; `--check` exits 2 |
-| Fetch succeeded but resolved fewer heads than `git ls-remote --heads origin` reports | The universe is incomplete for a reason the reader cannot see. Print the shortfall; `--check` exits 2 |
+| Fetch succeeded but resolved fewer heads than `git ls-remote --heads origin` reports | The universe is incomplete for a reason the reader cannot see. Print the shortfall; `--check` exits 2. The `ls-remote` carries its own **30 s** bound, matching `tests/docs/_metaLedgerInProgress.test.ts:201`, and is **skipped entirely under `--no-fetch`** — it verifies a fetch, so with no fetch there is nothing to verify. R6 finding 5 caught it otherwise reopening the budget conflict R5 finding 3 closed: an unbounded network call still sat inside preflight's 15 s |
 | `gh` absent, unauthenticated, or returning malformed JSON, **any mode** | PR column blank. Never an error, never a warning, never a change to which claims resolve. R2 measured that `unit-suite.yml` supplies no `GH_TOKEN`, so the unauthenticated path is the CI default, not an edge case |
 | More than 100 open PRs | The PR column is incomplete for the overflow and says so. No claim resolution reads it, which is the reason it is allowed to be incomplete: a query that cannot report its own truncation must not carry a correctness rule |
 | `git merge-base` unresolvable for a ref (shallow clone, unrelated histories) | `inferred` is disabled for that ref; `declared` is unaffected. Said once in the header, not once per branch |
@@ -590,6 +603,11 @@ believes is signaled is worse than one they can see.
 
 **Signaled.**
 
+0. **The 14-day stale threshold sits among the branches it labels, not cleanly above them.** §2.3
+   measures two branches at 14.0 and 14.6 days straddling the line. Accepted rather than tuned: the
+   threshold moves a row under a heading and nothing else — stale branches are still listed and
+   their claims still participate in `--check` — so the only cost is a display label, and the bias
+   is deliberately toward calling a dead branch live rather than the reverse.
 1. **Ancestry unavailable in a shallow clone.** Merged-and-retained branches stay in the candidate
    set and can raise a false collision. Printed in the report header, and the remedy the failure
    asks for — delete the branch, or clear a marker that survived its merge — is correct regardless.
@@ -667,9 +685,14 @@ clearing the marker in the same post-`0  0` turn as the pane and agent labels. B
 
 **6.4 — the lifecycle list stops implying the marker is a Stage 4.4 chore.** `AGENTS.md:135-136`
 pairs marker clearing with pane and agent clearing under one Stage 4.4 bullet. The pane and agent
-clearing stay exactly where they are, as do both `CronDelete` sites (`AGENTS.md:83`); only the
-ledger marker moves out of that bullet, with a pointer to its new home so the pairing is not
-silently dropped.
+clearing stay exactly where they are, as do both `CronDelete` sites (`AGENTS.md:83`); the ledger
+marker instruction is **deleted from that bullet outright**, leaving no pointer.
+
+No pointer, deliberately. R6 finding 1 caught an earlier draft asking for "a pointer to its new
+home" while §7.5a asserted the bullet does not mention the marker — mutually unsatisfiable, since a
+pointer to the marker instruction mentions the marker, so the implementer would go red on the very
+commit that satisfied §6. The pointer was never load-bearing: §6.2 and §6.3 both state where removal
+now happens, and the Stage 0 bullet two entries above already carries the marker's other half.
 
 **6.5 — invariant 12's opening sentence stops promising merge-time removal, and its parenthetical
 goes.** `AGENTS.md:27` reads "the moment the PR merges, the marker goes away with it", which §6.3
@@ -738,6 +761,19 @@ a false all-clear through five distinct doors while passing everything above:
 The last row is the one that must NOT be exit 2: the cap is display-only (§4.1), so a collision past
 it is a real collision and has to fail like any other. A test that only asserted "everything
 degraded exits 2" would pass an implementation that gave up whenever the branch list was long.
+
+**Three more cases, one per prose-only repair.** R6 finding 3 swept the R5 repairs and found every
+one of them unpinned — a repair stated only in prose regresses silently, which is how R2's fix
+became R3's finding:
+
+| Case | Catches |
+| --- | --- |
+| `--json` with 101 candidates and the collision in the 101st emits **all** 101 entries | §3.3's "never capped" regressing to the human-output cap, handing a machine consumer a truncated set with no truncation marker |
+| The shallow discriminator is parsed as a **string**, not for truthiness | `git rev-parse --is-shallow-repository` prints the literal `false`, and `Boolean("false")` is `true`, so a truthiness read permanently inverts the merged-exclusion while passing every full-clone fixture in §7.1 |
+| A fixture repo made genuinely shallow, asserting the merged-exclusion is skipped and `declared` still resolves | §3.2 step 2's whole shallow branch being dead code that no test ever enters |
+
+The shallow case needs a real shallow fixture (`git clone --depth=1 file://…`), not a stubbed flag,
+because the discriminator's return value is the thing under test.
 
 Anti-tautology: expected ids are derived from the fixture repo's own planted ledger text, never
 hardcoded, so a reader that returns a fixed list cannot pass.
@@ -814,7 +850,7 @@ a behavior widening of an existing guard, so it gets its own task and its own ca
   flight-field rule, unchanged.
 - Corpus regression bound: asserted against a **committed fixture corpus**, never against origin, so
   it cannot decay when the live branches merge. The fixture reproduces §2.7a's measured shapes — the
-  an in-window marker, the out-of-window marker, a second in-window marker, the deep-quoted bare
+  two in-window markers, the out-of-window marker, the deep-quoted bare
   `**Branch:**`, and the status-only malformation — and pins detection at **4 of 5**: everything except the deep-quoted
   bare `**Branch:**`, whose line carries no status. R4 finding 2 caught an earlier `3 of 5` here,
   which was arithmetically incompatible with status-alone detection and could only have been
@@ -837,7 +873,7 @@ three-assertion draft, so the mapping is now exhaustive and stated as a table ra
 | --- | --- | --- |
 | 6.1 reading rule | `AGENTS.md` contains a sentence naming `ledger:claims` **and** stating claims are read from origin's branches | never adding §6.1 at all, which an earlier draft's assertions all tolerated |
 | 6.2 Stage 0 check + push | **Both** `AGENTS.md:38`'s paragraph and the Stage 0 lifecycle bullet name the check command and the push. Asserted at both locations, not "the Stage 0 statement" singular | implementing at the invariant-12 paragraph only and leaving the lifecycle bullet unchanged |
-| 6.3 pre-merge removal | Neither retired ordering survives: "after the `0  0` check, removes it" and "the moment the PR merges, the marker goes away with it" | the original R2 drift |
+| 6.3 pre-merge removal | Neither retired ordering survives — "after the `0  0` check, removes it" and "the moment the PR merges, the marker goes away with it" — **and** `AGENTS.md` positively states that removal happens in the PR's last commit, before the merge | the original R2 drift, plus R6 finding 4's mutant: delete both retired strings, add nothing, and an absence-only row passes while AGENTS.md now says nowhere when the marker comes off, silently deleting the removal half of the writer contract |
 | 6.4 Stage 4.4 bullet | The Stage 4.4 bullet mentions the pane and the agent and does **not** mention the marker; pane, agent, and `CronDelete` instructions are all still present | R3 finding 4's mutant, plus a repair that "fixes" the contradiction by deleting the bullet wholesale |
 | 6.5 parenthetical deleted | The string "takes its marker with it by construction" appears **nowhere** in `AGENTS.md`. Probed: it is present exactly once today, at `AGENTS.md:27` | keeping a sentence R3 finding 3 showed is false against `tests/docs/_metaLedgerInProgress.test.ts:149` |
 | 6.6 pipeline reordering | On `AGENTS.md`'s autonomous-pipeline sentence, the marker clause precedes the `spec →` clause | editing four locations and leaving the pipeline sentence ordering the marker after two full review cycles — which silently reopens the hours-long window §2.1 measured |
@@ -861,6 +897,11 @@ claims child is spawned and its table reaches preflight's output, with the child
 recognizable line, under **all three** exits that print `env ✓`: the default DB-probe path,
 `--no-db` (`scripts/preflight-env.mjs:132`), and `psql` absent from `PATH`
 (`scripts/preflight-env.mjs:142`).
+
+**The spawn arguments are asserted, not just the spawn.** R6 finding 3a: with only "the child was
+spawned and its output reached preflight" asserted, spawning it *without* `--no-fetch` passes every
+case here while restoring the 30 s fetch inside the 15 s budget that R5 finding 3 closed. The
+assertion names the flag.
 
 **The test must clear `CI` from the child's environment.** R5 finding 4: §3.4 suppresses the claims
 step under `CI`, and `tests/scripts/**` is not in `PARALLEL_TEST_GLOBS` (`vitest.projects.ts:86`) so
@@ -927,18 +968,20 @@ R1 through R4 ran through `codex-guard` against Codex (`gpt-5.6-sol`, reasoning 
 returning BLOCKING with 6, 8, 7, and 4 findings respectively. Every finding was accepted; none was
 refuted.
 
-R5 could not run there. Codex returned `You've hit your usage limit … try again at Aug 10th, 2026
+R5 and R6 could not run there. Codex returned `You've hit your usage limit … try again at Aug 10th, 2026
 6:16 PM` on three consecutive wrapper attempts, each producing a zero-line transcript — a distinct
 shape from the silent-death class documented in `docs/agents/codex-silent-death-2026-07-24.md`,
 which does real work before dying. R5 therefore ran as a fresh-eyes Opus session against the same
-brief and the same admissibility contract, and returned BLOCKING with 8 findings, all probe-backed
-and all accepted.
+brief and the same admissibility contract, returning BLOCKING with 8 findings. R6 ran the same way
+and returned BLOCKING with 6. All 14 were probe-backed and all were accepted; none was refuted.
 
 This is a real reduction in review strength, recorded rather than glossed: the cross-CLI discipline
 exists because an opposing model's blind spots differ from the implementer's, and an opposing
 session shares them. Two observations bound how much was lost. R5's findings were of comparable
 character to R1-R4's — four escaping mutants against a guard, an unimplementable gate condition, an
-inner timeout exceeding its outer bound, and a local-passes-CI-fails env leak — and R5 independently
-re-ran every probe in §2, confirming direction while catching that the absolute counts had already
-decayed. What cannot be claimed is that a same-model round substitutes for a cross-model one in
+inner timeout exceeding its outer bound, and a local-passes-CI-fails env leak — and both rounds independently re-ran
+every probe in §2 — R5 catching that the absolute counts had already decayed, R6 re-verifying 40-odd
+`file:line` anchors clean. R6's findings were also the shape a converging review produces: one
+self-contradiction introduced by an R5 repair, three repairs that existed only in prose with no test
+pinning them, and two smaller gaps. What cannot be claimed is that a same-model round substitutes for a cross-model one in
 general; it did not here, and the disposition of that gap is the user's call, recorded here once made.
