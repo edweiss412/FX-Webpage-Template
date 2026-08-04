@@ -79,6 +79,21 @@ export type SeedShowWithCrewOptions = {
   dates?: ShowRow["dates"];
   /** shows.agenda_links jsonb. Omit → column left NULL (getShowForViewer decodes to []). */
   agendaLinks?: ShowRow["agenda_links"];
+  /**
+   * shows.event_details jsonb (the parsed sheet's event-detail fields). Omit →
+   * column left NULL, and `EventDetailsBreakdown` filters every group out, so
+   * the review modal renders no event-detail section at all
+   * (components/admin/wizard/step3ReviewSections.tsx:2216-2221). Set it to
+   * render real groups — e.g. the font-binding row measurement, which needs a
+   * non-empty "Wardrobe & key moments" group.
+   *
+   * Carried on this helper's EXISTING insert rather than a follow-up write from
+   * the caller: a separate PostgREST write at a call site would be a NEW
+   * unlocked mutation path against a lock-governed table (AGENTS.md invariant
+   * 2) and a new Supabase call boundary (invariant 9). Adding a column to the
+   * insert this helper already performs adds neither.
+   */
+  eventDetails?: ShowRow["event_details"];
   crew?: SeedCrewMemberInput[];
 };
 
@@ -131,6 +146,8 @@ export async function seedShowWithCrew(options: SeedShowWithCrewOptions = {}): P
     // JSONB agenda_links — same encoding note as `dates` above. Omitted → NULL →
     // getShowForViewer decodes to [] and the crew page renders no agenda area.
     agenda_links: options.agendaLinks ?? null,
+    // JSONB event_details — same encoding note as `dates` above.
+    event_details: options.eventDetails ?? null,
   });
   if (showErr) throw new Error(`seedShowWithCrew shows insert failed: ${showErr.message}`);
 

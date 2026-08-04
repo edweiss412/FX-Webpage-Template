@@ -130,13 +130,15 @@ The token rows are in §1.1 and the computed AA contrast figures (both modes, WC
 
 ### 2.1 Family commitment
 
-**Inter** — single contemporary sans for all UI. One family, no display/body pairing. Loaded via `next/font/google` in `app/layout.tsx` (a future task wires this up; this file only defines tokens).
+**Inter** — single contemporary sans for all UI. One family, no display/body pairing. Loaded via `next/font/google` in `app/fonts.ts`, whose single exported instance both Next roots import: `app/layout.tsx` and `app/global-error.tsx`, which renders its own `<html>` and replaces the root layout on a fatal error. One loader call, two roots — a second call would emit a duplicate `@font-face` set under the same family name. (Until 2026-08-03 this line read "a future task wires this up"; the task was `BL-HEADER-FONT-FALLBACK-WRAP`, and until it landed only the crew route tree rendered Inter while admin, auth, help and the crash screen fell through to the host system font.)
 
 Why Inter: PRODUCT.md explicitly lists Inter as one of three acceptable starting points and says "pick one and commit." Inter is the most reliable tabular-figure-strong sans on the web — `font-feature-settings: 'tnum'` is fully implemented in every modern browser, all of weights 400/500/600/700 ship with even spacing, and it has explicit display-vs-text optical sizing built in. Geist (next pick) lacks the same `tnum` reliability across iOS Safari versions; General Sans is licensed.
 
 Tradeoff acknowledged: Inter is the most-used webfont on the modern internet. The "AI slop" risk per shared design laws is real. We compensate by using Inter at distinctive **weights and sizes** (large, confident headline numbers; consistent 500/600 hierarchy rather than the default 400/700 split that creates SaaS-look) and by leaning on the page's structural rhythm — generous spacing, asymmetric hero, FXAV orange accent — to carry character. The font is the canvas, not the personality.
 
-Fallback stack: `Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", "Helvetica Neue", sans-serif`.
+Fallback stack: `Inter, Inter Fallback, ui-sans-serif, system-ui, -apple-system, "Segoe UI", "Helvetica Neue", sans-serif`.
+
+`Inter Fallback` is not a hand-picked face: `next/font` generates it alongside Inter, from `local(Arial)` with `size-adjust` and `ascent-override` tuned to Inter's metrics, precisely so the `display: "swap"` window swaps without reflowing. It is therefore second, ahead of the system stack. `app/globals.css` reaches both through `var(--font-inter, "Inter", "Inter Fallback")` rather than naming them literally, so the token stays the single source and any surface without the generated class (the standalone test harnesses, which compile that file with no Next runtime) still resolves to the literal pair. Omitting this entry is not cosmetic: measured on a real string, first paint rendered 187.28px and then snapped to 168.91px, about 10%, on every React-root route.
 
 ### 2.2 Size scale
 
@@ -293,8 +295,15 @@ They fall into two kinds, and the distinction matters for §10's hardcoding ban:
 
 - `WARNING_HIGHLIGHT_MS = 1600` (`components/admin/wizard/Step3ReviewModal.tsx`) — one-shot warning-row highlight after a callout jump-link; keyframe `step3-warning-flash`. Reduced motion: a steady tint, correct for a persistent jump-target the user must still locate.
 - `SHARE_LINK_FLASH_MS = 1600` (`components/admin/showpage/ShareHub.tsx`) — one-shot highlight on the crew-URL block when the share-token changes; keyframes `share-link-flash-bg` and `share-link-flash-ring`. Reduced motion: NO cue at all, deliberately unlike the row above — a one-shot "this just changed" signal has no correct steady state, and a permanent tint would assert something no longer true.
+- `SECTION_FRESHNESS_FLASH_MS = 1600` (`components/admin/review/sectionFreshness.ts`) — one-shot cue on the panel card of each published-review-modal section whose content changed across a realtime refresh, or on the sub-header band when the change count clears the cap; keyframes `section-freshness-flash-1` / `-2`. The pair exists because changing an attribute value does not restart a CSS animation and a key-based remount would destroy the card's scroll position and focus, so alternating the value changes `animation-name` instead. Reduced motion: NO cue, same reasoning as the row above; the sr-only announcement carries the information there and is motion-independent.
 
 **The share-link cue** draws a 2px `accent-edge` ring around the crew-URL block plus a brief `accent-tint` wash that holds to 45% then settles back to `surface-sunken`. Measured contrast at the cue's peak and at rest, both themes: `text-strong` on `accent-tint` 16.88:1 light / 14.66:1 dark (AA 4.5:1); ring against `accent-tint` 7.41:1 / 8.03:1, against `surface` 8.42:1 / 8.84:1, against `surface-sunken` 7.59:1 / 9.65:1 (non-text 3:1). Pinned in `tests/styles/status-token-contrast.test.ts` — and note the ring is NOT decorative in dark, where it is the change signal itself, so it carries its own floor rather than deferring to the accent track's.
+
+**The section freshness cue** is a 2px `accent-edge` OUTLINE, held to 45% then faded, and nothing else. An outline rather than a border or a box-shadow because the card already owns a border that switches tone when the section is flagged, plus its own tile shadow, so the outline is the only layout-neutral marker that composes with both; it draws outside the border box, which the content pane's `p-tile-pad` leaves room for.
+
+**It shipped with an `accent-tint` wash as well, and design review removed it.** Two reasons, both worth keeping written down. PRODUCT.md reserves the orange for "this matters now" and spends it sparingly, and a background reconcile is informational: a full-card wash on a 390px phone can be the entire viewport shouting about a sync. And the wash was occluded unevenly, because cards hold opaque children (`surface-sunken` tiles, nested cards, warning callouts), so a sparse section washed fully while a dense one showed colour only in the gaps and the same event read at very different loudness. The outline renders identically on every card, so it is the whole cue.
+
+Measured contrast, both themes: outline against `surface` 8.42:1 / 8.84:1, which is the ground for BOTH the card and the sub-header band it marks over the cap (`ReviewModalShell.tsx:682`); and against `surface-sunken` 7.59:1 / 9.65:1, pinned as the defensive second ground so a future band retune cannot drop the cue below floor unnoticed. Non-text floor 3:1. Pinned in `tests/styles/status-token-contrast.test.ts`.
 
 ---
 

@@ -186,6 +186,7 @@ export function ShowReviewSurface({
   attentionJump,
   sectionAttention,
   crewUnderRowCards,
+  freshSections,
 }: {
   data: SectionData;
   isPublishRunActive?: boolean; // PSAT-1: threads the Step-3 publish-run freeze to the S5 Re-scan
@@ -212,6 +213,13 @@ export function ShowReviewSurface({
   // rendered rows, merged into the crew byCrewKey stack (after alert banners). Published
   // modal only; absent → byte-identical (staged wizard passes none).
   crewUnderRowCards?: ReadonlyMap<string, ReactNode[]>;
+  // spec 2026-08-03-modal-freshness-cue §4.3: rail ids currently wearing the
+  // one-shot freshness cue, each mapped to its alternating attribute value. The
+  // PUBLISHED modal owns the state machine and the alternation; this surface is a
+  // pure conduit, so the restart mechanism has exactly one owner. Absent → the
+  // attribute is never emitted, which is what keeps the staged wizard
+  // byte-identical (it passes nothing, as it does for every prop above).
+  freshSections?: ReadonlyMap<SectionId, "1" | "2">;
 }): JSX.Element {
   // Crew banners still thread through the crew chrome context unchanged; the
   // generalized transport (attention-alert-routing §3.2) carries them in the
@@ -1087,6 +1095,12 @@ export function ShowReviewSurface({
                       // no longer excluded — its extras thread in-box like every
                       // other section (the sibling render is deleted below).
                       ...(extrasNode != null ? { sectionExtras: extrasNode } : {}),
+                      // Spread-inserted, never assigned `undefined`: the chrome
+                      // type documents that discipline and exactOptionalPropertyTypes
+                      // enforces it.
+                      ...(freshSections?.get(s.id) !== undefined
+                        ? { freshnessFlash: freshSections.get(s.id) as "1" | "2" }
+                        : {}),
                       // attention-alert-routing §3.2: the two parse notices render as
                       // banner LINES atop the Parse-warnings panel; they travel as
                       // domain items so WarningsBreakdown composes them with warnings.length.

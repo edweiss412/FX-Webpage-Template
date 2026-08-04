@@ -56,7 +56,8 @@ The seven owner-ratified changes graduating warning-surface-trim (2026-07-21) de
   close-out per plan.
 - Nightly `mutation-harness` on main failed with benign fingerprint drift from the merged parser
   `autocorrect` field (`7295d794c`); dispositioned per repo policy as
-  `BL-MUTATION-LEDGER-AUTOCORRECT-DRIFT` (BACKLOG.md, commit 13f20b3c8). Non-required,
+  `BL-MUTATION-LEDGER-AUTOCORRECT-DRIFT` (BACKLOG.md at the time, commit 13f20b3c8; the entry now
+  lives in `BACKLOG-archive.md` — the re-bless shipped 2026-07-22 as PR #548). Non-required,
   path-filtered workflow; gates nothing on this PR.
 
 ## §5-§11 (reserved)

@@ -261,6 +261,35 @@ describe("accent token contrast floors (2026-07-16 token pass)", () => {
     });
   }
 
+  // ── Section freshness cue (spec 2026-08-03-modal-freshness-cue §11.4) ──────
+  //
+  // The cue is an OUTLINE around a section panel card, and nothing else. An
+  // earlier draft of it also washed the card with accent-tint; design review cut
+  // the wash before implementation, and this comment described that dead design
+  // until round-6 review caught the prose still standing while the assertions
+  // below had already moved to the outline. The card's own background is
+  // unchanged by the cue, so the pairing measured here is the outline against
+  // the two grounds it actually touches.
+  //
+  // The edge rows restate the share-link floors on THIS surface deliberately.
+  // DESIGN.md records that the ring is not decorative in dark, where it is the
+  // change signal itself; the same is true here, so this surface carries its own
+  // floor rather than inheriting one that a future share-link retune could remove.
+  for (const mode of MODES) {
+    it(`${mode.name}: the freshness outline stays visible against both grounds it touches`, () => {
+      const edge = tokenIn(mode.src, "--color-accent-edge-runtime");
+      const sunken = tokenIn(mode.src, "--color-surface-sunken-runtime");
+      // The cue is an OUTLINE only; the accent-tint wash was removed on design
+      // review, so the text-on-tint rows this block once carried no longer
+      // describe anything that ships. What remains is the outline against the two
+      // grounds it can touch: `surface`, which is the card's fill AND the
+      // sub-header band's, and `surface-sunken` as a defensive second ground so a
+      // future band retune cannot drop the cue below floor unnoticed.
+      expect(contrast(edge, mode.surface)).toBeGreaterThanOrEqual(DOT_FLOOR);
+      expect(contrast(edge, sunken)).toBeGreaterThanOrEqual(DOT_FLOOR);
+    });
+  }
+
   it("accent-edge is wired: @theme alias present, runtime value in ALL three blocks, dark blocks identical", () => {
     expect(css).toMatch(/--color-accent-edge:\s*var\(--color-accent-edge-runtime\)\s*;/);
     const lightVal = tokenIn(block(":root {"), "--color-accent-edge-runtime");

@@ -95,6 +95,11 @@ const EXPECTED_GLOBAL_IDS = [
 // is a reviewed diff naming its spec. Added since the capture:
 // warn-hotel-inline-group-own-hotel + warn-hotel-inline-group-hotel-suspected
 // (docs/superpowers/specs/parser/2026-07-27-inline-later-group-own-hotel-design.md §6).
+// Eleven more added 2026-08-03 by `chore/scanner-precision-cluster`
+// (docs/superpowers/specs/2026-08-03-scanner-precision-cluster-design.md §2.4): these
+// codes were always emitted and always in the §12.4 catalog, but the old scanner could
+// not see the factories that build them, so the gallery never rendered them. They are
+// recovered, not new — which is exactly the rot the guard now prevents.
 const RENDERED_IDS_BEFORE: string[] = [
   "alert-ambiguous-email-binding",
   "alert-asset-recovery-bytes-exceeded",
@@ -138,8 +143,6 @@ const RENDERED_IDS_BEFORE: string[] = [
   "t2-auto-resolving",
   "t2-changelog-history",
   "t2-class-mix",
-  // Added deliberately by the producer-parity change: the beyond-CREW_CAP
-  // fan-out fallback scenario. The pin still bites for every OTHER movement.
   "t2-crew-beyond-cap",
   "t2-degraded",
   "t2-degraded-with-holds",
@@ -203,6 +206,13 @@ const RENDERED_IDS_BEFORE: string[] = [
   "warn-crew-column-positional-fallback",
   "warn-date-order-suggests-dmy",
   "warn-day-restriction-double-location",
+  "warn-diagrams-embedded-cap-exceeded",
+  "warn-diagrams-embedded-none-found",
+  "warn-diagrams-embedded-object-inaccessible",
+  "warn-diagrams-embedded-revisions-unavailable",
+  "warn-diagrams-tab-missing",
+  "warn-embedded-asset-drifted",
+  "warn-embedded-recovery-requires-restage",
   "warn-field-label-autocorrected",
   "warn-field-unreadable",
   "warn-hotel-address-split-ambiguous",
@@ -210,12 +220,16 @@ const RENDERED_IDS_BEFORE: string[] = [
   "warn-hotel-guest-split-ambiguous",
   "warn-hotel-inline-group-hotel-suspected",
   "warn-hotel-inline-group-own-hotel",
+  "warn-linked-folder-overflow-truncated",
+  "warn-opening-reel-not-video",
+  "warn-opening-reel-permission-denied",
   "warn-orphaned-crew-rows",
   "warn-pull-sheet-ambiguous-format",
   "warn-pull-sheet-on-archived-tab",
   "warn-pull-sheet-override-content-changed",
   "warn-pull-sheet-parse-partial",
   "warn-pull-sheet-unknown-variant",
+  "warn-reel-drifted",
   "warn-role-token-autocorrected",
   "warn-room-header-split-ambiguous",
   "warn-schedule-strike-date-off-schedule",
