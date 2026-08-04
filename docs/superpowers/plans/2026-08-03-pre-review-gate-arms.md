@@ -179,7 +179,9 @@ Add the **inline-mention fixture**, from a live probe against this very plan. Ex
 
 <!-- task: red=`pnpm test` ac=AC-1,AC-14 -->
 
-**RED.** `pnpm test`, `pnpm typecheck` (vitest and playwright projects both), `pnpm lint`, `pnpm format:check`, and `pnpm spec:lint` on both the spec and this plan. Env-bound and e2e suites are excluded from `pnpm test` by configuration and are not implicated by this diff.
+**RED.** `pnpm test`, `pnpm typecheck`, `pnpm lint`, `pnpm format:check`, and `pnpm spec:lint` on both the spec and this plan.
+
+Two corrections to what an earlier draft of this task asserted, both verified against the repo. `pnpm typecheck` is a single `tsc --noEmit` over one `tsconfig.json` (`package.json:29`) — there is no separate playwright project to run. And env-bound files are **not** excluded from a local `pnpm test`: the exclusion is a project-level gate on `VITEST_EXCLUDE_ENV_BOUND=1`, which only `unit-suite.yml` sets (`.github/workflows/unit-suite.yml:132`, `.github/workflows/unit-suite.yml:164`). Locally they run. This diff does not touch them, but the task must not claim a local exclusion that does not exist.
 
 **GREEN.** Fix whatever the gate surfaces.
 
