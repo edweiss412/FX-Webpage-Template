@@ -475,7 +475,7 @@ git commit -m "feat(sync): report landed and unlanded identity-link renames from
 
 **Interfaces:**
 - Consumes: Task 2's `ApplyParseResultOutcome`.
-- Produces: `Phase2Result` gains `unlandedRenames: UnlandedRename[]` (mirroring how `roleFlagsNotice?` already rides this type at `lib/sync/phase2.ts:168`).
+- Produces: `Phase2Result` gains **`unlandedRenames?: UnlandedRename[]`** — OPTIONAL, exactly mirroring `roleFlagsNotice?` at `lib/sync/phase2.ts:168`.
 
 **Context:** `roleFlagsNotice` is the proven template for a field that must survive every hop out to a post-commit sink — follow its declaration and propagation exactly. `landedRenames` does **not** need to leave phase2 (its only consumers are inside it, Tasks 4 and 5); `unlandedRenames` does, because Unit B emits it from post-commit sinks.
 
@@ -506,7 +506,9 @@ Expected: FAIL — property does not exist.
 
 - [ ] **Step 3: Add the field and populate it**
 
-Declare `unlandedRenames: UnlandedRename[]` on the phase2 result type beside `roleFlagsNotice?`, and populate it from `applyOutcome.unlandedRenames` at the call site. Non-optional with a `[]` default is correct here: an empty array is the honest value for a run with no unlanded pairs, and it removes an `undefined` check from every downstream hop.
+Declare **`unlandedRenames?: UnlandedRename[]`** on the phase2 result type beside `roleFlagsNotice?`, and populate it from `applyOutcome.unlandedRenames` at the call site. Consumers default with `?? []`.
+
+**It must be OPTIONAL, and this is not a style preference.** An earlier revision made it required, arguing an empty array is the honest value. A compiler probe measured the cost: **77 missing-property diagnostics** across ten test files that construct these result objects (`tests/sync/applyStaged.test.ts`, `runScheduledCronSync.test.ts` with 54 alone, `applyStagedCore.test.ts`, `flowCLivePendingApplyGate.test.ts`, `recovery-resolution-syncpath.test.ts`, `roleVocabDriftResync.test.ts`, `syncDiagramRevalidate.test.ts`, `applyStaged.lockContention-telemetry.test.ts`, `runScheduledCronSync.adapter.test.ts`). Those failures would surface only at Task 14's whole-repo typecheck, long after the task commits that were supposed to keep the tree compiling. `roleFlagsNotice?` is optional on all three result types for exactly this reason — follow the precedent. **Apply the same optionality at the `lib/sync/applyStagedCore.ts:474` and `lib/sync/applyStaged.ts:265` hops in Task 7.**
 
 - [ ] **Step 4: Run to verify it passes**
 
@@ -712,7 +714,9 @@ Expected: FAIL — a `crew_renamed` row is present in the suppressed cases.
 
 - [ ] **Step 3: Change the writer**
 
-Add `landedRenames: IdentityLinkRename[]` to `WriteAutoApplyChangesArgs`. Replace `const renames = renamePairs(args.triggeredItems);` (line 78) with:
+Add `landedRenames: IdentityLinkRename[]` to `WriteAutoApplyChangesArgs`. **Keep it REQUIRED** — unlike the result-type field above, defaulting this to `[]` would silently reproduce the P2-F2 defect this unit exists to fix: a caller that forgets it writes no rename rows at all, with no compiler complaint.
+
+**That makes 12 direct unit-test callers a required part of THIS task**, measured by compiler probe, all in `tests/sync/writeChangeLog.autoApply.test.ts` at lines 48, 79, 103, 127, 146, 167, 196, 226, 251, 275, 300 and 333. Most take `landedRenames: []`. **One does not:** the `crew_renamed` contract test at line 95 ("entity_ref is the PRIOR name (PF28)") must receive the actual landed pair, or its subject stops existing and the test passes vacuously. Read that test before editing it and give it the pair its fixture renames. Replace `const renames = renamePairs(args.triggeredItems);` (line 78) with:
 
 ```ts
   // P2-F2: renames come from what the apply LANDED, never re-derived from triggeredItems. The old
@@ -730,13 +734,13 @@ At `lib/sync/phase2.ts:537-550`, pass `landedRenames: applyOutcome.landedRenames
 
 - [ ] **Step 5: Run to verify they pass**
 
-Run: `pnpm vitest run tests/db/stagedApplyIdentityLink.db.test.ts tests/sync/phase2.test.ts`
-Expected: PASS, including the pre-existing identity-link feed tests at `tests/db/stagedApplyIdentityLink.db.test.ts:44`, line 74, line 91, line 124.
+Run: `pnpm vitest run tests/db/stagedApplyIdentityLink.db.test.ts tests/sync/phase2.test.ts tests/sync/writeChangeLog.autoApply.test.ts`
+Expected: PASS, including the PF28 contract test at `tests/sync/writeChangeLog.autoApply.test.ts:95` and the pre-existing identity-link feed tests at `tests/db/stagedApplyIdentityLink.db.test.ts:44`, line 74, line 91, line 124.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add lib/sync/changeLog/writeAutoApplyChanges.ts lib/sync/phase2.ts tests/db/stagedApplyIdentityLink.db.test.ts
+git add lib/sync/changeLog/writeAutoApplyChanges.ts lib/sync/phase2.ts tests/db/stagedApplyIdentityLink.db.test.ts tests/sync/writeChangeLog.autoApply.test.ts
 git commit -m "fix(sync): derive crew_renamed from landed pairs, completing the P2-F2 contract"
 ```
 
@@ -951,8 +955,12 @@ Preserve the `ROW_COUNT` fail-safe (lines 199-204) and the advisory-lock acquisi
 - [ ] **Step 6: Apply locally and run**
 
 ```bash
-psql "$DATABASE_URL" -f supabase/migrations/20260804000000_undo_change_selections_reset_at.sql
-psql "$DATABASE_URL" -c "notify pgrst, 'reload schema';"
+# NOTE: $DATABASE_URL is NOT set in this repo. .env.local carries SUPABASE_URL and
+# TEST_DATABASE_URL; TEST_DATABASE_URL may be NON-loopback (preflight warns about this), so pin
+# the local instance explicitly rather than trusting either.
+LOCAL_DB="postgresql://postgres:postgres@127.0.0.1:54322/postgres"
+psql "$LOCAL_DB" -f supabase/migrations/20260804000000_undo_change_selections_reset_at.sql
+psql "$LOCAL_DB" -c "notify pgrst, 'reload schema';"
 pnpm vitest run tests/db/undo-change-direction-a.test.ts
 ```
 Expected: PASS.
@@ -1014,8 +1022,12 @@ Copy the entire current body of `mi11_approve_hold` (`supabase/migrations/202606
 - [ ] **Step 4: Apply and run**
 
 ```bash
-psql "$DATABASE_URL" -f supabase/migrations/20260804000000_undo_change_selections_reset_at.sql
-psql "$DATABASE_URL" -c "notify pgrst, 'reload schema';"
+# NOTE: $DATABASE_URL is NOT set in this repo. .env.local carries SUPABASE_URL and
+# TEST_DATABASE_URL; TEST_DATABASE_URL may be NON-loopback (preflight warns about this), so pin
+# the local instance explicitly rather than trusting either.
+LOCAL_DB="postgresql://postgres:postgres@127.0.0.1:54322/postgres"
+psql "$LOCAL_DB" -f supabase/migrations/20260804000000_undo_change_selections_reset_at.sql
+psql "$LOCAL_DB" -c "notify pgrst, 'reload schema';"
 pnpm vitest run tests/db/undo-change-direction-a.test.ts tests/db/undo-change-guards.test.ts tests/db/undo_change_lifecycle_guard.test.ts
 ```
 Expected: PASS.
