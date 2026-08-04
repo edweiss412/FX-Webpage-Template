@@ -453,8 +453,7 @@ const FONT_VARIANT_KEYWORD_TAGS = new Map<string, string>([
  * keyword. Round 19's mutant compiled to exactly that and sailed past a scan
  * that only looked at `font-variant-*`.
  */
-const FONT_VARIANT_PROPS =
-  /^(font-variant(-numeric|-caps|-ligatures|-east-asian|-alternates)?|--tw-[a-z-]*(ordinal|zero|numeric|caps|ligatures)[a-z-]*)$/;
+const FONT_VARIANT_PROPS = /^(font-variant(-numeric|-caps|-ligatures|-east-asian|-alternates)?|--)/;
 
 /** Every OpenType tag the sheet requests through a `font-variant-*` keyword. */
 /** Keywords that request NO OpenType feature — the property's own vocabulary. */
@@ -489,12 +488,22 @@ export function fontVariantTags(
 ): { tag: string | null; keyword: string; selector: string }[] {
   const out: { tag: string | null; keyword: string; selector: string }[] = [];
   postcss.parse(cssSource).walkDecls((decl) => {
-    if (!FONT_VARIANT_PROPS.test(normalizeProp(decl.prop).name)) return;
+    const prop = normalizeProp(decl.prop).name;
+    if (!FONT_VARIANT_PROPS.test(prop)) return;
+    // ANY custom property, not only Tailwind's `--tw-*`. Round 21:
+    // `--fx-numeric: oldstyle-nums; font-variant-numeric: var(--fx-numeric)`
+    // routes the keyword through a name the guard had never heard of. A custom
+    // property is only interesting here when its VALUE is a keyword, so matching
+    // every `--*` and filtering on the value costs nothing and cannot be
+    // out-named.
     const selector =
       decl.parent && "selector" in decl.parent ? String(decl.parent.selector) : "(unknown)";
     for (const raw of decl.value.toLowerCase().split(/\s+/)) {
       const keyword = raw.trim();
       if (FONT_VARIANT_NEUTRAL.has(keyword) || keyword.startsWith("var(")) continue;
+      // A custom property is in scope only when it actually carries a keyword;
+      // `--color-bg: #fff` is not a font-variant declaration.
+      if (prop.startsWith("--") && !FONT_VARIANT_KEYWORD_TAGS.has(keyword)) continue;
       // An UNMAPPED keyword is reported with a null tag, not skipped. Round 20:
       // `font-variant-alternates: historical-forms` requests `hist`, which this
       // font lacks, and silently passed a scan that ignored what it did not
@@ -1126,6 +1135,18 @@ describe("font feature availability", () => {
     // pin cannot pass unnoticed.
     const unpinned = declared.filter((r) => !PINNED_RANGE_COVERAGE.has(r));
     expect(unpinned, "every declared range carries a pinned coverage count").toEqual([]);
+
+    // …AND every pinned range is still declared. Round 21: deleting a range from
+    // the script simply removed it from `declared`, so nothing examined it and
+    // its 159 codepoints could vanish with every other check green. Checking one
+    // direction only is how a census misses a deletion.
+    const dropped = [...PINNED_RANGE_COVERAGE.keys()].filter((r) => !declared.includes(r));
+    expect(
+      dropped,
+      `these ranges were REMOVED from scripts/subset-inter.sh: ${dropped.join(", ")}. ` +
+        `That narrows the ratified coverage — if deliberate, re-pin here and say why ` +
+        `in the spec's §2.6.`,
+    ).toEqual([]);
 
     // …and the scripts deliberately DROPPED stay dropped, so this pins a decision
     // rather than just asserting a large font.

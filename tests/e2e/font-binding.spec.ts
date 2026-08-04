@@ -42,6 +42,11 @@ type FontReport = {
   faces: { family: string; status: string; style: string; weight: string; unicodeRange: string }[];
   /** Elements whose INLINE style touches the guarded font properties. */
   inlineOverrides: string[];
+  /**
+   * Elements carrying a class the static guard EXEMPTED on the grounds that
+   * nothing applies it. Non-empty means the exemption's premise is false.
+   */
+  exemptedVariantClasses: string[];
   htmlFontFamily: string;
   fontInterToken: string;
   /** The family `--font-inter` names first — what the loader actually generated. */
@@ -98,6 +103,14 @@ async function measureFonts(page: Page): Promise<FontReport> {
       // bound through the same token indirection (review R15).
       forcedInter: measure(loaderFamily ? `"${loaderFamily}"` : '"Inter"'),
       forcedSansSerif: measure("sans-serif"),
+      // `.ordinal` is exempted statically because Tailwind emits it from a JS
+      // parameter name, not from a className — a claim that goes stale silently
+      // the moment someone writes `className="ordinal"`, since the compiled CSS
+      // would not change at all. Round 21. So the claim is VERIFIED here, on the
+      // rendered page, instead of being asserted in a comment.
+      exemptedVariantClasses: Array.from(document.querySelectorAll(".ordinal")).map(
+        (el) => el.tagName.toLowerCase() + "." + el.className,
+      ),
       inlineOverrides: Array.from(document.querySelectorAll("[style]"))
         .filter((el) => {
           const style = el.getAttribute("style") || "";
@@ -305,6 +318,17 @@ function assertExposesFontInterToken(report: FontReport, surface: string): void 
   expect(
     report.inlineOverrides,
     `${surface}: inline styles overriding or resetting the font features`,
+  ).toEqual([]);
+
+  // (8) THE STATIC EXEMPTION'S PREMISE, CHECKED. `.ordinal` requests `ordn`,
+  //     which this font lacks; the static guard tolerates the emitted rule only
+  //     because nothing applies the class. If something does, the exemption is
+  //     wrong and the element is rendering a feature that does not exist.
+  expect(
+    report.exemptedVariantClasses,
+    `${surface}: elements carry \`.ordinal\`, but the static guard exempts that ` +
+      `utility on the grounds that nothing applies it — the exemption is now false, ` +
+      `and these elements request an OpenType feature the font does not have`,
   ).toEqual([]);
 
   const fallbackFaces = report.faces.filter((f) => f.family === report.companionFamily);

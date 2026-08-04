@@ -805,3 +805,17 @@ So the over-approximation is **accepted and made explicit** instead. Every emitt
 That is the fourth time in this review the answer has been *stop deciding, start declaring*. It is reliably the move that ends a vector.
 
 **Seventy-eight mutants across twenty rounds. All caught.**
+
+### 12.21 Round 21 — an exemption is a claim, and claims go stale
+
+`VERDICT: NEEDS-ATTENTION`, three escapes, all accepted and fixed. All inside families 11 and 12.
+
+| # | Sev | Finding | Disposition |
+| --- | --- | --- | --- |
+| 1 | **P1** | **The `.ordinal` exemption was fail-open.** It is justified by "nothing applies the class" — and adding `className="ordinal"` **changes no compiled rule at all**, because Tailwind already emits the utility from the JS parameter name. So the premise could become false without any signal, and the exemption would go on suppressing a request for `ordn`, which this font lacks. | **FIXED, by verifying the claim instead of asserting it.** The runtime census now looks for `.ordinal` on every surface the suite renders and fails if it finds one. Renaming the identifier was considered and rejected: `ordinal` is a legitimate domain term across sixteen files (agenda ordinals, parser ordinals), and bending the product to quiet a test is the wrong trade. |
+| 2 | **P1** | **Custom-property indirection with a non-Tailwind name.** `--fx-numeric: oldstyle-nums; font-variant-numeric: var(--fx-numeric)` — the guard inspected only `--tw-*` carriers, so a name it had never heard of carried the keyword straight through. | **FIXED.** Every `--*` declaration is now considered, filtered on whether its VALUE is a font-variant keyword. A carrier cannot be out-named if the name is not what identifies it. |
+| 3 | P2 | **A pinned range that is no longer DECLARED was never examined.** Deleting `U+1E00–1E9F` from the subset script simply removed it from the parsed list; the count check iterates declared ranges, so nothing looked at it, and its 159 codepoints could vanish with every other check green. | **FIXED.** The census now runs in both directions: every declared range must be pinned, and every pinned range must still be declared. Checking one direction only is how a census misses a deletion. |
+
+**The lesson, and it generalises past this file:** *an allowlist entry is a claim about the world, and a claim with no test decays into a comment.* Three of this guard's censuses — `ALLOWED_FEATURE_RESETS`, `ALLOWED_FONT_FAMILY_RULES`, `ALLOWED_UNSUPPORTED_VARIANTS` — carry reasons that were true when written. Only the third had a way to notice if its reason stopped being true, and only after this round.
+
+**Eighty-one mutants across twenty-one rounds. All caught.**
