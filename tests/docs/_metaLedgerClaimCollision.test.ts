@@ -8,105 +8,37 @@
 // second session's work — spec, TDD, probes, two dispatched reviews — was
 // discarded as a duplicate.
 //
+// WHY IT OWNS NO GIT CODE. It used to carry its own `git show`, its own ref
+// enumeration, and its own identity resolution, parallel to the reader's. Seven
+// whole-diff review rounds found the SAME defect in both copies — fail-open
+// error handling, the `origin/HEAD` alias rendering as `origin`, identity drift
+// on detached HEAD — and each had to be fixed twice. It now consumes
+// `realGitSurface()` and `resolveClaims()`, so there is one implementation to
+// get right and one place a fix lands.
+//
 // SCOPE. Declared-versus-declared only, for two independent reasons: an
 // `inferred` claim is a heuristic over diff hunks and must never fail a PR, and
-// it cannot even be computed here, since it needs a merge-base that a shallow CI
+// it cannot be computed here anyway, since it needs a merge-base a shallow CI
 // clone does not have.
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
+import { resolveClaims } from "@/scripts/lib/ledger-claims-core";
 import { isInProgress, ledgerFiles, ledgerItems } from "@/scripts/lib/ledger-fields";
+import { realGitSurface } from "@/scripts/lib/ledger-git";
 
 const ROOT = join(__dirname, "..", "..");
-// GITHUB_ACTIONS only, matching the reader: a bare CI=true is set by local
-// harnesses including this repo's own serial vitest project, and treating it as
-// CI sends a local run down the event-payload path where identity reads
-// unresolved.
 const IN_CI = process.env.GITHUB_ACTIONS === "true";
-const FETCH_MS = 30_000;
-
-const git = (args: string[]): string =>
-  execFileSync("git", args, { cwd: ROOT, encoding: "utf8", timeout: FETCH_MS });
-
-const gitQuiet = (args: string[]): string | null => {
-  try {
-    return execFileSync("git", args, {
-      cwd: ROOT,
-      encoding: "utf8",
-      timeout: FETCH_MS,
-      stdio: ["ignore", "pipe", "ignore"],
-    });
-  } catch {
-    return null;
-  }
-};
-
-/**
- * Identity, by the same three-case rule the reader uses. Collapsing any two
- * breaks one: outside CI the event payload is always absent, so treating that as
- * unknown would make every local run report its own claims as collisions.
- */
-export type IdentityEnv = {
-  inCI: boolean;
-  gitBranch: string | null;
-  headRepo: string | null;
-  baseRepo: string | null;
-  headRef: string | null;
-};
-
-/**
- * Pure so fixtures can exercise it. Previously only the ambient environment
- * called this, so M5 was not closed on the backstop: a mutant self-excluding a
- * same-named fork branch passed every test.
- */
-export function resolveSelf(env: IdentityEnv): { branch: string | null; identity: string } {
-  if (!env.inCI) {
-    const name = env.gitBranch;
-    // Detached HEAD locally means self cannot be established, which is
-    // unresolved — not "resolved, and nothing is me".
-    return name && name !== "HEAD"
-      ? { branch: name, identity: "local" }
-      : { branch: null, identity: "ci-unknown" };
-  }
-  if (env.headRepo === null) return { branch: null, identity: "ci-unknown" };
-  if (env.baseRepo === null) return { branch: null, identity: "ci-unknown" };
-  // A bare branch name is not an identity across repositories: on a fork PR no
-  // base ref is "me", so nothing may be excluded as self.
-  if (env.headRepo !== env.baseRepo) return { branch: null, identity: "ci-resolved-fork" };
-  return { branch: env.headRef, identity: "ci-resolved" };
-}
-
-function selfBranch(): { branch: string | null; identity: string } {
-  let head: string | null = null;
-  const p = process.env.GITHUB_EVENT_PATH;
-  if (IN_CI && p) {
-    try {
-      const ev = JSON.parse(readFileSync(p, "utf8")) as {
-        pull_request?: { head?: { repo?: { full_name?: string } } };
-      };
-      head = ev.pull_request?.head?.repo?.full_name ?? null;
-    } catch {
-      head = null;
-    }
-  }
-  return resolveSelf({
-    inCI: IN_CI,
-    gitBranch: (gitQuiet(["rev-parse", "--abbrev-ref", "HEAD"]) ?? "").trim() || null,
-    headRepo: head,
-    baseRepo: process.env.GITHUB_REPOSITORY || null,
-    headRef: process.env.GITHUB_HEAD_REF ?? null,
-  });
-}
 
 /**
  * The comparison itself, pure and therefore testable.
  *
- * Extracted because the live rule above is conditional on this branch declaring
- * something, and this branch declares nothing — so a mutant replacing the loop
- * with `[]` passed the entire file. The planted suite below exercises THIS.
+ * The live rule below is conditional on this branch declaring something, and
+ * most branches declare nothing — so a mutant replacing the loop with `[]`
+ * passed the entire file until this was extracted.
  */
 export function findCollisions(
   mine: string[],
@@ -122,34 +54,11 @@ export function findCollisions(
   return out;
 }
 
-/**
- * `git show` that distinguishes ABSENT from FAILED. Collapsing them lets an
- * object-read failure read as "this branch has no ledger", dropping every marker
- * on it so the guard passes without ever inspecting the claimed branch.
- */
-function showOrThrow(ref: string, file: string): string | null {
-  const r = spawnSync("git", ["show", `${ref}:${file}`], {
-    cwd: ROOT,
-    encoding: "utf8",
-    timeout: FETCH_MS,
-    stdio: ["ignore", "pipe", "pipe"],
-  });
-  if (r.status === 0) return r.stdout ?? "";
-  const err = `${r.stderr ?? ""}`;
-  // Only a genuinely missing path is absent; a bad ref (concurrent prune) must
-  // not read as "this branch has no ledger".
-  if (/does not exist in|exists on disk, but not in/i.test(err)) {
-    return null;
-  }
-  throw new Error(`git show ${ref}:${file} failed: ${err.trim() || `status ${r.status}`}`);
-}
-
-/** Declared claims at a ref, keyed by the ref rather than by the marker's own field. */
-function declaredAt(ref: string): string[] {
+/** What THIS working tree declares — the thing the PR actually proposes. */
+function declaredHere(): string[] {
   const out: string[] = [];
   for (const file of ledgerFiles(ROOT)) {
-    const text = ref === "" ? readFileSync(join(ROOT, file), "utf8") : showOrThrow(ref, file);
-    if (text === null) continue;
+    const text = readFileSync(join(ROOT, file), "utf8");
     for (const item of ledgerItems(file, text)) if (isInProgress(item)) out.push(item.id);
   }
   return out;
@@ -157,98 +66,55 @@ function declaredAt(ref: string): string[] {
 
 describe("ledger claim collision (cross-branch backstop)", () => {
   it("declares no row that another live branch already declares", () => {
-    // Fetch what we need. Depth 1 is sufficient: only tip file content is read,
-    // and it respects the wall-clock constraint at
-    // .github/workflows/unit-suite.yml:149 that rejected fetch-depth: 0.
-    try {
-      // ONLY under CI, and only into an already-shallow checkout. A --depth=1
-      // fetch CONVERTS a full clone into a shallow one: it writes .git/shallow,
-      // which then breaks merge-base, ancestry, and this repo's own
-      // merged-exclusion for every later command in that worktree. This test did
-      // exactly that to its author's worktree, which is how the rule was learned.
-      //
-      // Locally the refs are already present and current from ordinary work, so
-      // there is nothing to fetch and nothing to damage.
-      // Gated on the checkout ACTUALLY being shallow, not on CI: `CI=true pnpm
-      // test` in a full clone, or a future workflow using fetch-depth: 0, would
-      // otherwise still write .git/shallow and damage ancestry for every later
-      // command. The condition that matters is the repo shape, not the label.
-      const alreadyShallow =
-        (gitQuiet(["rev-parse", "--is-shallow-repository"]) ?? "").trim() === "true";
-      // Refresh in CI whichever depth the checkout has. Skipping on a full
-      // clone leaves a branch pushed after checkout invisible to the guard —
-      // exactly the collision it exists to catch. Only the DEPTH argument is
-      // conditional, because --depth=1 is what converts a full clone to shallow.
-      if (IN_CI) {
-        const depthArgs = alreadyShallow ? ["--depth=1"] : [];
-        git(["fetch", "--no-tags", ...depthArgs, "origin", "+refs/heads/*:refs/remotes/origin/*"]);
-      }
-    } catch (e) {
-      // Under CI a fetch failure FAILS: a guard that cannot see the universe
-      // must not report it clean. Locally it skips, so an offline `pnpm test`
-      // does not go red for an environmental reason.
-      if (IN_CI) throw e;
-      return;
+    // Refresh in CI at whatever depth the checkout has. Skipping on a full clone
+    // would leave a branch pushed after checkout invisible — the exact collision
+    // this exists to catch. Only the --depth=1 argument is conditional, because
+    // that is what converts a full clone to shallow and breaks ancestry for every
+    // later command in the worktree.
+    if (IN_CI) {
+      const shallow =
+        execFileSync("git", ["rev-parse", "--is-shallow-repository"], {
+          cwd: ROOT,
+          encoding: "utf8",
+          timeout: 30_000,
+        }).trim() === "true";
+      // Under CI a fetch failure FAILS, deliberately unwrapped: a guard that
+      // cannot see the universe must not report it clean.
+      execFileSync(
+        "git",
+        [
+          "fetch",
+          "--no-tags",
+          ...(shallow ? ["--depth=1"] : []),
+          "origin",
+          "+refs/heads/*:refs/remotes/origin/*",
+        ],
+        { cwd: ROOT, timeout: 30_000 },
+      );
     }
 
-    // Vacuous-pass guard: assert origin/main RESOLVED, never that a non-main
-    // head exists. A fork PR against a base repo holding only `main` has zero
-    // candidates and is a correct pass; requiring one would reject it.
-    expect(gitQuiet(["rev-parse", "--verify", "origin/main"]), "origin/main did not resolve").not.toBeNull();
+    const mine = declaredHere();
 
-    const mine = declaredAt(""); // the working tree, which is what this PR proposes
-    const { branch: self } = selfBranch();
+    // One shared reader. Every git fault in it THROWS rather than yielding an
+    // empty answer, so a failure surfaces as a red test instead of a clean pass
+    // over a universe that was never inspected.
+    const res = resolveClaims(realGitSurface(), { fetch: false });
 
-    // Enumeration failing is an UNKNOWN universe, not an empty one: `?? ""`
-    // would let the guard pass having inspected nothing at all.
-    const refsRaw = spawnSync(
-      "git",
-      ["for-each-ref", "--format=%(refname:short)", "refs/remotes/origin"],
-      { cwd: ROOT, encoding: "utf8", timeout: FETCH_MS },
-    );
-    expect(refsRaw.status, `could not enumerate refs: ${refsRaw.stderr ?? ""}`).toBe(0);
-    const refs = (refsRaw.stdout ?? "")
-      .split("\n")
-      .map((s) => s.trim())
-      // `%(refname:short)` renders refs/remotes/origin/HEAD as plain "origin",
-      // NOT "origin/HEAD" — so filtering the latter never excluded it and main
-      // entered the candidate set, where its own markers read as another
-      // branch's claims on a branch literally named "origin".
-      .filter((r) => r.length > 0 && r !== "origin/main" && r !== "origin" && r !== "origin/HEAD");
+    const byBranch = new Map<string, string[]>();
+    for (const c of res.claims) {
+      if (c.kind !== "declared") continue;
+      byBranch.set(c.branch, [...(byBranch.get(c.branch) ?? []), c.id]);
+    }
+    const others = [...byBranch.entries()].map(([branch, declared]) => ({ branch, declared }));
 
-    const others = refs.map((ref) => ({
-      branch: ref.replace(/^origin\//, ""),
-      declared: declaredAt(ref),
-    }));
     // ONE call site, used twice. When this branch declares nothing — the normal
     // case — no assertion on `collisions` can distinguish a working call from a
     // literal `[]`, because both are empty. Routing a canary through the SAME
     // function makes the machinery provable on every run.
-    const collide = (ids: string[]) => findCollisions(ids, others, self);
+    const collide = (ids: string[]) => findCollisions(ids, others, res.selfBranch);
     const collisions = collide(mine);
 
-    // The wiring is exercised even when this branch declares nothing, which is
-    // the normal case and was previously an early return — so `const collisions
-    // = []` passed the whole file. A canary row that another live branch DOES
-    // declare must be detected when injected into `mine`, proving the call is
-    // real rather than that the loop was skipped.
-    // NOT asserted: that a non-main candidate exists. §7.3 makes an origin
-    // holding only `main` a valid pass — a fork PR against such a repo has zero
-    // candidates and is correct — so requiring one would reject legitimate PRs.
-    //
-    // What IS asserted, when there is anything to assert it against: some other
-    // branch declares something. `declared.length >= 0` was tautological, so a
-    // `declared: []` mutant killed the canary and passed. This bites.
-    const anyDeclared = others.some((o) => o.declared.length > 0);
-    if (others.length > 0) {
-      expect(anyDeclared, "declaredAt returned nothing for every ref — it is not reading").toBe(true);
-    }
-
-    // Canary through the same call site: pick a row another live branch actually
-    // declares and assert it is detected. This is what fails if `collide` stops
-    // comparing. It cannot cover a mutant that replaces only the `collide(mine)`
-    // line itself, which is stated rather than papered over.
-    const other = others.find((o) => o.branch !== self && o.declared.length > 0);
+    const other = others.find((o) => o.branch !== res.selfBranch && o.declared.length > 0);
     const canary = other?.declared[0];
     if (other !== undefined && canary !== undefined) {
       expect(
@@ -284,36 +150,39 @@ describe("the backstop catches what it claims to", () => {
   });
 
   it("sees a marker below the 12-line window, which is the shape that started this", () => {
-    const body = ["**Status:** OPEN", ...Array<string>(15).fill("filler"), "**Status:** IN PROGRESS · **Branch:** feat/x"].join("\n\n");
+    const body = [
+      "**Status:** OPEN",
+      ...Array<string>(15).fill("filler"),
+      "**Status:** IN PROGRESS · **Branch:** feat/x",
+    ].join("\n\n");
     const items = ledgerItems("BACKLOG.md", `## BL-PLANTED-DEEP — planted\n\n${body}\n`);
     expect(items.filter(isInProgress).map((i) => i.id)).toEqual(["BL-PLANTED-DEEP"]);
   });
 });
 
 describe("findCollisions — the comparison the live rule cannot exercise here", () => {
-  // Whole-diff review F5: this branch declares nothing, so the live test returns
-  // early and `const collisions = []` passed the whole file. These plant the
-  // comparison directly.
   it("reports a row another branch declares", () => {
-    expect(findCollisions(["BL-X"], [{ branch: "feat/other", declared: ["BL-X"] }], "feat/mine")).toEqual([
-      "BL-X is also declared by feat/other",
-    ]);
+    expect(
+      findCollisions(["BL-X"], [{ branch: "feat/other", declared: ["BL-X"] }], "feat/mine"),
+    ).toEqual(["BL-X is also declared by feat/other"]);
   });
 
   it("does not report my own pushed head", () => {
-    expect(findCollisions(["BL-X"], [{ branch: "feat/mine", declared: ["BL-X"] }], "feat/mine")).toEqual([]);
+    expect(
+      findCollisions(["BL-X"], [{ branch: "feat/mine", declared: ["BL-X"] }], "feat/mine"),
+    ).toEqual([]);
   });
 
   it("reports my own head when identity is unresolved, because nothing is self", () => {
-    // The fork and ci-unknown cases both pass self=null, which is deliberate:
-    // over-report rather than go quiet.
     expect(findCollisions(["BL-X"], [{ branch: "feat/mine", declared: ["BL-X"] }], null)).toEqual([
       "BL-X is also declared by feat/mine",
     ]);
   });
 
   it("ignores rows this branch does not declare", () => {
-    expect(findCollisions(["BL-X"], [{ branch: "feat/other", declared: ["BL-OTHER"] }], null)).toEqual([]);
+    expect(
+      findCollisions(["BL-X"], [{ branch: "feat/other", declared: ["BL-OTHER"] }], null),
+    ).toEqual([]);
   });
 
   it("reports every colliding branch, not just the first", () => {
@@ -326,41 +195,5 @@ describe("findCollisions — the comparison the live rule cannot exercise here",
       null,
     );
     expect(out).toHaveLength(2);
-  });
-});
-
-describe("resolveSelf — M5 closed on the backstop (whole-diff R4 F4)", () => {
-  const base = { inCI: true, gitBranch: "x", headRepo: "base/r", baseRepo: "base/r", headRef: "feat/a" };
-
-  it("local: self is the git branch", () => {
-    expect(resolveSelf({ ...base, inCI: false, gitBranch: "feat/a" })).toEqual({
-      branch: "feat/a",
-      identity: "local",
-    });
-  });
-
-  it("local detached: unresolved, so nothing is self", () => {
-    expect(resolveSelf({ ...base, inCI: false, gitBranch: "HEAD" }).identity).toBe("ci-unknown");
-  });
-
-  it("CI same-repository: self is the head ref", () => {
-    expect(resolveSelf(base)).toEqual({ branch: "feat/a", identity: "ci-resolved" });
-  });
-
-  it("CI fork: NO base ref is self, even when the head names a real base branch", () => {
-    // The mutant this closes: self-excluding a same-named base branch on a fork
-    // PR, which hides a real collision.
-    expect(resolveSelf({ ...base, headRepo: "fork/r" })).toEqual({
-      branch: null,
-      identity: "ci-resolved-fork",
-    });
-  });
-
-  it("CI with an unreadable payload: unresolved", () => {
-    expect(resolveSelf({ ...base, headRepo: null }).branch).toBeNull();
-  });
-
-  it("CI with no base repository: unresolved, not same-repo", () => {
-    expect(resolveSelf({ ...base, baseRepo: null }).identity).toBe("ci-unknown");
   });
 });
