@@ -27,6 +27,7 @@ import * as fontkit from "fontkit";
 import postcss from "postcss";
 import ts from "typescript";
 import { describe, expect, test } from "vitest";
+import { stripCommentsForFile } from "../_shared/stripComments";
 
 const REPO_ROOT = resolve(__dirname, "..", "..");
 
@@ -517,8 +518,33 @@ describe("parseFeatureValue — recognises the canonical form, refuses everythin
  * Walked from disk over `app/`, `components/` and `lib/`, so a new file is
  * covered by default rather than silently exempt.
  */
-const INLINE_STYLE_PROPS = /\b(fontFeatureSettings|fontVariantNumeric)\s*:/;
+/**
+ * Every spelling by which a font-feature declaration can reach the browser
+ * WITHOUT passing through the compiled stylesheet.
+ *
+ * Round 11 banned the bare object-property spelling. Round 12 demonstrated three
+ * families it missed, each with live emitted HTML: the repository's 13 routed
+ * `.mdx` help pages were not scanned at all; quoted and computed property
+ * spellings (`"fontFeatureSettings"`, `["fontFeatureSettings"]`,
+ * `.style.fontFeatureSettings =`, `.style.setProperty("font-feature-settings")`)
+ * slipped past a pattern anchored on a bare identifier; and inline `font` and
+ * `all` RESETTERS were not covered at all, though they are precisely what the
+ * compiled-CSS shorthand ban exists to stop.
+ *
+ * So the property scan matches the NAME in any spelling, camel or kebab, quoted
+ * or not — the baseline is zero occurrences, so there is nothing to be precise
+ * about — and the resetter scan is scoped to inline style regions, where `font`
+ * and `all` mean what they mean in CSS.
+ */
+const FEATURE_PROP_SPELLINGS =
+  /fontFeatureSettings|fontVariantNumeric|font-feature-settings|font-variant-numeric/;
+
+/** `style={{ … }}` and `style="…"` regions, where `font`/`all` are CSS resetters. */
+const INLINE_STYLE_REGION = /style\s*=\s*(\{\{[\s\S]*?\}\}|"[^"]*"|'[^']*')/g;
+const INLINE_RESETTER = /\b(font|all)\s*:/;
+
 const PRODUCT_ROOTS = ["app", "components", "lib"] as const;
+const SCANNED_EXTENSIONS = /\.(tsx?|jsx?|mdx?)$/;
 
 export function inlineFeatureStyles(): string[] {
   const hits: string[] = [];
@@ -529,11 +555,22 @@ export function inlineFeatureStyles(): string[] {
         if (entry.name !== "node_modules") walk(path);
         continue;
       }
-      if (!/\.(tsx?|jsx?)$/.test(entry.name)) continue;
-      const source = readFileSync(path, "utf8");
+      if (!SCANNED_EXTENSIONS.test(entry.name)) continue;
+      // Comments stripped via THE shared module — a doc comment describing
+      // `font-variant-numeric` is prose, not a declaration, and
+      // components/atoms/KeyValue.tsx wraps exactly that across a line break.
+      // tests/cross-cutting/_metaStripCommentsSingleSource.test.ts forbids a
+      // local copy, and it handles every extension scanned here.
+      const source = stripCommentsForFile(readFileSync(path, "utf8"), path);
+      const rel = path.slice(REPO_ROOT.length + 1);
+
       for (const [i, line] of source.split("\n").entries()) {
-        if (INLINE_STYLE_PROPS.test(line))
-          hits.push(`${path.slice(REPO_ROOT.length + 1)}:${i + 1}`);
+        if (FEATURE_PROP_SPELLINGS.test(line)) hits.push(`${rel}:${i + 1} (feature property)`);
+      }
+      for (const region of source.matchAll(INLINE_STYLE_REGION)) {
+        if (!INLINE_RESETTER.test(region[1] ?? "")) continue;
+        const line = source.slice(0, region.index).split("\n").length;
+        hits.push(`${rel}:${line} (inline font/all resetter)`);
       }
     }
   };
@@ -562,7 +599,7 @@ describe("inline styles cannot set the font features", () => {
         const path = join(dir, entry.name);
         if (entry.isDirectory()) {
           if (entry.name !== "node_modules") count(path);
-        } else if (/\.(tsx?|jsx?)$/.test(entry.name)) files += 1;
+        } else if (SCANNED_EXTENSIONS.test(entry.name)) files += 1;
       }
     };
     for (const root of PRODUCT_ROOTS) count(resolve(REPO_ROOT, root));

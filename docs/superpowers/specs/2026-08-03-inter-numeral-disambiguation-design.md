@@ -603,6 +603,24 @@ A React `style={{ fontFeatureSettings: '"ZZ-Z" 1' }}` never appears in any style
 
 Explicitly cleared by the reviewer: both `ALLOWED_FEATURE_RESETS` entries are correctly justified, there is no second runtime CSS file and no CSS-in-JS dependency, and the existing `<style>` surfaces are unrelated or already documented as standalone limits.
 
-**The declaration surface is now closed at every path:** the compiled stylesheet (§12.10), escaped or cased property names (§12.8, §12.9), non-canonical values (§12.7), and now inline styles. Each is fail-closed — the guard refuses what it does not recognise rather than interpreting it.
+**The declaration surface is closed at every path** — the compiled stylesheet (§12.10), escaped or cased property names (§12.8, §12.9), non-canonical values (§12.7), and inline styles. Each is fail-closed. (Round 12 showed this section's "any occurrence" and "every path" claims were premature as written: the inline scan reached neither `.mdx` nor several spellings. §12.12 records what it actually took.)
 
 **Twenty-nine mutants across eleven rounds. All caught.**
+
+### 12.12 Round 12 — "any occurrence" was three families short
+
+`VERDICT: NEEDS-ATTENTION`, one P1, accepted and fixed. Round 11's guard was real but narrow, and its stated guarantee overreached. Three families escaped, each demonstrated with live emitted HTML:
+
+- **`.mdx` was not scanned at all.** The repository has 13 routed MDX help pages, supported explicitly by `next.config.ts:46`. A bare `fontFeatureSettings` style on one of them emitted `<span style="font-feature-settings:&quot;ZZ-Z&quot; 1">`.
+- **Quoted and computed property spellings.** `"fontFeatureSettings"`, `["fontFeatureSettings"]`, `.style.fontFeatureSettings =`, `.style.setProperty(…)` — all slipped past a pattern anchored on a bare identifier.
+- **Inline `font` and `all` resetters were not covered**, though they are exactly what the compiled-CSS shorthand ban exists to stop. React emitted both.
+
+**FIXED.** The property scan now matches the name in any spelling, camel or kebab, quoted or not — the baseline is zero occurrences, so there is nothing to be precise about — and a second scan covers inline `style` regions for `font`/`all` resetters. `.mdx` is scanned.
+
+One false positive surfaced and taught something: `components/atoms/KeyValue.tsx:36` is a **doc comment** describing `font-variant-numeric`, wrapped across a line break. Comments are now stripped through `tests/_shared/stripComments`, THE shared module — which `tests/cross-cutting/_metaStripCommentsSingleSource.test.ts` requires and which already handles every extension scanned here. Prose about a property is not a declaration.
+
+Mutation-proven in five spellings: quoted property, computed property, inline `font`, inline `all`, and an MDX page.
+
+The reviewer found no separate regression and measured the disk walk at 831 files / 7.3 MB in ~89 ms.
+
+**Thirty-four mutants across twelve rounds. All caught.**
