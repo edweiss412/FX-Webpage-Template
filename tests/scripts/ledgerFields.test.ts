@@ -9,6 +9,7 @@
  * on that entry was attributed to the preceding one with every vacuity gate
  * satisfied.
  */
+import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -128,5 +129,49 @@ describe("the spawn seam is structural, not merely conventional", () => {
     // Without this, deleting every spawn everywhere would satisfy the bans.
     const src = readFileSync(join(ROOT, "scripts/lib/ledger-git.ts"), "utf8");
     expect(src).toMatch(/from\s+["']node:child_process["']/);
+  });
+});
+
+describe("no assertion in this diff is silently vacuous", () => {
+  // Two escaping mutants in this branch came from shell quoting, not reasoning:
+  // a literal U+0008 where `\b` was meant, which made two regexes match nothing,
+  // and a heredoc-mangled fixture. Neither was visible by reading the test.
+  //
+  // A control character inside a regex or string literal is never intentional
+  // here, and it is exactly the shape that turns an assertion into a no-op while
+  // still looking correct in review.
+  it("contains no stray control characters in any file this branch adds", () => {
+    const files = execFileSync("git", ["diff", "--name-only", "origin/main...HEAD"], {
+      cwd: ROOT,
+      encoding: "utf8",
+      timeout: 30_000,
+    })
+      .split("\n")
+      .map((f) => f.trim())
+      .filter((f) => /\.(ts|tsx|mjs)$/.test(f));
+
+    expect(
+      files.length,
+      "no source files in the diff — the guard would be vacuous",
+    ).toBeGreaterThan(0);
+
+    const offenders: string[] = [];
+    for (const rel of files) {
+      let text: string;
+      try {
+        text = readFileSync(join(ROOT, rel), "utf8");
+      } catch {
+        continue; // deleted in this diff
+      }
+      text.split("\n").forEach((line, n) => {
+        // \t is legitimate; everything else below 0x20 is not.
+        const hit = [...line].find((c) => c.charCodeAt(0) < 32 && c !== "\t");
+        if (hit)
+          offenders.push(
+            `${rel}:${n + 1} contains U+${hit.charCodeAt(0).toString(16).padStart(4, "0")}`,
+          );
+      });
+    }
+    expect(offenders, "a control character here makes an assertion match nothing").toEqual([]);
   });
 });
