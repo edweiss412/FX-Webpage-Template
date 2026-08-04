@@ -71,18 +71,31 @@ export function runCheck(
   const fetchOpt = opts.fetch ?? true;
   const now = opts.now;
 
-  // ONE snapshot of the ref map, taken before resolution and reused for
-  // verification and vacuity. Three independent reads race with any other
-  // worktree fetching concurrently: a branch appearing between reads is verified
-  // but not resolved (exit 0 on a real collision), and one disappearing is
-  // resolved but not verified (exit 1 for a branch already deleted).
+  // Fetch FIRST, then snapshot. Taking the snapshot before the fetch resolves a
+  // pre-fetch view while verifying against the post-fetch remote, so a branch
+  // this very run just fetched is advertised but unresolved — exit 2 with
+  // "origin advertises a ref we did not resolve", until someone reruns.
+  let fetchFailed: string | null = null;
+  if (fetchOpt) {
+    try {
+      git.fetch();
+    } catch (e) {
+      fetchFailed = `fetch-failed: ${(e as Error).message}`;
+    }
+  }
+
+  // ONE snapshot, reused for resolution, verification, and vacuity. Three
+  // independent reads race with any other worktree fetching concurrently: a
+  // branch appearing between reads is verified but not resolved (exit 0 on a
+  // real collision), and one disappearing is resolved but not verified.
   const snapshot = git.localRefs();
-  const pinned: GitSurface = { ...git, localRefs: () => snapshot };
+  const pinned: GitSurface = { ...git, localRefs: () => snapshot, fetch: () => {} };
 
   const resolution = resolveClaims(
     pinned,
-    now === undefined ? { fetch: fetchOpt } : { fetch: fetchOpt, now },
+    now === undefined ? { fetch: false } : { fetch: false, now },
   );
+  if (fetchFailed !== null) resolution.degraded.push(fetchFailed);
 
   // --- universe verification -------------------------------------------------
   let untrusted = false;

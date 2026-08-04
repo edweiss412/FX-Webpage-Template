@@ -415,3 +415,47 @@ describe("the real git adapter and the JSON envelope (whole-diff F3/F9)", () => 
     expect(r.claims.length, "every candidate must appear").toBe(101);
   });
 });
+
+describe("ordering and identity edges (whole-diff R3)", () => {
+  it("fetches BEFORE snapshotting refs", () => {
+    // A pre-fetch snapshot resolves a stale view while verifying against the
+    // post-fetch remote, so a branch this run just fetched is advertised but
+    // unresolved — exit 2 until someone reruns.
+    const calls: string[] = [];
+    const g = fake({
+      fetch: () => calls.push("fetch"),
+      localRefs: () => {
+        calls.push("localRefs");
+        return new Map([
+          ["main", "aaa"],
+          ["feat/a", "bbb"],
+        ]);
+      },
+    });
+    runCheck(g, ["BL-UNRELATED"], { now: NOW, fetch: true, verify: true });
+    expect(calls.indexOf("fetch"), "fetch must precede the snapshot").toBeLessThan(
+      calls.indexOf("localRefs"),
+    );
+  });
+
+  it("exits 2, not 1, on a detached HEAD with a collision", () => {
+    // Self cannot be established, so accusing another branch is a claim the run
+    // is not in a position to make.
+    const r = checkVerified(fake({ inCI: () => false, currentBranch: () => null }), ["BL-X"]);
+    expect(r.code).toBe(2);
+  });
+
+  it("still exits 1 on a fork PR, where nothing is self BY RESOLUTION", () => {
+    // Distinct from unresolved: a fork PR genuinely knows no base ref is "me".
+    const r = checkVerified(
+      fake({
+        inCI: () => true,
+        headRepo: () => "fork/x",
+        repo: () => "base/x",
+        currentBranch: () => "feat/a",
+      }),
+      ["BL-X"],
+    );
+    expect(r.code).toBe(1);
+  });
+});

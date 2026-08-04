@@ -75,7 +75,14 @@ const shortName = (ref: string) => ref.replace(/^origin\//, "");
  * name-based exclusion is sound there; fork ambiguity cannot arise.
  */
 function resolveIdentity(git: GitSurface): { identity: Identity; selfBranch: string | null } {
-  if (!git.inCI()) return { identity: "local", selfBranch: git.currentBranch() };
+  if (!git.inCI()) {
+    const branch = git.currentBranch();
+    // A detached HEAD locally means self cannot be established, which is
+    // UNRESOLVED — not "resolved, and nothing is me". The difference decides
+    // whether a claim on your own branch exits 1 or 2.
+    if (branch === null) return { identity: "ci-unknown", selfBranch: null };
+    return { identity: "local", selfBranch: branch };
+  }
 
   const head = git.headRepo();
   if (head === null) return { identity: "ci-unknown", selfBranch: null };
@@ -87,8 +94,12 @@ function resolveIdentity(git: GitSurface): { identity: Identity; selfBranch: str
   if (base === null || base.length === 0) return { identity: "ci-unknown", selfBranch: null };
   // A bare branch name is not an identity across repositories: a fork branch and
   // a base branch can share a name, and the base branch's claims are not ours.
+  // A fork PR is genuinely resolved with nothing as self: no base ref can be
+  // "me". That is different from not knowing who I am.
   if (head !== base) return { identity: "ci-resolved", selfBranch: null };
-  return { identity: "ci-resolved", selfBranch: git.currentBranch() };
+  const branch = git.currentBranch();
+  if (branch === null) return { identity: "ci-unknown", selfBranch: null };
+  return { identity: "ci-resolved", selfBranch: branch };
 }
 
 export function resolveClaims(git: GitSurface, opts: { fetch: boolean; now?: number }): Resolution {
