@@ -131,7 +131,9 @@ export type Phase2Args = {
   /**
    * BL-CREW-RENAME-SILENT-REPLACEMENT (spec §3.3): classified rename pairs the apply must land
    * as identity-preserving in-place renames (same crew_members.id). Computed by the orchestrator
-   * via computeIdentityLinkRenames (MI-12 always; MI-13/14 only on the version-bound accept).
+   * via computeIdentityLinkRenames (MI-12 always; MI-13/14 only on the version-bound accept); the
+   * staged core computes via computeStagedIdentityLinkRenames (per-item rename choice, spec
+   * 2026-08-03).
    */
   identityLinkRenames?: IdentityLinkRename[];
   // "Use the sheet's raw value" decisions read (through normalizeUseRawDecisions) from the
@@ -313,9 +315,10 @@ function capabilityRoleChangesForNotice(
 
   // Arm (c) — removed-member capability loss: a member present in the prior roster but NOT in the
   // applied roster (and NOT identity-link-renamed away) whose prior flags held a capability has lost
-  // that access. Auditing the loss is path-independent (esp. the staged remove+add of an
-  // identity-link rename, where args.identityLinkRenames is empty so the removed old name is a
-  // genuine removal here). Cron identity-preserving renames are EXCLUDED (renamedAway) so no phantom
+  // that access. Auditing the loss is path-independent (esp. a staged `independent` resolution,
+  // which stays remove+add with empty `identityLinkRenames`; a staged rename-resolved pair threads
+  // its link since spec 2026-08-03 and is excluded here, same as cron). Cron identity-preserving
+  // renames are EXCLUDED (renamedAway) so no phantom
   // loss fires — the successor's capability, if any, is caught by arm (a) above via the rename map.
   for (const priorMember of previousCrewMembers ?? []) {
     if (nextByName.has(priorMember.name)) continue;

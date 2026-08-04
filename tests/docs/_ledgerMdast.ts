@@ -320,6 +320,72 @@ export function extractEntries(text: string, opts: ExtractOpts): LedgerEntry[] {
   }));
 }
 
+/**
+ * Ids a parent entry DEFINES as bullets in its own body.
+ *
+ * Some ids are deliberately body-defined rather than given headings: splitting
+ * `BL-MUTATION-HARNESS-OPEN-HOLES`'s five operator classes into five entries
+ * would give each an entry whose content is one bullet and would break the
+ * parent's shrink-only ratchet, which is what gives them meaning. The citation
+ * guard resolved headings only, so they read as dangling debt.
+ *
+ * Three conditions, each measured against the real corpus rather than assumed:
+ *
+ *  1. The id must lead the bullet inside a `strong` span. A code-span lead is
+ *     ENUMERATION — `BACKLOG.md`'s own body-defined-ids entry leads a bullet with
+ *     five ids as plain code spans while only discussing them, and would otherwise
+ *     define all five from the wrong parent.
+ *  2. It must be the FIRST child of the item's first paragraph, so an id named
+ *     mid-sentence is a mention, not a definition.
+ *  3. The walk STOPS at the first heading in the body. `extractEntries` opens
+ *     entries only at prefixed headings, so a plain `##` section falls inside the
+ *     preceding entry's span; without this, that entry adopts the section's
+ *     bullets. Measured: across the four ledgers this is the difference between
+ *     11 ids and the 8 that are really body-defined.
+ */
+export function bodyDefinedIds(text: string, opts: ExtractOpts): Set<string> {
+  const out = new Set<string>();
+  for (const entry of extractEntries(text, opts)) {
+    for (const node of entry.body) {
+      if (node.type === "heading") break; // condition 3
+      if (node.type !== "list") continue;
+      for (const item of (node as Parent).children) {
+        if (item.type !== "listItem") continue;
+        const paragraph = (item as Parent).children[0];
+        if (!paragraph || paragraph.type !== "paragraph") continue;
+        const lead = (paragraph as Parent).children[0];
+        if (!lead || lead.type !== "strong") continue; // conditions 1 + 2
+        const id = strongIdText(lead as Parent);
+        if (id === null) continue;
+        if (opts.requirePrefix !== null && !id.startsWith(opts.requirePrefix)) continue;
+        if (!ID_TOKEN.test(id)) continue;
+        out.add(id);
+      }
+    }
+  }
+  return out;
+}
+
+/** An id never ends in `-`; mirrors the citation regex so the two cannot disagree. */
+const ID_TOKEN = /^[A-Za-z][A-Za-z0-9]*(?:-[A-Za-z0-9]+)*$/;
+
+/**
+ * The text of a `strong` span, following `inlineCode` children so `**`BL-X`**`
+ * and `**BL-X**` read alike. Returns null if the span holds anything else, so a
+ * bolded sentence cannot masquerade as an id.
+ */
+function strongIdText(strong: Parent): string | null {
+  let out = "";
+  for (const child of strong.children) {
+    if (child.type === "text" || child.type === "inlineCode") {
+      out += String((child as unknown as { value: string }).value);
+    } else {
+      return null;
+    }
+  }
+  return out.trim() === "" ? null : out.trim();
+}
+
 /** All ids in one ledger — the graduation/no-overlap invariants' view. */
 export function ledgerIds(text: string, opts: ExtractOpts): Set<string> {
   return new Set(extractEntries(text, opts).map((e) => e.id));

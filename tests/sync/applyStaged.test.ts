@@ -1481,6 +1481,72 @@ describe("applyStaged live-scope", () => {
     expect(syncDeps.bumpReviewerAuthFloors).toHaveBeenCalledWith(tx, "show-1", ["Old Person"]);
   });
 
+  test("rename-resolved pairs thread identityLinkRenames to runPhase2; independent does not", async () => {
+    const items: TriggeredReviewItem[] = [
+      {
+        id: "mi12",
+        invariant: "MI-12",
+        removed_name: "Bob",
+        added_name: "Robert",
+        email: "bob@test.test",
+      },
+      { id: "mi13", invariant: "MI-13", removed_name: "Sam A", added_name: "Sam B" },
+    ];
+    const tx = fakeTx() as LockedShowTx<FakeTx>;
+    const syncDeps = deps({
+      readLivePendingSyncForApply: vi.fn(async () => pending({ triggeredReviewItems: items })),
+    });
+
+    const result = await applyStaged_unlocked(
+      tx,
+      {
+        driveFileId: "drive-file-1",
+        sourceScope: "live",
+        stagedId: "staged-live",
+        reviewerChoices: [
+          { item_id: "mi12", action: "rename", rename_value: "Robert" },
+          { item_id: "mi13", action: "independent" },
+        ],
+        appliedByEmail: "doug@fxav.test",
+      },
+      syncDeps,
+    );
+
+    expect(result).toMatchObject({ outcome: "applied" });
+    expect(syncDeps.runPhase2).toHaveBeenCalledWith(
+      tx,
+      expect.objectContaining({
+        identityLinkRenames: [{ removedName: "Bob", addedName: "Robert" }],
+      }),
+    );
+  });
+
+  test("no rename choices: runPhase2 args carry NO identityLinkRenames key (length-gated spread)", async () => {
+    const items: TriggeredReviewItem[] = [
+      { id: "mi13", invariant: "MI-13", removed_name: "Sam A", added_name: "Sam B" },
+    ];
+    const tx = fakeTx() as LockedShowTx<FakeTx>;
+    const syncDeps = deps({
+      readLivePendingSyncForApply: vi.fn(async () => pending({ triggeredReviewItems: items })),
+    });
+
+    await applyStaged_unlocked(
+      tx,
+      {
+        driveFileId: "drive-file-1",
+        sourceScope: "live",
+        stagedId: "staged-live",
+        reviewerChoices: [{ item_id: "mi13", action: "independent" }],
+        appliedByEmail: "doug@fxav.test",
+      },
+      syncDeps,
+    );
+
+    const phase2Args = vi.mocked(syncDeps.runPhase2!).mock.calls[0]?.[1];
+    expect(phase2Args).toBeDefined();
+    expect(phase2Args !== undefined && "identityLinkRenames" in phase2Args).toBe(false);
+  });
+
   test("DIAGRAMS_EMBEDDED_NONE_FOUND mints an intentionally empty diagram snapshot", async () => {
     const item: TriggeredReviewItem = {
       id: "empty-diagrams",

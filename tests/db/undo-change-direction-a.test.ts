@@ -21,6 +21,7 @@ import {
   readCrewByName,
   readHold,
   runAutoApply,
+  runStagedApply,
   seedShowWithCrew,
   ADMIN_EMAIL,
 } from "./_holdsHelpers";
@@ -369,5 +370,44 @@ describe("undo_change Direction A — restore removed/renamed crew", () => {
     expect(undoFinished).toBe(true);
     expect(await readCrewByName(showId, "Alice")).not.toBeNull();
     await blocker.end({ timeout: 5 });
+  });
+
+  it("STAGED-driven linked rename: apply then undo restores the original id and claim (spec 2026-08-03 §4 item 5)", async () => {
+    const { showId, driveFileId } = await seedShowWithCrew([
+      { name: "Stage Undo A", email: "sua@x.example", claimed: "2026-06-01T10:00:00.000Z" },
+    ]);
+    const live = await readCrewByName(showId, "Stage Undo A");
+    const LINK_ID = live!.id;
+    const LINK_CLAIM = live!.claimed_via_oauth_at;
+
+    const result = await runStagedApply(driveFileId, {
+      crew: [{ name: "Stage Undo A2", email: "sua@x.example" }],
+      triggeredItems: [
+        {
+          id: "1",
+          invariant: "MI-12",
+          removed_name: "Stage Undo A",
+          added_name: "Stage Undo A2",
+          email: "sua@x.example",
+        },
+      ],
+      reviewerChoices: [{ item_id: "1", action: "rename", rename_value: "Stage Undo A2" }],
+    });
+    expect(result).toMatchObject({ outcome: "applied" });
+    expect((await readCrewByName(showId, "Stage Undo A2"))!.id).toBe(LINK_ID);
+
+    const renamed = await readChangeLog(showId, {
+      change_kind: "crew_renamed",
+      entity_ref: "Stage Undo A",
+    });
+    const res = await callUndoAsAdmin(renamed.id);
+    expect(res.ok).toBe(true);
+
+    const back = await readCrewByName(showId, "Stage Undo A");
+    expect(back!.id).toBe(LINK_ID);
+    expect(new Date(back!.claimed_via_oauth_at as string).toISOString()).toBe(
+      new Date(LINK_CLAIM as string).toISOString(),
+    );
+    expect(await readCrewByName(showId, "Stage Undo A2")).toBeNull();
   });
 });

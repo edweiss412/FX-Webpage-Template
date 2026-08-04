@@ -9,8 +9,9 @@ import { describe, expect, test } from "vitest";
 // UPSERT (runScheduledCronSync.ts upsertCrewMembers) is column-scoped:
 //   on conflict (show_id, name) do update set email/phone/role/role_flags/date_restriction/
 //   stage_restriction/flight_info
-// so a same-name field change leaves the picker marker intact. (A NAME change is delete+insert
-// and loses the marker — acceptable, and identical to claimed_via_oauth_at; a rename re-stages.)
+// so a same-name field change leaves the picker marker intact. (An UNLINKED name change is
+// delete+insert and loses the marker, identical to claimed_via_oauth_at; an identity-link rename,
+// cron or a staged rename choice per spec 2026-08-03, updates in place and preserves it.)
 
 const databaseUrl =
   process.env.TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
