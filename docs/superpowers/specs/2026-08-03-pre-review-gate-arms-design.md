@@ -245,7 +245,9 @@ A command containing a backtick is not expressible in this grammar, which is a d
 2. Otherwise the line matches everything except that `ac=` is absent or its list is empty → `TASK_AC_MISSING`.
 3. Otherwise → `TASK_MARKER_MALFORMED`.
 
-The first matching rule wins and no further code is emitted for that line. Separately: **a marker line occupies its task's marker slot regardless of which code it drew.** A task whose only marker is malformed reports that code alone, never also `TASK_MARKER_MISSING`; two such lines in one extent still report `TASK_MARKER_DUPLICATE`. Otherwise every malformed marker would produce two findings describing one defect.
+The first matching rule wins and no further code is emitted for that line.
+
+**Placement outranks form.** A `<!-- task:` line outside every task extent reports `TASK_MARKER_ORPHANED` and nothing else, regardless of whether its form is valid. Without this the "any region state" reading gives a malformed orphan two findings — one for its form, one for its placement — contradicting the one-code rule directly above. Reporting placement alone is also the more useful half: the form of a line that belongs to no task is moot until it is moved, and once moved it is re-checked normally. Separately: **a marker line occupies its task's marker slot regardless of which code it drew.** A task whose only marker is malformed reports that code alone, never also `TASK_MARKER_MISSING`; two such lines in one extent still report `TASK_MARKER_DUPLICATE`. Otherwise every malformed marker would produce two findings describing one defect.
 
 **AC ids resolve on exact-token boundaries.** An id resolves only where it appears delimited — not as a prefix of a longer id. A substring test would resolve `AC-1` against every one of these:
 
@@ -297,11 +299,11 @@ Every non-fenced line in a plan falls into exactly one class:
 | `^<!-- tasks: end -->$` | no opening line anywhere earlier in the document | `TASK_ENROLL_MALFORMED` |
 | `^<!-- tasks: end -->$` | an opening line appeared earlier, region not currently open | consumed silently — no cascade after a rejected duplicate |
 | starts `<!-- tasks:`, matches neither form | any | `TASK_ENROLL_MALFORMED` |
-| marker form, `red` empty or whitespace | any | `TASK_RED_EMPTY` (occupies the slot) |
-| marker form except `ac=` absent or empty | any | `TASK_AC_MISSING` (occupies the slot) |
-| marker form, well-formed | inside a task extent | satisfies that task; ids checked by `TASK_AC_UNRESOLVED` |
-| marker form, well-formed | outside every extent | `TASK_MARKER_ORPHANED` |
-| starts `<!-- task:`, matches nothing above | any | `TASK_MARKER_MALFORMED` (occupies the slot) |
+| any `<!-- task:` line | outside every task extent | `TASK_MARKER_ORPHANED` **alone**, whatever its form |
+| marker form, `red` empty or whitespace | inside an extent | `TASK_RED_EMPTY` (occupies the slot) |
+| marker form except `ac=` absent or empty | inside an extent | `TASK_AC_MISSING` (occupies the slot) |
+| marker form, well-formed | inside an extent | satisfies that task; ids checked by `TASK_AC_UNRESOLVED` |
+| starts `<!-- task:`, matches nothing above | inside an extent | `TASK_MARKER_MALFORMED` (occupies the slot) |
 | ATX heading at the declared depth | inside region | is a task |
 | ATX heading at the declared depth | outside region | ordinary prose |
 | ATX heading at any other depth | any | ordinary prose; terminates an extent only if shallower |
@@ -380,6 +382,8 @@ Nine artifacts burned on this shape; none was caught by review-time reasoning al
 **AC-23.** `<!-- tasks: depth=3 extra=x -->` and `<!-- tasks: depth=3 depth=4 -->` each report `TASK_ENROLL_MALFORMED`. Neither may parse to "not enrolled".
 
 **AC-24.** `TASK_AC_UNRESOLVED` fires for `ac=AC-1` when the plan's prose contains only `AC-10`, `AC-1a`, `AC-1.1`, or `AC-1-child` — one case per prefix family, none of which may resolve it.
+
+**AC-33.** A malformed `<!-- task:` line outside every task extent reports `TASK_MARKER_ORPHANED` and nothing else. Pinned by asserting the full finding list — a test checking only that ORPHANED is present would pass an implementation that also emitted the form code.
 
 **AC-31.** A marker whose backticked command would have to span a backtick is rejected. Pinned with the four escapes a greedy group admits: a repeated `ac=`, an unknown key, an empty command followed by junk, and a repeated `red=` — each `TASK_MARKER_MALFORMED`, alongside a legitimate marker, an empty command, and a whitespace-only command that all still parse.
 
