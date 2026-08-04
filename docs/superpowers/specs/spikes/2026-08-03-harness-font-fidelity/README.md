@@ -31,3 +31,25 @@ plus the seven `.woff2` files. Those bytes are byte-identical to the seven a
 production build emits under `.next/static/media/`, verified by hashing both
 sides; they are not committed here because the plan commits them under
 `public/fonts/` as the real deliverable.
+
+## `consistency.mjs`
+
+A self-consistency checker for the spec, run before every review dispatch.
+
+Rounds 19, 20 and 21 each spent findings on one defect: a statement was updated
+and its peers were not. Resolving to sweep more carefully had already failed
+three times, so the sweep is mechanical — counts that must agree, the guard's
+parser (CSSOM is legal only when describing a mutant or the retired draft), the
+probe's zero-advance filter, the wait anchor, and any citation of an untracked
+scratch path.
+
+```
+node docs/superpowers/specs/spikes/2026-08-03-harness-font-fidelity/consistency.mjs
+```
+
+Validated the way the guard is: run against the spec as round 21 reviewed it, it
+fires on four of that round's six findings — the stale `24`, the
+`CSSStyleSheet.replaceSync()` mandate, the combining-mark contradiction, and the
+navigation-site placement rule. The two it misses are not textual-consistency
+defects (a mechanism I verified with a grep that could not have found the case,
+and two files left unnamed), which is the honest boundary of what this can do.
