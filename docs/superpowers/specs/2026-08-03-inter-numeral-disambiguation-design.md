@@ -832,3 +832,29 @@ That is the fourth time in this review the answer has been *stop deciding, start
 This is the same lesson as §12.21, arriving one level up: **a census is a claim in two directions, and checking one of them is checking half.** Rounds 21 and 22 between them converted every allowlist in this guard from a comment into an assertion.
 
 **Eighty-five mutants across twenty-two rounds. All caught.**
+
+### 12.23 Round 23 — the taxonomy converged; the guards needed three more closures
+
+`VERDICT: NEEDS-ATTENTION`, three P1s, all accepted and fixed. **This is the last review round**, by the owner's decision recorded below.
+
+The convergence judgement is the important part, and it is the reviewer's own:
+
+> The twelve-family taxonomy appears complete: these are ordinary mistakes within declared families 9 and 11, not new families.
+
+That is what §13's enumeration was for. Twenty-three rounds in, the closure set stopped growing; only the guards inside it needed work.
+
+| # | Sev | Finding | Disposition |
+| --- | --- | --- | --- |
+| 1 | **P1** | The inline and CSSOM scans enumerated only `fontVariantNumeric`, so `style={{ fontVariantCaps: "small-caps" }}` requested `smcp` — absent from this font — entirely unseen. | **FIXED** by matching the FAMILY of longhands (`fontVariant[A-Za-z]*`, `font-variant(-[a-z]+)?`) rather than a list, so the next longhand is not another round. |
+| 2 | **P1** | The fail-closed handling of unmapped keywords was **fail-open behind a custom property**: `--fx-alternates: historical-forms; font-variant-alternates: var(--fx-alternates)` fell through both halves — the longhand skipping `var(…)`, the property skipping an unrecognised word. | **FIXED.** Custom properties REFERENCED by a font-variant longhand are now tracked, and an unknown value on one is reported as unmapped rather than skipped. |
+| 3 | **P1** | `style={{ "--font-sans": "ui-monospace" } as React.CSSProperties}` swaps the face `.code-value` resolves through without naming `font-family`. | **FIXED**, and the cause was instructive: the style-region matcher expected a literal `{{ … }}`, so the TypeScript **cast form** — one closing brace before ` as` — never matched at all. The runtime census caught this mutant while the static scan did not: **a guard disagreeing with itself about the same input.** Regions are now extracted by balanced braces, and the DOM census covers the face tokens too. |
+
+**Final tally: eighty-eight mutants across twenty-three rounds. All caught.**
+
+### 13.5 Why the review stopped here
+
+The owner decided, after round 22, to merge once round 23 resolved. That decision is recorded rather than implied, because the review never returned `APPROVE` and the reason matters.
+
+Every one of the twenty-three rounds found something real, and every finding was fixed — but the trajectory changed shape twice. Rounds 1–12 found defects against the guard's PURPOSE, including three genuine product bugs. Rounds 13–16 found spellings, because no closure set had been declared. Rounds 17–20, given one, found four real new families. Rounds 21–23 found that the guards for those families were one-way, and closed them.
+
+By round 23 the reviewer confirmed the taxonomy complete and every remaining finding was inside it. That is the strongest convergence signal available on a surface whose attack space is, by `AGENTS.md`'s own account, unbounded — *"the reviewer imagines no further mutant" is not a fixed point and is not the convergence criterion.* The criterion actually met: **a declared closure set, confirmed complete by an adversarial reviewer, with every family fail-closed and every guard mutation-proven.**

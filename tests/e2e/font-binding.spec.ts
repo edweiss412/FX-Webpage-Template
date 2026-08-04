@@ -118,7 +118,11 @@ async function measureFonts(page: Page): Promise<FontReport> {
           // ACTIVE FACE beneath a valid feature declaration makes the features
           // inert without touching them — the same failure the impeccable audit
           // measured on a bare <code>, reachable again through an inline override.
-          return /font-feature-settings|font-variant-numeric|font-family|(^|;)\s*(font|all)\s*:/i.test(
+          // Every font-variant longhand, the face, AND the tokens the face
+          // resolves through — round 23 landed `style={{ "--font-sans":
+          // "ui-monospace" }}` on a `.code-value`, which swaps the active face
+          // without ever naming `font-family`.
+          return /font-feature-settings|font-variant(-[a-z]+)?|font-family|--font-sans|--font-inter|(^|;)\s*(font|all)\s*:/i.test(
             style,
           );
         })

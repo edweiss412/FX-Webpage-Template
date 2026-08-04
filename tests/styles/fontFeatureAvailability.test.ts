@@ -481,7 +481,19 @@ export function fontVariantTags(
   cssSource: string,
 ): { tag: string | null; keyword: string; selector: string }[] {
   const out: { tag: string | null; keyword: string; selector: string }[] = [];
-  postcss.parse(cssSource).walkDecls((decl) => {
+  const root = postcss.parse(cssSource);
+
+  // Custom properties a font-variant longhand reads through `var()`. Their values
+  // ARE font-variant values, whatever they are called.
+  const referencedByFontVariant = new Set<string>();
+  root.walkDecls((decl) => {
+    if (!/^font-variant(-[a-z]+)?$/.test(normalizeProp(decl.prop).name)) return;
+    for (const ref of decl.value.matchAll(/var\(\s*(--[\w-]+)/g)) {
+      referencedByFontVariant.add(ref[1]!);
+    }
+  });
+
+  root.walkDecls((decl) => {
     const prop = normalizeProp(decl.prop).name;
     if (!FONT_VARIANT_PROPS.test(prop)) return;
     // ANY custom property, not only Tailwind's `--tw-*`. Round 21:
@@ -495,9 +507,20 @@ export function fontVariantTags(
     for (const raw of decl.value.toLowerCase().split(/\s+/)) {
       const keyword = raw.trim();
       if (FONT_VARIANT_NEUTRAL.has(keyword) || keyword.startsWith("var(")) continue;
-      // A custom property is in scope only when it actually carries a keyword;
-      // `--color-bg: #fff` is not a font-variant declaration.
-      if (prop.startsWith("--") && !FONT_VARIANT_KEYWORD_TAGS.has(keyword)) continue;
+      // A custom property is in scope when it carries a known keyword, OR when a
+      // font-variant longhand REFERENCES it — in which case an unknown value is
+      // reported as unmapped rather than skipped. Round 23: `--fx-alternates:
+      // historical-forms; font-variant-alternates: var(--fx-alternates)` fell
+      // through both halves, the longhand skipping `var(…)` and the property
+      // skipping an unrecognised word. Fail-open in exactly the place the design
+      // claims to fail closed.
+      if (
+        prop.startsWith("--") &&
+        !FONT_VARIANT_KEYWORD_TAGS.has(keyword) &&
+        !referencedByFontVariant.has(prop)
+      ) {
+        continue;
+      }
       // An UNMAPPED keyword is reported with a null tag, not skipped. Round 20:
       // `font-variant-alternates: historical-forms` requests `hist`, which this
       // font lacks, and silently passed a scan that ignored what it did not
@@ -774,8 +797,22 @@ describe("parseFeatureValue — recognises the canonical form, refuses everythin
  * about — and the resetter scan is scoped to inline style regions, where `font`
  * and `all` mean what they mean in CSS.
  */
+/**
+ * Every property name that can set or defeat the features, in either spelling.
+ *
+ * Round 23 found `fontVariantCaps` here: only `fontVariantNumeric` was listed, so
+ * `small-caps` requested `smcp` — absent from this font — entirely unseen.
+ * Matching the FAMILY of names rather than a list of them is what stops the next
+ * longhand being another round.
+ *
+ * The face TOKENS (`--font-sans`, `--font-inter`) are deliberately NOT here: this
+ * pattern matches bare property names anywhere in a file, and `app/fonts.ts`
+ * legitimately names `--font-inter` when it DEFINES it. They are matched instead
+ * in the inline-style regions and CSSOM writes below, which are the paths by
+ * which they could actually swap a face.
+ */
 const FEATURE_PROP_SPELLINGS =
-  /fontFeatureSettings|fontVariantNumeric|font-feature-settings|font-variant-numeric|fontFamily|font-family/i;
+  /fontFeatureSettings|fontVariant[A-Za-z]*|font-feature-settings|font-variant(-[a-z]+)?|fontFamily|font-family/i;
 
 /**
  * CSSOM writes that can set or reset the guarded features.
@@ -795,8 +832,8 @@ const FEATURE_PROP_SPELLINGS =
  * none has a legitimate use here (baseline: zero occurrences): `.style.cssText =`,
  * `setAttribute("style", …)`, and `Object.assign(el.style, …)`.
  */
-const GUARDED_CSS_NAME = String.raw`font-feature-settings|font-variant-numeric|font-family|font|all`;
-const GUARDED_JS_NAME = String.raw`fontFeatureSettings|fontVariantNumeric|fontFamily|font|all`;
+const GUARDED_CSS_NAME = String.raw`font-feature-settings|font-variant(?:-[a-z]+)?|font-family|--font-sans|--font-inter|font|all`;
+const GUARDED_JS_NAME = String.raw`fontFeatureSettings|fontVariant[A-Za-z]*|fontFamily|font|all`;
 
 /**
  * Access and assignment are GENERALISED, not enumerated.
@@ -867,8 +904,47 @@ const CSSOM_WRITES: [RegExp, string][] = [
 ];
 
 /** `style={{ … }}` and `style="…"` regions, where `font`/`all` are CSS resetters. */
-const INLINE_STYLE_REGION = /style\s*=\s*(\{\{[\s\S]*?\}\}|"[^"]*"|'[^']*')/g;
-const INLINE_RESETTER = /\b(font|all|fontFamily|font-family)\s*:/i;
+/**
+ * The text of every `style={…}` / `style="…"` attribute, extracted by BALANCED
+ * BRACES rather than a shape.
+ *
+ * The previous pattern expected `{{ … }}` literally, so
+ * `style={{ "--font-sans": "x" } as React.CSSProperties}` — a single closing brace
+ * before the cast — never matched at all. Round 23's inline token reassignment
+ * escaped the static scan on exactly that while the RUNTIME census caught it:
+ * a guard disagreeing with itself about the same mutant.
+ */
+export function inlineStyleRegions(source: string): string[] {
+  const regions: string[] = [];
+  const attr = /style\s*=\s*/g;
+  for (const m of source.matchAll(attr)) {
+    let i = m.index + m[0].length;
+    const open = source[i];
+    if (open === '"' || open === "'") {
+      const end = source.indexOf(open, i + 1);
+      if (end > i) regions.push(source.slice(i + 1, end));
+      continue;
+    }
+    if (open !== "{") continue;
+    let depth = 0;
+    const start = i;
+    for (; i < source.length; i += 1) {
+      if (source[i] === "{") depth += 1;
+      else if (source[i] === "}") {
+        depth -= 1;
+        if (depth === 0) break;
+      }
+    }
+    regions.push(source.slice(start, i + 1));
+  }
+  return regions;
+}
+// `\b` cannot precede `--`: a hyphen is not a word character, so a quoted
+// `"--font-sans":` never matched. Round 23's inline token reassignment escaped the
+// static scan on exactly that, while the runtime census caught it — a guard
+// disagreeing with itself about the same mutant.
+const INLINE_RESETTER =
+  /(?:\b(?:font|all|fontFamily|font-family)|["'`]?--font-(?:sans|inter))\s*["'`]?\s*:/i;
 
 const PRODUCT_ROOTS = ["app", "components", "lib"] as const;
 const SCANNED_EXTENSIONS = /\.(tsx?|jsx?|mdx?)$/;
@@ -902,10 +978,9 @@ export function inlineFeatureStyles(): string[] {
         const m = pattern.exec(flat);
         if (m) hits.push(`${rel} (${label})`);
       }
-      for (const region of source.matchAll(INLINE_STYLE_REGION)) {
-        if (!INLINE_RESETTER.test(region[1] ?? "")) continue;
-        const line = source.slice(0, region.index).split("\n").length;
-        hits.push(`${rel}:${line} (inline font/all resetter)`);
+      for (const region of inlineStyleRegions(source)) {
+        if (!INLINE_RESETTER.test(region)) continue;
+        hits.push(`${rel} (inline font/all resetter)`);
       }
     }
   };
