@@ -120,9 +120,19 @@ export function runCheck(
   // that came out of the snapshot). One blob cache across the whole check: main
   // and every unrelated branch share their ledger blobs.
   const blobs = new Map<string, string>();
+  let readUnpinned = false;
   const readAtPin = (ref: string, file: string): string | null => {
     const oid = resolution.refSnapshot.get(ref.replace(/^origin\//, ""));
-    if (oid === undefined) return git.showFile(ref, file);
+    if (oid === undefined) {
+      // Reachable for the manually prepended `origin/main` when the snapshot
+      // holds other refs but not main. Falling through to `showFile` reads a
+      // MOVABLE name and then reports the result as trusted — a probe produced
+      // eight such reads under a code-0 exit (whole-diff R14 F1). The read
+      // still happens, because a report with no content is worse than one with
+      // a caveat, but the check can no longer call itself trusted.
+      readUnpinned = true;
+      return git.showFile(ref, file);
+    }
     const key = `${oid}:${file}`;
     const hit = blobs.get(key);
     if (hit !== undefined) return hit;
@@ -193,6 +203,11 @@ export function runCheck(
           }
         }
       }
+    }
+
+    if (readUnpinned) {
+      reasons.push("a ledger was read from a movable ref: no pinned OID for it in the snapshot");
+      untrusted = true;
     }
 
     // --- collisions ------------------------------------------------------------

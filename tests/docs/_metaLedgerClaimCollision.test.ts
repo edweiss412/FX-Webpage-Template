@@ -21,11 +21,17 @@
 // it cannot be computed here anyway, since it needs a merge-base a shallow CI
 // clone does not have.
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it } from "vitest";
+
+/** Every temp allocation here, removed together — none outlive the run. */
+const tmpRoots: string[] = [];
+afterAll(() => {
+  for (const r of tmpRoots) rmSync(r, { recursive: true, force: true });
+});
 
 import { resolveClaims } from "@/scripts/lib/ledger-claims-core";
 import { isInProgress, ledgerFiles, ledgerItems } from "@/scripts/lib/ledger-fields";
@@ -158,6 +164,7 @@ describe("ledger claim collision (cross-branch backstop)", () => {
     // unsafe in a file-parallel project: a concurrent docs guard can observe the
     // planted marker, and an interrupted run leaves the caller's worktree dirty.
     const sandbox = mkdtempSync(join(tmpdir(), "ledger-e2e-"));
+    tmpRoots.push(sandbox);
     const id = "BL-E2E-CONTROL-PLANTED";
     for (const f of ledgerFiles(ROOT)) {
       const body = f === "BACKLOG.md"

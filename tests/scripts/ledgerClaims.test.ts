@@ -146,6 +146,48 @@ describe("resolveClaims — candidates", () => {
     expect(r.claims).toEqual([]);
   });
 
+  it("asks ancestry against the PINNED main OID, never the movable name", () => {
+    // The R14 F1 race. `git branch -r --merged origin/main` answers against
+    // whatever main points at during the call, so under M0 -> M1 -> M0 a branch
+    // merged only into the transient M1 is reported merged, its own OID still
+    // matches the snapshot, and the final universe check sees M0 at both
+    // endpoints and trusts the result. The reviewer's probe produced exit 0 with
+    // a declared marker inside the excluded object.
+    //
+    // Argument capture, because the difference between the defect and the fix
+    // is WHICH revision the question is asked about, and nothing else observable
+    // changes when both mains happen to agree.
+    const asked: string[] = [];
+    resolveClaims(
+      fake({
+        mergedIntoMain: (mainOid: string) => {
+          asked.push(mainOid);
+          return new Map();
+        },
+      }),
+      opts,
+    );
+    expect(asked, "ancestry was asked against a movable name").toEqual(["aaa"]);
+  });
+
+  it("skips the exclusion, loudly, when the snapshot has no main to pin", () => {
+    // Falling back to the movable name here would reintroduce the same race
+    // through the back door. Skipping keeps candidates a superset, which is the
+    // ratified failure direction, and the header says so.
+    const r = resolveClaims(
+      fake({
+        localRefs: () => new Map([["feat/a", "bbb"]]),
+        mergedIntoMain: () => new Map([["origin/feat/a", "bbb"]]),
+      }),
+      opts,
+    );
+    expect(
+      r.claims.map((c) => c.id),
+      "excluded without a pinned main",
+    ).toEqual(["BL-X"]);
+    expect(r.degraded).toContain("merged-exclusion-skipped-no-main");
+  });
+
   it("does NOT exclude a branch whose tip moved since the merged read", () => {
     // The R13 F1 race, made executable: git reported feat/a merged at "old",
     // but the pinned snapshot holds "bbb" -- someone pushed between the two

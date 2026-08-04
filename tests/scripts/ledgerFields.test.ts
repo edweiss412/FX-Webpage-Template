@@ -164,28 +164,39 @@ describe("no assertion in this diff is silently vacuous", () => {
         .filter((f) => /\.(ts|mjs)$/.test(f));
 
     let files: string[];
+    // The base actually used, recorded as it is chosen. The previous version
+    // fetched the explicit ref `main`, which updates FETCH_HEAD and NOT
+    // origin/main, then tried to resolve origin/main again to decide whether
+    // the base equalled HEAD -- so on a main push, where the diff is correctly
+    // empty, it fell through to the anti-vacuity failure (whole-diff R14 F2).
+    let base: string | null = null;
+    const rev = (r: string) =>
+      execFileSync("git", ["rev-parse", r], {
+        cwd: ROOT,
+        encoding: "utf8",
+        timeout: 30_000,
+      }).trim();
     try {
       git(["rev-parse", "--verify", "origin/main"]);
+      base = rev("origin/main");
       files = git(["diff", "--name-only", "origin/main...HEAD"]);
     } catch {
       try {
-        // --depth=1 ONLY when the checkout is ALREADY shallow. Passing it to a
-        // full clone CONVERTS that clone to shallow, breaking merge-base and
-        // ancestry for every later command in the worktree -- a test that
-        // silently damages the developer's repository. Measured on this very
-        // branch: an unconditional --depth=1 here left `rev-list --count` at
-        // 12781 against a merge-base that was in fact origin/main.
         const shallow =
           execFileSync("git", ["rev-parse", "--is-shallow-repository"], {
             cwd: ROOT,
             encoding: "utf8",
             timeout: 30_000,
           }).trim() === "true";
+        // --depth=1 ONLY when the checkout is ALREADY shallow: passing it to a
+        // full clone converts that clone to shallow and breaks ancestry for
+        // every later command in the worktree.
         execFileSync(
           "git",
           ["fetch", "--no-tags", ...(shallow ? ["--depth=1"] : []), "origin", "main"],
           { cwd: ROOT, timeout: 60_000 },
         );
+        base = rev("FETCH_HEAD");
         // Two-dot against the fetched tip: --depth=1 leaves no common history,
         // so a three-dot merge-base would fail exactly where this runs.
         files = git(["diff", "--name-only", "FETCH_HEAD"]);
@@ -196,30 +207,10 @@ describe("no assertion in this diff is silently vacuous", () => {
       }
     }
 
-    // Zero files is the CORRECT answer on a main push, where the comparison base
-    // IS HEAD -- the workflow runs on `push: main`, so demanding a non-empty set
-    // would fail this guard on every merge (whole-diff R13 F2). It is a defect
-    // only when the base and HEAD genuinely differ, which is the branch case
-    // this scopes to.
-    const baseIsHead =
-      files.length === 0 &&
-      execFileSync("git", ["rev-parse", "HEAD"], {
-        cwd: ROOT,
-        encoding: "utf8",
-        timeout: 30_000,
-      }).trim() ===
-        (() => {
-          try {
-            return execFileSync("git", ["rev-parse", "origin/main"], {
-              cwd: ROOT,
-              encoding: "utf8",
-              timeout: 30_000,
-            }).trim();
-          } catch {
-            return "";
-          }
-        })();
-    if (!baseIsHead) {
+    // Zero files is the CORRECT answer on a main push, where the base IS HEAD --
+    // this suite runs on `push: main`, so demanding a non-empty set would fail
+    // the guard on every merge. It is a defect only when base and HEAD differ.
+    if (!(files.length === 0 && base !== null && base === rev("HEAD"))) {
       expect(files.length, "no source files to scan — the guard would be vacuous").toBeGreaterThan(
         0,
       );

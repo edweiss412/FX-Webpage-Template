@@ -13,6 +13,7 @@ import {
   mkdtempSync,
   readFileSync,
   writeFileSync,
+  rmSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -66,7 +67,10 @@ chmodSync(join(STUB_DIR, "tsx"), 0o755);
 const STUB_TSX = join(STUB_DIR, "tsx");
 
 afterAll(() => {
-  // tmpdir cleanup is the OS's problem; nothing here leaks into the repo.
+  // Removed rather than left to the OS: four allocations across this diff with
+  // one removal between them is a leak per run, and "nothing reaches the repo"
+  // is not the same as "nothing accumulates" (whole-diff R14 F4).
+  rmSync(STUB_DIR, { recursive: true, force: true });
 });
 
 function runPreflight(args: string[], env: Record<string, string | undefined> = {}) {

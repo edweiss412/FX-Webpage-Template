@@ -22,7 +22,12 @@ const ROOT = join(__dirname, "..", "..");
  * is satisfied by an adapter that returns nothing (whole-diff R13 F3). Nothing
  * in production ever sets it.
  */
-const gitRoot = () => process.env.LEDGER_GIT_ROOT ?? ROOT;
+const gitRoot = () =>
+  // Gated on the test runner. Honoring it unconditionally means an inherited
+  // LEDGER_GIT_ROOT redirects every production git and gh call in this module,
+  // and an unrelated-but-valid repository yields a valid-LOOKING answer rather
+  // than an obvious failure (whole-diff R14 F3).
+  (process.env.VITEST === undefined ? undefined : process.env.LEDGER_GIT_ROOT) ?? ROOT;
 
 const FETCH_MS = 30_000;
 const LS_REMOTE_MS = 30_000;
@@ -149,13 +154,20 @@ export function realGitSurface(): GitSurface {
       }
     },
 
-    mergedIntoMain() {
+    mergedIntoMain(mainOid) {
       // Name AND OID. The caller excludes a branch only when the OID git
       // reported it merged at still matches the pinned snapshot, so a merge
       // landing between the two reads cannot drop a candidate whose snapshot
       // tip is still unmerged (whole-diff R13 F1).
+      // Ancestry asked against the PINNED main, never the movable name. With
+      // `origin/main` the question is answered against whatever main points at
+      // during the call: under M0 -> M1 -> M0, a branch merged only into the
+      // transient M1 is reported merged, its own OID still matches the
+      // snapshot, and the final universe check sees M0 at both endpoints and
+      // trusts the result — a declared marker excluded from a code-0 report
+      // (whole-diff R14 F1).
       const out = git(
-        ["branch", "-r", "--merged", "origin/main", "--format=%(refname:short) %(objectname)"],
+        ["branch", "-r", "--merged", mainOid, "--format=%(refname:short) %(objectname)"],
         LS_REMOTE_MS,
       );
       const map = new Map<string, string>();
@@ -222,11 +234,11 @@ export function realGitSurface(): GitSurface {
       throw new Error(`git show ${ref}:${file} failed: ${stderr.trim() || `status ${r.status}`}`);
     },
 
-    mergeBase(ref) {
+    mergeBase(ref, mainOid) {
       // The ONE reader where failure is a legitimate answer: a shallow clone has
       // no merge-base, and the caller degrades `inferred` for that ref rather
       // than failing. Distinguished from a fault by asking git first.
-      const r = spawnSync("git", ["merge-base", "origin/main", ref], {
+      const r = spawnSync("git", ["merge-base", mainOid, ref], {
         cwd: gitRoot(),
         encoding: "utf8",
         timeout: LS_REMOTE_MS,

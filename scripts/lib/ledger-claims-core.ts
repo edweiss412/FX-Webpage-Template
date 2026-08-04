@@ -27,14 +27,22 @@ export type GitSurface = {
   localRefs(): Map<string, string>;
   prList(): PrRow[];
   /** Merged branch ref name -> the OID git reported it merged at. */
-  mergedIntoMain(): Map<string, string>;
+  /**
+   * Branches merged into the PINNED main, as ref name -> merged-at OID.
+   *
+   * `mainOid` is not a convenience: asking `--merged origin/main` answers the
+   * question against whatever main points at during the call, so a branch
+   * merged only into a transient main is excluded although it was never merged
+   * into the main this run verified.
+   */
+  mergedIntoMain(mainOid: string): Map<string, string>;
   /** File content at a ref, or null when absent. Never throws on a missing path. */
   showFile(ref: string, file: string): string | null;
   /** All ledger blob OIDs at a ref in ONE spawn, so reads can be deduplicated. */
   fileOids(ref: string, files: string[]): Map<string, string>;
   /** A blob by OID, read once per distinct blob rather than once per branch. */
   readBlob(oid: string): string;
-  mergeBase(ref: string): string | null;
+  mergeBase(ref: string, mainOid: string): string | null;
   diffHunks(base: string, ref: string, files: string[]): Hunk[];
   tipEpoch(ref: string): number;
   isShallow(): boolean;
@@ -153,7 +161,13 @@ export function resolveClaims(
   // so at worst `--check` reports a collision that has just been resolved. The
   // opposite error — silence about a live one — is the failure this tool exists
   // to prevent.
-  const merged = shallow ? new Map<string, string>() : git.mergedIntoMain();
+  // The pinned main OID, which every ancestry question below is asked against.
+  // Absent main is not a silent fallback to the movable name: without it the
+  // exclusion cannot be trusted at all, so it is skipped and said out loud.
+  const mainOid = snapshotRefs.get("main");
+  const merged =
+    shallow || mainOid === undefined ? new Map<string, string>() : git.mergedIntoMain(mainOid);
+  if (!shallow && mainOid === undefined) degraded.push("merged-exclusion-skipped-no-main");
   if (shallow) degraded.push("merged-exclusion-skipped");
 
   const candidates = [...snapshotRefs.keys()]
@@ -243,7 +257,11 @@ export function resolveClaims(
     // Inferred: a branch that edited an entry's span is working on it, marker or
     // not. Advisory only — it never fails anything, in any identity case.
     if (declaredOnly) continue;
-    const base = git.mergeBase(pin(ref));
+    if (mainOid === undefined) {
+      if (!degraded.includes("merge-base-unavailable")) degraded.push("merge-base-unavailable");
+      continue;
+    }
+    const base = git.mergeBase(pin(ref), mainOid);
     if (base === null) {
       if (!degraded.includes("merge-base-unavailable")) degraded.push("merge-base-unavailable");
       continue;
