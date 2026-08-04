@@ -55,11 +55,10 @@ Corpus: **681** `attempt-*.last-message.txt` files found by a recursive walk of 
 
 Three stacked inferred recognizers reach 64.8%. The declared contract reaches 99.6% against the wrapper's own accept-set, and 100% if the three bold `**VERDICT:` lines it rejects are counted (conclusion 4 below).
 
-Two consequences, both load-bearing:
+Three consequences, all load-bearing:
 
 1. **This spec never infers a finding shape.** Everything the row needs is declared by the caller or by a mandated brief line. A recognizer over free-form reviewer prose is the exact denylist shape the accept-set rule forbids, and the corpus says it would be wrong for better than a third of real reviews.
 2. **The existing hook's finding tally is 48% accurate.** `$HOME/.claude/hooks/review-convergence-gate.sh` counts findings with the numbered-bold pattern alone, so its advisory "~N findings" line reads zero for the other 52%. Repairing it is in scope (§10) because this spec's own probe surfaced it, and leaving a known-wrong number in an operator-facing message is the defect class this whole system exists to close.
-
 3. **The wrapper silently drops bold verdict lines.** `parseVerdict` filters on `/^\s*VERDICT:\s*\S/` (`scripts/codex-guard.mjs:392`); a line beginning `**VERDICT:` fails it and the dispatch is recorded `no_verdict`. Three outputs in the corpus do exactly that — a full review spent, then classified as an infrastructure fault. Also in scope (§10).
 
 Reproduce: docs/superpowers/specs/ci/probes/2026-08-04-finding-format-probe.md. Arc-identity stability is measured separately in docs/superpowers/specs/ci/probes/2026-08-04-mergebase-stability-probe.md.
@@ -259,10 +258,12 @@ Over-obligation — a filing demanded where nothing was mechanizable — costs o
 
 Output:
 
-- Rounds per stage per arc, and counted-vs-recorded rows.
+- Rounds per stage per arc, and counted-vs-recorded rows. **Per stage** — never collapsed across stages, since the threshold is per-stage (§4.3) and a collapsed number cannot be compared against it.
 - Trigger rate by month — the success metric named in §1.1.
-- Finding-count totals by stage, over arcs where the declared line was present.
-- **Silent arcs**: branches that merged with zero rows in the corpus.
+- Finding-count totals by stage, over rows where the declared line was present. **Rows with `findingCount: null` are excluded from the total and reported separately as a count of undeclared rows.** Folding `null` into zero would state a false total; §5.3 makes `null` mean "not declared," never "none found."
+- **Silent arcs**: arcs that merged with zero rows in the corpus.
+
+**Every join in the report is on the `(branch, baseSha)` arc identity of §5.2, never on branch alone.** This is the same defect the gate was repaired for, in the report's own aggregation: the three reused branch names each carry distinct merge bases per arc — `attention-alert-routing` at `83104efdf828` (#524), `c813a67140d4` (#526), `b190a5721d1b` (#529) — so a branch-only join reads an older arc's rows as evidence for a later one and suppresses the later arc from the silent-arc list. Every metric above except silent-arc presence is miscomputed the same way.
 
 **The merged-branch accept-set is declared, and everything outside it is reported by name.** Reading `git log --merges` unqualified is wrong here. Measured against this repository's history:
 
@@ -345,10 +346,18 @@ Expected values derive from fixture contents; no hardcoded counts.
 
 Two layers, because a pre-parsed fixture list would let the test pass while the git-to-branch producer is wrong:
 
-1. **Producer against real history.** Run the merged-branch extractor over this repository's actual `git log --first-parent --merges` output and assert: every first-parent PR merge is recognized, zero non-first-parent merges are admitted, and the residue is surfaced as `unrecognized` with its subject rather than dropped. Derive expected counts from the git output at test time, never from literals — the numbers grow with the repo, and a hardcoded 676 makes this a tripwire on the calendar instead of on the producer. Catches the §9 accept-set being wrong about the input it actually gets.
-2. **Detector against a fixture corpus.** Given a merged-branch list and a fixture corpus, the merged branch with zero rows is listed and the one with rows is not. Catches the §9 observability claim being vapor.
+Every output §9 promises gets behavioral coverage. A report that presents a false number is the failure mode §9 declines to excuse, so "read-only" buys no test relief.
 
-Layer 1 is the one that would have failed on an unqualified `git log --merges`.
+1. **Producer against real history.** Run the merged-branch extractor over this repository's actual `git log --first-parent --merges` output and assert: every first-parent PR merge is recognized, zero non-first-parent merges are admitted, and the residue is surfaced as `unrecognized` with its subject rather than dropped. Derive expected counts from the git output at test time, never from literals — the numbers grow with the repo, and a hardcoded 676 makes this a tripwire on the calendar instead of on the producer. Catches the §9 accept-set being wrong about the input it actually gets.
+2. **Arc-identity join.** Fixture: one branch name, two arcs under distinct `baseSha` directories — the older with rows and a filing, the newer merged with zero rows. Assert the newer arc IS listed as silent. **A branch-only join fails this and passes every other test in this section**, which is exactly how the defect would ship. Fixture mirrors real history (§9).
+3. **Per-stage rounds, counted vs recorded.** Fixture with all three stages populated and a mix of `verdict` / `no_verdict` rows. Assert the per-stage counted and recorded numbers separately. Catches an implementation that collapses stages, or that counts every recorded row against a per-stage threshold.
+4. **Trigger rate by month.** Fixture arcs whose rows fall in two different months, with a known number tripping the threshold in each. Assert the per-month rate. Catches misbucketing and catches a rate computed over arcs rather than over triggered stages.
+5. **Finding-count totals exclude `null`.** Fixture mixing declared counts with `findingCount: null`. Assert the total is over declared rows only, and that undeclared rows appear as their own count. Catches `null` folded into zero, which would understate every total and is indistinguishable from "no findings."
+6. **Silent-arc detector.** Given a merged-arc list and a fixture corpus, the merged arc with zero rows is listed and the one with rows is not.
+
+Expected values in every layer derive from fixture contents, never from literals.
+
+Layer 1 would have failed on an unqualified `git log --merges`; layer 2 is the one no earlier draft of this section could have failed.
 
 ### 11.4 Mutation enrollment
 
