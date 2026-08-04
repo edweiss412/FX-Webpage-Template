@@ -468,7 +468,17 @@ The second row is where duplicate openings land, and it is the one the two passe
 
 `TASK_AC_UNRESOLVED` resolves against the plan document itself, not the linked spec. Cross-document AC resolution needs a declared spec link that plans do not currently carry; adding one is cluster-C-or-later work, and a check that silently resolves nothing is worse than no check. Recorded in §6. Resolution deliberately excludes marker lines themselves, so an id cannot satisfy itself by being cited.
 
-**The renderer is a third wiring point, not a consequence of the first two.** `CHECK_ORDER` governs sort order inside `runLint`; it does **not** drive the CLI's text report, which iterates its own closed literal list at `scripts/spec-lint.ts:46`. Adding the union member and the order entry without touching that list yields a run that exits 1 while the embedded report shows only an aggregate count — no code, no line, no message — which is precisely the report a reviewer receives under §2. All three wiring points land together: `lib/specLint/types.ts:2`, `lib/specLint/run.ts:8`, and `scripts/spec-lint.ts:46`.
+**The renderer is a third wiring point, not a consequence of the first two — and the type system draws the line in exactly the wrong place.** `CHECK_ORDER` governs sort order inside `runLint`; it does **not** drive the CLI's text report, which iterates its own closed literal list at `scripts/spec-lint.ts:46`. Adding the union member and the order entry without touching that list yields a run that exits 1 while the embedded report shows only an aggregate count — no code, no line, no message — which is precisely the report a reviewer receives under §2.
+
+Two of the three wiring points are enforced and the third is not, which is why this is worth stating rather than leaving to care. `CHECK_ORDER` is declared `Record<Check, number>` (`lib/specLint/run.ts:8`), so it is exhaustive over the union: adding the member without the entry is a compile error, verified by making the edit and running `tsc --noEmit`.
+
+```
+lib/specLint/run.ts(8,7): error TS2741: Property 'taskContract' is missing in type
+  '{ document: …; citations: …; numerics: …; copy: …; sections: … }'
+  but required in type 'Record<Check, number>'.
+```
+
+The renderer's list is `["document", "citations", "numerics", "copy", "sections"] as const` — a plain literal, not `readonly Check[]`, and an array is not exhaustiveness-checked even when it is. So the same edit produces **no** diagnostic there. The typechecker catches the wiring point whose omission is loud and misses the one whose omission is silent, which is the shape that makes a "surely I'd notice" argument fail. All three land together: `lib/specLint/types.ts:2`, `lib/specLint/run.ts:8`, and `scripts/spec-lint.ts:46`; AC-25 is what actually pins the third, asserted against the CLI's real stdout.
 
 Note the deliberate asymmetry with §1.1 item 4: these checks verify a **declaration's shape**, never a task's prose. `TASK_RED_EMPTY` asserts the author wrote a command; it does not assert the command is real, runs, or fails first. That remains the reviewer's job, now with a named target instead of a prose hunt.
 
