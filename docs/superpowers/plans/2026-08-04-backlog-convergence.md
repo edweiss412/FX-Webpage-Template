@@ -25,7 +25,7 @@ CREATES `tests/docs/_metaLedgerSizing.test.ts` + `tests/docs/_ledgerSizingGrandf
 
 ## 4. Semantic-screen disposition table (AC-A2 — authored AND run, 2026-08-04)
 
-Three reader passes over every open entry (two primary + one follow-up covering the 12 ids the primaries' container-section handling skipped); lexical screen command + output in spec §2.2. Canonical census 110. Final counts: **a = 91 KEEP · b = 14 · c = 2 · terminal-flagged = 3** (CI-STALE resolved-in-body; DESTRUCT-DURATION fixed-in-body; EXPORT-BLANK-ROW / TRANSPORT-ID are PARTIALLY CLOSED with named residuals — counted in a, flagged here so nobody re-litigates their closed halves).
+Three reader passes over every open entry (two primary + one follow-up covering the 12 ids the primaries' container-section handling skipped); lexical screen command + output in spec §2.2. Canonical census 110. Final counts: **a = 94 KEEP · b = 14 · c = 2** (94 + 14 + 2 = 110). Four of the a-rows are terminal/partial-flagged: CI-STALE resolved-in-body and DESTRUCT-DURATION fixed-in-body (both graduation-verified in Task 21), EXPORT-BLANK-ROW and TRANSPORT-ID PARTIALLY CLOSED with named residuals — flagged so nobody re-litigates their closed halves. Two structural a-rows: `BL-NULLCODE-STAMP-BATCH-2` (umbrella entry — the walker counts it; its evidence lives in its `###` children, kept as the umbrella of their residuals) and `BL-TASKCONTRACT-SORT-COMPARATOR-EQUALKEY` (probe-backed — two live ledgered mutants; routed to Task 16 via spec §4.5 item 4).
 
 **(b)/(c) rows and dispositions:**
 
@@ -55,6 +55,8 @@ Also routed by the screen though not (b)/(c): **BL-AUTH-INTERSTITIAL-FONT** (its
 **a-class KEEP ids — nested + DEFERRED:** BL-OPS-LOG BL-PUSH-NOTIFICATIONS BL-X5-ROLE-TOKEN-DECIDED-BY-BOUNDARY BL-PRIVATE-IMAGE-PIPELINE BL-ADMIN-DASHBOARD-ROW-ACTIONS BL-ADMIN-PER-SHOW-HISTORY BL-HELP-NON-SHOW-REPORT-SURFACE BL-TWO-WAY-SHEET-SYNC BL-NON-CREW-UNDO BL-FEED-BUTTON-SUCCESS-ANNOUNCE BL-BULK-UNDO-ANNOUNCE-UNMOUNT BL-ANNOUNCE-REGION-UNMOUNT-CLASS BL-EM-DASH-POLICY BL-CANONICAL-CLASS-ARRAY-BLINDSPOT BL-ACCENT-BUTTON-ATOM-SWEEP BL-CREW-SHEET-TEMPLATE-V2 BL-CREW-FIELD-ENRICHMENT BL-CREW-AGENDA-ADMIN-CLEAR BL-LIBDATA-SUPABASE-CALL-BOUNDARY-METATEST BL-ADMIN-BADGE-CONTRAST-TOKEN BL-PROJECTION-ALERT-VIEWER-INDEPENDENT-PROBE BL-CREW-PII-DB-LOCKDOWN BL-FLIGHT-LEG-ORIENTATION BL-CREW-UNKNOWN-ASTERISK-TODAY-DATES BL-CI-UNIT-GATE-EXCLUSIONS BL-ADMIN-NAV-BADGE-SUSPENSE-STREAMING BL-RESURRECT-MOBILE-SAFARI-E2E PSQL-GUARD-RECALL-RESIDUAL STEP3-GALLERY-TAP-TARGETS-1 NEWTAB-GUARD-UNDECIDABLE-2 NEWTAB-A11Y-RESIDUE-1 SHARELINK-COPY-REF-ORDERING-PROOF SHARELINK-CUE-VISIBILITY-1 SHARELINK-CUE-FORCED-COLORS-1 SHARELINK-CONSTANTS-INVENTORY-1 ATTENTION-INDEX-JUMP-FOCUS-1 ATTENTION-INDEX-ROW-DESTINATION-NAME-1 DESTRUCT-FOCUSRING-1 SHEETLINK-SUBTLE-ACTION-CLASS-1
 
 **a-class KEEP ids — 12-id follow-up pass:** BL-PUBLISHED-TOGGLE-CLIENT-COMMIT-WEDGE ("measured, not theorized", CI trace) BL-AGENDA-PROSE-SECOND-DAY (verified at PR #610 close-out) BL-AGENDA-POSITIONAL-DAYSET-FALLBACK (spec-ratified corpus omission) BL-HEALTH-RESOLVE-DB-LOCKDOWN (re-verified grant, accepted risk) BL-CRON-WORKBOOK-FAULT-CODE (traced `runScheduledCronSync.ts` sites) BL-ROOM-DIMS-ONLY-NOVEL-HEADER (14 rounds confirmed) BL-MUTATION-HARNESS-OPEN-HOLES (knownHoles ratchet ledger) BL-EXPORT-BLANK-ROW-SEGMENTATION (probed residuals) BL-TRANSPORT-ID-RESOLUTION (verified `nameMatch.ts:50-53`) — plus terminal-flagged BL-CI-STALE-BRANCH-PROTECTION-COMMENT (Task 21).
+
+**a-class structural/terminal completions (closing the census to 110):** BL-NULLCODE-STAMP-BATCH-2 (umbrella, above) · BL-TASKCONTRACT-SORT-COMPARATOR-EQUALKEY (Task 16) · DESTRUCT-DURATION-TOKENS-1 (fixed-in-body, Task 21 graduation).
 
 ## 5. Tasks
 
@@ -86,9 +88,9 @@ Per spec §2.2 row 3 and plan-review R1 finding 4: the probe drives `applyParseR
 
 ## Task 5 — semantic-screen dispositions (all (b)/(c) rows)
 
-<!-- task: red=`test $(rg -c 'screen-disposition 2026-08-04' BACKLOG.md DEFERRED.md | awk -F: '{s+=$2} END {print s}') -ge 15` ac=AC-A2 -->
+<!-- task: red=`test $(rg -c 'screen-disposition 2026-08-04' BACKLOG.md DEFERRED.md BACKLOG-archive.md DEFERRED-archive.md | awk -F: '{s+=$2} END {print s}') -ge 16` ac=AC-A2 -->
 
-First step: `pnpm ledger:claims --check` for every row this task may demote (the §4 (b)/(c) list minus Tasks 2–4's already-claimed seeds), mark the ones being demoted, push. Then execute the three-way call for every §4 (b)/(c) row not covered by Tasks 2–4, plus BL-AUTH-INTERSTITIAL-FONT: run the named cheap probe where one exists; per row KEEP-with-evidence / DEMOTE (limits record + archive) / ANNOTATE-INFERRED (add `**Reachability:** INFERRED, NOT PROBED` + named probe per the new filing bar). EVERY dispositioned row gets a `screen-disposition 2026-08-04: <verdict> — <basis>` stamp in the entry (or its archive record) — the red counts stamps across both ledgers (15 = 16 (b)/(c) rows + AUTH-INTERSTITIAL − Tasks 2–4's two seeds handled separately, floor set conservatively). Dispositions also in the PR body. Failure mode: the screen finding hypotheticals and nothing changing — or changing without a stamp a later reader can audit.
+First step: `pnpm ledger:claims --check` for every row this task may demote (the §4 (b)/(c) list minus Tasks 2–4's already-claimed seeds), mark the ones being demoted, push. Then execute the three-way call for every §4 (b)/(c) row not covered by Tasks 2–4, plus BL-AUTH-INTERSTITIAL-FONT: run the named cheap probe where one exists; per row KEEP-with-evidence / DEMOTE (limits record + archive) / ANNOTATE-INFERRED (add `**Reachability:** INFERRED, NOT PROBED` + named probe per the new filing bar). EVERY dispositioned row gets a `screen-disposition 2026-08-04: <verdict> — <basis>` stamp in the entry OR its archive record — the red counts stamps across ALL FOUR ledgers, so the count is invariant to how many rows were demoted. Exactly 16 dispositions are owed: the 16 (b)/(c) table rows minus CAP-LOSS (Task 4 owns its stamp) plus AUTH-INTERSTITIAL — the red's `-ge 16` therefore permits no silent omission (Task 4's stamp may push the total to 17; the floor stays 16). Dispositions also in the PR body. Failure mode: the screen finding hypotheticals and nothing changing — or changing without a stamp a later reader can audit.
 
 ## Task 6 — normalize the invisible DEFERRED section
 
@@ -126,11 +128,11 @@ Branch `feat/sweep-ui-a11y` worktree. Ids: BL-FEED-BUTTON-SUCCESS-ANNOUNCE certa
 
 Per §4.5 item 2: "Change accepted" / "Change approved" / "Change rejected" via `UndoAnnounceContext.announce`, `undoneAnnouncement` shape (`components/admin/undoAnnounceContext.ts`). Tests assert the announced STRING in the live region per button success path, tree-scoped per the anti-tautology rule (clone + strip siblings rendering the same words). Failure mode: SR success silence on two of three buttons.
 
-## Task 12 — kept UI closures (SR separator, terminal icon)
+## Task 12 — kept UI closures (SR separator, terminal icon, auth-interstitial font)
 
-<!-- task: red=`pnpm vitest run tests/components --changed=HEAD~1` ac=AC-C1 -->
+<!-- task: red=`pnpm vitest run tests/components/identityChipSrSeparator.test.ts` ac=AC-C1 -->
 
-For each of BL-IDENTITYCHIP-SR-SEPARATOR and BL-TERMINAL-FAILURE-ICON that Task 5 KEPT: one commit per entry, each with its own failing test named in the commit (`tests/components/identityChipSrSeparator.test.ts`, `tests/components/terminalFailureIcon.test.ts`), entry's own Work section as contract. The task-level red is per-commit: the entry's named test file, written first, red before its fix. Skipped-with-record for rows Task 5 demoted/fenced. Failure mode: per entry.
+For each of BL-IDENTITYCHIP-SR-SEPARATOR, BL-TERMINAL-FAILURE-ICON, and BL-AUTH-INTERSTITIAL-FONT that Task 5 KEPT: one commit per entry, each with its own failing test named in the commit (`tests/components/identityChipSrSeparator.test.ts`, `tests/components/terminalFailureIcon.test.ts`, `tests/routes/authInterstitialFont.test.ts` — the last asserting the four hand-built auth documents carry the app font per whatever mechanism Task 5's KEEP record ratified), entry's own Work section as contract, graduation to archive on green. The task-level red is the first kept entry's named test, written first; each subsequent entry repeats the pattern in its own commit. Skipped-with-record for rows Task 5 demoted/fenced (a fully-skipped task records that and its red is vacuously N/A in the closeout note). Failure mode: per entry; for auth-interstitial specifically, a KEEP verdict with no implementation path (the plan R2 finding).
 
 ## Task 13 — FITWITHINCLIP-CLIP-SCROLL-STALE (if kept)
 
