@@ -7,7 +7,9 @@
  */
 import { describe, expect, it } from "vitest";
 
-import { type GitSurface, resolveClaims } from "@/scripts/lib/ledger-claims-core";
+import { premise, premiseHolds } from "@/tests/_shared/premise";
+
+import { type GitSurface, type Hunk, resolveClaims } from "@/scripts/lib/ledger-claims-core";
 
 const MARKER = (branch: string, id = "BL-X") =>
   `## ${id} — planted\n\n**Status:** IN PROGRESS · **Branch:** ${branch}\n`;
@@ -397,5 +399,302 @@ describe("declaredOnly — the backstop's mode (whole-diff R8 F2)", () => {
       { fetch: false, now: NOW, declaredOnly: true },
     );
     expect(r.claims.map((c) => c.kind)).toEqual(["declared"]);
+  });
+});
+
+/**
+ * The reachable survivors of the source-mutation sweep over
+ * `scripts/lib/ledger-claims-core.ts` (guard-premise-reachability, Task 6).
+ *
+ * Every behaviour below already worked; none of it was asserted, so a mutant
+ * that deleted or shifted it kept the whole suite green. Each `it` names the
+ * mutant it kills, and each was verified the only way that proves anything:
+ * apply the mutant to the source on disk, watch THIS test go red, restore.
+ */
+
+const DAY = 86_400;
+
+/** Two entries, neither in progress. BL-X spans lines 1-4; BL-Y spans 5-8. */
+const TWO_SPANS = "## BL-X — first\n\nbody\n\n## BL-Y — second\n\nbody\n";
+
+/**
+ * One entry whose heading sits on line 11, so `start + count - 1` is the
+ * difference between attributing and not.
+ */
+const HEADING_AT_11 = [
+  "reconciliation prose", // 1
+  "", // 2
+  "", // 3
+  "", // 4
+  "", // 5
+  "", // 6
+  "", // 7
+  "", // 8
+  "", // 9
+  "", // 10
+  "## BL-X — first", // 11
+  "",
+  "body",
+  "",
+].join("\n");
+
+/** Plants `text` as BACKLOG.md on origin/feat/a, and nothing anywhere else. */
+const backlogAt = (text: string) => (ref: string, file: string) =>
+  file === "BACKLOG.md" && ref === "origin/feat/a" ? text : null;
+
+describe("staleness boundary (integer-literal:80, relational-boundary:224)", () => {
+  const at = (ageDays: number) =>
+    resolveClaims(fake({ tipEpoch: () => NOW - ageDays * DAY }), opts).claims[0];
+
+  it("a tip exactly STALE_DAYS old is fresh, not stale", () => {
+    // Kills `ageDays > STALE_DAYS` -> `>=`. Only the exact boundary separates
+    // them, so every other age in the suite is blind to it.
+    premiseHolds("the fixture's tip is exactly STALE_DAYS old", at(14)?.tipAgeDays === 14);
+    expect(at(14)?.stale, "the boundary day itself read as abandoned").toBe(false);
+  });
+
+  it("a tip one day past STALE_DAYS is stale", () => {
+    // Kills `STALE_DAYS = 14` -> `15`. At fourteen days the two constants agree;
+    // fifteen is the only age at which they do not.
+    premiseHolds("the fixture's tip is one day past STALE_DAYS", at(15)?.tipAgeDays === 15);
+    expect(at(15)?.stale).toBe(true);
+  });
+
+  it("derives `now` from the clock when the caller omits it", () => {
+    // Kills `Date.now() / 1000` -> `/ 1001`, which shifts the derived epoch by
+    // about twenty days. Every other case in both suites pins `now`, so the
+    // default is otherwise never executed.
+    const r = resolveClaims(fake({ tipEpoch: () => Math.floor(Date.now() / 1000) - DAY }), {
+      fetch: false,
+    });
+    expect(r.claims[0]?.tipAgeDays, "the clock default is not seconds since the epoch").toBe(1);
+  });
+});
+
+describe("the fetch leg (statement-removal:137, :139, :142)", () => {
+  it("fetches when opts.fetch is set", () => {
+    // The ordering guard in ledgerClaimsCheck.test.ts pins `ledger-check.ts`'s
+    // OWN call, not this one, so deleting this `git.fetch()` left both suites
+    // green. Premised, because indexing an empty recorder yields `undefined`
+    // and an assertion against it can pass for the wrong reason.
+    const calls: string[] = [];
+    resolveClaims(
+      fake({
+        fetch: () => calls.push("fetch"),
+        localRefs: () => {
+          calls.push("localRefs");
+          return new Map([
+            ["main", "aaa"],
+            ["feat/a", "bbb"],
+          ]);
+        },
+      }),
+      { fetch: true, now: NOW },
+    );
+    premise("the fixture recorded a surface call at all", calls.length, 0);
+    expect(calls[0], "the fetch never happened").toBe("fetch");
+  });
+
+  it("surfaces a failed fetch as a degraded note rather than throwing", () => {
+    const r = resolveClaims(
+      fake({
+        fetch: () => {
+          throw new Error("network down");
+        },
+      }),
+      { fetch: true, now: NOW },
+    );
+    expect(r.degraded).toContain("fetch-failed: network down");
+  });
+
+  it("says out loud that a --no-fetch run decided against cached refs", () => {
+    // Asserted IN PROCESS: the only prior assertion on this note went through a
+    // spawned CLI, which no source overlay can reach.
+    const r = resolveClaims(fake(), opts);
+    expect(r.degraded).toContain("no-fetch-cached-refs");
+  });
+});
+
+describe("identity — an EMPTY base repository (logical-connector:111, integer-literal:111)", () => {
+  it("treats an empty repo string as unresolved, not as a same-repository match", () => {
+    // Kills `||` -> `&&` and `base.length === 0` -> `=== 1`. Both mutants let an
+    // empty base fall through to the head/base comparison, where `"base/x" !==
+    // ""` reads as a resolved FORK — the exact false all-clear the fork rule
+    // exists to prevent.
+    const r = resolveClaims(
+      fake({
+        inCI: () => true,
+        headRepo: () => "base/x",
+        repo: () => "",
+        currentBranch: () => "feat/a",
+      }),
+      opts,
+    );
+    expect(r.identity).toBe("ci-unknown");
+    expect(r.selfBranch, "an unresolved identity means nothing is self").toBeNull();
+    expect(r.degraded).toContain("identity-unresolved");
+  });
+});
+
+describe("merged-exclusion notes (logical-connector:170)", () => {
+  it("does not report a missing main when the snapshot pins one", () => {
+    // Kills `!shallow && mainOid === undefined` -> `||`, which on an ordinary
+    // full clone WITH a main reads `true || false` and reports the exclusion as
+    // skipped although it ran. Every existing assertion is a `toContain`, so
+    // only an absence assertion sees it.
+    const r = resolveClaims(fake(), opts);
+    premiseHolds("the fixture's snapshot has a main to pin", r.refSnapshot.has("main"));
+    expect(r.degraded).not.toContain("merged-exclusion-skipped-no-main");
+  });
+});
+
+describe("candidate ordering (statement-removal:198)", () => {
+  it("returns candidates newest tip first", () => {
+    const seen: number[] = [];
+    const r = resolveClaims(
+      fake({
+        localRefs: () =>
+          new Map([
+            ["main", "aaa"],
+            ["feat/a", "bbb"],
+            ["feat/b", "ccc"],
+          ]),
+        // tipEpoch receives the PINNED OID, never the ref name.
+        tipEpoch: (oid) => {
+          const epoch = oid === "bbb" ? NOW - 10 * DAY : NOW;
+          seen.push(epoch);
+          return epoch;
+        },
+        showFile: () => null,
+      }),
+      opts,
+    );
+    premise("both branches reached the candidate set", r.candidates.length, 1);
+    premiseHolds(
+      "the two tips carry DISTINCT epochs, so an order exists",
+      new Set(seen).size === 2,
+    );
+    // Map order yields feat/a first; only the sort puts the newer feat/b there.
+    expect(r.candidates).toEqual(["origin/feat/b", "origin/feat/a"]);
+  });
+});
+
+describe("blob deduplication (statement-removal:243)", () => {
+  it("reads a blob shared by two refs exactly once", () => {
+    const reads: string[] = [];
+    const r = resolveClaims(
+      fake({
+        localRefs: () =>
+          new Map([
+            ["main", "aaa"],
+            ["feat/a", "bbb"],
+            ["feat/b", "ccc"],
+          ]),
+        // Both refs report the SAME blob, which is the ordinary case: most
+        // branches never touch a ledger, so they share main's blobs.
+        fileOids: () => new Map([["BACKLOG.md", "shared-blob"]]),
+        readBlob: (oid) => {
+          reads.push(oid);
+          return MARKER("feat/a");
+        },
+      }),
+      opts,
+    );
+    premise("both refs reached the content read", r.candidates.length, 1);
+    expect(reads.length, "a shared blob was re-read per ref").toBe(1);
+    expect(r.claims.map((c) => c.branch).sort()).toEqual(["feat/a", "feat/b"]);
+  });
+});
+
+describe("inference is skipped, never guessed, without a base (statement-removal:261, :262, :267)", () => {
+  const hunk = () => [{ file: "BACKLOG.md", start: 1, count: 1 }];
+
+  it("skips inference and notes it once when the snapshot has no main", () => {
+    const control = resolveClaims(fake({ showFile: backlogAt(TWO_SPANS), diffHunks: hunk }), opts);
+    premise("the fixture's hunk DOES attribute when a main is pinned", control.claims.length, 0);
+
+    const r = resolveClaims(
+      fake({
+        localRefs: () =>
+          new Map([
+            ["feat/a", "bbb"],
+            ["feat/b", "ccc"],
+          ]),
+        showFile: backlogAt(TWO_SPANS),
+        diffHunks: hunk,
+      }),
+      opts,
+    );
+    expect(r.claims, "inference ran with no main to ask ancestry against").toEqual([]);
+    expect(
+      r.degraded.filter((d) => d === "merge-base-unavailable"),
+      "the note is pushed once, not once per candidate",
+    ).toHaveLength(1);
+  });
+
+  it("skips inference and notes it once when the merge base does not resolve", () => {
+    const control = resolveClaims(fake({ showFile: backlogAt(TWO_SPANS), diffHunks: hunk }), opts);
+    premise(
+      "the fixture's hunk DOES attribute when a merge base resolves",
+      control.claims.length,
+      0,
+    );
+
+    const r = resolveClaims(
+      fake({
+        localRefs: () =>
+          new Map([
+            ["main", "aaa"],
+            ["feat/a", "bbb"],
+            ["feat/b", "ccc"],
+          ]),
+        showFile: backlogAt(TWO_SPANS),
+        diffHunks: hunk,
+        mergeBase: () => null,
+      }),
+      opts,
+    );
+    expect(r.claims, "inference ran against a null base").toEqual([]);
+    expect(
+      r.degraded.filter((d) => d === "merge-base-unavailable"),
+      "the note is pushed once, not once per candidate",
+    ).toHaveLength(1);
+  });
+});
+
+describe("hunk-to-span arithmetic (integer-literal:273, :274; relational-boundary:278)", () => {
+  const run = (text: string, h: Hunk) =>
+    resolveClaims(fake({ showFile: backlogAt(text), diffHunks: () => [h] }), opts);
+
+  it("attributes a one-line hunk", () => {
+    // Kills `h.count === 0` -> `=== 1`, which drops every single-line edit as
+    // if it were a pure deletion.
+    const r = run(TWO_SPANS, { file: "BACKLOG.md", start: 1, count: 1 });
+    expect(r.claims.map((c) => c.id)).toEqual(["BL-X"]);
+  });
+
+  it("ends a hunk at start + count - 1, not two short", () => {
+    // Kills `- 1` -> `- 2`: a two-line hunk at 10 ends at 11, which is exactly
+    // this fixture's only heading line.
+    premiseHolds(
+      "the fixture's heading is on line 11, so a hunk ending at 11 lands on the span",
+      HEADING_AT_11.split("\n")[10] === "## BL-X — first",
+    );
+    const r = run(HEADING_AT_11, { file: "BACKLOG.md", start: 10, count: 2 });
+    expect(r.claims.map((c) => c.id)).toEqual(["BL-X"]);
+  });
+
+  it("attributes a hunk touching exactly the FIRST line of a span", () => {
+    // Kills `last >= span.line` -> `>`. BL-Y's heading is line 5, and a
+    // one-line hunk there ends on it.
+    const r = run(TWO_SPANS, { file: "BACKLOG.md", start: 5, count: 1 });
+    expect(r.claims.map((c) => c.id)).toEqual(["BL-Y"]);
+  });
+
+  it("attributes a hunk starting exactly on the LAST line of a span", () => {
+    // Kills `h.start <= span.endLine` -> `<`. BL-X ends at line 4, the line
+    // before BL-Y's heading.
+    const r = run(TWO_SPANS, { file: "BACKLOG.md", start: 4, count: 1 });
+    expect(r.claims.map((c) => c.id)).toEqual(["BL-X"]);
   });
 });
