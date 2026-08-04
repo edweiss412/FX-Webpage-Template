@@ -198,6 +198,17 @@ Findings never block dispatch. A doc with 40 citation failures is exactly the do
 
 **Exit code alone cannot carry that distinction, so the report's shape is checked too.** A failure *before* the adapter runs also exits 1, with empty stdout and no error — a missing Node loader does exactly this (`status=1, signal=null, stdoutBytes=0`). A spawn failure surfaces as `error.code === "ENOENT"` with no exit code at all, and a signalled death gives `code === null`. None of the three is exit 2, so a contract keyed only on the exit code treats every one of them as a valid findings report and dispatches with no lint output — precisely what this section says must block.
 
+Verified across every mode, including one the check was not designed for:
+
+```
+current CLI (truncating)   status=0     shapeOK=false
+fixed variant              status=0     shapeOK=true
+pre-adapter failure        status=1     shapeOK=false
+spawn ENOENT               status=null  errCode=ENOENT
+```
+
+The first row is the useful surprise: the shape check **also** catches the §2.2.3 truncation, at `status=0`, without knowing anything about it. The two repairs are independent, and this one backstops the other — if the `process.exitCode` fix is ever reverted, dispatches refuse loudly instead of quietly embedding a report whose summary line is missing. A guard that only understood exit codes would have shipped that silently.
+
 ### 2.4 The recorded gap
 
 A caller who omits `--lint-doc` still dispatches. result.json gains a `lintArm` field taking `"present"` or `"absent"`, so the omission is machine-visible to the orchestrator reading the result contract, rather than invisible as it is today. Closing this fully would require codex-guard to infer the review target from brief prose, which is the S1 mistake this spec exists to stop. Recorded as a documented limit (§6).
