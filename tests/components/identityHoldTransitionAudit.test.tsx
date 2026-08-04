@@ -90,11 +90,41 @@ describe("identity_hold transition audit — source tier", () => {
     expect(islandSrc).not.toContain("focus-visible:ring-offset-bg");
   });
 
-  it("island root carries no gap utility (collapsed track would keep a parent gap visible)", () => {
-    // The root element is the first JSX tag of the returned tree.
-    const rootMatch = islandSrc.match(/<div className="([^"]*)"/);
+  it("island root carries no gap utility, and the open-state spacing lives inside the panel", () => {
+    // Scoped to the RETURNED tree, not "the first <div className> in the file":
+    // an earlier gapless helper div would otherwise mask a gapped real root.
+    const src = stripCommentsForFile(islandSrc, ISLAND_PATH);
+    const ret = src.slice(src.indexOf("return ("));
+    const rootMatch = ret.match(/<div className="([^"]*)"/);
     if (!rootMatch) throw new Error("island root className not found");
     expect(rootMatch[1]).not.toMatch(/\bgap-/);
+    // CollapsePanel's track is always mounted, so open-state separation must come
+    // from a padding wrapper INSIDE children, which the closed panel clips.
+    const panelBody = ret.slice(ret.indexOf("<CollapsePanel"));
+    expect(panelBody).toMatch(/className="[^"]*\bpt-3\b/);
+  });
+
+  it("the panel label is the show-identifying string, not a bare slug", () => {
+    // `label` is DOM-invisible under region={false}, so source is the only tier
+    // that can hold it — and `label={slug}` would satisfy a bare `label={` check
+    // while giving every panel on the page an unhelpful identical-shaped name.
+    const src = stripCommentsForFile(islandSrc, ISLAND_PATH);
+    const start = src.indexOf("<CollapsePanel");
+    const props = src.slice(start, src.indexOf(">", start));
+    expect(props).toMatch(
+      /label=\{title \? `Held changes for \$\{title\} \(\$\{slug\}\)` : `Held changes for \$\{slug\}`\}/,
+    );
+  });
+
+  it("no CSS animation on the island: the height morph is CollapsePanel's alone", () => {
+    // The Framer-Motion ban does not stop a hand-rolled keyframe/animate utility,
+    // which would put a second, unaudited animation on these transitions.
+    const src = stripCommentsForFile(islandSrc, ISLAND_PATH);
+    expect(src).not.toMatch(/\banimate-(?!none\b)[a-z]/);
+    expect(src).not.toMatch(/@keyframes/);
+    // transition-colors / transition-transform on the toggle are the intended
+    // instant-feedback affordances; anything transitioning LAYOUT is not.
+    expect(src).not.toMatch(/transition-\[(?:height|width|margin|padding)/);
   });
 });
 

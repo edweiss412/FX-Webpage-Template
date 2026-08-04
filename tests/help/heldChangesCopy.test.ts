@@ -62,13 +62,44 @@ function norm(text: string): string {
   return text.replaceAll("**", "").replace(/\s+/g, " ");
 }
 
+/**
+ * The passage a phrase is supposed to live in, not the whole file. A whole-file
+ * search passes when the copy is deleted from the rendered element and survives
+ * in a comment, a sibling tooltip, or an unrelated section — every one of which
+ * ships a page missing the sentence the test claims to guarantee.
+ */
+function between(text: string, startMarker: string, endMarker: string): string {
+  const start = text.indexOf(startMarker);
+  if (start === -1) throw new Error(`passage start not found: ${startMarker}`);
+  const end = text.indexOf(endMarker, start + startMarker.length);
+  if (end === -1) throw new Error(`passage end not found: ${endMarker}`);
+  return norm(text.slice(start, end));
+}
+
+/** The <p> body of a named HoverHelp tooltip. */
+function tooltipBody(key: "dashboardTooltip" | "pageTooltip", testId: string): string {
+  const src = raw(key);
+  const at = src.indexOf(testId);
+  if (at === -1) throw new Error(`tooltip ${testId} not found`);
+  return between(src.slice(at), "<p>", "</p>");
+}
+
 describe("held-changes copy contract — phrase tier", () => {
   it("1. dashboard tooltip names held crew identity changes", () => {
-    expect(normalized("dashboardTooltip")).toContain("held crew identity changes");
+    expect(tooltipBody("dashboardTooltip", '"needs-attention-help"')).toContain(
+      "held crew identity changes",
+    );
   });
 
   it("2. needs-attention page tooltip names held crew identity changes", () => {
-    expect(normalized("pageTooltip")).toContain("held crew identity changes");
+    expect(tooltipBody("pageTooltip", '"needs-attention-page-help"')).toContain(
+      "held crew identity changes",
+    );
+    // It must NOT claim every card awaits a decision: sync-problem cards carry no
+    // decision control and clear themselves.
+    const body = tooltipBody("pageTooltip", '"needs-attention-page-help"');
+    expect(body).not.toContain("Everything waiting on a decision from you");
+    expect(body).toMatch(/sync problems? appear here too/i);
   });
 
   it("3. dashboard help inventory carries the Held identity change bullet", () => {
@@ -91,16 +122,20 @@ describe("held-changes copy contract — phrase tier", () => {
     );
   });
 
-  it("7. daily-rhythm mentions held crew identity changes", () => {
-    expect(normalized("dailyRhythm")).toContain("Held crew identity changes appear here too");
+  it("7. daily-rhythm names it on the Needs attention BULLET, not just somewhere in the page", () => {
+    const bullet = between(raw("dailyRhythm"), "- **Needs attention**", "\n-");
+    expect(bullet).toContain("Held crew identity changes appear here too");
   });
 
-  it("8. settings digest bullet mentions held identity changes", () => {
-    expect(normalized("settings")).toContain("crew identity changes that are held for your review");
+  it("8. settings names it on the DAILY REVIEW DIGEST bullet", () => {
+    const bullet = between(raw("settings"), "- **Daily review digest.**", "\n-");
+    expect(bullet).toContain("crew identity changes that are held for your review");
   });
 
-  it("9. tour enumerates crew identity changes held for approval", () => {
-    expect(normalized("tour")).toContain("crew identity changes held for your approval");
+  it("9. tour names it inside the REVIEW QUEUES card", () => {
+    const card = between(raw("tour"), "Review queues</h3>", "</p>");
+    expect(card).toContain("crew identity changes held for your approval");
+    expect(card).not.toContain("Each queue is scoped to one show");
   });
 
   it("negatives: the stale one-show scoping claim and the absolute never-clears claim are gone", () => {

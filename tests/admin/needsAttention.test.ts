@@ -300,7 +300,12 @@ describe("identity_hold stream", () => {
   });
 
   it("omitted new keys: additive identityHoldTotal 0, everything else the pre-change shape (digest regression fence)", () => {
-    const args = { ingestions: [], syncs: [], existence: {}, totalCounts: { ingestions: 0, syncs: 0 } };
+    const args = {
+      ingestions: [],
+      syncs: [],
+      existence: {},
+      totalCounts: { ingestions: 0, syncs: 0 },
+    };
     // Expected shape built by hand, NEVER a second call to the same function
     // (self-comparison is tautological).
     expect(buildNeedsAttention(args)).toEqual({

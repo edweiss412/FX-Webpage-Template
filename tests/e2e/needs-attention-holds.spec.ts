@@ -206,7 +206,8 @@ async function readBadge(page: Page): Promise<number> {
   const badge = page.getByTestId("admin-attention-badge");
   if ((await badge.count()) === 0) return 0; // no badge renders at zero
   const text = (await badge.innerText()).trim();
-  if (text.endsWith("+")) throw new Error(`badge is capped ("${text}") - baseline too high to test a delta`);
+  if (text.endsWith("+"))
+    throw new Error(`badge is capped ("${text}") - baseline too high to test a delta`);
   return Number.parseInt(text, 10);
 }
 
@@ -248,8 +249,12 @@ test.describe("needs-attention identity holds: cards, badge, chip, clear-through
     await expect(multi).toContainText("3 held changes waiting");
 
     // Out-of-scope kind (undo_override) and out-of-scope show (archived).
-    await expect(page.getByTestId(`needs-attention-item-identity-hold-${showId(3)}`)).toHaveCount(0);
-    await expect(page.getByTestId(`needs-attention-item-identity-hold-${showId(4)}`)).toHaveCount(0);
+    await expect(page.getByTestId(`needs-attention-item-identity-hold-${showId(3)}`)).toHaveCount(
+      0,
+    );
+    await expect(page.getByTestId(`needs-attention-item-identity-hold-${showId(4)}`)).toHaveCount(
+      0,
+    );
   });
 
   test("badge counts held SHOWS, not held rows (2 shows, 4 open holds → +2)", async ({ page }) => {
@@ -327,7 +332,9 @@ test.describe("needs-attention identity holds: cards, badge, chip, clear-through
     await expect(page.getByTestId("mi11-reject")).toHaveCount(0, { timeout: 15_000 });
 
     await page.goto("/admin/needs-attention");
-    await expect(page.getByTestId(`needs-attention-item-identity-hold-${showId(1)}`)).toHaveCount(0);
+    await expect(page.getByTestId(`needs-attention-item-identity-hold-${showId(1)}`)).toHaveCount(
+      0,
+    );
     // Show 2's three holds are untouched, so exactly one held show remains.
     await expect(page.getByTestId(`needs-attention-item-identity-hold-${showId(2)}`)).toBeVisible();
     await page.setViewportSize(MOBILE);
