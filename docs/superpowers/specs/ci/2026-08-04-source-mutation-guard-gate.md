@@ -89,9 +89,32 @@ The AST walk additionally found a survivor the text scan missed: **removing `fin
 
 ### 2.4 Baseline survivor classification
 
-31 survivors = **18 genuine gaps + 13 equivalent mutants**. Full table in §4.2. Each equivalence is a *claim* and carries its argument plus a citation; one worked example, verified during this spec's drafting:
+31 survivors = **10 genuine gaps + 18 equivalent mutants + 3 accepted gaps**. Full table in §4.2. Each equivalence is a *claim* and carries its argument plus a citation; one worked example, verified during this spec's drafting:
 
 > The L174 `break;` removal is **equivalent** because `model.headings` is built by a single ascending loop (`lib/specLint/parse.ts:86`, with the push at `lib/specLint/parse.ts:134`), so with `end = Math.min(end, h.line)` the first match is already the minimum and continuing the loop cannot lower it.
+
+Eight of those equivalences were **not** obvious at first classification and were caught by re-derivation plus probe (R1). They are recorded here because they are the spec's own worked demonstration that "survivor" and "gap" are different words:
+
+| site | why it is equivalent |
+| --- | --- |
+| L33, L39 (`{0,3}`→`{0,4}`) | `MARKER` and `MARKER_AC_ABSENT` only ever run on lines already admitted by `MARKER_ANY` (`taskContract.ts:22`, itself `{0,3}`), so every candidate has ≤3 leading spaces and widening their own bound admits nothing |
+| L142 (`i = 0`→`1`) | the loop adds every marker-shaped line regardless of fencing; a marker-shaped line on document line 1 cannot be fenced (no fence can open before line 1, and a fence-opening line is backticks/tildes so it can never itself be marker-shaped), so line 1 is already in `markerLines` from pass 1 |
+| L247 `-1`→`-2`, `1`→`2` | `Array.prototype.sort` observes a comparator result's **sign**, never its magnitude |
+
+### 2.5 The three comparator survivors that are neither killable nor provably equivalent
+
+`a.code < b.code` → `<=`, `a.code > b.code` → `>=`, and `: 0` → `: 1` each differ from clean behavior **only** for two findings sharing an identical `(docLine, code)` pair — the code branch is reached only when `a.docLine - b.docLine` is `0`. Such a pair is reachable (`ac=AC-90,AC-91` with both ids unresolved yields two `TASK_AC_UNRESOLVED` on one line).
+
+They are nonetheless not killable through this surface's output. Probed twice on `node v20.20.1`:
+
+```text
+exhaustive:  all 40320 permutations of 8 elements sharing one (docLine, code)  -> difference: false
+randomized:  n up to 200, 30 trials per n                                      -> difference: false
+```
+
+So the mutants change the comparator's return value but not the sorted output. **They are classified `accepted-gap`, not `equivalent`** — deliberately. "Provably no observable difference" would overclaim: an inconsistent comparator is implementation-defined in ECMA-262, so the argument rests on V8's stable sort rather than on control flow, and that is an engine fact pinned to a runtime version, not a proof. Recording them as `accepted-gap` keeps the score honest (they depress it) and gives the first enrolled surface a real instance of that ledger kind — see §3.5.
+
+This is the spec's own worked example of the consequence bound in §6.2: the worst case is a conservative classification plus a visible ledger row, never a silent absorption.
 
 ---
 
@@ -162,6 +185,15 @@ type AcceptedSurvivor = {
 - `equivalent` — the mutant provably cannot change observable behavior. Excluded from the score denominator. `reason` must carry the argument and a citation (worked example in §2.4).
 - `accepted-gap` — a real gap, deliberately uncovered. Counted as **survived**; depresses the score. `ref` is required so the debt is tracked.
 
+**Kind lifecycle** (`docs/agents/spec-self-review.md:17` — no column may be empty, or the kind is a zombie):
+
+| kind | storage | write path | read path | actual effect on output |
+| --- | --- | --- | --- | --- |
+| `equivalent` | ledger row on a registry entry | authored by hand when a survivor is shown unable to change observable behavior; `reason` carries the argument + citation | score-denominator filter; registry meta-test | removed from the denominator; not an unaccepted survivor |
+| `accepted-gap` | ledger row on a registry entry | authored when a real gap is deliberately deferred; `ref` required | score denominator (counted as a survivor); registry meta-test enforces `ref` | depresses the score; not an unaccepted survivor |
+
+Both kinds have a real instance on the first enrolled surface (§4.2: 18 `equivalent`, 3 `accepted-gap`), so neither ships with an unexercised read path. Had `accepted-gap` had no real instance, the unit tests would have been required to exercise it through a fixture ledger — an empty-list-only read path is the same defect wearing a different hat.
+
 Reconciliation is the bidirectional set diff already proven in `reconcileLedger` (`tests/parser/mutation/knownHoles.ts:43-71`): `newAlarms` (actual ∖ ledger) and `staleRows` (ledger ∖ actual). A stale row fails the gate — a ledger that outlives its survivor is how a ratchet rots.
 
 An `equivalent` claim cannot be machine-verified (equivalence is undecidable). The gate enforces what it can — the row exists, names a declared operator, and carries a non-empty reason — and the claim itself is reviewed. This is stated, not hidden: see §7 L-1.
@@ -178,9 +210,19 @@ The gate **fails** on any of:
 2. the unmutated baseline not passing (§3.4);
 3. any **unaccepted survivor** (a survivor with no ledger row);
 4. any **stale ledger row** (a ledgered site that no longer survives, or no longer exists);
-5. `score < floor` for that surface.
+5. `score < floor` for that surface;
+6. **the run produced zero mutants, or `score` is not a finite number.**
 
 (3) is the primary gate. (5) is a secondary ratchet that bites when real gaps are blessed as `accepted-gap` — blessing them as `equivalent` instead is a *false claim*, which (5) cannot catch and review must, which is exactly why the two kinds are distinct.
+
+**(6) exists because conditions 1–5 are all vacuously satisfiable.** A surface enrolled with an empty `operators` list generates no mutants, so `killed + acceptedGap + unaccepted` is `0`, `score` is `0/0 = NaN`, and `NaN < floor` is **false** — every listed failure condition passes and the gate reports green on a surface it never tested. Probed:
+
+```sh
+node -e 'const k=0,a=0,u=0,f=.95;const s=k/(k+a+u);console.log({score:String(s),belowFloor:s<f,gateFails:s<f||u>0})'
+# { score: 'NaN', belowFloor: false, gateFails: false }
+```
+
+A guard whose own failure mode is "reports success while measuring nothing" is the exact defect class this arc exists to remove, so it is closed at the gate (condition 6) **and** at the registry (§3.7: at least one declared operator) — two independent layers, because the registry check is static and cannot see a run that generated zero mutants for some other reason (an empty source file, a suite matching no files).
 
 ### 3.7 Registry
 
@@ -195,7 +237,9 @@ type GuardSurface = {
 };
 ```
 
-Enrollment is opt-in (R7). A **merge-blocking structural meta-test** (cheap, DB-free, no mutants run) pins: every `sourcePath`/`suitePath` exists on disk; every declared operator is implemented; every ledger row names a declared operator; every row has a non-empty reason; every `accepted-gap` row has a `ref`.
+Enrollment is opt-in (R7). A **merge-blocking structural meta-test** (cheap, DB-free, no mutants run) pins: every `sourcePath`/`suitePath` exists on disk; **`operators` is non-empty**; every declared operator is implemented; **`suitePaths` is non-empty**; `scoreFloor` is a finite number in `(0, 1]`; every ledger row names a declared operator; every row has a non-empty reason; every `accepted-gap` row has a `ref`.
+
+The non-empty checks are not defensive boilerplate — an empty `operators` list is precisely what makes the §3.6 gate pass vacuously, so this row and §3.6 condition 6 close the same hole from the static and dynamic sides.
 
 ---
 
@@ -207,27 +251,53 @@ Enrollment is opt-in (R7). A **merge-blocking structural meta-test** (cheap, DB-
 
 ### 4.2 Survivor disposition
 
-18 genuine gaps, repaid by test in this arc, grouped by the behavior they pin:
+**10 genuine gaps**, repaid by test in this arc. Every fixture below was executed against clean `checkTaskContract` before this spec was written; "clean" is observed output, not intent.
 
-| Group | Sites | Behavior no test pins today |
-| --- | --- | --- |
-| A | L20, L22, L33, L39 (`{0,3}`→`{0,4}`) | a 4-space-indented enrollment/marker line is an indented code block and must NOT be recognized |
-| B | L51 (`i = 0`→`1`) | an AC id occurring only on line 1 still resolves |
-| C | L142 (`i = 0`→`1`) | a fenced marker-shaped line on line 1 still joins `markerShaped` |
-| D | L63 (`column: 1`→`2`) | findings report `column: 1` |
-| E | L114 (`rejectedOpens--` removed) | the decrement consumes **one** close per rejected open, not every subsequent close |
-| F | L172 (`h.depth <= depth`→`<`) | an extent ends at the next heading of the enrolled depth **or shallower**, so a same-depth sibling ends it |
-| G | L204 (`ms[1]`→`ms[2]`) | `TASK_MARKER_DUPLICATE` is reported on the **second** marker's line |
-| H | L217 (`continue` removed) | precedence §3.3: a `TASK_RED_EMPTY` line draws exactly one code, not also `TASK_AC_UNRESOLVED` |
-| I | L246 (sort removed), L247 ×6 | findings are ordered by `docLine`, then by `code` |
+| Group | Sites | Behavior no test pins today | clean output of the repair fixture |
+| --- | --- | --- | --- |
+| A | L20, L22 (`{0,3}`→`{0,4}`) | a 4-space-indented `end` / marker line is an indented code block and must NOT be recognized | `L6:TASK_MARKER_MISSING` / `L3:TASK_MARKER_MISSING` |
+| B | L51 (`i = 0`→`1`) | an AC id occurring only on document line 1 still resolves | `(no findings)` |
+| D | L63 (`column: 1`→`2`) | findings report `column: 1` | `col1` |
+| E | L114 (`rejectedOpens--` removed) | the decrement consumes **one** close per rejected open, not every subsequent close | `L5:TASK_ENROLL_DUPLICATE, L8:TASK_ENROLL_MALFORMED` |
+| F | L172 (`h.depth <= depth`→`<`) | an extent ends at the next heading of the enrolled depth **or shallower**, so a same-depth sibling ends it | `(no findings)` |
+| G | L204 (`ms[1]`→`ms[2]`) | `TASK_MARKER_DUPLICATE` is reported on the **second** marker's line | `L5:TASK_MARKER_DUPLICATE` |
+| H | L217 (`continue` removed) | precedence §3.3: a `TASK_RED_EMPTY` line draws exactly one code, not also `TASK_AC_UNRESOLVED` | `L4:TASK_RED_EMPTY` |
+| I | L246 (sort removed), L247 (`\|\|`→`&&`) | findings are ordered by `docLine`, then by `code` | `[L4, L7]` where emission order is `[L7, L4]` |
 
-Group I is the headline: **`findings.sort(...)` can be deleted outright and the suite still passes.**
+Group I is the headline: **`findings.sort(...)` can be deleted outright and the suite still passes.** Its fixture needs a pass-1 finding on a LATE line plus a pass-2 finding on an EARLIER one; a duplicate opening cannot seed it, because `openCount !== 1` returns at `taskContract.ts:152` before any pass-2 finding exists. A malformed `<!-- tasks: … -->` line is the pass-1 finding that leaves `openCount` undisturbed.
 
-13 equivalent mutants, ledgered with argument and citation: L51 rel, L79, L80, L83 rel, L132, L142 rel, L146, L155 ×2, L174, L184 ×2, L198.
+There is no group C: the site formerly listed there (L142) is equivalent (§2.4).
+
+**18 equivalent mutants**, each ledgered with argument and citation: L51 rel, L79, L80, L83 rel, L132, L142 rel, L142 int, L146, L155 ×2, L174, L184 ×2, L198, L33, L39, L247 `-1`→`-2`, L247 `1`→`2`.
+
+**3 accepted gaps** (§2.5): L247 `<`→`<=`, L247 `>`→`>=`, L247 `: 0`→`: 1`. All three carry `ref: "BL-TASKCONTRACT-SORT-COMPARATOR-EQUALKEY"`, filed in `BACKLOG.md` by this arc — the `ref` is required by §3.7, so the backlog row is part of the diff, not a promise.
+
+### 4.2.1 Why five review rounds left this behind
+
+Two cases, because they are the thesis in miniature — a test that exists, is well named, and pins strictly less than its name claims:
+
+1. **`tests/specLint/taskContract.test.ts:106`** — `it("M36/AC-39: 1-3 spaces of indentation are recognised, 4 are not")`. Its 4-space case exercises the `OPEN` regex only, and its 3-space case still passes when a bound widens to `{0,4}` (3 ≤ 4 either way). So the `OPEN` mutant dies while the `END` and `MARKER_ANY` mutants survive — the test's own name claims the coverage the gate shows is absent.
+2. **`tests/specLint/taskContract.test.ts:56`** — `it("M27/AC-30: a rejected duplicate's close is consumed silently")` uses exactly ONE surplus close. Removing `rejectedOpens--` is invisible with one; it takes a second surplus close to observe. The test pins "consumed", not "consumed once".
+
+Neither is a sloppy test. Both are the ordinary result of writing assertions from intent rather than from a falsifier — the class a mutation score decides mechanically and a reviewer's imagination does not.
 
 ### 4.3 Targets
 
-Post-repair: killed 71 + 18 = **89**; equivalent 13 excluded; `accepted-gap` **0**; unaccepted **0**; score **89/89 = 100%**. `scoreFloor` is set to **0.95**, leaving headroom so an ordinary later edit does not red the nightly on arithmetic alone.
+This is the single source of truth for the arithmetic; every count elsewhere in the spec references it.
+
+| bucket | count | in denominator? |
+| --- | --- | --- |
+| killed at baseline | 71 | yes |
+| genuine gaps repaid by test (§4.2) | 10 | yes — they become killed |
+| equivalent (§2.4) | 18 | **no** |
+| accepted-gap (§2.5) | 3 | yes, as survivors |
+| unaccepted | 0 | yes |
+
+Survivors reconcile: 10 + 18 + 3 = **31**, matching the measured baseline in §2.1.
+
+Post-repair: killed = 71 + 10 = **81**; denominator = 81 + 3 + 0 = **84**; score = 81/84 = **96.4%**.
+
+`scoreFloor` is set to **0.95**. The margin is deliberate but thin, and that is the point: the three `accepted-gap` rows cost roughly 3.6 points, so blessing a fourth real gap would breach the floor and fail the gate. A ledger cannot be used to buy a green run.
 
 ---
 
@@ -240,8 +310,26 @@ Post-repair: killed 71 + 18 = **89**; equivalent 13 excluded; `accepted-gap` **0
 | `vitest.projects.ts:90-124` | add `tests/mutation/**/*.test.{ts,tsx}` to `PARALLEL_TEST_GLOBS` (the unit tests are pure; the gate file is excluded from both default projects by the line above) |
 | `package.json` | `"mutation:guards": "vitest run --config tests/mutation/source/gate.config.ts"` — the on-demand entry point |
 | `.github/workflows/mutation-harness.yml:13-32` | add `tests/mutation/**` to the `pull_request` path filter; the existing nightly job already runs `--project mutation` |
+| `tests/cross-cutting/vitest-projects-partition.test.ts:200-202` | **bump the nightly-file count from 9 to 10 and update its message** — required, not optional (see below) |
 
-`tests/cross-cutting/vitest-projects-partition.test.ts:177-222` requires every non-nightly test file to resolve to exactly one default project, satisfied by the three `vitest.projects.ts` rows above. The harness-shape check at `tests/cross-cutting/vitest-projects-partition.test.ts:304-312` matches only `tests/parser/mutationHarness.*.test.ts` and is unaffected. `tests/ci/_metaSpecRegistration.test.ts:189` covers Playwright discovery and subtracts `*.test.ts`, so no action is needed there.
+`tests/cross-cutting/vitest-projects-partition.test.ts:177-222` requires every non-nightly test file to resolve to exactly one default project, satisfied by the three `vitest.projects.ts` rows above.
+
+The count assertion at `tests/cross-cutting/vitest-projects-partition.test.ts:200-202` is a **companion change this spec previously omitted**, and the omission was a factual error rather than a judgement call:
+
+```
+expect(nightlyCount, "exactly the 9 nightly harness files live in no default project").toBe(9)
+```
+
+`nightlyCount` counts every file matching *any* `NIGHTLY_ONLY_EXCLUDES` entry, so adding the gate file makes it 10 and the assertion fails. Verified against the live test:
+
+```sh
+node -e 'const{readdirSync}=require("node:fs");const f=readdirSync("tests/parser").filter(x=>/^mutationHarness\..+\.test\.ts$/.test(x));console.log({current:f.length,afterProposedGate:f.length+1})'
+# { current: 9, afterProposedGate: 10 }
+```
+
+The neighbouring harness-shape check at `tests/cross-cutting/vitest-projects-partition.test.ts:304-312` is unaffected: it filters on the literal `tests/parser/mutationHarness.*.test.ts` pattern, which the new file does not match. That asymmetry — one count is pattern-scoped and survives, the sibling is glob-scoped and does not — is exactly why the change has to be named per-assertion rather than as "update the partition test".
+
+`tests/ci/_metaSpecRegistration.test.ts:189` covers Playwright discovery and subtracts `*.test.ts`, so no action is needed there.
 
 ---
 
@@ -276,6 +364,7 @@ A gap outside the declared set is closed by adding an operator: a registry-level
 | L-4 | Serial execution; ~0.75 s/mutant | A much larger surface would need the parser harness's sharding (`tests/parser/mutation/shardPartition.ts:11`). Deferred, not overlooked (R6). |
 | L-5 | Mutation score is not code coverage | The gate makes no coverage claim (R8). |
 | L-6 | The score is only as meaningful as the enrolled suite | A surface whose suite asserts nothing scores 0% and reds immediately — the failure mode is loud, not silent. |
+| L-7 | The `accepted-gap` rows of §2.5 rest on V8's sort behavior for an inconsistent comparator, pinned by probe on `node v20.20.1`, not on a control-flow proof | ECMA-262 leaves an inconsistent comparator implementation-defined. A future engine could observably reorder equal keys, at which point those three mutants become killable and their rows go stale — which the gate reports (§3.6 condition 4) rather than absorbing. This is why they are `accepted-gap` and not `equivalent`. |
 
 ---
 
@@ -291,11 +380,13 @@ A gap outside the declared set is closed by adding an operator: a registry-level
 - **AC-8** A stale ledger row fails the gate.
 - **AC-9** `score < scoreFloor` fails the gate.
 - **AC-10** `equivalent` rows are excluded from the score denominator; `accepted-gap` rows are included as survivors. Tested with a fixture ledger of each kind.
-- **AC-11** The structural meta-test (§3.7) fails on: a missing `sourcePath`, an undeclared operator in a ledger row, an empty `reason`, and an `accepted-gap` row with no `ref`.
-- **AC-12** `lib/specLint/taskContract.ts` is enrolled, and every group A–I of §4.2 is repaid by a test in `tests/specLint/taskContract.test.ts` that **fails against the corresponding mutant and passes against clean source**.
-- **AC-13** After repair the surface reports 0 unaccepted survivors and score ≥ `scoreFloor` (0.95).
+- **AC-11** The structural meta-test (§3.7) fails on each of: a missing `sourcePath`, an **empty `operators` list**, an **empty `suitePaths` list**, a `scoreFloor` outside `(0, 1]`, an undeclared operator in a ledger row, an empty `reason`, and an `accepted-gap` row with no `ref`. Each case flips exactly one field of an otherwise-valid registry row.
+- **AC-12** `lib/specLint/taskContract.ts` is enrolled, and every group A, B, D, E, F, G, H, I of §4.2 is repaid by a test in `tests/specLint/taskContract.test.ts` that **fails against the corresponding mutant and passes against clean source** — demonstrated by running the mutant, not asserted in prose.
+- **AC-13** After repair the surface reports 0 unaccepted survivors, exactly 18 `equivalent` and 3 `accepted-gap` ledger rows, and score ≥ `scoreFloor` (0.95). The measured value is 81/84 = 96.4% (§4.3).
 - **AC-14** `AGENTS.md` carries the §6.1 third bullet.
-- **AC-15** The gate is absent from both default vitest projects and present in the `mutation` project (pinned by the existing partition test).
+- **AC-15** The gate file is absent from both default vitest projects and present in the `mutation` project, and `tests/cross-cutting/vitest-projects-partition.test.ts:200-202` counts 10 nightly files (§5).
+- **AC-16** A registry row with an empty `operators` list **fails**, at both layers independently: the structural meta-test rejects it (AC-11), and a gate run that produced zero mutants fails on §3.6 condition 6 rather than computing `NaN` and passing. The gate-side case is tested by driving the gate with a zero-mutant result directly, so it holds even if the registry check is bypassed.
+- **AC-17** A non-finite `score` fails the gate. Asserted against the literal `0/0` case, since `NaN < floor` is `false` and would otherwise pass every other condition.
 
 ---
 
