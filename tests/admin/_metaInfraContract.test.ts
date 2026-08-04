@@ -263,7 +263,7 @@ const infraRegistry = [
     helper: "loadNeedsAttentionCount",
     path: "lib/admin/needsAttentionCount.ts",
     contract:
-      "pending_ingestions/pending_syncs head-count throws + construction throw → infra_error",
+      "pending_ingestions/pending_syncs head-count throws + construction throw → infra_error; the identity-holds leg (loadOpenIdentityHolds) adds shows-with-open-holds and its infra_error degrades the whole badge",
   },
   {
     helper: "loadOpenIdentityHolds",
