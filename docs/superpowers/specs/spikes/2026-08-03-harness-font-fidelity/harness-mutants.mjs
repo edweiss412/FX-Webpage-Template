@@ -20,6 +20,17 @@ const M = [
     (c) => c.replace('url("inter-greek.woff2")', 'url("/fonts/inter-greek.woff2")'), null],
   ["H-g  rogue descriptor added to the emitted block only",
     (c) => c.replace("  unicode-range: U+1F00-1FFF;", "  size-adjust: 200%;\n  unicode-range: U+1F00-1FFF;"), null],
+  ["H-i  duplicate latin face replaces greek (round 23)",
+    (c) => { const blocks = c.split("@font-face"); const li = blocks.findIndex((b) => b.includes("inter-latin.woff2"));
+      const gi = blocks.findIndex((b) => b.includes("inter-greek.woff2"));
+      blocks[gi] = blocks[li]; return blocks.join("@font-face"); }, null],
+  ["H-j  filenames permuted among subsets (round 23)",
+    (c) => c.replace('url("inter-greek.woff2")', 'url("__TMP__")')
+            .replace('url("inter-cyrillic.woff2")', 'url("inter-greek.woff2")')
+            .replace('url("__TMP__")', 'url("inter-cyrillic.woff2")'), null],
+  ["H-k  unsupported format() hint (round 23)",
+    (c) => c.replace('url("inter-greek.woff2") format("woff2")',
+                     'url("inter-greek.woff2") format("definitely-unsupported")'), null],
   ["H-h  one copied file corrupted (byte-level)", (c) => c,
     (d) => writeFileSync(join(d, "inter-greek.woff2"),
       Buffer.concat([readFileSync(join(d, "inter-greek.woff2")), Buffer.from([0])]))],

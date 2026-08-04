@@ -7,9 +7,16 @@ const collected: Collected[] = [];
 
 async function runOracle(page: import("@playwright/test").Page) {
   if (page.isClosed()) return;
+
   try {
-    const family = await page.evaluate(() => getComputedStyle(document.body).fontFamily);
-    collected.push({ url: page.url().slice(0, 40), family });
+    // Gate on RENDERED CONTENT, not on the URL: setContent() leaves the URL at
+    // about:blank, so a url-based "nothing here yet" guard skips every document
+    // a harness builds. Ask the document instead.
+    const r = await page.evaluate(() =>
+      document.body && document.body.childElementCount > 0
+        ? getComputedStyle(document.body).fontFamily
+        : null);
+    if (r !== null) collected.push({ url: page.url().slice(0, 40), family: r });
   } catch { /* page already gone */ }
 }
 
@@ -17,7 +24,18 @@ async function runOracle(page: import("@playwright/test").Page) {
 // close() wins the race. So the oracle is run FROM the close path instead, which
 // is the only point guaranteed to be after the document is final and before it
 // is destroyed.
+// Round 23: closing is not the only way a document ends. A page that navigates
+// 14 times renders 14 documents and is closed once, so close-only inspection
+// observed 1 of 14. Every document therefore gets inspected when it is REPLACED
+// as well as when its page is closed.
 function watch(page: import("@playwright/test").Page) {
+  for (const k of ["goto", "setContent", "reload", "goBack", "goForward"] as const) {
+    const orig = (page[k] as (...a: unknown[]) => Promise<unknown>).bind(page);
+    (page as unknown as Record<string, unknown>)[k] = async (...a: unknown[]) => {
+      await runOracle(page);          // the OUTGOING document, before it is gone
+      return orig(...a);
+    };
+  }
   const origClose = page.close.bind(page);
   page.close = async (...a: Parameters<typeof origClose>) => { await runOracle(page); return origClose(...a); };
   pages.add(page);
@@ -41,6 +59,18 @@ const test = base.extend<{ fontOracle: void }>({
     await use(browser);
   },
   fontOracle: [async ({ page }, use) => { watch(page); await use(); await runOracle(page); }, { auto: true }],
+});
+
+test("a reused page yields one observation per document, not one per page", async ({ page }) => {
+  const before = collected.length;
+  for (const f of ["AAA", "BBB", "CCC"]) {
+    await page.setContent(`<style>body{font-family:"${f}",serif}</style><p>${f}</p>`);
+  }
+  await page.close();
+  const fams = collected.slice(before).map((c) => c.family).join(" ");
+  expect(fams, "every rendered document was observed, not only the last").toContain("AAA");
+  expect(fams).toContain("BBB");
+  expect(fams).toContain("CCC");
 });
 
 test("caller-owned contexts are observed even though it closes them", async ({ browser }) => {

@@ -66,14 +66,40 @@ export function checkHarness(dir) {
   // H5: harness declares block, app declares swap -- the deliberate divergence
   add("H5 emitted font-display is block", eInter.every((f) => JSON.stringify(f.d["font-display"] ?? "").includes("block")));
   add("H5b app font-display is swap", aInter.every((f) => JSON.stringify(f.d["font-display"] ?? "").includes("swap")));
-  // H6: descriptors equal across blocks EXCEPT font-display and src (round 11)
-  add("H6 descriptors equal except font-display and src", eInter.every((e) => {
-    const a = aInter.find((x) => JSON.stringify(x.d["unicode-range"]) === JSON.stringify(e.d["unicode-range"]));
+  // H6 (round 23): this was EXISTENTIAL -- it found some app face with a matching
+  // range and compared inventory/weight/style, never the source. A permuted
+  // filename, latin's bytes under greek's name, or an unsupported format all
+  // escaped. It is now MAP EQUALITY keyed on the subset name in the filename,
+  // mirroring the app-side row rather than approximating it.
+  const bySubset = new Map();
+  for (const a of aInter) {
+    const u = urlOf(a) ?? "";
+    const n = u.match(/inter-([a-z-]+)\.woff2$/)?.[1];
+    if (n) bySubset.set(n, a);
+  }
+  add("H6 emitted faces map 1:1 onto the app faces by subset", (() => {
+    const names = eInter.map((e) => (urlOf(e) ?? "").match(/inter-([a-z-]+)\.woff2$/)?.[1]);
+    if (names.some((n) => !n)) return false;
+    return new Set(names).size === 7 && names.every((n) => bySubset.has(n));
+  })());
+  add("H7 each emitted face's range equals ITS OWN subset's app range", eInter.every((e) => {
+    const n = (urlOf(e) ?? "").match(/inter-([a-z-]+)\.woff2$/)?.[1];
+    const a = n && bySubset.get(n);
+    return !!a && JSON.stringify(e.d["unicode-range"]) === JSON.stringify(a.d["unicode-range"]);
+  }));
+  add("H8 descriptors equal to that same face except font-display and src", eInter.every((e) => {
+    const n = (urlOf(e) ?? "").match(/inter-([a-z-]+)\.woff2$/)?.[1];
+    const a = n && bySubset.get(n);
     if (!a) return false;
     return [...new Set(e.order)].sort().join() === [...new Set(a.order)].sort().join()
       && JSON.stringify(e.d["font-weight"]) === JSON.stringify(a.d["font-weight"])
       && JSON.stringify(e.d["font-style"]) === JSON.stringify(a.d["font-style"])
       && fam(e) === fam(a);
+  }));
+  add("H9 every emitted src is one url with a typed woff2 format and no tech", eInter.every((e) => {
+    const src = e.d["src"] ?? [];
+    return src.length === 1 && src[0].type === "url"
+      && src[0].value.format?.type === "woff2" && (src[0].value.tech ?? []).length === 0;
   }));
   return out;
 }

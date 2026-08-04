@@ -55,11 +55,19 @@ const rows = (rf(here + "static-guard.mjs", "utf8").match(/^check\(/gm) || []).l
 const muts = (rf(here + "mutants.mjs", "utf8").match(/^  "[A-Z]/gm) || []).length;
 const hRows = (rf(here + "harness-guard.mjs", "utf8").match(/add\("H/g) || []).length;
 const hMuts = (rf(here + "harness-mutants.mjs", "utf8").match(/^  \["H-/gm) || []).length;
-check("static totals match the artifact", new RegExp(`\\b${muts} mutants, all killed, across ${rows} assertions\\b`).test(t),
-  `artifact reports ${rows} rows / ${muts} mutants`);
-check("combined totals match the artifacts",
-  new RegExp(`\\b${rows + hRows} rows and ${muts + hMuts} mutants\\b`).test(t),
-  `artifacts total ${rows + hRows} rows / ${muts + hMuts} mutants`);
+// Round 23: asserting the RIGHT phrase appears somewhere does not reject a WRONG
+// one elsewhere -- the README and two spec lines still advertised 15/15 and
+// 30/30 while this file reported consistent. So every count claim in the corpus
+// is now enumerated and matched against the artifacts; a claim that matches
+// nothing real is a failure.
+const ok = new Set([`${rows}/${rows}`, `${hRows}/${hRows}`, `${muts}/${muts}`, `${hMuts}/${hMuts}`]);
+const okCounts = new Set([rows, muts, hRows, hMuts, rows + hRows, muts + hMuts]);
+for (const src of [["spec", t], ["README", rf(here + "README.md", "utf8")]]) {
+  for (const m of src[1].matchAll(/\b(\d+)\/(\d+) (rows|mutants)\b/g))
+    check("stale ratio claim", ok.has(`${m[1]}/${m[2]}`), `${src[0]}: "${m[0]}" matches no artifact`);
+  for (const m of src[1].matchAll(/\b(\d+) (mutants|mutations|rows|assertions)\b/g))
+    check("stale count claim", okCounts.has(Number(m[1])), `${src[0]}: "${m[0]}" matches no artifact`);
+}
 // A count claim must match the list it introduces.
 // Sentence-splitting on "." fails here: the names themselves contain dots
 // (appHealthIndicator.layout). Bound the window by the prose that follows it.
