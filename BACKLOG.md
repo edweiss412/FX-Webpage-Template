@@ -8,6 +8,42 @@ Last reconciled: 2026-08-03 — `feat/sync-feed-undo-announce` graduated `BL-SYN
 
 ---
 
+## BL-LEDGER-BODY-DEFINED-ID-OVERMINT — any bold lone id at a bullet lead defines, so a mention can mint an id
+
+**Status:** OPEN · **Severity:** low (latent, not live) · **Class:** guard precision · **Filed:** 2026-08-03 (`chore/ledger-claim-visibility`, spec §9.2) · **Effort:** S
+
+`bodyDefinedIds` (`tests/docs/_ledgerMdast.ts:346`) does not require a separator after the bold id,
+so any bold lone id at a bullet lead defines. A bullet whose bold id is followed by ordinary prose,
+or by a colon, mints that id exactly as a real sub-item definition would; a nested bullet and a
+backticked enumeration both correctly do not. The five-shape probe with its outputs is in
+`docs/superpowers/specs/2026-08-03-ledger-claim-visibility-design.md` §9.2 — deliberately not
+reproduced here, because its planted ids would need citation exemptions in this ledger.
+
+Latent, not live: main mints exactly the intended eight ids today. But it over-mints in the
+direction the guard exists to prevent — a bullet naming a sibling id in bold makes that id resolve,
+so a typo can define itself. Deferred out of `chore/ledger-claim-visibility` under exception (b) of
+the `AGENTS.md` class-sweep disposition rule: the originating brief fenced it explicitly. Any
+tightening needs a probe demonstrating the corruption it prevents, per the finding-admissibility
+contract.
+
+---
+
+## BL-LEDGER-MDAST-SHARED-HOME — the ledger walker lives under tests/ but is consumed by scripts/
+
+**Status:** OPEN · **Severity:** low · **Class:** module placement · **Filed:** 2026-08-03 (`chore/ledger-claim-visibility`, spec §9.3) · **Effort:** M
+
+`tests/docs/_ledgerMdast.ts` is the authoritative ledger walker and is pure by construction — the
+referential-integrity guard forbids `node:fs`, `node:path`, and `require(` inside it. Once a script
+consumes it, `scripts/**` imports from `tests/**`, which is backwards.
+
+Relocating it beside its consumers is the repair. Deferred out of `chore/ledger-claim-visibility`
+under exception (c): it spans four importers plus three hardcoded path exemptions inside
+`tests/docs/_metaLedgerReferentialIntegrity.test.ts` that must all move in lockstep, none of which
+that branch otherwise touches.
+
+---
+
+
 ## BL-COVERAGE-CLAIMS-CITE-SKIPPED-SUITES — contract artifacts claim e2e coverage from suites that do not execute
 
 **Status:** OPEN · **Severity:** LOW-MEDIUM (dark coverage on documented contracts; no product impact) · **Class:** docs/contract, test-coverage claims · **Filed:** 2026-08-03 (`docs/settle-lead-capability-prose`, descoped at spec review R3 after three rounds of under-counting) · **Effort:** L

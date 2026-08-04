@@ -200,6 +200,16 @@ export function isFamilyReference(text: string, end: number, stem: string, defin
  * as dead, and a row whose id becomes real fails as stale.
  */
 const NOT_A_CITATION: Record<string, Record<string, string>> = {
+  "docs/superpowers/specs/2026-08-03-ledger-claim-visibility-design.md": {
+    "BL-SOME-OTHER-ROW": "placeholder row in §3.2's sample report output",
+    "BL-A": "§3.3's `--check BL-A BL-B` usage example",
+    "BL-B": "§3.3's `--check BL-A BL-B` usage example",
+    "BL-DEFINED": "§9.2 over-mint probe input — the one shape that SHOULD define",
+    "BL-MENTIONED": "§9.2 over-mint probe input — a mention the recognizer wrongly mints",
+    "BL-COLON": "§9.2 over-mint probe input — `**BL-COLON**:` prefix form",
+    "BL-NESTED": "§9.2 over-mint probe input — nested bullet, correctly not minted",
+    "BL-ONE": "§9.2 over-mint probe input — enumerated pair, correctly not minted",
+  },
   "docs/superpowers/specs/2026-08-01-ledger-guard-mdast-rewrite-design.md": {
     "BL-X": "id-extraction plants — `## [URGENT] BL-X`, `## BL-X: open`, `## ~~BL-X~~ —`",
     "BL-P4": "probe row P4's synthetic heading, `## BL-P4 — RESOLVED-vs-CLOSED naming sweep`",
