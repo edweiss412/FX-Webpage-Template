@@ -89,10 +89,14 @@ So:
 
 ```
 renamedAway  ←  landedRenames.map(removedName)
-              ∪  unlandedRenames where reason ∈ { name_held, source_delete_protected }
+              ∪  unlandedRenames where removedName ∈ deleteKeepNames
 ```
 
-Feeding `landedRenames` alone would fire a **false capability-loss notice** for every held or delete-protected pair — a new defect in the opposite direction from the one this unit fixes. The `source_absent` reason is inert (the name is not in `previousCrewMembers`, so arm (c) never reaches it).
+**The second term is a survival test, not a reason test**, and the distinction is load-bearing. The intuitive formulation — suppress when `reason ∈ { name_held, source_delete_protected }` — is a proxy that does not hold. `heldNames.add(hold.entity_key)` runs for every surviving hold (`lib/sync/holds/holdAwareApply.ts:216`), but `protectedNames.add(...)` runs only inside specific hold-kind branches (`lib/sync/holds/holdAwareApply.ts:237`, `lib/sync/holds/holdAwareApply.ts:434`, `lib/sync/holds/holdAwareApply.ts:448`), and only `protectedNames` reaches `deleteKeepNames` (`lib/sync/applyParseResult.ts:146` into `lib/sync/applyParseResult.ts:152`). So a `name_held` pair whose hold kind did not also delete-protect it **does** lose its row, and suppressing its notice would hide a real capability loss.
+
+`deleteKeepNames` is already computed one scope above the rename loop (`lib/sync/applyParseResult.ts:152`), so the correct predicate costs nothing and asks the question directly: *did the source row survive this apply?* Suppress the loss notice exactly when it did.
+
+Feeding `landedRenames` alone would fire a **false capability-loss notice** for every pair whose source survived — a new defect in the opposite direction from the one this unit fixes. The `source_absent` reason is inert either way (the name is not in `previousCrewMembers`, so arm (c) never reaches it).
 
 **This corrects a real loss that is silently suppressed today.** For `target_absent` (the P2-F4 shape) and `rename_no_op`, the source row is *not* protected — `deleteCrewMembersNotIn` removes it — so a capability genuinely disappears. Today `renamedAway` contains the requested `removedName` and suppresses the notice, so that loss is never reported. Under this design it reports. See §4 item 8.
 
@@ -214,7 +218,7 @@ Every change an operator could notice, stated so review does not have to discove
 6. **Undo restores `selections_reset_at`.** A picker cookie invalidated before the undone change stays invalidated afterward.
 7. **A Phase D wizard apply that changes a LEAD/FINANCIALS bit now raises the bell alert and the durable event**, matching the dashboard and cron paths.
 8. **A capability loss that is silently suppressed today now reports.** When a rename's target is hold-suppressed (P2-F4) or the update no-ops, the source row is not delete-protected, so `deleteCrewMembersNotIn` removes it and a LEAD/FINANCIALS capability genuinely disappears. Today `renamedAway` holds the requested `removedName` and suppresses arm (c), so no loss notice fires. Under §2.1 A3 it fires. This is a **new** `ROLE_FLAGS_NOTICE` in a case that previously produced none — an addition to the operator's bell, not a removal, and the opposite direction from items 1–5.
-9. **Held and delete-protected pairs continue to produce no loss notice.** Their source row survives (`deleteKeepNames`, `lib/sync/applyParseResult.ts:152`), so §2.1 A3 keeps them in `renamedAway`. Called out because a naive reading of item 8 would predict otherwise.
+9. **Pairs whose source row SURVIVED continue to produce no loss notice.** Membership in `deleteKeepNames` (`lib/sync/applyParseResult.ts:152`) is the test, so §2.1 A3 keeps them in `renamedAway`. Called out because a naive reading of item 8 would predict otherwise. Note this is narrower than "held": a `name_held` pair whose hold kind did not delete-protect it falls under item 8, not here.
 
 ---
 
@@ -267,7 +271,8 @@ TDD per task (invariant 1). Each row names the concrete failure it catches — n
 |---|---|---|
 | A | Hold-suppressed rename target (P2-F4 shape): assert **no** `crew_renamed` row **and a `crew_removed` row for the prior name** | The current false-rename-plus-missing-removal pair. Asserting only the absent rename row would pass on a writer that dropped both. |
 | A | Unaccepted MI-13 with a surviving target: assert `crew_removed` **and** `crew_added` both appear | §4 item 1's additions half. The removals half alone passes on a writer that still suppresses additions (`lib/sync/changeLog/writeAutoApplyChanges.ts:121`). |
-| A | `renamedAway` split: a `name_held` pair produces **no** loss notice; a `target_absent` pair with a capability-flagged prior **does** | The §4 item 8 / item 9 pair. A single-set implementation cannot satisfy both, so this test is what forces the split. |
+| A | `renamedAway` survival split: an unlanded pair whose `removedName` IS in `deleteKeepNames` produces **no** loss notice; one whose `removedName` is NOT produces one (capability-flagged prior) | The §4 item 8 / item 9 pair. A single-set implementation cannot satisfy both, so this test is what forces the split. |
+| A | A `name_held` pair whose hold kind did **not** delete-protect it still produces a loss notice | The reason-based proxy. A `reason ∈ {name_held, …}` implementation passes the row above and fails only here — which is exactly the case that would hide a real capability loss. |
 | A | `renameCrewMember` returns `false` on target collision and on missing source; the pair surfaces as `rename_no_op` | The second silent layer — a pair clearing all five guards can still no-op. Existing tests (`tests/sync/applyParseResult.identityLink.db.test.ts:64` and `tests/sync/applyParseResult.identityLink.db.test.ts:80`) assert DB state only and pass today. |
 | A | Each of the five guards maps to its distinct `reason` | A collapsed union that reports every skip identically |
 | A | An **accepted** rename that lands still produces its notice entry and `crew_renamed` row | Over-correction — the fix silencing legitimate renames |
