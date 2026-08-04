@@ -1834,56 +1834,42 @@ The `@font-face` rules `next/font/local` emits today, read out of a clean produc
 
 ---
 
-## 12. Invariant-8 close-out (filled by Task 17)
+## 12. Invariant-8 close-out
 
-UI surface: `app/layout.tsx`, `app/global-error.tsx`, `app/globals.css`, `DESIGN.md`. Both gate halves apply.
+UI surface: `app/fonts.css` (new), `app/layout.tsx`, `app/global-error.tsx`, `app/globals.css`, `components/FontPreload.tsx` (new), `DESIGN.md` §2.1.
 
-The marker line is written by Task 15 Step 5, in the grammar the invariant-8
-closeout spec §3.3 defines. It is deliberately ABSENT until then rather than
-present as a placeholder: a marker-SHAPED line that is not valid grammar fails
-the "no malformed marker line anywhere in the plans tree" assertion, which is a
-different and more confusing failure than the honest one — a declaring unit that
-has no marker yet.
+```
+impeccable-gate: critique=RAN audit=RAN p0=0 p1=3 dispositions=recorded
+```
 
-Findings and dispositions go here.
+Both halves ran as isolated sub-agents, per the command's hard invariant. Not degraded.
+
+### P1 — all three fixed, none deferred
+
+**The harness-binds-through-the-literal rationale was FALSE as shipped.** Written into five surfaces after being measured against the compiled `app/globals.css` alone; it stopped being true the moment this branch's own `compileEntryCss` post-step landed, because that appends `app/fonts.css` WHOLE, `:root { --font-inter }` included. Re-probed through the real toolchain: the emitted harness stylesheet defines the token exactly once. Both the app and the harnesses resolve the TOKEN. Corrected in `tests/helpers/fontManifest.ts`, `app/fonts.css`, `app/globals.css`, `tests/styles/fontLoading.test.ts`, `DESIGN.md`. The guard row stays with an honest reason: the spec deliberately kept the inline `var()` fallback so `--font-sans` is valid at computed-value time on a surface lacking the token, so if that literal ever resolves it must name a face that exists.
+
+**`DESIGN.md:139` asserted the opposite of what this branch does** — "nothing may depend on either spelling", true while a loader GENERATED the names, false now that two guards pin authored ones. The DESIGN guard passed it because it only banned the string the literal string "Loaded via next/font".
+
+**The font lost its immutable cache.** `next/font` served it from the hashed media path under `.next/static/media/` at `max-age=31536000, immutable`; moving it under `public/` dropped it to the `send` default of `max-age=0`, so every cold navigation paid a conditional round-trip before the swap resolved — on a crew phone on venue 4G, the visit PRODUCT.md says matters most. `next.config.ts` restores the header and the filename now carries a content hash, so `immutable` is honest.
+
+### P2/P3 — fixed
+
+Two silent second-root omissions, the same shape `BL-HEADER-FONT-FALLBACK-WRAP` was filed against: the crash screen lost its font **preload** (extracted to `components/FontPreload.tsx`, used by both roots) and lost **`antialiased`**. Plus a stale citation of the deleted loader module in `public/fonts/PROVENANCE.md`, which is publicly served, and a false className-parity claim in `app/global-error.tsx`.
+
+### Documented limits — probed after the fix, both persist
+
+- **The layout root emits the preload twice.** React 19 hoists the `<link>` and also renders it in place; same URL, so browsers dedupe the fetch. Removing the explicit `<head>` wrapper does not change it. Redundant markup only.
+- **The prerendered global-error HTML artifact carries no font preload**, even with the component mounted in that root. The crash screen is reached because something already failed, and chasing Next prerender internals is disproportionate to a discovery-latency hint on it.
+
+### Hook findings — six, all classified FALSE POSITIVE, none suppressed
+
+Five `overused-font` (Inter/Arial) across `app/fonts.css`, the mutation corpus, the fixture, the browser guard and the census; one `innerHTML` security warning in `fontFidelityFixture.spec.ts`.
+
+The `overused-font` rule's substance is real and does not apply: **Inter is ratified in `DESIGN.md` §2.1 and the spec's non-goal N1 fences the typeface.** This branch moves the delivery mechanism, and identical bytes is the entire safety argument — picking a different face would be the regression. The test-file instances are a mutation corpus naming wrong fonts on purpose, or comments documenting the impostor attack. The `innerHTML` warning is a hardcoded fixture string in a `page.route` fulfillment, building a shadow root that is the thing under test; no untrusted input.
+
+**Not suppressed**, because suppression requires the user's explicit confirmation and none was asked for. The narrowest form, if wanted later: `/impeccable hooks ignore-value overused-font Inter --shared`.
 
 ---
-
-## Self-review
-
-**Spec coverage.** §3.1 → Tasks 3, 5, 6. §3.2 → Tasks 8, 12. §3.3/§3.4 → superseded, Tasks 1, 3, 4. §4.0 scope decision → Task 14, fenced. §4.1 static rows → Tasks 5, 7; runtime rows → Tasks 10, 11, 14; wait row → Task 12. §4.2 → Tasks 8 and 9. §5 → Tasks 13, 15. §6 → Task 16. §7 → every task's test step. §8 risks → Task 15 Step 5 (WebPs), Task 13's ordering, Task 5's no-`@font-face`-in-globals row, Task 6's repo-wide census.
-
-**Placeholder scan.** Two deliberate fill-ins remain, each with a named source and a step that produces it: `<digest from Step 1>` (Task 4 Step 1) and the `<measured>%` overrides plus `EXPECTED_DESCRIPTORS` (Task 3's §11 record). These are measurements, not TBDs — the plan must not pin a number it did not measure, and Task 3 exists to measure them.
-
-<!-- spec-lint: ignore — new file created by this plan; not yet tracked -->
-
-**Type consistency.** `PUBLIC_FONT_PATH` / `PUBLIC_FONT_URL` / `EXPECTED_SHA256` (Task 4, in `tests/helpers/fontManifest.ts`) are consumed unchanged in Tasks 5, 8, 9, 10. `parseFontFaces` / `EXPECTED_DESCRIPTORS` / `EXPECTED_FALLBACK_DESCRIPTORS` / `MEASURED_OVERRIDES` (Task 5, in `tests/helpers/fontCss.ts`) are consumed in Task 8. `expectedWidth` / `deriveProbeText` / `PROBE_STYLE` / `walkTextBearing` (Task 10) are consumed in Tasks 11 and 14. No name is spelled two ways, and **no runtime module imports from a `*.test.ts`** — the property review round 1 found violated three times.
-
-**Every task's red phase is reachable.** Checked explicitly after round 1 found two that were not: Task 8 writes the browser guard *before* the post-step exists, because no later task can unwind a committed `liveEntryToolchain.ts`; Task 9's red is the registration meta-test, not the guard's behaviour; Task 11 merges the fixture, its meta-test and all 31 callers into one cycle so the meta-test is never committed red.
-
-**Ordering constraints, stated once.** Task 3 measures **before** Task 4 moves the bytes (the build resolves the vendored path). Task 13 re-derives figures **after** Tasks 8 and 12. Task 15 pushes **before** dispatching the regen workflow, and takes the bot's commit rather than making its own. Task 16 strips the ledger marker **pre-merge**, in the same commit that archives the entry.
-
-**Known gap carried into review.** The oracle's *distribution* into the 31 callers (Task 11) is the one surface the spikes did not exercise — the mechanism is prototyped, the wiring is not. It is called out here so review scrutinises it rather than discovering it.
-
-## Round 2 review (Codex, 2026-08-04) — BLOCKING, all findings repaired
-
-6 BLOCKING, 3 HIGH, 1 MEDIUM, and several were consequences of round 1's repairs — which is what the round-2 brief asked for. All accepted:
-
-- **Playwright collects by project `testMatch` BEFORE applying a CLI filename filter**, so Task 8's browser red phase collected zero tests and reported success, and Task 9 expected a red commit. Registration folded into Task 8, `--list` asserted first, and Task 9 dissolved.
-- **The close-out order was impossible**: Task 16 expected `_metaInvariant8Closeout` green while Task 17 was what turned it green, and the ledger marker has to come off in the PR's *last* commit. The impeccable gate now runs BEFORE the ledger task, and nothing commits after it.
-<!-- spec-lint: ignore — new files created by this plan; not yet tracked -->
-
-- **Task 10's fixture consumed the mono manifest three tasks before it existed.** `monoSurfaces.ts` moved into Task 9 alongside the oracle, with a rule that nothing in the "full oracle" may be named later than the task that builds it.
-<!-- spec-lint: ignore — new files created by this plan; not yet tracked -->
-
-- **`tests/helpers/fontCss.ts` was missing from its own commit**, so a clean checkout could not reproduce the passing test; and `assertFontsCss` was invoked by Task 7 while no task defined it. Both fixed.
-- **Two evidence-versus-guard collisions**, the same shape the spec already solved for the spike directory: the retirement sweep cannot return zero (the `singleFontLoader` corpus, the retired-identifier registry and the not-yet-retargeted Arial pin all legitimately name `next/font`), and the one-declaration-site census collides with the M12 mutants Task 7 ports. Both now carry named per-path exceptions and a table of what must survive.
-- **The wait-coverage guard had no algorithm** — a count-based row passes the exact mis-anchoring mutant it claims to reject, demonstrated on `attention-pill-focus.spec.ts` where hoisting the await to just after `goto` preserves the count. Replaced with an order-aware AST rule over document regions, plus four M21 mutants.
-- **Both mono seed censuses were false**: `<pre` matched the word `<prefix>` in prose and a documentation placeholder `<code>` was counted, so the real figures are 9 across **6** files and **26** elements across **6** files by AST. The seed is now AST-derived.
-- **`.github/workflows/screenshots-drift.yml:29` path-gates on `assets/fonts/**`** and would have silently stopped gating after the move — the second occurrence of an incident that workflow's own comment already records.
-- **`gh run list --limit 1` can attach to another branch's run**; now `--branch`-scoped.
-
-Found in the same pass by self-verification: all 33 harness servers serve the copied `.woff2` as `text/html` (fine by tolerance, so the guard now asserts the request succeeded); all 31 callers write `outFile` flat into the served directory, which is what makes one edit reach 31; the waits have four distinct existing anchor shapes and only 2 callers use `__hydrated`; `U+0301` is `.notdef` with a NON-zero advance of 1344 in this binary, so the probe filter needs both conditions and my test asserted only one; the fontkit arithmetic reproduces the spec's 130.0938px exactly against the new bytes; the descriptor inventory is **five**, not the spec's six, because `unicode-range` is a seven-subset artifact; and `DESIGN.md:139`'s recorded `size-adjust: 107.89%` disagrees with this binary's latin-ext metrics, so Task 16 must correct it to whatever Task 3 measures.
 
 ## Round 3 review (Codex, 2026-08-04) — BLOCKING, all findings repaired
 
