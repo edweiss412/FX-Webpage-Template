@@ -225,7 +225,7 @@ const infraRegistry = [
     helper: "loadNeedsAttention",
     path: "lib/admin/loadNeedsAttention.ts",
     contract:
-      "pending_ingestions/pending_syncs/shows/admin_alerts await throws + construction throw → infra_error",
+      "pending_ingestions/pending_syncs/shows/admin_alerts await throws + construction throw â infra_error PLUS the identity-holds leg: loadOpenIdentityHolds's typed infra_error fails the whole call (all-or-nothing), and the await is wrapped so a THROWN reader also returns { kind: 'infra_error' } rather than rejecting.",
   },
   {
     helper: "loadRecentAutoApplied",
@@ -263,13 +263,13 @@ const infraRegistry = [
     helper: "loadNeedsAttentionCount",
     path: "lib/admin/needsAttentionCount.ts",
     contract:
-      "pending_ingestions/pending_syncs head-count throws + construction throw → infra_error; the identity-holds leg (loadOpenIdentityHolds) adds shows-with-open-holds and its infra_error degrades the whole badge",
+      "pending_ingestions/pending_syncs head-count throws + construction throw → infra_error; the identity-holds leg (loadOpenIdentityHolds) adds shows-with-open-holds, and BOTH its typed infra_error AND a thrown reader degrade the whole badge (the await is wrapped, so no rejection escapes)",
   },
   {
     helper: "loadOpenIdentityHolds",
     path: "lib/admin/identityHolds.ts",
     contract:
-      "sync_holds service-role read (kind='mi11_pending', shows!inner archived=false); construction throw + query throw + returned {error} map to { kind: 'infra_error' }",
+      "sync_holds service-role read (kind='mi11_pending', shows!inner archived=false, ordered created_at desc/id asc, bounded .limit(HOLDS_ROW_CAP + 1)); construction throw + query throw + returned {error} ALL map to { kind: 'infra_error' } — as does a SHAPING throw, since groupHoldRows calls shapeHoldEntry -> getRequiredDougFacing, which throws on a malformed proposed_value",
   },
   {
     helper: "fetchHealthRollup",

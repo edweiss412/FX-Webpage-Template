@@ -169,8 +169,23 @@ describe("loadOpenIdentityHolds", () => {
       '.order("created_at", { ascending: false })',
       '.order("id", { ascending: true })',
       ".limit(HOLDS_ROW_CAP + 1)",
+      // The PROJECTION is part of the contract: the mocked client returns rows
+      // regardless of what was selected, so dropping the shows!inner embed makes
+      // every row slug-less at runtime and silently empties the stream while
+      // every behavioral assertion above stays green.
+      "shows!inner(slug, title)",
     ]) {
       expect(chain, `missing from the sync_holds query chain: ${op}`).toContain(op);
     }
+  });
+
+  it("source pins invariant-9 destructuring: the response is read as { data, error }", () => {
+    // The meta-test recognizes the try/catch WRAPPER, not the read shape, and a
+    // bare response handle (`const res = await supabase...; res.data`) preserves
+    // current behavior — so nothing else in the suite would catch the regression
+    // that invariant 9 exists to prevent.
+    const raw = readFileSync("lib/admin/identityHolds.ts", "utf8");
+    const src = raw.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+    expect(src).toMatch(/const\s*\{\s*data\s*,\s*error\s*,?\s*\}\s*=\s*await\s+supabase\b/);
   });
 });
