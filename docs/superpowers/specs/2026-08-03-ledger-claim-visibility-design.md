@@ -5,7 +5,7 @@
 **Date:** 2026-08-03
 **Branch:** `chore/ledger-claim-visibility`
 **Backlog entries:** none opened for this work (see §9.1); two filed as by-products (§9.2, §9.3)
-**Status:** R7 repaired — 42 adversarial findings across seven rounds plus 5 self-findings, all accepted, all closed
+**Status:** R8 repaired — 49 adversarial findings across eight rounds plus 5 self-findings, all accepted, all closed
 **Review note:** R1-R4 were Codex (cross-model). R5 and R6 were fresh-eyes Opus sessions, because Codex hit a usage limit resetting 2026-08-10; see §10
 **impeccable-gate: N/A — no UI surface**
 
@@ -335,6 +335,24 @@ can produce — it does not merely miss a claim, it asserts a false one about a 
 5 such mismatches across 20 refs, in `BACKLOG.md` and `DEFERRED-archive.md` both, in both directions
 (ids only the authoritative parser sees, and one only the legacy regex sees).
 
+**`extractEntries` is opts-driven, and the opts differ per ledger.** Its signature is
+`extractEntries(text, opts: ExtractOpts)` with `ExtractOpts = { requirePrefix, levels }`
+(`tests/docs/_ledgerMdast.ts:289`), and the repo's own values are not interchangeable
+(`tests/docs/_metaDeferralLedgerGraduation.test.ts:58`):
+
+| Ledger | Opts |
+| --- | --- |
+| `BACKLOG.md`, `BACKLOG-archive.md` | `{ requirePrefix: "BL-", levels: [2, 3] }` |
+| `DEFERRED.md`, `DEFERRED-archive.md` | `{ requirePrefix: null, levels: [3] }` |
+
+R8 finding 1 measured the cost of getting this wrong: applying the backlog opts to the deferred
+ledgers yields **0** entries for each, against 15 and 139 correct, so a planted deferred claim
+vanishes entirely — and the global vacuity gate stays quiet because the 321 surviving backlog
+entries clear the 100 floor on their own. §4.2's vacuity rule is therefore **per file as well as
+global**: any ledger that parses zero entries while its counterpart on `origin/main` parses more
+than ten is an exit-2 condition, not a warning. A whole ledger silently disappearing is the same
+false-all-clear class as R3 finding 1, reached through a different door.
+
 So the shared parser module **consumes `extractEntries` for ids and spans** and owns only
 field extraction within a span. The local `HEADING` regex is deleted rather than moved; two grammars
 for one file format is the defect, and keeping the stricter one merely relabels it.
@@ -351,7 +369,7 @@ literally it strands `ledgerFiles` in the test file, forcing the §3.2 reader to
 module whose top-level `describe`/`it` run on import — precisely the coupling §2.8's
 precedent exists to avoid. It exports
 `LedgerItem`, `fieldsOfLine`, `ledgerItems`, `isInProgress`, `flightFieldsOn`, `FLIGHT_FIELDS`,
-`BRANCH_SHAPE`, `PR_SHAPE`, and the `HEADING` pattern. `ledgerFiles` moves too, taking its root
+`BRANCH_SHAPE`, and `PR_SHAPE`. It exports no heading pattern of its own — R8 finding 2 caught the export list still promising one after §3.1 deleted it, which a literal implementer would have satisfied by recreating the very grammar R7 finding 1 removed. `ledgerFiles` moves too, taking its root
 directory as an argument as it already does today (`tests/docs/_metaLedgerInProgress.test.ts:46`).
 
 The move is behavior-preserving: no regex, no bound, and no field name changes. The existing
@@ -567,6 +585,7 @@ Every input, and what the reader does with it.
 | --- | --- |
 | `git fetch` fails (offline, auth, timeout) | Use existing remote-tracking refs and print `WARN: claims computed from stale refs (fetch failed: <reason>)`. The report still prints, because a stale report beats none. **`--check` exits 2**, never 0: R3's case is a checkout that cannot reach origin while a cached ref already carries another branch's live declaration, and answering "no collision" from a universe you could not verify is the false all-clear this spec exists to remove |
 | No `refs/remotes/origin/*` at all | Print `no origin branches resolvable`; `--check` exits 2 |
+| `git ls-remote` itself fails after a successful fetch | Exit **2**, explicitly caught. R8 finding 6: `execFileSync` throws on a failed `ls-remote` (status 128), and an uncaught throw exits the process with 1 — which §3.3 and §6.2 both define as "another branch declares this row". An environment failure reported as somebody else's claim is worse than either a crash or a warning |
 | Fetch succeeded but resolved fewer heads than `git ls-remote --heads origin` reports | The universe is incomplete for a reason the reader cannot see. Print the shortfall; `--check` exits 2. The `ls-remote` carries its own **30 s** bound, matching `tests/docs/_metaLedgerInProgress.test.ts:201`, and is **skipped entirely under `--no-fetch`** — it verifies a fetch, so with no fetch there is nothing to verify. R6 finding 5 caught it otherwise reopening the budget conflict R5 finding 3 closed: an unbounded network call still sat inside preflight's 15 s |
 | `gh` absent, unauthenticated, or returning malformed JSON, **any mode** | PR column blank. Never an error, never a warning, never a change to which claims resolve. R2 measured that `unit-suite.yml` supplies no `GH_TOKEN`, so the unauthenticated path is the CI default, not an edge case |
 | More than 100 open PRs | The PR column is incomplete for the overflow and says so. No claim resolution reads it, which is the reason it is allowed to be incomplete: a query that cannot report its own truncation must not carry a correctness rule |
@@ -921,8 +940,14 @@ a behavior widening of an existing guard, so it gets its own task and its own ca
 - Corpus regression bound: asserted against a **committed fixture corpus**, never against origin, so
   it cannot decay when the live branches merge. The fixture reproduces §2.7a's measured shapes — the
   two in-window markers, the out-of-window marker, the deep-quoted bare
-  `**Branch:**`, and the status-only malformation — and pins detection at **4 of 5**: everything except the deep-quoted
-  bare `**Branch:**`, whose line carries no status. R4 finding 2 caught an earlier `3 of 5` here,
+  `**Branch:**`, and the status-only malformation — and pins **both** detection and field
+  extraction. R8 finding 4 built the escaping mutant against a detection-only bound: scan any-depth
+  `Status`, keep the old 12-line `fields`, and an implementation matches the required count while
+  the out-of-window `Branch` never reaches shape or liveness validation — R4 finding 1 walking back
+  in through the test. So the fixture asserts, per entry, the detection verdict **and** the resolved
+  `fields.Branch`, with the out-of-window fixture required to expose its branch and the deep-quote
+  fixture required not to. Detection alone is **4 of 5**: everything except the deep-quoted bare
+  `**Branch:**`, whose line carries no status. R4 finding 2 caught an earlier `3 of 5` here,
   which was arithmetically incompatible with status-alone detection and could only have been
   satisfied by hiding the status-only malformation that §4.2 explicitly requires to be visible. A
   bound read from live refs would have been green today and meaningless next week, which is the
@@ -972,10 +997,15 @@ recognizable line, under **all three** exits that print `env ✓`: the default D
 spawn-only version; R7 finding 3 caught the repair, which asserted the flag was *passed* and stopped
 there. An implementation that accepts `--no-fetch`, skips `git fetch`, and still runs the shortfall
 check's `ls-remote` satisfies an argument assertion while keeping an unbounded network call inside
-the 15 s budget — the same defect wearing the flag. The test therefore runs the real reader against
-a fixture with an unreachable remote and asserts it **completes**, which no implementation touching
-the network can do. A companion case asserts the same for `gh`: under `--no-fetch` the PR column is
-populated only if `gh` answers within its 10 s bound, and the table still prints when it does not.
+the 15 s budget — the same defect wearing the flag. R8 finding 5 then refuted the first repair of that: asserting the reader **completes** against an
+unreachable remote proves nothing, because connection refusal is immediate — measured at 0.03 s for
+`git ls-remote` and 0.04 s for `gh` against unroutable hosts, so an implementation that still runs
+both passes a completion assertion and reveals itself only on a blackholed network months later.
+
+The assertion is therefore **non-invocation**, not timing: the test spies on the process-spawn
+boundary and asserts that under `--no-fetch` no `git fetch` and no `git ls-remote` child is created
+at all. A separate case covers `gh`'s 10 s bound directly, by stubbing a child that never exits and
+asserting the reader still prints its table with the PR column blank.
 
 **The test must clear `CI` from the child's environment.** R5 finding 4: §3.4 suppresses the claims
 step under `CI`, and `tests/scripts/**` is not in `PARALLEL_TEST_GLOBS` (`vitest.projects.ts:86`) so
@@ -1048,6 +1078,21 @@ spec of its own, not a line in this one. The sweep for peers of this shape was r
 `bodyDefinedIds` is the only body-scanning id recognizer in the tree, pinned as sole-caller by
 `tests/docs/_metaLedgerReferentialIntegrity.test.ts` P5-sole.
 
+### 9.3 Filed as a by-product: `BL-LEDGER-MDAST-SHARED-HOME`
+
+§3.1 has `scripts/**` importing `tests/docs/_ledgerMdast.ts`. That direction is backwards, and the
+right repair is relocating the module beside its new consumer. Deferred under **exception (c)** of
+`AGENTS.md:227` — a redesign of a surface this branch does not otherwise touch, spanning four
+importers (`_metaDeferralLedgerGraduation.test.ts`, `_ledgerMdast.walker.test.ts`,
+`_metaLedgerReferentialIntegrity.test.ts`, and the new reader) plus three hardcoded path exemptions
+inside the referential-integrity guard that would all have to move in lockstep.
+
+The import is safe in the meantime, and pinned rather than merely asserted: `_ledgerMdast.ts` is a
+plain module rather than a test file, and `tests/docs/_metaLedgerReferentialIntegrity.test.ts`
+already forbids `node:fs`, `node:path`, and `require(` inside it, so it cannot acquire I/O or
+import-time side effects. Probed: zero hits for all three.
+
+
 ---
 
 ## 10. Review provenance
@@ -1083,17 +1128,3 @@ blind spot the cross-CLI discipline exists to cover, demonstrated rather than ar
 The practical rule this run supports: a same-model round is a real gate and worth running when the
 cross-model one is unavailable, and it is not a substitute for one. R5 and R6 found 14 defects that
 would otherwise have shipped; R7 found one that neither could see.
-
-### 9.3 Filed as a by-product: `BL-LEDGER-MDAST-SHARED-HOME`
-
-§3.1 has `scripts/**` importing `tests/docs/_ledgerMdast.ts`. That direction is backwards, and the
-right repair is relocating the module beside its new consumer. Deferred under **exception (c)** of
-`AGENTS.md:227` — a redesign of a surface this branch does not otherwise touch, spanning four
-importers (`_metaDeferralLedgerGraduation.test.ts`, `_ledgerMdast.walker.test.ts`,
-`_metaLedgerReferentialIntegrity.test.ts`, and the new reader) plus three hardcoded path exemptions
-inside the referential-integrity guard that would all have to move in lockstep.
-
-The import is safe in the meantime, and pinned rather than merely asserted: `_ledgerMdast.ts` is a
-plain module rather than a test file, and `tests/docs/_metaLedgerReferentialIntegrity.test.ts`
-already forbids `node:fs`, `node:path`, and `require(` inside it, so it cannot acquire I/O or
-import-time side effects. Probed: zero hits for all three.
