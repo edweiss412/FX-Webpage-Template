@@ -124,8 +124,9 @@ Add the **inline-mention fixture**, from a live probe against this very plan. Ex
 <!-- task: red=`pnpm vitest run tests/codexGuard/lintDoc.test.ts` ac=AC-1,AC-2,AC-3,AC-4,AC-5 -->
 
 
+**Harness API, verified.** `tests/codexGuard/harness.ts` exports `mkRun` (`tests/codexGuard/harness.ts:107`), `writeScenario` (`tests/codexGuard/harness.ts:133`), `guardEnv` (`tests/codexGuard/harness.ts:148`), `runGuard` (`tests/codexGuard/harness.ts:162`), `readResult` (`tests/codexGuard/harness.ts:201`), and `readCalls` (`tests/codexGuard/harness.ts:205`). `readCalls` returns the `CallRecord` shape at `tests/codexGuard/harness.ts:74`, carrying each invocation's `argv` — which is what makes AC-3's "dispatched nothing" directly assertable (empty array) and AC-1's embed assertable against the real composed prompt rather than a restatement of it.
+
 <!-- spec-lint: ignore — new file created by this plan; not tracked until implementation -->
-**Harness API, verified.** `tests/codexGuard/harness.ts` exports `mkRun` (`:107`), `writeScenario` (`:133`), `guardEnv` (`:148`), `runGuard` (`:162`), `readResult` (`:201`), and `readCalls` (`:205`). `readCalls` returns `CallRecord[]` (`:74`) carrying each invocation's `argv`, which is what makes AC-3's "dispatched nothing" directly assertable (empty array) and AC-1's embed assertable against the real composed prompt rather than a restatement of it.
 
 **RED.** Create `tests/codexGuard/lintDoc.test.ts` using that harness, covering:
 
