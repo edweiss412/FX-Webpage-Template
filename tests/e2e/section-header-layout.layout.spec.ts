@@ -164,27 +164,36 @@ test("hairline floor @ 240px row", async ({ page }) => {
     const rule = label.nextElementSibling;
     if (!(rule instanceof HTMLElement)) return { error: "rule sibling not found" };
 
-    // PIN THE FONT for this one measurement. The app's stack is
-    // `"Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", "Helvetica
-    // Neue", sans-serif`. NOTE: as of BL-HARNESS-FONT-FIDELITY the harness DOES
-    // load Inter -- compileEntryCss emits the committed face -- so this pin is a
-    // deliberate override of it, retargeted in the geometry task rather than a
-    // claim that no face exists.
-    // so it resolves to SF Pro on macOS and falls all the way through to DejaVu
-    // Sans on a bare Linux CI runner. DejaVu is wide enough that this label fills
-    // the 240px row unaided, which made the floor look like the cause of a wrap it
-    // had nothing to do with: CI measured 33.59px floored against 16.8px unfloored.
+    // PIN THE FONT for this one measurement -- now at INTER, the face the product
+    // actually renders.
     //
-    // Arial / Liberation Sans are metric-compatible and one of the two is present
-    // on macOS, Windows and the Ubuntu runner, so this reads the same on all three.
-    // Applied to the CONTAINER so the label and the rule share it, and only in this
-    // test — the 15-cell matrix measures the ambient stack deliberately, and its
-    // header heights are pinned against it.
+    // WHY THIS PIN EXISTED. The app's stack was `"Inter", ui-sans-serif, …` with
+    // no @font-face reaching the harness, so it resolved to SF Pro on macOS and
+    // fell all the way through to DejaVu Sans on a bare Linux runner. DejaVu is
+    // wide enough that this label filled the 240px row unaided, which made the
+    // floor look like the cause of a wrap it had nothing to do with: CI measured
+    // 33.59px floored against 16.8px unfloored. Arial / Liberation Sans are
+    // metric-compatible and one of the two is present on macOS, Windows and the
+    // Ubuntu runner, so pinning there read the same on all three.
+    //
+    // WHY IT IS RETARGETED. BL-HARNESS-FONT-FIDELITY closed that gap:
+    // compileEntryCss now emits the committed face, so the harness renders a
+    // REPO-CONTROLLED font that is byte-identical on every host. The reason to
+    // stand in a metric-compatible substitute is gone -- and measuring under a
+    // font the product never renders is exactly the fidelity defect the backlog
+    // entry was filed about. The assertion and its floor are UNCHANGED; only the
+    // face beneath them moves, from a stand-in to the one that ships. This is
+    // not a tolerance widening, and the entry explicitly refuses widening as a
+    // resolution.
+    //
+    // Applied to the CONTAINER so the label and the rule share it, and only in
+    // this test — the 15-cell matrix measures the inherited stack deliberately,
+    // and its header heights are pinned against it.
     //
     // What this does NOT claim: that the floor is free under EVERY possible fallback.
     // Under DejaVu it is not, and that is recorded as a real (narrow) exposure in
     // BL-HEADER-FONT-FALLBACK-WRAP rather than asserted away here.
-    container.style.fontFamily = 'Arial, "Liberation Sans", Helvetica, sans-serif';
+    container.style.fontFamily = '"Inter", ui-sans-serif, system-ui, sans-serif';
     void container.offsetWidth; // force reflow before measuring
 
     const cs = getComputedStyle(rule);
