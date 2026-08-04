@@ -385,3 +385,27 @@ Verified against the worktree at `deda7d989` before drafting.
 | Generated family name is `inter`, not the literal `Inter` | §2.5, fifth bullet |
 | Live italic render sites (7, enumerated) | §2.4 |
 | Structural-guard precedent for a styles meta-test | `tests/styles/eyebrow-tracking.test.ts` |
+
+---
+
+## 12. Invariant-8 close-out — impeccable critique + audit
+
+impeccable-gate: critique=RAN audit=RAN p0=0 p1=3 dispositions=recorded
+
+Both halves ran on the diff, dual-agent (critique Assessment A and Assessment B in isolated sub-agents; audit as its own agent). No P0. Three P1s, all FIXED in-branch — none deferred, so no `DEFERRED.md` row is owed.
+
+`tests/docs/_metaInvariant8Closeout.test.ts` walks `docs/superpowers/plans` only, and this change has no plan unit (the autonomous run went spec → implementation directly), so the marker above is recorded for traceability rather than to satisfy that walk.
+
+| # | Source | Sev | Finding | Disposition |
+| --- | --- | --- | --- | --- |
+| 1 | critique A | **P1** | `zero` on the shared `time, .tabular-nums` rule slashed zeros in **running prose**. `.tabular-nums` is not a "this is a code" marker here — it sits on whole sentences, including `components/crew/RightNowHero.tsx:524`, a 30px bold `<h2>`. The hero rendered "Today: Show day 1**0** of 12", a terminal readout in the product's most expressive moment, against `PRODUCT.md`'s "not techie" anti-reference. | **FIXED** (`60b3fcdee`). Split to a narrower `.code-value`. Three static assertions + two browser assertions, mutation-proven. |
+| 2 | audit | **P1** | `.code-value` declared features but no family, so on the one `<code>` element it was applied to (`components/admin/wizard/Step1Share.tsx:171`) Tailwind preflight's `ui-monospace` default won and it rendered **nothing**. Byte-identical to a bare `<code>` under a 48px pixel oracle. The branch's own bug class, reintroduced by the fix for finding 1. | **FIXED** (`cc85839a8`). `font-family: var(--font-sans)` on the rule. New browser assertion checks the resolved FAMILY, not the feature string, because the static guard structurally cannot see which element a class lands on. Mutation-proven. |
+| 3 | audit | **P1** | Payload: 344 KB preloaded font costs **FCP +136–164 ms** and pushes the fallback→Inter swap to **3.7 s on slow 4G / 8.0 s on regular 3G** (measured, median of 3, cold). First-visit only (`Cache-Control: immutable`), but first visit is the one that matters for crew on venue floors. | **OPEN — escalated to the user.** Verbatim-vs-subset was a user decision at the gate (§1.1), taken from the size table in §2.6 but WITHOUT this latency measurement, which materially changes the tradeoff. Subsetting to latin+latin-ext (173.5 KB) or latin (72.4 KB) is the remedy; it reintroduces a generated artifact, which is what verbatim was chosen to avoid. Not the run's call to make. |
+| 4 | audit | P2 | `components/crew/sections/TravelSection.tsx:630`'s per-segment record locator was `tabular-nums` while the itinerary locator below it was `code-value` — same card, same transcribe-back value, split treatment. | **FIXED** (`cc85839a8`). |
+| 5 | audit | P3 | An `app/globals.css` comment still said the slash "lives on the tabular rule", stale since `60b3fcdee`. | **FIXED** (`cc85839a8`). |
+| 6 | audit | P3 | `ss04` widens uppercase eyebrows up to +6.25%; only wraps in slots ≤115px, and no live surface is that narrow. | **ACCEPTED**, no action. Recorded so it is not re-derived. |
+| 7 | B (detector) | — | `overused-font: Inter` on `app/fonts.ts`. | **FALSE POSITIVE.** The product register explicitly permits Inter, and `DESIGN.md` §2.1 ratifies the family; this diff changes how it is delivered, not which face it is. |
+| 8 | B (detector) | — | 2× `side-tab` in `app/admin/dev/page.tsx`, 17× `broken-image` across gallery/venue-map components. | **OUT OF SCOPE.** Pre-existing, in files this diff does not touch. |
+| 9 | B (browser) | — | Light-mode body text measures 6.47:1 against its surface, under `PRODUCT.md`'s 7:1 AAA floor (`--color-text-subtle` `#5a5b62` on `#fafaf9`). | **OUT OF SCOPE, FILED.** Pre-existing; this diff changes no color token, and a token change needs its own contrast meta-test per the project's colour discipline. |
+
+**Measured CLEAN by the audit** (recorded so a later reviewer does not re-derive it): copy/paste returns exact codepoints, so the slashed zero is presentational only and a crew member pasting a confirmation number still gets `0` (U+0030); no overflow at 320 / 390 / 768 / 1280 on four routes; no overflow at 200% text scaling; zero line-count changes in `KeyValueRows` at real slot widths; `opsz` makes text up to 8.3% *narrower* at 24–30px, i.e. away from overflow; no interactive element under 44×44px.
