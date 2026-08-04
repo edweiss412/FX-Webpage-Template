@@ -698,3 +698,47 @@ This one is worth distinguishing from rounds 14 and 15. Those were spellings of 
 `Object.assign(el, { style: … })` was closed in the same pass, being the same shape by another route.
 
 **Sixty-two mutants across sixteen rounds. All caught.**
+
+---
+
+## 13. Mutation-operator closure set — declared late, and why that cost sixteen rounds
+
+`AGENTS.md` is explicit about guard surfaces:
+
+> Any plan shipping mutation checks or structural guards **enumerates its mutation-operator families up front — that enumeration is the closure set the review converges against.** A reviewer-proposed NEW family is admissible only with a live escaping mutant demonstrated against the shipped guard, not hypothesized. Guard surfaces otherwise have unbounded attack space; "the reviewer imagines no further mutant" is not a fixed point and is not the convergence criterion.
+
+**This spec never enumerated one.** That is the single biggest process defect of this change, and it is the reason a review that found genuinely real defects in all sixteen rounds still had no way to end: with no declared closure set, every new spelling is admissible, and the space of spellings for "write CSS from JavaScript" is not finite. Rounds 1–12 were finding defects against the guard's PURPOSE. Rounds 13–16 were finding spellings, each real, each decidable, and each one more sample from an unbounded set.
+
+The enumeration belongs at spec time. Written now, late, as the honest record:
+
+### 13.1 What this guard is for
+
+It exists to catch **an ordinary developer declaring a font feature the loaded font cannot honor** — the `cv11` bug, which shipped for three months looking deliberate and rendering nothing. That is a mistake made while trying to do the right thing, in plain CSS, in the obvious place.
+
+It is **not** an adversarial control. Nothing here defends against someone deliberately obfuscating a declaration, because someone with commit access who wants a bad declaration to ship has vastly easier routes than `f\6f nt-feature-settings` — they can edit the guard.
+
+### 13.2 The closure set
+
+| # | Family | Covered by | Closed at |
+| --- | --- | --- | --- |
+| 1 | A tag the loaded font lacks, declared in plain CSS | availability check against the binary the loader names | §4.1 |
+| 2 | A tag disabled rather than absent (`"ss04" 0`) | value semantics | §12.2 |
+| 3 | The feature reset by a shorthand (`font`, `all`) | shorthand ban | §12.3, §12.10 |
+| 4 | A rule that declares the property but enables nothing | `ALLOWED_FEATURE_RESETS`, reason required | §12.10 |
+| 5 | A declaration Tailwind emits that the source does not contain | compiled-sheet analysis | §12.10 |
+| 6 | The declaration scoped so it never reaches the intended element | selector-addressed lookup + browser assertions | §12.8 |
+| 7 | An inline style overriding the cascade | source scan + runtime DOM census | §12.11–§12.16 |
+| 8 | The font itself swapped for one lacking the features or blowing the payload | feature, axis and byte-budget checks | §4.1, §12.4 |
+
+**Families 1–8 are the closure set.** A live escaping mutant inside one of them is a defect. A new SPELLING of an already-closed family — a different escape sequence, a different assignment operator, a different member-access form — is not a new family, and is out of scope by this declaration.
+
+### 13.3 Documented limits, accepted
+
+- **Dynamically constructed inline styles** on routes no test visits (§12.13). Undecidable statically; unobservable at runtime without visiting the route.
+- **Deliberate obfuscation** by someone with commit access. Out of threat model per §13.1.
+
+Both satisfy the preparedness-audit posture this project applies to detectors (`docs/audits/edge-case-preparedness-audit-2026-07-04.md:92`): every input is parsed correctly or signaled, never silently wrong. Neither limit can produce a silently-wrong render from an ordinary mistake.
+
+### 13.4 The lesson, for the next guard
+
+Enumerate the closure set **in the spec, before the first review round**. It costs ten minutes and it is what lets a review converge. Without it a guard review is an open-ended search, and the round count is set by the reviewer's patience rather than by the work being done. Sixteen rounds here; the last four found spellings of families already closed, and every one of those rounds was preventable by a paragraph written at spec time.
