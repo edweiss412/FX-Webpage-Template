@@ -522,10 +522,12 @@ The three `tasks: end` rows are jointly exhaustive over the region state, which 
 | enrolled, a recorded marker line lies outside every task extent | `TASK_MARKER_ORPHANED` **alone**, whatever its form |
 | enrolled, inside an extent, **matches the marker form in every respect except** that `red`'s backticked command is empty or whitespace | `TASK_RED_EMPTY` (occupies the slot) |
 | enrolled, inside an extent, **matches the marker form in every respect except** that `ac=` is absent or its list is empty | `TASK_AC_MISSING` (occupies the slot) |
+| enrolled, inside an extent, matches the marker form **fully** | satisfies that task; its ids are checked by `TASK_AC_UNRESOLVED` |
 | enrolled, inside an extent, matches nothing above | `TASK_MARKER_MALFORMED` (occupies the slot) |
-| enrolled, inside an extent, well-formed | satisfies that task; its ids are checked by `TASK_AC_UNRESOLVED` |
 
 **The "in every respect except" prerequisite is load-bearing on the first two rows**, and an earlier draft omitted it. Because this table is declared authoritative over the §3.4 catalog, dropping the prerequisite made it override §3.3's precedence rule outright: `` <!-- task: red=`` foo=x ac=AC-1 --> `` has an empty command *and* an unknown key, so the shortened row classified it `TASK_RED_EMPTY` where precedence rule 3 and AC-11 both require `TASK_MARKER_MALFORMED`. Likewise `` <!-- task: red=`cmd` foo=x --> `` read as `TASK_AC_MISSING` rather than malformed. The specific codes describe a marker that is *otherwise well-formed*; a line carrying junk as well is malformed, whatever else is also wrong with it.
+
+**Rows are evaluated top to bottom and the first match wins.** Without that, and with the catch-all sitting above the well-formed row, a valid marker matched both — it satisfies neither defect row, so "matches nothing above" was true of it, while the well-formed row was also true. Under first-match semantics as previously ordered *every valid marker was `TASK_MARKER_MALFORMED`*; without them it had two outcomes. Ordering the specific rows, then the well-formed row, then the catch-all, and fixing the evaluation order makes each marker line reach exactly one row.
 
 The first two rows are what make the enrollment gate real rather than nominal. A marker-shaped line in a plan that never enrolled, or in one whose enrollment failed, is **discarded without a finding** — matching §3.3's rule that placement and form are both conditional on enrollment, and matching AC-7's promise that a plan with no enrollment line yields zero findings "regardless of heading count or stray markers".
 
@@ -650,7 +652,7 @@ The rejecting half asserts an *absence*, so its fixture must make the wrong beha
 
 Equal length is not equal content, and an earlier wording asked only for equal `Buffer.byteLength`. Two different reports of the same length both ending in `summary:` satisfy it; so does any truncation that happens to be compensated elsewhere. Since the defect under test is precisely "the pipe yields a *different, shorter* report", a length-only comparison tests a proxy for the property that matters while looking like the property itself. Use `Buffer.byteLength` only for the diagnostic message on failure — and never `String.length`, which counts UTF-16 code units and reads a byte-identical em-dash-heavy report as a shortfall (§2.2.3).
 
-**AC-36.** A `--lint-doc` whose child exits 0 or 1 with a malformed report refuses the dispatch with exit 2. §2.3 requires **both** halves of the shape — a `spec:lint <path>` first line **naming the requested document** and a `summary:` last line — so four cases are pinned, each killing a mutant the previous one leaves alive:
+**AC-36.** A `--lint-doc` whose child exits 0 or 1 with a malformed report refuses the dispatch with exit 2. §2.3 requires the **whole frame** — four clauses: a `spec:lint <path>` first line naming the requested document, a `kind: ` second line, an empty third line, and a `summary:` last line that is not among the first three. Five cases are pinned, each killing a mutant the previous one leaves alive:
 
 | Probe | frame defect |
 | --- | --- |
@@ -711,9 +713,26 @@ TASK_AC_UNRESOLVED+well       correct=[DUPLICATE,AC_UNRESOLVED]       mutant=[AC
 
 It passes the one case anyone writes by hand and silently omits duplication in every mixed extent — which is the shape "occupies the slot" (§3.3) exists to guarantee and nothing yet asserted.
 
+**The matrix above is still not the whole rule.** §3.4.1 says "**two or more** marker lines of **any** class", which quantifies over two dimensions, and a matrix of cardinality-two pairs each containing a well-formed marker exercises neither fully. Two further mutants survive it:
+
+```
+markers.length === 2                        passes every listed row, accepts THREE valid markers silently
+markers.length >= 2 && some(isWellFormed)   passes every listed row, omits duplication when BOTH are defective
+```
+
+So two more cases are required, and they are the minimum that closes both dimensions: **an extent holding three markers**, and **an extent holding two markers that are both defective** — the ten unordered defective pairs are one class, so one representative suffices (`TASK_RED_EMPTY` + `TASK_AC_MISSING`), asserted as a full list carrying `TASK_MARKER_DUPLICATE` alongside both defect codes.
+
 **AC-28.** A marker on a line after `<!-- tasks: end -->` but before the next equal-or-shallower heading reports `TASK_MARKER_ORPHANED`, and the preceding task reports `TASK_MARKER_MISSING` if it has no marker of its own. Pinned as one fixture asserting both, since the defect was that these two rules disagreed about the same line.
 
 **AC-25.** `taskContract` findings render in the CLI text report under their own `taskContract:` heading with code, line, and message — asserted against the CLI's actual stdout, not against `runLint`'s return value.
+
+**And the section must appear BEFORE the `INVENTORY` block**, asserted by line position in raw stdout, with a second assertion that the findings survive into the **embedded** block (§2.2.2). Presence alone is not enough, and the gap is not theoretical: §2.2.2's transformation removes everything from the bare `INVENTORY` line to the `summary:` line, so a renderer that appends the new section *after* the inventory satisfies this criterion on raw stdout and AC-1's sequence comparison on the transformed body, while the review prompt contains **none** of the new findings:
+
+```
+POST_INVENTORY_RENDERER  shapeOK=true  AC25=true  P2Sequence=true  rawTask=true  embeddedTask=false
+```
+
+That is the whole feature failing silently with every criterion green. `taskContract` is the only newly-introduced renderer family, so it is the only section this applies to — but it applies absolutely, and the assertion is on the embedded block because that is where the reviewer actually reads.
 
 **AC-15.** A heading at the enrolled depth **outside** the region yields nothing — whether it precedes the opening line or follows `<!-- tasks: end -->`. Pinned with a fixture carrying both, since only the trailing case refutes a start-only model. **Neither out-of-region heading carries a marker**, which is what makes the absence observable: an implementation treating them as tasks reports `TASK_MARKER_MISSING` for each, against an expected empty list. Give them markers and both the correct and the broken implementation report nothing.
 
@@ -726,6 +745,10 @@ It passes the one case anyone writes by hand and silently omits duplication in e
 **AC-13.** An `ac=` id that appears only inside marker lines, and nowhere else in the plan, is `TASK_AC_UNRESOLVED` — an id cannot satisfy itself.
 
 **AC-14.** `docs/agents/spec-self-review.md` carries the §4.1 rule text and the §3.2 plus §3.3 marker convention. Both are asserted; §1.2's change inventory names both for the same reason.
+
+**AC-47.** All ten task-contract codes are **hard**, pinned behaviorally rather than by inspecting a severity field. A plan fixture with one task-contract finding and no other defect makes the CLI **exit 1**, renders the finding as `FAIL` rather than `ADVISORY`, and is suppressible by a `spec-lint: ignore` waiver on its target line (§6 item 9) — suppression applies only to `severity: "fail"` findings (`lib/specLint/run.ts:93`), so it is itself a severity assertion.
+
+Nothing else pins this. A mutant emitting every task-contract finding as advisory preserves the codes, anchors, messages, full finding lists, renderer heading, and plan-versus-spec gating that AC-6 through AC-46 assert, while flipping the CLI to exit 0 — which silently converts the whole check family from a gate into a suggestion, and is the single change that would most completely defeat this spec's purpose while passing its criteria. AC-4 mentions hard findings but assumes an already-hard input; it requires no task-contract finding to be one.
 
 **AC-45.** When enrollment fails, recorded marker lines are **discarded unjudged** — asserted as a full finding list across all three failure modes, each fixture carrying a **malformed marker** so the discard is observable:
 
