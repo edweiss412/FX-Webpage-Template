@@ -55,7 +55,9 @@ Cost is zero because nothing has drifted, not because few tests are exposed. Twe
 **Non-goals**
 
 - N1. Changing the typeface, the family commitment, or the `--font-sans` consuming declaration.
-- N2. Changing subset coverage. All seven subsets Google serves are committed, which is exactly what `next/font` declares today (§3.3).
+- N2. Changing subset coverage. All seven subsets Google serves are committed, which is exactly what `next/font` downloads today (§3.3).
+
+  **This looks like a contradiction in the source and is not — worth stating, because the inference is easy to get backwards.** `app/fonts.ts:30` declares `subsets: ["latin"]`, one subset, which reads as though six of the seven committed files are an expansion of coverage rather than parity with it. They are not: `subsets` selects which faces get a **preload hint**, not which files are fetched. A production build on this branch emits **seven** `.woff2` files under `.next/static/media/`, and their SHA-256 set is **identical** to the seven committed here — verified by building and hashing both sides, not inferred from the loader call. So the byte-identity claim above covers all seven files, and shipping seven changes nothing about what a reader downloads; it changes only who serves them.
 - N3. Widening any existing tolerance to accommodate the new rendering.
 - N4. Adding a theme-, weight-, or optical-size-switching mechanism.
 
