@@ -259,3 +259,176 @@ export function firstVarFallbackFamily(css: string, token: string): string {
   const first = fallback.split(",")[0]?.trim() ?? "";
   return first.replace(/^["']|["']$/g, "");
 }
+
+/** Shape of one shipped stylesheet handed to `assertFontsCss`. */
+export interface ShippedStylesheet {
+  readonly label: string;
+  readonly css: string;
+}
+
+export interface AssertOptions {
+  /**
+   * Every OTHER shipped stylesheet — `app/globals.css` plus any imported
+   * dependency sheet. Rows 19-21 iterate this, and without the channel the
+   * dependency-stylesheet mutants (M16) cannot be driven at all: they mutate a
+   * file that is not the fonts stylesheet.
+   */
+  readonly shipped?: readonly ShippedStylesheet[];
+  /** Expected family of the single Inter face. */
+  readonly family?: string;
+  /** Expected family of the metric-matched companion. */
+  readonly fallbackFamily?: string;
+  /** Expected metric-override percentages; defaults to the measured figures. */
+  readonly overrides?: Readonly<Record<string, number>>;
+}
+
+const DEFAULT_DESCRIPTORS = ["font-display", "font-family", "font-style", "font-weight", "src"];
+
+/**
+ * Measured from a clean build of the pre-swap tree. These reproduce what the
+ * framework loader generated from THIS binary, so the swap-frame reflow fix
+ * survives the mechanism change unchanged.
+ */
+const DEFAULT_OVERRIDES: Readonly<Record<string, number>> = {
+  "ascent-override": 89.79,
+  "descent-override": 22.36,
+  "line-gap-override": 0,
+  "size-adjust": 107.89,
+};
+const DEFAULT_FALLBACK_DESCRIPTORS = [
+  "ascent-override",
+  "descent-override",
+  "font-family",
+  "line-gap-override",
+  "size-adjust",
+  "src",
+];
+
+/**
+ * Run every structural row against a stylesheet STRING, throwing on the first
+ * violation.
+ *
+ * This is the entry point the mutation matrix drives. Without it the rows are
+ * only callable against the file on disk, and no mutant can be fed to them —
+ * which would make the matrix assert on a copy of the guard rather than the
+ * guard itself.
+ *
+ * It deliberately does NOT check the committed digest or the DESIGN.md parity:
+ * those read the filesystem, are not properties of the string, and belong to the
+ * on-disk rows in `tests/styles/fontLoading.test.ts`.
+ */
+export function assertFontsCss(css: string, opts: AssertOptions = {}): void {
+  const family = opts.family ?? "Inter";
+  const fallbackFamily = opts.fallbackFamily ?? "Inter Fallback";
+  const faces = parseFontFaces(css);
+  const inter = faces.filter((f) => familyOf(f) === family);
+  const fallback = faces.filter((f) => familyOf(f) === fallbackFamily);
+
+  const fail = (why: string): never => {
+    throw new Error(`fonts.css: ${why}`);
+  };
+
+  if (inter.length !== 1) fail(`expected exactly one "${family}" face, found ${inter.length}`);
+  if (fallback.length !== 1) {
+    fail(`expected exactly one "${fallbackFamily}" face, found ${fallback.length}`);
+  }
+  for (const face of faces) {
+    if (face.duplicated.length > 0) {
+      fail(`descriptor declared twice: ${face.duplicated.join(", ")} (CSS applies the LAST)`);
+    }
+  }
+
+  const main = inter[0]!;
+  const names = descriptorNames(main);
+  if (names.join(",") !== DEFAULT_DESCRIPTORS.join(",")) {
+    fail(`descriptor inventory is ${names.join(", ")}, expected ${DEFAULT_DESCRIPTORS.join(", ")}`);
+  }
+  const weight = weightOf(main);
+  if (weight.length !== 2 || weight[0] !== 100 || weight[1] !== 900) {
+    fail(`font-weight is [${weight.join(", ")}], expected the variable pair 100 900`);
+  }
+  if (styleOf(main) !== "normal") fail(`font-style is "${styleOf(main)}", expected normal`);
+  if (displayOf(main) !== "swap") fail(`font-display is "${displayOf(main)}", expected swap`);
+
+  const sources = srcOf(main);
+  if (sources.length !== 1) fail(`src has ${sources.length} sources, expected exactly one`);
+  const only = sources[0]!;
+  if (only.kind !== "url") fail(`src is ${only.kind}(), expected a url()`);
+  if (only.format !== "woff2") fail(`src format is "${only.format ?? "none"}", expected woff2`);
+  if (only.tech.length > 0) fail(`src carries tech(${only.tech.join(", ")}), which can exclude it`);
+  if (!only.url || !/^\/fonts\/[A-Za-z0-9._-]+\.woff2$/.test(only.url)) {
+    fail(`src url "${only.url ?? ""}" does not resolve to a committed /fonts/ file`);
+  }
+
+  const fb = fallback[0]!;
+  const fbNames = descriptorNames(fb);
+  if (fbNames.join(",") !== DEFAULT_FALLBACK_DESCRIPTORS.join(",")) {
+    fail(`fallback inventory is ${fbNames.join(", ")}, expected exactly its six`);
+  }
+  const fbSources = srcOf(fb);
+  if (fbSources.length !== 1 || fbSources[0]!.kind !== "local" || fbSources[0]!.local !== "Arial") {
+    fail(`fallback src must be exactly local("Arial")`);
+  }
+
+  // The four override VALUES, not merely their presence. Inventory equality
+  // proves a descriptor exists; it never proved what it says, and a wrong
+  // ascent-override scales Arial's glyphs against figures that describe a
+  // different face -- which is worse than shipping no fallback, because the
+  // swap frame then reflows MORE rather than less.
+  const overrides = overridesOf(fb);
+  for (const [name, expected] of Object.entries(opts.overrides ?? DEFAULT_OVERRIDES)) {
+    if (overrides[name] !== expected) {
+      fail(`fallback ${name} is ${overrides[name] ?? "absent"}%, expected ${expected}%`);
+    }
+  }
+
+  const tokens = tokenDeclarations(css, "--font-inter");
+  if (tokens.length !== 1) fail(`--font-inter declared ${tokens.length} times, expected once`);
+  if (tokens[0] !== `${family}, ${fallbackFamily}`) {
+    fail(`--font-inter is "${tokens[0] ?? ""}", expected "${family}, ${fallbackFamily}"`);
+  }
+
+  // Rows 19-21, over every OTHER shipped stylesheet.
+  for (const sheet of opts.shipped ?? []) {
+    if (parseFontFaces(sheet.css, { errorRecovery: true }).length > 0) {
+      fail(`${sheet.label} declares an @font-face; only the fonts stylesheet may`);
+    }
+    for (const [token, count] of countFontTokenDefinitions(sheet.css)) {
+      if (count > 1) fail(`${sheet.label} defines ${token} ${count} times, expected once`);
+    }
+    const literal = literalFontFamilies(sheet.css);
+    if (literal.length > 0) {
+      fail(`${sheet.label} sets a literal font-family (${literal.join(", ")}) outside @font-face`);
+    }
+  }
+}
+
+/** How many times each `--font-*` token is DEFINED in a stylesheet. */
+function countFontTokenDefinitions(css: string): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const m of css.matchAll(/(--font-[a-z0-9-]+)\s*:/gi)) {
+    const name = m[1]!;
+    counts.set(name, (counts.get(name) ?? 0) + 1);
+  }
+  return counts;
+}
+
+/**
+ * `font-family` / `font` declarations outside `@font-face` that name a literal
+ * family instead of resolving through a `var()` token.
+ *
+ * Round 32's inversion: a denylist of conditional contexts cannot enumerate CSS
+ * — the app's own theme mechanism is an attribute selector, and
+ * `[data-theme="dark"] { --font-sans: Arial }` escaped every at-rule-keyed row.
+ * Requiring every family to resolve through a token holds under any selector,
+ * at-rule, nesting depth or importing stylesheet.
+ */
+function literalFontFamilies(css: string): string[] {
+  const withoutFaces = css.replace(/@font-face\s*\{[^}]*\}/gi, "");
+  const hits: string[] = [];
+  for (const m of withoutFaces.matchAll(/(?:^|[;{])\s*font-family\s*:\s*([^;}]+)/gi)) {
+    const value = m[1]!.trim();
+    if (!/var\(/.test(value)) hits.push(value.slice(0, 40));
+  }
+  return hits;
+}
