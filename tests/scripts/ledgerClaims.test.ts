@@ -166,3 +166,57 @@ describe("resolveClaims — identity", () => {
     expect(r.degraded).toContain("identity-unresolved");
   });
 });
+
+describe("resolveClaims — inferred hunks", () => {
+  const TWO = "## BL-X — first\n\nbody\n\n## BL-Y — second\n\nbody\n";
+  const PREAMBLE = ["reconciliation prose", "", "", "", "", "", "", "", "",
+    "## BL-X — first", "", "body", ""].join("\n");
+
+  it("drops a hunk landing outside every entry span", () => {
+    // BACKLOG.md:7 is the reconciliation preamble; the first entry heading is at
+    // 11. A line-7 edit names dozens of ids and claims none of them.
+    const r = resolveClaims(
+      fake({
+        showFile: (ref, f) => (f === "BACKLOG.md" && ref === "origin/feat/a" ? PREAMBLE : null),
+        diffHunks: () => [{ file: "BACKLOG.md", start: 1, count: 1 }],
+      }),
+      opts,
+    );
+    expect(r.claims).toEqual([]);
+  });
+
+  it("drops a pure deletion, which has no new-side line", () => {
+    const r = resolveClaims(
+      fake({
+        showFile: (ref, f) => (f === "BACKLOG.md" && ref === "origin/feat/a" ? TWO : null),
+        diffHunks: () => [{ file: "BACKLOG.md", start: 1, count: 0 }],
+      }),
+      opts,
+    );
+    expect(r.claims).toEqual([]);
+  });
+
+  it("attributes a boundary-spanning hunk to EVERY entry it overlaps", () => {
+    // First-match-wins would report only BL-X.
+    const r = resolveClaims(
+      fake({
+        showFile: (ref, f) => (f === "BACKLOG.md" && ref === "origin/feat/a" ? TWO : null),
+        diffHunks: () => [{ file: "BACKLOG.md", start: 2, count: 6 }],
+      }),
+      opts,
+    );
+    expect(r.claims.map((c) => c.id).sort()).toEqual(["BL-X", "BL-Y"]);
+    expect(r.claims.every((c) => c.kind === "inferred")).toBe(true);
+  });
+
+  it("does not downgrade a declared claim to inferred", () => {
+    const r = resolveClaims(fake({ diffHunks: () => [{ file: "BACKLOG.md", start: 1, count: 5 }] }), opts);
+    expect(r.claims.map((c) => c.kind)).toEqual(["declared"]);
+  });
+
+  it("disables inferred when merge-base is unresolvable, keeping declared", () => {
+    const r = resolveClaims(fake({ mergeBase: () => null }), opts);
+    expect(r.claims.map((c) => c.kind)).toEqual(["declared"]);
+    expect(r.degraded).toContain("merge-base-unavailable");
+  });
+});

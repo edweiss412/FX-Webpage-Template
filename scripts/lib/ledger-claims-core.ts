@@ -130,21 +130,52 @@ export function resolveClaims(
     const branch = shortName(ref);
     const ageDays = Math.floor((now - git.tipEpoch(ref)) / 86_400);
 
+    const mk = (id: string, kind: Claim["kind"]): Claim => ({
+      id,
+      branch,
+      kind,
+      pr: prByBranch.get(branch)?.number ?? null,
+      tipAgeDays: ageDays,
+      stale: ageDays > STALE_DAYS,
+    });
+
+    const spansByFile = new Map<string, { id: string; line: number; endLine: number }[]>();
+    const declaredHere = new Set<string>();
+
     for (const file of files) {
       const text = git.showFile(ref, file);
       if (text === null) continue;
-      for (const item of ledgerItems(file, text)) {
+      const items = ledgerItems(file, text);
+      spansByFile.set(file, items.map((i) => ({ id: i.id, line: i.line, endLine: i.endLine })));
+      for (const item of items) {
         if (!isInProgress(item)) continue;
-        claims.push({
-          id: item.id,
-          branch,
-          kind: "declared",
-          pr: prByBranch.get(branch)?.number ?? null,
-          tipAgeDays: ageDays,
-          stale: ageDays > STALE_DAYS,
-        });
+        declaredHere.add(item.id);
+        claims.push(mk(item.id, "declared"));
       }
     }
+
+    // Inferred: a branch that edited an entry's span is working on it, marker or
+    // not. Advisory only — it never fails anything, in any identity case.
+    const base = git.mergeBase(ref);
+    if (base === null) {
+      if (!degraded.includes("merge-base-unavailable")) degraded.push("merge-base-unavailable");
+      continue;
+    }
+
+    const touched = new Set<string>();
+    for (const h of git.diffHunks(base, ref, files)) {
+      // A pure deletion has no new-side line, so it maps to nothing.
+      if (h.count === 0) continue;
+      const last = h.start + h.count - 1;
+      for (const span of spansByFile.get(h.file) ?? []) {
+        // Attributes to EVERY overlapping entry, not just the first: a hunk
+        // spanning a heading boundary genuinely touches both.
+        if (last >= span.line && h.start <= span.endLine) touched.add(span.id);
+      }
+      // A hunk outside every span — the reconciliation preamble above the first
+      // heading is the common one — maps to no entry and is dropped.
+    }
+    for (const id of touched) if (!declaredHere.has(id)) claims.push(mk(id, "inferred"));
   }
 
   return { claims, degraded, identity, selfBranch };
