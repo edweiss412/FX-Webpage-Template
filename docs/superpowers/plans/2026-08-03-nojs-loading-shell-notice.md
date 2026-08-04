@@ -73,9 +73,22 @@ import { LoadingShell } from "@/components/layout/Skeleton";
 
 const HIDE_RULE = "[data-loading-shell-content]{display:none}";
 
-function renderShell(): { noscriptInner: Document; outer: Document } {
+// `testId` is optional and app/me/loading.tsx omits it, so the DESCRIBE is
+// parameterized over both variants and every assertion runs twice. Not the
+// individual cases: per-case coverage reaches only the cases you remember to
+// apply it to, and a wrapper class keyed on the prop escapes the rest.
+const VARIANTS = [
+  { name: "with testId", testId: "probe" as string | undefined },
+  { name: "without testId (the /me case)", testId: undefined },
+];
+
+function renderShell(testId: string | undefined): { noscriptInner: Document; outer: Document } {
+  // Spread rather than pass `testId={undefined}`: under exactOptionalPropertyTypes
+  // an explicit undefined is not assignable to an optional prop, and omitting it
+  // is exactly what app/me/loading.tsx does.
+  const idProp = testId === undefined ? {} : { testId };
   const html = renderToStaticMarkup(
-    <LoadingShell testId="probe" label="Loading your dashboard…">
+    <LoadingShell {...idProp} label="Loading your dashboard…">
       <div data-testid="child" />
     </LoadingShell>,
   );
@@ -208,7 +221,7 @@ Both halves run by EXTERNAL attestors (fresh subagents, not the implementing ses
 | # | Gate | Sev | Finding | Disposition |
 |---|---|---|---|---|
 | 1 | critique | **P1** | The notice inherited no page padding. Only three `loading.tsx` files put horizontal padding below `data-loading-shell-content` (`app/show/[slug]/[shareToken]/loading.tsx:38`, `app/admin/show/[slug]/preview/[crewId]/loading.tsx:33`, `app/admin/settings/admins/loading.tsx:12`); all six admin fallbacks inherit it from `app/admin/layout.tsx:191`, and `/me` and `/help` pad from a parent of `LoadingShell`. So the notice gets **no** horizontal padding on the mobile-primary crew route, and the gutter double-applies on the rest. | **Fixed** (`9475a1657`). The notice carries its own `mx-auto w-full max-w-2xl px-4 py-8 sm:px-8` gutter, pinned by component assertion 8. |
-| 2 | critique | P2 | Off the house scale: `rounded-lg` is the 16px radius DESIGN.md §4 reserves for modal/dialog surfaces, and on `border-border` cards the repo runs `rounded-md` ~129 times to `rounded-lg`'s 9 (9 of 10 being popovers). `p-4` vs the 64-use `p-tile-pad`. | **Fixed** (`9475a1657`). Now `rounded-md` + `p-tile-pad`, matching `components/admin/RecentAutoAppliedStrip.tsx:676`. |
+| 2 | critique | P2 | Off the house scale: `rounded-lg` is the 16px radius DESIGN.md §4 reserves for modal/dialog surfaces, and the repo runs `rounded-md` far more often — 157 to `rounded-lg`'s 9 across `app/` + `components/` `.tsx`, 3 of those 9 being `shadow-popover` surfaces. `p-4` vs the 81-use `p-tile-pad`. (Census remeasured at `548a81c93`; the figures in spec §2 are the authority and these match them.) | **Fixed** (`9475a1657`). Now `rounded-md` + `p-tile-pad`, matching `components/admin/RecentAutoAppliedStrip.tsx:676`. |
 | 3 | critique | P2 | Copy named a location that does not exist on the primary persona's device: on iOS, JavaScript is under Settings → Apps → Safari → Advanced, not "your browser settings". | **Fixed** (`9475a1657`). Now "Turn it on, then reload", correct on every platform because it names none. |
 | 4 | audit | P2 | Type scale one to two steps below every comparable dead-end screen — `ShowUnavailable.tsx:33-38`, `app/admin/layout.tsx:95-96` all pair `text-2xl` with `text-base`, while the notice carried the page's only instruction in the caption token. | **Fixed.** Now `text-2xl` heading + `text-base` body. Same job, same vocabulary. |
 | 5 | audit | P2 | The gutter fix is guarded only by a jsdom `classList.contains` assertion; no test measures a box, and `sm:px-8`/`py-8` are unasserted. DESIGN.md §7a's own rule is that a class-presence assertion only restates the fix. | **Deferred, with the risk retired by probe.** The attestor measured the shipped geometry headless with `javaScriptEnabled:false` and found it correct (x=16 w=358 at 390px; centered x=496 w=608 at 1600px), so this is a coverage gap rather than a defect. A real-browser box assertion would need a fifth e2e case whose only subject is padding on a state no user reaches with JS on; the class assertion plus that probe is proportionate. |
