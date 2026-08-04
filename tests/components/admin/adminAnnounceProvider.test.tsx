@@ -44,7 +44,7 @@ describe("AdminAnnounceProvider", () => {
       <AdminAnnounceProvider {...LAYOUT}>
         <div>
           <section>
-            <DeepConsumer message="Change undone: Crew member Alice Chen removed." />
+            <DeepConsumer message={'Undone. "Crew member Alice Chen removed" no longer applies.'} />
           </section>
         </div>
       </AdminAnnounceProvider>,
@@ -53,7 +53,7 @@ describe("AdminAnnounceProvider", () => {
       screen.getByRole("button", { name: "announce" }).click();
     });
     expect(screen.getByTestId("admin-undo-status")).toHaveTextContent(
-      "Change undone: Crew member Alice Chen removed.",
+      'Undone. "Crew member Alice Chen removed" no longer applies.',
     );
   });
 
@@ -86,7 +86,7 @@ describe("AdminAnnounceProvider", () => {
     // The announcement must outlive the branch change, not merely the node.
     const { rerender } = render(
       <AdminAnnounceProvider {...LAYOUT}>
-        <DeepConsumer message="Change undone: Crew member Bo Ray removed." />
+        <DeepConsumer message={'Undone. "Crew member Bo Ray removed" no longer applies.'} />
       </AdminAnnounceProvider>,
     );
     const before = screen.getByTestId("admin-undo-status");
@@ -99,14 +99,17 @@ describe("AdminAnnounceProvider", () => {
       </AdminAnnounceProvider>,
     );
     expect(screen.getByTestId("admin-undo-status")).toBe(before);
-    expect(before).toHaveTextContent("Change undone: Crew member Bo Ray removed.");
+    expect(before).toHaveTextContent('Undone. "Crew member Bo Ray removed" no longer applies.');
   });
 
   it("takes testId and label as props rather than hard-coding them", () => {
     // ReviewModalShell has THREE render sites and derives every testid from
     // testIdBase; a hard-coded id would put one identifier on three regions.
     render(
-      <AdminAnnounceProvider testId="show-review-modal-undo-status" label="Undo updates in this dialog">
+      <AdminAnnounceProvider
+        testId="show-review-modal-undo-status"
+        label="Undo updates in this dialog"
+      >
         <span>x</span>
       </AdminAnnounceProvider>,
     );
@@ -122,7 +125,7 @@ describe("AdminAnnounceProvider", () => {
     render(
       <AdminAnnounceProvider {...LAYOUT}>
         <AdminAnnounceProvider testId="dialog-undo-status" label="Undo updates in this dialog">
-          <DeepConsumer message="Change undone: Crew member Cy Ng removed." />
+          <DeepConsumer message={'Undone. "Crew member Cy Ng removed" no longer applies.'} />
         </AdminAnnounceProvider>
       </AdminAnnounceProvider>,
     );
@@ -130,7 +133,7 @@ describe("AdminAnnounceProvider", () => {
       screen.getByRole("button", { name: "announce" }).click();
     });
     expect(screen.getByTestId("dialog-undo-status")).toHaveTextContent(
-      "Change undone: Crew member Cy Ng removed.",
+      'Undone. "Crew member Cy Ng removed" no longer applies.',
     );
     expect(screen.getByTestId("admin-undo-status")).toHaveTextContent("");
   });

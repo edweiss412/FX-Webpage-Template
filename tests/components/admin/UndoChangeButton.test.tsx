@@ -121,7 +121,9 @@ it("announces the row's summary exactly once on {ok:true}", async () => {
   );
   await clickUndo();
   expect(announce).toHaveBeenCalledTimes(1);
-  expect(announce).toHaveBeenCalledWith("Change undone: Crew member Alice Chen removed.");
+  expect(announce).toHaveBeenCalledWith(
+    'Undone. "Crew member Alice Chen removed" no longer applies.',
+  );
 });
 
 it("announces NOTHING on a typed failure", async () => {

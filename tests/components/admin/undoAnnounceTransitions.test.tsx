@@ -82,7 +82,7 @@ describe("transition audit (spec §10.2)", () => {
     await act(async () => {
       fireEvent.click(screen.getByTestId("change-feed-undo"));
     });
-    expect(region).toHaveTextContent("Change undone: Crew member Alice Chen removed.");
+    expect(region).toHaveTextContent('Undone. "Crew member Alice Chen removed" no longer applies.');
 
     // Second submit fails: the status card fills, and the log region must keep
     // the earlier announcement untouched.
@@ -90,7 +90,7 @@ describe("transition audit (spec §10.2)", () => {
       fireEvent.click(screen.getByTestId("change-feed-undo"));
     });
     expect(screen.getByTestId("change-feed-undo-result")).not.toHaveTextContent("");
-    expect(region).toHaveTextContent("Change undone: Crew member Alice Chen removed.");
+    expect(region).toHaveTextContent('Undone. "Crew member Alice Chen removed" no longer applies.');
     expect(Array.from(region.children)).toHaveLength(1);
   });
 });

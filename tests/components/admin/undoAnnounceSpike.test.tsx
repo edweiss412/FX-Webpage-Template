@@ -18,7 +18,7 @@ import { describe, expect, it } from "vitest";
 import { AdminAnnounceProvider } from "@/components/admin/AdminAnnounceProvider";
 import { UndoAnnounceContext } from "@/components/admin/undoAnnounceContext";
 
-const MSG = "Change undone: Crew member Alice Chen removed.";
+const MSG = 'Undone. "Crew member Alice Chen removed" no longer applies.';
 
 /** Announces from inside an async continuation, exactly as the wrapped undo
  *  action does: the announce runs AFTER an await, so it can land after its own

@@ -16,7 +16,7 @@ describe("undoneAnnouncement", () => {
     // "Alice Chen removed from crew.", which no generator produces — a fixture
     // that misrepresents production proves nothing about production.
     expect(undoneAnnouncement("Crew member Alice Chen removed")).toBe(
-      "Change undone: Crew member Alice Chen removed.",
+      'Undone. "Crew member Alice Chen removed" no longer applies.',
     );
   });
 
@@ -31,7 +31,7 @@ describe("undoneAnnouncement", () => {
 
   it("trims a padded label rather than announcing the padding", () => {
     expect(undoneAnnouncement("  Crew member Bo Ray added  ")).toBe(
-      "Change undone: Crew member Bo Ray added.",
+      'Undone. "Crew member Bo Ray added" no longer applies.',
     );
   });
 

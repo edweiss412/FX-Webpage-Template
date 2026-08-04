@@ -190,7 +190,7 @@ it("announces THAT row's summary when its undo succeeds", async () => {
     fireEvent.click(screen.getByTestId("change-feed-undo"));
   });
   expect(screen.getByTestId("admin-undo-status")).toHaveTextContent(
-    `Change undone: ${summary}.`,
+    `Undone. \"${summary}\" no longer applies.`,
   );
 });
 
@@ -212,7 +212,10 @@ it("announces TWO identical summaries as two separate entries", async () => {
   // Assert the TEXT, not just the count: an unthreaded label would announce the
   // bare "Change undone." twice and still produce two children, so a count-only
   // assertion passes without the feature working at all.
-  expect(texts).toEqual([`Change undone: ${summary}.`, `Change undone: ${summary}.`]);
+  expect(texts).toEqual([
+    `Undone. \"${summary}\" no longer applies.`,
+    `Undone. \"${summary}\" no longer applies.`,
+  ]);
 });
 
 it("keeps the SAME region node across the undo", async () => {

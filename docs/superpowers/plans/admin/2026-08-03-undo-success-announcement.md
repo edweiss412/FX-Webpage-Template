@@ -235,8 +235,22 @@ Failure caught: an implementer "improving" the error card with a fade, which del
 
 Findings and dispositions land here.
 
-<!-- The impeccable-gate marker lands here when Task 15 runs the dual gate. It is
-deliberately absent until then: the grammar admits only RAN or RAN-DEGRADED, so a
-placeholder would either be malformed or would assert a gate result that has not
-happened. tests/docs/_metaInvariant8Closeout.test.ts §4.1.1 stays red until the
-gate actually runs, which is the guard working as intended. -->
+Both halves ran with the canonical v3 setup gates (context load of PRODUCT.md, then the `product` register reference), each as isolated sub-agents.
+
+**Critique.** Detector clean: `detect.mjs --json` over all nine changed files, exit 0, zero findings. AI-slop verdict CLEAN, no banned pattern in the visible delta. Nielsen: 10 heuristics scored, lowest were match-to-real-world, consistency, recognition and recovery at 2.
+
+**Audit.** Contrast PASS (8.79:1 light, 9.64:1 dark, both ≥ AAA). Tap targets PASS. Tokens PASS (zero raw hex or arbitrary values). Em dashes PASS. ARIA PASS. Responsive PASS (`sr-only` is `position:absolute`, so the always-mounted idle wrapper is not a flex item and adds no gap). Performance PASS, empirically probed: `announce` is `useCallback([])`-stable so the context value never changes identity, and `children` arrives as a prop, so React bails out of the subtree. Only the provider and its region re-render per announce. SSR PASS.
+
+| Finding | Severity | Disposition |
+|---|---|---|
+| Announcement read backwards (ended on the state the undo reversed) | P1 | **FIXED** — copy is now `Undone. "<summary>" no longer applies.`, outcome first, summary quoted as what stopped being true |
+| Repeat identical failure does not re-announce | P1 | **DEFERRED** — ratified as R8; routing failures through the log channel would leave error copy readable after the card is gone |
+| Stale announcements accumulate in the a11y tree for a whole session | P2 | **FIXED** — `ANNOUNCE_LOG_TTL_MS` prunes each entry 30s after it is spoken; 30s not 5s because pruning an unspoken node can strand it |
+| Uncatalogued code renders an empty card and announces nothing | P2 | **DEFERRED** — unchanged from before this branch; every code reachable from these call sites has a catalog row |
+| Dialog region label is constant while its testId is derived | P3 | **DEFERRED** — deriving it was implemented and reverted; it puts a drive-file id into a name a screen reader speaks |
+| Orphaned `ANNOUNCE_CAP` JSDoc left by the retrofit | P3 | **FIXED** — removed |
+| Wrapped action forfeits `<form action>` progressive enhancement | P3 | **DEFERRED** — admin-only surface, JS-required by construction |
+
+Deferrals are recorded in `DEFERRED.md` with un-defer triggers.
+
+impeccable-gate: critique=RAN audit=RAN p0=0 p1=2 dispositions=recorded

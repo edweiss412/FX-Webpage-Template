@@ -23,7 +23,7 @@ const now = new Date("2026-06-09T12:00:00Z");
 const noop = vi.fn();
 const acceptNoop = vi.fn(async () => ({ ok: true as const, count: 1 }));
 const SUMMARY = "Crew member Alice Chen removed";
-const ANNOUNCED = `Change undone: ${SUMMARY}.`;
+const ANNOUNCED = `Undone. \"${SUMMARY}\" no longer applies.`;
 
 const undoableEntry = {
   id: "e1",
@@ -109,12 +109,16 @@ it("probe 1: strip empties to zero groups after the undo", async () => {
   // The original F1 sequence: the undone row leaves the applied result set, the
   // group empties, and the strip returns null. Under a strip-owned region this
   // destroyed the announcement.
-  const { rerender } = render(wrap(<RecentAutoAppliedStrip data={stripOk()} actions={stripActions()} defaultExpanded />));
+  const { rerender } = render(
+    wrap(<RecentAutoAppliedStrip data={stripOk()} actions={stripActions()} defaultExpanded />),
+  );
   const before = regionNode();
   await act(async () => {
     fireEvent.click(screen.getAllByTestId("change-feed-undo")[0]!);
   });
-  rerender(wrap(<RecentAutoAppliedStrip data={stripEmpty()} actions={stripActions()} defaultExpanded />));
+  rerender(
+    wrap(<RecentAutoAppliedStrip data={stripEmpty()} actions={stripActions()} defaultExpanded />),
+  );
   expect(regionNode()).toBe(before);
   expect(before).toHaveTextContent(ANNOUNCED);
   expect(screen.queryByTestId("recent-auto-applied-strip")).toBeNull();
@@ -127,7 +131,9 @@ it("probe 2: strip re-renders to zero groups WHILE the action is unresolved", as
   actions.undoFromDashboardAction = vi.fn(
     () => new Promise<{ ok: true }>((r) => (resolve = r)),
   ) as never;
-  const { rerender } = render(wrap(<RecentAutoAppliedStrip data={stripOk()} actions={actions} defaultExpanded />));
+  const { rerender } = render(
+    wrap(<RecentAutoAppliedStrip data={stripOk()} actions={actions} defaultExpanded />),
+  );
   const before = regionNode();
   act(() => {
     fireEvent.click(screen.getAllByTestId("change-feed-undo")[0]!);
@@ -146,7 +152,9 @@ it("probe 3: strip flips to its infra_error rendering mid-action", async () => {
   actions.undoFromDashboardAction = vi.fn(
     () => new Promise<{ ok: true }>((r) => (resolve = r)),
   ) as never;
-  const { rerender } = render(wrap(<RecentAutoAppliedStrip data={stripOk()} actions={actions} defaultExpanded />));
+  const { rerender } = render(
+    wrap(<RecentAutoAppliedStrip data={stripOk()} actions={actions} defaultExpanded />),
+  );
   const before = regionNode();
   act(() => {
     fireEvent.click(screen.getAllByTestId("change-feed-undo")[0]!);
@@ -216,7 +224,9 @@ it("probe 7: two undos across two different branches both survive", async () => 
   await act(async () => {
     fireEvent.click(screen.getByTestId("change-feed-undo"));
   });
-  rerender(wrap(<RecentAutoAppliedStrip data={stripOk()} actions={stripActions()} defaultExpanded />));
+  rerender(
+    wrap(<RecentAutoAppliedStrip data={stripOk()} actions={stripActions()} defaultExpanded />),
+  );
   await act(async () => {
     fireEvent.click(screen.getAllByTestId("change-feed-undo")[0]!);
   });

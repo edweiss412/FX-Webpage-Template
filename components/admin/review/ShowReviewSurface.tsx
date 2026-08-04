@@ -64,9 +64,6 @@ import { isStaged, type SectionData } from "@/components/admin/review/sectionDat
 // modal↔surface cycle never touches an uninitialized binding.
 import { WARNING_HIGHLIGHT_MS } from "@/components/admin/wizard/Step3ReviewModal";
 
-/** Announcer spec 2026-07-22 §2.2 cap: the append-only log keeps at most 50
- *  entries so an unbounded admin session cannot grow the DOM without bound. */
-
 // ── Interaction constants (spec §6.3a; DESIGN.md §5 note) ───────────────────
 // Behavioral thresholds, not rendered visual values — they never paint a px.
 /** Scroll-spy anchor offset: a section is "active" once its top passes this

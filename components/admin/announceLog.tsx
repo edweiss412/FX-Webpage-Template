@@ -16,7 +16,7 @@
 // placement; this module only guarantees the node itself is never re-created by
 // an announcement.
 "use client";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 /** Cap 50 (announcer spec §2.2): appending the 51st drops the oldest. An entry is
  *  removed only once it is 50 announcements old, far beyond any plausible
@@ -25,6 +25,20 @@ import { useCallback, useRef, useState } from "react";
 export const ANNOUNCE_LOG_CAP = 50;
 
 export type AnnounceLogEntry = { id: number; text: string };
+
+/** How long a spoken entry stays in the DOM before it is pruned.
+ *
+ *  The cap alone bounds MEMORY, not accessibility-tree noise. The layout channel
+ *  lives for the whole admin session, and its region is the first content in the
+ *  admin subtree, so without pruning a virtual-cursor user reading the dashboard
+ *  top-down hears every stale announcement of the session before reaching the nav
+ *  (impeccable audit P2: 12 undos measured 12 sibling nodes / 686 chars).
+ *
+ *  30 seconds, not the 5 the audit suggested: removing a node that assistive
+ *  technology has not spoken yet can strand it unsaid, which is the hazard the
+ *  cap-only design was avoiding. 30s is far past any plausible delivery-queue
+ *  residence and still keeps the region effectively empty at rest. */
+export const ANNOUNCE_LOG_TTL_MS = 30_000;
 
 export function useAnnounceLog(): {
   announce: (message: string) => void;
@@ -35,6 +49,17 @@ export function useAnnounceLog(): {
   // on the duplicate key.
   const idRef = useRef(0);
   const [entries, setEntries] = useState<ReadonlyArray<AnnounceLogEntry>>([]);
+  const timersRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
+
+  // Clear pending timers on unmount so a pruning callback never fires against an
+  // unmounted channel.
+  useEffect(() => {
+    const timers = timersRef.current;
+    return () => {
+      for (const t of timers) clearTimeout(t);
+      timers.clear();
+    };
+  }, []);
 
   const announce = useCallback((message: string) => {
     if (message.trim() === "") return; // empty/whitespace is a no-op, never a blank entry
@@ -43,6 +68,13 @@ export function useAnnounceLog(): {
       const next = [...log, { id, text: message }];
       return next.length > ANNOUNCE_LOG_CAP ? next.slice(next.length - ANNOUNCE_LOG_CAP) : next;
     });
+    const timer = setTimeout(() => {
+      timersRef.current.delete(timer);
+      // Removals are silent under role="log" (aria-relevant defaults to
+      // "additions text"), so pruning never re-announces or interrupts.
+      setEntries((log) => log.filter((e) => e.id !== id));
+    }, ANNOUNCE_LOG_TTL_MS);
+    timersRef.current.add(timer);
   }, []);
 
   return { announce, entries };

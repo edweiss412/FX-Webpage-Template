@@ -632,6 +632,12 @@ function OpenReviewModalShell({
           derived from testIdBase because this shell has THREE render sites. */}
           <AdminAnnounceProvider
             testId={`${testIdBase}-undo-status`}
+            // Constant, unlike testId, which IS derived. Deriving the label too
+            // would put internal ids (a drive-file id, for Step-3 cards) into a
+            // name a screen reader speaks aloud — worse for the user than the
+            // duplicate it would prevent. The duplicate needs two shells attached
+            // at once, which only Step-3's per-card state allows. Tracked as
+            // DEFERRED (impeccable critique P3).
             label="Undo updates in this dialog"
           >
             <PopoverHostContext.Provider value={panelRef}>

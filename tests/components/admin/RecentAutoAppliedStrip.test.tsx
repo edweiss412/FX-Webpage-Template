@@ -1224,7 +1224,7 @@ it("announces THAT row's summary when a single-row undo succeeds", async () => {
     fireEvent.click(undoButtons[0]!);
   });
   expect(screen.getByTestId("admin-undo-status")).toHaveTextContent(
-    "Change undone: Crew member Priya Nair added.",
+    'Undone. "Crew member Priya Nair added" no longer applies.',
   );
 });
 

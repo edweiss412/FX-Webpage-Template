@@ -8,9 +8,10 @@
 // exported ANNOUNCE_LOG_CAP so the test cannot silently disagree with the module.
 import "@testing-library/jest-dom/vitest";
 import { act, render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   ANNOUNCE_LOG_CAP,
+  ANNOUNCE_LOG_TTL_MS,
   AnnounceLogRegion,
   useAnnounceLog,
   type AnnounceLogEntry,
@@ -34,7 +35,13 @@ function mount() {
       }}
     />,
   );
-  return { get api() { return api; }, identities, ...utils };
+  return {
+    get api() {
+      return api;
+    },
+    identities,
+    ...utils,
+  };
 }
 
 const region = () => screen.getByTestId("test-status");
@@ -155,5 +162,58 @@ describe("AnnounceLogRegion", () => {
     const kids = Array.from(screen.getByTestId("x-status").children) as HTMLElement[];
     expect(kids.map((c) => c.getAttribute("data-announce-id"))).toEqual(["7", "9"]);
     expect(kids.map((c) => c.textContent)).toEqual(["seven", "nine"]);
+  });
+});
+
+describe("useAnnounceLog pruning (impeccable audit P2)", () => {
+  it("prunes a spoken entry after the TTL so the region is empty at rest", () => {
+    // Catches: stale announcements accumulating for a whole admin session. The
+    // layout channel's region is the FIRST content in the admin subtree, so an
+    // unpruned log makes a top-down screen-reader read recite every undo of the
+    // session before reaching the nav.
+    vi.useFakeTimers();
+    try {
+      const h = mount();
+      act(() => {
+        h.api.announce("first");
+      });
+      expect(children()).toHaveLength(1);
+      act(() => {
+        vi.advanceTimersByTime(ANNOUNCE_LOG_TTL_MS - 1);
+      });
+      // Still present just before the TTL: pruning a node assistive technology
+      // has not spoken yet can strand it unsaid.
+      expect(children()).toHaveLength(1);
+      act(() => {
+        vi.advanceTimersByTime(2);
+      });
+      expect(children()).toHaveLength(0);
+      expect(region()).toBeInTheDocument(); // the REGION survives; only entries go
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("prunes each entry on its own clock, not all at once", () => {
+    vi.useFakeTimers();
+    try {
+      const h = mount();
+      act(() => {
+        h.api.announce("older");
+      });
+      act(() => {
+        vi.advanceTimersByTime(ANNOUNCE_LOG_TTL_MS / 2);
+      });
+      act(() => {
+        h.api.announce("newer");
+      });
+      act(() => {
+        vi.advanceTimersByTime(ANNOUNCE_LOG_TTL_MS / 2 + 1);
+      });
+      // The older one has aged out; the newer one has not.
+      expect(children().map((c) => c.textContent)).toEqual(["newer"]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
