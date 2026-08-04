@@ -266,6 +266,12 @@ const infraRegistry = [
       "pending_ingestions/pending_syncs head-count throws + construction throw → infra_error",
   },
   {
+    helper: "loadOpenIdentityHolds",
+    path: "lib/admin/identityHolds.ts",
+    contract:
+      "sync_holds service-role read (kind='mi11_pending', shows!inner archived=false); construction throw + query throw + returned {error} map to { kind: 'infra_error' }",
+  },
+  {
     helper: "fetchHealthRollup",
     path: "lib/admin/healthRollup.ts",
     contract:

@@ -1,0 +1,140 @@
+import { readFileSync } from "node:fs";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { loadOpenIdentityHolds, HOLDS_ROW_CAP } from "@/lib/admin/identityHolds";
+import { log } from "@/lib/log";
+
+const serverMock = vi.hoisted(() => ({ throwOnConstruct: false }));
+vi.mock("@/lib/supabase/server", () => ({
+  createSupabaseServiceRoleClient: () => {
+    if (serverMock.throwOnConstruct) throw new Error("SIMULATED service-role construction fault");
+    throw new Error("tests must inject deps.client unless exercising the construction path");
+  },
+}));
+
+let warnSpy: ReturnType<typeof vi.spyOn>;
+beforeEach(() => {
+  vi.clearAllMocks();
+  serverMock.throwOnConstruct = false;
+  seenLimits.length = 0;
+  warnSpy = vi.spyOn(log, "warn").mockResolvedValue(undefined as never);
+});
+
+type Row = Record<string, unknown>;
+// Deterministic uuid-shaped ids: idOf(7) ends ...000007 (sortable, assertable).
+function idOf(n: number): string {
+  return `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
+}
+function holdRow(n: number, showId: string, embed: unknown, createdAt?: string): Row {
+  return {
+    id: idOf(n),
+    show_id: showId,
+    entity_key: `Crew ${n}`,
+    held_value: { email: "old@x.com" },
+    proposed_value: { disposition: "removal" },
+    base_modified_time: "2026-08-01T00:00:00+00:00",
+    created_at: createdAt ?? `2026-08-03T10:${String(n % 60).padStart(2, "0")}:00+00:00`,
+    shows: embed,
+  };
+}
+const seenLimits: number[] = [];
+function clientReturning(result: { data: Row[] | null; error: { message: string } | null }) {
+  const chain = {
+    select: () => chain,
+    eq: () => chain,
+    order: () => chain,
+    limit: (n: number) => {
+      seenLimits.push(n);
+      return Promise.resolve(result);
+    },
+  };
+  return { from: () => chain } as never;
+}
+
+describe("loadOpenIdentityHolds", () => {
+  it("flattens object AND array embeds; skips slug-less rows with one warn", async () => {
+    const res = await loadOpenIdentityHolds({
+      client: clientReturning({
+        data: [
+          holdRow(1, "sA", { slug: "a", title: "A" }),
+          holdRow(2, "sB", [{ slug: "b", title: null }]),
+          holdRow(3, "sC", { title: "no slug" }),
+        ],
+        error: null,
+      }),
+    });
+    expect(res.kind).toBe("ok");
+    if (res.kind !== "ok") return;
+    expect(res.groups.map((g) => g.slug)).toEqual(["a", "b"]);
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("returned error, thrown error, and construction throw each map to infra_error", async () => {
+    const returned = await loadOpenIdentityHolds({
+      client: clientReturning({ data: null, error: { message: "boom" } }),
+    });
+    expect(returned.kind).toBe("infra_error");
+    const chainThrow = {
+      select: () => {
+        throw new Error("net");
+      },
+    };
+    const thrown = await loadOpenIdentityHolds({ client: { from: () => chainThrow } as never });
+    expect(thrown.kind).toBe("infra_error");
+    // REAL construction-fault injection (loadNeedsAttention.test.ts:125-138 idiom):
+    serverMock.throwOnConstruct = true;
+    const constructed = await loadOpenIdentityHolds(); // no injected client
+    expect(constructed).toEqual({
+      kind: "infra_error",
+      message: expect.stringContaining("construction"),
+    });
+  });
+
+  it("cap boundary: exact-cap silent; over-cap warns, drops sentinel, keeps the id-asc capped MEMBERSHIP", async () => {
+    const exact = Array.from({ length: HOLDS_ROW_CAP }, (_, i) =>
+      holdRow(i, `s${i}`, { slug: `s${i}` }),
+    );
+    const okRes = await loadOpenIdentityHolds({
+      client: clientReturning({ data: exact, error: null }),
+    });
+    expect(okRes.kind).toBe("ok");
+    expect(warnSpy).not.toHaveBeenCalled();
+
+    // Over-cap with a TIE at the boundary: the last two rows share one timestamp.
+    // The DB returns them id-asc within the tie, so the sentinel-drop must keep
+    // idOf(CAP-1)'s show and exclude idOf(CAP)'s (plan-R1 F11: membership, not length).
+    const tieTs = "2026-08-01T00:00:00+00:00";
+    const over = [
+      ...Array.from({ length: HOLDS_ROW_CAP - 1 }, (_, i) => holdRow(i, `s${i}`, { slug: `s${i}` })),
+      holdRow(HOLDS_ROW_CAP - 1, "sTieKept", { slug: "s-tie-kept" }, tieTs),
+      holdRow(HOLDS_ROW_CAP, "sTieDropped", { slug: "s-tie-dropped" }, tieTs),
+    ];
+    const overRes = await loadOpenIdentityHolds({
+      client: clientReturning({ data: over, error: null }),
+    });
+    expect(overRes.kind).toBe("ok");
+    if (overRes.kind !== "ok") return;
+    expect(overRes.groups).toHaveLength(HOLDS_ROW_CAP);
+    const slugs = overRes.groups.map((g) => g.slug);
+    expect(slugs).toContain("s-tie-kept");
+    expect(slugs).not.toContain("s-tie-dropped");
+    expect(warnSpy).toHaveBeenCalledWith(
+      "sync_holds row cap exceeded",
+      expect.objectContaining({ source: "admin.loadOpenIdentityHolds" }),
+    );
+    // Sentinel-limit pin (plan-R5 S3): a .limit(HOLDS_ROW_CAP) mutant would kill
+    // the sentinel and the overflow warning while every other assertion stays green.
+    expect(seenLimits.every((n) => n === HOLDS_ROW_CAP + 1)).toBe(true);
+  });
+
+  // Source pin (lockstep fence, plan Task 2 Step 3b): mocked clients cannot see
+  // query filters, so a dropped archived filter (R6) or a dropped order (G7)
+  // would leave every behavioral assertion above green.
+  it("source pins the mi11_pending / archived / ordering / sentinel-limit query shape", () => {
+    const src = readFileSync("lib/admin/identityHolds.ts", "utf8");
+    expect(src).toContain('.eq("kind", "mi11_pending")');
+    expect(src).toContain('.eq("shows.archived", false)');
+    expect(src).toContain('.order("created_at", { ascending: false })');
+    expect(src).toContain('.order("id", { ascending: true })');
+    expect(src).toContain(".limit(HOLDS_ROW_CAP + 1)");
+  });
+});
