@@ -8,7 +8,8 @@
  *   pending → [ Retrying… ] + disabled + aria-busy, derived ONLY from
  *             useFormStatus() (child-of-form) — NO local flag.
  *
- * The pending state is load-bearing: unlike ResolveAlertButton there is no
+ * The pending state is load-bearing: unlike the two-tap destructive controls
+ * there is no
  * two-tap confirm here (retry is idempotent/safe), so the ONLY dynamic state
  * is the form-submission lifecycle. The M9-D-C4-1 regression guard applies:
  * pending must flip back to false when the Server Action returns WITHOUT a

@@ -124,7 +124,7 @@ function introspectManifest(dbUrl: string, guarded: boolean): SchemaManifest {
 
 function canConnect(dbUrl: string): boolean {
   try {
-    execFileSync("psql", [dbUrl, "-v", "ON_ERROR_STOP=1", "-qAtc", "select 1"], {
+    execFileSync("psql", ["-X", "-v", "ON_ERROR_STOP=1", "-qAtc", "select 1", dbUrl], {
       encoding: "utf8",
       stdio: ["ignore", "ignore", "ignore"],
       timeout: PSQL_PROCESS_TIMEOUT_MS,

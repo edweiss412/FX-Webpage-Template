@@ -1,11 +1,12 @@
 /**
  * components/right-now/buildRightNowContext.ts — pure helper that
  * shapes the `ShowForViewer` projection into the prop the
- * RightNowCard client island consumes (M4 Task 4.11).
+ * `RightNowHero` client island consumes (M4 Task 4.11; the hero superseded the
+ * original `RightNowCard` at `b327d5eb0`, which is retired).
  *
  * Lives in a separate file so the page (a Server Component) can call
  * it without importing the `'use client'` boundary in
- * `./RightNowCard.tsx`. Next.js treats every export from a
+ * `@/components/crew/RightNowHero`. Next.js treats every export from a
  * `'use client'` file as a client export — including pure helpers —
  * so a server caller would otherwise hit "Attempted to call X from
  * the server but X is on the client."

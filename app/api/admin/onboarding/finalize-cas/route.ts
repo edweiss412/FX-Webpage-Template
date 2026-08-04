@@ -573,6 +573,20 @@ async function applyShadow(
     // under the SAME held show: lock (the core writes it after the Phase-2 apply). PROPAGATION ONLY
     // — the §5.8 consistency gate (applied vs overrideSnapshot(desired)) is Task 11.
     pullSheetOverride: parsed.pullSheetOverride,
+    // Deep-link anchors staged at Phase B (BL-ONBOARDING-CAS-SOURCE-ANCHORS). OMITTED when
+    // empty, never a defined {}: applyShowSnapshot's UPDATE arm coalesces
+    // (runScheduledCronSync.ts source_anchors = coalesce($18::jsonb, source_anchors)), so an
+    // empty map durably wipes anchors an earlier sync computed. Same guard as Flow A
+    // (finalize/route.ts first-seen spread).
+    //
+    // This DIVERGES from the sync pipeline, which CLEARS on a successful-but-empty extraction
+    // (runScheduledCronSync emits undefined only for a sheets-list failure). Deliberate:
+    // pending_syncs.source_anchors flattens a transient Drive failure and a workbook with no
+    // recognized regions into the same {}, so clearing on it would wipe good anchors on every
+    // hiccup during a re-onboard. Spec 2026-08-03-finalize-cas-source-anchors §4.1.
+    ...(Object.keys(parsed.sourceAnchors).length > 0
+      ? { sourceAnchors: parsed.sourceAnchors }
+      : {}),
   });
 
   if (core.outcome === "invalid_request") {

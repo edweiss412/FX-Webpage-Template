@@ -77,7 +77,7 @@ const FORBIDDEN_PROSE: readonly ForbiddenProseEntry[] = [
     id: "copy-each-persons-link",
     pattern: /copy each person['']s link/i,
     rationale:
-      "R14 finding 1 (tour.mdx:68). No copy-URL affordance ships in PerShowCrewSection. The retired signed-link controls did not expose a copyable URL. Until a one-tap copy button ships, Doug shares URLs through his usual channel — prose must reflect that.",
+      "R14 finding 1 (tour.mdx:68). No copy-URL affordance ships on the admin crew surface — today that is the review modal's crew section. The retired signed-link controls did not expose a copyable URL. Until a one-tap copy button ships, Doug shares URLs through his usual channel — prose must reflect that.",
   },
   {
     id: "copy-each-crew-members-link",

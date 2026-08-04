@@ -73,6 +73,26 @@ describe("orphaned-component guard (zero production importers)", () => {
     ).toEqual([]);
   });
 
+  it("the sole surviving row is WrappedTile, and its reason states why deletion is wrong", () => {
+    // BL-ORPHANED-COMPONENTS-ZERO-PROD-IMPORTERS shrank from five rows to one on
+    // 2026-08-03. The survivor is NOT unfinished work: WrappedTile is retained by a
+    // ratified KEEP, its dormancy is relied on by the alert family's write-site pin,
+    // and deleting it would orphan TWO more files rather than shrink this ledger.
+    //
+    // Failure mode this catches: the reason decaying back into an observation
+    // ("referenced only in sibling comments"), after which the next sweep reads a
+    // one-row ledger as leftover work and deletes a file three contracts retain.
+    expect(ORPHAN_ALLOWLIST.map((r) => r.file)).toEqual(["components/shared/WrappedTile.tsx"]);
+    const reason = ORPHAN_ALLOWLIST[0]?.reason ?? "";
+    for (const required of ["KEEP", "TileErrorBoundary", "TileServerFallback"]) {
+      expect(
+        reason.includes(required),
+        `the WrappedTile row's reason must name ${required} — a future sweep needs the ratification ` +
+          "and BOTH cascade dependents to know that deleting this file grows the ledger",
+      ).toBe(true);
+    }
+  });
+
   it("every allowlist row carries a reason and a backlog id, and no row repeats", () => {
     const thin = ORPHAN_ALLOWLIST.filter(
       (row) => row.reason.trim().length === 0 || !/^BL-[A-Z0-9-]+$/.test(row.backlog),

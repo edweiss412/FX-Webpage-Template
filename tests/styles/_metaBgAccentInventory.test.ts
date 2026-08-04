@@ -109,7 +109,6 @@ const REGISTRY: Row[] = [
   D("components/admin/review/ShowReviewSurface.tsx", 0, "rounded-r-pill bg-accent"),
   D("components/crew/RightNowHero.tsx", 0),
   D("components/crew/primitives/DayCard.tsx", 0),
-  D("components/right-now/RightNowCard.tsx", 0),
 ];
 
 function bgAccentToken(tok: string): boolean {

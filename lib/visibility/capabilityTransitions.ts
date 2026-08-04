@@ -3,9 +3,10 @@
  * transition matrix (M4 Task 4.12 Batch 2 Step 4).
  *
  * The crew page's tile-visibility logic is driven by the
- * `role_flags[]` capability array. The predicates in
- * `CAPABILITY_PREDICATES` gate the tiles in the `GatedTile` union
- * (see `lib/visibility/scopeTiles.ts`):
+ * `role_flags[]` capability array. Five derived predicates gate the
+ * FOUR gated tiles (FinancialsTile, AudioScopeTile, VideoScopeTile,
+ * LightingScopeTile — see `lib/visibility/scopeTiles.ts`); the counts
+ * differ because `hasAdmin` and `hasLead` both reach FinancialsTile:
  *
  *   • `hasLead`  → `flags.includes('LEAD')`. Unlocks FinancialsTile +
  *                  AudioScopeTile (via the `flags.includes('LEAD')`
@@ -26,8 +27,8 @@
  *                  via the explicit `isAdmin` branch in
  *                  `financialsVisible`.
  *
- * The matrix below enumerates every unordered pair of the predicates in
- * `CAPABILITY_PREDICATES` (C(n, 2)). Each pair represents a transition where
+ * The matrix below enumerates the 10 unordered pairs of these 5
+ * predicates (C(5, 2) = 10). Each pair represents a transition where
  * one of the two predicates flips while the other is held fixed. For
  * each pair we document which tiles APPEAR (or DISAPPEAR) when each
  * direction of the flip happens. The flip is a single boolean change;
@@ -51,13 +52,18 @@
  * set from its length — so adding a predicate here FAILS
  * `tests/visibility/capabilityTransitions.test.ts` until the matrix carries
  * every new pair.
+ *
+ * It does NOT produce a TypeScript error. An earlier version of this comment
+ * promised one; that was probed false — the union was hand-written with no
+ * link to the matrix, and all three size assertions were literals, so a sixth
+ * member produced no error anywhere.
  */
 export const CAPABILITY_PREDICATES = ["hasLead", "hasA1", "hasV1", "hasL1", "hasAdmin"] as const;
 
 export type CapabilityPredicate = (typeof CAPABILITY_PREDICATES)[number];
 
 /**
- * The gated tiles whose visibility this matrix covers. Listed
+ * The four gated tiles whose visibility this matrix covers. Listed
  * as a string-literal union so the per-flip delta records can name
  * tiles by exact identifier (no free-text drift).
  */
@@ -116,31 +122,28 @@ export interface TileVisibilityDelta {
 }
 
 /**
- * The full capability flip matrix: one entry per unordered predicate pair.
- * Order is documentary — tests do not depend on insertion order.
+ * The full 10-entry capability flip matrix. Order is documentary —
+ * tests do not depend on insertion order.
  *
- * Tile-visibility rules (verbatim branch logic from scopeTiles.ts):
+ * Tile-visibility rules from `lib/visibility/scopeTiles.ts` (verbatim
+ * branch logic):
  *
- *   audioScopeVisible    = A1 || A2 || LEAD
- *   videoScopeVisible    = V1 || LEAD
- *   lightingScopeVisible = L1 || LEAD
- *   financialsVisible    = isAdmin || LEAD || FINANCIALS
+ *   audioScopeVisible    = A1 || A2 || LEAD       (so flip(hasA1) toggles audio iff LEAD is false; flip(hasLead) toggles audio iff hasA1 is false)
+ *   videoScopeVisible    = V1 || LEAD              (so flip(hasV1) toggles video iff LEAD is false; flip(hasLead) toggles video iff hasV1 is false)
+ *   lightingScopeVisible = L1 || LEAD              (§8.1 amended 2026-05-13: LEAD now reads-in to Lighting; flip(hasL1) toggles lighting iff LEAD is false; flip(hasLead) toggles lighting iff hasL1 is false)
+ *   financialsVisible    = isAdmin || LEAD || FINANCIALS (the FINANCIALS branch landed at e348c81ca, 2026-07-16)
  *
- * FINANCIALS is deliberately NOT a matrix predicate: it unlocks
- * FinancialsTile and nothing else, so it is held false throughout the
- * matrix, exactly as the entries below hold every unflipped predicate.
- * Add it to CAPABILITY_PREDICATES to model it — the derived pair-set
- * expectations then name every entry the matrix is missing.
- *
- * `transportTileVisible` is NOT in this block: it gates on transport
- * ownership via an options object, not on capability flags. The parity
- * guard carries that classification as its one NOT_FLAG_GATED row.
- *
- * The per-flip commentary these lines used to carry lives in the entry
- * `reason` fields below, which is where it is read. The block is quoted
- * verbatim so `tests/visibility/_metaDocumentedPredicateParity.test.ts`
- * can hold it to the live functions' behavior; a re-wrap of the sentinel
- * line above fails that guard by design.
+ * MODELING BOUNDARY (recorded 2026-08-03, settling BL-LEAD-CAPABILITY-PROSE-STALE).
+ * The matrix models FIVE predicates — see `CapabilityPredicate` below — and
+ * `FINANCIALS` is not among them. So "definitively" below means definitive with
+ * respect to the five MODELED predicates only: a `hasLead` flip does not toggle
+ * FinancialsTile for a viewer who also holds `FINANCIALS`, which the matrix does
+ * not represent. The gap is documentary rather than behavioral (this matrix has no
+ * production consumer; its only reader is
+ * tests/visibility/capabilityTransitions.test.ts) and is filed as
+ * BL-CAPABILITY-MATRIX-FINANCIALS-PREDICATE. The quoted rules above are pinned
+ * against scopeTiles.ts source by tests/visibility/capabilityHeaderParity.test.ts,
+ * so this block cannot drift again the way the financialsVisible line did.
  *
  * For each pair, the delta records the tiles that DEFINITIVELY change
  * when ONLY the flipped predicate changes — i.e., the flip is

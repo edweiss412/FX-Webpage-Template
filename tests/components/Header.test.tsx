@@ -5,11 +5,11 @@
  *
  * The header shrinks to a context strip: text-base/lg semibold title,
  * text-xs meta line, no orange hairline, FXAV wordmark in text-faint, and
- * tight vertical padding. The RightNowCard becomes the page's primary
+ * tight vertical padding. The Today hero becomes the page's primary
  * visual moment unambiguously.
  *
  * Pre-rebalance (M4 catch-up critique Finding 5): title at text-2xl
- * sm:text-3xl font-bold competed with the RightNowCard for the hero spot;
+ * sm:text-3xl font-bold competed with the Today hero for the hero spot;
  * the orange hairline fought the card's accent dot for the eye.
  */
 

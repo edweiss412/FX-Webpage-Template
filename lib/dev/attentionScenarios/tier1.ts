@@ -113,33 +113,20 @@ export function tier1AlertScenarios(): AttentionScenario[] {
 
 // ── Warning half (spec §3.2, §3.2a) ─────────────────────────────────────────
 //
-// No single runtime module enumerates the parse-warning universe:
-//   - INTERNAL_CODE_ENUMS is generated and lib-importable, but its producer
-//     (scripts/extract-internal-code-enums.ts:71-72) only scans files matching
-//     /\bParseWarning\b|\bwarnings\b|hardErrors/, so emitters elsewhere are missed.
-//   - tests/messages/warningCardCopyRegistry.ts has more codes but lives under
-//     tests/, which lib/ must not import, and is not a superset either.
-//   - MESSAGE_CATALOG holds all of them but carries no field to partition on.
-// So: the generated enum PLUS an enumerated residue, de-duplicated.
-
-/**
- * Parse-warning codes the generator's scan heuristic misses, each with the file
- * that emits it. Backlog BL-INTERNAL-CODE-ENUM-SCAN-WIDEN widens the heuristic,
- * after which this list becomes a no-op rather than a double-render, because
- * warningCodes() de-duplicates.
- */
-export const EXTRA_WARNING_CODES: readonly string[] = [
-  "AGENDA_SCHEDULE_LOW_CONFIDENCE", // lib/agenda/extractAgendaSchedule.ts
-  "AGENDA_SCHEDULE_TIME_ADJUSTED", // lib/sync/enrichAgenda.ts
-  "PULL_SHEET_ON_ARCHIVED_TAB", // lib/sync/pullSheetOverride.ts
-  "PULL_SHEET_OVERRIDE_CONTENT_CHANGED", // lib/sync/pullSheetOverride.ts
-];
-
+// INTERNAL_CODE_ENUMS is the sole source. Its producer recognizes a warning by
+// TYPE (lib/messages/__internal__/parseWarningSites.ts), so there is no residue
+// list to maintain and nothing to de-duplicate against. The hand-maintained
+// EXTRA_WARNING_CODES this replaced had already rotted: one of its four entries
+// was long since absorbed, and eleven REAL codes were dark that it never listed.
+//
+// `source` is a comma-joined provenance list, so membership is the test, not
+// equality: a code that is both a parse warning and an admin alert is still a
+// parse warning. Equality silently dropped three such codes.
 export function warningCodes(): string[] {
-  const generated = Object.entries(INTERNAL_CODE_ENUMS)
-    .filter(([, v]) => v.source === "parse_warnings.code")
-    .map(([k]) => k);
-  return [...new Set([...generated, ...EXTRA_WARNING_CODES])].sort();
+  return Object.entries(INTERNAL_CODE_ENUMS)
+    .filter(([, v]) => v.source.split(",").includes("parse_warnings.code"))
+    .map(([k]) => k)
+    .sort();
 }
 
 /**

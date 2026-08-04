@@ -10,7 +10,7 @@ const url =
 // two racing transactions actually overlap for the lock-contention assertion.
 const psql = (sql: string) =>
   new Promise<{ ok: boolean; out: string }>((resolve) => {
-    const p = spawn("psql", [url, "-v", "ON_ERROR_STOP=1", "-qAt"]);
+    const p = spawn("psql", ["-X", "-v", "ON_ERROR_STOP=1", "-qAt", url]);
     let so = "";
     let se = "";
     p.stdout.on("data", (d) => (so += String(d)));

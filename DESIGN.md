@@ -130,13 +130,15 @@ The token rows are in §1.1 and the computed AA contrast figures (both modes, WC
 
 ### 2.1 Family commitment
 
-**Inter** — single contemporary sans for all UI. One family, no display/body pairing. Loaded via `next/font/google` in `app/layout.tsx` (a future task wires this up; this file only defines tokens).
+**Inter** — single contemporary sans for all UI. One family, no display/body pairing. Loaded via `next/font/google` in `app/fonts.ts`, whose single exported instance both Next roots import: `app/layout.tsx` and `app/global-error.tsx`, which renders its own `<html>` and replaces the root layout on a fatal error. One loader call, two roots — a second call would emit a duplicate `@font-face` set under the same family name. (Until 2026-08-03 this line read "a future task wires this up"; the task was `BL-HEADER-FONT-FALLBACK-WRAP`, and until it landed only the crew route tree rendered Inter while admin, auth, help and the crash screen fell through to the host system font.)
 
 Why Inter: PRODUCT.md explicitly lists Inter as one of three acceptable starting points and says "pick one and commit." Inter is the most reliable tabular-figure-strong sans on the web — `font-feature-settings: 'tnum'` is fully implemented in every modern browser, all of weights 400/500/600/700 ship with even spacing, and it has explicit display-vs-text optical sizing built in. Geist (next pick) lacks the same `tnum` reliability across iOS Safari versions; General Sans is licensed.
 
 Tradeoff acknowledged: Inter is the most-used webfont on the modern internet. The "AI slop" risk per shared design laws is real. We compensate by using Inter at distinctive **weights and sizes** (large, confident headline numbers; consistent 500/600 hierarchy rather than the default 400/700 split that creates SaaS-look) and by leaning on the page's structural rhythm — generous spacing, asymmetric hero, FXAV orange accent — to carry character. The font is the canvas, not the personality.
 
-Fallback stack: `Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", "Helvetica Neue", sans-serif`.
+Fallback stack: `Inter, Inter Fallback, ui-sans-serif, system-ui, -apple-system, "Segoe UI", "Helvetica Neue", sans-serif`.
+
+`Inter Fallback` is not a hand-picked face: `next/font` generates it alongside Inter, from `local(Arial)` with `size-adjust` and `ascent-override` tuned to Inter's metrics, precisely so the `display: "swap"` window swaps without reflowing. It is therefore second, ahead of the system stack. `app/globals.css` reaches both through `var(--font-inter, "Inter", "Inter Fallback")` rather than naming them literally, so the token stays the single source and any surface without the generated class (the standalone test harnesses, which compile that file with no Next runtime) still resolves to the literal pair. Omitting this entry is not cosmetic: measured on a real string, first paint rendered 187.28px and then snapped to 168.91px, about 10%, on every React-root route.
 
 ### 2.2 Size scale
 
@@ -213,7 +215,7 @@ Tailwind v4's default 4px-step scale (1 = 4px, 2 = 8px, 3 = 12px, 4 = 16px, 6 = 
 | `--spacing-panel-max`        | 480px | Shared max extent for wide secondary "panel"-class surfaces: the dashboard Needs-Attention inbox column (`min-[1400px]:w-panel-max`), the report modal (`max-w-panel-max`), and the notification panel's desktop scroll container (`sm:max-h-panel-max`). One value → one token (the `--spacing-*` namespace generates `w-*`/`max-w-*`/`max-h-*` alike). |
 | `--spacing-panel-max-mobile` | 70vh  | Notification panel (`BellPanel`) scroll-container max-height on mobile — a bottom-sheet capped to 70vh so the drag handle + header stay on-screen. Bell-specific; consumed via `max-h-panel-max-mobile`. |
 
-> **Tailwind v4 naming note:** the `--spacing-*` prefix is non-arbitrary — Tailwind v4's arbitrary-value `min-h-(--name)` / `p-(--name)` arrows resolve ONLY tokens declared in the `--spacing-*` namespace (declared in `app/globals.css` `@theme`). Renaming any of these to `--space-*` would silently break the Tailwind-utility consumption sites (e.g., `min-h-(--spacing-right-now-min-h)` in `components/right-now/RightNowCard.tsx`).
+> **Tailwind v4 naming note:** the `--spacing-*` prefix is non-arbitrary — Tailwind v4's arbitrary-value `min-h-(--name)` / `p-(--name)` arrows resolve ONLY tokens declared in the `--spacing-*` namespace (declared in `app/globals.css` `@theme`). Renaming any of these to `--space-*` would silently break the Tailwind-utility consumption sites (e.g., `min-h-(--spacing-right-now-min-h)` in `components/crew/RightNowHero.tsx`).
 
 ### 3.1 Spacing rhythm
 
