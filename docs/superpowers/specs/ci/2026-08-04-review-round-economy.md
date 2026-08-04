@@ -24,7 +24,7 @@ Ratified during brainstorming on 2026-08-04. Each is a decision, not an oversigh
 | `**Mechanizable:** none` is a **legal, expected disposition**. The filing is a duty to look, not a duty to find. | §6 |
 | The meta-test checks **presence and id-resolution only**. It does not grade prose, judge whether a classification is correct, or parse free-text finding shapes. | §7.2 |
 | Threat model is **an arc that forgets**, not an arc that hides. Deliberate suppression is out of scope by declaration. | §8.1 |
-| Arc identity comes from the **git branch**, never from `--out` path naming. | §5.2 |
+| Arc identity is **branch + merge-base SHA**, read from git, never from `--out` path naming. Branch alone is not unique over time. | §5.2 |
 | `--stage` and `--round` are **caller-declared and required**. Inference from brief text, `--out` path, or row-counting is rejected; see the probe in §3. | §5.1 |
 | `findings[]` headline extraction is **deliberately not implemented**. `findingCount` comes from a declared line or is `null`. | §3, §5.3 |
 | Cross-arc filing automation is **out of scope**; `pnpm review:economy` is read-only and gates nothing. | §9 |
@@ -68,8 +68,8 @@ Reproduce: docs/superpowers/specs/ci/probes/2026-08-04-finding-format-probe.md.
 | Component | Responsibility |
 | --- | --- |
 | `scripts/codex-guard.mjs` | Accepts `--stage` and `--round`; appends one JSONL row per dispatch, at **both** result.json write sites |
-| docs/review-rounds/<branch>.jsonl | Durable, committed, per-branch round corpus |
-| docs/review-rounds/<branch>.md | The filing, when a stage crosses threshold |
+| docs/review-rounds/&lt;branch&gt;/&lt;baseSha12&gt;.jsonl | Durable, committed, per-arc round corpus |
+| docs/review-rounds/&lt;branch&gt;/&lt;baseSha12&gt;.md | The filing, when a stage crosses threshold |
 | tests/docs/_metaReviewRoundEconomy.test.ts | Merge-gating check: obliged arcs filed, filings well-formed, cited ids resolve |
 | scripts/review-economy.ts (`pnpm review:economy`) | Read-only cross-arc report; gates nothing |
 | `$HOME/.claude/hooks/review-convergence-gate.sh` | Early warning at dispatch time; per-machine, advisory |
@@ -80,7 +80,7 @@ The meta-test is the binding gate: it runs in existing CI, is visible to every h
 
 ### 4.3 Threshold
 
-**`ROUND_THRESHOLD = 4`**, counted per `(branch, stage)`. This is the single canonical definition. Every section that reasons about the threshold references `ROUND_THRESHOLD` rather than the literal; the only places a bare `4` appears are the §1.1 summary row and the §11.2 fixtures, where a fixture must state a concrete count. It matches the `REVIEW_ROUND_CAP` default in `$HOME/.claude/hooks/review-convergence-gate.sh` so one number governs the dispatch block and the filing duty.
+**`ROUND_THRESHOLD = 4`**, counted per `(arc, stage)`, where an arc is `(branch, baseSha)` per §5.2. This is the single canonical definition. Every section that reasons about the threshold references `ROUND_THRESHOLD` rather than the literal; the only places a bare `4` appears are the §1.1 summary row and the §11.2 fixtures, where a fixture must state a concrete count. It matches the `REVIEW_ROUND_CAP` default in `$HOME/.claude/hooks/review-convergence-gate.sh` so one number governs the dispatch block and the filing duty.
 
 A stage reaching 4 counted rounds obliges a filing section for that stage. Stages are independent: an arc may owe a filing for `diff` and owe nothing for `spec`.
 
@@ -103,13 +103,23 @@ Both are **required**, a hard cutover. There is no dual-mode grace period: a mod
 
 ### 5.2 Path
 
-docs/review-rounds/<branch>.jsonl, where `<branch>` is `git rev-parse --abbrev-ref HEAD` used **as a nested path**, not slugged: branch `feat/foo` writes docs/review-rounds/feat/foo.jsonl. Mirroring the branch path is injective; flattening `/` to `-` collides two branches differing only there.
+The corpus path is docs/review-rounds/&lt;branch&gt;/&lt;baseSha12&gt;.jsonl, with the filing as its sibling docs/review-rounds/&lt;branch&gt;/&lt;baseSha12&gt;.md.
 
-`docs/` is not gitignored (`.gitignore` ends at line 103; the ignored review paths are `.codex-reviews/` and `.review/`), so no ignore-file change is required.
+`<branch>` is `git rev-parse --abbrev-ref HEAD` used **as a nested path**, not slugged: branch `feat/foo` writes under docs/review-rounds/feat/foo/. Mirroring the branch path is injective; flattening `/` to `-` collides two branches differing only there.
 
-**The corpus path resolves against `--cwd`, never the wrapper's launch cwd**, and the branch is read with `git -C <cwd> rev-parse --abbrev-ref HEAD`. This follows the ratified precedent for `--lint-doc` (`scripts/codex-guard.mjs:162`): invariant 11 makes the wrapper's launch directory and the reviewed worktree differ on every run, so inheriting the launch cwd would write every arc's rows into whichever checkout the wrapper happened to start in.
+**`<baseSha12>` is the first 12 characters of `git merge-base origin/main HEAD`, and it is what makes an arc an identity rather than a name.** A branch name is not unique over time: this repository has already reused three across distinct PRs — `feat/attention-alert-routing` (#524, #526, #529), `feat/watch-reconcile-backoff` (#597, #620), and `feat/role-vocab-settings-desktop-grid` (#402, #431). Keyed on branch alone, a later arc reusing a merged arc's name inherits its corpus and its filing: the old rounds are legal duplicates under §5.5, the old filing satisfies §7.1, and the gate reports compliance for an arc that burned four rounds and filed nothing. That is silent wrongness, not a conservative outcome, so it is a defect rather than a documented limit.
 
-Per-branch files mean concurrent worktrees never touch the same file. Invariant 11 already forbids two writers in one working tree, so within-file concurrency is bounded to one branch.
+The merge base is stable for the life of an arc. `origin/main` advancing does not move it — only rebasing the branch, or merging main into it, does. When that happens the arc splits into two directories and under-obliges: the conservative direction, visible in the report as two short arcs, and the same behavior already documented for a rename (§8.3).
+
+`baseSha` is recorded on every row (§5.3) so the corpus stays self-describing when rows are read outside their directory.
+
+**The corpus root resolves against the git toplevel of `--cwd`, not `--cwd` itself** — `git -C <cwd> rev-parse --show-toplevel`, the call already used for exactly this purpose at `scripts/spec-lint.ts:210`. `--cwd` is validated only to be a directory (`scripts/codex-guard.mjs:158`), so a dispatch handed a repo subdirectory would otherwise write its corpus at `<repo>/app/docs/review-rounds/…` while the meta-test, walking from the repo root, sees nothing and passes — silent wrongness under §8.2. Resolving against the toplevel lands every subdirectory in the one gated corpus.
+
+Resolving against `--cwd` rather than the wrapper's launch directory remains essential for the same reason `--lint-doc` does it (`scripts/codex-guard.mjs:162`): invariant 11 makes the launch directory and the reviewed worktree differ on every run.
+
+`docs/` is not gitignored — the ignored review paths are `.codex-reviews/` and `.review/` — so no ignore-file change is required.
+
+Per-arc files mean concurrent worktrees never touch the same file. Invariant 11 already forbids two writers in one working tree, so within-file concurrency is bounded to one arc.
 
 ### 5.3 Row schema
 
@@ -118,6 +128,7 @@ Per-branch files mean concurrent worktrees never touch the same file. Invariant 
   "stage": "diff",
   "round": 3,
   "branch": "feat/foo",
+  "baseSha": "20fccb1f3a0c",
   "label": "guard-scope",
   "status": "verdict",
   "verdict": "BLOCKING",
@@ -158,7 +169,7 @@ Rows must be emitted at **both** result.json write sites — `writeResult` (`cod
 
 ## 6. Filing format
 
-docs/review-rounds/<branch>.md, one `##` section per **triggered** stage.
+docs/review-rounds/&lt;branch&gt;/&lt;baseSha12&gt;.md — the sibling of the arc's corpus file (§5.2) — with one `##` section per **triggered** stage.
 
 ```markdown
 ## diff — 7 rounds
@@ -188,7 +199,7 @@ Mechanization work items are ordinary `BL-` rows in `BACKLOG.md`. They reuse the
 
 ### 7.1 What it asserts
 
-tests/docs/_metaReviewRoundEconomy.test.ts walks `docs/review-rounds/*.jsonl` **discovered from disk**, so a new arc's corpus file is covered by default and can never be silently exempt.
+tests/docs/_metaReviewRoundEconomy.test.ts walks **every** `.jsonl` under docs/review-rounds/ **recursively, discovered from disk**, so a new arc's corpus file is covered by default and can never be silently exempt.
 
 Per file, per stage:
 
@@ -226,7 +237,7 @@ Over-obligation — a filing demanded where nothing was mechanizable — costs o
 
 1. **Dispatches outside codex-guard record nothing.** `AGENTS.md` already says review dispatches should route through the wrapper; this is one more reason. Visible as a silent arc (§9).
 2. **The corpus can be hand-edited or omitted before commit.** Out of threat model (§8.1). CI cannot see rounds never committed.
-3. **A rebase onto a new branch name resets the counter**; the arc reads as two short arcs. Accepted.
+3. **Anything that moves the merge base or the branch name splits the arc** — a rename, a rebase, or merging main into the branch. The arc reads as two short arcs and under-obliges. Conservative direction, visible in the report, accepted (§5.2).
 4. **Only the summary row is durable.** Transcripts stay in the machine-local `--out` directory. Losing one loses detail, not the count.
 5. **`--round` is caller-declared and can be wrong.** A wrong value shows as a contiguity gap (§7.1 assertion 2) unless it duplicates an existing round, in which case the wave undercounts by one. Accepted: the alternative is the derivation race (§5.5).
 6. **`findingCount` is `null` for any reviewer that omits the declared line.** Never inferred (§3).
@@ -253,7 +264,7 @@ Silent-arc listing is the observable form of limit §8.3.1 and §8.3.2. It is de
 5. scripts/review-economy.ts + `review:economy` package script.
 6. Repair the finding tally in `$HOME/.claude/hooks/review-convergence-gate.sh` to match the corpus (§3, consequence 2), or drop the number rather than print a wrong one.
 7. Update repo-tracked codex-guard call sites and `AGENTS.md` for the new required flags.
-8. Enroll `_metaReviewRoundEconomy` in `tests/mutation/source/registry.ts` (`GUARD_SURFACES` at `registry.ts:120`, `GuardSurface` at `registry.ts:12-23`, `validateSurface` at `registry.ts:41`).
+8. Enroll `_metaReviewRoundEconomy` in `tests/mutation/source/registry.ts` (`GUARD_SURFACES` at `registry.ts:120`, `GuardSurface` at `registry.ts:12-23`, `validateSurface` at `registry.ts:41`). Two things block a second surface today and are part of this item: the gate requires an `EXPECTED_LEDGER_KINDS` entry keyed by surface id (`tests/mutation/guardSurfaces.gate.test.ts:33`), and its control mutation is hardcoded to a `taskContract` source string (`tests/mutation/guardSurfaces.gate.test.ts:110-129`), so the control must be generalized per surface before any second row can pass.
 9. Row in `docs/superpowers/specs/ci/README.md`.
 
 ## 11. Testing
@@ -270,7 +281,9 @@ Existing convention is `*.test.ts` with shared `harness.ts`. Each test names the
 | Read-only corpus dir → warn, exit code unchanged, result.json still written | Telemetry breaking a review |
 | Detached HEAD → exit 2; on `main` → skip with warning | Rows landing in nonsense locations |
 | Missing/invalid `--stage`, missing/invalid `--round` → exit 2 naming the flag | Inference creeping back in; silent `unknown` bucket |
-| Branch `feat/foo` → nested docs/review-rounds/feat/foo.jsonl | Slug collision between branches differing only by `/` |
+| Branch `feat/foo` → nested docs/review-rounds/feat/foo/&lt;baseSha12&gt;.jsonl | Slug collision between branches differing only by `/` |
+| `--cwd` pointed at a repo subdirectory still writes the repo-root corpus | A corpus written under `<repo>/app/docs/` that the gate never walks |
+| Two arcs on the same branch name with different merge bases get separate directories | A later arc inheriting a merged arc's corpus and filing |
 
 ### 11.2 Gate (tests/docs/_metaReviewRoundEconomy.test.ts)
 
@@ -288,6 +301,8 @@ Fixture corpus for determinism, plus a live-tree pass over the real `docs/review
 | `**Mechanizable:** none` with `**Examined:**` | **PASS** — the honest case stays cheap |
 | `**Examined:**` missing | **FAIL** |
 | malformed JSON row | **FAIL**, message naming file and line |
+| corpus file **nested two levels deep** (`feat/foo/*.jsonl`), 4 verdict rounds, no filing | **FAIL** — a flat walk would miss it, which is how this defect shipped in draft 1 |
+| same branch dir, two `<sha>` files: an old arc with a filing, a new arc with 4 rounds and none | **FAIL** — the new arc must not inherit the old filing |
 | **new fixture arc dropped in, 4 verdict rounds, no filing** | **FAIL without editing the test** — fails-by-default |
 
 Expected values derive from fixture contents; no hardcoded counts.
