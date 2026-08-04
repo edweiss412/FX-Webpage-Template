@@ -125,6 +125,11 @@ It reads the document correctly — `enrolled, depth=2, tasks=7` — and after t
 | M62 false notice math | fixed or inverted `N`/`M` in the truncation notice | AC-21.7: both recomputed in the test, never read back from the notice |
 | M63 cardinality blindness | count only well-formed markers toward duplication | AC-44 matrix: DUPLICATE fires alongside RED_EMPTY / AC_MISSING / MARKER_MALFORMED / AC_UNRESOLVED |
 | M64 unqualified non-refusal | seating exception stated in one place, "dispatch proceeds" left standing elsewhere | design §2.2.2 bullet, §2.3 row, AC-21 lead all carry the seatable qualifier |
+| M65 judge-despite-failed-enrollment | classify recorded markers although enrollment failed | AC-45 matrix over all three failure modes, each fixture carrying a malformed marker, asserted as a FULL list |
+| M66 orphan form leakage | special-case the pinned orphan classes, keep form/resolution checks for the rest | AC-46 matrix over five form classes, each a full list |
+| M67 slot occupancy by class | count only well-formed markers as occupying the slot | AC-27 matrix: RED_EMPTY / AC_MISSING / MARKER_MALFORMED / AC_UNRESOLVED each alone, no MISSING |
+| M68 second result writer | add `lintArm` to `writeResult` only, leaving `main().catch`'s direct writer without it | AC-5 pins BOTH writers (`scripts/codex-guard.mjs:580` and `scripts/codex-guard.mjs:891`), both values |
+| M69 inventory drift | §1.2's change list naming fewer edits than the ACs require | AC-14 + §1.2 both name the accept-set rule AND the marker convention |
 
 ## Tasks
 
@@ -132,7 +137,7 @@ It reads the document correctly — `enrolled, depth=2, tasks=7` — and after t
 
 ## Task 1 — enrollment and task segmentation, pure
 
-<!-- task: red=`pnpm vitest run tests/specLint/taskContract.test.ts` ac=AC-7,AC-9,AC-12,AC-15,AC-16,AC-17,AC-22,AC-26,AC-28,AC-29,AC-30,AC-32,AC-33,AC-39,AC-43 -->
+<!-- task: red=`pnpm vitest run tests/specLint/taskContract.test.ts` ac=AC-7,AC-9,AC-12,AC-15,AC-16,AC-17,AC-22,AC-26,AC-28,AC-29,AC-30,AC-32,AC-33,AC-39,AC-43,AC-45,AC-46 -->
 
 
 <!-- spec-lint: ignore — new file created by this plan; not tracked until implementation -->
@@ -163,6 +168,8 @@ Each case states the mutant it kills. Confirm every case fails before implementa
 **RED.** Extend the Task 1 suite with families M2, M5, M6, M7, M8, M9, M11, M17, M18, M19, M24, M28, M31, M34, M35, M55, M56 — one case per code, each asserting the code fires on a fixture exhibiting it **and does not fire** on a sibling fixture exhibiting only the neighbouring defect. That negative half is what makes AC-8 non-tautological: a checker that returned every code on every input would pass the positive half alone.
 
 **M55 — the specific codes require an otherwise-well-formed marker.** ``red=`` `` combined with `foo=x`, and ``red=`cmd` `` combined with a missing `ac=`, are each `TASK_MARKER_MALFORMED`, not `TASK_RED_EMPTY` or `TASK_AC_MISSING`. A line carrying junk as well as an empty field is malformed whatever else is wrong with it; classifying it under the higher-precedence code contradicts AC-11 and AC-31.
+
+**M65/M66/M67 — three rules quantified over a class, each pinned as a matrix.** This shape produced a finding in three consecutive rounds, so all three land together rather than one per round. **M65 (AC-45)**: enrollment failure discards recorded markers unjudged — one fixture per failure mode (malformed opening, unmatched close, duplicate openings), each carrying a **malformed marker**, asserted as a FULL list; a presence assertion cannot catch the spurious extra finding. **M66 (AC-46)**: `TASK_MARKER_ORPHANED` alone across five form classes — generic malformed, empty `red`, missing `ac`, unresolved `ac`, well-formed. **M67 (AC-27)**: a defective marker occupies its task's slot whatever code it drew, across all four defect codes, each asserting no accompanying `TASK_MARKER_MISSING`.
 
 **M63 — duplication is about cardinality, not classification (AC-44).** Pin it as a matrix: two markers in one extent, the second well-formed, the first drawing each of `TASK_RED_EMPTY`, `TASK_AC_MISSING`, `TASK_MARKER_MALFORMED`, `TASK_AC_UNRESOLVED` in turn — each case asserting `TASK_MARKER_DUPLICATE` **and** the defect code. The well-formed pair is the base case, not one of the four. A mutant counting only well-formed markers toward duplication passes AC-8, AC-27 and AC-29 and silently omits duplication in every mixed extent.
 
@@ -211,7 +218,7 @@ Add the **sections-leakage case (M42, AC-40)**: a plan fixture with task-contrac
 - AC-2 `--lint-doc` without `--fallback`, and composed with `--artifact` under `--fallback`;
 - AC-3 a doc that makes the CLI exit 2 causes codex-guard to exit 2 and dispatch nothing — asserted by `readCalls` returning an empty array. **Create the symlink in the test's own fixture directory; do not point at the corpus.** The tracked symlink at `docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/handoffs/M11-user-facing-docs.md` (verified mode 120000, exit 2, `not a regular file (symlink)`) is the only one today, and a test depending on it silently stops testing anything the day someone de-symlinks that file. Assert the message too, so this exit 2 is distinguishable from AC-19's out-of-repo exit 2;
 - AC-4 a doc with hard findings still dispatches;
-- AC-5 `lintArm` is `"present"` or `"absent"` in the written result;
+- AC-5 `lintArm` is `"present"` or `"absent"` in the written result, **from both writers** (M68): the centralized `writeResult` (`scripts/codex-guard.mjs:580`) and the direct `writeFileSync` in `main().catch` (`scripts/codex-guard.mjs:891`). Drive the second by making a valid lint run precede a Codex spawn failure — a happy-path fixture passes with only `writeResult` updated, and then the wrapper-fault result carries no `lintArm` at all, which is the case §2.4's machine-visibility promise most depends on;
 - **M51/M52/M53/M59/M60/M61/M62/M64 — budget arithmetic, asserted on the EMITTED block.** Assert the sum of emitted blocks is `<= 200000` **including** each truncation notice (the natural implementation fits the body then appends the notice, overshooting every time — a prototype ran to `-29` and `-64`); assert `summary:` is present in every emitted block, truncated or not, checked on the emitted block rather than the pre-budget body; and assert that a request whose reports cannot be seated at their frame-plus-notice floor exits 2 naming the count and the budget (M53, M64 — check the seatable-vs-unseatable branches are distinct, since the spec previously said both "dispatch proceeds" and "exit 2" for one input). Use **two or more** truncating reports (M59): a single-report fixture cannot expose greedy allocation, which overran to `sum=6089` against a 6000 budget before downstream floors were reserved. Then assert the three properties that survive all of the above (M60, M61, M62): all three head lines intact and in order, the summary last with the notice immediately before it, and `N`/`M` recomputed in the test rather than read back. Build the oversize input from real corpus reports.
 
 - **M32/M33/M38/M44/M45, AC-35 through AC-37 — the CLI must survive being captured.** `scripts/spec-lint.ts:236` calls `process.exit()` one statement after writing stdout, which truncates on a pipe (async write) but not to a file (sync write). Fix it to `process.exitCode` + natural exit, and assert behaviorally that a piped capture ends with the `summary:` line and is **byte-identical** to a redirect — `Buffer.compare(pipeBuf, fileBuf) === 0`, comparing buffers, not their lengths (M44). Equal `byteLength` is a proxy that two different reports of the same length both satisfy; reserve it for the failure message. Then assert the infra shapes each refuse the dispatch: pre-adapter exit 1 with empty stdout, `ENOENT`, signal death — **a real child emitting `wrong-header` plus a valid `summary:` line** (M45), and **a child emitting `spec:lint some-other.md` plus a valid summary** (M49), which forces the header to name the REQUESTED document rather than merely exist. Both of them lack a summary, so a shape check validating only the last line passes them while accepting a report whose header names a different document than the reviewer was told they were reading;
@@ -234,7 +241,7 @@ Add the **sections-leakage case (M42, AC-40)**: a plan fixture with task-contrac
 
 **GREEN.** The doc edits, plus the `--lint-doc` usage line in the AGENTS.md codex-guard section so the cross-CLI contract records it.
 
-**Verify.** AC-14, AC-41.
+**Verify.** AC-14, AC-41, and M69 — §1.2's change inventory names both `spec-self-review.md` edits, matching what AC-14 requires.
 
 **Commit.** `docs(agents): accept-set discipline for detector specs, and the task-marker convention`
 

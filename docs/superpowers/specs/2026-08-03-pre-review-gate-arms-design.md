@@ -61,12 +61,12 @@ This spec arms the three, without relitigating any ratified decision of the `spe
 - Cluster B (canonical tracked-file walker across 87 `_meta*` guards) and cluster C (round-repair transcript rule, pre-merge ledger IN PROGRESS check). Separate specs.
 - Auto-fixing or auto-authoring task markers.
 
-**What this spec does change, stated positively.** An earlier draft claimed it "touches no existing rule", which was false in two directions and hid a contract contradiction behind a scope sentence. The accurate list is three items, each with its own acceptance criterion:
+**What this spec does change, stated positively.** An earlier draft claimed it "touches no existing rule", which was false in two directions and hid a contract contradiction behind a scope sentence. The accurate list is three artifacts and four changes, each with its own acceptance criterion. The count matters: an earlier version of this table named only the accept-set rule for `spec-self-review.md` while AC-14 also required the marker convention, so an implementation honoring the "accurate" inventory failed AC-14, and one honoring AC-14 falsified the inventory.
 
 | Existing artifact | Change | Pinned by |
 | --- | --- | --- |
 | `docs/agents/spec-self-review.md:25` | the "attach its **full** output" clause is amended to define completeness mechanically (§2.2.4) | AC-41 |
-| `docs/agents/spec-self-review.md` | gains the §4.1 accept-set rule as a new item | AC-14 |
+| `docs/agents/spec-self-review.md` | gains **two** new items: the §4.1 accept-set rule, and the §3.2 plus §3.3 task-marker convention | AC-14 |
 | `scripts/spec-lint.ts:236` | `process.exit()` becomes `process.exitCode` (§2.2.3) | AC-35 |
 
 `lib/specLint/sections.ts` appears in none of those rows, deliberately — see §3.4.
@@ -579,7 +579,9 @@ The over-budget case is AC-21's, and its assertion is P3 rather than P2: the ret
 
 **AC-4.** A `--lint-doc` with hard findings dispatches normally, findings embedded.
 
-**AC-5.** result.json carries `lintArm: "present"` when at least one `--lint-doc` was given, `"absent"` otherwise.
+**AC-5.** result.json carries `lintArm: "present"` when at least one `--lint-doc` was given, `"absent"` otherwise — **from every writer that can produce a result.json**, not only the happy path.
+
+`scripts/codex-guard.mjs` has two: the centralized `writeResult` (`scripts/codex-guard.mjs:580`) and a direct `writeFileSync` in `main().catch` (`scripts/codex-guard.mjs:891`) that emits a `no_verdict` result on a wrapper fault. A fixture exercising only the first passes after updating only `writeResult`, and then a valid lint run followed by a Codex spawn failure writes a result with **no** `lintArm` at all — breaking exactly the §2.4 promise that a wrapper-entry omission is machine-visible, in the case where the orchestrator most needs to know what ran. Pin both writers, and both values on each.
 
 **AC-6.** An enrolled plan whose depth-N heading carries no marker yields exactly one `TASK_MARKER_MISSING`, anchored to that heading's line.
 
@@ -671,7 +673,9 @@ fixture with no marker         correct=[DUPLICATE]  mutant=[DUPLICATE, MARKER_MI
 
 A criterion asserting the absence of a finding only discriminates when the wrong implementation would have produced one.
 
-**AC-27.** Each of the three overlapping marker defects — missing `ac=`, empty `ac=`, empty backticked `red` — yields exactly ONE code, the one the §3.3 precedence assigns, and a task whose only marker is malformed does not additionally report `TASK_MARKER_MISSING`.
+**AC-27.** Each of the three overlapping marker defects — missing `ac=`, empty `ac=`, empty backticked `red` — yields exactly ONE code, the one the §3.3 precedence assigns.
+
+**A defective marker occupies its task's slot whatever code it drew**, so `TASK_MARKER_MISSING` never accompanies it — and that is a rule over a class, pinned as a matrix rather than on the malformed case alone: a task whose only marker draws `TASK_RED_EMPTY`, `TASK_AC_MISSING`, `TASK_MARKER_MALFORMED`, or `TASK_AC_UNRESOLVED` reports that code and **not** `TASK_MARKER_MISSING`, asserted as a full list in each case. §3.4.1's row says "no marker line **of any class**"; a criterion naming one class leaves an implementation free to count only well-formed markers as occupying the slot, which reports both codes for one defect in three of the four cases.
 
 **AC-44.** `TASK_MARKER_DUPLICATE` fires on marker **cardinality**, independent of the markers' classification, and is pinned as a matrix rather than a single case: an extent holding two markers reports `TASK_MARKER_DUPLICATE` **together with** whatever code the defective one drew, for each of `TASK_RED_EMPTY`, `TASK_AC_MISSING`, `TASK_MARKER_MALFORMED`, and `TASK_AC_UNRESOLVED` paired with a well-formed marker. The well-formed pair is the base case, not one of the four.
 
@@ -701,7 +705,29 @@ It passes the one case anyone writes by hand and silently omits duplication in e
 
 **AC-13.** An `ac=` id that appears only inside marker lines, and nowhere else in the plan, is `TASK_AC_UNRESOLVED` — an id cannot satisfy itself.
 
-**AC-14.** `docs/agents/spec-self-review.md` carries the §4.1 rule text and the §3.2 plus §3.3 marker convention.
+**AC-14.** `docs/agents/spec-self-review.md` carries the §4.1 rule text and the §3.2 plus §3.3 marker convention. Both are asserted; §1.2's change inventory names both for the same reason.
+
+**AC-45.** When enrollment fails, recorded marker lines are **discarded unjudged** — asserted as a full finding list across all three failure modes, each fixture carrying a **malformed marker** so the discard is observable:
+
+```
+malformed opening   correct=[TASK_ENROLL_MALFORMED]   mutant=[TASK_ENROLL_MALFORMED, TASK_MARKER_MALFORMED]
+unmatched close     correct=[TASK_ENROLL_MALFORMED]   mutant=[TASK_ENROLL_MALFORMED, TASK_MARKER_MALFORMED]
+duplicate openings  correct=[TASK_ENROLL_DUPLICATE]   mutant=[TASK_ENROLL_DUPLICATE, TASK_MARKER_MALFORMED]
+```
+
+AC-32 requires the line-pass finding to be *present* and AC-26's and AC-30's fixtures are marker-less, so a mutant that judges recorded markers anyway passes all three while emitting task-level findings about a region the design calls unknowable. Presence assertions cannot catch a spurious extra finding; only the full list can.
+
+**AC-46.** `TASK_MARKER_ORPHANED` fires **alone whatever the orphan's form** — a matrix over every form class, each asserted as a full list:
+
+```
+generic malformed   correct=[ORPHANED]   mutant=[ORPHANED]                    <- the case AC-33 already pins
+empty red           correct=[ORPHANED]   mutant=[ORPHANED, TASK_RED_EMPTY]
+missing ac          correct=[ORPHANED]   mutant=[ORPHANED, TASK_AC_MISSING]
+unresolved ac       correct=[ORPHANED]   mutant=[ORPHANED, TASK_AC_UNRESOLVED]
+well-formed         correct=[ORPHANED]   mutant=[ORPHANED]
+```
+
+AC-33 pins the generic malformed orphan and AC-28 a well-formed one, so a classifier that special-cases those two while continuing form and resolution checks for every other orphan passes both. §3.3 states placement outranks form as a universal; it needs a criterion quantified the same way.
 
 **AC-40.** An enrolled fixture plan with task-contract defects reports its `taskContract` findings and **zero** findings of the `sections` family, proving `lib/specLint/sections.ts:27` still short-circuits for plans (§3.4). Asserted behaviorally on the finding list, not by grepping the source for the unchanged line — a refactor could preserve that line and still re-enable section checks for plans through another path.
 
