@@ -27,7 +27,7 @@ Units A and D are coupled: A determines *which* rows are undoable, D determines 
 | R4 | **An unlanded rename is reported forensically only — no user-visible surface.** Ratified by the user at design time (2026-08-03): silent omission from the notice and feed, plus a durable `app_event`. No §12.4 catalog row, no `pnpm gen:spec-codes` regeneration, no `lib/messages/catalog.ts` row, no warning-card copy, no UI. Consequently **invariant 8's impeccable dual-gate does not apply to this branch** — there is no UI surface in the diff. | §2.2 below |
 | R5 | **Both existing codes in Unit C are reused.** `ROLE_FLAGS_NOTICE` (`lib/messages/catalog.ts:886-901`, spec §12.4 row at `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:2866`) and `LEAD_ROLE_APPLIED` already exist. Unit C adds callers, not a new code, so the §12.4 three-lockstep-update rule is not triggered by Unit C. | `lib/log/emitLeadRoleApplied.ts:21-23` |
 | R6 | **NaN handling in the picker reset check is deliberate and unchanged.** `entry.t <= NaN` is false, so a corrupt marker fails open rather than forcing a spurious re-pick. Unit D restores the column; it does not touch the comparison. | `lib/auth/picker/resolvePickerSelection.ts:132-134` |
-| R7 | **The feed's loss of rows for unaccepted/ungated renames is the fix, not a regression.** See §4 — it is a deliberate, enumerated behavior change. |  |
+| R7 | **The feed's loss of rows for unaccepted/ungated renames is the fix, not a regression.** See §4 — it is a deliberate, enumerated behavior change. | Derives from R2: `lib/sync/applyParseResult.ts:117-121` requires `crew_renamed` to follow the applied list, and `lib/sync/changeLog/writeAutoApplyChanges.ts:78` does not |
 
 ---
 
@@ -173,7 +173,7 @@ Therefore the finalize-cas call site wraps the helper and escalates on failure r
 
 **The topology pin gets stronger — narrowly, and not in the way that would have caught this bug.** `tests/sync/_metaLeadRoleAppliedTopology.test.ts:29` matches `upsertAdminAlert(<expr>roleFlagsNotice` and `tests/sync/_metaLeadRoleAppliedTopology.test.ts:35-38` asserts exactly two files under `lib/sync`. With the helper owning the only such call, the expected site list becomes **one** file.
 
-Stated precisely, because the obvious claim is wrong: this pin detects an emit site that *upserts the alert without the durable event*. It has never been able to detect a caller that **discards `roleFlagsNotice` entirely** — which is exactly the shape of `BL-FINALIZE-CAS-ROLEFLAGS-NOTICE-DROP`. Consolidation does not change that, and §7's "expects one site" assertion would still pass if a fifth caller dropped the notice. The genuine gains are narrower: one implementation of the load-bearing emit order instead of three copies to drift, and no `app/`-side emit for a `lib/sync`-only walker to miss. **Detecting a dropped notice needs a different guard**, filed as a follow-up rather than claimed here (§9).
+Stated precisely, because the obvious claim is wrong: this pin detects an emit site that *upserts the alert without the durable event*. It has never been able to detect a caller that **discards `roleFlagsNotice` entirely** — which is exactly the shape of `BL-FINALIZE-CAS-ROLEFLAGS-NOTICE-DROP`. Consolidation does not change that, and §7's "expects one site" assertion would still pass if a fifth caller dropped the notice. The genuine gains are narrower: one implementation of the load-bearing emit order instead of three copies to drift, and no `app/`-side emit for a `lib/sync`-only walker to miss. **Detecting a dropped notice needs a different guard**, which this branch ships — see §7. It is in scope, not deferred.
 
 ### 2.4 Unit D — `selections_reset_at` survives an undo
 
@@ -239,13 +239,22 @@ Invariant 2 is a P0, and its structural guard is currently pinned to superseded 
 |---|---|---|
 | `tests/auth/advisoryLockRpcDeadlock.test.ts:46` | `20260608000003_undo_change_rpc.sql` | `20260719000001` |
 | `tests/auth/advisoryLockRpcDeadlock.test.ts:43` | `20260608000002_mi11_gate_rpcs.sql` | `20260608000002` today, **the new migration after D5** |
+| `tests/auth/advisoryLockRpcDeadlock.test.ts:245` | `20260608000003_undo_change_rpc.sql` | `20260719000001` |
+| `tests/auth/advisoryLockRpcDeadlock.test.ts:244` | `20260608000002_mi11_gate_rpcs.sql` | as above |
 | `tests/db/undo-change-lock-order.test.ts:15` | `20260608000003_undo_change_rpc.sql` | `20260719000001` |
+
+**There are TWO stale lists in that file, not one** — a second PF11 migration list at `tests/auth/advisoryLockRpcDeadlock.test.ts:244-245` repeats both pins. Repairing only the first leaves the guard half-blind.
 
 So the advisory-before-row-lock topology of the bodies that actually run has been unverified since `20260719000001` landed, and D5 would extend the same blind spot to `mi11_approve_hold`.
 
 **The fix is already written in the same file.** The `reset_validation_data` entry is derived rather than hardcoded, with the reason stated inline at `tests/auth/advisoryLockRpcDeadlock.test.ts:47-50`: "Derived (not hardcoded) so the SHIPPED defining migration is scanned even after a future `create or replace` supersedes the current one." Unit E applies that existing pattern to the two entries above it and to `tests/db/undo-change-lock-order.test.ts:15` — resolve the defining migration by scanning for the last `create or replace function public.<name>` across `supabase/migrations/`, rather than naming a file.
 
-This is in scope rather than deferred because D2-D5 are what make it acute: this branch ships a migration that supersedes **two** lock-taking bodies, and shipping it while the guards read the old files would leave a P0 invariant unverified precisely where it changed. Scoped to repointing existing guards; no new assertion semantics.
+**Two mechanical hazards make the naive repointing WORSE than the status quo, and both must be handled:**
+
+1. **Body-delimiter mismatch — a repointed scanner would silently find nothing.** The existing scanners extract function bodies delimited by `$$`, but the shipped `undo_change` is emitted with `$function$` (`supabase/migrations/20260719000001_undo_change_lifecycle_guard.sql:11`, closing at `supabase/migrations/20260719000001_undo_change_lifecycle_guard.sql:227`). Pointing the current scanner at `20260719000001` yields **zero** discovered functions, so every PF11 assertion would vacuously pass on an unscanned body — strictly worse than today's stale-but-scanning pin. The extractor must accept both `$$` and `$function$` (and any `$tag$` form), and Unit E carries a **self-check that the resolved body set is non-empty**, so a future delimiter change fails loudly instead of silently.
+2. **Resolution must UNION, not replace.** `mi11_reject_hold` is defined **only** in `20260608000002_mi11_gate_rpcs.sql` — the new migration replaces `mi11_approve_hold` alone. Swapping the file entry for the new migration would stop discovering `mi11_reject_hold` entirely. Resolution is therefore per-FUNCTION (for each lock-taking function name, scan its LAST defining migration), not per-file, and the guard asserts the discovered function-name set still contains every name it contained before.
+
+This is in scope rather than deferred because D2-D5 are what make it acute: this branch ships a migration that supersedes **two** lock-taking bodies, and shipping it while the guards read the old files would leave a P0 invariant unverified precisely where it changed. Scoped to repointing existing guards and hardening their extractor; no new assertion semantics.
 
 ---
 
@@ -260,7 +269,7 @@ parse / staged decisions
                     │  REQUESTED pairs
                     ▼
    applyParseResult  ── 5 guards + renameCrewMember rowcount ──▶ landedRenames
-                    └──────────────────────────────────────────▶ unlandedRenames[{pair,reason}]
+                    └──────────────────────────────────────────▶ unlandedRenames[{pair,reason,sourceSurvived}]
                     │
      ┌──────────────┼──────────────────┬─────────────────────────┐
      ▼              ▼                  ▼                         ▼
@@ -296,7 +305,7 @@ Every change an operator could notice, stated so review does not have to discove
 7. **Undo restores `selections_reset_at`.** A picker cookie invalidated before the undone change stays invalidated afterward.
 8. **A Phase D wizard apply that changes a LEAD/FINANCIALS bit now raises the bell alert and the durable event**, matching the dashboard and cron paths.
 9. **A capability loss that is silently suppressed today now reports.** When a rename's target is hold-suppressed (P2-F4) or the update no-ops, the source row is not delete-protected, so `deleteCrewMembersNotIn` removes it and a LEAD/FINANCIALS capability genuinely disappears. Today `renamedAway` holds the requested `removedName` and suppresses arm (c), so no loss notice fires. Under §2.1 A3 it fires. This is a **new** `ROLE_FLAGS_NOTICE` in a case that previously produced none — an addition to the operator's bell, not a removal, and the opposite direction from items 1–5.
-10. **Pairs whose source row SURVIVED continue to produce no loss notice.** Membership in `deleteKeepNames` (`lib/sync/applyParseResult.ts:152`) is the test, so §2.1 A3 keeps them in `renamedAway`. Called out because a naive reading of item 8 would predict otherwise. Note this is narrower than "held": a `name_held` pair whose hold kind did not delete-protect it falls under item 9, not here.
+10. **Pairs whose source row SURVIVED continue to produce no loss notice.** Membership in `deleteKeepNames` (`lib/sync/applyParseResult.ts:152`) is the test, so §2.1 A3 keeps them in `renamedAway`. Called out because a naive reading of item 9 would predict otherwise. Note this is narrower than "held": a `name_held` pair whose hold kind did not delete-protect it falls under item 9, not here.
 
 ---
 
@@ -365,7 +374,7 @@ TDD per task (invariant 1). Each row names the concrete failure it catches — n
 | C | A throwing `upsertAdminAlert` on the finalize-cas path still reaches `markFinalCasDone` | Importing a throw into a fail-open loop and aborting the outer tx post-commit |
 | C | **Response shape:** `per_row` contains no `roleFlagsNotice` and no `unlandedRenames` key | Leaking crew names and capability flags into the public API response |
 | C | **One test per discard site**, each asserting a LEAD-bit change reaches the bell + durable event. Asserted **at the emitting layer, not inside the locked callee**: first-seen finalize (`app/api/admin/onboarding/finalize/route.ts:1266`) emits itself; `runManualStageForFirstSeen` is asserted to CARRY the notice on its return (`lib/sync/runManualStageForFirstSeen.ts:170`) while its caller, the pending-ingestion retry route, is asserted to emit post-commit after `withRowTryLock` resolves (`app/api/admin/pending-ingestions/[id]/retry/route.ts:468`) | The three sites the filed entry did not name. A test covering only finalize-cas passes with all three dark. **The carry/emit split is deliberate:** `runManualStageForFirstSeen` runs INSIDE `withRowTryLock` (`app/api/admin/pending-ingestions/[id]/retry/route.ts:370`, `app/api/admin/pending-ingestions/[id]/retry/route.ts:455`), so asserting it co-emits would demand an emit inside the lock and contradict invariant 10. |
-| C | **Structural guard, IN SCOPE.** Every production path that obtains a `roleFlagsNotice` either routes it to the shared emitter or carries an inline exemption. Covers both shapes: the three `applyStagedCore` production callers (`lib/sync/applyStaged.ts`, `app/api/admin/onboarding/finalize/route.ts`, `app/api/admin/onboarding/finalize-cas/route.ts`) **and** the `processOneFile_unlocked` consumers that bypass the locked wrapper's emit | The class recurring. Enumerating today's sites does not stop the next one. An `applyStagedCore`-only walker would miss the retry route entirely, which is how this class stayed open. |
+| C | **Structural guard, IN SCOPE — keyed on `runPhase2`, the ORIGIN of the notice.** Every production consumer of `runPhase2` either routes the resulting `roleFlagsNotice` to the shared emitter or carries an inline exemption. The three consumers today: `lib/sync/applyStagedCore.ts:591`, `lib/sync/runManualStageForFirstSeen.ts:111`, `lib/sync/runScheduledCronSync.ts:2540`. The guard additionally walks `processOneFile_unlocked` consumers, since that layer is where the locked wrapper's emit is bypassed | The class recurring. Keying on `applyStagedCore` — the obvious choice, and what an earlier revision said — is **wrong**: `runManualStageForFirstSeen` obtains its notice straight from `runPhase2` and never touches `applyStagedCore`, so such a walker would miss a site this very branch repairs, plus any future direct `runPhase2` consumer. |
 | D | **db test:** seed a crew member, stamp `selections_reset_at`, record a change, undo it, assert the column round-trips **and** that `resolvePickerSelection` still returns `selection_reset` for a cookie stamped before the reset | The security-adjacent revalidation. Asserting the column alone would miss a reader-side regression. |
 | D | **db test on the CLEAN-INSERT path (the reachable one):** rename, stamp a reset on the successor, undo, assert the marker survives | **The D3-only failure.** This is the common path; a `greatest()` that lives solely in the ON CONFLICT branch fails here while every other D test passes. |
 | D | **db test driving the ON CONFLICT branch:** a live row whose `selections_reset_at` is NEWER than `before_image`'s keeps the newer value through an undo | D3 written as a bare `excluded.` assignment |
