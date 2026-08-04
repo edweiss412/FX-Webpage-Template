@@ -24,7 +24,12 @@
 // synchronous onClick self-disable (would cancel the React 19 dispatch).
 "use client";
 
-import { useActionState, useState } from "react";
+import { useActionState, useCallback, useContext, useState } from "react";
+import {
+  FEED_APPROVED_ANNOUNCEMENT,
+  FEED_REJECTED_ANNOUNCEMENT,
+  UndoAnnounceContext,
+} from "@/components/admin/undoAnnounceContext";
 import { ErrorExplainer } from "@/components/messages/ErrorExplainer";
 import type { Disposition } from "@/lib/sync/holds/types";
 
@@ -95,8 +100,36 @@ export function Mi11GateActions({
   approveAction: GateServerAction;
   rejectAction: GateServerAction;
 }) {
-  const [approveResult, approveDispatch, approvePending] = useActionState(approveAction, null);
-  const [rejectResult, rejectDispatch, rejectPending] = useActionState(rejectAction, null);
+  // Announce from INSIDE each action's async continuation, not from an effect —
+  // the same reason UndoChangeButton does. On success the hold is resolved and
+  // this component leaves the tree on revalidation, so an effect scheduled on
+  // that commit is not guaranteed to run; an already-executing continuation
+  // always finishes, closing over the PROVIDER's announce.
+  //
+  // TWO wrappers, not one shared one taking a verb: the two are separate
+  // `useActionState` channels precisely so the last-submitted logic below can
+  // tell them apart, and a single wrapper reading `lastSubmitted` would announce
+  // from state the continuation may already have raced past.
+  const { announce } = useContext(UndoAnnounceContext);
+  const announcing = useCallback(
+    (action: GateServerAction, message: string): GateServerAction =>
+      async (prev, formData) => {
+        const r = await action(prev, formData);
+        if (r.ok) announce(message);
+        return r;
+      },
+    [announce],
+  );
+  const announcingApprove = useCallback<GateServerAction>(
+    (prev, formData) => announcing(approveAction, FEED_APPROVED_ANNOUNCEMENT)(prev, formData),
+    [announcing, approveAction],
+  );
+  const announcingReject = useCallback<GateServerAction>(
+    (prev, formData) => announcing(rejectAction, FEED_REJECTED_ANNOUNCEMENT)(prev, formData),
+    [announcing, rejectAction],
+  );
+  const [approveResult, approveDispatch, approvePending] = useActionState(announcingApprove, null);
+  const [rejectResult, rejectDispatch, rejectPending] = useActionState(announcingReject, null);
 
   // P6-F2/F4: track which gate action was submitted LAST so the error panel reflects
   // ONLY the latest submitted action's own result — never a fall-back to the other

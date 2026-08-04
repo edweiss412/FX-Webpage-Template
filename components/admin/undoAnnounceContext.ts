@@ -40,3 +40,22 @@ export function undoneAnnouncement(label?: string): string {
   const trimmed = label?.trim() ?? "";
   return trimmed === "" ? "Change undone." : `Undone. "${trimmed}" no longer applies.`;
 }
+
+/** The other three feed-button outcomes, spelled once for the same reason the
+ *  undo sentence is (multi-surface copy rule): Accept and the Mi-11 gate render
+ *  in different trees, and two spellings of one outcome is the defect.
+ *
+ *  Ratified as the generic verb form at spec
+ *  `docs/superpowers/specs/2026-08-04-backlog-convergence-design.md` §4.5 item 2,
+ *  mirroring Undo's settled grammar. **No row name in the utterance** — unlike
+ *  the undo sentence, which quotes the summary because it must say WHICH claim
+ *  stopped being true, these three announce an action the listener just took, on
+ *  the row they were already on. A name adds nothing to hear and leaks a crew
+ *  member's name into a channel that had no reason to carry one.
+ *
+ *  No terminal period, deliberately rather than by oversight: these are two-word
+ *  fragments, not sentences. `undoneAnnouncement` supplies its own period only
+ *  because the summary it embeds arrives unterminated. */
+export const FEED_ACCEPTED_ANNOUNCEMENT = "Change accepted";
+export const FEED_APPROVED_ANNOUNCEMENT = "Change approved";
+export const FEED_REJECTED_ANNOUNCEMENT = "Change rejected";
