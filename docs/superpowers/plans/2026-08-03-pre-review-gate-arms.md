@@ -85,6 +85,8 @@ Each case states the mutant it kills. Confirm every case fails before implementa
 
 **Verify.** AC-7, AC-9, AC-12. Plus: the module appears in the pure-core guard's walked set.
 
+**Raise the walker floor in the same commit.** `tests/specLint/_metaPureCore.test.ts:28` asserts `files.length >= 7`, and `lib/specLint/` holds exactly 7 files today. Adding an eighth satisfies the floor without moving it, so a later deletion of `taskContract.ts` would leave the suite green — the floor would still be met by the seven survivors. Bump it to 8 when the file lands, so the guard actually pins the new module's existence rather than merely tolerating it.
+
 **Commit.** `feat(spec-lint): segment plan tasks from a declared depth, never from heading text`
 
 ## Task 2 — marker grammar and the nine codes
