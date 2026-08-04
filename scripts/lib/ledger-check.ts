@@ -128,7 +128,11 @@ export function runCheck(
   }
   for (const id of ids) {
     if (!resolution.claims.some((c) => normalizeId(c.id) === id)) {
-      const known = ledgerItems("BACKLOG.md", git.showFile("origin/main", "BACKLOG.md") ?? "");
+      // Every ledger on main, not just BACKLOG.md: a DEF- row or an archived id
+      // would otherwise be reported as defined nowhere.
+      const known = ledgerFiles().flatMap((f) =>
+        ledgerItems(f, git.showFile("origin/main", f) ?? ""),
+      );
       if (!known.some((k) => normalizeId(k.id) === id)) {
         notes.push(`note: ${id} is not yet defined anywhere`);
       }
@@ -136,29 +140,28 @@ export function runCheck(
   }
 
   // Identity unresolved makes a declared claim unattributable, not decided.
-  if (declared.length > 0 && resolution.identity === "ci-unknown") {
+  if (resolution.identity === "ci-unknown" && declared.length > 0) {
     reasons.push("identity unresolved; not excluding any branch as self");
-    return {
-      code: 2,
-      collisions: declared.map((c) => ({ id: c.id, branch: c.branch })),
-      warnings,
-      notes,
-      reasons,
-    };
+    untrusted = true;
   }
 
-  // A collision is a collision even past the display cap, so this precedes the
-  // untrusted check only in the sense that both are reported; 1 wins because it
-  // is actionable and specific.
-  if (declared.length > 0) {
-    return {
-      code: 1,
-      collisions: declared.map((c) => ({ id: c.id, branch: c.branch })),
-      warnings,
-      notes,
-      reasons,
-    };
+  // A degraded resolution is an untrusted one, whatever else is true. A failed
+  // fetch means the claims came from cached refs that may predate the very push
+  // being checked for.
+  for (const d of resolution.degraded) {
+    if (d.startsWith("fetch-failed")) {
+      reasons.push(d);
+      untrusted = true;
+    }
   }
-  if (untrusted) return { code: 2, collisions: [], warnings, notes, reasons };
+
+  // UNTRUSTED DOMINATES. Exit 1 asserts "another live branch declares this row",
+  // which is a positive claim about the world; it may only be made from a
+  // universe that was actually verified. Returning 1 from an unverifiable
+  // universe is the same error as returning 0 from one — both answer a question
+  // the reader was not in a position to answer.
+  const found = declared.map((c) => ({ id: c.id, branch: c.branch }));
+  if (untrusted) return { code: 2, collisions: found, warnings, notes, reasons };
+  if (declared.length > 0) return { code: 1, collisions: found, warnings, notes, reasons };
   return { code: 0, collisions: [], warnings, notes, reasons };
 }

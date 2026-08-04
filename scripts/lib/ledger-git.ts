@@ -203,7 +203,12 @@ export function realGitSurface(): GitSurface {
     },
 
     inCI() {
-      return process.env.GITHUB_ACTIONS === "true" || process.env.CI === "true";
+      // GITHUB_ACTIONS only. A bare CI=true is set by many local harnesses —
+      // including this repo's own vitest serial project — and treating it as CI
+      // sends a local run down the event-payload path, where the payload is
+      // absent, identity reads unresolved, and the run blocks on its own
+      // declaration.
+      return process.env.GITHUB_ACTIONS === "true";
     },
   };
 }

@@ -16,6 +16,14 @@ import { describe, expect, it } from "vitest";
 
 const AGENTS = readFileSync(join(__dirname, "..", "..", "AGENTS.md"), "utf8");
 
+/** The Stage 0 bullet of the pane/agent lifecycle list, isolated. */
+function stage0Bullet(): string {
+  const start = AGENTS.indexOf("- **Stage 0**");
+  expect(start, "AGENTS.md no longer has a Stage 0 lifecycle bullet").toBeGreaterThan(-1);
+  const next = AGENTS.indexOf("\n- ", start + 1);
+  return AGENTS.slice(start, next === -1 ? AGENTS.length : next);
+}
+
 /** The Stage 4.4 bullet of the pane/agent lifecycle list, isolated. */
 function stage44Bullet(): string {
   const start = AGENTS.indexOf("- **Stage 4.4**");
@@ -38,11 +46,18 @@ describe("AGENTS.md marker contract", () => {
       .not.toMatch(/reaches `?origin\/main`? only (at|when) (the )?merge/i);
   });
 
-  it("6.2 — Stage 0 names both the check command and the push", () => {
-    // Both halves. The check without the push leaves the marker invisible to
-    // every other session, which is the defect the whole mechanism closes.
+  it("6.2 — Stage 0 names both the check command and the push, in BOTH locations", () => {
+    // Both halves, in both places AGENTS states the Stage 0 instruction. A
+    // document-wide search is exactly the mutant the whole-diff review caught
+    // shipping: the correct invariant paragraph masked a lifecycle bullet that
+    // still said only "mark every ledger entry", so a session following the
+    // lifecycle block recreated the invisible-marker window.
     expect(AGENTS).toMatch(/ledger:claims --check/);
     expect(AGENTS).toMatch(/push the branch/i);
+
+    const bullet = stage0Bullet();
+    expect(bullet, "the Stage 0 lifecycle bullet omits the check").toMatch(/ledger:claims --check/);
+    expect(bullet, "the Stage 0 lifecycle bullet omits the push").toMatch(/push the branch/i);
   });
 
   it("6.3 — neither retired ordering survives", () => {

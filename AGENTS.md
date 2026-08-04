@@ -133,7 +133,7 @@ Never rewrite `sessionId` merely to inspect a worktree — inspection sessions l
 Lifecycle — both commands at every site:
 
 - **Stage 0**, immediately after worktree creation: `[ -n "$HERDR_PANE_ID" ] && herdr pane rename "$HERDR_PANE_ID" "<branch>" && herdr agent rename "$HERDR_PANE_ID" "<branch>"` (e.g. `docs/agent-arc-naming`).
-  Same turn, per invariant 12: mark every ledger entry the branch will close with `**Status:** IN PROGRESS · **Branch:** <branch>`.
+  Same turn, per invariant 12: run `pnpm ledger:claims --check <ids>` for every entry the branch will close (exit 1 means another live branch already declares it — stop and reconcile; exit 2 means the check could not be trusted), then mark each with `**Status:** IN PROGRESS · **Branch:** <branch>`, commit, and **push the branch immediately** so the marker is visible to every other session.
 - **Stage 4.4**, after the `0  0` check: `herdr pane rename "$HERDR_PANE_ID" --clear` and `herdr agent rename "$HERDR_PANE_ID" --clear`.
   The ledger marker is NOT cleared here — it comes off earlier, in the PR''s last commit (invariant 12), so it never reaches main at all.
 - **Takeover session**: sets both of its own labels to the same arc (protocol step 4).

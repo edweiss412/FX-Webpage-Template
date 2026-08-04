@@ -21,7 +21,11 @@ import { describe, expect, it } from "vitest";
 import { isInProgress, ledgerFiles, ledgerItems } from "@/scripts/lib/ledger-fields";
 
 const ROOT = join(__dirname, "..", "..");
-const IN_CI = process.env.CI === "true" || process.env.GITHUB_ACTIONS === "true";
+// GITHUB_ACTIONS only, matching the reader: a bare CI=true is set by local
+// harnesses including this repo's own serial vitest project, and treating it as
+// CI sends a local run down the event-payload path where identity reads
+// unresolved.
+const IN_CI = process.env.GITHUB_ACTIONS === "true";
 const FETCH_MS = 30_000;
 
 const git = (args: string[]): string =>
@@ -63,10 +67,11 @@ function selfBranch(): { branch: string | null; identity: string } {
     }
   }
   if (head === null) return { branch: null, identity: "ci-unknown" };
-  const base = process.env.GITHUB_REPOSITORY ?? null;
+  const base = process.env.GITHUB_REPOSITORY || null;
   // A bare branch name is not an identity across repositories: on a fork PR no
   // base ref is "me", so nothing may be excluded as self.
-  if (base !== null && head !== base) return { branch: null, identity: "ci-resolved-fork" };
+  if (base === null) return { branch: null, identity: "ci-unknown" };
+  if (head !== base) return { branch: null, identity: "ci-resolved-fork" };
   return { branch: process.env.GITHUB_HEAD_REF ?? null, identity: "ci-resolved" };
 }
 
@@ -95,7 +100,13 @@ describe("ledger claim collision (cross-branch backstop)", () => {
       //
       // Locally the refs are already present and current from ordinary work, so
       // there is nothing to fetch and nothing to damage.
-      if (IN_CI) {
+      // Gated on the checkout ACTUALLY being shallow, not on CI: `CI=true pnpm
+      // test` in a full clone, or a future workflow using fetch-depth: 0, would
+      // otherwise still write .git/shallow and damage ancestry for every later
+      // command. The condition that matters is the repo shape, not the label.
+      const alreadyShallow =
+        (gitQuiet(["rev-parse", "--is-shallow-repository"]) ?? "").trim() === "true";
+      if (IN_CI && alreadyShallow) {
         git(["fetch", "--no-tags", "--depth=1", "origin", "+refs/heads/*:refs/remotes/origin/*"]);
       }
     } catch (e) {

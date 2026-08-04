@@ -81,9 +81,13 @@ function resolveIdentity(git: GitSurface): { identity: Identity; selfBranch: str
   if (head === null) return { identity: "ci-unknown", selfBranch: null };
 
   const base = git.repo();
+  // A missing base repository is UNRESOLVED, not same-repository. Defaulting to
+  // same-repo would self-exclude a same-named fork claim, which is the exact
+  // false all-clear the fork rule exists to prevent.
+  if (base === null || base.length === 0) return { identity: "ci-unknown", selfBranch: null };
   // A bare branch name is not an identity across repositories: a fork branch and
   // a base branch can share a name, and the base branch's claims are not ours.
-  if (base !== null && head !== base) return { identity: "ci-resolved", selfBranch: null };
+  if (head !== base) return { identity: "ci-resolved", selfBranch: null };
   return { identity: "ci-resolved", selfBranch: git.currentBranch() };
 }
 

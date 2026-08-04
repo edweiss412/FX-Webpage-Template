@@ -112,8 +112,13 @@ if (!skipClaims) {
   });
   const out = `${claims.stdout ?? ""}`.trim();
   if (out) console.log(`\n${out}`);
-  else if (claims.error)
-    console.log(`preflight: live claims unavailable (${claims.error.code ?? "error"})`);
+  else {
+    // Reports EVERY failure shape, not just a spawn error: a child that exits
+    // non-zero with only stderr would otherwise leave preflight silently
+    // table-less, which reads as "no claims in flight".
+    const why = claims.error?.code ?? (claims.status !== 0 ? `exit ${claims.status}` : "no output");
+    console.log(`preflight: live claims unavailable (${why})`);
+  }
 }
 
 // --- non-loopback WARNINGS: this is a LOCAL preflight ------------------------

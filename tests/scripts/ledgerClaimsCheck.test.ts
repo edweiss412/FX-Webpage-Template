@@ -284,3 +284,54 @@ describe("--check on a degraded universe", () => {
     expect(r.code).toBe(1);
   });
 });
+
+describe("untrusted dominates a collision (whole-diff review F1)", () => {
+  // Exit 1 asserts "another live branch declares this row" — a positive claim
+  // about the world. It may only be made from a universe that was verified.
+  // Returning 1 from an unverifiable universe is the same error as returning 0.
+  it("exits 2, not 1, when ls-remote fails and a collision is also present", () => {
+    const r = check(
+      fake({
+        lsRemote: () => {
+          throw new Error("auth failed");
+        },
+        currentBranch: () => "other",
+      }),
+      ["BL-X"],
+      { verify: true },
+    );
+    expect(r.code).toBe(2);
+    expect(r.collisions, "the finding is still reported, just not as decided").toHaveLength(1);
+  });
+
+  it("exits 2, not 1, when the head map mismatches and a collision is present", () => {
+    const r = check(
+      fake({
+        lsRemote: () =>
+          new Map([
+            ["main", "aaa"],
+            ["feat/a", "CHANGED"],
+          ]),
+        currentBranch: () => "other",
+      }),
+      ["BL-X"],
+      { verify: true },
+    );
+    expect(r.code).toBe(2);
+  });
+
+  it("exits 2, not 0, when the fetch failed and no collision was found", () => {
+    // Cached refs may predate the very push being checked for.
+    const r = check(
+      fake({
+        fetch: () => {
+          throw new Error("network down");
+        },
+        currentBranch: () => "other",
+      }),
+      ["BL-UNRELATED"],
+      { verify: true, fetch: true },
+    );
+    expect(r.code).toBe(2);
+  });
+});
