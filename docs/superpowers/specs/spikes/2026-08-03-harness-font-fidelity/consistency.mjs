@@ -55,13 +55,16 @@ const rows = (rf(here + "static-guard.mjs", "utf8").match(/^check\(/gm) || []).l
 const muts = (rf(here + "mutants.mjs", "utf8").match(/^  "[A-Z]/gm) || []).length;
 const hRows = (rf(here + "harness-guard.mjs", "utf8").match(/add\("H/g) || []).length;
 const hMuts = (rf(here + "harness-mutants.mjs", "utf8").match(/^  \["H-/gm) || []).length;
+// Round 32 added a fourth artifact: the dependency-stylesheet mutants, which
+// exercise row 19's foreign inputs (previously advertised but never run).
+const dMuts = (rf(here + "dep-mutants.mjs", "utf8").match(/^  \["D\d/gm) || []).length;
 // Round 23: asserting the RIGHT phrase appears somewhere does not reject a WRONG
 // one elsewhere -- the README and two spec lines still advertised 15/15 and
 // 30/30 while this file reported consistent. So every count claim in the corpus
 // is now enumerated and matched against the artifacts; a claim that matches
 // nothing real is a failure.
-const ok = new Set([`${rows}/${rows}`, `${hRows}/${hRows}`, `${muts}/${muts}`, `${hMuts}/${hMuts}`]);
-const okCounts = new Set([rows, muts, hRows, hMuts, rows + hRows, muts + hMuts]);
+const ok = new Set([`${rows}/${rows}`, `${hRows}/${hRows}`, `${muts}/${muts}`, `${hMuts}/${hMuts}`, `${dMuts}/${dMuts}`]);
+const okCounts = new Set([rows, muts, hRows, hMuts, dMuts, rows + hRows, muts + hMuts + dMuts]);
 for (const src of [["spec", t], ["README", rf(here + "README.md", "utf8")]]) {
   for (const m of src[1].matchAll(/\b(\d+)\/(\d+) (rows|mutants)\b/g))
     check("stale ratio claim", ok.has(`${m[1]}/${m[2]}`), `${src[0]}: "${m[0]}" matches no artifact`);

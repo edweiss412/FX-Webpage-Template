@@ -11,14 +11,14 @@ parser `@tailwindcss/cli` and `@tailwindcss/postcss` use to compile
 Node, with no browser, which is what lets the shipped guard live in the
 merge-blocking unit suite.
 
-`mutants.mjs` applies 40 mutations to a known-good stylesheet and asserts the
+`mutants.mjs` applies 42 mutations to a known-good stylesheet and asserts the
 guard rejects every one.
 
 `harness-guard.mjs` + `harness-mutants.mjs` are the harness-side twin. They
 simulate the target-state `compileEntryCss` post-step — rewrite `/fonts/` URLs
 to bare siblings, `swap` to `block`, copy the seven files beside the output —
 and check the four §4.1 harness rows plus their preconditions: 10 rows, 11
-mutants, all killed. Together the two instruments are 29 rows and 51 mutants.
+mutants, all killed. Together the two instruments are 31 rows and 57 mutants.
 
 ## Running it
 
@@ -30,7 +30,7 @@ LCSS=$PWD/node_modules/.pnpm/lightningcss@1.32.0/node_modules/lightningcss/node/
   node docs/superpowers/specs/spikes/2026-08-03-harness-font-fidelity/mutants.mjs
 ```
 
-Expected: `19/19 rows passing` for the target state, `40/40 mutants killed`.
+Expected: `21/21 rows passing` for the target state, `42/42 mutants killed`.
 
 `SPIKE_DIR` defaults to `/tmp/spike-fonts` — a directory holding `fonts.css`
 plus the seven `.woff2` files. Those bytes are byte-identical to the seven a

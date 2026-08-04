@@ -151,6 +151,43 @@ for (const [text, label] of SHIPPED) {
     }},
   }});
 }
+// Round 32: rows keyed on conditional AT-RULES never saw the app's actual theme
+// mechanism, which is an attribute selector -- [data-theme="dark"] { --font-sans:
+// Arial } escaped everything, as did :root:not([data-theme="light"]) and a
+// media-conditioned @import. A denylist of contexts cannot enumerate CSS. So the
+// rule inverts, the same way the descriptor-inventory rule did in round 10:
+//   (a) each --font-* token is DEFINED exactly once, tree-wide;
+//   (b) every font-family / font declaration outside @font-face is a var() to one.
+// Theme-scoped redefinition then fails (a); a literal family fails (b); and it
+// holds under any selector, at-rule, nesting depth, or importing stylesheet.
+const tokenDefs = new Map(); const literalFamilies = [];
+for (const [text, label] of SHIPPED) {
+  transform({ filename: label, code: Buffer.from(text), minify: false, visitor: {
+    Rule(r) {
+      const visit = (rules) => { for (const x of rules ?? []) {
+        const decls = [...(x.value?.declarations?.declarations ?? []),
+                       ...(x.value?.declarations?.importantDeclarations ?? [])];
+        for (const p of decls) {
+          const name = p.property === "custom" ? p.value?.name : p.property;
+          if (/^--font/.test(name ?? "")) {
+            tokenDefs.set(name, (tokenDefs.get(name) ?? 0) + 1);
+          } else if (name === "font-family" || name === "font") {
+            const raw = JSON.stringify(p.value ?? "");
+            if (!raw.includes("var") && !/"type":"variable"/.test(raw))
+              literalFamilies.push(`${label}: ${name} without var()`);
+          }
+        }
+        visit(x.value?.rules);
+      } };
+      visit(r.type === "style" ? [r] : r.value?.rules);
+    },
+  }});
+}
+const multiDefined = [...tokenDefs].filter(([, n]) => n > 1).map(([k, n]) => `${k} defined ${n}x`);
+check("20 each --font-* token is defined exactly once, tree-wide",
+  multiDefined.length === 0, multiDefined.join(" | "));
+check("21 every font-family outside @font-face resolves through a var() token",
+  literalFamilies.length === 0, literalFamilies.slice(0, 3).join(" | "));
 check("19 no @font-face outside the fonts stylesheet, in any shipped stylesheet",
   foreignFaces.length === 0, foreignFaces.join(" | "));
 check("18 no font-family, font, or --font-* token set inside any conditional at-rule, in any shipped stylesheet",

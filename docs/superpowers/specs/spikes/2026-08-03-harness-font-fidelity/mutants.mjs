@@ -41,6 +41,8 @@ const MUTANTS = {
   "R19a escaped duplicate s\\72 c": c => c.replace('src: url("/fonts/inter-greek.woff2") format("woff2");','src: url("/fonts/inter-greek.woff2") format("woff2");\n  s\\72 c: local("Times New Roman");'),
   "R19b second Inter Fallback, bold Times": c => c + '\n@font-face { font-family: "Inter Fallback"; src: local("Times New Roman"); font-weight: 700; }\n',
   "R19c uppercase @FONT-FACE impostor": c => c + '\n@FONT-FACE { font-family: "Inter"; src: local("Arial"); unicode-range: U+0370-03FF; }\n',
+  "R32a theme-scoped token redefinition": c => c + "\n[data-theme=\"dark\"] { --font-inter: Arial; }\n",
+  "R32b :not() theme selector literal family": c => c + "\n:root:not([data-theme=\"light\"]) { font-family: Arial; }\n",
   "R30a @media font-family !important": c => c + "\n@media (prefers-color-scheme: dark) { html { font-family: Arial !important; } }\n",
   "R30b @supports --font-sans !important": c => c + "\n@supports (display: grid) { :root { --font-sans: Arial !important; } }\n",
   "R30c @container font shorthand !important": c => c + "\n@container (min-width: 10px) { html { font: 16px Arial !important; } }\n",
