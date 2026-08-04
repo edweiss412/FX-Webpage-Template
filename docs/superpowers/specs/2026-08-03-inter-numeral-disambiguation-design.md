@@ -554,3 +554,22 @@ The finding is on a different surface: **declaration DISCOVERY**. CSS property n
 Worth naming for the record: the fail-closed design from §12.7 is only as good as what reaches it. Refusing well is useless on a declaration you never looked at — and that is a discovery bug, not a parsing bug, which is why it survived the approach change.
 
 **Twenty-two mutants across eight rounds. All caught.**
+
+### 12.9 Round 9 — the same lesson, one position over
+
+`VERDICT: NEEDS-ATTENTION`, one P1, accepted and fixed. No other admissible finding.
+
+A property name is an identifier sequence, so `f\6f nt-feature-settings` is `font-feature-settings` to a browser (CSS Syntax §2.1) — and the repository's Lightning CSS compiler serialised the mutant as the ordinary property. postcss kept the escaped spelling in `decl.prop`, the round-8 regex never matched, and an unsupported `ZZ-Z` was never refused because the declaration was never seen. `fo\6e t:` bypassed the shorthand ban the same way. The mutant kept `ss04`, `tnum` and `zero` alongside, so every browser probe stayed satisfied.
+
+This is round 8's finding with an escape instead of a capital letter — and underneath, it is rounds 3–7's finding one position over: **decoding CSS correctly is not a thing worth attempting in a test**, whether the thing being decoded is a value or a property name.
+
+So the fix is the one §12.7 settled on, applied to discovery:
+
+1. **Walk EVERY declaration** and compare the normalised name, instead of asking postcss to match one. A matcher only ever finds the spellings it was told about, and rounds 8 and 9 each supplied one it had not been told about.
+2. **Refuse escaped property names outright.** Case is legitimate and is normalised; an escape is not — it has no use in this stylesheet other than obfuscation, so any backslash in a property name fails the build rather than being decoded.
+
+Mutation-proven in three spellings: an escaped property hiding a bad tag, an escaped `font` shorthand, and the round-8 uppercase case as a regression check.
+
+**Twenty-five mutants across nine rounds. All caught.**
+
+**A note on what these last rounds are finding.** Rounds 8 and 9 are adversarial-only vectors: nobody writes `FONT-FEATURE-SETTINGS` or `f\6f nt-` by accident, and neither could arise from the ordinary editing this guard exists to protect against. They are still worth closing — fail-closed is cheap, and a guard with a known bypass is a guard someone will eventually route around — but they are a different class from rounds 1–3, which found ways the guard could miss an ORDINARY mistake. That distinction is recorded so a future reader can calibrate how hard to keep pulling this thread.

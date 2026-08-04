@@ -138,7 +138,42 @@ function enabledOf(value: string): string[] {
   return parsed.recognized ? parsed.settings.filter((f) => f.enabled).map((f) => f.tag) : [];
 }
 
-/** Every rule in `cssSource` that declares `font-feature-settings`. */
+/**
+ * Property names, normalised — and ESCAPED ones refused outright.
+ *
+ * A CSS property name is an identifier sequence, so `f\\6f nt-feature-settings` is
+ * `font-feature-settings` to a browser (CSS Syntax §2.1). Round 9's mutant used
+ * exactly that: postcss preserved the escaped spelling in `decl.prop`, the walk
+ * never matched, and an unsupported tag was never refused because the
+ * declaration was never seen. Round 8's mutant was the same idea in ASCII case.
+ *
+ * Decoding property names correctly is the round-3-through-7 mistake in a new
+ * position, and the answer is the one §12.7 settled on: do not interpret the
+ * exotic form, REFUSE it. An escaped property name has no legitimate use in this
+ * stylesheet — it is an obfuscation, not a style — so any backslash in a
+ * property name fails the build. Case is genuinely legitimate, so it is
+ * normalised rather than refused.
+ */
+export function normalizeProp(prop: string): { name: string; escaped: boolean } {
+  return { name: prop.trim().toLowerCase(), escaped: prop.includes("\\") };
+}
+
+/** Property names carrying an escape. Non-empty is a build failure. */
+export function escapedPropertyNames(cssSource: string): string[] {
+  const out: string[] = [];
+  postcss.parse(cssSource).walkDecls((decl) => {
+    if (normalizeProp(decl.prop).escaped) out.push(decl.prop);
+  });
+  return out;
+}
+
+/**
+ * Every rule in `cssSource` that declares `font-feature-settings`.
+ *
+ * Walks EVERY declaration and compares the normalised name, rather than asking
+ * postcss to match one — a matcher only ever finds the spellings it was told
+ * about, and rounds 8 and 9 each supplied one it had not been told about.
+ */
 export function featureRules(
   cssSource: string,
 ): { selectors: string[]; settings: FeatureSetting[]; refusal: string | null; raw: string }[] {
@@ -148,12 +183,8 @@ export function featureRules(
     refusal: string | null;
     raw: string;
   }[] = [];
-  // CASE-INSENSITIVE. CSS property names are ASCII case-insensitive (CSS Syntax
-  // §5.4.5), and postcss's string form of walkDecls is not. Round 8's mutant was
-  // simply `FONT-FEATURE-SETTINGS:` — invisible to the walk, honoured by the
-  // browser, and therefore a declaration that never reached the fail-closed
-  // recogniser at all.
-  postcss.parse(cssSource).walkDecls(/^font-feature-settings$/i, (decl) => {
+  postcss.parse(cssSource).walkDecls((decl) => {
+    if (normalizeProp(decl.prop).name !== "font-feature-settings") return;
     const parent = decl.parent;
     const selector = parent && "selector" in parent ? String(parent.selector) : "";
     const parsed = parseFeatureValue(decl.value);
@@ -178,9 +209,8 @@ export function featureRules(
  */
 export function fontShorthandRules(cssSource: string): string[] {
   const out: string[] = [];
-  // Case-insensitive for the same reason as above: `FONT:` is the `font`
-  // shorthand, and it resets font-feature-settings just as quietly.
-  postcss.parse(cssSource).walkDecls(/^font$/i, (decl) => {
+  postcss.parse(cssSource).walkDecls((decl) => {
+    if (normalizeProp(decl.prop).name !== "font") return;
     const parent = decl.parent;
     out.push(parent && "selector" in parent ? String(parent.selector) : "(unknown)");
   });
@@ -389,6 +419,20 @@ describe("font feature availability", () => {
   test("the loaded font path resolves to a file that exists", () => {
     const path = resolveLoadedFontPath();
     expect(existsSync(path), `app/fonts.ts src resolves to ${path}`).toBe(true);
+  });
+
+  test("no property name is written with an escape", () => {
+    // A property name is an identifier sequence, so `f\\6f nt-feature-settings` is
+    // `font-feature-settings` to a browser while postcss keeps the escaped
+    // spelling — round 9's mutant hid a whole declaration that way. Escaped
+    // property names have no legitimate use here, so rather than decode them
+    // (the mistake rounds 3-7 kept making one position over), they fail the build.
+    const escaped = escapedPropertyNames(css);
+    expect(
+      escaped,
+      `these property names carry a CSS escape: ${escaped.join(", ")}. A browser ` +
+        `decodes them; this guard refuses them. Write the plain name.`,
+    ).toEqual([]);
   });
 
   test("every font-feature-settings value in the sheet is one the guard understands", () => {
