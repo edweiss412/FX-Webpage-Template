@@ -44,7 +44,7 @@ export function unknownFieldWarn(row: RawRow): ParseWarning {
   };
 }
 
-function snapshot(rawRows: readonly RawRow[]): ShowReviewSnapshot {
+function snapshot(rawRows: readonly RawRow[], opts: HarnessOpts = {}): ShowReviewSnapshot {
   return {
     show: {
       id: SHOW_ID,
@@ -59,9 +59,9 @@ function snapshot(rawRows: readonly RawRow[]): ShowReviewSnapshot {
       },
       venue: { name: "Hall A", address: "1 Main St" },
       event_details: null,
-      agenda_links: [],
+      agenda_links: [...(opts.agendaLinks ?? [])] as ShowReviewSnapshot["show"]["agenda_links"],
       coi_status: "received",
-      diagrams: null,
+      diagrams: (opts.diagrams ?? null) as ShowReviewSnapshot["show"]["diagrams"],
       pull_sheet: [],
       source_anchors: {},
       drive_file_id: DRIVE_FILE_ID,
@@ -94,10 +94,37 @@ export type HarnessOpts = {
   ignoredFingerprints?: ReadonlySet<string>;
   attentionItems?: PublishedReviewModalProps["attentionItems"];
   alertsDegraded?: boolean;
+  // Sync stamps, additive and default-preserving. The freshness-cue suite needs a
+  // re-render that moves ONLY these, which is the component-level twin of the
+  // detector's "a poll found nothing" case; without overrides that state cannot be
+  // expressed at all, since baseProps hardcodes them.
+  lastSyncedAt?: string | null;
+  lastCheckedAt?: string | null;
+  lastSyncStatus?: string | null;
+  /**
+   * Agenda links. Additive and default-preserving like the sync stamps above.
+   *
+   * The freshness-cue suite needs a section that genuinely ENTERS and LEAVES the
+   * rail, and agenda is the one that does: its card is gated on a non-empty
+   * baseline, while rooms, crew and the rest render whether or not they hold
+   * data. An earlier draft of those rows tried to drop Rooms by removing its only
+   * warn and asserted an appearance that never happened.
+   */
+  agendaLinks?: readonly unknown[];
+  /**
+   * Diagrams. Default stays `null` so every existing row keeps the tree it was
+   * written against; a caller that needs the Rooms card's Diagrams SUB-BLOCK to
+   * actually render passes one.
+   *
+   * Round-4 review found S13 vacuous without this: it claimed to prove the
+   * sub-block never wears the freshness attribute, while the fixture rendered no
+   * sub-block at all, so the assertion held over an empty set.
+   */
+  diagrams?: unknown;
 };
 
 function baseProps(rawRows: readonly RawRow[], opts: HarnessOpts = {}): PublishedReviewModalProps {
-  const data = buildPublishedSectionData(snapshot(rawRows), { slug: SLUG });
+  const data = buildPublishedSectionData(snapshot(rawRows, opts), { slug: SLUG });
   const bySection = buildSectionWarningModel({
     slug: SLUG,
     warnings: data.warnings,
@@ -115,9 +142,10 @@ function baseProps(rawRows: readonly RawRow[], opts: HarnessOpts = {}): Publishe
     finalizeOwned: false,
     setPublished: vi.fn(async () => ({ ok: true }) as const),
     isLive: false,
-    lastSyncedAt: "2026-07-16T11:48:00.000Z",
-    lastCheckedAt: "2026-07-16T11:58:00.000Z",
-    lastSyncStatus: "ok",
+    lastSyncedAt: opts.lastSyncedAt !== undefined ? opts.lastSyncedAt : "2026-07-16T11:48:00.000Z",
+    lastCheckedAt:
+      opts.lastCheckedAt !== undefined ? opts.lastCheckedAt : "2026-07-16T11:58:00.000Z",
+    lastSyncStatus: opts.lastSyncStatus !== undefined ? opts.lastSyncStatus : "ok",
     now: NOW,
     attentionItems: opts.attentionItems ?? [],
     alertsDegraded: opts.alertsDegraded ?? false,

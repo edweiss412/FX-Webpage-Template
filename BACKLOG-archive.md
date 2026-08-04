@@ -73,6 +73,24 @@ between 11 ids and the 8 that are really body-defined. `definedIds` is exported 
 performs no read outside the injected reader. The eight `KNOWN_DANGLING` rows are removed, not
 exempted — the guard's stale-row ratchet is what proves the removal was required.
 
+## BL-MODAL-REALTIME-UPDATED-CUE — RESOLVED (2026-08-03, `feat/modal-freshness-cue`)
+
+Shipped as a one-shot flash-then-fade on the panel card of each registry section whose content changed across an in-place reconcile, plus a branch-stable sr-only announcement driven by the SAME detector so the two legs can never disagree. Spec: `docs/superpowers/specs/2026-08-03-modal-freshness-cue.md`.
+
+**The entry's premise below was WRONG, and it was load-bearing.** It claims the spec ratified a silent-by-design posture. It did not: `docs/superpowers/specs/2026-07-19-admin-modal-realtime-refresh.md:75` says only that the bridge component renders `null`, and line 173 says its transition inventory is N/A because the bridge adds no visual states. Both are statements about the BRIDGE, not about the surface it refreshes. Nobody had weighed a cue and rejected it, so this was a new design decision rather than a reversal of one. The un-defer signal was never reached either: the user was shown the options and chose the cue directly.
+
+The original entry, unedited, follows.
+
+## BL-MODAL-REALTIME-UPDATED-CUE — freshness cue near the published modal's action clusters
+
+**Filed:** 2026-07-24 (retroactive — deferred in PR #505's body 2026-07-20, never filed) · **Class:** UI refinement · **Effort:** S
+
+Impeccable P3 from `admin-modal-realtime-refresh`: an optional "updated just now" cue near the modal's action clusters, so a realtime-driven change is attributable rather than appearing as content silently shifting under the cursor. Deferred as a future refinement — the spec ratifies the silent-by-design posture, so nothing requires it.
+
+**Un-defer signal (weak, hence backlog not DEFERRED.md):** a user reporting that modal content changed without explanation. Note the tension with the ratified posture — adding a cue is a spec decision, not a polish pass.
+
+**Status:** resolved (shipped 2026-08-03).
+
 ## BL-ONBOARDING-CAS-SOURCE-ANCHORS — RESOLVED (2026-08-03, `fix/onboarding-cas-source-anchors`)
 
 ### BL-ONBOARDING-CAS-SOURCE-ANCHORS — the existing-show re-onboard never refreshed shows.source_anchors

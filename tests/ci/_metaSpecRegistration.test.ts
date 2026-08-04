@@ -999,6 +999,12 @@ describe("spec registration detector (spec §3.1)", () => {
       ["playwright.config.ts"],
     'pnpm exec playwright test --reporter=list --project=desktop-chromium tests/e2e/admin-layout-dimensions.spec.ts -g "width chain"':
       ["playwright.config.ts"],
+    // The freshness-cue geometry probe (spec 2026-08-03-modal-freshness-cue §11.5).
+    // Its OWN step because the two filters above select neither: a case matched by
+    // a project but selected by no `-g` runs nowhere, which is the failure this
+    // whole workflow's header comment documents.
+    'pnpm exec playwright test --reporter=list --project=desktop-chromium tests/e2e/admin-layout-dimensions.spec.ts -g "T-FRESHNESS-GEOMETRY"':
+      ["playwright.config.ts"],
     'pnpm exec playwright test --project=mobile-safari tests/e2e/admin-lifecycle-transitions.spec.ts -g "Published toggle round-trip" --repeat-each="$REPEATS" --retries=0 --trace=on':
       ["playwright.config.ts"],
     // The plain branch of the same if/fi step (lifecycle-layout-e2e.yml):

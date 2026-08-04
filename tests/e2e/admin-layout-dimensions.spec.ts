@@ -1149,3 +1149,112 @@ test.describe("phantom gap — /admin?show=<slug> published review modal (hydrat
     });
   }
 });
+
+// ─── Freshness cue geometry (spec 2026-08-03-modal-freshness-cue §7) ──────────
+//
+// WHY A REAL BROWSER. jsdom computes no layout, so every unit test in this
+// feature would pass against an implementation that painted the cue with a
+// `border` and shifted every card by 2px on arrival. The claim under test is that
+// the cue is layout-neutral: `background-color`, `outline-color` and a constant
+// `outline-width` are the only properties it touches, and an outline occupies no
+// space. That is only observable where boxes are actually laid out.
+//
+// The attribute is applied DIRECTLY here rather than by driving a broadcast: this
+// case measures geometry, not the detector. The realtime spec is what proves the
+// detector drives the attribute; splitting them keeps a geometry failure from
+// reading as a detection failure and the other way round.
+test.describe("freshness cue geometry — /admin?show=<slug> (real browser)", () => {
+  const BASE = "published-show-review";
+  const MODAL = `[data-testid="${BASE}-modal"]:has([data-testid="${BASE}-title"])`;
+
+  let slug = "";
+  test.beforeAll(async () => {
+    slug = await lookupSeededSlug();
+  });
+  test.beforeEach(async ({ page }) => {
+    await signOut(page);
+    await signInAs(page, ADMIN_FIXTURE);
+  });
+
+  test("T-FRESHNESS-GEOMETRY: arming and expiring the cue moves nothing", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.goto(`/admin?show=${slug}`, { waitUntil: "domcontentloaded" });
+
+    // The same readiness ladder the phantom-gap case above uses, never
+    // `networkidle` alone: modal visible, scroll pane visible, one section
+    // attached. Without the last one the measurement can land on the streamed
+    // shell before any card exists.
+    await expect(page.locator(MODAL)).toBeVisible({ timeout: 30_000 });
+    const pane = page.locator(`${MODAL} [data-testid$="-review-content"]`);
+    await expect(pane).toBeVisible({ timeout: 30_000 });
+    const card = page.locator(`${MODAL} [data-testid$="-section-crew-panel-card"]`).first();
+    await expect(card).toBeAttached({ timeout: 30_000 });
+
+    const measure = async () =>
+      card.evaluate((el) => {
+        const r = el.getBoundingClientRect();
+        return { top: r.top, left: r.left, width: r.width, height: r.height };
+      });
+    const scrollHeight = async () => pane.evaluate((el) => el.scrollHeight);
+
+    // LAYOUT MUST BE SETTLED BEFORE THE BASELINE, and this is not belt-and-braces.
+    // Real CI failed this case on `armed: top moved` while the outline was doing
+    // nothing at all: the modal is Suspense-streamed, so sections above the crew
+    // card were still arriving between the two measurements and moving it. A
+    // readiness gate that stops at "one section is attached" does not imply the
+    // column has stopped growing. Poll until the card's own top AND the pane's
+    // scrollHeight are unchanged across consecutive samples, so the only thing
+    // that can move the rect afterwards is the attribute under test.
+    await expect
+      .poll(
+        async () => {
+          const a = { top: (await measure()).top, h: await scrollHeight() };
+          await page.waitForTimeout(120);
+          const b = { top: (await measure()).top, h: await scrollHeight() };
+          return Math.abs(a.top - b.top) < 0.5 && a.h === b.h;
+        },
+        { timeout: 30_000, message: "modal layout stopped moving before the baseline" },
+      )
+      .toBe(true);
+
+    const before = await measure();
+    const scrollBefore = await scrollHeight();
+
+    await card.evaluate((el) => el.setAttribute("data-section-freshness-flash", "1"));
+    const armed = await measure();
+    const scrollArmed = await scrollHeight();
+
+    // The colour actually resolves, so this is not measuring a rule that never
+    // matched: a selector typo would leave the outline at its initial `invert`
+    // or the width at 0 and the geometry assertions would pass vacuously.
+    const outline = await card.evaluate((el) => {
+      const s = getComputedStyle(el);
+      return { width: s.outlineWidth, style: s.outlineStyle };
+    });
+    expect(outline.style, "the attribute rule must apply").toBe("solid");
+    expect(outline.width).toBe("2px");
+
+    await card.evaluate((el) => el.removeAttribute("data-section-freshness-flash"));
+    const after = await measure();
+    const scrollAfter = await scrollHeight();
+
+    for (const [label, r] of [
+      ["armed", armed],
+      ["after expiry", after],
+    ] as const) {
+      expect(Math.abs(r.top - before.top), `${label}: top moved`).toBeLessThanOrEqual(TOL);
+      expect(Math.abs(r.left - before.left), `${label}: left moved`).toBeLessThanOrEqual(TOL);
+      expect(Math.abs(r.width - before.width), `${label}: width moved`).toBeLessThanOrEqual(TOL);
+      expect(Math.abs(r.height - before.height), `${label}: height moved`).toBeLessThanOrEqual(TOL);
+    }
+    // The scroll container is the fixed-dimension parent; a cue that grew a card
+    // would show up here even if the card's own rect were somehow unchanged.
+    expect(Math.abs(scrollArmed - scrollBefore), "armed: scrollHeight moved").toBeLessThanOrEqual(
+      TOL,
+    );
+    expect(Math.abs(scrollAfter - scrollBefore), "expired: scrollHeight moved").toBeLessThanOrEqual(
+      TOL,
+    );
+  });
+});
