@@ -200,6 +200,28 @@ describe("the 2026-08-04 fixture reproduces the spec §0 census exactly", () => 
 });
 
 describe("--at reads the same numbers back out of git history", () => {
+  // The oracle's second source is git history, and CI checks out at
+  // `fetch-depth: 1` — the default — so the fixture rev is NOT in the object
+  // store unless the workflow fetches it. This pins that wiring: without it the
+  // test below fails in CI with a bare `fatal: invalid object name`, which reads
+  // like a bad rev rather than a missing fetch (real failure: run 30954820760).
+  //
+  // Pinned to the FIXTURE's rev, not to a literal, so regenerating the fixture
+  // at a new date fails here until the workflow is updated with it.
+  it("the unit-suite-db job fetches this rev (CI checks out shallow)", () => {
+    const yaml = readFileSync(join(ROOT, ".github", "workflows", "unit-suite.yml"), "utf8");
+    const dbJob = yaml.slice(yaml.indexOf("  unit-suite-db:"), yaml.indexOf("  unit-suite-nodb:"));
+    const fetched = [...dbJob.matchAll(/git fetch [^\n]*?\borigin\s+([0-9a-f]{40})\b/g)].map(
+      (m) => m[1]!,
+    );
+    expect(
+      fetched.filter((sha) => sha.startsWith(ORACLE.rev)),
+      `unit-suite-db must \`git fetch\` a full 40-char SHA starting ${ORACLE.rev} — the rev this ` +
+        "oracle reads out of git history. Found: " +
+        (fetched.join(", ") || "no full-SHA fetch at all"),
+    ).toHaveLength(1);
+  });
+
   it(`--at ${ORACLE.rev} equals the committed fixture`, () => {
     const fromGit = buildReport({ kind: "rev", value: ORACLE.rev });
     expect(fromGit.totals.mass).toBe(ORACLE.total.mass);
