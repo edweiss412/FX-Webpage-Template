@@ -14,6 +14,8 @@ Authoritative census (this arc's probe, run with the repo's own parser — `scri
 | DEFERRED.md | 15 | 1 | 1 | 1 | 1 | 11 |
 | **Total** | **110** | **2** | **19** | **31** | **16** | **42** |
 
+Baseline mass under §3.1's weights, same probe run (the numeric oracle AC-B1 and AC-PROG pin against): **BACKLOG 306 · DEFERRED 15 · total 321**. (mdview Rev 14's sidebar shows 94/109 for the same tree — its em-dash-required heading recognizer misses `BL-NULLCODE-STAMP-BATCH-2`; §3.4 makes Rev 15 close that divergence.)
+
 Three units, shipped in order:
 
 - **Unit A — filing bar + probe-first demotions.** Policy: a ledger row requires probe evidence or live-surface reachability; hypothetical worst-cases whose failure mode is conservative-plus-surfaced go to the owning surface's documented-limits record instead. Existing candidates screened and probed; leftovers demoted.
@@ -68,9 +70,9 @@ Any additional candidates the plan-time semantic screen surfaces get the same th
 
 ### §3.1 Canonical weights (single source of truth)
 
-Effort weight: `XS=1, S=2, M=4, L=8`. Severity multiplier: `low=1, low-medium=1.5, medium=2, medium-high=2.5, high=3`. Both parsed from the leading token of the respective field, case-insensitive (`LOW-MEDIUM (false operator alert…)` → `low-medium`; `S–M depending…` → `S`; `S (read CI history) to M (if real)` → `S`). Entry mass = effort weight × severity multiplier; severity absent or unrecognized → multiplier 1 (severity refines, never gates). Effort absent or unrecognized → the entry is **unsized**: excluded from mass, reported as its own count. No guessed weights — the 2026-08-03 sizing commit's own rule ("an estimate on an undecided scope is a guess wearing a label") applies.
+Effort weight: `XS=1, S=2, M=4, L=8`. Severity multiplier: `low=1, low-medium=1.5, medium=2, medium-high=2.5, high=3`. Both parsed from the leading token of the respective field, case-insensitive (`LOW-MEDIUM (false operator alert…)` → `low-medium`; `S–M depending…` → `S`; `S (read CI history) to M (if real)` → `S`). Entry mass = effort weight × severity multiplier. Severity ABSENT → multiplier 1 silently (absence is the corpus norm; severity refines, never gates). Severity PRESENT but unrecognized → multiplier 1 AND the entry id is reported under a `severity-unrecognized` list (script and mdview both) — a mistyped severity must never contribute a plausible mass with no named signal. Known corpus instances of the class: `BL-AGENDA-PROSE-SECOND-DAY` and `BL-AGENDA-POSITIONAL-DAYSET-FALLBACK` carry `very low` (both currently unsized, so mass is unaffected until they gain an effort). Effort absent or unrecognized → the entry is **unsized**: excluded from mass, reported as its own count. No guessed weights — the 2026-08-03 sizing commit's own rule ("an estimate on an undecided scope is a guess wearing a label") applies.
 
-These constants live in one exported table in the script and are cited by mdview Rev 15; no second copy anywhere.
+The weight constants live in one exported table in the script. mdview Rev 15 necessarily re-implements the parse in its own code (different runtime, no shared module) — the §3.4 parity oracle, not shared source, is what keeps the two implementations honest.
 
 ### §3.2 `pnpm ledger:mass` (repo)
 
@@ -87,7 +89,12 @@ New meta-test `tests/docs/_metaLedgerSizing.test.ts`: every open entry in the wa
 
 ### §3.4 mdview Rev 15 (outside this repo)
 
-mdview is the user's personal viewer (`~/bin/mdview`, design doc `~/bin/mdview.design.md`, currently Rev 14). Its ledger pane already parses these files client-side and shows per-queue counts and effort groupings; the user's open-count numbers come from its sidebar. Rev 15 adds: a weighted-mass figure beside each queue's count (BACKLOG / DEFERRED, archives excluded), plus the unsized count, using §3.1's constants verbatim (cite this spec § in the design doc). Placement/affordance details are Rev-15 design-doc decisions, not this spec's.
+mdview is the user's personal viewer (`~/bin/mdview`, design doc `~/bin/mdview.design.md`, currently Rev 14). Its ledger pane already parses these files client-side and shows per-queue counts and effort groupings; the user's open-count numbers come from its sidebar. Rev 15 ships two things:
+
+1. **Grammar alignment.** Rev 14's entry recognizer requires an em dash after the id and its effort reader greps `\b(XS|S|M|L)\b` anywhere in the value — both diverge from the canonical walker (probed 2026-08-04: the sidebar shows 94/109 against the canonical 95/110, missing `BL-NULLCODE-STAMP-BATCH-2`, whose heading has no em dash — the exact defect the ledger-fields header warns about; and `likely S` reads as sized S where the canonical leading-token rule says unsized). Rev 15 adopts the canonical semantics: id recognition per the walker's grammar (em dash optional) and effort/severity parsed by §3.1's leading-token rule.
+2. **Mass display.** A weighted-mass figure beside each queue's count (BACKLOG / DEFERRED, archives excluded), plus the unsized count and the `severity-unrecognized` list, using §3.1's constants (cite this spec § in the design doc). Placement/affordance details are Rev-15 design-doc decisions, not this spec's.
+
+**Parity oracle (the AC-B3 check):** against the same working tree, the Rev 15 pane's per-queue entry count, mass, and unsized count must EQUAL `pnpm ledger:mass --json` field-for-field. Checklist-only visual verification is not sufficient — the oracle is the number comparison.
 
 Repo-side caveats, stated once: mdview is not in git and has no CI. Changes follow its own conventions — design-doc revision entry, timestamped `.bak` beside the binary (existing convention: `mdview.bak.YYYYMMDD-HHMMSS`), verification against `~/bin/mdview-fixtures` scratch copies and the real ledgers read-only (its own checklist forbids live-editing the repo's ledgers during checks). The repo spec/plan record WHAT shipped there; the design doc records HOW. `file:line` citations into mdview use absolute paths and are excluded from this repo's citation-grep pass.
 
@@ -107,14 +114,15 @@ Each pool entry gets exactly one class at plan time, recorded per-entry:
 - **DECISION-BLOCKED** — the entry names an unsettled product/copy decision (known members: BL-SHADOW-REBUILD-EXHAUSTED-EMIT-PLACEMENT — "whether an operator should hear about an exhausted shadow rebuild belonging to a finalize attempt that then failed is a product question"; BL-FEED-BUTTON-SUCCESS-ANNOUNCE — success-announcement copy filed as an unsettled product decision per the AGENTS.md class-sweep worked example). These are batched into ONE user question at spec finalization (§4.4); answered → CLOSE with the answer baked in; unanswered/deferred → excluded, entry stays.
 - **OWNER-ACTION** — needs repo-settings/admin action outside code (known member: BL-SECTION-HEADER-VISUAL-REQUIRED-CONTEXT — flip a CI job into branch protection's required set after soak). Included in the same §4.4 question batch; approved → a task with the exact `gh api` call; declined → excluded.
 - **INVESTIGATION** — the entry's S covers reading evidence, with a bigger fix behind it (known member: BL-REALTIME-BROADCAST-FRAME-DROP-WATCH — "S (read CI history) to M (if real)"). The sweep ships the INVESTIGATION (evidence read + verdict recorded on the entry); the entry closes if the watch shows nothing, or is re-sized and stays if it's real. Not a silent expansion into the M.
+- **PREREQ-FENCED** — the entry's own contract names an unmet prerequisite or external trigger, so closing it now would violate the entry, not honor it. Excluded from CLOSE with the fence quoted in the disposition record; the entry stays open. Known members: BL-PICKER-LOCK-ICON-LUCIDIFY (fenced on "cross-platform visual regression suite lands"), BL-IDENTITYCHIP-SUB390-COLLISION (fenced on the mobile-primary-target widening). Both are additionally hypothetical-unprobed per the screen — if Unit A's probe demotes them first, the fence question is moot.
 
 ### §4.3 Branch grouping
 
 2–4 branches grouped by surface so each PR's review is tight-scope by construction (AGENTS.md split-review default). Expected shape (finalized at plan time): a UI/a11y cluster (the icon/chip/announce entries — invariant-8 impeccable dual-gate applies; Opus implements per the UI hard rule), a tests/guards cluster, a docs/comment-drift cluster. Each branch claims its ids per invariant 12 (`pnpm ledger:claims --check <ids>` → mark → commit → push immediately) and removes markers in its last pre-merge commit.
 
-### §4.4 The single user-question batch
+### §4.4 The user-question batches
 
-At spec finalization (before adversarial review), one `AskUserQuestion` batch covers: the §4.2 DECISION-BLOCKED product answers and the OWNER-ACTION approval. `PushNotification` precedes it per the AGENTS.md ask protocol. Answers are baked into this § as ratified rows; the spec is then frozen for review. (Recorded answers: see §4.5.)
+At spec finalization (before adversarial review), one `AskUserQuestion` batch covers the then-known §4.2 DECISION-BLOCKED product answers and OWNER-ACTION approvals; if a review round or the plan-time triage surfaces FURTHER embedded decisions, they are batched again — one push-notified batch per discovery event, never one silent question at a time, and never a decision silently overridden or an entry excluded without a class. Answers are baked into §4.5 as ratified rows before the next review round fires.
 
 ### §4.5 Ratified answers (2026-08-04, user, one batch per §4.4)
 
@@ -122,14 +130,19 @@ At spec finalization (before adversarial review), one `AskUserQuestion` batch co
 2. **BL-FEED-BUTTON-SUCCESS-ANNOUNCE → CLOSE.** Copy is the generic verb form mirroring Undo's settled grammar: "Change accepted" / "Change approved" / "Change rejected". No row names in the utterance.
 3. **BL-SECTION-HEADER-VISUAL-REQUIRED-CONTEXT → CLOSE (soak-gated).** Owner approved the branch-protection flip. The task verifies observed-green soak of `section-header-visual` on merged PRs since 2026-07-27 first; soak green → flip via `gh api` and close; any red in soak → report the reds, entry stays with the finding attached.
 
-With these, every §4.2 known DECISION-BLOCKED / OWNER-ACTION member resolves to CLOSE; the classes remain for anything the plan-time triage surfaces.
+Batch 2 (2026-08-04, after review R1 surfaced two further embedded decisions):
+
+4. **BL-TASKCONTRACT-SORT-COMPARATOR-EQUALKEY → CLOSE.** Make the spec:lint finding comparator total by adding the message as third sort key — the entry's own suggestion. The two `accepted-gap` survivor mutants become killable; their source-mutation-registry ledger rows retire in the same change (the gate reports stale rows rather than absorbing them, so retiring them is part of the task).
+5. **BL-X5-ROLE-TOKEN-DECIDED-BY-BOUNDARY → CLOSE (dedicated branch).** Owner approved a standalone tight-scope branch — its own review cycle, honoring the entry's "not a rider" fence: amend master spec §17.2 AC-X.5 to name `role_token_mappings.decided_by` (and evaluate the two sibling constraints the entry names for the same amendment), regenerate `lib/audit/email-boundaries.generated.ts`, prove the `x5-email-canonicalization` gate covers both write paths.
+
+With these plus the PREREQ-FENCED class, every §4.1 pool id has a settled route; the classes remain for anything the plan-time triage surfaces.
 
 ## §5 Documented limits (this program's own)
 
 1. The semantic screen (§2.2) is reader judgment; a disguised hypothetical can survive it. Bounded by: the §2.1 filing bar stops the class at the source going forward.
 2. §3.1 weights are conventions, not measurements. Mass comparisons are meaningful only under a fixed table; changing weights re-bases history (acceptable — no stored trend in this arc).
 3. Unsized entries are invisible to mass (reported by count only). 42 today; the grandfather registry makes the number ratchet-only.
-4. mdview is outside CI; Rev 15 can drift from §3.1 until its checklist is re-run. Bounded by: the design doc cites this spec's constants table as its source.
+4. mdview is outside CI; between checklist runs its implementation can drift from §3.1. Bounded by: the §3.4 parity oracle is part of its ledger checklist from Rev 15 on, so every future checklist run re-proves parity against `pnpm ledger:mass --json`; between runs, drift is undetected — accepted for a personal read-only viewer.
 5. `--at <rev>` reads ledger FILES as committed at that rev; entries that moved between files across history are counted where they then lived. No cross-rev id tracking.
 6. `Filed:` dates are not parsed anywhere in this arc (mdview Rev 14's own history shows date-scan pitfalls; effort/severity fields suffice).
 
@@ -143,12 +156,12 @@ With these, every §4.2 known DECISION-BLOCKED / OWNER-ACTION member resolves to
 
 - **AC-A1:** AGENTS.md carries the §2.1 filing-bar bullet; the `pnpm spec:lint` report on this spec shows no findings beyond the planned-file class (files this arc creates, this spec's own pre-commit path, and the outside-repo mdview paths — each named in the review dispatch); the three seeded candidates carry their §2.2 dispositions (two archived with pointers + records in place, CAP-LOSS probe transcript recorded with keep/close executed).
 - **AC-A2:** the plan's semantic-screen table covers every open entry (count pinned to the census at plan time) with a disposition each.
-- **AC-B1:** `pnpm ledger:mass` reports the §0 table's shape against the current tree (counts match `ledgerItems` exactly — same parser, zero drift by construction) and `--json` round-trips it; `--at` on a pre-arc rev reproduces the pre-arc numbers.
+- **AC-B1:** `pnpm ledger:mass` run against a committed FIXTURE copy of the 2026-08-04 ledgers reproduces the §0 oracle exactly — BACKLOG mass 306 / DEFERRED mass 15 / total 321, unsized 31+11 — with the expected numbers derived independently in the test, not read back from the script; `--json` round-trips; `--at 8d78cdf13` (this arc's spec commit) reproduces the same numbers from git history; a planted entry with a present-but-unrecognized severity is reported by id under `severity-unrecognized`.
 - **AC-B2:** `tests/docs/_metaLedgerSizing.test.ts` fails on a planted unsized new entry in a scratch ledger fixture, names it by id, and passes on the real tree with the 42-id grandfather registry.
-- **AC-B3:** mdview Rev 15 shows mass + unsized beside the queue counts, design doc updated with a Rev 15 entry citing §3.1, its ledger checklist re-run green, `.bak` snapshot taken.
+- **AC-B3:** mdview Rev 15 passes the §3.4 parity oracle (pane count/mass/unsized == `pnpm ledger:mass --json`, field-for-field, same tree — including the previously-missed `BL-NULLCODE-STAMP-BATCH-2` heading shape), shows mass + unsized + severity-unrecognized beside the queue counts, design doc updated with a Rev 15 entry citing §3.1, its ledger checklist re-run green, `.bak` snapshot taken.
 - **AC-C1:** every §4.1 pool id is dispositioned (CLOSE merged + archived / excluded with class + reason recorded); no pool id remains OPEN-unaddressed at arc close.
 - **AC-C2:** each sweep branch's ledger claims were checked, marked, pushed at its Stage 0, and cleared in its last pre-merge commit (invariant 12 as amended 2026-08-04).
-- **AC-PROG:** at arc close, `pnpm ledger:mass` total is strictly below the §0 baseline, and the open-entry count is below 110 (the mdview sidebar number the program exists to move).
+- **AC-PROG:** at arc close, `pnpm ledger:mass` total is strictly below the §0 baseline of 321 and the canonical open-entry count is below 110. (The mdview sidebar equals the canonical count once Rev 15's parity oracle holds — its Rev 14 reading of the same baseline tree is 109, an artifact of the grammar divergence §3.4 closes, not a head start.)
 
 ## §8 Impeccable gate
 
