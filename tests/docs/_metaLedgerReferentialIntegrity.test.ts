@@ -91,20 +91,6 @@ const NOT_CITATIONS = new Set([
 ]);
 
 /**
- * Directory prefixes whose files are frozen COPIES of the ledgers, not
- * citations of them.
- *
- * `tests/fixtures/ledger-mass/<date>/` carries the ledgers as they stood on a
- * named date so the `ledger:mass` oracle pins against a fixed tree. Scanning it
- * is worse than useless: every id it holds is a duplicate of a live one, and an
- * id that later graduates would fail this guard with only one repair available —
- * editing the snapshot, which silently re-bases the numbers the snapshot exists
- * to hold. A prefix rather than a file list, so next year's snapshot needs no
- * edit here.
- */
-const NOT_CITATION_PREFIXES = ["tests/fixtures/ledger-mass/"] as const;
-
-/**
  * Citations that resolve to no ledger entry, recorded at the time this guard
  * landed. Every row is debt, not an exemption: the id is either a real untracked
  * item that needs an entry, or prose that should stop looking like an id.
@@ -130,9 +116,7 @@ function trackedFiles(): string[] {
     encoding: "utf8",
     maxBuffer: 64 * 1024 * 1024,
   });
-  return out
-    .split("\0")
-    .filter((f) => f !== "" && !NOT_CITATIONS.has(f) && !NOT_CITATION_PREFIXES.some((p) => f.startsWith(p)));
+  return out.split("\0").filter((f) => f !== "" && !NOT_CITATIONS.has(f));
 }
 
 /**

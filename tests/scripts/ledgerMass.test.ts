@@ -11,7 +11,7 @@
  * 2026-08-04 ledgers, so the numbers are facts about a specific tree.
  */
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -26,7 +26,33 @@ import {
 } from "../../scripts/ledger-mass";
 
 const ROOT = join(__dirname, "..", "..");
-const FIXTURE = join(ROOT, "tests", "fixtures", "ledger-mass", "2026-08-04");
+
+/**
+ * The frozen 2026-08-04 ledgers, materialized into a temp dir.
+ *
+ * They are COMMITTED AS JSON rather than as `BACKLOG.md` / `DEFERRED.md`, and
+ * materialized here, because a committed `.md` copy sits in the prose namespace
+ * that an OPEN SET of guards walk by extension: the referential-integrity
+ * citation scan, the retired-identifier walk, the M9.5 trust-domain scan, and
+ * whichever one lands next. Three failed on it before this moved — a frozen
+ * 226 KB copy of BACKLOG.md names nearly every surface the repo has ever
+ * retired — and each wanted its own exemption. A historical snapshot is DATA,
+ * not prose, so it does not live where prose lives.
+ *
+ * The bytes are unchanged: `--at 8d78cdf13` reads the same blobs out of git
+ * history and is asserted below to agree with this materialization.
+ */
+function materializeFixture(): string {
+  const raw = JSON.parse(
+    readFileSync(join(ROOT, "tests", "fixtures", "ledger-mass", "2026-08-04.ledgers.json"), "utf8"),
+  ) as { files: Record<string, string> };
+  const dir = mkdtempSync(join(tmpdir(), "ledger-mass-fixture-"));
+  for (const [name, body] of Object.entries(raw.files))
+    writeFileSync(join(dir, name), body, "utf8");
+  return dir;
+}
+
+const FIXTURE = materializeFixture();
 
 /** Spec §0, verbatim. Change these only when the spec's census changes. */
 const ORACLE = {
