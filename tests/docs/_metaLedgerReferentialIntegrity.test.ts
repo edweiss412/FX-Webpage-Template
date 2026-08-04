@@ -231,6 +231,9 @@ const NOT_A_CITATION: Record<string, Record<string, string>> = {
     "BL-X": "planted entry id in the Task 3/4 resolver fixtures",
     "BL-Y": "the second planted entry in Task 4's boundary-overlap hunk fixture",
   },
+  "docs/superpowers/specs/ci/2026-08-04-review-round-economy.md": {
+    "BL-SPEC-CITATION-RESOLVE": "invented id in §6's sample filing, showing where a real one goes",
+  },
   "docs/superpowers/specs/2026-08-03-ledger-claim-visibility-design.md": {
     "BL-SOME-OTHER-ROW": "placeholder row in §3.2's sample report output",
     "BL-A": "§3.3's `--check BL-A BL-B` usage example",
