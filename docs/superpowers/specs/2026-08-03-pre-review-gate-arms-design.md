@@ -197,7 +197,9 @@ One HTML comment per task, anywhere in that task's extent:
 
 Grammar, narrow ACCEPT on the same principle as §3.2:
 
-- A **marker** is a non-fenced line matching `^<!-- task: red=` + backtick + `(.+)` + backtick + ` ac=(AC-[A-Za-z0-9.-]+(,AC-[A-Za-z0-9.-]+)*) -->$` **exactly**: the two fields, in that order, one space between them, no other content.
+- A **marker** is a non-fenced line matching `^<!-- task: red=` + backtick + `(.*)` + backtick + ` ac=(AC-[A-Za-z0-9.-]+(,AC-[A-Za-z0-9.-]+)*) -->$` **exactly**: the two fields, in that order, one space between them, no other content.
+
+The command group is `(.*)` and deliberately **not** `(.+)`. With `(.+)` an empty pair of backticks fails the marker form outright and falls to `TASK_MARKER_MALFORMED`, while a whitespace-only command matches and draws `TASK_RED_EMPTY` — two spellings of the same authoring slip getting different codes, contradicting the precedence rule below which names "empty or whitespace only" as one case. Probed against the stated grammar before it shipped: `` red=`` `` classified `TASK_MARKER_MALFORMED`, `` red=`  ` `` classified `TASK_RED_EMPTY`. Matching empty and delegating to precedence rule 1 makes both `TASK_RED_EMPTY`.
 - Any non-fenced line beginning `<!-- task:` that does not match is `TASK_MARKER_MALFORMED`. That covers an unknown key, a repeated key, reordered fields, a missing or unbackticked `red`, an empty `ac` list, an empty element inside the list (`AC-1,,AC-2`), and any form not yet imagined.
 
 **Exactly one code per marker line, by a stated precedence.** The catch-all above overlaps the specific codes — a line missing `ac=` is both "does not match" and "ac absent" — and an overlap with no ordering makes the output undefined: one implementation emits both codes, another suppresses the generic one, a third treats the line as no marker at all and adds `TASK_MARKER_MISSING` on top. AC-8 would have no deterministic expected result. So:

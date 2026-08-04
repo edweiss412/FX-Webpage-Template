@@ -73,7 +73,7 @@ impeccable-gate: N/A — no UI surface
 | M21 report visibility | union + CHECK_ORDER wired, CLI renderer list untouched | AC-25 |
 | M22 budget | embedded reports crossing 200,000 bytes | AC-21 truncation notice |
 | M23 sequential regions | `open -> close -> open -> close` | `TASK_ENROLL_DUPLICATE` on the second open (AC-26) |
-| M24 code overlap | missing `ac=`; empty `ac=`; empty backticked `red=` | exactly one code by §3.3 precedence (AC-27) |
+| M24 code overlap | missing `ac=`; empty `ac=`; `red=` with empty backticks AND with whitespace-only backticks | exactly one code by §3.3 precedence, and the two empty-`red` spellings draw the SAME code (AC-27) |
 | M26 table totality | a line class reaching no row of design §3.4.1 | AC-29 table-driven test, incl. the fall-through case |
 | M25 post-close marker | marker after `tasks: end`, before the next equal-or-shallower heading | `TASK_MARKER_ORPHANED` plus the task's own `TASK_MARKER_MISSING` (AC-28) |
 
