@@ -75,6 +75,8 @@ The rename-linked instances of this shape were fixed in the filing PR via the su
 
 **Re-sized M → S** on the probe: the search space collapsed from "redesign arm (c)'s absence predicate on a path no unit touches" to one branch that is asymmetric with its three siblings.
 
+screen-disposition 2026-08-04: KEEP — probe (`tests/sync/capabilityLossReachability.probe.test.ts`) demonstrates the false loss end-to-end on `undo_override`/`crew_email`; three sibling shapes verified correct in the same run, and all four are pinned at current behaviour.
+
 **Work.** Restore the symmetry at the source rather than loosening arm (c). The tombstone row above is the counterweight and is pinned in the same probe file: it is a REAL loss, and any fix that suppresses arm (c) more aggressively to silence the false positive will silence that one too. All four rows are pinned at current behaviour, so the fix arrives with a failing case waiting for it.
 
 ---
@@ -975,6 +977,8 @@ a surface with many simultaneous overlays. Not worth a standalone change at two 
 
 ## BL-FITWITHINCLIP-CLIP-SCROLL-STALE — a SCROLLING clip ancestor is never re-measured on scroll
 
+**Status:** IN PROGRESS · **Branch:** chore/backlog-convergence
+
 **Effort:** S
 
 Surfaced by the non-degraded impeccable gate rerun on PR #658 (2026-08-02).
@@ -1269,6 +1273,8 @@ Speculative scope: 1-2 weeks of milestone-shape work (design pass + impl + tests
 **Promotion mechanics:** Add an icon (lucide-react `AlertCircle`) above the h1, sized at `--icon-lg` (32px), in `text-text-subtle`. ~5-line edit.
 
 ### BL-RATE-LIMIT-SNAPSHOT-DURABILITY — DB-backed snapshot store for rate-limit fixture seed/restore
+
+**Status:** IN PROGRESS · **Branch:** chore/backlog-convergence
 
 **Filed:** 2026-05-28 from M12 Phase 0.E close-out §6 finding 3 (R9 durability residual).
 

@@ -216,6 +216,8 @@ From the same audit. Tailwind v4's `duration-*` utility resolves `--transition-d
 
 ### DESTRUCT-ARM-ANNOUNCE-1 — [P2] the armed window closes silently
 
+**Status:** IN PROGRESS · **Branch:** chore/backlog-convergence
+
 From the same audit. At 4s the live region empties and the button's accessible name reverts, but a focused button's name change is not spoken — the user believes they are still armed. Separately, 4s is tight against ~3s of polite speech for the arm message.
 
 **Accepted, not fixed.** Both fixes mean revisiting `ARM_REVERT_MS` for assistive-tech users specifically, which is a decision across all 11 surfaces sharing the constant, not one component. Tracked as `BL-DESTRUCT-ARM-STATE-ANNOUNCEMENTS`.
