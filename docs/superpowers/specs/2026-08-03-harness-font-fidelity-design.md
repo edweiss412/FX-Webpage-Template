@@ -10,7 +10,7 @@
 
 ## 1. Problem
 
-PR #676 wired Inter at both Next roots and bound `--font-sans` to `var(--font-inter)`, so every React-root surface now renders the committed family (the four rootless auth HTML responses excepted — §1.1). `BL-HARNESS-FONT-FIDELITY` is the residual it filed: the standalone e2e harnesses have no Next runtime, so no `@font-face` reaches them, and they resolve the inline `var()` fallback pair and land on the ambient host font — SF Pro locally, DejaVu Sans on the Ubuntu runner.
+PR #676 wired Inter at both Next roots and bound `--font-sans` to `var(--font-inter)`, so every React-root surface now renders the committed **sans** family where the sans token applies (the four rootless auth HTML responses excepted — §1.1, and the app's deliberate monospace surfaces excepted — §4.2). `BL-HARNESS-FONT-FIDELITY` is the residual it filed: the standalone e2e harnesses have no Next runtime, so no `@font-face` reaches them, and they resolve the inline `var()` fallback pair and land on the ambient host font — SF Pro locally, DejaVu Sans on the Ubuntu runner.
 
 **The exposure is broader than the entry's "cost today is zero" suggests.** Measured on this branch:
 
@@ -238,7 +238,7 @@ So Kind B is closed by **one general oracle**, not a list: walk every visible te
 
 Both rejected formulations pass the actual attack; the child probe catches it. That is what makes the one-oracle claim above load-bearing rather than aspirational.
 
-The acceptance criterion is the project's preparedness posture (`docs/agents/spec-self-review.md:24`) — every surface renders the committed family or a test says otherwise — **not** "no imaginable mutant survives". A new Kind B instance that the general oracle already catches is not a finding. A new Kind B instance that reveals a *surface the census misses* is, and it is fixed by widening the census, not by adding a row.
+The acceptance criterion is the project's preparedness posture (`docs/agents/spec-self-review.md:24`) — every surface renders the family its cascade selects — Inter where the sans token applies, mono where the design calls for it — or a test says otherwise — **not** "no imaginable mutant survives". A new Kind B instance that the general oracle already catches is not a finding. A new Kind B instance that reveals a *surface the census misses* is, and it is fixed by widening the census, not by adding a row.
 
 ### 4.1 Static guard
 
@@ -355,7 +355,7 @@ Source-text assertions, DB-free unit suite — **except** the two rows explicitl
 
 ### 4.2 Executable guard — the harness face
 
-`tests/e2e/font-binding.spec.ts` already proves the **app** renders Inter, on `/admin`, by measuring rendered text width against the family read from the token (`crew-e2e.yml:7-8`). It is untouched.
+`tests/e2e/font-binding.spec.ts` already proves the **app** renders Inter on `/admin`, by measuring rendered text width against the family read from the token (`crew-e2e.yml:7-8`). It is untouched.
 
 What is missing is the harness half, and it is the point of this spec. A new case in the harness toolchain's own test surface:
 
@@ -408,7 +408,7 @@ This is where the entry's "Effort: M" lives. **Harness rendering changes by desi
 
 | Artifact | Count | Affected? | Action |
 | --- | --- | --- | --- |
-| `tests/e2e/section-header-visual.spec.ts-snapshots/` | 50 PNG | **Yes** — the harness now renders Inter instead of the host font | Regenerate via `workflow_dispatch` on `.github/workflows/section-header-visual-regen.yml`, from the pinned image. Never from an arm64 host. |
+| `tests/e2e/section-header-visual.spec.ts-snapshots/` | 50 PNG | **Yes** — the harness now renders Inter instead of the host font for its sans text | Regenerate via `workflow_dispatch` on `.github/workflows/section-header-visual-regen.yml`, from the pinned image. Never from an arm64 host. |
 | The 27 other harness specs asserting geometry figures | — | **Yes, where a pinned number is font-dependent** | Run them; update pinned figures with measured values and record before/after in the PR. This is the bulk of the work and cannot be enumerated statically — the suite run is the census. |
 | The 24 font-sensitive callers with no font synchronization | 24 files, one wait **per measured document** | **Yes — each gains `await document.fonts.ready` per the §3.2 invariant**, which is per document, not per file and not per geometry read. Enumerated so the work is countable: `agendaScheduleLayout`, `appHealthIndicator.layout`, `attention-pill-focus`, `autoAppliedCardGrid.layout`, `bulk-ignore-eyebrow.layout`, `collapse-panel-morph`, `compact-alert-card-layout`, `dataQualityBadge.layout`, `developer-toggle-layout`, `hoverhelp-geometry`, `pendingDiscardReal.layout`, `pendingDiscardReflow.layout`, `popover-clip-fit`, `published-review-modal.layout`, `pusher-alignment.layout`, `section-header-layout.layout`, `statusStripToggleLayout`, `step3-review-modal.agenda`, `step3-review-modal.interactions`, `step3-review-modal.layout`, `step3-review-page.layout`, `step3-schedule-bookend-layout`, `toggle-edge-layout`, `wizard-blocker-modal.layout`. | The four already synchronized (`resolve-label-layout`, `skeletonBandParity`, `stackedBandLayout` explicitly; `section-header-visual` via Playwright's screenshotter) need nothing. Figures are re-derived only after the await lands — measuring first would bake in fallback metrics. |
 | `tests/e2e/section-header-layout.layout.spec.ts:182`'s Arial pin | — | Decision, not churn | The pin exists because the ambient stack differed across OSes. Once harnesses render a repo-controlled face that is identical everywhere, the reason is gone. Retarget it at Inter and re-derive `HEADER_LINE_PX` and `HEADER_WITH_PILL_PX` (`tests/e2e/section-header-layout.layout.spec.ts:360-361`). **Not** a tolerance widening — the assertion and its floor stay; only the font it measures under changes, from a stand-in to the one that ships. |
