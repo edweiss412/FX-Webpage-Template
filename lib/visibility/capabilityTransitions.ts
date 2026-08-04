@@ -46,12 +46,21 @@
  */
 
 /**
- * The 5 capability predicates that gate scope-tile and financials
- * visibility on the crew page. Hand-listed (rather than `keyof`-
- * extracted) so a future predicate addition surfaces here AND in the
- * matrix as a TypeScript error if the matrix is incomplete.
+ * The capability predicates that gate scope-tile and financials visibility on
+ * the crew page. This array is the single source: the `CapabilityPredicate`
+ * union is derived from it, and the matrix tests derive their expected pair
+ * set from its length — so adding a predicate here FAILS
+ * `tests/visibility/capabilityTransitions.test.ts` until the matrix carries
+ * every new pair.
+ *
+ * It does NOT produce a TypeScript error. An earlier version of this comment
+ * promised one; that was probed false — the union was hand-written with no
+ * link to the matrix, and all three size assertions were literals, so a sixth
+ * member produced no error anywhere.
  */
-export type CapabilityPredicate = "hasLead" | "hasA1" | "hasV1" | "hasL1" | "hasAdmin";
+export const CAPABILITY_PREDICATES = ["hasLead", "hasA1", "hasV1", "hasL1", "hasAdmin"] as const;
+
+export type CapabilityPredicate = (typeof CAPABILITY_PREDICATES)[number];
 
 /**
  * The four gated tiles whose visibility this matrix covers. Listed

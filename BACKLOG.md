@@ -8,6 +8,58 @@ Last reconciled: 2026-08-03 — `chore/scanner-precision-cluster` graduated `BL-
 
 ---
 
+## BL-COVERAGE-CLAIMS-CITE-SKIPPED-SUITES — contract artifacts claim e2e coverage from suites that do not execute
+
+**Status:** OPEN · **Severity:** LOW-MEDIUM (dark coverage on documented contracts; no product impact) · **Class:** docs/contract, test-coverage claims · **Filed:** 2026-08-03 (`docs/settle-lead-capability-prose`, descoped at spec review R3 after three rounds of under-counting) · **Effort:** L
+
+Twelve artifacts tell a maintainer that compound capability transitions, RightNow transition behavior, and transport animation are exercised by e2e suites. **They are not.** Both named suites are `test.describe.skip`, and neither contains an assertion about the thing claimed.
+
+**Instances found so far. The set is NOT known to be complete** — see the methodological finding below.
+
+| Site                                                 | Claim                                                                                                                          |
+| ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `lib/visibility/capabilityTransitions.ts:36-39`      | compound transitions "are exercised by the e2e compound-transition tests in `tests/e2e/right-now-transitions.spec.ts`"         |
+| `lib/visibility/capabilityTransitions.ts:130`        | "the delta is empty (the e2e compound tests cover those cases)"                                                                |
+| `lib/visibility/capabilityTransitions.ts:213`        | an entry `reason` ending "LEAD/admin compound interactions are tested by e2e"                                                  |
+| `tests/visibility/capabilityTransitions.test.ts:8-9` | the first claim restated in the test header                                                                                    |
+| `tests/visibility/capabilityTransitions.test.ts:194` | "the e2e compound test verifies the no-flicker invariant"                                                                      |
+| `tests/e2e/helpers/rightNow.ts:183`                  | skipped pairs "the compound tests handle them with explicit setup"                                                             |
+| `tests/e2e/helpers/rightNow.ts:239`                  | "the compound tests … cover the recovery paths"                                                                                |
+| `tests/e2e/helpers/rightNow.ts:286-292`              | "the helper covers TIME-DRIVEN transitions"; "the audit suite documents which transitions can be driven via tick-only"         |
+| `tests/visibility/transportTransitions.test.ts:10`   | "animation behavior is exercised in e2e tests"                                                                                 |
+| `lib/time/rightNowTransitions.ts:12-14`              | the Playwright audit "scaffolded as `test.fixme` until Batch 2 lands `framer-motion`" drives its assertions from this constant |
+| `lib/time/rightNowTransitions.ts:82-86`              | `unreachable` transitions are "Regression-guarded by the audit suite"                                                          |
+| `tests/time/rightNowTransitions.test.ts:6-8`         | "Animation-behavior tests live in `tests/e2e/right-now-transitions.spec.ts` (scaffolded as `test.fixme()` …)"                  |
+
+**Ground truth, probed 2026-08-03 — recorded so no future pass re-derives it:**
+
+```
+$ grep -n 'describe.skip' tests/e2e/right-now-transitions.spec.ts
+154:  RightNow §8.2 — 66-pair pairwise transition audit
+291:  RightNow §8.2 — 6 compound transition audits
+$ grep -c 'CAPABILITY_TRANSITION_MATRIX|affectedTilesOnFlip|FinancialsTile|AudioScopeTile' tests/e2e/right-now-transitions.spec.ts
+0
+$ grep -n 'describe.skip|test.describe(' tests/e2e/transport-tile.spec.ts
+225:  crew page — TransportTile (Task 4.7, §8.1)     [the file's ONLY describe]
+$ grep -c 'AnimatePresence|animation|transition|opacity' tests/e2e/transport-tile.spec.ts
+0
+$ grep -rl 'describe.skip' tests/e2e/ | wc -l
+12
+```
+
+**One blocker explains all of it:** the `?crew=`/`?as=admin` dev mock was retired, and each case renders as a specific non-LEAD crew identity that `signInAs` cannot reproduce without per-test crew rows matching `NON_ADMIN_CREW_FIXTURE` plus per-test fixture seeding (`tests/e2e/right-now-transitions.spec.ts:285-290`). Several claims are stale a SECOND way: they attribute non-execution to `test.fixme` pending `framer-motion`, a blocker that no longer applies.
+
+**Two sites are already honest and must NOT be "fixed":** `tests/visibility/capabilityTransitions.test.ts:224` says the gap is deferred pending Realtime push (M6); `:272` is future-tense about the same thing.
+
+**The methodological finding — this row's most valuable content.** Three hand-run sweeps under-counted this class (2 → 4 → 9 → 12), and each failure was a PATTERN failure, not an effort failure:
+
+- Sweeping `e2e|E2E` misses claims phrased "the audit suite", "the compound tests", "the helper covers" — no token in common.
+- Scoping the sweep to files the branch already had reason to open missed `tests/time/rightNowTransitions.test.ts` entirely.
+
+So the fix shape is **not** "grep harder". It is: enumerate every `describe.skip` / `test.fixme` / `test.skip` suite mechanically, resolve which modules and tests cite each one, and check the citing prose — **or** decide that prose coverage claims are unguardable and delete the class of sentence rather than maintain it. That decision is this row's open question and is a design call.
+
+**Why it was descoped rather than fixed:** it is a different class from the one `BL-LEAD-CAPABILITY-PROSE-STALE` filed (now in `BACKLOG-archive.md`) (restatements of whether a test EXECUTES, not of what a predicate COMPUTES), its extent is unmeasured, and bundling it into a branch chartered to settle two named claims drove three BLOCKING review rounds. Full reasoning: `docs/superpowers/specs/2026-08-03-lead-capability-prose-settle-design.md` §1.2 and §2.7.
+
 ## BL-WARNING-SCAN-SCOPE-HAS-NO-ANCHOR — the recognizer signals unresolvable sites, but a narrowed scan scope drops codes with nothing to signal
 
 **Filed:** 2026-08-03 (from a duplicate implementation of `BL-INTERNAL-CODE-ENUM-SCAN-WIDEN`, abandoned once `chore/scanner-precision-cluster` merged first; this is the one finding of that run not already covered). **Class:** guard completeness. **Effort:** S.
