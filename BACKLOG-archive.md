@@ -8,6 +8,134 @@ Same split as [DEFERRED.md](./DEFERRED.md) ↔ [DEFERRED-archive.md](./DEFERRED-
 
 ---
 
+## BL-FINALIZE-CAS-ROLEFLAGS-NOTICE-DROP — RESOLVED (2026-08-04, PR #697 `fix/apply-undo-audit-fidelity`, merge `644f8bb06`)
+
+**The entry named ONE discard site; the class sweep found four.** The shape it describes — a path
+that obtains a real `roleFlagsNotice` and emits nothing — held equally for the first-seen onboarding
+finalize, for `runManualStageForFirstSeen` (which builds the notice and then returns a shape without
+it), and for the pending-ingestion retry route, which bypasses `processOneFile`'s post-commit tail
+altogether and was therefore dark for everything that tail emits, not only this notice. All four are
+repaired here under the class-sweep disposition default; none qualified for a deferral exception,
+since each was the same defect in code the branch was already touching.
+
+**Shipped:** one shared helper, `lib/sync/emitRoleFlagsNotice.ts`. It is the `emitDeferredRoleFlagsNotice`
+body that already existed inside `lib/sync/runScheduledCronSync.ts` — exported and relocated, with the
+near-verbatim copy in `lib/sync/applyStaged.ts` collapsed into it — and every discard site now routes
+through it. Three of the four accumulate their notices and flush them in a `finally` AFTER the outer
+transaction, because the obvious position (beside the existing `SHOW_FINALIZED` `logAdminOutcome`) is
+post-**row**-commit but still inside the route's outer finalize lock, which invariant 10 forbids. Both
+finalize-cas handlers are wired, including the STREAMING one: it owns its own `withTx` and its own
+`finally`, and it is the handler the admin finalize button actually reaches, so wiring only the
+non-streaming fallback would have left the production path dark. `_metaLeadRoleAppliedTopology` now
+expects exactly one emit site.
+
+**The structural guard against a fifth site is DESCOPED, not shipped** — refiled as
+`BL-ROLEFLAGSNOTICE-DROP-GUARD`. `roleFlagsNotice` reaches its sink through import aliases and
+dependency-injection seams, so a guard keyed on direct consumers would bless an envelope-preserving
+wrapper while staying blind to the retry route that drops it; catching that needs recursive carrier
+tracking to terminal sinks, which is its own design rather than a bullet in this spec. What ships in
+its place is a behavioral test per instance, on all four.
+
+Spec: `docs/superpowers/specs/2026-08-03-apply-undo-audit-fidelity-design.md` §2.3 and §9.
+
+The original entry follows, its in-flight marker stripped — an archive cannot hold work in
+flight (invariant 12). Nothing else is edited.
+
+## BL-FINALIZE-CAS-ROLEFLAGS-NOTICE-DROP — the wizard Phase D apply discards its capability notice
+
+**Filed:** 2026-08-03 (`2026-08-03-staged-identitylink-rename-identity` §1.1 #7, review R1 finding 1) · **Class:** audit emission gap (onboarding Phase D) · **Effort:** S-M (a post-commit sink on the finalize-cas route)
+
+`applyStagedCore` returns `roleFlagsNotice` on every path, and the dashboard staged-apply tail emits it post-commit. `finalize-cas` (`app/api/admin/onboarding/finalize-cas/route.ts`) does not: its per-row return carries only `drive_file_id`, `code`, and `showId`, and no `ROLE_FLAGS_NOTICE` alert or durable `LEAD_ROLE_APPLIED` event is emitted anywhere on that route. A capability gain or loss landed by a Phase D existing-show apply is therefore audited by the change-log row but never reaches the bell or the durable event.
+
+Pre-existing and independent of the staged identity-link threading — verified live 2026-08-03 against both the core result shape and the route body. **Fix (when prioritized):** emit from `coreResult.roleFlagsNotice` post-commit, outside the advisory-lock transaction (invariant 10), mirroring the dashboard tail in `lib/sync/applyStaged.ts`.
+
+---
+
+## BL-IDENTITYLINK-LANDED-VS-REQUESTED — RESOLVED (2026-08-04, PR #697 `fix/apply-undo-audit-fidelity`, merge `644f8bb06`)
+
+**The notice and the feed now derive from the pairs that actually LANDED**, reported by the apply
+rather than assumed from the request. `renameCrewMember` reports whether a row changed,
+`ApplyParseResultOutcome` carries the landed and unlanded pairs with a `reason` on each, and an
+`IDENTITY_LINK_RENAME_UNLANDED` durable event records the ones that did not land.
+
+**The entry's premise was partly wrong, and the truth was wider.** It claimed the feed writer consumed
+the requested `identityLinkRenames`. The feed never saw them: `writeAutoApplyChanges` re-derived its
+own pairs from `triggeredItems` through a `renamePairs` helper that accepted any MI-12/MI-13/MI-14
+item unconditionally — no accept gate at all, so the feed could record a rename that was never even
+requested by an accepted item, a wider defect than the row described. That derivation is deleted and
+the feed takes the landed pairs from its call site.
+
+**The notice needed a two-arm split, not a swap.** `capabilityRoleChangesForNotice` uses the pairs
+twice for opposite purposes. Arm (a) maps an added name back to its linked prior so an unchanged-flag
+rename is not reported as a fresh grant, and it takes landed pairs. Arm (c) SUPPRESSES a
+capability-loss notice, and feeding it landed pairs alone would have fired a **false** capability-loss
+notice for every pair whose source row survived the apply — a new defect in the opposite direction
+from the one being fixed. Its correct input is landed pairs ∪ unlanded pairs whose source SURVIVED,
+computed as a survival test inside `applyParseResult` where `deleteKeepNames` lives, and deliberately
+not as a reason test: `name_held` is recorded for every surviving hold while delete-protection is
+recorded only in specific hold-kind branches, so a held pair can genuinely lose its row. A real
+capability loss that the requested-pairs suppression hid is now reported.
+
+The remaining false-loss shape — arm (c) firing for a held row that no rename pair names — is out of
+scope under class-sweep exception (c) and filed as `BL-CAPABILITY-LOSS-SURVIVING-ROW-FALSE-POSITIVE`.
+
+Spec: `docs/superpowers/specs/2026-08-03-apply-undo-audit-fidelity-design.md` §2.1 and §2.2.
+
+The original entry follows, its in-flight marker stripped — an archive cannot hold work in
+flight (invariant 12). Nothing else is edited.
+
+## BL-IDENTITYLINK-LANDED-VS-REQUESTED — the notice and feed consume requested rename pairs, not landed ones
+
+**Filed:** 2026-08-03 (`2026-08-03-staged-identitylink-rename-identity` §1.1 #8, review R1 finding 2) · **Class:** sync audit fidelity (cron + staged, shared) · **Effort:** M (the reconciler must report what it landed)
+
+Hold-aware reconciliation can suppress a rename TARGET (P2-F4 added-row reservation collision, `lib/sync/holds/holdAwareApply.ts`). The pair then no-ops inside `applyParseResult` — no successor row lands — yet `capabilityRoleChangesForNotice` and the feed writer both consume the **requested** `identityLinkRenames`, so the notice and the feed describe a rename that did not happen. `renameCrewMember`'s no-op on target collision / missing source is the same class (it returns void, unobservable to callers).
+
+Shared verbatim with the cron path — same producer/consumer wiring — and neither introduced nor widened by the staged threading, which only adds a second producer. **Fix (when prioritized):** have the apply return the pairs it actually landed and feed the notice/feed writers from that, not from the request.
+
+---
+
+## BL-UNDO-SELECTIONS-RESET-AT-DROP — RESOLVED (2026-08-04, PR #697 `fix/apply-undo-audit-fidelity`, merge `644f8bb06`)
+
+**`selections_reset_at` now survives an undo.** `crewImage` carries the column into `before_image`
+and the Direction A re-insert restores it
+(`supabase/migrations/20260804000000_undo_change_selections_reset_at.sql`).
+
+**The real fix was capturing the successor's marker BEFORE the delete, not merging in `ON CONFLICT`.**
+A normal `crew_renamed` undo deletes the live successor first, precisely so the INSERT slot is free —
+so the common rename path takes the clean-INSERT branch and a merge living only in the conflict branch
+would never run. Worse, a reset stamped on that successor _after_ the rename is destroyed by the
+delete, so the conflict-branch `greatest(...)` never sees it either. The successor row is already
+`select … for update`'d before the delete, so its marker is captured there at zero extra cost and the
+restored row takes the later of the two values.
+
+**`undo_change` was not the only producer.** `mi11_approve_hold` omits the column from BOTH its
+`before_image` builder and the fresh successor INSERT it writes; both sites are repaired in the same
+migration, which therefore replaces two functions rather than one. The guard that should have caught
+the original drop was reading a migration superseded a month earlier and asserted nothing about
+omissions — it is repointed at the live body with the column added, so repairing the drop does not
+leave its blind guard to queue the next one.
+
+**Two historical shapes stay unrescuable, and are documented limits rather than hidden.** The fix
+works by falling through to the live successor's marker, so it helps only where a successor carries
+one: a pre-change `crew_removed` has no successor at all, and a pre-change MI-11 rename has NULL on
+both inputs. Both are bounded to rows written before this change, and neither is backfillable — the
+information no longer exists anywhere.
+
+Spec: `docs/superpowers/specs/2026-08-03-apply-undo-audit-fidelity-design.md` §2.4 and §8.
+
+The original entry follows, its in-flight marker stripped — an archive cannot hold work in
+flight (invariant 12). Nothing else is edited.
+
+## BL-UNDO-SELECTIONS-RESET-AT-DROP — any crew undo resets `selections_reset_at` to null
+
+**Filed:** 2026-08-03 (`2026-08-03-staged-identitylink-rename-identity` §1.1 #9, review R1 finding 3) · **Class:** undo lifecycle fidelity · **Effort:** S (one column through `before_image` + the Direction A re-insert)
+
+`crewImage` omits `selections_reset_at` from `before_image`, and the `undo_change` Direction A re-insert omits the column, so ANY crew undo — removed or renamed, either apply shape, either path — restores the row with a null marker. A picker cookie that was deliberately invalidated before the undone change can validate again afterward.
+
+Pre-existing and shape-agnostic: the cron in-place rename already round-trips through the same RPC, so the staged threading does not widen it. **Fix (when prioritized):** carry the column in `before_image` and restore it on re-insert, with a db test asserting an invalidated cookie stays invalidated across an undo.
+
+---
+
 ## BL-INTER-NUMERAL-DISAMBIGUATION — RESOLVED (2026-08-03, `feat/inter-numeral-disambiguation`)
 
 **Resolved by changing the font, not the CSS — the entry's premise was false.**
