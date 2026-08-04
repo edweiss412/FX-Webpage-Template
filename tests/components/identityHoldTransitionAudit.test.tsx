@@ -18,11 +18,13 @@
 //             The refresh-REMOUNT row is a full document load, which jsdom cannot
 //             stage; the e2e spec pins it (tests/e2e/needs-attention-holds.spec.ts).
 import { readFileSync } from "node:fs";
+import { stripCommentsForFile } from "@/tests/_shared/stripComments";
 import { render, screen, fireEvent, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { NeedsAttentionInbox } from "@/components/admin/NeedsAttentionInbox";
 import type { NeedsAttentionItem } from "@/lib/admin/needsAttention";
 
+const ISLAND_PATH = "components/admin/IdentityHoldDisclosure.tsx";
 const NOW = new Date("2026-08-03T13:00:00Z");
 type HoldItem = Extract<NeedsAttentionItem, { variant: "identity_hold" }>;
 function holdItem(summaries: string[]): HoldItem {
@@ -50,7 +52,7 @@ function renderInbox(items: NeedsAttentionItem[]) {
 }
 
 describe("identity_hold transition audit — source tier", () => {
-  const islandSrc = readFileSync("components/admin/IdentityHoldDisclosure.tsx", "utf8");
+  const islandSrc = readFileSync(ISLAND_PATH, "utf8");
   const inboxSrc = readFileSync("components/admin/NeedsAttentionInbox.tsx", "utf8");
 
   it("no Framer Motion in either file: the only animation is CollapsePanel's height morph", () => {
@@ -63,7 +65,7 @@ describe("identity_hold transition audit — source tier", () => {
 
   it("exactly one CollapsePanel usage, LIVE-wired to open, with region={false} and a label", () => {
     // Comments stripped: every predicate here is comment-satisfiable otherwise.
-    const src = islandSrc.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+    const src = stripCommentsForFile(islandSrc, ISLAND_PATH);
     const usages = src.match(/<CollapsePanel\b/g) ?? [];
     expect(usages).toHaveLength(1);
     const start = src.indexOf("<CollapsePanel");

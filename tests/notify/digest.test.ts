@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { stripCommentsForFile } from "@/tests/_shared/stripComments";
 import postgres from "postgres";
 import { describe, expect, test, vi } from "vitest";
 import { DIGEST_MAX_ITEMS_PER_SHOW } from "@/lib/notify/constants";
@@ -329,8 +330,8 @@ describe("buildDigestModel identity holds", () => {
     // ignores clauses: an extra `and sh.domain = '...'` (a filter the PostgREST
     // reader does not have, so the two transports would silently diverge) and a
     // `limit 1` (which would cap the digest, contradicting D8's uncapped model).
-    const raw = readFileSync("lib/notify/digest.ts", "utf8");
-    const src = raw.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+    const path = "lib/notify/digest.ts";
+    const src = stripCommentsForFile(readFileSync(path, "utf8"), path);
     const start = src.indexOf("select sh.id");
     expect(start, "the sync_holds SQL is gone entirely").toBeGreaterThan(-1);
     const sql = src.slice(start, src.indexOf("`", start)).replace(/\s+/g, " ").trim();

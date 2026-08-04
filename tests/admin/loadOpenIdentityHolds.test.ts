@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { stripCommentsForFile } from "@/tests/_shared/stripComments";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { loadOpenIdentityHolds, HOLDS_ROW_CAP } from "@/lib/admin/identityHolds";
 import { log } from "@/lib/log";
@@ -157,8 +158,8 @@ describe("loadOpenIdentityHolds", () => {
     // `toContain` passes when the operations are deleted and their literals
     // survive in a comment, which is exactly the regression this pin exists to
     // catch (archived filter or ordering dropped in a refactor).
-    const raw = readFileSync("lib/admin/identityHolds.ts", "utf8");
-    const src = raw.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+    const path = "lib/admin/identityHolds.ts";
+    const src = stripCommentsForFile(readFileSync(path, "utf8"), path);
     const start = src.indexOf('.from("sync_holds")');
     expect(start, "the sync_holds query chain is gone entirely").toBeGreaterThan(-1);
     const end = src.indexOf(";", start);
@@ -191,8 +192,8 @@ describe("loadOpenIdentityHolds", () => {
     // bare response handle (`const res = await supabase...; res.data`) preserves
     // current behavior — so nothing else in the suite would catch the regression
     // that invariant 9 exists to prevent.
-    const raw = readFileSync("lib/admin/identityHolds.ts", "utf8");
-    const src = raw.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+    const path = "lib/admin/identityHolds.ts";
+    const src = stripCommentsForFile(readFileSync(path, "utf8"), path);
     expect(src).toMatch(/const\s*\{\s*data\s*,\s*error\s*,?\s*\}\s*=\s*await\s+supabase\b/);
   });
 });
