@@ -169,14 +169,21 @@ describe("loadOpenIdentityHolds", () => {
       '.order("created_at", { ascending: false })',
       '.order("id", { ascending: true })',
       ".limit(HOLDS_ROW_CAP + 1)",
-      // The PROJECTION is part of the contract: the mocked client returns rows
-      // regardless of what was selected, so dropping the shows!inner embed makes
-      // every row slug-less at runtime and silently empties the stream while
-      // every behavioral assertion above stays green.
-      "shows!inner(slug, title)",
     ]) {
       expect(chain, `missing from the sync_holds query chain: ${op}`).toContain(op);
     }
+    // The PROJECTION is pinned WHOLE, not by sampled columns. A mocked client
+    // returns fixture rows regardless of what was selected, so every column loss
+    // is invisible to the behavioral tests — and they are not equivalent losses:
+    // dropping `shows!inner(slug, title)` empties the stream (slug-less rows are
+    // skipped), while dropping `show_id` collapses every hold into ONE group
+    // keyed undefined. Naming columns one at a time is how this pin gets
+    // re-litigated; equality ends it.
+    const projection = chain.slice(chain.indexOf(".select(") + ".select(".length);
+    const literal = projection.slice(projection.indexOf('"') + 1, projection.indexOf('",'));
+    expect(literal).toBe(
+      "id, show_id, entity_key, held_value, proposed_value, base_modified_time, created_at, shows!inner(slug, title)",
+    );
   });
 
   it("source pins invariant-9 destructuring: the response is read as { data, error }", () => {
