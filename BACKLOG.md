@@ -1642,7 +1642,7 @@ Four route handlers build and return a complete `<html>` document as a string, s
 
 ## BL-HARNESS-FONT-FIDELITY — the 31 standalone harnesses measure a different font than the product renders
 
-**Status:** OPEN.
+**Status:** IN PROGRESS · **Branch:** feat/harness-font-fidelity
 
 **Filed:** 2026-08-03 (`feat/font-binding-modal-freshness-cue`, the successor residual of `BL-HEADER-FONT-FALLBACK-WRAP`). **Class:** test fidelity / CI determinism. **Effort:** M.
 The 31 standalone e2e harnesses route through `compileEntryCss` (`tests/e2e/helpers/liveEntryToolchain.ts:124-141`), which runs the Tailwind CLI over `app/globals.css` and serves the result as a static file beside harness-rendered markup. There is no Next.js runtime, so no `next/font` `@font-face` — they resolve `--font-sans`'s literal fallback pair and land on the ambient host font (SF Pro locally, DejaVu Sans on the Ubuntu runner). The product now renders Inter on every React-root surface; the harnesses measure something the product never shows.
