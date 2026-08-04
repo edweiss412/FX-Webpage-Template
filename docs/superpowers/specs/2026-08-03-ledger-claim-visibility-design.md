@@ -5,7 +5,7 @@
 **Date:** 2026-08-03
 **Branch:** `chore/ledger-claim-visibility`
 **Backlog entries:** none opened for this work (see §9.1); three filed as by-products (§9.2, §9.3, §5 item 0a)
-**Status:** R14 repaired — 78 adversarial findings across fourteen rounds plus 5 self-findings, all accepted. R10 triggered the three-round cap: §3.1 is written from a spike, independently reproduced cross-model at R11
+**Status:** R15 repaired — 81 adversarial findings across fifteen rounds plus 5 self-findings, all accepted. R10 triggered the three-round cap: §3.1 is written from a spike, independently reproduced cross-model at R11
 **Review note:** R1-R4 were Codex (cross-model). R5 and R6 were fresh-eyes Opus sessions, because Codex hit a usage limit resetting 2026-08-10; see §10
 **impeccable-gate: N/A — no UI surface**
 
@@ -519,9 +519,20 @@ Wired as `"ledger:claims": "tsx scripts/ledger-claims.ts"` in `package.json`.
    the fork — and `GITHUB_HEAD_REF` carries just the branch name, so a fork branch named
    `fix/apply-undo-audit-fidelity` reads as identical to the base branch of that name. That base
    branch currently carries three declarations, and a fork PR reusing the name would have all three
-   excluded as "self", exiting 0 on a real collision. So self-exclusion compares the full head:
-   when `GITHUB_HEAD_REPOSITORY` differs from `GITHUB_REPOSITORY`, the run is a fork PR and **no
-   base ref is "me"** — self-exclusion is disabled outright rather than matched by name. The environment
+   excluded as "self", exiting 0 on a real collision. So self-exclusion is by **full head identity**, and — critically — it is
+   **disabled whenever that identity cannot be established**.
+
+   R15 finding 1 caught an earlier draft naming `GITHUB_HEAD_REPOSITORY`, which is not a GitHub
+   Actions variable at all. That invention would have been worse than the bug it fixed: on a
+   same-repository PR the comparison reads `undefined !== GITHUB_REPOSITORY`, concludes "fork",
+   disables self-exclusion, and exits 1 on the PR's own declaration — failing every compliant run.
+
+   The design therefore does not depend on any single variable name being right. Head repository is
+   read from the event payload at `GITHUB_EVENT_PATH` when that file is present, and **when it
+   cannot be determined, self-exclusion is off**. That default is the same asymmetry §3.2 step 2
+   already ratified: a false collision names a real branch and a human clears it in seconds, while a
+   false all-clear is the defect this spec exists to remove. An implementation that guesses wrong
+   about the environment therefore over-reports rather than going quiet. The environment
    variable is not a convenience — `actions/checkout@v4` leaves a PR build on a detached merge ref,
    so a reader that only asked git would find no current branch and attribute the PR's own marker to
    a stranger, failing every PR that declares anything.
@@ -565,8 +576,13 @@ Wired as `"ledger:claims": "tsx scripts/ledger-claims.ts"` in `package.json`.
    hang inside preflight's 15 s child and cost the whole table rather than one column. On timeout the
    column is blank, exactly as when `gh` is absent.
    `gh pr list --state open --json number,headRefName --limit 100`,
-   joined on branch name **and head repository** — `gh pr list` also returns `headRepositoryOwner`,
-   and joining on name alone attaches a fork's PR number to a base branch of the same name (R14
+   joined on branch name **and head repository**. The query is
+   `gh pr list --state open --json number,headRefName,headRepositoryOwner,isCrossRepository --limit 100`:
+   R15 finding 3 caught the field list still reading `number,headRefName`, and `gh` returns only the
+   fields named, so the repository-aware join had nothing to join on. `isCrossRepository` is
+   requested as a corroborating display signal — never as the correctness input, which stays the
+   event payload per step 3.
+   Joining on name alone attaches a fork's PR number to a base branch of the same name (R14
    finding 1's second instance). Absent, unauthenticated, or failing `gh` leaves the column blank
    and is never an error in any mode, because no claim resolution depends on it. Past 100 open PRs the
    column is simply incomplete for the overflow, which is why it may not be load-bearing: a query
@@ -990,6 +1006,12 @@ branch declares in-progress, no other unmerged origin branch may declare the sam
   markers with no open PR, so a PR-scoped guard would pass while missing a real claim.
 - Uses no `gh` and no GitHub API. R2 measured that `unit-suite.yml` supplies no `GH_TOKEN`, and a
   required check must not acquire a network-auth dependency it cannot satisfy.
+- Self-exclusion uses the **same head-identity rule as the reader** (§3.2 step 3), not a branch-name
+  comparison. R15 finding 2: leaving the backstop name-only reopens exactly the hole R14 closed —
+  a fork PR named `fix/shared` and a base branch named `fix/shared` declaring the same row, with the
+  base branch excluded as the fork's own head and the collision returning exit 0. Fixtures cover
+  both: the same-repository case where self-exclusion must apply, and the same-name fork case where
+  it must not.
 - Current branch from `GITHUB_HEAD_REF`, asserted explicitly. Without it the PR's own marker,
   fetched back as an origin head, collides with itself and fails every PR that declares anything —
   the guard's most damaging possible failure, since it fails precisely the sessions that complied.
