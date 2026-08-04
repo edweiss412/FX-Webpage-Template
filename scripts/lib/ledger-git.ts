@@ -71,11 +71,22 @@ export function realGitSurface(): GitSurface {
     },
 
     localRefs() {
-      const out =
-        git(
-          ["for-each-ref", "--format=%(objectname) %(refname)", "refs/remotes/origin"],
-          LS_REMOTE_MS,
-        ) ?? "";
+      // Throws rather than yielding an empty map: an enumeration failure is an
+      // UNKNOWN universe, and returning {} makes it look like an empty one,
+      // which reads as "nothing is in flight".
+      const raw = spawnSync(
+        "git",
+        ["for-each-ref", "--format=%(objectname) %(refname)", "refs/remotes/origin"],
+        {
+          cwd: ROOT,
+          encoding: "utf8",
+          timeout: LS_REMOTE_MS,
+        },
+      );
+      if (raw.error) throw raw.error;
+      if (raw.status !== 0)
+        throw new Error(`git for-each-ref failed: ${(raw.stderr ?? "").trim()}`);
+      const out = raw.stdout ?? "";
       const map = new Map<string, string>();
       for (const line of out.split("\n")) {
         const [oid, ref] = line.trim().split(/\s+/);

@@ -88,13 +88,29 @@ export function runCheck(
   // independent reads race with any other worktree fetching concurrently: a
   // branch appearing between reads is verified but not resolved (exit 0 on a
   // real collision), and one disappearing is resolved but not verified.
-  const snapshot = git.localRefs();
+  let snapshot: Map<string, string>;
+  try {
+    snapshot = git.localRefs();
+  } catch (e) {
+    // Ref enumeration failing is an unknown universe, not an empty one.
+    reasons.push(`could not enumerate refs: ${(e as Error).message}`);
+    return { code: 2, collisions: [], warnings, notes, reasons };
+  }
   const pinned: GitSurface = { ...git, localRefs: () => snapshot, fetch: () => {} };
 
-  const resolution = resolveClaims(
-    pinned,
-    now === undefined ? { fetch: false } : { fetch: false, now },
-  );
+  // A git fault during resolution is UNTRUSTED, never a collision. Letting it
+  // propagate exits the process 1, which §3.3 defines as "another live branch
+  // declares this row" — an infrastructure fault reported as somebody's work.
+  let resolution;
+  try {
+    resolution = resolveClaims(
+      pinned,
+      now === undefined ? { fetch: false } : { fetch: false, now },
+    );
+  } catch (e) {
+    reasons.push(`claim resolution failed: ${(e as Error).message}`);
+    return { code: 2, collisions: [], warnings, notes, reasons };
+  }
   if (fetchFailed !== null) resolution.degraded.push(fetchFailed);
 
   // --- universe verification -------------------------------------------------

@@ -484,3 +484,33 @@ describe("ordering and identity edges (whole-diff R3)", () => {
     expect(r.code).toBe(1);
   });
 });
+
+describe("git faults are untrusted, never collisions (whole-diff R5)", () => {
+  it("exits 2 when showFile throws mid-resolution", () => {
+    // Letting it propagate exits the process 1, which §3.3 defines as "another
+    // live branch declares this row" — an infrastructure fault reported as work.
+    const r = checkVerified(
+      fake({
+        showFile: () => {
+          throw new Error("object read failed");
+        },
+      }),
+      ["BL-X"],
+    );
+    expect(r.code).toBe(2);
+  });
+
+  it("exits 2 when ref enumeration throws", () => {
+    // An unknown universe, not an empty one: returning {} reads as "nothing is
+    // in flight", which is the false all-clear this tool exists to remove.
+    const r = checkVerified(
+      fake({
+        localRefs: () => {
+          throw new Error("for-each-ref failed");
+        },
+      }),
+      ["BL-X"],
+    );
+    expect(r.code).toBe(2);
+  });
+});

@@ -12,7 +12,7 @@
 // `inferred` claim is a heuristic over diff hunks and must never fail a PR, and
 // it cannot even be computed here, since it needs a merge-base that a shallow CI
 // clone does not have.
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -122,11 +122,31 @@ export function findCollisions(
   return out;
 }
 
+/**
+ * `git show` that distinguishes ABSENT from FAILED. Collapsing them lets an
+ * object-read failure read as "this branch has no ledger", dropping every marker
+ * on it so the guard passes without ever inspecting the claimed branch.
+ */
+function showOrThrow(ref: string, file: string): string | null {
+  const r = spawnSync("git", ["show", `${ref}:${file}`], {
+    cwd: ROOT,
+    encoding: "utf8",
+    timeout: FETCH_MS,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  if (r.status === 0) return r.stdout ?? "";
+  const err = `${r.stderr ?? ""}`;
+  if (/does not exist|exists on disk, but not in|unknown revision|invalid object/i.test(err)) {
+    return null;
+  }
+  throw new Error(`git show ${ref}:${file} failed: ${err.trim() || `status ${r.status}`}`);
+}
+
 /** Declared claims at a ref, keyed by the ref rather than by the marker's own field. */
 function declaredAt(ref: string): string[] {
   const out: string[] = [];
   for (const file of ledgerFiles(ROOT)) {
-    const text = ref === "" ? readFileSync(join(ROOT, file), "utf8") : gitQuiet(["show", `${ref}:${file}`]);
+    const text = ref === "" ? readFileSync(join(ROOT, file), "utf8") : showOrThrow(ref, file);
     if (text === null) continue;
     for (const item of ledgerItems(file, text)) if (isInProgress(item)) out.push(item.id);
   }
@@ -172,7 +192,15 @@ describe("ledger claim collision (cross-branch backstop)", () => {
     const mine = declaredAt(""); // the working tree, which is what this PR proposes
     const { branch: self } = selfBranch();
 
-    const refs = (gitQuiet(["for-each-ref", "--format=%(refname:short)", "refs/remotes/origin"]) ?? "")
+    // Enumeration failing is an UNKNOWN universe, not an empty one: `?? ""`
+    // would let the guard pass having inspected nothing at all.
+    const refsRaw = spawnSync(
+      "git",
+      ["for-each-ref", "--format=%(refname:short)", "refs/remotes/origin"],
+      { cwd: ROOT, encoding: "utf8", timeout: FETCH_MS },
+    );
+    expect(refsRaw.status, `could not enumerate refs: ${refsRaw.stderr ?? ""}`).toBe(0);
+    const refs = (refsRaw.stdout ?? "")
       .split("\n")
       .map((s) => s.trim())
       // `%(refname:short)` renders refs/remotes/origin/HEAD as plain "origin",
