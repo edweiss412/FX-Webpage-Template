@@ -112,13 +112,17 @@ export function LoadingShell({
 
 ### 2.1 SSR probe — React does not hoist the `<noscript>` `<style>`
 
-React 19 promotes some `<style>` elements to hoisted stylesheet resources, which would move the rule out of `<noscript>` and apply it to every visitor, hiding the skeleton for everyone. That risk was measured rather than reasoned about. A standalone script rendered the tree above through the worktree's own `react-dom/server` (React 19, from `node_modules`, run 2026-08-03) via both `renderToStaticMarkup` and `renderToString`, with one deliberate difference: the wrapper used the bare JSX attribute rather than the empty-string form, which is why the transcript below reads `="true"`. Both renderers produced byte-identical output, with the rule in place:
+React 19 promotes some `<style>` elements to hoisted stylesheet resources, which would move the rule out of `<noscript>` and apply it to every visitor, hiding the skeleton for everyone. That risk was measured rather than reasoned about. A standalone script rendered an EARLIER draft of the tree in §2 through the worktree's own `react-dom/server` (React 19, from `node_modules`, run 2026-08-03) via both `renderToStaticMarkup` and `renderToString`. Both renderers produced byte-identical output, with the rule in place:
 
 ```html
 <div data-testid="shell"><noscript><style>[data-loading-shell-content]{display:none}</style><div data-testid="loading-nojs-notice">…</div></noscript><div data-loading-shell-content="true"><p role="status" class="sr-only">Loading your dashboard…</p><div data-testid="child"></div></div></div>
 ```
 
-No hoisting, no dedupe, no drop. Independently corroborated by the round-1 cross-model review, which reproduced it against React 19.2.4 in both static and streaming SSR and additionally confirmed that no existing selector or `!important` rule in the stylesheet competes with the unclassed wrapper.
+No hoisting, no dedupe, no drop.
+
+**The transcript is the probe's tree, not the shipped one, and it predates two later revisions.** Three differences, none of which bear on what was measured: the wrapper used the bare JSX attribute rather than the empty-string form (hence `="true"`); the notice sits directly under `<noscript>` with no gutter element, which the impeccable P1 later added; and the notice card carries no token classes, which the same round added. What the probe establishes is where React puts a `<style>` element — inside `<noscript>` or hoisted into `<head>` — and that is decided by the `<style>` itself, not by the siblings around it or the classes on them. The current tree's own rendered output is in §7.1, captured after those revisions, and shows the same `<style>` in the same place.
+
+Independently corroborated by the round-1 cross-model review, which reproduced it against React 19.2.4 in both static and streaming SSR and additionally confirmed that no existing selector or `!important` rule in the stylesheet competes with the unclassed wrapper.
 
 **Visual treatment.** A quiet bordered card on the surface fill, with the skeleton hidden — chosen by the user on 2026-08-03 over an amber warning card above a still-shimmering skeleton, and over a bare line of text. Rationale: a shimmer that will never resolve is an active lie about the page's state, so removing it is the point of the change, not a side effect.
 
