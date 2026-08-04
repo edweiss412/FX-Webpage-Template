@@ -25,7 +25,7 @@ Units A and D are coupled: A determines *which* rows are undoable, D determines 
 | R2 | **Deriving change-log rows from what landed is already the ratified contract, not a new proposal.** P2-F2 states the change-log writer must derive `crew_added`/`crew_removed`/**`crew_renamed`** from the applied list, "not the raw parse list, so a reservation-suppressed row never gets a phantom auto_apply row." It is already honored for the crew list. Unit A extends the same contract to the rename pairs, which were left on the raw path. A reviewer should not re-derive whether landed-vs-requested is the right principle. | `lib/sync/applyParseResult.ts:117-121`; honored at `lib/sync/phase2.ts:543-546` |
 | R3 | **`entity_ref` on a `crew_renamed` row stays the PRIOR name.** Resolution #19. Unit A changes which pairs produce a row, never the row's shape. | `lib/sync/changeLog/writeAutoApplyChanges.ts:91` |
 | R4 | **An unlanded rename is reported forensically only — no user-visible surface.** Ratified by the user at design time (2026-08-03): silent omission from the notice and feed, plus a durable `app_event`. No §12.4 catalog row, no `pnpm gen:spec-codes` regeneration, no `lib/messages/catalog.ts` row, no warning-card copy, no UI. Consequently **invariant 8's impeccable dual-gate does not apply to this branch** — there is no UI surface in the diff. | §2.2 below |
-| R5 | **Both existing codes in Unit C are reused.** `ROLE_FLAGS_NOTICE` (`lib/messages/catalog.ts:886-901`, spec §12.4 row at `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:2866`) and `LEAD_ROLE_APPLIED` already exist. Unit C adds a third *caller*, not a new code, so the §12.4 three-lockstep-update rule is not triggered by Unit C. | `lib/log/emitLeadRoleApplied.ts:21-23` |
+| R5 | **Both existing codes in Unit C are reused.** `ROLE_FLAGS_NOTICE` (`lib/messages/catalog.ts:886-901`, spec §12.4 row at `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:2866`) and `LEAD_ROLE_APPLIED` already exist. Unit C adds callers, not a new code, so the §12.4 three-lockstep-update rule is not triggered by Unit C. | `lib/log/emitLeadRoleApplied.ts:21-23` |
 | R6 | **NaN handling in the picker reset check is deliberate and unchanged.** `entry.t <= NaN` is false, so a corrupt marker fails open rather than forcing a spurious re-pick. Unit D restores the column; it does not touch the comparison. | `lib/auth/picker/resolvePickerSelection.ts:132-134` |
 | R7 | **The feed's loss of rows for unaccepted/ungated renames is the fix, not a regression.** See §4 — it is a deliberate, enumerated behavior change. |  |
 
@@ -54,7 +54,15 @@ lib/sync/runScheduledCronSync.ts:1626  await this.rows(...)      // rowcount dis
 export type ApplyParseResultOutcome = {
   appliedCrewMembers: ParseResult["crewMembers"];
   landedRenames: IdentityLinkRename[];
-  unlandedRenames: Array<{ pair: IdentityLinkRename; reason: UnlandedRenameReason }>;
+  unlandedRenames: Array<{
+    pair: IdentityLinkRename;
+    reason: UnlandedRenameReason;
+    // A3's suppression test, decided HERE because deleteKeepNames is local to this function
+    // (lib/sync/applyParseResult.ts:153) and never leaves it. Without this field the consumer
+    // cannot implement the survival test and would have to fall back to the reason proxy that
+    // §2.1 A3 proves wrong.
+    sourceSurvived: boolean;
+  }>;
 };
 ```
 
@@ -89,8 +97,10 @@ So:
 
 ```
 renamedAway  ←  landedRenames.map(removedName)
-              ∪  unlandedRenames where removedName ∈ deleteKeepNames
+              ∪  unlandedRenames where sourceSurvived
 ```
+
+**`sourceSurvived` is computed in `applyParseResult`, not by the consumer.** `deleteKeepNames` is a local of that function (`lib/sync/applyParseResult.ts:153`) and is consumed there by `deleteCrewMembersNotIn` (`lib/sync/applyParseResult.ts:187`); it never crosses the return boundary, and a surviving protected row is by definition absent from `appliedCrewMembers`, so `phase2` has nothing to test against. The membership test therefore happens where the data lives and rides out on the outcome as a boolean.
 
 **The second term is a survival test, not a reason test**, and the distinction is load-bearing. The intuitive formulation — suppress when `reason ∈ { name_held, source_delete_protected }` — is a proxy that does not hold. `heldNames.add(hold.entity_key)` runs for every surviving hold (`lib/sync/holds/holdAwareApply.ts:216`), but `protectedNames.add(...)` runs only inside specific hold-kind branches (`lib/sync/holds/holdAwareApply.ts:237`, `lib/sync/holds/holdAwareApply.ts:434`, `lib/sync/holds/holdAwareApply.ts:448`), and only `protectedNames` reaches `deleteKeepNames` (`lib/sync/applyParseResult.ts:146` into `lib/sync/applyParseResult.ts:152`). So a `name_held` pair whose hold kind did not also delete-protect it **does** lose its row, and suppressing its notice would hide a real capability loss.
 
@@ -134,11 +144,11 @@ A new forensic emitter modeled exactly on `lib/log/emitLeadRoleApplied.ts`, whic
 - **Cardinality: one event per unlanded pair per apply attempt.** No dedup, no coalescing — matching the precedent, which emits per capability change per apply (`lib/log/emitLeadRoleApplied.ts:52-68`). All five `reason` values emit, including `name_held`, which is an ordinary operator-initiated state rather than a fault.
 - **Volume is NOT bounded by an accept gate.** `computeIdentityLinkRenames` gates only MI-13 and MI-14 on `acceptedThisVersion`; **MI-12 pairs are emitted unconditionally** (`lib/sync/identityLinkRenames.ts:20-23`), and `computeStagedIdentityLinkRenames` (`lib/sync/identityLinkRenames.ts:39-59`) has no accept gate at all. So a standing hold on an MI-12 pair DOES re-request, and therefore re-emit, on every pass until the hold clears. This is accepted — see §8 for why filtering belongs in the read path — but it must not be justified by a gate that does not cover the common case.
 
-### 2.3 Unit C — one emit helper, three callers
+### 2.3 Unit C — one emit helper, every caller routed through it
 
 **The filed entry named one instance of a four-instance class.** `BL-FINALIZE-CAS-ROLEFLAGS-NOTICE-DROP` describes the finalize-cas discard. A sweep for the shape — *a path that obtains a real `roleFlagsNotice` and never emits it* — finds three more: the first-seen onboarding finalize, `runManualStageForFirstSeen` (which builds the notice and then returns a shape without it), and the pending-ingestion retry, which bypasses `processOneFile`'s post-commit tail entirely. All four are repaired here under the class-sweep disposition default; none qualifies for a deferral exception, since each is the same defect in code this PR is already touching.
 
-**The helper already exists; this unit adopts it rather than creating one.** `emitDeferredRoleFlagsNotice` (`lib/sync/runScheduledCronSync.ts:2318-2331`) is already precisely the intended shape — same applied-and-notice-present guard, same `emitLeadRoleApplied` then `upsertAdminAlert` ordering, same rationale comment — and `lib/sync/applyStaged.ts:1993-2002` is a near-verbatim duplicate of it. The duplication this unit was written to prevent is therefore already present. The work is to **export it, relocate it to a shared module under `lib/sync/`, collapse the `applyStaged` copy into it, and add finalize-cas as a third caller.**
+**The helper already exists; this unit adopts it rather than creating one.** `emitDeferredRoleFlagsNotice` (`lib/sync/runScheduledCronSync.ts:2318-2331`) is already precisely the intended shape — same applied-and-notice-present guard, same `emitLeadRoleApplied` then `upsertAdminAlert` ordering, same rationale comment — and `lib/sync/applyStaged.ts:1993-2002` is a near-verbatim duplicate of it. The duplication this unit was written to prevent is therefore already present. The work is to **export it, relocate it to a shared module under `lib/sync/`, collapse the `applyStaged` copy into it, and route every discard site in the table below through it.**
 
 One signature change: the existing function takes a `ProcessOneFileResult` envelope and re-derives the guard from it. finalize-cas's per-row result is a different shape (`ShadowApplyResult`), so the shared form takes the `roleFlagsNotice` directly and leaves the guard to each caller. Callers:
 
@@ -167,7 +177,7 @@ Stated precisely, because the obvious claim is wrong: this pin detects an emit s
 
 ### 2.4 Unit D — `selections_reset_at` survives an undo
 
-Three places drop the column; all three are repaired.
+Five places drop or fail to deploy the column; all five are repaired (D1-D5).
 
 | # | Site | Change |
 |---|---|---|
@@ -220,6 +230,22 @@ No backfill is required and none is proposed, but the NULL is **not** benign on 
 **The guard that should have caught this is aimed at a dead file.** `tests/db/undo-change-no-phantom-columns.test.ts:19` reads `20260608000003_undo_change_rpc.sql`, superseded by `20260719000001`. Its `REAL_CREW_COLUMNS` set (`tests/db/undo-change-no-phantom-columns.test.ts:22-34`) also omits `selections_reset_at`, and the test only asserts that named columns are real plus that a required subset is present — nothing forbids an omission. Repointing it at the live migration and adding the column is in scope: repairing the drop without repairing its blind guard queues the next drop.
 
 **Test helpers cannot currently observe the column.** `tests/db/_holdsHelpers.ts` omits it from `CrewSeed` (`tests/db/_holdsHelpers.ts:62-71`), from the seed INSERT (`tests/db/_holdsHelpers.ts:92-97`), and from `readCrew`'s select (`tests/db/_holdsHelpers.ts:275`). All three need it before any assertion is possible.
+
+### 2.5 Unit E — the lock-topology guards must follow the shipped body
+
+Invariant 2 is a P0, and its structural guard is currently pinned to superseded files. `undo_change` ships from `20260719000001_undo_change_lifecycle_guard.sql`, but every PF11 guard inspects `20260608000003_undo_change_rpc.sql`:
+
+| Guard | Inspects | Ships from |
+|---|---|---|
+| `tests/auth/advisoryLockRpcDeadlock.test.ts:46` | `20260608000003_undo_change_rpc.sql` | `20260719000001` |
+| `tests/auth/advisoryLockRpcDeadlock.test.ts:43` | `20260608000002_mi11_gate_rpcs.sql` | `20260608000002` today, **the new migration after D5** |
+| `tests/db/undo-change-lock-order.test.ts:15` | `20260608000003_undo_change_rpc.sql` | `20260719000001` |
+
+So the advisory-before-row-lock topology of the bodies that actually run has been unverified since `20260719000001` landed, and D5 would extend the same blind spot to `mi11_approve_hold`.
+
+**The fix is already written in the same file.** The `reset_validation_data` entry is derived rather than hardcoded, with the reason stated inline at `tests/auth/advisoryLockRpcDeadlock.test.ts:47-50`: "Derived (not hardcoded) so the SHIPPED defining migration is scanned even after a future `create or replace` supersedes the current one." Unit E applies that existing pattern to the two entries above it and to `tests/db/undo-change-lock-order.test.ts:15` — resolve the defining migration by scanning for the last `create or replace function public.<name>` across `supabase/migrations/`, rather than naming a file.
+
+This is in scope rather than deferred because D2-D5 are what make it acute: this branch ships a migration that supersedes **two** lock-taking bodies, and shipping it while the guards read the old files would leave a P0 invariant unverified precisely where it changed. Scoped to repointing existing guards; no new assertion semantics.
 
 ---
 
@@ -330,16 +356,16 @@ TDD per task (invariant 1). Each row names the concrete failure it catches — n
 | A | An **accepted** rename that lands still produces its notice entry and `crew_renamed` row | Over-correction — the fix silencing legitimate renames |
 | A | `field_changed` attribution follows landed pairs: an unlanded pair emits no `field_changed` row mapped through the prior name | §4 item 2. The rename/add/remove assertions all pass while this row is still mis-attributed. |
 | B | One unlanded pair emits exactly one event carrying `reason`; `{ ok: false }` escalates via `log.error` | Silent omission degrading into silent-everything |
-| B | **Integration, once per sink** (cron/manual, dashboard staged, finalize-cas): an unlanded pair produces the event end-to-end | A dropped propagation hop. R4 makes this the only signal, so a lost field is fully dark — and an emitter unit test passes with all four hops broken. |
+| B | **Integration, once per sink — all FOUR**: cron/manual, dashboard staged, finalize-cas, **and pending-ingestion retry** | A dropped propagation hop. R4 makes this the only signal, so a lost field is fully dark, and an emitter unit test passes with every hop broken. The retry sink is listed explicitly because it reaches a post-commit point without crossing any core hop (§2.2), so the other three passing says nothing about it — and Unit C's retry test exercises `ROLE_FLAGS_NOTICE`, a different signal, so it does not cover this either. |
 | B | The code does not register in the §12.4 / internal-code-enum scans — mirrors `tests/messages/stripLogEmissionCalls.test.ts:123-138` | A forensic code leaking into the user-facing catalog |
 | C | finalize-cas Phase D LEAD-bit change co-emits `LEAD_ROLE_APPLIED` + `ROLE_FLAGS_NOTICE`, **post-commit** — mirrors `tests/sync/applyStaged.test.ts:272-316` | The entry-1 drop |
 | C | Emit ordering preserved: durable audit attempted before a throwing `upsertAdminAlert` — mirrors `tests/sync/applyStaged.test.ts:321-366` | Extraction silently reordering a load-bearing sequence |
-| C | `_metaLeadRoleAppliedTopology` expects **one** site | A fourth emit site added off-helper |
+| C | `_metaLeadRoleAppliedTopology` expects **one** site | A new emit site added off-helper, duplicating the ordering contract instead of calling the shared form |
 | C | finalize-cas admin behavioral coverage still passes (`tests/log/adminOutcomeBehavior.test.ts`); route stays in `AUDITABLE_MUTATIONS` (`tests/log/_auditableMutations.ts:35`) | Invariant 10 regression on an admin mutation surface |
 | C | A throwing `upsertAdminAlert` on the finalize-cas path still reaches `markFinalCasDone` | Importing a throw into a fail-open loop and aborting the outer tx post-commit |
 | C | **Response shape:** `per_row` contains no `roleFlagsNotice` and no `unlandedRenames` key | Leaking crew names and capability flags into the public API response |
-| C | **One test per discard site**, each asserting a LEAD-bit change co-emits: first-seen finalize (`app/api/admin/onboarding/finalize/route.ts:1266`), `runManualStageForFirstSeen`, pending-ingestion retry | The three sites the filed entry did not name. A test covering only finalize-cas passes with all three still dark — which is exactly how the class survived until now. |
-| C | A structural assertion that every `applyStagedCore` production caller consumes `roleFlagsNotice` on its applied branch | The class recurring. Enumerating four callers today does not stop a fifth; this is the guard whose absence is filed as `BL-ROLEFLAGSNOTICE-DROP-GUARD`, and if it lands here that row closes instead. |
+| C | **One test per discard site**, each asserting a LEAD-bit change reaches the bell + durable event. Asserted **at the emitting layer, not inside the locked callee**: first-seen finalize (`app/api/admin/onboarding/finalize/route.ts:1266`) emits itself; `runManualStageForFirstSeen` is asserted to CARRY the notice on its return (`lib/sync/runManualStageForFirstSeen.ts:170`) while its caller, the pending-ingestion retry route, is asserted to emit post-commit after `withRowTryLock` resolves (`app/api/admin/pending-ingestions/[id]/retry/route.ts:468`) | The three sites the filed entry did not name. A test covering only finalize-cas passes with all three dark. **The carry/emit split is deliberate:** `runManualStageForFirstSeen` runs INSIDE `withRowTryLock` (`app/api/admin/pending-ingestions/[id]/retry/route.ts:370`, `app/api/admin/pending-ingestions/[id]/retry/route.ts:455`), so asserting it co-emits would demand an emit inside the lock and contradict invariant 10. |
+| C | **Structural guard, IN SCOPE.** Every production path that obtains a `roleFlagsNotice` either routes it to the shared emitter or carries an inline exemption. Covers both shapes: the three `applyStagedCore` production callers (`lib/sync/applyStaged.ts`, `app/api/admin/onboarding/finalize/route.ts`, `app/api/admin/onboarding/finalize-cas/route.ts`) **and** the `processOneFile_unlocked` consumers that bypass the locked wrapper's emit | The class recurring. Enumerating today's sites does not stop the next one. An `applyStagedCore`-only walker would miss the retry route entirely, which is how this class stayed open. |
 | D | **db test:** seed a crew member, stamp `selections_reset_at`, record a change, undo it, assert the column round-trips **and** that `resolvePickerSelection` still returns `selection_reset` for a cookie stamped before the reset | The security-adjacent revalidation. Asserting the column alone would miss a reader-side regression. |
 | D | **db test on the CLEAN-INSERT path (the reachable one):** rename, stamp a reset on the successor, undo, assert the marker survives | **The D3-only failure.** This is the common path; a `greatest()` that lives solely in the ON CONFLICT branch fails here while every other D test passes. |
 | D | **db test driving the ON CONFLICT branch:** a live row whose `selections_reset_at` is NEWER than `before_image`'s keeps the newer value through an undo | D3 written as a bare `excluded.` assignment |
@@ -368,7 +394,7 @@ TDD per task (invariant 1). Each row names the concrete failure it catches — n
 - Closing `BL-VALIDATION-PARITY-FUNCTIONS-UNCHECKED` (§5.1) — its own change.
 Both deferrals below name their exception under the class-sweep disposition rule (AGENTS.md, "Class-sweep before patching adversarial findings"), which makes same-PR repair of every instance the default and requires a deferred peer to cite (a) an unsettled product/design decision, (b) a ratified scope fence, or (c) a redesign of an untouched surface / scope-blowing breadth. "Same defect, different file" is explicitly not sufficient.
 
-- **A guard that detects a caller DROPPING `roleFlagsNotice`** — **exception (c)**. The existing topology pin cannot (§2.3). Building one means walking every `applyStagedCore` caller for a discarded return field, which is a different mechanism from the emit-site regex walker and a new guard surface this PR does not otherwise touch. Unit C closes the one known instance; the guard is what stops the next one.
+(An earlier revision deferred the dropped-notice guard to a backlog row. It is now **in scope** — see §2.3 and §7 — because Unit C grew from one instance to four, and enumerating four sites without a guard just sets up the fifth. No backlog row is filed for it.)
 - **A pre-existing false capability-loss for held members generally** — **exception (c)**. Arm (c) fires for ANY `previousCrewMembers` entry absent from `appliedCrewMembers` without a `renamedAway` entry, and held/delete-protected rows are exactly that shape when no rename pair names them (`lib/sync/applyParseResult.ts:152` vs `lib/sync/applyParseResult.ts:163`). This spec keeps rename-linked held pairs suppressed (§4 item 10) — the instances reachable through the rename path, which IS the shape this PR is in. Fixing the non-rename case requires redesigning arm (c)'s absence predicate to distinguish "row deleted" from "row survived but is not in the applied list", which is a change to the notice's core semantics on a path no unit here touches. Filed as a new BACKLOG row.
 - Any user-visible surface for unlanded renames (R4).
 - Changing `renameCrewMember`'s no-op semantics (R1).
@@ -382,7 +408,7 @@ Both deferrals below name their exception under the class-sweep disposition rule
 | Invariant | Bearing |
 |---|---|
 | 1 — TDD per task | Every task: failing test first |
-| 2 — per-show advisory lock | **No new holder.** Unit C emits after `route.ts:167`'s `pg_advisory_xact_lock` resolves |
+| 2 — per-show advisory lock | **No new holder.** Unit C emits after `app/api/admin/onboarding/finalize-cas/route.ts:167`'s `pg_advisory_xact_lock` resolves, and after `withRowTryLock` resolves on the retry path. **Unit E restores verification of this invariant** — its PF11 guards currently inspect superseded migration bodies (§2.5), so the topology of the code that actually ships is unchecked. |
 | 8 — impeccable dual-gate | **N/A — no UI surface** (R4). `impeccable-gate: N/A — no UI surface` |
 | 9 — Supabase call-boundary | A1's rowcount read (§6) |
 | 10 — mutation-surface observability | Unit C adds a code-carrying emit to an already-registered admin surface; Unit B adds a post-commit forensic emit outside the lock |

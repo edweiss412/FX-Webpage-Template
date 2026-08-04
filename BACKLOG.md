@@ -8,16 +8,6 @@ Last reconciled: 2026-08-03 — `chore/scanner-precision-cluster` graduated `BL-
 
 ---
 
-## BL-ROLEFLAGSNOTICE-DROP-GUARD — no guard detects a caller that discards `roleFlagsNotice`
-
-**Status:** OPEN · **Severity:** LOW-MEDIUM (one known instance closed; the class is unguarded) · **Class:** guard completeness · **Filed:** 2026-08-03 (`fix/apply-undo-audit-fidelity`, spec §2.3 / §9, deferred under class-sweep exception (c)) · **Effort:** M
-
-`tests/sync/_metaLeadRoleAppliedTopology.test.ts:29` matches `upsertAdminAlert(<expr>roleFlagsNotice` and asserts the discovered site list. That shape detects an emit site that upserts the alert **without** the durable event. It cannot detect the opposite and more damaging shape: a caller that reads `applyStagedCore`'s result and **discards `roleFlagsNotice` entirely**, emitting nothing at all. That is exactly what `BL-FINALIZE-CAS-ROLEFLAGS-NOTICE-DROP` was, and the pin was green throughout.
-
-Consolidating the emit into one helper (same branch) does not change this: the "expected one site" assertion still passes if a new caller drops the notice. **Work:** a guard that walks every `applyStagedCore` caller and asserts the `roleFlagsNotice` field is consumed on the applied branch — a field-liveness check on the result type, not a regex over emit sites. Deferred rather than folded in because it is a new guard mechanism on a surface the closing PR does not otherwise touch; that PR closes the one known instance, and this guard is what stops the next.
-
----
-
 ## BL-CAPABILITY-LOSS-SURVIVING-ROW-FALSE-POSITIVE — arm (c) reports a capability loss for a row that is still live
 
 **Status:** OPEN · **Severity:** LOW-MEDIUM (false operator alert; no data impact) · **Class:** notice fidelity · **Filed:** 2026-08-03 (`fix/apply-undo-audit-fidelity`, spec §9, deferred under class-sweep exception (c)) · **Effort:** M · **Reachability: INFERRED, NOT PROBED — confirm before scheduling.**
