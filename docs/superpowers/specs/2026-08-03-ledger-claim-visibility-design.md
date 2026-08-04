@@ -5,7 +5,7 @@
 **Date:** 2026-08-03
 **Branch:** `chore/ledger-claim-visibility`
 **Backlog entries:** none opened for this work (see §9.1); one filed as a by-product (§9.2)
-**Status:** R3 repaired — 21 Codex findings across three rounds plus 5 self-findings, all accepted, all closed
+**Status:** R4 repaired — 25 Codex findings across four rounds plus 5 self-findings, all accepted, all closed
 **impeccable-gate: N/A — no UI surface**
 
 ---
@@ -299,23 +299,33 @@ rule that an in-progress entry with no branch and no PR is unactionable
 field, so a predicate requiring a flight field would make that rule unfireable. The guard would stop
 catching the exact malformation it was written for.
 
-| Predicate | Definition | Read by |
-| --- | --- | --- |
-| `isInProgress(entry)` | **any** line in the entry body carries an in-progress `Status`, at any depth | the guard's must-point-at-something rule, and the reader's claim detection |
-| `flightFieldsOn(entry)` | fields from the 12-line window **union** fields on any line that itself carries an in-progress `Status` | the guard's flight-field-without-status rule, and the reader's branch attribution |
+**The union lands on `fields` itself, not on a derived helper.** R4 finding 1 is the reason this is
+stated so precisely: the guard's rules read raw values off `LedgerItem.fields` directly —
+pointability at `tests/docs/_metaLedgerInProgress.test.ts:144`, `Branch` shape at
+`tests/docs/_metaLedgerInProgress.test.ts:171`, `PR` shape at
+`tests/docs/_metaLedgerInProgress.test.ts:175`, and branch liveness at
+`tests/docs/_metaLedgerInProgress.test.ts:195`. Widening only a `flightFieldsOn`-style key list would leave all
+three reading the windowed values, so an out-of-window `Branch` would be detected as a claim and
+then skip shape validation and the origin-existence check — a malformed or dead branch surviving
+onto main, which is the precise stale-marker failure this spec exists to close.
 
-The union in the second predicate is what makes the pair coherent. Widening only `isInProgress`
-would break the out-of-window marker in the opposite direction: it would register as in-progress
-while its own same-line `Branch` stayed outside the window, so the entry would fail the
-must-point-at-something rule despite pointing at something. Every existing planted assertion
-survives this pair unchanged, which is the acceptance criterion in §7.4b:
+| Element | Definition |
+| --- | --- |
+| `LedgerItem.fields` | fields from the 12-line window **union** fields parsed from any line that itself carries an in-progress `Status`, at any depth. Window value wins on a key collision, so existing entries are untouched |
+| `isInProgress(entry)` | **any** line in the entry body carries an in-progress `Status`, at any depth |
+| `flightFieldsOn(entry)` | unchanged in definition; it reads the widened `fields`, so it follows automatically |
 
-| Planted input | `isInProgress` | `flightFieldsOn` | Rule outcome |
+Because the union lands on `fields`, all four existing consumers — pointability, `Branch` shape,
+`PR` shape, and branch liveness — see the out-of-window marker without any of them being edited.
+Every existing planted assertion survives unchanged, which is the acceptance criterion in §7.4b:
+
+| Planted input | `isInProgress` | `fields` flight values | Rule outcome |
 | --- | --- | --- | --- |
 | `**Status:** IN PROGRESS · **Severity:** low` | true | none | fires as unactionable, as today |
-| `**Status:** OPEN · **Branch:** feat/x` | false | `Branch` | fires as flight-field-without-status, as today |
-| `**Status:** OPEN`, then a `**Branch:**` fourteen paragraphs down | false | none | silent, because the deep quote's own line carries no in-progress status |
-| `**Status:** IN PROGRESS · **Branch:** X` seventeen lines down | true | `Branch` | silent, newly seen, and correctly not a violation |
+| `**Status:** OPEN · **Branch:** feat/x` | false | `Branch=feat/x` | fires as flight-field-without-status, as today |
+| `**Status:** OPEN`, then a `**Branch:**` fourteen paragraphs down | false | none | silent — the deep quote's own line carries no in-progress status, so it contributes nothing to the union |
+| `**Status:** IN PROGRESS · **Branch:** chore/real-branch` seventeen lines down | true | `Branch=chore/real-branch` | newly seen; passes shape, and is now subject to the liveness check it previously escaped |
+| `**Status:** IN PROGRESS · **Branch:** not a branch` seventeen lines down | true | `Branch=not a branch` | **newly fires** the `Branch` shape rule (`tests/docs/_metaLedgerInProgress.test.ts:171`), which it escaped before the union |
 
 `ledgerItems`'s 12-line window survives for ordinary meta fields; nothing else in the guard changes.
 Splitting the move from the behavior change is deliberate: a behavior-preserving extraction and a
@@ -426,8 +436,18 @@ Also `--json` for machine consumption, emitting the same claim set as an array o
 
 ### 3.4 Preflight surfacing
 
-`scripts/preflight-env.mjs` gains a final step that spawns `tsx scripts/ledger-claims.ts` with a
-**15 s** timeout and prints its table. Governed by:
+`scripts/preflight-env.mjs` spawns `tsx scripts/ledger-claims.ts` with a **15 s** timeout and prints
+its table.
+
+**Placement is specified, not left to "add a final step".** R4 finding 4 measured two successful
+early exits that any appended step would sit below: `--no-db` returns at
+`scripts/preflight-env.mjs:132`, and a missing `psql` returns at `scripts/preflight-env.mjs:142`.
+Both print `preflight: env ✓` and exit 0, so claim visibility would be silently absent in exactly
+the two modes a docs-only or DB-less worktree uses. The claims step therefore runs **after the env
+checks and before the DB probe**, so it is reached on all three success paths, and §7.5 asserts each
+one rather than only the default.
+
+Governed by:
 
 - It **never** changes preflight's exit code. Its own failure, timeout, or non-zero exit prints one
   line and is otherwise ignored.
@@ -665,6 +685,22 @@ Catches: the asymmetry in §4.4 collapsing, in either direction. A declared coll
 inferred-only collision must exit 0 and print `WARN`; zero ids must exit 2; the vacuity case in §4.2
 must exit 2 rather than reporting a false all-clear.
 
+**Every universe-verification path in §4.1 gets its own case.** R4 finding 3 observed that R3's
+repair made these load-bearing without pinning any of them, so an implementation could still return
+a false all-clear through five distinct doors while passing everything above:
+
+| Condition | Required exit | The false result it prevents |
+| --- | --- | --- |
+| Fetch fails, cached refs carry another branch's live declaration | 2 | exit 0 from an unverified universe |
+| Zero `refs/remotes/origin/*` resolved | 2 | exit 0 from an empty universe |
+| Fetch succeeds but resolves fewer heads than `git ls-remote` reports | 2 | exit 0 from a silently narrowed universe (the configured-refspec case) |
+| Detached HEAD with no `GITHUB_HEAD_REF` | 2 | exit 1 attributing the caller's own marker to a stranger |
+| 101 candidates, the collision in the 101st | **1** | exit 0 from a collision hidden behind the display cap |
+
+The last row is the one that must NOT be exit 2: the cap is display-only (§4.1), so a collision past
+it is a real collision and has to fail like any other. A test that only asserted "everything
+degraded exits 2" would pass an implementation that gave up whenever the branch list was long.
+
 Anti-tautology: expected ids are derived from the fixture repo's own planted ledger text, never
 hardcoded, so a reader that returns a fixed list cannot pass.
 
@@ -729,8 +765,12 @@ a behavior widening of an existing guard, so it gets its own task and its own ca
 - Corpus regression bound: asserted against a **committed fixture corpus**, never against origin, so
   it cannot decay when the live branches merge. The fixture reproduces §2.7a's measured shapes — the
   two in-window markers, the one out-of-window marker, the deep-quoted bare `**Branch:**`, and the
-  status-only malformation — and pins detection at exactly 3 of 5. A bound read from live refs would
-  have been green today and meaningless next week, which is the decay §7.4b exists to avoid.
+  status-only malformation — and pins detection at **4 of 5**: everything except the deep-quoted
+  bare `**Branch:**`, whose line carries no status. R4 finding 2 caught an earlier `3 of 5` here,
+  which was arithmetically incompatible with status-alone detection and could only have been
+  satisfied by hiding the status-only malformation that §4.2 explicitly requires to be visible. A
+  bound read from live refs would have been green today and meaningless next week, which is the
+  decay this fixture exists to avoid.
 
 <!-- spec-lint: ignore — this file is created by this spec; it is created by this spec's implementation and is not tracked yet -->
 
@@ -766,10 +806,14 @@ satisfies all of them. Unmodified preflight exits 0, never spawns the child, and
 green through every "the child failed / timed out / was suppressed" case. The positive assertion has
 to come first.
 
-**7.5-positive — preflight actually invokes the reader.** Asserts that a default `pnpm preflight`
-run spawns the claims child and that its table reaches preflight's output, with the child stubbed to
-emit a recognizable line. This is the assertion that fails if the wiring is skipped, and every
-assertion below is conditional on it.
+**7.5-positive — preflight actually invokes the reader, on every success path.** Asserts that the
+claims child is spawned and its table reaches preflight's output, with the child stubbed to emit a
+recognizable line, under **all three** exits that print `env ✓`: the default DB-probe path,
+`--no-db` (`scripts/preflight-env.mjs:132`), and `psql` absent from `PATH`
+(`scripts/preflight-env.mjs:142`). Testing only the default path was R4 finding 4's escaping mutant:
+a step appended at the end of the file passes it while leaving both early exits dark. These are the
+assertions that fail if the wiring is skipped or misplaced, and every assertion below is conditional
+on them.
 
 **Isolation.** Given the wiring is present: `pnpm preflight` exits 0 when the claims subprocess
 fails, times out, or exits non-zero; `--no-claims` and `PREFLIGHT_NO_CLAIMS=1` each suppress it; and
