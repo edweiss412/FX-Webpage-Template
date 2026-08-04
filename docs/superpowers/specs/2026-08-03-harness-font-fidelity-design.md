@@ -347,6 +347,18 @@ Round 11 caught that "everything except `font-display`" rejected the measured ta
 
   So the oracle is the last row. For a fixed string at a fixed size, the expected advance width is computed in-test from the committed file with fontkit — `font.layout(probe).advanceWidth / font.unitsPerEm * fontSize` (`unitsPerEm` 2048, one `wght` axis) — and compared to the rendered width within 0.5px.
 
+**Probe text rejects zero-advance codepoints, not just unmapped ones, and the difference is a silently unguarded subset.** Rejecting `glyphForCodePoint(cp).id === 0` removes characters the face cannot draw. It does not remove characters the face draws with **no advance** — combining marks — and those defeat a width oracle completely, because a zero-width string measures zero under every font. Measured against the committed bytes at 16px:
+
+```
+U+0301 combining acute    0.0000px      U+0410 CYRILLIC A     11.0391px
+U+0300 combining grave    0.0000px      U+0411 BE             10.3359px
+U+0323 dot below          0.0000px      U+1EA0 A dot below    11.0391px
+```
+
+This is not hypothetical for one subset in particular: **cyrillic's lowest probeable codepoint is `U+0301`** — mapped, non-ASCII, above `U+0021`, and therefore accepted by every filter stated so far. A derivation that takes the lowest codepoints would hand cyrillic a probe of pure combining marks, the expectation computed from the bytes would be `0`, the rendered measurement would be `0`, and the row would pass under Inter, under Arial, and under a face that fails to load at all. `vietnamese` carries the same trap across `U+0300-0309`, `U+0323` and `U+0329`; `latin` and `latin-ext` each carry `U+0304`, `U+0308` and `U+0329`.
+
+So the filter is **advance-based rather than category-based** — reject any codepoint whose advance in the committed face is zero — because advance is the property the oracle actually depends on, and a Unicode-category test would be a proxy for it that drifts. The derived probe additionally asserts its own expected width **exceeds a nonzero floor** before it is used, so a subset that somehow yields a degenerate probe fails loudly instead of passing vacuously. With that filter every subset still has ample material: 152 cyrillic-ext, 102 cyrillic, 233 greek-ext, 105 greek, 110 vietnamese, 722 latin-ext, 223 latin. The zero-probeable case cannot arise today, and the floor assertion is what keeps that a measured fact rather than an assumption.
+
 **The fontkit dependency is named, because round 11 showed the spec did not determine one buildable diff.** `fontkit` does not resolve in this repo today; the spike reached it through Next's private compiled path, which is not something to build a permanent guard on. The implementation adds `fontkit` as an explicit devDependency and imports it normally. That is a lockfile change and is called out here so it is reviewed rather than discovered — the alternatives (depend on a Next internal, or hand-parse woff2) are both worse and both would have been legitimate readings of the earlier wording.
 
   **The measurement is taken on a normalised probe inserted as a CHILD of each walked element.** This is the shape that survives; three earlier formulations did not, and each failed for a reason worth keeping visible.
