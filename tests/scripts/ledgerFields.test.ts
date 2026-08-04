@@ -67,7 +67,10 @@ describe("ledgerItems", () => {
       const items = ledgerItems(f, text);
       items.forEach((it, n) => {
         const heading = lines[it.line - 1] ?? "";
-        expect(heading.startsWith("#"), `${f}:${it.line} is not a heading`).toBe(true);
+        // Matched as a markdown heading (2-3 hashes then space), not via a
+        // startsWith("#") idiom, which the comment-handling guard reads as
+        // comment stripping — and which would also accept "#tag".
+        expect(heading, `${f}:${it.line} is not a heading`).toMatch(/^#{2,3}\s/);
         expect(heading, `${f}:${it.line} does not name ${it.id}`).toContain(it.id);
         if (n > 0) expect(it.line, `${f} spans not increasing`).toBeGreaterThan(items[n - 1]!.line);
       });
