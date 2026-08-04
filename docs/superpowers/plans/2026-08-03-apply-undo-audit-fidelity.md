@@ -492,8 +492,13 @@ it("phase2 surfaces unlandedRenames on its result so post-commit sinks can emit 
     // requested pair whose target is absent from the parse -> target_absent
     identityLinkRenames: [{ removedName: "Old", addedName: "Nowhere" }],
   });
-  expect(result.unlandedRenames).toHaveLength(1);
-  expect(result.unlandedRenames[0]?.reason).toBe("target_absent");
+  // Phase2Result is a DISCRIMINATED UNION -- its `stale` branch carries neither field, so narrow
+  // before dereferencing or this does not compile (TS2339). `unlandedRenames` is also optional
+  // (see Step 3), so default it rather than indexing directly (TS18048).
+  if (result.outcome !== "applied") throw new Error(`expected applied, got ${result.outcome}`);
+  const unlanded = result.unlandedRenames ?? [];
+  expect(unlanded).toHaveLength(1);
+  expect(unlanded[0]?.reason).toBe("target_absent");
 });
 ```
 
@@ -545,7 +550,8 @@ Three verified constraints decide where each test lives:
 
 1. **`capabilityRoleChangesForNotice` is module-local, not exported** (`lib/sync/phase2.ts:265`). Never call it directly; assert on `runPhase2`'s `roleFlagsNotice`.
 2. **`FakePhase2Tx` has no `holdPort`** — zero occurrences in `tests/sync/phase2.test.ts`. `runPhase2` only enables hold-aware apply via `tx.holdPort?.()` (`lib/sync/phase2.ts:479`), so **any case needing hold state is impossible in this file**. That is both survival cases, not just one.
-3. **The crew helpers are `crew(name, email?)` (`tests/sync/phase2.test.ts:21`) and `crewWithFlags(name, roleFlags)` (`tests/sync/phase2.test.ts:34`).** `crew()`'s second parameter is an email string — use `crewWithFlags` whenever flags matter.
+3. **`Phase2Result` is a discriminated union.** Its `stale` branch carries neither `roleFlagsNotice` nor `unlandedRenames`, so every test must narrow on `result.outcome` before touching either field or it fails to compile (TS2339). Compiler-probed.
+4. **The crew helpers are `crew(name, email?)` (`tests/sync/phase2.test.ts:21`) and `crewWithFlags(name, roleFlags)` (`tests/sync/phase2.test.ts:34`).** `crew()`'s second parameter is an email string — use `crewWithFlags` whenever flags matter.
 
 **In `tests/sync/phase2.test.ts`** (no hold state needed):
 
@@ -557,6 +563,7 @@ it("capability: a landed rename with unchanged flags emits no notice", async () 
     parseResult: parseResult({ crewMembers: [crewWithFlags("New", ["LEAD"])] }),
     identityLinkRenames: [{ removedName: "Old", addedName: "New" }],
   });
+  if (result.outcome !== "applied") throw new Error(`expected applied, got ${result.outcome}`);
   expect(result.roleFlagsNotice).toBeUndefined();
 });
 
@@ -567,6 +574,7 @@ it("capability: an unlanded pair whose SOURCE DIED reports the loss suppressed t
     parseResult: parseResult({ crewMembers: [crewWithFlags("Other", [])] }),
     identityLinkRenames: [{ removedName: "Old", addedName: "Nowhere" }],
   });
+  if (result.outcome !== "applied") throw new Error(`expected applied, got ${result.outcome}`);
   expect(result.roleFlagsNotice?.context.changes).toEqual([
     { crew_name: "Old", prior_flags: ["LEAD"], new_flags: [] },
   ]);
@@ -907,7 +915,19 @@ git commit -m "feat(sync): emit IDENTITY_LINK_RENAME_UNLANDED from the cron, sta
 
 - [ ] **Step 1: Extend the test helpers**
 
-Add `selections_reset_at?: string | null` to `CrewSeed`, include it in the seed INSERT column list, and add it to `readCrew`'s select. This is scaffolding for the tests below and belongs in this task, not its own.
+**Four edits, not three** — the fourth is the one the compiler needs:
+
+1. Add `selections_reset_at?: string | null` to `CrewSeed`.
+2. Include it in the seed INSERT column list.
+3. Add it to `readCrew`'s SELECT.
+4. **Add it to the declared row type `CrewMemberDbRow` (`tests/db/_holdsHelpers.ts:257-276`).** Widening the SELECT does not widen `readCrew(): Promise<CrewMemberDbRow[]>`, so without this every assertion on the restored marker fails with `TS2339: Property 'selections_reset_at' does not exist on type 'CrewMemberDbRow'`. `readCrewByName` shares the type, so this one edit covers both.
+
+This is scaffolding for the tests below and belongs in this task, not its own.
+
+- [ ] **Step 1b: Typecheck the helper change before writing tests against it**
+
+Run: `pnpm tsc --noEmit`
+Expected: clean. Task 8 previously had no typecheck step, so a helper-type omission could survive all the way to Task 14's whole-repo check.
 
 - [ ] **Step 2: Write the failing tests**
 
