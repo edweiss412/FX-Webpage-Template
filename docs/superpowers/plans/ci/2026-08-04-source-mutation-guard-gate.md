@@ -70,8 +70,8 @@ Restated from spec §8 so each id resolves in this plan's own text; the spec rem
 | AC-9 | `score < scoreFloor` fails the gate | 6 |
 | AC-10 | `equivalent` excluded from the denominator; `accepted-gap` counted as a survivor | 5 |
 | AC-11 | the registry meta-test fails on each malformed-row case | 7 |
-| AC-12 | groups A, B, D, E, F, G, H, I repaid by tests that fail against their mutant | 8, 9 |
-| AC-13 | post-repair: 0 unaccepted, 18 `equivalent`, 3 `accepted-gap`, score ≥ 0.95 | 10 |
+| AC-12 | groups A, B, D, E, F, G, H, I, J repaid by tests that fail against their mutant | 8, 9 |
+| AC-13 | post-repair: 0 unaccepted, 18 `equivalent`, 2 `accepted-gap`, score ≥ 0.95 (measured 82/84) | 10 |
 | AC-14 | `AGENTS.md` carries the convergence bullet | 11 |
 | AC-15 | gate absent from both default projects, present in `mutation`; nightly count is 10 | 10 |
 | AC-16 | an empty `operators` list fails, at registry and gate layers independently | 6, 7 |
@@ -155,14 +155,18 @@ Each assertion is verified by running its mutant and observing the test fail —
 
 F — a same-depth sibling ends the extent (`(no findings)`). G — `TASK_MARKER_DUPLICATE` reports the SECOND marker's line (`L5`), asserted on `docLine` so the `ms[2]`-undefined mutant fails. H — a `TASK_RED_EMPTY` line draws exactly one code (`L4:TASK_RED_EMPTY` alone). I — findings ordered by `docLine` then `code`, fixture `[L4, L7]` against emission order `[L7, L4]`.
 
+J — two findings sharing `(docLine, code)` keep their relative order: `ac=AC-90,AC-91` with both ids unresolved yields two `TASK_AC_UNRESOLVED` on one line, clean `AC-90,AC-91`, and the `<`→`<=` mutant reverses them to `AC-91,AC-90`.
+
 Group I's fixture needs a pass-1 finding on a LATE line plus a pass-2 finding on an EARLIER one. A duplicate opening cannot seed it — `openCount !== 1` returns at `lib/specLint/taskContract.ts:152` before any pass-2 finding exists — so the pass-1 finding is a malformed `<!-- tasks: … -->` line, which leaves `openCount` undisturbed.
+
+**Group J's assertion must compare `message`, not `code`.** The two findings are identical in `docLine` and `code` and differ only in `message`, so a code-only assertion cannot see the reversal. This is the R2 correction, and the same blindness in a probe fixture is what made the mutant look equivalent for a whole round (spec §2.5, limit L-8).
 
 ## Task 10 — nightly gate, wiring, and backlog row
 
 <!-- task: red=`pnpm vitest run tests/cross-cutting/vitest-projects-partition.test.ts` ac=AC-13,AC-15 -->
 
 <!-- spec-lint: ignore — new file created by this plan; not tracked until implementation -->
-`tests/mutation/guardSurfaces.gate.test.ts` asserting measured score ≥ floor, zero unaccepted survivors, exactly 18 `equivalent` and 3 `accepted-gap` rows, plus the end-to-end known-killing-mutant self-check.
+`tests/mutation/guardSurfaces.gate.test.ts` asserting measured score ≥ floor, zero unaccepted survivors, exactly 18 `equivalent` and 2 `accepted-gap` rows, plus the end-to-end known-killing-mutant self-check.
 
 Wiring, all five rows of spec §5: `MUTATION_TEST_GLOBS`; `NIGHTLY_ONLY_EXCLUDES`; `tests/mutation/**/*.test.{ts,tsx}` into `PARALLEL_TEST_GLOBS`; `"mutation:guards": "VITEST_INCLUDE_MUTATION_HARNESS=1 vitest run --project mutation tests/mutation/guardSurfaces.gate.test.ts"`; the workflow path filter. **And** the nightly count at `tests/cross-cutting/vitest-projects-partition.test.ts:200-202` from 9 to 10 with its message updated — the R1 MEDIUM.
 
