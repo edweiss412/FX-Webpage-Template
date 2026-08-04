@@ -125,6 +125,7 @@
     "fast-check": "^4.9.0",
     "fontkit": "^2.0.4",
     "jsdom": "^29.1.1",
+    "lightningcss": "1.32.0",
     "lint-staged": "^16.2.4",
     "pngjs": "^7.0.0",
     "postcss": "^8.5.25",
