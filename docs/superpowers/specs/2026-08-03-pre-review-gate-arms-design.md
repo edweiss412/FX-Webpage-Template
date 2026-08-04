@@ -76,13 +76,48 @@ For each `--lint-doc`, the wrapper **spawns the `spec:lint` CLI** as a child pro
 
 Unlike `--artifact`, which requires `--fallback` (`scripts/codex-guard.mjs:147`), `--lint-doc` is valid in every mode. The two flags are independent: `--artifact` inlines a doc's full text for a wedge rescue; `--lint-doc` inlines a lint report.
 
+### 2.2.1 Repository identity of the lint child (pinned, not inherited)
+
+`spec:lint` discovers its repo root from its own process cwd and refuses any document outside it. `codex-guard` has **two** directories — the cwd it was launched from, and `--cwd`, the directory the review runs against. A session launched from the main checkout while reviewing a worktree makes these differ, which is the normal case under invariant 11.
+
+Left undefined, that difference turns a perfectly valid document into an apparent containment fault:
+
+```
+$ cd /Users/ericweiss/FX-Webpage-Template
+$ node --import tsx scripts/spec-lint.ts /Users/ericweiss/FX-worktrees/pre-review-gate-arms/docs/superpowers/specs/2026-08-03-pre-review-gate-arms-design.md
+document is outside the repository: ...
+exit=2
+
+$ cd /Users/ericweiss/FX-worktrees/pre-review-gate-arms
+$ node --import tsx scripts/spec-lint.ts docs/superpowers/specs/2026-08-03-pre-review-gate-arms-design.md
+summary: 0 hard, 6 advisory
+exit=0
+```
+
+Same document, same wrapper contract, opposite outcomes — and under §2.3 the first would refuse the dispatch. So both are pinned:
+
+- The lint child is spawned with **cwd = `--cwd`**, never the wrapper's launch cwd.
+- A relative `--lint-doc` resolves against **`--cwd`**. An absolute path is used as given.
+- A `--lint-doc` that resolves outside `--cwd`'s repository is a usage error (exit 2) attributable to the caller, and its message names both the path and the repo root, so the two failure causes are never confused.
+
+### 2.2.2 Embedded report content and the aggregate budget
+
+Only the **findings** portion of the report is embedded. The CLI's numeric `INVENTORY` block is excluded: it is the bulk of the bytes and is drafting-aid output, not review signal.
+
+This matters because the wrapper refuses composed prompts over 2,000,000 bytes (`scripts/codex-guard.mjs:41`), and full reports are large. Measured across the tracked corpus: largest single report 290,909 bytes over 3,206 lines — for a document with **zero** hard findings and 89 advisories — and the 13 largest reports together reach 2,008,482 bytes, crossing the cap before any brief text. A repeatable flag whose every individual run exits 0 or 1 could therefore still fail composition.
+
+- Reports are embedded in `--lint-doc` argument order, and that order is preserved.
+- The embedded reports carry a combined budget of 200,000 bytes. When a report would cross it, it is truncated at a line boundary and the block ends with an explicit `[truncated: N of M bytes shown]` line, so the reviewer is never shown a silently shortened report.
+- Truncation is never a refusal. Exceeding the budget is an expected consequence of a valid input, not a fault.
+
 ### 2.3 Failure posture
 
 | Condition | Behavior |
 | --- | --- |
-| lint exits 0 or 1 (clean, advisories, or findings) | embed output, dispatch proceeds |
+| lint exits 0 or 1 (clean, advisories, or findings) | embed findings, dispatch proceeds |
 | lint exits 2 (usage or infra fault, including a tracked symlink) | **refuse to dispatch**, exit 2, no result.json Codex outcome |
-| `--lint-doc` path unreadable or outside the repo | refuse, exit 2 |
+| `--lint-doc` resolves outside `--cwd`'s repo, or is unreadable | refuse, exit 2, message names path and repo root (§2.2.1) |
+| embedded reports exceed the 200,000-byte budget | truncate at a line boundary with an explicit notice; dispatch proceeds (§2.2.2) |
 | no `--lint-doc` given | dispatch proceeds; result.json records `lintArm: "absent"` |
 
 Findings never block dispatch. A doc with 40 citation failures is exactly the doc a reviewer most needs the report for. Only a tool that could not run blocks, which matches the exit-2-is-infra semantics `spec:lint` already defines.
@@ -122,11 +157,14 @@ So the plan declares its own task grain, in a **delimited region**:
 <!-- tasks: end -->
 ```
 
-- `depth` is an integer 1 through 6: the ATX heading depth at which tasks live in this plan.
-- A plan is **enrolled** iff it carries exactly one well-formed opening line on a non-fenced line.
-- A **task** is a heading of exactly that depth **lying inside the region**. Nothing else is a task, at any depth; no heading text is ever read.
-- `<!-- tasks: end -->` closes the region. End of document also closes it.
-- Two opening lines without an intervening close is `TASK_ENROLL_DUPLICATE`. A malformed one (non-integer, out of range) or a close with no preceding open is `TASK_ENROLL_MALFORMED` — a hard finding, not a silent non-enrollment, so a typo cannot quietly opt a plan out.
+**The grammar is a narrow ACCEPT, and everything else is a finding.** §4.1 requires exactly this of detector specs, and an earlier draft of this section did not practise it: it listed the *rejected* depth values and left every other deviation unmodelled, which is the denylist shape §4.1 exists to forbid. Stated positively instead:
+
+- An **opening line** is a non-fenced line matching `^<!-- tasks: depth=([1-6]) -->$` **exactly**. One field, one value, no other content.
+- A **closing line** is a non-fenced line matching `^<!-- tasks: end -->$` exactly.
+- Any non-fenced line beginning `<!-- tasks:` that is neither is `TASK_ENROLL_MALFORMED`. That single clause covers an out-of-range or non-integer depth, a missing depth, an unknown extra field (`depth=3 extra=x`), a repeated field (`depth=3 depth=4`), and every form not yet imagined — none of which may silently opt a plan out while visibly declaring enrollment.
+- A plan is **enrolled** iff it carries exactly one opening line. A second opening line without an intervening close is `TASK_ENROLL_DUPLICATE`; a closing line with no preceding open is `TASK_ENROLL_MALFORMED`.
+- A **task** is a heading of exactly the declared depth **lying inside the region**. Nothing else is a task, at any depth; no heading text is ever read. End of document closes an unclosed region.
+- An enrolled plan whose region contains **zero** tasks is `TASK_ENROLL_EMPTY`. A valid in-range depth can legitimately select nothing — wrong depth, or an opening line placed after the last matching heading — and a checker that reports nothing there has accepted a plan while checking no tasks at all. That is the silent-acceptance shape in its purest form, so it is a hard finding rather than a vacuous pass.
 
 **The region has two ends because one is provably not enough.** An earlier draft of this section made a task "every heading of that depth after the opening line", and the plan implementing this spec refuted it on its first probe:
 
@@ -146,14 +184,24 @@ One HTML comment per task, anywhere in that task's extent:
 <!-- task: red=`pnpm vitest run tests/specLint/taskContract.test.ts` ac=AC-3,AC-4 -->
 ```
 
-Grammar, deliberately narrow and fail-closed:
+Grammar, narrow ACCEPT on the same principle as §3.2:
 
-- The line matches `^<!-- task: (.*) -->$` exactly, on a non-fenced line. Nothing else is a marker.
-- Fields are space-separated `key=value`, with `red` accepting an embedded space only inside its backticks. Exactly two keys are defined: `red` and `ac`. An unknown key is a hard finding, never ignored.
-- `red=` takes a backtick-delimited command string. Missing backticks, or an empty command, is a hard finding.
-- `ac=` takes a comma-separated list of at least one id matching `AC-[A-Za-z0-9.-]+`.
+- A **marker** is a non-fenced line matching `^<!-- task: red=` + backtick + `(.+)` + backtick + ` ac=(AC-[A-Za-z0-9.-]+(,AC-[A-Za-z0-9.-]+)*) -->$` **exactly**: the two fields, in that order, one space between them, no other content.
+- Any non-fenced line beginning `<!-- task:` that does not match is `TASK_MARKER_MALFORMED`. That covers an unknown key, a repeated key, reordered fields, a missing or unbackticked `red`, an empty `ac` list, an empty element inside the list (`AC-1,,AC-2`), and any form not yet imagined.
+- `TASK_RED_EMPTY` fires when the marker matches except that the backticked command is empty or whitespace only, so the commonest authoring slip gets a message naming the actual problem instead of the generic one.
 
-A task's extent runs from its heading line to the line before the next heading of the enrolled depth or shallower, or to end of document. A marker appearing **before the first task** — including before the enrollment line — is `TASK_MARKER_ORPHANED`; it belongs to no task and is never silently dropped.
+**AC ids resolve on exact-token boundaries.** An id resolves only where it appears delimited — not as a prefix of a longer id. A substring test would resolve `AC-1` against every one of these:
+
+```
+wanted=AC-1  prose=AC-10       naiveIncludes=true
+wanted=AC-1  prose=AC-1a       naiveIncludes=true
+wanted=AC-1  prose=AC-1.1      naiveIncludes=true
+wanted=AC-1  prose=AC-1-child  naiveIncludes=true
+```
+
+All four are ids the `[A-Za-z0-9.-]+` grammar permits, so all four are reachable, and each would make `TASK_AC_UNRESOLVED` silently pass on a typo.
+
+A task's extent runs from its heading line to the line before the next heading of the enrolled depth **or shallower**, or to end of document. Content under *deeper* headings therefore belongs to the enclosing task, which is deliberate: a task with `### RED` and `### GREEN` sub-headings is one task, and its marker and AC mentions count wherever they sit inside it. A marker appearing **outside every task extent** — before the region, after the closing line, or between the region's start and its first task heading — is `TASK_MARKER_ORPHANED`; it belongs to no task and is never silently dropped.
 
 ### 3.4 New checks
 
@@ -162,16 +210,19 @@ A new `taskContract` member of the `Check` union (`lib/specLint/types.ts:2`) and
 | Code | Fires when |
 | --- | --- |
 | `TASK_ENROLL_DUPLICATE` | a plan carries two or more opening lines without an intervening close |
-| `TASK_ENROLL_MALFORMED` | an opening line's `depth` is absent, non-integer, or outside 1 through 6; or a `tasks: end` has no preceding open |
+| `TASK_ENROLL_MALFORMED` | a `<!-- tasks:` line matches neither the opening nor the closing form exactly (§3.2), or a closing line has no preceding open |
+| `TASK_ENROLL_EMPTY` | an enrolled plan's region contains zero headings at the declared depth |
 | `TASK_MARKER_MISSING` | an enrolled plan has a task with no marker in its extent |
 | `TASK_MARKER_DUPLICATE` | one task extent holds two or more markers |
 | `TASK_MARKER_ORPHANED` | a marker sits outside every task extent |
-| `TASK_MARKER_MALFORMED` | marker line does not parse, or carries an unknown key |
-| `TASK_RED_EMPTY` | `red=` absent, unbackticked, or its command is empty |
+| `TASK_MARKER_MALFORMED` | a `<!-- task:` line does not match the marker form exactly (§3.3) |
+| `TASK_RED_EMPTY` | the marker matches except that its backticked command is empty or whitespace only |
 | `TASK_AC_MISSING` | `ac=` absent, or its list is empty |
-| `TASK_AC_UNRESOLVED` | an `ac=` id appears nowhere in the plan's own text outside a marker |
+| `TASK_AC_UNRESOLVED` | an `ac=` id has no exact-token occurrence in the plan's own text outside a marker |
 
 `TASK_AC_UNRESOLVED` resolves against the plan document itself, not the linked spec. Cross-document AC resolution needs a declared spec link that plans do not currently carry; adding one is cluster-C-or-later work, and a check that silently resolves nothing is worse than no check. Recorded in §6. Resolution deliberately excludes marker lines themselves, so an id cannot satisfy itself by being cited.
+
+**The renderer is a third wiring point, not a consequence of the first two.** `CHECK_ORDER` governs sort order inside `runLint`; it does **not** drive the CLI's text report, which iterates its own closed literal list at `scripts/spec-lint.ts:46`. Adding the union member and the order entry without touching that list yields a run that exits 1 while the embedded report shows only an aggregate count — no code, no line, no message — which is precisely the report a reviewer receives under §2. All three wiring points land together: `lib/specLint/types.ts:2`, `lib/specLint/run.ts:8`, and `scripts/spec-lint.ts:46`.
 
 Note the deliberate asymmetry with §1.1 item 4: these checks verify a **declaration's shape**, never a task's prose. `TASK_RED_EMPTY` asserts the author wrote a command; it does not assert the command is real, runs, or fails first. That remains the reviewer's job, now with a named target instead of a prose hunt.
 
@@ -215,7 +266,23 @@ Nine artifacts burned on this shape; none was caught by review-time reasoning al
 
 **AC-11.** An unknown key in a marker is `TASK_MARKER_MALFORMED`, not silently ignored — the fail-closed direction, pinned by its own mutant. Likewise a malformed `depth` is `TASK_ENROLL_MALFORMED` and not a silent opt-out.
 
-**AC-12.** Headings at a depth other than the enrolled one are never treated as tasks, and their content never satisfies or violates a task check. Pinned with a fixture whose non-task headings carry markerless bodies.
+**AC-12.** A heading at a depth other than the enrolled one is never itself a **task** and never draws `TASK_MARKER_MISSING`. Its *content* is not exempt: a deeper heading's lines belong to the enclosing task's extent per §3.3, so a marker or AC mention beneath it counts for that task. Pinned with one fixture asserting both halves, because stating only the first contradicts the extent rule.
+
+**AC-18.** The lint child runs with cwd = `--cwd`; a relative `--lint-doc` resolves against `--cwd`; and a doc valid in the target repo lints identically regardless of the wrapper's launch cwd (§2.2.1).
+
+**AC-19.** A `--lint-doc` resolving outside `--cwd`'s repository exits 2 with a message naming both the path and the repo root, distinguishable from an unreadable-file exit 2.
+
+**AC-20.** The embedded block excludes the CLI's `INVENTORY` section and contains its findings.
+
+**AC-21.** Reports embed in argument order; when the combined 200,000-byte budget is crossed, the block truncates at a line boundary and ends with an explicit truncation notice, and the dispatch still proceeds.
+
+**AC-22.** An enrolled plan whose region selects zero tasks reports `TASK_ENROLL_EMPTY` — pinned both by a wrong-depth fixture and by one whose opening line follows the last matching heading.
+
+**AC-23.** `<!-- tasks: depth=3 extra=x -->` and `<!-- tasks: depth=3 depth=4 -->` each report `TASK_ENROLL_MALFORMED`. Neither may parse to "not enrolled".
+
+**AC-24.** `TASK_AC_UNRESOLVED` fires for `ac=AC-1` when the plan's prose contains only `AC-10`, `AC-1a`, `AC-1.1`, or `AC-1-child` — one case per prefix family, none of which may resolve it.
+
+**AC-25.** `taskContract` findings render in the CLI text report under their own `taskContract:` heading with code, line, and message — asserted against the CLI's actual stdout, not against `runLint`'s return value.
 
 **AC-15.** A heading at the enrolled depth **outside** the region yields nothing — whether it precedes the opening line or follows `<!-- tasks: end -->`. Pinned with a fixture carrying both, since only the trailing case refutes a start-only model.
 
@@ -234,3 +301,17 @@ Nine artifacts burned on this shape; none was caught by review-time reasoning al
 3. **AC ids resolve within the plan only, so the check is weaker than its name.** A plan citing an AC that exists in its spec but not in itself reports `TASK_AC_UNRESOLVED`. Cross-document resolution needs a declared spec-link field on plans, which does not exist yet (§3.4). The consequence worth naming outright: the check proves an id is *mentioned*, not that the criterion *exists*, so `AC-1` mistyped as `AC-11` passes silently whenever AC-11 is also mentioned. Typo-aliasing within a live id set is out of reach until cross-document resolution lands.
 4. **`red=` is not executed.** The checks verify a declaration, never that the command runs or fails first. Executing arbitrary commands from a doc during a lint run is refused outright.
 5. **Nothing here addresses S2 or S8.** Incomplete class sweeps and regressed round-repairs are cluster B and C work respectively.
+
+6. **One declared depth cannot express a hierarchical task plan.** Some plans put task units at two depths. Reproduced against the tracked corpus:
+
+   ```
+   perl -ne 'if (/^(#{1,6})\s+(?:Task\s*\d|T\d)/) { $seen{$ARGV}{length($1)}++ }
+     END { for $f (sort keys %seen) { @d=keys %{$seen{$f}}; print "$f\n" if @d>1 } }' \
+     $(git ls-files 'docs/superpowers/plans/**/*.md' 'docs/superpowers/plans/*.md')
+   ```
+
+   Seven files, at depth pairs 2/3 and 3/4: `docs/superpowers/plans/alerts/2026-07-04-alert-at-a-glance-identity.md`, `docs/superpowers/plans/observability/2026-07-04-mutation-surface-observability.md`, `docs/superpowers/plans/schedule/2026-06-22-per-day-schedule-keytimes.md`, `docs/superpowers/plans/2026-07-25-section-header-rebuild-and-phantom-spacers.md`, `docs/superpowers/plans/data-quality/2026-07-15-feed-disposition-accept/00-overview.md`, `docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/handoffs/M9-polish.md`, and `docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-30-m12.2-admin-redesign/M12.2-recon1-banner-quieting.md`.
+
+   A plan shaped like those must either normalize its task units to one depth or stay unenrolled; enrolling one depth would silently exclude the units at the other. Multi-depth enrollment is deliberately **not** specified here, because it forces a nesting model — a depth-3 task inside a depth-2 task extent — whose marker ownership, extent boundaries, and `TASK_MARKER_MISSING` semantics are a larger design than this cluster carries. Seven of 533 plans are affected, and enrollment is opt-in, so the limit costs nothing until someone enrols such a plan and is then told plainly rather than checked wrongly.
+
+7. **`--lint-doc` reports are budgeted, so a large enough set is shown truncated.** §2.2.2 caps embedded reports at 200,000 bytes combined with an explicit notice. A reviewer handed a truncated report sees that it was truncated; they do not see the omitted findings. Raising the cap trades against the wrapper's 2,000,000-byte composition limit, which a full corpus-scale set would cross on its own.

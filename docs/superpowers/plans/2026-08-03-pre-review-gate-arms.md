@@ -65,6 +65,13 @@ impeccable-gate: N/A — no UI surface
 | M13 region escape | depth-N heading before the open, or after `tasks: end` | AC-15 |
 | M14 unmatched close | `tasks: end` with no preceding open | AC-16 (`TASK_ENROLL_MALFORMED`) |
 | M15 shallower boundary | mid-document heading shallower than enrolled depth | AC-17 extent termination |
+| M16 empty region | valid in-range depth selecting zero tasks (wrong depth; open after last heading) | `TASK_ENROLL_EMPTY` (AC-22) |
+| M17 enroll form | `depth=3 extra=x`; `depth=3 depth=4` | `TASK_ENROLL_MALFORMED` (AC-23) |
+| M18 marker form | repeated key; reordered fields; `ac=AC-1,,AC-2` | `TASK_MARKER_MALFORMED` |
+| M19 id prefix | prose holds only `AC-10` / `AC-1a` / `AC-1.1` / `AC-1-child` for `ac=AC-1` | `TASK_AC_UNRESOLVED` (AC-24) |
+| M20 launch geometry | wrapper launched from main checkout, `--cwd` a worktree | AC-18, AC-19 |
+| M21 report visibility | union + CHECK_ORDER wired, CLI renderer list untouched | AC-25 |
+| M22 budget | embedded reports crossing 200,000 bytes | AC-21 truncation notice |
 
 ## Tasks
 
@@ -72,13 +79,13 @@ impeccable-gate: N/A — no UI surface
 
 ## Task 1 — enrollment and task segmentation, pure
 
-<!-- task: red=`pnpm vitest run tests/specLint/taskContract.test.ts` ac=AC-7,AC-9,AC-12 -->
+<!-- task: red=`pnpm vitest run tests/specLint/taskContract.test.ts` ac=AC-7,AC-9,AC-12,AC-15,AC-16,AC-17,AC-22 -->
 
 
 <!-- spec-lint: ignore — new file created by this plan; not tracked until implementation -->
 **RED.** Create `tests/specLint/taskContract.test.ts` covering, against in-memory `DocModel` values built through `parseDoc` (never hand-built objects, so the fence model under test is the real one):
 
-- families M1, M3, M4, M10, M13, M14, M15 from the closure table;
+- families M1, M3, M4, M10, M13, M14, M15, M16 from the closure table. M16 gets two fixtures, not one: a region whose declared depth matches no heading, and a region whose opening line follows the last matching heading. Both are valid in-range depths selecting nothing, and a checker silent on either has accepted a plan while checking no tasks at all;
 - a plan whose enrolled depth is 2 with `###` sub-headings inside a task, asserting the sub-headings do not end the extent;
 - a plan with depth-N headings **both before the opening line and after `<!-- tasks: end -->`**, asserting neither is a task (M13, AC-15). The trailing half is the load-bearing one: it is the case that refuted the start-only model, and a fixture carrying only the leading half would have passed against the broken design;
 - a plan with a mid-document heading *shallower* than the enrolled depth, asserting it terminates the preceding task's extent (M15, AC-17). No plan in the current corpus exercises this branch, so the fixture is the only coverage it gets.
@@ -95,11 +102,11 @@ Each case states the mutant it kills. Confirm every case fails before implementa
 
 **Commit.** `feat(spec-lint): segment plan tasks from a declared depth, never from heading text`
 
-## Task 2 — marker grammar and the nine codes
+## Task 2 — marker grammar and the ten codes
 
-<!-- task: red=`pnpm vitest run tests/specLint/taskContract.test.ts` ac=AC-6,AC-8,AC-11,AC-13 -->
+<!-- task: red=`pnpm vitest run tests/specLint/taskContract.test.ts` ac=AC-6,AC-8,AC-11,AC-13,AC-23,AC-24 -->
 
-**RED.** Extend the Task 1 suite with families M2, M5, M6, M7, M8, M9, M11 — one case per code, each asserting the code fires on a fixture exhibiting it **and does not fire** on a sibling fixture exhibiting only the neighbouring defect. That negative half is what makes AC-8 non-tautological: a checker that returned every code on every input would pass the positive half alone.
+**RED.** Extend the Task 1 suite with families M2, M5, M6, M7, M8, M9, M11, M17, M18, M19 — one case per code, each asserting the code fires on a fixture exhibiting it **and does not fire** on a sibling fixture exhibiting only the neighbouring defect. That negative half is what makes AC-8 non-tautological: a checker that returned every code on every input would pass the positive half alone.
 
 Add the citation-collision fixture the pre-draft pass surfaced: a marker whose `red=` is a single dotted token, asserting the interaction with the citations check is whatever the implementation actually does, pinned rather than assumed.
 
@@ -107,17 +114,17 @@ Add the **inline-mention fixture**, from a live probe against this very plan. Ex
 
 
 <!-- spec-lint: ignore — new file created by this plan; not tracked until implementation -->
-**GREEN.** Implement the nine codes in `lib/specLint/taskContract.ts`.
+**GREEN.** Implement the ten codes in `lib/specLint/taskContract.ts`.
 
 **Verify.** AC-6, AC-8, AC-11, AC-13, and closure families M2 and M5 through M11.
 
-**Commit.** `feat(spec-lint): nine hard task-contract codes, fail-closed on every unmodelled shape`
+**Commit.** `feat(spec-lint): ten hard task-contract codes, fail-closed on every unmodelled shape`
 
 ## Task 3 — wire the check into the run and the CLI
 
-<!-- task: red=`pnpm vitest run tests/specLint/run.test.ts tests/specLint/cli.test.ts` ac=AC-10 -->
+<!-- task: red=`pnpm vitest run tests/specLint/run.test.ts tests/specLint/cli.test.ts` ac=AC-10,AC-25 -->
 
-**RED.** Extend `tests/specLint/run.test.ts` with a plan-kind document producing a `taskContract` finding, and a spec-kind document with identical text producing none (AC-10). Extend `tests/specLint/cli.test.ts` asserting `taskContract` findings render under their own heading in the documented check order.
+**RED.** Cover M21 first: assert the CLI's stdout carries a `taskContract:` section with code, line, and message (AC-25). `CHECK_ORDER` does not drive the renderer — `scripts/spec-lint.ts:46` iterates its own closed literal list — so a run can exit 1 while the embedded report shows only an aggregate count, which is exactly what a reviewer would receive under design §2. Then extend `tests/specLint/run.test.ts` with a plan-kind document producing a `taskContract` finding, and a spec-kind document with identical text producing none (AC-10). Extend `tests/specLint/cli.test.ts` asserting `taskContract` findings render under their own heading in the documented check order.
 
 **GREEN.** Add `"taskContract"` to the `Check` union (`lib/specLint/types.ts:2`), give it an entry in `CHECK_ORDER` (`lib/specLint/run.ts:8`), call `checkTaskContract` from `runLint`, and add it to the CLI's rendered check list (`scripts/spec-lint.ts:46`). Confirm the waiver machinery suppresses `taskContract` failures the same way it suppresses other hard findings, and pin that with a case — an undocumented interaction between the two is exactly the silent-acceptance hole §3.4 warns about.
 
@@ -127,7 +134,7 @@ Add the **inline-mention fixture**, from a live probe against this very plan. Ex
 
 ## Task 4 — codex-guard `--lint-doc`
 
-<!-- task: red=`pnpm vitest run tests/codexGuard/lintDoc.test.ts` ac=AC-1,AC-2,AC-3,AC-4,AC-5 -->
+<!-- task: red=`pnpm vitest run tests/codexGuard/lintDoc.test.ts` ac=AC-1,AC-2,AC-3,AC-4,AC-5,AC-18,AC-19,AC-20,AC-21 -->
 
 
 **Harness API, verified.** `tests/codexGuard/harness.ts` exports `mkRun` (`tests/codexGuard/harness.ts:107`), `writeScenario` (`tests/codexGuard/harness.ts:133`), `guardEnv` (`tests/codexGuard/harness.ts:148`), `runGuard` (`tests/codexGuard/harness.ts:162`), `readResult` (`tests/codexGuard/harness.ts:201`), and `readCalls` (`tests/codexGuard/harness.ts:205`). `readCalls` returns the `CallRecord` shape at `tests/codexGuard/harness.ts:74`, carrying each invocation's `argv` — which is what makes AC-3's "dispatched nothing" directly assertable (empty array) and AC-1's embed assertable against the real composed prompt rather than a restatement of it.
