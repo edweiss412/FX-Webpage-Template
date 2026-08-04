@@ -64,6 +64,9 @@ describe("supersession cleanup runs on BOTH applied-crew-identity writers (P4-F2
     await runAutoApply(driveFileId, {
       crew: [{ name: "Alicia", email: "alicia@new" }],
       triggeredItems: items,
+      // The feed derives renames from the pairs the apply LANDED, so the identity-link pair cron
+      // emits for this MI-12 item rides along too (`lib/sync/identityLinkRenames.ts:20-23`).
+      identityLinkRenames: [{ removedName: "Alice", addedName: "Alicia" }],
     });
     const r1 = await readChangeLog(showId, { change_kind: "crew_renamed", entity_ref: "Alice" });
     expect(r1.status).toBe("applied");

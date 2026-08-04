@@ -167,33 +167,59 @@ describe("undo_change Direction A — restore removed/renamed crew", () => {
   });
 
   it("REPLACED-shape rename undo regression (spec test 16): successor (distinct id) deleted, prior id restored", async () => {
+    // HISTORICAL ROW, REPRODUCED DELIBERATELY — this test does NOT drive an apply, because no live
+    // apply can produce this shape any more (spec 2026-08-03 §8). Since the landed-pairs correction,
+    // the only source of a crew_renamed row is a rename that LANDED, and landing means
+    // renameCrewMember's in-place `update ... set name` succeeded, which preserves crew_members.id
+    // by construction. The "successor carries a DISTINCT id" shape is what the old triggeredItems
+    // re-derivation wrote whenever a rename degraded to delete-old + insert-new. undo_change's
+    // Direction A branch for it is historical-only, not dead: rows of this shape are already in the
+    // change log and must stay undoable. So the crew state and the feed row are both seeded here to
+    // the exact shape that path used to leave behind.
     const { showId, driveFileId } = await seedShowWithCrew([
       { name: "Undo Repl A", email: "ura@x.example" },
     ]);
-    const PRIOR_ID = (await readCrewByName(showId, "Undo Repl A"))!.id;
+    const prior = (await readCrewByName(showId, "Undo Repl A"))!;
+    const PRIOR_ID = prior.id;
 
-    const items: TriggeredReviewItem[] = [
-      {
-        id: "1",
-        invariant: "MI-12",
-        removed_name: "Undo Repl A",
-        added_name: "Undo Repl A2",
-        email: "ura@x.example",
-      },
-    ];
-    // NO identityLinkRenames → historical delete+insert shape: successor gets a fresh id.
-    await runAutoApply(driveFileId, {
-      crew: [{ name: "Undo Repl A2", email: "ura@x.example" }],
-      triggeredItems: items,
-    });
+    // The crew mutation the historical delete+insert apply left: prior row gone, successor inserted
+    // fresh (so it gets a NEW id — the whole point of the shape).
+    await holdsSql`delete from public.crew_members where id = ${PRIOR_ID}`;
+    await holdsSql`
+      insert into public.crew_members
+        (show_id, name, email, phone, role, role_flags, date_restriction, stage_restriction,
+         flight_info, claimed_via_oauth_at)
+      values (${showId}, 'Undo Repl A2', ${prior.email}, ${prior.phone}, ${prior.role},
+              ${prior.role_flags}, ${holdsSql.json(prior.date_restriction as never)},
+              ${holdsSql.json(prior.stage_restriction as never)}, ${prior.flight_info}, null)`;
     const successor = await readCrewByName(showId, "Undo Repl A2");
-    expect(successor!.id).not.toBe(PRIOR_ID); // proves the replaced shape, not linked
+    expect(successor!.id).not.toBe(PRIOR_ID); // the replaced shape, not linked
 
-    const renamed = await readChangeLog(showId, {
-      change_kind: "crew_renamed",
-      entity_ref: "Undo Repl A",
-    });
-    const res = await callUndoAsAdmin(renamed.id);
+    // The feed row that apply wrote, in the shape writeAutoApplyChanges' crew_renamed branch
+    // produced: entity_ref = the PRIOR name, before_image = the pre-apply live row (id + claim).
+    const [seeded] = (await holdsSql`
+      insert into public.show_change_log
+        (show_id, drive_file_id, source, change_kind, entity_ref, summary,
+         before_image, after_image, status, created_by)
+      values (${showId}, ${driveFileId}, 'auto_apply', 'crew_renamed', ${prior.name},
+              ${`Crew member ${prior.name} renamed to Undo Repl A2`},
+              ${holdsSql.json({
+                id: PRIOR_ID,
+                name: prior.name,
+                email: prior.email,
+                phone: prior.phone,
+                role: prior.role,
+                role_flags: prior.role_flags,
+                date_restriction: prior.date_restriction,
+                stage_restriction: prior.stage_restriction,
+                flight_info: prior.flight_info,
+                claimed_via_oauth_at: prior.claimed_via_oauth_at,
+              } as never)},
+              ${holdsSql.json({ name: "Undo Repl A2", email: prior.email } as never)},
+              'applied', 'system')
+      returning id`) as unknown as Array<{ id: string }>;
+
+    const res = await callUndoAsAdmin(seeded!.id);
     expect(res.ok).toBe(true);
 
     expect(await readCrewByName(showId, "Undo Repl A2")).toBeNull(); // successor deleted
@@ -220,6 +246,9 @@ describe("undo_change Direction A — restore removed/renamed crew", () => {
     await runAutoApply(driveFileId, {
       crew: [{ name: "Alicia", email: "alicia@new" }],
       triggeredItems: items,
+      // The feed derives renames from the pairs the apply LANDED, so the identity-link pair cron
+      // emits for this MI-12 item rides along too (`lib/sync/identityLinkRenames.ts:20-23`).
+      identityLinkRenames: [{ removedName: "Alice", addedName: "Alicia" }],
     });
     const renamed = await readChangeLog(showId, {
       change_kind: "crew_renamed",
@@ -272,6 +301,7 @@ describe("undo_change Direction A — restore removed/renamed crew", () => {
     await runAutoApply(driveFileId, {
       crew: [{ name: "Alicia", email: "alicia@new" }],
       triggeredItems: items,
+      identityLinkRenames: [{ removedName: "Alice", addedName: "Alicia" }],
     });
     const renamed = await readChangeLog(showId, {
       change_kind: "crew_renamed",
@@ -319,6 +349,7 @@ describe("undo_change Direction A — restore removed/renamed crew", () => {
     await runAutoApply(b.driveFileId, {
       crew: [{ name: "Alicia", email: "alicia@new" }],
       triggeredItems: items,
+      identityLinkRenames: [{ removedName: "Alice", addedName: "Alicia" }],
     });
     const renamed = await readChangeLog(b.showId, {
       change_kind: "crew_renamed",

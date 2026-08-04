@@ -1,7 +1,8 @@
 /**
  * Phase 4 P4-F3 (HIGH) — crew_renamed undo must be a TRUE reversal: DELETE the rename SUCCESSOR
- * (named in after_image) THEN restore the prior row from before_image. A rename was applied as
- * delete-old + insert-new (Alice→Dana); undo without deleting Dana strands the case:
+ * (named in after_image) THEN restore the prior row from before_image. After the apply, the
+ * successor (Dana) is the live row and the prior name (Alice) is gone; undo without deleting Dana
+ * strands the case:
  *  - SAME-EMAIL rename (Alice(a@x)→Dana(a@x)): Dana still owns a@x under a different name → the
  *    generic email-collision guard wrongly returns UNDO_EMAIL_CLAIMED, so Alice can never be
  *    restored.
@@ -51,6 +52,10 @@ async function applyRename(
   await runAutoApply(driveFileId, {
     crew: [{ name: successor.name, email: successor.email }],
     triggeredItems: items,
+    // The MI-12 item alone no longer writes a crew_renamed row: the feed derives renames from the
+    // pairs the apply LANDED, so cron's `computeIdentityLinkRenames` pair must ride along, exactly
+    // as production emits it (`lib/sync/identityLinkRenames.ts:20-23`).
+    identityLinkRenames: [{ removedName: prior.name, addedName: successor.name }],
   });
   const renamed = await readChangeLog(showId, {
     change_kind: "crew_renamed",
