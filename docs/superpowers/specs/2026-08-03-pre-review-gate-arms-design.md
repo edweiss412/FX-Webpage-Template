@@ -162,7 +162,14 @@ Not `maxBuffer` — identical at 64 MB, `status=0`, no error reported. The consu
 
 **A1 cannot work until this is fixed.** codex-guard spawns the CLI and captures stdout through a pipe by construction, so every dispatch would embed a truncated report, and §2.2.2's "keep the `summary:` line" would silently fail on all of them — the reviewer receiving a report whose most informative line is exactly the one always missing.
 
-The repair is `process.exitCode = r.exitCode` and a natural exit, which drains stdout. This is a pre-existing defect in a file A1 already modifies (§3.4 wires the renderer at `scripts/spec-lint.ts:46`), and it blocks the feature outright rather than sitting beside it, so it is repaired in this PR rather than deferred — the class-sweep disposition rule's default.
+The repair is `process.exitCode = r.exitCode` and a natural exit, which drains stdout. **Verified rather than asserted** — a variant with that one line changed, run against this document:
+
+```
+current  (process.exit)     : 8166 chars,  summary ABSENT
+variant  (process.exitCode) : 26095 bytes, summary present, byte-identical to the redirect
+```
+
+One trap the verification itself hit, worth carrying into the test: `spawnSync(...).stdout.length` counts **UTF-16 code units**, not bytes, and this document is full of em-dashes. A first comparison read 25958 against a 26095-byte redirect and looked like a 137-byte shortfall; the outputs were in fact identical. AC-35 compares **`Buffer.byteLength`**, never string length, because a byte-vs-char mismatch masquerades convincingly as truncation. This is a pre-existing defect in a file A1 already modifies (§3.4 wires the renderer at `scripts/spec-lint.ts:46`), and it blocks the feature outright rather than sitting beside it, so it is repaired in this PR rather than deferred — the class-sweep disposition rule's default.
 
 It also explains, retroactively, all three truncated measurements recorded during this spec's drafting. Those were attributed to buffer scheduling; the attribution was wrong, and the corrected explanation is here.
 
@@ -443,7 +450,7 @@ Nine artifacts burned on this shape; none was caught by review-time reasoning al
 
 **AC-39.** An enrollment line and a task marker indented by one, two, and three spaces are recognized; the same lines indented by four spaces are not, being indented code blocks under CommonMark. Both halves asserted — a suite testing only the accepted side would pass a grammar that accepted arbitrary indentation.
 
-**AC-35.** `scripts/spec-lint.ts` sets `process.exitCode` and exits naturally rather than calling `process.exit()`. Pinned behaviorally: the CLI spawned through a pipe returns a report whose last line begins `summary:`, byte-identical to the same run redirected to a file. Asserting the source no longer contains `process.exit` would pass a rewrite that reintroduced the truncation another way.
+**AC-35.** `scripts/spec-lint.ts` sets `process.exitCode` and exits naturally rather than calling `process.exit()`. Pinned behaviorally: the CLI spawned through a pipe returns a report whose last line begins `summary:`, and whose `Buffer.byteLength` equals that of the same run redirected to a file. Compare bytes, not `String.length` — see §2.2.3. Asserting the source no longer contains `process.exit` would pass a rewrite that reintroduced the truncation another way.
 
 **AC-36.** A `--lint-doc` whose child exits 0 or 1 with a malformed report — no `spec:lint` first line, or no `summary:` last line — refuses the dispatch with exit 2. Pinned with a real pre-adapter failure (a missing Node loader: `status=1`, empty stdout), not a hand-built string.
 
