@@ -29,6 +29,10 @@ export type GitSurface = {
   mergedIntoMain(): string[];
   /** File content at a ref, or null when absent. Never throws on a missing path. */
   showFile(ref: string, file: string): string | null;
+  /** All ledger blob OIDs at a ref in ONE spawn, so reads can be deduplicated. */
+  fileOids(ref: string, files: string[]): Map<string, string>;
+  /** A blob by OID, read once per distinct blob rather than once per branch. */
+  readBlob(oid: string): string;
   mergeBase(ref: string): string | null;
   diffHunks(base: string, ref: string, files: string[]): Hunk[];
   tipEpoch(ref: string): number;
@@ -155,6 +159,8 @@ export function resolveClaims(
 
   const files = ledgerFiles();
   const claims: Claim[] = [];
+  // Distinct blobs, read once each: most branches share main's ledger blobs.
+  const blobCache = new Map<string, string>();
 
   for (const ref of candidates) {
     const branch = shortName(ref);
@@ -174,9 +180,16 @@ export function resolveClaims(
     const spansByFile = new Map<string, { id: string; line: number; endLine: number }[]>();
     const declaredHere = new Set<string>();
 
+    // One ls-tree per ref, then one read per DISTINCT blob across all refs.
+    const oids = git.fileOids(ref, [...files]);
     for (const file of files) {
-      const text = git.showFile(ref, file);
-      if (text === null) continue;
+      const oid = oids.get(file);
+      if (oid === undefined) continue; // absent at this ref
+      let text = blobCache.get(oid);
+      if (text === undefined) {
+        text = git.readBlob(oid);
+        blobCache.set(oid, text);
+      }
       const items = ledgerItems(file, text);
       spansByFile.set(
         file,

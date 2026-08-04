@@ -151,6 +151,34 @@ export function realGitSurface(): GitSurface {
         .filter((s) => s.length > 0 && s !== "origin/main");
     },
 
+    // One spawn per ref for ALL ledger blob OIDs, plus one `cat-file` per
+    // DISTINCT blob. Most branches never touch a ledger, so 15 refs x 4 files
+    // was 60 `git show` spawns to read about four distinct blobs.
+    fileOids(ref, files) {
+      const out = new Map<string, string>();
+      const r = spawnSync("git", ["ls-tree", ref, "--", ...files], {
+        cwd: ROOT,
+        encoding: "utf8",
+        timeout: LS_REMOTE_MS,
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+      if (r.error) throw r.error;
+      // A ref with no such paths exits 0 with empty output; a bad ref exits non-zero.
+      if (r.status !== 0) {
+        throw new Error(`git ls-tree ${ref} failed: ${(r.stderr ?? "").trim()}`);
+      }
+      for (const line of (r.stdout ?? "").split("\n")) {
+        // <mode> blob <oid>\t<path>
+        const m = /^\d+ blob ([0-9a-f]{40})\t(.+)$/.exec(line.trim());
+        if (m?.[1] && m[2]) out.set(m[2], m[1]);
+      }
+      return out;
+    },
+
+    readBlob(oid) {
+      return git(["cat-file", "blob", oid], LS_REMOTE_MS);
+    },
+
     showFile(ref, file) {
       // "Absent" and "failed" are different answers, and collapsing them loses
       // declared claims silently: an object-read failure or a timeout would read

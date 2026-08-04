@@ -15,7 +15,10 @@ const MARKER = (branch: string, id = "BL-X") =>
 const NOW = 1_760_000_000; // fixed clock; tipEpoch is relative to `now`
 
 function fake(over: Partial<GitSurface> = {}): GitSurface {
-  return {
+  // fileOids/readBlob are DERIVED from whatever showFile the case supplies, so
+  // every existing fixture keeps meaning what it meant when the reader batched
+  // its blob reads. A fixture that overrides showFile still drives both.
+  const base: GitSurface = {
     fetch: () => {},
     lsRemote: () =>
       new Map([
@@ -39,8 +42,21 @@ function fake(over: Partial<GitSurface> = {}): GitSurface {
     headRepo: () => null,
     repo: () => null,
     inCI: () => false,
+    fileOids: (ref, files) => {
+      const m = new Map<string, string>();
+      for (const f of files) {
+        const t = (over.showFile ?? base.showFile)(ref, f);
+        if (t !== null) m.set(f, `oid:${ref}:${f}`);
+      }
+      return m;
+    },
+    readBlob: (oid) => {
+      const [, ref, file] = oid.split(":");
+      return (over.showFile ?? base.showFile)(ref ?? "", file ?? "") ?? "";
+    },
     ...over,
   };
+  return base;
 }
 
 const opts = { fetch: false, now: NOW } as const;

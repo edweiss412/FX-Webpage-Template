@@ -104,7 +104,30 @@ export function fieldsOfLine(line: string): Record<string, string> {
  * line is what separates the two. Window value wins on a key collision, so
  * existing entries are untouched.
  */
+/**
+ * Parsed entries, memoized by (file, content).
+ *
+ * Most branches never touch a ledger, so across 15 refs the same four blobs are
+ * parsed 60 times — and the mdast walk over a 1400-line BACKLOG.md is the
+ * dominant cost of the whole read: measured at 11.5 s for 15 branches against a
+ * 15 s preflight budget. Keying on content collapses that to one parse per
+ * DISTINCT blob, which is typically four.
+ *
+ * Keyed on the text itself rather than a git OID so the cache cannot go stale:
+ * different content is a different key by construction.
+ */
+const parseCache = new Map<string, LedgerItem[]>();
+
 export function ledgerItems(file: string, text: string): LedgerItem[] {
+  const key = `${file}\u0000${text.length}\u0000${text}`;
+  const hit = parseCache.get(key);
+  if (hit !== undefined) return hit;
+  const out = ledgerItemsUncached(file, text);
+  parseCache.set(key, out);
+  return out;
+}
+
+function ledgerItemsUncached(file: string, text: string): LedgerItem[] {
   const entries = extractEntries(text, optsFor(file));
   const lines = text.split("\n");
 

@@ -25,7 +25,10 @@ const ROOT = join(__dirname, "..", "..");
 const NOW = 1_760_000_000;
 
 function fake(over: Partial<GitSurface> = {}): GitSurface {
-  return {
+  // fileOids/readBlob are DERIVED from whatever showFile the case supplies, so
+  // every existing fixture keeps meaning what it meant when the reader batched
+  // its blob reads. A fixture that overrides showFile still drives both.
+  const base: GitSurface = {
     fetch: () => {},
     lsRemote: () =>
       new Map([
@@ -49,8 +52,21 @@ function fake(over: Partial<GitSurface> = {}): GitSurface {
     headRepo: () => null,
     repo: () => null,
     inCI: () => false,
+    fileOids: (ref, files) => {
+      const m = new Map<string, string>();
+      for (const f of files) {
+        const t = (over.showFile ?? base.showFile)(ref, f);
+        if (t !== null) m.set(f, `oid:${ref}:${f}`);
+      }
+      return m;
+    },
+    readBlob: (oid) => {
+      const [, ref, file] = oid.split(":");
+      return (over.showFile ?? base.showFile)(ref ?? "", file ?? "") ?? "";
+    },
     ...over,
   };
+  return base;
 }
 
 const check = (git: GitSurface, ids: string[], extra: Record<string, unknown> = {}) =>
@@ -398,7 +414,7 @@ describe("the real git adapter and the JSON envelope (whole-diff F3/F9)", () => 
     expect(r.claims[0]?.pr, "the base PR, not the fork's").toBe(689);
   });
 
-  it("emits every claim through the CLI's --json serialization, uncapped", () => {
+  it("emits every claim through the CLI's --json serialization, uncapped", async () => {
     // Observes the CLI, not resolveClaims: the M8 mutant lives in
     // scripts/ledger-claims.ts's envelope (`res.claims.slice(0, 100)`), so a
     // core-level assertion cannot see it. Runs the real CLI and parses stdout.
@@ -415,6 +431,15 @@ describe("the real git adapter and the JSON envelope (whole-diff F3/F9)", () => 
     };
     // The envelope shape itself, which a bare array would fail.
     expect(Array.isArray(payload), "must be an object, not a bare array").toBe(false);
+    // CARDINALITY, not just shape: without this, `claims: res.claims.slice(0, 100)`
+    // or even `claims: []` passes, restoring the machine-consumer false all-clear
+    // that the uncapped contract exists to prevent. Asserted against the core's
+    // own count so it cannot rot as the corpus changes.
+    const { realGitSurface } = await import("@/scripts/lib/ledger-git");
+    const core = resolveClaims(realGitSurface(), { fetch: false });
+    expect(payload.claims.length, "the CLI truncated what the core resolved").toBe(
+      core.claims.length,
+    );
     expect(payload).toHaveProperty("status");
     expect(payload).toHaveProperty("degraded");
     expect(Array.isArray(payload.claims)).toBe(true);

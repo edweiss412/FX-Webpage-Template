@@ -46,6 +46,17 @@ function main(argv: string[]): number {
     }
     const ids = argv.slice(checkAt + 1).filter((a) => !a.startsWith("--"));
     const r = runCheck(git, ids, { fetch: true, verify: true });
+
+    if (wantJson) {
+      // `--check --json` is a machine caller asking a machine question; giving
+      // it plain text made the JSON contract conditional on which mode you used.
+      // `status` mirrors the exit code here, as the envelope promises.
+      process.stdout.write(
+        `${JSON.stringify({ status: r.code, collisions: r.collisions, warnings: r.warnings, notes: r.notes, reasons: r.reasons }, null, 2)}\n`,
+      );
+      return r.code;
+    }
+
     for (const n of r.notes) process.stdout.write(`${n}\n`);
     for (const w of r.warnings) process.stdout.write(`${w}\n`);
     for (const reason of r.reasons) process.stderr.write(`${reason}\n`);
@@ -65,8 +76,12 @@ function main(argv: string[]): number {
     // stale-cache false all-clear both serialize as `[]`, and every
     // report-level state the table prints in its header would be invisible to a
     // machine consumer. Never capped.
+    // `status` mirrors the exit code, which the report mode always exits 0 with:
+    // a degraded READ is still a complete answer to "what is in flight", and
+    // only `--check` makes an authoritative claim that can be untrusted. The
+    // degraded flags carry the caveat without overloading the exit code.
     process.stdout.write(
-      `${JSON.stringify({ status: res.degraded.length === 0 ? "ok" : "degraded", degraded: res.degraded, claims: res.claims }, null, 2)}\n`,
+      `${JSON.stringify({ status: 0, degraded: res.degraded, claims: res.claims }, null, 2)}\n`,
     );
     return 0;
   }
