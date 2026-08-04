@@ -212,10 +212,11 @@ function holdRow(n: number, showId: string, embed: unknown, createdAt?: string):
     shows: embed,
   };
 }
+const seenLimits: number[] = [];
 function clientReturning(result: { data: Row[] | null; error: { message: string } | null }) {
   const chain = {
     select: () => chain, eq: () => chain, order: () => chain,
-    limit: () => Promise.resolve(result),
+    limit: (n: number) => { seenLimits.push(n); return Promise.resolve(result); },
   };
   return { from: () => chain } as never;
 }
@@ -275,6 +276,9 @@ describe("loadOpenIdentityHolds", () => {
     expect(slugs).toContain("s-tie-kept");
     expect(slugs).not.toContain("s-tie-dropped");
     expect(warnSpy).toHaveBeenCalledWith("sync_holds row cap exceeded", expect.objectContaining({ source: "admin.loadOpenIdentityHolds" }));
+    // Sentinel-limit pin (plan-R5 S3): a .limit(HOLDS_ROW_CAP) mutant would kill
+    // the sentinel and the overflow warning while every other assertion stays green.
+    expect(seenLimits.every((n) => n === HOLDS_ROW_CAP + 1)).toBe(true);
   });
 });
 ```
@@ -283,7 +287,7 @@ _Failure modes: embed shape drift; silent slug-less rows; construction throw esc
 
 - [ ] **Step 2: Run — FAIL.**
 - [ ] **Step 3: Implement** (append to lib/admin/identityHolds.ts): injectable service-role client; query `from("sync_holds").select("id, show_id, entity_key, held_value, proposed_value, base_modified_time, created_at, shows!inner(slug, title)").eq("kind", "mi11_pending").eq("shows.archived", false).order("created_at", { ascending: false }).order("id", { ascending: true }).limit(HOLDS_ROW_CAP + 1)`; construction throw / returned error / thrown error each → `{ kind: "infra_error", message }`; over-cap → warn + `rows.slice(0, HOLDS_ROW_CAP)`; embed flatten (object/array; slug-less skip + warn); `groupHoldRows(flat)`.
-- [ ] **Step 3b: Source pin (lockstep fence).** Source-regex test in the same file (idiom: the invariant-9 regex test in `tests/admin/loadNeedsAttention.test.ts`): module source contains `.eq("kind", "mi11_pending")`, `.eq("shows.archived", false)`, `.order("created_at", { ascending: false })`, `.order("id", { ascending: true })`. _Catches: R6 archived filter or G7 order dropped in a refactor — mocked clients cannot see query filters._
+- [ ] **Step 3b: Source pin (lockstep fence).** Source-regex test in the same file (idiom: the invariant-9 regex test in `tests/admin/loadNeedsAttention.test.ts`): module source contains `.eq("kind", "mi11_pending")`, `.eq("shows.archived", false)`, `.order("created_at", { ascending: false })`, `.order("id", { ascending: true })`, AND `.limit(HOLDS_ROW_CAP + 1)` (the bounded-reads guard accepts any limit expression, `tests/admin/_metaBoundedReads.test.ts:94-98`; plan-R5 S3). _Catches: R6 archived filter or G7 order dropped in a refactor — mocked clients cannot see query filters._
 - [ ] **Step 4: Registries.** `tests/admin/_metaInfraContract.test.ts` — add next to the `loadNeedsAttentionCount` row (`_metaInfraContract.test.ts:263-267`):
 
 ```ts
@@ -432,10 +436,13 @@ _Failure mode: a holds fault silently degrading to an empty stream (violates the
 
 ```bash
 grep -rln "createSupabaseServiceRoleClient" tests/ | xargs grep -l "loadNeedsAttention\|fetchDashboardData\|Dashboard\|needsAttentionCount"
-# 2026-08-03 output: 11 files; the 4 non-affected are _metaInfraContract.test.ts
-# (registry, no execution), bellFeed.test.ts (comment-only mention),
-# show-lifecycle-actions.test.ts + adminOutcomeBehavior.test.ts (never reach the
-# loaders), and needsAttentionCountRoute.test.ts mocks loadNeedsAttentionCount itself.
+# 2026-08-03 output: 11 files. EIGHT affected: the five Dashboard-path files above,
+# the two Task 5 count suites, and tests/admin/_metaInfraContract.test.ts — it
+# EXECUTES loadNeedsAttention({cap: 20}) and loadNeedsAttentionCount directly
+# (_metaInfraContract.test.ts:709-780; plan-R5 S2), so its harness mock also needs
+# the empty-holds service-role client. THREE exonerated: bellFeed.test.ts
+# (comment-only mention), show-lifecycle-actions.test.ts and
+# adminOutcomeBehavior.test.ts (never reach the loaders).
 ```
 
 Run those suites + this file's invariant-9 source-regex test + tsc — PASS.
@@ -728,9 +735,9 @@ Thread `identityHolds`, `totalCounts.identityHolds`, `cap: ingestions.length + s
 **Files:**
 
 - Create: tests/e2e/needs-attention-holds.spec.ts
-- Modify: `playwright.config.ts` — add `"needs-attention-holds"` to the `desktop-chromium` filename allowlist (`playwright.config.ts:77-80`); WITHOUT this the spec collects ZERO tests (plan-R1 F2). The 390px chip step uses `page.setViewportSize({ width: 390, height: 844 })` inside desktop-chromium; no mobile-safari registration.
+- Modify: `playwright.config.ts` — add `"needs-attention-holds"` to the `desktop-chromium` filename allowlist (`playwright.config.ts:77-80`); WITHOUT this the spec collects ZERO tests (plan-R1 F2). ALSO modify `.github/workflows/admin-layout-e2e.yml` (plan-R5 S1): add `tests/e2e/needs-attention-holds.spec.ts` to BOTH the path-filter list (`admin-layout-e2e.yml:7-14` region) and the run command (`admin-layout-e2e.yml:112-113`) — project collection alone does not imply CI execution, and a spec no workflow runs silently rots (that file's own header comment). The 390px chip step uses `page.setViewportSize({ width: 390, height: 844 })` inside desktop-chromium; no mobile-safari registration.
 
-**e2e harness readiness:** server boot = the suite's existing `webServer` on `E2E_PORT` (`playwright.config.ts:34-44`). Readiness gate = HYDRATION-proof, not visibility: replicate the interaction-based `waitForRowHydration` idiom (`tests/e2e/published-review-modal.interactions.spec.ts:129-143`) before ANY client interaction — the disclosure toggle and `mi11-reject` are client handlers and a visible control can be pre-hydration (plan-R1 F15). Detach safety = re-query every locator after `page.reload()` and after the reject action.
+**e2e harness readiness:** server boot = the suite's existing `webServer` (`playwright.config.ts:217`) on `E2E_PORT` — `pnpm dev` locally, `pnpm build && pnpm start` under CI (`playwright.config.ts:245-249`; plan-R5 S4), so CI exercises the production bundle. Readiness gate = HYDRATION-proof, not visibility: replicate the interaction-based `waitForRowHydration` idiom (`tests/e2e/published-review-modal.interactions.spec.ts:129-143`) before ANY client interaction — the disclosure toggle and `mi11-reject` are client handlers and a visible control can be pre-hydration (plan-R1 F15). Detach safety = re-query every locator after `page.reload()` and after the reject action.
 
 - [ ] **Step 1: Write the spec.** Prefix `e2e-needs-attention-holds-`; pre-clean by prefix; cleanup in `finally`. **Executable seed helper** (plan-R1 F16) — full required columns: `shows` rows carry `drive_file_id` (prefixed), `slug` (prefixed), `title`, `client_label`, `template_version`, `archived` (`supabase/migrations/20260501000000_initial_public_schema.sql:3-10`); every `sync_holds` row carries `show_id`, `drive_file_id` (its show's), `domain` (`'crew_email'`/`'crew_identity'`, distinct per row under the `(show_id, domain, entity_key)` uniq), `entity_key`, `held_value` (`{"email":"old@x.com"}`), `proposed_value` (`mi11_pending`: `{"disposition":"email_change","email":"new@x.com"}` with NON-NULL `base_modified_time`; `undo_override`: NULL per the kind-shape CHECK `20260608000000_sync_holds.sql:30-37`), `kind`, `created_by` (`'e2e'`). Seeds: show 1 = one `mi11_pending`; show 2 = three `mi11_pending` (distinct entity keys, domains alternating); show 3 = active with ONLY an `undo_override` row (spec §9.8 — a reader wrongly including overrides adds a VISIBLE new card here, plan-R1 F13); show 4 = `archived=true` with one `mi11_pending` (R6). Assertions:
   1. Cards for shows 1+2 ONLY (shows 3/4 produce NO card — scoped testid queries); copy fork correct (`within(card)`; multi = `3 held changes waiting`).
@@ -751,7 +758,7 @@ Thread `identityHolds`, `totalCounts.identityHolds`, `cap: ingestions.length + s
 - [ ] **Step 2b: Commit the closeout mutations** (plan-R3 Q4): the filled marker line, the BACKLOG move + reconciliation segment, and any impeccable-fix / DEFERRED.md edits — `docs(plan): closeout — impeccable marker, BACKLOG graduation` (further review-fix commits in Step 4 as needed; nothing reaches `git push` uncommitted).
 - [ ] **Step 3: Full local suite** — `pnpm vitest run`, `pnpm exec tsc --noEmit`, `pnpm exec playwright test tests/e2e/needs-attention-holds.spec.ts tests/e2e/needs-attention-page.spec.ts --project=desktop-chromium` — all green.
 - [ ] **Step 4: Whole-diff cross-model review** to APPROVE (fresh-eyes; REVIEWER ONLY; split tight-scope briefs per the AGENTS.md default for large diffs).
-- [ ] **Step 5:** Sync with origin/main (`git fetch origin && git merge origin/main`, resolve, re-run the suite if anything merged), push, PR, REAL CI green, `gh pr merge --merge`, fast-forward local main, verify `git rev-list --left-right --count main...origin/main` → `0  0`, then CronDelete the session nudge and clear both herdr labels.
+- [ ] **Step 5:** Sync with origin/main (`git fetch origin && git merge origin/main`, resolve, re-run the suite if anything merged), push, PR, REAL CI green — confirm the `admin-layout-e2e` workflow ran the NEW spec (plan-R5 S1), not just collected it — `gh pr merge --merge`, fast-forward local main, verify `git rev-list --left-right --count main...origin/main` → `0  0`, then CronDelete the session nudge and clear both herdr labels.
 
 ## 12. Closeout marker
 
