@@ -62,7 +62,11 @@ export const FAILED_KEYS_CAP = 6;
  * markers alone, say. Guarding only the input string would then produce an
  * empty message row, so require something to survive marker removal (§5.2).
  */
-function hasVisibleText(template: string): boolean {
+// Exported for the freshness detector, alongside FAILED_KEYS_CAP and
+// usableFailedKeys: it must reach the SAME paint-or-fallback decision this
+// component reaches, or a marker-only template cues a card that renders the
+// fallback sentence either way.
+export function hasVisibleText(template: string): boolean {
   return template.replace(/[*_`\s]/g, "").length > 0;
 }
 

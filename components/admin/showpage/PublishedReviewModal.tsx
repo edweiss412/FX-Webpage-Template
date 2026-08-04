@@ -444,26 +444,39 @@ export function PublishedReviewModal(props: PublishedReviewModalProps) {
   // branch 1 below reachable at all.
   const attentionBySection = useMemo(() => {
     const map = new Map<string, AttentionItem[]>();
-    for (const item of live) {
+    for (const item of attentionItems) {
       const id = effectiveSectionId(item);
       const list = map.get(id);
       if (list) list.push(item);
       else map.set(id, [item]);
     }
     return map as ReadonlyMap<string, readonly AttentionItem[]>;
-    // `live`, NOT `actionable` and NOT the raw prop. Two review findings met here.
-    // The audit half caught that keying on the raw prop ignored local resolves, so
-    // a resolve changed the real grouping without recomputing. The whole-diff
-    // review then caught the opposite error in the fix: cards render every LIVE
-    // item, not only the actionable ones, so grouping `actionable` left eight
-    // non-actionable codes able to appear inside a card with no cue at all. A
-    // parse-failure alert landing in Sheet warnings was the worst of them.
+    // `attentionItems`, the FULL prop — the exact list `bucketAttention` renders
+    // from below. Three review rounds converged here, and the last one reversed
+    // the middle answer:
+    //
+    //   raw prop  → the audit half objected that a local resolve changed nothing
+    //   `actionable` → wrong: cards render non-actionable items too, so eight
+    //                  codes could appear in a card with no cue at all
+    //   `live`    → wrong for the OPPOSITE reason, and round-6 review probed it:
+    //               a resolved banner does NOT leave the card. It swaps to
+    //               "Confirmed" in place and stays mounted until `router.refresh()`
+    //               reconciles (spec §6.3, and the `bucketAttention` call below
+    //               passes `attentionItems` for exactly that reason). Filtering
+    //               `doneIds` out of the SIGNATURE therefore made it describe a
+    //               card that is not on screen: resolving cued immediately while
+    //               the banner was still visible, and the later RSC removal — the
+    //               change a reader can actually see — cued nothing.
+    //
+    // The signature must read the same list the renderer reads. `doneIds` is
+    // local UI state; it belongs to the pill and the menu, not to what the card
+    // paints.
     //
     // `effectiveSectionId` is deliberately NOT a dep: it is a fresh closure every
     // render, so including it recomputed the map on every render, which made the
     // signature a new object every render and consumed the mount baseline on the
     // first one. It reads only `placement`, which is derived from the same props.
-  }, [live]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [attentionItems]); // eslint-disable-line react-hooks/exhaustive-deps
   const signature = useMemo(
     () => buildSectionSignatures({ data, bySection, attentionBySection }),
     [data, bySection, attentionBySection],

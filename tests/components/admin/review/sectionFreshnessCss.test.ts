@@ -217,6 +217,35 @@ describe("section freshness cue: stylesheet contract", () => {
     expect(MODULE_SRC).not.toMatch(/\.slice\(\s*0\s*,\s*\d+\s*\)/);
   });
 
+  it("N13: the signature buckets the SAME attention list the cards render from", () => {
+    // Round-6 review found the signature reading `live` (the `doneIds`-filtered
+    // list) while `bucketAttention` renders from the full `attentionItems`. A
+    // resolved banner does not leave the card — it swaps to "Confirmed" in place
+    // and stays mounted until the RSC reconcile — so the filtered list described
+    // a card that was not on screen: resolving cued while the banner was still
+    // visible, and the later removal, which a reader CAN see, cued nothing.
+    //
+    // Structural because the defect is a wiring choice, not a value: both lists
+    // are non-empty and plausible, and a render test would have to drive a real
+    // resolve through a server action to tell them apart. This asserts the two
+    // call sites read the same binding, which is the actual contract.
+    const modal = readFileSync(
+      join(ROOT, "components/admin/showpage/PublishedReviewModal.tsx"),
+      "utf8",
+    );
+    const bucketArg = /bucketAttention\(\s*(\w+)/.exec(modal)?.[1];
+    expect(bucketArg, "bucketAttention must take a named list").toBeDefined();
+    const sigLoop =
+      /const attentionBySection = useMemo\(\(\) => \{[\s\S]*?for \(const item of (\w+)\)/.exec(
+        modal,
+      )?.[1];
+    expect(sigLoop, "the signature must bucket a named list").toBeDefined();
+    expect(sigLoop, "signature and cards must read the SAME list").toBe(bucketArg);
+    // And it must not be the doneIds-filtered one, named so the failure message
+    // says which mistake was made rather than only that two strings differ.
+    expect(sigLoop, "`live` is doneIds-filtered; the cards are not").not.toBe("live");
+  });
+
   it("N12: the detector resolves anchors through the SHIPPED href builder", () => {
     // `buildSheetDeepLink` collapses unusable anchors onto one `#gid=0` and drops
     // `gid`/`a1` on the way, so the raw anchor and the rendered link are not the

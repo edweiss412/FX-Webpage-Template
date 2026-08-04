@@ -38,7 +38,11 @@ import { renderedSectionIds } from "@/components/admin/review/sectionInclusion";
 import type { SectionWarningRecord } from "@/lib/admin/sectionWarningModel";
 import type { AttentionItem } from "@/lib/admin/attentionItems";
 import { orderNotes, toNoteItem } from "@/lib/admin/parseAttentionNote";
-import { FAILED_KEYS_CAP, usableFailedKeys } from "@/components/admin/review/AttentionBanner";
+import {
+  FAILED_KEYS_CAP,
+  hasVisibleText,
+  usableFailedKeys,
+} from "@/components/admin/review/AttentionBanner";
 import { formatDataGapBreakdown } from "@/lib/parser/dataGaps";
 import {
   PLACEHOLDER_RE,
@@ -372,7 +376,12 @@ const OWN_FIELDS: Record<Exclude<SectionId, "report">, (d: PublishedSectionData)
     renderedPullSheet(d),
     d.archivedPullSheetTabs,
     d.pullSheetOverride,
-    d.pullSheetOverrideWire,
+    // ONLY the tab name. `PullSheetOverrideWire` also carries a `fingerprint`
+    // (`components/admin/review/sectionData.ts:88`) that the active-override card
+    // never paints — it renders the tab name and the mutation controls — so a
+    // fingerprint-only change flashed byte-identical Pack-list HTML (round-6
+    // review probe).
+    pick(d.pullSheetOverrideWire, ["tabName"]),
     d.archivedTabOffer ?? null,
     d.published && !d.archived,
   ],
@@ -495,10 +504,9 @@ const ANCHOR_PROBE_DFID = "anchor-probe";
  * `menuTitle` / `menuSubtitle` stay excluded from both: they paint in the
  * attention MENU, which is modal chrome rather than a section card.
  */
-const BANNER_ALERT_KEYS = [
+const BANNER_ALERT_KEYS_SANS_TEMPLATE = [
   "alertId",
   "code",
-  "template",
   "action",
   "helpHref",
   "raisedAt",
@@ -540,16 +548,13 @@ const BANNER_ALERT_KEYS = [
  * (`components/messages/renderEmphasis.tsx:112`); skipping that would make the
  * result depend on whoever scanned last.
  */
-function placeholderNames(template: string): Set<string> {
+function placeholderKeys(template: string): Set<string> {
   const out = new Set<string>();
   PLACEHOLDER_RE.lastIndex = 0;
   let m: RegExpExecArray | null;
   while ((m = PLACEHOLDER_RE.exec(template)) !== null) {
     const key = m[1];
-    if (key === undefined) continue;
-    out.add(key);
-    out.add(key.replace(/-/g, "_"));
-    out.add(key.replace(/_/g, "-"));
+    if (key !== undefined) out.add(key);
   }
   return out;
 }
@@ -582,10 +587,20 @@ function renderedAlertState(alert: Record<string, unknown>): unknown {
     typeof gapTotal === "number" &&
     Number.isFinite(gapTotal) &&
     gapTotal > 0;
-  const template = typeof alert.template === "string" ? alert.template : "";
+  // The template as the banner DECIDES it: it paints `template` only when the
+  // trimmed string still has visible text, and otherwise paints a fixed fallback
+  // (`components/admin/review/AttentionBanner.tsx:116`). So a null template and
+  // a marker-only one ("**"), which render the SAME sentence, must hash the
+  // same. Round-6 review probed both producing identical HTML and a cue.
+  const rawTemplate = typeof alert.template === "string" ? alert.template.trim() : "";
+  const paints = rawTemplate.length > 0 && hasVisibleText(rawTemplate);
+  const template = paints ? rawTemplate : "";
   const params = (alert.params ?? {}) as Record<string, unknown>;
   return [
-    pick(alert, BANNER_ALERT_KEYS),
+    pick(alert, BANNER_ALERT_KEYS_SANS_TEMPLATE),
+    // The painted sentence, not the stored one: `null` and a marker-only string
+    // both fall back to the same copy.
+    paints ? rawTemplate : null,
     keys === null ? null : [keys.slice(0, FAILED_KEYS_CAP), keys.length],
     showGaps,
     showGaps ? paintedGapBreakdown(gaps) : null,
@@ -603,10 +618,17 @@ function renderedAlertState(alert: Record<string, unknown>): unknown {
     // The `-`/`_` normalization mirrors the renderer's own key lookup
     // (`components/messages/renderEmphasis.tsx:116`), so `<crew-row-count>`
     // resolves a `crew_row_count` param exactly as it does on screen.
-    Object.keys(params)
-      .filter((k) => placeholderNames(template).has(k))
-      .sort()
-      .map((k) => [k, params[k]]),
+    // Resolved EXACTLY as the renderer resolves them, first-wins per placeholder
+    // (`components/messages/renderEmphasis.tsx:116`), not "every key that could
+    // match". Round-6 review probed the difference: with both `crew_row_count`
+    // and `crew-row-count` present, the renderer paints the exact key and
+    // ignores the alias, so hashing both cued a byte-identical card whenever the
+    // shadowed one moved. One placeholder contributes one value.
+    [...placeholderKeys(template)].sort().map((key) => {
+      const value =
+        params[key] ?? params[key.replace(/-/g, "_")] ?? params[key.replace(/_/g, "-")] ?? null;
+      return [key, value];
+    }),
     // The OTHER place the payload paints copy: the help text, looked up from the
     // catalog by code (`components/admin/review/AttentionBanner.tsx:122`).
     //

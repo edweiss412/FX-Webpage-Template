@@ -263,18 +263,20 @@ describe("accent token contrast floors (2026-07-16 token pass)", () => {
 
   // ── Section freshness cue (spec 2026-08-03-modal-freshness-cue §11.4) ──────
   //
-  // The cue REPURPOSES accent-tint as a background for ordinary body text: it
-  // washes a whole section panel card, whose contents are `text` and
-  // `text-subtle`, not just the `text-strong` the share-link entry measured. That
-  // pairing had never been measured, and a repurposed token is exactly the case
-  // AGENTS.md requires a contrast pin for.
+  // The cue is an OUTLINE around a section panel card, and nothing else. An
+  // earlier draft of it also washed the card with accent-tint; design review cut
+  // the wash before implementation, and this comment described that dead design
+  // until round-6 review caught the prose still standing while the assertions
+  // below had already moved to the outline. The card's own background is
+  // unchanged by the cue, so the pairing measured here is the outline against
+  // the two grounds it actually touches.
   //
   // The edge rows restate the share-link floors on THIS surface deliberately.
   // DESIGN.md records that the ring is not decorative in dark, where it is the
   // change signal itself; the same is true here, so this surface carries its own
   // floor rather than inheriting one that a future share-link retune could remove.
   for (const mode of MODES) {
-    it(`${mode.name}: the freshness wash keeps card text legible and its outline visible`, () => {
+    it(`${mode.name}: the freshness outline stays visible against both grounds it touches`, () => {
       const edge = tokenIn(mode.src, "--color-accent-edge-runtime");
       const sunken = tokenIn(mode.src, "--color-surface-sunken-runtime");
       // The cue is an OUTLINE only; the accent-tint wash was removed on design
