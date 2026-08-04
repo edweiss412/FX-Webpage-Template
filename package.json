@@ -25,6 +25,7 @@
     "gen:schema-manifest": "tsx scripts/generate-schema-manifest.ts",
     "observe": "tsx scripts/observe.ts",
     "spec:lint": "tsx scripts/spec-lint.ts",
+    "ledger:claims": "tsx scripts/ledger-claims.ts",
     "pretypecheck": "node scripts/pretest-gen.mjs",
     "typecheck": "tsc --noEmit",
     "prelint": "node scripts/pretest-gen.mjs",

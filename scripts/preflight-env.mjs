@@ -90,6 +90,54 @@ if (missing.length || invalid.length) {
   process.exit(1);
 }
 
+// --- live ledger claims ------------------------------------------------------
+// Placed HERE, after the env checks and BEFORE the DB probe, because both DB
+// paths exit 0 below (--no-db and psql-ENOENT) and a step appended at the end of
+// this file would be dark in exactly the two modes a docs-only or DB-less
+// worktree uses.
+//
+// NEVER changes preflight's exit code: this is a display, not a gate.
+// `--no-fetch` keeps it instant and offline-safe — the authoritative read is
+// `pnpm ledger:claims`, which fetches on its own 30 s budget.
+const skipClaims =
+  process.argv.includes("--no-claims") ||
+  process.env.PREFLIGHT_NO_CLAIMS === "1" ||
+  // Any truthy CI value, not just the string "true": CI=1 is equally
+  // conventional and would otherwise spawn the child and pay its latency.
+  (process.env.CI !== undefined && process.env.CI !== "" && process.env.CI !== "false");
+
+if (!skipClaims) {
+  // The absolute tsx bin, not `pnpm exec tsx`: the repo pins this convention for
+  // spawned tsx children (tests/cross-cutting/no-npx-tsx-spawn.test.ts), and it
+  // drops a resolver hop from every preflight. Overridable so the test can shim
+  // the child without putting a fake binary on PATH.
+  const tsxBin = process.env.PREFLIGHT_TSX_BIN ?? join(repoRoot, "node_modules/.bin/tsx");
+  const claims = spawnSync(tsxBin, ["scripts/ledger-claims.ts", "--no-fetch"], {
+    cwd: repoRoot,
+    encoding: "utf8",
+    timeout: 15_000,
+  });
+  // STATUS FIRST, stdout second. A child that dies partway through printing has
+  // non-empty stdout AND a non-zero status, and trusting stdout alone renders
+  // that partial table as though it were the whole answer -- a reader sees three
+  // of the eight rows actually in flight and starts one of the five that were
+  // never printed. This is the same false all-clear the tool exists to remove,
+  // reintroduced one layer up (whole-diff R12 F1).
+  const failed = claims.error !== undefined || claims.status !== 0;
+  const out = `${claims.stdout ?? ""}`.trim();
+  if (failed) {
+    // Reports EVERY failure shape, not just a spawn error: a child that exits
+    // non-zero with only stderr would otherwise leave preflight silently
+    // table-less, which reads as "no claims in flight".
+    const why = claims.error?.code ?? `exit ${claims.status}`;
+    console.log(`preflight: live claims unavailable (${why}) -- run \`pnpm ledger:claims\``);
+    // Partial output is shown BELOW the notice, never above it and never as the
+    // table: it can help diagnose, but it must not be mistakable for the answer.
+    if (out) console.log(`  (partial output suppressed: ${out.split("\n").length} line(s))`);
+  } else if (out) console.log(`\n${out}`);
+  else console.log("preflight: live claims unavailable (no output)");
+}
+
 // --- non-loopback WARNINGS: this is a LOCAL preflight ------------------------
 // SUPABASE_URL / NEXT_PUBLIC_SUPABASE_URL should point at local Supabase and
 // TEST_DATABASE_URL at local Postgres. A remote value here silently makes

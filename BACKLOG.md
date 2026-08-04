@@ -66,6 +66,58 @@ The rename-linked instances of this shape are fixed in the closing PR via the su
 
 ---
 
+## BL-LEDGER-BODY-DEFINED-ID-OVERMINT — any bold lone id at a bullet lead defines, so a mention can mint an id
+
+**Status:** OPEN · **Severity:** low (latent, not live) · **Class:** guard precision · **Filed:** 2026-08-03 (`chore/ledger-claim-visibility`, spec §9.2) · **Effort:** S
+
+`bodyDefinedIds` (`tests/docs/_ledgerMdast.ts:346`) does not require a separator after the bold id,
+so any bold lone id at a bullet lead defines. A bullet whose bold id is followed by ordinary prose,
+or by a colon, mints that id exactly as a real sub-item definition would; a nested bullet and a
+backticked enumeration both correctly do not. The five-shape probe with its outputs is in
+`docs/superpowers/specs/2026-08-03-ledger-claim-visibility-design.md` §9.2 — deliberately not
+reproduced here, because its planted ids would need citation exemptions in this ledger.
+
+Latent, not live: main mints exactly the intended eight ids today. But it over-mints in the
+direction the guard exists to prevent — a bullet naming a sibling id in bold makes that id resolve,
+so a typo can define itself. Deferred out of `chore/ledger-claim-visibility` under exception (b) of
+the `AGENTS.md` class-sweep disposition rule: the originating brief fenced it explicitly. Any
+tightening needs a probe demonstrating the corruption it prevents, per the finding-admissibility
+contract.
+
+---
+
+## BL-LEDGER-DISCOVERY-FAMILY-SCOPED — "discovered from disk" holds only inside one naming family
+
+**Status:** OPEN · **Severity:** low · **Class:** guard coverage · **Filed:** 2026-08-03 (`chore/ledger-claim-visibility`, spec §5) · **Effort:** M
+
+`AGENTS.md` states that ledger files are discovered from disk so a new one is covered by default.
+That is true only within one naming family. `ledgerFiles` (`tests/docs/_metaLedgerInProgress.test.ts:46`)
+does `readdirSync` and then filters on a regex accepting `BACKLOG` or `DEFERRED` with an optional
+`-archive` suffix; `tests/docs/_metaLedgerReferentialIntegrity.test.ts` hardcodes the same four names
+independently. A new ledger family would be silently invisible to both, and to the claim reader that
+consumes the same helper.
+
+Not currently live — the repo has exactly the four files. Deferred out of
+`chore/ledger-claim-visibility` under exception (c): widening discovery changes which files three
+existing guards walk, which is its own blast radius and its own review.
+
+---
+
+## BL-LEDGER-MDAST-SHARED-HOME — the ledger walker lives under tests/ but is consumed by scripts/
+
+**Status:** OPEN · **Severity:** low · **Class:** module placement · **Filed:** 2026-08-03 (`chore/ledger-claim-visibility`, spec §9.3) · **Effort:** M
+
+`tests/docs/_ledgerMdast.ts` is the authoritative ledger walker and is pure by construction — the
+referential-integrity guard forbids `node:fs`, `node:path`, and `require(` inside it. Once a script
+consumes it, `scripts/**` imports from `tests/**`, which is backwards.
+
+Relocating it beside its consumers is the repair. Deferred out of `chore/ledger-claim-visibility`
+under exception (c): it spans four importers plus three hardcoded path exemptions inside
+`tests/docs/_metaLedgerReferentialIntegrity.test.ts` that must all move in lockstep, none of which
+that branch otherwise touches.
+
+---
+
 ## BL-TASK-ENROLLMENT-SINGLE-DEPTH — the declared task region cannot express hierarchical or interleaved plan shapes
 
 **Status:** OPEN · **Severity:** LOW (opt-in convention; conservative failure with a surfaced finding, never silent) · **Class:** spec-lint task contract, enrollment expressiveness · **Filed:** 2026-08-03, from `docs/superpowers/specs/2026-08-03-pre-review-gate-arms-design.md` §6 items 6 and 7
@@ -1590,7 +1642,7 @@ Four route handlers build and return a complete `<html>` document as a string, s
 
 ## BL-HARNESS-FONT-FIDELITY — the 31 standalone harnesses measure a different font than the product renders
 
-**Status:** IN PROGRESS · **Branch:** spec/harness-font-fidelity
+**Status:** OPEN.
 
 **Filed:** 2026-08-03 (`feat/font-binding-modal-freshness-cue`, the successor residual of `BL-HEADER-FONT-FALLBACK-WRAP`). **Class:** test fidelity / CI determinism. **Effort:** M.
 The 31 standalone e2e harnesses route through `compileEntryCss` (`tests/e2e/helpers/liveEntryToolchain.ts:124-141`), which runs the Tailwind CLI over `app/globals.css` and serves the result as a static file beside harness-rendered markup. There is no Next.js runtime, so no `next/font` `@font-face` — they resolve `--font-sans`'s literal fallback pair and land on the ambient host font (SF Pro locally, DejaVu Sans on the Ubuntu runner). The product now renders Inter on every React-root surface; the harnesses measure something the product never shows.

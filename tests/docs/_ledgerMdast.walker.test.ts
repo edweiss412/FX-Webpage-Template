@@ -262,3 +262,42 @@ describe("bodyDefinedIds — a parent entry defines sub-items in its body", () =
     expect(defined(md)).toEqual([]);
   });
 });
+
+describe("extractEntries — the entry's own heading line", () => {
+  // WHY THIS EXISTS. A consumer needing entry SPANS (the claim reader) otherwise
+  // has to recover them by matching heading TEXT against the raw source, which is
+  // a second grammar for one file format and demonstrably ambiguous. Three
+  // successive variants were built and each was defeated by real corpus shapes:
+  // a substring match captured `## Notes about BL-X`; raw-line matching missed 14
+  // of 95 in BACKLOG.md because headingLine.text is normalized; exact equality
+  // against flattenLines missed the struck `### ~~MODAL-CLOSE-EXIT-ANIM-1~~`,
+  // whose id extractEntries strips and flattenLines keeps.
+  //
+  // The position is already in hand here — `found` holds the mdast Heading node —
+  // so handing it over removes the whole class.
+  it("points at the heading, 1-based, for a plain entry", () => {
+    const md = "intro\n\n## BL-A — first\n\nbody\n\n## BL-B — second\n\nbody\n";
+    expect(extractEntries(md, BL).map((e) => e.line)).toEqual([3, 7]);
+  });
+
+  it("points at the heading a mention does not own", () => {
+    // The shape that defeated substring matching: a prose heading naming the id
+    // ahead of the real entry.
+    const md = "## Notes about BL-X\n\nprose\n\n## BL-X — real entry\n\nbody\n";
+    const es = extractEntries(md, BL);
+    expect(es.map((e) => e.id)).toEqual(["BL-X"]);
+    expect(es[0]?.line, "the entry, not the mention").toBe(5);
+  });
+
+  it("points at a struck heading, whose id headingLine.text drops", () => {
+    const md = "### ~~SOME-ID~~ — RESOLVED (shipped)\n\nbody\n";
+    const [e] = extractEntries(md, DEF);
+    expect(e?.line).toBe(1);
+    expect(e?.headingLine.text, "premise: the id is stripped from the text").not.toContain("SOME-ID");
+  });
+
+  it("points at a nested H3 entry", () => {
+    const md = "## BL-P — parent\n\nbody\n\n### BL-C — child\n\nbody\n";
+    expect(extractEntries(md, BL).map((e) => e.line)).toEqual([1, 5]);
+  });
+});
