@@ -67,7 +67,8 @@
     "test:e2e:bulk-ignore-eyebrow": "playwright test --config=tests/e2e/standalone.config.ts tests/e2e/bulk-ignore-eyebrow.layout.spec.ts",
     "test:e2e:hoverhelp-geometry": "playwright test --config=tests/e2e/standalone.config.ts tests/e2e/hoverhelp-geometry.spec.ts",
     "test:e2e:standalone": "playwright test --config tests/e2e/standalone.config.ts",
-    "test:audit:pg-cron-validation": "vitest run tests/cross-cutting/pg-cron-coverage.test.ts"
+    "test:audit:pg-cron-validation": "vitest run tests/cross-cutting/pg-cron-coverage.test.ts",
+    "ledger:mass": "tsx scripts/ledger-mass.ts"
   },
   "dependencies": {
     "@mdx-js/loader": "^3.1.1",
