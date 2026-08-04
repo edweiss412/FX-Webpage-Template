@@ -52,9 +52,12 @@
   /* BOTH families, because `--font-sans` consumes this token rather than naming
    * a family literally. Dropping the companion here makes the metric-matched
    * face unreachable through the token while every other guard row still
-   * passes. The literal `"Inter"` in globals.css's var() fallback must keep
-   * naming the family declared above: the app binds through this token, but
-   * every harness binds through that literal, since the compiled harness
-   * stylesheet defines no token at all. */
+   * passes.
+   *
+   * This whole file is appended verbatim to every harness stylesheet by
+   * `compileEntryCss`, so the harnesses resolve this token exactly as the app
+   * does. The literal `"Inter"` in globals.css's var() fallback is the safety
+   * net for a surface that lacks the token, not the harness binding mechanism;
+   * it must still name the family declared above, which a guard row pins. */
   --font-inter: "Inter", "Inter Fallback";
 }

@@ -8,6 +8,8 @@ import "./globals.css";
 // --font-inter on :root, which is what --font-sans consumes; without this import
 // the crash screen is the one tree still rendering the system font, precisely the
 // divergence BL-HEADER-FONT-FALLBACK-WRAP was filed against.
+import { FontPreload } from "@/components/FontPreload";
+
 import "./fonts.css";
 import { useEffect } from "react";
 import { captureBoundaryError } from "@/lib/observe/captureBoundaryError";
@@ -26,7 +28,15 @@ export default function GlobalError({
   return (
     // `lang` matches app/layout.tsx:58. This root replaces that one, so without
     // it the crash screen ships with no declared language (WCAG 3.1.1, Level A).
-    <html lang="en">
+    // `className` matches app/layout.tsx's root: this root REPLACES that one,
+    // so anything it sets is absent here. `antialiased` was left off when the
+    // generated font class was removed, which rendered the crash screen
+    // unsmoothed while every other tree stayed smoothed -- the same
+    // second-root omission BL-HEADER-FONT-FALLBACK-WRAP was filed against.
+    <html lang="en" className="antialiased">
+      <head>
+        <FontPreload />
+      </head>
       <body>
         <main className="flex min-h-screen flex-col items-center justify-center gap-4 p-6 text-center">
           <p className="text-base text-text">{getRequiredCrewFacing("PAGE_RENDER_FAILED")}</p>

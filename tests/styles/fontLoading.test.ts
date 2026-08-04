@@ -179,17 +179,22 @@ describe("app/fonts.css", () => {
   });
 
   test("globals.css's var() fallback literal names the family this stylesheet declares", () => {
-    // THE RENAME ESCAPE, and it is live. The app resolves the face through the
-    // TOKEN; every harness resolves it through this LITERAL, because
-    // compileEntryCss emits no token definition at all -- probed: 0 definitions
-    // of --font-inter in the compiled output, and all 32 callers read
-    // app/globals.css into their entry, so it is uniform.
+    // DEFENSE IN DEPTH, and the honest framing matters here because an earlier
+    // version of this comment was WRONG about why the row exists.
     //
-    // Rename the family on BOTH sides and cross-block equality, descriptor
-    // inventory, hashes, URLs and the app's own rendering all stay green, while
-    // every harness resolves var(--font-inter, "Inter", ...) to a face that no
-    // longer exists and falls through to ui-sans-serif -- the ambient host font
-    // this whole change exists to eliminate.
+    // It claimed the harnesses bind through this literal, "because
+    // compileEntryCss emits no token definition at all". That was measured
+    // against the compiled globals.css ALONE, and stopped being true the moment
+    // the post-step landed: it appends app/fonts.css WHOLE, including
+    // `:root { --font-inter }`. Verified against real emitted output -- exactly
+    // one definition of the token. Both the app and the harnesses resolve the
+    // TOKEN.
+    //
+    // The row still earns its place. The spec deliberately kept the inline
+    // var() fallback so `--font-sans` stays valid at computed-value time on any
+    // surface that lacks the token, and if that literal is ever the thing that
+    // resolves, it has to name a face that exists. Pinning it to the declared
+    // family is what keeps the safety net from being a dead string.
     expect(firstVarFallbackFamily(GLOBALS_CSS, "--font-inter")).toBe(familyOf(interFaces[0]!));
   });
 

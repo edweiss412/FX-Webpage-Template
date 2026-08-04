@@ -107,9 +107,11 @@
      literal skipped that face entirely, so first paint used a system font at
      native metrics and then snapped ~10% (measured 187.28px -> 168.91px on a
      real string) on every React-root route. The token, not any spelled name, is the
-     contract for the APP -- but the literal below is load-bearing for the
-     HARNESSES, which resolve it because their compiled stylesheet defines no
-     token at all. tests/styles/fontLoading.test.ts pins the two together. The
+     contract, for the app AND for the harnesses -- compileEntryCss appends
+     app/fonts.css whole, so its :root definition travels with the face. The
+     literal below is the safety net for a surface that somehow lacks the token;
+     tests/styles/fontLoading.test.ts pins it to the declared family so it stays
+     correct if it is ever the thing that resolves. The
      var() fallback literals now reach only a surface without the generated class
      -- notably the standalone test harnesses, which compile this file with no
      Next runtime, where they name a host-INSTALLED Inter if one exists

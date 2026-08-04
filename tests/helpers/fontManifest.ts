@@ -30,12 +30,21 @@ export const EXPECTED_SHA256 = "fada467be8d8ebb5dccc346d29dc6ea37423da14c87dafed
 
 /**
  * The family the hand-written stylesheet declares. Capital `Inter`, which is
- * also the first literal in `app/globals.css`'s `--font-sans` var() fallback —
- * and that agreement is load-bearing, not incidental. The app resolves the face
- * through the `--font-inter` token; every harness resolves it through that
- * literal, because `compileEntryCss` emits no token definition at all. Rename
- * one without the other and all 32 harness callers fall back to the ambient
- * host font while every other guard row stays green.
+ * also the first literal in `app/globals.css`'s `--font-sans` var() fallback.
+ *
+ * BOTH the app and the harnesses resolve the face through the `--font-inter`
+ * TOKEN. An earlier version of this comment claimed the harnesses resolved the
+ * inline literal instead, "because compileEntryCss emits no token definition at
+ * all" — that was measured against the compiled `globals.css` ALONE and stopped
+ * being true the moment the post-step landed, since it appends `app/fonts.css`
+ * WHOLE, `:root { --font-inter }` included. Verified: the emitted harness
+ * stylesheet contains exactly one definition of the token.
+ *
+ * The literal is therefore a SAFETY NET rather than the binding mechanism —
+ * kept deliberately so the declaration stays valid at computed-value time on any
+ * surface that somehow lacks the token, which is what the spec ratified. The
+ * guard pinning literal and declared family together is defense in depth, not
+ * the primary contract.
  *
  * (`next/font/local` generated a LOWERCASE `inter` from its module variable
  * name. Nothing depended on the spelling, because `tests/e2e/font-binding.spec.ts`
