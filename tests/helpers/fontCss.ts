@@ -95,12 +95,20 @@ export function familyOf(face: ParsedFace): string {
 
 export interface ParsedSource {
   readonly kind: "url" | "local";
-  /** URL as authored, for `kind: "url"`. */
-  readonly url?: string;
+  /**
+   * URL as authored, for `kind: "url"`.
+   *
+   * The `| undefined` is required, not decorative: this repo compiles with
+   * `exactOptionalPropertyTypes`, under which `url?: string` means "absent or a
+   * string" and REJECTS an explicit `undefined`. The parse can legitimately
+   * yield one when a malformed source reaches it, and a row asserting
+   * `url === PUBLIC_FONT_URL` should see that rather than fail to compile.
+   */
+  readonly url?: string | undefined;
   /** Family name, for `kind: "local"`. */
-  readonly local?: string;
+  readonly local?: string | undefined;
   /** `format()` hint type, e.g. `"woff2"`. */
-  readonly format?: string;
+  readonly format?: string | undefined;
   /** `tech()` values; a non-empty list excludes the source in some engines. */
   readonly tech: readonly string[];
 }
