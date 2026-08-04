@@ -70,6 +70,16 @@ describe("[data-loading-shell-content] is scoped to the noscript rule", () => {
     const ruleHits = html.split(rule).length - 1;
     expect(ruleHits, "the hide rule must appear exactly once").toBe(1);
 
+    // Structural close, not shape-matching. Counting the exact rule string can
+    // be walked around by a CSS-EQUIVALENT duplicate --
+    // `[data-loading-shell-content] { display: none; }` with spaces is a
+    // different string and the same cascade. So instead: the rendered output
+    // may contain exactly ONE <style> element at all, and it must be the one
+    // inside <noscript>. Any second style element fails regardless of its text,
+    // which closes the whole family rather than the instances found so far.
+    const styleTags = html.split("<style").length - 1;
+    expect(styleTags, "LoadingShell may render exactly one <style>").toBe(1);
+
     // Exactly one <noscript>, and the rule lies strictly inside it. A second
     // identical <style> placed AFTER </noscript> would hide the fallback for
     // JS-on visitors on all nine routes; checking only the first occurrence, or

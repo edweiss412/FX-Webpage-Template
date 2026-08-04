@@ -160,6 +160,30 @@ describe("LoadingShell no-JavaScript notice", () => {
     expect(wrapper.getAttribute("data-loading-shell-content")).toBe("");
   });
 
+  it("puts no hiding ancestor above the wrapper (a `<div hidden>` parent escapes the rest)", () => {
+    const { outer } = renderShell();
+    const wrapper = must(
+      outer.querySelector("[data-loading-shell-content]"),
+      "the content wrapper",
+    );
+    // Walk root-ward. Assertion 13 pins the wrapper's OWN attributes, but
+    // wrapping it in `<div hidden>` leaves those untouched, keeps the status and
+    // children contained, keeps the notice visible as a sibling, and still hides
+    // every JavaScript-enabled fallback. Ancestors have to be checked too.
+    for (let el = wrapper.parentElement; el && el.tagName !== "BODY"; el = el.parentElement) {
+      expect(el.hasAttribute("hidden"), `<${el.tagName.toLowerCase()}> ancestor is hidden`).toBe(
+        false,
+      );
+      expect(el.className, `<${el.tagName.toLowerCase()}> ancestor hides via class`).not.toMatch(
+        /(^|\s)(hidden|invisible)(\s|$)/,
+      );
+      expect(
+        el.getAttribute("style") ?? "",
+        `<${el.tagName.toLowerCase()}> ancestor hides via inline style`,
+      ).not.toMatch(/display\s*:\s*none|visibility\s*:\s*hidden/i);
+    }
+  });
+
   it("serializes the wrapper attribute as the empty string, not the bare-JSX true", () => {
     const { html } = renderShell();
     expect(html).toContain('data-loading-shell-content=""');
