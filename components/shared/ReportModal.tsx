@@ -453,6 +453,23 @@ export function ReportModal(props: ReportModalProps) {
       aria-labelledby="report-modal-heading"
       className="fixed inset-0 z-50 flex items-end justify-center sm:items-center"
     >
+      {/* THE MODAL'S ONE LIVE REGION (BL-ANNOUNCE-REGION-UNMOUNT-CLASS).
+          Mounted for the modal's whole life so a status change is a MUTATION a
+          screen reader announces. The status bodies below are whole-surface
+          arms of a state machine — they are swapped in already populated, so a
+          live region on any of them announces nothing — and two of them hold
+          buttons and links, which must never sit inside a live region because a
+          reader would voice the controls as part of the announcement. */}
+      <p role="status" aria-live="polite" className="sr-only">
+        {status === "submitting"
+          ? "Sending your report."
+          : status === "succeeded"
+            ? "Report sent."
+            : status === "expired"
+              ? (errorCopy ?? "This report attempt has expired.")
+              : ""}
+      </p>
+
       {/* Backdrop. Tap-outside-to-close preserves the key (handleClose). */}
       <button
         type="button"
@@ -503,7 +520,6 @@ export function ReportModal(props: ReportModalProps) {
         {showResumeBanner ? (
           <div
             data-testid="report-modal-resume-banner"
-            role="status"
             className="mx-4 mt-2 rounded-sm border border-border bg-surface-sunken px-3 py-2 text-sm text-text-subtle sm:mx-6"
           >
             <span>Your previous report attempt didn&apos;t complete. </span>
@@ -551,12 +567,7 @@ export function ReportModal(props: ReportModalProps) {
         ) : null}
 
         {status === "succeeded" ? (
-          <div
-            data-testid="report-modal-success"
-            role="status"
-            aria-live="polite"
-            className="px-4 py-6 text-center sm:px-6"
-          >
+          <div data-testid="report-modal-success" className="px-4 py-6 text-center sm:px-6">
             {/* Visual affirmation — a small accent-tinted check mark
                 strengthens the "yes, we got it" moment without adding
                 chrome. SVG inline so no icon-library dependency creeps
@@ -597,12 +608,7 @@ export function ReportModal(props: ReportModalProps) {
             </button>
           </div>
         ) : status === "expired" ? (
-          <div
-            data-testid="report-modal-expired"
-            role="status"
-            aria-live="polite"
-            className="px-4 py-6 sm:px-6"
-          >
+          <div data-testid="report-modal-expired" className="px-4 py-6 sm:px-6">
             <p className="text-base font-medium text-text-strong">
               {errorCopy ?? "This report attempt has expired."}
             </p>
@@ -650,12 +656,7 @@ export function ReportModal(props: ReportModalProps) {
                 </div>
               ) : null}
               {status === "submitting" ? (
-                <p
-                  data-testid="report-modal-submitting"
-                  role="status"
-                  aria-live="polite"
-                  className="mt-2 text-sm text-text-subtle"
-                >
+                <p data-testid="report-modal-submitting" className="mt-2 text-sm text-text-subtle">
                   Sending…
                 </p>
               ) : null}
