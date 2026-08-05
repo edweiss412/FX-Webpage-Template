@@ -25,6 +25,7 @@
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 
+import ts from "typescript";
 import { describe, expect, it } from "vitest";
 
 const REPO_ROOT = join(__dirname, "..", "..");
@@ -95,6 +96,30 @@ const NON_TRANSIENT_GATES: ReadonlyMap<string, string> = new Map([
     "already a PERSISTENT sr-only region; the gate above it is the crew SECTION (actions enabled and members present), not the announcement's own state",
   ],
   [
+    "components/admin/BulkIgnoreControls.tsx::",
+    "persistent sr-only region inside the per-group chip it belongs to; the gate is whether that GROUP renders, and the region arrives with the whole chip",
+  ],
+  [
+    "components/admin/StagedReviewCard.tsx::",
+    "same shape: persistent sr-only announcer scoped to a staged row, gated on the row existing, not on the announcement",
+  ],
+  [
+    "share-hub-remote-rotate-announce",
+    "mounted for the popover's whole open lifetime regardless of linkActive, so the remote announcement swaps into a pre-existing node (announce-a11y spec §4.2)",
+  ],
+  [
+    "components/admin/wizard/Step2Verify.tsx::",
+    "the phase announcer sits inside the reading block it narrates; the gate is whether a reading exists at all",
+  ],
+  [
+    "agenda-note",
+    "one arm of an either/or CONTENT branch (agenda present vs the note explaining its absence), not a post-action announcement",
+  ],
+  [
+    "components/agenda/AgendaPdfViewer.tsx::",
+    'the `loading` placeholder handed to the PDF viewer — announced ON INSERTION is the correct behaviour for a loading state, which is why `role="alert"`-style insertion semantics are wanted here',
+  ],
+  [
     "unpublish-busy-notice",
     "whole-surface swap — the form is replaced by the busy notice, so nothing is 'inserted into' a live page",
   ],
@@ -110,7 +135,27 @@ const NON_TRANSIENT_GATES: ReadonlyMap<string, string> = new Map([
  * to add a row here and move on. The row above it fails the moment the file goes
  * clean, so a row is a claim with an expiry rather than a place to put a defect.
  */
-const PENDING: ReadonlyMap<string, string> = new Map([]);
+const PENDING: ReadonlyMap<string, string> = new Map([
+  // FOUND BY THE AST WALK (whole-diff review R1), not by the regex it replaced —
+  // which is the argument for the rewrite. Each is a region born populated, and
+  // each needs a real repair rather than a mechanical toggle:
+  [
+    "components/admin/dev/MaterializeCard.tsx",
+    '1 site — `result === null ? null : <div role="status">`; needs the region hoisted above the result gate',
+  ],
+  [
+    "app/admin/settings/admins/RevokeRowButton.tsx",
+    "1 site — the couldn't-confirm warning is inserted with its text after a failed revoke",
+  ],
+  [
+    "components/admin/wizard/step3ReviewSections.tsx",
+    "1 site — the report-status span (`-report-status`) is gated on the send outcome it reports",
+  ],
+  [
+    "components/admin/wizard/Step3ReviewModal.tsx",
+    "1 site — the publish-error span at :633 is mounted but its enclosing row is gated",
+  ],
+]);
 
 function walk(dir: string, out: string[] = []): string[] {
   for (const entry of readdirSync(dir)) {
@@ -123,24 +168,91 @@ function walk(dir: string, out: string[] = []): string[] {
 }
 
 /** `role="status"` occurrences whose element is opened by a conditional gate. */
-function conditionalStatusRegions(text: string): Array<{ line: number; testId: string }> {
-  const lines = text.split("\n");
+/**
+ * `role="status"` elements whose MOUNT is gated by a conditional.
+ *
+ * AST, NOT A LINE-WINDOW REGEX (whole-diff review R1). The first version looked
+ * back six lines for a `?` or `&&` and missed, by the reviewer's own fixture
+ * probe: same-line `&&`, a direct ternary, and any opening tag more than six
+ * lines below its gate — including the REAL RoleMappingRow defect, which
+ * returned no hit at all. A detector whose blind spots are "ordinary JSX
+ * formatting" is not conservative, it is decorative: every miss is silent and
+ * looks exactly like a clean file.
+ *
+ * The question is structural, so ask it structurally: walk up from the JSX
+ * element to its enclosing function, and report it when any ancestor on that
+ * path is a conditional expression, a `&&`/`||` chain, or an `if` whose branch
+ * returns JSX. That is decidable, and it does not care how the source is
+ * wrapped.
+ *
+ * DELIBERATELY STILL BLIND to a gate that lives in a DIFFERENT function — a
+ * parent that renders `{cond ? <Child/> : null}` where `Child` owns the region.
+ * That is a real gap and it is a documented limit rather than a silent one: the
+ * RoleMappingRow-shaped defect (gate and region in one component) is what this
+ * catches, and cross-component gating needs whole-program analysis, which is a
+ * different tool. Recorded as a documented limit on
+ * BL-LIVE-REGION-AST-WALK-RESIDUE, which also lists the four in-component sites
+ * this walk found and the PENDING rows below hold.
+ */
+function conditionalStatusRegions(
+  text: string,
+  file: string,
+): Array<{ line: number; testId: string }> {
+  const sf = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
   const hits: Array<{ line: number; testId: string }> = [];
-  for (let i = 0; i < lines.length; i++) {
-    if (!lines[i]?.includes('role="status"')) continue;
-    // The element's opening tag is at or just above this line; a gate shows up
-    // as a `?` or `&&` immediately preceding it.
-    const before = lines
-      .slice(Math.max(0, i - 6), i)
-      .join("\n")
-      .trimEnd();
-    if (!/(\?\s*\(|&&\s*\(|&&\s*<)$/m.test(before)) continue;
-    // The element's own testid, read from the surrounding tag, is the stable
-    // identity — line numbers move, testids do not.
-    const around = lines.slice(Math.max(0, i - 4), i + 5).join("\n");
-    const tid = /data-testid=[{"`]*([a-zA-Z0-9$_{}.\-]+)/.exec(around)?.[1] ?? "";
-    hits.push({ line: i + 1, testId: tid });
-  }
+
+  const attrs = (node: ts.JsxOpeningLikeElement) => node.attributes.properties;
+  const attrText = (node: ts.JsxOpeningLikeElement, name: string): string | null => {
+    for (const a of attrs(node)) {
+      if (!ts.isJsxAttribute(a) || a.name.getText() !== name) continue;
+      const init = a.initializer;
+      if (init && ts.isStringLiteral(init)) return init.text;
+      if (init && ts.isJsxExpression(init) && init.expression) return init.expression.getText();
+      return "";
+    }
+    return null;
+  };
+
+  /** Is this element's MOUNT gated by a conditional inside its own function? */
+  const gated = (node: ts.Node): boolean => {
+    let cur: ts.Node | undefined = node.parent;
+    let child: ts.Node = node;
+    while (cur) {
+      if (ts.isFunctionDeclaration(cur) || ts.isArrowFunction(cur) || ts.isFunctionExpression(cur))
+        return false; // reached the component boundary without finding a gate
+      if (ts.isConditionalExpression(cur) && (cur.whenTrue === child || cur.whenFalse === child))
+        return true;
+      if (
+        ts.isBinaryExpression(cur) &&
+        (cur.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken ||
+          cur.operatorToken.kind === ts.SyntaxKind.BarBarToken) &&
+        cur.right === child
+      )
+        return true;
+      if (ts.isIfStatement(cur)) return true;
+      child = cur;
+      cur = cur.parent;
+    }
+    return false;
+  };
+
+  const visit = (node: ts.Node): void => {
+    if (ts.isJsxSelfClosingElement(node) || ts.isJsxOpeningElement(node)) {
+      if (attrText(node, "role") === "status") {
+        const el = ts.isJsxOpeningElement(node) ? node.parent : node;
+        if (gated(el)) {
+          hits.push({
+            line: sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1,
+            testId: (attrText(node, "data-testid") ?? "")
+              .replace(/^`|`$/g, "")
+              .replace(/\$\{[^}]*\}/g, ""),
+          });
+        }
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sf);
   return hits;
 }
 
@@ -168,9 +280,13 @@ describe("live regions are mounted before their text (BL-ANNOUNCE-REGION-UNMOUNT
     const offenders: string[] = [];
     for (const f of files) {
       if (CHANNEL_ANNOUNCERS.includes(f) || PENDING.has(f)) continue;
-      const hits = conditionalStatusRegions(readFileSync(join(REPO_ROOT, f), "utf8"));
+      const hits = conditionalStatusRegions(readFileSync(join(REPO_ROOT, f), "utf8"), f);
       for (const hit of hits) {
-        if (!NON_TRANSIENT_GATES.has(hit.testId))
+        // Keyed on `file::testId`. The testid alone was not enough once the AST
+        // walk started seeing regions that carry NO testid — those all collapsed
+        // to the empty key and would have shared one exemption between unrelated
+        // files, which is an exemption that stops describing what it exempts.
+        if (!NON_TRANSIENT_GATES.has(hit.testId) && !NON_TRANSIENT_GATES.has(`${f}::${hit.testId}`))
           offenders.push(`${f}:${hit.line} (${hit.testId})`);
       }
     }
@@ -221,7 +337,7 @@ describe("live regions are mounted before their text (BL-ANNOUNCE-REGION-UNMOUNT
     // Keeps the debt list honest in the shrinking direction: a repaired file
     // must leave this list, or the list stops describing the work.
     const stale = [...PENDING.keys()].filter(
-      (f) => conditionalStatusRegions(readFileSync(join(REPO_ROOT, f), "utf8")).length === 0,
+      (f) => conditionalStatusRegions(readFileSync(join(REPO_ROOT, f), "utf8"), f).length === 0,
     );
     expect(stale, "listed as pending but already repaired — remove the row").toEqual([]);
   });
