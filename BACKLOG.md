@@ -53,7 +53,7 @@ screen-disposition 2026-08-04: KEEP — probe (`tests/sync/capabilityLossReachab
 
 ## BL-LEDGER-DISCOVERY-FAMILY-SCOPED — "discovered from disk" holds only inside one naming family
 
-**Status:** OPEN · **Severity:** low · **Class:** guard coverage · **Filed:** 2026-08-03 (`chore/ledger-claim-visibility`, spec §5) · **Effort:** M
+**Status:** IN PROGRESS · **Branch:** feat/m-wave · **Severity:** low · **Class:** guard coverage · **Filed:** 2026-08-03 (`chore/ledger-claim-visibility`, spec §5) · **Effort:** M
 
 `AGENTS.md` states that ledger files are discovered from disk so a new one is covered by default.
 That is true only within one naming family. `ledgerFiles` (`tests/docs/_metaLedgerInProgress.test.ts:46`)
@@ -164,7 +164,7 @@ no card carries `data-section-freshness-flash` on reopen, on
 
 ## BL-FRESHNESS-PROJECTION-NARROWING — seven freshness projections hash a wider model than their renderer paints, so they can over-cue
 
-**Filed:** 2026-08-03 (class-sweep triggered by the whole-diff review of `feat/modal-freshness-cue`) · **Class:** correctness (cosmetic) · **Effort:** M (seven independent projections, each needing its own probe) · **Severity:** low
+**Status:** IN PROGRESS · **Branch:** feat/m-wave · **Filed:** 2026-08-03 (class-sweep triggered by the whole-diff review of `feat/modal-freshness-cue`) · **Class:** correctness (cosmetic) · **Effort:** M (seven independent projections, each needing its own probe) · **Severity:** low
 
 `components/admin/review/sectionFreshness.ts` holds one contract: the signature reads what the RENDERER reads. The whole-diff review found two violations where the detector read NARROWER than the renderer, which is the severe direction — content changes on screen and no cue fires. Both are fixed (the diagrams `{current,pending}` unwrap; the agenda projection), as are the two further missed-cue instances the follow-up class-sweep turned up (the uncapped `roomHasScope` rail count; the strike/load-out entry cap exemption).
 
@@ -236,7 +236,7 @@ The adapter is the substance of the work, not the rendering — `getShowForViewe
 
 ## BL-CATALOG-PARTITION-WARNING-CLASS — the warning universe is inferred by a scanner, not enumerated by the catalog
 
-**Status:** OPEN · **Class:** registry completeness · **Effort:** M · **Filed:** 2026-08-03 (`chore/scanner-precision-cluster`, spec §3.5a)
+**Status:** IN PROGRESS · **Branch:** feat/m-wave · **Class:** registry completeness · **Effort:** M · **Filed:** 2026-08-03 (`chore/scanner-precision-cluster`, spec §3.5a)
 
 `MESSAGE_CATALOG` (`lib/messages/catalog.ts:62`) lists every §12.4 code but carries no field saying
 which are parse-warnings, so the attention-scenario gallery infers the warning universe by scanning
@@ -271,7 +271,7 @@ What bounds the gap today: Part 1 reads the computed style of every node in the 
 
 **Work:** stand up a hydrated React harness (mount the real header component, drive a prop change under a stable key, measure across the reconciliation) and move or extend the Part 2 assertions onto it. Note the two-mechanism split before touching either: Part 1 catches an attached transition, Part 2 catches a fixed `min-height` where the pill's presence stops driving the height and 72.8px becomes a coincidence — a replacement harness has to keep both, not collapse them.
 
-**Status:** OPEN.
+**Status:** IN PROGRESS · **Branch:** feat/m-wave.
 
 ---
 
@@ -695,7 +695,7 @@ The cron sync path also synthesizes workbooks (`lib/sync/runScheduledCronSync.ts
 
 ### BL-ROOM-DIMS-ONLY-NOVEL-HEADER — parse a dims-only novel breakout header (no DAY-range)
 
-**Status:** OPEN · **Severity:** low · **Class:** PARSER COVERAGE · **Effort:** M
+**Status:** IN PROGRESS · **Branch:** feat/m-wave · **Severity:** low · **Class:** PARSER COVERAGE · **Effort:** M
 
 The parser-anchor-de-literalization PR (spec `docs/superpowers/specs/2026-07-05-parser-anchor-deliteralization.md`, audit finding #6) de-literalizes the v1 breakout-room loop from the two literal names `MABEL`/`LAUDERDALE` to any `NAME + trailing DAY-range` header, so a future differently-named DAY-range breakout (`GRAND BALLROOM DAY 1 & 2`) now parses. A dims-ONLY header with NO DAY-range (`SALON ABCD&#10;60' x 45'`, `MERIDIAN HALL&#10;50' x 30'`) is deliberately **out of scope** (spec §2 "Descoped", adversarial-review R31 f1): it is structurally identical to a dims-bearing ASSET/equipment row (`PROJECTION SCREEN&#10;5' x 9'`, `4' X 8' RISER`), so a name-blind admit gate cannot tell a novel dims-only room from an asset — 14 adversarial rounds confirmed every dims-based admit/evidence/ownership gate reopened asset fabrication or field theft. origin/main never parsed this shape, so it is NOT a regression, and a blanket data-gap signal is rejected (it would fire on every gear row = noise). **Fix (when prioritized):** parse a dims-only room only under a POSITIVE room-context signal the sheets actually carry — a `BREAKOUT`/room-section header above the row, or an explicit room label — NOT a dims token. Add fixtures with a real dims-only room inside a room section and assert it parses without any asset row (dims-bearing gear elsewhere on the sheet) becoming a room.
 
@@ -769,7 +769,7 @@ ParsePanel was not alone. Shape swept: **a file under `components/` that no file
 
 ## BL-CAPABILITY-MATRIX-FINANCIALS-PREDICATE — the flip matrix models five predicates; the code has six
 
-**Filed:** 2026-08-03 (`chore/orphan-components-lead-prose`, settling `BL-LEAD-CAPABILITY-PROSE-STALE`) · **Class:** docs/contract drift · **Severity:** low · **Effort:** M
+**Status:** IN PROGRESS · **Branch:** feat/m-wave · **Filed:** 2026-08-03 (`chore/orphan-components-lead-prose`, settling `BL-LEAD-CAPABILITY-PROSE-STALE`) · **Class:** docs/contract drift · **Severity:** low · **Effort:** M
 
 `CAPABILITY_TRANSITION_MATRIX` (`lib/visibility/capabilityTransitions.ts`) enumerates the 10
 unordered pairs of five predicates — `hasLead`, `hasA1`, `hasV1`, `hasL1`, `hasAdmin`
@@ -799,7 +799,7 @@ matrix itself.
 
 ## BL-RESYNC-REGRESSED-JUMP-LINK — the alert's "open the parse panel" pointer is prose, not an affordance
 
-**Status:** OPEN · **Severity:** LOW-MEDIUM (discoverability) · **Class:** UX — surfaced by the correction-loop de-duplication (#516, 2026-07-20) · **Effort:** M
+**Status:** IN PROGRESS · **Branch:** feat/m-wave · **Severity:** LOW-MEDIUM (discoverability) · **Class:** UX — surfaced by the correction-loop de-duplication (#516, 2026-07-20) · **Effort:** M
 
 `RESYNC_QUALITY_REGRESSED`'s body ends "…open the parse panel to see what degraded and fix the sheet." That sentence is the ONLY thing routing Doug from the alert to the Parse warnings panel, and it is plain prose: no link, no jump control.
 
@@ -829,7 +829,7 @@ This pointer became load-bearing in #516. Before that change, the Overview secti
 
 ## BL-E2E-LAYOUT-FIXED-WAIT-RESIDUE — three fixed waits remain in the lifecycle-layout spec after the T-REGROW fix
 
-**Status:** OPEN · **Severity:** LOW (flake surface, no product impact) · **Class:** e2e test hygiene · **Filed:** 2026-08-02 (`chore/ci-boot-overlap-and-popover-flake`, class sweep behind the T-REGROW fix) · **Effort:** M
+**Status:** IN PROGRESS · **Branch:** feat/m-wave · **Severity:** LOW (flake surface, no product impact) · **Class:** e2e test hygiene · **Filed:** 2026-08-02 (`chore/ci-boot-overlap-and-popover-flake`, class sweep behind the T-REGROW fix) · **Effort:** M
 
 `docs/superpowers/specs/ci/2026-08-02-ci-boot-overlap-implementation.md` §6 replaced T-REGROW's two fixed `waitForTimeout` calls with `toPass` blocks, which is the instance `BL-E2E-LIFECYCLE-SPECS-CI-DARK` names. The class sweep behind that fix found three more in the same file, enumerated here rather than left implicit:
 
@@ -844,7 +844,7 @@ Anchored by ENCLOSING TEST rather than by line: the T-REGROW fix inserts lines a
 
 ## BL-RESOLVE-INTENT-WRONG-VERB — two event-shaped alerts render "Mark resolved" where "Confirm" is correct
 
-**Status:** OPEN · **Severity:** LOW (copy defect, no functional impact) · **Class:** admin copy / lifecycle contract · **Effort:** M
+**Status:** IN PROGRESS · **Branch:** feat/m-wave · **Severity:** LOW (copy defect, no functional impact) · **Class:** admin copy / lifecycle contract · **Effort:** M
 
 `SHOW_FIRST_PUBLISHED` ("<sheet> is now live for crew…") and `PICKER_EPOCH_RESET` (whose own help text reads "Nothing to fix; this is a record of the reset") are both recorded as `intent: "resolve"` in `RESOLVE_INTENTS` (`lib/adminAlerts/resolveActionLabel.ts:58`, `:60`), so their button reads "Mark resolved". By the module's own rule (`lib/adminAlerts/resolveActionLabel.ts:9-12`) both are `confirm`: a deliberate thing that already happened, not a fault to clear. Visible in the notification bell; both codes are excluded from the per-show attention index, so the show modal is unaffected.
 
@@ -1145,7 +1145,7 @@ Not fixed there because the branch's spec §1.1 R2 ratified the bulk channel as 
 
 **Work:** move the bulk outcome onto the layout/dialog channel (`AdminAnnounceProvider`), or hoist its own region above the group. The per-row channel is the worked example.
 
-**Status:** OPEN.
+**Status:** IN PROGRESS · **Branch:** feat/m-wave.
 
 ---
 
@@ -1166,7 +1166,7 @@ Plus fifteen conditionally-mounted region elements across thirteen sites (a cond
 
 **Work:** per surface, move the region to an owner above the branch its own success flips. `AdminAnnounceProvider` + `components/admin/announceLog.tsx` are the shipped pattern.
 
-**Status:** OPEN.
+**Status:** IN PROGRESS · **Branch:** feat/m-wave.
 
 ---
 
@@ -1265,7 +1265,7 @@ Plus fifteen conditionally-mounted region elements across thirteen sites (a cond
 
 ### BL-CREW-AGENDA-ADMIN-CLEAR — Admin affordance to manually clear a run-of-show (low-priority convenience)
 
-**Filed:** 2026-06-18, crew-page redesign Phase 2 spec adversarial review (R17 → re-scoped R21 → re-scoped again R22). **Re-scoped at R22 (do NOT treat as load-bearing):** the Phase-2 data-retention rule settled on **CONFIRMED-ONLY** (Phase-2 spec D-2 / §4.4 invariants 2-3 / watchpoint 12) — the crew see a day's run-of-show **iff the latest sync confirmed it**; **every** non-confirmed shape (read-empty, unresolved block, OR unlocatable grid) auto-coarsens to the anchor strip on the next sync with the matching admin warning. So **any** intentional removal — blank titles, deleted tab, broken header, changed template — self-resolves via sync; there is **no** lingering-stale crew exposure to remediate (that was the R17/R21 preserve-and-show stance, which R22 closed structurally).
+**Status:** IN PROGRESS · **Branch:** feat/m-wave · **Filed:** 2026-06-18, crew-page redesign Phase 2 spec adversarial review (R17 → re-scoped R21 → re-scoped again R22). **Re-scoped at R22 (do NOT treat as load-bearing):** the Phase-2 data-retention rule settled on **CONFIRMED-ONLY** (Phase-2 spec D-2 / §4.4 invariants 2-3 / watchpoint 12) — the crew see a day's run-of-show **iff the latest sync confirmed it**; **every** non-confirmed shape (read-empty, unresolved block, OR unlocatable grid) auto-coarsens to the anchor strip on the next sync with the matching admin warning. So **any** intentional removal — blank titles, deleted tab, broken header, changed template — self-resolves via sync; there is **no** lingering-stale crew exposure to remediate (that was the R17/R21 preserve-and-show stance, which R22 closed structurally).
 
 **Effort:** M
 
@@ -1295,7 +1295,7 @@ Plus fifteen conditionally-mounted region elements across thirteen sites (a cond
 
 ### BL-ADMIN-BADGE-CONTRAST-TOKEN — badge token pair + nav polish batch
 
-**Effort:** M
+**Status:** IN PROGRESS · **Branch:** feat/m-wave · **Effort:** M
 
 Filed 2026-06-10 (mobile needs-attention milestone impeccable dispositions). Project-wide badge token pair (accent-bg badges are ~2.3:1 white-on-#FF8C1A at 12px; e.g. #C25E00 bg ≈4.9:1 AA) applied to BOTH `NotifBell` and the attention-tab badge in the same change. Fold in two P3/LOW polish items from the same gate run: summary-card zero-state copy redundancy (`NeedsAttentionSummaryCard` "All caught up" + "Nothing waiting on you." say the same thing) and `app/admin/layout.tsx` serial `fetchUnresolvedAlertCount` → `loadNeedsAttentionCount` awaits (Promise.all saves a round-trip per admin render). Technical home: `app/globals.css` @theme token pair + the two badge components + layout. No trigger; speculative polish.
 
@@ -1307,7 +1307,7 @@ The Phase 1 crew-page projection alert (`TILE_PROJECTION_FETCH_FAILED`, §4.13 o
 
 ### BL-CREW-PII-DB-LOCKDOWN — Gate crew PII (flight_info + email + phone) from other show crew at the DB boundary
 
-**Filed:** 2026-06-19, during the crew-page Phase 3 per-crew flight-info spec (`specs/v1-pre-deployment-amendments/2026-06-19-crew-flight-info.md`, decision 2 / R5 adversarial finding). Surfaced when the spec considered treating `crew_members.flight_info` as own-row-only PII.
+**Status:** IN PROGRESS · **Branch:** feat/m-wave · **Filed:** 2026-06-19, during the crew-page Phase 3 per-crew flight-info spec (`specs/v1-pre-deployment-amendments/2026-06-19-crew-flight-info.md`, decision 2 / R5 adversarial finding). Surfaced when the spec considered treating `crew_members.flight_info` as own-row-only PII.
 
 **Effort:** M
 
@@ -1331,7 +1331,7 @@ The Phase 1 crew-page projection alert (`TILE_PROJECTION_FETCH_FAILED`, §4.13 o
 
 ### BL-CREW-UNKNOWN-ASTERISK-TODAY-DATES — Today Tonight/Where date rows for date-restricted viewers
 
-**Filed:** 2026-06-19 (crew mock-fidelity Today Mode-A review, Codex plan R3 HIGH). The Today section's Tonight/Where quick-cards render hotel `check_in`/`check_out` (`TodaySection.tsx:164-165`) + venue dates via `KeyValueRows` for ALL viewers, including `unknown_asterisk` (the date-restricted "we haven't confirmed your days yet" marker). `ScheduleSection` already hides every date for `unknown_asterisk`; Today does not gate the Tonight/Where date-bearing rows. The mock-fidelity pass gated the NEW run-of-show timeline (Mode A renders no timeline for `unknown_asterisk`), but did not change the pre-existing Tonight-card contract.
+**Status:** IN PROGRESS · **Branch:** feat/m-wave · **Filed:** 2026-06-19 (crew mock-fidelity Today Mode-A review, Codex plan R3 HIGH). The Today section's Tonight/Where quick-cards render hotel `check_in`/`check_out` (`TodaySection.tsx:164-165`) + venue dates via `KeyValueRows` for ALL viewers, including `unknown_asterisk` (the date-restricted "we haven't confirmed your days yet" marker). `ScheduleSection` already hides every date for `unknown_asterisk`; Today does not gate the Tonight/Where date-bearing rows. The mock-fidelity pass gated the NEW run-of-show timeline (Mode A renders no timeline for `unknown_asterisk`), but did not change the pre-existing Tonight-card contract.
 
 **Effort:** M
 
@@ -1373,7 +1373,7 @@ The Phase 1 crew-page projection alert (`TILE_PROJECTION_FETCH_FAILED`, §4.13 o
 
 ### BL-HELP-UI-LABEL-CROSSWALK-EXACT-MATCH — tighten short action labels in the /help UI-label crosswalk
 
-**Filed:** 2026-06-23 (Codex flagged it reviewing the D9 sync-model doc fix, PR #96). The crosswalk (`tests/help/_metaUiLabelCrosswalk.test.ts`) verifies each bold/quoted /help label exists in shipped `app/`+`components/` source via **substring** matching. So a short bolded label like `Undo` passes against any longer shipped string (`Undo this change`, `Undo auto-publish`, `Undoing…`) even if the doc means a different control. It catches invented labels but not subtly-wrong ones. (The D9 fix sidestepped this by naming the exact control "Undo this change" in the copy, so no current doc relies on the loose match — this is hardening, not a live bug.)
+**Status:** IN PROGRESS · **Branch:** feat/m-wave · **Filed:** 2026-06-23 (Codex flagged it reviewing the D9 sync-model doc fix, PR #96). The crosswalk (`tests/help/_metaUiLabelCrosswalk.test.ts`) verifies each bold/quoted /help label exists in shipped `app/`+`components/` source via **substring** matching. So a short bolded label like `Undo` passes against any longer shipped string (`Undo this change`, `Undo auto-publish`, `Undoing…`) even if the doc means a different control. It catches invented labels but not subtly-wrong ones. (The D9 fix sidestepped this by naming the exact control "Undo this change" in the copy, so no current doc relies on the loose match — this is hardening, not a live bug.)
 
 **Effort:** M
 
@@ -1450,13 +1450,13 @@ docblock states the gap rather than papering over it.
 
 **Work:** extend the manifest generator and parity gate to cover functions — signature-level (name + args + return type) is the cheap tier and catches missing/renamed RPCs; a body hash would also catch stale bodies at the cost of noise on comment-only edits. Scope decision needed at pickup; either tier keeps the existing superset semantics.
 
-**Status:** OPEN.
+**Status:** IN PROGRESS · **Branch:** feat/m-wave.
 
 ---
 
 ## BL-HARNESS-FIXTURE-ENFORCEMENT — the shared font fixture observes every harness document but asserts nothing about it
 
-**Status:** OPEN.
+**Status:** IN PROGRESS · **Branch:** feat/m-wave.
 
 **Filed:** 2026-08-04 (`feat/harness-font-fidelity`, PR #705, the descoped half of `BL-HARNESS-FONT-FIDELITY`). **Class:** test fidelity. **Effort:** M.
 
@@ -1480,7 +1480,7 @@ What instrumenting the vantages established, so the next attempt does not repeat
 
 ## BL-FONT-STYLESHEET-GRAPH-FIDELITY — the font-face discovery walk is not a module graph
 
-**Status:** OPEN.
+**Status:** IN PROGRESS · **Branch:** feat/m-wave.
 
 **Filed:** 2026-08-04 (`feat/harness-font-fidelity`, PR #705, adversarial review R4). **Class:** test fidelity. **Effort:** M.
 
