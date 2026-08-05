@@ -407,56 +407,113 @@ function composePrompt(cfg) {
 // Verdict parsing (§6)
 // ---------------------------------------------------------------------------
 
+/** A CommonMark list marker: bullet or ordered, itself indented up to 3 spaces. */
+const LIST_MARKER = String.raw` {0,3}(?:[-*+]|\d{1,9}[.)])`;
+/** A fence opener at the start of a line, or on a list-marker line. */
+const ROOT_FENCE = /^ {0,3}(`{3,}|~{3,})(.*)$/;
+const LIST_FENCE = new RegExp(String.raw`^${LIST_MARKER}[ \t]+(\`{3,}|~{3,})(.*)$`);
 /**
- * Every CommonMark code block, removed — in ONE place, because both readers
- * below need the same answer and two copies of this normalizer is precisely how
- * the class recurs. Probed 2026-08-05: the two copies covered only the closed
- * BACKTICK fence, so a tilde fence, a fence truncated at EOF, and an indented
- * block each leaked a reviewer's EXAMPLE into both readers at once — read as a
- * real verdict AND as a real declared count.
+ * An indented code block that opens ON a list-marker line: content set 4+
+ * columns past the item's own content column. Five spaces after a one-character
+ * marker puts the first character at column 6 = content column 2 + 4.
+ */
+const LIST_INDENTED = new RegExp(String.raw`^${LIST_MARKER} {5,}\S`);
+const INDENTED_LINE = /^(?: {4}|\t)/;
+
+/**
+ * Every CommonMark code block the document CLOSES, removed — in ONE place,
+ * because both readers below need the same answer and two copies of this
+ * normalizer is precisely how the class recurs. Probed 2026-08-05: earlier
+ * copies covered only the closed BACKTICK fence at the start of a line, so a
+ * tilde fence, an indented block, and any block opened on a LIST-MARKER line
+ * (`- ```, `1.     ` — how a reviewer quotes an example inside a numbered
+ * finding; 15/15 marker × block-kind combinations leaked) each fed a reviewer's
+ * EXAMPLE to both readers at once, read as a real verdict AND a real count.
  *
- * Deliberately not a full block parser. The consequence bound is that an
- * example is never read as a decision; a block stripped too eagerly reads as
- * `no_marker`, which is the same outcome as a reviewer that emitted none. Lines
- * are blanked rather than deleted, so line positions survive the pass.
+ * Deliberately not a full block parser. Lines are blanked rather than deleted,
+ * so line positions survive the pass.
  *
- * - Fenced (CommonMark 4.5): ``` or ~~~, indented up to 3 spaces, closed by a
- *   fence of the SAME character at least as long — or by EOF, since an unclosed
- *   fence runs to end of document, and a reaped reviewer's message is routinely
- *   truncated mid-block.
+ * ONLY A BLOCK WHOSE END THE DOCUMENT STATES IS STRIPPED. A block still open at
+ * EOF strips NOTHING, and that asymmetry is the whole design. The opposite rule
+ * — "an unclosed fence runs to end of document", which is what CommonMark 4.5
+ * actually says — shipped for one round and cost a real review live on this
+ * branch: a reviewer wrapped a nested ``` example in a ```markdown block, the
+ * inner run closed the outer fence, and the stray final ``` opened a fence that
+ * swallowed the reviewer's own trailing `VERDICT: NEEDS-ATTENTION`. A COMPLETED
+ * review was filed as `no_marker` / `attempts_exhausted`, indistinguishable in
+ * result.json from a reaped dispatch — spec §3 consequence 3, the defect this
+ * wrapper exists to remove. The two errors are not symmetric: admitting one
+ * example line from a malformed or truncated document is visible afterwards
+ * (`verdictLine` keeps the raw line), while discarding a finished review leaves
+ * nothing to inspect and buys a whole new dispatch. So on ambiguity, ADMIT.
+ *
+ * The rule also makes the contract structurally safe rather than probabilistically
+ * safe: briefs mandate a final `VERDICT:` line, and a closed fence is followed by
+ * its closing line while a terminated indented block is followed by the
+ * non-indented line that ended it — so under this rule NO stripped block can
+ * hold the document's last non-empty line. Note what the rule is NOT: it never
+ * consults the outcome. "Strip unless it would remove the verdict" would rot.
+ *
+ * - Fenced (CommonMark 4.5): ``` or ~~~, at line start or after a list marker,
+ *   closed by a fence of the SAME character at least as long. The close accepts
+ *   any leading whitespace, because a fence opened inside a list item closes at
+ *   the item's content column — and leniency about where a block ENDS can only
+ *   strip less, never more.
  * - Indented (CommonMark 4.4): 4 spaces or a tab. These may not interrupt a
  *   paragraph, so one starts only after a blank line — without that rule an
- *   over-indented continuation line carrying the verdict would be eaten.
+ *   over-indented continuation line carrying the verdict would be eaten — or on
+ *   a list-marker line, where the marker plays the part of the blank line.
  */
 function stripCodeBlocks(text) {
-  const out = [];
-  let fence = null; // { char, len } of the open fence, or null outside one
-  let indented = false;
+  const lines = text.split("\n");
+  const out = lines.slice();
+  // The lines of the block currently open. They are blanked only if the block
+  // closes; abandoning the list is how "open at EOF strips nothing" is spelled.
+  let block = null; // { kind: "fence" | "indented", char, len, at: number[] }
   let prevBlank = true; // start of document opens a block just like a blank line does
-  for (const line of text.split("\n")) {
-    if (fence !== null) {
-      out.push("");
-      if (new RegExp(`^ {0,3}${fence.char}{${fence.len},}\\s*$`).test(line)) {
-        fence = null;
+  const closeBlock = () => {
+    for (const i of block.at) out[i] = "";
+    block = null;
+  };
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i];
+    if (block !== null && block.kind === "fence") {
+      block.at.push(i); // the closing fence line belongs to the block
+      if (new RegExp(`^[ \\t]*${block.char}{${block.len},}[ \\t]*$`).test(line)) {
+        closeBlock();
         prevBlank = true; // a block boundary — what follows may open another
       }
       continue;
     }
-    const open = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+    const blank = line.trim() === "";
+    if (block !== null) {
+      // Indented: a blank line does not end it, any other unindented line does —
+      // and that terminating line is NOT part of the block, so it falls through
+      // to the openers below (it may itself open a fence).
+      if (blank || INDENTED_LINE.test(line)) {
+        block.at.push(i);
+        prevBlank = blank;
+        continue;
+      }
+      closeBlock();
+    }
+    const open = ROOT_FENCE.exec(line) ?? LIST_FENCE.exec(line);
     // A BACKTICK fence's info string may not contain a backtick (CommonMark
     // 4.5) — the rule that keeps an inline `code span` from opening a block.
     if (open && !(open[1][0] === "`" && open[2].includes("`"))) {
-      fence = { char: open[1][0], len: open[1].length };
-      out.push("");
+      block = { kind: "fence", char: open[1][0], len: open[1].length, at: [i] };
+      prevBlank = false;
       continue;
     }
-    const blank = line.trim() === "";
-    const isIndented = /^(?: {4}|\t)/.test(line);
-    if (indented && !blank && !isIndented) indented = false;
-    else if (!indented && prevBlank && isIndented) indented = true;
-    out.push(indented && (isIndented || blank) ? "" : line);
+    if (!blank && ((prevBlank && INDENTED_LINE.test(line)) || LIST_INDENTED.test(line))) {
+      block = { kind: "indented", at: [i] };
+      prevBlank = false;
+      continue;
+    }
     prevBlank = blank;
   }
+  // EOF with a block still open: the document never said where it ends, so
+  // nothing is blanked. See the asymmetry above.
   return out.join("\n");
 }
 
