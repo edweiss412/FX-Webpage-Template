@@ -1,3 +1,5 @@
+import type { WarningClass } from "./warningPartition";
+
 export type MessageCatalogEntry = {
   code: string;
   severity?: "info" | "warning";
@@ -57,11 +59,32 @@ export type MessageCatalogEntry = {
    * WARNING_CARD_COPY_CODES member (tests/messages/_metaWarningCardCopy.test.ts).
    */
   triggerContext?: string | null;
+  /**
+   * Which half of the warning universe this code belongs to (catalog-internal,
+   * not §12.4 prose — same posture as `triggerContext` above).
+   *
+   * DECLARED HERE, CROSS-CHECKED AGAINST THE SOURCE. The gallery used to derive
+   * this by filtering the source scanner's provenance, so a code the scanner
+   * could not see (an `any`, a higher-order factory) was simply absent and
+   * nothing said it should not have been. The catalog now declares it and
+   * `lib/messages/warningPartition.ts` fails when the declaration and the code
+   * disagree in either direction. Closed binary union, TOTAL over rows: an
+   * absent value is a third state this design does not have.
+   *
+   * REQUIRED, not optional. Every row carries it, so TypeScript can prove the
+   * union is total and a new row that omits it is a COMPILE error rather than a
+   * silently-general one — the same fails-by-default posture the copy-hygiene
+   * guard's `Record<keyof MessageCatalogEntry, FieldPolicy>` uses one file over.
+   * The runtime totality row in the cross-check test stays as the belt to this
+   * braces: it also covers a catalog widened through a cast.
+   */
+  warningClass: WarningClass;
 };
 
 export const MESSAGE_CATALOG = {
   GOOGLE_NO_CREW_MATCH: {
     code: "GOOGLE_NO_CREW_MATCH",
+    warningClass: "general",
     dougFacing: null,
     crewFacing: "Your email isn't on the crew list for this show. Text Doug to get added.",
     followUp: "Crew → text Doug",
@@ -72,6 +95,7 @@ export const MESSAGE_CATALOG = {
   },
   AMBIGUOUS_EMAIL_BINDING: {
     code: "AMBIGUOUS_EMAIL_BINDING",
+    warningClass: "general",
     resolution: "manual",
     audience: "doug",
     dougFacing:
@@ -87,6 +111,7 @@ export const MESSAGE_CATALOG = {
   },
   SESSION_IDLE_TIMEOUT: {
     code: "SESSION_IDLE_TIMEOUT",
+    warningClass: "general",
     dougFacing: null,
     crewFacing: "Your session has expired. Open the original link Doug shared again.",
     followUp: "Crew → reopen link",
@@ -97,6 +122,7 @@ export const MESSAGE_CATALOG = {
   },
   SESSION_ABSOLUTE_TIMEOUT: {
     code: "SESSION_ABSOLUTE_TIMEOUT",
+    warningClass: "general",
     dougFacing: null,
     crewFacing: "Your session has expired. Open the original link Doug shared again.",
     followUp: "Crew → reopen link",
@@ -107,6 +133,7 @@ export const MESSAGE_CATALOG = {
   },
   DRIVE_FETCH_FAILED: {
     code: "DRIVE_FETCH_FAILED",
+    warningClass: "general",
     resolution: "auto",
     audience: "doug",
     dougFacing:
@@ -128,6 +155,7 @@ export const MESSAGE_CATALOG = {
   // longExplanation/helpHref required), mirroring ROLE_FLAGS_NOTICE.
   SHEET_PROCESS_FAILED: {
     code: "SHEET_PROCESS_FAILED",
+    warningClass: "general",
     severity: "info",
     dougFacing:
       "We couldn't process the latest version of this sheet. Open the show to see the staged change and what needs fixing, or contact the developer if it keeps happening.",
@@ -141,6 +169,7 @@ export const MESSAGE_CATALOG = {
   },
   SHEET_UNAVAILABLE: {
     code: "SHEET_UNAVAILABLE",
+    warningClass: "general",
     resolution: "auto",
     audience: "doug",
     adminSurface: "inbox",
@@ -157,6 +186,7 @@ export const MESSAGE_CATALOG = {
   },
   PARSE_ERROR_LAST_GOOD: {
     code: "PARSE_ERROR_LAST_GOOD",
+    warningClass: "general",
     resolution: "auto",
     audience: "doug",
     adminSurface: "inbox",
@@ -174,6 +204,7 @@ export const MESSAGE_CATALOG = {
   },
   RESYNC_SHRINK_HELD: {
     code: "RESYNC_SHRINK_HELD",
+    warningClass: "general",
     resolution: "auto",
     audience: "doug",
     adminSurface: "inbox",
@@ -190,6 +221,7 @@ export const MESSAGE_CATALOG = {
   },
   RESYNC_QUALITY_REGRESSED: {
     code: "RESYNC_QUALITY_REGRESSED",
+    warningClass: "general",
     resolution: "auto",
     audience: "doug",
     // NO adminSurface → banner (spec §6.1): feed-visible in the Bell center, not inbox-routed.
@@ -206,6 +238,7 @@ export const MESSAGE_CATALOG = {
   },
   USE_RAW_DECISION_STALE: {
     code: "USE_RAW_DECISION_STALE",
+    warningClass: "general",
     resolution: "auto",
     audience: "doug",
     // NO adminSurface → changes-feed/banner (spec §10), not inbox-routed.
@@ -222,6 +255,7 @@ export const MESSAGE_CATALOG = {
   },
   STALE_WRITE_ABORTED: {
     code: "STALE_WRITE_ABORTED",
+    warningClass: "general",
     dougFacing: null,
     crewFacing: null,
     followUp: null,
@@ -232,6 +266,7 @@ export const MESSAGE_CATALOG = {
   },
   STALE_MANUAL_REPLAY_ABORTED: {
     code: "STALE_MANUAL_REPLAY_ABORTED",
+    warningClass: "general",
     dougFacing:
       "This manual sync is stale: a newer parse has already been applied. Refresh the page to see the current state.",
     crewFacing: null,
@@ -245,6 +280,7 @@ export const MESSAGE_CATALOG = {
   },
   STALE_PUSH_ABORTED: {
     code: "STALE_PUSH_ABORTED",
+    warningClass: "general",
     dougFacing: null,
     crewFacing: null,
     followUp: null,
@@ -255,6 +291,7 @@ export const MESSAGE_CATALOG = {
   },
   WIZARD_SESSION_SUPERSEDED: {
     code: "WIZARD_SESSION_SUPERSEDED",
+    warningClass: "general",
     dougFacing:
       "Your setup wizard was superseded by another wizard. Refresh and start setup again.",
     crewFacing: null,
@@ -274,6 +311,7 @@ export const MESSAGE_CATALOG = {
   // copy says the action was cancelled without asserting zero residue.
   WIZARD_SESSION_SUPERSEDED_RACE: {
     code: "WIZARD_SESSION_SUPERSEDED_RACE",
+    warningClass: "general",
     resolution: "manual",
     audience: "health",
     healthWeight: "notice",
@@ -294,6 +332,7 @@ export const MESSAGE_CATALOG = {
   // already-reaped sessions stay reaped; the failing session rolled back.
   REAP_STALE_SESSIONS_FAILED: {
     code: "REAP_STALE_SESSIONS_FAILED",
+    warningClass: "general",
     dougFacing:
       "We couldn't clean up the old setup leftovers. Refresh and try again, or contact the developer if this keeps happening.",
     crewFacing: null,
@@ -307,6 +346,7 @@ export const MESSAGE_CATALOG = {
   },
   WIZARD_REVIEWER_CHOICES_VERSION_UNSUPPORTED: {
     code: "WIZARD_REVIEWER_CHOICES_VERSION_UNSUPPORTED",
+    warningClass: "general",
     dougFacing:
       "We made an update to the review process since you approved this sheet. Please review and Apply it again to finish setup.",
     crewFacing: null,
@@ -320,6 +360,7 @@ export const MESSAGE_CATALOG = {
   },
   STAGED_PARSE_REVISION_RACE_DURING_FINALIZE: {
     code: "STAGED_PARSE_REVISION_RACE_DURING_FINALIZE",
+    warningClass: "general",
     dougFacing:
       "This sheet was edited again while we were finishing setup. Please re-review and Apply it, then click Finalize again.",
     crewFacing: null,
@@ -333,6 +374,7 @@ export const MESSAGE_CATALOG = {
   },
   WIZARD_FINALIZE_BATCHES_PENDING: {
     code: "WIZARD_FINALIZE_BATCHES_PENDING",
+    warningClass: "general",
     dougFacing: null,
     crewFacing: null,
     followUp: "Doug → click Resume finalize OR Cleanup abandoned finalize",
@@ -343,6 +385,7 @@ export const MESSAGE_CATALOG = {
   },
   IDEMPOTENCY_IN_FLIGHT: {
     code: "IDEMPOTENCY_IN_FLIGHT",
+    warningClass: "general",
     dougFacing:
       "Hold on. Your previous report is still being submitted. Try again in a moment if it doesn't go through.",
     crewFacing: "Hold on, your previous report is still processing. Try again in a moment.",
@@ -356,6 +399,7 @@ export const MESSAGE_CATALOG = {
   },
   WATCH_CHANNEL_ORPHANED: {
     code: "WATCH_CHANNEL_ORPHANED",
+    warningClass: "general",
     resolution: "auto",
     audience: "doug",
     dougFacing:
@@ -371,6 +415,7 @@ export const MESSAGE_CATALOG = {
   },
   WEBHOOK_TOKEN_INVALID: {
     code: "WEBHOOK_TOKEN_INVALID",
+    warningClass: "general",
     resolution: "auto",
     audience: "health",
     healthWeight: "degraded",
@@ -389,6 +434,7 @@ export const MESSAGE_CATALOG = {
   },
   WEBHOOK_NOOP_ALREADY_SYNCED: {
     code: "WEBHOOK_NOOP_ALREADY_SYNCED",
+    warningClass: "general",
     dougFacing: null,
     crewFacing: null,
     followUp: null,
@@ -399,6 +445,7 @@ export const MESSAGE_CATALOG = {
   },
   CONCURRENT_SYNC_SKIPPED: {
     code: "CONCURRENT_SYNC_SKIPPED",
+    warningClass: "general",
     dougFacing: null,
     crewFacing: null,
     followUp: null,
@@ -409,6 +456,7 @@ export const MESSAGE_CATALOG = {
   },
   STAGED_PARSE_OUTDATED: {
     code: "STAGED_PARSE_OUTDATED",
+    warningClass: "general",
     dougFacing:
       "The sheet was edited again since you reviewed this parse. We've discarded the staged version; a fresh parse will be ready in a few minutes.",
     crewFacing: null,
@@ -422,6 +470,7 @@ export const MESSAGE_CATALOG = {
   },
   STAGED_PARSE_REVISION_RACE: {
     code: "STAGED_PARSE_REVISION_RACE",
+    warningClass: "general",
     dougFacing: null,
     crewFacing: null,
     followUp: null,
@@ -432,6 +481,7 @@ export const MESSAGE_CATALOG = {
   },
   STAGED_PARSE_REVISION_RACE_COOLDOWN: {
     code: "STAGED_PARSE_REVISION_RACE_COOLDOWN",
+    warningClass: "general",
     dougFacing: null,
     crewFacing: null,
     followUp: null,
@@ -442,6 +492,7 @@ export const MESSAGE_CATALOG = {
   },
   SHOW_REALTIME_BROADCAST_AUTH_FAILED: {
     code: "SHOW_REALTIME_BROADCAST_AUTH_FAILED",
+    warningClass: "general",
     dougFacing: null,
     crewFacing: null,
     followUp: null,
@@ -452,6 +503,7 @@ export const MESSAGE_CATALOG = {
   },
   SHOW_REALTIME_SUBSCRIPTION_FAILED: {
     code: "SHOW_REALTIME_SUBSCRIPTION_FAILED",
+    warningClass: "general",
     dougFacing: null,
     crewFacing: null,
     followUp: null,
@@ -462,6 +514,7 @@ export const MESSAGE_CATALOG = {
   },
   SHOW_REALTIME_CROSS_SHOW_FORBIDDEN: {
     code: "SHOW_REALTIME_CROSS_SHOW_FORBIDDEN",
+    warningClass: "general",
     dougFacing: null,
     crewFacing: null,
     followUp: null,
@@ -472,6 +525,7 @@ export const MESSAGE_CATALOG = {
   },
   SHOW_VERSION_CROSS_SHOW_FORBIDDEN: {
     code: "SHOW_VERSION_CROSS_SHOW_FORBIDDEN",
+    warningClass: "general",
     dougFacing: null,
     crewFacing: null,
     followUp: null,
@@ -482,6 +536,7 @@ export const MESSAGE_CATALOG = {
   },
   SHOW_REALTIME_JWT_RENEWED: {
     code: "SHOW_REALTIME_JWT_RENEWED",
+    warningClass: "general",
     dougFacing: null,
     crewFacing: null,
     followUp: null,
@@ -492,6 +547,7 @@ export const MESSAGE_CATALOG = {
   },
   STAGED_PARSE_SOURCE_GONE: {
     code: "STAGED_PARSE_SOURCE_GONE",
+    warningClass: "general",
     dougFacing:
       "The source sheet is no longer accessible. The staged parse has been discarded. Re-share or restore the sheet to bring this show back.",
     crewFacing: null,
@@ -505,6 +561,7 @@ export const MESSAGE_CATALOG = {
   },
   STAGED_PARSE_SOURCE_OUT_OF_SCOPE: {
     code: "STAGED_PARSE_SOURCE_OUT_OF_SCOPE",
+    warningClass: "general",
     dougFacing:
       "The sheet is no longer in the watched folder. We've discarded the staged parse. Move the sheet back into the folder if you want to publish it.",
     crewFacing: null,
@@ -518,6 +575,7 @@ export const MESSAGE_CATALOG = {
   },
   REEL_DRIFTED: {
     code: "REEL_DRIFTED",
+    warningClass: "parse_warning",
     resolution: "auto",
     audience: "doug",
     dougFacing:
@@ -533,6 +591,7 @@ export const MESSAGE_CATALOG = {
   },
   OPENING_REEL_NOT_VIDEO: {
     code: "OPENING_REEL_NOT_VIDEO",
+    warningClass: "parse_warning",
     resolution: "auto",
     audience: "doug",
     dougFacing:
@@ -548,6 +607,7 @@ export const MESSAGE_CATALOG = {
   },
   OPENING_REEL_PERMISSION_DENIED: {
     code: "OPENING_REEL_PERMISSION_DENIED",
+    warningClass: "parse_warning",
     resolution: "auto",
     audience: "doug",
     dougFacing:
@@ -563,6 +623,7 @@ export const MESSAGE_CATALOG = {
   },
   EMBEDDED_RECOVERY_REQUIRES_RESTAGE: {
     code: "EMBEDDED_RECOVERY_REQUIRES_RESTAGE",
+    warningClass: "parse_warning",
     resolution: "auto",
     audience: "doug",
     dougFacing:
@@ -578,6 +639,7 @@ export const MESSAGE_CATALOG = {
   },
   AGENDA_GONE_FOR_CREW: {
     code: "AGENDA_GONE_FOR_CREW",
+    warningClass: "general",
     dougFacing: null,
     crewFacing: "This agenda isn't available anymore. Text Doug for a fresh link.",
     followUp: "Crew → message Doug",
@@ -588,6 +650,7 @@ export const MESSAGE_CATALOG = {
   },
   AGENDA_UNAUTHENTICATED: {
     code: "AGENDA_UNAUTHENTICATED",
+    warningClass: "general",
     dougFacing: null,
     crewFacing: "This link has expired. Text Doug for the current agenda link.",
     followUp: "Crew → reopen signed link",
@@ -598,6 +661,7 @@ export const MESSAGE_CATALOG = {
   },
   ASSET_RECOVERY_REVISION_DRIFT: {
     code: "ASSET_RECOVERY_REVISION_DRIFT",
+    warningClass: "general",
     resolution: "auto",
     audience: "health",
     healthWeight: "notice",
@@ -616,6 +680,7 @@ export const MESSAGE_CATALOG = {
   },
   ASSET_RECOVERY_DRIFT_COOLDOWN: {
     code: "ASSET_RECOVERY_DRIFT_COOLDOWN",
+    warningClass: "general",
     resolution: "auto",
     audience: "health",
     healthWeight: "notice",
@@ -634,6 +699,7 @@ export const MESSAGE_CATALOG = {
   },
   APPLY_PROMOTE_PENDING: {
     code: "APPLY_PROMOTE_PENDING",
+    warningClass: "general",
     dougFacing: null,
     crewFacing: null,
     followUp: null,
@@ -644,6 +710,7 @@ export const MESSAGE_CATALOG = {
   },
   ASSET_RECOVERY_BYTES_EXCEEDED: {
     code: "ASSET_RECOVERY_BYTES_EXCEEDED",
+    warningClass: "general",
     resolution: "auto",
     audience: "doug",
     dougFacing:
@@ -659,6 +726,7 @@ export const MESSAGE_CATALOG = {
   },
   DIAGRAMS_EMBEDDED_REVISIONS_UNAVAILABLE: {
     code: "DIAGRAMS_EMBEDDED_REVISIONS_UNAVAILABLE",
+    warningClass: "parse_warning",
     dougFacing:
       "_<sheet-name>_'s diagrams couldn't be safely captured this sync. The previous version of those images is still showing. The developer has been notified.",
     crewFacing: null,
@@ -672,6 +740,7 @@ export const MESSAGE_CATALOG = {
   },
   STAGED_PARSE_RESTAGED_INLINE: {
     code: "STAGED_PARSE_RESTAGED_INLINE",
+    warningClass: "general",
     dougFacing:
       "The sheet was edited since your last look. We re-parsed it inside the wizard. Here's the new review.",
     crewFacing: null,
@@ -685,6 +754,7 @@ export const MESSAGE_CATALOG = {
   },
   STAGED_PARSE_SUPERSEDED: {
     code: "STAGED_PARSE_SUPERSEDED",
+    warningClass: "general",
     dougFacing:
       "A newer parse has already been applied. Refresh the admin page to review the latest state.",
     crewFacing: null,
@@ -698,6 +768,7 @@ export const MESSAGE_CATALOG = {
   },
   "MI-1_VERSION_DETECTION_FAILED": {
     code: "MI-1_VERSION_DETECTION_FAILED",
+    warningClass: "general",
     dougFacing:
       "_<sheet-name>_ doesn't look like your usual show template: none of the version markers we expect (Contact Office row, MAIN/SECONDARY block for v4; Hotel Contact Info row for v2) are present. Either this is a different kind of document, or your template has changed in a way we don't recognize. Tell the developer if your template has changed.",
     crewFacing: null,
@@ -711,6 +782,7 @@ export const MESSAGE_CATALOG = {
   },
   VERSION_AMBIGUOUS: {
     code: "VERSION_AMBIGUOUS",
+    warningClass: "general",
     dougFacing:
       "_<sheet-name>_ has some of your show-template markers but not enough for us to be sure which template it is, so we've paused instead of guessing. Check that the sheet's key rows (the Contact block for v4 sheets, or the GS/BO pull-sheet timing rows for v2 sheets) are intact, or tell the developer if your template changed.",
     crewFacing: null,
@@ -725,6 +797,7 @@ export const MESSAGE_CATALOG = {
   },
   "MI-2_TITLE_MISSING": {
     code: "MI-2_TITLE_MISSING",
+    warningClass: "general",
     dougFacing: "_<sheet-name>_ doesn't have a recognizable show title. Add or fix the CLIENT row.",
     crewFacing: null,
     followUp: "Doug → fix sheet",
@@ -737,6 +810,7 @@ export const MESSAGE_CATALOG = {
   },
   "MI-3_NO_PARSEABLE_DATE": {
     code: "MI-3_NO_PARSEABLE_DATE",
+    warningClass: "general",
     dougFacing:
       "_<sheet-name>_ doesn't have any readable dates: we couldn't find Travel In, Set Day, or Show Day 1 as a parseable date. Check the DATES block.",
     crewFacing: null,
@@ -750,6 +824,7 @@ export const MESSAGE_CATALOG = {
   },
   "MI-4_NO_CREW": {
     code: "MI-4_NO_CREW",
+    warningClass: "general",
     dougFacing: "_<sheet-name>_ has no crew rows. Add at least one person to the CREW block.",
     crewFacing: null,
     followUp: "Doug → fix sheet",
@@ -762,6 +837,7 @@ export const MESSAGE_CATALOG = {
   },
   "MI-5_NO_ROOMS": {
     code: "MI-5_NO_ROOMS",
+    warningClass: "general",
     dougFacing:
       "_<sheet-name>_ has no rooms: we couldn't find General Session, Breakouts, or Additional Rooms. Make sure your room blocks have setup and time fields filled in.",
     crewFacing: null,
@@ -775,6 +851,7 @@ export const MESSAGE_CATALOG = {
   },
   "MI-5a_DUPLICATE_CREW_NAME": {
     code: "MI-5a_DUPLICATE_CREW_NAME",
+    warningClass: "general",
     dougFacing:
       "Two crew rows share the same name in _<sheet-name>_. Disambiguate them (e.g., 'John C.' vs 'John Carleo') so the app can tell them apart.",
     crewFacing: null,
@@ -788,6 +865,7 @@ export const MESSAGE_CATALOG = {
   },
   "MI-5b_DUPLICATE_CREW_EMAIL": {
     code: "MI-5b_DUPLICATE_CREW_EMAIL",
+    warningClass: "general",
     dougFacing:
       "Two crew rows share the same email in _<sheet-name>_. Each crew member needs their own email.",
     crewFacing: null,
@@ -801,6 +879,7 @@ export const MESSAGE_CATALOG = {
   },
   SLUG_COLLISION_EXHAUSTED: {
     code: "SLUG_COLLISION_EXHAUSTED",
+    warningClass: "general",
     dougFacing: null,
     crewFacing: null,
     followUp: "Eric → investigate",
@@ -811,6 +890,7 @@ export const MESSAGE_CATALOG = {
   },
   ONBOARDING_FINALIZE_INTERNAL_ERROR: {
     code: "ONBOARDING_FINALIZE_INTERNAL_ERROR",
+    warningClass: "general",
     dougFacing: null,
     crewFacing: null,
     followUp: "Eric → investigate",
@@ -821,6 +901,7 @@ export const MESSAGE_CATALOG = {
   },
   NO_FOLDER_CONFIGURED: {
     code: "NO_FOLDER_CONFIGURED",
+    warningClass: "general",
     dougFacing:
       "(admin-log only on first occurrence; the dashboard explicitly shows the onboarding wizard CTA when no folder is configured, not an error)",
     crewFacing: null,
@@ -834,6 +915,7 @@ export const MESSAGE_CATALOG = {
   },
   "MI-6_CREW_SHRINKAGE": {
     code: "MI-6_CREW_SHRINKAGE",
+    warningClass: "general",
     dougFacing:
       "Heads-up: *<sheet-name>* now has _<N>_ crew rows (was _<M>_). Review the changes before applying.",
     crewFacing: null,
@@ -847,6 +929,7 @@ export const MESSAGE_CATALOG = {
   },
   "MI-7_SECTION_SHRINKAGE": {
     code: "MI-7_SECTION_SHRINKAGE",
+    warningClass: "general",
     dougFacing:
       "_<sheet-name>_ lost more than half of its _<section>_: _<prior_count>_ before, _<new_count>_ now. Review before applying.",
     crewFacing: null,
@@ -860,6 +943,7 @@ export const MESSAGE_CATALOG = {
   },
   "MI-7b_KEYED_PRESERVATION": {
     code: "MI-7b_KEYED_PRESERVATION",
+    warningClass: "general",
     dougFacing: "_<sheet-name>_: _<entry>_ is no longer in the sheet. Review before applying.",
     crewFacing: null,
     followUp: "Doug → review staged",
@@ -872,6 +956,7 @@ export const MESSAGE_CATALOG = {
   },
   "MI-8_FINANCIAL_FIELD_COLLAPSE": {
     code: "MI-8_FINANCIAL_FIELD_COLLAPSE",
+    warningClass: "general",
     dougFacing:
       "_<sheet-name>_: _<field>_ (e.g., PO#, Proposal, COI) was filled in before and is now blank. Confirm this was intentional.",
     crewFacing: null,
@@ -885,6 +970,7 @@ export const MESSAGE_CATALOG = {
   },
   ROLE_FLAGS_NOTICE: {
     code: "ROLE_FLAGS_NOTICE",
+    warningClass: "general",
     resolution: "manual",
     audience: "doug",
     severity: "info",
@@ -901,6 +987,7 @@ export const MESSAGE_CATALOG = {
   },
   MI11_TARGET_MOVED: {
     code: "MI11_TARGET_MOVED",
+    warningClass: "general",
     dougFacing:
       "The sheet changed since this was queued, so we didn't apply it. Re-open the show to review the latest version.",
     crewFacing: null,
@@ -914,6 +1001,7 @@ export const MESSAGE_CATALOG = {
   },
   MI11_DRIVE_RECHECK_FAILED: {
     code: "MI11_DRIVE_RECHECK_FAILED",
+    warningClass: "general",
     dougFacing: "We couldn't re-check the sheet right now. Try again in a moment.",
     crewFacing: null,
     followUp: "Doug → retry; if persistent, Eric",
@@ -926,6 +1014,7 @@ export const MESSAGE_CATALOG = {
   },
   MI11_HOLD_ALREADY_RESOLVED: {
     code: "MI11_HOLD_ALREADY_RESOLVED",
+    warningClass: "general",
     dougFacing: "That change was already resolved. Refresh to see the current state.",
     crewFacing: null,
     followUp: "Doug → refresh",
@@ -938,6 +1027,7 @@ export const MESSAGE_CATALOG = {
   },
   IDENTITY_WOULD_COLLIDE: {
     code: "IDENTITY_WOULD_COLLIDE",
+    warningClass: "general",
     dougFacing:
       "We can't apply this email change without it clashing with another crew member's email or name. Fix the conflict in the sheet, then re-sync.",
     crewFacing: null,
@@ -951,6 +1041,7 @@ export const MESSAGE_CATALOG = {
   },
   UNDO_SUPERSEDED: {
     code: "UNDO_SUPERSEDED",
+    warningClass: "general",
     dougFacing:
       "A newer sync already changed this, so there's nothing to undo. Refresh to see the current state.",
     crewFacing: null,
@@ -964,6 +1055,7 @@ export const MESSAGE_CATALOG = {
   },
   UNDO_EMAIL_CLAIMED: {
     code: "UNDO_EMAIL_CLAIMED",
+    warningClass: "general",
     dougFacing:
       "We can't undo this: the original email now belongs to someone else on the crew list. Fix it in the sheet instead.",
     crewFacing: null,
@@ -977,6 +1069,7 @@ export const MESSAGE_CATALOG = {
   },
   UNDO_NOT_FOUND: {
     code: "UNDO_NOT_FOUND",
+    warningClass: "general",
     dougFacing: "We couldn't find that change to undo. Refresh and try again.",
     crewFacing: null,
     followUp: "Doug → refresh",
@@ -989,6 +1082,7 @@ export const MESSAGE_CATALOG = {
   },
   UNDO_SHOW_ARCHIVED: {
     code: "UNDO_SHOW_ARCHIVED",
+    warningClass: "general",
     dougFacing:
       "This show is archived, so its crew list is read-only. Unarchive it first, then undo.",
     crewFacing: null,
@@ -1002,6 +1096,7 @@ export const MESSAGE_CATALOG = {
   },
   UNDO_FINALIZE_OWNED: {
     code: "UNDO_FINALIZE_OWNED",
+    warningClass: "general",
     dougFacing: "This show is being finalized right now. Wait for that to finish, then undo.",
     crewFacing: null,
     followUp: "Doug → wait",
@@ -1014,6 +1109,7 @@ export const MESSAGE_CATALOG = {
   },
   mi11_pending_email_change: {
     code: "mi11_pending_email_change",
+    warningClass: "general",
     severity: "info",
     dougFacing: "Email change pending for {name}: {old} → {new}",
     crewFacing: null,
@@ -1026,6 +1122,7 @@ export const MESSAGE_CATALOG = {
   },
   mi11_pending_rename: {
     code: "mi11_pending_rename",
+    warningClass: "general",
     severity: "info",
     dougFacing: "Rename pending: {old} → {new}",
     crewFacing: null,
@@ -1038,6 +1135,7 @@ export const MESSAGE_CATALOG = {
   },
   mi11_pending_removal: {
     code: "mi11_pending_removal",
+    warningClass: "general",
     severity: "info",
     dougFacing: "Removal pending for {name}",
     crewFacing: null,
@@ -1050,6 +1148,7 @@ export const MESSAGE_CATALOG = {
   },
   mi11_pending_rename_folded: {
     code: "mi11_pending_rename_folded",
+    warningClass: "general",
     severity: "info",
     dougFacing: "Email change + rename pending for {name}",
     crewFacing: null,
@@ -1062,6 +1161,7 @@ export const MESSAGE_CATALOG = {
   },
   "MI-11_EMAIL_CHANGE": {
     code: "MI-11_EMAIL_CHANGE",
+    warningClass: "general",
     dougFacing:
       "_<crew-name>_'s email is changing from _<prior>_ to _<new>_. After applying, the new email will get sign-in access; their existing share-link will stop working until you Issue a new one.",
     crewFacing: null,
@@ -1075,6 +1175,7 @@ export const MESSAGE_CATALOG = {
   },
   "MI-12_PROBABLE_RENAME": {
     code: "MI-12_PROBABLE_RENAME",
+    warningClass: "general",
     dougFacing:
       "Looks like _<old-name>_ was renamed to _<new-name>_ (same email). Approve the rename, or treat as two unrelated changes.",
     crewFacing: null,
@@ -1088,6 +1189,7 @@ export const MESSAGE_CATALOG = {
   },
   "MI-13_NAME_AND_EMAIL_CHANGE": {
     code: "MI-13_NAME_AND_EMAIL_CHANGE",
+    warningClass: "general",
     dougFacing:
       "Both name and email changed in _<sheet-name>_: _<old-pair>_ and _<new-pair>_. Are these the same person, or unrelated changes?",
     crewFacing: null,
@@ -1101,6 +1203,7 @@ export const MESSAGE_CATALOG = {
   },
   "MI-14_NO_EMAIL_RENAME": {
     code: "MI-14_NO_EMAIL_RENAME",
+    warningClass: "general",
     dougFacing:
       "Looks like _<old-name>_ was renamed to _<new-name>_ (no emails to compare). Approve the rename, or treat as two unrelated changes.",
     crewFacing: null,
@@ -1114,6 +1217,7 @@ export const MESSAGE_CATALOG = {
   },
   SHOW_FIRST_PUBLISHED: {
     code: "SHOW_FIRST_PUBLISHED",
+    warningClass: "general",
     resolution: "manual",
     audience: "doug",
     severity: "info",
@@ -1130,6 +1234,7 @@ export const MESSAGE_CATALOG = {
   },
   SHOW_UNPUBLISHED: {
     code: "SHOW_UNPUBLISHED",
+    warningClass: "general",
     resolution: "auto",
     audience: "doug",
     dougFacing:
@@ -1145,6 +1250,7 @@ export const MESSAGE_CATALOG = {
   },
   UNPUBLISH_TOKEN_CONSUMED: {
     code: "UNPUBLISH_TOKEN_CONSUMED",
+    warningClass: "general",
     dougFacing:
       "This undo has already been used. The show is already unpublished, or someone else (or another tab) got there first.",
     crewFacing: null,
@@ -1158,6 +1264,7 @@ export const MESSAGE_CATALOG = {
   },
   UNPUBLISH_TOKEN_EXPIRED: {
     code: "UNPUBLISH_TOKEN_EXPIRED",
+    warningClass: "general",
     dougFacing:
       "This unpublish link expired. Links stay valid for 24 hours; to take this show offline now, flip the Published toggle off on the show's page.",
     crewFacing: null,
@@ -1171,6 +1278,7 @@ export const MESSAGE_CATALOG = {
   },
   ONBOARDING_SCAN_REVIEW: {
     code: "ONBOARDING_SCAN_REVIEW",
+    warningClass: "general",
     dougFacing:
       "_<sheet-name>_ was found in your folder. Review the parse before activating this folder.",
     crewFacing: null,
@@ -1184,6 +1292,7 @@ export const MESSAGE_CATALOG = {
   },
   UNKNOWN_FIELD: {
     code: "UNKNOWN_FIELD",
+    warningClass: "parse_warning",
     dougFacing:
       "We found a row labeled _<key>_ in _<sheet-name>_ that doesn't match a section we recognize. We kept it as-is and nothing's broken. Want to flag it to us?",
     crewFacing: null,
@@ -1198,6 +1307,7 @@ export const MESSAGE_CATALOG = {
   },
   UNKNOWN_DAY_RESTRICTION: {
     code: "UNKNOWN_DAY_RESTRICTION",
+    warningClass: "parse_warning",
     dougFacing:
       "_<crew-name>_ is flagged as day-restricted (`***` in the role) but the sheet doesn't say which days. Add a parenthetical to their name like `(6/24 and 6/26 ONLY)`. Until you do, their schedule will show 'days unconfirmed.'",
     crewFacing: null,
@@ -1212,6 +1322,7 @@ export const MESSAGE_CATALOG = {
   },
   DAY_RESTRICTION_DOUBLE_LOCATION: {
     code: "DAY_RESTRICTION_DOUBLE_LOCATION",
+    warningClass: "parse_warning",
     dougFacing:
       "_<crew-name>_ has day restrictions written in both the name and role cells. We're using the role-cell one. Remove the duplicate so the schedule stays clear.",
     crewFacing: null,
@@ -1225,6 +1336,7 @@ export const MESSAGE_CATALOG = {
   },
   UNKNOWN_ROLE_TOKEN: {
     code: "UNKNOWN_ROLE_TOKEN",
+    warningClass: "parse_warning",
     dougFacing:
       "_<crew-name>_'s role includes _<token>_, which we didn't recognize, so we left it off their page rather than guess. If that's a real role you use, you can add it right from this warning.",
     crewFacing: null,
@@ -1239,6 +1351,7 @@ export const MESSAGE_CATALOG = {
   },
   ROLE_TOKEN_MAPPED: {
     code: "ROLE_TOKEN_MAPPED",
+    warningClass: "general",
     dougFacing:
       "_<token>_, a role you added, matched someone on this show; we set up their page the way you chose.",
     crewFacing: null,
@@ -1252,6 +1365,7 @@ export const MESSAGE_CATALOG = {
   },
   UNKNOWN_STAGE_RESTRICTION: {
     code: "UNKNOWN_STAGE_RESTRICTION",
+    warningClass: "parse_warning",
     dougFacing:
       "_<crew-name>_'s role mixes a work-phase (like Set) with something we couldn't read (e.g. 'Set / Rehearsal ONLY'), so we can't tell which days apply. We're showing them the whole show to be safe. Use the standard phases: Load In / Set / Show / Strike / Load Out, so we can filter their schedule.",
     crewFacing: null,
@@ -1267,6 +1381,7 @@ export const MESSAGE_CATALOG = {
   },
   STAGE_WORD_AUTOCORRECTED: {
     code: "STAGE_WORD_AUTOCORRECTED",
+    warningClass: "parse_warning",
     dougFacing:
       "We read a likely-misspelled stage word in _<crew-name>_'s role (for example 'Strke' as 'Strike') and used the corrected version, so their schedule still reads correctly. If it was intentional, update the sheet.",
     crewFacing: null,
@@ -1282,6 +1397,7 @@ export const MESSAGE_CATALOG = {
   },
   ROLE_TOKEN_AUTOCORRECTED: {
     code: "ROLE_TOKEN_AUTOCORRECTED",
+    warningClass: "parse_warning",
     dougFacing:
       "We read a likely-misspelled role in _<crew-name>_'s cell (for example 'Content Cretion' as 'Content Creation') and used the corrected version. If it was intentional, update the sheet.",
     crewFacing: null,
@@ -1296,6 +1412,7 @@ export const MESSAGE_CATALOG = {
   },
   COLUMN_HEADER_AUTOCORRECTED: {
     code: "COLUMN_HEADER_AUTOCORRECTED",
+    warningClass: "parse_warning",
     dougFacing:
       "We read a likely-misspelled column header on _<sheet-name>_'s crew table (for example 'E-MAIL' as 'EMAIL') and used the corrected column. If it was intentional, update the sheet.",
     crewFacing: null,
@@ -1311,6 +1428,7 @@ export const MESSAGE_CATALOG = {
   },
   CREW_COLUMN_POSITIONAL_FALLBACK: {
     code: "CREW_COLUMN_POSITIONAL_FALLBACK",
+    warningClass: "parse_warning",
     dougFacing:
       "We couldn't recognize the column headers on _<sheet-name>_'s crew table, so we read the columns by position instead. Names and roles may have landed in the wrong fields. Check the crew section against your sheet, and add a header row (Name / Role / Phone / Email) so we can read the columns by label.",
     crewFacing: null,
@@ -1325,6 +1443,7 @@ export const MESSAGE_CATALOG = {
   },
   VENUE_GEOCODE_UNRESOLVED: {
     code: "VENUE_GEOCODE_UNRESOLVED",
+    warningClass: "parse_warning",
     dougFacing:
       "We couldn't automatically look up the city for _<venue>_, so the crew page shows the venue address instead of a city name. This often clears on the next sync; if it sticks, double-check the venue address in the sheet.",
     crewFacing: null,
@@ -1339,6 +1458,7 @@ export const MESSAGE_CATALOG = {
   },
   VENUE_TIMEZONE_UNRESOLVED: {
     code: "VENUE_TIMEZONE_UNRESOLVED",
+    warningClass: "parse_warning",
     dougFacing:
       "We couldn't work out the time zone for _<venue>_, so the crew page shows times in Eastern Time. This often clears on the next sync once the venue's location resolves; if it sticks, double-check the venue address in the sheet.",
     crewFacing: null,
@@ -1353,6 +1473,7 @@ export const MESSAGE_CATALOG = {
   },
   ORPHANED_CREW_ROWS: {
     code: "ORPHANED_CREW_ROWS",
+    warningClass: "parse_warning",
     dougFacing:
       "Some crew rows in _<sheet-name>_ look separated from the CREW section header, so they were not read as crew. A blank row may have been inserted in the middle of the section; check the crew block in your sheet.",
     crewFacing: null,
@@ -1368,6 +1489,7 @@ export const MESSAGE_CATALOG = {
   },
   ROOM_HEADER_SPLIT_AMBIGUOUS: {
     code: "ROOM_HEADER_SPLIT_AMBIGUOUS",
+    warningClass: "parse_warning",
     dougFacing:
       "We had to make a judgment call splitting a room line in _<sheet-name>_ into name and dimensions; check the rooms section against your sheet.",
     crewFacing: null,
@@ -1382,6 +1504,7 @@ export const MESSAGE_CATALOG = {
   },
   HOTEL_GUEST_SPLIT_AMBIGUOUS: {
     code: "HOTEL_GUEST_SPLIT_AMBIGUOUS",
+    warningClass: "parse_warning",
     dougFacing:
       "A hotel line in _<sheet-name>_ may not have been read correctly; check who is on the hotel reservation against your sheet.",
     crewFacing: null,
@@ -1396,6 +1519,7 @@ export const MESSAGE_CATALOG = {
   },
   HOTEL_INLINE_GROUP_OWN_HOTEL: {
     code: "HOTEL_INLINE_GROUP_OWN_HOTEL",
+    warningClass: "parse_warning",
     dougFacing:
       "A hotel line in _<sheet-name>_ seems to book more than one hotel; check each reservation's hotel against your sheet. Moving the bookings into the HOTEL table, one per RESERVATION column, keeps them from running together.",
     crewFacing: null,
@@ -1410,6 +1534,7 @@ export const MESSAGE_CATALOG = {
   },
   HOTEL_INLINE_GROUP_HOTEL_SUSPECTED: {
     code: "HOTEL_INLINE_GROUP_HOTEL_SUSPECTED",
+    warningClass: "parse_warning",
     dougFacing:
       "A hotel line in _<sheet-name>_ may show a reservation under the wrong hotel; check it against your sheet. Moving the bookings into the HOTEL table, one per RESERVATION column, fixes this.",
     crewFacing: null,
@@ -1425,6 +1550,7 @@ export const MESSAGE_CATALOG = {
   },
   HOTEL_ADDRESS_SPLIT_AMBIGUOUS: {
     code: "HOTEL_ADDRESS_SPLIT_AMBIGUOUS",
+    warningClass: "parse_warning",
     dougFacing:
       "A hotel line in _<sheet-name>_ may have its name and street address run together; check the hotel name and address against your sheet.",
     crewFacing: null,
@@ -1440,6 +1566,7 @@ export const MESSAGE_CATALOG = {
   },
   DATE_ORDER_SUGGESTS_DMY: {
     code: "DATE_ORDER_SUGGESTS_DMY",
+    warningClass: "parse_warning",
     dougFacing:
       "The dates in _<sheet-name>_ look out of order the way we read them (month first). If you wrote them day-first, fix the dates in the sheet; we may have every date wrong.",
     crewFacing: null,
@@ -1454,6 +1581,7 @@ export const MESSAGE_CATALOG = {
   },
   HOTEL_CARDINALITY_EXCEEDED: {
     code: "HOTEL_CARDINALITY_EXCEEDED",
+    warningClass: "parse_warning",
     dougFacing:
       "_<sheet-name>_ lists more than 4 hotels; we kept the first 4. Remove old hotel blocks from the sheet if this is wrong.",
     crewFacing: null,
@@ -1468,6 +1596,7 @@ export const MESSAGE_CATALOG = {
   },
   SECTION_HEADER_AUTOCORRECTED: {
     code: "SECTION_HEADER_AUTOCORRECTED",
+    warningClass: "parse_warning",
     dougFacing:
       "We read a likely-misspelled section header on _<sheet-name>_ (for example 'Transportaton' as 'Transportation') and parsed that section anyway. If it was intentional, update the sheet.",
     crewFacing: null,
@@ -1482,6 +1611,7 @@ export const MESSAGE_CATALOG = {
   },
   FIELD_LABEL_AUTOCORRECTED: {
     code: "FIELD_LABEL_AUTOCORRECTED",
+    warningClass: "parse_warning",
     dougFacing:
       "We read a likely-misspelled field label on _<sheet-name>_ (for example 'Venue Adress' as 'Venue Address') and used the corrected field. If it was intentional, update the sheet.",
     crewFacing: null,
@@ -1496,6 +1626,7 @@ export const MESSAGE_CATALOG = {
   },
   PULL_SHEET_PARSE_PARTIAL: {
     code: "PULL_SHEET_PARSE_PARTIAL",
+    warningClass: "parse_warning",
     dougFacing:
       "We couldn't fully read _<N>_ row(s) on _<sheet-name>_'s PULL SHEET, so those rows show their original text. Let us know if you'd like us to handle that format.",
     crewFacing: null,
@@ -1510,6 +1641,7 @@ export const MESSAGE_CATALOG = {
   },
   PULL_SHEET_ON_ARCHIVED_TAB: {
     code: "PULL_SHEET_ON_ARCHIVED_TAB",
+    warningClass: "parse_warning",
     dougFacing:
       "A pull sheet was found on an archived tab ('{tab}') and left out. If it's this show's gear, include it in review; otherwise ignore.",
     crewFacing: null,
@@ -1525,6 +1657,7 @@ export const MESSAGE_CATALOG = {
   },
   PULL_SHEET_OVERRIDE_CONTENT_CHANGED: {
     code: "PULL_SHEET_OVERRIDE_CONTENT_CHANGED",
+    warningClass: "parse_warning",
     dougFacing:
       "An included archived-tab pull sheet changed and was set back to skipped for safety; admin must re-confirm.",
     crewFacing: null,
@@ -1539,6 +1672,7 @@ export const MESSAGE_CATALOG = {
   },
   AGENDA_GRID_MALFORMED: {
     code: "AGENDA_GRID_MALFORMED",
+    warningClass: "parse_warning",
     dougFacing:
       "We couldn't find the run-of-show grid in _<sheet-name>_'s AGENDA tab, so every day shows the standard schedule instead of the detailed run-of-show. Check that the AGENDA tab still has its header row, or let us know if the layout changed.",
     crewFacing: null,
@@ -1553,6 +1687,7 @@ export const MESSAGE_CATALOG = {
   },
   AGENDA_BLOCK_UNRESOLVED: {
     code: "AGENDA_BLOCK_UNRESOLVED",
+    warningClass: "parse_warning",
     dougFacing:
       "One run-of-show day in _<sheet-name>_'s AGENDA couldn't be matched to a show date, so that day shows the standard schedule. Check the AGENDA date banner, or let us know if it keeps happening.",
     crewFacing: null,
@@ -1567,6 +1702,7 @@ export const MESSAGE_CATALOG = {
   },
   AGENDA_DAY_AMBIGUOUS: {
     code: "AGENDA_DAY_AMBIGUOUS",
+    warningClass: "parse_warning",
     dougFacing:
       "A run-of-show day in _<sheet-name>_'s AGENDA only listed a weekday that matches more than one show date, so we didn't guess; that day shows the standard schedule. Add the actual date to the AGENDA banner to fix it.",
     crewFacing: null,
@@ -1582,6 +1718,7 @@ export const MESSAGE_CATALOG = {
   },
   AGENDA_DAY_TRUNCATED: {
     code: "AGENDA_DAY_TRUNCATED",
+    warningClass: "parse_warning",
     dougFacing:
       "A run-of-show day in _<sheet-name>_'s AGENDA was too large and was trimmed to fit our limits (too many entries, or some unusually long text). Crew see the trimmed list. Let us know if a real day legitimately needs more.",
     crewFacing: null,
@@ -1597,6 +1734,7 @@ export const MESSAGE_CATALOG = {
   },
   AGENDA_DAY_EMPTIED: {
     code: "AGENDA_DAY_EMPTIED",
+    warningClass: "parse_warning",
     dougFacing:
       "A run-of-show day in _<sheet-name>_'s AGENDA that we previously published is now empty in the sheet, so that day reverts to the standard schedule. If that's intentional, no action is needed; if not, restore the day's rows.",
     crewFacing: null,
@@ -1612,6 +1750,7 @@ export const MESSAGE_CATALOG = {
   },
   SCHEDULE_TIME_UNPARSED: {
     code: "SCHEDULE_TIME_UNPARSED",
+    warningClass: "parse_warning",
     dougFacing:
       "We couldn't read a start time for one of _<sheet-name>_'s show days, so that day shows the standard schedule. Make sure the day's TIME cell starts with a time like '7:15am - Registration' or '7:30am - 5:50pm'.",
     crewFacing: null,
@@ -1626,6 +1765,7 @@ export const MESSAGE_CATALOG = {
   },
   SCHEDULE_STRIKE_DATE_OFF_SCHEDULE: {
     code: "SCHEDULE_STRIKE_DATE_OFF_SCHEDULE",
+    warningClass: "parse_warning",
     dougFacing:
       "A room's strike time is dated on a day that isn't part of _<sheet-name>_'s schedule, so it shows in your review but not on crew pages. Fix the date in the room's Strike Time cell so it matches a show day.",
     crewFacing: null,
@@ -1640,6 +1780,7 @@ export const MESSAGE_CATALOG = {
   },
   AGENDA_FILE_INACCESSIBLE: {
     code: "AGENDA_FILE_INACCESSIBLE",
+    warningClass: "parse_warning",
     dougFacing:
       "We couldn't open the agenda file linked on _<sheet-name>_, so there's no day-by-day schedule and crew may not be able to see the agenda either. Most often it's private and not shared with us, or it was deleted; it can also be a non-PDF link or a file too large to open. Confirm the agenda is a shared, reasonably sized PDF (for example, set the link to anyone-with-the-link can view), or replace the link.",
     crewFacing: null,
@@ -1655,6 +1796,7 @@ export const MESSAGE_CATALOG = {
   },
   AGENDA_PDF_UNREADABLE: {
     code: "AGENDA_PDF_UNREADABLE",
+    warningClass: "parse_warning",
     dougFacing:
       "We opened the agenda PDF linked on _<sheet-name>_ but couldn't find a day-by-day schedule in it, so crew see the agenda document but not a structured schedule. No action is needed unless the agenda is supposed to include a schedule we can read.",
     crewFacing: null,
@@ -1669,6 +1811,7 @@ export const MESSAGE_CATALOG = {
   },
   AGENDA_SCHEDULE_LOW_CONFIDENCE: {
     code: "AGENDA_SCHEDULE_LOW_CONFIDENCE",
+    warningClass: "parse_warning",
     dougFacing:
       "We read _<sheet-name>_'s agenda PDF but weren't confident enough about the times to show a structured schedule, so crew see the agenda document only. No action is needed unless the agenda layout changed recently.",
     crewFacing: null,
@@ -1683,6 +1826,7 @@ export const MESSAGE_CATALOG = {
   },
   AGENDA_SCHEDULE_TIME_ADJUSTED: {
     code: "AGENDA_SCHEDULE_TIME_ADJUSTED",
+    warningClass: "parse_warning",
     dougFacing:
       "We adjusted at least one session time while reading _<sheet-name>_'s agenda PDF (it looked like a typo, such as a morning time written as evening). Crew see the corrected schedule. Double-check the agenda and fix the source if needed.",
     crewFacing: null,
@@ -1697,6 +1841,7 @@ export const MESSAGE_CATALOG = {
   },
   AGENDA_LINK_NOT_CLICKABLE: {
     code: "AGENDA_LINK_NOT_CLICKABLE",
+    warningClass: "parse_warning",
     dougFacing:
       "The agenda link on _<sheet-name>_ isn't a link crew can open; it's a file name, note, or other text rather than a working web link or a Drive file. Update the cell to a working link (or a Drive file), or let us know if it keeps happening.",
     crewFacing: null,
@@ -1711,6 +1856,7 @@ export const MESSAGE_CATALOG = {
   },
   PULL_SHEET_AMBIGUOUS_FORMAT: {
     code: "PULL_SHEET_AMBIGUOUS_FORMAT",
+    warningClass: "parse_warning",
     dougFacing:
       "_<sheet-name>_'s PULL SHEET has columns we don't recognize, so the block shows as its original text on crew pages. Let us know if you'd like us to handle that format.",
     crewFacing: null,
@@ -1725,6 +1871,7 @@ export const MESSAGE_CATALOG = {
   },
   PULL_SHEET_UNKNOWN_VARIANT: {
     code: "PULL_SHEET_UNKNOWN_VARIANT",
+    warningClass: "parse_warning",
     dougFacing:
       "_<sheet-name>_'s PULL SHEET rows are readable, but we couldn't identify the column layout, so we used the usual one. Crew still see the list. Let us know if quantities, item names, or categories look wrong.",
     crewFacing: null,
@@ -1740,6 +1887,7 @@ export const MESSAGE_CATALOG = {
   },
   DIAGRAMS_EMBEDDED_OBJECT_INACCESSIBLE: {
     code: "DIAGRAMS_EMBEDDED_OBJECT_INACCESSIBLE",
+    warningClass: "parse_warning",
     dougFacing:
       "_<sheet-name>_: an image in the DIAGRAMS tab couldn't be downloaded, so crew see a placeholder where it should be. Re-paste the image, or let us know if this keeps happening.",
     crewFacing: null,
@@ -1753,6 +1901,7 @@ export const MESSAGE_CATALOG = {
   },
   DIAGRAMS_EMBEDDED_CAP_EXCEEDED: {
     code: "DIAGRAMS_EMBEDDED_CAP_EXCEEDED",
+    warningClass: "parse_warning",
     dougFacing: null,
     crewFacing: null,
     followUp: "Doug → optionally trim",
@@ -1763,6 +1912,7 @@ export const MESSAGE_CATALOG = {
   },
   DIAGRAMS_TAB_MISSING: {
     code: "DIAGRAMS_TAB_MISSING",
+    warningClass: "parse_warning",
     dougFacing: null,
     crewFacing: null,
     followUp: null,
@@ -1773,6 +1923,7 @@ export const MESSAGE_CATALOG = {
   },
   DIAGRAMS_EMBEDDED_NONE_FOUND: {
     code: "DIAGRAMS_EMBEDDED_NONE_FOUND",
+    warningClass: "parse_warning",
     dougFacing:
       '(first-seen) "_<sheet-name>_ looks like it should have diagrams but we didn\'t find any images. Confirm before we publish, or paste in the images and re-sync." (existing show with prior gallery) "_<sheet-name>_\'s DIAGRAMS tab returned no images this sync. Confirm before we replace the existing gallery with an empty one, or paste in the images and re-sync."',
     crewFacing: null,
@@ -1786,6 +1937,7 @@ export const MESSAGE_CATALOG = {
   },
   TYPO_NORMALIZED: {
     code: "TYPO_NORMALIZED",
+    warningClass: "parse_warning",
     dougFacing: null,
     crewFacing: null,
     followUp: null,
@@ -1800,6 +1952,7 @@ export const MESSAGE_CATALOG = {
   // active-style `code: "..."` literal must be registered), so all fields are null.
   SECTION_HEADER_NO_FIELDS: {
     code: "SECTION_HEADER_NO_FIELDS",
+    warningClass: "parse_warning",
     dougFacing: null,
     crewFacing: null,
     followUp: null,
@@ -1816,6 +1969,7 @@ export const MESSAGE_CATALOG = {
   // active-style `code: "..."` literal must be registered), so all fields are null.
   FIELD_UNREADABLE: {
     code: "FIELD_UNREADABLE",
+    warningClass: "parse_warning",
     dougFacing: null,
     crewFacing: null,
     followUp: null,
@@ -1829,6 +1983,7 @@ export const MESSAGE_CATALOG = {
   },
   UNKNOWN_SECTION_HEADER: {
     code: "UNKNOWN_SECTION_HEADER",
+    warningClass: "parse_warning",
     dougFacing: null,
     crewFacing: null,
     followUp: null,
@@ -1841,6 +1996,7 @@ export const MESSAGE_CATALOG = {
   },
   BLOCK_DISAPPEARED: {
     code: "BLOCK_DISAPPEARED",
+    warningClass: "parse_warning",
     dougFacing: null,
     crewFacing: null,
     followUp: null,
@@ -1851,6 +2007,7 @@ export const MESSAGE_CATALOG = {
   },
   UNEXPECTED_PARENT: {
     code: "UNEXPECTED_PARENT",
+    warningClass: "general",
     dougFacing: null,
     crewFacing: null,
     followUp: null,
@@ -1861,6 +2018,7 @@ export const MESSAGE_CATALOG = {
   },
   MISSING_REVIEWER_CHOICE: {
     code: "MISSING_REVIEWER_CHOICE",
+    warningClass: "general",
     dougFacing:
       "We need your decision for every item. Looks like one was skipped. Refresh and try again.",
     crewFacing: null,
@@ -1874,6 +2032,7 @@ export const MESSAGE_CATALOG = {
   },
   EXTRA_REVIEWER_CHOICE: {
     code: "EXTRA_REVIEWER_CHOICE",
+    warningClass: "general",
     dougFacing:
       "Something doesn't match between what you reviewed and what we have on file. Refresh and try again.",
     crewFacing: null,
@@ -1887,6 +2046,7 @@ export const MESSAGE_CATALOG = {
   },
   DUPLICATE_REVIEWER_CHOICE: {
     code: "DUPLICATE_REVIEWER_CHOICE",
+    warningClass: "general",
     dougFacing: "We got the same decision twice for one item. Refresh and try again.",
     crewFacing: null,
     followUp: "Doug → refresh admin",
@@ -1899,6 +2059,7 @@ export const MESSAGE_CATALOG = {
   },
   INVALID_REVIEWER_ACTION: {
     code: "INVALID_REVIEWER_ACTION",
+    warningClass: "general",
     dougFacing: "That action isn't valid for this item. Refresh and try again.",
     crewFacing: null,
     followUp: "Doug → refresh admin",
@@ -1911,6 +2072,7 @@ export const MESSAGE_CATALOG = {
   },
   REPORT_RATE_LIMITED_ADMIN: {
     code: "REPORT_RATE_LIMITED_ADMIN",
+    warningClass: "general",
     dougFacing:
       "You've reported a lot already this hour. Give the developer a beat to catch up. Try again in a little while, or message Eric directly.",
     crewFacing: null,
@@ -1924,6 +2086,7 @@ export const MESSAGE_CATALOG = {
   },
   REPORT_RATE_LIMITED_CREW: {
     code: "REPORT_RATE_LIMITED_CREW",
+    warningClass: "general",
     dougFacing: null,
     crewFacing:
       "We've got your report and we're looking into it. Text Doug directly with show-content questions.",
@@ -1935,6 +2098,7 @@ export const MESSAGE_CATALOG = {
   },
   ONBOARDING_FOLDER_INVALID_URL: {
     code: "ONBOARDING_FOLDER_INVALID_URL",
+    warningClass: "general",
     dougFacing:
       "That doesn't look like a Google Drive folder URL. It should look like `https://drive.google.com/drive/folders/...`.",
     crewFacing: null,
@@ -1948,6 +2112,7 @@ export const MESSAGE_CATALOG = {
   },
   ONBOARDING_FOLDER_NOT_SHARED: {
     code: "ONBOARDING_FOLDER_NOT_SHARED",
+    warningClass: "general",
     dougFacing:
       "We can't see this folder yet. Double-check that you shared it with `<service-account-email>` and try again.",
     crewFacing: null,
@@ -1961,6 +2126,7 @@ export const MESSAGE_CATALOG = {
   },
   ONBOARDING_FOLDER_VERIFY_UNAVAILABLE: {
     code: "ONBOARDING_FOLDER_VERIFY_UNAVAILABLE",
+    warningClass: "general",
     dougFacing:
       "Google Drive didn't respond while we checked the folder. Nothing was scanned. Wait a moment and try again.",
     crewFacing: null,
@@ -1974,6 +2140,7 @@ export const MESSAGE_CATALOG = {
   },
   ONBOARDING_OPERATOR_ERROR: {
     code: "ONBOARDING_OPERATOR_ERROR",
+    warningClass: "general",
     dougFacing: "Something is wrong on our end. The developer has been notified.",
     crewFacing: null,
     followUp: "Doug → wait; Eric → fix",
@@ -1986,6 +2153,7 @@ export const MESSAGE_CATALOG = {
   },
   ONBOARDING_LEGACY_ROW_AMBIGUOUS: {
     code: "ONBOARDING_LEGACY_ROW_AMBIGUOUS",
+    warningClass: "general",
     dougFacing:
       "Some sheets were set up by an older version of setup, and we can't safely finish publishing them automatically. Run setup again so those sheets are re-checked, or contact the developer.",
     crewFacing: null,
@@ -1999,6 +2167,7 @@ export const MESSAGE_CATALOG = {
   },
   ONBOARDING_NOT_RESOLVED: {
     code: "ONBOARDING_NOT_RESOLVED",
+    warningClass: "general",
     dougFacing:
       "Some sheets in your folder still need review before we can finish setup. Resolve them and try again.",
     crewFacing: null,
@@ -2012,6 +2181,7 @@ export const MESSAGE_CATALOG = {
   },
   FINALIZE_OWNED_SHOW: {
     code: "FINALIZE_OWNED_SHOW",
+    warningClass: "general",
     dougFacing:
       "This show is busy with a setup-wizard publish or a staged-changes finalize. Wait for it to finish, then try again.",
     crewFacing: null,
@@ -2025,6 +2195,7 @@ export const MESSAGE_CATALOG = {
   },
   SHOW_ARCHIVED_BY_ADMIN: {
     code: "SHOW_ARCHIVED_BY_ADMIN",
+    warningClass: "general",
     severity: "info",
     dougFacing: "Archived. Crew links are dead until you re-publish and issue a new link.",
     crewFacing: null,
@@ -2037,6 +2208,7 @@ export const MESSAGE_CATALOG = {
   },
   SHOW_UNARCHIVED: {
     code: "SHOW_UNARCHIVED",
+    warningClass: "general",
     severity: "info",
     dougFacing: "Unarchived. The show is held (not published). Publish it to go live again.",
     crewFacing: null,
@@ -2049,6 +2221,7 @@ export const MESSAGE_CATALOG = {
   },
   SHOW_PUBLISHED_BY_ADMIN: {
     code: "SHOW_PUBLISHED_BY_ADMIN",
+    warningClass: "general",
     severity: "info",
     dougFacing: "Published. Issue a crew link to give your crew access.",
     crewFacing: null,
@@ -2061,6 +2234,7 @@ export const MESSAGE_CATALOG = {
   },
   SHOW_ARCHIVED_IMMUTABLE: {
     code: "SHOW_ARCHIVED_IMMUTABLE",
+    warningClass: "general",
     dougFacing: "This show is archived. Unarchive it before making changes.",
     crewFacing: null,
     followUp: "Doug → unarchive first",
@@ -2073,6 +2247,7 @@ export const MESSAGE_CATALOG = {
   },
   PUBLISH_BLOCKED_PENDING_REVIEW: {
     code: "PUBLISH_BLOCKED_PENDING_REVIEW",
+    warningClass: "general",
     dougFacing:
       "This show has changes from its sheet that haven't been synced or reviewed yet. Re-sync, clear anything pending, then publish.",
     crewFacing: null,
@@ -2086,6 +2261,7 @@ export const MESSAGE_CATALOG = {
   },
   SHOW_AWAITING_PUBLISH_APPROVAL: {
     code: "SHOW_AWAITING_PUBLISH_APPROVAL",
+    warningClass: "general",
     severity: "info",
     dougFacing: "A new show parsed cleanly and is waiting for your approval to publish.",
     crewFacing: null,
@@ -2098,6 +2274,7 @@ export const MESSAGE_CATALOG = {
   },
   WIZARD_FINALIZE_CHECKPOINT_MISSING: {
     code: "WIZARD_FINALIZE_CHECKPOINT_MISSING",
+    warningClass: "general",
     dougFacing:
       "Setup isn't ready to publish yet. Click 'Promote next batch' until all sheets are processed, then publish.",
     crewFacing: null,
@@ -2111,6 +2288,7 @@ export const MESSAGE_CATALOG = {
   },
   WIZARD_FINALIZE_UNRESOLVED_ROWS: {
     code: "WIZARD_FINALIZE_UNRESOLVED_ROWS",
+    warningClass: "general",
     dougFacing:
       "Some sheets still need review before we can finish setup. Resolve the rows highlighted on the wizard screen, then click 'Publish' again.",
     crewFacing: null,
@@ -2124,6 +2302,7 @@ export const MESSAGE_CATALOG = {
   },
   BOOTSTRAP_GENERIC: {
     code: "BOOTSTRAP_GENERIC",
+    warningClass: "general",
     dougFacing: null,
     crewFacing: "Couldn't load the show. Refresh the page, or try signing in.",
     followUp: "Crew → try `/auth/sign-in`",
@@ -2134,6 +2313,7 @@ export const MESSAGE_CATALOG = {
   },
   NETWORK_UNREACHABLE: {
     code: "NETWORK_UNREACHABLE",
+    warningClass: "general",
     dougFacing:
       "Couldn't reach the server. Check your connection and try again; there's no admin trail because the request never arrived.",
     crewFacing: "Couldn't reach the server. Check your connection and try again.",
@@ -2147,6 +2327,7 @@ export const MESSAGE_CATALOG = {
   },
   WIZARD_SESSION_SUPERSEDED_DURING_SCAN: {
     code: "WIZARD_SESSION_SUPERSEDED_DURING_SCAN",
+    warningClass: "general",
     dougFacing: null,
     crewFacing: null,
     followUp: "Doug → use the active wizard tab",
@@ -2157,6 +2338,7 @@ export const MESSAGE_CATALOG = {
   },
   LIVE_ROW_CONFLICT: {
     code: "LIVE_ROW_CONFLICT",
+    warningClass: "general",
     resolution: "manual",
     audience: "doug",
     dougFacing:
@@ -2172,6 +2354,7 @@ export const MESSAGE_CATALOG = {
   },
   ONBOARDING_SCAN_FAILED: {
     code: "ONBOARDING_SCAN_FAILED",
+    warningClass: "general",
     dougFacing:
       "The folder scan hit a problem partway through and couldn't finish. Run the scan again from this step; if it keeps failing, text Eric.",
     crewFacing: null,
@@ -2185,6 +2368,7 @@ export const MESSAGE_CATALOG = {
   },
   ONBOARDING_SHEET_UNREADABLE: {
     code: "ONBOARDING_SHEET_UNREADABLE",
+    warningClass: "general",
     resolution: "manual",
     audience: "doug",
     dougFacing:
@@ -2201,6 +2385,7 @@ export const MESSAGE_CATALOG = {
   },
   WIZARD_ISOLATION_INDEXES_MISSING: {
     code: "WIZARD_ISOLATION_INDEXES_MISSING",
+    warningClass: "general",
     dougFacing:
       "We can't safely scan your folder right now; a recent database update hasn't been applied yet. Eric has been notified; setup will be available again in a few minutes.",
     crewFacing: null,
@@ -2214,6 +2399,7 @@ export const MESSAGE_CATALOG = {
   },
   PENDING_SNAPSHOT_PROMOTE_STUCK: {
     code: "PENDING_SNAPSHOT_PROMOTE_STUCK",
+    warningClass: "general",
     resolution: "auto",
     audience: "health",
     healthWeight: "degraded",
@@ -2232,6 +2418,7 @@ export const MESSAGE_CATALOG = {
   },
   PENDING_SNAPSHOT_ROLLBACK_STUCK: {
     code: "PENDING_SNAPSHOT_ROLLBACK_STUCK",
+    warningClass: "general",
     resolution: "auto",
     audience: "health",
     healthWeight: "degraded",
@@ -2250,6 +2437,7 @@ export const MESSAGE_CATALOG = {
   },
   BRANCH_PROTECTION_DRIFT: {
     code: "BRANCH_PROTECTION_DRIFT",
+    warningClass: "general",
     resolution: "auto",
     audience: "health",
     healthWeight: "degraded",
@@ -2268,6 +2456,7 @@ export const MESSAGE_CATALOG = {
   },
   BRANCH_PROTECTION_MONITOR_AUTH_FAILED: {
     code: "BRANCH_PROTECTION_MONITOR_AUTH_FAILED",
+    warningClass: "general",
     resolution: "auto",
     audience: "health",
     healthWeight: "degraded",
@@ -2286,6 +2475,7 @@ export const MESSAGE_CATALOG = {
   },
   PENDING_INGESTION_NOT_FOUND: {
     code: "PENDING_INGESTION_NOT_FOUND",
+    warningClass: "general",
     dougFacing:
       "We couldn't find that pending sheet anymore; it was probably resolved by another tab or browser. Refresh the dashboard to see the latest state.",
     crewFacing: null,
@@ -2299,6 +2489,7 @@ export const MESSAGE_CATALOG = {
   },
   STAGED_REVIEW_ITEMS_CORRUPT: {
     code: "STAGED_REVIEW_ITEMS_CORRUPT",
+    warningClass: "general",
     dougFacing:
       "This staged sheet's review checklist is corrupted, so it can't be applied safely. Discard it and re-sync the sheet to rebuild a clean review. If this keeps blocking the final publish step of setup, contact the developer to clear it.",
     crewFacing: null,
@@ -2312,6 +2503,7 @@ export const MESSAGE_CATALOG = {
   },
   STAGED_PARSE_RESULT_CORRUPT: {
     code: "STAGED_PARSE_RESULT_CORRUPT",
+    warningClass: "general",
     dougFacing:
       "This staged sheet's saved data is corrupted, so it can't be applied safely. Discard it and re-sync the sheet to rebuild it. If this keeps blocking the final publish step of setup, contact the developer to clear it.",
     crewFacing: null,
@@ -2325,6 +2517,7 @@ export const MESSAGE_CATALOG = {
   },
   LIVE_ROW_REQUIRED: {
     code: "LIVE_ROW_REQUIRED",
+    warningClass: "general",
     dougFacing:
       "That sheet belongs to an in-progress setup wizard. Open the wizard in this browser to act on it, or use the dashboard once setup is finished.",
     crewFacing: null,
@@ -2338,6 +2531,7 @@ export const MESSAGE_CATALOG = {
   },
   MISSING_PENDING_INGESTION_MODTIME: {
     code: "MISSING_PENDING_INGESTION_MODTIME",
+    warningClass: "general",
     dougFacing:
       "Something is wrong on our end with this sheet's tracking data; we can't safely defer it without a watermark. The developer has been notified. Try 'Permanently ignore' if you want to dismiss this row.",
     crewFacing: null,
@@ -2351,6 +2545,7 @@ export const MESSAGE_CATALOG = {
   },
   PENDING_INGESTION_TRANSITIONED: {
     code: "PENDING_INGESTION_TRANSITIONED",
+    warningClass: "general",
     dougFacing:
       "Another browser tab acted on this sheet a moment before you. Refresh the dashboard to see the latest state.",
     crewFacing: null,
@@ -2364,6 +2559,7 @@ export const MESSAGE_CATALOG = {
   },
   LOCK_OWNERSHIP_ASSERTION_FAILED: {
     code: "LOCK_OWNERSHIP_ASSERTION_FAILED",
+    warningClass: "general",
     dougFacing: null,
     crewFacing: null,
     followUp: "Eric → investigate",
@@ -2374,6 +2570,7 @@ export const MESSAGE_CATALOG = {
   },
   ADMIN_ALERT_NOT_FOUND: {
     code: "ADMIN_ALERT_NOT_FOUND",
+    warningClass: "general",
     dougFacing:
       "We couldn't find that alert anymore. It may have been resolved already. Refresh the page to see the current state.",
     crewFacing: null,
@@ -2387,6 +2584,7 @@ export const MESSAGE_CATALOG = {
   },
   ALERT_REQUIRES_SHOW_SCOPED_RESOLVE: {
     code: "ALERT_REQUIRES_SHOW_SCOPED_RESOLVE",
+    warningClass: "general",
     dougFacing:
       "This alert belongs to a specific show. Click through to the show's parse panel to resolve it from the show context, where the resolution is recorded with the show's audit trail.",
     crewFacing: null,
@@ -2400,6 +2598,7 @@ export const MESSAGE_CATALOG = {
   },
   OAUTH_STATE_INVALID: {
     code: "OAUTH_STATE_INVALID",
+    warningClass: "general",
     dougFacing:
       "Something interrupted your sign-in. Please click the original link from Doug again to start over.",
     crewFacing:
@@ -2414,6 +2613,7 @@ export const MESSAGE_CATALOG = {
   },
   OAUTH_REDIRECT_INVALID: {
     code: "OAUTH_REDIRECT_INVALID",
+    warningClass: "general",
     dougFacing:
       "Sign-in landed somewhere we don't recognize. Please click the original link from Doug again to start over.",
     crewFacing:
@@ -2428,6 +2628,7 @@ export const MESSAGE_CATALOG = {
   },
   SYNC_DELAYED_MODERATE: {
     code: "SYNC_DELAYED_MODERATE",
+    warningClass: "general",
     dougFacing: null,
     crewFacing: "Last checked *<time>* ago. Text Doug if anything looks off.",
     followUp: "Crew → mention to Doug",
@@ -2438,6 +2639,7 @@ export const MESSAGE_CATALOG = {
   },
   SYNC_DELAYED_SEVERE: {
     code: "SYNC_DELAYED_SEVERE",
+    warningClass: "general",
     dougFacing:
       "*<sheet-name>*: crew page hasn't synced from Drive in over 6 hours. Instant updates or Auto sync has stalled. Check the dashboard.",
     crewFacing: "This page hasn't updated recently. Text Doug to check on it.",
@@ -2451,6 +2653,7 @@ export const MESSAGE_CATALOG = {
   },
   SYNC_STALLED: {
     code: "SYNC_STALLED",
+    warningClass: "general",
     resolution: "auto",
     audience: "doug",
     severity: "warning",
@@ -2467,6 +2670,7 @@ export const MESSAGE_CATALOG = {
   },
   EMAIL_DELIVERY_FAILED: {
     code: "EMAIL_DELIVERY_FAILED",
+    warningClass: "general",
     resolution: "auto",
     audience: "health",
     healthWeight: "degraded",
@@ -2486,6 +2690,7 @@ export const MESSAGE_CATALOG = {
   },
   EMAIL_NOT_CONFIGURED: {
     code: "EMAIL_NOT_CONFIGURED",
+    warningClass: "general",
     resolution: "auto",
     audience: "health",
     healthWeight: "degraded",
@@ -2506,6 +2711,7 @@ export const MESSAGE_CATALOG = {
   },
   TILE_SERVER_RENDER_FAILED: {
     code: "TILE_SERVER_RENDER_FAILED",
+    warningClass: "general",
     resolution: "manual",
     audience: "health",
     healthWeight: "degraded",
@@ -2524,6 +2730,7 @@ export const MESSAGE_CATALOG = {
   },
   TILE_PROJECTION_FETCH_FAILED: {
     code: "TILE_PROJECTION_FETCH_FAILED",
+    warningClass: "general",
     resolution: "auto",
     audience: "health",
     healthWeight: "degraded",
@@ -2542,6 +2749,7 @@ export const MESSAGE_CATALOG = {
   },
   STALE_DISCARD_REJECTED: {
     code: "STALE_DISCARD_REJECTED",
+    warningClass: "general",
     dougFacing:
       "The staged parse you were viewing was replaced by a newer sync. Refresh and review the latest version before deciding.",
     crewFacing: null,
@@ -2555,6 +2763,7 @@ export const MESSAGE_CATALOG = {
   },
   LINK_CROSS_SHOW_REUSE: {
     code: "LINK_CROSS_SHOW_REUSE",
+    warningClass: "general",
     dougFacing: null,
     crewFacing: null,
     followUp: null,
@@ -2565,6 +2774,7 @@ export const MESSAGE_CATALOG = {
   },
   REPORT_ORPHANED_LOST_LEASE: {
     code: "REPORT_ORPHANED_LOST_LEASE",
+    warningClass: "general",
     resolution: "manual",
     audience: "health",
     healthWeight: "notice",
@@ -2583,6 +2793,7 @@ export const MESSAGE_CATALOG = {
   },
   GITHUB_BOT_LOGIN_MISSING: {
     code: "GITHUB_BOT_LOGIN_MISSING",
+    warningClass: "general",
     resolution: "auto",
     audience: "health",
     healthWeight: "degraded",
@@ -2601,6 +2812,7 @@ export const MESSAGE_CATALOG = {
   },
   REPORT_LEASE_THRASHING: {
     code: "REPORT_LEASE_THRASHING",
+    warningClass: "general",
     resolution: "manual",
     audience: "health",
     healthWeight: "degraded",
@@ -2619,6 +2831,7 @@ export const MESSAGE_CATALOG = {
   },
   ADMIN_EMAIL_ALREADY_ACTIVE: {
     code: "ADMIN_EMAIL_ALREADY_ACTIVE",
+    warningClass: "general",
     dougFacing: "_<email>_ is already an administrator.",
     crewFacing: null,
     followUp: null,
@@ -2631,6 +2844,7 @@ export const MESSAGE_CATALOG = {
   },
   ADMIN_ALERT_COUNT_FAILED: {
     code: "ADMIN_ALERT_COUNT_FAILED",
+    warningClass: "general",
     dougFacing: "We couldn't check for alerts right now. Refresh in a moment.",
     crewFacing: null,
     followUp: "Doug → refresh; if persistent, check Supabase admin_alerts RLS + grants",
@@ -2643,6 +2857,7 @@ export const MESSAGE_CATALOG = {
   },
   ALERT_BELL_FEED_FAILED: {
     code: "ALERT_BELL_FEED_FAILED",
+    warningClass: "general",
     dougFacing:
       "We couldn't load your notifications just now. Refresh in a moment or use Retry; nothing has been lost.",
     crewFacing: null,
@@ -2656,6 +2871,7 @@ export const MESSAGE_CATALOG = {
   },
   ADMIN_ROUTE_LOAD_FAILED: {
     code: "ADMIN_ROUTE_LOAD_FAILED",
+    warningClass: "general",
     dougFacing:
       "This admin page couldn't load. Refresh in a moment; if it keeps failing, contact the developer.",
     crewFacing: null,
@@ -2669,6 +2885,7 @@ export const MESSAGE_CATALOG = {
   },
   PAGE_RENDER_FAILED: {
     code: "PAGE_RENDER_FAILED",
+    warningClass: "general",
     dougFacing: null,
     crewFacing: "This page ran into a problem. Try reloading. If it keeps happening, text Doug.",
     followUp: "Crew → reload",
@@ -2679,6 +2896,7 @@ export const MESSAGE_CATALOG = {
   },
   ADMIN_EMAIL_WRITE_FAILED: {
     code: "ADMIN_EMAIL_WRITE_FAILED",
+    warningClass: "general",
     dougFacing: "Couldn't update administrators right now. Try again in a moment.",
     crewFacing: null,
     followUp: "Doug → retry; if persistent, check Supabase admin_emails RPC + grants",
@@ -2691,6 +2909,7 @@ export const MESSAGE_CATALOG = {
   },
   ADMIN_DRIVE_HEALTH_UNAVAILABLE: {
     code: "ADMIN_DRIVE_HEALTH_UNAVAILABLE",
+    warningClass: "general",
     dougFacing: "Couldn't read sync status right now. Refresh in a moment.",
     crewFacing: null,
     followUp: "Doug → refresh; if persistent, check Supabase shows + drive_watch_channels access",
@@ -2703,6 +2922,7 @@ export const MESSAGE_CATALOG = {
   },
   SYNC_STATUS_UNKNOWN: {
     code: "SYNC_STATUS_UNKNOWN",
+    warningClass: "general",
     dougFacing: "A show's sync state isn't recognized right now. The developer should take a look.",
     crewFacing: null,
     followUp: "Doug → contact the developer; enum drift in shows.last_sync_status",
@@ -2715,6 +2935,7 @@ export const MESSAGE_CATALOG = {
   },
   ADMIN_EMAIL_INVALID: {
     code: "ADMIN_EMAIL_INVALID",
+    warningClass: "general",
     dougFacing: "Enter a valid email address.",
     crewFacing: null,
     followUp: "Doug → retype the email",
@@ -2726,6 +2947,7 @@ export const MESSAGE_CATALOG = {
   },
   ADMIN_EMAIL_LIST_FAILED: {
     code: "ADMIN_EMAIL_LIST_FAILED",
+    warningClass: "general",
     dougFacing:
       "We can't load the administrator list right now. Refresh in a moment; if the problem continues, check the database connection.",
     crewFacing: null,
@@ -2739,6 +2961,7 @@ export const MESSAGE_CATALOG = {
   },
   ADMIN_EMAIL_RE_ADD_PROMPT: {
     code: "ADMIN_EMAIL_RE_ADD_PROMPT",
+    warningClass: "general",
     dougFacing: "_<email>_ was previously revoked. Re-add this email to restore admin access?",
     crewFacing: null,
     followUp: "Doug → confirm re-add or cancel",
@@ -2751,6 +2974,7 @@ export const MESSAGE_CATALOG = {
   },
   ADMIN_FORBIDDEN: {
     code: "ADMIN_FORBIDDEN",
+    warningClass: "general",
     dougFacing: "Your admin session cannot access this action. Sign in again and retry.",
     crewFacing: null,
     followUp: "Doug → sign in again",
@@ -2763,6 +2987,7 @@ export const MESSAGE_CATALOG = {
   },
   ADMIN_SESSION_LOOKUP_FAILED: {
     code: "ADMIN_SESSION_LOOKUP_FAILED",
+    warningClass: "general",
     dougFacing: null,
     crewFacing: "Something is misconfigured for this show. Doug has been notified.",
     followUp: "Eric → investigate admin/session lookup",
@@ -2773,6 +2998,7 @@ export const MESSAGE_CATALOG = {
   },
   AGENDA_ASSET_LOOKUP_FAILED: {
     code: "AGENDA_ASSET_LOOKUP_FAILED",
+    warningClass: "general",
     dougFacing: "The agenda PDF could not be loaded. Refresh and try again.",
     crewFacing: "This agenda could not be loaded. Text Doug if it keeps happening.",
     followUp: "Doug → retry; if persistent, Eric",
@@ -2785,6 +3011,7 @@ export const MESSAGE_CATALOG = {
   },
   APPLY_STATUS_NOT_FOUND: {
     code: "APPLY_STATUS_NOT_FOUND",
+    warningClass: "general",
     dougFacing:
       "That apply job is no longer available. Refresh the show and check the current status.",
     crewFacing: null,
@@ -2798,6 +3025,7 @@ export const MESSAGE_CATALOG = {
   },
   CLEANUP_REQUIRES_STALE_SESSION: {
     code: "CLEANUP_REQUIRES_STALE_SESSION",
+    warningClass: "general",
     dougFacing: "Cleanup is only available for stale setup sessions.",
     crewFacing: null,
     followUp: "Doug → wait or finish setup; Eric if the session is stuck",
@@ -2810,6 +3038,7 @@ export const MESSAGE_CATALOG = {
   },
   CONCURRENT_FINALIZE_IN_FLIGHT: {
     code: "CONCURRENT_FINALIZE_IN_FLIGHT",
+    warningClass: "general",
     dougFacing: "Setup publishing is already running in another tab.",
     crewFacing: null,
     followUp: "Doug → wait for the active setup tab",
@@ -2822,6 +3051,7 @@ export const MESSAGE_CATALOG = {
   },
   DIAGRAM_ASSET_LOOKUP_FAILED: {
     code: "DIAGRAM_ASSET_LOOKUP_FAILED",
+    warningClass: "general",
     dougFacing: "A diagram could not be loaded. Refresh and try again.",
     crewFacing: "This diagram could not be loaded. Text Doug if it keeps happening.",
     followUp: "Doug → retry; if persistent, Eric",
@@ -2834,6 +3064,7 @@ export const MESSAGE_CATALOG = {
   },
   DRIVE_METADATA_MISSING: {
     code: "DRIVE_METADATA_MISSING",
+    warningClass: "general",
     dougFacing:
       "Google Drive didn't return the revision details we need to sync safely. We'll retry automatically on the next sync; no action needed.",
     crewFacing: null,
@@ -2847,6 +3078,7 @@ export const MESSAGE_CATALOG = {
   },
   EMBEDDED_ASSET_DRIFTED: {
     code: "EMBEDDED_ASSET_DRIFTED",
+    warningClass: "parse_warning",
     resolution: "auto",
     audience: "doug",
     dougFacing:
@@ -2862,6 +3094,7 @@ export const MESSAGE_CATALOG = {
   },
   FOLDER_NOT_FOUND: {
     code: "FOLDER_NOT_FOUND",
+    warningClass: "general",
     dougFacing: "We could not find that Drive folder.",
     crewFacing: null,
     followUp: "Doug → check the link or restore the folder",
@@ -2874,6 +3107,7 @@ export const MESSAGE_CATALOG = {
   },
   FOLDER_NOT_SHARED: {
     code: "FOLDER_NOT_SHARED",
+    warningClass: "general",
     dougFacing: "This folder is not shared with the sync account yet.",
     crewFacing: null,
     followUp: "Doug → share the folder with the FXAV service account, then retry",
@@ -2886,6 +3120,7 @@ export const MESSAGE_CATALOG = {
   },
   INVALID_FOLDER_URL: {
     code: "INVALID_FOLDER_URL",
+    warningClass: "general",
     dougFacing: "Paste a Google Drive folder link.",
     crewFacing: null,
     followUp: "Doug → paste the folder link from Drive",
@@ -2898,6 +3133,7 @@ export const MESSAGE_CATALOG = {
   },
   INVALID_JSON: {
     code: "INVALID_JSON",
+    warningClass: "general",
     dougFacing: null,
     crewFacing: "The request was not valid JSON.",
     followUp: null,
@@ -2908,6 +3144,7 @@ export const MESSAGE_CATALOG = {
   },
   LAST_ADMIN_LOCKOUT_REFUSED: {
     code: "LAST_ADMIN_LOCKOUT_REFUSED",
+    warningClass: "general",
     dougFacing:
       "You can't revoke the last administrator. Add another admin first, then revoke this one.",
     crewFacing: null,
@@ -2921,6 +3158,7 @@ export const MESSAGE_CATALOG = {
   },
   LINKED_FOLDER_OVERFLOW_TRUNCATED: {
     code: "LINKED_FOLDER_OVERFLOW_TRUNCATED",
+    warningClass: "parse_warning",
     dougFacing:
       "The linked diagram folder has more images than this release can publish. Crew see the first 60 images.",
     crewFacing: null,
@@ -2934,6 +3172,7 @@ export const MESSAGE_CATALOG = {
   },
   OPERATOR_ERROR_INCOMPLETE_FOLDER_METADATA: {
     code: "OPERATOR_ERROR_INCOMPLETE_FOLDER_METADATA",
+    warningClass: "general",
     dougFacing: "Drive returned an incomplete folder response. Try again in a moment.",
     crewFacing: null,
     followUp: "Doug → retry; Eric if this repeats",
@@ -2946,6 +3185,7 @@ export const MESSAGE_CATALOG = {
   },
   OPERATOR_ERROR_NOT_FOLDER: {
     code: "OPERATOR_ERROR_NOT_FOLDER",
+    warningClass: "general",
     dougFacing: "That link points to a file, not a folder.",
     crewFacing: null,
     followUp: "Doug → open the parent folder and copy that folder link",
@@ -2958,6 +3198,7 @@ export const MESSAGE_CATALOG = {
   },
   PENDING_SNAPSHOT_DELETE_STUCK: {
     code: "PENDING_SNAPSHOT_DELETE_STUCK",
+    warningClass: "general",
     resolution: "auto",
     audience: "health",
     healthWeight: "degraded",
@@ -2976,6 +3217,7 @@ export const MESSAGE_CATALOG = {
   },
   PENDING_SNAPSHOT_NOT_STUCK: {
     code: "PENDING_SNAPSHOT_NOT_STUCK",
+    warningClass: "general",
     dougFacing: "That diagram snapshot does not need repair.",
     crewFacing: null,
     followUp: "Doug → refresh the admin view",
@@ -2988,6 +3230,7 @@ export const MESSAGE_CATALOG = {
   },
   PENDING_SNAPSHOT_PROMOTE_IN_FLIGHT: {
     code: "PENDING_SNAPSHOT_PROMOTE_IN_FLIGHT",
+    warningClass: "general",
     dougFacing: "That diagram snapshot is still being promoted. Check again in a few minutes.",
     crewFacing: null,
     followUp: "Doug → wait, then refresh",
@@ -3000,6 +3243,7 @@ export const MESSAGE_CATALOG = {
   },
   PENDING_SYNC_NOT_FOUND: {
     code: "PENDING_SYNC_NOT_FOUND",
+    warningClass: "general",
     dougFacing: "That staged sync is no longer available.",
     crewFacing: null,
     followUp: "Doug → refresh the admin page",
@@ -3012,6 +3256,7 @@ export const MESSAGE_CATALOG = {
   },
   REEL_ASSET_LOOKUP_FAILED: {
     code: "REEL_ASSET_LOOKUP_FAILED",
+    warningClass: "general",
     dougFacing: "The opening reel could not be loaded. Refresh and try again.",
     crewFacing: "This video could not be loaded. Text Doug if it keeps happening.",
     followUp: "Doug → retry; if persistent, Eric",
@@ -3024,6 +3269,7 @@ export const MESSAGE_CATALOG = {
   },
   REPORT_DUPLICATE_LIVE_MATCHES: {
     code: "REPORT_DUPLICATE_LIVE_MATCHES",
+    warningClass: "general",
     resolution: "manual",
     audience: "health",
     healthWeight: "degraded",
@@ -3042,6 +3288,7 @@ export const MESSAGE_CATALOG = {
   },
   REPORT_HORIZON_EXPIRED: {
     code: "REPORT_HORIZON_EXPIRED",
+    warningClass: "general",
     dougFacing:
       "This report attempt has expired (older than 24 hours). If the issue still applies, please file a fresh report.",
     crewFacing:
@@ -3056,6 +3303,7 @@ export const MESSAGE_CATALOG = {
   },
   REPORT_LOOKUP_INCONCLUSIVE: {
     code: "REPORT_LOOKUP_INCONCLUSIVE",
+    warningClass: "general",
     resolution: "manual",
     audience: "health",
     healthWeight: "notice",
@@ -3075,6 +3323,7 @@ export const MESSAGE_CATALOG = {
   },
   REPORT_OPEN_ORPHAN_LABEL: {
     code: "REPORT_OPEN_ORPHAN_LABEL",
+    warningClass: "general",
     resolution: "manual",
     audience: "health",
     healthWeight: "degraded",
@@ -3093,6 +3342,7 @@ export const MESSAGE_CATALOG = {
   },
   REPORT_PIPELINE_FAILED: {
     code: "REPORT_PIPELINE_FAILED",
+    warningClass: "general",
     dougFacing:
       "The report system hit a server error before it could finish. Please try again in a few minutes.",
     crewFacing:
@@ -3107,6 +3357,7 @@ export const MESSAGE_CATALOG = {
   },
   SELF_DEVELOPER_DEMOTE_FORBIDDEN: {
     code: "SELF_DEVELOPER_DEMOTE_FORBIDDEN",
+    warningClass: "general",
     dougFacing:
       "To keep at least one developer in control, you can't turn off your own developer access. Ask another developer to do it if you need to step down.",
     crewFacing: null,
@@ -3120,6 +3371,7 @@ export const MESSAGE_CATALOG = {
   },
   SELF_REVOKE_FORBIDDEN: {
     code: "SELF_REVOKE_FORBIDDEN",
+    warningClass: "general",
     dougFacing:
       "You can't revoke your own administrator access. Ask another developer to do it if you need to be removed.",
     crewFacing: null,
@@ -3133,6 +3385,7 @@ export const MESSAGE_CATALOG = {
   },
   SESSION_NOT_FOUND: {
     code: "SESSION_NOT_FOUND",
+    warningClass: "general",
     dougFacing: null,
     crewFacing: "Open the original link Doug shared again.",
     followUp: "Crew → reopen link",
@@ -3143,6 +3396,7 @@ export const MESSAGE_CATALOG = {
   },
   SHOW_BUSY_RETRY: {
     code: "SHOW_BUSY_RETRY",
+    warningClass: "general",
     dougFacing: "That show is already syncing. Try again in a moment.",
     crewFacing: null,
     followUp: "Doug → retry after the current sync finishes",
@@ -3154,6 +3408,7 @@ export const MESSAGE_CATALOG = {
   },
   SHOW_REALTIME_TOKEN_MISCONFIGURED: {
     code: "SHOW_REALTIME_TOKEN_MISCONFIGURED",
+    warningClass: "general",
     dougFacing: null,
     crewFacing: null,
     followUp: "Eric → configure realtime JWT env",
@@ -3164,6 +3419,7 @@ export const MESSAGE_CATALOG = {
   },
   SHOW_VERSION_AUTH_FAILED: {
     code: "SHOW_VERSION_AUTH_FAILED",
+    warningClass: "general",
     dougFacing: null,
     crewFacing: null,
     followUp: null,
@@ -3174,6 +3430,7 @@ export const MESSAGE_CATALOG = {
   },
   SHOW_VERSION_TOKEN_RPC_FAILED: {
     code: "SHOW_VERSION_TOKEN_RPC_FAILED",
+    warningClass: "general",
     dougFacing: null,
     crewFacing: null,
     followUp: "Eric → investigate version-token RPC",
@@ -3184,6 +3441,7 @@ export const MESSAGE_CATALOG = {
   },
   SLUG_REQUIRED: {
     code: "SLUG_REQUIRED",
+    warningClass: "general",
     dougFacing: null,
     crewFacing: "A show slug is required.",
     followUp: null,
@@ -3194,6 +3452,7 @@ export const MESSAGE_CATALOG = {
   },
   RESCAN_REVIEW_REQUIRED: {
     code: "RESCAN_REVIEW_REQUIRED",
+    warningClass: "general",
     dougFacing: "This sheet changed and needs your review before publishing.",
     crewFacing: null,
     followUp: "Doug → re-review this sheet in setup, then publish",
@@ -3206,6 +3465,7 @@ export const MESSAGE_CATALOG = {
   },
   STAGED_PARSE_FAILED: {
     code: "STAGED_PARSE_FAILED",
+    warningClass: "general",
     dougFacing:
       "We couldn't turn that sheet into a show. Open the sheet to check the part that changed, then run the same action again. If it keeps happening, contact the developer.",
     crewFacing: null,
@@ -3219,6 +3479,7 @@ export const MESSAGE_CATALOG = {
   },
   ROLE_MAPPINGS_OUTDATED_AT_PUBLISH: {
     code: "ROLE_MAPPINGS_OUTDATED_AT_PUBLISH",
+    warningClass: "general",
     dougFacing:
       "The roles you've added changed after setup reviewed this part, so it's on hold instead of going live.",
     crewFacing: null,
@@ -3233,6 +3494,7 @@ export const MESSAGE_CATALOG = {
   },
   STAGED_PARSE_OUTDATED_AT_PHASE_D: {
     code: "STAGED_PARSE_OUTDATED_AT_PHASE_D",
+    warningClass: "general",
     dougFacing: "This sheet changed after setup reviewed it, so its update is on hold.",
     crewFacing: null,
     followUp: "Doug → re-scan the folder in setup, then re-review and publish",
@@ -3245,6 +3507,7 @@ export const MESSAGE_CATALOG = {
   },
   STALE_ORPHAN_REPORT: {
     code: "STALE_ORPHAN_REPORT",
+    warningClass: "general",
     resolution: "manual",
     audience: "health",
     healthWeight: "notice",
@@ -3263,6 +3526,7 @@ export const MESSAGE_CATALOG = {
   },
   SYNC_FILE_FAILED: {
     code: "SYNC_FILE_FAILED",
+    warningClass: "general",
     dougFacing: "One sheet could not be synced. The other sheets continued.",
     crewFacing: null,
     followUp: "Doug → retry sync; Eric if persistent",
@@ -3274,6 +3538,7 @@ export const MESSAGE_CATALOG = {
   },
   SYNC_INFRA_ERROR: {
     code: "SYNC_INFRA_ERROR",
+    warningClass: "general",
     dougFacing: "A sync infrastructure step failed. The rest of the folder continued.",
     crewFacing: null,
     followUp: "Eric → inspect sync_log payload",
@@ -3286,6 +3551,7 @@ export const MESSAGE_CATALOG = {
   },
   SYNC_STEP_TIMEOUT: {
     code: "SYNC_STEP_TIMEOUT",
+    warningClass: "general",
     dougFacing: "A Drive sync step timed out. We'll retry on the next run.",
     crewFacing: null,
     followUp: "Eric → inspect Drive latency if recurring",
@@ -3298,6 +3564,7 @@ export const MESSAGE_CATALOG = {
   },
   PICKER_EPOCH_RESET: {
     code: "PICKER_EPOCH_RESET",
+    warningClass: "general",
     resolution: "manual",
     audience: "doug",
     dougFacing:
@@ -3313,6 +3580,7 @@ export const MESSAGE_CATALOG = {
   },
   PICKER_SELECTION_RACE: {
     code: "PICKER_SELECTION_RACE",
+    warningClass: "general",
     resolution: "manual",
     audience: "health",
     healthWeight: "notice",
@@ -3331,6 +3599,7 @@ export const MESSAGE_CATALOG = {
   },
   PICKER_IDENTITY_CLAIMED_TAMPER: {
     code: "PICKER_IDENTITY_CLAIMED_TAMPER",
+    warningClass: "general",
     resolution: "manual",
     audience: "health",
     healthWeight: "notice",
@@ -3349,6 +3618,7 @@ export const MESSAGE_CATALOG = {
   },
   PICKER_EPOCH_STALE_BANNER: {
     code: "PICKER_EPOCH_STALE_BANNER",
+    warningClass: "general",
     dougFacing: null,
     crewFacing: "Doug reset access for this show. Pick yourself again.",
     followUp: "Crew → pick name",
@@ -3359,6 +3629,7 @@ export const MESSAGE_CATALOG = {
   },
   PICKER_REMOVED_FROM_ROSTER_BANNER: {
     code: "PICKER_REMOVED_FROM_ROSTER_BANNER",
+    warningClass: "general",
     dougFacing: null,
     crewFacing: "Your selection is no longer on the roster. Pick your name again.",
     followUp: "Crew → pick name or text Doug",
@@ -3369,6 +3640,7 @@ export const MESSAGE_CATALOG = {
   },
   PICKER_EMPTY_ROSTER: {
     code: "PICKER_EMPTY_ROSTER",
+    warningClass: "general",
     dougFacing: null,
     crewFacing: "Doug hasn't added crew yet. Check back soon.",
     followUp: "Crew → check back; Doug → update sheet",
@@ -3379,6 +3651,7 @@ export const MESSAGE_CATALOG = {
   },
   PICKER_NAME_NOT_LISTED: {
     code: "PICKER_NAME_NOT_LISTED",
+    warningClass: "general",
     dougFacing: null,
     crewFacing: "Don't see your name? Ask the person who shared this link to add you.",
     followUp: "Crew → ask the link sender",
@@ -3389,6 +3662,7 @@ export const MESSAGE_CATALOG = {
   },
   PICKER_SHOW_UNAVAILABLE: {
     code: "PICKER_SHOW_UNAVAILABLE",
+    warningClass: "general",
     dougFacing: null,
     crewFacing:
       "This show isn't available right now. Text Doug for an updated link if you think this is a mistake.",
@@ -3400,6 +3674,7 @@ export const MESSAGE_CATALOG = {
   },
   CREW_LINK_UNAVAILABLE: {
     code: "CREW_LINK_UNAVAILABLE",
+    warningClass: "general",
     dougFacing: null,
     crewFacing:
       "This link isn't available. If you had a working link, it may have been reset. Text Doug for the current link.",
@@ -3411,6 +3686,7 @@ export const MESSAGE_CATALOG = {
   },
   CREW_SHOW_PAUSED: {
     code: "CREW_SHOW_PAUSED",
+    warningClass: "general",
     dougFacing: null,
     crewFacing: "It may be back soon. If you're expecting this show, text Doug.",
     followUp: "Crew → check back later",
@@ -3421,6 +3697,7 @@ export const MESSAGE_CATALOG = {
   },
   PICKER_INVALID_INPUT: {
     code: "PICKER_INVALID_INPUT",
+    warningClass: "general",
     dougFacing:
       "A picker selection form submitted invalid input. The request was rejected before any cookie was written.",
     crewFacing: "Something went wrong with that selection. Please try picking your name again.",
@@ -3434,6 +3711,7 @@ export const MESSAGE_CATALOG = {
   },
   PICKER_CREW_MEMBER_NOT_FOUND: {
     code: "PICKER_CREW_MEMBER_NOT_FOUND",
+    warningClass: "general",
     dougFacing: "A picker selection targeted a crew row that no longer exists on the show.",
     crewFacing:
       "That crew member was just removed from this show. Pick yourself from the current roster.",
@@ -3447,6 +3725,7 @@ export const MESSAGE_CATALOG = {
   },
   PICKER_CREW_MEMBER_WRONG_SHOW: {
     code: "PICKER_CREW_MEMBER_WRONG_SHOW",
+    warningClass: "general",
     dougFacing:
       "A picker selection submitted a crew member from a different show. The request was rejected as possible form tampering.",
     crewFacing: "Something went wrong with that selection. Please try picking your name again.",
@@ -3460,6 +3739,7 @@ export const MESSAGE_CATALOG = {
   },
   PICKER_INVALID_SHARE_TOKEN: {
     code: "PICKER_INVALID_SHARE_TOKEN",
+    warningClass: "general",
     dougFacing: "A picker selection used a share link token that no longer resolves for this show.",
     crewFacing: "This link is out of date. Text Doug for the current show link.",
     followUp: "Crew → ask Doug for latest link",
@@ -3472,6 +3752,7 @@ export const MESSAGE_CATALOG = {
   },
   PICKER_RESOLVER_LOOKUP_FAILED: {
     code: "PICKER_RESOLVER_LOOKUP_FAILED",
+    warningClass: "general",
     dougFacing:
       "The picker access resolver hit a database or session lookup error. Crew may see a temporary sign-in failure page.",
     crewFacing: "Couldn't load your show access. Please try again in a moment.",
@@ -3485,6 +3766,7 @@ export const MESSAGE_CATALOG = {
   },
   PICKER_IDENTITY_CLAIMED: {
     code: "PICKER_IDENTITY_CLAIMED",
+    warningClass: "general",
     dougFacing:
       "A picker selection targeted a crew identity that is already claimed by Google sign-in.",
     crewFacing:
@@ -3499,6 +3781,7 @@ export const MESSAGE_CATALOG = {
   },
   PICKER_IDENTITY_CLAIMED_AFTER_PICK_BANNER: {
     code: "PICKER_IDENTITY_CLAIMED_AFTER_PICK_BANNER",
+    warningClass: "general",
     dougFacing: null,
     crewFacing:
       "This identity is now claimed by a signed-in user. Pick yourself from the current roster or sign in to use the same identity.",
@@ -3510,6 +3793,7 @@ export const MESSAGE_CATALOG = {
   },
   PICKER_BOOTSTRAP_RPC_FAILED: {
     code: "PICKER_BOOTSTRAP_RPC_FAILED",
+    warningClass: "general",
     resolution: "manual",
     audience: "health",
     healthWeight: "degraded",
@@ -3530,6 +3814,7 @@ export const MESSAGE_CATALOG = {
   },
   PICKER_BOOTSTRAP_RESOLVE_SHOW_FAILED: {
     code: "PICKER_BOOTSTRAP_RESOLVE_SHOW_FAILED",
+    warningClass: "general",
     resolution: "manual",
     audience: "health",
     healthWeight: "degraded",
@@ -3548,6 +3833,7 @@ export const MESSAGE_CATALOG = {
   },
   OAUTH_IDENTITY_CLAIMED: {
     code: "OAUTH_IDENTITY_CLAIMED",
+    warningClass: "general",
     resolution: "manual",
     audience: "health",
     healthWeight: "notice",
@@ -3568,6 +3854,7 @@ export const MESSAGE_CATALOG = {
   },
   CALLBACK_CLAIM_THREW: {
     code: "CALLBACK_CLAIM_THREW",
+    warningClass: "general",
     resolution: "manual",
     audience: "health",
     healthWeight: "notice",
@@ -3585,6 +3872,7 @@ export const MESSAGE_CATALOG = {
   },
   SIGN_IN_OR_SKIP_PROMPT: {
     code: "SIGN_IN_OR_SKIP_PROMPT",
+    warningClass: "general",
     dougFacing: null,
     crewFacing:
       "Sign in to use the same identity on every show, or skip to pick from this show's roster.",
@@ -3596,6 +3884,7 @@ export const MESSAGE_CATALOG = {
   },
   SIGN_IN_OR_SKIP_PROMPT_MISMATCH: {
     code: "SIGN_IN_OR_SKIP_PROMPT_MISMATCH",
+    warningClass: "general",
     dougFacing: null,
     crewFacing:
       "You're signed in with a Google account that isn't on this show's roster. Sign in with the account for this show, or continue as guest, which signs this device out so you can pick your name from the roster.",
@@ -3607,6 +3896,7 @@ export const MESSAGE_CATALOG = {
   },
   IDENTITY_DEACTIVATED_LOCK_HINT: {
     code: "IDENTITY_DEACTIVATED_LOCK_HINT",
+    warningClass: "general",
     dougFacing: null,
     crewFacing: "Sign in to use this identity.",
     followUp: "Crew → sign in",
@@ -3617,6 +3907,7 @@ export const MESSAGE_CATALOG = {
   },
   TRAVEL_FLIGHT_NAME_UNMATCHED: {
     code: "TRAVEL_FLIGHT_NAME_UNMATCHED",
+    warningClass: "parse_warning",
     dougFacing:
       "A flight on the TRAVEL tab couldn't be matched to a crew name. Check the name spelling matches the roster.",
     crewFacing: null,
@@ -3631,6 +3922,7 @@ export const MESSAGE_CATALOG = {
   },
   TRAVEL_FLIGHT_UNPARSEABLE: {
     code: "TRAVEL_FLIGHT_UNPARSEABLE",
+    warningClass: "parse_warning",
     dougFacing:
       "A crew member's TRAVEL-tab flight couldn't be read (no recognizable flight date). Check the format.",
     crewFacing: null,
@@ -3645,6 +3937,7 @@ export const MESSAGE_CATALOG = {
   },
   TRAVEL_FLIGHT_AMBIGUOUS_TABLE: {
     code: "TRAVEL_FLIGHT_AMBIGUOUS_TABLE",
+    warningClass: "parse_warning",
     dougFacing:
       "Found more than one TRAVEL flight table. Remove or rename the duplicate/old one so flights can be read.",
     crewFacing: null,
@@ -3659,6 +3952,7 @@ export const MESSAGE_CATALOG = {
   },
   TRAVEL_TRANSPORT_NAME_UNMATCHED: {
     code: "TRAVEL_TRANSPORT_NAME_UNMATCHED",
+    warningClass: "parse_warning",
     dougFacing:
       "A transport assignment in _<sheet-name>_ doesn't clearly match a crew member, possibly a typo, or two names merged into one cell, so that person won't see their transport details. Check the transport section, or add the crew member if they're genuinely missing.",
     crewFacing: null,
@@ -3673,6 +3967,7 @@ export const MESSAGE_CATALOG = {
   },
   WEBHOOK_HEADERS_MISSING: {
     code: "WEBHOOK_HEADERS_MISSING",
+    warningClass: "general",
     dougFacing: "A Drive webhook request was missing required Google headers.",
     crewFacing: null,
     followUp: "Eric → inspect webhook delivery",
@@ -3686,6 +3981,7 @@ export const MESSAGE_CATALOG = {
   // Validation-environment reset / reseed — admin-only routes, crew-invisible.
   VALIDATION_RESET_NOT_ALLOWED: {
     code: "VALIDATION_RESET_NOT_ALLOWED",
+    warningClass: "general",
     dougFacing: "Data reset is only available on the validation environment.",
     crewFacing: null,
     followUp: "Doug → use the validation environment",
@@ -3698,6 +3994,7 @@ export const MESSAGE_CATALOG = {
   },
   VALIDATION_RESET_NOT_ENABLED: {
     code: "VALIDATION_RESET_NOT_ENABLED",
+    warningClass: "general",
     dougFacing: "Destructive reset isn't enabled for this database yet.",
     crewFacing: null,
     followUp: "Eric → enable the reset flag",
@@ -3710,6 +4007,7 @@ export const MESSAGE_CATALOG = {
   },
   VALIDATION_RESET_FAILED: {
     code: "VALIDATION_RESET_FAILED",
+    warningClass: "general",
     dougFacing: "The validation reset couldn't finish. Please try again.",
     crewFacing: null,
     followUp: "Doug → retry; if persistent, Eric",
@@ -3722,6 +4020,7 @@ export const MESSAGE_CATALOG = {
   },
   VALIDATION_RESEED_FAILED: {
     code: "VALIDATION_RESEED_FAILED",
+    warningClass: "general",
     dougFacing: "Reseeding the validation fixtures couldn't finish. Please try again.",
     crewFacing: null,
     followUp: "Doug → retry; if persistent, Eric",
