@@ -3853,3 +3853,137 @@ The 31 standalone e2e harnesses route through `compileEntryCss` (`tests/e2e/help
 **Four things measurement overturned, each recorded where it was wrong rather than quietly corrected.** The mutation matrix caught the guard not comparing the fallback's override VALUES (inventory equality proves a descriptor exists, never what it says). CI caught a Linux/macOS text-rasterization difference — hinted 132px against geometric 130.09375px — root-caused in the pinned container rather than by widening a tolerance. The impeccable critique caught a rationale written into five surfaces claiming the harnesses bind through the inline literal, which stopped being true the moment this branch's own post-step began appending `app/fonts.css` whole. The audit caught the binary losing its one-year immutable cache when it moved out of `.next/static/media/`, which the filename's new content hash and a `next.config.ts` header restore.
 
 **Documented limits.** The four rootless auth HTML responses stay excluded (`BL-AUTH-INTERSTITIAL-FONT`). The route census is a ratified SAMPLE over an enumerated driven set, not a completeness pursuit. The layout root emits its preload twice (React 19 hoists and also renders in place; browsers dedupe by URL), and the prerendered global-error artifact carries no preload at all.
+
+---
+
+### BL-CREW-PII-DB-LOCKDOWN — CLOSED 2026-08-05 (M-wave W-DOCS, `feat/m-wave`) — crew-to-crew PII visibility ratified ACCEPTABLE, no lockdown ships
+
+**Resolution (2026-08-05).** Closed by ratification, not by code. The entry's own body named the blocker precisely — "requiring a product decision (is crew-to-crew PII visibility acceptable?)" — and on 2026-08-04 the user answered it: **yes, acceptable.** Rationale ratified with the decision: the source Google Sheet backing every show is already shared with the whole crew, so a DB-level gate would restrict data the crew can read at its origin, buying a boundary the upstream workflow does not have at the cost of the roster-sharing model the product is built on. Capture of record: `docs/superpowers/specs/2026-08-05-m-wave-decisions-brief.md`; carried as §1.1 item 6 of `docs/superpowers/specs/2026-08-05-m-wave-design.md`. The accepted limit is recorded on the owning surface — `docs/superpowers/specs/v1-pre-deployment-amendments/2026-06-19-crew-flight-info.md`, section "Documented limit (ratified 2026-08-04)" — which is where a reader of that spec's decision 2 will look, rather than only here.
+
+**Nothing shipped, deliberately.** No column-grant lockdown, no read-side PostgREST-boundary test, no projection change. The table-level SELECT grant (`supabase/migrations/20260501002000_rls_policies.sql:244`) and the `crew_read` RLS policy (`supabase/migrations/20260501002000_rls_policies.sql:247-258`) stay exactly as they are.
+
+**The un-accept triggers survive verbatim** (this is a decision, and a decision can be revisited): EITHER (a) Doug/operator feedback or a security review concludes crew should NOT see each other's flight/contact PII, OR (b) a v1.x security-hardening milestone bundles this with `BL-ADMIN-POSTGREST-DML-LOCKDOWN` + `BL-RLS-COVERAGE-CROSSCUTTING`. The scope-of-a-real-fix paragraph below is preserved unedited so a pickup starts from the analysis rather than redoing it — including the constraint that all three columns move together, and that `tests/db/postgrest-dml-lockdown.test.ts` is the template for the read-side boundary test.
+
+**One cross-reference to know about.** `BL-CREW-UNKNOWN-ASTERISK-TODAY-DATES` named "a dedicated crew-privacy review (groups with `BL-CREW-PII-DB-LOCKDOWN`)" as its promotion prerequisite. That prerequisite is satisfied by this same 2026-08-04 decision batch, which ratified suppression for that entry independently (M-wave §1.1 item 4, W-UI Task U4) — the two were decided together, as the grouping anticipated.
+
+---
+
+**Filed:** 2026-06-19, during the crew-page Phase 3 per-crew flight-info spec (`specs/v1-pre-deployment-amendments/2026-06-19-crew-flight-info.md`, decision 2 / R5 adversarial finding). Surfaced when the spec considered treating `crew_members.flight_info` as own-row-only PII.
+
+**Effort:** M
+
+**Description:** `public.crew_members` is **crew-readable**: the `anon, authenticated` SELECT grant (`supabase/migrations/20260501002000_rls_policies.sql:244`) + the `crew_read` RLS policy ON `crew_members` (`:247-258`, `is_admin() or (can_read_show(show_id) and the show is published)`) let any authenticated crew member of a show query **any** crew row's columns for that show via PostgREST — including `name`, `email`, `phone`, AND `flight_info`. This is intentional for the shared roster (crew see each other's contact info), but it means a flight itinerary's **booking confirmation / record-locator codes** (e.g. `HQQ79F`, `OSUULZ`) — enough, with a name, to manage someone else's reservation — are readable by every crew member of the show, not just the owner. The Phase-3 flight UI surfaces only the viewer's OWN flight (a presentation choice), but it does NOT change this pre-existing DB exposure.
+
+**Scope of a real fix (if/when promoted):** decide whether crew PII should be gated from other crew. If yes, harden `flight_info` + `email` + `phone` **together** (hardening only `flight_info` while `email`/`phone` stay open is inconsistent): a column-grant lockdown so `anon`/`authenticated` cannot directly `SELECT` those columns (replace the table-level SELECT grant with column-level grants on the non-sensitive columns), the service-role projection (`getShowForViewer`) continuing to read them, + a PostgREST-boundary regression test proving a crew-authenticated session cannot read another crew member's `flight_info`/`email`/`phone`. This is the read-side analogue of `BL-ADMIN-POSTGREST-DML-LOCKDOWN` (which covers the statement-level/DML half for admin-only tables); a future v1.x security-hardening milestone may bundle both.
+
+**Why backlog, not deferred:** the exposure is pre-existing (the columns were always crew-readable) and consistent with the deliberate roster-sharing model; the FXAV crew of a given show is a small trusted team, not arbitrary internet users; and no concrete trigger exists. Picking it up is genuine security-hardening polish requiring a product decision (is crew-to-crew PII visibility acceptable?) + a spec amendment + the column-grant/meta-test work.
+
+**Promotion prerequisite:** EITHER (a) Doug/operator feedback or a security review decides crew should NOT see each other's flight/contact PII, OR (b) a v1.x security-hardening milestone bundles this with `BL-ADMIN-POSTGREST-DML-LOCKDOWN` + `BL-RLS-COVERAGE-CROSSCUTTING`. The structural meta-test pattern (`tests/db/postgrest-dml-lockdown.test.ts`) is the template for the read-side boundary test.
+
+---
+
+## BL-RESOLVE-INTENT-WRONG-VERB — CLOSED 2026-08-05 (M-wave W-DOCS, `feat/m-wave`) — verb kept, correct reading documented
+
+**Resolution (2026-08-05).** Ratified 2026-08-04: **keep the verb, document the reading.** The append-only intent contract stays absolute; the two rows keep `intent: "resolve"` and the fact that they are semantically `confirm` is now recorded where a reader of the map will actually hit it, rather than only in a ledger entry. No relabel migration, no exception-list mechanism, no versioned baseline. Capture of record: `docs/superpowers/specs/2026-08-05-m-wave-decisions-brief.md`; carried as §1.1 item 7 of `docs/superpowers/specs/2026-08-05-m-wave-design.md`.
+
+**Why keeping it is the right answer and not merely the cheap one.** The entry framed the cost as a contract amendment plus a mechanism, which is true, but understates what the amendment would BUY: nothing for the rows it would fix, and a live relabel for every row it touches. A persisted `admin_alerts` row resolves its label at render time, so flipping an intent does not correct a historical record — it rewrites what an admin sees on rows they may have been looking at for weeks, retroactively, with no signal that the meaning changed. The current copy ("Mark resolved" on an event-shaped alert) is imprecise; a retroactive relabel is imprecise AND unstable. The contract is right, and `tests/adminAlerts/_metaResolveIntentLifecycle.test.ts` defense 5c (`:118-124`, baseline read from `origin/main`) is right to make the in-tree baseline unable to satisfy it.
+
+**What shipped instead.** A comment-only change to `lib/adminAlerts/resolveActionLabel.ts`: the module header now states that the intent rule describes what the intents MEAN rather than every row, that two rows deliberately depart from it, and why the append-only contract wins; and each of the two rows (`PICKER_EPOCH_RESET`, `SHOW_FIRST_PUBLISHED`) carries an inline note naming its correct reading and pointing at the contract. Behavior is untouched by construction — `pnpm vitest run tests/adminAlerts/` is green on the same 27 files / 387 tests as before the edit, which is the proof that no baseline moved.
+
+**If it is ever reopened,** the requirement is unchanged from the entry body below: a ratified amendment to the append-only contract deciding that a retroactive relabel is acceptable when the original intent was simply wrong, plus the mechanism to express it. Analysis remains at `docs/superpowers/specs/2026-07-24-attention-index-consolidation.md` §2.6.
+
+---
+
+**Severity:** LOW (copy defect, no functional impact) · **Class:** admin copy / lifecycle contract · **Effort:** M
+
+`SHOW_FIRST_PUBLISHED` ("<sheet> is now live for crew…") and `PICKER_EPOCH_RESET` (whose own help text reads "Nothing to fix; this is a record of the reset") are both recorded as `intent: "resolve"` in `RESOLVE_INTENTS` (`lib/adminAlerts/resolveActionLabel.ts:58`, `:60`), so their button reads "Mark resolved". By the module's own rule (`lib/adminAlerts/resolveActionLabel.ts:9-12`) both are `confirm`: a deliberate thing that already happened, not a fault to clear. Visible in the notification bell; both codes are excluded from the per-show attention index, so the show modal is unaffected.
+
+**Why it was not fixed in the attention-index change (2026-07-24).** `tests/adminAlerts/_metaResolveIntentLifecycle.test.ts` defense 5c reads the intent baseline from **`origin/main`** and asserts every historical `(code, intent)` pair still resolves identically (`tests/adminAlerts/_metaResolveIntentLifecycle.test.ts:118-124`). Both codes are `resolve` in that baseline (19 rows). Updating the in-tree baseline and the approved-confirm list does not satisfy the gate, because it compares against main's copy. Intent is append-only by design, and the test states the rationale: "rows already in admin_alerts still render it" — a persisted alert row resolves its label at render time, so flipping an intent retroactively relabels every open row of that code.
+
+**What fixing it requires.** A ratified amendment to the append-only contract, deciding that a retroactive relabel is acceptable when the original intent was simply wrong, plus the mechanism to express that (an exception list the history gate honours, or a versioned baseline). That is a contract change with its own blast radius, not a copy edit. Analysis recorded in `docs/superpowers/specs/2026-07-24-attention-index-consolidation.md` §2.6.
+
+---
+
+## BL-CAPABILITY-MATRIX-FINANCIALS-PREDICATE — the flip matrix models five predicates; the code has six — ARCHIVED 2026-08-05 (M-wave W-DOCS, `feat/m-wave`)
+
+**Resolution (2026-08-05).** Demoted and archived under the ledger filing bar (`AGENTS.md`; screen procedure `docs/superpowers/specs/2026-08-04-backlog-convergence-design.md` §2). The bar asks what a reader would actually lose by not scheduling this, and the entry answers its own question in its own words: **"Consequence today is documentary, not behavioral."** The `CAPABILITY_TRANSITION_MATRIX` has no production consumer — its only reader is `tests/visibility/capabilityTransitions.test.ts` — so a five-predicate matrix cannot make any surface render wrongly for any viewer. There is no reachable live surface, which is precisely the criterion that separates an open queue item from a documented limit.
+
+**What guards the residue.** The one genuinely wrong artifact was the header prose, and that was already repaired in the branch that filed this entry: the type comment now states the modeling boundary explicitly, and `tests/visibility/capabilityHeaderParity.test.ts` pins the quoted predicates against `lib/visibility/scopeTiles.ts` source, so the prose cannot silently drift from the code again. What remains is a modeling gap that a test already describes accurately — a matrix that models five of six predicates, said out loud.
+
+**M-wave carried this without a new user ask** (spec §1.1 item 8: filing-bar demotions ride along under already-ratified policy). No product decision was needed; the policy screen is the decision.
+
+**The fix and its trigger are preserved below verbatim**, so a pickup starts from the analysis: add `hasFinancials` to `CapabilityPredicate`, expand C(5,2)=10 to C(6,2)=15 entries with their deltas, and update the length assertion at `tests/visibility/capabilityTransitions.test.ts:40`. Trigger: the next milestone touching scope-tile visibility, the financials entitlement, or the matrix itself — at which point the 15-row expansion is cheap because that milestone is already holding the context this one would have had to re-earn.
+
+---
+
+**Filed:** 2026-08-03 (`chore/orphan-components-lead-prose`, settling `BL-LEAD-CAPABILITY-PROSE-STALE`) · **Class:** docs/contract drift · **Severity:** low · **Effort:** M
+
+`CAPABILITY_TRANSITION_MATRIX` (`lib/visibility/capabilityTransitions.ts`) enumerates the 10
+unordered pairs of five predicates — `hasLead`, `hasA1`, `hasV1`, `hasL1`, `hasAdmin`
+(`lib/visibility/capabilityTransitions.ts:53`). The `FINANCIALS` role flag, added to
+`financialsVisible` at `e348c81ca` (2026-07-16, `lib/visibility/scopeTiles.ts:141`), is not among
+them. The type comment at `lib/visibility/capabilityTransitions.ts:48-51` claims a new predicate
+"surfaces here AND in the matrix as a TypeScript error if the matrix is incomplete"; that mechanism
+did not fire, because nothing added the flag to the union.
+
+**Consequence today is documentary, not behavioral.** The matrix has no production consumer — its
+only reader is `tests/visibility/capabilityTransitions.test.ts`. But its own definition of a
+recorded delta ("the flip is SUFFICIENT to change visibility regardless of the other predicate",
+`lib/visibility/capabilityTransitions.ts:126-131`) is no longer literally true for `FinancialsTile`:
+a `hasLead` flip does not toggle it for a viewer who also holds `FINANCIALS`. The header now states
+that modeling boundary explicitly, and `tests/visibility/capabilityHeaderParity.test.ts` pins the
+quoted predicates against `scopeTiles.ts` source, so the prose cannot drift again — but the MATRIX
+is still five-predicate.
+
+**Fix (when prioritized):** add `hasFinancials` to `CapabilityPredicate`, expand the matrix from
+C(5,2)=10 to C(6,2)=15 entries with their deltas, and update the structural test's length assertion
+(`tests/visibility/capabilityTransitions.test.ts:40`). Deliberately NOT done in a prose branch: it
+is a design change with a 15-row blast radius, and the settled question there was whether the
+header quote was stale (it was).
+
+**Trigger:** the next milestone touching scope-tile visibility, the financials entitlement, or the
+matrix itself.
+
+---
+
+### BL-CREW-AGENDA-ADMIN-CLEAR — Admin affordance to manually clear a run-of-show (low-priority convenience) — ARCHIVED 2026-08-05 (M-wave W-DOCS, `feat/m-wave`)
+
+**Resolution (2026-08-05).** Demoted and archived under the ledger filing bar (`AGENTS.md`; screen procedure `docs/superpowers/specs/2026-08-04-backlog-convergence-design.md` §2), with no new user ask (M-wave spec §1.1 item 8). The entry's own R22 re-scoping is what closes it: the Phase-2 retention rule settled on **CONFIRMED-ONLY**, so every non-confirmed shape — read-empty, unresolved block, unlocatable grid — auto-coarsens to the anchor strip on the next sync with the matching admin warning. The entry states the consequence directly: **"there is no lingering-stale crew exposure to remediate."** The correctness problem this was filed for was closed STRUCTURALLY, not deferred.
+
+**What is left is a convenience, and it is named as one.** An admin who wants to retract a wrongly-published agenda _without_ blanking the source sheet has no button; the normal path (blank the sheet, next sync clears) covers intentional removal. That is a workflow gap with no correctness consequence and no committed trigger — the entry's own "Why backlog, not deferred" already said "purely an admin convenience, not a correctness gap. Lowest priority."
+
+**PREREQ trigger, carried into the archive so a pickup is not a rediscovery:** a post-launch operator request to retract an agenda without editing the sheet, OR a broader per-show agenda-management pass. Either one reopens this from the scope paragraph below, which stays accurate: an affordance on `app/admin/show/[slug]/` clearing `shows_internal.run_of_show` (whole-column or per-day) via a SECURITY DEFINER RPC under the per-show advisory lock — the Phase-2 R16 lockdown REVOKEs `anon`/`authenticated` DML on `shows_internal`, so an RPC is the only non-sync write surface available, and that constraint has not changed.
+
+---
+
+**Filed:** 2026-06-18, crew-page redesign Phase 2 spec adversarial review (R17 → re-scoped R21 → re-scoped again R22). **Re-scoped at R22 (do NOT treat as load-bearing):** the Phase-2 data-retention rule settled on **CONFIRMED-ONLY** (Phase-2 spec D-2 / §4.4 invariants 2-3 / watchpoint 12) — the crew see a day's run-of-show **iff the latest sync confirmed it**; **every** non-confirmed shape (read-empty, unresolved block, OR unlocatable grid) auto-coarsens to the anchor strip on the next sync with the matching admin warning. So **any** intentional removal — blank titles, deleted tab, broken header, changed template — self-resolves via sync; there is **no** lingering-stale crew exposure to remediate (that was the R17/R21 preserve-and-show stance, which R22 closed structurally).
+
+**Effort:** M
+
+**What's actually left for this item (narrow):** a convenience affordance only — an admin wanting to clear a run-of-show **without** blanking the source sheet (e.g. retract a wrongly-published agenda while leaving the sheet intact). That is a rare workflow; the normal path (blank the sheet → next sync clears) covers intentional removal.
+
+**Scope (if promoted):** an admin affordance on the per-show panel (`app/admin/show/[slug]/`) to clear `shows_internal.run_of_show` (whole-column, or per-day) via a SECURITY DEFINER RPC under the per-show advisory lock (the Phase-2 R16 lockdown REVOKEs anon/authenticated DML on `shows_internal`, so the RPC is the only non-sync write surface).
+
+**Why backlog, not deferred:** no committed v1 trigger; crew-facing stale exposure is **already prevented** by the read-empty auto-clear (R21), so this is purely an admin convenience, not a correctness gap. Lowest priority.
+
+**Promotion prerequisite:** post-launch operator request to retract an agenda without editing the sheet, OR a broader per-show agenda-management pass.
+
+---
+
+### BL-ROOM-DIMS-ONLY-NOVEL-HEADER — parse a dims-only novel breakout header (no DAY-range) — ARCHIVED 2026-08-05 (M-wave W-DOCS, `feat/m-wave`)
+
+**Resolution (2026-08-05).** Demoted and archived under the ledger filing bar (`AGENTS.md`; screen procedure `docs/superpowers/specs/2026-08-04-backlog-convergence-design.md` §2), with no new user ask (M-wave spec §1.1 item 8). Two things settle it, and neither is new work — both are already recorded in the entry body below.
+
+**Half of it already shipped.** The 2026-07-06 BO-venue-header anchor (`docs/superpowers/specs/2026-07-06-bo-venue-header-anchor.md`) made a dims-only header sitting above a `BO` field block parse, anchored on the field block rather than on the dims token, so no asset is fabricated. The entry records this as its own 2026-07-06 update.
+
+**The other half is out of scope by the entry's own ratification, not by deferral.** The residue is a bare `NAME` + dims cell with no field block of any kind — and that shape is structurally indistinguishable from a dims-bearing asset row (`PROJECTION SCREEN` + `5' x 9'`, `4' X 8' RISER`) without an anchor. Fourteen adversarial rounds confirmed that every dims-based admit / evidence / ownership gate reopened asset fabrication or field theft; the parser-anchor-de-literalization spec descoped it explicitly (§2 "Descoped", R31 f1). `origin/main` never parsed this shape, so it is not a regression, and a blanket data-gap signal was rejected because it would fire on every gear row. An entry whose remaining scope its own spec has already ratified as out of scope is a documented limit, not a queue item.
+
+**The fix shape is preserved verbatim below** for the day a positive room-context signal is worth building: parse a dims-only room ONLY under a signal the sheets actually carry — a `BREAKOUT`/room-section header above the row, or an explicit room label — never a dims token; and add fixtures with a real dims-only room inside a room section, asserting it parses while no dims-bearing gear row elsewhere on the sheet becomes a room. That negative half of the fixture is the part the 14 rounds proved load-bearing.
+
+---
+
+**Severity:** low · **Class:** PARSER COVERAGE · **Effort:** M
+
+The parser-anchor-de-literalization PR (spec `docs/superpowers/specs/2026-07-05-parser-anchor-deliteralization.md`, audit finding #6) de-literalizes the v1 breakout-room loop from the two literal names `MABEL`/`LAUDERDALE` to any `NAME + trailing DAY-range` header, so a future differently-named DAY-range breakout (`GRAND BALLROOM DAY 1 & 2`) now parses. A dims-ONLY header with NO DAY-range (`SALON ABCD&#10;60' x 45'`, `MERIDIAN HALL&#10;50' x 30'`) is deliberately **out of scope** (spec §2 "Descoped", adversarial-review R31 f1): it is structurally identical to a dims-bearing ASSET/equipment row (`PROJECTION SCREEN&#10;5' x 9'`, `4' X 8' RISER`), so a name-blind admit gate cannot tell a novel dims-only room from an asset — 14 adversarial rounds confirmed every dims-based admit/evidence/ownership gate reopened asset fabrication or field theft. origin/main never parsed this shape, so it is NOT a regression, and a blanket data-gap signal is rejected (it would fire on every gear row = noise). **Fix (when prioritized):** parse a dims-only room only under a POSITIVE room-context signal the sheets actually carry — a `BREAKOUT`/room-section header above the row, or an explicit room label — NOT a dims token. Add fixtures with a real dims-only room inside a room section and assert it parses without any asset row (dims-bearing gear elsewhere on the sheet) becoming a room.
+
+**Update (2026-07-06, spec `docs/superpowers/specs/2026-07-06-bo-venue-header-anchor.md`):** partially addressed by the BO-venue-header anchor — a dims-only header sitting above a **`BO` field block** now parses, anchored on the field block (not the dims token), so no asset is fabricated. The remaining unaddressed sub-case is a dims-only header with **no** field block of any kind (a bare `NAME&#10;dims` cell), which stays out of scope (indistinguishable from an asset without an anchor).
