@@ -1042,8 +1042,34 @@ describe("FinalizeButton — streaming progress panel", () => {
       });
       cas.close();
     });
-    await findByTestId("wizard-finalize-publish-complete");
+    const complete = await findByTestId("wizard-finalize-publish-complete");
     expect(refreshMock).toHaveBeenCalled();
+
+    // BL-ANNOUNCE-REGION-UNMOUNT-CLASS. The completion line was a live region
+    // INSERTED together with its text, which screen readers do not announce —
+    // they announce mutations WITHIN an existing region. This file already has
+    // the right mechanism for that (`FinalizeAnnouncer`, mounted unconditionally,
+    // whose text mutates) and its header already explains why; completion simply
+    // never used it, so the one message a user most needs was the one not
+    // announced.
+    //
+    // ANTI-TAUTOLOGY: the region queried is the announcer's, which is OUTSIDE
+    // the completion block. Asserting on the completion block itself passes on
+    // the broken shape, because the broken shape does render the text.
+    const announcer = document.querySelector(".sr-only[role='status']");
+    expect(announcer, "the persistent announcer must be mounted").not.toBeNull();
+    expect(
+      announcer!.textContent ?? "",
+      "the completion sentence must reach the STABLE region, not only the block that appears with it",
+    ).toContain("Setup is complete");
+    expect(
+      announcer!.contains(complete),
+      "the stable region must be outside the completion block, or this assertion proves nothing",
+    ).toBe(false);
+    expect(
+      complete.getAttribute("role"),
+      "the completion block must not also claim to be a live region — two announcers, one event",
+    ).not.toBe("status");
   });
 
   test("missing sheet name falls back to the driveFileId in the status line", async () => {

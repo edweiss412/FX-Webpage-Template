@@ -454,13 +454,22 @@ export function useFinalizeRun({
           ? `Publish ${publishCount} show${publishCount === 1 ? "" : "s"} & finish setup`
           : "Finish setup and publish";
 
-  // Persistent SR live message for the transient running phases (rendered by the announcer below).
+  // Persistent SR live message, rendered by the announcer below.
+  //
+  // COMPLETION RIDES THIS TOO (BL-ANNOUNCE-REGION-UNMOUNT-CLASS). It used to
+  // exist only as the `state.kind === "complete"` block, which is a live region
+  // INSERTED together with its text — the shape screen readers do not announce.
+  // The announcer is mounted unconditionally and its text mutates, which is the
+  // mechanism this file's own header already describes; completion simply never
+  // used it, so the one message a user most needs was the one not announced.
   const liveMessage =
     state.kind === "running"
       ? state.phase === "cas"
         ? "Finishing setup"
         : "Publishing your shows"
-      : "";
+      : state.kind === "complete"
+        ? COMPLETE_COPY
+        : "";
 
   // The in-flight button label: while running, the Publish trigger stays put but
   // steps into a disabled "Publishing…" (or "Finishing setup…" during the CAS
@@ -510,6 +519,10 @@ export type FinalizeRun = ReturnType<typeof useFinalizeRun>;
  * already-populated is often missed; a stable region whose text mutates is
  * announced.
  */
+/** One source for the completion sentence — the announcer and the visible block
+ *  must not be able to drift apart. */
+export const COMPLETE_COPY = "Setup is complete. Your shows are live for crew now.";
+
 export function FinalizeAnnouncer({ run }: { run: FinalizeRun }) {
   return (
     <span className="sr-only" role="status" aria-live="polite">
@@ -587,13 +600,11 @@ export function FinalizeStatusRegion({ run }: { run: FinalizeRun }) {
   return (
     <>
       {state.kind === "complete" ? (
-        <p
-          role="status"
-          aria-live="polite"
-          data-testid="wizard-finalize-publish-complete"
-          className="text-sm text-text-subtle"
-        >
-          Setup is complete. Your shows are live for crew now.
+        // No role/aria-live: the persistent announcer carries this now, and a
+        // second live region for one event is a double announcement. The block
+        // stays as the visible affordance.
+        <p data-testid="wizard-finalize-publish-complete" className="text-sm text-text-subtle">
+          {COMPLETE_COPY}
         </p>
       ) : null}
       <FinalizeBlockerModal run={run} />
