@@ -261,34 +261,145 @@ export function parseCreatedPublicTables(sql: string): string[] {
  */
 export function parseCreatedPublicFunctions(sql: string): string[] {
   const clean = stripSqlNoise(sql);
-  const ops: Array<{ index: number; name: string; op: "create" | "drop" }> = [];
-  const createRe = /\bcreate\s+(?:or\s+replace\s+)?function\s+(?:(\w+)\.)?(\w+)\s*\(/gi;
-  const dropRe = /\bdrop\s+function\s+(?:if\s+exists\s+)?(?:(\w+)\.)?(\w+)/gi;
+  const ops: Array<{ index: number; key: string; op: "create" | "drop" }> = [];
+  // NAME **AND TYPE LIST**. Keying on the name alone was wrong in both directions
+  // (Codex R3 HIGH): adding an OVERLOAD passed Layer 1 because the name was
+  // already known, and a `drop function name(uuid)` erased the whole name from
+  // the created set even though other overloads survived. Arity alone was not
+  // enough either — two one-argument overloads collide. See `typeListOf` for
+  // what this key is and where it degrades.
+  const createRe = /\bcreate\s+(?:or\s+replace\s+)?function\s+(?:(\w+)\.)?(\w+)\s*\(([^)]*)\)/gi;
+  const dropRe = /\bdrop\s+function\s+(?:if\s+exists\s+)?(?:(\w+)\.)?(\w+)\s*(?:\(([^)]*)\))?/gi;
   let m: RegExpExecArray | null;
   while ((m = createRe.exec(clean)) !== null) {
     const schema = m[1]?.toLowerCase();
     const name = m[2];
     if (!name || (schema && schema !== "public")) continue;
-    ops.push({ index: m.index, name, op: "create" });
+    ops.push({ index: m.index, key: `${name}/${typeListOf(m[3] ?? "")}`, op: "create" });
   }
   while ((m = dropRe.exec(clean)) !== null) {
     const schema = m[1]?.toLowerCase();
     const name = m[2];
     if (!name || (schema && schema !== "public")) continue;
-    ops.push({ index: m.index, name, op: "drop" });
+    // A bare `drop function name` (no parens) is only legal when the name is
+    // unambiguous, so it drops whatever arity exists — recorded as a wildcard.
+    const args = m[3];
+    ops.push({
+      index: m.index,
+      key: args === undefined ? `${name}/*` : `${name}/${typeListOf(args)}`,
+      op: "drop",
+    });
   }
   ops.sort((a, b) => a.index - b.index);
   const final = new Map<string, "create" | "drop">();
-  for (const o of ops) final.set(o.name, o.op);
+  for (const o of ops) {
+    if (o.op === "drop" && o.key.endsWith("/*")) {
+      const stem = o.key.slice(0, -1);
+      for (const k of [...final.keys()]) if (k.startsWith(stem)) final.set(k, "drop");
+      continue;
+    }
+    final.set(o.key, o.op);
+  }
   return [...final.entries()]
     .filter(([, op]) => op === "create")
-    .map(([n]) => n)
+    .map(([k]) => k)
     .sort();
 }
 
-/** The function NAMES a manifest declares, from its encoded signature rows. */
+/**
+ * A comparable TYPE LIST for a parameter list, from either side.
+ *
+ * Arity alone was not enough (Codex R3 HIGH): two one-argument overloads
+ * collide, which is exactly the shape the probe used. This drops the parameter
+ * NAME and any DEFAULT, keeping the type text, so `p_show uuid` and
+ * `p_email text` key differently while the same signature written on either
+ * side keys the same.
+ *
+ * DOCUMENTED LIMIT, and it fails in the conservative direction: a type spelled
+ * differently on the two sides (an alias, `character varying` vs `varchar`, a
+ * schema qualification) keys differently and produces a FALSE ALARM, not a
+ * miss — a contributor is told to regenerate, regenerates, and the noise ends.
+ * The exact comparison remains Layer 2's, against Postgres's own identity
+ * encoding; this side is a DB-free tripwire, not an authority on signatures.
+ */
+const TYPE_ALIASES = new Map<string, string>([
+  ["timestamptz", "timestamp with time zone"],
+  ["timestamp", "timestamp without time zone"],
+  ["timetz", "time with time zone"],
+  ["time", "time without time zone"],
+  ["int", "integer"],
+  ["int4", "integer"],
+  ["int8", "bigint"],
+  ["int2", "smallint"],
+  ["bool", "boolean"],
+  ["varchar", "character varying"],
+  ["char", "character"],
+  ["float8", "double precision"],
+  ["float4", "real"],
+  ["decimal", "numeric"],
+]);
+
+/**
+ * Canonical spelling of one type, so the DDL side and Postgres's own encoding
+ * agree.
+ *
+ * Postgres renders `timestamptz` as `timestamp with time zone` and `int` as
+ * `integer`, and qualifies composite types with their schema. Without this the
+ * type-list key produced NINE false alarms on the real corpus — the
+ * conservative direction, but noise a contributor cannot act on is noise they
+ * learn to ignore, which is how a tripwire dies.
+ */
+function canonicalType(t: string): string {
+  const bare = t.replace(/^public\./, "").trim();
+  const arraySuffix = /\[\]$/.test(bare) ? "[]" : "";
+  const core = bare.replace(/\[\]$/, "").trim();
+  return (TYPE_ALIASES.get(core) ?? core) + arraySuffix;
+}
+
+function typeListOf(params: string): string {
+  const trimmed = params.trim();
+  if (trimmed === "") return "";
+  const parts: string[] = [];
+  let depth = 0;
+  let cur = "";
+  for (const ch of trimmed) {
+    if (ch === "(" || ch === "[") depth++;
+    if (ch === ")" || ch === "]") depth--;
+    if (ch === "," && depth === 0) {
+      parts.push(cur);
+      cur = "";
+      continue;
+    }
+    cur += ch;
+  }
+  parts.push(cur);
+  return parts
+    .map((raw) => {
+      // Drop a DEFAULT clause, then the leading mode + parameter NAME.
+      let t = raw.split(/\bdefault\b/i)[0] ?? "";
+      t = t.replace(/=.*$/, "").trim().replace(/\s+/g, " ");
+      const words = t.split(" ").filter(Boolean);
+      if (words[0] && /^(in|out|inout|variadic)$/i.test(words[0])) words.shift();
+      // A single word IS the type (an unnamed parameter); otherwise the first
+      // word is the parameter name and the rest is the type.
+      const type = (words.length > 1 ? words.slice(1).join(" ") : (words[0] ?? "")).toLowerCase();
+      return canonicalType(type);
+    })
+    .join(",");
+}
+
+/** The `name/typelist` keys a manifest declares, from its encoded signature rows. */
 export function functionNamesOf(manifest: SchemaManifest): Set<string> {
-  return new Set(functionsOf(manifest).map((row) => row.slice(0, row.indexOf("("))));
+  // `name/arity`, matching what parseCreatedPublicFunctions returns. The
+  // encoded row is `name(args) -> result [POSTURE]`, so arity is the top-level
+  // comma count of the identity-arguments string.
+  return new Set(
+    functionsOf(manifest).map((row) => {
+      const open = row.indexOf("(");
+      const close = row.lastIndexOf(") -> ");
+      return `${row.slice(0, open)}/${typeListOf(row.slice(open + 1, close))}`;
+    }),
+  );
 }
 
 /** SQL that lists public base tables and their columns (one row per column). */

@@ -26,6 +26,8 @@ import { describe, expect, it } from "vitest";
 
 import {
   FUNCTIONS_KEY,
+  functionNamesOf,
+  parseCreatedPublicFunctions,
   INTROSPECT_PUBLIC_FUNCTIONS_SQL,
   type FunctionRow,
   diffManifestAgainstLive,
@@ -183,6 +185,49 @@ describe("schema manifest — function signature tier", () => {
     // else encode identically, which is what "a body-only edit cannot move the
     // manifest" means operationally.
     expect(encodeFunctionRow(row)).toBe(encodeFunctionRow({ ...row }));
+  });
+
+  it("Layer-1 keys distinguish OVERLOADS, and a drop removes only its own", () => {
+    // Codex R3 HIGH, both halves of its probe. Keying on `proname` alone let an
+    // added overload pass (the name was already known) and let a
+    // `drop function name(uuid)` erase the whole name from the created set
+    // while other overloads survived. Arity alone was not enough either — the
+    // probe's two overloads both take one argument.
+    const known = functionNamesOf(
+      manifestFromFunctionRows([
+        { name: "claim_show", args: "p_show uuid", result: "boolean", definer: true },
+      ]),
+    );
+    const addOverload =
+      "create function public.claim_show(p_email text) returns boolean as $$select true$$ language sql;";
+    expect(
+      parseCreatedPublicFunctions(addOverload).filter((n) => !known.has(n)),
+      "a NEW overload of a known name must still read as unknown to the manifest",
+    ).toEqual(["claim_show/text"]);
+    expect(
+      parseCreatedPublicFunctions(`${addOverload} drop function public.claim_show(uuid);`),
+      "dropping a DIFFERENT overload must not erase the one just created",
+    ).toEqual(["claim_show/text"]);
+  });
+
+  it("type spellings that differ between DDL and Postgres do NOT raise a false alarm", () => {
+    // The alias table exists because the first type-list key produced nine
+    // false alarms on the real corpus (timestamptz vs timestamp with time zone,
+    // int vs integer, a schema-qualified composite). Noise a contributor cannot
+    // act on is how a tripwire dies, so this pins the normalisation.
+    const known = functionNamesOf(
+      manifestFromFunctionRows([
+        {
+          name: "bell_mark_read",
+          args: "p_id uuid, p_kind text, p_at timestamp with time zone",
+          result: "void",
+          definer: true,
+        },
+      ]),
+    );
+    const ddl =
+      "create function public.bell_mark_read(p_id uuid, p_kind text, p_at timestamptz) returns void as $$begin end$$ language plpgsql;";
+    expect(parseCreatedPublicFunctions(ddl).filter((n) => !known.has(n))).toEqual([]);
   });
 
   it("reports missing tables AND missing functions in one pass", () => {
