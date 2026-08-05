@@ -1,11 +1,13 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
+import { ROUND_THRESHOLD } from "../../lib/reviewRounds/constants";
 import { mergedArcs } from "../../lib/reviewRounds/mergedArcs";
+import { buildReport, main, render } from "../../scripts/review-economy";
 
 const g = (cwd: string, ...args: string[]): string =>
   execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
@@ -240,5 +242,562 @@ describe("merged-arc producer (spec §9, §11.3 layer 1)", () => {
 
   it("reports the repository as not shallow", () => {
     expect(result.shallow).toBe(false);
+  });
+});
+
+/** Plant a corpus tree under `root` and return `root`. Paths are relative to
+ *  docs/review-rounds/, exactly as on disk. */
+function corpus(root: string, files: { path: string; body: string }[]): string {
+  for (const f of files) {
+    const abs = join(root, "docs", "review-rounds", f.path);
+    mkdirSync(dirname(abs), { recursive: true });
+    writeFileSync(abs, f.body);
+  }
+  return root;
+}
+
+const jrow = (over: Record<string, unknown> = {}): string =>
+  JSON.stringify({
+    stage: "diff",
+    round: 1,
+    branch: "feat/foo",
+    baseSha: "aaaaaaaaaaaa",
+    label: null,
+    status: "verdict",
+    verdict: "APPROVE",
+    failureReason: null,
+    findingCount: null,
+    startedAt: "2026-09-03T00:00:00.000Z",
+    endedAt: "2026-09-03T00:10:00.000Z",
+    briefPath: "b.md",
+    outDir: "o",
+    guardVersion: 1,
+    recoveredFrom: null,
+    ...over,
+  });
+
+const jrows = (...o: Record<string, unknown>[]): string => o.map(jrow).join("\n") + "\n";
+
+/** Derived from ROUND_THRESHOLD - a fixture that cannot reach the threshold
+ *  makes every trigger assertion below vacuous. */
+const OBLIGE = Array.from({ length: ROUND_THRESHOLD }, (_, i) => ({ round: i + 1 }));
+
+/** The report's boundary in tests is injected, never the production one:
+ *  `adoptionBoundary(repoRoot)` reads git for the first-parent commit on main
+ *  that added lib/reviewRounds/constants.ts, so a suite that called it would
+ *  return null in every fixture repo and change behavior the day this merges. */
+const BOUNDARY = "2026-09-01T00:00:00.000Z";
+const opts = { adoptionBoundary: BOUNDARY };
+
+describe("report aggregation (spec §9)", () => {
+  // Failure caught: collapsing stages into one number, which cannot be
+  // compared against a per-stage threshold, and an implementation that counts
+  // every RECORDED row against it.
+  it("reports rounds PER STAGE, counted and recorded separately", () => {
+    const root = corpus(mkdtempSync(join(tmpdir(), "rep-stage-")), [
+      {
+        path: "feat/foo/aaaaaaaaaaaa.jsonl",
+        body: jrows(
+          { stage: "spec", round: 1 },
+          { stage: "spec", round: 2 },
+          { stage: "diff", round: 1 },
+          { stage: "diff", round: 1 },
+          {
+            stage: "diff",
+            round: 2,
+            status: "no_verdict",
+            verdict: null,
+            failureReason: "wrapper_error",
+          },
+          { stage: "task", round: 1 },
+        ),
+      },
+    ]);
+    const arc = buildReport(root, opts).arcs.find((a) => a.baseSha === "aaaaaaaaaaaa");
+    expect(arc?.stages.spec).toEqual({ counted: 2, recorded: 2 });
+    // Two rows share round 1, so counted is 1; the no_verdict row is recorded
+    // but never counted.
+    expect(arc?.stages.diff).toEqual({ counted: 1, recorded: 3 });
+    expect(arc?.stages.task).toEqual({ counted: 0, recorded: 1 });
+  });
+
+  // Failure caught: a branch-only join reading an older arc's rows as evidence
+  // for a later one. THIS FAILS AND EVERY OTHER TEST IN THIS FILE PASSES,
+  // which is exactly how the defect would ship. Mirrors real history: this
+  // repo has reused three branch names across distinct PRs.
+  it("lists the newer arc as silent when an older arc shares its branch name", () => {
+    const root = mkdtempSync(join(tmpdir(), "rep-join-"));
+    corpus(root, [
+      {
+        path: "feat/reused/aaaaaaaaaaaa.jsonl",
+        body: jrows(...OBLIGE.map((o) => ({ ...o, branch: "feat/reused" }))),
+      },
+    ]);
+    const report = buildReport(root, {
+      ...opts,
+      mergedArcs: [
+        {
+          sha: "1".repeat(40),
+          branch: "feat/reused",
+          baseSha: "aaaaaaaaaaaa",
+          mergedAt: "2026-09-04T00:00:00.000Z",
+        },
+        {
+          sha: "2".repeat(40),
+          branch: "feat/reused",
+          baseSha: "cccccccccccc",
+          mergedAt: "2026-09-05T00:00:00.000Z",
+        },
+      ],
+    });
+    const silent = report.silentArcs?.map((a) => a.baseSha) ?? [];
+    expect(silent).toContain("cccccccccccc");
+    expect(silent).not.toContain("aaaaaaaaaaaa");
+  });
+
+  // Failure caught: a stage that began in one month and crossed in the next
+  // landing in two buckets, which makes a monthly rate exceed 1 and reports
+  // the first month as two different numbers.
+  it("buckets a stage by its FIRST counted row's month and counts it triggered if it EVER crossed", () => {
+    const root = corpus(mkdtempSync(join(tmpdir(), "rep-rate-")), [
+      {
+        // Crosses the threshold, but its first counted row is in September.
+        path: "feat/spanner/aaaaaaaaaaaa.jsonl",
+        body: jrows(
+          ...OBLIGE.slice(0, ROUND_THRESHOLD - 1).map((o) => ({
+            ...o,
+            branch: "feat/spanner",
+            startedAt: "2026-09-28T00:00:00.000Z",
+          })),
+          { round: ROUND_THRESHOLD, branch: "feat/spanner", startedAt: "2026-10-02T00:00:00.000Z" },
+        ),
+      },
+      {
+        // Same September bucket, never crosses.
+        path: "feat/short/bbbbbbbbbbbb.jsonl",
+        body: jrows({
+          round: 1,
+          branch: "feat/short",
+          baseSha: "bbbbbbbbbbbb",
+          startedAt: "2026-09-10T00:00:00.000Z",
+        }),
+      },
+    ]);
+    const rate = buildReport(root, opts).triggerRateByMonth;
+    // Population and numerator both derived from the fixture: two (arc, stage)
+    // pairs in 2026-09, one of which ever crossed.
+    expect(rate["2026-09"]).toEqual({ population: 2, triggered: 1, rate: 0.5 });
+    // The crossing does NOT also create an October bucket.
+    expect(rate["2026-10"]).toBeUndefined();
+  });
+
+  // Failure caught: a rate computed over arcs rather than over (arc, stage)
+  // pairs that actually completed a review.
+  it("excludes task stages and no-verdict-only stages from the rate population", () => {
+    const root = corpus(mkdtempSync(join(tmpdir(), "rep-pop-")), [
+      {
+        path: "feat/foo/aaaaaaaaaaaa.jsonl",
+        body: jrows(
+          { stage: "spec", round: 1 },
+          { stage: "task", round: 1 },
+          {
+            stage: "plan",
+            round: 1,
+            status: "no_verdict",
+            verdict: null,
+            failureReason: "attempts_exhausted",
+          },
+        ),
+      },
+    ]);
+    // Only the spec stage completed a review, so the population is 1.
+    expect(buildReport(root, opts).triggerRateByMonth["2026-09"]?.population).toBe(1);
+  });
+
+  // Failure caught: null folded into zero, which understates every total and
+  // is indistinguishable from "no findings found".
+  it("totals findingCount over declared rows only and reports undeclared as its own count", () => {
+    const root = corpus(mkdtempSync(join(tmpdir(), "rep-find-")), [
+      {
+        path: "feat/foo/aaaaaaaaaaaa.jsonl",
+        body: jrows(
+          { round: 1, findingCount: 5 },
+          { round: 2, findingCount: 0 },
+          { round: 3, findingCount: null },
+        ),
+      },
+    ]);
+    const f = buildReport(root, opts).findingsByStage.diff;
+    // 5 + 0 over the two DECLARED rows. A null-as-zero implementation reports
+    // the same total but declaredRows: 3, so both fields are asserted.
+    expect(f).toEqual({ total: 5, declaredRows: 2, undeclaredRows: 1 });
+  });
+
+  it("lists a merged arc with zero rows as silent and one with rows as not", () => {
+    const root = corpus(mkdtempSync(join(tmpdir(), "rep-silent-")), [
+      {
+        path: "feat/recorded/aaaaaaaaaaaa.jsonl",
+        body: jrows({ round: 1, branch: "feat/recorded" }),
+      },
+    ]);
+    const report = buildReport(root, {
+      ...opts,
+      mergedArcs: [
+        {
+          sha: "1".repeat(40),
+          branch: "feat/recorded",
+          baseSha: "aaaaaaaaaaaa",
+          mergedAt: "2026-09-04T00:00:00.000Z",
+        },
+        {
+          sha: "2".repeat(40),
+          branch: "feat/quiet",
+          baseSha: "bbbbbbbbbbbb",
+          mergedAt: "2026-09-04T00:00:00.000Z",
+        },
+      ],
+    });
+    expect(report.silentArcs?.map((a) => a.branch)).toEqual(["feat/quiet"]);
+  });
+
+  // Failure caught: the 668-arc mass false classification.
+  it("excludes pre-adoption merges from the silent list and reports them as a single count", () => {
+    const root = corpus(mkdtempSync(join(tmpdir(), "rep-adopt-")), []);
+    const report = buildReport(root, {
+      ...opts,
+      mergedArcs: [
+        {
+          sha: "1".repeat(40),
+          branch: "feat/ancient",
+          baseSha: "aaaaaaaaaaaa",
+          mergedAt: "2026-08-01T00:00:00.000Z",
+        },
+        {
+          sha: "2".repeat(40),
+          branch: "feat/modern",
+          baseSha: "bbbbbbbbbbbb",
+          mergedAt: "2026-09-04T00:00:00.000Z",
+        },
+      ],
+    });
+    expect(report.silentArcs?.map((a) => a.branch)).toEqual(["feat/modern"]);
+    expect(report.preAdoptionMergeCount).toBe(1);
+    // Reported as a COUNT, never enumerated (spec §8.3 limit 7).
+    expect(report).not.toHaveProperty("preAdoptionArcs");
+  });
+
+  // Failure caught: THIS arc's own merge reported as silent. The boundary IS
+  // the committer date of the merge that puts the constants module on main, so
+  // the adoption arc's mergedAt equals it exactly; a strictly-less pre-adoption
+  // test drops that equality into the post-adoption branch, and this arc has no
+  // corpus by ratified design (spec §12), so the report accuses the very merge
+  // that created it. Every other case in this file passes either way.
+  it("treats a merge whose timestamp EQUALS the boundary as pre-adoption", () => {
+    const root = corpus(mkdtempSync(join(tmpdir(), "rep-equal-")), []);
+    const report = buildReport(root, {
+      ...opts,
+      mergedArcs: [
+        // mergedAt is BOUNDARY itself, not a second literal that could drift
+        // away from it and make the equality this test is named for untested.
+        {
+          sha: "3".repeat(40),
+          branch: "feat/the-adoption-merge",
+          baseSha: "ffffffffffff",
+          mergedAt: BOUNDARY,
+        },
+      ],
+    });
+    expect(report.silentArcs).toEqual([]);
+    expect(report.preAdoptionMergeCount).toBe(1);
+  });
+
+  // The two cases that pass TRIVIALLY under a boundary derived from the corpus,
+  // which is why the boundary is declared. Both are silent wrongness.
+  it("lists a zero-row arc merged AFTER the boundary but BEFORE the earliest corpus row as silent", () => {
+    const root = corpus(mkdtempSync(join(tmpdir(), "rep-gap-")), [
+      // Earliest row is 2026-09-03; a derived boundary would be that date.
+      { path: "feat/foo/aaaaaaaaaaaa.jsonl", body: jrows({ round: 1 }) },
+    ]);
+    const report = buildReport(root, {
+      ...opts,
+      mergedArcs: [
+        {
+          sha: "9".repeat(40),
+          branch: "feat/first-silent",
+          baseSha: "dddddddddddd",
+          mergedAt: "2026-09-02T00:00:00.000Z",
+        },
+      ],
+    });
+    expect(report.silentArcs?.map((a) => a.branch)).toContain("feat/first-silent");
+    expect(report.preAdoptionMergeCount).toBe(0);
+  });
+
+  it("still lists post-boundary zero-row merges as silent when the corpus is EMPTY", () => {
+    const root = corpus(mkdtempSync(join(tmpdir(), "rep-empty-")), []);
+    const report = buildReport(root, {
+      ...opts,
+      mergedArcs: [
+        {
+          sha: "9".repeat(40),
+          branch: "feat/nothing-recorded",
+          baseSha: "eeeeeeeeeeee",
+          mergedAt: "2026-09-04T00:00:00.000Z",
+        },
+      ],
+    });
+    // A derived boundary is null here, the universe collapses to empty, and the
+    // report declares all-clear in exactly the state where nothing is recorded.
+    expect(report.silentArcs?.map((a) => a.branch)).toEqual(["feat/nothing-recorded"]);
+  });
+
+  it("prints an advisory mismatch when the earliest corpus row precedes the boundary", () => {
+    const root = corpus(mkdtempSync(join(tmpdir(), "rep-mismatch-")), [
+      {
+        path: "feat/foo/aaaaaaaaaaaa.jsonl",
+        body: jrows({ round: 1, startedAt: "2026-08-15T00:00:00.000Z" }),
+      },
+    ]);
+    const report = buildReport(root, opts);
+    expect(report.boundaryAdvisory).toContain("2026-08-15");
+  });
+
+  // Failure caught: an unset boundary treated as the epoch, which accuses every
+  // pre-adoption merge in one run.
+  it("reports not-yet-adopted and withholds the silent list when the boundary is null", () => {
+    const root = corpus(mkdtempSync(join(tmpdir(), "rep-null-")), []);
+    const report = buildReport(root, {
+      adoptionBoundary: null,
+      mergedArcs: [
+        {
+          sha: "1".repeat(40),
+          branch: "feat/whatever",
+          baseSha: "aaaaaaaaaaaa",
+          mergedAt: "2026-09-04T00:00:00.000Z",
+        },
+      ],
+    });
+    expect(report.silentArcs).toBeNull();
+    // The count comes out of the same scan, so it is withheld with the list.
+    expect(report.preAdoptionMergeCount).toBeNull();
+    expect(report.notes.join(" ")).toMatch(/not yet adopted/i);
+  });
+
+  // Failure caught: authoritative metrics computed from a corpus the report
+  // knows is incomplete, and printed as complete. `readArcs` keeps every
+  // rejected line in `arc.malformed`; a report that aggregates `arc.rows`
+  // alone prints `diff 3/3` over a four-line file, classifies the stage
+  // untriggered, and gives no sign its input was partial - while the merge
+  // gate, reading the SAME file, reports `malformed_row`. Two tools, one
+  // corpus, contradictory answers, and the one a human runs by hand is the one
+  // that hides it. This is the §8.2 failure arriving through the other door.
+  it("reports malformed rows and marks the affected arc's counts incomplete", () => {
+    const VALID = [{ round: 1 }, { round: 2 }, { round: 3 }];
+    const body = jrows(...VALID) + "{ not json\n";
+    const root = corpus(mkdtempSync(join(tmpdir(), "rep-malformed-")), [
+      { path: "feat/foo/aaaaaaaaaaaa.jsonl", body },
+    ]);
+    const report = buildReport(root, opts);
+
+    // Every expectation derived from the fixture body, never a literal: the
+    // 1-indexed position of the line that cannot parse, and the number of rows
+    // that can.
+    const badLine = body.split("\n").findIndex((l) => l.startsWith("{ not")) + 1;
+    expect(report.malformedRows).toHaveLength(1);
+    expect(report.malformedRows[0]!).toEqual({
+      arc: "feat/foo aaaaaaaaaaaa",
+      file: "docs/review-rounds/feat/foo/aaaaaaaaaaaa.jsonl",
+      line: badLine,
+    });
+
+    // The counts are still REPORTED, and still right about what they cover:
+    // the three valid rows are real data, so the report DISCLOSES rather than
+    // refusing. What it may not do is let the number read as whole.
+    const arc = report.arcs.find((a) => a.baseSha === "aaaaaaaaaaaa");
+    expect(arc?.stages.diff).toEqual({ counted: VALID.length, recorded: VALID.length });
+    const rendered = render(report)
+      .split("\n")
+      .find((l) => l.includes("aaaaaaaaaaaa") && l.includes("diff"));
+    expect(rendered).toContain("INCOMPLETE");
+  });
+
+  // Failure caught: a partial answer labelled complete - the §8.2 failure.
+  // Ambient-gated skipping cannot catch this: an implementation with NO
+  // --is-shallow-repository check passes every other test in this file.
+  it("refuses the merged-arc scan on a synthesized shallow clone and says so by name", () => {
+    const origin = fixtureRepo().dir; // Task 7's layer-1 fixture, reused
+    const shallow = join(mkdtempSync(join(tmpdir(), "rep-shallow-")), "clone");
+    execFileSync("git", ["clone", "--depth=1", `file://${origin}`, shallow]);
+    expect(
+      execFileSync("git", ["rev-parse", "--is-shallow-repository"], {
+        cwd: shallow,
+        encoding: "utf8",
+      }).trim(),
+    ).toBe("true");
+
+    const report = buildReport(shallow, opts);
+    // WITHHELD, not empty. An empty array and a refusal must be different
+    // values, or this assertion cannot tell one from the other.
+    expect(report.silentArcs).toBeNull();
+    // Failure caught: the refusal is HALF applied. Both fields are outputs of
+    // the one merged-arc scan, and a `preAdoptionMergeCount` initialised to 0
+    // and left there reports an authoritative zero for a scan that never ran -
+    // the §8.2 failure one line below a correct refusal of the same question.
+    expect(report.preAdoptionMergeCount).toBeNull();
+    expect(report.shallow).toBe(true);
+    expect(report.notes.join(" ")).toMatch(/shallow/i);
+  });
+});
+
+describe("CLI surface (spec §9)", () => {
+  /** A report built from a fixture corpus, so every expectation below is
+   *  derived from data the test planted rather than from a literal the
+   *  renderer could be wrong about in the same direction. */
+  const cliReport = (files: { path: string; body: string }[], boundary: string | null = BOUNDARY) =>
+    buildReport(corpus(mkdtempSync(join(tmpdir(), "rep-cli-")), files), {
+      adoptionBoundary: boundary,
+    });
+
+  // Failure caught: a renderer that prints "silent arcs: 0" for a WITHHELD
+  // list. `Report` keeps null and [] distinct precisely so a refusal is not a
+  // clean bill of health, and the whole distinction is lost if the one surface
+  // a human actually reads collapses them back together.
+  it("names the refusal instead of printing a count when silentArcs is null", () => {
+    const report = cliReport([], null);
+    expect(report.silentArcs).toBeNull();
+    const text = render(report);
+    expect(text).toMatch(/silent arcs: WITHHELD/);
+    expect(text).not.toMatch(/silent arcs: 0/);
+    // The REASON reaches the reader too, not just the word.
+    for (const note of report.notes) expect(text).toContain(note);
+  });
+
+  // Failure caught: a renderer that refuses one output of the merged-arc scan
+  // and prints a numeral for the other. `pre-adoption merges: 0` directly under
+  // `silent arcs: WITHHELD` is a fact the scan never established, stated in the
+  // reader's face by the line that follows a correct refusal.
+  it("withholds the pre-adoption count alongside the silent list", () => {
+    const report = cliReport([], null);
+    expect(report.preAdoptionMergeCount).toBeNull();
+    const text = render(report);
+    expect(text).toMatch(/pre-adoption merges: WITHHELD/);
+    expect(text).not.toMatch(/pre-adoption merges[^\n]*: 0/);
+  });
+
+  // Failure caught: a renderer that drops the per-stage breakdown, leaving one
+  // collapsed number that cannot be compared against a per-stage threshold -
+  // the same defect the aggregation rejects, one layer later.
+  it("prints every arc's per-stage counted and recorded counts", () => {
+    const report = cliReport([
+      {
+        path: "feat/foo/aaaaaaaaaaaa.jsonl",
+        body: jrows(
+          { stage: "spec", round: 1 },
+          { stage: "diff", round: 1 },
+          { stage: "diff", round: 2 },
+        ),
+      },
+    ]);
+    const text = render(report);
+    // Guards the loop below against passing vacuously over zero arcs.
+    expect(report.arcs.length).toBeGreaterThan(0);
+    for (const arc of report.arcs) {
+      const line = text.split("\n").find((l) => l.includes(arc.baseSha));
+      expect(line, `no rendered line for ${arc.baseSha}`).toBeDefined();
+      for (const [stage, c] of Object.entries(arc.stages)) {
+        // Read off the report, so a fixture change cannot leave this asserting
+        // a pair the report no longer holds.
+        expect(line).toContain(`${stage} ${c.counted}/${c.recorded}`);
+      }
+    }
+  });
+
+  // Failure caught: argument handling that accepts anything and reports over
+  // the live corpus regardless, so a typo silently answers a question nobody
+  // asked. Neither branch below reaches git, so neither depends on the cwd.
+  it("exits 2 on an unknown argument and 0 on --help", () => {
+    expect(main(["--nope"])).toBe(2);
+    expect(main(["--help"])).toBe(0);
+  });
+});
+
+describe("adoption boundary, production default (spec §9)", () => {
+  // Failure caught: `buildReport` not WIRED to the production boundary at all.
+  // Every other case in this file INJECTS one, so an implementation that
+  // defaults to the epoch, or to null forever, passes all of them. What is
+  // asserted here is that the report READS `adoptionBoundary` when nothing is
+  // injected - a different claim from the function's own contract, which is
+  // pinned beside its implementation in tests/reviewRounds/row.test.ts
+  // (Task 2). One test owns the function, this one owns the wiring.
+  it("withholds before the constants module is on main and completes the scan after", () => {
+    const repo = mkdtempSync(join(tmpdir(), "rep-boundary-"));
+    const git = (...args: string[]): string =>
+      execFileSync("git", args, { cwd: repo, encoding: "utf8" }).trim();
+    git("init", "-q", "-b", "main");
+    git("config", "user.email", "t@example.com");
+    git("config", "user.name", "T");
+    writeFileSync(join(repo, "seed.txt"), "seed\n");
+    git("add", "seed.txt");
+    git("commit", "-qm", "seed");
+
+    git("checkout", "-q", "-b", "feat/adopting");
+    const constants = join(repo, "lib", "reviewRounds", "constants.ts");
+    mkdirSync(dirname(constants), { recursive: true });
+    writeFileSync(constants, "export const ROUND_THRESHOLD = 4;\n");
+    git("add", "lib/reviewRounds/constants.ts");
+    git("commit", "-qm", "feat: constants");
+
+    // No injected boundary, so buildReport must call adoptionBoundary itself.
+    // The module is not on main yet, so the report has to withhold rather than
+    // accuse - which an epoch default cannot do.
+    const early = buildReport(repo, {
+      mergedArcs: [
+        {
+          sha: "4".repeat(40),
+          branch: "feat/adopting",
+          baseSha: "aaaaaaaaaaaa",
+          mergedAt: "2026-09-04T00:00:00.000Z",
+        },
+      ],
+    });
+    expect(early.silentArcs).toBeNull();
+    expect(early.notes.join(" ")).toMatch(/not yet adopted/i);
+
+    git("checkout", "-q", "main");
+    git("merge", "-q", "--no-ff", "-m", "merge feat/adopting", "feat/adopting");
+    // WITHHELD becomes a COMPLETED scan: [] rather than null is reachable only
+    // if the default boundary is now non-null, so this is the assertion a
+    // never-wired or null-forever default fails.
+    expect(buildReport(repo, { mergedArcs: [] }).silentArcs).toEqual([]);
+  });
+});
+
+describe("real history (spec §11.3 layer 2)", () => {
+  // A test that quietly passes over one merge is a false presence. Numbers are
+  // derived from the live log, never from literals - a hardcoded 676 makes
+  // this a tripwire on the calendar instead of on the producer.
+  const isShallow =
+    execFileSync("git", ["rev-parse", "--is-shallow-repository"], { encoding: "utf8" }).trim() ===
+    "true";
+
+  it.skipIf(isShallow)("matches the live log when history is available", () => {
+    const expected = execFileSync(
+      "git",
+      ["log", "--merges", "--first-parent", "main", "--format=%s"],
+      { encoding: "utf8" },
+    )
+      .split("\n")
+      .filter(Boolean);
+    const { recognized, unrecognized } = mergedArcs(process.cwd());
+    // Every first-parent merge is accounted for: recognized or reported.
+    expect(recognized.length + unrecognized.length).toBe(expected.length);
+    // The residue is REPORTED, never assumed empty - and every entry carries
+    // its subject, per §9.
+    expect(unrecognized.every((u) => u.subject.length > 0)).toBe(true);
+  });
+
+  it.runIf(isShallow)("SKIPS BY NAME on a shallow clone", () => {
+    // A named absence, not a quiet pass over one merge.
+    expect(mergedArcs(process.cwd()).shallow).toBe(true);
   });
 });
