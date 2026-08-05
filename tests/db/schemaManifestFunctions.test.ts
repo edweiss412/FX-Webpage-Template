@@ -187,29 +187,6 @@ describe("schema manifest — function signature tier", () => {
     expect(encodeFunctionRow(row)).toBe(encodeFunctionRow({ ...row }));
   });
 
-  it("Layer-1 keys distinguish OVERLOADS, and a drop removes only its own", () => {
-    // Codex R3 HIGH, both halves of its probe. Keying on `proname` alone let an
-    // added overload pass (the name was already known) and let a
-    // `drop function name(uuid)` erase the whole name from the created set
-    // while other overloads survived. Arity alone was not enough either — the
-    // probe's two overloads both take one argument.
-    const known = functionNamesOf(
-      manifestFromFunctionRows([
-        { name: "claim_show", args: "p_show uuid", result: "boolean", definer: true },
-      ]),
-    );
-    const addOverload =
-      "create function public.claim_show(p_email text) returns boolean as $$select true$$ language sql;";
-    expect(
-      parseCreatedPublicFunctions(addOverload).filter((n) => !known.has(n)),
-      "a NEW overload of a known name must still read as unknown to the manifest",
-    ).toEqual(["claim_show/text"]);
-    expect(
-      parseCreatedPublicFunctions(`${addOverload} drop function public.claim_show(uuid);`),
-      "dropping a DIFFERENT overload must not erase the one just created",
-    ).toEqual(["claim_show/text"]);
-  });
-
   it("type spellings that differ between DDL and Postgres do NOT raise a false alarm", () => {
     // The alias table exists because the first type-list key produced nine
     // false alarms on the real corpus (timestamptz vs timestamp with time zone,
@@ -230,47 +207,44 @@ describe("schema manifest — function signature tier", () => {
     expect(parseCreatedPublicFunctions(ddl).filter((n) => !known.has(n))).toEqual([]);
   });
 
-  it("does NOT collapse overloads whose UNNAMED types share a multiword suffix", () => {
-    // Codex R4 HIGH, all three of its pairs. The key dropped the first word as
-    // though it were always a parameter name, so an unnamed `time with time
-    // zone` and an unnamed `timestamp with time zone` both became
-    // "with time zone" and keyed identically — adding one as an overload of the
-    // other read as already-known. That is a MISS, not the conservative
-    // direction the code claimed, which is why it is pinned here.
-    const pairs: ReadonlyArray<readonly [string, string]> = [
-      ["time with time zone", "timestamp with time zone"],
-      ["time without time zone", "timestamp without time zone"],
-      ["character varying", "bit varying"],
-    ];
-    for (const [have, added] of pairs) {
-      const known = functionNamesOf(
-        manifestFromFunctionRows([{ name: "f", args: have, result: "void", definer: false }]),
-      );
-      const parsed = parseCreatedPublicFunctions(
-        `create function public.f(${added}) returns void as $$ $$ language sql;`,
-      );
-      expect(
-        parsed.filter((n) => !known.has(n)),
-        `adding f(${added}) alongside f(${have}) must read as unknown to the manifest`,
-      ).toEqual([`f/${added}`]);
-    }
-  });
-
-  it("still reads a NAMED parameter as name + type", () => {
-    // The other side of the same decision: `p_at timestamptz` must key on the
-    // type, not on "p_at timestamptz". Without this row the fix above could be
-    // satisfied by never dropping the first word at all.
+  it("Layer 1 catches a function NAME the manifest has never heard of", () => {
+    // What Layer 1 is FOR: the #9 vector — a migration lands, the regen is
+    // forgotten. A name is enough for that, and after five review rounds it is
+    // all a DDL-derived key can honestly claim.
     const known = functionNamesOf(
       manifestFromFunctionRows([
-        { name: "g", args: "p_at timestamp with time zone", result: "void", definer: false },
+        { name: "existing_rpc", args: "p uuid", result: "void", definer: true },
       ]),
     );
-    expect([...known]).toEqual(["g/timestamp with time zone"]);
-    expect(
-      parseCreatedPublicFunctions(
-        "create function public.g(p_at timestamptz) returns void as $$ $$ language sql;",
-      ).filter((n) => !known.has(n)),
-    ).toEqual([]);
+    const parsed = parseCreatedPublicFunctions(
+      "create function public.brand_new_rpc(p uuid) returns void as $$ $$ language sql;",
+    );
+    expect(parsed.filter((n) => !known.has(n))).toEqual(["brand_new_rpc"]);
+  });
+
+  it("Layer 1 does NOT claim to see signature drift — that is Layer 3's tier", () => {
+    // The documented bound, asserted so no future round mistakes coarseness for
+    // a bug and re-opens the type-list experiment. A posture flip, a return
+    // change, a parameter rename and an added overload all leave the NAME
+    // unchanged, so Layer 1 is silent by construction. Layer 3 compares the
+    // committed manifest against a fresh introspection byte-for-byte and is
+    // what actually catches these; it runs in unit-suite-db, where a local
+    // stack exists and TEST_DATABASE_URL is unset.
+    const known = functionNamesOf(
+      manifestFromFunctionRows([{ name: "f", args: "p uuid", result: "void", definer: true }]),
+    );
+    const drifts = [
+      "create function public.f(p uuid) returns void security invoker as $$ $$ language sql;",
+      "create function public.f(p uuid) returns boolean as $$select true$$ language sql;",
+      "create function public.f(renamed uuid) returns void as $$ $$ language sql;",
+      "create function public.f(p text) returns void as $$ $$ language sql;",
+    ];
+    for (const ddl of drifts) {
+      expect(
+        parseCreatedPublicFunctions(ddl).filter((n) => !known.has(n)),
+        `Layer 1 is name-keyed and must stay silent here: ${ddl.slice(0, 60)}`,
+      ).toEqual([]);
+    }
   });
 
   it("reports missing tables AND missing functions in one pass", () => {

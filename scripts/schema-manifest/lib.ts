@@ -243,21 +243,33 @@ export function parseCreatedPublicTables(sql: string): string[] {
 }
 
 /**
- * `create [or replace] function [public.]<name>(` names that survive to final
+ * `create [or replace] function [public.]<name>(` NAMES that survive to final
  * state, for the DB-free Layer-1 tripwire.
  *
- * NAMES ONLY, and that bound is the design. The manifest keys functions by
- * (name, identity arguments), which regex cannot recover from SQL reliably —
- * defaults, `out` parameters and type aliases all differ between what the DDL
- * writes and what `pg_get_function_identity_arguments` returns. A NAME is
- * recoverable, and it answers the question Layer 1 exists to ask: did a
- * migration add a function the committed manifest has never heard of? That is
- * the #9 vector applied to functions — commit the migration, forget the regen,
- * forget the validation apply, and Layer 2 then compares two equally stale sets
- * and passes (Codex R1 HIGH).
+ * NAMES ONLY, and after five review rounds that bound is deliberate rather than
+ * lazy. Successive attempts keyed on arity, then on a normalized parameter type
+ * list; each closed the case it was shown and left another (two one-argument
+ * overloads collide under arity; an unnamed multiword type collides under a
+ * naive type list; and no DDL-derived key sees a posture flip, a return-type
+ * change, or a parameter rename at all). A DDL string is not an identity — only
+ * Postgres's own `pg_get_function_identity_arguments` is, and this side cannot
+ * call it. Pretending otherwise produced a key that looked exact and was not,
+ * which is worse than one that is honestly coarse.
  *
- * `drop function` is order-aware for the same reason tables are: a function
- * created and later dropped must not be demanded of the manifest.
+ * SO THE DIVISION OF LABOUR IS EXPLICIT:
+ *   Layer 1 (here, DB-free, every run): a function NAME the manifest has never
+ *     heard of. That is the #9 vector — a migration lands, the regen is
+ *     forgotten — and a name is enough to catch it.
+ *   Layer 3 (`unit-suite-db`, local stack, no TEST_DATABASE_URL): committed
+ *     manifest vs a FRESH introspection, byte-for-byte. This is the exact tier,
+ *     and it catches everything Layer 1 cannot — posture, return type,
+ *     parameter names, overloads — because it compares Postgres's own encoding
+ *     rather than guessing at it. A stale manifest cannot land.
+ *   Layer 2 (`x-audits`, validation): validation must be a superset of the
+ *     committed manifest at the full signature tier.
+ *
+ * Together those close the pair the entry is about; separately, none of them
+ * does, and Layer 1 was never the one that could.
  */
 export function parseCreatedPublicFunctions(sql: string): string[] {
   const clean = stripSqlNoise(sql);
@@ -275,7 +287,7 @@ export function parseCreatedPublicFunctions(sql: string): string[] {
     const schema = m[1]?.toLowerCase();
     const name = m[2];
     if (!name || (schema && schema !== "public")) continue;
-    ops.push({ index: m.index, key: `${name}/${typeListOf(m[3] ?? "")}`, op: "create" });
+    ops.push({ index: m.index, key: name, op: "create" });
   }
   while ((m = dropRe.exec(clean)) !== null) {
     const schema = m[1]?.toLowerCase();
@@ -284,22 +296,14 @@ export function parseCreatedPublicFunctions(sql: string): string[] {
     // A bare `drop function name` (no parens) is only legal when the name is
     // unambiguous, so it drops whatever arity exists — recorded as a wildcard.
     const args = m[3];
-    ops.push({
-      index: m.index,
-      key: args === undefined ? `${name}/*` : `${name}/${typeListOf(args)}`,
-      op: "drop",
-    });
+    // A drop removes the NAME only when no other create for it survives; with
+    // name-keying we cannot tell overloads apart, so a drop is recorded against
+    // the name and a later create re-establishes it (last op wins, below).
+    ops.push({ index: m.index, key: name, op: "drop" });
   }
   ops.sort((a, b) => a.index - b.index);
   const final = new Map<string, "create" | "drop">();
-  for (const o of ops) {
-    if (o.op === "drop" && o.key.endsWith("/*")) {
-      const stem = o.key.slice(0, -1);
-      for (const k of [...final.keys()]) if (k.startsWith(stem)) final.set(k, "drop");
-      continue;
-    }
-    final.set(o.key, o.op);
-  }
+  for (const o of ops) final.set(o.key, o.op);
   return [...final.entries()]
     .filter(([, op]) => op === "create")
     .map(([k]) => k)
@@ -460,7 +464,7 @@ export function functionNamesOf(manifest: SchemaManifest): Set<string> {
     functionsOf(manifest).map((row) => {
       const open = row.indexOf("(");
       const close = row.lastIndexOf(") -> ");
-      return `${row.slice(0, open)}/${typeListOf(row.slice(open + 1, close))}`;
+      return row.slice(0, open);
     }),
   );
 }
