@@ -1297,6 +1297,22 @@ docblock states the gap rather than papering over it.
 
 ---
 
+## BL-CROSSWALK-HAYSTACK-RENDERED-TEXT-ONLY — the /help UI-label crosswalk attests against all source, so a type annotation counts as a button label
+
+**Filed:** 2026-08-05 (M-wave W-UI, U8 probe). **Class:** guard precision. **Effort:** M (touches every label in the crosswalk corpus). **Severity:** low.
+
+`tests/help/_metaUiLabelCrosswalk.test.ts` attests that a bolded /help label names a real control by searching a haystack built from ALL production source. Comments are stripped, and U8 added import statements — both are categorically non-rendered. What remains is everything else: type annotations, identifiers, object keys. So `**Viewer**` at `app/help/getting-started/page.mdx:10` is attested by `viewer: Viewer` in `app/show/[slug]/[shareToken]/_CrewShell.tsx`, a type annotation, and the guard reports a match that proves nothing about rendered UI.
+
+**Probed, not inferred** (U8, 2026-08-05): the word-boundary tier U8 shipped closes the ACCIDENTAL-SUBSTRING half of this — `Share` no longer matches inside `ShareHub`/`shareToken` — and is proven to discriminate by a premise fixture. It does not close the bare-identifier half, and no further lexical narrowing can: excluding identifiers wholesale would break every label that IS its component name, which is common and legitimate. `tests/help/_metaUiLabelCrosswalk.test.ts` pins the residual as an executable DOCUMENTED LIMIT that fails the day this is fixed.
+
+**Work:** build the haystack from RENDERED TEXT ONLY — string literals and JSX text children, via the TypeScript AST rather than a regex. Decidable and bounded. Expect a wave of newly-failing labels on the first run; each is either real drift or a third-party-UI label (below), and the triage is the bulk of the effort.
+
+**Also needs settling in the same pass: third-party UI labels have no home.** `**Share**` and `**Viewer**` in `app/help/getting-started/page.mdx` are GOOGLE DRIVE's controls, not this app's — "click **Share** on that folder… Give it **Viewer** access". They are correct copy that this guard should never have treated as candidates. The M-wave plan assumed the opposite (that the copy was wrong and should be rewritten to name real controls); the probe refuted it, and rewriting them would have made accurate documentation inaccurate. `tests/help/_uiLabelExceptions.ts` cannot hold them either: every row must cite a `DEFERRED.md M11-E-D<N>` id, and these are not deferrals. Needs a third-party-UI carve with its own reason field.
+
+**Deferral exception: (c)** — a redesign of the guard's oracle spanning the whole crosswalk corpus, on a surface this PR does not otherwise touch. W-UI shipped the half that is closable without it.
+
+**Status:** OPEN.
+
 ## BL-CODEX-GUARD-COMMONMARK-PARSE — replace the codex-guard code-block regexes with a real CommonMark parse
 
 **Status:** OPEN.
