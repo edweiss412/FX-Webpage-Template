@@ -28,7 +28,7 @@ That test is comment-blind. Adding a doc comment that merely _names_ `upsertAdmi
 
 ## BL-SHADOW-REBUILD-EXHAUSTED-EMIT-PLACEMENT — a durable event for a committed row is skipped when the outer finalize rolls back
 
-**Status:** IN PROGRESS · **Branch:** chore/sweep-guards-tests · **Status:** OPEN · **Severity:** LOW-MEDIUM (lost forensic event; no data impact) · **Class:** telemetry durability · **Filed:** 2026-08-03 (`fix/apply-undo-audit-fidelity`, spec §2.3, deferred under class-sweep exception (a)) · **Effort:** S once the product question is settled
+**Status:** IN PROGRESS · **Branch:** chore/sweep-guards-tests · **Severity:** LOW-MEDIUM (lost forensic event; no data impact) · **Class:** telemetry durability · **Filed:** 2026-08-03 (`fix/apply-undo-audit-fidelity`, spec §2.3, deferred under class-sweep exception (a)) · **Effort:** S once the product question is settled
 
 `logAdminOutcome({ code: "ONBOARDING_SHADOW_REBUILD_EXHAUSTED", … })` (`app/api/admin/onboarding/finalize-cas/route.ts:1025-1038`) fires inside `runFinalizeCas`, which runs inside the outer `deps.withTx` holding `tryFinalizeLock` (`app/api/admin/onboarding/finalize-cas/route.ts:905`). The row mutation it describes commits in its own `withRowTx`, independently of that outer transaction — so when the outer commit fails, the mutation stands and the event describing it is silently skipped.
 
@@ -78,26 +78,6 @@ The rename-linked instances of this shape were fixed in the filing PR via the su
 screen-disposition 2026-08-04: KEEP — probe (`tests/sync/capabilityLossReachability.probe.test.ts`) demonstrates the false loss end-to-end on `undo_override`/`crew_email`; three sibling shapes verified correct in the same run, and all four are pinned at current behaviour.
 
 **Work.** Restore the symmetry at the source rather than loosening arm (c). The tombstone row above is the counterweight and is pinned in the same probe file: it is a REAL loss, and any fix that suppresses arm (c) more aggressively to silence the false positive will silence that one too. All four rows are pinned at current behaviour, so the fix arrives with a failing case waiting for it.
-
----
-
-## BL-LEDGER-BODY-DEFINED-ID-OVERMINT — any bold lone id at a bullet lead defines, so a mention can mint an id
-
-**Status:** IN PROGRESS · **Branch:** chore/sweep-guards-tests · **Status:** OPEN · **Severity:** low (latent, not live) · **Class:** guard precision · **Filed:** 2026-08-03 (`chore/ledger-claim-visibility`, spec §9.2) · **Effort:** S
-
-`bodyDefinedIds` (`tests/docs/_ledgerMdast.ts:346`) does not require a separator after the bold id,
-so any bold lone id at a bullet lead defines. A bullet whose bold id is followed by ordinary prose,
-or by a colon, mints that id exactly as a real sub-item definition would; a nested bullet and a
-backticked enumeration both correctly do not. The five-shape probe with its outputs is in
-`docs/superpowers/specs/2026-08-03-ledger-claim-visibility-design.md` §9.2 — deliberately not
-reproduced here, because its planted ids would need citation exemptions in this ledger.
-
-Latent, not live: main mints exactly the intended eight ids today. But it over-mints in the
-direction the guard exists to prevent — a bullet naming a sibling id in bold makes that id resolve,
-so a typo can define itself. Deferred out of `chore/ledger-claim-visibility` under exception (b) of
-the `AGENTS.md` class-sweep disposition rule: the originating brief fenced it explicitly. Any
-tightening needs a probe demonstrating the corruption it prevents, per the finding-admissibility
-contract.
 
 ---
 
@@ -445,7 +425,7 @@ The last unexploited lever on unit-suite wall clock is the ~101s of per-leg FIXE
 
 ## BL-SECTION-HEADER-VISUAL-REQUIRED-CONTEXT — promote the visual gate into branch protection's required set after soak
 
-**Status:** IN PROGRESS · **Branch:** chore/sweep-guards-tests · **Status:** OPEN · **Severity:** low · **Class:** CI wiring · **Filed:** 2026-07-27 (reconciliation — the one live follow-up carried out of `BL-HEADER-PROBE-RESIDUAL-VACUITY` when it graduated to `BACKLOG-archive.md`) · **Effort:** XS
+**Status:** IN PROGRESS · **Branch:** chore/sweep-guards-tests · **Severity:** low · **Class:** CI wiring · **Filed:** 2026-07-27 (reconciliation — the one live follow-up carried out of `BL-HEADER-PROBE-RESIDUAL-VACUITY` when it graduated to `BACKLOG-archive.md`) · **Effort:** XS
 
 `section-header-visual` (`.github/workflows/section-header-visual.yml`) runs as an unfiltered PR gate, but it is NOT in branch protection's required-context set, so a red run is a visible failing check that does not block merge at the GitHub layer. Deliberate at ship time: the spec ratifies promotion as a follow-up after observed-green runs, not part of that branch (`docs/superpowers/specs/2026-07-26-header-probe-residual-closure-design.md` §1.1). Same class as the required-set note in `BL-E2E-LIFECYCLE-SPECS-CI-DARK`: an owner GitHub-settings action, not repo code — the live required set held twelve contexts when last measured (2026-07-26). **Trigger:** observed-green soak of `section-header-visual` on merged PRs, then the owner adds the context.
 
@@ -583,7 +563,7 @@ screen-disposition 2026-08-04: KEEP — probe-adjacent evidence already in the t
 
 ## BL-TELEMETRY-FALLBACK-RETRY — the scheduled-job health fallback states the cause but offers no retry
 
-**Status:** IN PROGRESS · **Branch:** chore/sweep-guards-tests · **Status:** OPEN · **Severity:** low (developer-tier surface) · **Surfaced:** #601 impeccable critique (2026-07-25), P1 partially addressed · **Effort:** S
+**Status:** IN PROGRESS · **Branch:** chore/sweep-guards-tests · **Severity:** low (developer-tier surface) · **Surfaced:** #601 impeccable critique (2026-07-25), P1 partially addressed · **Effort:** S
 
 `app/admin/dev/telemetry/page.tsx:84` now reads "Couldn't load scheduled-job health right now. The jobs are probably still running." — the second sentence landed in the #601 follow-up because the critique was right that the old one-liner named neither a cause nor a recourse at the moment Doug's stress is highest. What it still lacks is the recourse half: there is no retry control, so the only way to re-read is a full page reload.
 
@@ -758,7 +738,7 @@ The rec-5 mutation-testing harness (`tests/parser/mutationHarness.test.ts`, nigh
 
 ### BL-TASKCONTRACT-SORT-COMPARATOR-EQUALKEY — finding-order comparator is unpinnable for equal `(docLine, code)` pairs
 
-**Status:** IN PROGRESS · **Branch:** chore/sweep-guards-tests · **Status:** OPEN (2026-08-04, `feat/mutation-gate-guard-surfaces`) · **Severity:** low · **Class:** TEST COVERAGE · **Effort:** S
+**Status:** IN PROGRESS · **Branch:** chore/sweep-guards-tests · **Severity:** low · **Class:** TEST COVERAGE · **Effort:** S
 
 Two source mutants of the `findings.sort(...)` comparator at `lib/specLint/taskContract.ts:247` survive the suite and cannot be killed through the function's output: `a.code > b.code` → `>=` and the final `: 0` → `: 1`. Both are reached only when `a.docLine - b.docLine` is `0`, and each differs from clean behavior only when the two `code` values are ALSO equal — for unequal codes both take an identical path.
 

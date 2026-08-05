@@ -8,6 +8,38 @@ Same split as [DEFERRED.md](./DEFERRED.md) ↔ [DEFERRED-archive.md](./DEFERRED-
 
 ---
 
+## BL-LEDGER-BODY-DEFINED-ID-OVERMINT — any bold lone id at a bullet lead defines, so a mention can mint an id — CLOSED 2026-08-04
+
+Closed on `chore/sweep-guards-tests` by adding condition 4: a body-defined id must be SEPARATED
+from what follows it (em dash, colon, or nothing at all). Prose running straight on from a bold
+lead is a sentence about that id, not a definition of it.
+
+**Probed before tightening**, as the entry and the finding-admissibility contract both require.
+`tests/docs/ledgerBodyIdOvermint.test.ts` demonstrates the corruption against the SHIPPED
+function first — a bullet reading "bold-id is tracked separately" minted that id, and a bold typo defined the
+typo, which is the one direction the citation guard cannot catch because the misspelling resolves
+itself. The three pre-existing conditions are re-pinned alongside, and the real ledgers are
+asserted to still mint exactly the eight ids they minted before: a tightening that silently
+dropped a live id would be a worse defect than the over-mint it fixes.
+
+Original entry, verbatim:
+
+`bodyDefinedIds` (`tests/docs/_ledgerMdast.ts:346`) does not require a separator after the bold id,
+so any bold lone id at a bullet lead defines. A bullet whose bold id is followed by ordinary prose,
+or by a colon, mints that id exactly as a real sub-item definition would; a nested bullet and a
+backticked enumeration both correctly do not. The five-shape probe with its outputs is in
+`docs/superpowers/specs/2026-08-03-ledger-claim-visibility-design.md` §9.2 — deliberately not
+reproduced here, because its planted ids would need citation exemptions in this ledger.
+
+Latent, not live: main mints exactly the intended eight ids today. But it over-mints in the
+direction the guard exists to prevent — a bullet naming a sibling id in bold makes that id resolve,
+so a typo can define itself. Deferred out of `chore/ledger-claim-visibility` under exception (b) of
+the `AGENTS.md` class-sweep disposition rule: the originating brief fenced it explicitly. Any
+tightening needs a probe demonstrating the corruption it prevents, per the finding-admissibility
+contract.
+
+---
+
 ## BL-CANONICAL-CLASS-ARRAY-BLINDSPOT — CLOSED 2026-08-04, bounded by census
 
 The blind spot is real and confirmed against the plugin source, and it is now **bounded**: `tests/specLint/canonicalClassArray.test.ts` enumerates every array-join className in the tree and fails on a new one, in both shapes the pattern takes. The set the linter cannot see can only shrink. Proven by planting a site and watching the guard reject it, not by assuming the recognizer works.

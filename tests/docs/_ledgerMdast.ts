@@ -369,6 +369,7 @@ export function bodyDefinedIds(text: string, opts: ExtractOpts): Set<string> {
         if (!lead || lead.type !== "strong") continue; // conditions 1 + 2
         const id = strongIdText(lead as Parent);
         if (id === null) continue;
+        if (!definesRatherThanMentions(paragraph as Parent)) continue; // condition 4
         if (opts.requirePrefix !== null && !id.startsWith(opts.requirePrefix)) continue;
         if (!ID_TOKEN.test(id)) continue;
         out.add(id);
@@ -376,6 +377,29 @@ export function bodyDefinedIds(text: string, opts: ExtractOpts): Set<string> {
     }
   }
   return out;
+}
+
+/**
+ * Condition 4 — a definition is SEPARATED from what follows it; a mention is not.
+ *
+ * Leading a bullet in bold was enough on its own, so a bullet that merely NAMED
+ * a sibling defined it: `- **BL-X** is tracked separately` minted `BL-X`, and a
+ * typo in a bold lead defined the typo — the one direction the citation guard
+ * cannot catch, because the misspelling resolves itself
+ * (BL-LEDGER-BODY-DEFINED-ID-OVERMINT).
+ *
+ * A real definition is `**BL-X** — title`, `**BL-X**: title`, or the id alone.
+ * Prose running straight on from the id is a sentence about that id.
+ *
+ * The em dash, en dash and hyphen are all accepted because the corpus uses the
+ * em dash but a hand-typed entry reaches for `-`, and rejecting that would fail
+ * an author for punctuation rather than for meaning.
+ */
+function definesRatherThanMentions(paragraph: Parent): boolean {
+  const after = paragraph.children[1];
+  if (after === undefined) return true; // the id alone: nothing to make it a mention
+  if (after.type !== "text") return false;
+  return /^\s*[—–:-]/.test((after as { value: string }).value);
 }
 
 /** An id never ends in `-`; mirrors the citation regex so the two cannot disagree. */
