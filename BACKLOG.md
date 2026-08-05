@@ -430,6 +430,31 @@ killed it. The reason each is open is that the obvious approach was implemented 
 work, not that nobody thought about it. Full write-up with metafile traces and per-entry bundle
 sizes: `docs/superpowers/specs/ci/2026-07-26-ci-dark-coverage-design.md` §10.
 
+screen-disposition 2026-08-04: BOTH PRECONDITIONS VERIFIED, mutation BLOCKED on tooling permission.
+Stays open, and the only work left is one command.
+
+**Soak — green.** `gh run list --workflow section-header-visual.yml`, 60 runs since 2026-07-27:
+57 success, 3 cancelled, **zero failures**. The §4.5 item 3 gate condition ("green → add the
+context") is met.
+
+**Second precondition, checked because the soak cannot show it.** A required context that never
+REPORTS blocks every PR forever, so a path-filtered workflow must never be made required.
+`section-header-visual.yml` is deliberately UNFILTERED on `pull_request` (its own header explains
+why: path filters would make it invisible to the coverage scanner). It runs on every PR, so
+requiring it cannot hang one.
+
+**Blocked:** the `gh api -X POST .../required_status_checks/contexts` mutation was denied by this
+session's tooling permission classifier — an environment limit, not a repo or GitHub one. Current
+required set is 12 contexts; this adds the 13th. The exact command, unchanged from §4.5 item 3:
+
+```
+gh api -X POST repos/edweiss412/FX-Webpage-Template/branches/main/protection/required_status_checks/contexts \
+  -f "contexts[]=section-header-visual"
+```
+
+Run it, confirm with `gh api repos/edweiss412/FX-Webpage-Template/branches/main/protection/required_status_checks --jq '.contexts'`,
+then archive this entry. Nothing else is owed.
+
 ### BL-PUBLISHED-TOGGLE-CLIENT-COMMIT-WEDGE — a fast server action can leave the Published toggle stuck pending on WebKit
 
 **Status:** OPEN · **Severity:** MEDIUM (real-user exposure unquantified; measured 7/10 in a CI loop) · **Class:** upstream framework defect, product exposure · **Filed:** 2026-07-26 (BL-E2E-LIFECYCLE-TRANSITIONS-ROUNDTRIP-FLAKE measurement work)
