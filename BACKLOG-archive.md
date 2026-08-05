@@ -8,6 +8,43 @@ Same split as [DEFERRED.md](./DEFERRED.md) ↔ [DEFERRED-archive.md](./DEFERRED-
 
 ---
 
+## BL-CODE-ENUM-PROVENANCE-COMMENT-BLIND — a doc comment silently rewrites generated code provenance — CLOSED 2026-08-04
+
+The provenance decision is now `claimsAdminAlertProvenance`, which strips COMMENTS before testing,
+and the regeneration reverted exactly the six codes this entry named — code membership unchanged,
+which is what the entry predicted and what confirms the fix touched provenance only.
+
+**The Work section's prescription was half wrong, and the regression suite is what caught it.** It
+asked to strip "comments and string literals". Stripping literals was implemented, and it failed
+the suite's real-call cases: `sb.from("admin_alerts")` and `sb.rpc("upsert_admin_alert")` reach the
+table THROUGH a string, so blanking literals made two of the four write shapes invisible — a
+recognizer strictly worse than the one being replaced. Literal stripping was reverted.
+
+**Documented limit, pinned rather than left unstated:** a literal containing PROSE about the writer
+(`const msg = "call upsertAdminAlert here"`) still claims provenance. That is strictly narrower than
+the comment case that caused the incident, and closing it would require telling a table reference
+from a sentence, which stripping cannot do. The suite asserts the limit so it reads as a decision.
+
+Stripping rather than skipping the file is also load-bearing: a file that both writes an alert AND
+comments about it must still claim provenance, so "any comment mentions it, ignore the file" would
+have dropped provenance from real writers. Pinned as its own case.
+
+Original entry, verbatim:
+
+`scripts/extract-internal-code-enums.ts:161` decides whether a file's codes claim `admin_alerts.code` provenance by regexing the **raw source**:
+
+```
+if (/\badmin_alerts?\b|upsertAdminAlert|upsert_admin_alert/i.test(source)) {
+```
+
+That test is comment-blind. Adding a doc comment that merely _names_ `upsertAdminAlert` — as the apply/undo branch did at `app/api/admin/onboarding/finalize/route.ts` and `app/api/admin/onboarding/finalize-cas/route.ts`, explaining why an emit does NOT belong at a given point — flips provenance for **every** code in that file. Six §12.4 codes widened to claim `admin_alerts.code` on that regeneration (`ONBOARDING_FINALIZE_INTERNAL_ERROR`, `ONBOARDING_LEGACY_ROW_AMBIGUOUS`, `ROLE_MAPPINGS_OUTDATED_AT_PUBLISH`, `STAGED_PARSE_OUTDATED_AT_PHASE_D`, `STAGED_PARSE_REVISION_RACE_DURING_FINALIZE`, `WIZARD_REVIEWER_CHOICES_VERSION_UNSUPPORTED`) without any of them gaining a write site.
+
+**Benign as shipped, which is exactly why it is worth filing.** Code membership is unchanged and no consumer keys on `admin_alerts.code` — the live filters key on `parse_warnings.code` — so the widening changed nothing observable and the regenerated manifest was committed rather than the extractor patched mid-branch. The defect is that a generated artifact's provenance field can be rewritten by prose, so it cannot be trusted as evidence of a write site, and the next person to rely on it will not know that.
+
+**Work:** gate on parsed source rather than raw text — strip comments and string literals before the provenance test, the same shape `stripLogEmissionCalls` already uses for the §12.4 scans. A regression fixture is a file whose only mention of the writer is in a comment.
+
+---
+
 ## BL-BELLPANEL-DISMISS-COMMENT-DRIFT — six BellPanel comments name a label the panel stopped rendering — CLOSED 2026-08-04
 
 The six comments now name the control by its ROLE ("the resolve control") rather than by a verb the
