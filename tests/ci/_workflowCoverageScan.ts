@@ -690,6 +690,16 @@ export type EnvKeyAllowlist = Record<
  *  because it cannot occur in YAML scalar text. */
 export const govKey = (key: string, valueText: string) => `${key}\u0000${valueText}`;
 export const ENV_KEY_ALLOWLIST: EnvKeyAllowlist = {
+  FONT_ARTIFACT_DIR: {
+    values: [{ text: ".next-prod", governs: [] }],
+    reason:
+      "Names the production build directory that tests/styles/fontBuiltArtifact.test.ts reads " +
+      "@font-face declarations out of. Governs no spec: it selects nothing and skips nothing — " +
+      "it is a READ path into an already-built artifact, and the reading test fails LOUD when " +
+      "the variable is set but the directory is absent rather than degrading to a silent skip, " +
+      "which is the property that makes an unset-vs-wrong-value confusion impossible to mistake " +
+      "for a pass.",
+  },
   PLAYWRIGHT_JSON_OUTPUT_NAME: {
     values: [
       {
