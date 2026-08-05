@@ -26,6 +26,8 @@ import { describe, expect, it } from "vitest";
 
 import {
   FUNCTIONS_KEY,
+  INTROSPECT_PUBLIC_FUNCTIONS_SQL,
+  type FunctionRow,
   diffManifestAgainstLive,
   encodeFunctionRow,
   functionsOf,
@@ -158,21 +160,29 @@ describe("schema manifest — function signature tier", () => {
     ]);
   });
 
-  it("NEGATIVE PROOF: a body-only difference cannot move the manifest", () => {
-    // The ratified no-body-hash bound, made structural. The introspection never
-    // selects `prosrc`, so two functions differing only in body produce byte-
-    // identical rows. If this ever fails, the tier has silently widened past
-    // what was ratified (spec §1.1 item 2).
-    const withBodyA = manifestOf(BASE);
-    const withBodyB = manifestOf(BASE);
-    expect(functionsOf(withBodyA)).toEqual(functionsOf(withBodyB));
-    // And the encoder itself has no channel for one: its input type carries no body.
-    expect(Object.keys({ name: "", args: "", result: "", definer: false })).toEqual([
-      "name",
-      "args",
-      "result",
-      "definer",
-    ]);
+  it("NEGATIVE PROOF: the tier has no body channel at all", () => {
+    // Codex R2 HIGH — the first version of this row was VACUOUS. It compared two
+    // manifests built from the same BASE rows, neither of which carried a body,
+    // and then ran `Object.keys` over an unrelated object literal. It could not
+    // have failed.
+    //
+    // The real proof is upstream of the comparison: a body cannot reach the
+    // manifest because nothing ever SELECTS one, and the row type has nowhere to
+    // put one. Both halves are asserted against the shipped artifacts.
+    expect(
+      INTROSPECT_PUBLIC_FUNCTIONS_SQL,
+      "selecting prosrc (or a SQL-body column) would widen the tier past what was ratified",
+    ).not.toMatch(/prosrc|prosqlbody/i);
+
+    // The encoder's own input, typed as FunctionRow: adding a body field would
+    // fail to compile here, and an extra runtime key would fail this assertion.
+    const row: FunctionRow = { name: "f", args: "", result: "void", definer: false };
+    expect(Object.keys(row).sort()).toEqual(["args", "definer", "name", "result"]);
+
+    // And the encoding is total over those four — two rows differing in nothing
+    // else encode identically, which is what "a body-only edit cannot move the
+    // manifest" means operationally.
+    expect(encodeFunctionRow(row)).toBe(encodeFunctionRow({ ...row }));
   });
 
   it("reports missing tables AND missing functions in one pass", () => {

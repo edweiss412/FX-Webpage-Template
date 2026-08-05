@@ -11,10 +11,12 @@
  * Three mechanisms, all built from this module:
  *   1. gen:schema-manifest introspects the LOCAL all-migrations-applied DB and
  *      writes supabase/__generated__/schema-manifest.json (public base tables →
- *      sorted column names). Ground truth, no SQL parsing.
+ *      sorted column names, PLUS public function signatures under a reserved
+ *      key). Ground truth, no SQL parsing.
  *   2. The parity test asserts the VALIDATION project is a superset of that
- *      manifest (every repo-defined public table+column is present live). THE
- *      gate. Validation extras (Phase-0 remote-only objects) are ignored.
+ *      manifest (every repo-defined public table+column AND function signature
+ *      present live). THE gate. Validation extras (Phase-0 remote-only objects)
+ *      are ignored.
  *   3. A DB-free tripwire (parseAlterAddColumns) derives the exact #9 vector —
  *      `alter table public.<t> add column <c>` — straight from the migration
  *      SQL and asserts the manifest already covers it, so a stale manifest
@@ -25,7 +27,13 @@
  * and the app's service-role client reads `public`.
  */
 
-/** Manifest shape: table name → sorted list of column names (public base tables). */
+/**
+ * Manifest shape: table name → sorted column names (public base tables).
+ *
+ * The reserved `FUNCTIONS_KEY` entry carries encoded function signatures rather
+ * than columns; `tablesOf` / `functionsOf` split the two so no consumer has to
+ * remember which is which.
+ */
 export type SchemaManifest = Record<string, string[]>;
 
 /** A column the migrations add to a public table via `alter ... add column`. */
@@ -232,6 +240,55 @@ export function parseCreatedPublicTables(sql: string): string[] {
     .filter(([, op]) => op === "create")
     .map(([t]) => t)
     .sort();
+}
+
+/**
+ * `create [or replace] function [public.]<name>(` names that survive to final
+ * state, for the DB-free Layer-1 tripwire.
+ *
+ * NAMES ONLY, and that bound is the design. The manifest keys functions by
+ * (name, identity arguments), which regex cannot recover from SQL reliably —
+ * defaults, `out` parameters and type aliases all differ between what the DDL
+ * writes and what `pg_get_function_identity_arguments` returns. A NAME is
+ * recoverable, and it answers the question Layer 1 exists to ask: did a
+ * migration add a function the committed manifest has never heard of? That is
+ * the #9 vector applied to functions — commit the migration, forget the regen,
+ * forget the validation apply, and Layer 2 then compares two equally stale sets
+ * and passes (Codex R1 HIGH).
+ *
+ * `drop function` is order-aware for the same reason tables are: a function
+ * created and later dropped must not be demanded of the manifest.
+ */
+export function parseCreatedPublicFunctions(sql: string): string[] {
+  const clean = stripSqlNoise(sql);
+  const ops: Array<{ index: number; name: string; op: "create" | "drop" }> = [];
+  const createRe = /\bcreate\s+(?:or\s+replace\s+)?function\s+(?:(\w+)\.)?(\w+)\s*\(/gi;
+  const dropRe = /\bdrop\s+function\s+(?:if\s+exists\s+)?(?:(\w+)\.)?(\w+)/gi;
+  let m: RegExpExecArray | null;
+  while ((m = createRe.exec(clean)) !== null) {
+    const schema = m[1]?.toLowerCase();
+    const name = m[2];
+    if (!name || (schema && schema !== "public")) continue;
+    ops.push({ index: m.index, name, op: "create" });
+  }
+  while ((m = dropRe.exec(clean)) !== null) {
+    const schema = m[1]?.toLowerCase();
+    const name = m[2];
+    if (!name || (schema && schema !== "public")) continue;
+    ops.push({ index: m.index, name, op: "drop" });
+  }
+  ops.sort((a, b) => a.index - b.index);
+  const final = new Map<string, "create" | "drop">();
+  for (const o of ops) final.set(o.name, o.op);
+  return [...final.entries()]
+    .filter(([, op]) => op === "create")
+    .map(([n]) => n)
+    .sort();
+}
+
+/** The function NAMES a manifest declares, from its encoded signature rows. */
+export function functionNamesOf(manifest: SchemaManifest): Set<string> {
+  return new Set(functionsOf(manifest).map((row) => row.slice(0, row.indexOf("("))));
 }
 
 /** SQL that lists public base tables and their columns (one row per column). */

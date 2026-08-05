@@ -2,7 +2,7 @@
  * tests/db/validation-schema-parity.test.ts
  *
  * The validation-schema-parity gate. Catches the class where a committed
- * migration's public tables/columns never reach the persistent validation
+ * migration's public tables/columns/functions never reach the persistent validation
  * Supabase project (the #9 "couldn't read this setting" incident: B3 migration
  * 20260602000003 added app_settings notify columns to the repo + local + CI-
  * fresh DB, but `supabase db push` is blocked on validation so a surgical apply
@@ -24,7 +24,8 @@
  *
  *   2. VALIDATION PARITY (runs against TEST_DATABASE_URL): the validation
  *      project must be a SUPERSET of the manifest — every repo-defined public
- *      table+column present live. Validation extras (Phase-0 remote-only
+ *      table+column AND function signature present live. Validation extras
+ *      (Phase-0 remote-only
  *      objects) are ignored. In CI this targets the validation project; locally
  *      (TEST_DATABASE_URL unset) it targets the local stack the manifest came
  *      from (trivially passing — the meaningful run is CI).
@@ -56,7 +57,9 @@ import {
   parsePsqlFunctionRows,
   manifestFromRows,
   parseAlterAddColumns,
+  parseCreatedPublicFunctions,
   parseCreatedPublicTables,
+  functionNamesOf,
   parsePsqlRows,
   serializeManifest,
   type SchemaManifest,
@@ -172,6 +175,35 @@ describe("validation-schema-parity", () => {
         stale.map((t) => `  - ${t}`).join("\n") +
         `\nRun \`pnpm gen:schema-manifest\` (against your local stack) and commit the result.`,
     ).toEqual([]);
+  });
+
+  it("layer 1 — every migration `create function` (public) is reflected in the committed manifest", () => {
+    // The #9 vector applied to FUNCTIONS. Without this row, a contributor who
+    // commits a locally-applied function migration and forgets BOTH the manifest
+    // regen and the validation apply gets a green gate: Layer 2 compares two
+    // equally stale function sets and agrees with itself (Codex R1 HIGH).
+    const manifest = loadManifest();
+    const known = functionNamesOf(manifest);
+    const stale = parseCreatedPublicFunctions(allMigrationsSql()).filter((f) => !known.has(f));
+    expect(
+      stale,
+      `Committed ${MANIFEST_PATH} is STALE — it is missing public function(s) that a ` +
+        `migration creates:\n` +
+        stale.map((f) => `  - ${f}`).join("\n") +
+        `\nRun \`pnpm gen:schema-manifest\` (against your local stack) and commit the result.`,
+    ).toEqual([]);
+  });
+
+  it("layer 1 — sanity: the function half is not vacuous (anti-tautology)", () => {
+    // Both sides must be non-empty, or the filter above passes for the boring
+    // reason. The migrations really do create functions and the manifest really
+    // does carry them.
+    const parsed = parseCreatedPublicFunctions(allMigrationsSql());
+    expect(
+      parsed.length,
+      "the migration corpus should declare many public functions",
+    ).toBeGreaterThan(10);
+    expect(functionNamesOf(loadManifest()).size).toBeGreaterThan(10);
   });
 
   it("layer 1 — sanity: a real created table + the #9 columns are in the manifest (anti-tautology)", () => {
