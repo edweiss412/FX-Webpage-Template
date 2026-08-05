@@ -18,6 +18,8 @@ import { homedir } from "node:os";
 import { basename, isAbsolute, join, resolve } from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 
+import { emitRow, resolveArc } from "./reviewRoundEmit.mjs";
+
 const GUARD_VERSION = 1;
 
 const DEFAULTS = {
@@ -170,6 +172,12 @@ function buildConfig(flags) {
   if (cfg.briefText.length === 0) usageError(`--brief is empty`);
   if (!existsSync(cfg.cwd) || !statSync(cfg.cwd).isDirectory())
     usageError(`--cwd is not a directory: ${cfg.cwd}`);
+  // A detached HEAD is a LIVE arc whose identity cannot be determined; silently
+  // under-recording it is the §8.2 failure, so refuse the dispatch up front
+  // rather than after the review has already been paid for. Every other refusal
+  // (not a repo, on main, no merge base) warns and skips at emit time.
+  const arc = resolveArc(cfg.cwd);
+  if (!arc.ok && arc.kind === "detached_head") usageError(arc.problem);
   if (cfg.artifacts.length > 0 && !cfg.fallback) usageError("--artifact requires --fallback");
 
   // §2.2.1 — a relative --lint-doc resolves against --cwd, never the wrapper's
@@ -703,6 +711,25 @@ async function runAttempt(cfg, n, kind, argvAfterExec, state) {
 // Result writer (§6)
 // ---------------------------------------------------------------------------
 
+// A row is telemetry attached to a review that ALREADY HAPPENED. Losing it must
+// never change the exit code or the result.json (spec §11.1) - except on a
+// detached HEAD, which is a LIVE arc whose identity cannot be determined, and
+// silently under-recording that is the §8.2 failure (refused in buildConfig).
+// Outside a repo entirely there is no arc to record, so that one warns (plan R1).
+//
+// The latch matters because `onSignal` also calls `writeResult`: a SIGTERM
+// arriving after a normal `writeResult` would otherwise append a SECOND row for
+// one dispatch, which distinct-value counting would NOT collapse (both rows
+// carry the same `round`) and which would make the report's row totals wrong.
+let reviewRowWritten = false;
+function emitReviewRoundRow(cfg, body) {
+  if (reviewRowWritten) return;
+  reviewRowWritten = true;
+  const problem = emitRow(cfg, body);
+  if (problem)
+    process.stderr.write(`codex-guard: review-round row not written: ${problem.problem}\n`);
+}
+
 function writeResult(cfg, state, patch) {
   const attempts = state.attempts.map(({ parsed: _parsed, ...a }) => a);
   const body = {
@@ -723,6 +750,7 @@ function writeResult(cfg, state, patch) {
     ...patch,
   };
   writeFileSync(join(cfg.out, "result.json"), JSON.stringify(body, null, 2) + "\n");
+  emitReviewRoundRow(cfg, body);
 }
 
 // ---------------------------------------------------------------------------
@@ -1084,30 +1112,33 @@ main().catch((e) => {
       ? [(({ parsed: _parsed, ...a }) => a)(e.attempt)]
       : []),
   ];
+  // ONE value, not two hand-synced copies: the result.json and the corpus row
+  // must never disagree about what this dispatch was.
+  const body = {
+    guardVersion: GUARD_VERSION,
+    label: cfg.label,
+    status: "no_verdict",
+    verdict: null,
+    verdictLine: null,
+    lastMessagePath: null,
+    lintArm: (cfg?.lintDocs ?? []).length > 0 ? "present" : "absent",
+    attempts,
+    failureReason: "wrapper_error",
+    error: String(e?.message ?? e),
+    startedAt: state?.startedAtIso ?? null,
+    endedAt: new Date().toISOString(),
+  };
   try {
-    writeFileSync(
-      join(cfg.out, "result.json"),
-      JSON.stringify(
-        {
-          guardVersion: GUARD_VERSION,
-          label: cfg.label,
-          status: "no_verdict",
-          verdict: null,
-          verdictLine: null,
-          lastMessagePath: null,
-          lintArm: (cfg?.lintDocs ?? []).length > 0 ? "present" : "absent",
-          attempts,
-          failureReason: "wrapper_error",
-          error: String(e?.message ?? e),
-          startedAt: state?.startedAtIso ?? null,
-          endedAt: new Date().toISOString(),
-        },
-        null,
-        2,
-      ) + "\n",
-    );
+    writeFileSync(join(cfg.out, "result.json"), JSON.stringify(body, null, 2) + "\n");
   } catch {
     /* stderr only */
+  }
+  // Outside the try above: a result.json that could not be written is no reason
+  // to lose the row too - the round still happened (spec §5.4).
+  try {
+    emitReviewRoundRow(cfg, body);
+  } catch {
+    /* telemetry never changes the exit code */
   }
   process.stderr.write(`codex-guard: wrapper_error: ${e?.message ?? e}\n`);
   process.exit(3);

@@ -43,7 +43,12 @@ export function resolveArc(cwd: string): ArcResolution {
     return { ok: false, kind: "not_a_repo", problem: `not a git repository: ${cwd}` };
   }
 
-  const branch = git(cwd, ["rev-parse", "--abbrev-ref", "HEAD"]);
+  // `symbolic-ref`, NOT `rev-parse --abbrev-ref`: on an UNBORN branch (a fresh
+  // `git init` with no commits) `rev-parse` cannot resolve HEAD to an object and
+  // fails, which reads as a detached HEAD and refuses a dispatch that should
+  // merely warn and skip. `symbolic-ref` asks the question actually being asked
+  // - is HEAD on a branch - and answers it without needing a commit.
+  const branch = git(cwd, ["symbolic-ref", "--quiet", "--short", "HEAD"]);
   if (branch === null || branch === "" || branch === "HEAD") {
     return {
       ok: false,
