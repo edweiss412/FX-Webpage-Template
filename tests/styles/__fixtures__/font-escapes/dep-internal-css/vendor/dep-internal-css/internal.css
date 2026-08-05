@@ -1,0 +1,5 @@
+@font-face {
+  font-family: "DepInternalFace";
+  src: url("dep-internal.woff2") format("woff2");
+  font-display: swap;
+}

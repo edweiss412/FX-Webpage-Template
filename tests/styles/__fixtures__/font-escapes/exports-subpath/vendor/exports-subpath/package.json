@@ -1,0 +1,7 @@
+{
+  "name": "exports-subpath",
+  "version": "1.0.0",
+  "exports": {
+    "./theme": "./styles/theme.css"
+  }
+}
