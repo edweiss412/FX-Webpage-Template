@@ -659,6 +659,34 @@ const FINDINGS_LINE = new RegExp(
   `${LABEL("FINDINGS")}${EMPHASIS_RUN}(\\d+)\\s*${EMPHASIS_RUN}\\s*$`,
 );
 
+/**
+ * Strips a leading `VERDICT:` label together with the emphasis decorating IT,
+ * and leaves emphasis that wraps the whole line for the pair-unwrap.
+ *
+ * Telling those apart is the entire job. A run belongs to the label when it
+ * CLOSES inside the label, and CommonMark closes a nested run in MIRROR order —
+ * `*__` closes with `__*`, not with `*__`. An earlier repair used a
+ * backreference, which can only express an IDENTICAL closer, so all four
+ * combined pairs failed with the colon on either side (probed 2026-08-05,
+ * cross-checked with remark-parse: 8/8 forms lost a real trailing verdict while
+ * the whole-line control succeeded).
+ *
+ * Deriving the closer from the opener rather than listing the shapes is what
+ * makes this closed over nesting depth and composition — the property the
+ * delimiter-count caps kept failing to have.
+ */
+const LABEL_STRIP = /^\s*([*_]*)VERDICT([*_]*)\s*:([*_]*)\s*/;
+function stripVerdictLabel(s) {
+  const m = LABEL_STRIP.exec(s);
+  if (!m) return s;
+  const open = m[1];
+  // Whichever side of the colon the closing run fell on; only one can be
+  // non-empty in a well-formed line, and concatenating handles both spellings.
+  const close = m[2] + m[3];
+  // Also the plain case: no opener mirrors to no closer, so `VERDICT: X` strips.
+  return close === [...open].reverse().join("") ? s.slice(m[0].length) : s;
+}
+
 function parseVerdict(text) {
   const noFences = stripCodeBlocks(text);
   // Leading markdown emphasis is stripped before the marker test: three real
@@ -714,10 +742,7 @@ function parseVerdict(text) {
     // line) came back as `VERDICT:** **APPROVE` and never recovered. Anchored
     // by a backreference inside the label, these three cannot make that mistake,
     // so they get first refusal and the unwrap sees only what they leave.
-    payload = payload
-      .replace(/^\s*([*_]+)VERDICT\s*:\1\s*/, "") // **VERDICT:** APPROVE
-      .replace(/^\s*([*_]+)VERDICT\1\s*:\s*/, "") // **VERDICT**: APPROVE
-      .replace(/^\s*VERDICT\s*:\s*/, ""); // VERDICT: APPROVE, once unwrapped
+    payload = stripVerdictLabel(payload);
     payload = payload.replace(/^(\*+|_+|`+)(.*?)\1$/, "$2");
     if (payload === before) break;
   }

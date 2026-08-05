@@ -951,6 +951,49 @@ describe("emphasis on the LABEL or the VALUE, not only around the whole line", (
     expect(result.findingCount).toBe(3);
   });
 
+  // Failure caught (reviewer probe 2026-08-05, cross-checked with
+  // remark-parse): the label strip was anchored by a BACKREFERENCE, which
+  // requires the closing run to be IDENTICAL to the opener. CommonMark nesting
+  // closes in MIRROR order - `*__` closes with `__*` - so all four combined
+  // pairs failed, with the colon on either side of the emphasis: 8/8 forms
+  // returned null while the whole-line control returned APPROVE.
+  //
+  // Fixed by comparing against the opener REVERSED, which is the actual
+  // CommonMark rule and is closed over nesting depth. Not another cap, and not
+  // an enumeration of the eight: a run of any composition is handled because
+  // the closer is derived from the opener rather than listed.
+  const COMBINED_LABEL_FORMS = [
+    "*__VERDICT:__* APPROVE",
+    "*__VERDICT__*: APPROVE",
+    "**_VERDICT:_** APPROVE",
+    "**_VERDICT_**: APPROVE",
+    "_**VERDICT:**_ APPROVE",
+    "_**VERDICT**_: APPROVE",
+    "__*VERDICT:*__ APPROVE",
+    "__*VERDICT*__: APPROVE",
+    "***VERDICT:*** APPROVE", // homogeneous run of three, same code path
+  ];
+
+  it.each(COMBINED_LABEL_FORMS)("recovers the verdict from %j", async (line) => {
+    expect(await dispatchMessage(`${line}\n`)).toMatchObject({
+      status: "verdict",
+      verdict: "APPROVE",
+      verdictLine: line,
+    });
+  });
+
+  // The mirror rule must not start eating a WRAPPER's opening run, which is the
+  // regression the backreference was protecting against in the first place.
+  it.each([["*__VERDICT: APPROVE__*"], ["**_VERDICT: APPROVE_**"], ["__*VERDICT: APPROVE*__"]])(
+    "still unwraps the whole-line form %j",
+    async (line) => {
+      expect(await dispatchMessage(`${line}\n`)).toMatchObject({
+        status: "verdict",
+        verdict: "APPROVE",
+      });
+    },
+  );
+
   // The guards must survive the widening. A bullet is still a bullet even
   // though the label may now carry its own emphasis, and a code span is still
   // quoted text.

@@ -77,11 +77,13 @@ export function parseRow(line: string): ParseResult {
   // zero would state a false total in every report.
   if (
     r.findingCount !== null &&
-    (typeof r.findingCount !== "number" || !Number.isInteger(r.findingCount) || r.findingCount < 0)
+    (typeof r.findingCount !== "number" ||
+      !Number.isSafeInteger(r.findingCount) ||
+      r.findingCount < 0)
   ) {
     return { ok: false, problem: `findingCount must be a non-negative integer or null` };
   }
-  if (r.guardVersion !== null && typeof r.guardVersion !== "number") {
+  if (r.guardVersion !== null && !Number.isSafeInteger(r.guardVersion)) {
     return { ok: false, problem: `guardVersion must be a number or null` };
   }
   return { ok: true, row: r as unknown as ReviewRoundRow };

@@ -129,6 +129,41 @@ describe("row serialization (spec §5.3)", () => {
     expect(parsed.ok).toBe(true);
   });
 
+  // The unsafe-integer defect recurred THREE times across three review rounds -
+  // `--round`, then the declared count, then `findingCount` here - because each
+  // repair fixed the named site and the sweep stopped there. So this closes the
+  // CLASS instead of the instance: the field list is derived from the fixture,
+  // so a numeric field added later is covered by default rather than silently
+  // exempt, which is the same fail-by-default posture the corpus walk uses.
+  const NUMERIC_FIELDS = Object.entries(ROW)
+    .filter(([, v]) => typeof v === "number")
+    .map(([k]) => k);
+
+  it("covers every numeric field on the row", () => {
+    // Guards the derivation itself: a fixture that stopped populating one of
+    // these would shrink the table silently and the suite would still pass.
+    expect(NUMERIC_FIELDS.sort()).toEqual(["findingCount", "guardVersion", "round"]);
+  });
+
+  it.each(NUMERIC_FIELDS)("rejects an unsafe integer in %s", (field) => {
+    // TEXT substitution: `{...ROW, [field]: <literal>}` rounds in JS before
+    // `JSON.stringify` runs, so the fixture would not carry the unsafe digits.
+    const line = JSON.stringify(ROW).replace(
+      new RegExp(`"${field}":\\d+`),
+      `"${field}":9007199254740993`,
+    );
+    expect(line).toContain("9007199254740993");
+    expect(parseRow(line).ok).toBe(false);
+  });
+
+  it.each(NUMERIC_FIELDS)("still accepts a safe integer in %s", (field) => {
+    const line = JSON.stringify(ROW).replace(
+      new RegExp(`"${field}":\\d+`),
+      `"${field}":${Number.MAX_SAFE_INTEGER}`,
+    );
+    expect(parseRow(line).ok).toBe(true);
+  });
+
   // Failure caught: `null` findingCount rejected as malformed, which would make
   // every reviewer that omits the declared line poison its own corpus.
   it("accepts a null findingCount and a non-null failureReason together", () => {
