@@ -3901,3 +3901,45 @@ The 31 standalone e2e harnesses route through `compileEntryCss` (`tests/e2e/help
 **Why it was not fixed in the attention-index change (2026-07-24).** `tests/adminAlerts/_metaResolveIntentLifecycle.test.ts` defense 5c reads the intent baseline from **`origin/main`** and asserts every historical `(code, intent)` pair still resolves identically (`tests/adminAlerts/_metaResolveIntentLifecycle.test.ts:118-124`). Both codes are `resolve` in that baseline (19 rows). Updating the in-tree baseline and the approved-confirm list does not satisfy the gate, because it compares against main's copy. Intent is append-only by design, and the test states the rationale: "rows already in admin_alerts still render it" — a persisted alert row resolves its label at render time, so flipping an intent retroactively relabels every open row of that code.
 
 **What fixing it requires.** A ratified amendment to the append-only contract, deciding that a retroactive relabel is acceptable when the original intent was simply wrong, plus the mechanism to express that (an exception list the history gate honours, or a versioned baseline). That is a contract change with its own blast radius, not a copy edit. Analysis recorded in `docs/superpowers/specs/2026-07-24-attention-index-consolidation.md` §2.6.
+
+---
+
+## BL-CAPABILITY-MATRIX-FINANCIALS-PREDICATE — the flip matrix models five predicates; the code has six — ARCHIVED 2026-08-05 (M-wave W-DOCS, `feat/m-wave`)
+
+**Resolution (2026-08-05).** Demoted and archived under the ledger filing bar (`AGENTS.md`; screen procedure `docs/superpowers/specs/2026-08-04-backlog-convergence-design.md` §2). The bar asks what a reader would actually lose by not scheduling this, and the entry answers its own question in its own words: **"Consequence today is documentary, not behavioral."** The `CAPABILITY_TRANSITION_MATRIX` has no production consumer — its only reader is `tests/visibility/capabilityTransitions.test.ts` — so a five-predicate matrix cannot make any surface render wrongly for any viewer. There is no reachable live surface, which is precisely the criterion that separates an open queue item from a documented limit.
+
+**What guards the residue.** The one genuinely wrong artifact was the header prose, and that was already repaired in the branch that filed this entry: the type comment now states the modeling boundary explicitly, and `tests/visibility/capabilityHeaderParity.test.ts` pins the quoted predicates against `lib/visibility/scopeTiles.ts` source, so the prose cannot silently drift from the code again. What remains is a modeling gap that a test already describes accurately — a matrix that models five of six predicates, said out loud.
+
+**M-wave carried this without a new user ask** (spec §1.1 item 8: filing-bar demotions ride along under already-ratified policy). No product decision was needed; the policy screen is the decision.
+
+**The fix and its trigger are preserved below verbatim**, so a pickup starts from the analysis: add `hasFinancials` to `CapabilityPredicate`, expand C(5,2)=10 to C(6,2)=15 entries with their deltas, and update the length assertion at `tests/visibility/capabilityTransitions.test.ts:40`. Trigger: the next milestone touching scope-tile visibility, the financials entitlement, or the matrix itself — at which point the 15-row expansion is cheap because that milestone is already holding the context this one would have had to re-earn.
+
+---
+
+**Filed:** 2026-08-03 (`chore/orphan-components-lead-prose`, settling `BL-LEAD-CAPABILITY-PROSE-STALE`) · **Class:** docs/contract drift · **Severity:** low · **Effort:** M
+
+`CAPABILITY_TRANSITION_MATRIX` (`lib/visibility/capabilityTransitions.ts`) enumerates the 10
+unordered pairs of five predicates — `hasLead`, `hasA1`, `hasV1`, `hasL1`, `hasAdmin`
+(`lib/visibility/capabilityTransitions.ts:53`). The `FINANCIALS` role flag, added to
+`financialsVisible` at `e348c81ca` (2026-07-16, `lib/visibility/scopeTiles.ts:141`), is not among
+them. The type comment at `lib/visibility/capabilityTransitions.ts:48-51` claims a new predicate
+"surfaces here AND in the matrix as a TypeScript error if the matrix is incomplete"; that mechanism
+did not fire, because nothing added the flag to the union.
+
+**Consequence today is documentary, not behavioral.** The matrix has no production consumer — its
+only reader is `tests/visibility/capabilityTransitions.test.ts`. But its own definition of a
+recorded delta ("the flip is SUFFICIENT to change visibility regardless of the other predicate",
+`lib/visibility/capabilityTransitions.ts:126-131`) is no longer literally true for `FinancialsTile`:
+a `hasLead` flip does not toggle it for a viewer who also holds `FINANCIALS`. The header now states
+that modeling boundary explicitly, and `tests/visibility/capabilityHeaderParity.test.ts` pins the
+quoted predicates against `scopeTiles.ts` source, so the prose cannot drift again — but the MATRIX
+is still five-predicate.
+
+**Fix (when prioritized):** add `hasFinancials` to `CapabilityPredicate`, expand the matrix from
+C(5,2)=10 to C(6,2)=15 entries with their deltas, and update the structural test's length assertion
+(`tests/visibility/capabilityTransitions.test.ts:40`). Deliberately NOT done in a prose branch: it
+is a design change with a 15-row blast radius, and the settled question there was whether the
+header quote was stale (it was).
+
+**Trigger:** the next milestone touching scope-tile visibility, the financials entitlement, or the
+matrix itself.

@@ -781,36 +781,6 @@ ParsePanel was not alone. Shape swept: **a file under `components/` that no file
 
 **The debt is still not silent**, and it gained a second guard. `tests/components/_metaOrphanedComponents.test.ts` walks `components/**` every run and fails on any zero-production-importer file absent from `ORPHAN_ALLOWLIST`; `tests/docs/retiredIdentifierReferences.test.ts` walks every tracked file for references to what this branch retired, keyed by line content, so a stale citation to a deleted component cannot survive either. Emptying the allowlist is no longer this entry's goal; keeping every row's reason true is.
 
-## BL-CAPABILITY-MATRIX-FINANCIALS-PREDICATE — the flip matrix models five predicates; the code has six
-
-**Status:** IN PROGRESS · **Branch:** feat/m-wave · **Filed:** 2026-08-03 (`chore/orphan-components-lead-prose`, settling `BL-LEAD-CAPABILITY-PROSE-STALE`) · **Class:** docs/contract drift · **Severity:** low · **Effort:** M
-
-`CAPABILITY_TRANSITION_MATRIX` (`lib/visibility/capabilityTransitions.ts`) enumerates the 10
-unordered pairs of five predicates — `hasLead`, `hasA1`, `hasV1`, `hasL1`, `hasAdmin`
-(`lib/visibility/capabilityTransitions.ts:53`). The `FINANCIALS` role flag, added to
-`financialsVisible` at `e348c81ca` (2026-07-16, `lib/visibility/scopeTiles.ts:141`), is not among
-them. The type comment at `lib/visibility/capabilityTransitions.ts:48-51` claims a new predicate
-"surfaces here AND in the matrix as a TypeScript error if the matrix is incomplete"; that mechanism
-did not fire, because nothing added the flag to the union.
-
-**Consequence today is documentary, not behavioral.** The matrix has no production consumer — its
-only reader is `tests/visibility/capabilityTransitions.test.ts`. But its own definition of a
-recorded delta ("the flip is SUFFICIENT to change visibility regardless of the other predicate",
-`lib/visibility/capabilityTransitions.ts:126-131`) is no longer literally true for `FinancialsTile`:
-a `hasLead` flip does not toggle it for a viewer who also holds `FINANCIALS`. The header now states
-that modeling boundary explicitly, and `tests/visibility/capabilityHeaderParity.test.ts` pins the
-quoted predicates against `scopeTiles.ts` source, so the prose cannot drift again — but the MATRIX
-is still five-predicate.
-
-**Fix (when prioritized):** add `hasFinancials` to `CapabilityPredicate`, expand the matrix from
-C(5,2)=10 to C(6,2)=15 entries with their deltas, and update the structural test's length assertion
-(`tests/visibility/capabilityTransitions.test.ts:40`). Deliberately NOT done in a prose branch: it
-is a design change with a 15-row blast radius, and the settled question there was whether the
-header quote was stale (it was).
-
-**Trigger:** the next milestone touching scope-tile visibility, the financials entitlement, or the
-matrix itself.
-
 ## BL-RESYNC-REGRESSED-JUMP-LINK — the alert's "open the parse panel" pointer is prose, not an affordance
 
 **Status:** IN PROGRESS · **Branch:** feat/m-wave · **Severity:** LOW-MEDIUM (discoverability) · **Class:** UX — surfaced by the correction-loop de-duplication (#516, 2026-07-20) · **Effort:** M
