@@ -28,7 +28,7 @@ That test is comment-blind. Adding a doc comment that merely _names_ `upsertAdmi
 
 ## BL-SHADOW-REBUILD-EXHAUSTED-EMIT-PLACEMENT — a durable event for a committed row is skipped when the outer finalize rolls back
 
-**Status:** OPEN · **Severity:** LOW-MEDIUM (lost forensic event; no data impact) · **Class:** telemetry durability · **Filed:** 2026-08-03 (`fix/apply-undo-audit-fidelity`, spec §2.3, deferred under class-sweep exception (a)) · **Effort:** S once the product question is settled
+**Status:** IN PROGRESS · **Branch:** chore/sweep-guards-tests · **Status:** OPEN · **Severity:** LOW-MEDIUM (lost forensic event; no data impact) · **Class:** telemetry durability · **Filed:** 2026-08-03 (`fix/apply-undo-audit-fidelity`, spec §2.3, deferred under class-sweep exception (a)) · **Effort:** S once the product question is settled
 
 `logAdminOutcome({ code: "ONBOARDING_SHADOW_REBUILD_EXHAUSTED", … })` (`app/api/admin/onboarding/finalize-cas/route.ts:1025-1038`) fires inside `runFinalizeCas`, which runs inside the outer `deps.withTx` holding `tryFinalizeLock` (`app/api/admin/onboarding/finalize-cas/route.ts:905`). The row mutation it describes commits in its own `withRowTx`, independently of that outer transaction — so when the outer commit fails, the mutation stands and the event describing it is silently skipped.
 
@@ -83,7 +83,7 @@ screen-disposition 2026-08-04: KEEP — probe (`tests/sync/capabilityLossReachab
 
 ## BL-LEDGER-BODY-DEFINED-ID-OVERMINT — any bold lone id at a bullet lead defines, so a mention can mint an id
 
-**Status:** OPEN · **Severity:** low (latent, not live) · **Class:** guard precision · **Filed:** 2026-08-03 (`chore/ledger-claim-visibility`, spec §9.2) · **Effort:** S
+**Status:** IN PROGRESS · **Branch:** chore/sweep-guards-tests · **Status:** OPEN · **Severity:** low (latent, not live) · **Class:** guard precision · **Filed:** 2026-08-03 (`chore/ledger-claim-visibility`, spec §9.2) · **Effort:** S
 
 `bodyDefinedIds` (`tests/docs/_ledgerMdast.ts:346`) does not require a separator after the bold id,
 so any bold lone id at a bullet lead defines. A bullet whose bold id is followed by ordinary prose,
@@ -189,7 +189,7 @@ So the fix shape is **not** "grep harder". It is: enumerate every `describe.skip
 
 ## BL-WARNING-SCAN-SCOPE-HAS-NO-ANCHOR — the recognizer signals unresolvable sites, but a narrowed scan scope drops codes with nothing to signal
 
-**Filed:** 2026-08-03 (from a duplicate implementation of `BL-INTERNAL-CODE-ENUM-SCAN-WIDEN`, abandoned once `chore/scanner-precision-cluster` merged first; this is the one finding of that run not already covered). **Class:** guard completeness. **Effort:** S.
+**Status:** IN PROGRESS · **Branch:** chore/sweep-guards-tests · **Filed:** 2026-08-03 (from a duplicate implementation of `BL-INTERNAL-CODE-ENUM-SCAN-WIDEN`, abandoned once `chore/scanner-precision-cluster` merged first; this is the one finding of that run not already covered). **Class:** guard completeness. **Effort:** S.
 
 `scanParseWarningSites` is fail-closed for sites it VISITS: a construction whose code the checker cannot resolve is signalled rather than dropped (`lib/messages/__internal__/parseWarningSites.ts`). The scope it visits is a different question. `inWarningScanRoots` (`scripts/extract-internal-code-enums.ts:42-49`) is a hand-written predicate — `^(lib|app)/`, minus `lib/dev/`, the generated dir, and `catalog.ts` — and **a file the predicate never admits produces no site, so there is nothing to signal.** Narrow the predicate, or land an emitter outside `lib/`|`app/`, and the universe shrinks silently while every existing assertion stays green.
 
@@ -203,7 +203,7 @@ Probed on the abandoned branch, against an equivalent recognizer: excluding one 
 
 ## BL-FRESHNESS-ABORTED-CLOSE-E2E — the freshness cue's clear-on-hide branch has no behavioural proof
 
-**Filed:** 2026-08-03 (round-3 cross-model review of `feat/modal-freshness-cue`) · **Class:** test coverage · **Effort:** S (one e2e case on an existing spec) · **Severity:** low
+**Status:** IN PROGRESS · **Branch:** chore/sweep-guards-tests · **Filed:** 2026-08-03 (round-3 cross-model review of `feat/modal-freshness-cue`) · **Class:** test coverage · **Effort:** S (one e2e case on an existing spec) · **Severity:** low
 
 `PublishedReviewModal`'s clear-on-hide branch fires when the published review modal is HIDDEN without unmounting — an aborted close, where the shell animates out but the component holding the freshness state stays mounted. Without it a live cue survives the hide and resumes on reopen with whatever was left of its 1600ms timer.
 
@@ -445,7 +445,7 @@ The last unexploited lever on unit-suite wall clock is the ~101s of per-leg FIXE
 
 ## BL-SECTION-HEADER-VISUAL-REQUIRED-CONTEXT — promote the visual gate into branch protection's required set after soak
 
-**Status:** OPEN · **Severity:** low · **Class:** CI wiring · **Filed:** 2026-07-27 (reconciliation — the one live follow-up carried out of `BL-HEADER-PROBE-RESIDUAL-VACUITY` when it graduated to `BACKLOG-archive.md`) · **Effort:** XS
+**Status:** IN PROGRESS · **Branch:** chore/sweep-guards-tests · **Status:** OPEN · **Severity:** low · **Class:** CI wiring · **Filed:** 2026-07-27 (reconciliation — the one live follow-up carried out of `BL-HEADER-PROBE-RESIDUAL-VACUITY` when it graduated to `BACKLOG-archive.md`) · **Effort:** XS
 
 `section-header-visual` (`.github/workflows/section-header-visual.yml`) runs as an unfiltered PR gate, but it is NOT in branch protection's required-context set, so a red run is a visible failing check that does not block merge at the GitHub layer. Deliberate at ship time: the spec ratifies promotion as a follow-up after observed-green runs, not part of that branch (`docs/superpowers/specs/2026-07-26-header-probe-residual-closure-design.md` §1.1). Same class as the required-set note in `BL-E2E-LIFECYCLE-SPECS-CI-DARK`: an owner GitHub-settings action, not repo code — the live required set held twelve contexts when last measured (2026-07-26). **Trigger:** observed-green soak of `section-header-visual` on merged PRs, then the owner adds the context.
 
@@ -517,7 +517,7 @@ The DB-free serial→parallel reclassification (PR #528, closed unmerged) is cor
 
 ## BL-REALTIME-BROADCAST-FRAME-DROP-WATCH — ~9% local broadcast-frame loss on a healthy socket
 
-**Filed:** 2026-07-24 (retroactive — recorded in PR #505's residuals 2026-07-20, never filed) · **Class:** observability watch item · **Effort:** S (read CI history) to M (if real)
+**Status:** IN PROGRESS · **Branch:** chore/sweep-guards-tests · **Filed:** 2026-07-24 (retroactive — recorded in PR #505's residuals 2026-07-20, never filed) · **Class:** observability watch item · **Effort:** S (read CI history) to M (if real)
 
 PR #505 measured local realtime silently dropping ~9% of broadcast frames on an otherwise healthy socket; absorbed by CI runner retries and explicitly NOT a code defect of that diff. Filed as a watch item so the observation is not lost: if the drop rate is an artifact of the local stack it should disappear against validation/prod, and if it does not, subscriber code that assumes every broadcast arrives needs a reconcile-on-focus fallback.
 
@@ -583,7 +583,7 @@ screen-disposition 2026-08-04: KEEP — probe-adjacent evidence already in the t
 
 ## BL-TELEMETRY-FALLBACK-RETRY — the scheduled-job health fallback states the cause but offers no retry
 
-**Status:** OPEN · **Severity:** low (developer-tier surface) · **Surfaced:** #601 impeccable critique (2026-07-25), P1 partially addressed · **Effort:** S
+**Status:** IN PROGRESS · **Branch:** chore/sweep-guards-tests · **Status:** OPEN · **Severity:** low (developer-tier surface) · **Surfaced:** #601 impeccable critique (2026-07-25), P1 partially addressed · **Effort:** S
 
 `app/admin/dev/telemetry/page.tsx:84` now reads "Couldn't load scheduled-job health right now. The jobs are probably still running." — the second sentence landed in the #601 follow-up because the critique was right that the old one-liner named neither a cause nor a recourse at the moment Doug's stress is highest. What it still lacks is the recourse half: there is no retry control, so the only way to re-read is a full page reload.
 
@@ -758,7 +758,7 @@ The rec-5 mutation-testing harness (`tests/parser/mutationHarness.test.ts`, nigh
 
 ### BL-TASKCONTRACT-SORT-COMPARATOR-EQUALKEY — finding-order comparator is unpinnable for equal `(docLine, code)` pairs
 
-**Status:** OPEN (2026-08-04, `feat/mutation-gate-guard-surfaces`) · **Severity:** low · **Class:** TEST COVERAGE · **Effort:** S
+**Status:** IN PROGRESS · **Branch:** chore/sweep-guards-tests · **Status:** OPEN (2026-08-04, `feat/mutation-gate-guard-surfaces`) · **Severity:** low · **Class:** TEST COVERAGE · **Effort:** S
 
 Two source mutants of the `findings.sort(...)` comparator at `lib/specLint/taskContract.ts:247` survive the suite and cannot be killed through the function's output: `a.code > b.code` → `>=` and the final `: 0` → `: 1`. Both are reached only when `a.docLine - b.docLine` is `0`, and each differs from clean behavior only when the two `code` values are ALSO equal — for unequal codes both take an identical path.
 
@@ -1286,7 +1286,7 @@ Plus fifteen conditionally-mounted region elements across thirteen sites (a cond
 
 ### BL-CANONICAL-CLASS-ARRAY-BLINDSPOT — eslint canonical-class rule does not scan `[...].join(" ")` array classNames
 
-**Filed:** 2026-06-21 from the `chore/lint-format-ci-gates` adversarial review (hygiene lens).
+**Status:** IN PROGRESS · **Branch:** chore/sweep-guards-tests · **Filed:** 2026-06-21 from the `chore/lint-format-ci-gates` adversarial review (hygiene lens).
 
 **Effort:** S
 
