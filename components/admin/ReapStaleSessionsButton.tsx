@@ -151,32 +151,44 @@ export function ReapStaleSessionsButton() {
         </div>
       ) : null}
 
-      {state.kind === "done" ? (
-        <div
-          role="status"
-          data-testid="reap-stale-sessions-result"
-          className="flex flex-col gap-1 rounded-md border border-border bg-surface-sunken p-tile-pad text-sm text-text-strong"
-        >
-          <p>
-            {state.cleaned === 0 && state.unstable === 0
-              ? "Nothing to clean up. No old setup leftovers were found."
-              : state.cleaned === 0
-                ? // cleaned=0 with unstable>0: never claim a 0-session success
-                  // (impeccable HIGH — false-success copy while debris remains).
-                  "Nothing was cleaned up this run."
-                : `Cleaned up leftovers from ${state.cleaned} old setup ${
-                    state.cleaned === 1 ? "session" : "sessions"
-                  }.`}
-          </p>
-          {state.unstable > 0 ? (
-            <p data-testid="reap-stale-sessions-result-unstable">
-              {state.unstable === 1
-                ? "1 session couldn't be cleaned this run. Try again."
-                : `${state.unstable} sessions couldn't be cleaned this run. Try again.`}
+      {/* Mounted unconditionally, contents toggled (BL-ANNOUNCE-REGION-UNMOUNT-CLASS):
+          a live region inserted together with its text is never announced, and
+          this result exists only after the action — the case where insertion and
+          announcement coincide. The body is rich but carries no interactive
+          content, so it can live inside the region; where a block holds a button
+          or a link the announcement moves to a channel instead. */}
+      <div
+        role="status"
+        data-testid="reap-stale-sessions-result"
+        className={
+          state.kind === "done"
+            ? "flex flex-col gap-1 rounded-md border border-border bg-surface-sunken p-tile-pad text-sm text-text-strong"
+            : "sr-only"
+        }
+      >
+        {state.kind === "done" ? (
+          <>
+            <p>
+              {state.cleaned === 0 && state.unstable === 0
+                ? "Nothing to clean up. No old setup leftovers were found."
+                : state.cleaned === 0
+                  ? // cleaned=0 with unstable>0: never claim a 0-session success
+                    // (impeccable HIGH — false-success copy while debris remains).
+                    "Nothing was cleaned up this run."
+                  : `Cleaned up leftovers from ${state.cleaned} old setup ${
+                      state.cleaned === 1 ? "session" : "sessions"
+                    }.`}
             </p>
-          ) : null}
-        </div>
-      ) : null}
+            {state.unstable > 0 ? (
+              <p data-testid="reap-stale-sessions-result-unstable">
+                {state.unstable === 1
+                  ? "1 session couldn't be cleaned this run. Try again."
+                  : `${state.unstable} sessions couldn't be cleaned this run. Try again.`}
+              </p>
+            ) : null}
+          </>
+        ) : null}
+      </div>
 
       {state.kind === "error" ? (
         <div

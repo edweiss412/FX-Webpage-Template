@@ -92,7 +92,6 @@ const PENDING: ReadonlyMap<string, string> = new Map([
     "app/admin/show/[slug]/RotateShareTokenButton.tsx",
     "2 sites — ONE shared region, text switches",
   ],
-  ["components/admin/ReapStaleSessionsButton.tsx", "1 site — rich body, channel"],
   // Found by THIS walk, not by the entry's filed list — which is the argument
   // for walking rather than listing.
   ["components/admin/wizard/Step3ReviewModal.tsx", "2 sites — toggle text"],
