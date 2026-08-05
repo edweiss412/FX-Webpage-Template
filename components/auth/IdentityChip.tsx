@@ -47,21 +47,29 @@ export function IdentityChip({
       {/* The middle dot is `aria-hidden`, which is right — nobody wants "middle
           dot" spoken — but it leaves the accessible name as one run-on phrase,
           "Eric Weiss Lead A2", with no boundary between the person and the job.
-          The `aria-label` supplies in a comma what the separator supplies
-          visually: a pause. It OVERRIDES the children's text rather than adding
-          to it, so the visible run is untouched and no comma reaches the screen.
-          Either part may be blank while a picker round-trip is in flight, so the
-          two are joined only when both are present — "Eric Weiss," is a worse
-          utterance than the run-on this replaces. */}
-      <span
-        data-testid="identity-chip-identity"
-        aria-label={[name, role]
-          .map((s) => s.trim())
-          .filter(Boolean)
-          .join(", ")}
-        className="text-sm font-semibold text-text-strong"
-      >
+
+          The separator is a real sr-only TEXT NODE, not an `aria-label`. A
+          <span> with no role maps to `role=generic`, which PROHIBITS
+          aria-label/labelledby (ARIA 1.2; axe-core `aria-prohibited-attr`).
+          Chrome and Safari commonly honor it anyway, but nothing requires them
+          to, and browse-mode AT frequently does not — so the first version of
+          this fix may never have reached a reader. A text node is honored
+          everywhere and needs no role override.
+
+          It cannot be caught by the suite alone: this repo runs no axe gate, and
+          `toHaveAccessibleName` resolves through jsdom's accname implementation,
+          which does not enforce the prohibition. The test therefore asserts this
+          DOM shape rather than a computed name.
+
+          Rendered only when BOTH parts are present, so a picker round-trip that
+          leaves one blank does not speak a leading or trailing comma. */}
+      <span data-testid="identity-chip-identity" className="text-sm font-semibold text-text-strong">
         {name}
+        {name.trim() !== "" && role.trim() !== "" && (
+          <span data-testid="identity-chip-sr-separator" className="sr-only">
+            {", "}
+          </span>
+        )}
         <span className="text-text-subtle font-medium" aria-hidden="true">
           {" · "}
         </span>

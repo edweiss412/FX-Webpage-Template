@@ -179,7 +179,12 @@ describe("no assertion in this diff is silently vacuous", () => {
         // name cannot appear here at all: the spawn-convention guard under
         // tests/cross-cutting/ matches it lexically, and any file naming it
         // alongside a spawn call is required to reference the absolute bin.
-        .filter((f) => /\.(ts|mjs)$/.test(f));
+        .filter((f) => f !== "");
+    // Unfiltered vs in-range, recorded from the SAME invocation so the two can
+    // never diverge — and so no second `git diff` is needed. A three-dot diff
+    // throws on the shallow CI checkout, which is the whole reason the fetch
+    // fallback below uses two dots.
+    const inRange = (all: string[]) => all.filter((f) => /\.(ts|mjs)$/.test(f));
 
     let files: string[];
     // The base actually used, recorded as it is chosen. The previous version
@@ -225,10 +230,28 @@ describe("no assertion in this diff is silently vacuous", () => {
       }
     }
 
-    // Zero files is the CORRECT answer on a main push, where the base IS HEAD --
-    // this suite runs on `push: main`, so demanding a non-empty set would fail
-    // the guard on every merge. It is a defect only when base and HEAD differ.
-    if (!(files.length === 0 && base !== null && base === rev("HEAD"))) {
+    // Zero files is the CORRECT answer in two cases, and the vacuity check must
+    // excuse both or it fails branches doing nothing wrong.
+    //
+    //  1. A main push, where the base IS HEAD -- this suite runs on `push: main`,
+    //     so demanding a non-empty set would fail the guard on every merge.
+    //  2. A branch whose diff is NON-EMPTY but contains no file this guard scans.
+    //     The helper above deliberately narrows to `.ts`/`.mjs`, reasoning that
+    //     "this branch's surface is scripts and tests". True of the branch that
+    //     wrote it; not true in general, because this guard runs on EVERY branch
+    //     and a component-only branch legitimately has nothing in range. Conflating
+    //     "changed nothing I scan" with "the guard is broken" failed
+    //     `fix/identity-chip-sr-separator-mechanism`, whose entire diff is one
+    //     component and its test — neither of which this guard scans.
+    //
+    // What remains is the check worth having: an EMPTY diff where base and HEAD
+    // differ means the diff resolution itself went wrong. Proven by mutant --
+    // forcing rawDiffCount to 0 makes this fire again.
+    const rawDiffCount = files.length;
+    files = inRange(files);
+    const legitimatelyEmpty =
+      files.length === 0 && base !== null && (base === rev("HEAD") || rawDiffCount > 0);
+    if (!legitimatelyEmpty) {
       expect(files.length, "no source files to scan — the guard would be vacuous").toBeGreaterThan(
         0,
       );
