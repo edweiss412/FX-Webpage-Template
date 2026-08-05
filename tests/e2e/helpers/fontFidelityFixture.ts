@@ -27,21 +27,39 @@
 // spec has one test per vantage, and removing any single mechanism turns exactly
 // one of them red.
 //
-// It does NOT ENFORCE per-caller font fidelity, and saying so plainly is the
-// point. An enforcement layer was built on top of these vantages and REMOVED
-// again, because mutation refused it: emitting an impostor face from
-// compileEntryCss (family "NotInter", src local("Arial"), token repointed) left
-// `toggle-edge-layout` green through three successive fixes. Instrumenting the
-// vantages showed pre-navigate inspecting the OUTGOING document and the page
-// sitting on about:blank by teardown (`faces=[] body=Times`), so the loaded
-// harness document was never the one a firing vantage saw. Shipping a check
-// that cannot fail would be worse than shipping none: it reads as coverage.
+// It NOW ENFORCES the registered-face half (BL-HARNESS-FIXTURE-ENFORCEMENT).
+// Every observation records the document's registered `@font-face` families, and
+// `enforce()` fails the test when one appears that `app/fonts.css` does not
+// declare. The kill criterion is the entry's own live mutant: emitting an
+// impostor face from compileEntryCss (family "NotInter", src local("Arial"),
+// token repointed) now turns `toggle-edge-layout` RED, where it stayed green
+// through three earlier attempts.
 //
-// THE CONTRACT IS PROVEN ELSEWHERE, in CI, end to end:
+// WHY THOSE ATTEMPTS FAILED, measured rather than reasoned about. Two defects
+// stacked. Every vantage this fixture had observes a document that is ENDING —
+// pre-navigate inspects the OUTGOING one, blank before the first goto — so none
+// of them saw the document under test; `post-navigate` is the vantage that does.
+// And `observe()` recorded only when the element WALK returned a family, but an
+// empty family set joins to "" and "" is falsy, so a document that had registered
+// faces and painted no text yet recorded NOTHING and was indistinguishable from a
+// vantage that never fired. That is why adding a post-navigate vantage alone "did
+// not close it": measured on toggle-edge-layout, the loaded harness document
+// reports `families=[]` and `faces=["Inter","Inter Fallback"]`. Checking the FACE
+// set is what makes the vantage reachable, and the entry says why in one line —
+// whether a face is REGISTERED is independent of whether the body has children.
+//
+// STILL A DOCUMENTED LIMIT: a caller-local `font-family: Arial` override on an
+// element. That is a computed-family defect, not a registration one, and the
+// computed-family universe across 32 harnesses is wide enough (per-caller token
+// stacks, mono and serif utilities, sr-only text) that asserting over it would
+// trade this guard's precision for false positives. The face set is exact; the
+// family set is not, and a check that has to be relaxed on its first real caller
+// is the same "reads as coverage" failure in a new place.
+//
+// THE WIDTH CONTRACT IS PROVEN ELSEWHERE, in CI, end to end:
 // `tests/e2e/harness-font-face.spec.ts` asserts the emitted face is requested
 // (200), reaches `loaded` with its variable axis intact, and renders within
 // 0.5px of an expectation computed from the committed bytes with fontkit.
-// `BL-HARNESS-FIXTURE-ENFORCEMENT` tracks wiring the oracle into these vantages.
 //
 // THE VANTAGES DIFFER IN WHAT THEY CAN RUN, and pretending otherwise would
 // specify something the platform does not offer. `pagehide` fires as a document
@@ -52,9 +70,15 @@
 // under a correct family name. The gap is precise, documented, and narrow:
 // every one of the 32 callers navigates programmatically today, so each reaches
 // an awaiting vantage first.
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
 import { test as base, expect, type BrowserContext, type Frame, type Page } from "@playwright/test";
 
+import { familyOf, parseFontFaces } from "../../helpers/fontCss";
 import { PROBE_FONT_SIZE_PX, PROBE_STYLE, WIDTH_TOLERANCE_PX, expectedWidth } from "./fontOracle";
+
+const REPO_ROOT_FOR_FACES = join(__dirname, "..", "..", "..");
 
 export { expect };
 export type { BrowserContext, Page };
@@ -63,6 +87,8 @@ export type { BrowserContext, Page };
 interface Observation {
   readonly via: string;
   readonly families: string[];
+  /** Registered `@font-face` families. Independent of whether anything rendered. */
+  readonly faces: string[];
 }
 
 const collected: Observation[] = [];
@@ -120,10 +146,40 @@ const WALK = (): string | null => {
   return [...families].join(" ~ ");
 };
 
+/**
+ * The registered `@font-face` families of a document.
+ *
+ * SEPARATE FROM THE WALK, and that separation is the whole repair. `WALK`
+ * answers "what do rendered elements resolve to", which is empty for a document
+ * that has registered faces but painted no text yet — and `observe()` used to
+ * drop exactly that case, because an empty family set joins to `""` and `""` is
+ * falsy. A vantage that fired on a real document therefore recorded NOTHING and
+ * was indistinguishable from a vantage that never fired, which is why adding a
+ * post-navigate vantage "did not close it" (BL-HARNESS-FIXTURE-ENFORCEMENT).
+ *
+ * Whether a face is REGISTERED is independent of whether the body has children,
+ * which the entry states directly. `document.fonts` is populated as soon as the
+ * stylesheet parses, so this vantage sees an impostor face the instant the
+ * document loads, before anything renders.
+ */
+const FACES = (): string[] => {
+  const seen = new Set<string>();
+  document.fonts.forEach((f) => seen.add(f.family.replace(/^["']|["']$/g, "")));
+  return [...seen];
+};
+
 /** Record an observation from a frame, tolerating a document already gone. */
 async function observe(frame: Frame | Page, via: string): Promise<void> {
   const families = await frame.evaluate(WALK).catch(() => null);
-  if (families) collected.push({ via, families: families.split(" ~ ") });
+  const faces = await frame.evaluate(FACES).catch(() => null);
+  // Record when EITHER half saw something. Gating on `families` alone dropped
+  // every document that had registered a face but not yet painted text.
+  if (!families && (faces === null || faces.length === 0)) return;
+  collected.push({
+    via,
+    families: families ? families.split(" ~ ") : [],
+    faces: faces ?? [],
+  });
 }
 
 /** Observe every frame of a page. A page is not its frames (round 29). */
@@ -155,14 +211,25 @@ export const test = base.extend<{ fontOracle: void }>({
       ...args: unknown[]
     ): Promise<BrowserContext> => {
       const ctx = await (original as (...a: unknown[]) => Promise<BrowserContext>)(...args);
-      await ctx.exposeBinding("__fontOracle", (_source, families: string) => {
-        if (families) collected.push({ via: "pagehide", families: families.split(" ~ ") });
-      });
+      await ctx.exposeBinding(
+        "__fontOracle",
+        (_source, seen: { families: string; faces: string[] }) => {
+          if (seen.families || seen.faces.length > 0) {
+            collected.push({
+              via: "pagehide",
+              families: seen.families ? seen.families.split(" ~ ") : [],
+              faces: seen.faces,
+            });
+          }
+        },
+      );
       await ctx.addInitScript({
         content: `const __walk = ${WALK.toString()};
+          const __faces = ${FACES.toString()};
           addEventListener("pagehide", () => {
             const f = __walk();
-            if (f && window.__fontOracle) window.__fontOracle(f);
+            const faces = __faces();
+            if ((f || faces.length) && window.__fontOracle) window.__fontOracle({ families: f, faces });
           });`,
       });
       const originalClose = ctx.close.bind(ctx);
@@ -192,7 +259,17 @@ export const test = base.extend<{ fontOracle: void }>({
       const original = (page[method] as (...a: unknown[]) => Promise<unknown>).bind(page);
       (page as unknown as Record<string, unknown>)[method] = async (...a: unknown[]) => {
         await observePage(page, "pre-navigate");
-        return original(...a);
+        const result = await original(...a);
+        // THE VANTAGE THAT SEES THE LOADED DOCUMENT. Every other vantage in this
+        // fixture observes a document that is ENDING: pre-navigate inspects the
+        // outgoing one (blank before the first goto), pagehide fires as one is
+        // destroyed, pre-close and after-body run when the page has already
+        // moved on — measured at `faces=[] body=Times` on about:blank. So no
+        // vantage saw the document under test, and enforcement built on them
+        // could not fail. This one runs after the navigation resolves, on the
+        // document the caller actually asked for.
+        await observePage(page, "post-navigate");
+        return result;
       };
     }
     // page.close() is its own ending, distinct from context.close(): a frame
@@ -208,15 +285,82 @@ export const test = base.extend<{ fontOracle: void }>({
   /** After-body sweep, for documents that simply outlive the test. */
   fontOracle: [
     async ({ context }, provide) => {
+      const mark = collected.length;
       await provide();
       for (const page of context.pages()) {
         if (page.isClosed()) continue;
         await observePage(page, "after-body");
       }
+      if (process.env.FONT_ORACLE_DUMP === "1") {
+        for (const o of collected.slice(mark)) {
+          process.stdout.write(
+            `[font-oracle] via=${o.via} faces=${JSON.stringify(o.faces)} families=${JSON.stringify(o.families)}\n`,
+          );
+        }
+      }
+      enforce(collected.slice(mark));
     },
     { auto: true },
   ],
 });
+
+/**
+ * The `@font-face` families a harness document may register.
+ *
+ * DERIVED FROM `app/fonts.css`, not listed here, for the same reason
+ * `emitCommittedFace` derives the emitted block from it rather than duplicating
+ * it: the two cannot drift the first time one is edited. That file is exactly
+ * what `compileEntryCss` appends, so adding a legitimate face there admits it
+ * automatically, while a face arriving from anywhere else — a caller's CSS, a
+ * dependency, a mutant — is not in the set and cannot be.
+ *
+ * This is not circular with respect to what the guard catches. The impostor is
+ * injected into the COMPILED OUTPUT, downstream of `app/fonts.css`; deriving the
+ * accept-set from the source stylesheet is precisely what makes the injected
+ * face inadmissible.
+ */
+const allowedFaces = (): ReadonlySet<string> =>
+  new Set(
+    parseFontFaces(readFileSync(join(REPO_ROOT_FOR_FACES, "app", "fonts.css"), "utf8")).map(
+      familyOf,
+    ),
+  );
+
+/**
+ * Assert what the vantages observed.
+ *
+ * SCOPED TO REGISTERED FACES, not computed families. A face set is exact: the
+ * toolchain emits one, so anything else is a defect with no judgement call. The
+ * computed-family universe across 32 harnesses is wide (each caller's own token
+ * stack, mono and serif utilities, `sr-only` text), and asserting over it would
+ * trade this guard's precision for false positives — the caller-local
+ * `font-family` override therefore stays a DOCUMENTED LIMIT below rather than a
+ * check that has to be relaxed on its first real caller.
+ */
+function enforce(seen: readonly Observation[]): void {
+  const allowed = allowedFaces();
+  // PREMISE. The accept-set is read from a file, and a read that silently
+  // yielded nothing would make every comparison below vacuously true — the
+  // exact shape `tests/_shared/premise.ts` exists to prevent. `app/fonts.css`
+  // declares Inter and its size-adjust fallback, so an empty or one-element set
+  // means the parse broke, not that the stylesheet shrank.
+  if (allowed.size < 2) {
+    throw new Error(
+      `font oracle: parsed ${allowed.size} face families out of app/fonts.css, expected at least 2 ` +
+        `(Inter plus its fallback). An empty accept-set would let every observation pass.`,
+    );
+  }
+  const bad = seen
+    .flatMap((o) => o.faces.filter((f) => !allowed.has(f)).map((f) => `${o.via}:${f}`))
+    .filter((v, i, all) => all.indexOf(v) === i);
+  if (bad.length > 0) {
+    throw new Error(
+      `font oracle: harness document registered an unexpected @font-face family: ${bad.join(", ")}. ` +
+        `Only [${[...allowed].join(", ")}] are emitted by compileEntryCss from app/fonts.css; anything ` +
+        `else means the document is measuring geometry against a face the product never renders.`,
+    );
+  }
+}
 
 /**
  * Measure the byte-derived probe inside `selector`, in the page's own context.
