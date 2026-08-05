@@ -8,6 +8,34 @@ Same split as [DEFERRED.md](./DEFERRED.md) ↔ [DEFERRED-archive.md](./DEFERRED-
 
 ---
 
+## BL-WARNING-SCAN-SCOPE-HAS-NO-ANCHOR — the recognizer signals unresolvable sites, but a narrowed scan scope drops codes with nothing to signal — CLOSED 2026-08-04
+
+Closed on `chore/sweep-guards-tests` with the anchor the entry's Work section specifies: a
+committed code set (`tests/parser/_warningCodeAnchor.ts`, 58 codes) compared by EQUALITY, so a
+narrowed scan scope fails loud in both directions and its diff is the review artifact. Verified by
+planting a code the scan does not produce and watching the guard name it, rather than assuming the
+comparison works.
+
+**Checked the subsumption question first, as the entry instructs.**
+`BL-CATALOG-PARTITION-WARNING-CLASS` would genuinely subsume this — its fix makes the catalog
+ENUMERATE its warnings instead of having a scanner infer them, after which the scan stops being the
+source of truth and the scope question evaporates. It is not closed as a duplicate today because
+that fix has not shipped (M effort, its own branch), and closing it as one would leave the
+silent-narrowing failure mode guarded by nothing in the meantime. The anchor is marked INTERIM in
+its own header and says to delete it when that entry lands.
+
+Original entry, verbatim:
+
+`scanParseWarningSites` is fail-closed for sites it VISITS: a construction whose code the checker cannot resolve is signalled rather than dropped (`lib/messages/__internal__/parseWarningSites.ts`). The scope it visits is a different question. `inWarningScanRoots` (`scripts/extract-internal-code-enums.ts:42-49`) is a hand-written predicate — `^(lib|app)/`, minus `lib/dev/`, the generated dir, and `catalog.ts` — and **a file the predicate never admits produces no site, so there is nothing to signal.** Narrow the predicate, or land an emitter outside `lib/`|`app/`, and the universe shrinks silently while every existing assertion stays green.
+
+Probed on the abandoned branch, against an equivalent recognizer: excluding one contributing file dropped the code set 57 → 51 while `unresolved` stayed empty; tightening a pre-filter _within_ files dropped 22 of 57 codes with the contributing-FILE set unchanged, which is why a file-list anchor does not close it either. Twelve root-level source files sit outside `^(lib|app)/` today, including the live Next.js entry point `instrumentation.ts`.
+
+**Work:** give the scan an anchor independent of its own output — a committed golden snapshot of the code set, compared by equality, so a narrowing fails loud in both directions and its diff is the review artifact. The trade is explicit: a hand-maintained list, justified not by size but by failure mode (it cannot rot silently the way the deleted `EXTRA_WARNING_CODES` residue could). Alternatively `BL-CATALOG-PARTITION-WARNING-CLASS`, already filed as the closure for the related soundness question, may subsume this — check it first, and close this as duplicate if it does.
+
+**Status:** OPEN.
+
+---
+
 ## BL-LEDGER-BODY-DEFINED-ID-OVERMINT — any bold lone id at a bullet lead defines, so a mention can mint an id — CLOSED 2026-08-04
 
 Closed on `chore/sweep-guards-tests` by adding condition 4: a body-defined id must be SEPARATED
