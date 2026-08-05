@@ -1,6 +1,6 @@
 # M-wave implementation handoff — Opus pane entry point
 
-You are the Opus implementer session for the M-wave. This file is self-contained: everything you need is here or one `Read` away. The spec + plan are APPROVED through cross-model adversarial review; both user review gates were WAIVED by the user's 2026-08-04 autonomy grant. Do not re-ask any ratified decision — they are enumerated in the spec §1.1 and the brief.
+You are the Opus implementer session for the M-wave. This file is self-contained: everything you need is here or one `Read` away. GATE CHECK before anything else: open `docs/superpowers/plans/2026-08-05-m-wave/plan.md` and confirm its **Status** line reads plan-APPROVED with a codex-guard round reference — if it still says pending, STOP and do nothing (you were launched early; the authoring session owns the gate). Both user review gates were WAIVED by the user's 2026-08-04 autonomy grant. Do not re-ask any ratified decision — they are enumerated in the spec §1.1 and the brief.
 
 ## Step 0 — takeover protocol (in your FIRST turn, in order)
 
@@ -16,11 +16,11 @@ You are the Opus implementer session for the M-wave. This file is self-contained
 
 - Worktree `FX-worktrees/m-wave`, branch `feat/m-wave`, pushed; `pnpm install` + `worktree:link-env` + `preflight` green.
 - All 19 wave entries marked `IN PROGRESS · Branch: feat/m-wave`, committed, pushed (invariant-12 Stage 0). The claim-handoff to unit branches is plan Task D6 — read it BEFORE touching markers.
-- Spec + plan + brief committed on `feat/m-wave`, adversarially reviewed to APPROVE.
+- Spec + brief committed on `feat/m-wave`; spec APPROVED (codex-guard R3). The plan's own gate status is whatever its **Status** line says — your Gate Check above is the authority; do not infer approval from this file.
 
 ## Execution order
 
-Plan order is binding: W-DOCS (Tasks D1–D6, on this branch) → W-GUARDS (`feat/m-wave-guards`, Tasks G1–G6) → W-PARITY (`feat/m-wave-parity`, P1–P2) → W-UI (`feat/m-wave-ui`, U1–U7). Task D6 creates the three unit worktrees and hands claims over — its ordering steps are load-bearing for invariant 12; follow them exactly.
+Plan order is binding: W-DOCS (Tasks D1–D6, on this branch) → W-GUARDS (`feat/m-wave-guards`, Tasks G1, G2, G4, G5, G6 — G3 moved to W-UI as U8) → W-PARITY (`feat/m-wave-parity`, P1–P2) → W-UI (`feat/m-wave-ui`, U1–U8, U7 last). Task D6 creates the three unit worktrees and hands claims over — its ordering steps are load-bearing for invariant 12; follow them exactly. Each unit branch merges `origin/main` after every prior unit lands and again before opening its own PR (plan D6 step 5 standing refresh rule).
 
 ## Non-negotiables (the ones this wave exercises)
 
@@ -29,7 +29,7 @@ Plan order is binding: W-DOCS (Tasks D1–D6, on this branch) → W-GUARDS (`fea
 - Worktree-only edits (invariant 11); each unit branch gets `pnpm install && pnpm worktree:link-env && pnpm preflight` before tests.
 - Ledger claims (invariant 12): each unit branch Stage-0 checks + marks + pushes; markers strip in that branch's LAST pre-merge commit.
 - W-UI is dual-gate work: `/impeccable` setup gates BEFORE code; critique + audit at close; `closeout.md` carries the `impeccable-gate:` marker line. You are Opus — the UI hard rule is satisfied by you implementing it yourself, not delegating UI to any other model.
-- §12.4 lockstep triple in ONE commit, twice (G6, U5).
+- §12.4 lockstep triple in ONE commit, once (U5 — the RESYNC row-prose amendment). G6's catalog partition is catalog-internal and touches neither §12.4 prose nor the lockstep.
 - Per-branch cross-model review to APPROVE (codex-guard; brief MUST carry REVIEWER ONLY, the numbered CONSEQUENCE BOUND / THREAT MODEL FENCE block, VERDICT-line instruction, do-not-relitigate list from spec §1.1, round cap 4). Split tight-scope briefs for W-UI.
 - Real CI green is a separate gate from local green; `gh pr merge --merge` follows CI-green in the SAME turn; ff main and verify `0 0` after each merge.
 - Never end a turn mid-pipeline. Report inline while continuing. If you must ask the user something genuinely theirs: drain answer-independent work first, PushNotification in the same turn, set `blockedOn`, leave the nudge registered.
