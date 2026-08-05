@@ -1,0 +1,8 @@
+/* The app's own entry stylesheet. It pulls in the PACKAGE from JavaScript, never
+   the package's stylesheet, so there is no CSS at-rule here for a walk to
+   follow. That absence is the escape. */
+@layer base {
+  :root {
+    --font-app: "Inter", sans-serif;
+  }
+}

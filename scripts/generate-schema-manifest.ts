@@ -23,9 +23,15 @@ import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import {
   INTROSPECT_PUBLIC_COLUMNS_SQL,
+  INTROSPECT_PUBLIC_FUNCTIONS_SQL,
+  manifestFromFunctionRows,
   manifestFromRows,
+  parsePsqlFunctionRows,
   parsePsqlRows,
   serializeManifest,
+  functionsOf,
+  tablesOf,
+  type SchemaManifest,
 } from "./schema-manifest/lib";
 
 export const MANIFEST_PATH = "supabase/__generated__/schema-manifest.json";
@@ -40,12 +46,25 @@ export function localManifestDbUrl(): string {
   return raw;
 }
 
-export function introspectPublicSchema(dbUrl: string): string {
-  const stdout = execFileSync("psql", ["-X", "-v", "ON_ERROR_STOP=1", "-qAt", dbUrl], {
-    input: INTROSPECT_PUBLIC_COLUMNS_SQL,
+function psql(dbUrl: string, sql: string): string {
+  return execFileSync("psql", ["-X", "-v", "ON_ERROR_STOP=1", "-qAt", dbUrl], {
+    input: sql,
     encoding: "utf8",
   });
-  return serializeManifest(manifestFromRows(parsePsqlRows(stdout)));
+}
+
+/**
+ * Tables + columns, plus `public` FUNCTIONS at the ratified signature tier
+ * (BL-VALIDATION-PARITY-FUNCTIONS-UNCHECKED, spec §2.4).
+ *
+ * Two queries, one manifest. The function query never selects `prosrc`, so a
+ * body-only edit cannot move this file — the ratified no-body-hash bound made
+ * structural rather than promised.
+ */
+export function introspectPublicSchema(dbUrl: string): string {
+  const tables = manifestFromRows(parsePsqlRows(psql(dbUrl, INTROSPECT_PUBLIC_COLUMNS_SQL)));
+  const fns = parsePsqlFunctionRows(psql(dbUrl, INTROSPECT_PUBLIC_FUNCTIONS_SQL));
+  return serializeManifest(manifestFromFunctionRows(fns, tables));
 }
 
 function main(): void {
@@ -72,7 +91,8 @@ function main(): void {
   mkdirSync(dirname(MANIFEST_PATH), { recursive: true });
   writeFileSync(MANIFEST_PATH, json);
   process.stdout.write(
-    `Wrote ${MANIFEST_PATH} (${Object.keys(JSON.parse(json)).length} tables).\n`,
+    `Wrote ${MANIFEST_PATH} (${tablesOf(JSON.parse(json) as SchemaManifest).length} tables, ` +
+      `${functionsOf(JSON.parse(json) as SchemaManifest).length} functions).\n`,
   );
 }
 

@@ -446,7 +446,11 @@ jobs:
   telemetry-rpc-smoke:
     # Validation-DEPLOYMENT proof for the function-only migration
     # 20260706120000 (admin_event_stats_24h / admin_alert_summary). The
-    # validation-schema-parity gate can't see functions (columns only), so this
+    # validation-schema-parity gate now covers function EXISTENCE and SIGNATURE
+    # (BL-VALIDATION-PARITY-FUNCTIONS-UNCHECKED), but not EXECUTE grants or
+    # behaviour, which is what this job proves. Both still earn their place: the
+    # parity gate says the function is there with the right shape; this says it
+    # is granted correctly and returns the right answer. So this
     # job runs the direct-SQL test against the VALIDATION project and asserts
     # both functions EXIST, are service_role-EXECUTE-granted (not anon/auth),
     # and are behaviorally correct (rollback-tx, pinned 2020 window + synthetic

@@ -2,7 +2,7 @@
  * tests/db/validation-schema-parity.test.ts
  *
  * The validation-schema-parity gate. Catches the class where a committed
- * migration's public tables/columns never reach the persistent validation
+ * migration's public tables/columns/functions never reach the persistent validation
  * Supabase project (the #9 "couldn't read this setting" incident: B3 migration
  * 20260602000003 added app_settings notify columns to the repo + local + CI-
  * fresh DB, but `supabase db push` is blocked on validation so a surgical apply
@@ -24,7 +24,8 @@
  *
  *   2. VALIDATION PARITY (runs against TEST_DATABASE_URL): the validation
  *      project must be a SUPERSET of the manifest — every repo-defined public
- *      table+column present live. Validation extras (Phase-0 remote-only
+ *      table+column AND function signature present live. Validation extras
+ *      (Phase-0 remote-only
  *      objects) are ignored. In CI this targets the validation project; locally
  *      (TEST_DATABASE_URL unset) it targets the local stack the manifest came
  *      from (trivially passing — the meaningful run is CI).
@@ -50,7 +51,10 @@ import {
 } from "@/tests/db/_validationTargetIdentity";
 import {
   INTROSPECT_PUBLIC_COLUMNS_SQL,
+  INTROSPECT_PUBLIC_FUNCTIONS_SQL,
   diffManifestAgainstLive,
+  manifestFromFunctionRows,
+  parsePsqlFunctionRows,
   manifestFromRows,
   parseAlterAddColumns,
   parseCreatedPublicTables,
@@ -115,11 +119,18 @@ const PSQL_PROCESS_TIMEOUT_MS = 30_000;
  * Layer 3 introspects the LOCAL stack and passes false — the local target is deliberate.
  */
 function introspectManifest(dbUrl: string, guarded: boolean): SchemaManifest {
-  const sql = guarded
-    ? withValidationIdentityGuard(INTROSPECT_PUBLIC_COLUMNS_SQL)
-    : INTROSPECT_PUBLIC_COLUMNS_SQL;
-  const stdout = execPsqlRedacted(dbUrl, ["-qAt"], sql);
-  return manifestFromRows(parsePsqlRows(stdout));
+  const wrap = (sql: string) => (guarded ? withValidationIdentityGuard(sql) : sql);
+  const tables = manifestFromRows(
+    parsePsqlRows(execPsqlRedacted(dbUrl, ["-qAt"], wrap(INTROSPECT_PUBLIC_COLUMNS_SQL))),
+  );
+  // Functions ride the SAME identity guard: an unguarded second connection could
+  // be routed elsewhere by a multi-host DSN and would then compare the repo's
+  // functions against some other cluster's, which is the exact failure the guard
+  // exists to prevent for columns.
+  const fns = parsePsqlFunctionRows(
+    execPsqlRedacted(dbUrl, ["-qAt"], wrap(INTROSPECT_PUBLIC_FUNCTIONS_SQL)),
+  );
+  return manifestFromFunctionRows(fns, tables);
 }
 
 function canConnect(dbUrl: string): boolean {
@@ -197,20 +208,24 @@ describe("validation-schema-parity", () => {
     // Guarded exactly when the target is validation (TEST_DATABASE_URL set); the local
     // fallback target is deliberate and must not be identity-bound.
     const live = introspectManifest(dbUrl, process.env.TEST_DATABASE_URL !== undefined);
-    const { missingTables, missingColumns } = diffManifestAgainstLive(manifest, live);
+    const { missingTables, missingColumns, missingFunctions } = diffManifestAgainstLive(
+      manifest,
+      live,
+    );
 
     const report = [
       ...missingTables.map((t) => `  - MISSING TABLE: ${t}`),
       ...missingColumns.map((c) => `  - MISSING COLUMN: ${c.table}.${c.column}`),
+      ...missingFunctions.map((f) => `  - MISSING FUNCTION: ${f}`),
     ].join("\n");
 
     expect(
-      { missingTables, missingColumns },
+      { missingTables, missingColumns, missingFunctions },
       `The validation project is missing schema the repo's migrations define ` +
         `(apply the outstanding migration(s) to validation via ` +
         `\`supabase db query --linked\` or \`psql "$TEST_DATABASE_URL" -f <migration>\`, ` +
         `then \`notify pgrst, 'reload schema'\`):\n${report}`,
-    ).toEqual({ missingTables: [], missingColumns: [] });
+    ).toEqual({ missingTables: [], missingColumns: [], missingFunctions: [] });
   });
 
   // ── Layer 3: local freshness equality (skip if no local DB) ─────────────

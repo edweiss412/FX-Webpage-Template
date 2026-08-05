@@ -35,15 +35,14 @@ import {
   PUBLIC_FONT_URL,
 } from "../helpers/fontManifest";
 
+import {
+  discoverShippedStylesheets as walkForStylesheets,
+  type Stylesheet,
+} from "./_sourceStylesheetWalk";
+
 const REPO_ROOT = resolve(__dirname, "..", "..");
 const FONTS_CSS = readFileSync(resolve(REPO_ROOT, "app/fonts.css"), "utf8");
 const GLOBALS_CSS = readFileSync(resolve(REPO_ROOT, "app/globals.css"), "utf8");
-
-interface Stylesheet {
-  /** Repo-relative for authored files, package-relative for node_modules. */
-  readonly label: string;
-  readonly text: string;
-}
 
 /**
  * Every stylesheet that reaches a browser, found by walking rather than listing.
@@ -99,77 +98,22 @@ interface Stylesheet {
  * construction; widening this one to parse JS string literals would chase what
  * the other already catches.
  */
-function discoverShippedStylesheets(): Stylesheet[] {
-  const found = new Map<string, Stylesheet>();
-
-  const read = (absolute: string, label: string): void => {
-    if (found.has(absolute)) return;
-    let text: string;
-    try {
-      text = readFileSync(absolute, "utf8");
-    } catch {
-      return;
-    }
-    found.set(absolute, { label, text });
-
-    // Every legal spelling of the at-rule. `@import url( "x.css" )` with
-    // whitespace inside the parens is valid CSS and slipped past a pattern that
-    // required the quote immediately after `url(`.
-    const IMPORTS = [
-      /@import\s+url\(\s*["']([^"']+)["']\s*\)/g, // url( "x.css" )
-      /@import\s+["']([^"']+)["']/g, //             "x.css"
-      /@import\s+url\(\s*([^"')]+?)\s*\)/g, //      url(x.css), unquoted
-    ];
-    for (const pattern of IMPORTS) {
-      for (const match of text.matchAll(pattern)) {
-        const next = resolveSpecifier(match[1]!.trim(), absolute);
-        if (next) read(next, relative(REPO_ROOT, next));
-      }
-    }
-  };
-
-  const walk = (dir: string, visit: (file: string) => void): void => {
-    for (const entry of readdirSync(dir, { withFileTypes: true })) {
-      if (entry.name === "node_modules" || entry.name.startsWith(".")) continue;
-      const full = resolve(dir, entry.name);
-      if (entry.isDirectory()) walk(full, visit);
-      else visit(full);
-    }
-  };
-
-  // Every spelling that pulls a stylesheet into the bundle. Static `import`,
-  // `require`, and dynamic `import()` are three syntaxes for one act, and a
-  // guard that recognises only the first is a guard against one syntax.
-  const SPECIFIERS = [
-    /\bimport\s+["']([^"']+\.css)["']/g, //                        side-effect
-    /\bimport\s[^;\n]*?\bfrom\s*["']([^"']+\.css)["']/g, //       CSS Modules binding
-    /\brequire\s*\(\s*["']([^"']+\.css)["']\s*\)/g,
-    /\bimport\s*\(\s*["']([^"']+\.css)["']\s*\)/g,
-  ];
-
-  for (const root of ["app", "components", "lib"]) {
-    const dir = resolve(REPO_ROOT, root);
-    if (!existsSync(dir)) continue;
-    walk(dir, (file) => {
-      // A stylesheet ships because something IMPORTS it, never because of where
-      // it sits. Next requires CSS to be imported; seeding every `app/**.css`
-      // by placement failed a tree carrying an unreferenced file that reaches
-      // no browser -- a false positive, and those are not the safe direction.
-      // Import scanning below finds the real graph, including new files.
-      if (file.endsWith(".css")) return;
-      if (!/\.(tsx?|jsx?|mjs|cjs)$/.test(file)) return;
-      const source = readFileSync(file, "utf8");
-      for (const pattern of SPECIFIERS) {
-        for (const match of source.matchAll(pattern)) {
-          const target = resolveSpecifier(match[1]!, file);
-          if (target) read(target, relative(REPO_ROOT, target));
-        }
-      }
-    });
-  }
-
-  return [...found.values()];
-}
+/**
+ * THE SOURCE WALK IS THE FAST PRE-CHECK, NOT THE ORACLE
+ * (BL-FONT-STYLESHEET-GRAPH-FIDELITY, ratified spec §1.1 item 3).
+ *
+ * It follows `@import` chains from source CSS, which cannot reach a stylesheet
+ * that no CSS names: a dependency whose JS entry imports its own stylesheet, or
+ * a stylesheet resolved through a package `exports` subpath. Both escapes are
+ * committed as fixtures and PROVEN invisible by pointing THIS FUNCTION at them
+ * in `tests/styles/fontBuiltArtifact.test.ts` — which is why the walk now lives
+ * in `_sourceStylesheetWalk.ts` with its roots as a parameter instead of being a
+ * private local bound to the repo root.
+ *
+ * Keep both. This one runs everywhere and is instant; the oracle needs a build.
+ */
+const discoverShippedStylesheets = (): Stylesheet[] =>
+  walkForStylesheets({ repoRoot: REPO_ROOT, roots: ["app", "components", "lib"] });
 
 /**
  * One specifier to one absolute path: relative, `@/`-aliased per

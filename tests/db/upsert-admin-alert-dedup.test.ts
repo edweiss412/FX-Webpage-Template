@@ -5,9 +5,11 @@ import { afterAll, describe, expect, test } from "vitest";
  * Validation-backed proof of the §6 upsert_admin_alert failedKeys-union-merge
  * semantics (migration 20260618000000). Runs against TEST_DATABASE_URL (the
  * validation project in x-audits.yml; locally, the dev DB). `gen:schema-manifest`
- * does NOT capture functions, and `validation-schema-parity` only checks
- * tables/columns — so this live RPC test is the ONLY guard that the surgical
- * function apply actually landed in validation. Skipped when no DB_URL.
+ * DOES now capture function signatures and `validation-schema-parity` compares
+ * them (BL-VALIDATION-PARITY-FUNCTIONS-UNCHECKED), but that covers EXISTENCE and
+ * SHAPE — not behaviour. The parity gate therefore detects a missing or
+ * drifted apply by itself; this live RPC test is the only guard on the
+ * function's BEHAVIOUR, which is a different claim. Skipped when no DB_URL.
  *
  * Connection pattern mirrors tests/notify/deliver-real-db.test.ts.
  */
