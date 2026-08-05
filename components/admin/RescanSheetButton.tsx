@@ -24,7 +24,9 @@
  * Double-click is guarded by the loading state (disabled while in flight) — NOT a
  * self-disabling form action (see feedback_react_form_action_synchronous_disable).
  */
-import { useRef, useState } from "react";
+import { useContext, useRef, useState } from "react";
+
+import { UndoAnnounceContext } from "@/components/admin/undoAnnounceContext";
 import { useRouter } from "next/navigation";
 import { X } from "lucide-react";
 import { messageFor } from "@/lib/messages/lookup";
@@ -118,6 +120,13 @@ export function RescanSheetButton({
   const router = useRouter();
   const [pending, setPending] = useState(false);
   const [result, setResult] = useState<ResultState | null>(null);
+  // BL-ANNOUNCE-REGION-UNMOUNT-CLASS: the announcement goes to a region that
+  // OUTLIVES this component's own success branch. The result block below is
+  // inserted together with its text, and a live region that arrives already
+  // populated is never announced — screen readers announce mutations WITHIN an
+  // existing region. The provider's region is mounted above this branch, so a
+  // mutation is what it receives.
+  const { announce } = useContext(UndoAnnounceContext);
   const triggerRef = useRef<HTMLButtonElement>(null);
 
   async function handleClick() {
@@ -131,13 +140,18 @@ export function RescanSheetButton({
         body: JSON.stringify({ driveFileId, wizardSessionId }),
       });
       const body = (await response.json()) as RescanResponse;
-      setResult(resultFor(body));
+      const next = resultFor(body);
+      setResult(next);
+      // Announce through the branch-stable channel, not the block below.
+      announce(next.copy);
       if (body.ok) router.refresh();
     } catch {
-      setResult({
-        kind: "info",
+      const failure = {
+        kind: "info" as const,
         copy: "Something went wrong starting the re-scan. Refresh and try again.",
-      });
+      };
+      setResult(failure);
+      announce(failure.copy);
     } finally {
       setPending(false);
     }
@@ -208,21 +222,19 @@ export function RescanSheetButton({
             >
               <X aria-hidden="true" className="size-4" />
             </button>
-            <p role="status" aria-live="polite">
-              {renderEmphasis(result.copy)}
-            </p>
+            {/* No role/aria-live here. This block is INSERTED with its text,
+                so it could never announce; the branch-stable provider region
+                does that now (BL-ANNOUNCE-REGION-UNMOUNT-CLASS). Keeping a
+                second live region would only risk a double announcement on the
+                day the insertion timing changed. */}
+            <p>{renderEmphasis(result.copy)}</p>
             {result.kind === "coded" ? <HelpAffordance code={result.code} /> : null}
           </div>
         ) : (
           /* Stacked stays byte-identical to the pre-overlay markup (the two
              Step3SheetCard call sites pass no prop) — pinned by the
              default-placement byte-parity tests. */
-          <div
-            role="status"
-            aria-live="polite"
-            data-testid={`rescan-sheet-result-${driveFileId}`}
-            className={toneClass}
-          >
+          <div data-testid={`rescan-sheet-result-${driveFileId}`} className={toneClass}>
             <p>{renderEmphasis(result.copy)}</p>
             {result.kind === "coded" ? <HelpAffordance code={result.code} /> : null}
           </div>

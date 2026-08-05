@@ -23,6 +23,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { MESSAGE_CATALOG } from "@/lib/messages/catalog";
+import { AdminAnnounceProvider } from "@/components/admin/AdminAnnounceProvider";
 import { RESCAN_REVIEW_REQUIRED } from "@/lib/onboarding/rescanReviewCode";
 import { RescanSheetButton } from "@/components/admin/RescanSheetButton";
 import { Step3Review, type Step3Row } from "@/components/admin/wizard/Step3Review";
@@ -367,12 +368,14 @@ describe("RescanSheetButton — resultPlacement (spec §G, Task 12)", () => {
     // reintroduce the 390px viewport clip (impeccable audit P1).
     expect(rootClasses).not.toContain("relative");
     const result = getByTestId(`rescan-sheet-result-${DFID}`);
-    // The live region is an INNER element (dual-gate P1: no interactive
-    // content inside role="status"), not the positioned wrapper itself.
+    // NO live region here any more (BL-ANNOUNCE-REGION-UNMOUNT-CLASS). This
+    // block is inserted together with its text, so it could never announce;
+    // the branch-stable provider region does that. What this row still pins is
+    // the LAYOUT contract it was written for — the copy is an inner element,
+    // not the positioned wrapper.
     expect(result.getAttribute("role")).toBeNull();
-    const live = result.querySelector('[role="status"]');
-    expect(live).not.toBeNull();
-    expect(live!.getAttribute("aria-live")).toBe("polite");
+    expect(result.querySelector('[role="status"]')).toBeNull();
+    expect(result.querySelector("p")).not.toBeNull();
     const classes = result.className.split(/\s+/);
     for (const cls of STACKED_INFO.split(" ")) expect(classes).toContain(cls);
     for (const cls of OVERLAY_CLASSES) expect(classes).toContain(cls);
@@ -413,15 +416,18 @@ describe("RescanSheetButton — resultPlacement (spec §G, Task 12)", () => {
     expect(document.activeElement).toBe(getByTestId(`rescan-sheet-button-${DFID}`));
   });
 
-  test("overlay: live region contains ONLY the status copy — no button/link/details inside role=status; Dismiss + HelpAffordance are siblings in the wrapper (dual-gate P1)", async () => {
+  test("overlay: the status copy element contains ONLY copy — Dismiss + HelpAffordance stay siblings in the wrapper (dual-gate P1, now about the copy element rather than a live region)", async () => {
     const { getByTestId } = await driveResult(CODED_BODY, { resultPlacement: "overlay" });
     const result = getByTestId(`rescan-sheet-result-${DFID}`);
-    const live = result.querySelector('[role="status"]');
-    expect(live).not.toBeNull();
-    expect(live!.getAttribute("aria-live")).toBe("polite");
-    // Announcement purity: no interactive content inside the live region.
-    expect(live!.querySelector("button, a, details, summary")).toBeNull();
-    expect(live!.textContent ?? "").toContain(MESSAGE_CATALOG.STAGED_PARSE_FAILED.dougFacing!);
+    // The copy element, no longer a live region — the provider's region carries
+    // the announcement now. The PURITY contract survives and still matters: the
+    // string handed to `announce()` is this copy, so interactive content mixed
+    // into it would be read out as part of the announcement.
+    const copy = result.querySelector("p");
+    expect(copy).not.toBeNull();
+    expect(result.querySelector('[role="status"]')).toBeNull();
+    expect(copy!.querySelector("button, a, details, summary")).toBeNull();
+    expect(copy!.textContent ?? "").toContain(MESSAGE_CATALOG.STAGED_PARSE_FAILED.dougFacing!);
     // The controls still exist — as SIBLINGS inside the overlay wrapper.
     expect(result.querySelector('button[aria-label="Dismiss"]')).not.toBeNull();
     expect(result.querySelector("details")).not.toBeNull();
@@ -473,5 +479,66 @@ describe("RescanSheetButton — final-publish blocker mount (OUTDATED rows only)
     await waitFor(() => expect(queryByTestId("wizard-finalize-cas-per-row")).not.toBeNull());
     expect(getByTestId("rescan-sheet-button-fin-outdated")).not.toBeNull();
     expect(queryByTestId("rescan-sheet-button-fin-corrupt")).toBeNull();
+  });
+});
+
+describe("BL-ANNOUNCE-REGION-UNMOUNT-CLASS — success announces into a branch-stable region", () => {
+  // THE DEFECT. A live region INSERTED at the same moment its text appears is
+  // not announced: screen readers announce mutations WITHIN an existing live
+  // region, and a region that arrives already-populated is just new DOM. This
+  // surface rendered `result ? <div role="status">…</div> : null`, so the region
+  // and its text always arrived together and the announcement was never made.
+  //
+  // ANTI-TAUTOLOGY, and it is the point of the first assertion: the region
+  // queried is the PROVIDER's, mounted OUTSIDE the component under test.
+  // Querying inside the button's own subtree passes on the BROKEN shape too,
+  // because the broken shape does render the text — just in a region nothing
+  // announces.
+  const SUCCESS_BODY = {
+    ok: true,
+    status: "updated",
+    needsReview: false,
+    changed: true,
+    demoted: false,
+  };
+
+  async function driveWithProvider() {
+    fetchMock.mockResolvedValueOnce(mockJsonResponse(SUCCESS_BODY));
+    const utils = render(
+      <AdminAnnounceProvider testId="admin-undo-status" label="Updates">
+        <RescanSheetButton driveFileId={DFID} wizardSessionId={WSID} />
+      </AdminAnnounceProvider>,
+    );
+    await act(async () => {
+      fireEvent.click(utils.getByTestId(`rescan-sheet-button-${DFID}`));
+    });
+    await waitFor(() => expect(utils.getByTestId(`rescan-sheet-result-${DFID}`)).not.toBeNull());
+    return utils;
+  }
+
+  test("the success line reaches the provider's region, not only the button's own subtree", async () => {
+    const { getByTestId } = await driveWithProvider();
+    const region = getByTestId("admin-undo-status");
+    const own = getByTestId(`rescan-sheet-result-${DFID}`);
+    expect(
+      region.textContent ?? "",
+      "the success text must appear in a region that was ALREADY in the DOM before the success — " +
+        "that is the difference between an announcement and a silent DOM insertion",
+    ).not.toBe("");
+    expect(
+      region.contains(own),
+      "the region must be OUTSIDE the button's own subtree, or this assertion passes on the " +
+        "broken shape",
+    ).toBe(false);
+  });
+
+  test("the button's own result block no longer claims to be a live region", async () => {
+    // Two announcers for one event is a double announcement, and the
+    // conditionally-inserted one is the broken one. The block keeps its visible
+    // copy (the sighted affordance) and drops role/aria-live.
+    const { getByTestId } = await driveWithProvider();
+    const own = getByTestId(`rescan-sheet-result-${DFID}`);
+    expect(own.querySelector('[role="status"]')).toBeNull();
+    expect(own.querySelector("[aria-live]")).toBeNull();
   });
 });
