@@ -726,3 +726,135 @@ describe("silent death B4: an older session's rollout never restates a newer mes
     expect(r.findingCount).toBe(SPOKEN);
   }, 40000);
 });
+
+describe("silent death B5: a resumed attempt reuses its session id, so a session is not a clock", () => {
+  // Failure caught (reviewer probe 2026-08-05). B4 keyed recency on the SESSION
+  // id, and the resume rung breaks that key outright: `resumeArgv` issues
+  // `exec resume <sid>` (`scripts/codex-guard.mjs:765`), so the resumed turn
+  // runs INSIDE the earlier session and appends to the same rollout. An earlier
+  // turn's `-o` therefore marked that session spoken, and the resumed turn's
+  // strictly newer rollout message could never update the count. Probed against
+  // the B4 build, across all three terminal writers:
+  //
+  //   giveUp number-to-different-number: recorded=2 expected=7
+  //   exit3  number-to-different-number: recorded=2 expected=7
+  //   giveUp number-to-undeclared:       recorded=2 expected=null
+  //   exit3  number-to-undeclared:       recorded=2 expected=null
+  //   giveUp undeclared-to-number:       recorded=null expected=7
+  //   exit3  undeclared-to-number:       recorded=null expected=7
+  //
+  // The ordering the rule actually needs is over ATTEMPTS, which are a clock;
+  // sessions are not, because two attempts can share one. A session's rollout
+  // may record a count when the LAST attempt to use that session is newer than
+  // the newest attempt that spoke. That reduces to B4's behavior whenever every
+  // attempt has its own session, which is why B4's five cases still hold.
+  const SID_R = "dddd1111-2222-4333-8444-555566660000";
+  const FIRST_TURN = 2; // the pre-resume `-o` declaration
+  const RESUMED = 7; // what the resumed turn puts in the rollout
+
+  /**
+   * Attempt 1 declares a count but no VERDICT, which is `no_marker` - one of
+   * the four shapes that arms the resume rung (`selectRung`) - so attempt 2 is
+   * a RESUME of attempt 1's session rather than a fresh exec. Attempt 2 leaves
+   * no `-o` file, so the rollout is the only copy of its turn.
+   */
+  const dispatchResumed = (run: ReturnType<typeof mkRun>, secondBanner: boolean) => {
+    writeScenario(run, [
+      {
+        onCall: 1,
+        actions: [
+          { type: "stderr", text: `session id: ${SID_R}\n` },
+          { type: "lastMessage", text: `FINDINGS: ${FIRST_TURN}\nNo verdict yet.\n` },
+          { type: "exit", code: 0 },
+        ],
+      },
+      {
+        onCall: 2,
+        actions: [
+          ...(secondBanner ? [{ type: "stderr", text: `session id: ${SID_R}\n` }] : []),
+          { type: "exit", code: 0 },
+        ],
+      },
+    ]);
+    return runGuard(run, ["--max-attempts", "2"]);
+  };
+
+  it("takes the resumed turn's count over the pre-resume -o declaration", async () => {
+    const run = mkRun();
+    writeRollout(run, SID_R, `Seven problems.\n\nFINDINGS: ${RESUMED}`);
+    await dispatchResumed(run, true);
+    const r = readResult(run);
+    // Pins that the rung actually fired - without this the test passes on a
+    // plain second exec, which is not the shape the finding lives in.
+    expect(r.attempts.map((a) => a.kind)).toEqual(["exec", "resume"]);
+    expect(r.failureReason).toBe("attempts_exhausted");
+    expect(r.findingCount).toBe(RESUMED);
+  }, 40000);
+
+  it("takes the resumed turn's genuine `not declared` over an earlier number", async () => {
+    const run = mkRun();
+    // The direction that a "only fill in a null" implementation gets wrong: the
+    // resumed turn spoke and declared nothing, so `null` is the newest answer.
+    writeRollout(run, SID_R, "Still working, no count yet.");
+    await dispatchResumed(run, true);
+    const r = readResult(run);
+    expect(r.attempts.map((a) => a.kind)).toEqual(["exec", "resume"]);
+    expect(r.findingCount).toBeNull();
+  }, 40000);
+
+  it("places the FAILING attempt on the clock in the wrapper_error writer", async () => {
+    const run = mkRun();
+    // Gap found by mutation probe, not by the reviewer: dropping
+    // `currentAttempt` from the clock killed no test, because `onSignal`
+    // already pushes the live attempt into `attempts` before it scrapes and
+    // `giveUp`'s attempt is pushed by its caller. `main().catch` is the one
+    // writer whose attempt is in NEITHER - it is merged into the result body
+    // only AFTER the scrape, and `runAttempt` nulls `currentAttempt` on the
+    // throw path - so its session was unplaceable and any earlier declaration
+    // outranked it. Same defect class as the reviewer's, on writer 4.
+    const SID_1 = "eeee1111-2222-4333-8444-555566660000";
+    const SID_2 = "ffff1111-2222-4333-8444-555566660000";
+    writeRollout(run, SID_2, `Seven problems.\n\nFINDINGS: ${RESUMED}`);
+    // A DIRECTORY where attempt 2's -o file belongs: `existsSync` passes, the
+    // read throws, and the throw reaches `main().catch` carrying the attempt.
+    mkdirSync(join(run.outDir, "attempt-2.last-message.txt"), { recursive: true });
+    writeScenario(run, [
+      {
+        onCall: 1,
+        actions: [
+          { type: "stderr", text: `session id: ${SID_1}\n` },
+          { type: "lastMessage", text: `FINDINGS: ${FIRST_TURN}\nNo verdict yet.\n` },
+          // Nonzero, so this is NOT one of the four shapes that arm the resume
+          // rung - attempt 2 must be a fresh exec with its own session.
+          { type: "exit", code: 1 },
+        ],
+      },
+      {
+        onCall: 2,
+        actions: [
+          { type: "stderr", text: `session id: ${SID_2}\n` },
+          { type: "exit", code: 0 },
+        ],
+      },
+    ]);
+    const res = await runGuard(run);
+    expect(res.code).toBe(3);
+    const r = readResult(run);
+    expect(r.failureReason).toBe("wrapper_error");
+    expect(r.findingCount).toBe(RESUMED);
+  }, 40000);
+
+  it("orders a resumed attempt that printed no banner, from the rung it took", async () => {
+    const run = mkRun();
+    // The residue. A resume that prints no `session id:` line latches no
+    // sessionId, but the wrapper CHOSE the session it resumed, so the attempt
+    // is still placeable - `state.resumeSid` is that answer. Falling back to
+    // "unordered" here would suppress a count the reviewer really did declare.
+    writeRollout(run, SID_R, `Seven problems.\n\nFINDINGS: ${RESUMED}`);
+    await dispatchResumed(run, false);
+    const r = readResult(run);
+    expect(r.attempts.map((a) => a.kind)).toEqual(["exec", "resume"]);
+    expect(r.attempts[1]!.sessionId).toBeNull();
+    expect(r.findingCount).toBe(RESUMED);
+  }, 40000);
+});

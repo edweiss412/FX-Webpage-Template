@@ -691,7 +691,17 @@ function parseFindingCount(text) {
   const seen = new Set();
   for (const line of noFences.split("\n")) {
     const m = FINDINGS_LINE.exec(line);
-    if (m) seen.add(Number(m[1]));
+    if (!m) continue;
+    const n = Number(m[1]);
+    // A declaration outside the safe-integer range cannot be recorded
+    // faithfully: `Number()` ROUNDS it, so two DIFFERENT declarations collapse
+    // into one value and the "two different counts means not declared" rule
+    // below reads them as agreeing; a larger one becomes `Infinity` and
+    // serializes as `null` anyway. Unrepresentable is NOT DECLARED — the same
+    // disposition an ambiguous declaration already gets, and the conservative
+    // direction, since `null` understates where a rounded integer asserts.
+    if (!Number.isSafeInteger(n)) return null;
+    seen.add(n);
   }
   return seen.size === 1 ? [...seen][0] : null;
 }
@@ -850,15 +860,12 @@ function classifyAttempt(attempt, state) {
   const msg = hasMsg ? readFileSync(attempt.lastMessagePath, "utf8") : "";
   // Whether it spoke is THIS read's answer, and not one `state.findingCount`
   // can be asked afterwards, since a message that declared nothing and no
-  // message at all both leave it `null`. Recorded against the SESSION rather
-  // than the attempt — the rollout scrape walks sessions, so that is the key it
-  // can compare against — and off the attempt record deliberately, because that
-  // shape is pinned by spec §6. An attempt that spoke without ever printing a
-  // banner cannot be placed in that walk at all, so it is flagged separately.
-  if (recordDeclaredCount(state, msg)) {
-    if (attempt.sessionId) state.spokeSids.add(attempt.sessionId);
-    else state.spokeUnordered = true;
-  }
+  // message at all both leave it `null`. Recorded as the attempt's ORDINAL:
+  // attempts are a clock, and sessions are not — the resume rung runs a later
+  // attempt inside an earlier attempt's session, so one session id can cover
+  // two turns. Kept on state rather than on the attempt record, whose shape is
+  // pinned by spec §6.
+  if (recordDeclaredCount(state, msg)) state.spokeN = attempt.n;
 
   if (attempt.killedReason !== null) {
     attempt.failureShape = "killed";
@@ -1181,19 +1188,31 @@ function lastAgentMessage(path) {
  * already read. Such a rollout may not restate the count — not even to fill in a
  * `null`, which is a genuine "not declared" and not a hole.
  */
-function tryRolloutScrape(cfg, state, { countOnly = false } = {}) {
+function tryRolloutScrape(cfg, state, { countOnly = false, attempt = null } = {}) {
   // This scan runs NEWEST-FIRST, so it takes the newest-first recorder — the
   // chronological primitive would hand the answer to the oldest session here.
   const recordCount = newestFirstCountRecorder(state);
-  // An attempt that spoke without latching a session id cannot be placed in this
-  // walk, so nothing can prove a rollout is newer than it: the count errand is
-  // suppressed from the start rather than guessed at.
-  let sawSpoken = state.spokeUnordered === true;
+  // ATTEMPTS are the clock; sessions are not. The resume rung runs a later
+  // attempt INSIDE an earlier attempt's session (`resumeArgv`), so one session
+  // id can cover two turns and cannot order them. A session's rollout holds the
+  // last message of the LAST attempt that used it, so that attempt's ordinal IS
+  // the rollout's recency. `attempt` is the caller's own in-flight or failing
+  // attempt: `onSignal` pushes the live one into `attempts` before it scrapes
+  // and `giveUp`'s is pushed by its caller, but `main().catch`'s is in NEITHER
+  // — it is merged into the result body only after this runs, and `runAttempt`
+  // nulls `currentAttempt` on the throw path. Unplaced, its session reads as
+  // ordinal 0 and any earlier declaration outranks the newest turn.
+  const lastNBySid = new Map();
+  const placed = [...state.attempts];
+  if (attempt && !placed.includes(attempt)) placed.push(attempt);
+  for (const a of placed) {
+    // A resume that printed no banner still has a session — the one the wrapper
+    // chose to resume. Without this it reads as unplaceable and its strictly
+    // newer turn is silently ignored.
+    const sid = a.sessionId ?? (a.kind === "resume" ? state.resumeSid : null);
+    if (sid) lastNBySid.set(sid, Math.max(lastNBySid.get(sid) ?? 0, a.n));
+  }
   for (const sid of [...state.seenSids].reverse()) {
-    // BEFORE this session's own rollout is scanned, so an `-o` message outranks
-    // the rollout of the SAME turn — two copies of one thing, and the `-o` file
-    // is the copy the wrapper asked for.
-    if (state.spokeSids.has(sid)) sawSpoken = true;
     for (const rollout of findRollout(cfg, sid)) {
       const msg = lastAgentMessage(rollout);
       if (!msg) continue;
@@ -1201,9 +1220,9 @@ function tryRolloutScrape(cfg, state, { countOnly = false } = {}) {
       // is a terminal message this dispatch produced whether or not it carries
       // a verdict, and it replaces any EARLIER attempt's declaration -
       // including replacing a number with "not declared" when it declares none.
-      // Only earlier: `sawSpoken` means a session at least as new as this one
-      // already answered, and nothing older may speak after it.
-      if (!sawSpoken) recordCount(msg);
+      // STRICTLY newer, so an attempt's own `-o` outranks its own rollout: two
+      // copies of one turn, and the `-o` file is the copy the wrapper asked for.
+      if (state.spokeN === 0 || (lastNBySid.get(sid) ?? 0) > state.spokeN) recordCount(msg);
       // The newest non-empty message has now answered, and under `countOnly`
       // its answer is the whole errand. Returning here also keeps the recorder's
       // direction rule visible: nothing older may speak after it, not even to
@@ -1435,14 +1454,11 @@ async function main() {
     // The declared count of the LAST non-empty terminal message this dispatch
     // produced. One carrier, so the four terminal writers cannot disagree.
     findingCount: null,
-    // The sessions whose own terminal message spoke — the one question
-    // `findingCount` cannot answer afterwards, since "spoke and declared
-    // nothing" and "never spoke" both leave it `null`. Keyed by session so the
-    // rollout scan, which walks sessions, can compare recency against it.
-    spokeSids: new Set(),
-    // Set when an attempt spoke but latched no session id, so it cannot be
-    // placed in that walk. Suppresses the scrape's count errand outright.
-    spokeUnordered: false,
+    // The ordinal of the newest attempt whose own terminal message spoke — the
+    // one question `findingCount` cannot answer afterwards, since "spoke and
+    // declared nothing" and "never spoke" both leave it `null`. `0` means no
+    // attempt has spoken; ordinals start at 1.
+    spokeN: 0,
   };
   globalThis.__guardState = state;
 
@@ -1572,7 +1588,9 @@ main().catch((e) => {
   if (!spoke && state && e?.attempt) {
     try {
       latchSessionId(e.attempt, state);
-      tryRolloutScrape(cfg, state, { countOnly: true });
+      // Passed explicitly: this attempt is in neither `state.attempts` nor
+      // `state.currentAttempt` yet, so the scrape cannot otherwise place it.
+      tryRolloutScrape(cfg, state, { countOnly: true, attempt: e.attempt });
     } catch {
       /* the wrapper_error row is written either way */
     }

@@ -896,6 +896,81 @@ describe("declared finding count (spec §5.3)", () => {
     // on the assertion side.
     expect(row.findingCount).toBe(DECLARED);
   }, 30000);
+
+  // Failure caught (reviewer probe 2026-08-05): the digits were converted with
+  // `Number()` and recorded unchecked, so a declaration past 2^53 was silently
+  // ROUNDED into the corpus -
+  //   single-unsafe:     parsed=9007199254740992   (declared ...993)
+  //   distinct-collapse: parsed=9007199254740992   (two DIFFERENT declarations)
+  //   overflow:          parsed=Infinity  serialized={"findingCount":null}
+  // The middle one is the worst shape: two different declared numbers collapse
+  // to one value, so the "two different counts means not declared" rule reads
+  // them as agreeing. A number the reviewer never wrote, recorded as fact.
+  //
+  // Unrepresentable is NOT DECLARED. That is the same disposition this parser
+  // already gives an ambiguous declaration, and it is the conservative
+  // direction: `null` understates, a rounded integer asserts.
+  it.each([
+    ["9007199254740993", "one declaration past the safe range"],
+    ["99999999999999999999", "a declaration that overflows to Infinity"],
+  ])("records null for %s (%s)", async (digits) => {
+    const run = mkRun();
+    const { base } = gitify(run.cwdDir);
+    writeScenario(run, [
+      {
+        onCall: 1,
+        actions: [
+          { type: "lastMessage", text: `FINDINGS: ${digits}\nVERDICT: APPROVE\n` },
+          { type: "exit", code: 0 },
+        ],
+      },
+    ]);
+    await runGuard(run, ["--stage", "diff", "--round", "1"]);
+    const row = rowsIn(corpusPath(run.cwdDir, base))[0]!;
+    expect(row.findingCount).toBeNull();
+    // The verdict is a separate question and must survive: an unreadable count
+    // is not a reason to discard a review the reviewer completed.
+    expect(row.verdict).toBe("APPROVE");
+  });
+
+  it("records null when two unsafe declarations would collapse to one value", async () => {
+    const run = mkRun();
+    const { base } = gitify(run.cwdDir);
+    // Distinct as written, identical after `Number()`. Recording either one
+    // asserts a number no line of the message contains.
+    writeScenario(run, [
+      {
+        onCall: 1,
+        actions: [
+          {
+            type: "lastMessage",
+            text: "FINDINGS: 9007199254740993\nFINDINGS: 9007199254740992\nVERDICT: APPROVE\n",
+          },
+          { type: "exit", code: 0 },
+        ],
+      },
+    ]);
+    await runGuard(run, ["--stage", "diff", "--round", "1"]);
+    expect(rowsIn(corpusPath(run.cwdDir, base))[0]!.findingCount).toBeNull();
+  });
+
+  // The boundary itself, so the repair cannot be "reject anything large".
+  it("still records the largest safe integer", async () => {
+    const run = mkRun();
+    const { base } = gitify(run.cwdDir);
+    const SAFE = Number.MAX_SAFE_INTEGER;
+    writeScenario(run, [
+      {
+        onCall: 1,
+        actions: [
+          { type: "lastMessage", text: `FINDINGS: ${SAFE}\nVERDICT: APPROVE\n` },
+          { type: "exit", code: 0 },
+        ],
+      },
+    ]);
+    await runGuard(run, ["--stage", "diff", "--round", "1"]);
+    expect(rowsIn(corpusPath(run.cwdDir, base))[0]!.findingCount).toBe(SAFE);
+  });
 });
 
 describe("the rollout scrape reads sessions newest-first (the grain, scanned backwards)", () => {
