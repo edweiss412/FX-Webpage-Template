@@ -17,9 +17,11 @@
  * successful sync ends with router.refresh() so the parse panel reads
  * fresh `pending_syncs` rows on the next render.
  */
-import { useEffect, useId, useRef, useState } from "react";
+import { useContext, useEffect, useId, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { RefreshCw } from "lucide-react";
+
+import { UndoAnnounceContext } from "@/components/admin/undoAnnounceContext";
 import { ErrorExplainer } from "@/components/messages/ErrorExplainer";
 import { HelpAffordance } from "@/components/admin/HelpAffordance";
 import { useFitWithinClip } from "@/components/admin/useFitWithinClip";
@@ -114,6 +116,7 @@ export function ReSyncButton({ slug }: ReSyncButtonProps) {
   // HOLDS last-good and returns { outcome: "shrink_held", detail, heldModifiedTime } instead of
   // applying. We surface a confirm — the admin must explicitly accept the reduced version, which
   // re-POSTs a VERSION-BOUND acceptShrink so a stale confirm (Doug edited since) re-holds.
+  const { announce } = useContext(UndoAnnounceContext);
   const [heldShrink, setHeldShrink] = useState<{
     detail: string;
     heldModifiedTime: string;
@@ -174,6 +177,12 @@ export function ReSyncButton({ slug }: ReSyncButtonProps) {
           | undefined;
         if (result?.outcome === "shrink_held" && result.detail && result.heldModifiedTime) {
           setHeldShrink({ detail: result.detail, heldModifiedTime: result.heldModifiedTime });
+          // BL-ANNOUNCE-REGION-UNMOUNT-CLASS. The panel below is interactive —
+          // it holds this decision's own buttons and takes focus — so it must
+          // stay conditional AND must not be a live region: a reader would
+          // otherwise hear the controls as part of the announcement. The
+          // arrival is announced on the branch-stable channel instead.
+          announce(`Sync paused for a decision. ${result.detail}`);
         } else {
           setHeldShrink(null);
           setSuccessMessage(summarizeResult(json.result));
@@ -290,7 +299,6 @@ export function ReSyncButton({ slug }: ReSyncButtonProps) {
       ) : null}
       {heldShrink && !errorCode ? (
         <div
-          role="status"
           ref={fitShrinkRef}
           data-testid="admin-resync-shrink-confirm"
           // Watchpoint 9: NO neutral dismiss and NO outside-click-to-close.
