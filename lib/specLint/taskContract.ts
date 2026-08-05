@@ -243,8 +243,32 @@ export function checkTaskContract(model: DocModel, kind: "spec" | "plan"): Findi
     }
   }
 
-  findings.sort(
-    (a, b) => a.docLine - b.docLine || (a.code < b.code ? -1 : a.code > b.code ? 1 : 0),
-  );
+  findings.sort(compareFindings);
   return findings;
+}
+
+/**
+ * Report order for task-contract findings: line, then code, then message.
+ *
+ * The message is the third key because the first two do not separate every
+ * pair — two findings on one line sharing a code compared EQUAL, and an
+ * inconsistent comparator's result is implementation-defined in ECMA-262. In
+ * practice V8's stable sort left them in push order, which is a fact about the
+ * engine rather than about this report; feed the same two findings in the other
+ * order and the human-facing output changes. With the message as a tiebreak the
+ * comparator is total over the fields a `Finding` actually varies in, so the
+ * report is a function of the findings rather than of how they were collected.
+ *
+ * Exported so the ordering RELATION can be tested directly. Asserting the sorted
+ * output of `checkTaskContract` would test the comparator only through whatever
+ * pairs a fixture happens to produce (BL-TASKCONTRACT-SORT-COMPARATOR-EQUALKEY).
+ */
+export function compareFindings(
+  a: Pick<Finding, "docLine" | "code" | "message">,
+  b: Pick<Finding, "docLine" | "code" | "message">,
+): number {
+  if (a.docLine !== b.docLine) return a.docLine - b.docLine;
+  if (a.code !== b.code) return a.code < b.code ? -1 : 1;
+  if (a.message !== b.message) return a.message < b.message ? -1 : 1;
+  return 0;
 }

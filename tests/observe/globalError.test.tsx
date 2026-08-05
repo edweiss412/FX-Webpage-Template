@@ -1,4 +1,7 @@
 // @vitest-environment jsdom
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+
 import "@testing-library/jest-dom/vitest";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
@@ -7,7 +10,6 @@ vi.mock("@/lib/observe/captureBoundaryError", () => ({
   captureBoundaryError: h.captureBoundaryError,
 }));
 import GlobalError from "@/app/global-error";
-import { NEXT_FONT_TEST_CLASSNAME, NEXT_FONT_TEST_VARIABLE_CLASS } from "../setup";
 const { captureBoundaryError } = h;
 afterEach(() => {
   cleanup();
@@ -54,15 +56,17 @@ describe("global-error", () => {
     // leave `--font-inter` unexposed while the test stayed green. The mock's
     // constants deliberately do not contain the substring "inter" so a loose
     // matcher cannot creep back in unnoticed.
-    const classes = (html.getAttribute("class") ?? "").split(/\s+/);
+    // MECHANISM CHANGED, INTENT DID NOT. There is no generated class to look
+    // for any more: the face lives in `app/fonts.css`, which defines
+    // `--font-inter` on `:root`. What has to hold is unchanged and is exactly
+    // the gap this test was written for — the crash screen replaces the root
+    // layout, so anything the root imports is absent here unless this module
+    // imports it too. Assert the import, which is what makes the token resolve.
+    const source = readFileSync(resolve(__dirname, "..", "..", "app", "global-error.tsx"), "utf8");
     expect(
-      classes,
-      "the shared loader's VARIABLE class is applied, so --font-inter resolves here too",
-    ).toContain(NEXT_FONT_TEST_VARIABLE_CLASS);
-    expect(
-      classes,
-      "and it is `variable`, not `className` — only the former defines the token",
-    ).not.toContain(NEXT_FONT_TEST_CLASSNAME);
+      source,
+      "the crash screen imports the fonts stylesheet, so --font-inter resolves on its own <html>",
+    ).toMatch(/import\s+["']\.\/fonts\.css["']/);
 
     // WCAG 3.1.1 Level A. The sibling root carries lang="en"; this one replaces
     // it, so without this the crash screen declares no language at all.

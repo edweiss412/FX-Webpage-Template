@@ -559,7 +559,7 @@ export async function handleLivePendingIngestionRetry(
     // Independently isolated per the tail contract above: this event is the ONLY signal an unlanded
     // pair produces (R4), so its failure must be LOUD — but it must not take the role-flags emit
     // down with it, and it must not fail a committed apply. Same fail-open shape and the same
-    // escalation code as the finalize routes' flush (lib/sync/emitRoleFlagsNotice.ts:109-121).
+    // escalation code as the finalize routes' flush (lib/sync/emitRoleFlagsNotice.ts:110-122).
     if (unlandedRenames) {
       // Same TS closure-narrowing workaround as outcomeRef above: a `let` assigned inside the
       // withRowTryLock callback narrows to `never` on member access.

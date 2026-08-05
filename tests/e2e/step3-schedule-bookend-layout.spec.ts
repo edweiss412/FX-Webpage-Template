@@ -32,7 +32,7 @@
  *
  * Runs via tests/e2e/standalone.config.ts (no webServer / Supabase).
  */
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./helpers/fontFidelityFixture";
 import { mkdtempSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -148,6 +148,7 @@ test("ScheduleDayRow: synthetic muted title keeps the 2-track grid aligned (spec
 }) => {
   await page.setViewportSize({ width: 390, height: 1200 });
   await page.goto(baseUrl);
+  await page.evaluate(() => document.fonts.ready);
 
   const timeCells = await rects(page, `wizard-step3-card-${DFID}-sched-time`);
   const titleCells = await rects(page, `wizard-step3-card-${DFID}-sched-title`);

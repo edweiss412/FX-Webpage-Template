@@ -8,7 +8,8 @@
  * never hardcoded; the typical-state comparison restores the fixture's own
  * initially-rendered strings (anti-tautology, spec §9.2).
  */
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect } from "./helpers/fontFidelityFixture";
+import type { Page } from "@playwright/test";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";

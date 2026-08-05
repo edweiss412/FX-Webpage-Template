@@ -24,7 +24,8 @@
  * width is checked against (accept + undo + gap) of an undoable row in the same card,
  * not against a constant.
  */
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect } from "./helpers/fontFidelityFixture";
+import type { Page } from "@playwright/test";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -93,6 +94,7 @@ test("undoable rows split the card 1fr/1fr — Accept and Undo are equal halves"
   page,
 }) => {
   await page.goto(baseUrl);
+  await page.evaluate(() => document.fonts.ready);
   for (const rowId of ["u1", "u2"]) {
     const accept = await box(page, rowSel(rowId, "change-feed-accept"));
     const undo = await box(page, rowSel(rowId, "change-feed-undo"));
@@ -109,6 +111,7 @@ test("single-action row is full width — Accept == undoable(Accept + gap + Undo
   page,
 }) => {
   await page.goto(baseUrl);
+  await page.evaluate(() => document.fonts.ready);
   // Reference undoable row: derive the inter-cell gap from its measured boxes
   // (no hardcoded pixel — gap-1.5 could change; we read what the browser laid out).
   const uAccept = await box(page, rowSel("u1", "change-feed-accept"));

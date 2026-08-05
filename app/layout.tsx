@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
-import { inter } from "./fonts";
+import { FontPreload } from "@/components/FontPreload";
+
+import "./fonts.css";
 import "./globals.css";
 import { GlobalErrorListener } from "@/components/observe/GlobalErrorListener";
 
@@ -55,7 +57,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={`${inter.variable} h-full antialiased`} suppressHydrationWarning>
+    <html lang="en" className="h-full antialiased" suppressHydrationWarning>
+      <FontPreload />
       <body className="min-h-full">
         <script dangerouslySetInnerHTML={{ __html: NO_FOUC_SCRIPT }} />
         <GlobalErrorListener />

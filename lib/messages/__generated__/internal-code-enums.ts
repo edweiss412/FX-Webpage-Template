@@ -186,13 +186,13 @@ export const INTERNAL_CODE_ENUMS = {
     source: "shows.last_sync_status"
   },
   ONBOARDING_FINALIZE_INTERNAL_ERROR: {
-    source: "admin_alerts.code,pending_ingestions.last_error_code"
+    source: "pending_ingestions.last_error_code"
   },
   ONBOARDING_FOLDER_VERIFY_UNAVAILABLE: {
     source: "admin_alerts.code,pending_ingestions.last_error_code"
   },
   ONBOARDING_LEGACY_ROW_AMBIGUOUS: {
-    source: "admin_alerts.code,pending_ingestions.last_error_code"
+    source: "pending_ingestions.last_error_code"
   },
   ONBOARDING_SCAN_FAILED: {
     source: "admin_alerts.code,pending_ingestions.last_error_code"
@@ -285,7 +285,7 @@ export const INTERNAL_CODE_ENUMS = {
     source: "admin_alerts.code,pending_ingestions.last_error_code"
   },
   ROLE_MAPPINGS_OUTDATED_AT_PUBLISH: {
-    source: "admin_alerts.code,pending_ingestions.last_error_code"
+    source: "pending_ingestions.last_error_code"
   },
   ROLE_TOKEN_AUTOCORRECTED: {
     source: "parse_warnings.code"
@@ -327,7 +327,7 @@ export const INTERNAL_CODE_ENUMS = {
     source: "admin_alerts.code,pending_ingestions.last_error_code"
   },
   STAGED_PARSE_OUTDATED_AT_PHASE_D: {
-    source: "admin_alerts.code,pending_ingestions.last_error_code"
+    source: "pending_ingestions.last_error_code"
   },
   STAGED_PARSE_RESTAGED_INLINE: {
     source: "admin_alerts.code,pending_ingestions.last_error_code"
@@ -342,7 +342,7 @@ export const INTERNAL_CODE_ENUMS = {
     source: "admin_alerts.code,pending_ingestions.last_error_code"
   },
   STAGED_PARSE_REVISION_RACE_DURING_FINALIZE: {
-    source: "admin_alerts.code,pending_ingestions.last_error_code"
+    source: "pending_ingestions.last_error_code"
   },
   STAGED_PARSE_SOURCE_GONE: {
     source: "admin_alerts.code,pending_ingestions.last_error_code"
@@ -435,7 +435,7 @@ export const INTERNAL_CODE_ENUMS = {
     source: "admin_alerts.code,pending_ingestions.last_error_code"
   },
   WIZARD_REVIEWER_CHOICES_VERSION_UNSUPPORTED: {
-    source: "admin_alerts.code,pending_ingestions.last_error_code"
+    source: "pending_ingestions.last_error_code"
   },
   WIZARD_SESSION_SUPERSEDED: {
     source: "admin_alerts.code,pending_ingestions.last_error_code"

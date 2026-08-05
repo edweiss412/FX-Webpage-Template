@@ -76,11 +76,23 @@ const CITATION = /BL-[A-Z0-9](?:[A-Z0-9-]*[A-Z0-9])?/g;
 const NOT_CITATIONS = new Set([
   "tests/docs/_metaLedgerReferentialIntegrity.test.ts",
   "tests/docs/_ledgerMdast.walker.test.ts",
+  // Same reason: its `BL-MENTIONED` / `BL-TYPOO` / `BL-REAL` and friends are
+  // planted markdown proving condition 4 separates a definition from a mention.
+  // The entry that drove it (BL-LEDGER-BODY-DEFINED-ID-OVERMINT) predicted this
+  // exact collision, which is why its own probe was kept out of the ledger.
+  "tests/docs/ledgerBodyIdOvermint.test.ts",
   "tests/docs/_metaDeferralLedgerGraduation.test.ts",
   "tests/docs/_ledgerMdast.ts",
   // Same reason: its `BL-PLANT*` entries are planted violations used to prove the
   // in-progress rules catch what they claim to, not references to real work.
   "tests/docs/_metaLedgerInProgress.test.ts",
+  // Same reason: its scratch ledgers plant `BL-OPEN-ONE`, `BL-PLANTED-*` and
+  // friends to prove archives are skipped and an unrecognized severity is
+  // reported by id. They are fixtures, not references to real work.
+  "tests/scripts/ledgerMass.test.ts",
+  // Same reason: its scratch ledgers plant `BL-PLANTED-*`, `BL-NEW-UNSIZED`
+  // and the four tier spellings to prove the sizing guard fails by name.
+  "tests/docs/_metaLedgerSizing.test.ts",
 ]);
 
 /**
@@ -616,6 +628,10 @@ describe("bodyDefinedIds is scoped to ledger files", () => {
       if (rel === "tests/docs/_ledgerMdast.ts") return false; // the definition
       if (rel === "tests/docs/_ledgerMdast.walker.test.ts") return false; // its own tests
       if (rel === "tests/docs/_metaLedgerReferentialIntegrity.test.ts") return false; // this file
+      // Condition 4's own probe. It calls bodyDefinedIds on INLINE markdown
+      // strings, never on a file list, so it cannot defeat the property this
+      // assertion protects — a second caller scoping its own files.
+      if (rel === "tests/docs/ledgerBodyIdOvermint.test.ts") return false;
       let text: string;
       try {
         text = readFileSync(join(ROOT, rel), "utf8");

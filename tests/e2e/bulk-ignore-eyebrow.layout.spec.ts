@@ -24,7 +24,8 @@
  *   node_modules/.bin/playwright test --config tests/e2e/standalone.config.ts \
  *     tests/e2e/bulk-ignore-eyebrow.layout.spec.ts
  */
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect } from "./helpers/fontFidelityFixture";
+import type { Page } from "@playwright/test";
 import { mkdtempSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -114,6 +115,7 @@ for (const state of ["idle", "armed"] as const) {
   }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto(baseUrl);
+    await page.evaluate(() => document.fonts.ready);
     await page.waitForSelector(CHIP);
     if (state === "armed") await armChip(page);
     const m = await page.evaluate(
@@ -196,6 +198,7 @@ for (const state of ["idle", "armed"] as const) {
   }) => {
     await page.setViewportSize({ width: 375, height: 812 });
     await page.goto(baseUrl);
+    await page.evaluate(() => document.fonts.ready);
     await page.waitForSelector(CHIP);
     if (state === "armed") await armChip(page);
     const m = await rowMetrics(page);
@@ -214,6 +217,7 @@ test("DI-3 375px armed: the confirm bar takes the full row width on its own line
 }) => {
   await page.setViewportSize({ width: 375, height: 812 });
   await page.goto(baseUrl);
+  await page.evaluate(() => document.fonts.ready);
   await page.waitForSelector(CHIP);
   const idle = await rowMetrics(page);
   expect(idle.chipWidth).toBeLessThan(idle.contentWidth - 1); // idle chip is NOT full width
@@ -229,6 +233,7 @@ test("DI-5 375px idle: the row keeps its one-line height (the fix costs nothing 
 }) => {
   await page.setViewportSize({ width: 375, height: 812 });
   await page.goto(baseUrl);
+  await page.evaluate(() => document.fonts.ready);
   await page.waitForSelector(CHIP);
   const idle = await rowMetrics(page);
   // Derived, not hardcoded: the row is exactly as tall as its tallest in-flow child
@@ -241,6 +246,7 @@ for (const width of [480, 1280] as const) {
   test(`DI-2 ${width}px: the rule is shown and never collapses to zero`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });
     await page.goto(baseUrl);
+    await page.evaluate(() => document.fonts.ready);
     await page.waitForSelector(CHIP);
     const idle = await rowMetrics(page);
     expect(idle.ruleShown).toBe(true);
@@ -277,6 +283,7 @@ test("DI-2b the min-w-6 floor BINDS in a narrow container at a wide viewport", a
   // 0 here, which is the phantom gap in a container no test covers.
   await page.setViewportSize({ width: 900, height: 800 });
   await page.goto(baseUrl);
+  await page.evaluate(() => document.fonts.ready);
   await page.waitForSelector(CHIP);
   await page.addStyleTag({ content: '[data-testid="harness-mount"]{width:400px}' });
   const m = await rowMetrics(page);

@@ -46,7 +46,7 @@
  * Copy (invariant 5 — no raw codes in the DOM): titles/messages come from the
  * catalog via `messageFor`/`isMessageCode`; auto notes come from the feed's
  * catalog-derived `autoResolveNote`; button and
- * footer labels are UI chrome (uncataloged, like "Dismiss"/"Retry"). The error
+ * footer labels are UI chrome (uncataloged, like "Mark resolved"/"Retry"). The error
  * state renders `ALERT_BELL_FEED_FAILED`. An uncataloged row code falls back to
  * a generic title (never the raw code string).
  */
@@ -221,7 +221,7 @@ function IdentityChip({ entry }: { entry: BellEntry }) {
 // Accent-on-bg, hover underline; keeps the 44px tap floor for the venue phone.
 const LINK_CTA =
   "inline-flex min-h-tap-min items-center gap-1 rounded-sm text-[13px] font-semibold text-accent-on-bg transition-colors duration-fast hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface";
-// Trailing ghost Dismiss (DESIGN.md §16): quiet by default, lifts on hover.
+// Trailing ghost resolve control (DESIGN.md §16): quiet by default, lifts on hover.
 // Ghost styling for the row's resolve control. Named for the ROLE, not a verb:
 // the label itself is intent-driven (lib/adminAlerts/resolveActionLabel.ts) and
 // reads "Confirm" or "Mark resolved" depending on the code.
@@ -232,7 +232,7 @@ const GHOST_RESOLVE =
 // square-tap-target pattern the `bell-panel-close` button uses) rather than
 // LINK_CTA's text-link padding.
 // Show-page chevron: a 28px-wide gutter spanning the FULL row height, sitting
-// after the row body so the header's timestamp and the action row's Dismiss end
+// after the row body so the header's timestamp and the action row's resolve control end
 // on one shared right edge (they previously ended 52px apart — the chevron was a
 // conditional child of the header line only).
 //
@@ -301,15 +301,15 @@ export function BellActionRow({
     // Refetch after the POST settles regardless of status: a 200 shows the row
     // resolved, a 409 (raced to auto) surfaces the auto note, a 404 drops it.
     // Reset the button too — on a transient 5xx the row survives the refetch
-    // and must not stay stuck at "Dismissing…".
+    // and must not stay stuck at "Confirming…" / "Resolving…".
     setResolving(false);
     onRefetch();
   }, [entry, onRefetch, resolving]);
 
   // Layout (DESIGN.md §16): the primary link/affordance LEADS on the left, a
-  // spacer, then the trailing ghost Dismiss on the right. Health rows keep the
+  // spacer, then the trailing ghost resolve control on the right. Health rows keep the
   // telemetry-link-only contract (the global resolve route 403s health), so they
-  // have no Dismiss; auto-resolving rows show their note; watch keeps Retry.
+  // have no resolve control; auto-resolving rows show their note; watch keeps Retry.
   return (
     <div
       data-testid={`bell-action-cell-${entry.alertId}`}
@@ -390,7 +390,7 @@ export function BellActionRow({
       {/* Next-attempt line (backoff spec §3.6): renders ONLY while the reconnect
           ladder is in play (last attempt failed). `w-full` wraps it onto its own
           visual line inside this flex-wrap row - Tailwind v4 does not stretch
-          flex items, and without it the sentence would inline beside Dismiss.
+          flex items, and without it the sentence would inline beside the resolve control.
           Server-rendered snapshot; deliberately no client timer (Transition
           Inventory: B↔C updates on the next bell refresh). */}
       {isWatch && !entry.isHealth && entry.watchState?.lastAttemptOutcome === "failed" ? (
@@ -1231,7 +1231,7 @@ export function BellPanel({
           does not dim the page). This is a NON-INTERACTIVE, aria-hidden scrim —
           a MOUSE-only dismiss convenience — deliberately NOT a focusable control
           and NOT part of the a11y tree: with the dialog's `aria-modal="true"`, a
-          focusable "Dismiss" button living OUTSIDE the dialog subtree would
+          focusable close button living OUTSIDE the dialog subtree would
           contradict the "outside content is unavailable" contract and get
           flagged as focusable-outside-modal. Keyboard and AT users dismiss via
           Esc (the keydown handler) and the in-dialog Close button; the scrim is

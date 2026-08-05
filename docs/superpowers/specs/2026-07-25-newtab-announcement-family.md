@@ -335,8 +335,14 @@ WITH substitutions is not. Anything outside these shapes is reported as
   (`const T = "a"`) and a namespaced tag (`<svg:a>`) ARE both classified, because the explicit
   `target` attribute rule does not depend on the tag name.
 - **Document-level `<base target="_blank">` is out of scope.** It would make every relative
-  anchor external without any per-anchor syntax to inspect. None exists in the tree; a lexical
-  assertion that none is introduced is tracked in `DEFERRED.md`.
+  anchor external without any per-anchor syntax to inspect, so the per-anchor guard cannot see it.
+  None exists in the tree (re-verified 2026-08-04: no `<base ` element under `app/` or
+  `components/`). **Fix when prioritized:** a one-line lexical assertion that no `<base target=`
+  appears under `app/` or `components/` — cheap, and it would make the family closed under the
+  base-target case too. **Un-defer trigger:** anyone proposing a `<base>` element, or the next pass
+  on this guard. This section is the record: the `NEWTAB-GUARD-UNDECIDABLE-2` row that used to
+  track it was demoted to this ratified limit on 2026-08-04 under the ledger filing bar and lives
+  in `DEFERRED-archive.md`.
 - **Expression IDENTITY is also a narrow subset.** Proving a guard non-empties its OWN
   substitution (`title.trim() ? ` + "`${title.trim()} …`" + `) needs the two expressions to be the SAME
   one. That comparison accepts only: an identifier, a property access (recording optional-chain),
@@ -844,8 +850,12 @@ WITH substitutions is not. Anything outside these shapes is reported as
   zero; a future compound gate costs one exemption or a named boolean.
 - **An effectful predicate evaluated twice** (`{...(next() ? … )}` with `next()` also gating the
   hint) cannot be proven consistent statically. Textual equality is the guarantee; identity of
-  side effects is not. No such predicate exists in the tree, and the approved shapes discourage
-  it.
+  side effects is not. **No longer an accepted limit — CLOSED 2026-07-25 by the R6 model change**,
+  and kept here so a reader of the older rounds is not left thinking it still stands. R6 restricted
+  approved gating predicates to identifiers, property-access chains, and `!` over either, for the
+  unrelated compound-predicate reason above; a call expression is therefore no longer an approved
+  gating shape, so this case is now REPORTED rather than accepted. Pinned by "an effectful gating
+  predicate is reported, closing the R4 deferral" in `tests/styles/_metaNewTabAnnouncement.test.ts`.
 
 ## 7. Tests (TDD per task — failing test first)
 

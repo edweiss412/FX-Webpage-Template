@@ -7,6 +7,7 @@ import {
   type PickerEnvelope,
 } from "@/lib/auth/picker/cookieEnvelope";
 import { verifyPickerIntent } from "@/lib/auth/picker/intentToken";
+import { interstitialDocument } from "@/lib/auth/interstitialDocument";
 import { validateGoogleSession } from "@/lib/auth/validateGoogleSession";
 import { validateNextParamDetailed } from "@/lib/auth/validateNextParam";
 import { hashForLog } from "@/lib/email/hashForLog";
@@ -35,16 +36,11 @@ function htmlResponse(code: MessageCode, status: number): Response {
   const entry = messageFor(code);
   const body = entry.crewFacing ?? entry.dougFacing ?? "Please try again.";
   return new NextResponse(
-    [
-      "<!doctype html>",
-      '<html lang="en">',
-      '<head><meta charset="utf-8"><title>Sign-in unavailable</title></head>',
-      "<body>",
-      "<h1>Sign-in unavailable</h1>",
-      `<p>${body}</p>`,
-      "</body>",
-      "</html>",
-    ].join(""),
+    interstitialDocument({
+      title: "Sign-in unavailable",
+      heading: "Sign-in unavailable",
+      body,
+    }),
     { status, headers: { "content-type": "text/html; charset=utf-8" } },
   );
 }

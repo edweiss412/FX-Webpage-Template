@@ -182,6 +182,17 @@ type Snapshot = {
   // without a DB-transactional snapshot store; the realistic impact is zero in
   // the single-user validation environment, where no concurrent real POSTs hit
   // the fixture identity during a manual seed. See closeout §4a.)
+  //
+  // DOCUMENTED LIMIT, demoted from BACKLOG.md 2026-08-04 under the AGENTS.md
+  // ledger filing bar. `BL-RATE-LIMIT-SNAPSHOT-DURABILITY` carried this window
+  // as open queue work; its worst case is this warn-and-refuse path, which is
+  // conservative behaviour plus a surfaced signal, so the record belongs here.
+  // The row is archived in BACKLOG-archive.md with the full body. Its un-defer
+  // trigger, verbatim: rate-limit fixtures proving flaky in practice — at which
+  // point the repair is a DB-transactional snapshot store, which needs the
+  // `validation_state` CHECK at
+  // supabase/migrations/20260527204241_validation_state.sql:5 widened past its
+  // single `'validation_seed'` key before it can host one.
   status: "pending" | "committed";
 };
 

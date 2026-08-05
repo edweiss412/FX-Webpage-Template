@@ -13,14 +13,16 @@
  *
  * WHY THE FONT PATH IS DERIVED, NEVER HARDCODED. The check is only meaningful
  * against the font the app loads. If this file named `assets/fonts/…` directly, it
- * would keep passing after someone repointed `app/fonts.ts` somewhere else —
+ * would keep passing after someone repointed `app/fonts.css` somewhere else —
  * reintroducing exactly the CSS-says-one-thing/font-does-another split the guard
- * exists to close. So the `src` is parsed out of `app/fonts.ts` and resolved
+ * exists to close. So the `src` is parsed out of `app/fonts.css` and resolved
  * relative to that module, the same way the bundler resolves it.
  */
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, readdirSync, rmSync } from "node:fs";
+
+import { parseFontFaces, srcOf } from "../helpers/fontCss";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import * as fontkit from "fontkit";
@@ -73,7 +75,7 @@ function compiledCss(): string {
 }
 
 const GLOBALS_CSS = resolve(REPO_ROOT, "app", "globals.css");
-const FONTS_MODULE = resolve(REPO_ROOT, "app", "fonts.ts");
+const FONTS_STYLESHEET = resolve(REPO_ROOT, "app", "fonts.css");
 const GOOGLE_FIXTURE = resolve(__dirname, "fixtures", "inter-google-latin-v20.woff2");
 /** The exact latin subset fonts.gstatic.com served on 2026-08-03, pinned by identity. */
 /**
@@ -606,94 +608,35 @@ export function missingTags(tags: readonly string[], fontPath: string): string[]
 }
 
 /**
- * The font `app/fonts.ts` loads, read off the TypeScript AST.
+ * The font the app actually loads, resolved from `app/fonts.css`'s `@font-face`.
  *
- * ANCHORED TO THE `localFont()` CALL, not to any `src` property in the module.
- * Round 3's mutant proved the difference: a decoy object literal
- * `const guardOnly = { src: "…/InterVariable-latin.woff2" }` alongside a real
- * `localFont({ src: [{ path: "…/inter-google-latin-v20.woff2" }] })` had the
- * guard resolving the vendored file while Next loaded the Google fixture.
+ * ANCHORED TO THE `src` OF A REAL `@font-face` RULE, parsed with Lightning CSS
+ * rather than matched textually. Round 3's mutant against the previous
+ * (TypeScript-AST) version proved why anchoring matters: a decoy object literal
+ * beside the real loader call had the guard resolving the vendored file while
+ * the app loaded a different one. A CSS parser gives the same property for
+ * free — a `src` in a comment or an unrelated rule is not a font-face source.
  *
- * Both `src` spellings the loader accepts are handled — a bare string, and the
- * array-of-`{path}` form for multi-file families. The array form must resolve to
- * exactly one path here, since this guard checks one font.
+ * KEEP THE INDIRECTION. Naming `public/fonts/…` directly here would leave this
+ * guard passing after someone repointed the stylesheet, which is exactly the
+ * silent-failure class it exists to close.
  */
 export function resolveLoadedFontPath(): string {
-  const source = ts.createSourceFile(
-    FONTS_MODULE,
-    readFileSync(FONTS_MODULE, "utf8"),
-    ts.ScriptTarget.Latest,
-    true,
-  );
+  const faces = parseFontFaces(readFileSync(FONTS_STYLESHEET, "utf8"));
+  const urls = faces
+    .flatMap((face) => srcOf(face))
+    .filter((source) => source.kind === "url")
+    .map((source) => source.url)
+    .filter((url): url is string => typeof url === "string");
 
-  const calls: ts.ObjectLiteralExpression[] = [];
-  const visit = (node: ts.Node): void => {
-    if (ts.isCallExpression(node)) {
-      const callee = node.expression;
-      const name = ts.isIdentifier(callee)
-        ? callee.text
-        : ts.isPropertyAccessExpression(callee)
-          ? callee.name.text
-          : "";
-      // The loader is imported as a default binding, conventionally `localFont`.
-      // Matching the CALL rather than a property name is the whole point.
-      if (/^(localFont|.*Font)$/.test(name) && node.arguments.length > 0) {
-        const arg = node.arguments[0];
-        if (arg && ts.isObjectLiteralExpression(arg)) calls.push(arg);
-      }
-    }
-    ts.forEachChild(node, visit);
-  };
-  visit(source);
-
-  if (calls.length !== 1) {
+  if (urls.length !== 1) {
     throw new Error(
-      `app/fonts.ts contains ${calls.length} font-loader calls with an object ` +
-        `literal argument; this guard checks exactly one.`,
+      `app/fonts.css declares ${urls.length} url() font sources ` +
+        `(${urls.join(", ") || "none"}); this guard checks exactly one.`,
     );
   }
-
-  const srcProp = calls[0]!.properties.find(
-    (prop): prop is ts.PropertyAssignment =>
-      ts.isPropertyAssignment(prop) &&
-      ((ts.isIdentifier(prop.name) && prop.name.text === "src") ||
-        (ts.isStringLiteral(prop.name) && prop.name.text === "src")),
-  );
-  if (!srcProp) {
-    throw new Error(
-      `the font-loader call in app/fonts.ts has no \`src\`. If it moved back to ` +
-        `next/font/google, this guard can no longer see the font the app loads — ` +
-        `fix the guard, do not delete it.`,
-    );
-  }
-
-  const paths: string[] = [];
-  const init = srcProp.initializer;
-  if (ts.isStringLiteralLike(init)) {
-    paths.push(init.text);
-  } else if (ts.isArrayLiteralExpression(init)) {
-    for (const el of init.elements) {
-      if (!ts.isObjectLiteralExpression(el)) continue;
-      for (const prop of el.properties) {
-        if (
-          ts.isPropertyAssignment(prop) &&
-          ts.isIdentifier(prop.name) &&
-          prop.name.text === "path" &&
-          ts.isStringLiteralLike(prop.initializer)
-        ) {
-          paths.push(prop.initializer.text);
-        }
-      }
-    }
-  }
-
-  if (paths.length !== 1) {
-    throw new Error(
-      `the font-loader call in app/fonts.ts resolves to ${paths.length} font files ` +
-        `(${paths.join(", ") || "none"}); this guard checks exactly one.`,
-    );
-  }
-  return resolve(dirname(FONTS_MODULE), paths[0]!);
+  // The stylesheet requests a served URL (`/fonts/…`); on disk that is `public/`.
+  return resolve(REPO_ROOT, "public", urls[0]!.replace(/^\//, ""));
 }
 
 /**
@@ -806,7 +749,7 @@ describe("parseFeatureValue — recognises the canonical form, refuses everythin
  * longhand being another round.
  *
  * The face TOKENS (`--font-sans`, `--font-inter`) are deliberately NOT here: this
- * pattern matches bare property names anywhere in a file, and `app/fonts.ts`
+ * pattern matches bare property names anywhere in a file, and `app/fonts.css`
  * legitimately names `--font-inter` when it DEFINES it. They are matched instead
  * in the inline-style regions and CSSOM writes below, which are the paths by
  * which they could actually swap a face.
@@ -1005,7 +948,20 @@ export function inlineFeatureStyles(): string[] {
  * declaration — vendor CSS for a PDF viewer cannot meaningfully declare this
  * product's font features, and scanning `node_modules` is not proportionate.
  */
-const FIRST_PARTY_STYLESHEETS = ["app/globals.css"];
+/**
+ * Every first-party stylesheet, in sorted order.
+ *
+ * `app/fonts.css` joined the tree when the face moved out of `next/font`
+ * (BL-HARNESS-FONT-FIDELITY). It is listed DELIBERATELY, which is the whole
+ * point of the row below: a new stylesheet must be reckoned with rather than
+ * silently ignored, because one the guard does not compile can declare a
+ * feature the font lacks, or reset one, entirely unseen.
+ *
+ * It declares faces rather than feature settings, so it adds no tags to the
+ * analysis today — but that is a fact about its current contents, not a
+ * property of the file, and the compilation covers it either way.
+ */
+const FIRST_PARTY_STYLESHEETS = ["app/fonts.css", "app/globals.css"];
 
 describe("only one first-party stylesheet exists, so compiling it is sufficient", () => {
   test("no stylesheet under app/, components/ or lib/ escapes the compiled analysis", () => {
@@ -1087,7 +1043,7 @@ describe("font feature availability", () => {
 
   test("the loaded font path resolves to a file that exists", () => {
     const path = resolveLoadedFontPath();
-    expect(existsSync(path), `app/fonts.ts src resolves to ${path}`).toBe(true);
+    expect(existsSync(path), `app/fonts.css src resolves to ${path}`).toBe(true);
   });
 
   test("no property name is written with an escape", () => {

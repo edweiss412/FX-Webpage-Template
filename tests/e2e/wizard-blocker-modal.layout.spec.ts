@@ -25,7 +25,8 @@
  *   node_modules/.bin/playwright test --config tests/e2e/standalone.config.ts \
  *     tests/e2e/wizard-blocker-modal.layout.spec.ts
  */
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect } from "./helpers/fontFidelityFixture";
+import type { Page } from "@playwright/test";
 import { mkdtempSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -98,6 +99,7 @@ async function openLive(page: Page) {
   // load (matches step3-review-modal.layout.spec.ts).
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.goto(baseUrl + "live.html");
+  await page.evaluate(() => document.fonts.ready);
   await expect(page.locator(FLIP)).toBeVisible();
 }
 

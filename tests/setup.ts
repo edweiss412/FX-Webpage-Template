@@ -112,48 +112,17 @@ if (typeof window !== "undefined") {
   });
 }
 
-// `next/font/*` is a BUILD-TIME transform, not a runtime module: Next rewrites
-// the loader call into a static object during compilation and the real loader
-// throws outside that pipeline. So any test that imports a module which loads a
-// font — `app/fonts.ts`, and through it both Next roots — dies at import before
-// a single assertion runs.
+// NO next/font MOCK LIVES HERE ANY MORE.
 //
-// `next/font/local` fails HARDER than google did, and differently: its runtime
-// entry (node_modules/next/font/local/index.js) is a ZERO-BYTE file, so there is
-// no implementation to throw a legible error — the call is simply not a
-// function. The google mock alone left `tests/observe/globalError.test.tsx`
-// dying at import the moment `app/fonts.ts` swapped loaders.
+// It existed because `next/font/*` is a BUILD-TIME transform: Next rewrote the
+// loader call into a static object during compilation, and the real loader threw
+// outside that pipeline, so any test importing a Next root died at import. The
+// face is now declared in `app/fonts.css` and reaches both roots as a plain CSS
+// import, which Vitest handles natively.
 //
-// Registered here rather than per-file because the trigger is "this test
-// imports a root", which any future test may do without knowing it needs a
-// mock. `variable` and `className` mirror the real return shape; the values are
-// recognisable stand-ins, and `tests/observe/globalError.test.tsx` matches the
-// shape rather than a literal so it still proves the class is APPLIED.
-export const NEXT_FONT_TEST_VARIABLE_CLASS = "__next_font_variable_under_test";
-export const NEXT_FONT_TEST_CLASSNAME = "__next_font_className_under_test";
-
-// Both loader modules are mocked. `next/font/local` is the one `app/fonts.ts`
-// actually uses; `next/font/google` is kept because the shape is cheap and a
-// future root that reaches for it should not fail in a way that looks unrelated.
-vi.mock("next/font/local", () => ({
-  default: () => ({
-    variable: NEXT_FONT_TEST_VARIABLE_CLASS,
-    className: NEXT_FONT_TEST_CLASSNAME,
-    style: { fontFamily: "Inter" },
-  }),
-}));
-
-vi.mock("next/font/google", () => ({
-  Inter: () => ({
-    // Deliberately DISTINCT and deliberately not containing "inter": a test
-    // asserting a loose /inter/i match would be satisfied by an unrelated class
-    // like `winter-theme`, and by `className` when `variable` is what the
-    // consumer must apply. Review R7 demonstrated both mutants against exactly
-    // that. Consumers assert the exact constant.
-    variable: NEXT_FONT_TEST_VARIABLE_CLASS,
-    className: NEXT_FONT_TEST_CLASSNAME,
-    style: { fontFamily: "Inter" },
-  }),
-}));
+// Deleted rather than left harmless: dead mock infrastructure for a retired
+// mechanism quietly permits its reintroduction, and
+// `tests/assets/singleFontLoader.test.ts` now asserts that NO censused file
+// imports next/font at all (BL-HARNESS-FONT-FIDELITY).
 
 export {};

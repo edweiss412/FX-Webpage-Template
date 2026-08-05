@@ -149,7 +149,14 @@ export const GUARD_SURFACES: GuardSurface[] = [
   {
     id: "taskContract",
     sourcePath: "lib/specLint/taskContract.ts",
-    suitePaths: ["tests/specLint/taskContract.test.ts"],
+    // BOTH suites, and the second one is load-bearing: `compareFindings` is
+    // exercised only by the ordering suite, so without it every mutant inside
+    // the comparator survives for want of a test that ever calls it — which is
+    // exactly what the gate reported when the function was first extracted.
+    suitePaths: [
+      "tests/specLint/taskContract.test.ts",
+      "tests/specLint/taskContractFindingOrder.test.ts",
+    ],
     operators: [...OPERATOR_NAMES],
     // Unchanged from the hardcoded control this field generalizes: inverting
     // the function's own kind guard, which the suite must notice.
@@ -253,32 +260,54 @@ export const GUARD_SURFACES: GuardSurface[] = [
         reason:
           "ms.length === 0 makes the following 'ms.length > 1' false and the for-of over ms empty",
       },
+      // The comparator moved out of `checkTaskContract` into the exported
+      // `compareFindings` (2026-08-04), so the two `:247:` rows that used to sit
+      // here are retired with their sites. Their arguments survive unchanged on
+      // the rows below, which now cover the same mutants at the new coordinates
+      // — and cover the message tiebreak the old comparator did not have.
       {
-        siteId: "integer-literal:247:60:1>2",
+        siteId: "integer-literal:271:52:1>2",
         kind: "equivalent",
         reason:
           "Array.prototype.sort observes a comparator result's SIGN, never its magnitude; -1 and -2 are indistinguishable to it",
       },
       {
-        siteId: "integer-literal:247:82:1>2",
+        siteId: "integer-literal:271:56:1>2",
         kind: "equivalent",
         reason: "same sign-not-magnitude argument: 1 and 2 are indistinguishable to sort",
       },
-      // ---- accepted-gap: real, deliberately uncovered (spec §2.5, L-7) -----
       {
-        siteId: "relational-boundary:247:71:>>>=",
-        kind: "accepted-gap",
-        reason:
-          "differs from clean only for two findings sharing (docLine, code); probed on node v20.20.1 against the real checkTaskContract with ac=AC-90,AC-91 both unresolved and it does not reorder. Classified accepted-gap rather than equivalent because an inconsistent comparator is implementation-defined in ECMA-262, so the argument rests on V8's stable sort, not on control flow (spec limit L-7)",
-        ref: "BL-TASKCONTRACT-SORT-COMPARATOR-EQUALKEY",
+        siteId: "integer-literal:272:64:1>2",
+        kind: "equivalent",
+        reason: "same sign-not-magnitude argument, on the message tiebreak",
       },
       {
-        siteId: "integer-literal:247:86:0>1",
-        kind: "accepted-gap",
-        reason:
-          "same equal-key-only reachability and the same probe result; equivalent would overclaim for the same ECMA-262 reason (spec limit L-7)",
-        ref: "BL-TASKCONTRACT-SORT-COMPARATOR-EQUALKEY",
+        siteId: "integer-literal:272:68:1>2",
+        kind: "equivalent",
+        reason: "same sign-not-magnitude argument, on the message tiebreak",
       },
+      {
+        siteId: "relational-boundary:271:40:<><=",
+        kind: "equivalent",
+        reason:
+          "the branch is guarded by `a.code !== b.code`, so `<` and `<=` are only ever evaluated on UNEQUAL operands, where they agree. Unlike the old accepted-gap rows this rests on control flow in the function itself, not on V8's sort being stable",
+      },
+      {
+        siteId: "relational-boundary:272:49:<><=",
+        kind: "equivalent",
+        reason:
+          "same guarded-branch argument on the message tiebreak: `a.message !== b.message` has already excluded the only inputs on which `<` and `<=` differ",
+      },
+      // ---- accepted-gap: none. -----------------------------------------------
+      // Two rows lived here until 2026-08-04
+      // (BL-TASKCONTRACT-SORT-COMPARATOR-EQUALKEY). Both described mutants of the
+      // old inline comparator that differed from clean ONLY for findings sharing
+      // (docLine, code) — a gap that existed precisely because the comparator was
+      // partial over that pair, and whose acceptance rested on V8's stable sort
+      // rather than on control flow. Adding the message as a third key makes the
+      // comparator total, so both mutants are now killable and the rows would be
+      // stale debt claiming coverage nobody is missing. The gate reports stale
+      // rows, which is why they retire in the same commit as the fix.
     ],
   },
   /**
