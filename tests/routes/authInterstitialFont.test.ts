@@ -82,6 +82,55 @@ describe("the shared interstitial document", () => {
   });
 });
 
+describe("the text slots are escaped", () => {
+  // Traced 2026-08-04: all four current call sites pass either a string literal
+  // or `messageFor(...)` catalog copy, so nothing attacker-controlled reaches
+  // the builder TODAY and this is hardening rather than a live bug. It is worth
+  // having anyway — this is a new shared primitive that interpolates into raw
+  // HTML, and the next caller is the one that will not check. Escaping at the
+  // boundary means a future `interstitialDocument({ body: searchParams.get(...) })`
+  // is merely ugly instead of an injection.
+  it("escapes the text slots rather than trusting the caller", () => {
+    const doc = interstitialDocument({
+      title: "</title><script>t()</script>",
+      heading: '<img src=x onerror="h()">',
+      body: "a & b < c > d \" e ' f",
+    });
+    expect(doc).not.toContain("<script>");
+    expect(doc).not.toContain("<img");
+    // NOT asserted: the absence of the substring `onerror=`. Escaping leaves it
+    // there as inert TEXT — only the quotes around its value are encoded — and a
+    // test demanding its absence would be demanding stripping, not escaping.
+    // What actually makes it inert is that no unescaped `<` survives to open a
+    // tag, which the two checks above and the tag-count check below pin.
+    expect(doc).toContain("&lt;img src=x onerror=&quot;h()&quot;&gt;");
+    // Escaped, not stripped: the copy still says what it said.
+    expect(doc).toContain("&lt;script&gt;");
+    // The interpolated payload opened no element: the document has exactly the
+    // tags the builder itself emits, and a `</title>` break-out would add more.
+    expect((doc.match(/<title\b/g) ?? []).length).toBe(1);
+    expect((doc.match(/<\/title>/g) ?? []).length).toBe(1);
+    expect(doc).toContain("a &amp; b &lt; c &gt; d");
+    // The ampersand is escaped FIRST, so an escape is never double-encoded into
+    // `&amp;lt;` — the classic ordering bug in a hand-rolled escaper.
+    expect(doc).not.toContain("&amp;lt;");
+  });
+
+  it("leaves extraBodyHtml raw, because it is markup by contract", () => {
+    // Sign-out's retry form is markup the CALLER authored, not text. Escaping it
+    // would render the form as visible angle brackets, so the asymmetry is
+    // deliberate — and named here so nobody "fixes" it later.
+    const doc = interstitialDocument({
+      title: "t",
+      heading: "h",
+      body: "b",
+      extraBodyHtml: '<form method="POST"><button type="submit">Retry</button></form>',
+    });
+    expect(doc).toContain('<form method="POST">');
+    expect(doc).toContain('<button type="submit">Retry</button>');
+  });
+});
+
 describe("every hand-built auth document uses it", () => {
   // Source-level, and deliberately so: these builders are module-private inside
   // route files that need env and a request to invoke. What is checked is not

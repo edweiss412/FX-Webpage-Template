@@ -47,6 +47,29 @@ export const INTERSTITIAL_STYLE = [
   "button{font:inherit;padding:.6rem 1rem;border:1px solid #999;background:#f5f5f5;border-radius:.375rem;cursor:pointer}",
 ].join("");
 
+/**
+ * Escape a TEXT slot for interpolation into raw HTML.
+ *
+ * Traced 2026-08-04: every current call site passes a string literal or
+ * `messageFor(...)` catalog copy, so nothing attacker-controlled reaches this
+ * builder today and this is hardening rather than a live bug. It is here because
+ * the builder is a shared primitive that interpolates into raw HTML, and the
+ * next caller is the one who will not check — escaping at the boundary makes a
+ * future `interstitialDocument({ body: searchParams.get("reason") })` merely
+ * ugly rather than an injection.
+ *
+ * `&` is replaced FIRST so an escape is never re-escaped into `&amp;lt;` — the
+ * ordering bug every hand-rolled escaper gets wrong once.
+ */
+function escapeText(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 export type InterstitialDocument = {
   /** `<title>` — what a tab and a screen reader announce first. */
   title: string;
@@ -58,6 +81,11 @@ export type InterstitialDocument = {
    * Markup appended after the copy, inside `<body>` — sign-out's retry form is
    * the only current caller. Omitted emits nothing at all rather than an empty
    * wrapper, so the three form-less documents stay byte-minimal.
+   *
+   * Emitted RAW, unlike the three text slots above, because it is markup by
+   * contract rather than copy: escaping it would render sign-out's retry form as
+   * visible angle brackets. The asymmetry is deliberate and asserted, so nobody
+   * "fixes" it later — callers own what they put here.
    */
   extraBodyHtml?: string;
 };
@@ -74,15 +102,15 @@ export function interstitialDocument({
     '<html lang="en">',
     "<head>",
     '<meta charset="utf-8">',
-    `<title>${title}</title>`,
+    `<title>${escapeText(title)}</title>`,
     '<meta name="viewport" content="width=device-width,initial-scale=1">',
     "<style>",
     INTERSTITIAL_STYLE,
     "</style>",
     "</head>",
     "<body>",
-    `<h1>${heading}</h1>`,
-    `<p>${body}</p>`,
+    `<h1>${escapeText(heading)}</h1>`,
+    `<p>${escapeText(body)}</p>`,
     ...(extraBodyHtml ? [extraBodyHtml] : []),
     "</body>",
     "</html>",
