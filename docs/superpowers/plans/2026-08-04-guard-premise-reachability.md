@@ -790,12 +790,12 @@ Groups: `parseRefLine` on a one-field line; `lsRemote` HEAD exclusion against a 
 
 Same as Task 6 Step 4, and non-negotiable here: **run each new test against both a full clone and a zero-ref environment.** Per spec AC-6, a mutant whose verdict differs between them may not be ledgered — it must be killed by a test that builds its own refs. Simulate the zero-ref case by pointing `LEDGER_GIT_ROOT` at a fresh repo with no `refs/remotes/origin/*`.
 
-- [ ] **Step 4: File the two `accepted-gap` families**
+- [ ] **Step 4: File the `accepted-gap` family**
 
-Both need a `BL-` row in `BACKLOG.md`, filed in this PR per the class-sweep disposition rule — deferring a peer requires naming which exception applies, and both name (c), a repair that redesigns a surface this PR does not otherwise touch:
+**Corrected during implementation: there is ONE family, not two.**
 
-1. **`BL-LEDGER-GIT-TIMEOUT-CONSTANTS`** — `FETCH_MS`, `LS_REMOTE_MS`, `GH_MS`. Asserting a timeout means waiting it out or injecting the spawn; the ledger branch already named this gap in `5f1a98a66`'s message.
-2. **`BL-LEDGER-GIT-GH-PATH-UNINJECTABLE`** — `prList`'s status handling and `isCrossRepository === true`. The adapter spawns `gh` directly; killing those mutants means extracting the row parser, which is a redesign of a surface this PR does not otherwise touch.
+1. **`BL-LEDGER-GIT-TIMEOUT-CONSTANTS`** — `FETCH_MS`, `LS_REMOTE_MS`, `GH_MS`. Asserting a timeout means waiting it out or injecting the spawn; the ledger branch already named this gap in `5f1a98a66`'s message. Filed in `BACKLOG.md` in this PR per the class-sweep disposition rule, naming exception (c): the repair redesigns the one module permitted to spawn, which this PR does not otherwise touch.
+2. **The `gh` path** — planned as a second family with a backlog row of its own, and **not filed, because its premise is false.** `prList` spawns `gh` BY NAME, so `PATH` is already the seam and no refactor is needed: a shim first on `PATH` drives the status handling directly. All four mutants (`status !== 0` to `===` and to `!== 1`, the `||` joining it to `!r.stdout`, and `isCrossRepository === true` to `!==`) are killed by two cases, one with a shim that succeeds and one with a shim that exits 1 while printing well-formed JSON — which is the only input that separates the `&&` mutant from clean. A ledger row here would have recorded debt that does not exist.
 
 - [ ] **Step 5: Write the registry row, declare the counts, run the gate**
 

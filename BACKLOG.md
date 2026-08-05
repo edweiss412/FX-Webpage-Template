@@ -795,6 +795,18 @@ The two survivors are ledgered `accepted-gap` (not `equivalent`) in the source-m
 
 **Deferred from `feat/mutation-gate-guard-surfaces` under class-sweep exception (a) — it needs a product decision this PR cannot settle.** Ordering for same-line, same-code findings is `spec:lint`'s user-visible report contract; that arc ships a mutation harness plus test debt and touches no `taskContract.ts` product code. The sweep itself was complete — all three comparator sites were found and classified together, one repaid and two ledgered — so this entry covers every remaining instance of the class, not one peer of several.
 
+### BL-LEDGER-GIT-TIMEOUT-CONSTANTS — the git adapter's three spawn timeouts are unassertable through its own surface
+
+**Status:** OPEN (2026-08-04, `chore/guard-premise-reachability`) · **Severity:** low · **Class:** TEST COVERAGE · **Effort:** M
+
+`FETCH_MS`, `LS_REMOTE_MS` (both 30 000 ms) and `GH_MS` (10 000 ms) at `scripts/lib/ledger-git.ts:32-34` are handed straight to `spawnSync`'s `timeout` option. Three source mutants of them — `30_000 -> 30_001` twice and `10_000 -> 10_001` — survive `tests/scripts/ledgerClaimsCheck.test.ts` and cannot be killed through the adapter's public surface. The only behaviour that separates a mutant from clean is whether a child running for between 30 000 and 30 001 ms is killed, so an assertion means either waiting the bound out — a 30 s test per constant, on a suite that runs on every merge — or reaching into the spawn.
+
+Ledgered `accepted-gap`, not `equivalent`, in `tests/mutation/source/registry.ts`: a timeout a test could reach WOULD be observable, so an equivalence claim would overclaim. They therefore count as survivors and depress that surface's mutation score rather than being excluded from it.
+
+**Closing this** means giving the adapter an injectable spawn seam — a module-level `run = spawnSync` a test can replace, or an options object carrying the three bounds — and asserting the value each reader passes. That is a redesign of the one module in this repo permitted to spawn, and it widens the surface the "nothing outside this may spawn" structural guard has to police.
+
+**Deferred from `chore/guard-premise-reachability` under class-sweep exception (c) — the repair redesigns a surface this PR does not otherwise touch.** The sweep is complete: all three constants were found and dispositioned together, so this entry covers every instance of the class rather than one peer of several. The gap was named once before, in `5f1a98a66`'s commit message, and until now had no ledger row.
+
 ---
 
 ### BL-EXPORT-BLANK-ROW-SEGMENTATION — blank-row block segmentation fuses/splits sections silently (audit #10)
