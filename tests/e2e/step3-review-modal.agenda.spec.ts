@@ -182,10 +182,19 @@ async function openAgenda(page: Page, width: number) {
   await page.goto(baseUrl + "live.html");
   await page.evaluate(() => document.fonts.ready);
   await expect(page.locator(PANEL)).toBeVisible();
-  // READY GATE: the parsing status line is gone and every fixture session has
+  // READY GATE: the parsing status line is SILENT and every fixture session has
   // painted. Sessions render only in the `ready` state, so this IS the state
   // gate — and the count comes from the fixture, never a literal.
-  await expect(page.locator(AGENDA_PARSING)).toHaveCount(0);
+  //
+  // The gate used to read `toHaveCount(0)`. The region is now permanently
+  // mounted with toggled text (BL-ANNOUNCE-REGION-UNMOUNT-CLASS: a `role="status"`
+  // inserted together with its text is never announced, so "parsing started" —
+  // exactly the transition a reader needs — was silent). Emptiness, not absence,
+  // is what "no longer parsing" means, and asserting BOTH count and text is
+  // strictly stronger than the disappearance check it replaces: it would now
+  // catch the region being deleted outright, which `toHaveCount(0)` welcomed.
+  await expect(page.locator(AGENDA_PARSING)).toHaveCount(1);
+  await expect(page.locator(AGENDA_PARSING)).toHaveText("");
   await expect(page.locator(AGENDA_SESSION)).toHaveCount(TOTAL_SESSIONS);
   await page.locator(AGENDA_SECTION).scrollIntoViewIfNeeded();
 }
