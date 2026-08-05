@@ -26,18 +26,6 @@ That test is comment-blind. Adding a doc comment that merely _names_ `upsertAdmi
 
 ---
 
-## BL-SHADOW-REBUILD-EXHAUSTED-EMIT-PLACEMENT — a durable event for a committed row is skipped when the outer finalize rolls back
-
-**Status:** OPEN · **Severity:** LOW-MEDIUM (lost forensic event; no data impact) · **Class:** telemetry durability · **Filed:** 2026-08-03 (`fix/apply-undo-audit-fidelity`, spec §2.3, deferred under class-sweep exception (a)) · **Effort:** S once the product question is settled
-
-`logAdminOutcome({ code: "ONBOARDING_SHADOW_REBUILD_EXHAUSTED", … })` (`app/api/admin/onboarding/finalize-cas/route.ts:1025-1038`) fires inside `runFinalizeCas`, which runs inside the outer `deps.withTx` holding `tryFinalizeLock` (`app/api/admin/onboarding/finalize-cas/route.ts:905`). The row mutation it describes commits in its own `withRowTx`, independently of that outer transaction — so when the outer commit fails, the mutation stands and the event describing it is silently skipped.
-
-**The exposure is the lock, not a lost event.** The emit fires after `withRowTx` resolves (`app/api/admin/onboarding/finalize-cas/route.ts:968-970`, `:1020-1022`) and before the outer transaction finishes, so a later outer rollback cannot retract it — an earlier draft of this row claimed the event was skipped, which is wrong. What is true is that it runs while `tryFinalizeLock` is still held, which is the invariant-10 posture AGENTS.md states for emits ("POST-COMMIT, outside any advisory-lock tx"). Its neighbour `SHOW_FINALIZED` shares the placement, but both finalize routes have deliberate, test-pinned behavior for it (ordinary finalize suppresses on outer failure, `tests/onboarding/finalize.test.ts:864`; finalize-cas preserves it, `tests/onboarding/finalize-cas.test.ts:685-686`), so it is not in this row's scope.
-
-**Why this is exception (a), not a mechanical fix.** Moving the emit outside the lock also changes when it fires relative to an outer rollback, and whether an operator should hear about an exhausted shadow rebuild belonging to a finalize attempt that then failed is a product question about their mental model. If the answer is yes, the fix is the accumulator-and-`finally` pattern the closing branch establishes for its own emits. Surfaced by cross-model review R9 of that branch, which identified the placement while the branch had no basis to settle the semantics.
-
----
-
 ## BL-ROLEFLAGSNOTICE-DROP-GUARD — no guard detects a path that obtains a `roleFlagsNotice` and never emits it
 
 **Status:** OPEN · **Severity:** LOW-MEDIUM (all four known instances closed; the class is unguarded) · **Class:** guard completeness, static analysis · **Filed:** 2026-08-03 (`fix/apply-undo-audit-fidelity`, descoped at spec review R5 after the vector produced a finding in four consecutive rounds) · **Effort:** L
@@ -78,26 +66,6 @@ The rename-linked instances of this shape were fixed in the filing PR via the su
 screen-disposition 2026-08-04: KEEP — probe (`tests/sync/capabilityLossReachability.probe.test.ts`) demonstrates the false loss end-to-end on `undo_override`/`crew_email`; three sibling shapes verified correct in the same run, and all four are pinned at current behaviour.
 
 **Work.** Restore the symmetry at the source rather than loosening arm (c). The tombstone row above is the counterweight and is pinned in the same probe file: it is a REAL loss, and any fix that suppresses arm (c) more aggressively to silence the false positive will silence that one too. All four rows are pinned at current behaviour, so the fix arrives with a failing case waiting for it.
-
----
-
-## BL-LEDGER-BODY-DEFINED-ID-OVERMINT — any bold lone id at a bullet lead defines, so a mention can mint an id
-
-**Status:** OPEN · **Severity:** low (latent, not live) · **Class:** guard precision · **Filed:** 2026-08-03 (`chore/ledger-claim-visibility`, spec §9.2) · **Effort:** S
-
-`bodyDefinedIds` (`tests/docs/_ledgerMdast.ts:346`) does not require a separator after the bold id,
-so any bold lone id at a bullet lead defines. A bullet whose bold id is followed by ordinary prose,
-or by a colon, mints that id exactly as a real sub-item definition would; a nested bullet and a
-backticked enumeration both correctly do not. The five-shape probe with its outputs is in
-`docs/superpowers/specs/2026-08-03-ledger-claim-visibility-design.md` §9.2 — deliberately not
-reproduced here, because its planted ids would need citation exemptions in this ledger.
-
-Latent, not live: main mints exactly the intended eight ids today. But it over-mints in the
-direction the guard exists to prevent — a bullet naming a sibling id in bold makes that id resolve,
-so a typo can define itself. Deferred out of `chore/ledger-claim-visibility` under exception (b) of
-the `AGENTS.md` class-sweep disposition rule: the originating brief fenced it explicitly. Any
-tightening needs a probe demonstrating the corruption it prevents, per the finding-admissibility
-contract.
 
 ---
 
@@ -187,23 +155,9 @@ So the fix shape is **not** "grep harder". It is: enumerate every `describe.skip
 
 **Why it was descoped rather than fixed:** it is a different class from the one `BL-LEAD-CAPABILITY-PROSE-STALE` filed (now in `BACKLOG-archive.md`) (restatements of whether a test EXECUTES, not of what a predicate COMPUTES), its extent is unmeasured, and bundling it into a branch chartered to settle two named claims drove three BLOCKING review rounds. Full reasoning: `docs/superpowers/specs/2026-08-03-lead-capability-prose-settle-design.md` §1.2 and §2.7.
 
-## BL-WARNING-SCAN-SCOPE-HAS-NO-ANCHOR — the recognizer signals unresolvable sites, but a narrowed scan scope drops codes with nothing to signal
-
-**Filed:** 2026-08-03 (from a duplicate implementation of `BL-INTERNAL-CODE-ENUM-SCAN-WIDEN`, abandoned once `chore/scanner-precision-cluster` merged first; this is the one finding of that run not already covered). **Class:** guard completeness. **Effort:** S.
-
-`scanParseWarningSites` is fail-closed for sites it VISITS: a construction whose code the checker cannot resolve is signalled rather than dropped (`lib/messages/__internal__/parseWarningSites.ts`). The scope it visits is a different question. `inWarningScanRoots` (`scripts/extract-internal-code-enums.ts:42-49`) is a hand-written predicate — `^(lib|app)/`, minus `lib/dev/`, the generated dir, and `catalog.ts` — and **a file the predicate never admits produces no site, so there is nothing to signal.** Narrow the predicate, or land an emitter outside `lib/`|`app/`, and the universe shrinks silently while every existing assertion stays green.
-
-Probed on the abandoned branch, against an equivalent recognizer: excluding one contributing file dropped the code set 57 → 51 while `unresolved` stayed empty; tightening a pre-filter _within_ files dropped 22 of 57 codes with the contributing-FILE set unchanged, which is why a file-list anchor does not close it either. Twelve root-level source files sit outside `^(lib|app)/` today, including the live Next.js entry point `instrumentation.ts`.
-
-**Work:** give the scan an anchor independent of its own output — a committed golden snapshot of the code set, compared by equality, so a narrowing fails loud in both directions and its diff is the review artifact. The trade is explicit: a hand-maintained list, justified not by size but by failure mode (it cannot rot silently the way the deleted `EXTRA_WARNING_CODES` residue could). Alternatively `BL-CATALOG-PARTITION-WARNING-CLASS`, already filed as the closure for the related soundness question, may subsume this — check it first, and close this as duplicate if it does.
-
-**Status:** OPEN.
-
----
-
 ## BL-FRESHNESS-ABORTED-CLOSE-E2E — the freshness cue's clear-on-hide branch has no behavioural proof
 
-**Filed:** 2026-08-03 (round-3 cross-model review of `feat/modal-freshness-cue`) · **Class:** test coverage · **Effort:** S (one e2e case on an existing spec) · **Severity:** low
+**Status:** OPEN · **Filed:** 2026-08-03 (round-3 cross-model review of `feat/modal-freshness-cue`) · **Class:** test coverage · **Effort:** S (one e2e case on an existing spec) · **Severity:** low
 
 `PublishedReviewModal`'s clear-on-hide branch fires when the published review modal is HIDDEN without unmounting — an aborted close, where the shell animates out but the component holding the freshness state stays mounted. Without it a live cue survives the hide and resumes on reopen with whatever was left of its 1600ms timer.
 
@@ -212,6 +166,19 @@ The branch is guarded structurally by `S19` in `tests/components/admin/showpage/
 S19's comment used to claim a behavioural twin lived in the realtime e2e. Round-3 review probed for it: no test under `tests/e2e` combines an aborted close with `data-section-freshness-flash`, and the freshness e2e coverage there is geometry and broadcast attribution. The claim has been removed from the comment; this row is the honest replacement.
 
 **What would close it:** one case on `tests/e2e/published-review-modal.realtime.spec.ts` that arms a cue, begins a close, aborts it inside the flash window, and asserts no card carries the attribute on reopen. A real browser can drive the animated exit that jsdom cannot.
+
+screen-disposition 2026-08-04: NOT ATTEMPTED on `chore/sweep-guards-tests`; claim released, entry
+unchanged. Recorded plainly rather than as a fence, because this is not fenced — the work is owed,
+specified, and ready to pick up.
+
+The other five Task 18 items were dispositioned on that branch (three closed, one prereq-fenced, one
+investigation discharged). This one is a single Playwright case that must drive an animated modal
+exit across a realtime-seeded two-context harness, and it cannot be verified without a dev server
+plus browsers; an e2e case pushed without ever being run is worse than no case, since a green CI
+tells you nothing about a test that was never observed failing. The entry's own "What would close
+it" already specifies it exactly — arm a cue, begin a close, abort inside the flash window, assert
+no card carries `data-section-freshness-flash` on reopen, on
+`tests/e2e/published-review-modal.realtime.spec.ts`. Nothing about that needs re-deriving.
 
 ## BL-FRESHNESS-PROJECTION-NARROWING — seven freshness projections hash a wider model than their renderer paints, so they can over-cue
 
@@ -464,6 +431,31 @@ killed it. The reason each is open is that the obvious approach was implemented 
 work, not that nobody thought about it. Full write-up with metafile traces and per-entry bundle
 sizes: `docs/superpowers/specs/ci/2026-07-26-ci-dark-coverage-design.md` §10.
 
+screen-disposition 2026-08-04: BOTH PRECONDITIONS VERIFIED, mutation BLOCKED on tooling permission.
+Stays open, and the only work left is one command.
+
+**Soak — green.** `gh run list --workflow section-header-visual.yml`, 60 runs since 2026-07-27:
+57 success, 3 cancelled, **zero failures**. The §4.5 item 3 gate condition ("green → add the
+context") is met.
+
+**Second precondition, checked because the soak cannot show it.** A required context that never
+REPORTS blocks every PR forever, so a path-filtered workflow must never be made required.
+`section-header-visual.yml` is deliberately UNFILTERED on `pull_request` (its own header explains
+why: path filters would make it invisible to the coverage scanner). It runs on every PR, so
+requiring it cannot hang one.
+
+**Blocked:** the `gh api -X POST .../required_status_checks/contexts` mutation was denied by this
+session's tooling permission classifier — an environment limit, not a repo or GitHub one. Current
+required set is 12 contexts; this adds the 13th. The exact command, unchanged from §4.5 item 3:
+
+```
+gh api -X POST repos/edweiss412/FX-Webpage-Template/branches/main/protection/required_status_checks/contexts \
+  -f "contexts[]=section-header-visual"
+```
+
+Run it, confirm with `gh api repos/edweiss412/FX-Webpage-Template/branches/main/protection/required_status_checks --jq '.contexts'`,
+then archive this entry. Nothing else is owed.
+
 ### BL-PUBLISHED-TOGGLE-CLIENT-COMMIT-WEDGE — a fast server action can leave the Published toggle stuck pending on WebKit
 
 **Status:** OPEN · **Severity:** MEDIUM (real-user exposure unquantified; measured 7/10 in a CI loop) · **Class:** upstream framework defect, product exposure · **Filed:** 2026-07-26 (BL-E2E-LIFECYCLE-TRANSITIONS-ROUNDTRIP-FLAKE measurement work)
@@ -514,16 +506,6 @@ The DB-free serial→parallel reclassification (PR #528, closed unmerged) is cor
 **Status:** open (shelved).
 
 ---
-
-## BL-REALTIME-BROADCAST-FRAME-DROP-WATCH — ~9% local broadcast-frame loss on a healthy socket
-
-**Filed:** 2026-07-24 (retroactive — recorded in PR #505's residuals 2026-07-20, never filed) · **Class:** observability watch item · **Effort:** S (read CI history) to M (if real)
-
-PR #505 measured local realtime silently dropping ~9% of broadcast frames on an otherwise healthy socket; absorbed by CI runner retries and explicitly NOT a code defect of that diff. Filed as a watch item so the observation is not lost: if the drop rate is an artifact of the local stack it should disappear against validation/prod, and if it does not, subscriber code that assumes every broadcast arrives needs a reconcile-on-focus fallback.
-
-**Work:** sample the realtime-dependent e2e/CI history for retry frequency before deciding whether there is anything to fix.
-
-**Status:** open (watch).
 
 ## BL-PG-CRON-COVERAGE-UNRUN — the live pg-cron introspection suite runs in no CI workflow
 
@@ -590,6 +572,16 @@ screen-disposition 2026-08-04: KEEP — probe-adjacent evidence already in the t
 **Fix (when prioritized):** a retry affordance on the fallback, consistent with `AutoRefreshControl`'s manual-refresh icon-button already on this page (spec §7.1) rather than a new idiom. **Trigger:** the next telemetry pass, or a report of the readout failing in practice.
 
 ---
+
+screen-disposition 2026-08-04: PREREQ-FENCED, stays open, NOT closed by `chore/sweep-guards-tests`.
+Two independent reasons, and either alone would be enough. First, the entry's own trigger is quoted
+and unmet: "the next telemetry pass, or a report of the readout failing in practice" — neither has
+happened, so closing now would violate the entry rather than honor it. Second, the fix is a retry
+control on `app/admin/dev/telemetry/page.tsx`, which is an invariant-8 UI surface; the plan scopes
+the dual gate to the UI branch and marks this one `impeccable-gate: N/A — no UI surface`, so the
+work cannot land here without either violating that scoping or dragging a UI change through a guards
+review. Unlike `BL-CANONICAL-CLASS-ARRAY-BLINDSPOT`, there is no guard half to ship in the meantime:
+the fix IS the control. Claim released; it was marked at Stage 0 before the fence was read.
 
 ## BL-PICKER-CLEANUP-REVALIDATE-QUERY-VARIANT — `cleanupStaleEntry` revalidates a path the picker is rarely on
 
@@ -753,24 +745,6 @@ The rec-5 mutation-testing harness (`tests/parser/mutationHarness.test.ts`, nigh
 - **`BL-MUTATION-SECTION-ORDER`** — reordering two adjacent top-level blocks silently reorders the parser's output arrays (the parser preserves source order). **Order-sensitivity discovered by the harness on 2026-07-06** (58 `SILENT_WRONG` + 24 `SILENT_SIGNAL_LOSS` across the corpus); section-reorder was reclassified cosmetic → corrupting as a result.
 
 **Ratchet:** the ledger is a shrink-only baseline. When a downstream fix hardens one of these classes, the corresponding holes become `staleRows` and the nightly harness fails until they are removed from `knownHoles.ts` — turning each parser-robustness fix into a measurable ledger reduction. Do NOT grow the ledger silently; a NEW hole (regression) fails the harness as `newAlarms`.
-
----
-
-### BL-TASKCONTRACT-SORT-COMPARATOR-EQUALKEY — finding-order comparator is unpinnable for equal `(docLine, code)` pairs
-
-**Status:** OPEN (2026-08-04, `feat/mutation-gate-guard-surfaces`) · **Severity:** low · **Class:** TEST COVERAGE · **Effort:** S
-
-Two source mutants of the `findings.sort(...)` comparator at `lib/specLint/taskContract.ts:247` survive the suite and cannot be killed through the function's output: `a.code > b.code` → `>=` and the final `: 0` → `: 1`. Both are reached only when `a.docLine - b.docLine` is `0`, and each differs from clean behavior only when the two `code` values are ALSO equal — for unequal codes both take an identical path.
-
-Such a pair is reachable: `ac=AC-90,AC-91` with both ids unresolved emits two `TASK_AC_UNRESOLVED` findings on one line, sharing `(docLine, code)` and differing only in `message`. Probed against the real `checkTaskContract` on `node v20.20.1` — clean `AC-90,AC-91`; `>=` mutant `AC-90,AC-91`; `: 0`→`: 1` mutant `AC-90,AC-91`. Neither reorders.
-
-A **third** mutant of the same comparator, `a.code < b.code` → `<=`, was originally filed here and does NOT belong: it reverses the pair to `AC-91,AC-90`, so it is killable and was repaid by test in the same arc. It was misfiled because the first probe sorted elements identical in every field, a fixture that cannot express a reversal and therefore reported "no difference" for a mutant that plainly reorders real findings. That trap is recorded as documented limit **L-8** of `docs/superpowers/specs/ci/2026-08-04-source-mutation-guard-gate.md`.
-
-The two survivors are ledgered `accepted-gap` (not `equivalent`) in the source-mutation registry and counted as survivors, costing ~2.4 points of that surface's mutation score. `equivalent` would overclaim: an inconsistent comparator is implementation-defined in ECMA-262, so the argument rests on V8's stable sort rather than on control flow — documented limit **L-7** of the same spec.
-
-**Closing this** means making the comparator total so no equal-key pair exists — add a third tiebreak (e.g. `message`), after which both mutants become killable and their ledger rows go stale, which the gate reports rather than absorbs.
-
-**Deferred from `feat/mutation-gate-guard-surfaces` under class-sweep exception (a) — it needs a product decision this PR cannot settle.** Ordering for same-line, same-code findings is `spec:lint`'s user-visible report contract; that arc ships a mutation harness plus test debt and touches no `taskContract.ts` product code. The sweep itself was complete — all three comparator sites were found and classified together, one repaid and two ledgered — so this entry covers every remaining instance of the class, not one peer of several.
 
 ---
 
@@ -1284,17 +1258,19 @@ Plus fifteen conditionally-mounted region elements across thirteen sites (a cond
 
 ---
 
-### BL-CANONICAL-CLASS-ARRAY-BLINDSPOT — eslint canonical-class rule does not scan `[...].join(" ")` array classNames
+### BL-CLASSNAME-ARRAY-JOIN-MIGRATION — migrate the 18 array-join classNames so the canonical-class rule can see them
 
-**Filed:** 2026-06-21 from the `chore/lint-format-ci-gates` adversarial review (hygiene lens).
+**Severity:** LOW (lint coverage, no user-visible defect) · **Class:** lint coverage · **Filed:** 2026-08-04 (`chore/sweep-guards-tests`, split out of BL-CANONICAL-CLASS-ARRAY-BLINDSPOT under class-sweep exception (c)) · **Effort:** M · **Reachability:** PROBED 2026-08-04 — 18 files, 33 sites, enumerated in `tests/specLint/canonicalClassArray.test.ts`.
 
-**Effort:** S
+**Description:** `better-tailwindcss/enforce-canonical-classes` cannot traverse `[...].join(" ")`, so Tailwind drift inside those classNames escapes `pnpm lint` and CI. The blind spot is now BOUNDED by a census guard — no NEW array-join className can land — but the 18 existing files remain unreadable to the rule.
 
-**Description:** `better-tailwindcss/enforce-canonical-classes` (`eslint.config.mjs`) canonicalizes Tailwind classes in plain-string classNames and `clsx`/`cn`/`cva` callees, but NOT in array-join patterns (`className={["a", cond ? "b" : "c"].join(" ")}`), which this codebase uses (e.g. `components/crew/primitives/DayCard.tsx`). Root cause (confirmed against the plugin source): the String matcher in `eslint-plugin-better-tailwindcss/lib/parsers/es.js` returns an `UNCROSSABLE_BOUNDARY` at any `CallExpression`, so `.join()` blocks traversal into the array; no plugin setting overrides this. Result: rem→unit / `@theme`-token / class-rename canonical violations inside those arrays escape the eslint gate (and thus CI's `pnpm lint`). Separately, the gate is Tailwind-signature-based and does **not** do px→spacing-unit conversion in ANY context — that suggestion is editor-only (`tailwindCSS.lint.suggestCanonicalClasses`) and out of scope here.
+**Two shapes,** both covered by the census: inline `className={[...].join(" ")}` (15 files) and joined-into-a-local-then-used-as-className (3 files: `_PickerInterstitial.tsx`, `Section.tsx`, `AccentButton.tsx`).
 
-**Why backlog, not deferred:** the gate still catches the same violations in direct string literals and `clsx`/`cn`/`cva` calls; array-join is a documented plugin limitation, not a correctness bug. No concrete trigger.
+**The parent entry's prescribed fix does not apply as written.** It says "migrate to `cn(...)` (already a default-detected callee)". Probed 2026-08-04: **there is no `cn` helper anywhere** under `lib/`, `components/` or `app/`, and neither `clsx` nor `class-variance-authority` is a dependency — the eslint config names them only in a comment describing plugin defaults. So this is not the mechanical `eslint --fix` the parent promises: it must first INTRODUCE a recognized callee, which is a dependency-or-helper decision in its own right. `tests/specLint/canonicalClassArray.test.ts` asserts the absence, so the day a `cn` lands this becomes cheap and the test says so.
 
-**Promotion prerequisite / mechanics:** the actionable fix is a refactor, not config — migrate `[...].join(" ")` classNames to `cn(...)` (already a default-detected callee), after which a single `eslint --fix` mechanically canonicalizes them. Promote if/when canonical violations inside array classNames become a real maintenance problem, or as part of a broader className-helper standardization pass.
+**Why not done on `chore/sweep-guards-tests`:** class-sweep exception (c). The repair spans 20 files under `components/` and `app/`, which would make that branch an invariant-8 UI surface; the plan scopes the dual gate to the UI branch and marks the guards branch `impeccable-gate: N/A — no UI surface`. Doing it there would either violate the plan's scoping or drag a 20-file UI refactor through a guards review.
+
+**Work:** decide the callee (add a small local `cn`, or take `clsx`), migrate the 33 sites, run `eslint --fix`, delete the census guard and its entry. Lands on a UI branch under the dual gate.
 
 ---
 

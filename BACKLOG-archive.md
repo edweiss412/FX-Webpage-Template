@@ -8,6 +8,166 @@ Same split as [DEFERRED.md](./DEFERRED.md) ↔ [DEFERRED-archive.md](./DEFERRED-
 
 ---
 
+## BL-TASKCONTRACT-SORT-COMPARATOR-EQUALKEY — finding-order comparator is unpinnable for equal `(docLine, code)` pairs — CLOSED 2026-08-04
+
+Closed on `chore/sweep-guards-tests` with the entry's own suggestion: the message as a third sort
+key, making the comparator total over the fields a Finding varies in. Extracted as an exported
+`compareFindings` so the ordering RELATION is testable directly, and placed BELOW
+`checkTaskContract` (declarations hoist) so the mutation registry's line-keyed siteIds above it keep
+their coordinates — putting it at the top invalidated fifteen rows at once.
+
+**Both `accepted-gap` rows retired in the same commit**, and the surface now carries NONE: they
+described this exact blind spot, and it is closed rather than re-accepted. The gate needed three
+further things the entry did not mention, each a real hole — `suitePaths` had to gain the new suite
+(nine mutants survived for want of any listed suite that called the function), the suite must import
+relatively rather than through `@/` (an aliased import resolves past the runner's substituted
+mutant), and the six remaining survivors needed classifying, all six argued from control flow rather
+than from V8's sort being stable — which is what the old rows rested on. `pnpm mutation:guards` 8/8.
+
+Original entry, verbatim:
+
+Two source mutants of the `findings.sort(...)` comparator at `lib/specLint/taskContract.ts:247` survive the suite and cannot be killed through the function's output: `a.code > b.code` → `>=` and the final `: 0` → `: 1`. Both are reached only when `a.docLine - b.docLine` is `0`, and each differs from clean behavior only when the two `code` values are ALSO equal — for unequal codes both take an identical path.
+
+Such a pair is reachable: `ac=AC-90,AC-91` with both ids unresolved emits two `TASK_AC_UNRESOLVED` findings on one line, sharing `(docLine, code)` and differing only in `message`. Probed against the real `checkTaskContract` on `node v20.20.1` — clean `AC-90,AC-91`; `>=` mutant `AC-90,AC-91`; `: 0`→`: 1` mutant `AC-90,AC-91`. Neither reorders.
+
+A **third** mutant of the same comparator, `a.code < b.code` → `<=`, was originally filed here and does NOT belong: it reverses the pair to `AC-91,AC-90`, so it is killable and was repaid by test in the same arc. It was misfiled because the first probe sorted elements identical in every field, a fixture that cannot express a reversal and therefore reported "no difference" for a mutant that plainly reorders real findings. That trap is recorded as documented limit **L-8** of `docs/superpowers/specs/ci/2026-08-04-source-mutation-guard-gate.md`.
+
+The two survivors are ledgered `accepted-gap` (not `equivalent`) in the source-mutation registry and counted as survivors, costing ~2.4 points of that surface's mutation score. `equivalent` would overclaim: an inconsistent comparator is implementation-defined in ECMA-262, so the argument rests on V8's stable sort rather than on control flow — documented limit **L-7** of the same spec.
+
+**Closing this** means making the comparator total so no equal-key pair exists — add a third tiebreak (e.g. `message`), after which both mutants become killable and their ledger rows go stale, which the gate reports rather than absorbs.
+
+**Deferred from `feat/mutation-gate-guard-surfaces` under class-sweep exception (a) — it needs a product decision this PR cannot settle.** Ordering for same-line, same-code findings is `spec:lint`'s user-visible report contract; that arc ships a mutation harness plus test debt and touches no `taskContract.ts` product code. The sweep itself was complete — all three comparator sites were found and classified together, one repaid and two ledgered — so this entry covers every remaining instance of the class, not one peer of several.
+
+---
+
+## BL-SHADOW-REBUILD-EXHAUSTED-EMIT-PLACEMENT — a durable event for a committed row is skipped when the outer finalize rolls back — CLOSED 2026-08-04
+
+Closed on `chore/sweep-guards-tests`. The emit moved into `DeferredApplyEmits` — the accumulator
+its two sibling emits already used — and is flushed in EACH finalize handler's `finally`, so it
+lands post-commit on the success path and the rollback path alike, on the streaming handler as well
+as the non-streaming one.
+
+**The defect was PLACEMENT, not loss**, and that distinction drove the test design: the inline emit
+DID fire on a rollback, so an occurrence-only assertion is green against the bug. Each case pins
+that the emit's tick lands AFTER `withTx` settles. The route's old comment claimed "outside the lock
+txn" on the strength of the ROW transaction having committed, which is the wrong transaction.
+
+It also surfaced a real gap in the invariant-10 registry: Assertion 1 required the registered route
+file to contain `await logAdminOutcome(`, so a surface that DEFERS its emit failed for doing exactly
+what invariant 10 demands. Rows may now declare `emittedVia`.
+
+Original entry, verbatim:
+
+`logAdminOutcome({ code: "ONBOARDING_SHADOW_REBUILD_EXHAUSTED", … })` (`app/api/admin/onboarding/finalize-cas/route.ts:1025-1038`) fires inside `runFinalizeCas`, which runs inside the outer `deps.withTx` holding `tryFinalizeLock` (`app/api/admin/onboarding/finalize-cas/route.ts:905`). The row mutation it describes commits in its own `withRowTx`, independently of that outer transaction — so when the outer commit fails, the mutation stands and the event describing it is silently skipped.
+
+**The exposure is the lock, not a lost event.** The emit fires after `withRowTx` resolves (`app/api/admin/onboarding/finalize-cas/route.ts:968-970`, `:1020-1022`) and before the outer transaction finishes, so a later outer rollback cannot retract it — an earlier draft of this row claimed the event was skipped, which is wrong. What is true is that it runs while `tryFinalizeLock` is still held, which is the invariant-10 posture AGENTS.md states for emits ("POST-COMMIT, outside any advisory-lock tx"). Its neighbour `SHOW_FINALIZED` shares the placement, but both finalize routes have deliberate, test-pinned behavior for it (ordinary finalize suppresses on outer failure, `tests/onboarding/finalize.test.ts:864`; finalize-cas preserves it, `tests/onboarding/finalize-cas.test.ts:685-686`), so it is not in this row's scope.
+
+**Why this is exception (a), not a mechanical fix.** Moving the emit outside the lock also changes when it fires relative to an outer rollback, and whether an operator should hear about an exhausted shadow rebuild belonging to a finalize attempt that then failed is a product question about their mental model. If the answer is yes, the fix is the accumulator-and-`finally` pattern the closing branch establishes for its own emits. Surfaced by cross-model review R9 of that branch, which identified the placement while the branch had no basis to settle the semantics.
+
+---
+
+## BL-REALTIME-BROADCAST-FRAME-DROP-WATCH — ~9% local broadcast-frame loss on a healthy socket — CLOSED 2026-08-04, watch found nothing
+
+INVESTIGATION discharged on `chore/sweep-guards-tests`. The entry's own decision rule was retry
+frequency in the realtime-dependent CI history, on the reasoning that a real drop rate would be
+absorbed by retries rather than by failures. Sampled 2026-08-04, 60 runs per workflow:
+
+| workflow                                        | failures / 60 | flaky in 4 sampled green runs |
+| ----------------------------------------------- | ------------- | ----------------------------- |
+| `published-modal-e2e` (the realtime-heavy spec) | 2             | 1                             |
+| `phantom-gap-e2e`                               | 0             | 0                             |
+| `lifecycle-layout-e2e`                          | 0             | 0                             |
+| `crew-e2e` (broad, not realtime-specific)       | 6             | not sampled                   |
+
+A subscriber missing ~1 frame in 11 would fail assertions routinely; the realtime-dependent specs
+are effectively clean, with a single flaky case across the sample. So the ~9% loss does NOT
+reproduce in CI, which is exactly the outcome the entry predicted for a local-stack artifact: "if
+the drop rate is an artifact of the local stack it should disappear against validation/prod". No
+reconcile-on-focus fallback is owed.
+
+**Bounded honestly:** CI is not production, and Playwright retries could in principle absorb a
+small drop rate without surfacing as flaky. What is established is that the rate is nowhere near
+9% anywhere but the local stack. A production report of missed realtime updates re-opens this with
+new evidence rather than re-running the same sample.
+
+Original entry, verbatim:
+
+PR #505 measured local realtime silently dropping ~9% of broadcast frames on an otherwise healthy socket; absorbed by CI runner retries and explicitly NOT a code defect of that diff. Filed as a watch item so the observation is not lost: if the drop rate is an artifact of the local stack it should disappear against validation/prod, and if it does not, subscriber code that assumes every broadcast arrives needs a reconcile-on-focus fallback.
+
+**Work:** sample the realtime-dependent e2e/CI history for retry frequency before deciding whether there is anything to fix.
+
+**Status:** open (watch).
+
+---
+
+## BL-WARNING-SCAN-SCOPE-HAS-NO-ANCHOR — the recognizer signals unresolvable sites, but a narrowed scan scope drops codes with nothing to signal — CLOSED 2026-08-04
+
+Closed on `chore/sweep-guards-tests` with the anchor the entry's Work section specifies: a
+committed code set (`tests/parser/_warningCodeAnchor.ts`, 58 codes) compared by EQUALITY, so a
+narrowed scan scope fails loud in both directions and its diff is the review artifact. Verified by
+planting a code the scan does not produce and watching the guard name it, rather than assuming the
+comparison works.
+
+**Checked the subsumption question first, as the entry instructs.**
+`BL-CATALOG-PARTITION-WARNING-CLASS` would genuinely subsume this — its fix makes the catalog
+ENUMERATE its warnings instead of having a scanner infer them, after which the scan stops being the
+source of truth and the scope question evaporates. It is not closed as a duplicate today because
+that fix has not shipped (M effort, its own branch), and closing it as one would leave the
+silent-narrowing failure mode guarded by nothing in the meantime. The anchor is marked INTERIM in
+its own header and says to delete it when that entry lands.
+
+Original entry, verbatim:
+
+`scanParseWarningSites` is fail-closed for sites it VISITS: a construction whose code the checker cannot resolve is signalled rather than dropped (`lib/messages/__internal__/parseWarningSites.ts`). The scope it visits is a different question. `inWarningScanRoots` (`scripts/extract-internal-code-enums.ts:42-49`) is a hand-written predicate — `^(lib|app)/`, minus `lib/dev/`, the generated dir, and `catalog.ts` — and **a file the predicate never admits produces no site, so there is nothing to signal.** Narrow the predicate, or land an emitter outside `lib/`|`app/`, and the universe shrinks silently while every existing assertion stays green.
+
+Probed on the abandoned branch, against an equivalent recognizer: excluding one contributing file dropped the code set 57 → 51 while `unresolved` stayed empty; tightening a pre-filter _within_ files dropped 22 of 57 codes with the contributing-FILE set unchanged, which is why a file-list anchor does not close it either. Twelve root-level source files sit outside `^(lib|app)/` today, including the live Next.js entry point `instrumentation.ts`.
+
+**Work:** give the scan an anchor independent of its own output — a committed golden snapshot of the code set, compared by equality, so a narrowing fails loud in both directions and its diff is the review artifact. The trade is explicit: a hand-maintained list, justified not by size but by failure mode (it cannot rot silently the way the deleted `EXTRA_WARNING_CODES` residue could). Alternatively `BL-CATALOG-PARTITION-WARNING-CLASS`, already filed as the closure for the related soundness question, may subsume this — check it first, and close this as duplicate if it does.
+
+**Status:** OPEN.
+
+---
+
+## BL-LEDGER-BODY-DEFINED-ID-OVERMINT — any bold lone id at a bullet lead defines, so a mention can mint an id — CLOSED 2026-08-04
+
+Closed on `chore/sweep-guards-tests` by adding condition 4: a body-defined id must be SEPARATED
+from what follows it (em dash, colon, or nothing at all). Prose running straight on from a bold
+lead is a sentence about that id, not a definition of it.
+
+**Probed before tightening**, as the entry and the finding-admissibility contract both require.
+`tests/docs/ledgerBodyIdOvermint.test.ts` demonstrates the corruption against the SHIPPED
+function first — a bullet reading "bold-id is tracked separately" minted that id, and a bold typo defined the
+typo, which is the one direction the citation guard cannot catch because the misspelling resolves
+itself. The three pre-existing conditions are re-pinned alongside, and the real ledgers are
+asserted to still mint exactly the eight ids they minted before: a tightening that silently
+dropped a live id would be a worse defect than the over-mint it fixes.
+
+Original entry, verbatim:
+
+`bodyDefinedIds` (`tests/docs/_ledgerMdast.ts:346`) does not require a separator after the bold id,
+so any bold lone id at a bullet lead defines. A bullet whose bold id is followed by ordinary prose,
+or by a colon, mints that id exactly as a real sub-item definition would; a nested bullet and a
+backticked enumeration both correctly do not. The five-shape probe with its outputs is in
+`docs/superpowers/specs/2026-08-03-ledger-claim-visibility-design.md` §9.2 — deliberately not
+reproduced here, because its planted ids would need citation exemptions in this ledger.
+
+Latent, not live: main mints exactly the intended eight ids today. But it over-mints in the
+direction the guard exists to prevent — a bullet naming a sibling id in bold makes that id resolve,
+so a typo can define itself. Deferred out of `chore/ledger-claim-visibility` under exception (b) of
+the `AGENTS.md` class-sweep disposition rule: the originating brief fenced it explicitly. Any
+tightening needs a probe demonstrating the corruption it prevents, per the finding-admissibility
+contract.
+
+---
+
+## BL-CANONICAL-CLASS-ARRAY-BLINDSPOT — CLOSED 2026-08-04, bounded by census
+
+The blind spot is real and confirmed against the plugin source, and it is now **bounded**: `tests/specLint/canonicalClassArray.test.ts` enumerates every array-join className in the tree and fails on a new one, in both shapes the pattern takes. The set the linter cannot see can only shrink. Proven by planting a site and watching the guard reject it, not by assuming the recognizer works.
+
+The 33-site migration is filed as `BL-CLASSNAME-ARRAY-JOIN-MIGRATION` — see it for why it did not land here, and for the correction to this entry's prescribed fix (`cn` does not exist in this repo).
+
+---
+
 ## BL-FEED-BUTTON-SUCCESS-ANNOUNCE — SHIPPED 2026-08-04
 
 Shipped on `feat/sweep-ui-a11y`. Accept, Approve and Reject now announce their SUCCESS

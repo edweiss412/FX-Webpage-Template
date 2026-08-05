@@ -8,7 +8,28 @@
 // a new admin action appended to an already-registered multi-action file has NO
 // registry binding until its own `{ file, fn, code }` row is added.
 
-export type AuditableMutation = { file: string; fn: string; code: string };
+export type AuditableMutation = {
+  file: string;
+  fn: string;
+  code: string;
+  /**
+   * The module that actually calls `logAdminOutcome`, when it is not `file`.
+   *
+   * `file` stays the SURFACE — the route that produces the outcome and that an
+   * operator would go read. But invariant 10 requires the emit to be post-commit
+   * and outside the advisory-lock transaction, and a route whose natural emit
+   * point sits inside its own locked `withTx` can satisfy that only by DEFERRING
+   * to a shared flush. The literal call moves with the deferral, so Assertion 1
+   * has to look where the call went rather than where the surface is.
+   *
+   * Without this the registry quietly punishes the exact fix invariant 10 asks
+   * for: finalize-cas moved its rebuild-exhaustion emit into the deferred
+   * accumulator (BL-SHADOW-REBUILD-EXHAUSTED-EMIT-PLACEMENT) and Assertion 1
+   * then failed on the route it had just corrected. Set this ONLY for a genuine
+   * deferral — an emit that could have stayed inline should stay inline.
+   */
+  emittedVia?: string;
+};
 
 export const AUDITABLE_MUTATIONS: readonly AuditableMutation[] = [
   {
@@ -452,6 +473,12 @@ export const AUDITABLE_MUTATIONS: readonly AuditableMutation[] = [
     file: "app/api/admin/onboarding/finalize-cas/route.ts",
     fn: "POST",
     code: "ONBOARDING_SHADOW_REBUILD_EXHAUSTED",
+    // Deferred 2026-08-04 (BL-SHADOW-REBUILD-EXHAUSTED-EMIT-PLACEMENT). The
+    // route's per-row loop runs while the OUTER withTx still holds
+    // tryFinalizeLock, so the former inline emit was inside the locked
+    // transaction. It is now accumulated and flushed in each handler's finally,
+    // beside the two sibling emits that were already deferred for this reason.
+    emittedVia: "lib/sync/emitRoleFlagsNotice.ts",
   },
 ];
 
