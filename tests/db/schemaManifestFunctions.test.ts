@@ -187,11 +187,14 @@ describe("schema manifest — function signature tier", () => {
     expect(encodeFunctionRow(row)).toBe(encodeFunctionRow({ ...row }));
   });
 
-  it("type spellings that differ between DDL and Postgres do NOT raise a false alarm", () => {
-    // The alias table exists because the first type-list key produced nine
-    // false alarms on the real corpus (timestamptz vs timestamp with time zone,
-    // int vs integer, a schema-qualified composite). Noise a contributor cannot
-    // act on is how a tripwire dies, so this pins the normalisation.
+  it("type spellings cannot raise a false alarm, because the key ignores types", () => {
+    // RETITLED after Codex R6 LOW: while the key was a normalized type list this
+    // row proved the alias table; with a name key it passes because BOTH sides
+    // reduce to the name, and a test whose title claims more than it proves is
+    // worse than no test. What it pins now is real and worth pinning — the
+    // whole class of alias false alarms (timestamptz vs timestamp with time
+    // zone, int vs integer, a schema-qualified composite) is structurally
+    // impossible, not merely handled.
     const known = functionNamesOf(
       manifestFromFunctionRows([
         {
@@ -245,6 +248,39 @@ describe("schema manifest — function signature tier", () => {
         `Layer 1 is name-keyed and must stay silent here: ${ddl.slice(0, 60)}`,
       ).toEqual([]);
     }
+  });
+
+  it("a dropped OVERLOAD does not erase a name whose siblings survive", () => {
+    // Codex R6 MEDIUM, its probe verbatim. Under last-op-wins this returned
+    // nothing while Postgres kept brand_new(uuid), so Layer 1 passed the
+    // unknown-NAME drift it exists to catch. Under never-erase it demanded
+    // eight names the migrations genuinely dropped. Counting is what gets both
+    // right, and all three shapes are pinned so neither over-correction can
+    // come back.
+    expect(
+      parseCreatedPublicFunctions(
+        "create function public.brand_new(p uuid) returns void as $$ $$ language sql;" +
+          "create function public.brand_new(p text) returns void as $$ $$ language sql;" +
+          "drop function public.brand_new(text);",
+      ),
+      "one overload dropped, one survives — the NAME is still unknown to the manifest",
+    ).toEqual(["brand_new"]);
+
+    expect(
+      parseCreatedPublicFunctions(
+        "create function public.gone(p uuid) returns void as $$ $$ language sql;" +
+          "drop function public.gone(uuid);",
+      ),
+      "its only overload dropped — demanding this name would be a false alarm",
+    ).toEqual([]);
+
+    expect(
+      parseCreatedPublicFunctions(
+        "create function public.gone(p uuid) returns void as $$ $$ language sql;" +
+          "drop function public.gone;",
+      ),
+      "a BARE drop is legal only when unambiguous, so it clears the name outright",
+    ).toEqual([]);
   });
 
   it("reports missing tables AND missing functions in one pass", () => {

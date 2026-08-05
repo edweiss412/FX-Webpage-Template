@@ -1,8 +1,10 @@
 import { describe, it, expect } from "vitest";
 import manifest from "@/supabase/__generated__/schema-manifest.json";
 
-// The schema-manifest is a flat object: Record<tableName, string[]> where each value
-// is a sorted array of column names. Table keys are plain names (no "public." prefix).
+// The schema-manifest is a flat object: Record<key, string[]>. TABLE keys are plain
+// names (no "public." prefix) whose value is a sorted column list; the reserved
+// `__functions__` key holds encoded function signatures instead, so use `tablesOf`
+// rather than `Object.keys` when you mean tables (BL-VALIDATION-PARITY-FUNCTIONS-UNCHECKED).
 // See supabase/__generated__/schema-manifest.json and tests/db/schema-manifest-lib.test.ts.
 
 describe("shows_internal.run_of_show manifest tripwire (Layer 1 of validation-schema-parity)", () => {

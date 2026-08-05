@@ -273,40 +273,44 @@ export function parseCreatedPublicTables(sql: string): string[] {
  */
 export function parseCreatedPublicFunctions(sql: string): string[] {
   const clean = stripSqlNoise(sql);
-  const ops: Array<{ index: number; key: string; op: "create" | "drop" }> = [];
-  // NAME **AND TYPE LIST**. Keying on the name alone was wrong in both directions
-  // (Codex R3 HIGH): adding an OVERLOAD passed Layer 1 because the name was
-  // already known, and a `drop function name(uuid)` erased the whole name from
-  // the created set even though other overloads survived. Arity alone was not
-  // enough either — two one-argument overloads collide. See `typeListOf` for
-  // what this key is and where it degrades.
-  const createRe = /\bcreate\s+(?:or\s+replace\s+)?function\s+(?:(\w+)\.)?(\w+)\s*\(([^)]*)\)/gi;
-  const dropRe = /\bdrop\s+function\s+(?:if\s+exists\s+)?(?:(\w+)\.)?(\w+)\s*(?:\(([^)]*)\))?/gi;
+  // COUNTED, not last-op-wins. A name can hold several overloads, and an ARGFUL
+  // drop removes exactly one of them — so neither "last op wins" nor "an argful
+  // drop never erases" is right. Last-op-wins reported nothing for
+  // `create f(uuid); create f(text); drop f(text)` while Postgres kept f(uuid)
+  // (Codex R6 MEDIUM); never-erase then demanded eight names the migrations
+  // genuinely dropped, which is a dead tripwire in the other direction.
+  //
+  // So: `create` adds one, an ARGFUL `drop` removes one, and a BARE `drop
+  // function name` — legal only when the name is unambiguous — clears the name
+  // outright. A name is demanded of the manifest iff its count ends above zero.
+  // `create or replace` still counts as a create; re-declaring an existing
+  // overload can overcount, which errs toward demanding a name the manifest
+  // lists anyway.
+  const ops: Array<{ index: number; name: string; delta: number | "clear" }> = [];
+  const createRe = /\bcreate\s+(?:or\s+replace\s+)?function\s+(?:(\w+)\.)?(\w+)\s*\(/gi;
+  const dropRe = /\bdrop\s+function\s+(?:if\s+exists\s+)?(?:(\w+)\.)?(\w+)\s*(\()?/gi;
   let m: RegExpExecArray | null;
   while ((m = createRe.exec(clean)) !== null) {
     const schema = m[1]?.toLowerCase();
     const name = m[2];
     if (!name || (schema && schema !== "public")) continue;
-    ops.push({ index: m.index, key: name, op: "create" });
+    ops.push({ index: m.index, name, delta: 1 });
   }
   while ((m = dropRe.exec(clean)) !== null) {
     const schema = m[1]?.toLowerCase();
     const name = m[2];
     if (!name || (schema && schema !== "public")) continue;
-    // A bare `drop function name` (no parens) is only legal when the name is
-    // unambiguous, so it drops whatever arity exists — recorded as a wildcard.
-    const args = m[3];
-    // A drop removes the NAME only when no other create for it survives; with
-    // name-keying we cannot tell overloads apart, so a drop is recorded against
-    // the name and a later create re-establishes it (last op wins, below).
-    ops.push({ index: m.index, key: name, op: "drop" });
+    ops.push({ index: m.index, name, delta: m[3] ? -1 : "clear" });
   }
   ops.sort((a, b) => a.index - b.index);
-  const final = new Map<string, "create" | "drop">();
-  for (const o of ops) final.set(o.key, o.op);
-  return [...final.entries()]
-    .filter(([, op]) => op === "create")
-    .map(([k]) => k)
+  const count = new Map<string, number>();
+  for (const o of ops) {
+    if (o.delta === "clear") count.set(o.name, 0);
+    else count.set(o.name, (count.get(o.name) ?? 0) + o.delta);
+  }
+  return [...count.entries()]
+    .filter(([, n]) => n > 0)
+    .map(([n]) => n)
     .sort();
 }
 
@@ -326,134 +330,6 @@ export function parseCreatedPublicFunctions(sql: string): string[] {
  * The exact comparison remains Layer 2's, against Postgres's own identity
  * encoding; this side is a DB-free tripwire, not an authority on signatures.
  */
-/**
- * First words of a TYPE rather than a parameter name.
- *
- * Covers every multiword built-in (`time`/`timestamp` + with/without time zone,
- * `character`/`bit` + varying, `double precision`) plus the common single-word
- * types, so an UNNAMED parameter is never mistaken for a named one.
- *
- * Residual ambiguity, and it fails CONSERVATIVELY this time: a parameter
- * literally named after a type (`text text`) reads as a two-word type and keys
- * as "text text" rather than "text". That is a false alarm — a contributor is
- * told to regenerate — not a collision that hides an overload.
- */
-const TYPE_HEADS = new Set([
-  "time",
-  "timestamp",
-  "timestamptz",
-  "timetz",
-  "character",
-  "bit",
-  "double",
-  "numeric",
-  "decimal",
-  "integer",
-  "int",
-  "int2",
-  "int4",
-  "int8",
-  "bigint",
-  "smallint",
-  "boolean",
-  "bool",
-  "text",
-  "uuid",
-  "json",
-  "jsonb",
-  "date",
-  "interval",
-  "real",
-  "varchar",
-  "bytea",
-  "float4",
-  "float8",
-  "money",
-  "inet",
-  "cidr",
-  "macaddr",
-  "xml",
-  "tsvector",
-]);
-
-const TYPE_ALIASES = new Map<string, string>([
-  ["timestamptz", "timestamp with time zone"],
-  ["timestamp", "timestamp without time zone"],
-  ["timetz", "time with time zone"],
-  ["time", "time without time zone"],
-  ["int", "integer"],
-  ["int4", "integer"],
-  ["int8", "bigint"],
-  ["int2", "smallint"],
-  ["bool", "boolean"],
-  ["varchar", "character varying"],
-  ["char", "character"],
-  ["float8", "double precision"],
-  ["float4", "real"],
-  ["decimal", "numeric"],
-]);
-
-/**
- * Canonical spelling of one type, so the DDL side and Postgres's own encoding
- * agree.
- *
- * Postgres renders `timestamptz` as `timestamp with time zone` and `int` as
- * `integer`, and qualifies composite types with their schema. Without this the
- * type-list key produced NINE false alarms on the real corpus — the
- * conservative direction, but noise a contributor cannot act on is noise they
- * learn to ignore, which is how a tripwire dies.
- */
-function canonicalType(t: string): string {
-  const bare = t.replace(/^public\./, "").trim();
-  const arraySuffix = /\[\]$/.test(bare) ? "[]" : "";
-  const core = bare.replace(/\[\]$/, "").trim();
-  return (TYPE_ALIASES.get(core) ?? core) + arraySuffix;
-}
-
-function typeListOf(params: string): string {
-  const trimmed = params.trim();
-  if (trimmed === "") return "";
-  const parts: string[] = [];
-  let depth = 0;
-  let cur = "";
-  for (const ch of trimmed) {
-    if (ch === "(" || ch === "[") depth++;
-    if (ch === ")" || ch === "]") depth--;
-    if (ch === "," && depth === 0) {
-      parts.push(cur);
-      cur = "";
-      continue;
-    }
-    cur += ch;
-  }
-  parts.push(cur);
-  return parts
-    .map((raw) => {
-      // Drop a DEFAULT clause, then the leading mode + parameter NAME.
-      let t = raw.split(/\bdefault\b/i)[0] ?? "";
-      t = t.replace(/=.*$/, "").trim().replace(/\s+/g, " ");
-      const words = t.split(" ").filter(Boolean);
-      if (words[0] && /^(in|out|inout|variadic)$/i.test(words[0])) words.shift();
-      // IS THE FIRST WORD A PARAMETER NAME, OR THE HEAD OF A MULTIWORD TYPE?
-      //
-      // Dropping it unconditionally was WRONG and it MISSED (Codex R4 HIGH):
-      // an unnamed `time with time zone` and an unnamed `timestamp with time
-      // zone` both collapsed to "with time zone" and keyed identically, so
-      // adding one as an overload of the other read as already-known. Same for
-      // the `without time zone` and `varying` pairs. That is a miss, not the
-      // conservative direction the comment claimed.
-      //
-      // A parameter is `[mode] [name] type`, and the NAME is present only when
-      // the first token is not itself the start of a type. Postgres's multiword
-      // built-ins all begin with one of a small closed set, so asking that
-      // question is exact for them.
-      const first = (words[0] ?? "").toLowerCase();
-      const hasName = words.length > 1 && !TYPE_HEADS.has(first);
-      const type = (hasName ? words.slice(1).join(" ") : words.join(" ")).toLowerCase();
-      return canonicalType(type);
-    })
-    .join(",");
-}
 
 /** The `name/typelist` keys a manifest declares, from its encoded signature rows. */
 export function functionNamesOf(manifest: SchemaManifest): Set<string> {
