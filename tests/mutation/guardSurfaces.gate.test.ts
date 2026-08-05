@@ -1,8 +1,10 @@
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { evaluateGate } from "./source/gate";
 import { GUARD_SURFACES } from "./source/registry";
-import { runSurface } from "./source/runner";
+import { runSuite, runSurface } from "./source/runner";
 
 /**
  * The nightly source-mutation gate (spec §3.6, AC-13/AC-15).
@@ -32,6 +34,8 @@ const root = process.cwd();
  */
 const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
   taskContract: { equivalent: 18, "accepted-gap": 2 },
+  reviewRoundCount: {},
+  reviewRoundCorpus: { equivalent: 2 },
 };
 
 describe("guard-surface registry — ledger-kind expectations", () => {
@@ -107,25 +111,47 @@ describe.each(GUARD_SURFACES.map((s) => [s.id, s] as const))(
       expect(readFileSync(surface.sourcePath).equals(before)).toBe(true);
     });
 
-    it("kills a deliberately-broken control mutant, proving the overlay is live (AC-3)", () => {
+    it("kills the surface's DECLARED control mutant, proving the overlay is live (AC-3)", () => {
       // Without this, a harness whose overlay silently failed to apply would
       // report a PERFECT score — every mutant running against clean source —
-      // and every other assertion here would still pass. The control inverts
-      // the function's own kind guard, which the suite must notice.
+      // and every other assertion here would still pass.
+      //
+      // Failure caught: a control that proves nothing about the control. The
+      // previous version built `broken`, DISCARDED it, and ran every
+      // `equality-flip` mutant instead, asserting only `killed > 0`. On a
+      // surface with two equality sites — lib/reviewRounds/count.ts has the
+      // status conjunct in `countedRounds` and the contiguity comparison in
+      // `roundGaps` — the contiguity mutant can be killed while the DECLARED
+      // status-conjunct control survives, and AC-3 still reports success.
       const source = readFileSync(surface.sourcePath, "utf8");
-      const broken = source.replace(
-        'if (kind !== "plan") return [];',
-        'if (kind === "plan") return [];',
-      );
+      const { find, replace } = surface.controlMutation;
+      // validateSurface already pins exactly-once; assert it here too, because
+      // a control that applies zero times is the failure this test exists for.
+      expect(source.split(find)).toHaveLength(2);
+      const broken = source.replace(find, replace);
       expect(broken, "control mutation did not apply").not.toBe(source);
 
-      const control = runSurface(root, {
-        ...surface,
-        // One operator, one site: this is a liveness probe, not a second run.
-        operators: ["equality-flip"],
-      });
-      expect(control.mutantCount).toBeGreaterThan(0);
-      expect(control.killed).toBeGreaterThan(0);
+      // The overlay serves the mutant from a scratch file and NEVER writes
+      // surface.sourcePath, so a thrown assertion cannot leave a mutant on the
+      // tracked tree and no source restore is needed. The AC-4 case above stays
+      // green for free.
+      const scratch = mkdtempSync(join(tmpdir(), "fx-control-"));
+      try {
+        const mutantFile = join(scratch, "mutant.ts");
+        writeFileSync(mutantFile, broken);
+        const target = resolve(root, surface.sourcePath);
+        // The DECLARED mutant, run against the surface's OWN suites. A zero
+        // from every one of them means the suite cannot see this mutation.
+        const codes = surface.suitePaths.map((suite) =>
+          runSuite(root, target, mutantFile, suite, `${surface.id} control`),
+        );
+        expect(
+          codes.some((code) => code !== 0),
+          "the declared control mutant SURVIVED every suite",
+        ).toBe(true);
+      } finally {
+        rmSync(scratch, { recursive: true, force: true });
+      }
     });
   },
 );

@@ -248,6 +248,8 @@ const NOT_A_CITATION: Record<string, Record<string, string>> = {
     "BL-REAL": "the injected resolvable id every fixture arc's filing cites",
     "BL-NOT-A-REAL-ID": "the unresolvable citation it is the control for",
     "BL-PLANTED-HEADING-ROW": "planted `## BL-… —` entry in the fixture-root BACKLOG.md",
+    "BL-PLANTED-NESTED-HEADING-ROW":
+      "planted `### BL-… —` entry there, pinning that a level-3 row resolves too",
     "BL-PLANTED-SUBITEM-ROW": "planted body sub-item there, pinning the heading-only documented limit",
     "BL-PLANTED-ABSENT-ROW": "an id defined in no fixture ledger, for the unresolved case",
   },

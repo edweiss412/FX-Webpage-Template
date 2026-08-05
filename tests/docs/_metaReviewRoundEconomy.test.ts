@@ -5,7 +5,7 @@ import { dirname, join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 
 import { ROUND_THRESHOLD } from "../../lib/reviewRounds/constants";
-import { checkCorpus, type Problem } from "../../lib/reviewRounds/corpus";
+import { checkCorpus, readArcs, type Problem } from "../../lib/reviewRounds/corpus";
 
 const ROOT = join(__dirname, "..", "..");
 const tmpRoots: string[] = [];
@@ -15,8 +15,8 @@ afterAll(() => {
 
 type Fixture = { path: string; body: string };
 
-/** Build a corpus tree and check it. `path` is relative to docs/review-rounds/. */
-function check(files: Fixture[]): Problem[] {
+/** Build a corpus tree and return its root. `path` is relative to docs/review-rounds/. */
+function write(files: Fixture[]): string {
   const root = mkdtempSync(join(tmpdir(), "rre-"));
   tmpRoots.push(root);
   for (const f of files) {
@@ -24,8 +24,13 @@ function check(files: Fixture[]): Problem[] {
     mkdirSync(dirname(abs), { recursive: true });
     writeFileSync(abs, f.body);
   }
+  return root;
+}
+
+/** Build a corpus tree and check it. `path` is relative to docs/review-rounds/. */
+function check(files: Fixture[]): Problem[] {
   // Resolvable ids are injected so a fixture never depends on the live ledgers.
-  return checkCorpus(root, { resolvableIds: new Set(["BL-REAL"]) });
+  return checkCorpus(write(files), { resolvableIds: new Set(["BL-REAL"]) });
 }
 
 /**
@@ -83,6 +88,13 @@ describe("review-round economy gate (spec §7.1)", () => {
     const problems = check([{ path: `${ARC}.jsonl`, body: rows(...OBLIGING) }]);
     expect(problems.length).toBeGreaterThan(0);
     expect(problems.map((p) => p.kind)).toContain("missing_filing");
+    // The message NAMES the file the arc owes, derived from the fixture path
+    // rather than retyped. Failure caught: the expected-filing path computed off
+    // a wrong slice bound - the kind assertion above stays green while the
+    // author is sent to a path that does not exist.
+    expect(problems.find((p) => p.kind === "missing_filing")?.message).toContain(
+      `docs/review-rounds/${ARC}.md`,
+    );
   });
 
   it("PASSES the same arc once the filing exists", () => {
@@ -170,6 +182,24 @@ describe("review-round economy gate (spec §7.1)", () => {
     expect(problems.map((p) => p.kind)).toContain("stage_not_filable");
   });
 
+  // Failure caught: `stage_not_filable` reported and then the section checked
+  // ANYWAY. The case above cannot see it - its heading declares 0, which
+  // matches `counted.get("task") ?? 0`, so falling through adds nothing. A
+  // task section declaring a NON-ZERO count separates them: an unfilable stage
+  // has no count worth reading, so the only correct report is the category
+  // error, and a second complaint about a number nobody should be comparing is
+  // noise the author has to triage.
+  it("reports ONLY the category error for an unfilable stage, never its round count", () => {
+    const problems = check([
+      { path: `${ARC}.jsonl`, body: rows(...OBLIGING.map((o) => ({ ...o, stage: "task" }))) },
+      {
+        path: `${ARC}.md`,
+        body: `## task — ${ROUND_THRESHOLD} rounds\n\n**Examined:** R1-R${ROUND_THRESHOLD}.\n**Infra:** none\n`,
+      },
+    ]);
+    expect(problems.map((p) => p.kind)).toEqual(["stage_not_filable"]);
+  });
+
   it("PASSES a parallel wave whose distinct rounds are below threshold", () => {
     expect(
       check([
@@ -238,7 +268,11 @@ describe("review-round economy gate (spec §7.1)", () => {
       { path: `${ARC}.jsonl`, body: rows(...OBLIGING) },
       { path: `${ARC}.md`, body: `${FILING_OK}\n## spec — 4 rounds\n\n**Examined:** a\n**Infra:** b\n` },
     ]);
-    expect(problems.map((p) => p.kind)).toContain("stage_without_rows");
+    // EXACTLY this kind: the copy-pasted section also declares 4 rounds against
+    // a corpus counting none, so a checker that reports the missing rows and
+    // then compares the counts anyway adds a `count_mismatch` about a stage this
+    // arc never dispatched. `toContain` cannot see that; equality can.
+    expect(problems.map((p) => p.kind)).toEqual(["stage_without_rows"]);
   });
 
   it("FAILS a filing missing its Examined line", () => {
@@ -247,6 +281,25 @@ describe("review-round economy gate (spec §7.1)", () => {
       { path: `${ARC}.md`, body: `## diff — ${ROUND_THRESHOLD} rounds\n\n**Mechanizable:** none\n` },
     ]);
     expect(problems.map((p) => p.kind)).toContain("filing_malformed");
+    // The message names the FILING, not the corpus: the author has to open the
+    // .md to fix it. Failure caught: `filingPath` never recorded, which reports
+    // every filing problem against "null" while the kinds stay right.
+    expect(problems.find((p) => p.kind === "filing_malformed")?.message).toContain(
+      `docs/review-rounds/${ARC}.md`,
+    );
+  });
+
+  // Failure caught: a malformed BODY reported and the section checked anyway.
+  // The case above cannot see it - its heading declares the true count, so
+  // falling through compares 4 against 4 and adds nothing. Declaring a wrong
+  // count alongside the missing line separates them: the body is not yet
+  // readable, so the count comparison is premature and its complaint is noise.
+  it("reports ONLY the malformed body when the heading also miscounts", () => {
+    const problems = check([
+      { path: `${ARC}.jsonl`, body: rows(...OBLIGING) },
+      { path: `${ARC}.md`, body: "## diff — 999 rounds\n\n**Mechanizable:** none\n" },
+    ]);
+    expect(problems.map((p) => p.kind)).toEqual(["filing_malformed"]);
   });
 
   // Failure caught: a heading with NO round count passing over an obliging
@@ -261,9 +314,51 @@ describe("review-round economy gate (spec §7.1)", () => {
       { path: `${ARC}.md`, body: "## diff\n\n**Examined:** R1-R4.\n**Mechanizable:** none\n" },
     ]);
     // Not merely "some problem": a green result here is the defect, and the
-    // kind is what distinguishes the fix from a coincidental failure.
+    // kind is what distinguishes the fix from a coincidental failure. EXACTLY
+    // one kind, because a heading with no count read as a count compares `null`
+    // against the corpus's 4 and reports a `count_mismatch` naming a number the
+    // heading never carried.
     expect(problems).not.toEqual([]);
-    expect(problems.map((p) => p.kind)).toContain("filing_malformed");
+    expect(problems.map((p) => p.kind)).toEqual(["filing_malformed"]);
+  });
+
+  // Failure caught: a stage whose rows all faulted read as "1 counted round"
+  // rather than none. Its corpus obliges nothing (no counted rounds at all), so
+  // a filing declaring 0 is correct and must pass - and a default of 1 standing
+  // in for the missing count accuses that honest filing of a miscount. No other
+  // case reaches the default: every one of them has a stage the corpus counts.
+  it("PASSES a filing declaring 0 rounds for a stage whose rounds all faulted", () => {
+    const allFaulted = OBLIGING.map((o) => ({
+      ...o,
+      status: "no_verdict",
+      verdict: null,
+      failureReason: "wrapper_error",
+    }));
+    expect(
+      check([
+        { path: `${ARC}.jsonl`, body: rows(...allFaulted) },
+        { path: `${ARC}.md`, body: "## diff — 0 rounds\n\n**Examined:** none\n**Infra:** all\n" },
+      ]),
+    ).toEqual([]);
+  });
+
+  // Failure caught: `arc.dir` computed off a wrong slice bound. It is the
+  // report's file label for an arc with no corpus of its own
+  // (scripts/review-economy.ts:82), so a truncated dir names a directory that
+  // does not exist, while every problem-kind assertion here stays green because
+  // `checkCorpus` never reads the field.
+  it("records an arc's containing directory, whole, from its nested path", () => {
+    const root = write([
+      {
+        path: "feat/deep/nested/bbbbbbbbbbbb.jsonl",
+        body: rows(
+          ...BELOW.map((o) => ({ ...o, branch: "feat/deep/nested", baseSha: "bbbbbbbbbbbb" })),
+        ),
+      },
+    ]);
+    const arcs = readArcs(root);
+    expect(arcs).toHaveLength(1);
+    expect(arcs[0]!.dir).toBe("docs/review-rounds/feat/deep/nested");
   });
 
   it("FAILS a malformed JSON row, naming file and line", () => {
@@ -403,6 +498,10 @@ describe("liveLedgerIds resolves against the real ledgers", () => {
     "",
     "- **`BL-PLANTED-SUBITEM-ROW`** — a sub-item defined in the body only",
     "",
+    "### BL-PLANTED-NESTED-HEADING-ROW — a level-3 entry under a section",
+    "",
+    "Body prose.",
+    "",
   ].join("\n");
   const DEFERRED = ["# Deferred", "", "### DEF-PLANTED-HEADING-ROW — a deferral", "", "x", ""].join(
     "\n",
@@ -428,6 +527,15 @@ describe("liveLedgerIds resolves against the real ledgers", () => {
   // this file would notice, because every other case injects its own set.
   it("resolves a BL- id defined by a BACKLOG.md heading", () => {
     expect(live("BL-PLANTED-HEADING-ROW")).toEqual([]);
+  });
+
+  // BACKLOG entries are written at BOTH heading depths - level 2 for top-level
+  // rows, level 3 for rows nested under a section heading. Failure caught: a
+  // recognizer admitting only one of the two depths, which leaves every
+  // citation of a nested row falsely unresolved while the level-2 case above
+  // stays green.
+  it("resolves a BL- id defined by a level-3 BACKLOG.md heading", () => {
+    expect(live("BL-PLANTED-NESTED-HEADING-ROW")).toEqual([]);
   });
 
   // The DEFERRED option set is a separate pass over a separate file, and

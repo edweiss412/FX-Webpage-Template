@@ -37,6 +37,12 @@ const surface = (suitePaths: string[]) => ({
   sourcePath: "lib/specLint/taskContract.ts",
   suitePaths,
   operators: [...OPERATOR_NAMES],
+  // Unread by the runner - the control is the gate's probe, not the run's - but
+  // required by GuardSurface, so the fixture carries the real one.
+  controlMutation: {
+    find: 'if (kind !== "plan") return [];',
+    replace: 'if (kind === "plan") return [];',
+  },
   scoreFloor: 0.95,
   accepted: [],
 });

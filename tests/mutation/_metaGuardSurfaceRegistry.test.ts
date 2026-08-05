@@ -18,6 +18,10 @@ const VALID: GuardSurface = {
   sourcePath: "lib/specLint/taskContract.ts",
   suitePaths: ["tests/specLint/taskContract.test.ts"],
   operators: [...OPERATOR_NAMES],
+  controlMutation: {
+    find: 'if (kind !== "plan") return [];',
+    replace: 'if (kind === "plan") return [];',
+  },
   scoreFloor: 0.95,
   accepted: [
     { siteId: "relational-boundary:1:1:<><=", kind: "equivalent", reason: "unreachable; §2.4" },
@@ -149,6 +153,28 @@ describe("guard-surface registry — validation rejects each malformed row (AC-1
         `ref ${ref}`,
       ).toEqual([]);
     }
+  });
+
+  // Failure caught: a control whose `find` string is absent from the source.
+  // The overlay applies nothing, the suite stays green, and the AC-3 liveness
+  // probe reports success while proving nothing at all.
+  it("rejects a control mutation that matches zero times", () => {
+    expect(
+      validateSurface({ ...VALID, controlMutation: { find: "no such text", replace: "x" } }),
+    ).not.toEqual([]);
+  });
+
+  // Failure caught: an ambiguous control. Which site got mutated decides
+  // whether the probe is meaningful, and "whichever String.replace hit first"
+  // is not a decision anyone made.
+  it("rejects a control mutation that matches more than once", () => {
+    expect(
+      validateSurface({ ...VALID, controlMutation: { find: "const", replace: "let" } }),
+    ).not.toEqual([]);
+  });
+
+  it("accepts a control mutation that matches exactly once", () => {
+    expect(validateSurface(VALID)).toEqual([]);
   });
 
   it("rejects duplicate siteIds in one ledger", () => {
