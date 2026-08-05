@@ -55,29 +55,42 @@ const CHANNEL_ANNOUNCERS: readonly string[] = [
  *
  * Each row names the gate, so a later reader can check the claim rather than
  * trust the exemption.
+ *
+ * KEYED ON THE ELEMENT'S `data-testid`, NOT ITS LINE. The first version used
+ * `file:line` and went stale the moment an unrelated edit above it shifted the
+ * file — an exemption that drifts is an exemption that stops describing what it
+ * exempts, and it fails in the loud direction only by luck.
  */
 const NON_TRANSIENT_GATES: ReadonlyMap<string, string> = new Map([
   [
-    "components/admin/showpage/ShareHub.tsx:782",
+    "share-hub-dev-capture-status",
     "gated on viewerIsDeveloper — a non-developer must not receive the element at all; the transient capture state toggles TEXT inside it",
   ],
   [
-    "components/admin/showpage/ShareHub.tsx:915",
+    "admin-current-share-link-unavailable",
     "one arm of a published/unpublished content branch, not a post-action announcement",
   ],
   [
-    "app/show/[slug]/[shareToken]/_PickerInterstitial.tsx:154",
+    "picker-banner",
     "server-rendered banner: present on first paint with its text, never inserted later",
   ],
   [
-    "app/show/[slug]/unpublish/ConfirmUnpublishForm.tsx:69",
+    "unpublish-busy-notice",
     "whole-surface swap — the form is replaced by the busy notice, so nothing is 'inserted into' a live page",
   ],
 ]);
 
 /** Files still carrying the defect, each with the shape its repair will use. */
 const PENDING: ReadonlyMap<string, string> = new Map([
-  ["app/admin/show/[slug]/RotateShareTokenButton.tsx", "2 sites — toggle text"],
+  // NOT a plain toggle: `_rowAssertions.ts` enforces EXACTLY ONE live region per
+  // ShareHub control row, so mounting both success banners persistently adds two
+  // and breaks that contract. The repair is ONE region whose text switches
+  // between the active and inactive copy — a real edit to the surface's shape,
+  // not the mechanical fix, which is why it is still listed here.
+  [
+    "app/admin/show/[slug]/RotateShareTokenButton.tsx",
+    "2 sites — ONE shared region, text switches",
+  ],
   ["components/shared/ReportModal.tsx", "4 sites — toggle text"],
   ["components/admin/ReSyncButton.tsx", "1 site — toggle text"],
   ["components/admin/wizard/Step2Verify.tsx", "2 sites — toggle text"],
@@ -102,9 +115,9 @@ function walk(dir: string, out: string[] = []): string[] {
 }
 
 /** `role="status"` occurrences whose element is opened by a conditional gate. */
-function conditionalStatusRegions(text: string): number[] {
+function conditionalStatusRegions(text: string): Array<{ line: number; testId: string }> {
   const lines = text.split("\n");
-  const hits: number[] = [];
+  const hits: Array<{ line: number; testId: string }> = [];
   for (let i = 0; i < lines.length; i++) {
     if (!lines[i]?.includes('role="status"')) continue;
     // The element's opening tag is at or just above this line; a gate shows up
@@ -113,7 +126,12 @@ function conditionalStatusRegions(text: string): number[] {
       .slice(Math.max(0, i - 6), i)
       .join("\n")
       .trimEnd();
-    if (/(\?\s*\(|&&\s*\(|&&\s*<)$/m.test(before)) hits.push(i + 1);
+    if (!/(\?\s*\(|&&\s*\(|&&\s*<)$/m.test(before)) continue;
+    // The element's own testid, read from the surrounding tag, is the stable
+    // identity — line numbers move, testids do not.
+    const around = lines.slice(Math.max(0, i - 4), i + 5).join("\n");
+    const tid = /data-testid=[{"`]*([a-zA-Z0-9$_{}.\-]+)/.exec(around)?.[1] ?? "";
+    hits.push({ line: i + 1, testId: tid });
   }
   return hits;
 }
@@ -143,9 +161,9 @@ describe("live regions are mounted before their text (BL-ANNOUNCE-REGION-UNMOUNT
     for (const f of files) {
       if (CHANNEL_ANNOUNCERS.includes(f) || PENDING.has(f)) continue;
       const hits = conditionalStatusRegions(readFileSync(join(REPO_ROOT, f), "utf8"));
-      for (const line of hits) {
-        const key = `${f}:${line}`;
-        if (!NON_TRANSIENT_GATES.has(key)) offenders.push(key);
+      for (const hit of hits) {
+        if (!NON_TRANSIENT_GATES.has(hit.testId))
+          offenders.push(`${f}:${hit.line} (${hit.testId})`);
       }
     }
     expect(
