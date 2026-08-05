@@ -259,7 +259,10 @@ if (isEntry) {
     void runObserve(argv, deps).then((r) => {
       if (r.stdout) process.stdout.write(r.stdout + "\n");
       if (r.stderr) process.stderr.write(r.stderr + "\n");
-      process.exit(r.exitCode);
+      // `exitCode`, not `exit()` — query output is unbounded and a pipe write is
+      // async; `exit()` here truncated results at the buffer. Same shape as
+      // scripts/ledger-claims.ts.
+      process.exitCode = r.exitCode;
     });
   }
 }
@@ -292,7 +295,7 @@ async function runTailFollow(argv: string[], deps: ObserveDeps): Promise<void> {
   };
 
   let first = true;
-  // eslint-disable-next-line no-constant-condition
+   
   while (true) {
     if (first) {
       // Baseline honors --limit across pages via collectEvents (Codex whole-diff R2:

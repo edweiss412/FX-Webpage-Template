@@ -46,12 +46,28 @@ const GH_MS = 10_000;
  * A caller that wants "absent" asks for it explicitly (`showFile`), and that is
  * the ONLY place absence is a legitimate answer.
  */
+/**
+ * Node's default `maxBuffer` is 1 MB and truncation is SILENT — `spawnSync`
+ * returns status 0 with a short `stdout`. `git show <ref>:BACKLOG-archive.md`
+ * already reads 620 KB and that file only grows, so the default is a deadline,
+ * not a limit: the day it is crossed, a partial ledger parses cleanly, reports
+ * fewer claims, and reads exactly like "nothing is in flight" — the one answer
+ * this module must never give wrongly.
+ *
+ * Found from the other side: `tests/scripts/ledgerClaimsCheck.test.ts`'s
+ * "uncapped" case started failing with `Unterminated string in JSON at position
+ * 8192` once a branch declared enough claims, because the TEST capped its own
+ * reader. Same defect, two layers.
+ */
+const MAX_GIT_STDOUT = 64 * 1024 * 1024;
+
 function git(args: string[], timeout: number): string {
   const r = spawnSync("git", args, {
     cwd: gitRoot(),
     encoding: "utf8",
     timeout,
     stdio: ["ignore", "pipe", "pipe"],
+    maxBuffer: MAX_GIT_STDOUT,
   });
   if (r.error) throw r.error;
   if (r.status !== 0) {
@@ -190,6 +206,7 @@ export function realGitSurface(): GitSurface {
         encoding: "utf8",
         timeout: LS_REMOTE_MS,
         stdio: ["ignore", "pipe", "pipe"],
+        maxBuffer: MAX_GIT_STDOUT,
       });
       if (r.error) throw r.error;
       // A ref with no such paths exits 0 with empty output; a bad ref exits non-zero.
@@ -217,6 +234,7 @@ export function realGitSurface(): GitSurface {
         encoding: "utf8",
         timeout: LS_REMOTE_MS,
         stdio: ["ignore", "pipe", "pipe"],
+        maxBuffer: MAX_GIT_STDOUT,
       });
       if (r.status === 0) return r.stdout ?? "";
       const stderr = `${r.stderr ?? ""}`;
@@ -243,6 +261,7 @@ export function realGitSurface(): GitSurface {
         encoding: "utf8",
         timeout: LS_REMOTE_MS,
         stdio: ["ignore", "pipe", "pipe"],
+        maxBuffer: MAX_GIT_STDOUT,
       });
       if (r.status === 0) return (r.stdout ?? "").trim() || null;
       // Exit 1 is "no merge base"; anything else is a fault.

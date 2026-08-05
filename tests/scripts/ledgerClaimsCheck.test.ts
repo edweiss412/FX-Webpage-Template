@@ -532,6 +532,14 @@ describe("the real git adapter and the JSON envelope (whole-diff F3/F9)", () => 
       cwd: ROOT,
       encoding: "utf8",
       timeout: 90_000,
+      // THE READER MUST NOT BE THE CAP. Node's default `maxBuffer` truncates
+      // stdout at 1 MB, and the pipe delivers in 8 KB chunks — a large enough
+      // claim set made `JSON.parse` throw "Unterminated string at position
+      // 8192" instead of failing on anything about the CLI. A test whose whole
+      // subject is "uncapped" cannot impose a cap of its own: with a modest
+      // corpus it passes, and it starts failing the moment there is enough
+      // real data for the assertion to be interesting.
+      maxBuffer: 64 * 1024 * 1024,
     });
     expect(r.status, `CLI failed: ${r.stderr}`).toBe(0);
     // Everything below parses stdout. If the CLI produced none, JSON.parse

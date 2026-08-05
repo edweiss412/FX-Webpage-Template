@@ -306,5 +306,9 @@ export function main(argv: string[]): number {
 // Guarded so importing this module from the test suite does not run the CLI.
 const entry = process.argv[1];
 if (entry !== undefined && fileURLToPath(import.meta.url) === resolve(entry)) {
-  process.exit(main(process.argv.slice(2)));
+  // `exitCode`, not `exit()` — writes to a pipe are async and `process.exit()`
+  // discards whatever the buffer has not accepted, truncating piped output
+  // non-deterministically. Same defect repaired in scripts/ledger-claims.ts,
+  // where it was silently cutting the --json claim set at 8192 bytes.
+  process.exitCode = main(process.argv.slice(2));
 }
