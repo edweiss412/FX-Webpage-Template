@@ -181,6 +181,42 @@ describe("live regions are mounted before their text (BL-ANNOUNCE-REGION-UNMOUNT
     ).toEqual([]);
   });
 
+  it("no live region hides itself with a display:none mechanism", () => {
+    // WHOLE-DIFF REVIEW R1 FOUND THIS ONE SHIPPED. `empty:hidden` compiles to
+    // `:empty { display: none }`, and a `display: none` element is not in the
+    // accessibility tree — so a region tidied that way is REVEALED with its
+    // text rather than mutated in place, which announces nothing. It is the
+    // original defect wearing the fix's clothes, and it passes every check that
+    // only looks at whether the element is conditionally RENDERED.
+    //
+    // `sr-only` is the correct idle state: it clips the box and leaves the
+    // element exposed. Checked as a scan rather than a fixed list because the
+    // mechanism, not the site, is the thing being forbidden.
+    const HIDERS = /\bempty:hidden\b|\bhidden\b(?!:)|display:\s*none/;
+    const offenders: string[] = [];
+    for (const f of files) {
+      const lines = readFileSync(join(REPO_ROOT, f), "utf8").split("\n");
+      for (let i = 0; i < lines.length; i++) {
+        if (!lines[i]?.includes('role="status"')) continue;
+        const el = lines.slice(i, i + 8).join("\n");
+        // Only the element's OWN attributes, up to the closing bracket.
+        const own = el.slice(0, el.indexOf(">") === -1 ? el.length : el.indexOf(">"));
+        if (HIDERS.test(own)) offenders.push(`${f}:${i + 1}`);
+      }
+    }
+    expect(
+      offenders,
+      "a display:none live region is not in the a11y tree — use sr-only for the idle state",
+    ).toEqual([]);
+  });
+
+  it("PREMISE: that scan rejects the exact shape review found (self-test)", () => {
+    // The guard above passes trivially on a clean tree, so prove it discriminates
+    // against the literal line that shipped.
+    const planted = '<p role="status" aria-live="polite" className="empty:hidden">';
+    expect(/\bempty:hidden\b/.test(planted)).toBe(true);
+  });
+
   it("the PENDING list is exact — no row that is already clean", () => {
     // Keeps the debt list honest in the shrinking direction: a repaired file
     // must leave this list, or the list stops describing the work.

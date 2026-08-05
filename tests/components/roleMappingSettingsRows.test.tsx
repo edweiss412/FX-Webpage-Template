@@ -171,7 +171,15 @@ describe("RoleMappingRow — edit", () => {
     expect(screen.queryByTestId("role-mapping-check-A1")).toBeNull();
     // Re-entering edit clears the confirmation (transient).
     fireEvent.click(screen.getByRole("button", { name: COPY.EDIT_LABEL }));
-    expect(screen.queryByTestId("role-mapping-saved-confirm")).toBeNull();
+    // Mounted and SILENT, not gone. The region lives outside the mode branches
+    // now (whole-diff R1: saving flips edit -> view, so a region inside the view
+    // arm is inserted already populated and announces nothing). Re-entering edit
+    // clears the TEXT. Asserting empty-and-sr-only is stronger than the absence
+    // check it replaces: absence could not tell a cleared confirmation from a
+    // region that had been hoisted away entirely.
+    const cleared = screen.getByTestId("role-mapping-saved-confirm");
+    expect(cleared.textContent).toBe("");
+    expect(cleared.className).toContain("sr-only");
   });
 
   it("shows the saving label while the edit is in flight", async () => {
