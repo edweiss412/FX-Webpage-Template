@@ -225,10 +225,37 @@ describe("no assertion in this diff is silently vacuous", () => {
       }
     }
 
-    // Zero files is the CORRECT answer on a main push, where the base IS HEAD --
-    // this suite runs on `push: main`, so demanding a non-empty set would fail
-    // the guard on every merge. It is a defect only when base and HEAD differ.
-    if (!(files.length === 0 && base !== null && base === rev("HEAD"))) {
+    // Zero files is the CORRECT answer in two cases, and the vacuity check must
+    // excuse both or it fails branches doing nothing wrong.
+    //
+    //  1. A main push, where the base IS HEAD -- this suite runs on `push: main`,
+    //     so demanding a non-empty set would fail the guard on every merge.
+    //  2. A branch whose diff is NON-EMPTY but contains no file this guard scans.
+    //     The helper above deliberately narrows to `.ts`/`.mjs`, reasoning that
+    //     "this branch's surface is scripts and tests". True of the branch that
+    //     wrote it; not true in general, because this guard runs on EVERY branch
+    //     and a `.tsx`-only branch legitimately has nothing in range. Conflating
+    //     "changed nothing I scan" with "the guard is broken" failed
+    //     `fix/identity-chip-sr-separator-mechanism`, whose entire diff is one
+    //     component and one component test.
+    //
+    // What remains is the check worth having: an EMPTY diff where base and HEAD
+    // differ means the diff resolution itself went wrong. Proven by mutant --
+    // forcing rawDiffCount to 0 makes this fire again.
+    const rawDiffCount =
+      base === null
+        ? 0
+        : execFileSync("git", ["diff", "--name-only", `${base}...HEAD`], {
+            cwd: ROOT,
+            encoding: "utf8",
+            timeout: 60_000,
+          })
+            .split("\n")
+            .map((f) => f.trim())
+            .filter((f) => f !== "").length;
+    const legitimatelyEmpty =
+      files.length === 0 && base !== null && (base === rev("HEAD") || rawDiffCount > 0);
+    if (!legitimatelyEmpty) {
       expect(files.length, "no source files to scan — the guard would be vacuous").toBeGreaterThan(
         0,
       );
