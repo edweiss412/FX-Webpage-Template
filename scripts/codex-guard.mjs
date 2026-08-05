@@ -407,18 +407,82 @@ function composePrompt(cfg) {
 // Verdict parsing (§6)
 // ---------------------------------------------------------------------------
 
+/**
+ * Every CommonMark code block, removed — in ONE place, because both readers
+ * below need the same answer and two copies of this normalizer is precisely how
+ * the class recurs. Probed 2026-08-05: the two copies covered only the closed
+ * BACKTICK fence, so a tilde fence, a fence truncated at EOF, and an indented
+ * block each leaked a reviewer's EXAMPLE into both readers at once — read as a
+ * real verdict AND as a real declared count.
+ *
+ * Deliberately not a full block parser. The consequence bound is that an
+ * example is never read as a decision; a block stripped too eagerly reads as
+ * `no_marker`, which is the same outcome as a reviewer that emitted none. Lines
+ * are blanked rather than deleted, so line positions survive the pass.
+ *
+ * - Fenced (CommonMark 4.5): ``` or ~~~, indented up to 3 spaces, closed by a
+ *   fence of the SAME character at least as long — or by EOF, since an unclosed
+ *   fence runs to end of document, and a reaped reviewer's message is routinely
+ *   truncated mid-block.
+ * - Indented (CommonMark 4.4): 4 spaces or a tab. These may not interrupt a
+ *   paragraph, so one starts only after a blank line — without that rule an
+ *   over-indented continuation line carrying the verdict would be eaten.
+ */
+function stripCodeBlocks(text) {
+  const out = [];
+  let fence = null; // { char, len } of the open fence, or null outside one
+  let indented = false;
+  let prevBlank = true; // start of document opens a block just like a blank line does
+  for (const line of text.split("\n")) {
+    if (fence !== null) {
+      out.push("");
+      if (new RegExp(`^ {0,3}${fence.char}{${fence.len},}\\s*$`).test(line)) {
+        fence = null;
+        prevBlank = true; // a block boundary — what follows may open another
+      }
+      continue;
+    }
+    const open = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+    // A BACKTICK fence's info string may not contain a backtick (CommonMark
+    // 4.5) — the rule that keeps an inline `code span` from opening a block.
+    if (open && !(open[1][0] === "`" && open[2].includes("`"))) {
+      fence = { char: open[1][0], len: open[1].length };
+      out.push("");
+      continue;
+    }
+    const blank = line.trim() === "";
+    const isIndented = /^(?: {4}|\t)/.test(line);
+    if (indented && !blank && !isIndented) indented = false;
+    else if (!indented && prevBlank && isIndented) indented = true;
+    out.push(indented && (isIndented || blank) ? "" : line);
+    prevBlank = blank;
+  }
+  return out.join("\n");
+}
+
+// Emphasis binds TIGHT to its text: `**VERDICT` is emphasis, `* VERDICT` is a
+// LIST BULLET (CommonMark 6.2 — an opening delimiter run may not be followed by
+// whitespace). Allowing the gap made a bullet match as though its marker were
+// emphasis, and a bullet is exactly where a reviewer restates the brief's
+// instruction: probed 2026-08-05, a trailing `* VERDICT: APPROVE` SHADOWED a
+// real `VERDICT: BLOCKING` on the line above and filed the round as an
+// infrastructure fault. One definition, shared by both markers, so the two
+// readers cannot drift on what a marker looks like.
+const LEADING_EMPHASIS = String.raw`(?:\*{1,2}|_{1,2})?`;
+const VERDICT_MARKER = new RegExp(`^\\s*${LEADING_EMPHASIS}VERDICT:\\s*\\S`);
+const FINDINGS_LINE = new RegExp(
+  `^\\s*${LEADING_EMPHASIS}FINDINGS:\\s*(\\d+)\\s*(?:\\*{1,2}|_{1,2})?\\s*$`,
+);
+
 function parseVerdict(text) {
-  // Markdown fences may be indented up to 3 spaces (CommonMark) — strip those too.
-  const noFences = text.replace(/^ {0,3}```[^\n]*\n[\s\S]*?^ {0,3}```[^\n]*$/gm, "");
+  const noFences = stripCodeBlocks(text);
   // Leading markdown emphasis is stripped before the marker test: three real
   // dispatches in the 681-output probe corpus emitted `**VERDICT: …**` and were
   // filed as infrastructure faults - a full review spent and then discarded.
   // Fence stripping above still runs FIRST, so a fenced example is not a verdict,
   // and the line anchor still holds, so the brief's own instruction to emit a
   // verdict - text every brief in this repo carries - is never read as one.
-  const lines = noFences
-    .split("\n")
-    .filter((l) => /^\s*(?:\*{1,2}|_{1,2})?\s*VERDICT:\s*\S/.test(l));
+  const lines = noFences.split("\n").filter((l) => VERDICT_MARKER.test(l));
   const survivors = lines.filter((l) => {
     const upper = l.toUpperCase();
     let occurrences = 0;
@@ -461,10 +525,10 @@ function parseVerdict(text) {
  * NOT DECLARED, and it must never be confused with a declared zero.
  */
 function parseFindingCount(text) {
-  const noFences = text.replace(/^ {0,3}```[^\n]*\n[\s\S]*?^ {0,3}```[^\n]*$/gm, "");
+  const noFences = stripCodeBlocks(text);
   const seen = new Set();
   for (const line of noFences.split("\n")) {
-    const m = /^\s*(?:\*{1,2}|_{1,2})?\s*FINDINGS:\s*(\d+)\s*(?:\*{1,2}|_{1,2})?\s*$/.exec(line);
+    const m = FINDINGS_LINE.exec(line);
     if (m) seen.add(Number(m[1]));
   }
   return seen.size === 1 ? [...seen][0] : null;
@@ -479,6 +543,33 @@ function parseFindingCount(text) {
 function recordDeclaredCount(state, text) {
   if (typeof text !== "string" || text.trim() === "") return;
   state.findingCount = parseFindingCount(text);
+}
+
+/**
+ * The SAME grain, read backwards. "The last non-empty message wins" names the
+ * newest one only for a caller that sees messages CHRONOLOGICALLY, which the
+ * three attempt-side read sites do and the rollout scrape does NOT — it walks
+ * sessions newest-first. Calling the primitive above on every message of a
+ * reversed scan therefore let the OLDEST declaration win (probed 2026-08-05: a
+ * newest message declaring nothing and an older one declaring 7 recorded 7 —
+ * a number the terminal message never gave).
+ *
+ * So the DIRECTION is stated by the caller rather than the grain being
+ * redefined underneath the sites that were already right: the first non-empty
+ * message this recorder is offered wins, and it records whatever that message
+ * declares — including `null`, which is the answer "not declared" and never a
+ * hole to backfill from a session that ended earlier. (Within one session id
+ * the rollout files are directory-ordered; a session with two rollout files is
+ * a documented limit, not a case this distinguishes.)
+ */
+function newestFirstCountRecorder(state) {
+  let recorded = false;
+  return (text) => {
+    if (recorded) return;
+    if (typeof text !== "string" || text.trim() === "") return;
+    recorded = true;
+    state.findingCount = parseFindingCount(text);
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -880,6 +971,9 @@ function lastAgentMessage(path) {
 
 /** Returns a patch that upgrades the result to a verdict, or null when nothing is recoverable. */
 function tryRolloutScrape(cfg, state) {
+  // This scan runs NEWEST-FIRST, so it takes the newest-first recorder — the
+  // chronological primitive would hand the answer to the oldest session here.
+  const recordCount = newestFirstCountRecorder(state);
   for (const sid of [...state.seenSids].reverse()) {
     for (const rollout of findRollout(cfg, sid)) {
       const msg = lastAgentMessage(rollout);
@@ -888,7 +982,7 @@ function tryRolloutScrape(cfg, state) {
       // is a terminal message this dispatch produced whether or not it carries
       // a verdict, and it replaces any earlier attempt's declaration -
       // including replacing a number with "not declared" when it declares none.
-      recordDeclaredCount(state, msg);
+      recordCount(msg);
       const parsed = parseVerdict(msg);
       if (parsed.shape !== "ok") continue;
       const path = join(cfg.out, "recovered-from-rollout.txt");

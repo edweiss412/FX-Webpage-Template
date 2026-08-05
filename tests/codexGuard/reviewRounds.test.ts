@@ -10,6 +10,7 @@ import { afterAll, describe, expect, it } from "vitest";
 // nothing to do with the behavior under test.
 import {
   GUARD,
+  type Run,
   cleanupRuns,
   guardEnv,
   mkRun,
@@ -895,4 +896,104 @@ describe("declared finding count (spec §5.3)", () => {
     // on the assertion side.
     expect(row.findingCount).toBe(DECLARED);
   }, 30000);
+});
+
+describe("the rollout scrape reads sessions newest-first (the grain, scanned backwards)", () => {
+  // Failure caught (reviewer probe 2026-08-05): `tryRolloutScrape` walks
+  // `state.seenSids` REVERSED - newest session first - and called the
+  // record-count primitive on every message it visited. That primitive's grain
+  // is "the LAST non-empty message wins", which names the newest one only for a
+  // caller reading CHRONOLOGICALLY; read backwards it makes the OLDEST
+  // declaration win. Probed: newest message declaring nothing, an older one
+  // declaring FINDINGS: 7 -> the row recorded 7, a number the terminal message
+  // never gave, on a dispatch that recovered no verdict at all. A false fact
+  // about a real review, which is exactly what the count exists not to be.
+  const SID_OLD = "0199cc33-4455-6677-8899-aabbccddeeff";
+  const SID_NEW = "0199dd44-5566-7788-99aa-bbccddeeff00";
+  const OLD_COUNT = 7;
+  const NEW_COUNT = 2; // deliberately different, so "newest wins" is observable
+  const NO_DECLARATION = "No declaration here; still working.";
+  const declares = (n: number): string => `FINDINGS: ${n}\nStill working.`;
+
+  const writeRollout = (run: Run, sid: string, hhmmss: string, text: string): void => {
+    const dir = join(run.codexHome, "sessions", "2026", "07", "24");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      join(dir, `rollout-2026-07-24T${hhmmss}-${sid}.jsonl`),
+      [
+        JSON.stringify({
+          timestamp: `2026-07-24T${hhmmss.replace(/-/g, ":")}.000Z`,
+          type: "session_meta",
+          payload: { id: sid, cli_version: "0.146.0-alpha.6", originator: "codex_exec" },
+        }),
+        JSON.stringify({
+          timestamp: `2026-07-24T${hhmmss.replace(/-/g, ":")}.000Z`,
+          type: "response_item",
+          payload: {
+            type: "message",
+            role: "assistant",
+            content: [{ type: "output_text", text }],
+          },
+        }),
+      ].join("\n") + "\n",
+    );
+  };
+
+  // Two attempts, each announcing its own session id on stderr and leaving no
+  // `-o` file behind: the only terminal messages this dispatch has are the two
+  // rollouts, and `seenSids` holds [older, newer] in the order they were seen.
+  const dispatchTwoSessions = async (run: Run): Promise<void> => {
+    writeScenario(run, [
+      {
+        onCall: 1,
+        actions: [
+          { type: "stderr", text: `session id: ${SID_OLD}\n` },
+          { type: "exit", code: 0 },
+        ],
+      },
+      {
+        onCall: 2,
+        actions: [
+          { type: "stderr", text: `session id: ${SID_NEW}\n` },
+          { type: "exit", code: 0 },
+        ],
+      },
+    ]);
+    await runGuard(run, ["--stage", "diff", "--round", "1", "--max-attempts", "2"]);
+  };
+
+  it("records the NEWEST session's declaration, never an older one's", async () => {
+    const run = mkRun();
+    const { base } = gitify(run.cwdDir);
+    writeRollout(run, SID_OLD, "20-00-00", declares(OLD_COUNT));
+    writeRollout(run, SID_NEW, "21-00-00", declares(NEW_COUNT));
+    await dispatchTwoSessions(run);
+    // Both session ids were latched, so the scan really did have both rollouts
+    // in reach - without this the assertion passes on a scrape that read one.
+    expect(readResult(run).attempts.map((a) => a.sessionId)).toEqual([SID_OLD, SID_NEW]);
+    // Derived from the rollout fixtures' own declared lines.
+    expect(rowsIn(corpusPath(run.cwdDir, base))[0]!.findingCount).toBe(NEW_COUNT);
+  }, 30000);
+
+  it("keeps `not declared` when the newest session declares nothing", async () => {
+    const run = mkRun();
+    const { base } = gitify(run.cwdDir);
+    writeRollout(run, SID_OLD, "20-00-00", declares(OLD_COUNT));
+    writeRollout(run, SID_NEW, "21-00-00", NO_DECLARATION);
+    await dispatchTwoSessions(run);
+    expect(readResult(run)).toMatchObject({ status: "no_verdict", recoveredFrom: null });
+    // A genuine null: the terminal message gave no number, and "not declared"
+    // is an answer, not a hole to backfill from a session that ended earlier.
+    expect(rowsIn(corpusPath(run.cwdDir, base))[0]!.findingCount).toBeNull();
+
+    // CONTROL - the same dispatch with the newest rollout absent. The older
+    // declaration IS reachable by this scan and IS recorded once it is the
+    // newest message there is. Without it, the `null` above is equally well
+    // explained by a scrape that read no rollout at all.
+    const control = mkRun();
+    const { base: controlBase } = gitify(control.cwdDir);
+    writeRollout(control, SID_OLD, "20-00-00", declares(OLD_COUNT));
+    await dispatchTwoSessions(control);
+    expect(rowsIn(corpusPath(control.cwdDir, controlBase))[0]!.findingCount).toBe(OLD_COUNT);
+  }, 45000);
 });
