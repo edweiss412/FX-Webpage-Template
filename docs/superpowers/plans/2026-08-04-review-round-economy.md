@@ -94,7 +94,7 @@ All new test files land under tests/reviewRounds/ and the three already-covered 
 | lib/reviewRounds/constants.ts | `ROUND_THRESHOLD`, `STAGES`, `COUNTED_STAGES` — the single canonical definitions | 2 |
 | lib/reviewRounds/row.ts | Row shape, `serializeRow`, `parseRow`, `appendRow` — JSONL primitives, no git | 2 |
 | lib/reviewRounds/arc.ts | `resolveArc(cwd)` → `{ repoRoot, branch, baseSha }` or a typed refusal | 3 |
-| lib/reviewRounds/corpus.ts | `readArcs(root)` — disk walk producing arcs with rows + filing text | 6 |
+| lib/reviewRounds/corpus.ts | `readArcs(root)` — disk walk producing arcs with rows + filing text, and every unattributable `.jsonl` beside them | 6 |
 | lib/reviewRounds/count.ts | `countedRounds(rows)` — the two-conjunct rule, distinct-round counting | 6 |
 | lib/reviewRounds/filing.ts | `parseFiling(md)` — sections, headings, cited ids. Structure only | 6 |
 | lib/reviewRounds/mergedArcs.ts | `mergedArcs(repoRoot)` — git log → recognized/unrecognized merges | 7 |
@@ -1992,13 +1992,24 @@ git commit -m "feat(review-rounds): declared FINDINGS count on every row"
   - `roundGaps(rows: ReviewRoundRow[]): Stage[]` — stages whose declared rounds are not a contiguous `1..N`
   - `parseFiling(md: string): FilingSection[]` where `FilingSection = { stage: string; declaredRounds: number; hasExamined: boolean; hasDisposition: boolean; citedIds: string[]; }`
   - `readArcs(root: string): Arc[]` where `Arc = { dir: string; branch: string; baseSha: string; corpusPath: string | null; filingPath: string | null; rows: ReviewRoundRow[]; malformed: { line: number; problem: string }[]; filingText: string | null }`
-  - `checkCorpus(root: string, opts?: { resolvableIds?: Set<string> }): Problem[]` and `liveLedgerIds(root: string): Set<string>`
+  - `checkCorpus(root: string, opts?: { resolvableIds?: Set<string> }): Problem[]`, `unrecognizedCorpusFiles(root: string): string[]`, and `liveLedgerIds(root: string): Set<string>`
 
 **Discovery is over BOTH extensions, not over corpora alone** (spec §7.1). Enumerating `.jsonl` and reaching for a sibling leaves an orphan `.md` unvisited — which makes assertion 9 vacuous in exactly the case it exists to catch. `readArcs` collects arc *directories*; an arc is any directory holding either file.
 
-**But "any `.md`" is too wide, and taken literally it makes the gate fail on its own documentation.** Task 12 adds docs/review-rounds/README.md, which has no sibling corpus and would be reported as an `orphan_filing` forever — the live-corpus test could never be green after Task 12 shipped. Discovery is therefore keyed on the **filename shape that arc identity already defines**: a corpus is a corpus named for the arc's baseSha12 and a filing is a filing named for the arc's baseSha12, where `<baseSha12>` matches `/^[0-9a-f]{12}$/`. Anything else under docs/review-rounds/ — a README, a note, an editor backup — is not an arc file and is ignored by name.
+**But "any `.md`" is too wide, and taken literally it makes the gate fail on its own documentation.** Task 12 adds docs/review-rounds/README.md, which has no sibling corpus and would be reported as an `orphan_filing` forever — the live-corpus test could never be green after Task 12 shipped. Discovery is therefore keyed on the **filename shape that arc identity already defines**: a corpus is a corpus named for the arc's baseSha12 and a filing is a filing named for the arc's baseSha12, where `<baseSha12>` matches `/^[0-9a-f]{12}$/`.
 
-This is narrower AND stricter than "any `.md`": it still catches the orphan the assertion exists for (a a 12-hex-stemmed .md with no a 12-hex-stemmed .jsonl beside it), and it additionally rejects a filing whose stem is not a merge-base at all, which the loose walk would have accepted silently. It costs nothing, because the shape is not a new convention — it is the one §5.2 already requires the writer to produce.
+**A name that does not match is CLASSIFIED, never silently dropped — and the two extensions are classified differently, on purpose.** Narrowing the walk to the arc-name shape traded one silent wrongness for another: an accidentally committed feat/foo/aaaaaaaaaaa.jsonl — eleven hex characters, one short — holding `ROUND_THRESHOLD` verdict rows was never parsed, never counted, and never reported, and `checkCorpus` returned clean over it. The same for an uppercase stem or a descriptive name. That is the spec §7.1 walk (`docs/superpowers/specs/ci/2026-08-04-review-round-economy.md:213-215`) quietly not happening. So discovery enumerates **everything** under docs/review-rounds/ and then sorts it into exactly four buckets:
+
+| name | disposition |
+| --- | --- |
+| a `.jsonl` named `<baseSha12>` | a corpus, parsed as an arc's rows |
+| a `.md` named `<baseSha12>` | a filing, checked against that arc |
+| any other `.jsonl` | `unrecognized_corpus_file`, naming the path |
+| any other `.md` | not a filing, ignored |
+
+**The asymmetry is the whole point and is deliberate.** A `.jsonl` under docs/review-rounds/ is **data the gate is answerable for**: it carries rows, and a corpus file that is not named for its arc is either a typo or hand-written, so no arc owns its rows and nothing counts them. Both possibilities must be loud. A `.md` is **prose, load-bearing only when it claims to be a filing** — and a filing claims that by carrying the arc's name. Documentation under docs/review-rounds/ is legitimate (Task 12 ships a README), and unlike a stray `.jsonl` a stray `.md` carries no rows that could be silently uncounted, so ignoring it costs nothing.
+
+This is stricter than "any `.md`" in both directions: it still catches the orphan the assertion exists for (a 12-hex-stemmed .md with no 12-hex-stemmed .jsonl beside it), it rejects a filing whose stem is not a merge-base at all, and it now refuses to look past a corpus file it cannot attribute. The shape is not a new convention — it is the one §5.2 already requires the writer to produce.
 
 - [ ] **Step 1: Write the failing counting + filing tests**
 
@@ -2618,10 +2629,24 @@ describe("review-round economy gate (spec §7.1)", () => {
     expect(problems.map((p) => p.kind)).toContain("orphan_filing");
   });
 
+  // Failure caught: a corpus file the walk drops on the floor. Under a filter
+  // that only ADMITS the arc-name shape this file was invisible - not parsed,
+  // not counted, not reported - and checkCorpus returned clean over a corpus
+  // holding ROUND_THRESHOLD verdict rows that no arc owns. Its stem is the
+  // arc's own, one hex character short, so it misses the shape by exactly the
+  // margin a typo produces.
+  it("FAILS a .jsonl whose name is not an arc's, instead of ignoring it", () => {
+    const STRAY = `${ARC.slice(0, -1)}.jsonl`;
+    const problems = check([{ path: STRAY, body: rows(...OBLIGING) }]);
+    expect(problems.map((p) => p.kind)).toEqual(["unrecognized_corpus_file"]);
+    // The path is named, derived from the fixture rather than retyped.
+    expect(problems[0]!.message).toContain(STRAY);
+  });
+
   // Failure caught: a walk keyed on "any .md" reports the corpus README as a
   // permanent orphan, so the live-corpus test can never be green once Task 12
-  // ships the README. Discovery is keyed on the <baseSha12> filename shape
-  // that §5.2 already requires.
+  // ships the README. A stray .md is prose and is ignored; a stray .jsonl is
+  // data, and the case above proves it is NOT.
   it("PASSES a README and other non-arc-shaped files in the corpus tree", () => {
     expect(
       check([
@@ -2697,7 +2722,8 @@ export type ProblemKind =
   | "stage_without_rows"
   | "count_mismatch"
   | "duplicate_section"
-  | "orphan_filing";
+  | "orphan_filing"
+  | "unrecognized_corpus_file";
 
 export type Problem = { kind: ProblemKind; message: string };
 
@@ -2729,15 +2755,55 @@ export type Arc = {
  * The shape is not a new convention. It is the one the writer already produces,
  * so keying on it additionally rejects a filing whose stem is not a merge base
  * at all, which a loose walk would have accepted silently.
+ *
+ * But a name that fails the shape is CLASSIFIED, never dropped, and the two
+ * extensions are classified differently. A `.jsonl` is DATA this gate is
+ * answerable for: `feat/foo/aaaaaaaaaaa.jsonl` holding four verdict rows is a
+ * typo or a hand-written file, no arc owns its rows, and a filter that merely
+ * ADMITS the arc shape reports clean over it. A `.md` is PROSE, load-bearing
+ * only when it claims to be a filing - which it claims by carrying the arc's
+ * name - and a stray one carries no rows that could go uncounted.
  */
 const ARC_FILE = /^([0-9a-f]{12})\.(jsonl|md)$/;
 
-function walk(dir: string, out: string[]): void {
+type Discovered = {
+  /** Absolute paths matching ARC_FILE. */
+  arcFiles: string[];
+  /** Absolute paths of `.jsonl` files that do NOT. */
+  strayCorpora: string[];
+};
+
+function walk(dir: string, out: Discovered): void {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     const abs = join(dir, entry.name);
-    if (entry.isDirectory()) walk(abs, out);
-    else if (entry.isFile() && ARC_FILE.test(entry.name)) out.push(abs);
+    if (entry.isDirectory()) {
+      walk(abs, out);
+      continue;
+    }
+    if (!entry.isFile()) continue;
+    if (ARC_FILE.test(entry.name)) out.arcFiles.push(abs);
+    else if (entry.name.endsWith(".jsonl")) out.strayCorpora.push(abs);
+    // Anything else - a README, a note, an editor backup - is not arc data.
   }
+}
+
+function discover(root: string): Discovered {
+  const out: Discovered = { arcFiles: [], strayCorpora: [] };
+  const base = join(root, CORPUS_DIR);
+  // An absent corpus directory is a legal clean state (spec §12).
+  if (existsSync(base)) walk(base, out);
+  return out;
+}
+
+/**
+ * Repo-relative paths of `.jsonl` files under docs/review-rounds/ that are not
+ * named for an arc, so nothing can attribute their rows.
+ */
+export function unrecognizedCorpusFiles(root: string): string[] {
+  const base = join(root, CORPUS_DIR);
+  return discover(root)
+    .strayCorpora.map((abs) => [CORPUS_DIR, ...relative(base, abs).split(sep)].join("/"))
+    .sort();
 }
 
 /**
@@ -2747,13 +2813,8 @@ function walk(dir: string, out: string[]): void {
  */
 export function readArcs(root: string): Arc[] {
   const base = join(root, CORPUS_DIR);
-  if (!existsSync(base)) return [];
-
-  const files: string[] = [];
-  walk(base, files);
-
   const byArc = new Map<string, Arc>();
-  for (const abs of files.sort()) {
+  for (const abs of discover(root).arcFiles.sort()) {
     const segments = relative(base, abs).split(sep);
     const name = segments[segments.length - 1] ?? "";
     const match = ARC_FILE.exec(name);
@@ -2837,6 +2898,16 @@ export function checkCorpus(
   const problems: Problem[] = [];
   // `??` short-circuits, so a fixture root with no ledgers never reads one.
   const resolvable = opts.resolvableIds ?? liveLedgerIds(root);
+
+  for (const path of unrecognizedCorpusFiles(root)) {
+    // Reported, never skipped: a corpus file not named for its arc holds rows
+    // nothing can attribute, and a walk that merely ADMITS the arc-name shape
+    // returns clean over a file at threshold. Typo or hand-written, both loud.
+    problems.push({
+      kind: "unrecognized_corpus_file",
+      message: `${path}: a .jsonl that is not named <baseSha12>.jsonl, so no arc owns its rows and nothing counts them`,
+    });
+  }
 
   for (const arc of readArcs(root)) {
     for (const bad of arc.malformed) {
@@ -3603,6 +3674,8 @@ describe("report aggregation (spec §9)", () => {
       ],
     });
     expect(report.silentArcs).toBeNull();
+    // The count comes out of the same scan, so it is withheld with the list.
+    expect(report.preAdoptionMergeCount).toBeNull();
     expect(report.notes.join(" ")).toMatch(/not yet adopted/i);
   });
 
@@ -3659,6 +3732,11 @@ describe("report aggregation (spec §9)", () => {
     // WITHHELD, not empty. An empty array and a refusal must be different
     // values, or this assertion cannot tell one from the other.
     expect(report.silentArcs).toBeNull();
+    // Failure caught: the refusal is HALF applied. Both fields are outputs of
+    // the one merged-arc scan, and a `preAdoptionMergeCount` initialised to 0
+    // and left there reports an authoritative zero for a scan that never ran -
+    // the §8.2 failure one line below a correct refusal of the same question.
+    expect(report.preAdoptionMergeCount).toBeNull();
     expect(report.shallow).toBe(true);
     expect(report.notes.join(" ")).toMatch(/shallow/i);
   });
@@ -3688,6 +3766,18 @@ describe("CLI surface (spec §9)", () => {
     expect(text).not.toMatch(/silent arcs: 0/);
     // The REASON reaches the reader too, not just the word.
     for (const note of report.notes) expect(text).toContain(note);
+  });
+
+  // Failure caught: a renderer that refuses one output of the merged-arc scan
+  // and prints a numeral for the other. `pre-adoption merges: 0` directly under
+  // `silent arcs: WITHHELD` is a fact the scan never established, stated in the
+  // reader's face by the line that follows a correct refusal.
+  it("withholds the pre-adoption count alongside the silent list", () => {
+    const report = cliReport([], null);
+    expect(report.preAdoptionMergeCount).toBeNull();
+    const text = render(report);
+    expect(text).toMatch(/pre-adoption merges: WITHHELD/);
+    expect(text).not.toMatch(/pre-adoption merges[^\n]*: 0/);
   });
 
   // Failure caught: a renderer that drops the per-stage breakdown, leaving one
@@ -3811,6 +3901,8 @@ describe("real history (spec §11.3 layer 2)", () => {
 
 **The CLI surface is tested, not smoke-run.** `render` and `main` are exported and carry their own cases. Left unexported and exercised only by the Step 5 `pnpm review:economy` run, the one surface a human actually reads has no assertion on it at all — a renderer that printed `silent arcs: 0` for a WITHHELD list would satisfy every `buildReport` test in the file while erasing the null-versus-empty distinction the type exists to carry.
 
+**A refusal is refused WHOLE, and `preAdoptionMergeCount` is the second half of the same one.** Both it and `silentArcs` are outputs of the single merged-arc scan, so a path that could not run the scan has no more established the count than the list. A count typed `number` and initialised to `0` reports an authoritative zero on both withholding paths — the shallow clone and the unset boundary — and `render` prints it as a numeral directly under `silent arcs: WITHHELD`, while `--json` hands a consumer `0` instead of a withheld value. That is the §8.2 partial-answer-labelled-complete failure one line below a correct refusal of the same question, which is worse than either alone: the refusal above it is what persuades the reader the number below it was measured. So the field is `number | null`, it is `null` on every path where the scan did not run, and `render` names the withholding rather than printing a numeral.
+
 **`Report` shape**, fixed here so no field is invented at implementation time (and repeated verbatim in the module at Step 3, which is the file that declares it):
 
 ```ts
@@ -3828,7 +3920,10 @@ export type Report = {
   /** null means WITHHELD - a shallow clone or an unset boundary. Never [] for
    *  those cases: an empty list is a completed scan that found nothing. */
   silentArcs: { branch: string; baseSha: string; sha: string; mergedAt: string }[] | null;
-  preAdoptionMergeCount: number;
+  /** null WHENEVER silentArcs is: both come out of the one merged-arc scan, so
+   *  a run that refused the scan cannot report an authoritative 0 one line
+   *  under the refusal. Never 0 for a scan that did not happen. */
+  preAdoptionMergeCount: number | null;
   unrecognizedMerges: { sha: string; subject: string }[];
   shallow: boolean;
   /** Present when the corpus's earliest startedAt precedes the boundary, which
@@ -3872,7 +3967,10 @@ export type Report = {
   /** null means WITHHELD - a shallow clone or an unset boundary. Never [] for
    *  those cases: an empty list is a completed scan that found nothing. */
   silentArcs: { branch: string; baseSha: string; sha: string; mergedAt: string }[] | null;
-  preAdoptionMergeCount: number;
+  /** null WHENEVER silentArcs is: both come out of the one merged-arc scan, so
+   *  a run that refused the scan cannot report an authoritative 0 one line
+   *  under the refusal. Never 0 for a scan that did not happen. */
+  preAdoptionMergeCount: number | null;
   unrecognizedMerges: { sha: string; subject: string }[];
   shallow: boolean;
   /** Present when the corpus's earliest startedAt precedes the boundary, which
@@ -3985,7 +4083,11 @@ export function buildReport(repoRoot: string, opts: ReportOptions = {}): Report 
     arcs.filter((a) => a.rows.length > 0).map((a) => arcKey(a.branch, a.baseSha)),
   );
   let silentArcs: Report["silentArcs"] = null;
-  let preAdoptionMergeCount = 0;
+  // Withheld TOGETHER with the list, because both are outputs of the one scan.
+  // Initialised to 0 and left there on a refusal, this prints an authoritative
+  // "pre-adoption merges: 0" one line below "silent arcs: WITHHELD" - a partial
+  // answer labelled complete, immediately under a correct refusal to give one.
+  let preAdoptionMergeCount: Report["preAdoptionMergeCount"] = null;
 
   if (merges.shallow) {
     // WITHHELD, not empty. A partial answer labelled complete is the §8.2
@@ -4001,6 +4103,7 @@ export function buildReport(repoRoot: string, opts: ReportOptions = {}): Report 
     );
   } else {
     const silent: NonNullable<Report["silentArcs"]> = [];
+    let preAdoption = 0;
     for (const merge of merges.recognized) {
       // Post-adoption is STRICTLY LATER than the boundary, so a merge whose
       // timestamp EQUALS it is pre-adoption. That equality is not a corner case
@@ -4013,7 +4116,7 @@ export function buildReport(repoRoot: string, opts: ReportOptions = {}): Report 
       // merge that establishes the boundary cannot be obliged by it.
       if (Date.parse(merge.mergedAt) <= Date.parse(boundary)) {
         // Reported as a COUNT, never enumerated (documented limit 7).
-        preAdoptionMergeCount += 1;
+        preAdoption += 1;
         continue;
       }
       // Joined on (branch, baseSha), NEVER on branch alone: this repo has reused
@@ -4027,7 +4130,9 @@ export function buildReport(repoRoot: string, opts: ReportOptions = {}): Report 
         mergedAt: merge.mergedAt,
       });
     }
+    // Both assigned here, on the ONE path where the scan actually ran.
     silentArcs = silent;
+    preAdoptionMergeCount = preAdoption;
   }
 
   // The DECLARED boundary is never checked against the corpus, but a corpus that
@@ -4106,7 +4211,13 @@ export function render(report: Report): string {
     out.push(`silent arcs: ${report.silentArcs.length}`);
     for (const a of report.silentArcs) out.push(`  ${a.branch} ${a.baseSha}  merged ${a.mergedAt}`);
   }
-  out.push(`pre-adoption merges (excluded, not enumerated): ${report.preAdoptionMergeCount}`);
+  out.push(
+    report.preAdoptionMergeCount === null
+      ? // A numeral here reads as a fact the scan never established, and it sits
+        // one line under a refusal that got the same question right.
+        "pre-adoption merges: WITHHELD (see notes)"
+      : `pre-adoption merges (excluded, not enumerated): ${report.preAdoptionMergeCount}`,
+  );
 
   if (report.unrecognizedMerges.length > 0) {
     out.push("", `unrecognized merge subjects: ${report.unrecognizedMerges.length}`);
@@ -4267,26 +4378,41 @@ git commit -m "fix(review-rounds): accept a verdict line wrapped in markdown emp
 ### Task 10: Repair the dispatch hook's finding tally
 
 **Files:**
-- Modify: `$HOME/.claude/hooks/review-convergence-gate.sh` (per-machine, NOT tracked in this repo)
+- Modify: **every** `$CLAUDE_CONFIG_DIR/hooks/review-convergence-gate.sh` under **every** Claude config dir on this machine — `$HOME/.claude`, `$HOME/.claude-account2`, `$HOME/.claude-account3`, `$HOME/.claude-account4` (per-machine, NOT tracked in this repo)
 - Modify: `AGENTS.md` (record the repair in the convergence-criterion section)
 
 The hook counts findings with the numbered-bold pattern alone, which the probe measured at **48.0%** against 681 real outputs (spec §3, table row 2). Its advisory "~N findings" line therefore reads zero for the other 52%. Leaving a known-wrong number in an operator-facing message is the exact defect class this system exists to close.
 
-**The disposition, fixed here so Steps 2 and 4 cannot disagree:** the hook reports the reviewer's declared `FINDINGS:` count when present, and the literal text `not declared` otherwise. Never an inferred count, and never a silently dropped number — a blank where a tally used to be reads as "zero findings" to the next operator, which is the same false statement in quieter form.
+**The disposition, fixed here so Steps 2 and 5 cannot disagree:** the hook reports the reviewer's declared `FINDINGS:` count when present, and the literal text `not declared` otherwise. Never an inferred count, and never a silently dropped number — a blank where a tally used to be reads as "zero findings" to the next operator, which is the same false statement in quieter form.
 
 **The hook and `parseFindingCount` must agree, because they read the same reviewer output and an operator sees both.** They are two implementations of one rule, and the rule has a grain: `parseFindingCount` (Task 5) reads ONE terminal message per dispatch, strips fenced blocks, matches an end-anchored `FINDINGS: <n>` line, and returns `null` when two different values are declared. A hook that SUMS across a round's `attempt-*.last-message.txt` files reads a different grain and prints a different number for the same round — a round whose failed first attempt declared 2 and whose successful retry declared 1 records `findingCount: 1` in the corpus while the hook prints 3, and nothing on screen says which is the reviewer's actual claim. **Where both exist, the corpus row is authoritative**: it is the committed, reviewable record, and the hook's line is an advisory rendering of it. The repair below makes the hook read the wrapper's own resolved answer wherever one survives on disk, and apply the corpus's rule rather than a rule of its own only where none does.
 
 **This file is outside the repo** and cannot be committed here. The repair is applied on this machine and the *contract* is recorded in `AGENTS.md`, which is the durable cross-CLI source of truth — the same posture AGENTS.md already takes for the reaper hook.
 
+**There are FOUR copies of this hook, not one, and repairing the first leaves three workspaces printing the known-wrong number.** This machine runs four herdr workspaces, one per Claude account, with `CLAUDE_CONFIG_DIR` set to `$HOME/.claude`, `$HOME/.claude-account2`, `$HOME/.claude-account3` or `$HOME/.claude-account4` (AGENTS.md, "Cross-account takeover (multi-workspace)"), and accounts 2 through 4 invoke `$CLAUDE_CONFIG_DIR/hooks/review-convergence-gate.sh`. Each config dir carries its own independent copy of the file. A repair applied to `$HOME/.claude` alone ships tracked AGENTS.md prose promising the declared-count contract while three of four workspaces still infer — which is exactly the "prose promises one behavior, the implementation does another" contradiction this task exists to remove, multiplied by three.
+
+Precisely because these files are per-machine and untracked, **the set of copies is enumerated at repair time rather than assumed** — nothing in this repo can tell you a fifth workspace was added last week, and a hardcoded four-path list silently skips it. Step 2 opens with the enumeration and Step 3 closes with a grep across every copy, so the answer comes from the filesystem at both ends.
+
 - [ ] **Step 1: Reproduce the wrong number**
 
 Run the probe's recognizer counts against the corpus described in `docs/superpowers/specs/ci/probes/2026-08-04-finding-format-probe.md` and confirm the numbered-bold pattern alone reports 327/681. Record the command and its output in the commit message.
 
-- [ ] **Step 2: Apply the repair**
+- [ ] **Step 2: Enumerate every copy, then apply the repair to each**
 
-**One contract, both halves agreeing: the hook reports the reviewer's DECLARED `FINDINGS:` count per prior round, read by the SAME rule `parseFindingCount` uses, and the literal text `not declared` for a round that declared none. It never infers a count, and it never sums.** Dropping the number entirely is NOT the disposition — Step 4 commits AGENTS.md prose that promises this rendering, and prose promising one behavior over an implementation doing another is the contradiction this task exists to remove.
+First enumerate, from disk rather than from this list. Print the config dirs, then the hook copies that actually exist under them:
 
-The hook is per-machine and untracked, so this step describes the precise change rather than a diff; the AGENTS.md prose in Step 4 is the durable contract. Two edits inside `$HOME/.claude/hooks/review-convergence-gate.sh`:
+```bash
+ls -d "$HOME"/.claude "$HOME"/.claude-account*/
+for d in "$HOME"/.claude "$HOME"/.claude-account*/; do
+  [ -f "$d/hooks/review-convergence-gate.sh" ] && echo "TO REPAIR: $d/hooks/review-convergence-gate.sh"
+done
+```
+
+Expected on this machine: four config dirs, four hook copies. **If the second command prints a fifth path, it gets the same edit** - that is the reason it is a command and not a list. Apply BOTH edits below to every path it printed; the two edits are identical across copies.
+
+**One contract, both halves agreeing: the hook reports the reviewer's DECLARED `FINDINGS:` count per prior round, read by the SAME rule `parseFindingCount` uses, and the literal text `not declared` for a round that declared none. It never infers a count, and it never sums.** Dropping the number entirely is NOT the disposition — Step 5 commits AGENTS.md prose that promises this rendering, and prose promising one behavior over an implementation doing another is the contradiction this task exists to remove.
+
+The hook is per-machine and untracked, so this step describes the precise change rather than a diff; the AGENTS.md prose in Step 5 is the durable contract. Two edits inside each enumerated `$CLAUDE_CONFIG_DIR/hooks/review-convergence-gate.sh`:
 
 1. Replace the inferring tally. The current assignment greps the numbered-bold pattern across every `attempt-*.last-message.txt` in each prior round's out-dir and sums the per-file counts — the 48.0% recognizer, at a grain the corpus does not use. Replace it with a per-dispatch read whose FIRST source is the dispatch's own answer:
    - **The dispatch's result.json is authoritative and is never re-derived.** Each prior round's out-dir holds one, and after Task 5 it carries the resolved `findingCount` — the very value the corpus row holds, because the bridge copies it straight across (Task 4 Step 3). A number renders as itself; an explicit `null` renders `not declared`. Re-deriving a count the wrapper already resolved is the only way the two can disagree, so the hook does not.
@@ -4300,7 +4426,22 @@ The hook is per-machine and untracked, so this step describes the precise change
 
 Everything else in the hook is untouched: the round cap, the two convergence-criterion gates, and the `CONVERGENCE_ACK=1` override all keep their current behavior. The tally is advisory and stays advisory — this repair makes it honest, it does not make it load-bearing.
 
-- [ ] **Step 3: Verify the hook still blocks, and that both renderings appear**
+- [ ] **Step 3: Verify no copy was missed**
+
+The inferring tally's signature is its `grep -hcE` over the numbered-bold pattern (`^[0-9]+\. \*\*`). No copy may still carry it:
+
+```bash
+for f in "$HOME"/.claude/hooks/review-convergence-gate.sh \
+         "$HOME"/.claude-account*/hooks/review-convergence-gate.sh; do
+  [ -f "$f" ] || continue
+  grep -qF 'grep -hcE' "$f" && echo "UNREPAIRED: $f"
+done
+echo "sweep complete"
+```
+
+Expected: `sweep complete` alone. Any `UNREPAIRED:` line is a workspace still printing the 48.0% number while tracked AGENTS.md promises the declared one. Re-run this after Step 5, because AGENTS.md is what makes the claim.
+
+- [ ] **Step 4: Verify the hook still blocks, and that both renderings appear**
 
 Run a dispatch that should be blocked (a 5th round on an artifact with four prior `.review/` dirs) and confirm the block message appears. Run it against three prepared fixtures:
 
@@ -4310,13 +4451,13 @@ Run a dispatch that should be blocked (a 5th round on an artifact with four prio
 4. **Rollout recovery, where the terminal message is not an attempt file at all.** One round whose `attempt-1.last-message.txt` declares `FINDINGS: 2` with no VERDICT line, whose `recovered-from-rollout.txt` declares `FINDINGS: 3` with one, and whose result.json carries `findingCount: 3` and `recoveredFrom: "rollout_scrape"`. The hook must print `3`. A `2` is a scan reading an attempt file the wrapper superseded — and `2` is exactly what a "last non-empty attempt file" rule prints, which is why this fixture exists. Then delete that result.json and re-run: still `3`, because the fallback prefers the recovered message.
 5. **An exhausted round whose final attempt is empty.** `attempt-1.last-message.txt` declares `FINDINGS: 2`; `attempt-2.last-message.txt` is zero bytes; result.json carries `findingCount: 2`, because an empty message never resets the wrapper's carrier (Task 5 Step 3). The hook must print `2`. Then delete that result.json and re-run: still `2`, via the fallback's last-NON-EMPTY rule. Both sources agreeing on this shape is the whole point — a fallback that took the final attempt file regardless of content would print `not declared` against a corpus row of 2, which is the same "the reviewer declared nothing" falsehood in the operator's face rather than in the corpus.
 
-- [ ] **Step 4: Record the contract in AGENTS.md**
+- [ ] **Step 5: Record the contract in AGENTS.md**
 
 Add to the convergence-criterion section, beside the existing install one-liner:
 
-> The hook's advisory finding tally was measured at 48.0% accuracy against 681 real reviewer outputs (`docs/superpowers/specs/ci/probes/2026-08-04-finding-format-probe.md`) because it inferred findings from a numbered-bold pattern. It now reports the reviewer's declared `FINDINGS: <n>` line per round, or says "not declared" — never an inferred count and never a sum. It takes that count from the dispatch's own result.json whenever one carries a `findingCount` key: that is the wrapper's resolved answer and the same value the corpus row holds, and re-deriving it is the only way the two can disagree. Only when no usable result.json survives does it read the message files itself, by the same rule `parseFindingCount` in `scripts/codex-guard.mjs` uses: ONE terminal message per dispatch — the recovered rollout message when the out-dir holds one, else the last attempt message with non-empty content — fenced blocks elided, the pattern end-anchored, and two different declared values treated as "not declared". The two must agree, because an operator sees both; where both exist, the committed corpus row is authoritative and the hook's line is an advisory rendering of it. The hook is per-machine; this paragraph is the durable contract.
+> The hook's advisory finding tally was measured at 48.0% accuracy against 681 real reviewer outputs (`docs/superpowers/specs/ci/probes/2026-08-04-finding-format-probe.md`) because it inferred findings from a numbered-bold pattern. It now reports the reviewer's declared `FINDINGS: <n>` line per round, or says "not declared" — never an inferred count and never a sum. It takes that count from the dispatch's own result.json whenever one carries a `findingCount` key: that is the wrapper's resolved answer and the same value the corpus row holds, and re-deriving it is the only way the two can disagree. Only when no usable result.json survives does it read the message files itself, by the same rule `parseFindingCount` in `scripts/codex-guard.mjs` uses: ONE terminal message per dispatch — the recovered rollout message when the out-dir holds one, else the last attempt message with non-empty content — fenced blocks elided, the pattern end-anchored, and two different declared values treated as "not declared". The two must agree, because an operator sees both; where both exist, the committed corpus row is authoritative and the hook's line is an advisory rendering of it. The hook is per-machine and this machine holds one copy per Claude workspace config dir, so the repair applies to every `$CLAUDE_CONFIG_DIR/hooks/review-convergence-gate.sh` — one under `$HOME/.claude` and one under each `$HOME/.claude-account*` — enumerated from disk, because a config dir added later is invisible to this file. A copy left unrepaired prints the inferred number while this paragraph promises the declared one. This paragraph is the durable contract.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add AGENTS.md
@@ -4639,6 +4780,18 @@ Three findings, all confirmed against the live tree before repair. Two are cover
 | 3 | BLOCKING - mutation enrollment covered one of the two sources it claimed. Task 11 said both corpus.ts and count.ts were mutated, but its registry row named lib/reviewRounds/count.ts alone, and `GuardSurface.sourcePath` is a single string (`tests/mutation/source/registry.ts:12-22`, read and confirmed). Every structural decision in corpus.ts was therefore outside the mutant set while the task still announced a score and an empty unaccepted-survivor set over it. Named site: a `relational-boundary` mutation of `if (n < ROUND_THRESHOLD) continue;` to `<=` suppresses the filing duty at exactly the threshold, and could never appear as a survivor | Two surfaces enrolled, `reviewRoundCount` (count.ts) and `reviewRoundCorpus` (corpus.ts), each with its own `suitePaths`, `controlMutation`, `scoreFloor` and `accepted` ledger, laid out as a per-field table so neither row inherits the other's numbers. `EXPECTED_LEDGER_KINDS` grows to three rows, one per enrolled surface, which the existing key-set assertion already enforces. Every "a second surface" phrasing in the task corrected, including the meta-test inventory. The singular `sourcePath` is stated in prose as the REASON this is two rows rather than one, and the threshold comparison is named as the specific site whose survival the second surface exists to detect |
 
 **Findings 1 and 3 are the same shape at two altitudes, so the sweep ran across both.** Each is a claim of coverage over ground nothing walked: a function whose test arrived six tasks after its implementation, and a registry row announcing a score over a file it never mutated. The sweep across the plan turned up the third instance in finding 1 itself — the CLI surface, whose only verification was a smoke run — and the fence in row 1b is the other half of the same pass: the two remaining untested edits were examined and found to have no red state to write, which is recorded here so a later round does not re-derive it or manufacture tests for them.
+
+## Review Round 7 Triage
+
+Three findings, all confirmed against the live tree before repair. All three are one shape at three altitudes: **a system that answers where it should say it does not know.** A walk that returned clean over a file it never read, a count that reported zero for a scan that never ran, and a repair that would have left three of four workspaces printing a number this plan's own prose calls wrong.
+
+| # | Finding | Repair |
+| --- | --- | --- |
+| 1 | BLOCKING - corpus discovery silently ignored files the spec requires the gate to inspect, and this was a **regression introduced by the round-3 orphan repair**. That repair fixed the permanent-orphan README by narrowing the walk to basenames matching `^[0-9a-f]{12}\.(jsonl\|md)$`, which traded one silent wrongness for another: an accidentally committed feat/foo/aaaaaaaaaaa.jsonl - eleven hex characters - holding `ROUND_THRESHOLD` verdict rows is never parsed, never counted, never reported, and `checkCorpus` returns clean. Same for an uppercase stem or a descriptive name. Spec §7.1 (`docs/superpowers/specs/ci/2026-08-04-review-round-economy.md:213-215`) requires the walk to cover every `.jsonl` and every `.md` | The corrected rule is **discover everything, then classify, and never silently drop**: a `.jsonl` named `<12hex>` is a corpus, a `.md` named `<12hex>` is a filing, **any other `.jsonl` is a new `unrecognized_corpus_file` problem naming the path**, and any other `.md` is not a filing and is ignored. The asymmetry is stated in the prose and in the module comment: a `.jsonl` is data the gate is answerable for, so an unattributable one is a typo or a hand-written file and both must be loud; a `.md` is prose that is load-bearing only when it claims to be a filing, which it claims by carrying the arc's name, and a stray one carries no rows that could go uncounted. `unrecognizedCorpusFiles` is exported beside `readArcs`, the kind joins the `ProblemKind` union (its only enumeration in the plan, re-verified by grep over every kind name), and a new gate case plants an eleven-hex-stemmed `.jsonl` at threshold and asserts the kind and the path, noting in its comment that this file was invisible under the previous filter. The README-passes case is unchanged and still green |
+| 2 | HIGH - a withheld scan still reported an authoritative pre-adoption count of zero. `preAdoptionMergeCount` initialised to `0`, and both the shallow-clone branch and the boundary-null branch left it there while `render` always printed it as a numeral - so a shallow clone printed `silent arcs: WITHHELD` and then `pre-adoption merges: 0` on the next line, and `--json` handed a consumer `0` rather than a withheld value. The same partial-answer-labelled-complete failure the line above it had just refused, which is worse than either alone: the refusal is what persuades the reader the number below it was measured | Typed `number \| null` in BOTH copies of the `Report` block, which stay byte-identical by design. It is `null` on every path where the merged-arc scan did not run, assigned from a loop-local counter on the one path where it did, and `render` prints `pre-adoption merges: WITHHELD (see notes)` rather than a numeral. Both withholding paths assert both fields together - the synthesized shallow clone and the null boundary - plus a CLI case asserting the rendered text carries the marker and no zero |
+| 3 | HIGH - Task 10 repaired one of four active hook copies. This machine runs four Claude workspaces (`CLAUDE_CONFIG_DIR` = `$HOME/.claude`, `$HOME/.claude-account2`, `$HOME/.claude-account3`, `$HOME/.claude-account4`, per the multi-account section of `AGENTS.md`), accounts 2 through 4 invoke `$CLAUDE_CONFIG_DIR/hooks/review-convergence-gate.sh`, and each config dir carries an independent copy still holding the inferred tally. Executing the task as written left three workspaces printing the known-wrong 48.0% number while tracked AGENTS.md claimed the declared-count contract held - the same prose-contradicts-implementation defect the task exists to remove, multiplied by three | Task 10 now applies the identical edit to every enumerated copy. Step 2 opens with the enumeration (`ls -d ~/.claude ~/.claude-account*/` plus a loop printing each hook that exists) and states that a fifth path gets the same edit, which is why it is a command rather than a list. A new Step 3 sweeps every copy for the old tally's `grep -hcE` signature and expects `sweep complete` with no `UNREPAIRED:` line; the remaining steps renumber, and every cross-reference to the AGENTS.md step moves with them. The prose says plainly that these files are per-machine and untracked, which is exactly why the set is enumerated at repair time instead of assumed, and the AGENTS.md paragraph now carries the per-workspace scope so the durable contract names it too |
+
+**The sweep findings 1 and 2 demand, run across the plan.** The shape is *an input the tool never examined, reported as an input that was clean*. Two more surfaces were checked and are recorded here so a later round does not re-derive them. `readArcs` already discloses rather than drops on the other axis — a line that fails `parseRow` lands in `arc.malformed`, which the gate reports as `malformed_row` and the report discloses beside the arc's counts (round 6, finding 2) — so JSONL content and JSONL naming are now both covered, one by disclosure and one by classification. And `mergedArcs` already separates `recognized` from `unrecognized` rather than dropping a merge subject it cannot parse, with `unrecognizedMerges` rendered by name. The one deliberate silence left is a non-`.jsonl`, non-arc-named file, which is documented above as prose the gate is not answerable for.
 
 ## Self-Review Record
 
