@@ -275,47 +275,35 @@ function combinatorDefeats(expression: ts.Expression, name: string): boolean {
 }
 
 /**
- * The initializer of the binding `name` refers to, honouring lexical scope.
+ * The initializer of the binding an identifier refers to, resolved by the
+ * TypeScript BINDER rather than by a hand-written scope walk.
  *
- * WHY SCOPE RATHER THAN A FILE-WIDE NAME SEARCH. Both binding lookups here
- * originally scanned the whole SourceFile for a declaration with a matching
- * name, which is not what a name means. A spec file holds many tests, so a
- * `const pending = page.goto(...)` in one made an unrelated `const pending =
- * fetch(...)` in another read as a navigation -- rejecting correct code in a
- * test that never navigated through that binding at all.
+ * WHY THE COMPILER AND NOT A WALK. Three rounds of review found three different
+ * false positives in three successive hand-rolled versions of this, each a
+ * deeper level of the same mistake: first a whole-file search by name, then a
+ * function-scope search that missed block scopes, and the next one would have
+ * missed `for` initialisers, `catch` parameters, or shadowing inside a nested
+ * arrow. Lexical scoping is not a heuristic to approximate — it is a solved
+ * problem with an exact implementation already linked into this file. Asking
+ * `getSymbolAtLocation` closes the whole class instead of its next instance.
  *
- * Scopes are searched innermost-outward and the FIRST scope declaring the name
- * wins, which is what shadowing does. A declaration nested inside a sibling
- * function is not in scope here and is skipped.
+ * The checker is module-scoped because threading it through eight call sites
+ * buys nothing here: `analyzeSource` is synchronous and sets it before any
+ * consumer runs, so there is no interleaving to race.
  */
-function resolveBinding(name: string, from: ts.Node): ts.Expression | null {
-  const declaredDirectlyIn = (scope: ts.Node): ts.Expression | null => {
-    let initializer: ts.Expression | null = null;
-    const walk = (n: ts.Node): void => {
-      if (initializer) return;
-      if (n !== scope && ts.isFunctionLike(n)) return;
-      if (ts.isVariableDeclaration(n) && ts.isIdentifier(n.name) && n.name.text === name) {
-        initializer = n.initializer ?? null;
-        return;
-      }
-      ts.forEachChild(n, walk);
-    };
-    ts.forEachChild(scope, walk);
-    return initializer;
-  };
+let checker: ts.TypeChecker | null = null;
 
-  for (let scope: ts.Node | undefined = from; scope; scope = scope.parent) {
-    if (!ts.isFunctionLike(scope) && !ts.isSourceFile(scope)) continue;
-    const initializer = declaredDirectlyIn(scope);
-    if (initializer) return initializer;
-  }
+function resolveBinding(id: ts.Identifier): ts.Expression | null {
+  const symbol = checker?.getSymbolAtLocation(id);
+  const declaration = symbol?.valueDeclaration ?? symbol?.declarations?.[0];
+  if (declaration && ts.isVariableDeclaration(declaration)) return declaration.initializer ?? null;
   return null;
 }
 
 /** Whether an element names a binding initialised by a navigation, in scope. */
 function mentionsNavigationBinding(element: ts.Expression): boolean {
   if (!ts.isIdentifier(element)) return false;
-  const initializer = resolveBinding(element.text, element);
+  const initializer = resolveBinding(element);
   return initializer !== null && NAVIGATION_IN_TEXT.test(initializer.getText());
 }
 
@@ -351,7 +339,7 @@ function navigates(expression: ts.Expression, source: ts.SourceFile): boolean {
   const text = expression.getText(source);
   if (NAVIGATION_IN_TEXT.test(text)) return true;
   if (!ts.isIdentifier(expression)) return false;
-  const initializer = resolveBinding(expression.text, expression);
+  const initializer = resolveBinding(expression);
   return initializer !== null && NAVIGATION_IN_TEXT.test(initializer.getText(source));
 }
 
@@ -558,7 +546,23 @@ function sitesByFunction(source: ts.SourceFile): Map<ts.Node, Site[]> {
  * this. This is the mechanical floor under the invariant, not the invariant.
  */
 export function analyzeSource(fileName: string, text: string): string[] {
-  const source = ts.createSourceFile(fileName, text, ts.ScriptTarget.Latest, true);
+  // A single-file Program, purely to obtain the binder. No lib, no resolution,
+  // no type checking -- symbol resolution over one file is all this needs.
+  const parsed = ts.createSourceFile(fileName, text, ts.ScriptTarget.Latest, true);
+  const host: ts.CompilerHost = {
+    getSourceFile: (name) => (name === fileName ? parsed : undefined),
+    getDefaultLibFileName: () => "lib.d.ts",
+    writeFile: () => undefined,
+    getCurrentDirectory: () => "",
+    getCanonicalFileName: (name) => name,
+    useCaseSensitiveFileNames: () => true,
+    getNewLine: () => "\n",
+    fileExists: (name) => name === fileName,
+    readFile: (name) => (name === fileName ? text : undefined),
+  };
+  const program = ts.createProgram([fileName], { noResolve: true, noLib: true }, host);
+  const source = program.getSourceFile(fileName) ?? parsed;
+  checker = program.getTypeChecker();
   const problems: string[] = [];
 
   for (const sites of sitesByFunction(source).values()) {

@@ -365,6 +365,63 @@ test("font-sensitive flow", async ({ page }) => {
     expect(analyzeSource("scoped.spec.ts", source)).toEqual([]);
   });
 
+  test.each([
+    [
+      "block-scoped sibling binding — R7",
+      `import { test } from "@playwright/test";
+test("t", async ({ page }) => {
+  if (runWarmup) {
+    const pending = page.goto(firstUrl);
+    await pending;
+  }
+  await page.goto(secondUrl);
+  {
+    const fontsReady = page.evaluate(() => document.fonts.ready);
+    const pending = fetch(healthUrl);
+    await Promise.all([fontsReady, pending]);
+    const box = await page.getByTestId("x").evaluate((n) => n.getBoundingClientRect().height);
+  }
+});
+`,
+    ],
+    [
+      "for-loop initialiser shadowing a navigation binding",
+      `import { test } from "@playwright/test";
+test("t", async ({ page }) => {
+  const pending = page.goto(firstUrl);
+  await pending;
+  await page.goto(secondUrl);
+  for (const pending of [fetch(a), fetch(b)]) {
+    const fontsReady = page.evaluate(() => document.fonts.ready);
+    await Promise.all([fontsReady, pending]);
+    const box = await page.getByTestId("x").evaluate((n) => n.getBoundingClientRect().height);
+  }
+});
+`,
+    ],
+    [
+      "catch parameter shadowing a navigation binding",
+      `import { test } from "@playwright/test";
+test("t", async ({ page }) => {
+  const pending = page.goto(firstUrl);
+  await pending;
+  await page.goto(secondUrl);
+  try {
+    doThing();
+  } catch (pending) {
+    const fontsReady = page.evaluate(() => document.fonts.ready);
+    await Promise.all([fontsReady, pending]);
+    const box = await page.getByTestId("x").evaluate((n) => n.getBoundingClientRect().height);
+  }
+});
+`,
+    ],
+  ])("CORRECT: %s", (_label, source) => {
+    // Every one of these is a scope kind a hand-written walk forgets. They pass
+    // because resolution is the compiler's binder, not an approximation of it.
+    expect(analyzeSource("scope.spec.ts", source)).toEqual([]);
+  });
+
   test("a helper that waits counts for its callers", () => {
     const source = `import { test } from "@playwright/test";
 async function settleFonts(page) {
