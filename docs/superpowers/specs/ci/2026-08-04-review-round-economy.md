@@ -143,12 +143,14 @@ Per-arc files mean concurrent worktrees never touch the same file. Invariant 11 
   "endedAt": "2026-08-04T14:19:40.000Z",
   "briefPath": ".review/foo-r3/brief.md",
   "outDir": ".review/foo-r3",
-  "guardVersion": "…",
+  "guardVersion": 1,
   "recoveredFrom": null
 }
 ```
 
 All scalars. There is no array field and no free-text field, so a row is bounded by construction rather than by truncation logic. `status`, `verdict`, `recoveredFrom`, `guardVersion`, and `label` are copied verbatim from the result.json body assembled in `writeResult` (`codex-guard.mjs:693`, keys at `codex-guard.mjs:695-711`).
+
+`guardVersion` is a **number** — `const GUARD_VERSION = 1` (`scripts/codex-guard.mjs:21`) — not a string. The row copies it verbatim, so the field is typed `number | null` (`lib/reviewRounds/row.ts:23`) and a string is rejected by the schema check (`row.ts:80`). An earlier draft of this schema showed it quoted; the sample above is the corrected form (plan resolution R3).
 
 `findingCount` is an integer when the reviewer emitted a declared `FINDINGS: <n>` line, and `null` otherwise. It is never inferred from prose shape (§3). The brief-authoring contract in `AGENTS.md` gains this line next to the existing mandated `VERDICT:` line; the corpus shows the declared-line mechanism at 100% reliability.
 
@@ -263,6 +265,8 @@ Over-obligation — a filing demanded where nothing was mechanizable — costs o
 7. **Arcs merged before the declared `ADOPTION_BOUNDARY` are invisible to the report**, by construction (§9). They are reported as a count, never enumerated, and never called silent. The boundary is declared rather than observed precisely so this limit stays a limit: a derived boundary would extend it forward over live arcs that the contract already covered, which is silent wrongness rather than a bounded exclusion.
 8. **On a shallow clone the report declines the merged-arc scan entirely** (§9). CI checks out at depth 1 by design (`.github/workflows/unit-suite.yml:152`), so this is the normal CI state, not an edge case.
 9. **`stage: "task"` rows never oblige a filing** (§5.1). A non-review dispatch is recorded for completeness and is invisible to the threshold.
+10. **A `--cwd` outside a git repository records nothing.** The wrapper warns on stderr and leaves the exit code and result.json untouched. Distinct from a detached HEAD (exit 2) deliberately: inside a repo, a detached HEAD is a live arc whose identity cannot be determined, so under-recording it silently is the §8.2 failure; outside a repo there is no arc to record. (Plan resolution R1.)
+11. **A filing may cite a DEFERRED entry by an id the gate does not recognize.** DEFERRED entries carry bare SHOUTY ids (`PSQL-GUARD-RECALL-RESIDUAL`), not a `DEF-` prefix, and the citation recognizer matches `BL-`/`DEF-` tokens only (`lib/reviewRounds/filing.ts:24`). An unrecognized token is not treated as a citation, so it is neither resolved nor rejected. Conservative under-check; widening the recognizer would classify ordinary prose as a citation. (Plan resolution R2.)
 
 ## 9. Report
 
