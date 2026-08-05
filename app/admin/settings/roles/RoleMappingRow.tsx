@@ -209,15 +209,20 @@ export function RoleMappingRow({ row }: { row: RoleMappingRowData }) {
               {COPY.REMOVE_LABEL}
             </button>
           </div>
-          {savedConfirm ? (
-            <p
-              role="status"
-              data-testid="role-mapping-saved-confirm"
-              className="rounded-md border border-border bg-info-bg px-2.5 py-2 text-xs text-text-subtle min-[760px]:col-span-4"
-            >
-              {COPY.EDIT_SAVED_CONFIRM}
-            </p>
-          ) : null}
+          {/* Mounted unconditionally, text toggled: a live region inserted with
+              its text is never announced (BL-ANNOUNCE-REGION-UNMOUNT-CLASS), and
+              this confirmation is exactly the kind a save produces. */}
+          <p
+            role="status"
+            data-testid="role-mapping-saved-confirm"
+            className={
+              savedConfirm
+                ? "rounded-md border border-border bg-info-bg px-2.5 py-2 text-xs text-text-subtle min-[760px]:col-span-4"
+                : "sr-only"
+            }
+          >
+            {savedConfirm ? COPY.EDIT_SAVED_CONFIRM : ""}
+          </p>
         </>
       ) : null}
 

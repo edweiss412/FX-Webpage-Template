@@ -154,15 +154,20 @@ function AddAdminFormInner({ onReset }: { onReset: () => void }) {
       {/* P1b: success confirmation. The row also appears in the
           ACTIVE list on revalidation but Doug needs an explicit
           "yes, that happened" signal at the form. */}
-      {result?.kind === "ok" && (
-        <p
-          data-testid="admin-allowlist-success"
-          role="status"
-          className="rounded-sm bg-info-bg px-2 py-1 text-sm font-medium text-text-strong"
-        >
-          {result.email ? `Added ${result.email}.` : "Added."}
-        </p>
-      )}
+      {/* Mounted unconditionally, text toggled (BL-ANNOUNCE-REGION-UNMOUNT-CLASS):
+          the success arrives after a submit, so the region must already exist
+          for the text change to be an announcement rather than an insertion. */}
+      <p
+        data-testid="admin-allowlist-success"
+        role="status"
+        className={
+          result?.kind === "ok"
+            ? "rounded-sm bg-info-bg px-2 py-1 text-sm font-medium text-text-strong"
+            : "sr-only"
+        }
+      >
+        {result?.kind === "ok" ? (result.email ? `Added ${result.email}.` : "Added.") : ""}
+      </p>
 
       {result?.kind === "invalid_email" && (
         <p

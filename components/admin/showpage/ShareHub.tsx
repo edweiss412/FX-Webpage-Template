@@ -773,23 +773,29 @@ export function ShareHub({
       {/* Dev-capture status (spec §2.2/§7.1): inline transient line after the
           kebab in the same strip row. Busy while in flight; error copy for 6 s
           on failure (the hook auto-clears). Dev-only surface, dev-only copy. */}
-      {viewerIsDeveloper && capture.state !== "idle" ? (
+      {/* The GATE stays on the developer check (a non-developer must not get the
+          element at all), but the transient capture state toggles TEXT inside a
+          region that is already mounted — an inserted-with-its-text region is
+          never announced (BL-ANNOUNCE-REGION-UNMOUNT-CLASS). */}
+      {viewerIsDeveloper ? (
         <span
           role="status"
           data-testid="share-hub-dev-capture-status"
           // max-w + truncate (impeccable critique P2): the strip row is no-wrap;
           // unbounded error copy collides with band content at 390px. Full text
           // is in the console by contract.
-          className="ml-2 max-w-48 truncate text-xs text-text-subtle"
-          title={
-            capture.state === "busy"
-              ? undefined
-              : "Capture failed. Details are in the browser console."
+          className={
+            capture.state === "idle" ? "sr-only" : "ml-2 max-w-48 truncate text-xs text-text-subtle"
           }
+          {...(capture.state === "error"
+            ? { title: "Capture failed. Details are in the browser console." }
+            : {})}
         >
           {capture.state === "busy"
             ? "Capturing the modal…"
-            : "Capture failed. Details are in the browser console."}
+            : capture.state === "idle"
+              ? ""
+              : "Capture failed. Details are in the browser console."}
         </span>
       ) : null}
 
