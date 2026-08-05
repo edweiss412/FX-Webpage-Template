@@ -170,7 +170,19 @@ export function runGuard(
   run: Run,
   extraArgs: string[] = [],
   envOverrides: Record<string, string> = {},
+  opts: { injectDefaults?: boolean } = {},
 ): Promise<GuardExit> {
+  // The review-round flags are REQUIRED at the CLI (spec §5.1, hard cutover).
+  // Every pre-existing scenario test predates them, so the harness supplies a
+  // default pair unless the caller already passed one - a test exercising flag
+  // validation opts out with { injectDefaults: false } or passes its own value.
+  const inject = opts.injectDefaults ?? true;
+  const defaults = inject
+    ? [
+        ...(extraArgs.includes("--stage") ? [] : ["--stage", "spec"]),
+        ...(extraArgs.includes("--round") ? [] : ["--round", "1"]),
+      ]
+    : [];
   return new Promise((resolve) => {
     execFile(
       process.execPath,
@@ -183,6 +195,7 @@ export function runGuard(
         run.cwdDir,
         "--out",
         run.outDir,
+        ...defaults,
         ...extraArgs,
       ],
       // timeout: a hung guard (red-state TDD runs!) is SIGTERMed — its own handler cleans the

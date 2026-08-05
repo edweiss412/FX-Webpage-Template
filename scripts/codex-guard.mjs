@@ -75,6 +75,8 @@ function parseArgs(argv) {
     "--artifact",
     "--lint-doc",
     "--label",
+    "--stage",
+    "--round",
     "--max-attempts",
     "--attempt-max-secs",
     "--total-max-secs",
@@ -128,6 +130,17 @@ function buildConfig(flags) {
   if (cfg.firstOutputSecs >= cfg.attemptMaxSecs)
     usageError(`FIRST_OUTPUT_SECS must be < ATTEMPT_MAX_SECS`);
   if (cfg.label !== null && !/^[A-Za-z0-9_-]{1,64}$/.test(cfg.label)) usageError(`invalid --label`);
+
+  // §5.1 - closed accept-set, keyed on value, never coerced. An `unknown`
+  // bucket would be a silent exemption from the filing gate, which is exactly
+  // the failure this design refuses. `task` is recorded and never counted.
+  const STAGES = new Set(["spec", "plan", "diff", "task"]);
+  if (flags.stage === undefined) usageError("--stage is required (spec|plan|diff|task)");
+  if (!STAGES.has(flags.stage))
+    usageError(`--stage must be one of spec|plan|diff|task: ${flags.stage}`);
+  cfg.stage = flags.stage;
+  if (flags.round === undefined) usageError("--round is required (integer >= 1)");
+  cfg.round = num("--round", flags.round, { integer: true });
 
   if (!flags.brief) usageError("--brief is required");
   if (!flags.cwd) usageError("--cwd is required");
