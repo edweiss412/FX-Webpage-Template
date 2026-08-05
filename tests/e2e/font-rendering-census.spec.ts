@@ -197,6 +197,15 @@ test.describe("font rendering census", () => {
         });
         await page.evaluate(() => document.fonts.ready);
 
+        // EXPECTATIONS KEY ON THE LANDED ROUTE, NOT THE REQUESTED ONE.
+        // `/admin/onboarding/page.tsx` is a bare `redirect()`, so the document
+        // measured here belongs to a different path than the one navigated to.
+        // Keyed on the request, every mono entry for the destination silently
+        // failed to apply and CI reported the destination's deliberate mono
+        // heading as a defect. Any redirecting route has this shape.
+        const landed = new URL(page.url()).pathname;
+        const where = landed === route ? route : `${route} -> ${landed}`;
+
         const findings = await page.evaluate(collectFontFindings, {
           cannotHost: CANNOT_HOST_PROBE,
           pseudos: [...CHECKED_PSEUDOS],
@@ -204,15 +213,15 @@ test.describe("font rendering census", () => {
           // `Element.matches` exists only there. Without this the manifest's
           // documented "role/name pair rendered as a selector" was
           // unimplemented and every entry fell back to testid-or-tag equality.
-          selectors: entriesForRoute(route).map((e) => e.selector),
+          selectors: entriesForRoute(landed).map((e) => e.selector),
         });
 
-        expect(findings.length, `${route} rendered no text-bearing elements`).toBeGreaterThan(0);
+        expect(findings.length, `${where} rendered no text-bearing elements`).toBeGreaterThan(0);
 
         const wrong: string[] = [];
         for (const f of findings) {
           const expectMono = isExpectedMono(
-            route,
+            landed,
             (sel) => f.matched.includes(sel) || f.testid === sel || f.tag === sel.toUpperCase(),
             f.tag,
           );
@@ -228,7 +237,7 @@ test.describe("font rendering census", () => {
             );
           }
         }
-        expect(wrong, `${route} @ ${viewport.name}:\n  ${wrong.join("\n  ")}`).toEqual([]);
+        expect(wrong, `${where} @ ${viewport.name}:\n  ${wrong.join("\n  ")}`).toEqual([]);
 
         // THE REGISTERED FACE SET. This is what closes a runtime-registered
         // impostor at `weight: "1000"` paired with a matching rule on visible

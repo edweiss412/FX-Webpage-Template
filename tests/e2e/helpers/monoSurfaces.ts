@@ -105,7 +105,15 @@ export const MONO_SURFACES: readonly MonoSurface[] = [
  * typography guard. What is pinned is that `<code>` on a help route is
  * EXPECTED-mono, which is preflight's own rule.
  */
-export const MDX_CODE_ROUTE_PREFIX = "/help";
+/**
+ * Elements Tailwind preflight puts on the monospace stack, app-wide.
+ *
+ * Kept as the tag set rather than a per-element manifest for the same reason
+ * the help `<code>` class entry gives: the count moves with every prose edit,
+ * and pinning it would make documentation changes fail a typography guard.
+ * What is pinned is the RULE, which is preflight's own.
+ */
+export const PREFLIGHT_MONO_TAGS = new Set(["CODE", "KBD", "SAMP", "PRE"]);
 
 /**
  * True when an element on `route` matching `selector` is expected to render
@@ -119,7 +127,12 @@ export function isExpectedMono(
   matches: (selector: string) => boolean,
   tagName: string,
 ): boolean {
-  if (route.startsWith(MDX_CODE_ROUTE_PREFIX) && tagName === "CODE") return true;
+  // Tailwind preflight gives `code, kbd, samp, pre` the ui-monospace stack on
+  // EVERY route, which DESIGN.md 2.4 documents as the one sanctioned exception
+  // to the app font. Scoping this to /help and to CODE alone was a miss on both
+  // axes: it took real CI to surface a <kbd> on /help/errors, and the same
+  // element anywhere outside /help would have read as a defect too.
+  if (PREFLIGHT_MONO_TAGS.has(tagName)) return true;
   return MONO_SURFACES.some((entry) => entry.route === route && matches(entry.selector));
 }
 
