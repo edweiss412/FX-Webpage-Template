@@ -240,6 +240,26 @@ test("t", async ({ page }) => {
   },
 
   {
+    id: "M24",
+    why: "aliased wait raced with a timeout — the combinator can settle without it",
+    source: wrap(`
+      await page.goto(url);
+      const fontsReady = page.evaluate(() => document.fonts.ready);
+      await Promise.race([fontsReady, timeout(500)]);
+      const box = await page.getByTestId("x").evaluate((n) => n.getBoundingClientRect().height);
+    `),
+  },
+  {
+    id: "M25",
+    why: "aliased wait started alongside the navigation it should follow",
+    source: wrap(`
+      const nav = page.goto(url);
+      const fontsReady = page.evaluate(() => document.fonts.ready);
+      await Promise.all([nav, fontsReady]);
+      const box = await page.getByTestId("x").evaluate((n) => n.getBoundingClientRect().height);
+    `),
+  },
+  {
     id: "M15",
     why: "getClientRects is the wrapped-line spelling of the same read",
     source: wrap(`
@@ -286,6 +306,15 @@ describe("font-wait guard is falsifiable", () => {
       await page.evaluate(async () => {
         await Promise.all([document.fonts.ready, new Promise((r) => requestAnimationFrame(r))]);
       });
+      const box = await page.getByTestId("x").evaluate((n) => n.getBoundingClientRect().height);
+    `,
+    ],
+    [
+      "alias settled through Promise.all — R5's regression",
+      `
+      await page.goto(url);
+      const fontsReady = page.evaluate(() => document.fonts.ready);
+      await Promise.all([fontsReady]);
       const box = await page.getByTestId("x").evaluate((n) => n.getBoundingClientRect().height);
     `,
     ],

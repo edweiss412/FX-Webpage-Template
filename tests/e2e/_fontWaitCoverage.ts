@@ -217,17 +217,85 @@ function awaitedLater(name: string, from: ts.Node): boolean {
   let awaited = false;
   const walk = (n: ts.Node): void => {
     if (awaited) return;
-    // Identifier EQUALITY. `includes(name)` matched any awaited text
-    // CONTAINING the name, so a one-letter alias `p` was satisfied by
-    // `await page.waitForTimeout(1)` -- the wrong promise entirely.
-    if (ts.isAwaitExpression(n) && ts.isIdentifier(n.expression) && n.expression.text === name) {
-      awaited = true;
-      return;
+    // Identifier NODE equality, anywhere inside the awaited expression.
+    //
+    // Two failures bracket this line and both are pinned below. Matching the
+    // awaited TEXT with `includes(name)` let a one-letter alias `p` be
+    // satisfied by `await page.waitForTimeout(1)` -- the wrong promise. Fixing
+    // that by demanding the awaited expression BE the bare identifier then
+    // rejected `await Promise.all([fontsReady])`, which settles the alias
+    // perfectly well. Scanning for the identifier as a NODE accepts every way
+    // an alias is legitimately consumed while `page` still never matches `p`.
+    if (ts.isAwaitExpression(n) && mentionsIdentifier(n.expression, name)) {
+      // ...unless the awaiting expression is a combinator that makes it
+      // optional or races it with a navigation, exactly as an inline wait
+      // would be.
+      if (!combinatorDefeats(n.expression, name)) {
+        awaited = true;
+        return;
+      }
     }
     ts.forEachChild(n, walk);
   };
   ts.forEachChild(scope, walk);
   return awaited;
+}
+
+/** Whether an identifier with this exact name appears anywhere in a subtree. */
+function mentionsIdentifier(root: ts.Node, name: string): boolean {
+  let found = false;
+  const walk = (n: ts.Node): void => {
+    if (found) return;
+    if (ts.isIdentifier(n) && n.text === name) {
+      found = true;
+      return;
+    }
+    ts.forEachChild(n, walk);
+  };
+  if (ts.isIdentifier(root)) return root.text === name;
+  ts.forEachChild(root, walk);
+  return found;
+}
+
+/**
+ * Whether the expression awaiting an aliased wait is a combinator that defeats
+ * it: `race`/`any` can settle without it, and `all`/`allSettled` beside a
+ * navigation start it concurrently rather than after.
+ */
+function combinatorDefeats(expression: ts.Expression, name: string): boolean {
+  if (!ts.isCallExpression(expression)) return false;
+  const combinator = /^Promise\.(all|race|allSettled|any)$/.exec(expression.expression.getText());
+  if (!combinator) return false;
+  if (combinator[1] === "race" || combinator[1] === "any") return true;
+  const list = expression.arguments[0];
+  if (!list || !ts.isArrayLiteralExpression(list)) return false;
+  return list.elements
+    .filter((e) => !mentionsIdentifier(e, name))
+    .some((e) => NAVIGATION_IN_TEXT.test(e.getText()) || mentionsNavigationBinding(e, expression));
+}
+
+/** Whether an element is, or names, a binding initialised by a navigation. */
+function mentionsNavigationBinding(element: ts.Expression, scope: ts.Node): boolean {
+  if (!ts.isIdentifier(element)) return false;
+  const target = element.text;
+  let found = false;
+  const root = element.getSourceFile();
+  const walk = (n: ts.Node): void => {
+    if (found) return;
+    if (
+      ts.isVariableDeclaration(n) &&
+      ts.isIdentifier(n.name) &&
+      n.name.text === target &&
+      n.initializer &&
+      NAVIGATION_IN_TEXT.test(n.initializer.getText())
+    ) {
+      found = true;
+      return;
+    }
+    ts.forEachChild(n, walk);
+  };
+  walk(root);
+  return found;
 }
 
 /**
