@@ -38,18 +38,55 @@ function chipLabelSpan(): HTMLElement {
   return span as HTMLElement;
 }
 
-it("gives the name/role span an accessible name with a comma between the two", () => {
+/** What a SIGHTED reader sees: the chip with sr-only nodes removed. */
+function visibleText(): string {
+  const clone = chipLabelSpan().cloneNode(true) as HTMLElement;
+  clone.querySelectorAll(".sr-only").forEach((n) => n.remove());
+  return clone.textContent ?? "";
+}
+
+it("carries the separator as REAL sr-only text, not a prohibited aria-label", () => {
+  // THE MECHANISM IS THE ASSERTION, and that is the whole point of this case.
+  //
+  // The first version of this fix put `aria-label` on the parent <span>. A <span>
+  // with no role maps to `role=generic`, which PROHIBITS aria-label/labelledby
+  // (ARIA 1.2; axe-core `aria-prohibited-attr`). Chrome and Safari often honor it
+  // anyway, but nothing requires them to, and browse-mode AT frequently does not.
+  //
+  // It shipped because nothing could catch it: this repo runs no axe gate, and
+  // `toHaveAccessibleName` resolves through jsdom's dom-accessibility-api, which
+  // does not implement the generic-role prohibition. The test passed on exactly
+  // the engines where the label is dropped — a green test over a fix that may
+  // never reach a reader.
+  //
+  // So the assertion is now on the DOM the reader actually gets: a real text node
+  // in the accessibility tree. `sr-only` is already the repo's idiom for this
+  // (components/layout/Skeleton.tsx:87, components/diagrams/Gallery.tsx:158).
   render(<IdentityChip name="Eric Weiss" role="Lead A2" {...props} />);
-  expect(chipLabelSpan()).toHaveAccessibleName("Eric Weiss, Lead A2");
+  const span = chipLabelSpan();
+  // No prohibited attribute anywhere on the chip.
+  expect(span).not.toHaveAttribute("aria-label");
+  expect(span.querySelector("[aria-label]")).toBeNull();
+  // The separator is a real, unhidden element carrying the comma.
+  const sep = span.querySelector("[data-testid='identity-chip-sr-separator']");
+  expect(sep, "no sr-only separator element").not.toBeNull();
+  expect(sep).toHaveClass("sr-only");
+  expect(sep).not.toHaveAttribute("aria-hidden");
+  expect(sep!.textContent).toBe(", ");
+  // And it sits BETWEEN name and role, which is what makes it a separator
+  // rather than a comma floating somewhere in the chip.
+  const text = span.textContent ?? "";
+  expect(text.indexOf("Eric Weiss")).toBeLessThan(text.indexOf(", "));
+  expect(text.indexOf(", ")).toBeLessThan(text.indexOf("Lead A2"));
 });
 
 it("changes nothing a sighted user sees — the comma is SR-only", () => {
   render(<IdentityChip name="Eric Weiss" role="Lead A2" {...props} />);
-  // The visible run keeps the middle dot and gains no comma. Asserted on the
-  // span's own textContent, not the chip's, so the button copy cannot mask a
-  // change here.
-  expect(chipLabelSpan().textContent).toBe("Eric Weiss · Lead A2");
-  expect(chipLabelSpan().textContent).not.toContain(",");
+  // Computed by REMOVING sr-only nodes, not by reading raw textContent: the
+  // separator is real text now, so raw textContent legitimately contains it.
+  // Stripping is what actually models the sighted view.
+  expect(visibleText()).toBe("Eric Weiss · Lead A2");
+  expect(visibleText()).not.toContain(",");
 });
 
 it("keeps the middle dot hidden from assistive technology", () => {
@@ -58,21 +95,24 @@ it("keeps the middle dot hidden from assistive technology", () => {
   expect(dot).toHaveAttribute("aria-hidden", "true");
 });
 
-it("derives the label from the props rather than hardcoding a shape", () => {
-  // A label built by concatenating literals would still pass the case above.
-  // A second, structurally different pair cannot be satisfied by the same string.
+it("separates any name/role pair, not one hardcoded shape", () => {
   render(<IdentityChip name="Dana Ruiz-Okafor" role="A1" {...props} />);
-  expect(chipLabelSpan()).toHaveAccessibleName("Dana Ruiz-Okafor, A1");
+  const text = chipLabelSpan().textContent ?? "";
+  expect(text.indexOf("Dana Ruiz-Okafor")).toBeLessThan(text.indexOf(", "));
+  expect(text.indexOf(", ")).toBeLessThan(text.indexOf("A1"));
+  expect(visibleText()).toBe("Dana Ruiz-Okafor · A1");
 });
 
-it("does not leave a dangling comma when the role is empty", () => {
-  // Partial data reaches this component during a picker round-trip; "Eric Weiss,"
-  // is a worse utterance than the run-on it replaces.
+it("emits NO separator when the role is empty", () => {
+  // Partial data reaches this component during a picker round-trip. A trailing
+  // ", " would be spoken as a dangling comma — worse than the run-on it fixes.
   render(<IdentityChip name="Eric Weiss" role="" {...props} />);
-  expect(chipLabelSpan()).toHaveAccessibleName("Eric Weiss");
+  expect(chipLabelSpan().querySelector("[data-testid='identity-chip-sr-separator']")).toBeNull();
+  expect(chipLabelSpan().textContent).not.toContain(",");
 });
 
-it("does not leave a leading comma when the name is empty", () => {
+it("emits NO separator when the name is empty", () => {
   render(<IdentityChip name="" role="Lead A2" {...props} />);
-  expect(chipLabelSpan()).toHaveAccessibleName("Lead A2");
+  expect(chipLabelSpan().querySelector("[data-testid='identity-chip-sr-separator']")).toBeNull();
+  expect(chipLabelSpan().textContent).not.toContain(",");
 });
