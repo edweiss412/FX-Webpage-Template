@@ -1294,3 +1294,38 @@ at that viewport. Nobody has established which.
 **Trigger:** a harness that can drive a refusal through the real modal (a `setPublished`
 override on the shared harness would do it), or a decision about obstacle 2. Until then the
 docblock states the gap rather than papering over it.
+
+---
+
+## BL-VALIDATION-PARITY-FUNCTIONS-UNCHECKED — the validation-schema-parity gate never looks at functions, so RPC drift on validation passes silently
+
+**Status:** IN PROGRESS · **Branch:** feat/m-wave-parity · **Filed:** 2026-08-03 (BL-UNPUBLISH-TO-HELD graduation audit). **Class:** CI gate scope. **Effort:** M.
+
+`supabase/__generated__/schema-manifest.json` records tables × columns only, and `tests/db/validation-schema-parity.test.ts` asserts validation is a superset of that manifest — no function ever enters the comparison. A validation project missing an RPC, or running a stale body of one, passes the gate; the only live function check is the telemetry-RPC smoke job (`tests/db/telemetryConsoleReads.test.ts` via `x-audits.yml`), which covers telemetry reads and nothing else. Probed 2026-08-03 during the graduation audit: no current drift — `unpublish_show` and `_unpublish_show_core` are present on validation with the performed-boolean discriminator applied. The exposure is future RPC edits, where the surgical-apply step (AGENTS.md "Every migration must reach the validation project") is forgotten and nothing fails.
+
+**Work:** extend the manifest generator and parity gate to cover functions — signature-level (name + args + return type) is the cheap tier and catches missing/renamed RPCs; a body hash would also catch stale bodies at the cost of noise on comment-only edits. Scope decision needed at pickup; either tier keeps the existing superset semantics.
+
+**Status:** OPEN.
+
+---
+
+---
+
+## BL-FONT-STYLESHEET-GRAPH-FIDELITY — the font-face discovery walk is not a module graph
+
+**Status:** IN PROGRESS · **Branch:** feat/m-wave-parity
+
+**Filed:** 2026-08-04 (`feat/harness-font-fidelity`, PR #705, adversarial review R4). **Class:** test fidelity. **Effort:** M.
+
+`discoverShippedStylesheets()` in `tests/styles/fontLoading.test.ts` finds stylesheets by scanning import SYNTAX from `app/`, `components/` and `lib/`. It closes every route probed through R3 — side-effect `import`, CSS Modules binding, `require()`, dynamic `import()`, the `@/` alias, transitive `lib/`, quoted / unquoted / inner-whitespace `@import url()`, and root-relative `@import "/x.css"` from `public/`. It is still not a bundler's module graph, and R4 probed two live gaps:
+
+- **Dependency-internal CSS.** A package whose JS entry imports its own stylesheet ships that stylesheet; the walk does not follow JS inside `node_modules`. Probe: `DEPENDENCY_INTERNAL_CSS_ESCAPE ["app/globals.css"]`.
+- **Package `exports` subpaths.** A stylesheet resolved through an `exports` map is not found by the three filename guesses `resolveSpecifier` tries. Probe: `PACKAGE_EXPORT_CSS_ESCAPE ["app/globals.css"]`.
+
+**Why this is bounded rather than open, and why it did not block the merge.** A face that arrives by any route at all is visible to the RUNTIME oracle, which reads `document.fonts` from the live page (`tests/e2e/harness-font-face.spec.ts`, `tests/e2e/font-rendering-census.spec.ts`) — mutation family M17. The static walk is defense in depth over authored source, not the only mechanism. Today's real third-party surface is covered: both `react-pdf` stylesheets are reached and probed clean.
+
+**Work.** Either resolve through a real module graph (`es-module-lexer` + `enhanced-resolve`, or ask Next's own bundler for the emitted CSS list), or assert against the BUILT artifact instead of the source tree — a production build's emitted CSS is the ground truth this walk approximates, and reading it would close both gaps and the CSS-in-JS one at once.
+
+**Reachability:** PROBED — both escapes demonstrated against the shipped function by the R4 reviewer.
+
+---
