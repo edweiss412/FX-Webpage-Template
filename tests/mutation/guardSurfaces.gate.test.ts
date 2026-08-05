@@ -143,7 +143,15 @@ describe.each(GUARD_SURFACES.map((s) => [s.id, s] as const))(
         runControl(root, surface, broken),
         "the suite did not notice this surface's control mutant",
       ).not.toBe(0);
-    });
+      // Explicit budget, because this case SPAWNS A FULL CHILD SUITE RUN and
+      // the shared 30s default is a per-test budget meant for in-process work.
+      // The gate's other cases run runSurface at module scope, outside any
+      // `it`, so no timeout applies to them -- this one moved inside an `it`
+      // precisely so the control's verdict is asserted, and inherited a budget
+      // that fits an ordinary test rather than a child vitest process. Green
+      // locally at ~33s and RED on CI's slower runner, which is the whole
+      // reason "real CI green" is a separate gate from "local green".
+    }, 600_000);
   },
 );
 
@@ -160,5 +168,7 @@ describe("the per-mutant config's timeout is in force", () => {
     expect(childRun(root, "tests/mutation/source/fixtures/slowTest.fixture.ts", INERT_TARGET)).toBe(
       0,
     );
-  });
+    // Same reason, and doubly so: the fixture deliberately sleeps past 5s, so
+    // the child cannot finish inside a budget meant for in-process work.
+  }, 300_000);
 });
