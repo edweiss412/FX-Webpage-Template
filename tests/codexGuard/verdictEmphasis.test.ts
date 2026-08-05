@@ -840,3 +840,65 @@ describe("combined and triple emphasis is emphasis: no marker survives only in p
     },
   );
 });
+
+describe("an emphasis run is not capped: four or more delimiters is still emphasis", () => {
+  // Failure caught (reviewer probe 2026-08-05):
+  //   ****…****   CommonMark=strong    verdict=no_marker count=null
+  //   ____…____   CommonMark=strong    verdict=no_marker count=null
+  //   **__…__**   CommonMark=strong    verdict=no_marker count=null
+  //   __**…**__   CommonMark=strong    verdict=no_marker count=null
+  //   ***_…_***   CommonMark=emphasis  verdict=no_marker count=null
+  //
+  // Each widening of this prefix picked a NUMBER - one delimiter, then two,
+  // then three - and each time the next reviewer wrote one more. The number was
+  // never the contract: CommonMark bounds a delimiter run at nothing, so any
+  // cap is a shape that loses a real verdict, which is the direction that costs
+  // a whole dispatch. The prefix is now unbounded and the guard against false
+  // positives is unchanged and was never the length: ADJACENCY (no whitespace
+  // between the run and the keyword, so the list bullet `* VERDICT:` is still
+  // not a marker) and the absent backtick (so a code span quoting the brief is
+  // still not one). Both are re-pinned below rather than assumed.
+  //
+  // The unwrap fixpoint already handled these - it matches `(\*+|_+|`+)` with no
+  // cap - so the loss was entirely at the marker gate.
+  const RUNS: [string, string][] = [
+    ["****", "****"],
+    ["____", "____"],
+    ["**__", "__**"],
+    ["__**", "**__"],
+    ["***_", "_***"],
+    ["*****", "*****"], // five: the cap is a number, so the test may not be one either
+    ["______", "______"], // six
+  ];
+
+  it.each(RUNS)("recovers the verdict from %s…%s", async (open, close) => {
+    const line = `${open}VERDICT: APPROVE${close}`;
+    expect(await dispatchMessage(`${line}\n`)).toMatchObject({
+      status: "verdict",
+      verdict: "APPROVE",
+      verdictLine: line,
+    });
+  });
+
+  // The SECOND reader of the same prefix. A fix applied to the verdict matcher
+  // alone leaves the declared count - the corpus's own number - silently lost.
+  it.each(RUNS)("reads the declared count from %sFINDINGS: 4%s", async (open, close) => {
+    const result = await dispatchMessage(
+      `${open}FINDINGS: 4${close}\n${open}VERDICT: APPROVE${close}\n`,
+    );
+    expect(result.findingCount).toBe(4);
+  });
+
+  // The widening must not buy the verdict back by admitting things that are not
+  // emphasis. These are the two guards the run length was never doing.
+  it.each([
+    ["* VERDICT: APPROVE"], // list bullet: whitespace breaks adjacency
+    ["**** VERDICT: APPROVE ****"], // long run, still whitespace-separated
+    ["`****VERDICT: APPROVE****`"], // code span: backtick is not in the run
+  ])("still refuses %j", async (line) => {
+    expect(await dispatchMessage(`${line}\n`)).toMatchObject({
+      status: "no_verdict",
+      verdict: null,
+    });
+  });
+});

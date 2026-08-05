@@ -602,3 +602,127 @@ describe("silent death B3: the giveUp writer recovers a verdict without overwrit
     expect(r.findingCount).toBe(ROLLOUT_COUNT);
   }, 30000);
 });
+
+describe("silent death B4: an older session's rollout never restates a newer message's count", () => {
+  // Failure caught (reviewer probe 2026-08-05). B3 asked "did THIS attempt
+  // speak", which is the wrong grain: it is answered by the LAST attempt only,
+  // so a dispatch whose final attempt is silent re-opens the whole defect for
+  // every attempt before it. Probed against the B3 wrapper:
+  // `giveUp: 2 -> 7; null -> 7` and `exit3-countOnly: 2 -> 7; null -> 7`.
+  //
+  // The question is RECENCY, not identity, and it is per SESSION rather than
+  // per dispatch: the scan walks sessions newest-first, so a rollout may record
+  // a count only while no session at least as new as it has already spoken. All
+  // three terminal scrape callers share the one rule, because it now lives
+  // inside `tryRolloutScrape` instead of at a call site - the two-copies-that-
+  // drift shape is what let the exit-3 writers keep the defect after B3.
+  //
+  // "A session that spoke" is marked BEFORE its own rollout is scanned, so a
+  // session's `-o` message outranks its own rollout. Those are two copies of
+  // one turn; the `-o` file is the copy the wrapper asked for.
+  const SID_A = "aaaa1111-2222-4333-8444-555566660000"; // oldest
+  const SID_B = "bbbb1111-2222-4333-8444-555566660000"; // middle
+  const SID_C = "cccc1111-2222-4333-8444-555566660000"; // newest
+  const SPOKEN = 2;
+  const ROLLOUT = 7; // deliberately different, so a displacement is visible
+  const ROLLOUT_TEXT = `Seven problems.\n\nFINDINGS: ${ROLLOUT}`;
+  const NO_DECLARATION = "Reviewed the diff. Still working, no count yet.";
+
+  const banner = (sid: string) => ({ type: "stderr", text: `session id: ${sid}\n` });
+  const spoke = (text: string) => ({ type: "lastMessage", text: `${text}\n` });
+  const done = { type: "exit", code: 0 };
+
+  it("keeps a middle attempt's declared count when the LAST attempt is silent", async () => {
+    const run = mkRun();
+    // Only the OLDEST session has a rollout, so the newest-first scan finds
+    // nothing for C or B and falls through to A - the shape the finding lives
+    // in, and the ordinary one, since a landed `-o` is exactly the case whose
+    // rollout is never reached.
+    writeRollout(run, SID_A, ROLLOUT_TEXT);
+    writeScenario(run, [
+      { onCall: 1, actions: [banner(SID_A), done] },
+      { onCall: 2, actions: [banner(SID_B), spoke(`FINDINGS: ${SPOKEN}\nNo verdict yet.`), done] },
+      { onCall: 3, actions: [banner(SID_C), done] },
+    ]);
+    await runGuard(run, ["--max-attempts", "3"]);
+    const r = readResult(run);
+    // All three sids latched, so the scan really did have A's rollout in reach:
+    // without this the assertion also passes on a scrape that found nothing.
+    expect(r.attempts.map((a) => a.sessionId)).toEqual([SID_A, SID_B, SID_C]);
+    expect(r.failureReason).toBe("attempts_exhausted");
+    expect(r.findingCount).toBe(SPOKEN);
+  }, 40000);
+
+  it("keeps a middle attempt's genuine `not declared` when the LAST attempt is silent", async () => {
+    const run = mkRun();
+    writeRollout(run, SID_A, ROLLOUT_TEXT);
+    writeScenario(run, [
+      { onCall: 1, actions: [banner(SID_A), done] },
+      { onCall: 2, actions: [banner(SID_B), spoke(NO_DECLARATION), done] },
+      { onCall: 3, actions: [banner(SID_C), done] },
+    ]);
+    await runGuard(run, ["--max-attempts", "3"]);
+    const r = readResult(run);
+    expect(r.failureReason).toBe("attempts_exhausted");
+    // B spoke and declared nothing. `null` is B's own answer, and A ended
+    // earlier, so A may not fill it in.
+    expect(r.findingCount).toBeNull();
+  }, 40000);
+
+  it("still takes a NEWER session's rollout over an older attempt's declared count", async () => {
+    const run = mkRun();
+    // The direction control, and the reason the rule is recency rather than
+    // "any attempt spoke". Here the rollout belongs to the session that ran
+    // AFTER the one that spoke, so it is the newer answer and must win. A blunt
+    // fix that suppresses the count scrape whenever any attempt spoke records
+    // SPOKEN here and passes both tests above.
+    writeRollout(run, SID_B, ROLLOUT_TEXT);
+    writeScenario(run, [
+      { onCall: 1, actions: [banner(SID_A), spoke(`FINDINGS: ${SPOKEN}\nNo verdict yet.`), done] },
+      { onCall: 2, actions: [banner(SID_B), done] },
+    ]);
+    await runGuard(run, ["--max-attempts", "2"]);
+    const r = readResult(run);
+    expect(r.failureReason).toBe("attempts_exhausted");
+    expect(r.findingCount).toBe(ROLLOUT);
+  }, 40000);
+
+  it("lets a session's own -o message outrank its own rollout", async () => {
+    const run = mkRun();
+    // One session, two copies of one turn, and they disagree. The `-o` file is
+    // the copy the wrapper asked for, so the rollout may not restate it. The
+    // scrape's OTHER errand is unaffected: this rollout carries the verdict the
+    // `-o` write never did, and it is still recovered.
+    writeRollout(run, SID_A, `${ROLLOUT_TEXT}\n\nVERDICT: BLOCKING`);
+    writeScenario(run, [
+      { onCall: 1, actions: [banner(SID_A), spoke(`FINDINGS: ${SPOKEN}\nNo verdict yet.`), done] },
+    ]);
+    await runGuard(run, ["--max-attempts", "1"]);
+    const r = readResult(run);
+    expect(r.failureReason).toBe("attempts_exhausted");
+    expect(r.findingCount).toBe(SPOKEN);
+    expect(r.verdict).toBe("BLOCKING");
+    expect(r.recoveredFrom).toBe("rollout_scrape");
+  }, 40000);
+
+  it("suppresses the count scrape when a spoken attempt never latched a session id", async () => {
+    const run = mkRun();
+    // The residue of the same class. An attempt that spoke but printed no
+    // banner cannot be PLACED in the walk, so nothing can prove an older
+    // session's rollout is newer than it. Unordered-but-spoken therefore
+    // suppresses the count errand outright rather than guessing - the
+    // conservative direction, and the only one that cannot restate a real
+    // declaration as a number the reviewer never gave.
+    writeRollout(run, SID_A, ROLLOUT_TEXT);
+    writeScenario(run, [
+      { onCall: 1, actions: [banner(SID_A), done] },
+      { onCall: 2, actions: [spoke(`FINDINGS: ${SPOKEN}\nNo verdict yet.`), done] },
+    ]);
+    await runGuard(run, ["--max-attempts", "2"]);
+    const r = readResult(run);
+    // Attempt 2 really did latch nothing - otherwise this is the ordinary
+    // ordered case and proves nothing about the residue.
+    expect(r.attempts.map((a) => a.sessionId)).toEqual([SID_A, null]);
+    expect(r.findingCount).toBe(SPOKEN);
+  }, 40000);
+});

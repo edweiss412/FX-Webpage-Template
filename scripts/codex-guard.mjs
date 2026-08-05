@@ -624,7 +624,15 @@ function stripCodeBlocks(text) {
 // list bullet `* VERDICT: APPROVE` is still not a marker; and the backtick is
 // still absent, so a code span quoting the brief's instruction is still not one
 // either.
-const EMPHASIS_RUN = String.raw`[*_]{0,3}`;
+// UNBOUNDED, deliberately. Each earlier revision of this prefix picked a number
+// - one delimiter, then two, then three - and each time the next reviewer wrote
+// one more (probed 2026-08-05: `****VERDICT: APPROVE****` and four more shapes
+// recorded `no_marker`/`null`). CommonMark bounds a delimiter run at nothing, so
+// any cap is a shape that loses a real verdict. The length was never carrying
+// the false-positive guard: ADJACENCY does (no whitespace between the run and
+// the keyword, so `* VERDICT:` stays a list bullet), and the backtick's absence
+// from the character class does (so a code span stays a code span).
+const EMPHASIS_RUN = String.raw`[*_]*`;
 const VERDICT_MARKER = new RegExp(`^\\s*${EMPHASIS_RUN}VERDICT:\\s*\\S`);
 const FINDINGS_LINE = new RegExp(`^\\s*${EMPHASIS_RUN}FINDINGS:\\s*(\\d+)\\s*${EMPHASIS_RUN}\\s*$`);
 
@@ -840,12 +848,17 @@ function classifyAttempt(attempt, state) {
   // still throws to the caller's classification catch exactly as before.
   const hasMsg = existsSync(attempt.lastMessagePath);
   const msg = hasMsg ? readFileSync(attempt.lastMessagePath, "utf8") : "";
-  // Whether it spoke is THIS read's answer, kept for `giveUp` — the same
-  // question the two exit-3 writers ask of their own read, and not one
-  // `state.findingCount` can be asked afterwards, since a message that declared
-  // nothing and no message at all both leave it `null`. Off the attempt record
-  // deliberately: that shape is pinned by spec §6.
-  state.attemptSpoke = recordDeclaredCount(state, msg);
+  // Whether it spoke is THIS read's answer, and not one `state.findingCount`
+  // can be asked afterwards, since a message that declared nothing and no
+  // message at all both leave it `null`. Recorded against the SESSION rather
+  // than the attempt — the rollout scrape walks sessions, so that is the key it
+  // can compare against — and off the attempt record deliberately, because that
+  // shape is pinned by spec §6. An attempt that spoke without ever printing a
+  // banner cannot be placed in that walk at all, so it is flagged separately.
+  if (recordDeclaredCount(state, msg)) {
+    if (attempt.sessionId) state.spokeSids.add(attempt.sessionId);
+    else state.spokeUnordered = true;
+  }
 
   if (attempt.killedReason !== null) {
     attempt.failureShape = "killed";
@@ -1158,27 +1171,39 @@ function lastAgentMessage(path) {
  * what they may do is stop recording `null` for a count the reviewer plainly
  * declared. Same scan, same recorder, same direction rule — one parsing path.
  *
- * `verdictOnly` is its mirror: recover the verdict and record no count. The
- * scan finds the newest rollout ON DISK, which is not the newest terminal
- * message when the dispatch's own `-o` file landed and its session's rollout
- * did not — so a caller holding a message NEWER than anything this scan can
- * reach says so here, and the older rollout is read for the verdict alone.
+ * The VERDICT errand is unconditional; the COUNT errand is bounded by recency,
+ * and that bound lives HERE rather than at a call site because all three
+ * terminal callers need it — two copies of this rule is how the exit-3 writers
+ * kept the defect after it was fixed for `giveUp`. The scan finds the newest
+ * rollout ON DISK, which is not the newest terminal message: a dispatch whose
+ * `-o` write landed is exactly the case whose rollout is never reached, so the
+ * first rollout FOUND can belong to a session that ended EARLIER than a message
+ * already read. Such a rollout may not restate the count — not even to fill in a
+ * `null`, which is a genuine "not declared" and not a hole.
  */
-function tryRolloutScrape(cfg, state, { countOnly = false, verdictOnly = false } = {}) {
+function tryRolloutScrape(cfg, state, { countOnly = false } = {}) {
   // This scan runs NEWEST-FIRST, so it takes the newest-first recorder — the
   // chronological primitive would hand the answer to the oldest session here.
-  // Under `verdictOnly` there is no recorder at all: the count question was
-  // already answered by a message this scan cannot see.
-  const recordCount = verdictOnly ? () => {} : newestFirstCountRecorder(state);
+  const recordCount = newestFirstCountRecorder(state);
+  // An attempt that spoke without latching a session id cannot be placed in this
+  // walk, so nothing can prove a rollout is newer than it: the count errand is
+  // suppressed from the start rather than guessed at.
+  let sawSpoken = state.spokeUnordered === true;
   for (const sid of [...state.seenSids].reverse()) {
+    // BEFORE this session's own rollout is scanned, so an `-o` message outranks
+    // the rollout of the SAME turn — two copies of one thing, and the `-o` file
+    // is the copy the wrapper asked for.
+    if (state.spokeSids.has(sid)) sawSpoken = true;
     for (const rollout of findRollout(cfg, sid)) {
       const msg = lastAgentMessage(rollout);
       if (!msg) continue;
       // ABOVE the guard below, for the same reason as site 1. A scraped message
       // is a terminal message this dispatch produced whether or not it carries
-      // a verdict, and it replaces any earlier attempt's declaration -
+      // a verdict, and it replaces any EARLIER attempt's declaration -
       // including replacing a number with "not declared" when it declares none.
-      recordCount(msg);
+      // Only earlier: `sawSpoken` means a session at least as new as this one
+      // already answered, and nothing older may speak after it.
+      if (!sawSpoken) recordCount(msg);
       // The newest non-empty message has now answered, and under `countOnly`
       // its answer is the whole errand. Returning here also keeps the recorder's
       // direction rule visible: nothing older may speak after it, not even to
@@ -1410,10 +1435,14 @@ async function main() {
     // The declared count of the LAST non-empty terminal message this dispatch
     // produced. One carrier, so the four terminal writers cannot disagree.
     findingCount: null,
-    // Whether the most recently classified attempt produced a terminal message
-    // at all — the one question `findingCount` cannot answer afterwards, since
-    // "spoke and declared nothing" and "never spoke" both leave it `null`.
-    attemptSpoke: false,
+    // The sessions whose own terminal message spoke — the one question
+    // `findingCount` cannot answer afterwards, since "spoke and declared
+    // nothing" and "never spoke" both leave it `null`. Keyed by session so the
+    // rollout scan, which walks sessions, can compare recency against it.
+    spokeSids: new Set(),
+    // Set when an attempt spoke but latched no session id, so it cannot be
+    // placed in that walk. Suppresses the scrape's count errand outright.
+    spokeUnordered: false,
   };
   globalThis.__guardState = state;
 
@@ -1436,15 +1465,9 @@ async function main() {
     // real verdict — this only runs when the attempt loop has already given up).
     const giveUp = (failureReason) => {
       const base = { failureReason, verdictLine: attempt.parsed?.verdictLine ?? null };
-      // The scrape's verdict errand is unconditional; its count errand is not.
-      // When this attempt produced a terminal message, that message is NEWER
-      // than any rollout the newest-first scan can reach — the ordinary case is
-      // the `-o` write landing while the session's own rollout never does, so
-      // the first rollout FOUND may belong to an older session. Its count would
-      // then displace a fresher answer, including displacing a genuine "not
-      // declared" with a number the reviewer never gave.
-      const scrape = tryRolloutScrape(cfg, state, { verdictOnly: state.attemptSpoke === true });
-      writeResult(cfg, state, { ...base, ...(scrape ?? {}) });
+      // The recency bound on the count errand lives inside the scrape, shared
+      // with the two exit-3 writers, so this caller passes nothing for it.
+      writeResult(cfg, state, { ...base, ...(tryRolloutScrape(cfg, state) ?? {}) });
       process.exit(0);
     };
     if (attempt.killedReason === "total_timeout") giveUp("total_timeout");
