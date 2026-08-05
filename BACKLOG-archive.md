@@ -8,6 +8,35 @@ Same split as [DEFERRED.md](./DEFERRED.md) ↔ [DEFERRED-archive.md](./DEFERRED-
 
 ---
 
+## BL-CI-STALE-BRANCH-PROTECTION-COMMENT — one-line docs fix — ✅ RESOLVED (2026-07-26, PR2 of the CI-dark cluster) — GRADUATED 2026-08-04 (verified live)
+
+The entry declared itself resolved and asked to be kept in place as a sub-entry of an open parent.
+Verified against the tree before graduating rather than trusting the declaration:
+
+- `tests/ci/_metaE2eWorkflowCoverage.test.ts` now states the claim was STALE and corrects it —
+  twelve contexts, measured 2026-07-26. The only surviving occurrence of the old phrasing anywhere
+  outside the frozen ledger fixture is inside that correction sentence, quoting what it corrects.
+- The sibling sweep the entry claims also holds: `BL-E2E-LIFECYCLE-SPECS-CI-DARK` carries both the
+  quoted stale phrase and the twelve-context correction, so the second site was fixed, not missed.
+
+**One forward-looking note.** That comment records a DATED measurement (2026-07-26), which is honest
+as written. But `BL-SECTION-HEADER-VISUAL-REQUIRED-CONTEXT` is an approved, verified-green flip that
+would take the required set to THIRTEEN. Whoever lands it should re-measure and update that comment
+in the same commit, or it becomes stale again in exactly the way this entry was filed for.
+
+Original entry, verbatim:
+
+**Resolved.** The comment is corrected in `tests/ci/_metaE2eWorkflowCoverage.test.ts`, and the same stale claim was swept from this file's `BL-E2E-LIFECYCLE-SPECS-CI-DARK` entry — it appeared in two places, not one. Kept here rather than graduated to the archive because it is a sub-entry of a still-open parent section, not a standalone item. Original text below for provenance.
+
+`tests/ci/_metaE2eWorkflowCoverage.test.ts:11` states branch protection "deliberately requires ONLY
+the `quality` context". Measured live 2026-07-26: `main` requires **twelve** contexts (`quality`,
+`unit-suite`, `x1`–`x6`, `validation-schema-parity`, `affordance-matrix-parity`,
+`postgrest-dml-lockdown`, `traceability-audit`), and `scripts/generate-traceability.ts` resolves a
+third, different list of eight. Any reasoning that treats the repo's e2e jobs as "the only required
+check is quality" is wrong — notably, edits to `unit-suite` DO touch a merge-blocking context.
+
+---
+
 ## BL-TASKCONTRACT-SORT-COMPARATOR-EQUALKEY — finding-order comparator is unpinnable for equal `(docLine, code)` pairs — CLOSED 2026-08-04
 
 Closed on `chore/sweep-guards-tests` with the entry's own suggestion: the message as a third sort

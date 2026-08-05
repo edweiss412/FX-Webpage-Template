@@ -466,19 +466,6 @@ then archive this entry. Nothing else is owed.
 
 **Watch signals:** `[wedge-recovery]` lines in the lifecycle-transitions e2e output (tier=nudge/reload counts per run), and admin reports of a stuck Published switch. **Candidate mitigations if real-user reports arrive:** a client-side watchdog in `PublishedToggle.formAction` (`Promise.race` the action against a generous timeout, then `router.refresh()` — the mutation is NOT retried, only the read is), or an upstream React/Next bump once the replay fix ships in a stable vendored canary.
 
-### BL-CI-STALE-BRANCH-PROTECTION-COMMENT — one-line docs fix — ✅ RESOLVED (2026-07-26, PR2 of the CI-dark cluster)
-
-**Status:** IN PROGRESS · **Branch:** docs/sweep-comment-drift
-
-**Resolved.** The comment is corrected in `tests/ci/_metaE2eWorkflowCoverage.test.ts`, and the same stale claim was swept from this file's `BL-E2E-LIFECYCLE-SPECS-CI-DARK` entry — it appeared in two places, not one. Kept here rather than graduated to the archive because it is a sub-entry of a still-open parent section, not a standalone item. Original text below for provenance.
-
-`tests/ci/_metaE2eWorkflowCoverage.test.ts:11` states branch protection "deliberately requires ONLY
-the `quality` context". Measured live 2026-07-26: `main` requires **twelve** contexts (`quality`,
-`unit-suite`, `x1`–`x6`, `validation-schema-parity`, `affordance-matrix-parity`,
-`postgrest-dml-lockdown`, `traceability-audit`), and `scripts/generate-traceability.ts` resolves a
-third, different list of eight. Any reasoning that treats the repo's e2e jobs as "the only required
-check is quality" is wrong — notably, edits to `unit-suite` DO touch a merge-blocking context.
-
 ## BL-CI-PARALLEL-DB-FALLBACK-AUDIT — re-run the closed-port protocol across the parallel project
 
 **Status:** OPEN, raised by adversarial review of PR #517 (finding 2).
