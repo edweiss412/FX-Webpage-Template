@@ -266,11 +266,18 @@ test.describe("font rendering census", () => {
     // It keeps the manifest honest in the other direction: an entry left behind
     // by a deleted component fails rather than silently widening the mono
     // exemption.
+    // Keyed on the LANDED path, same as the census rows above: an entry whose
+    // route redirects would otherwise be checked against a document it does not
+    // describe and reported stale, which is the inverse of this row's purpose.
+    // Not live today -- no entry sits on a redirecting route -- but it is the
+    // same defect that cost a round in the census, so it is closed in the same
+    // pass rather than left for the first entry that moves.
     const stale: string[] = [];
     for (const route of STATIC_ROUTES) {
-      const entries = entriesForRoute(route);
-      if (entries.length === 0) continue;
       await page.goto(route);
+      const landed = new URL(page.url()).pathname;
+      const entries = entriesForRoute(landed);
+      if (entries.length === 0) continue;
       for (const entry of entries) {
         const count = await page.locator(entry.selector).count();
         if (count === 0) stale.push(`${entry.route} ${entry.selector} matches nothing`);
