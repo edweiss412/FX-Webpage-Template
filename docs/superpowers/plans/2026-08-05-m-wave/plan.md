@@ -6,7 +6,7 @@
 
 **Architecture:** W-DOCS on `feat/m-wave` (spec/plan/docs + claim handoff), then `feat/m-wave-guards`, `feat/m-wave-parity`, `feat/m-wave-ui` off origin/main, each TDD per task, cross-model reviewed, CI-green merged.
 
-**Date:** 2026-08-05 · **Spec:** `docs/superpowers/specs/2026-08-05-m-wave-design.md` (+ ratified brief `docs/superpowers/specs/2026-08-05-m-wave-decisions-brief.md`) · **Status:** SPEC-APPROVED; plan pending its adversarial gate
+**Date:** 2026-08-05 · **Spec:** `docs/superpowers/specs/2026-08-05-m-wave-design.md` (+ ratified brief `docs/superpowers/specs/2026-08-05-m-wave-decisions-brief.md`) · **Status:** plan-APPROVED (codex-guard R4, 2026-08-05, commit 68e8c55df; spec APPROVED codex-guard R3)
 
 ## Global constraints
 
