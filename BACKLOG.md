@@ -815,28 +815,6 @@ header quote was stale (it was).
 **Trigger:** the next milestone touching scope-tile visibility, the financials entitlement, or the
 matrix itself.
 
-## BL-BELLPANEL-DISMISS-COMMENT-DRIFT — six BellPanel comments name a label the panel stopped rendering
-
-**Status:** IN PROGRESS · **Branch:** docs/sweep-comment-drift · **Filed:** 2026-08-03 (`chore/orphan-components-lead-prose`, spec review R1 finding 4) · **Class:** docs/copy drift · **Severity:** low · **Effort:** S
-
-`components/admin/BellPanel.tsx` calls its trailing ghost control "Dismiss" in six comments
-beginning at `components/admin/BellPanel.tsx:224` ("Trailing ghost Dismiss (DESIGN.md §16)", "must
-not stay stuck at Dismissing…", "Health rows … have no Dismiss", and so on). The control renders
-`Confirm` or `Mark resolved`, chosen by the alert code's intent
-(`components/admin/BellPanel.tsx:377-388`, `lib/adminAlerts/resolveActionLabel.ts:73-76`); no
-"Dismiss" string reaches the DOM.
-
-**Why filed rather than swept:** it is the same defect CLASS as the branch that found it (prose
-asserting something the code does not do) but a different SHAPE — a renamed label, not a citation to
-a deleted file — and the branch that found it was retiring components, not editing alert chrome.
-Sweeping it in would have grown that diff past its subject. No product question: the code is right
-and the comments are stale.
-
-**Fix (when prioritized):** reword the six comments to the rendered labels, and check whether
-`DESIGN.md §16`'s own wording still names a Dismiss affordance.
-
-**Trigger:** the next branch touching `BellPanel` or the alert-resolve labels.
-
 ## BL-RESYNC-REGRESSED-JUMP-LINK — the alert's "open the parse panel" pointer is prose, not an affordance
 
 **Status:** OPEN · **Severity:** LOW-MEDIUM (discoverability) · **Class:** UX — surfaced by the correction-loop de-duplication (#516, 2026-07-20) · **Effort:** M

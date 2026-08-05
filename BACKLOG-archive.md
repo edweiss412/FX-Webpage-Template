@@ -8,6 +8,46 @@ Same split as [DEFERRED.md](./DEFERRED.md) ↔ [DEFERRED-archive.md](./DEFERRED-
 
 ---
 
+## BL-BELLPANEL-DISMISS-COMMENT-DRIFT — six BellPanel comments name a label the panel stopped rendering — CLOSED 2026-08-04
+
+The six comments now name the control by its ROLE ("the resolve control") rather than by a verb the
+panel stopped rendering, and the pending-state comment names the two real pending labels
+("Confirming…" / "Resolving…") instead of "Dismissing…".
+
+**Eight, not six.** Sweeping the shape rather than the named instances found two more the entry did
+not count: the module header offered `"Dismiss"/"Retry"` as its example of uncataloged UI chrome
+(now `"Mark resolved"/"Retry"`), and the scrim comment described a hypothetical focusable
+`"Dismiss"` button — quoted like a label, which is the same misreading in a place where no control
+exists at all. It now reads "focusable close button". No occurrence of the string survives in the
+file.
+
+**`DESIGN.md` §16 needed no change, which the entry asked to be checked rather than assumed.** Its
+wording already names Dismiss only historically — "the bell previously said Dismiss" — while
+describing the intent-driven labels as current. It was the source of truth the comments had drifted
+from, not another copy of the drift.
+
+Original entry, verbatim:
+
+`components/admin/BellPanel.tsx` calls its trailing ghost control "Dismiss" in six comments
+beginning at `components/admin/BellPanel.tsx:224` ("Trailing ghost Dismiss (DESIGN.md §16)", "must
+not stay stuck at Dismissing…", "Health rows … have no Dismiss", and so on). The control renders
+`Confirm` or `Mark resolved`, chosen by the alert code's intent
+(`components/admin/BellPanel.tsx:377-388`, `lib/adminAlerts/resolveActionLabel.ts:73-76`); no
+"Dismiss" string reaches the DOM.
+
+**Why filed rather than swept:** it is the same defect CLASS as the branch that found it (prose
+asserting something the code does not do) but a different SHAPE — a renamed label, not a citation to
+a deleted file — and the branch that found it was retiring components, not editing alert chrome.
+Sweeping it in would have grown that diff past its subject. No product question: the code is right
+and the comments are stale.
+
+**Fix (when prioritized):** reword the six comments to the rendered labels, and check whether
+`DESIGN.md §16`'s own wording still names a Dismiss affordance.
+
+**Trigger:** the next branch touching `BellPanel` or the alert-resolve labels.
+
+---
+
 ## BL-CI-STALE-BRANCH-PROTECTION-COMMENT — one-line docs fix — ✅ RESOLVED (2026-07-26, PR2 of the CI-dark cluster) — GRADUATED 2026-08-04 (verified live)
 
 The entry declared itself resolved and asked to be kept in place as a sub-entry of an open parent.
