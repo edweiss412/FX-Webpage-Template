@@ -339,6 +339,26 @@ export function Step2Verify({ priorScan }: { priorScan?: Step2PriorScan } = {}) 
       aria-labelledby="wizard-step2-heading"
       className="flex flex-col gap-section-gap"
     >
+      {/* THE STEP'S ONE LIVE REGION (BL-ANNOUNCE-REGION-UNMOUNT-CLASS).
+          Mounted for the step's whole life, so a phase change is a MUTATION a
+          screen reader announces. The result bodies below are swapped in
+          already populated — a live region on them is new DOM, not a mutation —
+          and two of them hold links, which must never sit inside a live region
+          because a reader would voice the control as part of the announcement.
+          The submitting branch's own announcer stays: it lives and dies with
+          that branch and reports tick-level phase text this one deliberately
+          does not. */}
+      <p role="status" aria-live="polite" className="sr-only">
+        {state.kind === "submitting"
+          ? heading
+          : state.kind === "success"
+            ? formatTotals(state.result.totals) === 0
+              ? "This folder is empty."
+              : state.result.totals.staged === 0
+                ? "Scan finished. Nothing is ready to review."
+                : "Scan finished."
+            : ""}
+      </p>
       <header className="flex flex-col gap-2">
         <p
           data-testid="wizard-step2-eyebrow"
@@ -406,7 +426,6 @@ export function Step2Verify({ priorScan }: { priorScan?: Step2PriorScan } = {}) 
           <p
             id="wizard-step2-scanned-note"
             data-testid="wizard-step2-resume"
-            role="status"
             className="inline-flex items-center gap-1.5 text-sm font-medium text-text-subtle"
           >
             <Check aria-hidden="true" className="size-4 shrink-0 text-text-subtle" />
@@ -495,8 +514,6 @@ export function Step2Verify({ priorScan }: { priorScan?: Step2PriorScan } = {}) 
               formatTotals(state.result.totals) === 0 ? (
                 <div
                   data-testid="wizard-step2-empty"
-                  role="status"
-                  aria-live="polite"
                   className="mt-1 flex flex-col gap-2 rounded-sm border border-border bg-surface-sunken p-3 text-base text-text"
                 >
                   <p className="font-semibold text-text-strong">This folder is empty.</p>
@@ -515,8 +532,6 @@ export function Step2Verify({ priorScan }: { priorScan?: Step2PriorScan } = {}) 
               ) : (
                 <div
                   data-testid="wizard-step2-nothing-ready"
-                  role="status"
-                  aria-live="polite"
                   className="mt-1 flex flex-col gap-2 rounded-sm border border-border bg-surface-sunken p-3 text-base text-text"
                 >
                   <p className="font-semibold text-text-strong">
