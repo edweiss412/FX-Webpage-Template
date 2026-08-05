@@ -204,10 +204,14 @@ export function ledgerItems(
   text: string,
   families: readonly LedgerFamily[] = LEDGER_FAMILIES,
 ): LedgerItem[] {
-  // The registry participates in the cache key: the same file text parsed under
-  // a different family's opts is a DIFFERENT result, and keying on text alone
-  // would serve one test's parse to another.
-  const key = `${families.map((f) => f.name).join(",")}\u0000${file}\u0000${text.length}\u0000${text}`;
+  // The RESOLVED OPTS participate in the cache key, not the family names.
+  // Names alone were wrong and the guard's own comment claimed otherwise: two
+  // registries can share a family name and declare different parse opts, and
+  // keying on the name would serve the first parse to the second — silently, and
+  // exactly in the tests that exist to prove opts are honoured (Codex R1 MEDIUM).
+  // Serializing the opts that will actually be used makes the key say what the
+  // parse depends on.
+  const key = `${JSON.stringify(optsFor(file, families))}\u0000${file}\u0000${text.length}\u0000${text}`;
   const hit = parseCache.get(key);
   if (hit !== undefined) return hit;
   const out = ledgerItemsUncached(file, text, families);

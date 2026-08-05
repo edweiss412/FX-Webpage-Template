@@ -18,7 +18,7 @@
  * not model, which is the denylist failure the accept-set rule exists to stop:
  * `README.md` and `AGENTS.md` are all-caps markdown at the repo root too.
  */
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -125,6 +125,71 @@ describe("ledger discovery is family-scoped by registration", () => {
       "MEMORY.md": "# memory\n",
     });
     expect(unregisteredLedgerFiles(root)).toEqual([]);
+  });
+
+  it("the parse cache keys on the OPTS, not the family name", () => {
+    // Codex R1 MEDIUM. Two registries can share a family name and declare
+    // DIFFERENT parse opts. Keying the cache on the name served the first
+    // parse to the second — silently, and precisely in a test written to prove
+    // opts are honoured, which is the worst possible place for it to be wrong.
+    const permissive: LedgerFamily = {
+      name: "WATCHLIST",
+      opts: { requirePrefix: null, levels: [3] },
+    };
+    const restrictive: LedgerFamily = {
+      name: "WATCHLIST",
+      opts: { requirePrefix: "BL-", levels: [2] },
+    };
+    const first = ledgerItems("WATCHLIST.md", WATCHLIST_BODY, [permissive]).map((i) => i.id);
+    const second = ledgerItems("WATCHLIST.md", WATCHLIST_BODY, [restrictive]).map((i) => i.id);
+    expect(first, "the permissive opts see the level-3, unprefixed entry").toEqual([
+      "WL-SOMETHING",
+    ]);
+    expect(
+      second,
+      "the restrictive opts must see NOTHING; a name-keyed cache returns the permissive result",
+    ).toEqual([]);
+  });
+
+  it("the referential-integrity consumer takes its ledger list from the registry", () => {
+    // Consumer 2. Its list was four hand-written filenames; it now derives from
+    // `ledgerFiles()`, so a registered family is covered without a second edit.
+    //
+    // A WIRING pin, and it says so. Driving that guard end to end from here
+    // means importing its module, which executes its own suite against this
+    // file — tried, and it reported a fixture id as a dangling citation. The
+    // property worth pinning is that no second list exists to drift.
+    const src = readFileSync(
+      join(__dirname, "..", "docs", "_metaLedgerReferentialIntegrity.test.ts"),
+      "utf8",
+    );
+    expect(src, "the guard must derive its ledgers from the registry holder").toMatch(
+      /const LEDGERS[^=]*=\s*ledgerFiles\(\)/,
+    );
+    expect(
+      src.match(/const LEDGERS[^=]*=\s*\[/),
+      "a literal filename array here would be a second grammar holder, which is the defect this " +
+        "entry closed",
+    ).toBeNull();
+  });
+
+  it("the claim reader takes its file list from the registry, not its own list", () => {
+    // Consumer 3. Its walk is driven by `ledgerFiles()` called with no
+    // arguments, so it cannot be pointed at a fixture root without mutating
+    // module state — which is why this is a WIRING assertion and says so.
+    // What it pins is the property that matters: the claim reader has no list of
+    // its own to drift from the registry.
+    const src = readFileSync(
+      join(__dirname, "..", "..", "scripts", "lib", "ledger-claims-core.ts"),
+      "utf8",
+    );
+    expect(src, "the claim reader must import discovery from the registry holder").toMatch(
+      /import\s*\{[^}]*\bledgerFiles\b[^}]*\}\s*from\s*"\.\/ledger-fields"/,
+    );
+    expect(
+      src.match(/^\s*(?:const|let)\s+\w+\s*(?::[^=]+)?=\s*\[[^\]]*"BACKLOG\.md"/m),
+      "a hardcoded ledger filename list in the claim reader would be a second grammar holder",
+    ).toBeNull();
   });
 
   it("leaves discovery on the REAL repo root byte-identical", () => {
