@@ -3967,3 +3967,23 @@ matrix itself.
 **Why backlog, not deferred:** no committed v1 trigger; crew-facing stale exposure is **already prevented** by the read-empty auto-clear (R21), so this is purely an admin convenience, not a correctness gap. Lowest priority.
 
 **Promotion prerequisite:** post-launch operator request to retract an agenda without editing the sheet, OR a broader per-show agenda-management pass.
+
+---
+
+### BL-ROOM-DIMS-ONLY-NOVEL-HEADER — parse a dims-only novel breakout header (no DAY-range) — ARCHIVED 2026-08-05 (M-wave W-DOCS, `feat/m-wave`)
+
+**Resolution (2026-08-05).** Demoted and archived under the ledger filing bar (`AGENTS.md`; screen procedure `docs/superpowers/specs/2026-08-04-backlog-convergence-design.md` §2), with no new user ask (M-wave spec §1.1 item 8). Two things settle it, and neither is new work — both are already recorded in the entry body below.
+
+**Half of it already shipped.** The 2026-07-06 BO-venue-header anchor (`docs/superpowers/specs/2026-07-06-bo-venue-header-anchor.md`) made a dims-only header sitting above a `BO` field block parse, anchored on the field block rather than on the dims token, so no asset is fabricated. The entry records this as its own 2026-07-06 update.
+
+**The other half is out of scope by the entry's own ratification, not by deferral.** The residue is a bare `NAME` + dims cell with no field block of any kind — and that shape is structurally indistinguishable from a dims-bearing asset row (`PROJECTION SCREEN` + `5' x 9'`, `4' X 8' RISER`) without an anchor. Fourteen adversarial rounds confirmed that every dims-based admit / evidence / ownership gate reopened asset fabrication or field theft; the parser-anchor-de-literalization spec descoped it explicitly (§2 "Descoped", R31 f1). `origin/main` never parsed this shape, so it is not a regression, and a blanket data-gap signal was rejected because it would fire on every gear row. An entry whose remaining scope its own spec has already ratified as out of scope is a documented limit, not a queue item.
+
+**The fix shape is preserved verbatim below** for the day a positive room-context signal is worth building: parse a dims-only room ONLY under a signal the sheets actually carry — a `BREAKOUT`/room-section header above the row, or an explicit room label — never a dims token; and add fixtures with a real dims-only room inside a room section, asserting it parses while no dims-bearing gear row elsewhere on the sheet becomes a room. That negative half of the fixture is the part the 14 rounds proved load-bearing.
+
+---
+
+**Severity:** low · **Class:** PARSER COVERAGE · **Effort:** M
+
+The parser-anchor-de-literalization PR (spec `docs/superpowers/specs/2026-07-05-parser-anchor-deliteralization.md`, audit finding #6) de-literalizes the v1 breakout-room loop from the two literal names `MABEL`/`LAUDERDALE` to any `NAME + trailing DAY-range` header, so a future differently-named DAY-range breakout (`GRAND BALLROOM DAY 1 & 2`) now parses. A dims-ONLY header with NO DAY-range (`SALON ABCD&#10;60' x 45'`, `MERIDIAN HALL&#10;50' x 30'`) is deliberately **out of scope** (spec §2 "Descoped", adversarial-review R31 f1): it is structurally identical to a dims-bearing ASSET/equipment row (`PROJECTION SCREEN&#10;5' x 9'`, `4' X 8' RISER`), so a name-blind admit gate cannot tell a novel dims-only room from an asset — 14 adversarial rounds confirmed every dims-based admit/evidence/ownership gate reopened asset fabrication or field theft. origin/main never parsed this shape, so it is NOT a regression, and a blanket data-gap signal is rejected (it would fire on every gear row = noise). **Fix (when prioritized):** parse a dims-only room only under a POSITIVE room-context signal the sheets actually carry — a `BREAKOUT`/room-section header above the row, or an explicit room label — NOT a dims token. Add fixtures with a real dims-only room inside a room section and assert it parses without any asset row (dims-bearing gear elsewhere on the sheet) becoming a room.
+
+**Update (2026-07-06, spec `docs/superpowers/specs/2026-07-06-bo-venue-header-anchor.md`):** partially addressed by the BO-venue-header anchor — a dims-only header sitting above a **`BO` field block** now parses, anchored on the field block (not the dims token), so no asset is fabricated. The remaining unaddressed sub-case is a dims-only header with **no** field block of any kind (a bare `NAME&#10;dims` cell), which stays out of scope (indistinguishable from an asset without an anchor).
