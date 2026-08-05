@@ -345,6 +345,26 @@ describe("font-wait guard is falsifiable", () => {
     expect(analyzeSource("commented.spec.ts", source)).toEqual([]);
   });
 
+  test("CORRECT: a same-named binding in ANOTHER test does not contaminate", () => {
+    // R6's finding. Both binding lookups scanned the whole file by NAME, so an
+    // unrelated `const pending = page.goto(...)` in a sibling test made this
+    // test's `const pending = fetch(...)` read as a navigation.
+    const source = `import { test } from "@playwright/test";
+test("first flow", async ({ page }) => {
+  const pending = page.goto(firstUrl);
+  await pending;
+});
+test("font-sensitive flow", async ({ page }) => {
+  await page.goto(secondUrl);
+  const fontsReady = page.evaluate(() => document.fonts.ready);
+  const pending = fetch(healthUrl);
+  await Promise.all([fontsReady, pending]);
+  const box = await page.getByTestId("x").evaluate((n) => n.getBoundingClientRect().height);
+});
+`;
+    expect(analyzeSource("scoped.spec.ts", source)).toEqual([]);
+  });
+
   test("a helper that waits counts for its callers", () => {
     const source = `import { test } from "@playwright/test";
 async function settleFonts(page) {
