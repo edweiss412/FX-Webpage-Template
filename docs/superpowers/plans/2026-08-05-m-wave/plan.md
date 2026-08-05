@@ -98,7 +98,7 @@ Design per spec §2.3: the partition is a CATALOG-INTERNAL field (precedent `tri
 
 ### Task P1 — BL-VALIDATION-PARITY-FUNCTIONS-UNCHECKED (signature tier, ratified)
 Failure mode caught: an RPC missing or signature-drifted on the validation project passing the parity gate silently.
-1. RED: fixture manifests with planted mutants for EACH compared dimension — missing function, drifted identity-arguments string, drifted return type, flipped `prosecdef` — each failing BY NAME. Comparator per spec §2.4: identity = (`proname`, `pg_get_function_identity_arguments(oid)` string); compared fields = identity-args string + `pg_get_function_result(oid)` + `prosecdef`; overloads separate rows; `public` schema only.
+1. RED: fixture manifests with planted mutants for EACH compared dimension — missing function, drifted identity-arguments string, drifted return type, flipped `prosecdef` — each failing BY NAME; PLUS the overload-coexistence fixture (two overloads of one `proname` as two rows; validation missing exactly one fails naming that overload's identity-arguments — kills `proname`-only keying). Comparator per spec §2.4: identity = (`proname`, `pg_get_function_identity_arguments(oid)` string); compared fields = identity-args string + `pg_get_function_result(oid)` + `prosecdef`; overloads separate rows; `public` schema only.
 2. Implement in `scripts/generate-schema-manifest.ts` (manifest gains `functions` rows); Layer 2 in `tests/db/validation-schema-parity.test.ts` runs the same introspection against `TEST_DATABASE_URL`, superset semantics.
 3. GREEN locally + regen `supabase/__generated__/schema-manifest.json` (committed). Negative proof: two introspection fixtures differing only in function body compare equal (bodies never read — the ratified no-body-hash bound, structural).
 4. Real-CI: fire `x-audits.yml` via `workflow_dispatch` (the local-passes-CI-fails rule; the job already targets validation).
@@ -151,16 +151,16 @@ Per projection (venue / event / crew / contacts / hotels / transport / packlist,
 3. Commit `docs(spec): §12.4 RESYNC_QUALITY_REGRESSED names its navigational jump link (ratified amendment)`.
 
 ### Task U6 — BL-RESYNC-REGRESSED-JUMP-LINK: re-target the existing action
-The action EXISTS and points at the wrong section (spec §2.2 probe: `lib/adminAlerts/alertActions.ts:170` = `showAnchor("overview", "Go to Overview")`; the `warnings` anchor id is live at `components/admin/showpage/sectionWarningExtras.tsx:254`).
+The action EXISTS and points at the wrong section (spec §2.2 probe: `lib/adminAlerts/alertActions.ts:170` = `showAnchor("overview", "Go to Overview")`). NO element carries `id="warnings"` today — the landed-route fragment proof requires adding it (spec §2.2 R2 probe; precedent `id="overview"` at `components/admin/showpage/OverviewSection.tsx:52`).
 1. RED: update the unit rows in `tests/adminAlerts/alertActions.test.ts` (label naming the Parse warnings panel; href fragment `#warnings`) — fails against the shipped `#overview` mapping. Update the `RESYNC_QUALITY_REGRESSED` row in `tests/e2e/alert-action-links.spec.ts` so the landed-route fragment proof covers the new destination. Sibling codes (`PARSE_ERROR_LAST_GOOD`, `SHOW_UNPUBLISHED`) asserted UNCHANGED at `#overview` (anti-leak guard).
-2. Implement: the one-line re-target in `lib/adminAlerts/alertActions.ts:170` + any label constant.
+2. Implement: the one-line re-target in `lib/adminAlerts/alertActions.ts:170` + any label constant + `id="warnings"` on the Parse warnings panel wrapper on the landed route (the failing fragment row locates the wrapper; mirror the OverviewSection precedent).
 3. Commit `fix(admin): RESYNC_QUALITY_REGRESSED action targets the Parse warnings panel`.
 
 ### Task U7 — transition-audit + dual-gate closeout
 1. Transition-audit (writing-plans rule; spec Transition Inventory says all-instant, incl. the RESYNC action re-target as a static mapping change): assert no `AnimatePresence`/exit/initial/animate props ship in this unit's diff (grep-based check recorded in closeout); every conditional render new to this diff is deliberately instant.
 2. Dimensional invariants: spec declares NONE introduced; audit confirms (no new fixed-dimension parent in the diff) — recorded in closeout; if violated, the layout-dimensions task rule triggers (real-browser `getBoundingClientRect` assertion) before close.
 3. `/impeccable critique` + `/impeccable audit` on the unit diff (canonical v3 setup gates); P0/P1 fixed or DEFERRED.md-entried; findings + dispositions in `closeout.md` §12.
-4. Marker line in `closeout.md`: `impeccable-gate: critique+audit PASS <date>` per the invariant-8 grammar.
+4. Marker line appended to this directory's `closeout.md` in the exact §3.3 RAN grammar: `impeccable-gate: critique=RAN audit=RAN p0=<int> p1=<int> dispositions=<recorded|none>` (cross-check rule: p0+p1 > 0 requires `recorded`, zero requires `none`; RAN-DEGRADED where the skill reports a degraded run).
 
 ## Per-branch closeout (all units)
 1. Entries archive with resolution paragraphs (except a lawful G1 escape: entry stays, findings appended).
@@ -171,6 +171,12 @@ The action EXISTS and points at the wrong section (spec §2.2 probe: `lib/adminA
 
 ## Adversarial review (cross-model) — plan gate
 This plan goes to codex-guard review (REVIEWER ONLY, convergence block, VERDICT, cap 4) after self-review; execution handoff only on APPROVE.
+
+## 12. Closeout
+
+impeccable-gate: N/A — no UI surface
+
+(The marker above covers THIS plan-document unit and the `feat/m-wave` branch — spec/plan docs, ledger closures, one lib comment block; no UI surface. The W-UI branch's UI diff gets its own filled RAN-form marker appended to this directory's `closeout.md` at that branch's closeout, per Task U7.)
 
 ## Execution handoff
 `HANDOFF.md` (this directory) is the Opus pane's self-contained entry: takeover protocol (date → read AGENTS.md + spec + plan → overwrite marker sessionId → own cron nudge → pane/agent labels), then W-DOCS Task D1.

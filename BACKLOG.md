@@ -271,7 +271,7 @@ What bounds the gap today: Part 1 reads the computed style of every node in the 
 
 **Work:** stand up a hydrated React harness (mount the real header component, drive a prop change under a stable key, measure across the reconciliation) and move or extend the Part 2 assertions onto it. Note the two-mechanism split before touching either: Part 1 catches an attached transition, Part 2 catches a fixed `min-height` where the pill's presence stops driving the height and 72.8px becomes a coincidence — a replacement harness has to keep both, not collapse them.
 
-**Status:** IN PROGRESS · **Branch:** feat/m-wave.
+**Status:** IN PROGRESS · **Branch:** feat/m-wave
 
 ---
 
@@ -1159,7 +1159,7 @@ Not fixed there because the branch's spec §1.1 R2 ratified the bulk channel as 
 
 **Work:** move the bulk outcome onto the layout/dialog channel (`AdminAnnounceProvider`), or hoist its own region above the group. The per-row channel is the worked example.
 
-**Status:** IN PROGRESS · **Branch:** feat/m-wave.
+**Status:** IN PROGRESS · **Branch:** feat/m-wave
 
 ---
 
@@ -1180,7 +1180,7 @@ Plus fifteen conditionally-mounted region elements across thirteen sites (a cond
 
 **Work:** per surface, move the region to an owner above the branch its own success flips. `AdminAnnounceProvider` + `components/admin/announceLog.tsx` are the shipped pattern.
 
-**Status:** IN PROGRESS · **Branch:** feat/m-wave.
+**Status:** IN PROGRESS · **Branch:** feat/m-wave
 
 ---
 
@@ -1464,13 +1464,13 @@ docblock states the gap rather than papering over it.
 
 **Work:** extend the manifest generator and parity gate to cover functions — signature-level (name + args + return type) is the cheap tier and catches missing/renamed RPCs; a body hash would also catch stale bodies at the cost of noise on comment-only edits. Scope decision needed at pickup; either tier keeps the existing superset semantics.
 
-**Status:** IN PROGRESS · **Branch:** feat/m-wave.
+**Status:** IN PROGRESS · **Branch:** feat/m-wave
 
 ---
 
 ## BL-HARNESS-FIXTURE-ENFORCEMENT — the shared font fixture observes every harness document but asserts nothing about it
 
-**Status:** IN PROGRESS · **Branch:** feat/m-wave.
+**Status:** IN PROGRESS · **Branch:** feat/m-wave
 
 **Filed:** 2026-08-04 (`feat/harness-font-fidelity`, PR #705, the descoped half of `BL-HARNESS-FONT-FIDELITY`). **Class:** test fidelity. **Effort:** M.
 
@@ -1494,7 +1494,7 @@ What instrumenting the vantages established, so the next attempt does not repeat
 
 ## BL-FONT-STYLESHEET-GRAPH-FIDELITY — the font-face discovery walk is not a module graph
 
-**Status:** IN PROGRESS · **Branch:** feat/m-wave.
+**Status:** IN PROGRESS · **Branch:** feat/m-wave
 
 **Filed:** 2026-08-04 (`feat/harness-font-fidelity`, PR #705, adversarial review R4). **Class:** test fidelity. **Effort:** M.
 
