@@ -33,6 +33,7 @@ One commit each, same mechanics as D1 step 2:
 - **D5** BL-ROOM-DIMS-ONLY-NOVEL-HEADER — resolution: partially closed by 2026-07-06 BO-venue-header anchor; bare `NAME`+dims sub-case out of scope per the entry's own 14-round ratification; fix-shape (positive room-context signal) preserved in archive.
 
 ### Task D6 — claim handoff + spec/plan finalization (LAST commits on `feat/m-wave`, order binding — handoff-by-overlap per spec §3)
+0. Merge `origin/main` into `feat/m-wave` first (PR #707 landed after this branch was cut and edits BACKLOG.md — resolve marker/graduation conflicts mechanically: both sides' edits stand) and rerun `pnpm vitest run tests/docs/`.
 1. Commit any post-review spec/plan repairs first.
 2. **Unit branches claim FIRST:** create the three unit branches off `origin/main` (`git worktree add -b feat/m-wave-guards ../FX-worktrees/m-wave-guards origin/main`, same for `-parity`, `-ui`); in each: `pnpm ledger:claims --check <unit ids>` EXPECTING exit 1 naming `feat/m-wave` and ONLY it (the planned-handoff signature; any other branch named = real collision, stop); add markers `**Status:** IN PROGRESS · **Branch:** <unit branch>`, commit `--no-verify` (pre-install), push `-u`. Entries briefly dual-declared by design.
 3. **Then the marker-removal commit on `feat/m-wave`:** remove the `**Status:** IN PROGRESS · **Branch:** feat/m-wave` run from the 14 implementation entries (D1–D5 archives already stripped theirs). `pnpm vitest run tests/docs/` green. Push. From this push each entry is declared by exactly its unit branch; at no instant was any undeclared on origin.
@@ -42,6 +43,8 @@ One commit each, same mechanics as D1 step 2:
 `impeccable-gate: N/A — no UI surface` (W-DOCS: ledger prose, one comment block, spec/plan docs).
 
 ## Unit W-GUARDS — 6 entries on `feat/m-wave-guards`
+
+Premise rule (AGENTS.md `BL-GUARD-PREMISE-REACHABILITY` bullet, landed PR #707 mid-wave): every NEW guard/meta-test below states its discriminating premise executably via `tests/_shared/premise.ts` — a fixture past the boundary or a non-empty environment proven before the assertion counts. Applies to G3's tier (a ≤6-char label fixture that would fail the tier), G4's probe fixtures, G5's settle-contract rows, G6's cross-check (planted-mismatch fixtures), and W-PARITY's planted manifest mutants. Read the rule's shapes in `docs/agents/writing-plans.md` before authoring any of them.
 
 ### Task G1 — BL-HARNESS-FIXTURE-ENFORCEMENT (evidence-first)
 Failure mode caught: a caller-local `font-family` override or impostor `@font-face` inside one harness document passing silently.
