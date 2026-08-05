@@ -953,7 +953,6 @@ test.describe("admin lifecycle layout dimensions (real browser, §3.3)", () => {
 
       // Arm with a REAL click: this is the step that was impossible before.
       await popover.getByTestId("archive-show-button").click();
-      await expect(popover.getByTestId("archive-show-confirm-button")).toBeVisible();
       // Settle on GEOMETRIC STABILITY, which is what the measurement below
       // needs and what the fixed wait was standing in for: the armed body
       // re-places, and a measurement taken mid-re-place reads a transient box.
@@ -962,6 +961,12 @@ test.describe("admin lifecycle layout dimensions (real browser, §3.3)", () => {
       // frames and requires the two to agree. It never mentions `bounds`, the
       // panel, or the containment relation the assertions check — it is the
       // condition that PRECEDES the measurement, not the measured value.
+      //
+      // COMMENTS LIVE ABOVE THE ANCHOR, not between it and the retry: the
+      // settle-contract guard requires `}).toPass(` within a fixed window of
+      // the arming site, and a window that grows to accommodate prose stops
+      // being a guard. Its sibling records the same rule.
+      await expect(popover.getByTestId("archive-show-confirm-button")).toBeVisible();
       await expect(async () => {
         const stable = await page.evaluate(async () => {
           const read = () => {
@@ -1061,16 +1066,19 @@ test.describe("admin lifecycle layout dimensions (real browser, §3.3)", () => {
     });
 
     // Resize ACROSS the flip boundary: 844 places below, 560 places above.
-    await page.setViewportSize({ width: 390, height: 560 });
     // Settle on the TRANSITION having ended, read as a computed style that has
     // stopped changing across two frames. The resize crosses the flip boundary,
     // so the popover re-places and whatever transitions with it must finish
     // before `after` is sampled.
     //
-    // The predicate deliberately does not read `data-popover-side`, the
-    // remount marker, or the containment maths — those are the assertions. It
-    // watches the styles that MOVE during the flip and waits for them to hold
-    // still, which is a strictly weaker condition than any of them.
+    // The predicate deliberately does not read `data-popover-side`, the remount
+    // marker, or the containment maths — those are the assertions. It watches
+    // the styles that MOVE during the flip and waits for them to hold still.
+    //
+    // COMMENTS ABOVE THE ANCHOR: the settle-contract guard requires
+    // `}).toPass(` within a fixed window of the settle site, and widening that
+    // window for prose would retire the guard.
+    await page.setViewportSize({ width: 390, height: 560 });
     await expect(async () => {
       const settled = await page.evaluate(async () => {
         const read = () => {
