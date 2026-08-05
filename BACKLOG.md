@@ -1458,7 +1458,7 @@ docblock states the gap rather than papering over it.
 
 ## BL-VALIDATION-PARITY-FUNCTIONS-UNCHECKED — the validation-schema-parity gate never looks at functions, so RPC drift on validation passes silently
 
-**Filed:** 2026-08-03 (BL-UNPUBLISH-TO-HELD graduation audit). **Class:** CI gate scope. **Effort:** M.
+**Status:** IN PROGRESS · **Branch:** feat/m-wave-parity · **Filed:** 2026-08-03 (BL-UNPUBLISH-TO-HELD graduation audit). **Class:** CI gate scope. **Effort:** M.
 
 `supabase/__generated__/schema-manifest.json` records tables × columns only, and `tests/db/validation-schema-parity.test.ts` asserts validation is a superset of that manifest — no function ever enters the comparison. A validation project missing an RPC, or running a stale body of one, passes the gate; the only live function check is the telemetry-RPC smoke job (`tests/db/telemetryConsoleReads.test.ts` via `x-audits.yml`), which covers telemetry reads and nothing else. Probed 2026-08-03 during the graduation audit: no current drift — `unpublish_show` and `_unpublish_show_core` are present on validation with the performed-boolean discriminator applied. The exposure is future RPC edits, where the surgical-apply step (AGENTS.md "Every migration must reach the validation project") is forgotten and nothing fails.
 
@@ -1494,7 +1494,7 @@ What instrumenting the vantages established, so the next attempt does not repeat
 
 ## BL-FONT-STYLESHEET-GRAPH-FIDELITY — the font-face discovery walk is not a module graph
 
-**Status:** OPEN.
+**Status:** IN PROGRESS · **Branch:** feat/m-wave-parity
 
 **Filed:** 2026-08-04 (`feat/harness-font-fidelity`, PR #705, adversarial review R4). **Class:** test fidelity. **Effort:** M.
 
