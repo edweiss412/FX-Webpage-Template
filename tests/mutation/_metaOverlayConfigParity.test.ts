@@ -72,9 +72,8 @@ describe("fixtures are never discovered, and every one has a live owner", () => 
   });
 
   it("resolves zero fixture files in any default project", () => {
-    const projects = (
-      vitestConfig as { test: { projects: { test: { include: string[] } }[] } }
-    ).test.projects;
+    const projects = (vitestConfig as { test: { projects: { test: { include: string[] } }[] } })
+      .test.projects;
     expect(projects.length, "premise: default projects exist to check against").toBeGreaterThan(0);
     for (const p of projects) {
       for (const glob of p.test.include) {

@@ -419,11 +419,10 @@ describe("the real git adapter and the JSON envelope (whole-diff F3/F9)", () => 
       g(full, "config", "user.name", "t");
       g(full, "commit", "--quiet", "--allow-empty", "-m", "one");
       g(full, "commit", "--quiet", "--allow-empty", "-m", "two");
-      execFileSync(
-        "git",
-        ["clone", "--quiet", "--depth", "1", `file://${full}`, shallow],
-        { encoding: "utf8", timeout: 60_000 },
-      );
+      execFileSync("git", ["clone", "--quiet", "--depth", "1", `file://${full}`, shallow], {
+        encoding: "utf8",
+        timeout: 60_000,
+      });
 
       for (const [expected, repo] of [
         [false, full],
@@ -437,7 +436,10 @@ describe("the real git adapter and the JSON envelope (whole-diff F3/F9)", () => 
             cwd: repo,
             encoding: "utf8",
           }).trim() === "true";
-        premiseHolds(`the constructed repo is ${expected ? "shallow" : "full"}`, asGit === expected);
+        premiseHolds(
+          `the constructed repo is ${expected ? "shallow" : "full"}`,
+          asGit === expected,
+        );
         expect(realGitSurface().isShallow(), `shallow=${expected}`).toBe(expected);
       }
     } finally {
@@ -776,7 +778,11 @@ function throwawayRepo(): { dir: string; g: (...args: string[]) => string; head:
  * Actions, so a case about the non-CI path that merely declined to set it would
  * assert the opposite thing there.
  */
-function atRepo<T>(dir: string, fn: (git: GitSurface) => T, env: Record<string, string | undefined> = {}): T {
+function atRepo<T>(
+  dir: string,
+  fn: (git: GitSurface) => T,
+  env: Record<string, string | undefined> = {},
+): T {
   const saved = new Map<string, string | undefined>();
   const set = (key: string, value: string | undefined) => {
     if (!saved.has(key)) saved.set(key, process.env[key]);

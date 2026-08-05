@@ -57,9 +57,7 @@ describe("provenance, over the declaration-reference graph", () => {
   });
 
   it("process.env direct member access", () => {
-    expect(verdict(`it("x", () => { const r = process.env.ROOT; });`)).toBe(
-      "environment-touching",
-    );
+    expect(verdict(`it("x", () => { const r = process.env.ROOT; });`)).toBe("environment-touching");
   });
 
   it("process.env destructured", () => {

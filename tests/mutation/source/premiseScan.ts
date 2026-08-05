@@ -370,7 +370,8 @@ function unclassifiableWithin(node: ts.Node, facts: ModuleFacts): string[] {
   const walk = (n: ts.Node): void => {
     if (ts.isCallExpression(n) && n.expression.kind === ts.SyntaxKind.ImportKeyword) {
       const arg = n.arguments[0];
-      if (!arg || !ts.isStringLiteral(arg)) out.push("dynamic import() with a non-literal specifier");
+      if (!arg || !ts.isStringLiteral(arg))
+        out.push("dynamic import() with a non-literal specifier");
     }
     if (ts.isElementAccessExpression(n)) {
       const obj = unwrap(n.expression);
@@ -420,7 +421,7 @@ function eachProducers(call: ts.CallExpression): ts.Node[] {
  * consumes, sitting between that binding and the call.
  */
 function premiseIsAssociated(call: ts.CallExpression, facts: ModuleFacts): boolean {
-  let callee: ts.Expression = call.expression;
+  const callee: ts.Expression = call.expression;
   if (!ts.isCallExpression(callee)) return false;
   const producer = callee.arguments[0];
   if (!producer || !ts.isIdentifier(producer)) return false;
