@@ -125,7 +125,10 @@ function unescapeMarkdown(value: string): string {
   return value.replace(/\\\|/g, "|").replace(/\\_/g, "_");
 }
 
-function splitMarkdownRow(line: string): string[] {
+/** Exported so the §12.4 action-link guard splits rows with the SAME parser the
+ *  generator uses. A second splitter would be a second escaping dialect, and the
+ *  two would disagree on exactly the rows that contain a pipe. */
+export function splitMarkdownRow(line: string): string[] {
   const cells: string[] = [];
   let current = "";
   let escaped = false;
@@ -191,7 +194,8 @@ function cleanCodeCell(raw: string): string {
     .trim();
 }
 
-function codeFromCell(raw: string): string | null {
+/** Exported alongside `splitMarkdownRow` for the same reason. */
+export function codeFromCell(raw: string): string | null {
   const cleaned = cleanCodeCell(raw);
   if (!cleaned || cleaned.startsWith("|")) return null;
   const code = cleaned.split(/\s+/)[0];

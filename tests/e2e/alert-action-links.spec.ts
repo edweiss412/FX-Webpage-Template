@@ -309,7 +309,7 @@ test("every internal bell link's fragment resolves to a real element (dead-fragm
   // DISTINCT internal hrefs the registry produced for this seed and visit each,
   // asserting the declared fragment's element exists on the landed page.
   // Group by ROUTE and navigate each route ONCE, asserting every declared
-  // fragment on that single load. #share-access and #overview both live on
+  // fragment on that single load. #share-access, #overview and #warnings all live on
   // /admin?show=<slug>; navigating the heavy show-modal route repeatedly in
   // dev mode wedged intermittently (observed ~1-in-4 as a 30s timeout on the
   // SECOND load of the same route), and one load per route is also the honest
@@ -329,7 +329,7 @@ test("every internal bell link's fragment resolves to a real element (dead-fragm
     list.push({ fragment, code: row.code });
     routes.set(route, list);
   }
-  expect(internalCount).toBeGreaterThanOrEqual(2); // at least share-access + overview families
+  expect(internalCount).toBeGreaterThanOrEqual(3); // share-access + overview + warnings families
 
   for (const [route, targets] of routes) {
     // waitUntil "commit" + tolerated abort: the show route performs a

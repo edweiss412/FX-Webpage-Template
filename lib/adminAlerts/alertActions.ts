@@ -167,7 +167,13 @@ export const ALERT_ACTIONS: Record<AlertActionCode, AlertActionBuilder> = {
   EMBEDDED_ASSET_DRIFTED: openSheet,
   EMBEDDED_RECOVERY_REQUIRES_RESTAGE: openSheet,
   PARSE_ERROR_LAST_GOOD: showAnchor("overview", "Go to Overview"),
-  RESYNC_QUALITY_REGRESSED: showAnchor("overview", "Go to Overview"),
+  // BL-RESYNC-REGRESSED-JUMP-LINK. This alert's own copy says "open the parse
+  // panel to see what degraded" and the link dropped the reader at the top of
+  // the show page instead. `#warnings` is the panel that answers it
+  // (`ShowReviewSurface.tsx` gives the warnings section that DOM id, mirroring
+  // `id="overview"` on OverviewSection). The two sibling codes below keep
+  // Overview deliberately — nothing about them is a parse-quality question.
+  RESYNC_QUALITY_REGRESSED: showAnchor("warnings", "See what degraded"),
   SHOW_UNPUBLISHED: showAnchor("overview", "Go to Overview"),
 };
 
