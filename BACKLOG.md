@@ -693,16 +693,6 @@ screen-disposition 2026-08-04: KEEP — PROBED, and the mislabeling is determini
 
 The cron sync path also synthesizes workbooks (`lib/sync/runScheduledCronSync.ts:3118,3144`). A throw at either site escapes `prepareProcessOneFile` and is caught by the outer per-file loop (`:3915-3925`), which records `outcome: "parse_error"` with `classifySyncFailure(error)` — typically `SYNC_FILE_FAILED`. So it is already parse-family rather than Drive-family (unlike the onboarding paths this batch fixed), and the open question is narrower: should a corrupt workbook there report `PARSE_ERROR_LAST_GOOD`, whose copy tells Doug the latest edit did not parse and the previous version is still live? **Fix (when prioritized):** key on the `WorkbookSynthesisError` type this batch introduced. Deferred because it changes a live crew-visible sync contract and belongs in its own spec.
 
-### BL-ROOM-DIMS-ONLY-NOVEL-HEADER — parse a dims-only novel breakout header (no DAY-range)
-
-**Status:** OPEN · **Severity:** low · **Class:** PARSER COVERAGE · **Effort:** M
-
-The parser-anchor-de-literalization PR (spec `docs/superpowers/specs/2026-07-05-parser-anchor-deliteralization.md`, audit finding #6) de-literalizes the v1 breakout-room loop from the two literal names `MABEL`/`LAUDERDALE` to any `NAME + trailing DAY-range` header, so a future differently-named DAY-range breakout (`GRAND BALLROOM DAY 1 & 2`) now parses. A dims-ONLY header with NO DAY-range (`SALON ABCD&#10;60' x 45'`, `MERIDIAN HALL&#10;50' x 30'`) is deliberately **out of scope** (spec §2 "Descoped", adversarial-review R31 f1): it is structurally identical to a dims-bearing ASSET/equipment row (`PROJECTION SCREEN&#10;5' x 9'`, `4' X 8' RISER`), so a name-blind admit gate cannot tell a novel dims-only room from an asset — 14 adversarial rounds confirmed every dims-based admit/evidence/ownership gate reopened asset fabrication or field theft. origin/main never parsed this shape, so it is NOT a regression, and a blanket data-gap signal is rejected (it would fire on every gear row = noise). **Fix (when prioritized):** parse a dims-only room only under a POSITIVE room-context signal the sheets actually carry — a `BREAKOUT`/room-section header above the row, or an explicit room label — NOT a dims token. Add fixtures with a real dims-only room inside a room section and assert it parses without any asset row (dims-bearing gear elsewhere on the sheet) becoming a room.
-
-**Update (2026-07-06, spec `docs/superpowers/specs/2026-07-06-bo-venue-header-anchor.md`):** partially addressed by the BO-venue-header anchor — a dims-only header sitting above a **`BO` field block** now parses, anchored on the field block (not the dims token), so no asset is fabricated. The remaining unaddressed sub-case is a dims-only header with **no** field block of any kind (a bare `NAME&#10;dims` cell), which stays out of scope (indistinguishable from an asset without an anchor).
-
----
-
 ### BL-MUTATION-HARNESS-OPEN-HOLES — parser silent-fragility classes pinned by the mutation harness
 
 **Status:** OPEN (2026-07-06, feat/mutation-harness) · **Severity:** medium · **Class:** PARSER ROBUSTNESS · **Effort:** L
@@ -781,36 +771,6 @@ ParsePanel was not alone. Shape swept: **a file under `components/` that no file
 
 **The debt is still not silent**, and it gained a second guard. `tests/components/_metaOrphanedComponents.test.ts` walks `components/**` every run and fails on any zero-production-importer file absent from `ORPHAN_ALLOWLIST`; `tests/docs/retiredIdentifierReferences.test.ts` walks every tracked file for references to what this branch retired, keyed by line content, so a stale citation to a deleted component cannot survive either. Emptying the allowlist is no longer this entry's goal; keeping every row's reason true is.
 
-## BL-CAPABILITY-MATRIX-FINANCIALS-PREDICATE — the flip matrix models five predicates; the code has six
-
-**Filed:** 2026-08-03 (`chore/orphan-components-lead-prose`, settling `BL-LEAD-CAPABILITY-PROSE-STALE`) · **Class:** docs/contract drift · **Severity:** low · **Effort:** M
-
-`CAPABILITY_TRANSITION_MATRIX` (`lib/visibility/capabilityTransitions.ts`) enumerates the 10
-unordered pairs of five predicates — `hasLead`, `hasA1`, `hasV1`, `hasL1`, `hasAdmin`
-(`lib/visibility/capabilityTransitions.ts:53`). The `FINANCIALS` role flag, added to
-`financialsVisible` at `e348c81ca` (2026-07-16, `lib/visibility/scopeTiles.ts:141`), is not among
-them. The type comment at `lib/visibility/capabilityTransitions.ts:48-51` claims a new predicate
-"surfaces here AND in the matrix as a TypeScript error if the matrix is incomplete"; that mechanism
-did not fire, because nothing added the flag to the union.
-
-**Consequence today is documentary, not behavioral.** The matrix has no production consumer — its
-only reader is `tests/visibility/capabilityTransitions.test.ts`. But its own definition of a
-recorded delta ("the flip is SUFFICIENT to change visibility regardless of the other predicate",
-`lib/visibility/capabilityTransitions.ts:126-131`) is no longer literally true for `FinancialsTile`:
-a `hasLead` flip does not toggle it for a viewer who also holds `FINANCIALS`. The header now states
-that modeling boundary explicitly, and `tests/visibility/capabilityHeaderParity.test.ts` pins the
-quoted predicates against `scopeTiles.ts` source, so the prose cannot drift again — but the MATRIX
-is still five-predicate.
-
-**Fix (when prioritized):** add `hasFinancials` to `CapabilityPredicate`, expand the matrix from
-C(5,2)=10 to C(6,2)=15 entries with their deltas, and update the structural test's length assertion
-(`tests/visibility/capabilityTransitions.test.ts:40`). Deliberately NOT done in a prose branch: it
-is a design change with a 15-row blast radius, and the settled question there was whether the
-header quote was stale (it was).
-
-**Trigger:** the next milestone touching scope-tile visibility, the financials entitlement, or the
-matrix itself.
-
 ## BL-RESYNC-REGRESSED-JUMP-LINK — the alert's "open the parse panel" pointer is prose, not an affordance
 
 **Status:** IN PROGRESS · **Branch:** feat/m-wave-ui · **Severity:** LOW-MEDIUM (discoverability) · **Class:** UX — surfaced by the correction-loop de-duplication (#516, 2026-07-20) · **Effort:** M
@@ -855,18 +815,6 @@ Anchored by ENCLOSING TEST rather than by line: the T-REGROW fix inserts lines a
 **Why not fixed with T-REGROW.** Each needs its own settle predicate, and the predicate is the whole difficulty. T-CONFIRM-SCROLL's is "the production `scrollIntoView` call has been recorded on `window.__siv`" — a different condition from T-REGROW's growth-then-replace, and one where folding the assertion into the retry risks converting the thing under test into the wait condition. Picking each predicate is per-case work with its own tautology review; batching them behind one settle template is exactly the shortcut that would produce a green test proving nothing.
 
 **Trigger:** the next observed CI failure in one of these three cases, or any change to the file that already re-opens the surrounding case.
-
-## BL-RESOLVE-INTENT-WRONG-VERB — two event-shaped alerts render "Mark resolved" where "Confirm" is correct
-
-**Status:** OPEN · **Severity:** LOW (copy defect, no functional impact) · **Class:** admin copy / lifecycle contract · **Effort:** M
-
-`SHOW_FIRST_PUBLISHED` ("<sheet> is now live for crew…") and `PICKER_EPOCH_RESET` (whose own help text reads "Nothing to fix; this is a record of the reset") are both recorded as `intent: "resolve"` in `RESOLVE_INTENTS` (`lib/adminAlerts/resolveActionLabel.ts:58`, `:60`), so their button reads "Mark resolved". By the module's own rule (`lib/adminAlerts/resolveActionLabel.ts:9-12`) both are `confirm`: a deliberate thing that already happened, not a fault to clear. Visible in the notification bell; both codes are excluded from the per-show attention index, so the show modal is unaffected.
-
-**Why it was not fixed in the attention-index change (2026-07-24).** `tests/adminAlerts/_metaResolveIntentLifecycle.test.ts` defense 5c reads the intent baseline from **`origin/main`** and asserts every historical `(code, intent)` pair still resolves identically (`tests/adminAlerts/_metaResolveIntentLifecycle.test.ts:118-124`). Both codes are `resolve` in that baseline (19 rows). Updating the in-tree baseline and the approved-confirm list does not satisfy the gate, because it compares against main's copy. Intent is append-only by design, and the test states the rationale: "rows already in admin_alerts still render it" — a persisted alert row resolves its label at render time, so flipping an intent retroactively relabels every open row of that code.
-
-**What fixing it requires.** A ratified amendment to the append-only contract, deciding that a retroactive relabel is acceptable when the original intent was simply wrong, plus the mechanism to express that (an exception list the history gate honours, or a versioned baseline). That is a contract change with its own blast radius, not a copy edit. Analysis recorded in `docs/superpowers/specs/2026-07-24-attention-index-consolidation.md` §2.6.
-
----
 
 ## BL-FITWITHINCLIP-DOUBLE-MOUNT-MEASURE — the hook measures twice on every mount
 
@@ -1277,22 +1225,6 @@ Plus fifteen conditionally-mounted region elements across thirteen sites (a cond
 
 **Promotion prerequisite:** owner prioritization OR post-launch operator feedback that a specific field (most likely flights) is a real friction point. Promotion starts with a brainstorming session per field (the flight trust boundary is the load-bearing design question).
 
-### BL-CREW-AGENDA-ADMIN-CLEAR — Admin affordance to manually clear a run-of-show (low-priority convenience)
-
-**Filed:** 2026-06-18, crew-page redesign Phase 2 spec adversarial review (R17 → re-scoped R21 → re-scoped again R22). **Re-scoped at R22 (do NOT treat as load-bearing):** the Phase-2 data-retention rule settled on **CONFIRMED-ONLY** (Phase-2 spec D-2 / §4.4 invariants 2-3 / watchpoint 12) — the crew see a day's run-of-show **iff the latest sync confirmed it**; **every** non-confirmed shape (read-empty, unresolved block, OR unlocatable grid) auto-coarsens to the anchor strip on the next sync with the matching admin warning. So **any** intentional removal — blank titles, deleted tab, broken header, changed template — self-resolves via sync; there is **no** lingering-stale crew exposure to remediate (that was the R17/R21 preserve-and-show stance, which R22 closed structurally).
-
-**Effort:** M
-
-**What's actually left for this item (narrow):** a convenience affordance only — an admin wanting to clear a run-of-show **without** blanking the source sheet (e.g. retract a wrongly-published agenda while leaving the sheet intact). That is a rare workflow; the normal path (blank the sheet → next sync clears) covers intentional removal.
-
-**Scope (if promoted):** an admin affordance on the per-show panel (`app/admin/show/[slug]/`) to clear `shows_internal.run_of_show` (whole-column, or per-day) via a SECURITY DEFINER RPC under the per-show advisory lock (the Phase-2 R16 lockdown REVOKEs anon/authenticated DML on `shows_internal`, so the RPC is the only non-sync write surface).
-
-**Why backlog, not deferred:** no committed v1 trigger; crew-facing stale exposure is **already prevented** by the read-empty auto-clear (R21), so this is purely an admin convenience, not a correctness gap. Lowest priority.
-
-**Promotion prerequisite:** post-launch operator request to retract an agenda without editing the sheet, OR a broader per-show agenda-management pass.
-
----
-
 ### BL-LIBDATA-SUPABASE-CALL-BOUNDARY-METATEST — Structural meta-test for `lib/data` Supabase call-boundary discipline
 
 **Filed:** 2026-06-19, crew-page redesign Phase 2 Task 02.5 (`getShowForViewer.runOfShow` projection).
@@ -1318,20 +1250,6 @@ Filed 2026-06-10 (mobile needs-attention milestone impeccable dispositions). Pro
 **Effort:** M
 
 The Phase 1 crew-page projection alert (`TILE_PROJECTION_FETCH_FAILED`, §4.13 of `specs/v1-pre-deployment-amendments/2026-06-15-crew-page-redesign-phase1-design.md`) records, per render, the `tileErrors` keys that render observed, and the dedup RPC union-merges across renders. Because `getShowForViewer` skips the `shows_internal` query unless `isLead` (`lib/data/getShowForViewer.ts:473-505`), a **non-lead render cannot observe a `financials` fetch failure** — so a `financials`/lead-only-domain outage with **non-lead-only crew-page traffic** is not alerted until a lead/admin renders. This is the **accepted v1 contract** ("union-by-accumulation"), and it is **not a regression** — today's `financials` alert already comes from the lead-gated `FinancialsTile` fallback. If true per-render viewer-independence is later wanted: add a **status-only admin-observability probe** that records each domain's fetch success/failure on every render **without returning the gated data to non-leads** (e.g. a service-role fetch-status check, or surfacing the failure through the data-sync path), and test it through the real projection path. Out of scope for v1; admins also have the dashboard's independent infra signals (drive-health, sync alerts). Technical home: `lib/data/getShowForViewer.ts` + the §4.13 projection-alert contract.
-
-### BL-CREW-PII-DB-LOCKDOWN — Gate crew PII (flight_info + email + phone) from other show crew at the DB boundary
-
-**Filed:** 2026-06-19, during the crew-page Phase 3 per-crew flight-info spec (`specs/v1-pre-deployment-amendments/2026-06-19-crew-flight-info.md`, decision 2 / R5 adversarial finding). Surfaced when the spec considered treating `crew_members.flight_info` as own-row-only PII.
-
-**Effort:** M
-
-**Description:** `public.crew_members` is **crew-readable**: the `anon, authenticated` SELECT grant (`supabase/migrations/20260501002000_rls_policies.sql:244`) + the `crew_read` RLS policy ON `crew_members` (`:247-258`, `is_admin() or (can_read_show(show_id) and the show is published)`) let any authenticated crew member of a show query **any** crew row's columns for that show via PostgREST — including `name`, `email`, `phone`, AND `flight_info`. This is intentional for the shared roster (crew see each other's contact info), but it means a flight itinerary's **booking confirmation / record-locator codes** (e.g. `HQQ79F`, `OSUULZ`) — enough, with a name, to manage someone else's reservation — are readable by every crew member of the show, not just the owner. The Phase-3 flight UI surfaces only the viewer's OWN flight (a presentation choice), but it does NOT change this pre-existing DB exposure.
-
-**Scope of a real fix (if/when promoted):** decide whether crew PII should be gated from other crew. If yes, harden `flight_info` + `email` + `phone` **together** (hardening only `flight_info` while `email`/`phone` stay open is inconsistent): a column-grant lockdown so `anon`/`authenticated` cannot directly `SELECT` those columns (replace the table-level SELECT grant with column-level grants on the non-sensitive columns), the service-role projection (`getShowForViewer`) continuing to read them, + a PostgREST-boundary regression test proving a crew-authenticated session cannot read another crew member's `flight_info`/`email`/`phone`. This is the read-side analogue of `BL-ADMIN-POSTGREST-DML-LOCKDOWN` (which covers the statement-level/DML half for admin-only tables); a future v1.x security-hardening milestone may bundle both.
-
-**Why backlog, not deferred:** the exposure is pre-existing (the columns were always crew-readable) and consistent with the deliberate roster-sharing model; the FXAV crew of a given show is a small trusted team, not arbitrary internet users; and no concrete trigger exists. Picking it up is genuine security-hardening polish requiring a product decision (is crew-to-crew PII visibility acceptable?) + a spec amendment + the column-grant/meta-test work.
-
-**Promotion prerequisite:** EITHER (a) Doug/operator feedback or a security review decides crew should NOT see each other's flight/contact PII, OR (b) a v1.x security-hardening milestone bundles this with `BL-ADMIN-POSTGREST-DML-LOCKDOWN` + `BL-RLS-COVERAGE-CROSSCUTTING`. The structural meta-test pattern (`tests/db/postgrest-dml-lockdown.test.ts`) is the template for the read-side boundary test.
 
 ### BL-FLIGHT-LEG-ORIENTATION — arrival/departure labels + richer flight-leg layout
 
