@@ -230,6 +230,49 @@ describe("schema manifest — function signature tier", () => {
     expect(parseCreatedPublicFunctions(ddl).filter((n) => !known.has(n))).toEqual([]);
   });
 
+  it("does NOT collapse overloads whose UNNAMED types share a multiword suffix", () => {
+    // Codex R4 HIGH, all three of its pairs. The key dropped the first word as
+    // though it were always a parameter name, so an unnamed `time with time
+    // zone` and an unnamed `timestamp with time zone` both became
+    // "with time zone" and keyed identically — adding one as an overload of the
+    // other read as already-known. That is a MISS, not the conservative
+    // direction the code claimed, which is why it is pinned here.
+    const pairs: ReadonlyArray<readonly [string, string]> = [
+      ["time with time zone", "timestamp with time zone"],
+      ["time without time zone", "timestamp without time zone"],
+      ["character varying", "bit varying"],
+    ];
+    for (const [have, added] of pairs) {
+      const known = functionNamesOf(
+        manifestFromFunctionRows([{ name: "f", args: have, result: "void", definer: false }]),
+      );
+      const parsed = parseCreatedPublicFunctions(
+        `create function public.f(${added}) returns void as $$ $$ language sql;`,
+      );
+      expect(
+        parsed.filter((n) => !known.has(n)),
+        `adding f(${added}) alongside f(${have}) must read as unknown to the manifest`,
+      ).toEqual([`f/${added}`]);
+    }
+  });
+
+  it("still reads a NAMED parameter as name + type", () => {
+    // The other side of the same decision: `p_at timestamptz` must key on the
+    // type, not on "p_at timestamptz". Without this row the fix above could be
+    // satisfied by never dropping the first word at all.
+    const known = functionNamesOf(
+      manifestFromFunctionRows([
+        { name: "g", args: "p_at timestamp with time zone", result: "void", definer: false },
+      ]),
+    );
+    expect([...known]).toEqual(["g/timestamp with time zone"]);
+    expect(
+      parseCreatedPublicFunctions(
+        "create function public.g(p_at timestamptz) returns void as $$ $$ language sql;",
+      ).filter((n) => !known.has(n)),
+    ).toEqual([]);
+  });
+
   it("reports missing tables AND missing functions in one pass", () => {
     const manifest = manifestOf(BASE);
     const live: SchemaManifest = { [FUNCTIONS_KEY]: [] };

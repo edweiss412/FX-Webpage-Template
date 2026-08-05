@@ -322,6 +322,56 @@ export function parseCreatedPublicFunctions(sql: string): string[] {
  * The exact comparison remains Layer 2's, against Postgres's own identity
  * encoding; this side is a DB-free tripwire, not an authority on signatures.
  */
+/**
+ * First words of a TYPE rather than a parameter name.
+ *
+ * Covers every multiword built-in (`time`/`timestamp` + with/without time zone,
+ * `character`/`bit` + varying, `double precision`) plus the common single-word
+ * types, so an UNNAMED parameter is never mistaken for a named one.
+ *
+ * Residual ambiguity, and it fails CONSERVATIVELY this time: a parameter
+ * literally named after a type (`text text`) reads as a two-word type and keys
+ * as "text text" rather than "text". That is a false alarm — a contributor is
+ * told to regenerate — not a collision that hides an overload.
+ */
+const TYPE_HEADS = new Set([
+  "time",
+  "timestamp",
+  "timestamptz",
+  "timetz",
+  "character",
+  "bit",
+  "double",
+  "numeric",
+  "decimal",
+  "integer",
+  "int",
+  "int2",
+  "int4",
+  "int8",
+  "bigint",
+  "smallint",
+  "boolean",
+  "bool",
+  "text",
+  "uuid",
+  "json",
+  "jsonb",
+  "date",
+  "interval",
+  "real",
+  "varchar",
+  "bytea",
+  "float4",
+  "float8",
+  "money",
+  "inet",
+  "cidr",
+  "macaddr",
+  "xml",
+  "tsvector",
+]);
+
 const TYPE_ALIASES = new Map<string, string>([
   ["timestamptz", "timestamp with time zone"],
   ["timestamp", "timestamp without time zone"],
@@ -380,9 +430,22 @@ function typeListOf(params: string): string {
       t = t.replace(/=.*$/, "").trim().replace(/\s+/g, " ");
       const words = t.split(" ").filter(Boolean);
       if (words[0] && /^(in|out|inout|variadic)$/i.test(words[0])) words.shift();
-      // A single word IS the type (an unnamed parameter); otherwise the first
-      // word is the parameter name and the rest is the type.
-      const type = (words.length > 1 ? words.slice(1).join(" ") : (words[0] ?? "")).toLowerCase();
+      // IS THE FIRST WORD A PARAMETER NAME, OR THE HEAD OF A MULTIWORD TYPE?
+      //
+      // Dropping it unconditionally was WRONG and it MISSED (Codex R4 HIGH):
+      // an unnamed `time with time zone` and an unnamed `timestamp with time
+      // zone` both collapsed to "with time zone" and keyed identically, so
+      // adding one as an overload of the other read as already-known. Same for
+      // the `without time zone` and `varying` pairs. That is a miss, not the
+      // conservative direction the comment claimed.
+      //
+      // A parameter is `[mode] [name] type`, and the NAME is present only when
+      // the first token is not itself the start of a type. Postgres's multiword
+      // built-ins all begin with one of a small closed set, so asking that
+      // question is exact for them.
+      const first = (words[0] ?? "").toLowerCase();
+      const hasName = words.length > 1 && !TYPE_HEADS.has(first);
+      const type = (hasName ? words.slice(1).join(" ") : words.join(" ")).toLowerCase();
       return canonicalType(type);
     })
     .join(",");
