@@ -53,8 +53,9 @@ const REGISTRY: Row[] = [
   // labeled (33)
   L("components/admin/Mi11GateActions.tsx", 0),
   L("components/admin/RoleRecognizeControl.tsx", 0),
-  L("components/admin/nav/AdminNav.tsx", 0),
-  L("components/admin/nav/NotifBell.tsx", 0),
+  // The two count badges left this registry in BL-ADMIN-BADGE-CONTRAST-TOKEN:
+  // they now carry their own `bg-badge-count` pair. Their rows are removed
+  // rather than kept, because a stale row is exactly what this guard reports.
   L("components/admin/settings/AddAdminDisclosure.tsx", 0),
   L("components/admin/wizard/Step1Share.tsx", 0),
   L("components/admin/wizard/Step2Verify.tsx", 0),

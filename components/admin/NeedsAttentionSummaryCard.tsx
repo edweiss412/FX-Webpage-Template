@@ -42,7 +42,12 @@ export function NeedsAttentionSummaryCard({
         {zero ? (
           <>
             <span className="text-base font-semibold text-text-strong">All caught up</span>
-            <span className="text-sm text-text-subtle">Nothing waiting on you.</span>
+            {/* The sub-line TEACHES the surface rather than restating the
+                headline. "All caught up" and "Nothing waiting on you." said the
+                same thing twice, which is the redundancy the impeccable gate
+                flagged; the product register asks empty states to explain what
+                the surface is for. */}
+            <span className="text-sm text-text-subtle">Sheets that need a look show up here.</span>
           </>
         ) : (
           <>
