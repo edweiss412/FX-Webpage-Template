@@ -304,7 +304,7 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
     // producer did not change shape, it MOVED here, and both former sites now delegate to it.
     // The two finalize routes reach the same alert through this site too, so it is the single
     // per-show ROLE_FLAGS_NOTICE producer for the whole codebase.
-    site: "lib/sync/emitRoleFlagsNotice.ts:40",
+    site: "lib/sync/emitRoleFlagsNotice.ts:41",
     computedContext: true,
     contextKeys: ["drive_file_id", "changes"],
     code: "ROLE_FLAGS_NOTICE",
