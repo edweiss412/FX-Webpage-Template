@@ -131,11 +131,14 @@ export function PublishedArchivedTabOffer(props: BaseProps & { tabName: string }
         <span className="font-medium text-text-strong">{tabName}</span>. We left it out to avoid
         mixing in old gear.
       </p>
-      {transient ? (
-        <p role="status" aria-live="polite" className="text-xs text-text-subtle">
-          {transient}
-        </p>
-      ) : null}
+      {/* Mounted UNCONDITIONALLY, text toggled (BL-ANNOUNCE-REGION-UNMOUNT-CLASS).
+          The conditional form inserted the region together with its text, which
+          screen readers do not announce — they announce mutations WITHIN a
+          region that was already there. Empty at rest, so there is nothing to
+          read until there is. */}
+      <p role="status" aria-live="polite" className="text-xs text-text-subtle">
+        {transient ?? ""}
+      </p>
       {error ? (
         <p role="alert" className="text-xs text-warning-text">
           {error}
@@ -223,11 +226,14 @@ export function PublishedArchivedTabIncludedNote(props: BaseProps) {
         Gear from tab <span className="font-medium text-text-strong">{label}</span> is included when
         this show syncs.
       </p>
-      {transient ? (
-        <p role="status" aria-live="polite" className="text-xs text-text-subtle">
-          {transient}
-        </p>
-      ) : null}
+      {/* Mounted UNCONDITIONALLY, text toggled (BL-ANNOUNCE-REGION-UNMOUNT-CLASS).
+          The conditional form inserted the region together with its text, which
+          screen readers do not announce — they announce mutations WITHIN a
+          region that was already there. Empty at rest, so there is nothing to
+          read until there is. */}
+      <p role="status" aria-live="polite" className="text-xs text-text-subtle">
+        {transient ?? ""}
+      </p>
       {error ? (
         <p role="alert" className="text-xs text-warning-text">
           {error}

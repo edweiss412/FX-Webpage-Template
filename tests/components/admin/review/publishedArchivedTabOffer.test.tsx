@@ -159,6 +159,27 @@ describe("PublishedArchivedTabOffer (P2)", () => {
     );
   });
 
+  it("the transient line's live region is mounted BEFORE the text arrives", () => {
+    // BL-ANNOUNCE-REGION-UNMOUNT-CLASS. Both offer variants rendered
+    // `transient ? <p role="status">…</p> : null` — a live region inserted
+    // together with its text, which screen readers do not announce. The fix is
+    // the mechanical one for this shape: mount the region unconditionally and
+    // toggle its TEXT, so what the reader sees is a mutation.
+    //
+    // Asserted at REST, before any action: if the region only exists once there
+    // is something to say, it can never have announced it.
+    render(<PublishedArchivedTabOffer {...base} tabName="OLD PULL SHEET" />);
+    const regions = document.querySelectorAll('[role="status"][aria-live="polite"]');
+    expect(
+      regions.length,
+      "a live region must already be in the DOM while there is nothing to announce",
+    ).toBeGreaterThan(0);
+    expect(
+      [...regions].every((r) => (r.textContent ?? "") === ""),
+      "and it must be empty at rest — a region that starts populated has nothing to mutate",
+    ).toBe(true);
+  });
+
   it("success with a failed sync shows the transient partial-success line before refresh", async () => {
     vi.stubGlobal(
       "fetch",
