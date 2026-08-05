@@ -122,13 +122,50 @@ async function load(page: import("@playwright/test").Page, mutant: boolean): Pro
  * gone, so a reconcile that DOES replace the node ends the recording instead of
  * hanging on a stale reference.
  */
+/**
+ * The oracle's arithmetic, as a pure function so its own failure modes are
+ * testable without a browser.
+ *
+ * TWO DEFECTS THE FIRST VERSION HAD, both found by cross-model review (R2 HIGH)
+ * and both reproduced as rows below:
+ *
+ *   counting from the first DETECTED change, not from the flip, let a delayed
+ *   snap through — samples [100,100,100,100,120,120,120] measured 0 frames of
+ *   travel because the count started at the change itself.
+ *
+ *   bucketing samples to 0.5px let a real multi-frame tween through whenever
+ *   its TOTAL travel was under that bucket — [100,100.1,100.2,100.3,100.4]
+ *   read as "never changed", and "never changed" was treated as a pass.
+ *
+ * So: frames are counted from the FLIP INDEX, distinct values are compared at
+ * full sample precision, and a flip that produced no change at all is a FAILED
+ * PREMISE rather than a quiet success.
+ */
+export function analyzeSamples(
+  samples: readonly number[],
+  flipIndex: number,
+): { distinct: number[]; framesToTarget: number; changed: boolean } {
+  const after = samples.slice(flipIndex);
+  const final = after[after.length - 1] ?? Number.NaN;
+  const start = after[0] ?? Number.NaN;
+  // Full precision, not 0.5px buckets: a tween's intermediate values differ from
+  // both endpoints by however little it moves per frame, and rounding them into
+  // an endpoint's bucket is exactly how a small tween hid.
+  const distinct = [...new Set(after.map((h) => Number(h.toFixed(2))))];
+  const changed = Number(start.toFixed(2)) !== Number(final.toFixed(2));
+  // Frames from the FLIP to the first sample that reads final.
+  const settledAt = after.findIndex((h) => Number(h.toFixed(2)) === Number(final.toFixed(2)));
+  return { distinct, framesToTarget: settledAt === -1 ? after.length : settledAt, changed };
+}
+
 async function sampleAcrossFlip(
   page: import("@playwright/test").Page,
-): Promise<{ samples: number[]; framesToTarget: number }> {
+): Promise<{ distinct: number[]; framesToTarget: number; changed: boolean; samples: number[] }> {
   await page.evaluate((ms) => {
-    const w = window as unknown as { __heights?: number[]; __done?: boolean };
+    const w = window as unknown as { __heights?: number[]; __done?: boolean; __flipAt?: number };
     w.__heights = [];
     w.__done = false;
+    delete w.__flipAt;
     const started = performance.now();
     const tick = () => {
       const node = document.querySelector("[data-testid='reconcile-box']");
@@ -144,17 +181,20 @@ async function sampleAcrossFlip(
   }, SAMPLE_MS);
 
   await page.getByTestId("reconcile-flip").click();
+  // STAMP THE FLIP. Counting from the first observed change measures the
+  // animation's own duration and calls a delayed start "immediate"; counting
+  // from here measures what the assertion actually claims.
+  await page.evaluate(() => {
+    const w = window as unknown as { __heights: number[]; __flipAt?: number };
+    w.__flipAt = Math.max(0, w.__heights.length - 1);
+  });
   await page.waitForFunction(() => (window as unknown as { __done?: boolean }).__done === true);
 
-  const samples = await page.evaluate(
-    () => (window as unknown as { __heights: number[] }).__heights,
-  );
-  const first = samples[0] ?? 0;
-  const last = samples[samples.length - 1] ?? 0;
-  // How many frames after the first CHANGE the height reaches its final value.
-  const changedAt = samples.findIndex((h) => Math.abs(h - first) > 0.5);
-  const settledAt = samples.findIndex((h) => Math.abs(h - last) <= 0.5);
-  return { samples, framesToTarget: changedAt === -1 ? 0 : Math.max(0, settledAt - changedAt) };
+  const { samples, flipAt } = await page.evaluate(() => ({
+    samples: (window as unknown as { __heights: number[] }).__heights,
+    flipAt: (window as unknown as { __flipAt?: number }).__flipAt ?? 0,
+  }));
+  return { samples, ...analyzeSamples(samples, flipAt) };
 }
 
 test.describe("section header — measured across a React reconciliation", () => {
@@ -178,14 +218,13 @@ test.describe("section header — measured across a React reconciliation", () =>
 
   test("no intermediate height is observable across the reconcile", async ({ page }) => {
     await load(page, false);
-    const { samples } = await sampleAcrossFlip(page);
+    const { samples, distinct, changed } = await sampleAcrossFlip(page);
     expect(samples.length, "the recorder must have sampled frames").toBeGreaterThan(5);
-
-    const endpoints = [...new Set(samples.map((h) => Math.round(h * 2) / 2))];
+    expect(changed, "the flip must move the height, or this row proves nothing").toBe(true);
     expect(
-      endpoints.length,
-      `every sampled height must be one of the two endpoints; saw ${endpoints.length} distinct ` +
-        `values: ${endpoints.join(", ")}. A value between them means the height was ANIMATED — ` +
+      distinct.length,
+      `every sampled height must be one of the two endpoints; saw ${distinct.length} distinct ` +
+        `values: ${distinct.join(", ")}. A value between them means the height was ANIMATED — ` +
         `a JS tween attaches no CSS transition and settles on the correct number, so this is the ` +
         `only assertion that can see it.`,
     ).toBeLessThanOrEqual(2);
@@ -193,12 +232,41 @@ test.describe("section header — measured across a React reconciliation", () =>
 
   test("the target height is reached within 2 frames of the flip", async ({ page }) => {
     await load(page, false);
-    const { framesToTarget } = await sampleAcrossFlip(page);
+    const { framesToTarget, changed } = await sampleAcrossFlip(page);
+    expect(changed, "a flip that changed nothing cannot demonstrate an immediate snap").toBe(true);
     expect(
       framesToTarget,
-      "an instant swap lands on its final height immediately; more than a couple of frames of " +
-        "travel is an animation by another name",
+      "counted from the FLIP, not from the first observed change — an instant swap lands on its " +
+        "final height immediately, and starting the count at the change would score a delayed " +
+        "snap as immediate",
     ).toBeLessThanOrEqual(2);
+  });
+
+  test("PEER SHAPES — the arithmetic rejects a delayed snap and a sub-pixel tween", () => {
+    // Codex R2 HIGH, both probes verbatim. Neither needs a browser: they are
+    // defects in the ORACLE's arithmetic, and the pure function is where they
+    // live. The shipped smooth-tween mutant discriminated both before and after,
+    // which is exactly why these had to be tested directly — a passing mutant
+    // row is not evidence about the shapes it does not exercise.
+    const delayedSnap = analyzeSamples([100, 100, 100, 100, 120, 120, 120], 0);
+    expect(delayedSnap.changed).toBe(true);
+    expect(
+      delayedSnap.framesToTarget,
+      "four frames of nothing then a snap is not an immediate swap; counting from the first " +
+        "CHANGE scored this 0",
+    ).toBeGreaterThan(2);
+
+    const tinyTween = analyzeSamples([100, 100.1, 100.2, 100.3, 100.4], 0);
+    expect(
+      tinyTween.distinct.length,
+      "a real multi-frame tween whose total travel is under half a pixel is still an animation; " +
+        "0.5px bucketing collapsed all five samples into one endpoint",
+    ).toBeGreaterThan(2);
+    expect(
+      tinyTween.changed,
+      "and it did change — treating sub-bucket travel as 'never changed' turned a live animation " +
+        "into a silent pass",
+    ).toBe(true);
   });
 
   test("MUTANT — the same oracle rejects a JS height tween", async ({ page }) => {
@@ -206,11 +274,10 @@ test.describe("section header — measured across a React reconciliation", () =>
     // ?mutant=js-height the component animates its height from JS with no CSS
     // transition; if this row ever passes, the oracle has stopped discriminating.
     await load(page, true);
-    const { samples, framesToTarget } = await sampleAcrossFlip(page);
-    const endpoints = [...new Set(samples.map((h) => Math.round(h * 2) / 2))];
+    const { distinct, framesToTarget } = await sampleAcrossFlip(page);
     expect(
-      endpoints.length > 2 || framesToTarget > 2,
-      `the mutant tween must be visible to the oracle, but it saw ${endpoints.length} distinct ` +
+      distinct.length > 2 || framesToTarget > 2,
+      `the mutant tween must be visible to the oracle, but it saw ${distinct.length} distinct ` +
         `heights settling in ${framesToTarget} frames`,
     ).toBe(true);
   });
@@ -220,15 +287,32 @@ test.describe("section header — measured across a React reconciliation", () =>
     // every assertion above true for the wrong reason: a replaced node cannot
     // show an intermediate height because it never had the old one.
     await load(page, false);
-    const box = page.getByTestId("reconcile-box");
-    await box.evaluate((n) => n.setAttribute("data-identity", "pre-flip"));
+    // MARK THE COMPONENT'S OWN NODES, never the harness wrapper. `reconcile-box`
+    // is a div THIS harness owns, outside `BreakdownSection`; it survives a prop
+    // flip whether or not the real header remounts underneath it, so marking it
+    // would let a remounting header pass a test whose whole claim is that one
+    // node owns both heights. Codex R1 HIGH — the wrapper marker was exactly
+    // that false negative.
+    const section = page.getByTestId("reconcile-section");
+    const heading = page.locator('[data-testid="reconcile-box"] :is(h3, h4)').first();
+    await expect(heading).toBeVisible();
+    await section.evaluate((n) => n.setAttribute("data-identity", "section-pre-flip"));
+    await heading.evaluate((n) => n.setAttribute("data-identity", "heading-pre-flip"));
+
     await page.getByTestId("reconcile-flip").click();
-    await expect(page.getByTestId("reconcile-section")).toBeVisible();
+    await expect(section).toBeVisible();
+
     await expect(
-      box,
-      "the marked node must survive the prop change; if React replaced it, the stable key is not " +
-        "doing what this harness claims",
-    ).toHaveAttribute("data-identity", "pre-flip");
+      section,
+      "the component's own root must survive the prop change; if React replaced it, the stable " +
+        "key is not doing what this harness claims and every settle assertion above is true for " +
+        "the wrong reason",
+    ).toHaveAttribute("data-identity", "section-pre-flip");
+    await expect(
+      heading,
+      "the heading element whose height the pill changes must be the SAME node across the " +
+        "reconcile — this is the node the oracle measures through",
+    ).toHaveAttribute("data-identity", "heading-pre-flip");
   });
 
   test("header height is driven by pill presence, not a fixed min-height", async ({ page }) => {
