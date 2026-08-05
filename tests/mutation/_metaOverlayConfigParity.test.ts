@@ -60,6 +60,10 @@ describe("fixtures are never discovered, and every one has a live owner", () => 
   const OWNERS: Record<string, string> = {
     "aliasImport.fixture.ts": "tests/mutation/_metaOverlayConfigParity.test.ts",
     "slowTest.fixture.ts": "tests/mutation/guardSurfaces.gate.test.ts",
+    "emptyItEach.fixture.ts": "tests/mutation/_metaPremiseContract.test.ts",
+    "emptyTestEach.fixture.ts": "tests/mutation/_metaPremiseContract.test.ts",
+    "emptyDescribeEach.fixture.ts": "tests/mutation/_metaPremiseContract.test.ts",
+    "associatedPlacement.fixture.ts": "tests/mutation/_metaPremiseContract.test.ts",
   };
 
   it("has fixtures to reason about", () => {
