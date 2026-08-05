@@ -1294,8 +1294,3 @@ at that viewport. Nobody has established which.
 **Trigger:** a harness that can drive a refusal through the real modal (a `setPublished`
 override on the shared harness would do it), or a decision about obstacle 2. Until then the
 docblock states the gap rather than papering over it.
-
----
-
-
----
