@@ -81,6 +81,13 @@ const NOT_CITATIONS = new Set([
   // Same reason: its `BL-PLANT*` entries are planted violations used to prove the
   // in-progress rules catch what they claim to, not references to real work.
   "tests/docs/_metaLedgerInProgress.test.ts",
+  // Same reason: its scratch ledgers plant `BL-OPEN-ONE`, `BL-PLANTED-*` and
+  // friends to prove archives are skipped and an unrecognized severity is
+  // reported by id. They are fixtures, not references to real work.
+  "tests/scripts/ledgerMass.test.ts",
+  // Same reason: its scratch ledgers plant `BL-PLANTED-*`, `BL-NEW-UNSIZED`
+  // and the four tier spellings to prove the sizing guard fails by name.
+  "tests/docs/_metaLedgerSizing.test.ts",
 ]);
 
 /**

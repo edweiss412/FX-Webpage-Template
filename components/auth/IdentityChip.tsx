@@ -44,7 +44,23 @@ export function IdentityChip({
 }) {
   return (
     <div data-testid="identity-chip" className="flex flex-col items-end gap-0.5 text-right">
-      <span className="text-sm font-semibold text-text-strong">
+      {/* The middle dot is `aria-hidden`, which is right — nobody wants "middle
+          dot" spoken — but it leaves the accessible name as one run-on phrase,
+          "Eric Weiss Lead A2", with no boundary between the person and the job.
+          The `aria-label` supplies in a comma what the separator supplies
+          visually: a pause. It OVERRIDES the children's text rather than adding
+          to it, so the visible run is untouched and no comma reaches the screen.
+          Either part may be blank while a picker round-trip is in flight, so the
+          two are joined only when both are present — "Eric Weiss," is a worse
+          utterance than the run-on this replaces. */}
+      <span
+        data-testid="identity-chip-identity"
+        aria-label={[name, role]
+          .map((s) => s.trim())
+          .filter(Boolean)
+          .join(", ")}
+        className="text-sm font-semibold text-text-strong"
+      >
         {name}
         <span className="text-text-subtle font-medium" aria-hidden="true">
           {" · "}

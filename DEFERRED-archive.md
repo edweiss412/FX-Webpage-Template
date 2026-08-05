@@ -2,6 +2,167 @@
 
 Historical ledger of resolved / stale / N/A / accepted deferrals — full provenance (what, why deferred, resolution). The live open queue is **[DEFERRED.md](./DEFERRED.md)**; entries graduate here when they ship. Newest work is not appended in strict order — grep by id.
 
+## NEWTAB-GUARD-UNDECIDABLE-2 — DEMOTED TO A RATIFIED LIMIT 2026-08-04
+
+Not resolved and not stale: **demoted** by the 2026-08-04 ledger filing bar (AGENTS.md
+"Ledger filing bar (2026-08-04)"; screen precedent and procedure in
+`docs/superpowers/specs/2026-08-04-backlog-convergence-design.md` §2.2, seeded row 2). The entry
+carried three items and not one of them was open queue work:
+
+- **(a) document-level `<base target="_blank">`** — already ratified as an accepted limit in
+  `docs/superpowers/specs/2026-07-25-newtab-announcement-family.md` §6.4. That section is now the
+  single record: it carries the one-line fix note (a lexical assertion that no `<base target=`
+  appears under `app/` or `components/`) and the un-defer trigger verbatim, and it no longer points
+  back at the open queue. Re-verified 2026-08-04: no `<base ` element exists under `app/` or
+  `components/`.
+- **(b)** was CLOSED 2026-07-25 by the R6 model change and said so in its own body — a call
+  expression is no longer an approved gating shape, so the case is REPORTED, pinned by "an
+  effectful gating predicate is reported, closing the R4 deferral" in
+  `tests/styles/_metaNewTabAnnouncement.test.ts`. §6.4's stale bullet still described it as an
+  accepted limit; corrected in the same commit as this demotion.
+- **(c) a COMPOUND gating predicate is reported, not compared** — ratified in §6.4 verbatim, with
+  the call-site remedy (hoist the condition into a named boolean) and the explicit instruction not
+  to widen the classifier.
+
+So the row was a duplicate index into §6.4, and a duplicate is exactly what resurrects a ratified
+limit as fresh work. Nothing is deleted: §6.4 holds the substance and the original entry body is
+preserved below.
+
+screen-disposition 2026-08-04: DEMOTE — every item is either already ratified in
+`2026-07-25-newtab-announcement-family.md` §6.4 or closed in-body; the spec section is the record.
+
+The original entry follows verbatim, with its in-flight status marker removed on archiving per
+invariant 12 — archives categorically reject in-progress work.
+
+### NEWTAB-GUARD-UNDECIDABLE-2 — statically undecidable guard limits (2026-07-25; item (b) closed same day)
+
+**Effort:** XS
+
+Ratified as accepted limits in spec §6.4 of
+`docs/superpowers/specs/2026-07-25-newtab-announcement-family.md`, surfaced by whole-diff review
+R4 on `fix/newtab-announcement-family`. Neither exists in the tree today; both are recorded so a
+future reader does not mistake them for oversights.
+
+**(a) Document-level `<base target="_blank">`.** It makes every relative anchor open a new tab
+with no per-anchor syntax to inspect, so the per-anchor guard cannot see it. **Fix when
+prioritized:** a one-line lexical assertion that no `<base target=` appears under `app/` or
+`components/` (cheap, and it would make the family closed under the base-target case too).
+Un-defer trigger: anyone proposing a `<base>` element, or the next pass on this guard.
+
+**(b) An effectful predicate evaluated twice — CLOSED 2026-07-25 by the R6 model change.** The
+original entry read: `{...(next() ? { target: "_blank" } : {})}` with `next()` also gating the hint
+passes, because the guard compared predicate TEXT and could not prove two calls agree (R4
+demonstrated it with a deterministic `next()` true only once). Its own prescribed fix was
+"restrict approved gating predicates to pure member/identifier expressions (reject call
+expressions)" — which is exactly what R6's fix did for an unrelated reason. A call expression is
+no longer an approved gating shape, so this case is now REPORTED, not accepted. Pinned by
+"an effectful gating predicate is reported, closing the R4 deferral" in
+`tests/styles/_metaNewTabAnnouncement.test.ts`. No follow-up work remains.
+
+**(c) A COMPOUND gating predicate is reported, not compared (new accepted limit, 2026-07-25).**
+Only an identifier, a property-access chain, or `!` over either is an approved gate. Deciding
+whether two DIFFERENT compound predicates denote the same runtime condition is not something a
+static pass can do: six review rounds each produced a new pair that a textual normalizer wrongly
+equated, and R6 alone enumerated eleven operator families. So the question is no longer asked.
+**If you hit this as a false positive** — a legitimate anchor gated on something like
+`isExternal && ready` — the fix is one line at the call site: hoist the condition into a named
+boolean (`const opensNewTab = isExternal && ready;`) and gate both the spread and the hint on
+that identifier. Do NOT widen the classifier; that is the loop this limit exists to end. Ratified
+in spec §6.4. Un-defer trigger: a case where hoisting is genuinely impossible.
+
+## DESTRUCT-ARM-ANNOUNCE-1 — GRADUATED 2026-08-04 (the work it tracked is already resolved)
+
+Not a demotion — a graduation the ledger missed. The entry deferred both halves of its finding to
+`BL-DESTRUCT-ARM-STATE-ANNOUNCEMENTS` ("Tracked as ..."), and that row closed on 2026-08-01:
+`BACKLOG-archive.md` carries it as RESOLVED under `fix/announce-a11y-pass`, with gap (1) fixed by the
+shared `ARM_EXPIRED_ANNOUNCEMENT` sr-only `role="status"` and gap (2) — the 4s-versus-speech timing —
+owner-ratified CLOSED as keep-4s-and-announce. Nothing was left for this row to track; it simply had
+no update note, so it kept reading as open work.
+
+Found by the 2026-08-04 semantic screen, which reads every open entry rather than grepping for
+hypothetical language — this row's language was fine, its POINTER was stale.
+
+**Un-defer path, unchanged:** the entry's own trigger ("an a11y pass on the destructive-confirm
+family, or any change to `ARM_REVERT_MS`") still applies to the constant, which is live at
+`lib/admin/destructiveConfirm.ts` with six consumer components. If `ARM_REVERT_MS` moves, re-open
+from the resolved row rather than this one.
+
+screen-disposition 2026-08-04: GRADUATE — the tracking row it delegates to resolved 2026-08-01 with
+both gaps closed, one by fix and one by owner ratification.
+
+The original entry follows verbatim.
+
+### DESTRUCT-ARM-ANNOUNCE-1 — [P2] the armed window closes silently
+
+From the same audit. At 4s the live region empties and the button's accessible name reverts, but a focused button's name change is not spoken — the user believes they are still armed. Separately, 4s is tight against ~3s of polite speech for the arm message.
+
+**Accepted, not fixed.** Both fixes mean revisiting `ARM_REVERT_MS` for assistive-tech users specifically, which is a decision across all 11 surfaces sharing the constant, not one component. Tracked as `BL-DESTRUCT-ARM-STATE-ANNOUNCEMENTS`.
+
+**Un-defer trigger:** an a11y pass on the destructive-confirm family, or any change to `ARM_REVERT_MS`.
+
+## PSQL-GUARD-RECALL-RESIDUAL — DEMOTED TO A DOCUMENTED LIMIT 2026-08-04
+
+Not resolved and not stale: **demoted** by the 2026-08-04 ledger filing bar (AGENTS.md
+"Ledger filing bar (2026-08-04)"; screen precedent and procedure in
+`docs/superpowers/specs/2026-08-04-backlog-convergence-design.md` §2.2, seeded row 1). The entry was
+already probe-BACKED — three live mutants, each demonstrated against the guard — but all three sit on
+surfaces this repository does not use, and their worst case on THIS tree is nothing at all: the
+census stayed 75 sites / 0 unprotected through every round that found them. Under the filing bar that
+makes them documented limits of the guard, not open queue work.
+
+**The substance moved, it was not deleted.** All three limits, the reason each is recorded rather
+than fixed, and the un-defer trigger verbatim now live in the "Documented limits" block in the
+guard's own file, `tests/cross-cutting/psqlStartupFiles/scan.ts` (precedent: the RATIFIED SCOPE
+header in `tests/docs/_ledgerMdast.ts`). Each limit there carries a probe re-run against the shipped
+guard on 2026-08-04:
+
+- limit 1 (glob in the command word) — one site, `suppressesStartupFiles: true`, `hasDynamicTokens: false`; certified, so the miss is live
+- limit 2 (JS spawn with a non-POSIX `shell:` option) — one site, tokens `["-F", "@args", "-X", "mydb"]`, `suppressesStartupFiles: true`
+- limit 3 (quoted Windows path in shell text) — zero sites; invisible, not merely uncertified
+
+**Un-defer path unchanged:** the trigger below still applies, and it now reads off the guard file
+rather than this queue. If it fires, re-file from the scan.ts block.
+
+screen-disposition 2026-08-04: DEMOTE — probe-backed limits on surfaces this tree does not use; worst
+case is inert here, so the record belongs in the guard's limits block, not the open queue.
+
+The original entry follows verbatim, with its in-flight status marker removed on archiving per
+invariant 12 — archives categorically reject in-progress work.
+
+### PSQL-GUARD-RECALL-RESIDUAL — three hypothetical gaps in the psql `-X` guard (2026-08-03)
+
+**Effort:** S
+
+The `-X` class is CLOSED on this repository: `tests/cross-cutting/psqlStartupFiles/scan.ts` walks
+the tree and reports 75 psql call sites, 0 unprotected, 0 indirections, and a new site fails by
+default. Adversarial review rounds R28-R40 hardened the guard's RECALL well past that — roughly 120
+defects fixed, including several real false safes — and closed every gap that touches a surface this
+repo uses.
+
+Three demonstrated gaps remain, all on surfaces this repo does not use, each with a live mutant and
+each pinned by a test asserting the CURRENT behaviour so a future fix has a failing case waiting:
+
+1. **A cardinality-changing GLOB in the COMMAND WORD.**
+   `/opt/homebrew/Cellar/postgresql@*/*/bin/psql -X mydb` expands to several psql paths, so the
+   first receives another as its first positional and `-X` arrives after it — discarded under
+   `POSIXLY_CORRECT`. Globs are refused in ARGUMENTS; the command word is not checked.
+2. **A JS spawn whose `shell` option names a NON-POSIX shell.**
+   `execFileSync("psql", ["-F", "@args", "-X", "mydb"], {shell: "/opt/homebrew/bin/pwsh"})` — the
+   both-readings check parses the joined argv as POSIX shell, while PowerShell splatting removes the
+   empty `@args`, so `-F` consumes `-X`.
+3. **A QUOTED Windows path in SHELL text.** `"C:\pg\bin\psql.exe"` — inside double quotes bash
+   keeps a backslash that precedes an ordinary character, and this lexer strips it. The JS spawn
+   form of the same path IS read, as of R40.
+
+**Why deferred rather than fixed:** none is a miss on any call site in this tree. The census stayed
+75 sites / 0 unprotected through all thirteen rounds, and each of these needs a structural change
+(command-word glob analysis, reading the spawn options object the guard deliberately does not read,
+and a lexer change to double-quote backslash handling) whose regression risk exceeds the risk it
+removes for a Linux-only, no-container, no-Windows repository.
+
+**Un-defer trigger:** this repo adding a Windows runner, a container action, a non-POSIX workflow
+step, or any psql invocation built through a glob or a `shell:` spawn option.
+
 ## PSQL-STARTUP-FILE-NO-X-CLASSWIDE — GRADUATED 2026-08-03
 
 RESOLVED by branch `chore/psql-startup-file-no-x`. Every psql call site in tracked non-docs source

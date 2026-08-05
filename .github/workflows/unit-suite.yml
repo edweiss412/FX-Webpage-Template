@@ -108,6 +108,17 @@ jobs:
         shard: [1, 2, 3, 4, 5, 6, 7, 8]
     steps:
       - uses: actions/checkout@v4
+      # tests/scripts/ledgerMass.test.ts cross-checks the frozen ledger fixture
+      # against the SAME blobs read back out of git history, so the oracle cannot
+      # be made to pass by editing the fixture. actions/checkout defaults to
+      # fetch-depth: 1, which does not carry that commit, and the test FAILS
+      # (never skips) when it is unreachable. Depth-1 on this ONE object, not
+      # fetch-depth: 0 — full history would regress the unit-suite wall-clock
+      # work that took this gate from 9.1 to ~4.2 minutes. Fetch-by-SHA needs the
+      # full 40 chars. The rev is pinned to the fixture's by that same test, so
+      # regenerating the fixture at a new date fails until this line follows.
+      - name: Fetch the frozen-ledger fixture rev for the ledger-mass oracle
+        run: git fetch --no-tags --depth=1 origin 8d78cdf13f4e3844c6c596bc94801f73204c234f
       - uses: ./.github/actions/setup
       - uses: supabase/setup-cli@v1
         with:

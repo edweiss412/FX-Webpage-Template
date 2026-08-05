@@ -5,8 +5,9 @@
  *
  * Avatar button → popover with the admin identity (email primary line)
  * and a Sign out control. Sign out is a real POST form to
- * /auth/sign-out — the route is POST-only (app/auth/sign-out/route.ts:89;
- * GET returns 405), so a Link/GET would dead-end. The form is same-origin
+ * /auth/sign-out — the route is POST-only (app/auth/sign-out/route.ts:84 is the
+ * only verb exported; :133 answers everything else 405), so a Link/GET would
+ * dead-end. The form is same-origin
  * (relative action), satisfying the route's same-origin guard.
  *
  * Open/close state is local; the popover closes on backdrop click and on

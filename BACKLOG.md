@@ -71,13 +71,28 @@ Structural note for whoever takes this: the emit is attached to the locked wrapp
 
 ## BL-CAPABILITY-LOSS-SURVIVING-ROW-FALSE-POSITIVE — arm (c) reports a capability loss for a row that is still live
 
-**Status:** OPEN · **Severity:** LOW-MEDIUM (false operator alert; no data impact) · **Class:** notice fidelity · **Filed:** 2026-08-03 (`fix/apply-undo-audit-fidelity`, spec §9, deferred under class-sweep exception (c)) · **Effort:** M · **Reachability: INFERRED, NOT PROBED — confirm before scheduling.**
+**Status:** OPEN · **Severity:** LOW-MEDIUM (false operator alert; no data impact) · **Class:** notice fidelity · **Filed:** 2026-08-03 (`fix/apply-undo-audit-fidelity`, spec §9, deferred under class-sweep exception (c)) · **Effort:** S · **Reachability: PROBED 2026-08-04 — REACHABLE on one hold shape of four.**
 
-`capabilityRoleChangesForNotice` arm (c) (`lib/sync/phase2.ts:323-331`) reports a capability loss for any `previousCrewMembers` entry that is absent from `nextByName` and absent from `renamedAway`. `nextByName` is built from `appliedCrewMembers`, which is the post-hold **parse** list (`lib/sync/applyParseResult.ts:163`), while `deleteKeepNames` (`lib/sync/applyParseResult.ts:152`) protects rows from deletion **without** adding them to that list. A row can therefore survive the apply with its capability flags intact and still be reported as a loss.
+`capabilityRoleChangesForNotice` arm (c) (`lib/sync/phase2.ts:347-356`) reports a capability loss for any `previousCrewMembers` entry that is absent from `nextByName` and absent from `renamedAway`. `nextByName` is built from `appliedCrewMembers`, which is the post-hold **parse** list (`lib/sync/applyParseResult.ts:189`), while `deleteKeepNames` (`lib/sync/applyParseResult.ts:178`) protects rows from deletion **without** adding them to that list. A row can therefore survive the apply with its capability flags intact and still be reported as a loss.
 
-The rename-linked instances of this shape are fixed in the closing PR via the survival test in its spec §2.1 A3. The non-rename instances are not: a held or delete-protected member absent from the parse, named by no rename pair, has no `renamedAway` entry to spare it.
+The rename-linked instances of this shape were fixed in the filing PR via the survival test in its spec §2.1 A3. The non-rename instances are what this row tracks.
 
-**Not yet probed.** `heldNames.add(...)` is unconditional per surviving hold (`lib/sync/holds/holdAwareApply.ts:216`) but `protectedNames.add(...)` fires only in specific hold-kind branches (`lib/sync/holds/holdAwareApply.ts:237`, `lib/sync/holds/holdAwareApply.ts:434`, `lib/sync/holds/holdAwareApply.ts:448`), so which hold kinds actually produce a surviving-but-unlisted row is unestablished. **First step is a probe per hold kind, not a patch** — if no hold kind produces the shape, this closes as unreachable. Deferred because the fix is a redesign of arm (c)'s absence predicate on a path no unit in the closing PR touches.
+**PROBED 2026-08-04**, per hold kind × domain × sub-shape, end-to-end through `runPhase2` (survival read from `crew_members` after the apply; the report read from the real `roleFlagsNotice`, since `capabilityRoleChangesForNotice` is not exported). Probe: `tests/sync/capabilityLossReachability.probe.test.ts`.
+
+| hold kind / domain / sub-shape                           | survived | reported | verdict                       |
+| -------------------------------------------------------- | -------- | -------- | ----------------------------- |
+| `mi11_pending` / `crew_email`                            | yes      | no       | correct                       |
+| `undo_override` / `crew_email`                           | yes      | **yes**  | **FALSE LOSS**                |
+| `undo_override` / `crew_identity` (held-present restore) | yes      | no       | correct                       |
+| `undo_override` / `crew_identity` (tombstone)            | no       | yes      | real loss, correctly reported |
+
+**The premise holds, but for ONE shape, and not for the reason the row assumed.** It is not arm (c)'s absence predicate that is wrong: it is a two-line asymmetry among the four branches that delete-protect a name. Every other branch also puts a row BACK — `mi11_pending`'s genuine-removal fallback retains the held row (`lib/sync/holds/holdAwareApply.ts:322`), and the `crew_identity` restore branch retains it (`lib/sync/holds/holdAwareApply.ts:449`) — and retained rows are merged into `plan.crewMembers` at `lib/sync/holds/holdAwareApply.ts:390`, which is what becomes `appliedCrewMembers`. `applyUndoOverrideToMaps`'s `crew_email` branch (`lib/sync/holds/holdAwareApply.ts:432-439`) adds `protectedNames` and `pinnedIdentity` and returns with no `retainRows.set`. That is precisely "survives the delete, absent from the applied list", so a live LEAD is announced to the operator as having lost LEAD access.
+
+**Re-sized M → S** on the probe: the search space collapsed from "redesign arm (c)'s absence predicate on a path no unit touches" to one branch that is asymmetric with its three siblings.
+
+screen-disposition 2026-08-04: KEEP — probe (`tests/sync/capabilityLossReachability.probe.test.ts`) demonstrates the false loss end-to-end on `undo_override`/`crew_email`; three sibling shapes verified correct in the same run, and all four are pinned at current behaviour.
+
+**Work.** Restore the symmetry at the source rather than loosening arm (c). The tombstone row above is the counterweight and is pinned in the same probe file: it is a REAL loss, and any fix that suppresses arm (c) more aggressively to silence the false positive will silence that one too. All four rows are pinned at current behaviour, so the fix arrives with a failing case waiting for it.
 
 ---
 
@@ -118,20 +133,9 @@ existing guards walk, which is its own blast radius and its own review.
 
 ---
 
-## BL-LEDGER-MDAST-SHARED-HOME — the ledger walker lives under tests/ but is consumed by scripts/
+**Reachability:** INFERRED, NOT PROBED — the probe that settles it: build a scratch root holding a fifth ledger file outside the family (say `WATCHLIST.md`) and assert what `ledgerFiles`, `_metaLedgerReferentialIntegrity`'s hardcoded name list, and the claim reader each see. The probe is cheap and is the first scheduled step, not the widening.
 
-**Status:** OPEN · **Severity:** low · **Class:** module placement · **Filed:** 2026-08-03 (`chore/ledger-claim-visibility`, spec §9.3) · **Effort:** M
-
-`tests/docs/_ledgerMdast.ts` is the authoritative ledger walker and is pure by construction — the
-referential-integrity guard forbids `node:fs`, `node:path`, and `require(` inside it. Once a script
-consumes it, `scripts/**` imports from `tests/**`, which is backwards.
-
-Relocating it beside its consumers is the repair. Deferred out of `chore/ledger-claim-visibility`
-under exception (c): it spans four importers plus three hardcoded path exemptions inside
-`tests/docs/_metaLedgerReferentialIntegrity.test.ts` that must all move in lockstep, none of which
-that branch otherwise touches.
-
----
+screen-disposition 2026-08-04: ANNOTATE-INFERRED, stays open. It does NOT qualify for demotion: the worst case is a new ledger family silently invisible to three guards, and a SILENT miss is the opposite of the conservative-plus-surfaced shape the filing bar routes to documented limits. Verified 2026-08-04 that the claim is accurate and inert today — `scripts/lib/ledger-fields.ts:42-45` filters `readdirSync` on `/^(BACKLOG|DEFERRED)(-archive)?\.md$/`, `tests/docs/_metaLedgerReferentialIntegrity.test.ts:56-59` hardcodes the same four names independently, and the repo root holds exactly those four files. **Citation corrected:** the `readdirSync` + regex the body attributes to `tests/docs/_metaLedgerInProgress.test.ts:46` lives in `scripts/lib/ledger-fields.ts:42-45`; that test line is the closing brace of its import block.
 
 ## BL-TASK-ENROLLMENT-SINGLE-DEPTH — the declared task region cannot express hierarchical or interleaved plan shapes
 
@@ -508,6 +512,10 @@ The stronger protocol already exists and was used for the original 2026-06-23 pa
 
 **Work:** re-run that closed-port protocol across all ~691 current parallel-project files, and compare per-file assertion COUNTS against a run with the database present. A file whose assertion count drops is silently degrading. Any found either move to serial or get an explicit note saying the fallback path is what is under test.
 
+**Reachability:** INFERRED, NOT PROBED — the probe that settles it: run the `parallel` project once with the DB port closed and once with a DB present, and diff the PER-FILE assertion counts. A file whose count drops without a skip is the shape the entry describes. That probe, not the audit, is the first scheduled step.
+
+screen-disposition 2026-08-04: ANNOTATE-INFERRED, stays open. The entry names no instance, and the escape hatch it needs is the one the filing bar prescribes. Static facts re-verified 2026-08-04: the job is `.github/workflows/unit-suite.yml:146-147` (3 legs, `--project=parallel`, boots nothing), rolled up at `:188-198`, over `PARALLEL_TEST_GLOBS` at `vitest.projects.ts:94-140`. **Count corrected:** the body's "~691 current parallel-project files" is stale — the same globs now resolve 875 `.test.ts(x)` files, which makes the unmeasured surface ~27% larger than the row claims, not smaller.
+
 ## BL-CI-RECLASSIFY-PARALLEL-STABILITY — revive the serial→parallel reclassification only with a concurrency-stability + clean-wall proof
 
 **Filed:** 2026-07-20 (arc SHELVED). **Class:** CI perf. **Effort:** L (structural stability + multi-run measurement).
@@ -561,6 +569,8 @@ Three review rounds tried to close this with an `app_settings` predicate inside 
 **Bounded, not open-ended:** refresh renews only the configured folder and renews nothing when the folder read fails, so a stale row is never renewed under any branch. It dies at its own `expires_at` within `WATCH_TTL_MS`, is reaped to `expired`, and is GC'd. Worst case is up to 24h of webhook deliveries for a folder nobody watches — the same class that was PERMANENT before that work landed.
 
 **Amends AC-6.18**, which is otherwise absolute. Design context: `docs/superpowers/specs/observability/2026-07-26-watch-renewal-lifecycle-design.md` §3.2.4.
+
+screen-disposition 2026-08-04: KEEP — probe-adjacent evidence already in the tree, and the worst case is not conservative. The race is asserted by the production code itself at `app/api/admin/onboarding/finalize-cas/route.ts:860-862` ("A subscriber that inserts AFTER promotion commits is not covered — closing that needs serialization this surface deliberately does not have"), the same-transaction supersede it races is at `:863-869`, and the isolation premise is stated verbatim at `lib/drive/watch.ts:1070-1072` ("`sql.begin` runs at READ COMMITTED, where each statement takes its own"). `activatePending` (`lib/drive/watch.ts:253-283`) takes no `for update`, no advisory lock and no isolation override. The outcome is a stale `active` channel delivering webhooks for an unwatched folder for up to 24h — a wrong live state, not a refusal, so it is not a documented-limit candidate.
 
 ## BL-SERVER-ACTION-ORIGIN-GATE — same-origin gate for the crew guest Server Action
 
@@ -700,26 +710,6 @@ trailing. What remains is prose that names a day without any of those tokens.
 **Fix (when prioritized):** only worth it if real corpus labels ever carry this prose. Check the
 6-PDF corpus first; today every label there is a clean single date.
 
-### BL-AGENDA-PERLINK-COMPLETENESS — date-partitioned multi-PDF agendas never fold
-
-**Status:** OPEN — surfaced by PR #610 review R5 (MEDIUM) · **Severity:** low · **Class:** FEATURE REACH
-
-`visibleAgendaDaysForViewer` requires ONE link to locate EVERY date the viewer is assigned before it
-will fold anything (`located.size === R.size`, with `R` the show-wide viewer date set). When a show
-publishes several agenda PDFs partitioned by date — link A covering May 5+7, link B covering May 6+8,
-viewer assigned May 5+6 — each link locates one of two and both fail open. Folding is therefore
-systematically disabled for that shape even though each link's own rows are completely identifiable.
-
-**Deliberately not changed in #610.** Completeness is show-wide precisely because loosening it is what
-produced six separate fold-the-viewer's-day defects across five review rounds. Narrowing it to "this
-link's own rows are identifiable AND it located at least one viewer date" is probably the right rule,
-but it re-opens that class and belongs in a change that can carry its own adversarial pass. The
-current behaviour is SAFE — it fails open — so the cost is a missing improvement, not a wrong page.
-
-**Fix (when prioritized):** per-link completeness, with the invariant search in
-`tests/agenda/agendaViewerDaysInvariant.test.ts` extended to multi-link fixtures first, so the
-loosening is measured against the property before it ships.
-
 ### BL-AGENDA-POSITIONAL-DAYSET-FALLBACK — the day-set matcher has no positional fallback
 
 **Status:** OPEN — deliberate omission, ratified in-spec · **Severity:** very low · **Class:** FEATURE COMPLETENESS
@@ -746,6 +736,8 @@ alert-audience-split (spec §6.7) makes health-alert resolution developer-gated 
 **Status:** OPEN (2026-07-25) · **Severity:** low · **Class:** TELEMETRY GRANULARITY
 
 `PrepareOnboardingFileError` has two kinds, `drive_fetch` and `parse`, and the post-parse internal helpers (`finalizeArchivedTabs`, `reconcileIncludedTab`, `discardAndRerun`'s fix-up, `applyRoleTokenMappings`) currently fall to `drive_fetch` — today's unchanged behavior. Neither code is right for them: a bug in the role-mapping overlay is not a Drive failure, and it is not something Doug fixes by editing his sheet either, so `STAGED_PARSE_FAILED` ("fix its structure", `warn` severity) would be a new wrong instruction. **Fix (when prioritized):** a third `internal` kind mapped to a code that tells the operator to contact the developer, with the finalize severity staying `error`. Needs a new §12.4 row and the full four-gate CI fan-out, which is why it was not folded into the batch that surfaced it.
+
+screen-disposition 2026-08-04: KEEP — PROBED, and the mislabeling is deterministic rather than hypothetical. Verified 2026-08-04: `PrepareOnboardingFileError.kind` is the two-member union `"drive_fetch" | "parse"` at `lib/sync/runOnboardingScan.ts:1164-1172` (repeated in `asPrepareError` at `:1177`), there is no `"internal"` anywhere under `lib/sync/`, and the doc comment at `:1154` states outright that `drive_fetch` is "everything else, deliberately including the post-parse" helpers. All four helpers the entry names exist and are reachable: `applyRoleTokenMappings` (`lib/sync/roleMappingOverlay.ts:62`), `reconcileIncludedTab` (`lib/sync/pullSheetOverride.ts:157`), `discardAndRerun` (`:199`), `finalizeArchivedTabs` (`:229`). A precedent for the operator-facing code already exists at `lib/messages/catalog.ts:812` (`ONBOARDING_FINALIZE_INTERNAL_ERROR`). Every one of those faults reports today as a Drive failure.
 
 ### BL-CRON-WORKBOOK-FAULT-CODE — a corrupt workbook on the cron path reports SYNC_FILE_FAILED
 
@@ -987,31 +979,6 @@ a surface with many simultaneous overlays. Not worth a standalone change at two 
 
 ---
 
-## BL-FITWITHINCLIP-CLIP-SCROLL-STALE — a SCROLLING clip ancestor is never re-measured on scroll
-
-**Effort:** S
-
-Surfaced by the non-degraded impeccable gate rerun on PR #658 (2026-08-02).
-
-`findClippingAncestor` (`components/admin/useFitWithinClip.ts`) accepts ANY non-`visible`
-overflow as the clip edge, which deliberately includes `overflow-y: auto` — a scrolling
-ancestor clips just as a `overflow-clip` panel does. But the effect subscribes to resize
-(ResizeObserver on the clip ancestor and the offsetParent), `transitionend`, and window
-resize. It never listens for `scroll`.
-
-So on a surface where the clip edge SCROLLS, the fitted cap is computed once against the
-ancestor's position at mount and then goes stale: scrolling moves the clip edge relative to
-the overlay without resizing anything, and nothing re-measures.
-
-Not reachable on today's surfaces — every current clip ancestor is the review-modal panel
-(`overflow-clip`, non-scrolling). This is a latent gap in the hook's stated contract, not a
-live defect.
-
-**Trigger:** the first consumer whose clip ancestor scrolls. Fix is a passive `scroll` listener
-on the resolved clip ancestor, routed through the same coalescer as the other signals.
-
----
-
 ## BL-FITWITHINCLIP-DOUBLE-ANCESTOR-WALK — `findClippingAncestor` walks the tree twice per effect run
 
 Surfaced by the non-degraded impeccable gate rerun on PR #658 (2026-08-02).
@@ -1234,6 +1201,8 @@ Speculative scope: 1-2 weeks of milestone-shape work (design pass + impl + tests
 
 **Promotion mechanics:** Trivial swap once accepted: `<Lock size={16} aria-hidden="true" />` + thread the existing `aria-label="IDENTITY_DEACTIVATED_LOCK_HINT" lookup` to the parent `<span>`.
 
+screen-disposition 2026-08-04: PREREQ-FENCED, stays open, NOT claimed by any branch of this arc. The fence is the entry's own, quoted: promotion requires "(a) cross-platform visual regression suite lands and shows the emoji glyph as a real friction point" — closing it now would violate the entry rather than honor it, and the suite does not exist. **Citation corrected in this pass:** the glyph is no longer at `_PickerInterstitial.tsx:171`; it moved to `app/show/[slug]/[shareToken]/_ClaimedRowButton.tsx:148`, inside `<span data-testid="picker-row-lock" aria-hidden="true">` at `:144`, with the sr-only hint already a sibling at `:150` (fed `messageFor("IDENTITY_DEACTIVATED_LOCK_HINT")` from `_PickerInterstitial.tsx:212-215`). So the entry's proposed "thread the aria-label to the parent span" is already satisfied by a different mechanism; only the glyph swap remains, and it stays fenced.
+
 ---
 
 ### BL-IDENTITYCHIP-SUB390-COLLISION — IdentityChip + page title collision audit at 320px
@@ -1250,47 +1219,9 @@ Speculative scope: 1-2 weeks of milestone-shape work (design pass + impl + tests
 
 **Promotion mechanics:** Likely solution is to allow the right slot to wrap below the title at narrow widths (`flex-col sm:flex-row` on the parent). Test pin via Playwright `setViewportSize({ width: 320 })` boundingbox assertion.
 
----
+**Reachability:** INFERRED, NOT PROBED — the probe that settles it: Playwright `setViewportSize({ width: 320 })` against the post-pick crew header, asserting the bounding boxes of `components/layout/Header.tsx:68` (the `min-w-0 flex-1` title column) and `:118` (`data-testid="page-header-right-slot"`, `shrink-0 self-start`) do not overlap, using the longest name+role string the corpus actually contains. Run that BEFORE any layout change.
 
-### BL-IDENTITYCHIP-SR-SEPARATOR — `<name> · <role>` separator SR experience polish
-
-**Filed:** 2026-05-24 from M11.5 §B impeccable v3 attestation (Unit 3 — post-pick header chrome audit P3).
-
-**Effort:** S
-
-**Description:** IdentityChip renders `<name>` + `·` separator + `<role>` as flat siblings inside a single span. The `·` is `aria-hidden="true"` so SRs don't announce the punctuation, but they read "Eric Weiss Lead A2" as a flat phrase rather than "Eric Weiss, Lead A2" (proper pause). A `aria-label="Eric Weiss, Lead A2"` on the parent span (or wrapping in a comma-separated visually-hidden duplicate) would tighten the experience.
-
-**Why backlog, not deferred:** The current SR behavior is acceptable per WCAG (no ambiguous content, no missing context). The polish is genuinely speculative — depends on whether SR users complain about the run-on phrasing.
-
-**Promotion prerequisite:** EITHER (a) an a11y audit pass picks it up as part of a broader SR-experience review, OR (b) a crew member reports the issue.
-
-**Promotion mechanics:** Add `aria-label={`${name}, ${role}`}` to the parent `<span>` and visually-hide the middle dot separator. ~3-line edit.
-
----
-
-### BL-TERMINAL-FAILURE-ICON — visual failure cue beyond muted gray
-
-**Filed:** 2026-05-24 from M11.5 §B impeccable v3 attestation (Unit 2 — TerminalFailure critique LOW).
-
-**Effort:** S
-
-**Description:** `<TerminalFailure>` uses the muted text-text-strong / text-text-subtle palette and renders as a centered max-w-md block. DESIGN.md §1 correctly bans red/green as primary semantic colors, but the surface has no iconography or shape signal that this IS a failure render. A neutral icon (e.g., lucide-react `AlertCircle` or `CloudOff`) above the h1 would improve glance-ability without violating the color-blind floor.
-
-**Why backlog, not deferred:** The surface is rare in production — only renders on infra-error paths. Crew will encounter it at most a few times per quarter. Adding an icon is a glanceability nicety, not a recovery affordance gap (the new retryHref already closes that).
-
-**Promotion prerequisite:** EITHER (a) a polish pass picks it up as part of a broader auth-surface visual update, OR (b) production telemetry shows TerminalFailure is rendering often enough that glanceability becomes load-bearing.
-
-**Promotion mechanics:** Add an icon (lucide-react `AlertCircle`) above the h1, sized at `--icon-lg` (32px), in `text-text-subtle`. ~5-line edit.
-
-### BL-RATE-LIMIT-SNAPSHOT-DURABILITY — DB-backed snapshot store for rate-limit fixture seed/restore
-
-**Filed:** 2026-05-28 from M12 Phase 0.E close-out §6 finding 3 (R9 durability residual).
-
-**Description:** The `validation:report-fixtures` rate-limit-admin / rate-limit-crew outcomes persist their pre-seed `(prior_count, recorded_hour_bucket, identity)` snapshot to a file-backed store at `.validation-state/rate-limit-{admin,crew}-snapshot.json` (gitignored) so cleanup can restore the exact pre-seed bucket state. A crash in the narrow window **between the rate-limit seed-commit (DB write) and the snapshot-file rewrite** leaves the snapshot stale — cleanup would then restore the wrong count (or the refuse-existing-snapshot guard blocks re-seed until manual file removal). The R-series ratified this as a **zero-impact bound** under the file-backed-only strategy: the window is sub-second, the blast radius is one validation-Supabase rate-limit bucket, and the R43 F39 refuse-existing-snapshot guard + `--force-overwrite-snapshot` escape hatch + unlink-on-cleanup semantics bound the failure to "operator re-runs cleanup with the force flag." No production data is ever at risk (validation Supabase only).
-
-**Why backlog, not deferred:** Fully closing the crash-window requires authorizing a **DB-side snapshot table** so the snapshot write shares the same transaction as the seed-commit (atomic seed+snapshot). That's a **scope expansion beyond M12**: `validation_state` cannot be the backend (its `CHECK (key = 'validation_seed')` singleton constraint rejects any other key, and the table is RLS-locked + REVOKE-locked per R17), so closing this means a new migration adding a dedicated snapshot table + its RLS/REVOKE posture + RPC-gating registry row (per the postgrest-dml-lockdown class-wide invariant) + the harness rewrite to write snapshot-in-transaction. None of that is scoped or planned. The file-backed strategy is the ratified M12 design; this entry exists only so the idea isn't lost if rate-limit fixtures ever prove flaky in practice.
-
-**Promotion prerequisite:** EITHER (a) observed real flakiness from the crash-window during Phase 1 walks or future validation runs, OR (b) a broader validation-tooling-durability milestone that justifies the new snapshot table + its full lockdown posture. Absent either, the file-backed bound stands.
+screen-disposition 2026-08-04: PREREQ-FENCED + ANNOTATED, stays open, NOT claimed. Two independent reasons to leave it: the entry's own words are hedged ("could collide depending on title length + chip's name+role string length", "320px is out of spec"), and its fence is external — "(b) the project's mobile primary target widens to include sub-390px viewports". The probe above is now the first scheduled step per the ledger filing bar, rather than the layout change.
 
 ---
 
@@ -1321,18 +1252,6 @@ Speculative scope: 1-2 weeks of milestone-shape work (design pass + impl + tests
 **Why backlog, not deferred — F6 showed it's "not cheap" + no committed trigger:** the undo restore path needs the **pre-apply state** in `before_image`, but the Phase-2 snapshot (`applyShowSnapshot` → `previousCrewMembers`, `lib/sync/runScheduledCronSync.ts:913-932,1088-1100`) captures **prior crew rows ONLY**. It does NOT snapshot prior hotel/room/contact rows, show fields, diagrams, or reel state. Backing non-crew undo requires **widening that prior-state capture** per domain (a real Phase-2 change), plus a domain-specific restore in `undo_change` and the feed's undoable predicate. The approved scope call (#9) was "crew-identity undo first, non-crew only if cheap"; F6 determined non-crew is not cheap.
 
 **Technical home + promotion prerequisite:** widen `applyShowSnapshot`/`before_image` to capture the relevant prior non-crew rows → add the domain to `undo_change`'s direction handling + the feed's `isCrewDomainChangeKind`-style predicate (it currently single-sources `{crew_added,crew_removed,crew_renamed}`). Promote when an operator explicitly wants to undo a non-crew change in-app (rather than re-editing the sheet), and the capture-widening cost is judged worth it.
-
----
-
-### BL-FEED-BUTTON-SUCCESS-ANNOUNCE — Accept and Approve/Reject announce failures but not successes
-
-**Filed:** 2026-08-03 from `feat/sync-feed-undo-announce`. **Class:** a11y asymmetry. **Effort:** S.
-
-That branch gave Undo a success announcement and made all three feed action buttons announce their FAILURES (the card wrapper is now an always-mounted `role="status"`). Accept and Approve/Reject were deliberately left without success announcements: the mechanism is free now (consume `UndoAnnounceContext`, call `announce`), but the COPY is a product decision, not a mechanical one — "Change accepted"? naming the row? saying what acceptance means? Undo's copy took two review rounds to settle punctuation alone.
-
-**Work:** decide the copy for each, then reuse `undoneAnnouncement`'s shape in `components/admin/undoAnnounceContext.ts`.
-
-**Status:** OPEN.
 
 ---
 
@@ -1580,6 +1499,8 @@ The Phase 1 crew-page projection alert (`TILE_PROJECTION_FETCH_FAILED`, §4.13 o
 
 **Promotion prerequisite:** a /help-docs hardening pass that can absorb re-validating the full label set, OR a concrete instance where a loose match let a wrong label ship. Then add an exact/word-boundary tier for labels under ~6 chars (keep substring for long, unambiguous labels), and reconcile every now-failing label in the same commit (per the structural-defense-calibration rule).
 
+screen-disposition 2026-08-04: KEEP — PROBED, and the entry's own premise is REFUTED. The body says "no current doc relies on the loose match — this is hardening, not a live bug." It is a live bug. Enumerating every bold/backtick candidate of six characters or fewer across `app/help/**` (17 of them) against a comment-stripped `app/` + `components/` haystack found two that have NO standalone UI-string occurrence and pass the crosswalk only by matching an IMPORT IDENTIFIER: `**Share**` (`app/help/getting-started/page.mdx:8`) first matches `import { loadShowShareToken } …`, and `**Viewer**` (`:10`) first matches `import { getShowForViewer, … } …`. Grepping `app` + `components` (excluding `app/help`) for `"Share"` / `'Share'` / `>Share<` and the same three shapes for `Viewer` returns zero hits each, and neither is registered in `tests/help/_uiLabelExceptions.ts`. The matching sites are `tests/help/_metaUiLabelCrosswalk.test.ts:328` (heuristic layer) and `:408` (declared registry), both `includes`. Stays open with the premise corrected: the guard is currently attesting two labels that the product does not render.
+
 ---
 
 ### Items considered for backlog but NOT included
@@ -1651,22 +1572,6 @@ docblock states the gap rather than papering over it.
 
 ---
 
-## BL-AUTH-INTERSTITIAL-FONT — four hand-built HTML auth responses mount no React root, so they miss the app font
-
-**Filed:** 2026-08-03 (`feat/font-binding-modal-freshness-cue`, adversarial review R5). **Class:** consistency / completeness. **Effort:** S–M depending on the approach chosen.
-
-Four route handlers build and return a complete `<html>` document as a string, so neither Next root renders them and neither the font loader's generated class nor the app stylesheet reaches them: `app/api/auth/google/start/route.ts`, `app/api/auth/picker-bootstrap/route.ts`, `app/auth/callback/route.ts`, and `app/auth/sign-out/route.ts` — the last of which explicitly sets `system-ui, sans-serif` in its own inline style.
-
-**What they are.** Persistent ERROR documents with readable copy and no automatic redirect: a 503 from the Google-auth start, 403/502 from the picker bootstrap, a 503 from the auth callback, and a 500 from sign-out carrying explanatory copy and a retry button. A user who lands on one reads it. (An earlier filing called them transient bounces; review R6 corrected that, and the correction matters — the disposition below rests on the accurate reading.)
-
-**Why it was not fixed with the font binding.** Sign-out's explicit `system-ui, sans-serif` rests on one narrow, checkable fact: it is a self-contained document that requests **zero external assets** (it inlines its own `<style>` block — it is NOT styleless, a claim review R8 disproved). A webfont would add its first network dependency, on a page reached because a request already failed. This is NOT a general "error pages should avoid webfonts" principle, which would contradict the app's own fatal-error page, where the font IS bound. The real gap is the other three, which fall to browser defaults: a serif nobody chose. Covering them means either inlining an `@font-face` into each hand-built document, which is a SECOND font-delivery mechanism (the same objection that keeps `BL-HARNESS-FONT-FIDELITY` open), or routing them through React, which is a far larger change to auth plumbing than a font justifies. Recorded as a documented limit rather than left as an implied-but-false "app-wide" claim.
-
-**Work:** the three pages that fall to browser-default serif are the real gap — the Google-auth start, the picker bootstrap and the auth callback. Sign-out already carries an explicit system stack and is the LEAST urgent of the four, not the most. Worth pairing with any future pass over the auth interstitials rather than doing on its own.
-
----
-
----
-
 ## BL-HARNESS-FONT-FIDELITY — the 31 standalone harnesses measure a different font than the product renders
 
 **Status:** OPEN.
@@ -1675,7 +1580,5 @@ Four route handlers build and return a complete `<html>` document as a string, s
 The 31 standalone e2e harnesses route through `compileEntryCss` (`tests/e2e/helpers/liveEntryToolchain.ts:124-141`), which runs the Tailwind CLI over `app/globals.css` and serves the result as a static file beside harness-rendered markup. There is no Next.js runtime, so no `next/font` `@font-face` — they resolve `--font-sans`'s literal fallback pair and land on the ambient host font (SF Pro locally, DejaVu Sans on the Ubuntu runner). The product now renders Inter on every React-root surface; the harnesses measure something the product never shows.
 **Cost today is zero**, which is why this is backlog and not deferred: CI is green, and the one measurement that was font-sensitive carries a deliberate Arial / Liberation Sans metric-compatible pin with its reason inline (`tests/e2e/section-header-layout.layout.spec.ts:165-183`). Widening that tolerance is refused — it hides the finding.
 **Work:** give `compileEntryCss` a font asset to emit alongside the stylesheet it already writes, and an `@font-face` to match. It is a single choke point, so all 31 harnesses gain fidelity at once. The tradeoff to decide first: that is a SECOND font-delivery mechanism alongside `next/font`, and two sources for one family can drift. The alternative — self-hosting the face and having both the app and the harnesses read it — is a larger change that would supersede `DESIGN.md` §2.1's ratified `next/font` mechanism, so it needs a spec, not a patch.
-
----
 
 ---

@@ -87,6 +87,24 @@ describe("ledgerItems", () => {
     ).toContain("MODAL-CLOSE-EXIT-ANIM-1"); // struck id
   });
 
+  it("undo announcement channel entries are visible, having lived at an invisible depth", () => {
+    // DEFERRED.md is walked at `levels: [3]`, so the three impeccable-critique
+    // deferrals from `feat/sync-feed-undo-announce` were dark to EVERY
+    // walker-built guard while they sat as bold runs under one `##` section
+    // heading: uncounted by the census, unreachable by the claim reader, and
+    // unsizeable by the sizing guard. Content invisible to the walker is content
+    // no guard can hold, which is why the ids are asserted here rather than the
+    // section's prose.
+    const ids = ledgerItems("DEFERRED.md", read("DEFERRED.md")).map((i) => i.id);
+    for (const id of [
+      "UNDO-FAILURE-REANNOUNCE-1",
+      "UNDO-UNCATALOGUED-CODE-CARD-1",
+      "UNDO-DIALOG-LABEL-CONSTANT-1",
+    ]) {
+      expect(ids, `${id} is invisible to the DEFERRED.md walker`).toContain(id);
+    }
+  });
+
   it("gives every entry a span ending before the next entry starts", () => {
     for (const f of LEDGERS) {
       const items = ledgerItems(f, read(f));

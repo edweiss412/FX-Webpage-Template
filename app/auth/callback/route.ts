@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { upsertAdminAlert } from "@/lib/adminAlerts/upsertAdminAlert";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { isAdminSession } from "@/lib/auth/isAdminSession";
+import { interstitialDocument } from "@/lib/auth/interstitialDocument";
 import { validateNextParamDetailed } from "@/lib/auth/validateNextParam";
 import { hostRelativeRedirect } from "@/lib/http/hostRelativeRedirect";
 import { canonicalize } from "@/lib/email/canonicalize";
@@ -46,20 +47,11 @@ function signInRedirect(
 function infraFailureResponse(): NextResponse {
   const entry = messageFor("ADMIN_SESSION_LOOKUP_FAILED");
   const body = entry.crewFacing ?? entry.dougFacing ?? "Please try again.";
-  const html = [
-    "<!doctype html>",
-    '<html lang="en">',
-    "<head>",
-    '<meta charset="utf-8">',
-    "<title>Sign-in temporarily unavailable</title>",
-    '<meta name="viewport" content="width=device-width,initial-scale=1">',
-    "</head>",
-    "<body>",
-    "<h1>Sign-in temporarily unavailable</h1>",
-    `<p>${body}</p>`,
-    "</body>",
-    "</html>",
-  ].join("");
+  const html = interstitialDocument({
+    title: "Sign-in temporarily unavailable",
+    heading: "Sign-in temporarily unavailable",
+    body,
+  });
   return new NextResponse(html, {
     status: 503,
     headers: { "content-type": "text/html; charset=utf-8" },

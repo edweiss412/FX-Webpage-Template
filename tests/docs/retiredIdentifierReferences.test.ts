@@ -28,6 +28,8 @@ import { afterAll, describe, expect, it } from "vitest";
 import {
   ARCHIVE_GLOBS,
   CURRENT_STATE_CARVE_OUTS,
+  FROZEN_LEDGER_SNAPSHOT_GLOB,
+  FROZEN_LEDGER_SNAPSHOT_NAME,
   RETIRED_IDENTIFIERS,
   RETIRED_IDENTIFIER_EXEMPTIONS,
   ROOT,
@@ -124,6 +126,31 @@ describe("retired-identifier guard — synthetic family proofs", () => {
     expect(isArchivePath("docs/superpowers/plans/some/future/DEFERRED.md")).toBe(false);
   });
 
+  it("(d3) a frozen dated ledger snapshot is archived; a sibling fixture is NOT", () => {
+    // `tests/fixtures/ledger-mass/` holds byte-frozen copies of the ledgers at a
+    // named date, cross-checked against git history by the ledger-mass oracle.
+    // Every retired name the real BACKLOG.md carried on that date is inside one
+    // BY CONSTRUCTION, and repairing the reference is not available: editing the
+    // snapshot is exactly what its oracle exists to catch. That is the same
+    // "dated record end to end" shape as BACKLOG-archive.md, so it archives.
+    expect(isArchivePath("tests/fixtures/ledger-mass/2026-08-04.ledgers.json")).toBe(true);
+    // Narrow by construction: ONE snapshot directory, never `tests/fixtures/`.
+    // A live fixture naming a retired component is still a defect to repair,
+    // so its every sibling stays in the walk. Both paths are real files.
+    for (const sibling of [
+      "tests/fixtures/showForViewer.ts",
+      "tests/fixtures/diagrams/buildEmbeddedSampleXlsx.ts",
+    ]) {
+      // Cited by path, so a rename must not leave this asserting about a ghost:
+      // `isArchivePath` is pure string logic and would answer `false` either way.
+      expect(existsSync(join(ROOT, sibling)), `${sibling} no longer exists — pick a live sibling`)
+        .toBe(true);
+      expect(isArchivePath(sibling)).toBe(false);
+    }
+    // The trailing slash is load-bearing — a prefix-sharing sibling is not covered.
+    expect(isArchivePath("tests/fixtures/ledger-massive/x.json")).toBe(false);
+  });
+
   it("(f) a SECOND identical line is not covered by the first line's row", () => {
     // Whole-diff review finding 5: set-based matching let one historical
     // exemption silently cover a newly duplicated live reference. Matching is
@@ -185,6 +212,23 @@ describe("retired-identifier guard — live tree", () => {
     expect(dead, "archive globs matching nothing — a typo would silently widen the guard").toEqual(
       [],
     );
+  });
+
+  it("every file under the frozen-snapshot glob IS a dated snapshot", () => {
+    // The glob exempts a directory. The "matches at least one tracked file"
+    // assertion above only catches a glob that widens by matching NOTHING; this
+    // catches the other direction — a hand-written helper dropped beside the
+    // snapshots would inherit the exemption with nobody deciding that it should.
+    const strays = files
+      .filter((f) => f.startsWith(FROZEN_LEDGER_SNAPSHOT_GLOB))
+      .filter((f) => !FROZEN_LEDGER_SNAPSHOT_NAME.test(f.slice(FROZEN_LEDGER_SNAPSHOT_GLOB.length)));
+    expect(
+      strays,
+      `non-snapshot files under ${FROZEN_LEDGER_SNAPSHOT_GLOB} — they are silently exempt from ` +
+        "the retired-identifier walk. Move them out, or decide the glob should cover them.",
+    ).toEqual([]);
+    // And the glob is not vacuous: it really does hold snapshots.
+    expect(files.filter((f) => f.startsWith(FROZEN_LEDGER_SNAPSHOT_GLOB)).length).toBeGreaterThan(0);
   });
 
   it("no reference to a retired identifier is unaccounted for", () => {

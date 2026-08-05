@@ -172,13 +172,13 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
     scope: "global",
   },
   {
-    site: "app/api/auth/picker-bootstrap/route.ts:91",
+    site: "app/api/auth/picker-bootstrap/route.ts:87",
     contextKeys: ["route", "rpc_error_code", "rpc_error_message", "slug", "stage"],
     code: "PICKER_BOOTSTRAP_RESOLVE_SHOW_FAILED",
     scope: "global",
   },
   {
-    site: "app/api/auth/picker-bootstrap/route.ts:118",
+    site: "app/api/auth/picker-bootstrap/route.ts:114",
     contextKeys: [
       "attempted_email_hash",
       "route",
@@ -191,7 +191,7 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
     note: "showId hard-coded null despite context.show_id present",
   },
   {
-    site: "app/auth/callback/route.ts:146",
+    site: "app/auth/callback/route.ts:138",
     contextKeys: [
       "claimed_at_millis",
       "crew_member_id",
@@ -203,7 +203,7 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
     scope: "per-show",
   },
   {
-    site: "app/auth/callback/route.ts:175",
+    site: "app/auth/callback/route.ts:167",
     contextKeys: ["error_name"],
     code: "CALLBACK_CLAIM_THREW",
     scope: "global",
