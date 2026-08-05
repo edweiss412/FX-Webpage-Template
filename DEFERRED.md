@@ -10,6 +10,8 @@ Last reconciled: 2026-07-24 — swept every merged PR body (#445–#570) for def
 
 ### STEP3-GALLERY-TAP-TARGETS-1 — sub-44px chrome + a skipped heading level on `/admin?step=3` (2026-08-02)
 
+**Effort:** M
+
 Surfaced by the invariant-8 dual gate on branch `test/step3-live-render-cluster`, run against the
 six-variant seeded Step-3 gallery — the first time all six card states rendered together. Findings
 and dispositions are recorded in §12 of
@@ -63,6 +65,8 @@ a documented deliberate revert from `next/image` (which drops cookies), mirrorin
 
 ### NEWTAB-A11Y-RESIDUE-1 — two P3s from the new-tab announcement dual gate (2026-07-25)
 
+**Effort:** M
+
 Both surfaced by the invariant-8 gate on `fix/newtab-announcement-family`, both
 deliberately left out of that diff.
 
@@ -88,6 +92,8 @@ or affordance change.
 
 ### VOICEOVER-ANNOUNCER-SPOTCHECK — owner action (2026-07-22)
 
+**Effort:** S
+
 The warning-announcer-copy bundle's manual assistive-technology half (spec §8
 F10 mitigation): owner runs VoiceOver over ignore / bulk-ignore / pointer
 reveal on the published Sheet-warnings panel (titled "Parse warnings" until
@@ -100,6 +106,8 @@ pass.
 screen-disposition 2026-08-04: ANNOTATE, stays open as an owner action. It is not a hypothetical filing at all — it is a manual pass only the owner can perform ("owner runs VoiceOver over ignore / bulk-ignore / pointer reveal"; un-defer trigger "owner performs and records the pass"), so the filing bar's probe-or-reachability test is satisfied by the surfaces themselves. **Stale parenthetical corrected:** the body dates the warnings panel as "titled 'Parse warnings' until `feat/warning-trim-undefer`" — that branch merged (PR #568, `6da2139e7`), `components/admin/showpage/WarningsBreakdown.tsx` no longer exists, and "Parse warnings" survives only in prose and comments (`components/admin/showpage/OverviewSection.tsx:18,65`; `components/admin/wizard/step3ReviewSections.tsx:570,615,698`). The pass should be run against the surfaces as they are now.
 
 ### SHARELINK-COPY-REF-ORDERING-PROOF — test-coverage gap (2026-07-25, share-link-chrome-backlog)
+
+**Effort:** L
 
 `ShareLinkCopyButton` writes `urlRef` in a `useLayoutEffect` so the captured-url
 guard compares against a ref that is already current when a clipboard promise
@@ -133,6 +141,8 @@ Register the mutation as an adversary at that point and confirm it reds.
 
 ### SHARELINK-CUE-VISIBILITY-1 — impeccable critique P1 (2026-07-25, share-link-chrome-backlog)
 
+**Effort:** M
+
 The crew-URL cue can fire above the fold. The URL block sits at the top of the
 share hub's scrolling popover and the rotate control is below it, so on a phone
 the operator has scrolled past the block by the time they tap Confirm
@@ -156,6 +166,8 @@ handling together.
 
 ### SHARELINK-CUE-FORCED-COLORS-1 — impeccable audit P3 (2026-07-25, share-link-chrome-backlog)
 
+**Effort:** L
+
 Under `forced-colors` the cue is invisible: UAs drop `box-shadow` and force
 `background-color`, so both tracks vanish (`app/globals.css:884`). Systemic
 rather than local — the repo has zero `forced-colors` handling anywhere — and
@@ -165,6 +177,8 @@ Un-defer trigger: a repo-wide forced-colors pass, which should set the pattern
 once rather than have this one surface invent it.
 
 ### SHARELINK-CONSTANTS-INVENTORY-1 — impeccable critique P2 (2026-07-25, share-link-chrome-backlog)
+
+**Effort:** M
 
 `DESIGN.md` section 5.5 claims to be the single source of truth for interaction
 constants but omits at least two: `ARM_REVERT_MS` (4000, the destructive-confirm
@@ -180,6 +194,8 @@ test rather than maintained by hand.
 
 ### ATTENTION-INDEX-JUMP-FOCUS-1 — [P1] pressing an index row drops focus to `<body>`
 
+**Effort:** L
+
 From the impeccable audit of `feat/attention-index` (2026-07-25). A row's `onClick` runs `onClose()` then `onNavigate(item)`; the row unmounts with the menu, the jump handler in `ShowReviewSurface` only scrolls and flashes, and the rescue effect in `PublishedReviewModal` returns early on a user-initiated close. So after pill → Enter → Tab → Enter, the viewport lands on the card but `activeElement` is `<body>`, outside `[role="dialog"]` — the next Tab restarts at the document top, escaping the modal trap, and screen-reader users get no arrival announcement because the flash is visual-only.
 
 **Accepted, not fixed, in the index consolidation.** Verified pre-existing on `origin/main`: actionable rows there carry a byte-identical `onClick` with no focus restoration (`git show origin/main:components/admin/showpage/AttentionMenu.tsx`, the actionable row block), and holds plus the three actionable alert codes are the dominant row class. This diff widens the same behavior to former needs-look rows, which previously moved focus only as a side effect of their inner `<a href>`'s native navigation — an affordance the spec deletes deliberately, since an `<a>` cannot nest inside the `<button>` that makes the whole row pressable.
@@ -190,6 +206,8 @@ Fixing it properly means focusing the landed card (`[data-attention-anchor]` wit
 
 ### ATTENTION-INDEX-ROW-DESTINATION-NAME-1 — [P2] index rows no longer name where they go
 
+**Effort:** S
+
 From the same audit. A needs-you row's accessible name is now `"needs review — <title><hint>"`. Deleting the inner action link removed the only words that named the destination ("Open in Sheet", "Go to Overview"), and the trailing `→` is `aria-hidden`. A sighted user infers "pressable, goes somewhere" from the chevron and hover; a screen-reader user gets a button whose name describes the problem but not the movement.
 
 **Accepted, not fixed.** The spec makes rows deliberately jump-only and moves destination naming onto the card's chip (§2.2/§2.3), so adding a destination phrase back into the row name is an amendment to that ratified division, not a defect against it. It also reads awkwardly against the existing sr-only tone prefix (`"needs review — Go to Sheet unavailable"`).
@@ -199,6 +217,7 @@ From the same audit. A needs-you row's accessible name is now `"needs review —
 ### DESTRUCT-FOCUSRING-1 — [P1] the light-mode focus ring measures 1.60:1
 
 **Effort:** L
+**Status:** IN PROGRESS · **Branch:** chore/ledger-sizing-sweep
 
 From the impeccable audit of `fix/destruct-thumb-order-drift-guard` (2026-07-25). `--color-focus-ring` composites over white to ≈`#FFC075`, **1.60:1** against adjacent colors, where WCAG 1.4.11 non-text contrast expects 3:1. Dark mode passes at 4.40:1.
 
@@ -224,6 +243,8 @@ From the impeccable v3 dual gate on `feat/sync-feed-undo-announce`. The critique
 
 ### UNDO-FAILURE-REANNOUNCE-1 — impeccable critique P1: a repeated identical failure does not re-announce (2026-08-03)
 
+**Effort:** L
+
 The three feed action buttons surface failures through an always-mounted `role="status"` card, which announces on text CHANGE. Two consecutive failures with the same error code (the common case, since the same cause yields the same code) mutate nothing, so nothing is spoken: the operator taps again and hears silence. This is the exact class the success channel uses `role="log"` to avoid.
 
 **Accepted, not fixed.** The spec's §1.1 R8 ratified it as a documented limit, and the alternative it names is worse: routing failures through the log channel would leave error copy in a region that persists after the visible card is gone, so a stale failure could be re-read long after it stopped applying. The visible card is present throughout in every case, and `Mi11GateActions` is already exempt because its pending-gated `failing` blanks the region on retry, producing a real text change (`components/admin/Mi11GateActions.tsx:137`).
@@ -232,6 +253,8 @@ The three feed action buttons surface failures through an always-mounted `role="
 
 ### UNDO-UNCATALOGUED-CODE-CARD-1 — impeccable critique P2: an uncatalogued error code renders an empty card and announces nothing (2026-08-03)
 
+**Effort:** M
+
 `ErrorExplainer` returns `null` when a code has no catalog row (`components/messages/ErrorExplainer.tsx:82`), so the wrapper paints its bordered warning chrome with no text inside and the live region fires empty.
 
 **Accepted, not fixed.** Behavior is unchanged from before this branch — the conditional wrapper rendered the same empty card. What the branch changes is the promise: an always-mounted live region reads as a commitment to speak. Fixing it properly means resolving the code before deciding to render, which touches the message layer rather than these three components, and every code reachable from these call sites has a catalog row today (`lib/messages/catalog.ts:902`, `:939`, `:952`, `:3275`).
@@ -239,6 +262,8 @@ The three feed action buttons surface failures through an always-mounted `role="
 **Un-defer trigger:** any new code reachable from a feed action, or the next `lib/messages` pass.
 
 ### UNDO-DIALOG-LABEL-CONSTANT-1 — impeccable critique P3: the dialog region's `aria-label` is a constant while its `data-testid` is derived (2026-08-03)
+
+**Effort:** S
 
 `ReviewModalShell` has three render sites, and Step-3 cards hold per-card open state, so two shells can be attached at once and would share the accessible name `"Undo updates in this dialog"`.
 
