@@ -121,6 +121,7 @@
     "tests/e2e/fontFidelityFixture.spec.ts": [
       "[\"standalone-chromium\",\"standalone-chromium\",\"deb094caf6e4b8421f83-1424ae40dee4a92b4464\",[\"fontFidelityFixture.spec.ts\",\"shadow-root and frame text are BOTH observed\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"deb094caf6e4b8421f83-3a41acf9c2f97087c8de\",[\"fontFidelityFixture.spec.ts\",\"a browser-originated navigation reports the OUTGOING document\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"deb094caf6e4b8421f83-664f2fd41659c6c65203\",[\"fontFidelityFixture.spec.ts\",\"the OBSERVED face set is populated, not merely searched for offenders\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"deb094caf6e4b8421f83-a6fdea269c79449571fb\",[\"fontFidelityFixture.spec.ts\",\"a caller-owned context that closes ITSELF is still reported\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"deb094caf6e4b8421f83-c2c1136748c3484dbd05\",[\"fontFidelityFixture.spec.ts\",\"a reused page reports EVERY document, not only the last\"]]"
     ],
@@ -430,6 +431,16 @@
       "[\"standalone-chromium\",\"standalone-chromium\",\"225d9127557e636df3bc-f3218e7945b1b0f03d10\",[\"section-header-layout.layout.spec.ts\",\"section-header G6a-flagged @ 320\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"225d9127557e636df3bc-f42ef867488795d53823\",[\"section-header-layout.layout.spec.ts\",\"section-header G1-flagged @ 375\"]]"
     ],
+    "tests/e2e/section-header-reconcile.layout.spec.ts": [
+      "[\"standalone-chromium\",\"standalone-chromium\",\"7a95222f0ebe2b88fae4-5154b377b0e37341b878\",[\"section-header-reconcile.layout.spec.ts\",\"section header — measured across a React reconciliation\",\"no intermediate height is observable across the reconcile\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"7a95222f0ebe2b88fae4-6b7f34098b9743c05c41\",[\"section-header-reconcile.layout.spec.ts\",\"section header — measured across a React reconciliation\",\"header height is driven by pill presence, not a fixed min-height\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"7a95222f0ebe2b88fae4-71ed413bc18a1f096330\",[\"section-header-reconcile.layout.spec.ts\",\"section header — measured across a React reconciliation\",\"the target height is reached within 2 frames of the flip\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"7a95222f0ebe2b88fae4-acfe45e6feec4d844523\",[\"section-header-reconcile.layout.spec.ts\",\"section header — measured across a React reconciliation\",\"one mounted node owns both heights — the reconcile does not remount\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"7a95222f0ebe2b88fae4-ccea5661a79e4cfcfa92\",[\"section-header-reconcile.layout.spec.ts\",\"section header — measured across a React reconciliation\",\"nothing in the hydrated header subtree transitions geometry\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"7a95222f0ebe2b88fae4-ccfed19b0e9ce3123437\",[\"section-header-reconcile.layout.spec.ts\",\"section header — measured across a React reconciliation\",\"MUTANT — the same oracle rejects a JS height tween\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"7a95222f0ebe2b88fae4-cdf76cb8c03229fa1a57\",[\"section-header-reconcile.layout.spec.ts\",\"section header — measured across a React reconciliation\",\"the flip changes the header height at all (premise)\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"7a95222f0ebe2b88fae4-d8f3a6850abe50e4ab5c\",[\"section-header-reconcile.layout.spec.ts\",\"section header — measured across a React reconciliation\",\"PEER SHAPES — the arithmetic rejects a delayed snap and a sub-pixel tween\"]]"
+    ],
     "tests/e2e/share-link-flash.spec.ts": [
       "[\"standalone-chromium\",\"standalone-chromium\",\"a3d1bf2e6f5a9f199d56-3fcb1cbae3762bb10aa7\",[\"share-link-flash.spec.ts\",\"share-link cue — resolved style\",\"T-FLASH-RESTART: a second rotate restarts the tracks from the top\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"a3d1bf2e6f5a9f199d56-50bc2947a7ef8bdf8568\",[\"share-link-flash.spec.ts\",\"share-link cue — resolved style\",\"T-FLASH-RUN: a rotate resolves BOTH tracks, undelayed and running\"]]",
@@ -553,5 +564,5 @@
       "[\"standalone-chromium\",\"standalone-chromium\",\"a2b6e93af0c9aab00ac1-e226ed179b8245e9207f\",[\"wizard-blocker-modal.layout.spec.ts\",\"finalize blocker modal — real-browser layout (spec §8)\",\"panel is viewport-pinned and capped at 85vh; it paints above an app-root z-50 dialog\"]]"
     ]
   },
-  "totalTests": 480
+  "totalTests": 489
 }
