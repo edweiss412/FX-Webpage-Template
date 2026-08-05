@@ -31,7 +31,8 @@ Every task's requirements implicitly include this section. Values are copied ver
 - **Consequence bound** (spec §8.2): every arc is correctly obliged, correctly exempt, or loudly refuses to record. Never silently wrong. Over-obligation costs one `**Mechanizable:** none` line and is a documented limit.
 - **`findingCount` is never inferred from prose shape** (spec §3, §5.3). Integer when the reviewer emitted a declared `FINDINGS: <n>` line; `null` otherwise. `null` never folds into zero.
 - **The adoption boundary is a DECLARED ISO-8601 value** (spec §9), never computed at report time from the corpus. A boundary derived from the corpus is silently wrong twice: it files any arc merging between the wrapper shipping and the first row landing as pre-adoption, and on an empty corpus it is `null`, so every silent arc is undiscoverable in precisely the state where the list matters most. The observed earliest `startedAt` survives only as an advisory mismatch line.
-- **The boundary is READ FROM GIT, not hand-set, because no commit in this PR can hold the right value.** Any literal written before the merge is earlier than the merge, and early is the unsafe direction: it accuses arcs that merged before the contract was live of being silent, which the report prints as fact. Too late only excludes a few covered arcs (documented limit 7, conservative). `adoptionBoundary(repoRoot)` therefore returns the committer date of the **first-parent commit on main that added lib/reviewRounds/constants.ts** — the merge commit of this PR, whose date IS the moment recording began. Correct by construction, checkable, and needing no follow-up commit. `null` (not yet on main) renders as "not yet adopted" and **withholds** the silent list, never treating an unset boundary as the epoch.
+- **The boundary is READ FROM GIT, not hand-set, because no commit in this PR can hold the right value.** Any literal written before the merge is earlier than the merge, and early is the unsafe direction: it accuses arcs that merged before the contract was live of being silent, which the report prints as fact. Too late only excludes a few covered arcs (documented limit 7, conservative). `adoptionBoundary(repoRoot)` therefore returns the committer date of the **first-parent commit on main that added lib/reviewRounds/constants.ts** — the merge commit of this PR, whose date IS the moment recording began. Correct by construction, checkable, and needing no follow-up commit. `null` (not yet on main) renders as "not yet adopted" and **withholds** the silent list, never treating an unset boundary as the epoch. The git query names `main` explicitly: a ref-less `git log` walks HEAD, and on the branch that adds the constants module HEAD's first-parent history contains that addition, so the boundary would come back earlier than the merge — the exact too-early failure this bullet exists to prevent.
+- **Post-adoption is STRICTLY LATER than the boundary; equality is pre-adoption.** The boundary is the committer date of this PR's merge, so this arc's own `mergedAt` equals it exactly, and this arc has no corpus by ratified design (spec §12). Under a strictly-less test that equality lands in the post-adoption branch and the report names the adoption merge itself as silent — the system's first output accusing the merge that created it. The contract goes live **with** that merge, not before it, so the merge that establishes the boundary cannot be obliged by it.
 - **The shallow-clone refusal is proven behaviorally, on a synthesized shallow clone** (spec §11.3 layer 2a), never by a skip gated on the ambient repository's depth. An implementation that omits the `--is-shallow-repository` check passes every ambient-gated layer while presenting truncated history as complete — and depth-1 is the normal CI state (`.github/workflows/unit-suite.yml:152`). A withheld silent-arc list and an empty one must be **distinguishable values**, or the assertion cannot tell a refusal from a clean scan.
 - **Anti-tautology (project rule):** every expected value derives from fixture content, never from a hardcoded literal. Every new test states the concrete failure mode it catches.
 - **TDD per task** (AGENTS.md invariant 1): failing test → minimal implementation → passing test → commit. Never implementation before the test.
@@ -491,6 +492,8 @@ Expected: FAIL — `Cannot find module '../../lib/reviewRounds/constants'`.
 Create lib/reviewRounds/constants.ts:
 
 ```ts
+import { execFileSync } from "node:child_process";
+
 /**
  * The canonical threshold (spec §4.3). Every module that reasons about the
  * filing duty imports THIS - a literal 4 anywhere outside a fixture is a
@@ -543,6 +546,12 @@ export const COUNTED_STAGES = ["spec", "plan", "diff"] as const;
  * recording. It cannot be too early or too late by construction, and it needs
  * no follow-up commit.
  *
+ * The `main` ref below is LOAD-BEARING, not decoration. A ref-less `git log`
+ * walks HEAD, and on the feature branch that adds this file HEAD's first-parent
+ * history contains the branch-local addition - so the query returns a boundary
+ * EARLIER than the merge, which is the exact "too early" failure this whole
+ * design exists to prevent. Adoption is a fact about main.
+ *
  * `null` - the file not yet on main - means "not yet adopted". The report says
  * so by name and WITHHOLDS the silent list, rather than treating an unset
  * boundary as the epoch and accusing all 668 pre-adoption merges at once.
@@ -556,6 +565,7 @@ export function adoptionBoundary(repoRoot: string): string | null {
         "--first-parent",
         "--diff-filter=A",
         "--format=%cI",
+        "main",
         "--",
         "lib/reviewRounds/constants.ts",
       ],
@@ -1004,6 +1014,13 @@ Append to tests/codexGuard/reviewRounds.test.ts:
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+
+// Task 1's `./harness` line becomes this. `readResult` arrives HERE, in the
+// task that first calls it: Task 4 must be runnable and committable on its own
+// (TDD invariant 1), and a test block whose helper is imported by a later
+// task's fence is red for a reason that has nothing to do with the behavior
+// under test.
+import { mkRun, readResult, runGuard, writeScenario } from "./harness";
 
 /** Turn a harness run's cwdDir into a real repo on a feature branch. */
 function gitify(cwdDir: string): { base: string } {
@@ -1527,7 +1544,7 @@ describe("declared finding count (spec §5.3)", () => {
 });
 ```
 
-The two new cases need `readResult` from `./harness` and `mkdirSync` from `node:fs` in the file's single import section; `join` and `writeFileSync` are already there from Task 4's block.
+This block adds **no** imports. Everything the two new cases reach for is already in the file's single import section after Task 4: `readResult` on the `./harness` line, and `join`, `mkdirSync`, and `writeFileSync` on the two `node:` lines. Re-importing any of them is a duplicate-identifier error, not a no-op.
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
@@ -2129,6 +2146,23 @@ describe("review-round economy gate (spec §7.1)", () => {
     expect(problems.map((p) => p.kind)).toContain("filing_malformed");
   });
 
+  // Failure caught: a heading with NO round count passing over an obliging
+  // corpus. `HEADING_LOOSE` builds a section with `declaredRounds: null`; its
+  // presence suppressed `missing_filing`, both body-field checks pass on this
+  // body, and `count_mismatch` skipped `null` - so a structurally nonconforming
+  // filing was reported compliant. Every other case in this describe would
+  // still pass, which is exactly how the hole shipped.
+  it("FAILS a filing heading that carries no round count", () => {
+    const problems = check([
+      { path: `${ARC}.jsonl`, body: rows(...OBLIGING) },
+      { path: `${ARC}.md`, body: "## diff\n\n**Examined:** R1-R4.\n**Mechanizable:** none\n" },
+    ]);
+    // Not merely "some problem": a green result here is the defect, and the
+    // kind is what distinguishes the fix from a coincidental failure.
+    expect(problems).not.toEqual([]);
+    expect(problems.map((p) => p.kind)).toContain("filing_malformed");
+  });
+
   it("FAILS a malformed JSON row, naming file and line", () => {
     const problems = check([{ path: `${ARC}.jsonl`, body: `${row()}\n{not json\n` }]);
     const bad = problems.find((p) => p.kind === "malformed_row");
@@ -2470,6 +2504,25 @@ export function checkCorpus(
         });
       }
       for (const section of group) {
+        // Spec §6 item 1: the heading CARRIES its round count. A loose heading
+        // (`## diff`) parses to `declaredRounds: null`, and until this check
+        // existed that section satisfied the filing duty by merely being there:
+        // its presence suppressed `missing_filing`, both body-field checks
+        // passed, and the count check below skipped `null` outright. A
+        // structurally nonconforming filing was reported compliant over four
+        // counted rounds - silent wrongness, the one outcome the consequence
+        // bound forbids. Reported here rather than ALSO as `missing_filing`,
+        // because "this section's heading is malformed" and "there is no
+        // section" cannot both be true of the same section, and the gate blocks
+        // on either one.
+        const declared = section.declaredRounds;
+        if (declared === null) {
+          problems.push({
+            kind: "filing_malformed",
+            message: `${arc.filingPath}:${section.line}: stage ${stage} heading declares no round count; the heading must carry "<n> rounds"`,
+          });
+          continue;
+        }
         if (!section.hasExamined || !section.hasDisposition) {
           problems.push({
             kind: "filing_malformed",
@@ -2487,10 +2540,10 @@ export function checkCorpus(
           continue;
         }
         const expected = counted.get(stage as Stage) ?? 0;
-        if (section.declaredRounds !== null && section.declaredRounds !== expected) {
+        if (declared !== expected) {
           problems.push({
             kind: "count_mismatch",
-            message: `${arc.filingPath}:${section.line}: stage ${stage} declares ${section.declaredRounds} rounds; the corpus counts ${expected}`,
+            message: `${arc.filingPath}:${section.line}: stage ${stage} declares ${declared} rounds; the corpus counts ${expected}`,
           });
         }
       }
@@ -2512,10 +2565,12 @@ export function checkCorpus(
 
 Two shapes in there are load-bearing and easy to lose. The `malformed_row` message carries the repo-relative path **and** the 1-indexed line, because a gate that says only "a row is bad" costs the reader a manual scan of a file the tooling wrote. And the section checks `continue` after each problem, so one malformed section does not also report a count mismatch computed from a heading nobody can trust.
 
+**The null-count check is FIRST in that loop, and that ordering is the fix, not an accident.** `HEADING_LOOSE` exists so a filing is not rejected over a keyboard, but the section it builds carries `declaredRounds: null`, and every downstream check was permissive about `null`: `missing_filing` was suppressed by the section's mere presence, `hasExamined` / `hasDisposition` are body facts that a loose heading does not affect, and `count_mismatch` skipped `null` explicitly. A four-round arc filing a bare `## diff` heading therefore passed the gate. Running the check first, with a `continue`, makes the heading's round count a precondition for reading anything else out of that section — which is what spec §6 item 1 already said the heading was for.
+
 - [ ] **Step 9: Run the gate to verify it passes**
 
 Run: `pnpm exec vitest run tests/docs/_metaReviewRoundEconomy.test.ts`
-Expected: PASS (21 cases).
+Expected: PASS (25 cases).
 
 - [ ] **Step 10: Typecheck and run the docs suite**
 
@@ -2870,14 +2925,17 @@ git commit -m "feat(review-rounds): merged-arc producer with declared accept-set
 
 Append to tests/reviewRounds/report.test.ts — one describe per §9 output, each fixture-driven.
 
-**The file has ONE import section**, written by Task 7. This step does not repeat it: `execFileSync`, `mkdtempSync`, `writeFileSync`, `tmpdir`, `join`, `describe`/`expect`/`it`, and `mergedArcs` are already imported there, and re-declaring any of them is a duplicate-identifier error, not a no-op. Extend the two existing node imports in place — `mkdirSync` onto the `node:fs` line, `dirname` onto the `node:path` line — and add exactly these two new lines:
+**tests/reviewRounds/report.test.ts has ONE import section**, written by Task 7. This step does not repeat it: `execFileSync`, `mkdtempSync`, `writeFileSync`, `tmpdir`, `join`, `describe`/`expect`/`it`, and `mergedArcs` are already imported there, and re-declaring any of them is a duplicate-identifier error, not a no-op. The two existing `node:` lines are extended in place and two new lines are added, so the section's changed lines read:
 
 ```ts
-import { ROUND_THRESHOLD } from "../../lib/reviewRounds/constants";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+
+import { adoptionBoundary, ROUND_THRESHOLD } from "../../lib/reviewRounds/constants";
 import { buildReport } from "../../scripts/review-economy";
 ```
 
-Then append the bodies:
+Then append the bodies to tests/reviewRounds/report.test.ts:
 
 ```ts
 /** Plant a corpus tree under `root` and return `root`. Paths are relative to
@@ -3062,6 +3120,26 @@ describe("report aggregation (spec §9)", () => {
     expect(report).not.toHaveProperty("preAdoptionArcs");
   });
 
+  // Failure caught: THIS arc's own merge reported as silent. The boundary IS
+  // the committer date of the merge that puts the constants module on main, so
+  // the adoption arc's mergedAt equals it exactly; a strictly-less pre-adoption
+  // test drops that equality into the post-adoption branch, and this arc has no
+  // corpus by ratified design (spec §12), so the report accuses the very merge
+  // that created it. Every other case in this file passes either way.
+  it("treats a merge whose timestamp EQUALS the boundary as pre-adoption", () => {
+    const root = corpus(mkdtempSync(join(tmpdir(), "rep-equal-")), []);
+    const report = buildReport(root, {
+      ...opts,
+      mergedArcs: [
+        // mergedAt is BOUNDARY itself, not a second literal that could drift
+        // away from it and make the equality this test is named for untested.
+        { sha: "3".repeat(40), branch: "feat/the-adoption-merge", baseSha: "ffffffffffff", mergedAt: BOUNDARY },
+      ],
+    });
+    expect(report.silentArcs).toEqual([]);
+    expect(report.preAdoptionMergeCount).toBe(1);
+  });
+
   // The two cases that pass TRIVIALLY under a boundary derived from the corpus,
   // which is why the boundary is declared. Both are silent wrongness.
   it("lists a zero-row arc merged AFTER the boundary but BEFORE the earliest corpus row as silent", () => {
@@ -3134,6 +3212,57 @@ describe("report aggregation (spec §9)", () => {
   });
 });
 
+describe("adoption boundary, production default (spec §9)", () => {
+  // Failure caught: the boundary query defaulting to HEAD. Every other test in
+  // this file INJECTS `adoptionBoundary`, so the production path - the one that
+  // actually runs - has no other coverage at all. Without the `main` ref, a
+  // ref-less `git log` walks HEAD, finds the constants module's BRANCH-LOCAL
+  // addition, and returns a boundary EARLIER than the merge. Early is the
+  // unsafe direction: arcs that merged between that commit and the real merge
+  // are then printed as silent, as fact.
+  it("is null until the constants module is on main, then is the merge commit's date", () => {
+    const repo = mkdtempSync(join(tmpdir(), "rep-boundary-"));
+    const git = (...args: string[]): string =>
+      execFileSync("git", args, { cwd: repo, encoding: "utf8" }).trim();
+    git("init", "-q", "-b", "main");
+    git("config", "user.email", "t@example.com");
+    git("config", "user.name", "T");
+    writeFileSync(join(repo, "seed.txt"), "seed\n");
+    git("add", "seed.txt");
+    git("commit", "-qm", "seed");
+
+    git("checkout", "-q", "-b", "feat/adopting");
+    const constants = join(repo, "lib", "reviewRounds", "constants.ts");
+    mkdirSync(dirname(constants), { recursive: true });
+    writeFileSync(constants, "export const ROUND_THRESHOLD = 4;\n");
+    git("add", "lib/reviewRounds/constants.ts");
+    git("commit", "-qm", "feat: constants");
+
+    // HEAD is the feature branch and the file IS reachable from HEAD. Adoption
+    // is a fact about MAIN, so the boundary must still be null here - this is
+    // the assertion a HEAD-defaulting query fails.
+    expect(adoptionBoundary(repo)).toBeNull();
+    // And the production default reaches the report: no injected boundary, so
+    // buildReport calls adoptionBoundary itself and must withhold rather than
+    // accuse.
+    const early = buildReport(repo, {
+      mergedArcs: [
+        { sha: "4".repeat(40), branch: "feat/adopting", baseSha: "aaaaaaaaaaaa", mergedAt: "2026-09-04T00:00:00.000Z" },
+      ],
+    });
+    expect(early.silentArcs).toBeNull();
+    expect(early.notes.join(" ")).toMatch(/not yet adopted/i);
+
+    git("checkout", "-q", "main");
+    git("merge", "-q", "--no-ff", "-m", "merge feat/adopting", "feat/adopting");
+    // Derived from the fixture repo's own log, never a literal: the boundary IS
+    // the committer date of the first-parent merge that put the file on main.
+    const mergeDate = git("log", "-1", "--first-parent", "--format=%cI", "main");
+    expect(adoptionBoundary(repo)).toBe(mergeDate);
+    expect(buildReport(repo, { mergedArcs: [] }).silentArcs).toEqual([]);
+  });
+});
+
 describe("real history (spec §11.3 layer 2)", () => {
   // A test that quietly passes over one merge is a false presence. Numbers are
   // derived from the live log, never from literals - a hardcoded 676 makes
@@ -3165,6 +3294,8 @@ describe("real history (spec §11.3 layer 2)", () => {
 ```
 
 **`buildReport` takes its boundary and its merged-arc list as options.** Both default to the production values — `adoptionBoundary(repoRoot)` (Task 2) and `mergedArcs(repoRoot)` (Task 7) — and both are injectable, for the two reasons the tests above make concrete: the production boundary reads git for the commit that added lib/reviewRounds/constants.ts, so it is `null` in every fixture repo and changes the day this merges; and the silent-arc join needs merged arcs that do not exist in any fixture repo's real history. The injection points are the seam, not a test-only backdoor: the CLI passes neither and gets production behavior.
+
+**Injection everywhere is how the production path goes untested, so one case refuses it.** The "adoption boundary, production default" describe above passes no `adoptionBoundary` and builds a real git repo instead, because the defect it catches lives entirely in the argv the production function hands `git`: a ref-less `git log` walks HEAD, and on the branch that adds the constants module HEAD's first-parent history contains its addition. Every injected test in this file is blind to that by construction.
 
 **`Report` shape**, fixed here so no field is invented at implementation time (and repeated verbatim in the module at Step 3, which is the file that declares it):
 
@@ -3326,7 +3457,16 @@ export function buildReport(repoRoot: string, opts: ReportOptions = {}): Report 
   } else {
     const silent: NonNullable<Report["silentArcs"]> = [];
     for (const merge of merges.recognized) {
-      if (Date.parse(merge.mergedAt) < Date.parse(boundary)) {
+      // Post-adoption is STRICTLY LATER than the boundary, so a merge whose
+      // timestamp EQUALS it is pre-adoption. That equality is not a corner case
+      // - it is this PR. The boundary is the committer date of the merge that
+      // put lib/reviewRounds/constants.ts on main, so that merge's own arc
+      // carries exactly this timestamp, and this arc has no corpus by ratified
+      // design (spec §12). Under a strict `<` test it fell into the
+      // post-adoption branch and the report listed the adoption merge itself as
+      // silent. The contract goes live WITH that merge, not before it, so the
+      // merge that establishes the boundary cannot be obliged by it.
+      if (Date.parse(merge.mergedAt) <= Date.parse(boundary)) {
         // Reported as a COUNT, never enumerated (documented limit 7).
         preAdoptionMergeCount += 1;
         continue;
@@ -3577,6 +3717,8 @@ The hook counts findings with the numbered-bold pattern alone, which the probe m
 
 **The disposition, fixed here so Steps 2 and 4 cannot disagree:** the hook reports the reviewer's declared `FINDINGS:` count when present, and the literal text `not declared` otherwise. Never an inferred count, and never a silently dropped number — a blank where a tally used to be reads as "zero findings" to the next operator, which is the same false statement in quieter form.
 
+**The hook and `parseFindingCount` must agree, because they read the same reviewer output and an operator sees both.** They are two implementations of one rule, and the rule has a grain: `parseFindingCount` (Task 5) reads ONE terminal message per dispatch, strips fenced blocks, matches an end-anchored `FINDINGS: <n>` line, and returns `null` when two different values are declared. A hook that SUMS across a round's `attempt-*.last-message.txt` files reads a different grain and prints a different number for the same round — a round whose failed first attempt declared 2 and whose successful retry declared 1 records `findingCount: 1` in the corpus while the hook prints 3, and nothing on screen says which is the reviewer's actual claim. **Where both exist, the corpus row is authoritative**: it is the committed, reviewable record, and the hook's line is an advisory rendering of it. The repair below makes the hook read the corpus's rule rather than a rule of its own.
+
 **This file is outside the repo** and cannot be committed here. The repair is applied on this machine and the *contract* is recorded in `AGENTS.md`, which is the durable cross-CLI source of truth — the same posture AGENTS.md already takes for the reaper hook.
 
 - [ ] **Step 1: Reproduce the wrong number**
@@ -3585,24 +3727,33 @@ Run the probe's recognizer counts against the corpus described in `docs/superpow
 
 - [ ] **Step 2: Apply the repair**
 
-**One contract, both halves agreeing: the hook reports the reviewer's DECLARED `FINDINGS:` count when it is present, and the literal text `not declared` when it is not. It never infers a count.** Dropping the number entirely is NOT the disposition — Step 4 commits AGENTS.md prose that promises this rendering, and prose promising one behavior over an implementation doing another is the contradiction this task exists to remove.
+**One contract, both halves agreeing: the hook reports the reviewer's DECLARED `FINDINGS:` count per prior round, read by the SAME rule `parseFindingCount` uses, and the literal text `not declared` for a round that declared none. It never infers a count, and it never sums.** Dropping the number entirely is NOT the disposition — Step 4 commits AGENTS.md prose that promises this rendering, and prose promising one behavior over an implementation doing another is the contradiction this task exists to remove.
 
 The hook is per-machine and untracked, so this step describes the precise change rather than a diff; the AGENTS.md prose in Step 4 is the durable contract. Two edits inside `$HOME/.claude/hooks/review-convergence-gate.sh`:
 
-1. Replace the inferring tally. The current assignment greps the numbered-bold pattern across the prior rounds' last-message files and sums the per-file counts — the 48.0% recognizer. Replace it with a scan for the declared line, anchored the same way `parseFindingCount` anchors it (Task 5), summed across those same files; when the scan finds no declared line anywhere, set the variable to the literal string `not declared`.
-2. Replace the `~$FINDINGS findings` fragment in the block message. `~` announces an estimate, and there is no longer an estimate: it becomes `$FINDINGS declared finding(s)` when a count was found, and the bare `not declared` rendering otherwise. Both branches are one shell variable, so the message has a single source.
+1. Replace the inferring tally. The current assignment greps the numbered-bold pattern across every `attempt-*.last-message.txt` in each prior round's out-dir and sums the per-file counts — the 48.0% recognizer, at a grain the corpus does not use. Replace it with a per-dispatch read that mirrors `parseFindingCount` (Task 5) point for point:
+   - **One message per dispatch, not one per attempt.** A round's terminal message is the LAST `attempt-*.last-message.txt` in that out-dir with non-empty content; earlier attempts are superseded work, and the dispatch's result.json carries only the terminal one. This is the specific divergence: summing attempts is how a round whose failed first attempt declared 2 and whose retry declared 1 prints 3 against a corpus row of 1.
+   - **Elide fenced blocks first**, the same elision `parseFindingCount` applies, so a `FINDINGS:` line quoted inside an example block is not read as a declaration.
+   - **End-anchored pattern**, the same one: an optional bold or italic wrapper, `FINDINGS:`, decimal digits, and nothing else on the line. `FINDINGS: 2 or 7` declares nothing.
+   - **Ambiguity renders as `not declared`.** Two DIFFERENT counts in one terminal message is `null` in `parseFindingCount`, and it must not become a number here.
+   - **Per round, never summed and never inferred.** The variable holds one rendering per prior round, so a reader can line the hook's output up against the corpus rows one to one.
+2. Replace the `~$FINDINGS findings` fragment in the block message. `~` announces an estimate, and there is no longer an estimate: it becomes a per-round list built from that variable — `R1: 2, R2: not declared, R3: 1` — with `not declared` spelled out for every round that declared nothing. One shell variable feeds the message, so the rendering has a single source.
 
 Everything else in the hook is untouched: the round cap, the two convergence-criterion gates, and the `CONVERGENCE_ACK=1` override all keep their current behavior. The tally is advisory and stays advisory — this repair makes it honest, it does not make it load-bearing.
 
 - [ ] **Step 3: Verify the hook still blocks, and that both renderings appear**
 
-Run a dispatch that should be blocked (a 5th round on an artifact with four prior `.review/` dirs) and confirm the block message appears. Run it twice against two prepared fixtures: one whose prior rounds' last-message files carry `FINDINGS: <n>` lines, which must print the summed declared count; one whose files carry none, which must print `not declared`. A run that prints `0` for the second fixture is the original defect wearing a new number.
+Run a dispatch that should be blocked (a 5th round on an artifact with four prior `.review/` dirs) and confirm the block message appears. Run it against three prepared fixtures:
+
+1. Prior rounds whose terminal messages carry `FINDINGS: <n>` lines — must print each round's own declared count, one per round.
+2. Prior rounds whose messages carry none — must print `not declared`. A run that prints `0` here is the original defect wearing a new number.
+3. **The divergence case, which is the reason this task exists:** one round whose FIRST attempt file declares `FINDINGS: 2` and whose LAST attempt file declares `FINDINGS: 1`. The hook must print `1` — the terminal message's count, the same value `parseFindingCount` would put in that round's corpus row. A `3` is the old summing grain surviving the repair.
 
 - [ ] **Step 4: Record the contract in AGENTS.md**
 
 Add to the convergence-criterion section, beside the existing install one-liner:
 
-> The hook's advisory finding tally was measured at 48.0% accuracy against 681 real reviewer outputs (`docs/superpowers/specs/ci/probes/2026-08-04-finding-format-probe.md`) because it inferred findings from a numbered-bold pattern. It now reports the reviewer's declared `FINDINGS: <n>` line or says "not declared" — never an inferred count. The hook is per-machine; this paragraph is the durable contract.
+> The hook's advisory finding tally was measured at 48.0% accuracy against 681 real reviewer outputs (`docs/superpowers/specs/ci/probes/2026-08-04-finding-format-probe.md`) because it inferred findings from a numbered-bold pattern. It now reports the reviewer's declared `FINDINGS: <n>` line per round, or says "not declared" — never an inferred count and never a sum. It reads that line by the same rule `parseFindingCount` in `scripts/codex-guard.mjs` uses: ONE terminal message per dispatch (the last attempt that produced one), fenced blocks elided, the pattern end-anchored, and two different declared values treated as "not declared". The two must agree, because an operator sees both; where both exist, the committed corpus row is authoritative and the hook's line is an advisory rendering of it. The hook is per-machine; this paragraph is the durable contract.
 
 - [ ] **Step 5: Commit**
 
@@ -3666,10 +3817,28 @@ Add `controlMutation: { find: string; replace: string }` to `GuardSurface` (`tes
 
 **Swapping the strings is not enough: the existing control proves nothing about the control.** The live test (`tests/mutation/guardSurfaces.gate.test.ts:110-129`) builds `broken`, asserts it differs from the source, then **discards it** and runs `runSurface` over every `equality-flip` mutant, asserting only `killed > 0`. Nothing ties the kill to the declared mutation. Its own comment says "one operator, one site", but no site is pinned. On the new surface that is not hypothetical: lib/reviewRounds/count.ts has two equality sites — the status conjunct in `countedRounds` and the contiguity comparison in `roundGaps` — so the contiguity mutant can be killed while the status-conjunct control **survives**, and AC-3 still reports success. That is the exact vacuity the control exists to rule out, inside the vacuity check.
 
-The control therefore asserts its own mutant, by executing it:
+The control therefore asserts its own mutant, by executing it — through the harness's existing overlay, never by writing the tracked file. Read `tests/mutation/source/runner.ts` before writing this: `runSuite(root, target, mutantFile, suite, context): number` (`tests/mutation/source/runner.ts:68`) returns the child's exit code, and `runSurface` (`tests/mutation/source/runner.ts:118-134`) shows the whole pattern — `mkdtempSync` a scratch dir, write the mutant text into a scratch mutant file, and pass the REAL `target` path alongside the scratch `mutantFile` so the overlay's `load` hook serves the mutant in its place.
+
+The import section of `tests/mutation/guardSurfaces.gate.test.ts` grows to cover it. Its `node:fs` line (`tests/mutation/guardSurfaces.gate.test.ts:1`) and its runner line (`tests/mutation/guardSurfaces.gate.test.ts:5`) are extended in place rather than duplicated, so the whole section becomes:
 
 ```ts
-    it("kills the surface's DECLARED control mutant, proving the overlay is live (AC-3)", async () => {
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import { describe, expect, it } from "vitest";
+import { evaluateGate } from "./source/gate";
+import { GUARD_SURFACES } from "./source/registry";
+import { runSuite, runSurface } from "./source/runner";
+
+// ... and inside describe.each, replacing the AC-3 control case:
+    it("kills the surface's DECLARED control mutant, proving the overlay is live (AC-3)", () => {
+      // Failure caught: a control that proves nothing about the control. The
+      // previous version built `broken`, DISCARDED it, and ran every
+      // `equality-flip` mutant instead, asserting only `killed > 0`. On a
+      // surface with two equality sites - lib/reviewRounds/count.ts has the
+      // status conjunct in `countedRounds` and the contiguity comparison in
+      // `roundGaps` - the contiguity mutant can be killed while the DECLARED
+      // status-conjunct control survives, and AC-3 still reports success.
       const source = readFileSync(surface.sourcePath, "utf8");
       const { find, replace } = surface.controlMutation;
       // validateSurface already pins exactly-once; assert it here too, because
@@ -3678,22 +3847,31 @@ The control therefore asserts its own mutant, by executing it:
       const broken = source.replace(find, replace);
       expect(broken, "control mutation did not apply").not.toBe(source);
 
+      // The overlay serves the mutant from a scratch file and NEVER writes
+      // surface.sourcePath, so a thrown assertion cannot leave a mutant on the
+      // tracked tree and no source restore is needed. The AC-4 case above stays
+      // green for free.
+      const scratch = mkdtempSync(join(tmpdir(), "fx-control-"));
       try {
-        writeFileSync(surface.sourcePath, broken);
-        // The DECLARED mutant, on disk, run against the surface's own suites.
-        // A green run here means the suite cannot see the mutation at all.
-        const red = runSuites(surface.suitePaths);
-        expect(red.ok, "the declared control mutant SURVIVED the suite").toBe(false);
+        const mutantFile = join(scratch, "mutant.ts");
+        writeFileSync(mutantFile, broken);
+        const target = resolve(root, surface.sourcePath);
+        // The DECLARED mutant, run against the surface's OWN suites. A zero
+        // from every one of them means the suite cannot see this mutation.
+        const codes = surface.suitePaths.map((suite) =>
+          runSuite(root, target, mutantFile, suite, `${surface.id} control`),
+        );
+        expect(
+          codes.some((code) => code !== 0),
+          "the declared control mutant SURVIVED every suite",
+        ).toBe(true);
       } finally {
-        writeFileSync(surface.sourcePath, source);
+        rmSync(scratch, { recursive: true, force: true });
       }
-      // The tree is restored even if the assertion throws - a mutant left on
-      // disk poisons every later test in the run.
-      expect(readFileSync(surface.sourcePath, "utf8")).toBe(source);
     });
 ```
 
-This replaces the `runSurface(..., { operators: ["equality-flip"] })` probe rather than sitting beside it: that probe's only claim was liveness, and executing the declared mutant establishes liveness directly instead of inferring it from an unrelated mutant's death.
+This replaces the `runSurface(..., { operators: ["equality-flip"] })` probe rather than sitting beside it: that probe's only claim was liveness, and executing the declared mutant establishes liveness directly instead of inferring it from an unrelated mutant's death. `runSurface` keeps its other caller (`tests/mutation/guardSurfaces.gate.test.ts:49`), which is why it stays on the import line.
 
 - [ ] **Step 3: Enroll the surface**
 
@@ -3831,12 +4009,26 @@ Eight findings, all confirmed against the live tree before repair.
 | 2 | BLOCKING - three tasks' `git add` omitted files those tasks modify, so a clean checkout fails while the implementer's dirty worktree passes | All three fixed, then every one of the twelve commit blocks swept against its own steps |
 | 3 | BLOCKING - pasted TypeScript fails the strict tsconfig: unguarded indexed dereferences under `noUncheckedIndexedAccess`, an unimported helper, and duplicate imports | Every instance fixed. A mechanical checker now backs this class (see below) |
 | 4 | BLOCKING - Tasks 6, 7, 8 and 10 gave behavior lists instead of code, and `readArcs` was promised by Task 6 and consumed by Task 8 but never produced | Complete modules written for corpus.ts, mergedArcs.ts and review-economy.ts, `readArcs` among them; Task 10 is now an exact edit |
-| 5 | BLOCKING - the generalized control still proved nothing about the control: the live test builds `broken`, **discards it**, and runs every `equality-flip` mutant asserting only `killed > 0`. count.ts has two equality sites, so the contiguity mutant can be killed while the status-conjunct control survives | The control now writes its declared mutant to disk, runs the surface's own suites, asserts they go RED, and restores in a `finally`. Liveness is established, not inferred |
+| 5 | BLOCKING - the generalized control still proved nothing about the control: the live test builds `broken`, **discards it**, and runs every `equality-flip` mutant asserting only `killed > 0`. count.ts has two equality sites, so the contiguity mutant can be killed while the status-conjunct control survives | The control now executes its declared mutant against the surface's own suites and asserts at least one goes RED. Liveness is established, not inferred. (Round 3 finding 4c replaced the disk-write with the harness's own overlay, so the tracked tree is never touched at all) |
 | 6 | HIGH - the sweep returned two direct invocations and only one was handled; `tests/codexGuard/usage.test.ts:56`'s "missing --brief" case would exit 2 for the wrong reason and stay green, silently losing its coverage | New Step 3b passes the flags and tightens the assertion to name `--brief` |
 | 7 | HIGH - `findingCount` was wired at one of two `parseVerdict` sites, so a `no_verdict` response or a rollout-recovered verdict declaring `FINDINGS: n` recorded `null`, which falsely means "not declared" | Both sites specified, both terminal writes named, two tests added |
 | 8 | HIGH - Task 10 preferred dropping the tally while committing prose promising it | One contract in all three places: the declared count, or the literal `not declared`, never inferred and never dropped |
 
 **Findings 3 and 6 were the same shape twice, so the second repair was mechanical rather than per-instance.** Round 1 and round 2 each spent a finding on pasted snippets that do not compile, one instance at a time, which is precisely the drip-feed the round-economy rules name as a review defect. A checker now extracts every fenced block and reports the shapes that actually bit here - unguarded indexed access, em dashes inside fences, mangled template literals, duplicate imports - and is waiver-aware in the same way the real linter is. It reports 0 problems over 54 blocks. It is filed rather than shipped in this PR (exception (c): it is a change to the spec-lint surface, which this PR does not otherwise touch).
+
+## Review Round 3 Triage
+
+Five findings, all confirmed against the live tree before repair. Four of the five are the system reporting a **false fact about itself** — an arc accused, a filing blessed, a tally contradicted — which is the one outcome the consequence bound forbids, so each carries a test that fails on the old behavior.
+
+| # | Finding | Repair |
+| --- | --- | --- |
+| 1 | BLOCKING - `adoptionBoundary` passed no ref, so `git log` walked HEAD. On the branch that adds the constants module HEAD's first-parent history contains that addition, so the query returns the branch-local commit's date: a boundary EARLIER than the merge, which is the precise too-early failure the whole design exists to prevent | `main` inserted before the `--` separator, with the reason in the doc comment. Covered by a new "adoption boundary, production default" case in Task 8 that builds a real repo, asserts `null` while HEAD is the feature branch, merges `--no-ff`, and asserts the boundary equals the merge commit's `%cI` read back from the same repo. It is the ONLY case in that file that declines the injection, which is why the defect had no coverage at all |
+| 2 | BLOCKING - the adoption merge reported ITSELF as silent. The boundary and this PR's own `mergedAt` are one commit's `%cI`, the pre-adoption test was strictly `<`, and this arc has no corpus by ratified design (spec §12) | Post-adoption is now strictly GREATER than the boundary; equality is pre-adoption. The contract goes live with that merge, not before it, so the merge that establishes the boundary cannot be obliged by it. New test asserts an arc whose `mergedAt` is `BOUNDARY` itself is absent from `silentArcs` and present in `preAdoptionMergeCount`, plus a Global Constraints bullet so neither side is relitigated |
+| 3 | BLOCKING - an obliged arc passed with a malformed filing heading. `HEADING_LOOSE` builds a section with `declaredRounds: null`; its presence suppressed `missing_filing`, both body-field checks passed, and `count_mismatch` skipped `null` outright | A `null` round count is now a `filing_malformed` problem, checked FIRST in the section loop with a `continue`, so the heading's count is a precondition for reading anything else out of that section. New gate case pins the exact four-line filing that used to pass |
+| 4 | BLOCKING - three fences still do not compile: Task 2's constants module calls `execFileSync` with no import; Task 4's block calls `readResult`, whose import arrived only in Task 5, so Task 4 is not independently runnable (TDD invariant 1); Task 11's control fence used an unimported `writeFileSync` and a NONEXISTENT `runSuites`, and wrote the mutant to the tracked source path | Import added; `readResult` moved onto Task 4's `./harness` line with Task 5's prose corrected to add nothing; Task 11 rewritten against the real primitive `runSuite` (`tests/mutation/source/runner.ts:68`) using the overlay pattern from `runSurface` (`tests/mutation/source/runner.ts:118-134`) - scratch dir, scratch mutant file, real `target`. No write to `surface.sourcePath` at all, so the source restore disappears with it |
+| 5 | BLOCKING - the hook's declared tally still diverged from the corpus. The hook SUMMED matching lines across every `attempt-*.last-message.txt` in a round's out-dir; `parseFindingCount` reads ONE terminal message per dispatch. A round whose failed first attempt declares 2 and whose retry declares 1 records 1 and prints 3 | Task 10 now specifies the hook applying `parseFindingCount`'s rule point for point - terminal message only, fenced blocks elided, end-anchored pattern, ambiguity renders `not declared` - per round and never summed. Stated explicitly: the two must agree, and where both exist the corpus row is authoritative. Step 3 gains the divergence fixture as its third verification case |
+
+**Finding 4 is the third round in a row to spend a finding on a fence that does not compile, so the repair is mechanical rather than per-instance.** The round-2 checker caught unguarded indexed access, fenced em dashes, mangled template literals, and duplicate imports; it had nothing to say about a name that is simply never imported, which is what all three instances here were. It now collects each fence's imports, declarations, destructured bindings and parameters, and reports any well-known Node or vitest API used without one — resolving names across fences that target the same file, so an append block is not read as importing nothing, and skipping indented-only excerpts, which have no import section to grow. It reports 0 problems over 54 blocks. Same disposition as round 2: filed, not shipped in this PR (exception (c) — it is a change to the spec-lint surface this PR does not otherwise touch).
 
 ## Self-Review Record
 
