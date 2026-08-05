@@ -282,12 +282,17 @@ export function TodaySection({
           // them when the show runs after the schedule, agenda and key-times
           // strip all stopped. The NAME stays: the ratified decision is about
           // dates, and dropping the whole card is a larger change nothing
-          // ratified. The Hotel row loses its `span: 2` when it is alone, or the
-          // 2-up grid strands it across a row with nothing beside it.
+          // ratified. The Hotel row KEEPS `span: 2` when it is alone: in the 2-up
+          // grid that is what makes it full-width, so the card reads as one
+          // headline field. Dropping it — which this change did at first — puts
+          // the lone row in the LEFT column and leaves the right half empty at
+          // >=720px, which is the stranding it was meant to avoid. `span: 2` is
+          // "occupy both columns" (KeyValueRows.tsx:38), not "pair with a
+          // neighbour"; found by reading the primitive instead of the name.
           const hideDates = suppressesDates(dateRestriction);
           const tonightRows: KeyValueRow[] = firstHotel
             ? hideDates
-              ? [{ k: "Hotel", v: firstHotel.hotel_name ?? "" }]
+              ? [{ k: "Hotel", v: firstHotel.hotel_name ?? "", span: 2 as const }]
               : [
                   { k: "Hotel", v: firstHotel.hotel_name ?? "", span: 2 },
                   { k: "Check in", v: firstHotel.check_in ?? "" },

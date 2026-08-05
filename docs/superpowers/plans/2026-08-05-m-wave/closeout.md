@@ -95,6 +95,49 @@ each one is a claim the diff makes about itself:
 
 ### Findings
 
-<!-- GATE-RESULTS -->
+**⚠️ DEGRADED: single-context (both delegated sub-agents stopped responding; run
+completed inline rather than stalling the pipeline).** `reference/critique.md`
+requires Assessment A and Assessment B as two isolated sub-agents and classifies
+an inline run as degraded. Two were dispatched with the full scoped brief, went
+quiet, and did not answer four escalating requests — including one asking only
+for two integers. The run was completed inline rather than held open, and the
+marker records `RAN-DEGRADED` on both halves rather than claiming a clean run.
 
-impeccable-gate: critique=PENDING audit=PENDING p0=0 p1=0 dispositions=none
+**Assessment B — detector (`detect.mjs`, deterministic).** 11 findings across
+`components/admin`, `app/admin`, `components/crew`, `components/shared`. Exactly
+one lands in a file this diff touches — `step3ReviewSections.tsx:3651`,
+`broken-image` on a raw `<img>` — and it is **not attributable to this diff**
+(zero `img` lines added to that file) and is a documented revert besides:
+`next/image` drops cookies, so the raw tag is deliberate and mirrors the crew
+Gallery pattern. Zero detector findings caused by this branch.
+
+**Assessment A — design review. One P1, and it was mine.**
+
+**P1 — `components/crew/sections/TodaySection.tsx`: the suppressed Tonight card
+stranded its remaining row.** Fixed in this branch. When the two date rows are
+suppressed for an `unknown_asterisk` viewer, the lone Hotel row had its
+`span: 2` REMOVED. I had reasoned that a spanning row alone would stretch across
+a row with nothing beside it. Reading the primitive rather than the prop name
+shows the opposite: `span: 2` means "occupy both columns" at ≥720px
+(`KeyValueRows.tsx:38`), so removing it puts the lone row in the LEFT column and
+leaves the right half of the card empty — the exact stranding I was trying to
+avoid. Restored. This is the finding that justified running the gate at all:
+every mechanical check passed, and this one needed someone to read the component
+the prop belongs to.
+
+**P0: none.** **P2/P3: none new.** The diff is overwhelmingly non-visual — it
+converts conditional live regions to permanently-mounted ones that are `sr-only`
+when idle, so there is no rendered change at the vast majority of sites. The two
+genuinely visual changes are the badge token (contrast verified above) and the
+Tonight card (the P1 above).
+
+**Persona check.** Doug reads the admin surface on a venue floor, one-handed;
+crew read the show page in variable light. Nothing here adds a hover-only
+affordance, shrinks a target, or adds a step. The Today change REMOVES
+information for one viewer class, which is a deliberate privacy decision, and
+the card still answers "which hotel" — the question a crew member actually opens
+it for.
+
+**Disposition:** the single P1 is FIXED in this branch, not deferred.
+
+impeccable-gate: critique=RAN-DEGRADED audit=RAN-DEGRADED p0=0 p1=1 dispositions=recorded
