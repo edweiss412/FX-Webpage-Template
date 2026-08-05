@@ -1413,7 +1413,7 @@ git commit -m "feat(review-rounds): emit a corpus row from both result.json writ
 ### Task 5: `FINDINGS: <n>` declared line
 
 **Files:**
-- Modify: `scripts/codex-guard.mjs` (a `parseFindingCount` beside `parseVerdict` at `scripts/codex-guard.mjs:389`, called at **both** parse sites — `scripts/codex-guard.mjs:505` and `scripts/codex-guard.mjs:783` — and carried on `state` so that all **four** terminal write paths read one value)
+- Modify: `scripts/codex-guard.mjs` (a `parseFindingCount` beside `parseVerdict` at `scripts/codex-guard.mjs:389`, driven from **every** site that reads a terminal message — `classifyAttempt` (`scripts/codex-guard.mjs:487-508`), `tryRolloutScrape` (`scripts/codex-guard.mjs:781-784`) and `onSignal` (`scripts/codex-guard.mjs:1042-1058`) — and carried on `state` so that all **four** terminal write paths read one value)
 - Modify: `AGENTS.md` (brief-authoring contract, `AGENTS.md:186`)
 - Modify: tests/codexGuard/reviewRounds.test.ts
 
@@ -1625,6 +1625,127 @@ describe("declared finding count (spec §5.3)", () => {
     const row = rowsIn(corpusPath(run.cwdDir, base))[0]!;
     expect(row.findingCount).toBe(DECLARED);
   });
+
+  // Failure caught: the count extracted BELOW `classifyAttempt`'s exit-shape
+  // guards. An attempt that writes its message and then exits nonzero returns
+  // at the `nonzero_exit` guard (scripts/codex-guard.mjs:492-495), which is
+  // ABOVE the read, so the message is never opened and the corpus records
+  // `null` - "not declared" - against a message that plainly declares. The
+  // reviewer's own number is a fact about the review, not about the exit code
+  // of the process that carried it.
+  it("records a declared count on a nonzero-exit attempt whose message landed", async () => {
+    const run = mkRun();
+    const { base } = gitify(run.cwdDir);
+    const DECLARED = 2;
+    writeScenario(run, [
+      { onCall: 1, actions: [{ type: "lastMessage", text: `FINDINGS: ${DECLARED}\nVERDICT: BLOCKING\n` }, { type: "exit", code: 1 }] },
+    ]);
+    await runGuard(run, ["--stage", "diff", "--round", "1", "--max-attempts", "1"]);
+    const row = rowsIn(corpusPath(run.cwdDir, base))[0]!;
+    // The verdict is NOT accepted, because the attempt failed - and the
+    // declared count survives anyway. That is the decoupling stated as an
+    // assertion: one row carrying both answers, reached by different paths.
+    expect(row.status).toBe("no_verdict");
+    expect(row.verdict).toBeNull();
+    // Derived from the scenario's own declared line, never a literal repeated
+    // on the assertion side.
+    expect(row.findingCount).toBe(DECLARED);
+  });
+
+  // Failure caught: the count extracted BELOW the scrape's verdict guard.
+  // `tryRolloutScrape` continues at `parsed.shape !== "ok"`
+  // (scripts/codex-guard.mjs:783-784), so a rollout whose message declares a
+  // count but never reached a VERDICT line loses it - and on this dispatch
+  // nothing else ever read a message, so the declaration is gone outright
+  // rather than merely stale.
+  it("records a declared count from a rollout message carrying no verdict", async () => {
+    const run = mkRun();
+    const { base } = gitify(run.cwdDir);
+    const DECLARED = 2;
+    const SID = "0199bb22-3344-5566-7788-99aabbccddee";
+    const rolloutDir = join(run.codexHome, "sessions", "2026", "07", "24");
+    mkdirSync(rolloutDir, { recursive: true });
+    const rollout = [
+      JSON.stringify({
+        timestamp: "2026-07-24T21:10:00.000Z",
+        type: "session_meta",
+        payload: { id: SID, cli_version: "0.146.0-alpha.6", originator: "codex_exec" },
+      }),
+      JSON.stringify({
+        timestamp: "2026-07-24T21:11:00.000Z",
+        type: "response_item",
+        payload: {
+          type: "message",
+          role: "assistant",
+          content: [{ type: "output_text", text: `FINDINGS: ${DECLARED}\n\nStill working, no verdict yet.` }],
+        },
+      }),
+    ].join("\n");
+    writeFileSync(join(rolloutDir, `rollout-2026-07-24T21-10-00-${SID}.jsonl`), rollout + "\n");
+
+    // The -o write never lands, so the ONLY terminal message this dispatch
+    // produced is the scraped one.
+    writeScenario(run, [
+      { onCall: 1, actions: [{ type: "stderr", text: `session id: ${SID}\n` }, { type: "exit", code: 0 }] },
+    ]);
+    await runGuard(run, ["--stage", "diff", "--round", "1", "--max-attempts", "1"]);
+
+    // No verdict is recovered - there was none to recover - and the count
+    // lands regardless, which is the whole point of the split.
+    expect(readResult(run)).toMatchObject({ status: "no_verdict", recoveredFrom: null });
+    const row = rowsIn(corpusPath(run.cwdDir, base))[0]!;
+    // Derived from the rollout fixture's own declared line.
+    expect(row.findingCount).toBe(DECLARED);
+  });
+
+  // Failure caught: the interrupt path reading nothing at all. The live
+  // attempt writes its terminal message and then hangs, so `classifyAttempt`
+  // never runs for it and neither read site is ever reached; `onSignal`
+  // (scripts/codex-guard.mjs:1042-1058) then writes the interrupted result
+  // from a carrier that is still null. A declaration sitting on disk in the
+  // out-dir is recorded as one the reviewer never gave, on the one dispatch
+  // shape where no later attempt and no scrape can recover it.
+  it("records a declared count when SIGTERM lands before the attempt is classified", async () => {
+    const run = mkRun();
+    const { base } = gitify(run.cwdDir);
+    const DECLARED = 2;
+    writeScenario(run, [
+      { onCall: 1, actions: [{ type: "stdout", text: "x" }, { type: "lastMessage", text: `FINDINGS: ${DECLARED}\nStill working, no verdict yet.\n` }, { type: "hang" }] },
+    ]);
+    const child = spawn(
+      process.execPath,
+      [GUARD, "review", "--brief", run.briefPath, "--cwd", run.cwdDir, "--out", run.outDir, "--stage", "diff", "--round", "1"],
+      {
+        env: guardEnv(run, {
+          CODEX_GUARD_STALL_SECS: "30",
+          CODEX_GUARD_ATTEMPT_MAX_SECS: "60",
+          CODEX_GUARD_TOTAL_MAX_SECS: "90",
+        }),
+      },
+    );
+    const exitedAt = new Promise<number | null>((res) => child.on("exit", (c) => res(c)));
+    const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
+    const msgPath = join(run.outDir, "attempt-1.last-message.txt");
+    try {
+      // Waiting on the MESSAGE FILE rather than a pidfile is what puts the
+      // signal in the right window: the file existing proves the declaration
+      // is on disk, and attempt 1 hanging proves nothing has classified it.
+      for (let i = 0; i < 200 && !existsSync(msgPath); i++) await pause(50);
+      expect(existsSync(msgPath)).toBe(true);
+      // No second attempt was ever started, so no other read could have run.
+      expect(existsSync(join(run.recordDir, "pid-2.txt"))).toBe(false);
+      child.kill("SIGTERM");
+      expect(await exitedAt).toBe(3);
+    } finally {
+      child.kill("SIGKILL");
+    }
+    expect(readResult(run)).toMatchObject({ failureReason: "interrupted" });
+    const row = rowsIn(corpusPath(run.cwdDir, base))[0]!;
+    expect(row.failureReason).toBe("interrupted");
+    // Derived from the scenario's own declared line, never a literal repeated
+    // on the assertion side.
+    expect(row.findingCount).toBe(DECLARED);
+  }, 30000);
 });
 ```
 
@@ -1633,7 +1754,7 @@ This block grows the file's single import section by **three** names across two 
 - [ ] **Step 2: Run the tests to verify they fail**
 
 Run: `pnpm exec vitest run tests/codexGuard/reviewRounds.test.ts -t "declared finding count"`
-Expected: FAIL — `findingCount` is `null` on every row, so the two declared-count cases and all **four** wiring cases (no-verdict, rollout-recovered, interrupted, wrapper_error) fail. The `null` cases pass vacuously today, which is why they are not the red state.
+Expected: FAIL — `findingCount` is `null` on every row, so the two declared-count cases and all **seven** wiring cases (no-verdict, rollout-recovered, interrupted, wrapper_error, nonzero-exit, rollout-without-verdict, SIGTERM-before-classification) fail. The `null` cases pass vacuously today, which is why they are not the red state.
 
 - [ ] **Step 3: Implement the parser**
 
@@ -1656,7 +1777,11 @@ function parseFindingCount(text) {
 }
 ```
 
-**TWO sites read a terminal message; FOUR sites write a terminal result. Recomputing the count at the write sites is four chances to diverge, which is the defect class itself.** So it is computed exactly where a message is read, carried on `state`, and read back by every writer.
+**Verdict extraction and count extraction share a READ. They share no CONTROL PATH.** That sentence is the whole design, and getting it wrong is what the round-4 placement did: it computed the count at the two sites that read a message but placed each call *after* that site's verdict logic, which made a declared count conditional on a verdict being reached. The record schema never said it was. `findingCount: null` means the reviewer declared nothing (Global Constraints, spec §5.3) — so every ordinary input that carries a declaration into a failed or unverdicted path recorded a false fact about a real review: a nonzero-exit or killed attempt whose `-o` message declared (`classifyAttempt` returns above the read at `scripts/codex-guard.mjs:487-495`), a scraped rollout message that declared but never reached a `VERDICT:` line (`tryRolloutScrape` continues at `scripts/codex-guard.mjs:783-784`), and an attempt whose message landed before a SIGTERM that arrived before any classification.
+
+So the count is extracted **whenever the wrapper reads a terminal message at all** — above every verdict guard, every early return and every acceptance branch — and the two extractions are wired to the same read, never to the same `if`.
+
+**THREE sites read a terminal message; FOUR sites write a terminal result. Recomputing the count at the write sites is four chances to diverge, which is the defect class itself.** So it is computed exactly where a message is read, carried on `state`, and read back by every writer.
 
 **The carrier and its grain.** `state` (`scripts/codex-guard.mjs:995-1006`) gains `findingCount: null` beside `heldLockDir`. It holds the declaration of the **last non-empty terminal message the dispatch produced** — nothing more subtle than that, because that is also the message a reader looking at the out-dir would pick, and Task 10's hook has to pick the same one.
 
@@ -1667,19 +1792,55 @@ function parseFindingCount(text) {
     findingCount: null,
 ```
 
-**Computation site 1 — the `-o` message** (`scripts/codex-guard.mjs:505`). `classifyAttempt` already reads the message and already returns early when there is no `-o` file or the file is empty, so putting the parse below those guards gives the grain for free: an attempt that produced no message never erases a count an earlier attempt declared. It needs `state`, so its one call site (`scripts/codex-guard.mjs:678`) passes it:
+**The one primitive that holds the grain**, added beside `parseFindingCount` so no read site has to restate it. It takes TEXT, not a path: every read site already has the message in hand, and a helper that reads would need its own answer to what an unreadable file means at three sites that answer it differently.
 
 ```js
-  const msg = readFileSync(attempt.lastMessagePath, "utf8");
+/**
+ * The grain, in one place: the LAST NON-EMPTY terminal message wins. An empty
+ * or absent message is not a declaration of nothing, so it never erases an
+ * earlier one - which is why every read site can call this unconditionally,
+ * above its own guards, without checking anything first.
+ */
+function recordDeclaredCount(state, text) {
+  if (typeof text !== "string" || text.trim() === "") return;
+  state.findingCount = parseFindingCount(text);
+}
+```
+
+**Read site 1 — the `-o` message** (`classifyAttempt`, `scripts/codex-guard.mjs:487-508`). The read moves to the TOP of the function, above all four guards, and the count is recorded there. The function gains a `state` parameter — its header becomes `function classifyAttempt(attempt, state) {` — and its one call site (`scripts/codex-guard.mjs:678`) passes it. The body becomes, in full:
+
+```js
+  // ONE read, TWO extractions, and this one runs ABOVE every guard below it.
+  // A killed or nonzero-exit attempt can still have left a readable message,
+  // and that message's declaration is a fact about the review whatever the
+  // exit shape of the process that carried it was. `hasMsg` keeps absent and
+  // empty distinguishable, which the two failure shapes below still need; the
+  // read itself is the same call it always was, so a genuinely unreadable file
+  // still throws to the caller's classification catch exactly as before.
+  const hasMsg = existsSync(attempt.lastMessagePath);
+  const msg = hasMsg ? readFileSync(attempt.lastMessagePath, "utf8") : "";
+  recordDeclaredCount(state, msg);
+
+  if (attempt.killedReason !== null) {
+    attempt.failureShape = "killed";
+    return;
+  }
+  if (attempt.exitCode !== 0) {
+    attempt.failureShape = "nonzero_exit";
+    return;
+  }
+  if (!hasMsg) {
+    attempt.failureShape = "no_o_file";
+    return;
+  }
   if (msg.trim() === "") {
     attempt.failureShape = "empty_o_file";
     return;
   }
-  // Above the verdict parse ON PURPOSE: this runs whenever the -o file exists
-  // and is non-empty, INDEPENDENT of whether a verdict was found, which is what
-  // makes a no_verdict response that still declared FINDINGS: 2 record 2.
-  state.findingCount = parseFindingCount(msg);
   const parsed = parseVerdict(msg);
+  attempt.parsed = parsed;
+  if (parsed.shape !== "ok") attempt.failureShape = parsed.shape;
+}
 ```
 
 ```js
@@ -1688,22 +1849,43 @@ function parseFindingCount(text) {
   } catch (e) {
 ```
 
-**Computation site 2 — the recovered rollout message** (`scripts/codex-guard.mjs:783`). It writes the carrier rather than returning `findingCount` in its patch. One carrier means precedence is settled by write order instead of by spread order, and the scrape's write is last by construction: it runs only after the attempt loop has already given up.
+**Read site 2 — the scraped rollout message** (`scripts/codex-guard.mjs:781-784`). It writes the carrier rather than returning `findingCount` in its patch. One carrier means precedence is settled by write order instead of by spread order, and the scrape's write is last by construction: it runs only after the attempt loop has already given up. The recording goes ABOVE the verdict guard, so a scraped message that declared a count without reaching a `VERDICT:` line still records it:
 
 ```js
+      const msg = lastAgentMessage(rollout);
+      if (!msg) continue;
+      // ABOVE the guard below, for the same reason as site 1. A scraped message
+      // is a terminal message this dispatch produced whether or not it carries
+      // a verdict, and it replaces any earlier attempt's declaration -
+      // including replacing a number with "not declared" when it declares none.
+      recordDeclaredCount(state, msg);
       const parsed = parseVerdict(msg);
       if (parsed.shape !== "ok") continue;
-      // The recovered message IS this dispatch's terminal message, so its
-      // declaration replaces any earlier attempt's - including replacing a
-      // number with "not declared" when the recovered message declares none.
-      state.findingCount = parseFindingCount(msg);
+```
+
+**Read site 3 — the live attempt at interrupt time** (`onSignal`, `scripts/codex-guard.mjs:1042-1058`). An attempt that wrote its `-o` message and then hung is never classified at all, so site 1 never runs for it and the interrupt is the first and only chance to read it. Placed just after the live-attempt snapshot push and before `writeResult`, with a guard of its own — unlike site 1 there is no caller to catch a throw here, and losing the whole interrupted result over an unreadable message would trade a missing count for a missing row:
+
+```js
+      // The live attempt may have written its message and then hung, so this is
+      // the FIRST read of it, not a second one. A hung attempt that wrote
+      // nothing reads "" and changes nothing, so an earlier attempt's
+      // declaration survives the interrupt untouched.
+      try {
+        const livePath = state.currentAttempt?.lastMessagePath;
+        if (livePath && existsSync(livePath)) {
+          recordDeclaredCount(state, readFileSync(livePath, "utf8"));
+        }
+      } catch {
+        /* an unreadable message is never a reason to lose the interrupted row */
+      }
+      writeResult(cfg, state, { failureReason: "interrupted", error: `signal ${sig}` });
 ```
 
 **The four terminal writers, and the two places they read from.** Writers 1, 2 and 3 all funnel through `writeResult`, so ONE default line serves them:
 
 1. **The verdict-success write** (`scripts/codex-guard.mjs:1016-1021`) — `writeResult`.
 2. **`giveUp`** (`scripts/codex-guard.mjs:1026-1029`) — `writeResult`, including the rollout-recovered case.
-3. **`onSignal`** (`scripts/codex-guard.mjs:1042-1058`) — `writeResult` with `failureReason: "interrupted"`. A reviewer that declared its count and was then interrupted is a real declaration, and this writer is why the count cannot live on the final `attempt`: at interrupt time the live attempt is the hung one, which declared nothing.
+3. **`onSignal`** (`scripts/codex-guard.mjs:1042-1058`) — `writeResult` with `failureReason: "interrupted"`. A reviewer that declared its count and was then interrupted is a real declaration, and this writer is why the count cannot live on the final `attempt`: at interrupt time the live attempt may be a hung one that declared nothing, and an earlier attempt's declaration has to survive it. The carrier's non-empty grain gives that half; read site 3 gives the other half, for the hung attempt that DID declare before it hung.
 4. **`main().catch`** (`scripts/codex-guard.mjs:1066-1093`) — builds its OWN body literal and never touches `writeResult`, so it is the one site that needs a second read.
 
 ```js
@@ -3915,7 +4097,7 @@ The hook is per-machine and untracked, so this step describes the precise change
 1. Replace the inferring tally. The current assignment greps the numbered-bold pattern across every `attempt-*.last-message.txt` in each prior round's out-dir and sums the per-file counts — the 48.0% recognizer, at a grain the corpus does not use. Replace it with a per-dispatch read whose FIRST source is the dispatch's own answer:
    - **The dispatch's result.json is authoritative and is never re-derived.** Each prior round's out-dir holds one, and after Task 5 it carries the resolved `findingCount` — the very value the corpus row holds, because the bridge copies it straight across (Task 4 Step 3). A number renders as itself; an explicit `null` renders `not declared`. Re-deriving a count the wrapper already resolved is the only way the two can disagree, so the hook does not.
    - **Only a dispatch with no usable result.json falls through to the message files:** an out-dir from before this feature (a result.json with no `findingCount` key at all — absent is not `null`), a run whose result.json never landed, or a file that does not parse. Then, and only then, the scan below applies.
-   - **The scan picks the same message the wrapper did.** `recovered-from-rollout.txt` when the out-dir holds one, because on a rollout-recovered dispatch THAT file is the terminal message: `tryRolloutScrape` writes it and points `lastMessagePath` at it (`scripts/codex-guard.mjs:785-795`), which is the `recoveredFrom: "rollout_scrape"` contract AGENTS.md already documents. Otherwise the LAST `attempt-*.last-message.txt` with non-empty content — last, because earlier attempts are superseded work; non-empty, because an empty `-o` file returns before the wrapper's own parse (`scripts/codex-guard.mjs:501-504`) and so never resets its carrier either.
+   - **The scan picks the same message the wrapper did.** `recovered-from-rollout.txt` when the out-dir holds one, because on a rollout-recovered dispatch THAT file is the terminal message: `tryRolloutScrape` writes it and points `lastMessagePath` at it (`scripts/codex-guard.mjs:785-795`), which is the `recoveredFrom: "rollout_scrape"` contract AGENTS.md already documents. Otherwise the LAST `attempt-*.last-message.txt` with non-empty content — last, because earlier attempts are superseded work; non-empty, because an empty `-o` file never resets the wrapper's carrier either (`recordDeclaredCount`'s non-empty grain, Task 5 Step 3). Note that this rule matches the wrapper on a nonzero-exit or killed attempt only because Task 5's read sits above `classifyAttempt`'s exit-shape guards; with the round-4 placement it did not, and the fallback silently disagreed there too. The one shape the fallback still cannot see is a scraped rollout message that declared a count but carried no verdict: nothing is recovered, so no file is written, so there is nothing on disk to scan. It is reachable only when no usable result.json survives, and it renders `not declared` against a corpus row that has the number. Recorded as a documented limit of the fallback rather than repaired, because the repair is a file the wrapper writes for no other reason.
    - **Elide fenced blocks first**, the same elision `parseFindingCount` applies, so a `FINDINGS:` line quoted inside an example block is not read as a declaration.
    - **End-anchored pattern**, the same one: an optional bold or italic wrapper, `FINDINGS:`, decimal digits, and nothing else on the line. `FINDINGS: 2 or 7` declares nothing.
    - **Ambiguity renders as `not declared`.** Two DIFFERENT counts in one terminal message is `null` in `parseFindingCount`, and it must not become a number here.
@@ -4225,6 +4407,18 @@ Two findings, both confirmed against the live tree before repair. Both are the s
 | 2 | HIGH - the gate blessed a filing stage the spec forbids. `checkCorpus` never checked a section's stage against `COUNTED_STAGES`, and against contiguous `task` rows plus a `## task — 0 rounds` section the two count checks positively agree with each other: `recorded.get("task")` is 4 so `stage_without_rows` stays silent, and `counted.get("task") ?? 0` equals the declared 0 so `count_mismatch` does too. Spec §6 item 1 permits only `spec`, `plan` and `diff`. The existing "four task rounds without a filing" case cannot reach this — it has no filing at all | New `stage_not_filable` kind, added to the `ProblemKind` union, which is its only enumeration in the plan (verified by grep over every kind name). It is raised FIRST in the section loop with a `continue`, ahead of the round-count check, because a section for a stage that carries no filing is not a filing and its count is not worth reading. New gate case uses exactly the passing shape and asserts the kind rather than merely "some problem" |
 
 **Finding 1's repair turned up a peer in Task 4, repaired in place rather than filed.** Both new tests need a terminal path forced, and Task 4's wrapper-error test claimed a trigger that reaches none: a `CODEX_HOME` pointed at a plain file. Probed 2026-08-04 against the live wrapper — every read of `cfg.codexHome` is already guarded (the heartbeat `mkdir`, the cache rung, `findRollout`), so that dispatch runs to a clean `verdict` at exit 0, two runs out of two. The round-2 repair that introduced it (finding 6) was reasoned from module-load order and never probed, which is precisely the probe-less acceptance the admissibility contract charges as a review defect. Both tasks now plant a directory where an attempt's transcript file must be written: `createWriteStream` errors, the stream-error latch rejects with `fail()` (`scripts/codex-guard.mjs:561-564`), and that rejection leaves the attempt loop for `main().catch` while `cfg.out` stays writable. Probed the same day: exit 3, `failureReason: "wrapper_error"`.
+
+## Review Round 5 Triage
+
+One finding, confirmed against the live tree before repair. It is the third consecutive round on `findingCount`, and the same false fact each time: a declaration the reviewer made, recorded as one it never gave.
+
+| # | Finding | Repair |
+| --- | --- | --- |
+| 1 | BLOCKING - the declared count was extracted only after guards that return early, so ordinary inputs recorded `null` ("not declared") despite a declaration. Round 4 computed the count at the two sites that read a terminal message but placed each call AFTER that site's verdict logic. `classifyAttempt` returns above the read when the attempt was killed or exited nonzero (`scripts/codex-guard.mjs:487-495`), and `tryRolloutScrape` continues immediately when the scraped text carries no verdict (`scripts/codex-guard.mjs:783-784`). Three ordinary inputs recorded a false `null`: a nonzero-exit or killed attempt whose `-o` message declared, a rollout message declaring a count with no `VERDICT:` line, and an attempt whose message landed before a SIGTERM that reached `onSignal` before any classification | The two extractions are decoupled: they share a READ and no CONTROL PATH. One text-taking primitive, `recordDeclaredCount`, holds the grain in one place (last NON-EMPTY terminal message wins, so an absent or empty later message never erases an earlier declaration), and every site that reads a terminal message calls it above every verdict guard, early return and acceptance branch. `classifyAttempt`'s read moves to the top of the function, above all four guards, keeping a `hasMsg` flag so `no_o_file` and `empty_o_file` stay distinguishable; the scrape records above its verdict guard; and `onSignal` gains a THIRD read site, because a hung attempt's message is never classified at all and the interrupt is its only chance. The task prose now states the rule as the design: verdict extraction and count extraction share a read but not a control path, and the round-4 placement failed by making a declared count conditional on a verdict, which the record schema never said it was. One test per input, each deriving its expectation from the `DECLARED` constant that built the scenario |
+
+**Why the existing three wiring tests could not catch any of it, which is the reason this shipped twice.** The no-verdict case exits cleanly, so it never reaches an exit-shape guard; the rollout case includes a verdict, so the scrape's guard is never the one that fires; and the interrupted and wrapper-error cases both take their declaration from an EARLIER completed attempt, so the carrier is already set before the path under test runs. Three tests over three terminal paths, and all three enter through the one branch that was already correct. The new cases are chosen by the guard they must cross, not by the writer they must reach.
+
+**The sweep this finding demands, run across the whole plan.** The shape is: a value the corpus records unconditionally, extracted inside a conditional branch. `findingCount` is the only unconditional-by-schema field the wrapper derives from reviewer output; every other row field is either identity resolved once per dispatch before any branch (Task 3's `branch`, `baseSha`, `arc`, and `stage` / `round` / `startedAt` straight off `cfg` and `state`) or is itself the branch outcome, where conditionality is the definition rather than a defect (`status`, `verdict`, `verdictLine`, `failureReason`, `recoveredFrom`). The report side reads only what the corpus holds and guards `null` explicitly at every total (Task 8's `undeclaredRows`). One near-peer surfaced and was repaired in place rather than filed: Task 10's fallback rule inherited the same defect from the other end — its "last non-empty attempt message" scan matches the wrapper on a nonzero-exit or killed attempt ONLY once Task 5's read sits above the exit-shape guards, so under the round-4 placement the advisory line and the corpus row disagreed there as well. Its one remaining blind spot, a scraped rollout that declared without a verdict and therefore wrote no file, is now stated as a documented limit of the fallback in Task 10 Step 1.
 
 ## Self-Review Record
 
