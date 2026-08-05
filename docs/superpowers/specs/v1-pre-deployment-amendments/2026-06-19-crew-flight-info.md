@@ -140,6 +140,19 @@ Splitting first (not one `stripAgendaUrls` over the whole string) is required be
 - **BL-CREW-PII-DB-LOCKDOWN (BACKLOG, separate effort):** if the project decides crew PII should be gated from other crew, harden `flight_info` + `email` + `phone` together (a column-grant lockdown so `anon`/`authenticated` cannot directly SELECT them, the service-role projection still reading, + a PostgREST-boundary test). Out of scope for this UI feature; hardening only `flight_info` would be inconsistent with the equally-exposed `email`/`phone`.
 - No `tileErrors`/fail-soft channel for flight (it rides the existing auth lookup, not a new read) and no §12.4 code (flight projection emits no warning).
 
+## Documented limit (ratified 2026-08-04) — crew-to-crew PII visibility is ACCEPTED
+
+Decision 2 above left one question open: *should* crew PII be gated from other crew at the DB boundary? It was filed as `BL-CREW-PII-DB-LOCKDOWN` and has now been answered. **Ratified 2026-08-04 (user decision, captured in `docs/superpowers/specs/2026-08-05-m-wave-decisions-brief.md` and carried as §1.1 item 6 of `docs/superpowers/specs/2026-08-05-m-wave-design.md`): crew-to-crew visibility of `crew_members.flight_info`, `email`, and `phone` is ACCEPTABLE and ships as-is.** No column-grant lockdown, no read-side PostgREST-boundary test, no projection change.
+
+**Rationale (ratified):** the source Google Sheet backing every show is already shared with the whole crew, so the DB boundary would gate data the crew can read at its origin. A lockdown would add a security boundary the upstream workflow does not have, at the cost of the roster-sharing model the product depends on.
+
+**What is accepted, concretely.** Any authenticated crew member of a published show can read every crew row's `name`, `email`, `phone`, and `flight_info` for that show directly via PostgREST — including booking confirmation / record-locator codes inside `flight_info`. The mechanism is the table-level SELECT grant to `anon, authenticated` (`supabase/migrations/20260501002000_rls_policies.sql:244`) plus the `crew_read` RLS policy on `crew_members` (`supabase/migrations/20260501002000_rls_policies.sql:247-258`), which admits any reader who passes `can_read_show(show_id)` on a published show. Both stay exactly as they are.
+
+**Un-accept triggers** (either one reopens this, and the entry body is preserved in `BACKLOG-archive.md` for pickup):
+
+1. Operator feedback or a security review concluding crew should NOT see each other's flight/contact PII.
+2. A v1.x security-hardening milestone bundling this with `BL-ADMIN-POSTGREST-DML-LOCKDOWN` (the DML/write-side analogue) and `BL-RLS-COVERAGE-CROSSCUTTING`. Hardening only `flight_info` while `email`/`phone` stay open remains incoherent — if it is ever picked up, all three columns move together, and `tests/db/postgrest-dml-lockdown.test.ts` is the template for the read-side boundary test.
+
 ## Existing-code citations (verified live, 2026-06-19)
 
 - Parse: `lib/parser/types.ts:71`; `lib/parser/blocks/crew.ts:81` / `:129` / `:263`.
