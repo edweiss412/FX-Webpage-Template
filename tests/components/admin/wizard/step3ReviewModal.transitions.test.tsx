@@ -775,9 +775,14 @@ describe("§H N4: rescan overlay result — fast pop-in on appear; instant (sync
     await waitFor(() => expect(q.getByTestId(`rescan-sheet-result-${DFID}`)).toBeTruthy());
     const result = q.getByTestId(`rescan-sheet-result-${DFID}`);
     expect(result.hasAttribute("data-rescan-overlay-result")).toBe(true); // CSS hook wired
-    // Live region is the INNER copy-only element (dual-gate P1) — the
-    // positioned wrapper itself carries no role.
-    expect(result.querySelector('[role="status"]')).not.toBeNull();
+    // The copy is the INNER element; the positioned wrapper carries no role.
+    // It is no longer a live region — an inserted-with-its-text region never
+    // announced, so the announcement moved to the branch-stable provider channel
+    // (BL-ANNOUNCE-REGION-UNMOUNT-CLASS). This row is about the ENTRANCE
+    // ANIMATION contract, which is unchanged: the hook attribute and the inner
+    // copy element are what it pins.
+    expect(result.querySelector('[role="status"]')).toBeNull();
+    expect(result.querySelector("p")).not.toBeNull();
     // Instant exit: the dismiss click removes the node within the SAME act —
     // no waitFor, no exit animation to linger through.
     fireEvent.click(within(result).getByRole("button", { name: "Dismiss" }));
