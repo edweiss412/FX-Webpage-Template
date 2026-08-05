@@ -40,8 +40,8 @@ const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
   // repaid by a test, so a row appearing here later is a regression to
   // explain rather than a number to update.
   ledgerClaimsCore: { equivalent: 3 },
-  // Counted from the surface: FIVE reachability arguments -- the two-field
-  // parses at ledger-git.ts:67 and :176, the twice-tested regex group at :202,
+  // Counted from the surface: SIX reachability arguments -- the three two-field
+  // parses at ledger-git.ts:67, :114 and :176, the twice-tested regex group at :202,
   // the `+++ b/` fallthrough at :261, and headRepo's three-way collapse at :306
   // -- plus ONE accepted-gap family of exactly THREE sites, the spawn timeouts
   // at :32-34. A fourth accepted-gap row means a new family, which needs its
