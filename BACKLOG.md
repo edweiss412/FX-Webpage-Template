@@ -164,7 +164,7 @@ no card carries `data-section-freshness-flash` on reopen, on
 
 ## BL-FRESHNESS-PROJECTION-NARROWING — seven freshness projections hash a wider model than their renderer paints, so they can over-cue
 
-**Filed:** 2026-08-03 (class-sweep triggered by the whole-diff review of `feat/modal-freshness-cue`) · **Class:** correctness (cosmetic) · **Effort:** M (seven independent projections, each needing its own probe) · **Severity:** low
+**Status:** IN PROGRESS · **Branch:** feat/m-wave-ui · **Filed:** 2026-08-03 (class-sweep triggered by the whole-diff review of `feat/modal-freshness-cue`) · **Class:** correctness (cosmetic) · **Effort:** M (seven independent projections, each needing its own probe) · **Severity:** low
 
 `components/admin/review/sectionFreshness.ts` holds one contract: the signature reads what the RENDERER reads. The whole-diff review found two violations where the detector read NARROWER than the renderer, which is the severe direction — content changes on screen and no cue fires. Both are fixed (the diagrams `{current,pending}` unwrap; the agenda projection), as are the two further missed-cue instances the follow-up class-sweep turned up (the uncapped `roomHasScope` rail count; the strike/load-out entry cap exemption).
 
@@ -813,7 +813,7 @@ matrix itself.
 
 ## BL-RESYNC-REGRESSED-JUMP-LINK — the alert's "open the parse panel" pointer is prose, not an affordance
 
-**Status:** OPEN · **Severity:** LOW-MEDIUM (discoverability) · **Class:** UX — surfaced by the correction-loop de-duplication (#516, 2026-07-20) · **Effort:** M
+**Status:** IN PROGRESS · **Branch:** feat/m-wave-ui · **Severity:** LOW-MEDIUM (discoverability) · **Class:** UX — surfaced by the correction-loop de-duplication (#516, 2026-07-20) · **Effort:** M
 
 `RESYNC_QUALITY_REGRESSED`'s body ends "…open the parse panel to see what degraded and fix the sheet." That sentence is the ONLY thing routing Doug from the alert to the Parse warnings panel, and it is plain prose: no link, no jump control.
 
@@ -1151,7 +1151,7 @@ screen-disposition 2026-08-04: PREREQ-FENCED + ANNOTATED, stays open, NOT claime
 
 ### BL-BULK-UNDO-ANNOUNCE-UNMOUNT — the bulk Undo-all announcement dies with its group
 
-**Filed:** 2026-08-03 from `feat/sync-feed-undo-announce`. **Class:** the announce-region unmount defect. **Effort:** M.
+**Status:** IN PROGRESS · **Branch:** feat/m-wave-ui · **Filed:** 2026-08-03 from `feat/sync-feed-undo-announce`. **Class:** the announce-region unmount defect. **Effort:** M.
 
 `bulkUndoOutcome` lives in `GroupSection` (`components/admin/RecentAutoAppliedStrip.tsx:331`) and its region renders inside that group's panel (`RecentAutoAppliedStrip.tsx:544`). Undoing every undoable row in a show empties the group, so the group unmounts and the all-success announcement goes with it — the same defect `BL-SYNCFEED-UI-1` fixed for the per-row channel, one component over. **Pre-existing**, not introduced by that branch.
 
@@ -1165,7 +1165,7 @@ Not fixed there because the branch's spec §1.1 R2 ratified the bulk channel as 
 
 ### BL-ANNOUNCE-REGION-UNMOUNT-CLASS — four more surfaces announce into a region their own success destroys
 
-**Filed:** 2026-08-03 from `feat/sync-feed-undo-announce`, by sweeping every live region in `components/` and `app/`. **Class:** a11y. **Effort:** M per surface.
+**Status:** IN PROGRESS · **Branch:** feat/m-wave-ui · **Filed:** 2026-08-03 from `feat/sync-feed-undo-announce`, by sweeping every live region in `components/` and `app/`. **Class:** a11y. **Effort:** M per surface.
 
 `DESIGN.md` already requires announcement regions to be branch-stable, so these are violations of a ratified rule rather than an unlucky pattern.
 
@@ -1309,7 +1309,7 @@ Plus fifteen conditionally-mounted region elements across thirteen sites (a cond
 
 ### BL-ADMIN-BADGE-CONTRAST-TOKEN — badge token pair + nav polish batch
 
-**Effort:** M
+**Status:** IN PROGRESS · **Branch:** feat/m-wave-ui · **Effort:** M
 
 Filed 2026-06-10 (mobile needs-attention milestone impeccable dispositions). Project-wide badge token pair (accent-bg badges are ~2.3:1 white-on-#FF8C1A at 12px; e.g. #C25E00 bg ≈4.9:1 AA) applied to BOTH `NotifBell` and the attention-tab badge in the same change. Fold in two P3/LOW polish items from the same gate run: summary-card zero-state copy redundancy (`NeedsAttentionSummaryCard` "All caught up" + "Nothing waiting on you." say the same thing) and `app/admin/layout.tsx` serial `fetchUnresolvedAlertCount` → `loadNeedsAttentionCount` awaits (Promise.all saves a round-trip per admin render). Technical home: `app/globals.css` @theme token pair + the two badge components + layout. No trigger; speculative polish.
 
@@ -1345,7 +1345,7 @@ The Phase 1 crew-page projection alert (`TILE_PROJECTION_FETCH_FAILED`, §4.13 o
 
 ### BL-CREW-UNKNOWN-ASTERISK-TODAY-DATES — Today Tonight/Where date rows for date-restricted viewers
 
-**Filed:** 2026-06-19 (crew mock-fidelity Today Mode-A review, Codex plan R3 HIGH). The Today section's Tonight/Where quick-cards render hotel `check_in`/`check_out` (`TodaySection.tsx:164-165`) + venue dates via `KeyValueRows` for ALL viewers, including `unknown_asterisk` (the date-restricted "we haven't confirmed your days yet" marker). `ScheduleSection` already hides every date for `unknown_asterisk`; Today does not gate the Tonight/Where date-bearing rows. The mock-fidelity pass gated the NEW run-of-show timeline (Mode A renders no timeline for `unknown_asterisk`), but did not change the pre-existing Tonight-card contract.
+**Status:** IN PROGRESS · **Branch:** feat/m-wave-ui · **Filed:** 2026-06-19 (crew mock-fidelity Today Mode-A review, Codex plan R3 HIGH). The Today section's Tonight/Where quick-cards render hotel `check_in`/`check_out` (`TodaySection.tsx:164-165`) + venue dates via `KeyValueRows` for ALL viewers, including `unknown_asterisk` (the date-restricted "we haven't confirmed your days yet" marker). `ScheduleSection` already hides every date for `unknown_asterisk`; Today does not gate the Tonight/Where date-bearing rows. The mock-fidelity pass gated the NEW run-of-show timeline (Mode A renders no timeline for `unknown_asterisk`), but did not change the pre-existing Tonight-card contract.
 
 **Effort:** M
 
@@ -1387,7 +1387,7 @@ The Phase 1 crew-page projection alert (`TILE_PROJECTION_FETCH_FAILED`, §4.13 o
 
 ### BL-HELP-UI-LABEL-CROSSWALK-EXACT-MATCH — tighten short action labels in the /help UI-label crosswalk
 
-**Filed:** 2026-06-23 (Codex flagged it reviewing the D9 sync-model doc fix, PR #96). The crosswalk (`tests/help/_metaUiLabelCrosswalk.test.ts`) verifies each bold/quoted /help label exists in shipped `app/`+`components/` source via **substring** matching. So a short bolded label like `Undo` passes against any longer shipped string (`Undo this change`, `Undo auto-publish`, `Undoing…`) even if the doc means a different control. It catches invented labels but not subtly-wrong ones. (The D9 fix sidestepped this by naming the exact control "Undo this change" in the copy, so no current doc relies on the loose match — this is hardening, not a live bug.)
+**Status:** IN PROGRESS · **Branch:** feat/m-wave-ui · **Filed:** 2026-06-23 (Codex flagged it reviewing the D9 sync-model doc fix, PR #96). The crosswalk (`tests/help/_metaUiLabelCrosswalk.test.ts`) verifies each bold/quoted /help label exists in shipped `app/`+`components/` source via **substring** matching. So a short bolded label like `Undo` passes against any longer shipped string (`Undo this change`, `Undo auto-publish`, `Undoing…`) even if the doc means a different control. It catches invented labels but not subtly-wrong ones. (The D9 fix sidestepped this by naming the exact control "Undo this change" in the copy, so no current doc relies on the loose match — this is hardening, not a live bug.)
 
 **Effort:** M
 
