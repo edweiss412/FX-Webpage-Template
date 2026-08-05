@@ -94,7 +94,6 @@ const PENDING: ReadonlyMap<string, string> = new Map([
   ],
   // Found by THIS walk, not by the entry's filed list — which is the argument
   // for walking rather than listing.
-  ["components/admin/wizard/Step3ReviewModal.tsx", "2 sites — toggle text"],
   ["components/admin/wizard/step3ReviewSections.tsx", "2 sites — toggle text"],
 ]);
 
