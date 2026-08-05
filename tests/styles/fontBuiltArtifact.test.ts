@@ -131,12 +131,23 @@ function familiesIn(text: string): Array<{ family: string; src: string }> {
     .map((f) => ({ family: familyOf(f), src: srcKey(srcOf(f)) }))
     .filter((r) => r.family !== "");
   if (parsed.length > 0) return parsed;
+  // The JS fallback builds the SAME whole-source key, in order. Its first
+  // version kept only the first `url()` and dropped every `local()`, so two
+  // chunks differing in a later source — or in which local font they name —
+  // keyed identically, while the comment above and the archive entry both
+  // claimed the whole list (Codex R8 LOW). A key that is exact on one input
+  // path and lossy on another is not the key it says it is.
   const out: Array<{ family: string; src: string }> = [];
   for (const m of text.matchAll(/@font-face\s*\{([^}]*)\}/g)) {
     const body = m[1] ?? "";
     const fam = /font-family\s*:\s*(["']?)([^;"'}]+)\1/.exec(body)?.[2]?.trim();
-    const url = /url\(\s*["']?([^"')]+)["']?\s*\)/.exec(body)?.[1]?.trim() ?? "";
-    if (fam) out.push({ family: fam, src: url });
+    if (!fam) continue;
+    const srcDecl = /src\s*:\s*([^;]*)/.exec(body)?.[1] ?? "";
+    const sources: string[] = [];
+    for (const t of srcDecl.matchAll(/(url|local)\(\s*["']?([^"')]*)["']?\s*\)/g)) {
+      sources.push(`${t[1]}(${(t[2] ?? "").trim()})`);
+    }
+    out.push({ family: fam, src: sources.join(",") });
   }
   return out;
 }
@@ -345,6 +356,26 @@ describe("font faces in the BUILT CSS artifact", () => {
     ]);
     const srcs = new Set(facesInEmittedCss(dir).map((f) => f.src));
     expect(srcs.size).toBe(1);
+  });
+
+  it("the JS path keys on the WHOLE source list, like the CSS path", () => {
+    // Codex R8 LOW, both of its pairs. The earlier fallback kept only the first
+    // url() and dropped local() entirely, so chunks differing in a later source
+    // or in which local font they name were indistinguishable — while the
+    // comment and archive claimed the whole list. The existing JS row asserted
+    // only family NAMES, which is why it did not catch this.
+    const face = (src: string) =>
+      `var s=".x{}@font-face{font-family:'F';src:${src}}";export default s;`;
+    const dir = emittedDirWith([
+      { name: "a.js", text: face("url(shared.woff2),url(a.woff2)") },
+      { name: "b.js", text: face("url(shared.woff2),url(b.woff2)") },
+      { name: "local-a.js", text: face("local(Arial)") },
+      { name: "local-b.js", text: face("local(serif)") },
+    ]);
+    const keys = facesInEmittedCss(dir).map((f) => f.src);
+    expect(new Set(keys).size, "four chunks, four distinct source keys").toBe(4);
+    expect(keys).toContain("url(shared.woff2),url(a.woff2)");
+    expect(keys).toContain("local(Arial)");
   });
 
   it("the emitted-artifact universe is exactly the shipped face set", () => {
