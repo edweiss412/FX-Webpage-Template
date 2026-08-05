@@ -282,9 +282,97 @@ export function serializeManifest(manifest: SchemaManifest): string {
   return JSON.stringify(sorted, null, 2) + "\n";
 }
 
+/**
+ * Reserved manifest key holding function signature rows.
+ *
+ * WHY A RESERVED KEY RATHER THAN A NEW ENVELOPE SHAPE. The manifest is
+ * `table -> columns` and four test files plus a CI job already read it that way.
+ * Restructuring into `{tables, functions}` would churn every one of them for no
+ * gain; a reserved key adds the function tier in the same file with the existing
+ * consumers untouched. The affixes make collision with a real identifier
+ * implausible, and `functionsOf`/`tablesOf` keep the key out of every table-shaped
+ * read rather than relying on callers to remember it.
+ */
+export const FUNCTIONS_KEY = "__functions__";
+
+/** One `public` function, at the ratified signature tier. Note: NO body. */
+export type FunctionRow = {
+  name: string;
+  /** `pg_get_function_identity_arguments(oid)` — Postgres's own identity encoding. */
+  args: string;
+  /** `pg_get_function_result(oid)`. */
+  result: string;
+  /** `prosecdef`: SECURITY DEFINER vs INVOKER. */
+  definer: boolean;
+};
+
+/**
+ * Encode a row as one comparable string.
+ *
+ * Every COMPARED dimension is in the string and nothing else is, so equality of
+ * the encoded row is exactly equality at the ratified tier. Two overloads of one
+ * `proname` encode differently because the identity arguments are part of the
+ * text — which is what stops a name-keyed comparator collapsing them.
+ */
+export function encodeFunctionRow(fn: FunctionRow): string {
+  return `${fn.name}(${fn.args}) -> ${fn.result} [${fn.definer ? "DEFINER" : "INVOKER"}]`;
+}
+
+/** SQL listing `public` functions at the signature tier. Bodies are never selected. */
+export const INTROSPECT_PUBLIC_FUNCTIONS_SQL = `
+select p.proname,
+       pg_get_function_identity_arguments(p.oid),
+       pg_get_function_result(p.oid),
+       case when p.prosecdef then 't' else 'f' end
+from pg_proc p
+join pg_namespace n on n.oid = p.pronamespace
+where n.nspname = 'public'
+  and p.prokind = 'f'
+order by 1, 2;
+`.trim();
+
+/** Parse psql -qAt pipe-separated function rows. */
+export function parsePsqlFunctionRows(stdout: string): FunctionRow[] {
+  return stdout
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+    .map((line) => {
+      const parts = line.split("|");
+      return {
+        name: parts[0] ?? "",
+        args: parts[1] ?? "",
+        result: parts[2] ?? "",
+        definer: (parts[3] ?? "f") === "t",
+      };
+    });
+}
+
+/** Fold function rows into a manifest alongside its tables. */
+export function manifestFromFunctionRows(
+  fns: FunctionRow[],
+  tables: SchemaManifest = {},
+): SchemaManifest {
+  return { ...tables, [FUNCTIONS_KEY]: [...new Set(fns.map(encodeFunctionRow))].sort() };
+}
+
+/** The encoded function rows of a manifest (empty when the tier is absent). */
+export function functionsOf(manifest: SchemaManifest): string[] {
+  return manifest[FUNCTIONS_KEY] ?? [];
+}
+
+/** The TABLE entries of a manifest — the reserved key is never one. */
+export function tablesOf(manifest: SchemaManifest): string[] {
+  return Object.keys(manifest)
+    .filter((k) => k !== FUNCTIONS_KEY)
+    .sort();
+}
+
 export type ParityDiff = {
   missingTables: string[];
   missingColumns: ExpectedColumn[];
+  /** Manifest function signatures absent from the live set, encoded. */
+  missingFunctions: string[];
 };
 
 /**
@@ -300,7 +388,11 @@ export function diffManifestAgainstLive(
 ): ParityDiff {
   const missingTables: string[] = [];
   const missingColumns: ExpectedColumn[] = [];
-  for (const table of Object.keys(manifest).sort()) {
+  // Superset semantics, same as tables: every manifest signature must be present
+  // live; live extras are fine (validation carries Phase-0 remote-only objects).
+  const liveFunctions = new Set(functionsOf(live));
+  const missingFunctions = functionsOf(manifest).filter((f) => !liveFunctions.has(f));
+  for (const table of tablesOf(manifest)) {
     const liveCols = live[table];
     if (!liveCols) {
       missingTables.push(table);
@@ -311,5 +403,5 @@ export function diffManifestAgainstLive(
       if (!liveSet.has(column)) missingColumns.push({ table, column });
     }
   }
-  return { missingTables, missingColumns };
+  return { missingTables, missingColumns, missingFunctions };
 }
