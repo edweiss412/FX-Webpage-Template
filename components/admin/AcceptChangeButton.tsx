@@ -15,7 +15,11 @@
 // lib/messages; NO raw code in the DOM — invariant 5). On {ok:true} the page
 // revalidation reflects the accepted change.
 "use client";
-import { useActionState } from "react";
+import { useActionState, useCallback, useContext } from "react";
+import {
+  FEED_ACCEPTED_ANNOUNCEMENT,
+  UndoAnnounceContext,
+} from "@/components/admin/undoAnnounceContext";
 import { ErrorExplainer } from "@/components/messages/ErrorExplainer";
 
 // Structurally identical to lib/sync/holds AcknowledgeChangesResult so the real
@@ -70,7 +74,22 @@ export function AcceptChangeButton({
   // Default false preserves the intrinsic-width per-show feed rendering.
   stretch?: boolean;
 }) {
-  const [result, dispatch, pending] = useActionState(acceptAction, null);
+  // Announce from INSIDE the action's async continuation, not from an effect —
+  // the same reason UndoChangeButton does. On success the accepted row leaves
+  // the feed on revalidation and this component unmounts, and an effect
+  // scheduled on that commit is not guaranteed to run. An already-executing
+  // continuation always finishes, and it closes over the PROVIDER's announce
+  // rather than this instance's.
+  const { announce } = useContext(UndoAnnounceContext);
+  const announcingAction = useCallback<AcceptServerAction>(
+    async (prev, formData) => {
+      const r = await acceptAction(prev, formData);
+      if (r.ok) announce(FEED_ACCEPTED_ANNOUNCEMENT);
+      return r;
+    },
+    [acceptAction, announce],
+  );
+  const [result, dispatch, pending] = useActionState(announcingAction, null);
   const failing = result && result.ok === false ? result : null;
 
   return (

@@ -8,6 +8,138 @@ Same split as [DEFERRED.md](./DEFERRED.md) ↔ [DEFERRED-archive.md](./DEFERRED-
 
 ---
 
+## BL-FEED-BUTTON-SUCCESS-ANNOUNCE — SHIPPED 2026-08-04
+
+Shipped on `feat/sweep-ui-a11y`. Accept, Approve and Reject now announce their SUCCESS
+through the same live-region channel that already carried Undo's: "Change accepted" /
+"Change approved" / "Change rejected", the generic verb form ratified at spec
+`docs/superpowers/specs/2026-08-04-backlog-convergence-design.md` §4.5 item 2. No row name in
+the utterance — unlike the undo sentence, which quotes its summary because it must say which
+claim stopped being true, these announce an action the listener just took on the row they were
+already on.
+
+The three strings live beside `undoneAnnouncement` in `components/admin/undoAnnounceContext.ts`
+so the two surfaces provably say the same words, and each is announced from INSIDE its action's
+async continuation rather than from an effect: on success the row leaves the feed on
+revalidation and the component unmounts, and an effect scheduled on that commit is not
+guaranteed to run. `tests/components/feedButtonSuccessAnnounce.test.tsx` asserts the string that
+reaches the region, scoped inside the real provider's region and with that region stripped from
+a clone of the rest of the tree, so no sibling can supply the words.
+
+Original entry, verbatim (title: Accept and Approve/Reject announce failures but not successes):
+
+**Filed:** 2026-08-03 from `feat/sync-feed-undo-announce`. **Class:** a11y asymmetry. **Effort:** S.
+
+That branch gave Undo a success announcement and made all three feed action buttons announce their FAILURES (the card wrapper is now an always-mounted `role="status"`). Accept and Approve/Reject were deliberately left without success announcements: the mechanism is free now (consume `UndoAnnounceContext`, call `announce`), but the COPY is a product decision, not a mechanical one — "Change accepted"? naming the row? saying what acceptance means? Undo's copy took two review rounds to settle punctuation alone.
+
+**Work:** decide the copy for each, then reuse `undoneAnnouncement`'s shape in `components/admin/undoAnnounceContext.ts`.
+
+**Status:** OPEN.
+
+---
+
+## BL-IDENTITYCHIP-SR-SEPARATOR — SHIPPED 2026-08-04
+
+Shipped on `feat/sweep-ui-a11y` as the entry's own promotion mechanics specify: an `aria-label`
+of "<name>, <role>" on the parent span (`components/auth/IdentityChip.tsx`). It OVERRIDES the
+children's text rather than adding to it, so the visible run is byte-identical and no comma
+reaches the screen — asserted, since an SR-only fix that changes the visual is a regression.
+
+**The promotion prerequisite was not a fence, and the screen said why.** The entry gated
+promotion on an audit pass or a crew complaint, but "genuinely speculative" applied to whether
+anyone would COMPLAIN about the run-on phrasing, not to whether it happens — it happens
+deterministically. Beyond the entry: either part can be blank during a picker round-trip, and
+`${name}, ${role}` would then speak "Eric Weiss," — a worse utterance than the run-on it
+replaces. The parts are joined only when both are present, and both empty-side cases are covered.
+
+Original entry, verbatim (title: `<name> · <role>` separator SR experience polish):
+
+**Filed:** 2026-05-24 from M11.5 §B impeccable v3 attestation (Unit 3 — post-pick header chrome audit P3).
+
+**Effort:** S
+
+**Description:** IdentityChip renders `<name>` + `·` separator + `<role>` as flat siblings inside a single span. The `·` is `aria-hidden="true"` so SRs don't announce the punctuation, but they read "Eric Weiss Lead A2" as a flat phrase rather than "Eric Weiss, Lead A2" (proper pause). A `aria-label="Eric Weiss, Lead A2"` on the parent span (or wrapping in a comma-separated visually-hidden duplicate) would tighten the experience.
+
+**Why backlog, not deferred:** The current SR behavior is acceptable per WCAG (no ambiguous content, no missing context). The polish is genuinely speculative — depends on whether SR users complain about the run-on phrasing.
+
+**Promotion prerequisite:** EITHER (a) an a11y audit pass picks it up as part of a broader SR-experience review, OR (b) a crew member reports the issue.
+
+**Promotion mechanics:** Add `aria-label={`${name}, ${role}`}` to the parent `<span>` and visually-hide the middle dot separator. ~3-line edit.
+
+screen-disposition 2026-08-04: KEEP — not a hypothetical about a surface that does not exist. The markup is live and reads as claimed: `components/auth/IdentityChip.tsx:46` is the parent span, `:48-50` the `aria-hidden` middle dot, `:51` the role span, all flat siblings, mounted at `app/show/[slug]/[shareToken]/_CrewShell.tsx:467`. The body's "genuinely speculative" applies to whether anyone will COMPLAIN, not to whether the run-on phrasing happens — it does, deterministically. Closing on `feat/sweep-ui-a11y` (a ~3-line edit on the branch that already carries the impeccable dual gate) costs less than carrying the row.
+
+---
+
+## BL-TERMINAL-FAILURE-ICON — SHIPPED 2026-08-04
+
+Shipped on `feat/sweep-ui-a11y`. A lucide `AlertCircle` sits above the h1 at `--icon-lg` (32px,
+DESIGN.md:382) in `text-text-subtle`, exactly as the entry's promotion mechanics specify.
+DESIGN.md §1 bans red/green as primary semantic colors, which is right and which left this
+surface nothing but its copy to say it IS a failure; the icon says it in form rather than hue.
+
+`aria-hidden`, deliberately: the h1 directly below already states the failure, so an announced
+icon would only prepend "alert circle" to a sentence that says it better. The suite pins DOM
+ORDER rather than presence — "above the h1" is the entire request, and an icon under the retry
+link satisfies a presence check and nobody looking at the screen — plus decorativeness, both
+documented tokens, and the no-retry variant.
+
+**The telemetry prerequisite was a PRIORITIZATION gate, not a real one**: nothing about adding
+the icon can be wrong before the telemetry arrives, so honoring the entry never required waiting.
+
+Original entry, verbatim (title: visual failure cue beyond muted gray):
+
+**Filed:** 2026-05-24 from M11.5 §B impeccable v3 attestation (Unit 2 — TerminalFailure critique LOW).
+
+**Effort:** S
+
+**Description:** `<TerminalFailure>` uses the muted text-text-strong / text-text-subtle palette and renders as a centered max-w-md block. DESIGN.md §1 correctly bans red/green as primary semantic colors, but the surface has no iconography or shape signal that this IS a failure render. A neutral icon (e.g., lucide-react `AlertCircle` or `CloudOff`) above the h1 would improve glance-ability without violating the color-blind floor.
+
+**Why backlog, not deferred:** The surface is rare in production — only renders on infra-error paths. Crew will encounter it at most a few times per quarter. Adding an icon is a glanceability nicety, not a recovery affordance gap (the new retryHref already closes that).
+
+**Promotion prerequisite:** EITHER (a) a polish pass picks it up as part of a broader auth-surface visual update, OR (b) production telemetry shows TerminalFailure is rendering often enough that glanceability becomes load-bearing.
+
+**Promotion mechanics:** Add an icon (lucide-react `AlertCircle`) above the h1, sized at `--icon-lg` (32px), in `text-text-subtle`. ~5-line edit.
+
+screen-disposition 2026-08-04: KEEP — the promotion gate the body names ("production telemetry shows TerminalFailure is rendering often enough") is a PRIORITIZATION gate, not a prerequisite: nothing about adding the icon can be wrong before the telemetry arrives, so honoring the entry does not require waiting. Surface verified live — `components/auth/TerminalFailure.tsx:47-51`, no icon and no lucide import today. Closing on `feat/sweep-ui-a11y` as a ~5-line edit under the dual gate.
+
+---
+
+## BL-AUTH-INTERSTITIAL-FONT — SHIPPED 2026-08-04
+
+Shipped on `feat/sweep-ui-a11y`, and the entry's own framing was refuted first. It offered two
+bad options — inline `@font-face` per document (a SECOND font-delivery mechanism, the objection
+that keeps `BL-HARNESS-FONT-FIDELITY` open) or route the four through React (a far larger change
+to auth plumbing than a font justifies) — and missed the third path sitting in its own sibling:
+`app/auth/sign-out/route.ts` already inlined a `<style>` block DECLARING a system stack. That
+names a typeface without shipping one.
+
+Landed by extracting that document into `lib/auth/interstitialDocument.ts` and pointing all four
+routes at it, rather than pasting the style block three more times. The duplicated `<head>` is
+precisely how three of the four drifted away from the fourth, so one builder is both the fix and
+the guard against recurrence; the source-level half of
+`tests/routes/authInterstitialFont.test.ts` fails any route that grows its own `<head>` back.
+
+The negative assertions are the load-bearing ones — no `<link>`, `@import`, `@font-face`,
+`<script>` or absolute URL. These documents are reached BECAUSE a request already failed, so a
+webfont would add a first network dependency at the worst possible moment. That is a rule about
+standalone documents, not a general one: the app's own fatal-error page binds the real font.
+
+Original entry, verbatim (title: four hand-built HTML auth responses mount no React root, so they miss the app font):
+
+**Filed:** 2026-08-03 (`feat/font-binding-modal-freshness-cue`, adversarial review R5). **Class:** consistency / completeness. **Effort:** S–M depending on the approach chosen.
+
+Four route handlers build and return a complete `<html>` document as a string, so neither Next root renders them and neither the font loader's generated class nor the app stylesheet reaches them: `app/api/auth/google/start/route.ts`, `app/api/auth/picker-bootstrap/route.ts`, `app/auth/callback/route.ts`, and `app/auth/sign-out/route.ts` — the last of which explicitly sets `system-ui, sans-serif` in its own inline style.
+
+**What they are.** Persistent ERROR documents with readable copy and no automatic redirect: a 503 from the Google-auth start, 403/502 from the picker bootstrap, a 503 from the auth callback, and a 500 from sign-out carrying explanatory copy and a retry button. A user who lands on one reads it. (An earlier filing called them transient bounces; review R6 corrected that, and the correction matters — the disposition below rests on the accurate reading.)
+
+**Why it was not fixed with the font binding.** Sign-out's explicit `system-ui, sans-serif` rests on one narrow, checkable fact: it is a self-contained document that requests **zero external assets** (it inlines its own `<style>` block — it is NOT styleless, a claim review R8 disproved). A webfont would add its first network dependency, on a page reached because a request already failed. This is NOT a general "error pages should avoid webfonts" principle, which would contradict the app's own fatal-error page, where the font IS bound. The real gap is the other three, which fall to browser defaults: a serif nobody chose. Covering them means either inlining an `@font-face` into each hand-built document, which is a SECOND font-delivery mechanism (the same objection that keeps `BL-HARNESS-FONT-FIDELITY` open), or routing them through React, which is a far larger change to auth plumbing than a font justifies. Recorded as a documented limit rather than left as an implied-but-false "app-wide" claim.
+
+**Work:** the three pages that fall to browser-default serif are the real gap — the Google-auth start, the picker bootstrap and the auth callback. Sign-out already carries an explicit system stack and is the LEAST urgent of the four, not the most. Worth pairing with any future pass over the auth interstitials rather than doing on its own.
+
+screen-disposition 2026-08-04: KEEP — and the entry's own dichotomy is REFUTED by a precedent already in the tree. The body argues both directions are bad ("either inlining an `@font-face` into each hand-built document, which is a SECOND font-delivery mechanism … or routing them through React"), but `app/auth/sign-out/route.ts:33` already takes a THIRD: an inline `body{font:16px/1.5 system-ui,sans-serif;…}` — a stack DECLARATION, not a delivery mechanism, with zero external assets and no React. Probed 2026-08-04: the other three documents (`app/api/auth/google/start/route.ts:24-37`, `app/api/auth/picker-bootstrap/route.ts:38-48`, `app/auth/callback/route.ts:49-62`) carry charset/title/viewport and nothing else, so they fall to browser-default serif while their sibling does not. Closing on `feat/sweep-ui-a11y` by extending the sign-out precedent to the other three; `app/auth/**` is an invariant-8 UI surface, which is why it lands on the dual-gate branch.
+
+---
+
 ## BL-RATE-LIMIT-SNAPSHOT-DURABILITY — DEMOTED TO A DOCUMENTED LIMIT 2026-08-04
 
 Demoted by the 2026-08-04 ledger filing bar. The entry is the clearest
