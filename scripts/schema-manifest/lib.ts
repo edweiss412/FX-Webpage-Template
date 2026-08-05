@@ -11,10 +11,12 @@
  * Three mechanisms, all built from this module:
  *   1. gen:schema-manifest introspects the LOCAL all-migrations-applied DB and
  *      writes supabase/__generated__/schema-manifest.json (public base tables →
- *      sorted column names). Ground truth, no SQL parsing.
+ *      sorted column names, PLUS public function signatures under a reserved
+ *      key). Ground truth, no SQL parsing.
  *   2. The parity test asserts the VALIDATION project is a superset of that
- *      manifest (every repo-defined public table+column is present live). THE
- *      gate. Validation extras (Phase-0 remote-only objects) are ignored.
+ *      manifest (every repo-defined public table+column AND function signature
+ *      present live). THE gate. Validation extras (Phase-0 remote-only objects)
+ *      are ignored.
  *   3. A DB-free tripwire (parseAlterAddColumns) derives the exact #9 vector —
  *      `alter table public.<t> add column <c>` — straight from the migration
  *      SQL and asserts the manifest already covers it, so a stale manifest
@@ -25,7 +27,13 @@
  * and the app's service-role client reads `public`.
  */
 
-/** Manifest shape: table name → sorted list of column names (public base tables). */
+/**
+ * Manifest shape: table name → sorted column names (public base tables).
+ *
+ * The reserved `FUNCTIONS_KEY` entry carries encoded function signatures rather
+ * than columns; `tablesOf` / `functionsOf` split the two so no consumer has to
+ * remember which is which.
+ */
 export type SchemaManifest = Record<string, string[]>;
 
 /** A column the migrations add to a public table via `alter ... add column`. */
@@ -234,6 +242,35 @@ export function parseCreatedPublicTables(sql: string): string[] {
     .sort();
 }
 
+/**
+ * NO DB-FREE FUNCTION CHECK. Deliberately, after seven review rounds.
+ *
+ * Layer 1 parses migration SQL, and five successive key designs each caught the
+ * case they were shown and missed another: names-only let an overload through;
+ * arity collided on two one-argument overloads; a normalized type list collided
+ * on an unnamed multiword type; last-op-wins erased a name whose sibling
+ * overload survived; counting with an unclamped drop omitted every function
+ * written with the repo's ordinary `drop function if exists …; create function …`
+ * idiom, and clamping it then produced a fresh false alarm on the real corpus.
+ *
+ * The pattern is the finding. A DDL string is not an identity — only
+ * `pg_get_function_identity_arguments` is — and every attempt to approximate one
+ * traded a miss for a false alarm or back. A tripwire that is wrong in either
+ * direction is worse than no tripwire: a miss reads as coverage, and a false
+ * alarm trains people to ignore it.
+ *
+ * FUNCTIONS ARE COVERED, EXACTLY, ONE LAYER OVER. Layer 3 compares the committed
+ * manifest against a FRESH introspection byte-for-byte and runs in
+ * `unit-suite-db` on every PR, where a local stack exists and TEST_DATABASE_URL
+ * is unset. It catches a skipped regen — including a new function, an overload,
+ * a posture flip, a return change and a parameter rename — because it compares
+ * Postgres's own encoding instead of guessing at it. Layer 2 then asserts
+ * validation is a superset of that manifest at the full signature tier.
+ *
+ * So the DB-free layer keeps the job it can do honestly (tables and columns from
+ * `alter … add column` / `create table`) and makes no claim about functions.
+ */
+
 /** SQL that lists public base tables and their columns (one row per column). */
 export const INTROSPECT_PUBLIC_COLUMNS_SQL = `
 select c.table_name, c.column_name
@@ -282,9 +319,97 @@ export function serializeManifest(manifest: SchemaManifest): string {
   return JSON.stringify(sorted, null, 2) + "\n";
 }
 
+/**
+ * Reserved manifest key holding function signature rows.
+ *
+ * WHY A RESERVED KEY RATHER THAN A NEW ENVELOPE SHAPE. The manifest is
+ * `table -> columns` and four test files plus a CI job already read it that way.
+ * Restructuring into `{tables, functions}` would churn every one of them for no
+ * gain; a reserved key adds the function tier in the same file with the existing
+ * consumers untouched. The affixes make collision with a real identifier
+ * implausible, and `functionsOf`/`tablesOf` keep the key out of every table-shaped
+ * read rather than relying on callers to remember it.
+ */
+export const FUNCTIONS_KEY = "__functions__";
+
+/** One `public` function, at the ratified signature tier. Note: NO body. */
+export type FunctionRow = {
+  name: string;
+  /** `pg_get_function_identity_arguments(oid)` — Postgres's own identity encoding. */
+  args: string;
+  /** `pg_get_function_result(oid)`. */
+  result: string;
+  /** `prosecdef`: SECURITY DEFINER vs INVOKER. */
+  definer: boolean;
+};
+
+/**
+ * Encode a row as one comparable string.
+ *
+ * Every COMPARED dimension is in the string and nothing else is, so equality of
+ * the encoded row is exactly equality at the ratified tier. Two overloads of one
+ * `proname` encode differently because the identity arguments are part of the
+ * text — which is what stops a name-keyed comparator collapsing them.
+ */
+export function encodeFunctionRow(fn: FunctionRow): string {
+  return `${fn.name}(${fn.args}) -> ${fn.result} [${fn.definer ? "DEFINER" : "INVOKER"}]`;
+}
+
+/** SQL listing `public` functions at the signature tier. Bodies are never selected. */
+export const INTROSPECT_PUBLIC_FUNCTIONS_SQL = `
+select p.proname,
+       pg_get_function_identity_arguments(p.oid),
+       pg_get_function_result(p.oid),
+       case when p.prosecdef then 't' else 'f' end
+from pg_proc p
+join pg_namespace n on n.oid = p.pronamespace
+where n.nspname = 'public'
+  and p.prokind = 'f'
+order by 1, 2;
+`.trim();
+
+/** Parse psql -qAt pipe-separated function rows. */
+export function parsePsqlFunctionRows(stdout: string): FunctionRow[] {
+  return stdout
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+    .map((line) => {
+      const parts = line.split("|");
+      return {
+        name: parts[0] ?? "",
+        args: parts[1] ?? "",
+        result: parts[2] ?? "",
+        definer: (parts[3] ?? "f") === "t",
+      };
+    });
+}
+
+/** Fold function rows into a manifest alongside its tables. */
+export function manifestFromFunctionRows(
+  fns: FunctionRow[],
+  tables: SchemaManifest = {},
+): SchemaManifest {
+  return { ...tables, [FUNCTIONS_KEY]: [...new Set(fns.map(encodeFunctionRow))].sort() };
+}
+
+/** The encoded function rows of a manifest (empty when the tier is absent). */
+export function functionsOf(manifest: SchemaManifest): string[] {
+  return manifest[FUNCTIONS_KEY] ?? [];
+}
+
+/** The TABLE entries of a manifest — the reserved key is never one. */
+export function tablesOf(manifest: SchemaManifest): string[] {
+  return Object.keys(manifest)
+    .filter((k) => k !== FUNCTIONS_KEY)
+    .sort();
+}
+
 export type ParityDiff = {
   missingTables: string[];
   missingColumns: ExpectedColumn[];
+  /** Manifest function signatures absent from the live set, encoded. */
+  missingFunctions: string[];
 };
 
 /**
@@ -300,7 +425,11 @@ export function diffManifestAgainstLive(
 ): ParityDiff {
   const missingTables: string[] = [];
   const missingColumns: ExpectedColumn[] = [];
-  for (const table of Object.keys(manifest).sort()) {
+  // Superset semantics, same as tables: every manifest signature must be present
+  // live; live extras are fine (validation carries Phase-0 remote-only objects).
+  const liveFunctions = new Set(functionsOf(live));
+  const missingFunctions = functionsOf(manifest).filter((f) => !liveFunctions.has(f));
+  for (const table of tablesOf(manifest)) {
     const liveCols = live[table];
     if (!liveCols) {
       missingTables.push(table);
@@ -311,5 +440,5 @@ export function diffManifestAgainstLive(
       if (!liveSet.has(column)) missingColumns.push({ table, column });
     }
   }
-  return { missingTables, missingColumns };
+  return { missingTables, missingColumns, missingFunctions };
 }

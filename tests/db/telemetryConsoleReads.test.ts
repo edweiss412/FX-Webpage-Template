@@ -8,7 +8,9 @@
  *
  * This same file IS the validation-deployment proof: the x-audits
  * `telemetry-rpc-smoke` job re-runs it with TEST_DATABASE_URL pointed at the
- * validation project (the parity gate can't see functions). A real PostgREST
+ * validation project. The parity gate now compares function SIGNATURES, so it
+ * catches a missing or shape-drifted RPC on its own; what this job adds is
+ * BEHAVIOUR and grants, which no manifest comparison can assert. A real PostgREST
  * rpc() smoke is not run in CI — it needs a validation-issued apikey, which is
  * not a repo secret (SUPABASE_URL/SUPABASE_SECRET_KEY are the local pair). The
  * `to_regprocedure` signature assertion below pins param types + arity, the

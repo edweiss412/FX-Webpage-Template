@@ -1652,7 +1652,25 @@ describe("sheet-link phrase containment (spec §7.10)", () => {
     })
       .trim()
       .split("\n");
-    expect(manifests).toEqual(["package.json"]);
+    // W-PARITY: the font-escape fixtures model a real dependency, so they carry
+    // real nested manifests — one of them declares an `exports` subpath, which
+    // is EXACTLY the mechanism this pin exists to stop. They are admitted on a
+    // structural fence, not on intent: they live under a `__fixtures__` segment
+    // inside `tests/`, and the tests/-import boundary asserted earlier in this
+    // same file denies every shipped tree from importing any specifier
+    // containing `tests/`. A resolver honours the nearest manifest only for a
+    // module resolved from inside its directory, and no shipped module can be.
+    // The carve is spelled as "under tests/**/__fixtures__/", so a manifest
+    // dropped anywhere else — including elsewhere under tests/ — still fails.
+    const FIXTURE_MANIFEST = /^tests\/(?:[^/]+\/)*__fixtures__\//;
+    const fixtureManifests = manifests.filter((m) => FIXTURE_MANIFEST.test(m));
+    expect(manifests.filter((m) => !FIXTURE_MANIFEST.test(m))).toEqual(["package.json"]);
+    // PREMISE, both directions. Without the first, the carve would be vacuous
+    // the day the fixtures move and would silently stop describing anything;
+    // without the second, a regex that matched everything would read as a pass.
+    expect(fixtureManifests.length, "the fixture manifests this carve admits").toBeGreaterThan(0);
+    expect(FIXTURE_MANIFEST.test("components/package.json")).toBe(false);
+    expect(FIXTURE_MANIFEST.test("tests/styles/package.json")).toBe(false);
     // Next-level aliasing (turbopack `resolveAlias`, webpack
     // `config.resolve.alias`) rewrites specifiers after tsconfig; the config
     // is code, so the pin is an AST scan for any cooked alias spelling or
@@ -1810,6 +1828,12 @@ describe("sheet-link phrase containment (spec §7.10)", () => {
       // replaced, kept as the guard's historical regression fixture. Neither is
       // resolvable by the module graph, which is what this census is about.
       ".woff2",
+      // The review-round corpus under docs/review-rounds/**: newline-delimited
+      // JSON rows the codex-guard wrapper appends, one per dispatch. Data, like
+      // .json above and unlike anything the bundler resolves - no pinned-config
+      // resolver treats .jsonl as a module without a rules/loader entry (denied
+      // above), and nothing imports one.
+      ".jsonl",
     ]);
     const DOTFILE_BASENAMES = new Set([
       ".gitattributes",

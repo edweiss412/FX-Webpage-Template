@@ -120,6 +120,27 @@ jobs:
         # prod-runtime-flip depends on prod-build depends on dev-build, so naming
         # all three runs them in that serialized dependency order.
         run: pnpm exec playwright test --project=dev-build --project=prod-build --project=prod-runtime-flip
+      # BL-FONT-STYLESHEET-GRAPH-FIDELITY: the built-artifact font oracle.
+      #
+      # THIS WORKFLOW IS THE HOST because it already produces a production build
+      # — the prod-build project writes NEXT_DIST_DIR=.next-prod
+      # (playwright.config.ts). Nothing extra is compiled here; the step just
+      # reads the CSS that build emitted.
+      #
+      # The oracle asserts the SHIPPED @font-face universe against emitted CSS
+      # rather than against a source walk, which cannot see a face arriving
+      # through a dependency-internal stylesheet or a package `exports` subpath.
+      # Without FONT_ARTIFACT_DIR the artifact row skips by premise (named, not
+      # silent), so unit-suite stays build-free; the escape-fixture rows run
+      # everywhere.
+      #
+      # `if: always()` so a failing e2e project does not hide a font regression —
+      # the build artifact exists either way, and these are independent claims.
+      - name: Font-face oracle against the built artifact
+        if: always()
+        env:
+          FONT_ARTIFACT_DIR: .next-prod
+        run: pnpm vitest run tests/styles/fontBuiltArtifact.test.ts
       - name: Upload Playwright traces/report (diagnosis artifact)
         if: failure()
         uses: actions/upload-artifact@v4

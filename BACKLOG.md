@@ -1297,33 +1297,49 @@ docblock states the gap rather than papering over it.
 
 ---
 
-## BL-VALIDATION-PARITY-FUNCTIONS-UNCHECKED — the validation-schema-parity gate never looks at functions, so RPC drift on validation passes silently
-
-**Filed:** 2026-08-03 (BL-UNPUBLISH-TO-HELD graduation audit). **Class:** CI gate scope. **Effort:** M.
-
-`supabase/__generated__/schema-manifest.json` records tables × columns only, and `tests/db/validation-schema-parity.test.ts` asserts validation is a superset of that manifest — no function ever enters the comparison. A validation project missing an RPC, or running a stale body of one, passes the gate; the only live function check is the telemetry-RPC smoke job (`tests/db/telemetryConsoleReads.test.ts` via `x-audits.yml`), which covers telemetry reads and nothing else. Probed 2026-08-03 during the graduation audit: no current drift — `unpublish_show` and `_unpublish_show_core` are present on validation with the performed-boolean discriminator applied. The exposure is future RPC edits, where the surgical-apply step (AGENTS.md "Every migration must reach the validation project") is forgotten and nothing fails.
-
-**Work:** extend the manifest generator and parity gate to cover functions — signature-level (name + args + return type) is the cheap tier and catches missing/renamed RPCs; a body hash would also catch stale bodies at the cost of noise on comment-only edits. Scope decision needed at pickup; either tier keeps the existing superset semantics.
+## BL-CODEX-GUARD-COMMONMARK-PARSE — replace the codex-guard code-block regexes with a real CommonMark parse
 
 **Status:** OPEN.
+
+**Filed:** 2026-08-05 (`feat/review-round-economy`, wrapper review R4). **Class:** parser correctness. **Effort:** M.
+
+`stripCodeBlocks` in `scripts/codex-guard.mjs` decides which lines of a reviewer's terminal message are CODE — and therefore which `VERDICT:` / `FINDINGS:` lines are the reviewer's own declarations rather than an example they quoted. It is a hand-rolled line scanner over CommonMark's block grammar: fence openers and closers, indented blocks, and a single-column approximation of list containers. Spec §8.3 limit 12 states what it still misses (block quotes are not containers, a dedent re-derives from the root instead of popping a stack, lazy continuation and HTML blocks are unmodelled).
+
+**Why a parser rather than another widening.** Four review rounds on this one recognizer went to widening regexes, one escaping shape at a time — the enumeration does not terminate, which is exactly the round-economy failure this arc exists to measure. The last two rounds:
+
+- **A closing fence indented 4+ columns.** CommonMark says that is content; the closer regex accepted any leading whitespace, so a nested example's fence ended the outer block early and leaked everything after it. Probe: `false approvals=4/4` (both fence characters at 4 and 8 columns).
+- **A fence opener indented 4+ columns.** Opener indentation was capped absolutely at 3 rather than measured relative to the container's content column, so every fence opened inside a nested list item was invisible. Probe: `FALSE_APPROVE=18/18` across three depths x three markers x two fence characters, plus `nested marker-line cases: false APPROVE=2/2`.
+
+Both are now fixed and both were found the same way — by a reviewer constructing one more shape. A parse over a closed grammar terminates where a recognizer over an open class of shapes does not.
+
+**Work.** `tests/docs/_ledgerMdast.ts` already uses mdast/remark in this repo, so the parse itself is a solved problem: walk the AST and blank the source lines of every `code` node. **The obstacle is a decision, not the code.** `scripts/codex-guard.mjs` is deliberately dependency-free plain `.mjs` — it runs as a bare `node` invocation with no build step and no `node_modules` assumption, which is what lets the shim install one-liner in AGENTS.md work from any checkout. Giving it a dependency changes that contract. Options at pickup: accept the dependency and the install story that follows; vendor a minimal block-level parse; or keep the recognizer and accept §8.3 limit 12 permanently.
+
+**Deferral exception: (c)** — a redesign of a surface this PR does not otherwise touch. The PR repaired both named instances plus their whole shape (relative measurement for openers AND closers, every fence character, every marker); what remains is replacing the mechanism, which is a different change to a different contract.
 
 ---
 
-## BL-FONT-STYLESHEET-GRAPH-FIDELITY — the font-face discovery walk is not a module graph
+## BL-PLAN-SNIPPET-FENCE-GATE — the plan-fence checker exists as a prototype and gates nothing
 
 **Status:** OPEN.
 
-**Filed:** 2026-08-04 (`feat/harness-font-fidelity`, PR #705, adversarial review R4). **Class:** test fidelity. **Effort:** M.
+**Filed:** 2026-08-05 (`feat/review-round-economy`, plan rounds 1-2). **Class:** review-round economy / docs tooling. **Effort:** M.
 
-`discoverShippedStylesheets()` in `tests/styles/fontLoading.test.ts` finds stylesheets by scanning import SYNTAX from `app/`, `components/` and `lib/`. It closes every route probed through R3 — side-effect `import`, CSS Modules binding, `require()`, dynamic `import()`, the `@/` alias, transitive `lib/`, quoted / unquoted / inner-whitespace `@import url()`, and root-relative `@import "/x.css"` from `public/`. It is still not a bundler's module graph, and R4 probed two live gaps:
+Plan review rounds 1 and 2 each spent findings on TypeScript snippets pasted into a plan that the repo's strict tsconfig would reject — one instance per round, which is precisely the drip-feed the class-sweep rule names and this arc exists to measure. The response was a mechanical checker, `check-plan-snippets.mjs`, which extracts every fence from a plan and reports five decidable shapes:
 
-- **Dependency-internal CSS.** A package whose JS entry imports its own stylesheet ships that stylesheet; the walk does not follow JS inside `node_modules`. Probe: `DEPENDENCY_INTERNAL_CSS_ESCAPE ["app/globals.css"]`.
-- **Package `exports` subpaths.** A stylesheet resolved through an `exports` map is not found by the three filename guesses `resolveSpecifier` tries. Probe: `PACKAGE_EXPORT_CSS_ESCAPE ["app/globals.css"]`.
+- `UNIMPORTED_IDENTIFIER` — a fence that reads as a whole module calls a well-known Node/vitest API it never imports or declares. The class that actually bit.
+- `DUPLICATE_IMPORT` — the same binding imported twice across fences that append to one file.
+- `MANGLED_TEMPLATE` — a template literal broken by markdown escaping.
+- `UNCHECKED_INDEX` — an index access that `noUncheckedIndexedAccess` rejects.
+- `FENCE_EM_DASH` — the em-dash ban reaching into fence content, honoring the same `spec-lint: ignore` waiver the real linter uses (`lib/specLint/parse.ts:35`).
 
-**Why this is bounded rather than open, and why it did not block the merge.** A face that arrives by any route at all is visible to the RUNTIME oracle, which reads `document.fonts` from the live page (`tests/e2e/harness-font-face.spec.ts`, `tests/e2e/font-rendering-census.spec.ts`) — mutation family M17. The static walk is defense in depth over authored source, not the only mechanism. Today's real third-party surface is covered: both `react-pdf` stylesheets are reached and probed clean.
+It works — 64 fenced blocks, 0 problems against this arc's own plan — and it is **a throwaway in a session scratchpad**, so it gates nothing, no CI job runs it, and the next plan that pastes a broken fence discovers it the same way: in a review round.
 
-**Work.** Either resolve through a real module graph (`es-module-lexer` + `enhanced-resolve`, or ask Next's own bundler for the emitted CSS list), or assert against the BUILT artifact instead of the source tree — a production build's emitted CSS is the ground truth this walk approximates, and reading it would close both gaps and the CSS-in-JS one at once.
+**Reachability is not in question:** the two findings that motivated it were real review rounds already spent, and nothing about the next plan is different.
 
-**Reachability:** PROBED — both escapes demonstrated against the shipped function by the R4 reviewer.
+**Work.** Promote it to `scripts/` with a meta-test walking `docs/superpowers/plans/**` from disk (so a new plan is covered by default rather than silently exempt), decide the fence-to-file attribution rule properly — the prototype infers it from the nearest non-blank prose line above the fence, which is a heuristic that will need its own accept-set — and settle whether a violation blocks or advises. Full `tsc` over a fence is NOT the alternative and was already rejected: fences are excerpts that reference helpers defined in neighbouring fences, so they do not typecheck as modules. That is why the checker tests specific decidable shapes instead.
+
+**Deferral exception: (c)** — a new gate over `docs/superpowers/plans/**`, a surface this PR does not otherwise touch. The PR's own plan is clean under the checker; what remains is standing up a gate, its meta-test, its waiver story, and its CI wiring, which is a different change to a different contract than the corpus this PR ships.
+
+**Prototype location is ephemeral** (a session scratchpad, not tracked), so the rule list above is the durable artifact — treat the script as a sketch to rebuild from, not as an input that will still be there.
 
 ---

@@ -101,7 +101,20 @@ describe("codex-guard signals + spawn errors", () => {
     ]);
     const child = spawn(
       process.execPath,
-      [GUARD, "review", "--brief", run.briefPath, "--cwd", run.cwdDir, "--out", run.outDir],
+      [
+        GUARD,
+        "review",
+        "--brief",
+        run.briefPath,
+        "--cwd",
+        run.cwdDir,
+        "--out",
+        run.outDir,
+        "--stage",
+        "spec",
+        "--round",
+        "1",
+      ],
       {
         env: guardEnv(run, {
           CODEX_GUARD_STALL_SECS: "30",

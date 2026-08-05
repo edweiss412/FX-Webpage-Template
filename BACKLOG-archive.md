@@ -4160,3 +4160,74 @@ registry lookup.
 
 **Cost:** a §12.4 catalog row-shape change, so it carries the three-way lockstep (master spec §12.4
 prose, `pnpm gen:spec-codes`, `lib/messages/catalog.ts`) plus the x1 catalog-parity gate.
+
+---
+
+## BL-VALIDATION-PARITY-FUNCTIONS-UNCHECKED — the validation-schema-parity gate never looks at functions, so RPC drift on validation passes silently — ARCHIVED 2026-08-05 (M-wave W-PARITY, `feat/m-wave-parity`)
+
+**Resolution (2026-08-05, M-wave W-PARITY, `feat/m-wave-parity`).** CLOSED at the ratified SIGNATURE tier (spec §1.1 item 2): existence plus identity arguments, return type, and security posture. Not a body hash.
+
+**The gap this closes.** The manifest and its parity gate covered public TABLES and COLUMNS only, so every SECURITY DEFINER RPC — the sole mutation gate for the RPC-locked tables — was invisible to it. A migration that adds or changes a function, applied locally and committed but never applied surgically to validation, produced a green gate over a live surface missing the function outright. That is the #9 incident's shape in the half nobody was checking.
+
+**Identity is Postgres's own:** (`proname`, `pg_get_function_identity_arguments(oid)`), the encoding Postgres uses to disambiguate overloads, which excludes defaults by definition. The overload-coexistence row kills a `proname`-only-keyed implementation directly — two overloads are two rows, and a live set missing exactly one fails naming that overload's signature, where a name-keyed comparator would see the name present and pass.
+
+**Every compared dimension has its own planted mutant failing BY NAME:** a missing function, a drifted identity-arguments string, a drifted return type, and a flipped `prosecdef`. The last matters most on this project — a DEFINER RPC silently demoted to INVOKER still exists with the right signature while every table it guards becomes reachable only as the caller.
+
+**The no-body-hash bound is STRUCTURAL, not promised.** The introspection never selects `prosrc` and the encoder's input type carries no body channel, so a comment-only or body-only edit cannot move the manifest. A negative-proof row asserts exactly that, so a later widening past what was ratified fails instead of passing quietly.
+
+**No manifest shape change.** Rows live under a reserved `__functions__` key rather than a `{tables, functions}` envelope, because four test files and a CI job already read `table -> columns`. The regenerated manifest is purely additive — 66 insertions, 0 deletions, 41 tables and 64 functions — and `functionsOf`/`tablesOf` keep the reserved key out of every table-shaped read rather than asking callers to remember it.
+
+The function query rides the SAME validation identity guard as the column query: an unguarded second connection could be routed elsewhere by a multi-host DSN and would then compare this repo's functions against another cluster's.
+
+**THE DB-FREE LAYER MAKES NO CLAIM ABOUT FUNCTIONS, after seven review rounds established that it cannot.** Five successive key designs each caught the case they were shown and missed another: names-only let an overload through; arity collided on two one-argument overloads; a normalized type list collided on an unnamed multiword type; last-op-wins erased a name whose sibling overload survived; counting with an unclamped drop omitted every function written with the repo's ordinary `drop function if exists …; create function …` idiom, and clamping it produced a fresh false alarm on the real corpus. The pattern IS the finding: a DDL string is not an identity — only `pg_get_function_identity_arguments` is — and a tripwire wrong in either direction is worse than none, because a miss reads as coverage and a false alarm trains people to ignore it. So the DB-free layer keeps what it can do honestly (tables and columns) and the function parsing is DELETED rather than left approximating.
+
+**Functions are covered exactly, one layer over.** Layer 3 compares the committed manifest against a FRESH introspection byte-for-byte and runs in `unit-suite-db` on every PR, where a local stack exists and `TEST_DATABASE_URL` is unset — so a skipped regen is caught, including a new function, an overload, a posture flip, a return change and a parameter rename, because it compares Postgres's own encoding rather than guessing at it. Layer 2 then asserts validation is a superset of that manifest at the full signature tier. The manifest itself still carries function signatures; that half of the entry is unchanged and is what Layer 2 compares.
+
+Real-CI execution proof: `x-audits.yml` run **30997630798**, dispatched AFTER the review repairs. The first-cited run (30993662157) predated every repair and is not proof of the shipped gate — a fair catch (Codex R2 HIGH), and the reason the run id here is the later one.
+
+---
+
+**Filed:** 2026-08-03 (BL-UNPUBLISH-TO-HELD graduation audit). **Class:** CI gate scope. **Effort:** M.
+
+`supabase/__generated__/schema-manifest.json` records tables × columns only, and `tests/db/validation-schema-parity.test.ts` asserts validation is a superset of that manifest — no function ever enters the comparison. A validation project missing an RPC, or running a stale body of one, passes the gate; the only live function check is the telemetry-RPC smoke job (`tests/db/telemetryConsoleReads.test.ts` via `x-audits.yml`), which covers telemetry reads and nothing else. Probed 2026-08-03 during the graduation audit: no current drift — `unpublish_show` and `_unpublish_show_core` are present on validation with the performed-boolean discriminator applied. The exposure is future RPC edits, where the surgical-apply step (AGENTS.md "Every migration must reach the validation project") is forgotten and nothing fails.
+
+**Work:** extend the manifest generator and parity gate to cover functions — signature-level (name + args + return type) is the cheap tier and catches missing/renamed RPCs; a body hash would also catch stale bodies at the cost of noise on comment-only edits. Scope decision needed at pickup; either tier keeps the existing superset semantics.
+
+---
+
+## BL-FONT-STYLESHEET-GRAPH-FIDELITY — the font-face discovery walk is not a module graph — ARCHIVED 2026-08-05 (M-wave W-PARITY, `feat/m-wave-parity`)
+
+**Resolution (2026-08-05, M-wave W-PARITY, `feat/m-wave-parity`).** CLOSED against the BUILT ARTIFACT (spec §1.1 item 3), not a resolved module graph.
+
+**The two escapes had no executable probe, and that was the real finding.** `DEPENDENCY_INTERNAL_CSS_ESCAPE` and `PACKAGE_EXPORT_CSS_ESCAPE` were labels recorded in the R4 review; probed 2026-08-05, neither string appeared anywhere under `tests/` or `scripts/`. They were notes, not tests. Both are now committed fixtures — literally committed, which the first attempt was not: the fixture packages sat under `node_modules/` directories that `.gitignore` swallowed, so five of the nine files existed only on the authoring machine and a clean checkout would have thrown at import (Codex R1 BLOCKING). They live under `vendor/` now, and nothing resolves them anyway — the tests only read the files. A package whose JS entry imports its OWN stylesheet (no CSS anywhere names the file, so an `@import` walk has nothing to follow), and a stylesheet resolved through a package `exports` map (the specifier is not a path, so no walk keyed on it finds the file).
+
+**Source identity is the WHOLE source list, compared against what the product declares.** The first `(family, src)` key kept only the first source's url, so every `local(...)` face keyed on the empty string and two faces differing only after their first URL collapsed together; and the comparison counted cardinality rather than checking equality, so a SOLE dependency-provided face passed — one source, simply the wrong one (Codex R3 HIGH). The expectation now derives from `app/fonts.css`, the same file the build emits from, so it cannot drift from what ships.
+
+**Identity is (family, src), not a name.** A set of NAMES cannot see a COMPETING face — a dependency shipping `@font-face{font-family:"Inter";src:url(dependency.woff2)}` uses an allowed name, so a name-only check reports nothing while two binaries fight over the product's own family. That is the nastiest form of the very escape this gate exists to catch, and it passed the first version (Codex R2 HIGH). Each expected family must now resolve to exactly one distinct source; the same src repeated across emitted chunks stays fine, so the rule cannot be satisfied by being noisy.
+
+**The walk-blindness claim is now EXECUTABLE.** The plan asked for it and the first suite did not have it: the rows inspected fixture text and argued about what the walk would do. The walk is extracted to `tests/styles/_sourceStylesheetWalk.ts` with its roots as a parameter, and a row RUNS the shipped function against each fixture root. The fixtures were restructured to be faithful rather than rigged — roots are `app` only, mirroring production, with the dependency in `vendor/`, never a root. The premise row forced that: the first attempt found NOTHING, because the fixture app never imported its own stylesheet the way a real app does.
+
+**The face-set assertion is itself two-directional**, which the first version was not: it rejected unexpected families but never required the expected ones, so a build that silently dropped `Inter Fallback` while still emitting `Inter` passed — and a lost size-adjust fallback does not look like a failure, it looks like a reflow (Codex R1 HIGH). **The escape property is asserted in both directions.** Each fixture's escape MECHANISM is pinned — the app CSS carries no at-rule, the specifier resolves through the exports map, the literal path does not exist — and then the oracle is shown to see both faces by name once they reach emitted CSS. Emitted CSS is ground truth because it is what a reader downloads regardless of which resolution mechanism put it there, which is exactly why both escapes are visible to it. CSS-in-JS was originally claimed as a free consequence of reading emitted CSS; it is not, because a face injected from a JS chunk never reaches a `.css` file (Codex R1 MEDIUM). The reader therefore also scans emitted `.js` for a literal `@font-face`. What remains outside it — a face assembled at runtime from fragments — is a DOCUMENTED LIMIT belonging to the live-document oracle (`harness-font-face.spec.ts`), stated rather than claimed away.
+
+**The source walk stays as the fast pre-check** and now says so in its own header, so the next reader does not mistake it for the oracle.
+
+**Premise, executable, and it matters twice here.** A fixture that silently lost its `@font-face` would make the "oracle sees it" rows pass against nothing AND the "walk misses it" rows pass trivially — a guard reporting full coverage of two escapes it no longer models. One row pins both fixtures' declared families. Separately, when `FONT_ARTIFACT_DIR` is set but the directory is missing or holds no CSS, the artifact row FAILS LOUD rather than reporting a clean face universe for a build that never happened — the vacuous-guard failure this entry is about, reproduced inside its own fix, and verified by running it with the variable set and no build present.
+
+**Host:** `dev-gate-e2e.yml`, which already produces a production build (`NEXT_DIST_DIR=.next-prod`), so nothing extra compiles — the step just reads the CSS that build emitted, under `if: always()` so a failing e2e project cannot hide a font regression. Without the env var the artifact row skips BY PREMISE, named rather than silent, so `unit-suite` stays build-free while the escape-fixture rows run everywhere.
+
+Proven against a REAL artifact, not only fixtures: a local `pnpm build` with `NEXT_DIST_DIR=.next-prod` then the oracle against it, 6 passed. Real-CI execution proof: `dev-gate-e2e.yml` run **30997628312**, dispatched AFTER the review repairs. The first-cited run (30993664048) predated them — and did more than fail to prove the gate: it failed ON the gitignored-fixture defect, with the exact ENOENT for `dep-internal-css/node_modules/.../internal.css`, confirming that finding in real CI before the fix landed. Recorded because a run that proves the OLD bug is not proof of the NEW gate (Codex R2 HIGH).
+
+---
+
+**Filed:** 2026-08-04 (`feat/harness-font-fidelity`, PR #705, adversarial review R4). **Class:** test fidelity. **Effort:** M.
+
+`discoverShippedStylesheets()` in `tests/styles/fontLoading.test.ts` finds stylesheets by scanning import SYNTAX from `app/`, `components/` and `lib/`. It closes every route probed through R3 — side-effect `import`, CSS Modules binding, `require()`, dynamic `import()`, the `@/` alias, transitive `lib/`, quoted / unquoted / inner-whitespace `@import url()`, and root-relative `@import "/x.css"` from `public/`. It is still not a bundler's module graph, and R4 probed two live gaps:
+
+- **Dependency-internal CSS.** A package whose JS entry imports its own stylesheet ships that stylesheet; the walk does not follow JS inside `node_modules`. Probe: `DEPENDENCY_INTERNAL_CSS_ESCAPE ["app/globals.css"]`.
+- **Package `exports` subpaths.** A stylesheet resolved through an `exports` map is not found by the three filename guesses `resolveSpecifier` tries. Probe: `PACKAGE_EXPORT_CSS_ESCAPE ["app/globals.css"]`.
+
+**Why this is bounded rather than open, and why it did not block the merge.** A face that arrives by any route at all is visible to the RUNTIME oracle, which reads `document.fonts` from the live page (`tests/e2e/harness-font-face.spec.ts`, `tests/e2e/font-rendering-census.spec.ts`) — mutation family M17. The static walk is defense in depth over authored source, not the only mechanism. Today's real third-party surface is covered: both `react-pdf` stylesheets are reached and probed clean.
+
+**Work.** Either resolve through a real module graph (`es-module-lexer` + `enhanced-resolve`, or ask Next's own bundler for the emitted CSS list), or assert against the BUILT artifact instead of the source tree — a production build's emitted CSS is the ground truth this walk approximates, and reading it would close both gaps and the CSS-in-JS one at once.
+
+**Reachability:** PROBED — both escapes demonstrated against the shipped function by the R4 reviewer.

@@ -18,6 +18,8 @@ import { homedir } from "node:os";
 import { basename, isAbsolute, join, resolve } from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 
+import { emitRow, resolveArc } from "./reviewRoundEmit.mjs";
+
 const GUARD_VERSION = 1;
 
 const DEFAULTS = {
@@ -55,7 +57,11 @@ function num(name, raw, { integer = false } = {}) {
   const v = Number(raw);
   if (!Number.isFinite(v) || v <= 0)
     usageError(`${name} must be a positive ${integer ? "integer" : "number"}: ${raw}`);
-  if (integer && !Number.isInteger(v)) usageError(`${name} must be a positive integer: ${raw}`);
+  // SAFE integer, not merely integral: `Number()` has already ROUNDED an unsafe
+  // literal by the time this runs, so `Number.isInteger` is true for a value the
+  // caller never wrote (probed 2026-08-05: 9007199254740993 accepted as
+  // 9007199254740992). Same class as the declared-count repair, on the flag.
+  if (integer && !Number.isSafeInteger(v)) usageError(`${name} must be a positive integer: ${raw}`);
   return v;
 }
 
@@ -75,6 +81,8 @@ function parseArgs(argv) {
     "--artifact",
     "--lint-doc",
     "--label",
+    "--stage",
+    "--round",
     "--max-attempts",
     "--attempt-max-secs",
     "--total-max-secs",
@@ -129,6 +137,17 @@ function buildConfig(flags) {
     usageError(`FIRST_OUTPUT_SECS must be < ATTEMPT_MAX_SECS`);
   if (cfg.label !== null && !/^[A-Za-z0-9_-]{1,64}$/.test(cfg.label)) usageError(`invalid --label`);
 
+  // §5.1 - closed accept-set, keyed on value, never coerced. An `unknown`
+  // bucket would be a silent exemption from the filing gate, which is exactly
+  // the failure this design refuses. `task` is recorded and never counted.
+  const STAGES = new Set(["spec", "plan", "diff", "task"]);
+  if (flags.stage === undefined) usageError("--stage is required (spec|plan|diff|task)");
+  if (!STAGES.has(flags.stage))
+    usageError(`--stage must be one of spec|plan|diff|task: ${flags.stage}`);
+  cfg.stage = flags.stage;
+  if (flags.round === undefined) usageError("--round is required (integer >= 1)");
+  cfg.round = num("--round", flags.round, { integer: true });
+
   if (!flags.brief) usageError("--brief is required");
   if (!flags.cwd) usageError("--cwd is required");
   if (!flags.out) usageError("--out is required");
@@ -157,6 +176,12 @@ function buildConfig(flags) {
   if (cfg.briefText.length === 0) usageError(`--brief is empty`);
   if (!existsSync(cfg.cwd) || !statSync(cfg.cwd).isDirectory())
     usageError(`--cwd is not a directory: ${cfg.cwd}`);
+  // A detached HEAD is a LIVE arc whose identity cannot be determined; silently
+  // under-recording it is the §8.2 failure, so refuse the dispatch up front
+  // rather than after the review has already been paid for. Every other refusal
+  // (not a repo, on main, no merge base) warns and skips at emit time.
+  const arc = resolveArc(cfg.cwd);
+  if (!arc.ok && arc.kind === "detached_head") usageError(arc.problem);
   if (cfg.artifacts.length > 0 && !cfg.fallback) usageError("--artifact requires --fallback");
 
   // §2.2.1 — a relative --lint-doc resolves against --cwd, never the wrapper's
@@ -386,10 +411,263 @@ function composePrompt(cfg) {
 // Verdict parsing (§6)
 // ---------------------------------------------------------------------------
 
+/** A CommonMark list marker and the whitespace that opens its content. */
+const MARKER_HEAD = /^([-*+]|\d{1,9}[.)])([ \t]+)/;
+/** A fence, once the container prefix has been peeled off the line. */
+const FENCE_OPEN = /^(`{3,}|~{3,})(.*)$/;
+/** A closing fence: its own leading whitespace, then nothing but the run. */
+const FENCE_CLOSE = /^([ \t]*)(`{3,}|~{3,})[ \t]*$/;
+const TAB_STOP = 4;
+
+/** The column reached by advancing over `s` from `col`, tabs to the next stop. */
+function advance(s, col) {
+  let c = col;
+  for (const ch of s) c += ch === "\t" ? TAB_STOP - (c % TAB_STOP) : 1;
+  return c;
+}
+
+/** A line's leading whitespace measured in COLUMNS, so a tab counts as four. */
+function indentColumns(line) {
+  let c = 0;
+  for (const ch of line) {
+    if (ch !== " " && ch !== "\t") break;
+    c = advance(ch, c);
+  }
+  return c;
+}
+
+/**
+ * Where a line's content begins once the list containers it opens are peeled.
+ *
+ * CommonMark measures a fence opener's indentation, and the four columns that
+ * make a line indented code, RELATIVE to the innermost container's content
+ * column — never absolutely. Probed 2026-08-05: an absolute three-column cap
+ * missed every fence opened inside a nested list item (18/18 shapes leaked
+ * their example, plus 2/2 where the opener sat on a marker line indented four),
+ * because a reviewer quoting an example under a sub-bullet of a numbered
+ * finding writes the opener well past column 3. The indented-code fallback did
+ * not catch them either: that rule requires a preceding blank line and a quoted
+ * example follows its lead-in directly.
+ *
+ * `base` is the innermost item's content column — the origin every measurement
+ * below is taken from. `col`/`idx` locate the first character that is not
+ * container prefix. This tracks ONE content column rather than a container
+ * stack: a dedent re-derives from the root instead of popping, and block quotes
+ * are not containers here at all (§8.3 documented limit 12).
+ */
+function scanContainers(line, entering) {
+  let base = entering;
+  let idx = 0;
+  let col = 0;
+  let sawMarker = false;
+  for (;;) {
+    let j = idx;
+    let c = col;
+    while (j < line.length && (line[j] === " " || line[j] === "\t")) {
+      c = advance(line[j], c);
+      j += 1;
+    }
+    // A dedent past the container we believed open: re-derive from the root.
+    if (c < base) base = 0;
+    // Four or more columns past the content column is indented code, never a
+    // marker — stop peeling and let the caller classify what it found.
+    if (c > base + 3) return { base, col: c, idx: j, sawMarker };
+    const m = MARKER_HEAD.exec(line.slice(j));
+    if (m === null) return { base, col: c, idx: j, sawMarker };
+    sawMarker = true;
+    const markerEnd = c + m[1].length;
+    const afterWs = advance(m[2], markerEnd);
+    // Five or more columns of whitespace after a marker is indented code INSIDE
+    // the item, whose content column is then the marker plus one (CommonMark
+    // 5.2) — the rule that makes `-     VERDICT: …` a code block, not text.
+    base = afterWs - markerEnd >= 5 ? markerEnd + 1 : afterWs;
+    idx = j + m[1].length + m[2].length;
+    col = afterWs;
+  }
+}
+
+/**
+ * Every CommonMark code block the document CLOSES, removed — in ONE place,
+ * because both readers below need the same answer and two copies of this
+ * normalizer is precisely how the class recurs. Probed 2026-08-05: earlier
+ * copies covered only the closed BACKTICK fence at the start of a line, so a
+ * tilde fence, an indented block, and any block opened on a LIST-MARKER line
+ * (`- ```, `1.     ` — how a reviewer quotes an example inside a numbered
+ * finding; 15/15 marker × block-kind combinations leaked) each fed a reviewer's
+ * EXAMPLE to both readers at once, read as a real verdict AND a real count.
+ *
+ * Deliberately not a full block parser. Lines are blanked rather than deleted,
+ * so line positions survive the pass.
+ *
+ * ONLY A BLOCK WHOSE END THE DOCUMENT STATES IS STRIPPED. A block still open at
+ * EOF strips NOTHING, and that asymmetry is the whole design. The opposite rule
+ * — "an unclosed fence runs to end of document", which is what CommonMark 4.5
+ * actually says — shipped for one round and cost a real review live on this
+ * branch: a reviewer wrapped a nested ``` example in a ```markdown block, the
+ * inner run closed the outer fence, and the stray final ``` opened a fence that
+ * swallowed the reviewer's own trailing `VERDICT: NEEDS-ATTENTION`. A COMPLETED
+ * review was filed as `no_marker` / `attempts_exhausted`, indistinguishable in
+ * result.json from a reaped dispatch — spec §3 consequence 3, the defect this
+ * wrapper exists to remove. The two errors are not symmetric: admitting one
+ * example line from a malformed or truncated document is visible afterwards
+ * (`verdictLine` keeps the raw line), while discarding a finished review leaves
+ * nothing to inspect and buys a whole new dispatch. So on ambiguity, ADMIT.
+ *
+ * The rule also makes the contract structurally safe rather than probabilistically
+ * safe: briefs mandate a final `VERDICT:` line, and a closed fence is followed by
+ * its closing line while a terminated indented block is followed by the
+ * non-indented line that ended it — so under this rule NO stripped block can
+ * hold the document's last non-empty line. Note what the rule is NOT: it never
+ * consults the outcome. "Strip unless it would remove the verdict" would rot.
+ *
+ * - Fenced (CommonMark 4.5): ``` or ~~~, opened at most 3 columns past its
+ *   container's content column and closed by a fence of the SAME character at
+ *   least as long, itself at most 3 columns past that same origin. The closer's
+ *   cap is what makes an over-indented run inside the block CONTENT rather than
+ *   the end of it: probed 2026-08-05, an unbounded closer let a nested example's
+ *   fence end the outer block four lines early and leak everything after it
+ *   (4/4 shapes). Capping it can only ever strip MORE, so it cannot resurrect
+ *   the regression above — a block that closes later still states its end after
+ *   whatever it holds, and one that stops closing strips nothing at all.
+ * - Indented (CommonMark 4.4): 4 columns past the content column. These may not
+ *   interrupt a paragraph, so one starts only after a blank line — without that
+ *   rule an over-indented continuation line carrying the verdict would be eaten
+ *   — or on a list-marker line, where the marker plays the part of the blank.
+ */
+function stripCodeBlocks(text) {
+  const lines = text.split("\n");
+  const out = lines.slice();
+  // The lines of the block currently open. They are blanked only if the block
+  // closes; abandoning the list is how "open at EOF strips nothing" is spelled.
+  // `col` is the container content column the block was opened at, and every
+  // indentation test against it is relative to that origin.
+  let block = null; // { kind: "fence" | "indented", char, len, col, at: number[] }
+  let prevBlank = true; // start of document opens a block just like a blank line does
+  let listCol = 0; // content column of the innermost list item believed open
+  const closeBlock = () => {
+    for (const i of block.at) out[i] = "";
+    block = null;
+  };
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i];
+    if (block !== null && block.kind === "fence") {
+      block.at.push(i); // the closing fence line belongs to the block
+      const close = FENCE_CLOSE.exec(line);
+      if (
+        close !== null &&
+        close[2][0] === block.char &&
+        close[2].length >= block.len &&
+        advance(close[1], 0) <= block.col + 3
+      ) {
+        closeBlock();
+        prevBlank = true; // a block boundary — what follows may open another
+      }
+      continue;
+    }
+    const blank = line.trim() === "";
+    if (block !== null) {
+      // Indented: a blank line does not end it, any other line back inside the
+      // content column does — and that terminating line is NOT part of the
+      // block, so it falls through to the openers below (it may open a fence).
+      if (blank || indentColumns(line) >= block.col + 4) {
+        block.at.push(i);
+        prevBlank = blank;
+        continue;
+      }
+      closeBlock();
+    }
+    if (blank) {
+      prevBlank = true;
+      continue;
+    }
+    const { base, col, idx, sawMarker } = scanContainers(line, listCol);
+    listCol = base;
+    const relative = col - base;
+    const open = relative <= 3 ? FENCE_OPEN.exec(line.slice(idx)) : null;
+    // A BACKTICK fence's info string may not contain a backtick (CommonMark
+    // 4.5) — the rule that keeps an inline `code span` from opening a block.
+    if (open && !(open[1][0] === "`" && open[2].includes("`"))) {
+      block = { kind: "fence", char: open[1][0], len: open[1].length, col: base, at: [i] };
+      prevBlank = false;
+      continue;
+    }
+    if (relative >= 4 && (prevBlank || sawMarker)) {
+      block = { kind: "indented", col: base, at: [i] };
+      prevBlank = false;
+      continue;
+    }
+    prevBlank = false;
+  }
+  // EOF with a block still open: the document never said where it ends, so
+  // nothing is blanked. See the asymmetry above.
+  return out.join("\n");
+}
+
+// Emphasis binds TIGHT to its text: `**VERDICT` is emphasis, `* VERDICT` is a
+// LIST BULLET (CommonMark 6.2 — an opening delimiter run may not be followed by
+// whitespace). Allowing the gap made a bullet match as though its marker were
+// emphasis, and a bullet is exactly where a reviewer restates the brief's
+// instruction: probed 2026-08-05, a trailing `* VERDICT: APPROVE` SHADOWED a
+// real `VERDICT: BLOCKING` on the line above and filed the round as an
+// infrastructure fault. One definition, shared by both markers AND by the
+// trailing run, so no two readers can drift on what a marker looks like.
+//
+// A run is one to THREE delimiters, and they need not be identical. Requiring
+// one or two IDENTICAL characters recognised only the simple forms and lost
+// every CommonMark COMBINED one - `***…***`, `___…___`, `*__…__*`, `**_…_**`,
+// `_**…**_`, `__*…*__` - which is strong-inside-emphasis, the ordinary way a
+// reviewer bolds AND italicises its closing line. Probed 2026-08-05 and
+// cross-checked with remark: all six are single emphasis nodes, and all six
+// lost both markers - `***VERDICT: APPROVE***` recorded `no_marker` and
+// `***FINDINGS: 3***` recorded `null`. Both are losses in the direction this
+// surface exists to prevent: a spent review filed as an infrastructure fault,
+// and a declared count recorded as "not declared".
+//
+// What the widening must NOT admit stays fixed by the ADJACENCY, not by the
+// character set: no whitespace may sit between the run and the keyword, so the
+// list bullet `* VERDICT: APPROVE` is still not a marker; and the backtick is
+// still absent, so a code span quoting the brief's instruction is still not one
+// either.
+// UNBOUNDED, deliberately. Each earlier revision of this prefix picked a number
+// - one delimiter, then two, then three - and each time the next reviewer wrote
+// one more (probed 2026-08-05: `****VERDICT: APPROVE****` and four more shapes
+// recorded `no_marker`/`null`). CommonMark bounds a delimiter run at nothing, so
+// any cap is a shape that loses a real verdict. The length was never carrying
+// the false-positive guard: ADJACENCY does (no whitespace between the run and
+// the keyword, so `* VERDICT:` stays a list bullet), and the backtick's absence
+// from the character class does (so a code span stays a code span).
+const EMPHASIS_RUN = String.raw`[*_]*`;
+// Emphasis may sit at any of FOUR positions, not only around the whole line:
+// before the keyword, after it, after the colon, and around the value. Probed
+// 2026-08-05 — `**VERDICT:** APPROVE` (the commonest markdown spelling of all)
+// recorded `unrecognized_verdict` and `**FINDINGS:** 3` recorded `null`, while
+// the whole-line forms worked, because every earlier revision assumed the
+// emphasis WRAPPED the declaration. Four completed reviews in the 681-output
+// corpus were excluded from counting this way.
+//
+// This is a different axis from the run length above — where the delimiters
+// sit, not how many — and it is closed rather than enumerated: those four are
+// every position a delimiter run can occupy in `LABEL : VALUE`.
+//
+// The false-positive guards are unchanged and still do not come from the run:
+// there is no `\s*` between the LEADING run and the keyword, so `* VERDICT:`
+// stays a list bullet, and the backtick stays out of the class, so a code span
+// stays a code span.
+const LABEL = (word) => `^\\s*${EMPHASIS_RUN}${word}${EMPHASIS_RUN}\\s*:${EMPHASIS_RUN}\\s*`;
+const VERDICT_MARKER = new RegExp(`${LABEL("VERDICT")}${EMPHASIS_RUN}\\S`);
+const FINDINGS_LINE = new RegExp(
+  `${LABEL("FINDINGS")}${EMPHASIS_RUN}(\\d+)\\s*${EMPHASIS_RUN}\\s*$`,
+);
+
 function parseVerdict(text) {
-  // Markdown fences may be indented up to 3 spaces (CommonMark) — strip those too.
-  const noFences = text.replace(/^ {0,3}```[^\n]*\n[\s\S]*?^ {0,3}```[^\n]*$/gm, "");
-  const lines = noFences.split("\n").filter((l) => /^\s*VERDICT:\s*\S/.test(l));
+  const noFences = stripCodeBlocks(text);
+  // Leading markdown emphasis is stripped before the marker test: three real
+  // dispatches in the 681-output probe corpus emitted `**VERDICT: …**` and were
+  // filed as infrastructure faults - a full review spent and then discarded.
+  // Fence stripping above still runs FIRST, so a fenced example is not a verdict,
+  // and the line anchor still holds, so the brief's own instruction to emit a
+  // verdict - text every brief in this repo carries - is never read as one.
+  const lines = noFences.split("\n").filter((l) => VERDICT_MARKER.test(l));
   const survivors = lines.filter((l) => {
     const upper = l.toUpperCase();
     let occurrences = 0;
@@ -399,16 +677,125 @@ function parseVerdict(text) {
   });
   if (survivors.length === 0) return { verdict: null, verdictLine: null, shape: "no_marker" };
   const raw = survivors[survivors.length - 1]; // RAW, untrimmed (§6 schema)
-  let payload = raw.replace(/^\s*VERDICT:\s*/, "");
-  for (;;) {
-    const before = payload;
-    payload = payload.trim().replace(/[.,;:!]+$/, "");
-    payload = payload.replace(/^(\*+|_+|`+)(.*?)\1$/, "$2");
-    if (payload === before) break;
-  }
+  // EMPHASIS IS IRRELEVANT TO IDENTIFYING THE OUTCOME, so it is deleted rather
+  // than parsed. Every value in `KNOWN_OUTCOMES` is letters and one hyphen — no
+  // `*`, `_` or backtick appears in any of them — so removing an emphasis run is
+  // lossless for any VALID outcome. What is left is a plain `VERDICT: <word>`.
+  //
+  // But NOT every occurrence: deleting them all FABRICATES a verdict.
+  // `VERDICT: AP_PROVE` is not APPROVE and became APPROVE, with exit 0 and a
+  // counted corpus row (probed 2026-08-05: all nine combinations of the three
+  // characters inserted into the three outcomes returned `ok`). The direction
+  // decides it — a LOST verdict is loud (exit 3, `no_verdict`, an operator
+  // reading a result), a FABRICATED one is silent and lands in the committed
+  // corpus as fact — so a run is deleted only when it is NOT flanked by word
+  // characters on both sides, which is also CommonMark's own rule for
+  // intraword `_`.
+  //
+  // Documented limit, in the surfaced direction: emphasis INSIDE the word
+  // (`**APP**ROVE`) is no longer recovered and reports `no_verdict` rather than
+  // inventing an answer.
+  //
+  // This replaces a hand-rolled markdown unwrapper that cost FOUR consecutive
+  // review rounds, each one a real trailing verdict lost and filed as an
+  // infrastructure fault: a delimiter run capped at three (round 2), emphasis on
+  // the label rather than the line (round 4), a nested run that closes MIRRORED
+  // rather than identically (round 5), and a closer read greedily where it was
+  // ambiguous with the value's opener (round 6). Every one of those is a
+  // question about emphasis STRUCTURE, and this parser no longer asks one.
+  //
+  // The guards that matter are unchanged and sit elsewhere: `stripCodeBlocks`
+  // ran first, so a fenced example is not a verdict; `VERDICT_MARKER` is
+  // line-anchored and excludes the backtick from its run, so neither the brief's
+  // prose instruction nor a code span is a marker; and the ambiguity filter
+  // above still rejects a line naming two outcomes. `verdictLine` still records
+  // `raw`, untrimmed, per the §6 schema.
+  // The hyphen counts as a word character here so `NEEDS-ATTENTION` cannot be
+  // reassembled across its own separator either.
+  const WORDISH = /[A-Za-z0-9-]/;
+  let payload = raw
+    .replace(/[*_`]+/g, (run, at, whole) => {
+      const before = whole[at - 1];
+      const after = whole[at + run.length];
+      const intraword = before && after && WORDISH.test(before) && WORDISH.test(after);
+      return intraword ? run : "";
+    })
+    .trim();
+  payload = payload.replace(/^VERDICT\s*:\s*/, "").trim();
+  payload = payload.replace(/[.,;:!]+$/, "");
   payload = payload.trim().toUpperCase();
   if (KNOWN_OUTCOMES.includes(payload)) return { verdict: payload, verdictLine: raw, shape: "ok" };
   return { verdict: null, verdictLine: raw, shape: "unrecognized_verdict" };
+}
+
+/**
+ * The DECLARED count, never an inferred one (spec §3/§5.3). Returns null when
+ * the line is absent or when two DIFFERENT counts are declared - `null` means
+ * NOT DECLARED, and it must never be confused with a declared zero.
+ */
+function parseFindingCount(text) {
+  const noFences = stripCodeBlocks(text);
+  const seen = new Set();
+  for (const line of noFences.split("\n")) {
+    const m = FINDINGS_LINE.exec(line);
+    if (!m) continue;
+    const n = Number(m[1]);
+    // A declaration outside the safe-integer range cannot be recorded
+    // faithfully: `Number()` ROUNDS it, so two DIFFERENT declarations collapse
+    // into one value and the "two different counts means not declared" rule
+    // below reads them as agreeing; a larger one becomes `Infinity` and
+    // serializes as `null` anyway. Unrepresentable is NOT DECLARED — the same
+    // disposition an ambiguous declaration already gets, and the conservative
+    // direction, since `null` understates where a rounded integer asserts.
+    if (!Number.isSafeInteger(n)) return null;
+    seen.add(n);
+  }
+  return seen.size === 1 ? [...seen][0] : null;
+}
+
+/**
+ * The grain, in one place: the LAST NON-EMPTY terminal message wins. An empty
+ * or absent message is not a declaration of nothing, so it never erases an
+ * earlier one - which is why every read site can call this unconditionally,
+ * above its own guards, without checking anything first.
+ *
+ * Returns whether it recorded. The two exit-3 writers need that answer to know
+ * whether the attempt's `-o` file spoke at all: "absent, empty, or unreadable"
+ * is exactly the condition under which the rollout is the only remaining copy
+ * of the terminal message, and it is not distinguishable from "declared
+ * nothing" by looking at `state.findingCount` afterwards.
+ */
+function recordDeclaredCount(state, text) {
+  if (typeof text !== "string" || text.trim() === "") return false;
+  state.findingCount = parseFindingCount(text);
+  return true;
+}
+
+/**
+ * The SAME grain, read backwards. "The last non-empty message wins" names the
+ * newest one only for a caller that sees messages CHRONOLOGICALLY, which the
+ * three attempt-side read sites do and the rollout scrape does NOT — it walks
+ * sessions newest-first. Calling the primitive above on every message of a
+ * reversed scan therefore let the OLDEST declaration win (probed 2026-08-05: a
+ * newest message declaring nothing and an older one declaring 7 recorded 7 —
+ * a number the terminal message never gave).
+ *
+ * So the DIRECTION is stated by the caller rather than the grain being
+ * redefined underneath the sites that were already right: the first non-empty
+ * message this recorder is offered wins, and it records whatever that message
+ * declares — including `null`, which is the answer "not declared" and never a
+ * hole to backfill from a session that ended earlier. (Within one session id
+ * the rollout files are directory-ordered; a session with two rollout files is
+ * a documented limit, not a case this distinguishes.)
+ */
+function newestFirstCountRecorder(state) {
+  let recorded = false;
+  return (text) => {
+    if (recorded) return;
+    if (typeof text !== "string" || text.trim() === "") return;
+    recorded = true;
+    state.findingCount = parseFindingCount(text);
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -484,7 +871,49 @@ function killGroup(pid, signal) {
   }
 }
 
-function classifyAttempt(attempt) {
+/**
+ * Latch an attempt's session id (the stderr banner) regardless of outcome — the
+ * rollout scrape needs it even for attempts that never earn the resume rung.
+ *
+ * Callable at any point after the stderr file exists, which is why it is a
+ * function rather than the inline block it used to be: `runAttempt` latches on
+ * the normal exit path, but the two exit-3 writers reach the rollout for an
+ * attempt that never got there — one still LIVE (interrupted) and one that
+ * threw before the latch line (a late stream failure). Without this the scrape
+ * has no session id for the very attempt whose message it is trying to find.
+ * Idempotent and non-throwing: a missing stderr file simply latches nothing.
+ */
+function latchSessionId(attempt, state) {
+  try {
+    const m = SESSION_ID_RE.exec(readFileSync(attempt.stderrPath, "utf8"));
+    if (m) {
+      attempt.sessionId = m[1];
+      if (!state.seenSids.includes(m[1])) state.seenSids.push(m[1]);
+    }
+  } catch {
+    /* no stderr file */
+  }
+}
+
+function classifyAttempt(attempt, state) {
+  // ONE read, TWO extractions, and this one runs ABOVE every guard below it.
+  // A killed or nonzero-exit attempt can still have left a readable message,
+  // and that message's declaration is a fact about the review whatever the
+  // exit shape of the process that carried it was. `hasMsg` keeps absent and
+  // empty distinguishable, which the two failure shapes below still need; the
+  // read itself is the same call it always was, so a genuinely unreadable file
+  // still throws to the caller's classification catch exactly as before.
+  const hasMsg = existsSync(attempt.lastMessagePath);
+  const msg = hasMsg ? readFileSync(attempt.lastMessagePath, "utf8") : "";
+  // Whether it spoke is THIS read's answer, and not one `state.findingCount`
+  // can be asked afterwards, since a message that declared nothing and no
+  // message at all both leave it `null`. Recorded as the attempt's ORDINAL:
+  // attempts are a clock, and sessions are not — the resume rung runs a later
+  // attempt inside an earlier attempt's session, so one session id can cover
+  // two turns. Kept on state rather than on the attempt record, whose shape is
+  // pinned by spec §6.
+  if (recordDeclaredCount(state, msg)) state.spokeN = attempt.n;
+
   if (attempt.killedReason !== null) {
     attempt.failureShape = "killed";
     return;
@@ -493,11 +922,10 @@ function classifyAttempt(attempt) {
     attempt.failureShape = "nonzero_exit";
     return;
   }
-  if (!existsSync(attempt.lastMessagePath)) {
+  if (!hasMsg) {
     attempt.failureShape = "no_o_file";
     return;
   }
-  const msg = readFileSync(attempt.lastMessagePath, "utf8");
   if (msg.trim() === "") {
     attempt.failureShape = "empty_o_file";
     return;
@@ -663,19 +1091,9 @@ async function runAttempt(cfg, n, kind, argvAfterExec, state) {
   if (attempt.killedReason === null && exitInfo.signal !== null)
     attempt.killedReason = "external_signal";
   attempt.durationSecs = nowSecs() - t0;
-  // Latch this attempt's session id (stderr banner) regardless of outcome — the rollout
-  // scrape needs it even for attempts that never earn the resume rung.
+  latchSessionId(attempt, state);
   try {
-    const m = SESSION_ID_RE.exec(readFileSync(stderrPath, "utf8"));
-    if (m) {
-      attempt.sessionId = m[1];
-      if (!state.seenSids.includes(m[1])) state.seenSids.push(m[1]);
-    }
-  } catch {
-    /* no stderr file */
-  }
-  try {
-    classifyAttempt(attempt);
+    classifyAttempt(attempt, state);
   } catch (e) {
     state.currentAttempt = null;
     state.liveChild = null;
@@ -690,6 +1108,25 @@ async function runAttempt(cfg, n, kind, argvAfterExec, state) {
 // Result writer (§6)
 // ---------------------------------------------------------------------------
 
+// A row is telemetry attached to a review that ALREADY HAPPENED. Losing it must
+// never change the exit code or the result.json (spec §11.1) - except on a
+// detached HEAD, which is a LIVE arc whose identity cannot be determined, and
+// silently under-recording that is the §8.2 failure (refused in buildConfig).
+// Outside a repo entirely there is no arc to record, so that one warns (plan R1).
+//
+// The latch matters because `onSignal` also calls `writeResult`: a SIGTERM
+// arriving after a normal `writeResult` would otherwise append a SECOND row for
+// one dispatch, which distinct-value counting would NOT collapse (both rows
+// carry the same `round`) and which would make the report's row totals wrong.
+let reviewRowWritten = false;
+function emitReviewRoundRow(cfg, body) {
+  if (reviewRowWritten) return;
+  reviewRowWritten = true;
+  const problem = emitRow(cfg, body);
+  if (problem)
+    process.stderr.write(`codex-guard: review-round row not written: ${problem.problem}\n`);
+}
+
 function writeResult(cfg, state, patch) {
   const attempts = state.attempts.map(({ parsed: _parsed, ...a }) => a);
   const body = {
@@ -703,6 +1140,10 @@ function writeResult(cfg, state, patch) {
     failureReason: null,
     error: null,
     recoveredFrom: null,
+    // Serves writers 1, 2 and 3 - every path through writeResult - from the one
+    // carrier. Placed above the `...patch` spread, so a patch may still override
+    // it; none does today.
+    findingCount: state.findingCount ?? null,
     nativeBinaryResolved: cfg.nativeBin ?? null,
     lintArm: (cfg.lintDocs ?? []).length > 0 ? "present" : "absent",
     startedAt: state.startedAtIso,
@@ -710,6 +1151,7 @@ function writeResult(cfg, state, patch) {
     ...patch,
   };
   writeFileSync(join(cfg.out, "result.json"), JSON.stringify(body, null, 2) + "\n");
+  emitReviewRoundRow(cfg, body);
 }
 
 // ---------------------------------------------------------------------------
@@ -774,12 +1216,65 @@ function lastAgentMessage(path) {
   return text;
 }
 
-/** Returns a patch that upgrades the result to a verdict, or null when nothing is recoverable. */
-function tryRolloutScrape(cfg, state) {
+/**
+ * Returns a patch that upgrades the result to a verdict, or null when nothing is recoverable.
+ *
+ * `countOnly` takes the DECLARATION and stops — no verdict, no recovery file,
+ * always `null`. Spec §3 pins an exit-3 result to `status:"no_verdict"`, so the
+ * two exit-3 writers may not promote themselves on the strength of a scrape;
+ * what they may do is stop recording `null` for a count the reviewer plainly
+ * declared. Same scan, same recorder, same direction rule — one parsing path.
+ *
+ * The VERDICT errand is unconditional; the COUNT errand is bounded by recency,
+ * and that bound lives HERE rather than at a call site because all three
+ * terminal callers need it — two copies of this rule is how the exit-3 writers
+ * kept the defect after it was fixed for `giveUp`. The scan finds the newest
+ * rollout ON DISK, which is not the newest terminal message: a dispatch whose
+ * `-o` write landed is exactly the case whose rollout is never reached, so the
+ * first rollout FOUND can belong to a session that ended EARLIER than a message
+ * already read. Such a rollout may not restate the count — not even to fill in a
+ * `null`, which is a genuine "not declared" and not a hole.
+ */
+function tryRolloutScrape(cfg, state, { countOnly = false, attempt = null } = {}) {
+  // This scan runs NEWEST-FIRST, so it takes the newest-first recorder — the
+  // chronological primitive would hand the answer to the oldest session here.
+  const recordCount = newestFirstCountRecorder(state);
+  // ATTEMPTS are the clock; sessions are not. The resume rung runs a later
+  // attempt INSIDE an earlier attempt's session (`resumeArgv`), so one session
+  // id can cover two turns and cannot order them. A session's rollout holds the
+  // last message of the LAST attempt that used it, so that attempt's ordinal IS
+  // the rollout's recency. `attempt` is the caller's own in-flight or failing
+  // attempt: `onSignal` pushes the live one into `attempts` before it scrapes
+  // and `giveUp`'s is pushed by its caller, but `main().catch`'s is in NEITHER
+  // — it is merged into the result body only after this runs, and `runAttempt`
+  // nulls `currentAttempt` on the throw path. Unplaced, its session reads as
+  // ordinal 0 and any earlier declaration outranks the newest turn.
+  const lastNBySid = new Map();
+  const placed = [...state.attempts];
+  if (attempt && !placed.includes(attempt)) placed.push(attempt);
+  for (const a of placed) {
+    // A resume that printed no banner still has a session — the one the wrapper
+    // chose to resume. Without this it reads as unplaceable and its strictly
+    // newer turn is silently ignored.
+    const sid = a.sessionId ?? (a.kind === "resume" ? state.resumeSid : null);
+    if (sid) lastNBySid.set(sid, Math.max(lastNBySid.get(sid) ?? 0, a.n));
+  }
   for (const sid of [...state.seenSids].reverse()) {
     for (const rollout of findRollout(cfg, sid)) {
       const msg = lastAgentMessage(rollout);
       if (!msg) continue;
+      // ABOVE the guard below, for the same reason as site 1. A scraped message
+      // is a terminal message this dispatch produced whether or not it carries
+      // a verdict, and it replaces any EARLIER attempt's declaration -
+      // including replacing a number with "not declared" when it declares none.
+      // STRICTLY newer, so an attempt's own `-o` outranks its own rollout: two
+      // copies of one turn, and the `-o` file is the copy the wrapper asked for.
+      if (state.spokeN === 0 || (lastNBySid.get(sid) ?? 0) > state.spokeN) recordCount(msg);
+      // The newest non-empty message has now answered, and under `countOnly`
+      // its answer is the whole errand. Returning here also keeps the recorder's
+      // direction rule visible: nothing older may speak after it, not even to
+      // fill in a `null`, because `null` IS its answer.
+      if (countOnly) return null;
       const parsed = parseVerdict(msg);
       if (parsed.shape !== "ok") continue;
       const path = join(cfg.out, "recovered-from-rollout.txt");
@@ -1003,6 +1498,14 @@ async function main() {
     resumeSid: null,
     seenSids: [],
     heldLockDir: null,
+    // The declared count of the LAST non-empty terminal message this dispatch
+    // produced. One carrier, so the four terminal writers cannot disagree.
+    findingCount: null,
+    // The ordinal of the newest attempt whose own terminal message spoke — the
+    // one question `findingCount` cannot answer afterwards, since "spoke and
+    // declared nothing" and "never spoke" both leave it `null`. `0` means no
+    // attempt has spoken; ordinals start at 1.
+    spokeN: 0,
   };
   globalThis.__guardState = state;
 
@@ -1025,6 +1528,8 @@ async function main() {
     // real verdict — this only runs when the attempt loop has already given up).
     const giveUp = (failureReason) => {
       const base = { failureReason, verdictLine: attempt.parsed?.verdictLine ?? null };
+      // The recency bound on the count errand lives inside the scrape, shared
+      // with the two exit-3 writers, so this caller passes nothing for it.
       writeResult(cfg, state, { ...base, ...(tryRolloutScrape(cfg, state) ?? {}) });
       process.exit(0);
     };
@@ -1053,6 +1558,39 @@ function onSignal(sig) {
       if (state.currentAttempt && !state.attempts.includes(state.currentAttempt)) {
         state.attempts.push(state.currentAttempt);
       }
+      // The live attempt may have written its message and then hung, so this is
+      // the FIRST read of it, not a second one. A hung attempt that wrote
+      // nothing reads "" and changes nothing, so an earlier attempt's
+      // declaration survives the interrupt untouched.
+      let spoke = false;
+      try {
+        const livePath = state.currentAttempt?.lastMessagePath;
+        if (livePath && existsSync(livePath)) {
+          spoke = recordDeclaredCount(state, readFileSync(livePath, "utf8"));
+        }
+      } catch {
+        /* an unreadable message is never a reason to lose the interrupted row */
+      }
+      // ...and when it did NOT speak, the rollout is where the message went.
+      // An interrupt landing after the reviewer's final message but before the
+      // `-o` write is the ORIGINAL silent-death shape, and reading only the
+      // absent file recorded `null` — "not declared" — about a reviewer who
+      // declared a number. `giveUp` already scrapes here; these were the two
+      // writers that did not (probed 2026-08-05:
+      // {"findingCount":null,"failureReason":"interrupted"} against a rollout
+      // declaring 2). Count only: spec §3 keeps an exit-3 result a no-verdict
+      // result. The live attempt's sid is latched first because `runAttempt`
+      // latches on its EXIT path, which an interrupted attempt never reaches.
+      // Best-effort throughout — a scrape that fails inside a signal handler
+      // must not cost the row it was trying to improve.
+      if (!spoke && state.currentAttempt) {
+        try {
+          latchSessionId(state.currentAttempt, state);
+          tryRolloutScrape(cfg, state, { countOnly: true });
+        } catch {
+          /* the interrupted row is written either way */
+        }
+      }
       writeResult(cfg, state, { failureReason: "interrupted", error: `signal ${sig}` });
     }
   } catch {
@@ -1065,36 +1603,82 @@ process.on("SIGTERM", () => onSignal("SIGTERM"));
 
 main().catch((e) => {
   const state = globalThis.__guardState;
+  // Writer 4's READ site. Every other writer runs after `classifyAttempt`, which
+  // is the only place attempt messages are opened; the paths that reach HERE are
+  // the ones that threw ABOVE it - the early and late transcript/stderr stream
+  // errors and the unkillable-child throw - so the attempt's message is never
+  // read at all and a plainly declared count is recorded as `null`, which means
+  // NOT DECLARED and is false. The error carries the attempt, so the path is
+  // known. Called through the SAME primitive as the other three sites and, like
+  // them, unconditionally: the failing attempt is by construction the LAST one
+  // this dispatch ran, so its terminal message is the latest, and an absent or
+  // empty one declares nothing and therefore erases nothing.
+  let spoke = false;
+  try {
+    const failedPath = e?.attempt?.lastMessagePath;
+    if (state && failedPath && existsSync(failedPath)) {
+      spoke = recordDeclaredCount(state, readFileSync(failedPath, "utf8"));
+    }
+  } catch {
+    /* an unreadable message is never a reason to lose the wrapper_error row */
+  }
+  // The other half of the same fix as `onSignal`: the file this writer reads is
+  // the one most likely never to have landed, since the throws that reach here
+  // are the ones that happened around the write. When it did not speak - absent,
+  // empty, or unreadable - the rollout is the only surviving copy of the
+  // terminal message, and `null` would be a false claim that none was declared.
+  // Gated on there BEING a failing attempt: a throw carrying no attempt has no
+  // `-o` file to have missed, and scraping then could overwrite a count an
+  // earlier attempt legitimately recorded. Count only (spec §3, exit 3 stays
+  // `no_verdict`), and the sid is latched first because a late stream failure
+  // throws ABOVE `runAttempt`'s own latch.
+  if (!spoke && state && e?.attempt) {
+    try {
+      latchSessionId(e.attempt, state);
+      // Passed explicitly: this attempt is in neither `state.attempts` nor
+      // `state.currentAttempt` yet, so the scrape cannot otherwise place it.
+      tryRolloutScrape(cfg, state, { countOnly: true, attempt: e.attempt });
+    } catch {
+      /* the wrapper_error row is written either way */
+    }
+  }
   const attempts = [
     ...(state?.attempts ?? []).map(({ parsed: _parsed, ...a }) => a),
     ...(e?.attempt && !(state?.attempts ?? []).includes(e.attempt)
       ? [(({ parsed: _parsed, ...a }) => a)(e.attempt)]
       : []),
   ];
+  // ONE value, not two hand-synced copies: the result.json and the corpus row
+  // must never disagree about what this dispatch was.
+  const body = {
+    guardVersion: GUARD_VERSION,
+    label: cfg.label,
+    status: "no_verdict",
+    verdict: null,
+    verdictLine: null,
+    lastMessagePath: null,
+    lintArm: (cfg?.lintDocs ?? []).length > 0 ? "present" : "absent",
+    attempts,
+    failureReason: "wrapper_error",
+    // Writer 4. `state` is already read here (globalThis.__guardState), and the
+    // optional chain matches the `state?.startedAtIso ?? null` line below: the
+    // handler can run before main() ever set state.
+    findingCount: state?.findingCount ?? null,
+    error: String(e?.message ?? e),
+    startedAt: state?.startedAtIso ?? null,
+    endedAt: new Date().toISOString(),
+  };
   try {
-    writeFileSync(
-      join(cfg.out, "result.json"),
-      JSON.stringify(
-        {
-          guardVersion: GUARD_VERSION,
-          label: cfg.label,
-          status: "no_verdict",
-          verdict: null,
-          verdictLine: null,
-          lastMessagePath: null,
-          lintArm: (cfg?.lintDocs ?? []).length > 0 ? "present" : "absent",
-          attempts,
-          failureReason: "wrapper_error",
-          error: String(e?.message ?? e),
-          startedAt: state?.startedAtIso ?? null,
-          endedAt: new Date().toISOString(),
-        },
-        null,
-        2,
-      ) + "\n",
-    );
+    writeFileSync(join(cfg.out, "result.json"), JSON.stringify(body, null, 2) + "\n");
   } catch {
     /* stderr only */
+  }
+  // Outside the try above: a result.json that could not be written is no reason
+  // to lose the row too - the round still happened (spec §5.4).
+  try {
+    emitReviewRoundRow(cfg, body);
+  } catch {
+    /* telemetry never changes the exit code */
   }
   process.stderr.write(`codex-guard: wrapper_error: ${e?.message ?? e}\n`);
   process.exit(3);
