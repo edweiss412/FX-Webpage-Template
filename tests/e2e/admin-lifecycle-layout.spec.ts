@@ -374,8 +374,29 @@ test.describe("admin lifecycle layout dimensions (real browser, §3.3)", () => {
     await popover.getByTestId("archive-show-button").evaluate((el: HTMLElement) => el.click());
     const confirm = popover.getByTestId("archive-show-confirm-button");
     await expect(confirm).toBeVisible();
-    // Let the handler's requestAnimationFrame settle.
-    await page.waitForTimeout(250);
+    // Settle on the SIGNAL, not on a stopwatch. The handler's own
+    // scrollIntoView is what this case is about, and `__siv` records every call
+    // — so waiting until at least one call for the confirm has been RECORDED
+    // waits for exactly the event the assertions below inspect.
+    //
+    // PRESENCE ONLY, deliberately. The predicate asks whether a call happened;
+    // it says nothing about its `opts.block`, its resulting scrollTop, or the
+    // geometry. Folding any of that in would make the wait condition BE the
+    // assertion, and a `toPass` that retries until its own assertion holds
+    // reports green for a run in which the product never did the thing —
+    // the tautology the entry names as this task's review focus.
+    await expect(async () => {
+      const seen = await page.evaluate(
+        () =>
+          (window as never as { __siv: Array<{ testid: string | null }> }).__siv.filter(
+            (c) => c.testid === "archive-show-confirm-button",
+          ).length,
+      );
+      expect(
+        seen,
+        "the production handler has not called scrollIntoView(confirm) yet",
+      ).toBeGreaterThanOrEqual(1);
+    }).toPass({ timeout: 5_000 });
 
     // (4a) Below-fold precondition, content coordinates (probe: 483 > 390
     // pre-restyle, ~471 post): fails loudly if the armed morph stops
@@ -932,8 +953,39 @@ test.describe("admin lifecycle layout dimensions (real browser, §3.3)", () => {
 
       // Arm with a REAL click: this is the step that was impossible before.
       await popover.getByTestId("archive-show-button").click();
+      // Settle on GEOMETRIC STABILITY, which is what the measurement below
+      // needs and what the fixed wait was standing in for: the armed body
+      // re-places, and a measurement taken mid-re-place reads a transient box.
+      //
+      // The predicate reads the popover's own rect twice across animation
+      // frames and requires the two to agree. It never mentions `bounds`, the
+      // panel, or the containment relation the assertions check — it is the
+      // condition that PRECEDES the measurement, not the measured value.
+      //
+      // COMMENTS LIVE ABOVE THE ANCHOR, not between it and the retry: the
+      // settle-contract guard requires `}).toPass(` within a fixed window of
+      // the arming site, and a window that grows to accommodate prose stops
+      // being a guard. Its sibling records the same rule.
       await expect(popover.getByTestId("archive-show-confirm-button")).toBeVisible();
-      await page.waitForTimeout(300);
+      await expect(async () => {
+        const stable = await page.evaluate(async () => {
+          const read = () => {
+            const el = document.querySelector('[data-testid="share-hub-popover"]');
+            if (!el) return null;
+            const r = el.getBoundingClientRect();
+            // Exact, not rounded: a rect quantised to hundredths reads as
+            // stable while the box is still moving by less than 0.01px per
+            // frame, which is a settle predicate that settles on nothing
+            // (Codex R3 MEDIUM). A static box returns identical doubles.
+            return `${r.top}|${r.bottom}|${r.height}`;
+          };
+          const first = read();
+          await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+          const second = read();
+          return first !== null && first === second;
+        });
+        expect(stable, "the armed popover is still moving").toBe(true);
+      }).toPass({ timeout: 5_000 });
 
       const armed = await geometry();
       expect(armed.body.top).toBeGreaterThanOrEqual(armed.bounds.top - TOL);
@@ -1014,8 +1066,36 @@ test.describe("admin lifecycle layout dimensions (real browser, §3.3)", () => {
     });
 
     // Resize ACROSS the flip boundary: 844 places below, 560 places above.
+    // Settle on the TRANSITION having ended, read as a computed style that has
+    // stopped changing across two frames. The resize crosses the flip boundary,
+    // so the popover re-places and whatever transitions with it must finish
+    // before `after` is sampled.
+    //
+    // The predicate deliberately does not read `data-popover-side`, the remount
+    // marker, or the containment maths — those are the assertions. It watches
+    // the styles that MOVE during the flip and waits for them to hold still.
+    //
+    // COMMENTS ABOVE THE ANCHOR: the settle-contract guard requires
+    // `}).toPass(` within a fixed window of the settle site, and widening that
+    // window for prose would retire the guard.
     await page.setViewportSize({ width: 390, height: 560 });
-    await page.waitForTimeout(400);
+    await expect(async () => {
+      const settled = await page.evaluate(async () => {
+        const read = () => {
+          const el = document.querySelector('[data-testid="share-hub-popover"]');
+          if (!el) return null;
+          const cs = getComputedStyle(el);
+          const r = el.getBoundingClientRect();
+          // Exact for the same reason as the geometry predicate above.
+          return `${cs.transform}|${cs.opacity}|${r.top}|${r.height}`;
+        };
+        const first = read();
+        await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+        const second = read();
+        return first !== null && first === second;
+      });
+      expect(settled, "the popover is still transitioning after the viewport flip").toBe(true);
+    }).toPass({ timeout: 5_000 });
 
     const after = await page.evaluate(() => {
       const b = document.querySelector('[data-testid="share-hub-popover"]') as HTMLElement;

@@ -4020,6 +4020,64 @@ Real-CI execution proof: `x-audits.yml` run **30997630798**, dispatched AFTER th
 
 **Work:** extend the manifest generator and parity gate to cover functions — signature-level (name + args + return type) is the cheap tier and catches missing/renamed RPCs; a body hash would also catch stale bodies at the cost of noise on comment-only edits. Scope decision needed at pickup; either tier keeps the existing superset semantics.
 
+## BL-HARNESS-FIXTURE-ENFORCEMENT — the shared font fixture observes every harness document but asserts nothing about it — ARCHIVED 2026-08-05 (M-wave W-GUARDS, `feat/m-wave-guards`)
+
+**Resolution (2026-08-05, M-wave W-GUARDS, `feat/m-wave-guards`).** CLOSED — the fixture now enforces, and the entry's own live mutant is what proves it. Emitting `@font-face{font-family:"NotInter";src:local("Arial")}` plus `:root{--font-inter:"NotInter"}` from `compileEntryCss` and running `toggle-edge-layout` gave "1 passed (2.6s)" before the change and a named failure after — `font oracle: harness document registered an unexpected @font-face family: post-navigate:NotInter, after-body:NotInter`.
+
+**Why the three earlier attempts failed, measured rather than re-derived.** Two defects were stacked, and this entry had already found half of the first one. (1) Every vantage the fixture had observes a document that is ENDING — pre-navigate inspects the OUTGOING document, `pagehide` fires as one is destroyed, pre-close and after-body run once the page has moved on. None of them saw the document under test. (2) `observe()` recorded only when the element walk returned a family, and an empty family set joins to `""`, which is FALSY — so a document that had registered faces but painted no text recorded nothing and was indistinguishable from a vantage that never fired. That is why this entry's note says adding a post-navigate vantage "did not close it either": it fired, and its observation was dropped.
+
+Instrumenting settled it in one run. The loaded `toggle-edge-layout` document reports `families=[]` and `faces=["Inter","Inter Fallback"]` — so this entry's own one-line hint was the design all along: **whether a face is REGISTERED is independent of whether the body has children.** Enforcement is scoped to the registered-face set, which is exact, and a `post-navigate` vantage observes the loaded document.
+
+**The accept-set is derived from `app/fonts.css`** through the existing `fontCss` parser rather than listed in the fixture — the same reason `emitCommittedFace` derives the emitted block from it: the two cannot drift the first time one is edited. Not circular, because the impostor is injected into the compiled OUTPUT, downstream of that stylesheet. A premise check fails loud if the parse yields fewer than two families, since an empty accept-set would make every comparison vacuously true.
+
+**Documented limit, now stated in the fixture header instead of left implicit:** a caller-local `font-family` override on an element is a computed-family defect, not a registration one. The computed-family universe across 32 harnesses is wide (per-caller token stacks, mono/serif utilities, `sr-only` text), and asserting over it would trade this guard's precision for false positives — a check that has to be relaxed on its first real caller is the same "reads as coverage" failure in a new place.
+
+Verification: whole standalone config green with enforcement live (489 tests, the count after the review rounds' added rows). The §4.1 escape hatch was NOT needed.
+
+---
+
+**Filed:** 2026-08-04 (`feat/harness-font-fidelity`, PR #705, the descoped half of `BL-HARNESS-FONT-FIDELITY`). **Class:** test fidelity. **Effort:** M.
+
+`tests/e2e/helpers/fontFidelityFixture.ts` distributes five vantages across all 32 `compileEntryCss` callers and reliably OBSERVES the documents they render — proven by its own spec, where removing any single mechanism turns exactly one test red. What it does not do is CHECK what it observed: families are collected into an array nothing reads.
+
+**Cost today is bounded, which is why this is backlog and not deferred.** The contract it would enforce is already proven end-to-end in CI by `tests/e2e/harness-font-face.spec.ts`, which asserts the emitted face is requested (200), reaches `loaded` with its variable axis intact, and renders within 0.5px of an expectation computed from the committed bytes with fontkit. The static guard (16 rows, 30 mutants) and the emitted-block guard (9 rows) cover the stylesheet and the toolchain. What is missing is per-caller defense in depth: a caller-local `font-family` override inside one harness document would not be caught.
+
+**Work, and START FROM THE EVIDENCE rather than re-deriving it.** An enforcement layer was built on these vantages during PR #705 and removed again, because mutation refused it three times. The live mutant: emit an impostor face from `compileEntryCss` — `@font-face{font-family:"NotInter";src:local("Arial")}` plus `:root{--font-inter:"NotInter"}` — and `toggle-edge-layout` stays GREEN.
+
+What instrumenting the vantages established, so the next attempt does not repeat it:
+
+- enforcement IS reached (`via=pre-navigate` and `via=after-body` both fire)
+- `pre-navigate` inspects the **outgoing** document, which before the first `goto` is blank
+- by fixture teardown the page is back on `about:blank` — measured directly as `faces=[] body=Times` — so the loaded harness document is not what the after-body sweep sees
+- adding a `post-navigate` vantage did not close it either; the remaining gap is not yet understood
+- gating the walk on `document.body.childElementCount` was itself wrong and made enforcement unreachable for every `goto`-based caller; whether a face is REGISTERED is independent of whether the body has children
+
+**A check that cannot fail is worse than no check**, because it reads as coverage — which is why this shipped as an explicit non-guarantee in the fixture's own header rather than as a quiet TODO.
+
+---
+
+## BL-HEADER-REACT-RECONCILE-HARNESS — the section-header layout proof serves static markup, so a JS-driven animation is uncovered — ARCHIVED 2026-08-05 (M-wave W-GUARDS, `feat/m-wave-guards`)
+
+**Resolution (2026-08-05, M-wave W-GUARDS, `feat/m-wave-guards`).** CLOSED — `tests/e2e/_sectionHeaderReconcileHarness.tsx` + `tests/e2e/section-header-reconcile.layout.spec.ts` mount the real `ModalSectionChrome` with `createRoot` and drive a pill/count PROP change under a stable key, across a genuine reconciliation.
+
+**The oracle is settle-REJECTING, not endpoint-only,** which is where the value is. A page-side recorder is armed BEFORE the flip — arming after the click can miss exactly the frames a short tween lives in — and samples the header's height every animation frame for 300ms; the assertion is that every sample is one of the two ENDPOINTS. A JS tween fails that by construction and an instant swap cannot. The mutant ships WITH the harness (`?mutant=js-height`, a `requestAnimationFrame` loop writing `style.height` with no CSS transition), and a permanent test row asserts the oracle rejects it, so the guard's own failure mode is executed on every run rather than asserted once in a commit message.
+
+**Both prior mechanisms survive as separate assertions,** per this entry's two-mechanism split: the Part 1 computed-style transition scan is re-run over the HYDRATED subtree including `::before`/`::after`, and Part 2's fixed-`min-height` detection is carried over. Node IDENTITY across the flip is asserted too — a quiet remount would make the settle rows true for the wrong reason, since a replaced node never had the old height.
+
+**The premise row earned its place immediately.** The first draft measured at a 360px row, where the heading row absorbs the pill and count and the flip moved the height by exactly 0px; every settle assertion passed vacuously on a document where nothing happened. The premise row failed loudly (98px before, 98px after), which is why the harness measures at the 240px narrowest reachable row. Without it this file would have shipped green and proved nothing.
+
+Wiring: registered in `tests/e2e/standalone.config.ts` testMatch (a spec absent from that allow-list runs NOWHERE) and `standalone-baseline.json` regenerated — 37 files / 489 tests, up from 36 / 480, of which 8 are this spec's and 5 the font fixture's. (Count corrected after the review rounds added rows; the first figure was written before them and went stale — Codex R3 LOW.) `tests/ci/_metaSpecRegistration.test.ts` failed on the unregistered spec first and passes now, which is the registration proof; `standalone-e2e.yml` runs it unfiltered on every PR.
+
+---
+
+**Filed:** 2026-08-02 (retroactively; cited by `tests/e2e/section-header-layout.layout.spec.ts:1185` as the filing that closes this gap, with no row anywhere). **Class:** test-coverage gap (harness capability). **Effort:** M.
+
+`section-header-layout.layout.spec.ts` Part 2 proves both header heights belong to ONE mounted node, which the height matrix alone cannot do: `key={showId}` remounts only when the SHOW changes, so a `router.refresh()` reconciles a new pill or count under the same key, and the 44px / 72.8px figures are measured on separately-loaded pages that cannot distinguish "two states of one header" from "two headers". The test states its own limit at `:1176-1185` — the harness serves static server-rendered markup, so its toggle is a direct `style.display` mutation, not a prop change reconciled under the same key.
+
+What bounds the gap today: Part 1 reads the computed style of every node in the subtree and would see a transition attached by a `motion.div layout` wrapper or an effect-driven animation. What stays genuinely uncovered is an animation driven entirely in JS, which attaches no CSS transition for Part 1 to find and survives a `style.display` toggle because no React reconciliation ever happens.
+
+**Work:** stand up a hydrated React harness (mount the real header component, drive a prop change under a stable key, measure across the reconciliation) and move or extend the Part 2 assertions onto it. Note the two-mechanism split before touching either: Part 1 catches an attached transition, Part 2 catches a fixed `min-height` where the pill's presence stops driving the height and 72.8px becomes a coincidence — a replacement harness has to keep both, not collapse them.
+
 **Status:** OPEN.
 
 ---
@@ -4060,3 +4118,112 @@ Proven against a REAL artifact, not only fixtures: a local `pnpm build` with `NE
 **Work.** Either resolve through a real module graph (`es-module-lexer` + `enhanced-resolve`, or ask Next's own bundler for the emitted CSS list), or assert against the BUILT artifact instead of the source tree — a production build's emitted CSS is the ground truth this walk approximates, and reading it would close both gaps and the CSS-in-JS one at once.
 
 **Reachability:** PROBED — both escapes demonstrated against the shipped function by the R4 reviewer.
+
+## BL-LEDGER-DISCOVERY-FAMILY-SCOPED — "discovered from disk" holds only inside one naming family — ARCHIVED 2026-08-05 (M-wave W-GUARDS, `feat/m-wave-guards`)
+
+**Resolution (2026-08-05, M-wave W-GUARDS, `feat/m-wave-guards`).** CLOSED — discovery is widened by REGISTRATION, exactly as this entry's own Work section specified, and the probe it scheduled first is now the regression test.
+
+**The probe ran first and all seven rows failed by name.** A fixture root with the four real names plus a fifth family. What each of the three spec-named consumers gets is stated precisely, because the three are not equally testable: `ledgerFiles` and the per-family parse opts are driven END TO END over the fixture root; the `_metaLedgerReferentialIntegrity` list and the claim reader are pinned by WIRING assertions — each must derive its file list from the registry and must carry no literal filename array of its own. Driving those two end to end from the discovery suite means importing the guard's module, which executes its suite against the fixture and reports the fixture id as a dangling citation (tried; that is why the pin is structural). The property that matters — no second grammar holder exists to drift — is what the pins assert. (Corrected after cross-model review R2 MEDIUM flagged the original three-consumer claim as broader than the suite.)
+
+**Widened by registration, not by loosening the regex.** `LEDGER_FAMILIES` in `scripts/lib/ledger-fields.ts` is the accept-set, keyed on structure — a registered family name plus `.md`, with an optional `-archive` before the extension — and the parse opts travel WITH the name, because they are not interchangeable: applying the backlog opts to a deferred file yields zero entries, so a whole ledger disappears without any file being empty. One row asserts the fifth family parses under ITS OWN declared opts and would read as empty under the default. `families` is a parameter, so a test registers a fifth family against a fixture root without mutating module state — which is also what proves the registry is consulted rather than a widened pattern.
+
+**The other half of an accept-set is the report.** `unregisteredLedgerFiles()` names any ledger-shaped file no family claims, and `_metaLedgerReferentialIntegrity` asserts that set is empty — so a new ledger added without a registry row fails loudly instead of going dark. It is deliberately narrower than "all-caps markdown": README/AGENTS/CLAUDE/MEMORY/PRODUCT/DESIGN/LICENSE are excluded, because a report that names README.md every run is one people learn to ignore, which is the same dark ledger by another route.
+
+**Single grammar holder.** `_metaLedgerReferentialIntegrity`'s four hand-written filenames now derive from `ledgerFiles()`. Three consumers, three chances to forget, became one reviewed line. The parse cache keys on the RESOLVED OPTS. It first keyed on family NAMES, which was wrong in the quiet direction — two registries can share a name and declare different opts, so the first parse was served to the second — and the comment claimed otherwise. Caught by cross-model review (R1 MEDIUM) and pinned by its own regression row.
+
+**Behaviour on the four real files is unchanged, asserted rather than assumed** — a row pins `ledgerFiles()` on the real repo root to exactly the four names and `unregisteredLedgerFiles()` to empty, which is this entry's own stated bound on the change.
+
+---
+
+**Severity:** low · **Class:** guard coverage · **Filed:** 2026-08-03 (`chore/ledger-claim-visibility`, spec §5) · **Effort:** M
+
+`AGENTS.md` states that ledger files are discovered from disk so a new one is covered by default.
+That is true only within one naming family. `ledgerFiles` (`tests/docs/_metaLedgerInProgress.test.ts:46`)
+does `readdirSync` and then filters on a regex accepting `BACKLOG` or `DEFERRED` with an optional
+`-archive` suffix; `tests/docs/_metaLedgerReferentialIntegrity.test.ts` hardcodes the same four names
+independently. A new ledger family would be silently invisible to both, and to the claim reader that
+consumes the same helper.
+
+Not currently live — the repo has exactly the four files. Deferred out of
+`chore/ledger-claim-visibility` under exception (c): widening discovery changes which files three
+existing guards walk, which is its own blast radius and its own review.
+
+---
+
+**Reachability:** INFERRED, NOT PROBED — the probe that settles it: build a scratch root holding a fifth ledger file outside the family (say `WATCHLIST.md`) and assert what `ledgerFiles`, `_metaLedgerReferentialIntegrity`'s hardcoded name list, and the claim reader each see. The probe is cheap and is the first scheduled step, not the widening.
+
+screen-disposition 2026-08-04: ANNOTATE-INFERRED, stays open. It does NOT qualify for demotion: the worst case is a new ledger family silently invisible to three guards, and a SILENT miss is the opposite of the conservative-plus-surfaced shape the filing bar routes to documented limits. Verified 2026-08-04 that the claim is accurate and inert today — `scripts/lib/ledger-fields.ts:42-45` filters `readdirSync` on `/^(BACKLOG|DEFERRED)(-archive)?\.md$/`, `tests/docs/_metaLedgerReferentialIntegrity.test.ts:56-59` hardcodes the same four names independently, and the repo root holds exactly those four files. **Citation corrected:** the `readdirSync` + regex the body attributes to `tests/docs/_metaLedgerInProgress.test.ts:46` lives in `scripts/lib/ledger-fields.ts:42-45`; that test line is the closing brace of its import block.
+
+---
+
+## BL-E2E-LAYOUT-FIXED-WAIT-RESIDUE — three fixed waits remain in the lifecycle-layout spec after the T-REGROW fix — ARCHIVED 2026-08-05 (M-wave W-GUARDS, `feat/m-wave-guards`)
+
+**Resolution (2026-08-05, M-wave W-GUARDS, `feat/m-wave-guards`).** CLOSED — all three fixed waits replaced with per-case `toPass` settle predicates, and the tautology risk this entry flagged is enforced structurally rather than reviewed once.
+
+**Per case, the predicate is the condition that PRECEDES the measurement:** T-CONFIRM-SCROLL waits until `window.__siv` has RECORDED at least one `scrollIntoView` for the confirm — presence only, knowing nothing about `opts.block`, the resulting scrollTop, or the geometry the case asserts; T-FIT/T-REACH waits for geometric stability, the popover's own rect read twice across animation frames and required to agree, never mentioning `bounds` or the containment relation; T-TRANSITION waits for the transition to have ended, read as transform + opacity + rect holding still across two frames after the viewport flip.
+
+**Why the tautology matters more than the flake.** A `toPass` retries until its callback stops throwing. If the callback asserts what the case exists to prove, the case reports green on a run where the product never acted — it simply waited until it had, or timed out into a failure blamed on flake. That is strictly WORSE than the fixed wait it replaced, which at least did not pretend to prove anything.
+
+**`tests/cross-cutting/e2e-lifecycle-settle-contract.test.ts` pins it in both directions,** per site: the retry must EXIST within a window of its settle point; its callback must NOT contain the vocabulary of that case's own assertions; and — the complement, without which deleting the assertions would satisfy the tautology check — that vocabulary must still appear in the case. Plus a whole-file `waitForTimeout` ban, because the class is "fixed waits in this spec", not "fixed waits in four named cases". Stashing the spec back to its fixed-wait state fails 7 rows; green after.
+
+**One verification gap, recorded rather than glossed.** The plan asked for three consecutive local runs of `admin-lifecycle-layout` as a flake check. Port 3001 was held throughout by a dev server belonging to a sibling worktree, and `playwright.config.ts` starts its dev-build server on that fixed port unconditionally (`E2E_PORT` relocates only the 3000 baseline). Killing another session's server is the two-writers hazard invariant 11 exists to prevent, and reusing it would have run these cases against a different branch's build. The real `lifecycle-layout-e2e` CI run is the authoritative gate and the plan requires it for this task regardless.
+
+---
+
+**Severity:** LOW (flake surface, no product impact) · **Class:** e2e test hygiene · **Filed:** 2026-08-02 (`chore/ci-boot-overlap-and-popover-flake`, class sweep behind the T-REGROW fix) · **Effort:** M
+
+`docs/superpowers/specs/ci/2026-08-02-ci-boot-overlap-implementation.md` §6 replaced T-REGROW's two fixed `waitForTimeout` calls with `toPass` blocks, which is the instance `BL-E2E-LIFECYCLE-SPECS-CI-DARK` names. The class sweep behind that fix found three more in the same file, enumerated here rather than left implicit:
+
+Anchored by ENCLOSING TEST rather than by line: the T-REGROW fix inserts lines above two of the three, so any line number recorded here rots the moment that branch lands.
+
+- The `390x560: arming scrolls the popover's OWN scroller to the confirm` case (T-CONFIRM-SCROLL, opening at `tests/e2e/admin-lifecycle-layout.spec.ts:328`) — a 250ms wait immediately before the geometry read and the `window.__siv` call-record assertions. This case failed once in the same PR #604 run that produced the T-REGROW instance, so it is a live flake surface, not a theoretical one.
+- The `T-FIT/T-REACH @ 390x{height}` case and the `T-TRANSITION` case — one fixed wait each.
+
+**Why not fixed with T-REGROW.** Each needs its own settle predicate, and the predicate is the whole difficulty. T-CONFIRM-SCROLL's is "the production `scrollIntoView` call has been recorded on `window.__siv`" — a different condition from T-REGROW's growth-then-replace, and one where folding the assertion into the retry risks converting the thing under test into the wait condition. Picking each predicate is per-case work with its own tautology review; batching them behind one settle template is exactly the shortcut that would produce a green test proving nothing.
+
+**Trigger:** the next observed CI failure in one of these three cases, or any change to the file that already re-opens the surrounding case.
+
+---
+
+## BL-CATALOG-PARTITION-WARNING-CLASS — the warning universe is inferred by a scanner, not enumerated by the catalog — ARCHIVED 2026-08-05 (M-wave W-GUARDS, `feat/m-wave-guards`)
+
+**Resolution (2026-08-05, M-wave W-GUARDS, `feat/m-wave-guards`).** CLOSED — the partition is now DECLARED by the catalog and CROSS-CHECKED by the scanner, inverting the direction this entry identified.
+
+**The gap.** The gallery derived the warning set by filtering `INTERNAL_CODE_ENUMS` for a `parse_warnings.code` provenance. That producer recognises warnings by TYPE, which is strong, but a scanner is blind wherever the type is erased — an `any`, a higher-order factory, a code built through a helper it cannot follow — and a code it missed was simply absent, with nothing anywhere saying it should not have been.
+
+**Now:** `warningClass: "parse_warning" | "general"` on every catalog row; `lib/messages/warningPartition.ts` compares the declaration against the scanner and fails BY NAME in both directions — constructed-but-unlisted (a source builds it, the catalog does not class it, the gallery drops it silently) and listed-but-never-constructed (a row asserting a class no source has). Both are reported in one run rather than stopping at the first, so the check cannot drip one finding per run. Planted fixtures pin each direction, plus the case a naive `catalog[code]?.warningClass !== "parse_warning"` filter gets wrong in the quiet direction: an absent row is falsy either way, so an unmatched scanner code must surface as a mismatch rather than agreeing with nothing.
+
+**Required, not optional — and the compiler found that.** With the field optional, the runtime totality assertion narrowed to `never`: TypeScript had already proved every row carried it. Making it required turns a new unclassed row into a COMPILE error, matching the fails-by-default posture the copy-hygiene guard uses one file over. The runtime row survives as the belt to that braces, reading through a widened type, since the static proof covers only what the literal declares.
+
+**DOCUMENTED LIMIT, the honest reading of what shipped (Codex R4 BLOCKING, accepted).** The cross-check compares two SETS — constructed versus declared — so it cannot see a code that NEITHER side sees. Construct a `ParseWarning` through an `any` and the scanner emits no code and no unresolvable-site signal; the catalog row still says `general`; both sets agree; the code stays absent from the gallery, silently. The inversion therefore MOVED this defect rather than closing it: before, a scanner-blind code was missing because the gallery was DERIVED from the scanner; now it is missing because a human classed it `general` and nothing contradicts them. What genuinely improved is that the answer is written down per row, reviewable in a diff, and any disagreement between the written answer and the constructing code fails by name. Closing the residue needs a different instrument — a type-level rule forbidding an `any`-typed `ParseWarning` construction, enforced at the assignment rather than at the catalog read. That is a lint surface, not a set comparison, and is deliberately out of scope. Recorded in `lib/messages/warningPartition.ts` so the limit travels with the code.
+
+**DESIGN CORRECTION to this entry's own cost prediction, recorded so no round re-raises it.** The field is CATALOG-INTERNAL, following the shipped `triggerContext` precedent, so §12.4 prose does not change and the three-way lockstep and x1 gate are untouched. This entry predicted lockstep cost for a prose-visible field; the design deliberately avoids it, and `tests/cross-cutting/codes.test.ts` staying green is that proof rather than an assumption.
+
+Backfill: 277 rows, 58 `parse_warning` / 219 `general`, derived from scanner output rather than hand-sorted. Nineteen rows were missed on the first pass because their codes carry hyphens and lowercase (`MI-*`, `mi11_*`); the totality assertion named all nineteen instead of letting them default.
+
+---
+
+**Class:** registry completeness · **Effort:** M · **Filed:** 2026-08-03 (`chore/scanner-precision-cluster`, spec §3.5a)
+
+`MESSAGE_CATALOG` (`lib/messages/catalog.ts:62`) lists every §12.4 code but carries no field saying
+which are parse-warnings, so the attention-scenario gallery infers the warning universe by scanning
+source for ParseWarning constructions. `lib/dev/attentionScenarios/tier1.ts:117-121` records the gap
+verbatim: "MESSAGE_CATALOG holds all of them but carries no field to partition on."
+
+Inference has a hard ceiling, established by five adversarial rounds on `chore/scanner-precision-cluster`.
+The shipped recognizer is type-aware, fail-closed, and capture-linked, and it is still **blind by
+construction** to a code whose provenance passes through `any`/`unknown` or that reaches its factory
+only by higher-order application (`["X"].map(make)`) — tracing that is undecidable, not unimplemented.
+Zero such constructions exist today; the limit is documented in that spec's §3.5a.
+
+- `BL-MUTATION-REF-SUB`, `BL-MUTATION-UNICODE`, `BL-MUTATION-COLUMN-SHIFT`, `BL-MUTATION-MERGED-CELL`, `BL-MUTATION-SECTION-ORDER` — the five operator classes enumerated by `BL-MUTATION-HARNESS-OPEN-HOLES` above, which states outright that "each is tracked as a backlog sub-item below". They are also the `finding` tags on thousands of rows in `tests/parser/mutation/knownHoles.ts`, where they identify a hole CLASS, not an item. The parent owns the shrink-only ratchet that gives them their meaning: hardening a class turns its holes into `staleRows` and fails the nightly harness until they are removed. Split across five headings, that ratchet has no single home.
+- `BL-SYNCFEED-UI-1`, `BL-SYNCFEED-UI-2`, `BL-SYNCFEED-UI-3` — the three LOW / no-user-harm findings enumerated by `BL-SYNC-FEED-UI-POLISH`, which graduated to `BACKLOG-archive.md` on 2026-08-03 and took its body bullets with it (they resolve there, by the same body-bullet rule this entry describes), each a one-sentence "only act if" note from one impeccable dual-gate that PASSED. Their shared provenance and shared "no concrete trigger" disposition is the entry; individually they are not items.
+
+**Work:** add a partition field (e.g. `class: "parse_warning" | ...`) to the catalog row shape,
+backfill it, and invert the dependency — the gallery reads the catalog, and the source scanner
+becomes a CROSS-CHECK that fails when a constructed code is absent from the catalog or vice versa.
+That makes the universe enumerated rather than inferred, and turns the undecidable question into a
+registry lookup.
+
+**Cost:** a §12.4 catalog row-shape change, so it carries the three-way lockstep (master spec §12.4
+prose, `pnpm gen:spec-codes`, `lib/messages/catalog.ts`) plus the x1 catalog-parity gate.

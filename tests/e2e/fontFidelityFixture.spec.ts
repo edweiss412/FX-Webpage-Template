@@ -54,9 +54,14 @@ test("a browser-originated navigation reports the OUTGOING document", async ({ p
   await page.goto("http://x.test/first");
   await page.click("#go");
   await page.waitForLoadState("load");
+  // FILTERED TO `pagehide`, which is the whole claim. `page.goto` is wrapped, so
+  // post-navigate already recorded the outgoing document before the click — an
+  // unfiltered search finds OUTGOING_IMPOSTOR whether or not the pagehide
+  // listener works at all, and this row was passing on that (Codex R3 BLOCKING).
   await expect
     .poll(() =>
       observations()
+        .filter((o) => o.via === "pagehide")
         .flatMap((o) => o.families)
         .join(" | "),
     )
@@ -114,4 +119,29 @@ test("shadow-root and frame text are BOTH observed", async ({ page }) => {
     .join(" | ");
   expect(seen, "an OPEN shadow root is walked").toContain("SHADOW_WRONG");
   expect(seen, "a child frame document is walked").toContain("FRAME_WRONG");
+});
+
+test("the OBSERVED face set is populated, not merely searched for offenders", async ({ page }) => {
+  // Codex R2 HIGH. `enforce()` scans observed faces for UNEXPECTED families, so
+  // an empty observed set passes — and before this row, nothing anywhere
+  // asserted `.faces` was ever non-empty. A serialization or API regression that
+  // made the face query return nothing would have silenced the entire guard
+  // while every harness test stayed green.
+  //
+  // This is the observed-side premise, and it is deliberately paired with the
+  // allowed-side premise inside `enforce()`: one proves the accept-set is real,
+  // this one proves there is something to compare against it.
+  // The face is INTER, the one the toolchain legitimately emits. A probe family
+  // here would (correctly) trip `enforce()` and this row would be asserting the
+  // failure path instead of the premise.
+  await page.setContent(
+    `<style>@font-face{font-family:"Inter";src:local("Arial")}` +
+      `body{font-family:"Inter",serif}</style><p>probe</p>`,
+  );
+  const faces = observations().flatMap((o) => o.faces);
+  expect(
+    faces,
+    "no observation carried a registered face — the face query is returning nothing, and the " +
+      "impostor check that reads it is therefore vacuous",
+  ).toContain("Inter");
 });

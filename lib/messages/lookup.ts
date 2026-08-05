@@ -69,6 +69,11 @@ export function plainCatalogText(template: string, params?: MessageParams): stri
 function fallbackEntryFor(code: string): MessageCatalogEntry {
   return {
     code,
+    // An UNKNOWN code is not a parse warning: the partition is a claim about
+    // codes the catalog knows, and the fallback exists precisely because this
+    // one is not among them. Classing it "general" keeps the gallery's warning
+    // set to codes some source actually constructs.
+    warningClass: "general",
     dougFacing: null,
     crewFacing: null,
     followUp: null,
