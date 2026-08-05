@@ -15,6 +15,11 @@ describe("hotel-ambiguity catalog copy — byte-for-byte", () => {
     // toEqual on the whole object also rejects any extra property.
     expect(MESSAGE_CATALOG.HOTEL_ADDRESS_SPLIT_AMBIGUOUS).toEqual({
       code: "HOTEL_ADDRESS_SPLIT_AMBIGUOUS",
+      // Catalog-internal partition (BL-CATALOG-PARTITION-WARNING-CLASS), not
+      // §12.4 prose. The whole-object toEqual is exactly why it is spelled here:
+      // this row pins the row SHAPE, so a new field must be declared, not
+      // absorbed.
+      warningClass: "parse_warning",
       dougFacing:
         "A hotel line in _<sheet-name>_ may have its name and street address run together; check the hotel name and address against your sheet.",
       crewFacing: null,

@@ -188,6 +188,8 @@ describe("Rendered-prose copy has no em dash or double hyphen (DESIGN.md §9, EM
   // classifying it here is a COMPILE ERROR — the fails-by-default guarantee.
   const FIELD_POLICY: Record<keyof MessageCatalogEntry, FieldPolicy> = {
     code: "excluded-identifier",
+    // Catalog-internal closed union, never rendered to a reader.
+    warningClass: "excluded-enum",
     severity: "excluded-enum",
     adminSurface: "excluded-enum",
     audience: "excluded-enum",
