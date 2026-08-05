@@ -75,6 +75,26 @@ Findings and dispositions below; both commands run against the scoped UI diff wi
 canonical v3 setup gates (`context.mjs` context load, then the `product.md` register —
 this is admin/tool UI, where design serves the product).
 
+### Checks run directly, independent of the gate
+
+These were verified in this session rather than taken on the gate's word, because
+each one is a claim the diff makes about itself:
+
+- **Idle live-region state.** Every `role="status"` in the diff was scanned for
+  `aria-hidden` / `hidden` / `display:none` / `inert` within its element. None is
+  disabled. The single `aria-hidden` hit is a decorative check glyph INSIDE a
+  region, which is correct. This is the failure that would silently undo the
+  entire branch, so it is checked here as well as by the audit.
+- **Contrast.** `#b85800` on `#ffffff` computes to 4.74:1 (AA for normal text).
+  The backlog entry's suggested `#C25E00` computes to 4.29:1 and was NOT used.
+  Both recomputed from the sRGB relative-luminance formula in this session.
+- **Em-dash ban in user-visible copy.** 14 em-dashes are added by the diff; all
+  14 are in comment prose. Zero in rendered copy or string literals.
+- **Tap targets.** No `<button>` added without a `min-h` companion.
+- **Typographic apostrophes.** None added.
+
+### Findings
+
 <!-- GATE-RESULTS -->
 
 impeccable-gate: critique=PENDING audit=PENDING p0=0 p1=0 dispositions=none

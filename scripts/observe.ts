@@ -295,7 +295,7 @@ async function runTailFollow(argv: string[], deps: ObserveDeps): Promise<void> {
   };
 
   let first = true;
-   
+
   while (true) {
     if (first) {
       // Baseline honors --limit across pages via collectEvents (Codex whole-diff R2:
