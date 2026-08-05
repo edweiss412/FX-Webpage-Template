@@ -58,6 +58,22 @@ export interface MonoSurface {
  */
 export const MONO_SURFACES: readonly MonoSurface[] = [
   {
+    route: "/admin",
+    // Anchored to the SIBLING's data-testid, because the heading itself carries
+    // none and its accessible name is the folder name -- dynamic, so unusable
+    // as a stable key. A structural selector is what the manifest's own doc
+    // comment promised and what `collectFontFindings` now evaluates in-page.
+    selector: '[data-testid="shows-heading-eyebrow"] ~ h3',
+    scope: "element",
+    reason:
+      "components/admin/ShowsTableHeading.tsx:39 renders the watched Drive FOLDER NAME in " +
+      "font-mono, paired with its 'Watched folder' eyebrow: an identifier, treated like one. " +
+      "Missed when this manifest was seeded because the AST walk that seeded it produced " +
+      "COUNTS (9 font-mono utilities across 6 files), never per-route coverage -- so a site " +
+      "that was counted still had no row. Found by real CI on mobile-safari, where the " +
+      "heading renders and the census expected Inter.",
+  },
+  {
     route: "/admin/dev",
     selector: "main",
     scope: "subtree",

@@ -200,6 +200,11 @@ test.describe("font rendering census", () => {
         const findings = await page.evaluate(collectFontFindings, {
           cannotHost: CANNOT_HOST_PROBE,
           pseudos: [...CHECKED_PSEUDOS],
+          // Structural selectors are evaluated IN THE PAGE, because
+          // `Element.matches` exists only there. Without this the manifest's
+          // documented "role/name pair rendered as a selector" was
+          // unimplemented and every entry fell back to testid-or-tag equality.
+          selectors: entriesForRoute(route).map((e) => e.selector),
         });
 
         expect(findings.length, `${route} rendered no text-bearing elements`).toBeGreaterThan(0);
@@ -208,7 +213,7 @@ test.describe("font rendering census", () => {
         for (const f of findings) {
           const expectMono = isExpectedMono(
             route,
-            (sel) => f.testid === sel || f.tag === sel.toUpperCase(),
+            (sel) => f.matched.includes(sel) || f.testid === sel || f.tag === sel.toUpperCase(),
             f.tag,
           );
           const rendersMono = /mono|Courier|Menlo|Consolas/i.test(f.family);

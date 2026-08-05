@@ -24,6 +24,7 @@ const FIXTURE = `<!doctype html>
 <body>
   <p data-testid="plain-text" id="plain">visible text in the light DOM</p>
   <div data-testid="shadow-host" id="host"></div>
+  <p data-testid="after-host">follows the shadow host</p>
   <script>
     const shadow = document.getElementById("host").attachShadow({ mode: "open" });
     shadow.innerHTML = '<span data-testid="inside-shadow">text inside the shadow root</span>';
@@ -56,6 +57,32 @@ test.describe("census walk", () => {
       findings.map((f) => f.testid),
       "the walk must reach INSIDE the open shadow root, not merely survive it",
     ).toContain("inside-shadow");
+  });
+
+  test("reports which structural selectors an element matches", async ({ page }) => {
+    // The mono manifest keys one entry on a sibling combinator, which only
+    // works because `matches` is evaluated in the page. Before this the census
+    // compared selector STRINGS to testids and every structural entry silently
+    // matched nothing.
+    const SIBLING = '[data-testid="shadow-host"] ~ p';
+    const findings = await page.evaluate(collectFontFindings, {
+      cannotHost: "input, textarea, select, img, svg, canvas",
+      pseudos: ["::before"],
+      selectors: [SIBLING, "p#nonexistent"],
+    });
+
+    // The element AFTER the host matches the combinator...
+    expect(
+      findings.find((f) => f.testid === "after-host")?.matched,
+      "the sibling combinator must match the element that follows the host",
+    ).toEqual([SIBLING]);
+
+    // ...and the one BEFORE it does not, which is what makes the first
+    // assertion evidence rather than a selector that matches everything.
+    expect(
+      findings.find((f) => f.testid === "plain-text")?.matched,
+      "an element that does not follow the host must not match",
+    ).toEqual([]);
   });
 
   test("reports a content-bearing pseudo-element", async ({ page }) => {

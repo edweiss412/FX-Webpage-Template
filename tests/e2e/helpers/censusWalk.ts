@@ -18,6 +18,17 @@ export interface CensusFinding {
   readonly family: string;
   readonly kind: string;
   readonly testid: string;
+  /**
+   * Which of the caller's structural selectors this element matches.
+   *
+   * Evaluated IN THE PAGE, because that is the only place `Element.matches`
+   * exists — findings cross the boundary as plain data, so a selector the
+   * Node side tried to apply afterwards could only ever compare strings. The
+   * mono manifest documents "a data-testid, or a role/name pair rendered as a
+   * selector"; without this the second half was unimplemented, and the matcher
+   * silently fell back to exact-testid or tag-name equality.
+   */
+  readonly matched: string[];
 }
 
 /**
@@ -36,9 +47,11 @@ export interface CensusFinding {
 export function collectFontFindings({
   cannotHost,
   pseudos,
+  selectors = [],
 }: {
   cannotHost: string;
   pseudos: string[];
+  selectors?: string[];
 }): CensusFinding[] {
   const out: CensusFinding[] = [];
 
@@ -54,12 +67,20 @@ export function collectFontFindings({
         (c) => c.nodeType === 3 && (c.textContent ?? "").trim() !== "",
       );
       const testid = el.getAttribute("data-testid") ?? "";
+      const matched = selectors.filter((sel) => {
+        try {
+          return el.matches(sel);
+        } catch {
+          return false; // an unparseable selector is the manifest's problem, not a crash here
+        }
+      });
       if (hasText) {
         out.push({
           tag: el.tagName,
           family: getComputedStyle(el).fontFamily,
           kind: el.matches(cannotHost) ? "computed-only" : "probe-hostable",
           testid,
+          matched,
         });
       }
       // Pseudo-elements cannot host a child probe at all; the demonstrated
@@ -73,6 +94,7 @@ export function collectFontFindings({
             family: cs.fontFamily,
             kind: "pseudo",
             testid,
+            matched,
           });
         }
       }

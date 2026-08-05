@@ -82,6 +82,7 @@
       "[\"standalone-chromium\",\"standalone-chromium\",\"8a59777c90aaeb75d334-f7731743b8a4d5d202c7\",[\"bulk-ignore-eyebrow.layout.spec.ts\",\"DI-1 375px idle: no zero-extent in-flow child charges the row's gap\"]]"
     ],
     "tests/e2e/censusWalkShadow.spec.ts": [
+      "[\"standalone-chromium\",\"standalone-chromium\",\"e27e19e0f4178574df06-0be3675ee692ad7f9a48\",[\"censusWalkShadow.spec.ts\",\"census walk\",\"reports which structural selectors an element matches\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"e27e19e0f4178574df06-aa0856f0c81840d9b039\",[\"censusWalkShadow.spec.ts\",\"census walk\",\"reports a content-bearing pseudo-element\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"e27e19e0f4178574df06-df0660d204260a2f3a15\",[\"censusWalkShadow.spec.ts\",\"census walk\",\"crosses an open shadow root without throwing on the fragment\"]]"
     ],
@@ -552,5 +553,5 @@
       "[\"standalone-chromium\",\"standalone-chromium\",\"a2b6e93af0c9aab00ac1-e226ed179b8245e9207f\",[\"wizard-blocker-modal.layout.spec.ts\",\"finalize blocker modal — real-browser layout (spec §8)\",\"panel is viewport-pinned and capped at 85vh; it paints above an app-root z-50 dialog\"]]"
     ]
   },
-  "totalTests": 479
+  "totalTests": 480
 }
