@@ -8,24 +8,6 @@ Last reconciled: 2026-08-04 — `feat/harness-font-fidelity` (PR #705) graduated
 
 ---
 
-## BL-CODE-ENUM-PROVENANCE-COMMENT-BLIND — a doc comment silently rewrites generated code provenance
-
-**Status:** OPEN · **Severity:** LOW (no consumer keys on the widened field today; the exposure is that generated provenance stops meaning what it says) · **Class:** generator fidelity · **Filed:** 2026-08-04 (`fix/apply-undo-audit-fidelity`, surfaced while reconciling the Unit C registry drift) · **Effort:** S
-
-`scripts/extract-internal-code-enums.ts:161` decides whether a file's codes claim `admin_alerts.code` provenance by regexing the **raw source**:
-
-```
-if (/\badmin_alerts?\b|upsertAdminAlert|upsert_admin_alert/i.test(source)) {
-```
-
-That test is comment-blind. Adding a doc comment that merely _names_ `upsertAdminAlert` — as the apply/undo branch did at `app/api/admin/onboarding/finalize/route.ts` and `app/api/admin/onboarding/finalize-cas/route.ts`, explaining why an emit does NOT belong at a given point — flips provenance for **every** code in that file. Six §12.4 codes widened to claim `admin_alerts.code` on that regeneration (`ONBOARDING_FINALIZE_INTERNAL_ERROR`, `ONBOARDING_LEGACY_ROW_AMBIGUOUS`, `ROLE_MAPPINGS_OUTDATED_AT_PUBLISH`, `STAGED_PARSE_OUTDATED_AT_PHASE_D`, `STAGED_PARSE_REVISION_RACE_DURING_FINALIZE`, `WIZARD_REVIEWER_CHOICES_VERSION_UNSUPPORTED`) without any of them gaining a write site.
-
-**Benign as shipped, which is exactly why it is worth filing.** Code membership is unchanged and no consumer keys on `admin_alerts.code` — the live filters key on `parse_warnings.code` — so the widening changed nothing observable and the regenerated manifest was committed rather than the extractor patched mid-branch. The defect is that a generated artifact's provenance field can be rewritten by prose, so it cannot be trusted as evidence of a write site, and the next person to rely on it will not know that.
-
-**Work:** gate on parsed source rather than raw text — strip comments and string literals before the provenance test, the same shape `stripLogEmissionCalls` already uses for the §12.4 scans. A regression fixture is a file whose only mention of the writer is in a comment.
-
----
-
 ## BL-ROLEFLAGSNOTICE-DROP-GUARD — no guard detects a path that obtains a `roleFlagsNotice` and never emits it
 
 **Status:** OPEN · **Severity:** LOW-MEDIUM (all four known instances closed; the class is unguarded) · **Class:** guard completeness, static analysis · **Filed:** 2026-08-03 (`fix/apply-undo-audit-fidelity`, descoped at spec review R5 after the vector produced a finding in four consecutive rounds) · **Effort:** L
@@ -466,17 +448,6 @@ then archive this entry. Nothing else is owed.
 
 **Watch signals:** `[wedge-recovery]` lines in the lifecycle-transitions e2e output (tier=nudge/reload counts per run), and admin reports of a stuck Published switch. **Candidate mitigations if real-user reports arrive:** a client-side watchdog in `PublishedToggle.formAction` (`Promise.race` the action against a generous timeout, then `router.refresh()` — the mutation is NOT retried, only the read is), or an upstream React/Next bump once the replay fix ships in a stable vendored canary.
 
-### BL-CI-STALE-BRANCH-PROTECTION-COMMENT — one-line docs fix — ✅ RESOLVED (2026-07-26, PR2 of the CI-dark cluster)
-
-**Resolved.** The comment is corrected in `tests/ci/_metaE2eWorkflowCoverage.test.ts`, and the same stale claim was swept from this file's `BL-E2E-LIFECYCLE-SPECS-CI-DARK` entry — it appeared in two places, not one. Kept here rather than graduated to the archive because it is a sub-entry of a still-open parent section, not a standalone item. Original text below for provenance.
-
-`tests/ci/_metaE2eWorkflowCoverage.test.ts:11` states branch protection "deliberately requires ONLY
-the `quality` context". Measured live 2026-07-26: `main` requires **twelve** contexts (`quality`,
-`unit-suite`, `x1`–`x6`, `validation-schema-parity`, `affordance-matrix-parity`,
-`postgrest-dml-lockdown`, `traceability-audit`), and `scripts/generate-traceability.ts` resolves a
-third, different list of eight. Any reasoning that treats the repo's e2e jobs as "the only required
-check is quality" is wrong — notably, edits to `unit-suite` DO touch a merge-blocking context.
-
 ## BL-CI-PARALLEL-DB-FALLBACK-AUDIT — re-run the closed-port protocol across the parallel project
 
 **Status:** OPEN, raised by adversarial review of PR #517 (finding 2).
@@ -825,28 +796,6 @@ header quote was stale (it was).
 
 **Trigger:** the next milestone touching scope-tile visibility, the financials entitlement, or the
 matrix itself.
-
-## BL-BELLPANEL-DISMISS-COMMENT-DRIFT — six BellPanel comments name a label the panel stopped rendering
-
-**Filed:** 2026-08-03 (`chore/orphan-components-lead-prose`, spec review R1 finding 4) · **Class:** docs/copy drift · **Severity:** low · **Effort:** S
-
-`components/admin/BellPanel.tsx` calls its trailing ghost control "Dismiss" in six comments
-beginning at `components/admin/BellPanel.tsx:224` ("Trailing ghost Dismiss (DESIGN.md §16)", "must
-not stay stuck at Dismissing…", "Health rows … have no Dismiss", and so on). The control renders
-`Confirm` or `Mark resolved`, chosen by the alert code's intent
-(`components/admin/BellPanel.tsx:377-388`, `lib/adminAlerts/resolveActionLabel.ts:73-76`); no
-"Dismiss" string reaches the DOM.
-
-**Why filed rather than swept:** it is the same defect CLASS as the branch that found it (prose
-asserting something the code does not do) but a different SHAPE — a renamed label, not a citation to
-a deleted file — and the branch that found it was retiring components, not editing alert chrome.
-Sweeping it in would have grown that diff past its subject. No product question: the code is right
-and the comments are stale.
-
-**Fix (when prioritized):** reword the six comments to the rendered labels, and check whether
-`DESIGN.md §16`'s own wording still names a Dismiss affordance.
-
-**Trigger:** the next branch touching `BellPanel` or the alert-resolve labels.
 
 ## BL-RESYNC-REGRESSED-JUMP-LINK — the alert's "open the parse panel" pointer is prose, not an affordance
 
