@@ -1,3 +1,31 @@
+## DESTRUCT-DURATION-TOKENS-1 — [P1] `duration-fast` / `duration-normal` emit no CSS — RESOLVED 2026-08-04 (graduation-verified)
+
+Verified LIVE on `docs/sweep-comment-drift` before archiving, which is the whole point of a
+graduation-verify: the entry asserts a fix landed 2026-07-27, and archiving on that assertion alone
+would be archiving an unfixed row if it had not.
+
+**The alias exists.** `app/globals.css:249-252` now defines
+`--transition-duration-{instant,fast,normal,slow}` as `var(--duration-*)`, which is exactly what
+Tailwind v4's `duration-*` utilities resolve. The utilities emit real CSS.
+
+**And the half the entry said actually needed re-verifying — reduced motion — works too.** The entry's
+sharper claim was not that durations were wrong but that
+`@media (prefers-reduced-motion: reduce)` never reached any Tailwind transition. Traced: that block
+zeroes `--duration-fast/normal/slow`, the aliases resolve through those same variables, so the
+override now propagates transitively to every `duration-<name>` utility. Both halves close.
+
+Original entry, verbatim:
+
+From the same audit. Tailwind v4's `duration-*` utility resolves `--transition-duration-*`; this repo defines `--duration-fast` / `--duration-normal`. Verified by compiling the token CSS: **no rule is emitted**. All **276 + 42 usages across 89 files** silently fall back to Tailwind's 150ms default, **and the `@media (prefers-reduced-motion: reduce)` block that zeroes those variables therefore never applies to any Tailwind transition.**
+
+**Accepted, not fixed.** The rename is one line, but its blast radius is every transition in the app, and the thing that actually needs re-verifying afterwards is the reduced-motion path — an a11y contract with no current test. That belongs in a motion/token pass with its own verification, not inside this diff. Locally the impact here is nil: `transition-opacity` only animates opacity, which does not change idle↔armed.
+
+**Un-defer trigger:** the next motion or token pass. Treat as an accessibility fix, not a cosmetic one.
+
+> **UPDATE 2026-07-27: fixed** on `fix/duration-tokens-emit-no-css` (spec `docs/superpowers/specs/2026-07-27-duration-tokens-emit-no-css.md`) via `@theme` `--transition-duration-*` aliases (approach A, not the rename sketched above). The reduced-motion path is now proven on a real Tailwind utility by a WebKit computed-value e2e assertion; compile-emission guard at `tests/design/durationTokenEmission.test.ts`. `BL-DURATION-TOKENS-EMIT-NO-CSS` graduated to `BACKLOG-archive.md`; residual bare-`transition-*` gap filed as `BL-BARE-TRANSITION-NO-DURATION-CLASS`.
+
+---
+
 # DEFERRED-archive.md
 
 Historical ledger of resolved / stale / N/A / accepted deferrals — full provenance (what, why deferred, resolution). The live open queue is **[DEFERRED.md](./DEFERRED.md)**; entries graduate here when they ship. Newest work is not appended in strict order — grep by id.

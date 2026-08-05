@@ -206,18 +206,6 @@ From the impeccable audit of `fix/destruct-thumb-order-drift-guard` (2026-07-25)
 
 **Un-defer trigger:** the next DESIGN.md token pass, or any a11y sweep that touches focus appearance.
 
-### DESTRUCT-DURATION-TOKENS-1 — [P1] `duration-fast` / `duration-normal` emit no CSS
-
-**Status:** IN PROGRESS · **Branch:** docs/sweep-comment-drift
-
-From the same audit. Tailwind v4's `duration-*` utility resolves `--transition-duration-*`; this repo defines `--duration-fast` / `--duration-normal`. Verified by compiling the token CSS: **no rule is emitted**. All **276 + 42 usages across 89 files** silently fall back to Tailwind's 150ms default, **and the `@media (prefers-reduced-motion: reduce)` block that zeroes those variables therefore never applies to any Tailwind transition.**
-
-**Accepted, not fixed.** The rename is one line, but its blast radius is every transition in the app, and the thing that actually needs re-verifying afterwards is the reduced-motion path — an a11y contract with no current test. That belongs in a motion/token pass with its own verification, not inside this diff. Locally the impact here is nil: `transition-opacity` only animates opacity, which does not change idle↔armed.
-
-**Un-defer trigger:** the next motion or token pass. Treat as an accessibility fix, not a cosmetic one.
-
-> **UPDATE 2026-07-27: fixed** on `fix/duration-tokens-emit-no-css` (spec `docs/superpowers/specs/2026-07-27-duration-tokens-emit-no-css.md`) via `@theme` `--transition-duration-*` aliases (approach A, not the rename sketched above). The reduced-motion path is now proven on a real Tailwind utility by a WebKit computed-value e2e assertion; compile-emission guard at `tests/design/durationTokenEmission.test.ts`. `BL-DURATION-TOKENS-EMIT-NO-CSS` graduated to `BACKLOG-archive.md`; residual bare-`transition-*` gap filed as `BL-BARE-TRANSITION-NO-DURATION-CLASS`.
-
 ### SHEETLINK-SUBTLE-ACTION-CLASS-1 — [P1] `text-text-subtle` survives on four sibling icon-only action targets
 
 **Effort:** M
