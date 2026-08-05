@@ -649,6 +649,58 @@ describe("declared finding count (spec §5.3)", () => {
     expect(row.findingCount).toBe(DECLARED);
   });
 
+  // Failure caught: the wrapper_error case above passes WITHOUT the fourth
+  // writer ever reading anything - attempt 1 there is classified normally, so
+  // the carrier is already loaded before the fault. This is the case that is
+  // not: the FIRST attempt declares its count and then dies BEFORE
+  // classification. A transcript write-stream error throws out of the poll loop
+  // (scripts/codex-guard.mjs:683-688) with the attempt attached to the error,
+  // so `classifyAttempt` - the only site that ever opens attempt 1's message -
+  // never runs, and `main().catch` builds its body from a carrier no site set.
+  // Probed 2026-08-04: parser sees 7, the row records null, and null means
+  // NOT DECLARED, which is false about a review that plainly declared.
+  it("records a declared count when the FIRST attempt dies before classification", async () => {
+    const run = mkRun();
+    const { base } = gitify(run.cwdDir);
+    const DECLARED = 7;
+    writeScenario(run, [
+      {
+        onCall: 1,
+        actions: [
+          { type: "lastMessage", text: `FINDINGS: ${DECLARED}\nStill working, no verdict yet.\n` },
+          { type: "hang" },
+        ],
+      },
+    ]);
+    // A DIRECTORY where attempt ONE's transcript must go: the write stream
+    // fails EISDIR and the poll loop rethrows it out of main().
+    mkdirSync(join(run.outDir, "attempt-1.transcript.txt"), { recursive: true });
+    const { code } = await runGuard(run, ["--stage", "diff", "--round", "1"], {
+      // A poll interval wider than the fixture's boot is what puts the throw
+      // AFTER the message lands: the stream check runs at the top of the
+      // SECOND iteration, so the declaration is on disk with a full interval
+      // to spare. The watchdogs are pushed out so none of them fires first.
+      CODEX_GUARD_POLL_INTERVAL_SECS: "1.5",
+      CODEX_GUARD_FIRST_OUTPUT_SECS: "30",
+      CODEX_GUARD_STALL_SECS: "30",
+      CODEX_GUARD_ATTEMPT_MAX_SECS: "60",
+      CODEX_GUARD_TOTAL_MAX_SECS: "90",
+    });
+    expect(code).toBe(3);
+    const result = readResult(run);
+    // Proves the fault landed on attempt ONE and above classification: one
+    // attempt, no failureShape ever assigned, and the stream error named.
+    expect(result.failureReason).toBe("wrapper_error");
+    expect(result.error).toContain("transcript write failed");
+    expect(result.attempts).toHaveLength(1);
+    expect(result.attempts[0]!.failureShape).toBeNull();
+    // Derived from the scenario's own declared line, never a literal repeated
+    // on the assertion side - and asserted on BOTH terminal outputs, which the
+    // fourth writer builds separately.
+    expect(result.findingCount).toBe(DECLARED);
+    expect(rowsIn(corpusPath(run.cwdDir, base))[0]!.findingCount).toBe(DECLARED);
+  }, 30000);
+
   // Failure caught: the count extracted below the FIRST of `classifyAttempt`'s
   // guards specifically. `killed` and `nonzero_exit` are two separate early
   // returns, so a read hoisted past only the second one still loses every

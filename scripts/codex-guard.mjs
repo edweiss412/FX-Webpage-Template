@@ -428,15 +428,26 @@ function parseVerdict(text) {
   });
   if (survivors.length === 0) return { verdict: null, verdictLine: null, shape: "no_marker" };
   const raw = survivors[survivors.length - 1]; // RAW, untrimmed (§6 schema)
-  // The whole line may be wrapped in one BALANCED emphasis pair (`**VERDICT: …**`).
-  // Unwrap it before the prefix strip, or the trailing marker rides into the
-  // payload and the outcome stops matching. `verdictLine` still records `raw`.
-  let payload = raw.trim().replace(/^(\*{1,2}|_{1,2})(.*?)\1$/, "$2");
-  payload = payload.replace(/^\s*VERDICT:\s*/, "");
+  // Normalization is a FIXED POINT, not a sequence - and the `VERDICT:` prefix
+  // strip belongs INSIDE it, because the whole line may be wrapped in one
+  // emphasis pair (`**VERDICT: …**`) and the prefix is not exposed until that
+  // pair comes off. Run once, ahead of the loop, it accepted the wrapped form
+  // only when nothing blocked the unwrap: the emphasis marker must sit at
+  // end-of-line, so a single trailing `.` deferred the unwrap into the loop,
+  // by which time the prefix strip had already run and never ran again.
+  // `**VERDICT: APPROVE**.` was rejected while `VERDICT: APPROVE.` was accepted
+  // (probed 2026-08-04: 20/20 across `*`/`**`/`_`/`__` x `.,;:!`) - a completed
+  // review recorded as an infrastructure fault, which is worse than losing the
+  // emphasis case outright, because the arc reads as never having spent the
+  // round. §6 step 3's fixpoint is unchanged; the payload it operates on is
+  // step 2's capture, and this is what "the text after VERDICT:" means once
+  // the marker admits a wrapped line. `verdictLine` still records `raw`.
+  let payload = raw.trim();
   for (;;) {
     const before = payload;
     payload = payload.trim().replace(/[.,;:!]+$/, "");
     payload = payload.replace(/^(\*+|_+|`+)(.*?)\1$/, "$2");
+    payload = payload.replace(/^\s*VERDICT:\s*/, "");
     if (payload === before) break;
   }
   payload = payload.trim().toUpperCase();
@@ -1178,6 +1189,24 @@ process.on("SIGTERM", () => onSignal("SIGTERM"));
 
 main().catch((e) => {
   const state = globalThis.__guardState;
+  // Writer 4's READ site. Every other writer runs after `classifyAttempt`, which
+  // is the only place attempt messages are opened; the paths that reach HERE are
+  // the ones that threw ABOVE it - the early and late transcript/stderr stream
+  // errors and the unkillable-child throw - so the attempt's message is never
+  // read at all and a plainly declared count is recorded as `null`, which means
+  // NOT DECLARED and is false. The error carries the attempt, so the path is
+  // known. Called through the SAME primitive as the other three sites and, like
+  // them, unconditionally: the failing attempt is by construction the LAST one
+  // this dispatch ran, so its terminal message is the latest, and an absent or
+  // empty one declares nothing and therefore erases nothing.
+  try {
+    const failedPath = e?.attempt?.lastMessagePath;
+    if (state && failedPath && existsSync(failedPath)) {
+      recordDeclaredCount(state, readFileSync(failedPath, "utf8"));
+    }
+  } catch {
+    /* an unreadable message is never a reason to lose the wrapper_error row */
+  }
   const attempts = [
     ...(state?.attempts ?? []).map(({ parsed: _parsed, ...a }) => a),
     ...(e?.attempt && !(state?.attempts ?? []).includes(e.attempt)

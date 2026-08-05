@@ -135,6 +135,58 @@ describe("verdict lines wrapped in markdown emphasis (spec §3 consequence 3)", 
     expect(result.attempts[0]!.failureShape).toBe("no_marker");
   });
 
+  // Failure caught (probe 2026-08-04: 20/20 rejected): normalization run as a
+  // SEQUENCE rather than to a fixed point. The emphasis unwrap requires the
+  // closing marker at end-of-line, so a trailing `.` blocks it; by the time the
+  // fixpoint loop had stripped that `.` and unwrapped, the one-shot `VERDICT:`
+  // prefix strip had already run and never ran again, leaving `VERDICT: APPROVE`
+  // as the payload. `**VERDICT: APPROVE**.` therefore recorded
+  // `unrecognized_verdict` while `VERDICT: APPROVE.` recorded APPROVE - a
+  // completed review silently converted into `no_verdict`, which is exactly the
+  // shape that lets an arc burn real rounds while reading as below the filing
+  // threshold. Every constant below is the one the scenario is BUILT from, so a
+  // widening that got the outcome right by rewriting the line still fails on
+  // `verdictLine`.
+  const EMPHASIS = ["*", "**", "_", "__"] as const;
+  const TERMINAL = [".", ",", ";", ":", "!"] as const;
+  const OUTCOME = "APPROVE" as const;
+  const CROSS: [string, string][] = EMPHASIS.flatMap((e) =>
+    TERMINAL.map((p): [string, string] => [e, p]),
+  );
+
+  it.each(CROSS)(
+    "accepts a %s-wrapped verdict ending in %j exactly as the unwrapped form does",
+    async (emphasis, punctuation) => {
+      const wrapped = `${emphasis}VERDICT: ${OUTCOME}${emphasis}${punctuation}`;
+      const bare = `VERDICT: ${OUTCOME}${punctuation}`;
+      const dispatch = async (line: string) => {
+        const run = mkRun();
+        writeScenario(run, [
+          {
+            onCall: 1,
+            actions: [
+              { type: "lastMessage", text: `${line}\n` },
+              { type: "exit", code: 0 },
+            ],
+          },
+        ]);
+        await runGuard(run, ["--max-attempts", "1"]);
+        return readResult(run);
+      };
+      // The unwrapped form is the REFERENCE, re-measured in the same run rather
+      // than assumed, so the pair cannot silently agree by both regressing.
+      const unwrapped = await dispatch(bare);
+      expect(unwrapped).toMatchObject({ status: "verdict", verdict: OUTCOME });
+      expect(await dispatch(wrapped)).toMatchObject({
+        status: "verdict",
+        verdict: unwrapped.verdict,
+        // RAW line preserved (§6 schema) - emphasis, punctuation and all.
+        verdictLine: wrapped,
+      });
+    },
+    30000,
+  );
+
   // A CODE SPAN is not emphasis, and the widening must not treat it as one.
   // Every brief this repo dispatches carries the instruction line
   // "`VERDICT: APPROVE` or `VERDICT: NEEDS-ATTENTION` or `VERDICT: BLOCKING`",

@@ -75,6 +75,12 @@ export interface GuardResult {
    * case an orchestrator most needs it.
    */
   lintArm: "present" | "absent";
+  /**
+   * The count the reviewer DECLARED, or null for "not declared". Written by
+   * every terminal writer including `main().catch`, so a test may assert it on
+   * a wrapper-fault result without going through the corpus row.
+   */
+  findingCount: number | null;
   startedAt: string | null;
   endedAt: string;
 }
