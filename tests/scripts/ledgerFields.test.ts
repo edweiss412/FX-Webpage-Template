@@ -179,7 +179,12 @@ describe("no assertion in this diff is silently vacuous", () => {
         // name cannot appear here at all: the spawn-convention guard under
         // tests/cross-cutting/ matches it lexically, and any file naming it
         // alongside a spawn call is required to reference the absolute bin.
-        .filter((f) => /\.(ts|mjs)$/.test(f));
+        .filter((f) => f !== "");
+    // Unfiltered vs in-range, recorded from the SAME invocation so the two can
+    // never diverge — and so no second `git diff` is needed. A three-dot diff
+    // throws on the shallow CI checkout, which is the whole reason the fetch
+    // fallback below uses two dots.
+    const inRange = (all: string[]) => all.filter((f) => /\.(ts|mjs)$/.test(f));
 
     let files: string[];
     // The base actually used, recorded as it is chosen. The previous version
@@ -234,25 +239,16 @@ describe("no assertion in this diff is silently vacuous", () => {
     //     The helper above deliberately narrows to `.ts`/`.mjs`, reasoning that
     //     "this branch's surface is scripts and tests". True of the branch that
     //     wrote it; not true in general, because this guard runs on EVERY branch
-    //     and a `.tsx`-only branch legitimately has nothing in range. Conflating
+    //     and a component-only branch legitimately has nothing in range. Conflating
     //     "changed nothing I scan" with "the guard is broken" failed
     //     `fix/identity-chip-sr-separator-mechanism`, whose entire diff is one
-    //     component and one component test.
+    //     component and its test — neither of which this guard scans.
     //
     // What remains is the check worth having: an EMPTY diff where base and HEAD
     // differ means the diff resolution itself went wrong. Proven by mutant --
     // forcing rawDiffCount to 0 makes this fire again.
-    const rawDiffCount =
-      base === null
-        ? 0
-        : execFileSync("git", ["diff", "--name-only", `${base}...HEAD`], {
-            cwd: ROOT,
-            encoding: "utf8",
-            timeout: 60_000,
-          })
-            .split("\n")
-            .map((f) => f.trim())
-            .filter((f) => f !== "").length;
+    const rawDiffCount = files.length;
+    files = inRange(files);
     const legitimatelyEmpty =
       files.length === 0 && base !== null && (base === rev("HEAD") || rawDiffCount > 0);
     if (!legitimatelyEmpty) {
