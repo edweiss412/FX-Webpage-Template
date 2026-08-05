@@ -130,7 +130,7 @@ Channel: `AdminAnnounceProvider` (`components/admin/AdminAnnounceProvider.tsx:38
    - Four severity-ranked surfaces (`RescanSheetButton` [P0, 8 call sites], `FinalizeButton`, `PublishedArchivedTabOffer`, `RoleRecognizeControl`): announce via the context channel (nearest provider — layout or modal instance resolves correctly by construction).
    - Bulk channel: `bulkUndoOutcome` (`components/admin/RecentAutoAppliedStrip.tsx:332`, region `components/admin/RecentAutoAppliedStrip.tsx:545`) moves to the same channel; per-row channel is the worked example.
    - Fifteen conditionally-INSERTED region elements across thirteen sites (list verbatim in the entry): mount each region unconditionally, toggle text. Mechanical; one commit may batch several sites, each named.
-3. Class-sweep closure: after fixes, grep `aria-live` + `role="status"` under `components/` + `app/` and assert (new meta-check or recorded sweep in the commit body) no live region renders inside a branch its own success flips. Both entries archive.
+3. Class-sweep closure: `grep -rln 'aria-live\|role="status"' components/ app/ --include='*.tsx'` — run at plan time 2026-08-05: **51 files** (the denominator; command verbatim). The entry's table enumerates the known violations (4 surfaces + 15 conditional elements across 13 sites + bulk); at implementation the same command re-runs and EVERY file gets a one-line disposition in the closeout: fixed-this-branch / already-branch-stable / no-success-announcement (error-only or static region). A file with no disposition is an incomplete sweep. Both entries archive.
 4. Commits: `fix(admin): hoist success announcements to branch-stable channel` (+ follow-ups per site batch).
 
 ### Task U3 — BL-FRESHNESS-PROJECTION-NARROWING (probe-then-decide)
