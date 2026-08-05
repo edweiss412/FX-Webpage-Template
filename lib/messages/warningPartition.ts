@@ -14,6 +14,30 @@
  * thing that fails when the declaration and the code drift apart, in either
  * direction and by name.
  *
+ * DOCUMENTED LIMIT — what this cross-check cannot see (Codex R4).
+ *
+ * It compares two SETS: what the scanner constructed, and what the catalog
+ * declares. That catches a code the scanner sees and the catalog does not class
+ * (and the reverse). It does NOT catch a code the scanner cannot see AT ALL.
+ *
+ * Concretely: build a `ParseWarning` through an `any` and assign it, and the
+ * scanner emits neither a code nor an unresolvable-site signal. The catalog row
+ * still says `general`, both sets agree, and the code stays absent from the
+ * gallery — silently.
+ *
+ * SO THE INVERSION MOVED THIS DEFECT RATHER THAN CLOSING IT, and saying so is
+ * the point. Before, a scanner-blind code was missing from the gallery because
+ * the gallery was derived from the scanner. Now it is missing because a human
+ * classed it `general` and nothing contradicts them. What genuinely improved:
+ * the answer is now WRITTEN DOWN per row and reviewable in a diff, and any
+ * disagreement between the written answer and the constructing code fails by
+ * name. What did not improve: neither side can know a code that no side sees.
+ *
+ * Closing it needs a different instrument — a type-level rule forbidding an
+ * `any`-typed `ParseWarning` construction, enforced where the assignment
+ * happens rather than where the catalog is read. That is a lint surface, not a
+ * set comparison, and it is deliberately not attempted here.
+ *
  * CATALOG-INTERNAL. `warningClass` follows the `triggerContext` precedent: a
  * field the catalog carries for its own consumers, not §12.4 prose. No lockstep
  * triple, and `tests/cross-cutting/codes.test.ts` (the x1 gate) is untouched —
