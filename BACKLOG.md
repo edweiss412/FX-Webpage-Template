@@ -1048,22 +1048,6 @@ Design memo captures six load-bearing principles: push-not-pull, severity tierin
 
 **Promotion prerequisite:** Doug-workflow observation from a live v1 deployment (need real data on which staging events Doug actually misses) + email-provider integration decision + spec amendment formalizing the notification design memo.
 
-### BL-X5-ROLE-TOKEN-DECIDED-BY-BOUNDARY — `role_token_mappings.decided_by` is a live email boundary absent from the AC-X.5 manifest
-
-**Status:** IN PROGRESS · **Branch:** docs/x5-decided-by-boundary · **Filed:** 2026-08-03, during the DB-lockdown-trio cluster (`docs/superpowers/specs/db/2026-08-02-db-lockdown-trio-design.md` §5.3). **Class:** X.5 coverage completeness. **Effort:** S.
-
-`role_token_mappings.decided_by` stores a canonical admin email and carries a DB CHECK (`role_token_mappings_decided_by_canonical`, `supabase/migrations/20260716000000_role_token_mappings.sql:8`). Both write paths canonicalize correctly today — `app/admin/show/[slug]/_actions/roleToken.ts:57` and `app/admin/settings/_actions/roleTokenMappings.ts:38` both call `canonicalize(email)` before the write.
-
-**The gap is coverage, not behavior.** The boundary is absent from `lib/audit/email-boundaries.generated.ts`, which derives from master spec AC-X.5 prose (`scripts/extract-email-boundaries.ts:87`). So deleting either `canonicalize()` call would NOT fail the `x5-email-canonicalization` gate — only the DB CHECK would catch it, and only at write time.
-
-**Why not fixed in the lockdown cluster:** registering the boundary requires a master spec §17.2 AC-X.5 amendment, which has lockstep consequences for `pnpm gen:email-boundaries`, the `x5-email-canonicalization` gate, and traceability. That is its own review cycle, not a rider on a lockdown cluster. The cluster pins the CHECK's existence via the new `CATALOG_CANONICAL_CHECKS` registry, so the constraint cannot be dropped silently.
-
-**Scope of a fix:** amend master spec §17.2 AC-X.5 to name `role_token_mappings.decided_by`; regenerate; confirm the x5 gate covers both write paths. Two sibling constraints (`admin_emails.email`, `ignored_warnings.ignored_by`) are pinned elsewhere (`tests/db/admin-emails.test.ts:135`, `tests/db/ignored-warnings-schema.test.ts:39`) and may warrant the same treatment in the same amendment.
-
-**Promotion prerequisite:** any milestone already amending master spec §17.2, OR a decision that unpoliced canonicalization on this boundary is a real risk.
-
-**Status:** OPEN.
-
 ### BL-PRIVATE-IMAGE-PIPELINE — Migrate diagrams gallery to `next/image` with auth-preserving pipeline
 
 **Origin:** DEFERRED entry M7-D3 (Diagrams gallery `<img>` → `next/image`). Re-deferred at M9 C6b 2026-05-13 after an in-cluster attempt failed P0 (auth cookies don't forward through `/_next/image`; private Cache-Control rewritten to public, breaking revocation propagation).
