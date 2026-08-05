@@ -203,6 +203,42 @@ const MUTANTS: ReadonlyArray<{ id: string; why: string; source: string }> = [
     `),
   },
 
+  // M21-M23: R4's confirmed escapes. Two are in the helper credit added by R3's
+  // own repair -- a repair that introduced its own hole.
+  {
+    id: "M21",
+    why: "helper call never awaited — the wait starts and is dropped",
+    source: `import { test } from "@playwright/test";
+async function settleFonts(page) { await page.evaluate(() => document.fonts.ready); }
+test("t", async ({ page }) => {
+  await page.goto(url);
+  settleFonts(page);
+  const box = await page.getByTestId("x").evaluate((n) => n.getBoundingClientRect().height);
+});
+`,
+  },
+  {
+    id: "M22",
+    why: "helper call raced against the navigation it should follow",
+    source: `import { test } from "@playwright/test";
+async function settleFonts(page) { await page.evaluate(() => document.fonts.ready); }
+test("t", async ({ page }) => {
+  await Promise.all([page.goto(url), settleFonts(page)]);
+  const box = await page.getByTestId("x").evaluate((n) => n.getBoundingClientRect().height);
+});
+`,
+  },
+  {
+    id: "M23",
+    why: "a one-letter alias satisfied by awaiting an unrelated promise",
+    source: wrap(`
+      await page.goto(url);
+      const p = page.evaluate(() => document.fonts.ready);
+      await page.waitForTimeout(1);
+      const box = await page.getByTestId("x").evaluate((n) => n.getBoundingClientRect().height);
+    `),
+  },
+
   {
     id: "M15",
     why: "getClientRects is the wrapped-line spelling of the same read",
@@ -244,6 +280,16 @@ describe("font-wait guard is falsifiable", () => {
     `,
     ],
     [
+      "Promise.all INSIDE the browser callback — attribution must reach the test fn",
+      `
+      await page.goto(url);
+      await page.evaluate(async () => {
+        await Promise.all([document.fonts.ready, new Promise((r) => requestAnimationFrame(r))]);
+      });
+      const box = await page.getByTestId("x").evaluate((n) => n.getBoundingClientRect().height);
+    `,
+    ],
+    [
       "Promise.all with no navigating sibling",
       `
       await page.goto(url);
@@ -256,6 +302,18 @@ describe("font-wait guard is falsifiable", () => {
     // These three all settle the promise before the read; each was REJECTED by
     // an over-eager repair, which is the failure mode this block pins.
     expect(analyzeSource("valid.spec.ts", wrap(body))).toEqual([]);
+  });
+
+  test("CORRECT: a COMMENTED-OUT measurement is not a measurement", () => {
+    // Symmetric to M16 on the wait side. A call's source range includes the
+    // comments inside it, so text matching read this as a live measurement and
+    // failed correct code.
+    const source = wrap(`
+      await page.goto(url);
+      // const box = await page.getByTestId("x").evaluate((n) => n.getBoundingClientRect().height);
+      await expect(page.locator("#x")).toBeVisible();
+    `);
+    expect(analyzeSource("commented.spec.ts", source)).toEqual([]);
   });
 
   test("a helper that waits counts for its callers", () => {

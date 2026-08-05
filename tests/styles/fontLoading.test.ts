@@ -48,11 +48,13 @@ interface Stylesheet {
 /**
  * Every stylesheet that reaches a browser, found by walking rather than listing.
  *
- * Two entry points, because a stylesheet ships either way: any `.css` under
- * `app/` (Next compiles the tree), and any side-effect `import "….css"` from
- * app or component source, which is how third-party CSS arrives. Each is then
- * followed through its own `@import` graph, so a face reachable two hops away
- * is still in scope.
+ * ONE entry point: something IMPORTS it. Every `import` / `require` /
+ * `import()` of a `.css` from this repo's source roots is followed, and each
+ * stylesheet found is then followed through its own `@import` graph, so a face
+ * reachable two hops away is still in scope. (An earlier version ALSO seeded
+ * every `.css` under `app/` by placement; that failed a correct tree carrying
+ * an unreferenced file, since Next ships CSS because it is imported, not
+ * because of where it sits.)
  *
  * Unresolvable specifiers are skipped rather than failed: this row's job is to
  * catch a face someone added, and a specifier this resolver cannot follow is a
@@ -65,6 +67,27 @@ interface Stylesheet {
  * `tsconfig.json` paths, a transitive sheet reached only through `lib/`, and
  * `@import url(x.css)` UNQUOTED. Every one escaped the first version of this
  * resolver.
+ *
+ * WHAT "SHIPPED" MEANS HERE, stated exactly, because the honest bound matters
+ * more than a wider one: this finds stylesheets reachable by IMPORT SYNTAX from
+ * this repo's own source roots. That is deliberately not a bundler's module
+ * graph, and it differs in two known directions.
+ *
+ * It can OVER-report: a stylesheet imported by a component that nothing else
+ * imports is included, though no page ships it. That is a considered choice
+ * rather than an oversight — a competing `@font-face` checked into this repo is
+ * worth surfacing whether or not today's route table reaches it, and dormant
+ * modules are separately policed by the zero-production-importer guard
+ * (`BL-ORPHANED-COMPONENTS-ZERO-PROD-IMPORTERS`). The worst case is a signal on
+ * a real file, never a silent wrong answer.
+ *
+ * It can UNDER-report: a dependency whose JS entry imports its own CSS
+ * internally, or a stylesheet reached through a package `exports` subpath, is
+ * not followed — that needs node_modules module resolution, which is a
+ * different tool than a source walk. `BL-FONT-STYLESHEET-GRAPH-FIDELITY` tracks
+ * it. The runtime oracle is what covers a face from ANY origin, per the
+ * CSS-in-JS note below, and it is the reason this gap is bounded rather than
+ * open.
  *
  * DOCUMENTED LIMIT — CSS-in-JS. A face built as a JS template string and
  * injected at runtime is not a stylesheet file and no file walk will find it.
@@ -328,7 +351,7 @@ describe("app/fonts.css", () => {
     expect(firstVarFallbackFamily(GLOBALS_CSS, "--font-inter")).toBe(familyOf(interFaces[0]!));
   });
 
-  test("app/fonts.css is the ONLY shipped stylesheet that declares a face", () => {
+  test("app/fonts.css is the only import-reachable stylesheet declaring a face", () => {
     // compileEntryCss compiles globals.css for all 32 harnesses. A face there
     // would emit absolute /fonts/ URLs into every harness output, which 404
     // against each caller's local static server -- and a wrong url() 404s and
