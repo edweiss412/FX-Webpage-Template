@@ -234,6 +234,9 @@ const NOT_A_CITATION: Record<string, Record<string, string>> = {
   "docs/superpowers/specs/ci/2026-08-04-review-round-economy.md": {
     "BL-SPEC-CITATION-RESOLVE": "invented id in §6's sample filing, showing where a real one goes",
   },
+  "docs/review-rounds/README.md": {
+    "BL-SPEC-CITATION-RESOLVE": "the same §6 sample filing, reproduced so the corpus explains itself",
+  },
   "docs/superpowers/plans/2026-08-04-review-round-economy.md": {
     "BL-SPEC-CITATION-RESOLVE": "the spec's §6 sample filing, quoted into Task 6's pasted filing test",
     "BL-ONE": "planted token in Task 6's `parseFiling` prefix-recognizer fixture",
