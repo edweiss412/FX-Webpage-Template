@@ -1,7 +1,6 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 
-import { ledgerIds, type ExtractOpts } from "../../tests/docs/_ledgerMdast";
 import { CORPUS_DIR } from "./arc";
 import { COUNTED_STAGES, isCountedStage, ROUND_THRESHOLD, type Stage } from "./constants";
 import { countedRounds, recordedRounds, roundGaps } from "./count";
@@ -157,65 +156,21 @@ export function readArcs(root: string): Arc[] {
   return [...byArc.values()];
 }
 
-const BACKLOG_OPTS: ExtractOpts = { requirePrefix: "BL-", levels: [2, 3] };
-const DEFERRED_OPTS: ExtractOpts = { requirePrefix: null, levels: [3] };
-const LEDGERS: readonly (readonly [string, ExtractOpts])[] = [
-  ["BACKLOG.md", BACKLOG_OPTS],
-  ["BACKLOG-archive.md", BACKLOG_OPTS],
-  ["DEFERRED.md", DEFERRED_OPTS],
-  ["DEFERRED-archive.md", DEFERRED_OPTS],
-];
-
 /**
- * The resolvable-id set, over all four ledgers under BOTH option sets (plan R2).
- * DEFERRED entries carry bare SHOUTY ids, so the production `definedIds` helper
- * - which resolves every ledger under BACKLOG_OPTS - collects only `BL-` ids.
+ * `resolvableIds` is REQUIRED, and the ledger reader that produces the live set
+ * lives on the test side (tests/docs/_metaReviewRoundEconomy.test.ts). This
+ * module is shipped code, and the ledger recognizer it used to call is a test
+ * helper - tests/docs/_ledgerMdast - so resolving ids here made lib/ import
+ * from tests/, which the carve-containment guard bans as a laundering channel.
  *
- * It deliberately does NOT import `definedIds` from
- * tests/docs/_metaLedgerReferentialIntegrity.test.ts: that symbol is exported
- * from a `*.test.ts` module, and importing it re-registers that file's whole
- * suite inside this one.
- *
- * ENTRY HEADINGS ONLY, and that is a live structural invariant rather than a
- * preference. `definedIds` resolves headings PLUS ids defined as sub-item
- * bullets inside an entry's body, and the P5-sole probe in
- * tests/docs/_metaLedgerReferentialIntegrity.test.ts pins that the sub-item
- * helper has EXACTLY ONE caller - "a second production caller with its own file
- * list would pass every plant above while scanning whatever it liked". Calling
- * it here would be that second caller. The alternatives are worse: importing
- * `definedIds` re-registers a whole suite (above), and exempting this file
- * weakens the probe that stops the resolvable universe from being widened
- * unaccountably.
- *
- * DOCUMENTED LIMIT, measured 2026-08-04 against the live ledgers: exactly 8
- * ids this recognizer could ever cite are defined only as sub-item bullets and
- * so do not resolve here - the five mutation operator classes such as
- * `BL-MUTATION-UNICODE`, and the three sync-feed rows such as
- * `BL-SYNCFEED-UI-1`. (The body-defined set holds 16, but the other 8 carry no
- * `BL-`/`DEF-` prefix, so CITED_ID cannot cite them and they cost nothing.)
- *
- * A filing citing one of the 8 is reported `unresolved_id`, which is a FALSE
- * POSITIVE: loud, self-explanatory and blocking, never silent wrongness - the
- * one outcome the consequence bound forbids. The remedy is also the better
- * citation. BACKLOG.md says of those sub-items that "the parent owns the
- * shrink-only ratchet that gives them their meaning", so a filing should cite
- * the parent row - which is a heading, and resolves.
+ * Required rather than defaulted to an empty set: a caller that forgot the
+ * argument would resolve NOTHING, so every cited id would be reported
+ * `unresolved_id` - a silent-by-construction wrong answer dressed as a finding.
+ * The type makes the choice at every call site instead.
  */
-export function liveLedgerIds(root: string): Set<string> {
-  const out = new Set<string>();
-  for (const [file, opts] of LEDGERS) {
-    const abs = join(root, file);
-    if (!existsSync(abs)) continue;
-    const text = readFileSync(abs, "utf8");
-    for (const id of ledgerIds(text, opts)) out.add(id);
-  }
-  return out;
-}
-
-export function checkCorpus(root: string, opts: { resolvableIds?: Set<string> } = {}): Problem[] {
+export function checkCorpus(root: string, opts: { resolvableIds: Set<string> }): Problem[] {
   const problems: Problem[] = [];
-  // `??` short-circuits, so a fixture root with no ledgers never reads one.
-  const resolvable = opts.resolvableIds ?? liveLedgerIds(root);
+  const resolvable = opts.resolvableIds;
 
   for (const path of unrecognizedCorpusFiles(root)) {
     // Reported, never skipped: a corpus file not named for its arc holds rows

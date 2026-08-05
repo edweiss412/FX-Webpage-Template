@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -6,8 +6,74 @@ import { afterAll, describe, expect, it } from "vitest";
 
 import { ROUND_THRESHOLD } from "../../lib/reviewRounds/constants";
 import { checkCorpus, readArcs, type Problem } from "../../lib/reviewRounds/corpus";
+import { ledgerIds, type ExtractOpts } from "./_ledgerMdast";
 
 const ROOT = join(__dirname, "..", "..");
+
+const BACKLOG_OPTS: ExtractOpts = { requirePrefix: "BL-", levels: [2, 3] };
+const DEFERRED_OPTS: ExtractOpts = { requirePrefix: null, levels: [3] };
+// Named LEDGER_FILES, not LEDGERS: the live-ledger describe below already binds
+// LEDGERS to its planted fixtures, and a shadowed name there would read as this
+// list.
+const LEDGER_FILES: readonly (readonly [string, ExtractOpts])[] = [
+  ["BACKLOG.md", BACKLOG_OPTS],
+  ["BACKLOG-archive.md", BACKLOG_OPTS],
+  ["DEFERRED.md", DEFERRED_OPTS],
+  ["DEFERRED-archive.md", DEFERRED_OPTS],
+];
+
+/**
+ * The resolvable-id set, over all four ledgers under BOTH option sets (plan R2).
+ * DEFERRED entries carry bare SHOUTY ids, so the production `definedIds` helper
+ * - which resolves every ledger under BACKLOG_OPTS - collects only `BL-` ids.
+ *
+ * It lives HERE rather than in lib/reviewRounds/corpus.ts because the ledger
+ * recognizer it needs, `ledgerIds`, is a test helper: resolving ids inside the
+ * shipped module made lib/ import from tests/, which the carve-containment
+ * guard bans as a laundering channel. `checkCorpus` takes the set as a REQUIRED
+ * argument instead, so the dependency is explicit at every call site and no
+ * caller can silently resolve nothing.
+ *
+ * It deliberately does NOT import `definedIds` from
+ * tests/docs/_metaLedgerReferentialIntegrity.test.ts: that symbol is exported
+ * from a `*.test.ts` module, and importing it re-registers that file's whole
+ * suite inside this one.
+ *
+ * ENTRY HEADINGS ONLY, and that is a live structural invariant rather than a
+ * preference. `definedIds` resolves headings PLUS ids defined as sub-item
+ * bullets inside an entry's body, and the P5-sole probe in
+ * tests/docs/_metaLedgerReferentialIntegrity.test.ts pins that the sub-item
+ * helper has EXACTLY ONE caller - "a second production caller with its own file
+ * list would pass every plant above while scanning whatever it liked". Calling
+ * it here would be that second caller. The alternatives are worse: importing
+ * `definedIds` re-registers a whole suite (above), and exempting this file
+ * weakens the probe that stops the resolvable universe from being widened
+ * unaccountably.
+ *
+ * DOCUMENTED LIMIT, measured 2026-08-04 against the live ledgers: exactly 8
+ * ids this recognizer could ever cite are defined only as sub-item bullets and
+ * so do not resolve here - the five mutation operator classes such as
+ * `BL-MUTATION-UNICODE`, and the three sync-feed rows such as
+ * `BL-SYNCFEED-UI-1`. (The body-defined set holds 16, but the other 8 carry no
+ * `BL-`/`DEF-` prefix, so CITED_ID cannot cite them and they cost nothing.)
+ *
+ * A filing citing one of the 8 is reported `unresolved_id`, which is a FALSE
+ * POSITIVE: loud, self-explanatory and blocking, never silent wrongness - the
+ * one outcome the consequence bound forbids. The remedy is also the better
+ * citation. BACKLOG.md says of those sub-items that "the parent owns the
+ * shrink-only ratchet that gives them their meaning", so a filing should cite
+ * the parent row - which is a heading, and resolves.
+ */
+function liveLedgerIds(root: string): Set<string> {
+  const out = new Set<string>();
+  for (const [file, opts] of LEDGER_FILES) {
+    const abs = join(root, file);
+    if (!existsSync(abs)) continue;
+    const text = readFileSync(abs, "utf8");
+    for (const id of ledgerIds(text, opts)) out.add(id);
+  }
+  return out;
+}
 const tmpRoots: string[] = [];
 afterAll(() => {
   for (const d of tmpRoots) rmSync(d, { recursive: true, force: true });
@@ -34,11 +100,12 @@ function check(files: Fixture[]): Problem[] {
 }
 
 /**
- * Same tree, but the ledgers are written at the fixture root and NO resolvable
- * set is injected - so the live `liveLedgerIds` path is the thing under test.
- * Without this, nothing exercises it at all: every case above injects its own
- * set, and the live-corpus check runs against an empty corpus that cites
- * nothing, so `liveLedgerIds` could return an empty set and stay green.
+ * Same tree, but the ledgers are written at the fixture root and the resolvable
+ * set is the one `liveLedgerIds` reads off them - so the live path is the thing
+ * under test. Without this, nothing exercises it at all: every case above hands
+ * over a hand-built set, and the live-corpus check runs against an empty corpus
+ * that cites nothing, so `liveLedgerIds` could return an empty set and stay
+ * green.
  */
 function checkWithLedgers(files: Fixture[], ledgers: Fixture[]): Problem[] {
   const root = mkdtempSync(join(tmpdir(), "rre-live-"));
@@ -49,7 +116,7 @@ function checkWithLedgers(files: Fixture[], ledgers: Fixture[]): Problem[] {
     writeFileSync(abs, f.body);
   }
   for (const l of ledgers) writeFileSync(join(root, l.path), l.body);
-  return checkCorpus(root);
+  return checkCorpus(root, { resolvableIds: liveLedgerIds(root) });
 }
 
 const ARC = "feat/foo/aaaaaaaaaaaa";
@@ -579,6 +646,6 @@ describe("live corpus", () => {
     // Discovered from disk: a new arc's files are covered by default and can
     // never be silently exempt. Empty today (spec §12 - this arc is
     // pre-adoption by construction), which is a legal clean state.
-    expect(checkCorpus(ROOT)).toEqual([]);
+    expect(checkCorpus(ROOT, { resolvableIds: liveLedgerIds(ROOT) })).toEqual([]);
   });
 });

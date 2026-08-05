@@ -352,16 +352,16 @@ export const GUARD_SURFACES: GuardSurface[] = [
     accepted: [
       // ---- equivalent: cannot change observable behavior (spec §2.4) -------
       {
-        siteId: "statement-removal:78:7:continue;>(removed)",
+        siteId: "statement-removal:77:7:continue;>(removed)",
         kind: "equivalent",
         reason:
-          "falling through after the recursive walk reaches `if (!entry.isFile()) continue;` on the very next line (corpus.ts:80), and a Dirent for a directory returns false from isFile(), so neither push below it can be reached",
+          "falling through after the recursive walk reaches `if (!entry.isFile()) continue;` on the very next line (corpus.ts:79), and a Dirent for a directory returns false from isFile(), so neither push below it can be reached",
       },
       {
-        siteId: "relational-boundary:145:25:<><=",
+        siteId: "relational-boundary:144:25:<><=",
         kind: "equivalent",
         reason:
-          'the extra iteration reads lines[i] === undefined, which `?? ""` turns into the empty string, and the blank-line skip at corpus.ts:147 continues before parseRow sees it',
+          'the extra iteration reads lines[i] === undefined, which `?? ""` turns into the empty string, and the blank-line skip at corpus.ts:146 continues before parseRow sees it',
       },
     ],
   },
