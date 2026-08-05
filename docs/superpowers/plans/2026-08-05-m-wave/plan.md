@@ -1,6 +1,18 @@
 # M-wave implementation plan
 
-**Date:** 2026-08-05 · **Spec:** `docs/superpowers/specs/2026-08-05-m-wave-design.md` (+ ratified brief `docs/superpowers/specs/2026-08-05-m-wave-decisions-brief.md`) · **Status:** DRAFT (pre-review)
+> **For agentic workers:** execute task-by-task per `HANDOFF.md` in this directory (the Opus pane's entry point). The spec is APPROVED (codex-guard R3, 2026-08-05); this plan carries its own adversarial-review gate below.
+
+**Goal:** close 19 pre-ratified backlog entries (14 implementation + 5 docs) across four themed branches to four merged PRs.
+
+**Architecture:** W-DOCS on `feat/m-wave` (spec/plan/docs + claim handoff), then `feat/m-wave-guards`, `feat/m-wave-parity`, `feat/m-wave-ui` off origin/main, each TDD per task, cross-model reviewed, CI-green merged.
+
+**Date:** 2026-08-05 · **Spec:** `docs/superpowers/specs/2026-08-05-m-wave-design.md` (+ ratified brief `docs/superpowers/specs/2026-08-05-m-wave-decisions-brief.md`) · **Status:** SPEC-APPROVED; plan pending its adversarial gate
+
+## Global constraints
+
+- Every AGENTS.md plan-wide invariant binds; the ones this wave exercises: 1 (TDD), 6 (conventional commits), 8 (W-UI dual-gate), 11 (worktree-only), 12 (claims). Spec §1.1 lists the 13 do-not-relitigate ratifications.
+- Guard premise rule (`tests/_shared/premise.ts`) applies to every new guard/meta-test (see W-GUARDS preamble).
+- No em dashes in new user-visible copy; 44px tap targets; canonical type/token classes (pre-code mechanical UI gate, W-UI).
 
 Four branches, executed in this order by the Opus implementer pane (HANDOFF.md in this directory is the pane's entry point): W-DOCS (on `feat/m-wave`, this branch) → W-GUARDS → W-PARITY → W-UI. Every branch: worktree off `origin/main` (invariant 11; W-DOCS reuses the existing `FX-worktrees/m-wave` worktree), Stage-0 claims (invariant 12), TDD per task (invariant 1), conventional commits (invariant 6), real CI green → merge → `0 0`.
 
