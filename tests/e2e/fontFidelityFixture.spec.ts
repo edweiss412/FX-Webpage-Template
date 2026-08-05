@@ -54,9 +54,14 @@ test("a browser-originated navigation reports the OUTGOING document", async ({ p
   await page.goto("http://x.test/first");
   await page.click("#go");
   await page.waitForLoadState("load");
+  // FILTERED TO `pagehide`, which is the whole claim. `page.goto` is wrapped, so
+  // post-navigate already recorded the outgoing document before the click — an
+  // unfiltered search finds OUTGOING_IMPOSTOR whether or not the pagehide
+  // listener works at all, and this row was passing on that (Codex R3 BLOCKING).
   await expect
     .poll(() =>
       observations()
+        .filter((o) => o.via === "pagehide")
         .flatMap((o) => o.families)
         .join(" | "),
     )

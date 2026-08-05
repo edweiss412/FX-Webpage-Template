@@ -245,11 +245,20 @@ export const test = base.extend<{ fontOracle: void }>({
         "__fontOracle",
         (_source, seen: { families: string; faces: string[] }) => {
           if (seen.families || seen.faces.length > 0) {
-            collected.push({
+            const observation: Observation = {
               via: "pagehide",
               families: seen.families ? seen.families.split(" ~ ") : [],
               faces: seen.faces,
-            });
+            };
+            collected.push(observation);
+            // BOTH arrays, and this is load-bearing. Enforcement reads the
+            // per-test array; a pagehide-only observation that never reached it
+            // was unenforced, so an INTERMEDIATE document could register an
+            // impostor, navigate onward to a clean one, and pass — the only
+            // vantage that saw the offending document was the one enforcement
+            // could not see. (Codex R3 BLOCKING; the R2 edit silently missed
+            // this site because prettier had reformatted it first.)
+            currentTest?.push(observation);
           }
         },
       );
