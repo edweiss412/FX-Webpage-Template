@@ -331,6 +331,25 @@ describe("silent death C: the guard invokes the native binary, not the signal-la
   });
 });
 
+/** A rollout JSONL whose turn ended with `text` as the final assistant message. */
+function writeRollout(run: ReturnType<typeof mkRun>, sid: string, text: string): void {
+  const dir = join(run.codexHome, "sessions", "2026", "08", "05");
+  mkdirSync(dir, { recursive: true });
+  const lines = [
+    JSON.stringify({
+      timestamp: "2026-08-05T04:00:00.000Z",
+      type: "session_meta",
+      payload: { id: sid, cli_version: "0.146.0-alpha.6", originator: "codex_exec" },
+    }),
+    JSON.stringify({
+      timestamp: "2026-08-05T04:01:00.000Z",
+      type: "response_item",
+      payload: { type: "message", role: "assistant", content: [{ type: "output_text", text }] },
+    }),
+  ].join("\n");
+  writeFileSync(join(dir, `rollout-2026-08-05T04-00-00-${sid}.jsonl`), lines + "\n");
+}
+
 describe("silent death B2: the exit-3 writers consult the rollout when the -o file never landed", () => {
   // Failure caught (reviewer probe 2026-08-05). Two of the four terminal result
   // writers - `onSignal` (`failureReason:"interrupted"`) and `main().catch`
@@ -348,25 +367,6 @@ describe("silent death B2: the exit-3 writers consult the rollout when the -o fi
   // verdict on the strength of a scrape.
   const SID_LIVE = "11112222-3333-4444-8555-666677778888";
   const SID_OLD = "99998888-7777-4666-8555-444433332222";
-
-  /** A rollout JSONL whose turn ended with `text` as the final assistant message. */
-  function writeRollout(run: ReturnType<typeof mkRun>, sid: string, text: string): void {
-    const dir = join(run.codexHome, "sessions", "2026", "08", "05");
-    mkdirSync(dir, { recursive: true });
-    const lines = [
-      JSON.stringify({
-        timestamp: "2026-08-05T04:00:00.000Z",
-        type: "session_meta",
-        payload: { id: sid, cli_version: "0.146.0-alpha.6", originator: "codex_exec" },
-      }),
-      JSON.stringify({
-        timestamp: "2026-08-05T04:01:00.000Z",
-        type: "response_item",
-        payload: { type: "message", role: "assistant", content: [{ type: "output_text", text }] },
-      }),
-    ].join("\n");
-    writeFileSync(join(dir, `rollout-2026-08-05T04-00-00-${sid}.jsonl`), lines + "\n");
-  }
 
   const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -493,5 +493,112 @@ describe("silent death B2: the exit-3 writers consult the rollout when the -o fi
     const r = readResult(run);
     expect(r.failureReason).toBe("interrupted");
     expect(r.findingCount).toBeNull();
+  }, 30000);
+});
+
+describe("silent death B3: the giveUp writer recovers a verdict without overwriting a newer count", () => {
+  // Failure caught (reviewer probe 2026-08-05). `giveUp` predates the exit-3
+  // writers' rule and scraped the rollout UNCONDITIONALLY, so its scrape
+  // recorded a count even on dispatches whose own `-o` message had already
+  // spoken. The scan walks sessions newest-first, and the newest session need
+  // not have a rollout on disk at all - the `-o` write landing and the rollout
+  // never being reached is exactly the ordinary case - so the first rollout the
+  // scan FINDS can belong to an OLDER session. Probed against the shipped
+  // wrapper: {"newestOutput":2,"recordedAfterGiveUpScrape":7} and
+  // {"newestOutput":null,"recordedAfterGiveUpScrape":7}. Both are false facts
+  // about a real review - a declared 2 restated as 7, and a genuine "not
+  // declared" restated as a number the reviewer never gave.
+  //
+  // The scrape's OTHER errand is untouched: it exists to recover a verdict the
+  // `-o` write never carried, and when the attempt produced no message at all
+  // the rollout is the only copy of both answers, so the count arrives with the
+  // verdict it came from. Count and verdict are separate questions here, and
+  // only the count has a newer source to lose to.
+  const SID_OLD = "33334444-5555-4666-8777-888899990000";
+  const SID_NEW = "44445555-6666-4777-8888-99990000aaaa";
+  const ATTEMPT_COUNT = 2; // what the dispatch's OWN terminal message declares
+  const ROLLOUT_COUNT = 7; // deliberately different, so a displacement is visible
+  const ROLLOUT_TEXT = `Seven problems.\n\nFINDINGS: ${ROLLOUT_COUNT}`;
+  const NO_DECLARATION = "Reviewed the diff. Still working, no count yet.";
+
+  /**
+   * Attempt 1 announces SID_OLD and leaves no `-o` file; attempt 2 announces
+   * SID_NEW and does whatever `attempt2` says. Only SID_OLD has a rollout, so
+   * the newest-first scan finds nothing for SID_NEW and falls through to the
+   * older session - the shape the finding lives in. Two attempts with
+   * `--max-attempts 2` exhausts the budget, which is the `giveUp` writer.
+   */
+  const dispatch = (run: ReturnType<typeof mkRun>, attempt2: unknown[]) => {
+    writeScenario(run, [
+      {
+        onCall: 1,
+        actions: [
+          { type: "stderr", text: `session id: ${SID_OLD}\n` },
+          { type: "exit", code: 0 },
+        ],
+      },
+      {
+        onCall: 2,
+        actions: [{ type: "stderr", text: `session id: ${SID_NEW}\n` }, ...attempt2],
+      },
+    ]);
+    return runGuard(run, ["--max-attempts", "2"]);
+  };
+
+  it("keeps the -o file's declared count when an older rollout declares a different one", async () => {
+    const run = mkRun();
+    writeRollout(run, SID_OLD, ROLLOUT_TEXT);
+    await dispatch(run, [
+      { type: "lastMessage", text: `FINDINGS: ${ATTEMPT_COUNT}\nStill working, no verdict yet.\n` },
+      { type: "exit", code: 0 },
+    ]);
+    const r = readResult(run);
+    // Both sids were latched, so the scan really did have the older rollout in
+    // reach - without this the assertion also passes on a scrape that found no
+    // rollout at all. The third test is the positive control on the same
+    // fixture: with attempt 2's `-o` absent, that rollout IS what gets recorded.
+    expect(r.attempts.map((a) => a.sessionId)).toEqual([SID_OLD, SID_NEW]);
+    // Proves the `giveUp` writer wrote this row and not one of the other three.
+    expect(r.failureReason).toBe("attempts_exhausted");
+    // Derived from the scenario's own declared line, never a literal repeated
+    // on the assertion side.
+    expect(r.findingCount).toBe(ATTEMPT_COUNT);
+  }, 30000);
+
+  it("keeps a genuine `not declared` when an older rollout declares a count", async () => {
+    const run = mkRun();
+    writeRollout(run, SID_OLD, ROLLOUT_TEXT);
+    await dispatch(run, [
+      { type: "lastMessage", text: `${NO_DECLARATION}\n` },
+      { type: "exit", code: 0 },
+    ]);
+    const r = readResult(run);
+    expect(r.attempts.map((a) => a.sessionId)).toEqual([SID_OLD, SID_NEW]);
+    expect(r.failureReason).toBe("attempts_exhausted");
+    // The attempt SPOKE and declared nothing. `null` is that message's own
+    // answer, not a hole to backfill from a session that ended earlier - an
+    // implementation that scrapes "only when the count is still null" records
+    // ROLLOUT_COUNT here and passes the test above.
+    expect(r.findingCount).toBeNull();
+  }, 30000);
+
+  it("still recovers a verdict, with its own count, when the attempt produced no message", async () => {
+    const run = mkRun();
+    // The SAME rollout as above plus the verdict line the `-o` write never
+    // carried. Nothing else on this dispatch ever read a terminal message, so
+    // the scrape is the only source of either answer.
+    writeRollout(run, SID_OLD, `${ROLLOUT_TEXT}\n\nVERDICT: NEEDS-ATTENTION`);
+    await dispatch(run, [{ type: "exit", code: 0 }]);
+    const r = readResult(run);
+    expect(r.failureReason).toBe("attempts_exhausted");
+    // Recovery preserved exactly: gating the scrape itself on "the attempt did
+    // not speak" would be the obvious fix and would still pass the two tests
+    // above, but a narrower gate that skipped the scrape whenever a count was
+    // already carried would silently drop this verdict.
+    expect(r.status).toBe("verdict");
+    expect(r.verdict).toBe("NEEDS-ATTENTION");
+    expect(r.recoveredFrom).toBe("rollout_scrape");
+    // Derived from the rollout fixture's own declared line.
+    expect(r.findingCount).toBe(ROLLOUT_COUNT);
   }, 30000);
 });

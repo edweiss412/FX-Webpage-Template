@@ -840,7 +840,12 @@ function classifyAttempt(attempt, state) {
   // still throws to the caller's classification catch exactly as before.
   const hasMsg = existsSync(attempt.lastMessagePath);
   const msg = hasMsg ? readFileSync(attempt.lastMessagePath, "utf8") : "";
-  recordDeclaredCount(state, msg);
+  // Whether it spoke is THIS read's answer, kept for `giveUp` — the same
+  // question the two exit-3 writers ask of their own read, and not one
+  // `state.findingCount` can be asked afterwards, since a message that declared
+  // nothing and no message at all both leave it `null`. Off the attempt record
+  // deliberately: that shape is pinned by spec §6.
+  state.attemptSpoke = recordDeclaredCount(state, msg);
 
   if (attempt.killedReason !== null) {
     attempt.failureShape = "killed";
@@ -1152,11 +1157,19 @@ function lastAgentMessage(path) {
  * two exit-3 writers may not promote themselves on the strength of a scrape;
  * what they may do is stop recording `null` for a count the reviewer plainly
  * declared. Same scan, same recorder, same direction rule — one parsing path.
+ *
+ * `verdictOnly` is its mirror: recover the verdict and record no count. The
+ * scan finds the newest rollout ON DISK, which is not the newest terminal
+ * message when the dispatch's own `-o` file landed and its session's rollout
+ * did not — so a caller holding a message NEWER than anything this scan can
+ * reach says so here, and the older rollout is read for the verdict alone.
  */
-function tryRolloutScrape(cfg, state, { countOnly = false } = {}) {
+function tryRolloutScrape(cfg, state, { countOnly = false, verdictOnly = false } = {}) {
   // This scan runs NEWEST-FIRST, so it takes the newest-first recorder — the
   // chronological primitive would hand the answer to the oldest session here.
-  const recordCount = newestFirstCountRecorder(state);
+  // Under `verdictOnly` there is no recorder at all: the count question was
+  // already answered by a message this scan cannot see.
+  const recordCount = verdictOnly ? () => {} : newestFirstCountRecorder(state);
   for (const sid of [...state.seenSids].reverse()) {
     for (const rollout of findRollout(cfg, sid)) {
       const msg = lastAgentMessage(rollout);
@@ -1397,6 +1410,10 @@ async function main() {
     // The declared count of the LAST non-empty terminal message this dispatch
     // produced. One carrier, so the four terminal writers cannot disagree.
     findingCount: null,
+    // Whether the most recently classified attempt produced a terminal message
+    // at all — the one question `findingCount` cannot answer afterwards, since
+    // "spoke and declared nothing" and "never spoke" both leave it `null`.
+    attemptSpoke: false,
   };
   globalThis.__guardState = state;
 
@@ -1419,7 +1436,15 @@ async function main() {
     // real verdict — this only runs when the attempt loop has already given up).
     const giveUp = (failureReason) => {
       const base = { failureReason, verdictLine: attempt.parsed?.verdictLine ?? null };
-      writeResult(cfg, state, { ...base, ...(tryRolloutScrape(cfg, state) ?? {}) });
+      // The scrape's verdict errand is unconditional; its count errand is not.
+      // When this attempt produced a terminal message, that message is NEWER
+      // than any rollout the newest-first scan can reach — the ordinary case is
+      // the `-o` write landing while the session's own rollout never does, so
+      // the first rollout FOUND may belong to an older session. Its count would
+      // then displace a fresher answer, including displacing a genuine "not
+      // declared" with a number the reviewer never gave.
+      const scrape = tryRolloutScrape(cfg, state, { verdictOnly: state.attemptSpoke === true });
+      writeResult(cfg, state, { ...base, ...(scrape ?? {}) });
       process.exit(0);
     };
     if (attempt.killedReason === "total_timeout") giveUp("total_timeout");
