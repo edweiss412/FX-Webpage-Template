@@ -1,7 +1,17 @@
 import { afterAll, describe, expect, it } from "vitest";
+import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { cleanupRuns, mkRun, readCalls, readResult, runGuard, writeScenario } from "./harness";
+import {
+  GUARD,
+  cleanupRuns,
+  guardEnv,
+  mkRun,
+  readCalls,
+  readResult,
+  runGuard,
+  writeScenario,
+} from "./harness";
 
 // Silent-death investigation (2026-07-24, PR #580 evidence set).
 // Full write-up: docs/agents/codex-silent-death-2026-07-24.md.
@@ -319,4 +329,169 @@ describe("silent death C: the guard invokes the native binary, not the signal-la
     expect(r.status).toBe("verdict");
     expect(r.nativeBinaryResolved).toBeNull();
   });
+});
+
+describe("silent death B2: the exit-3 writers consult the rollout when the -o file never landed", () => {
+  // Failure caught (reviewer probe 2026-08-05). Two of the four terminal result
+  // writers - `onSignal` (`failureReason:"interrupted"`) and `main().catch`
+  // (`failureReason:"wrapper_error"`) - read ONLY the attempt's `-o` file. The
+  // `giveUp` writer already scrapes the rollout, and the success writer has a
+  // parsed `-o` message by construction, so these two were the whole gap:
+  // {"findingCount":null,"failureReason":"interrupted"} with a declaring
+  // rollout on disk, and {catchCallsRolloutScrape:false} for the other.
+  //
+  // A missing `-o` file with a live rollout is EXACTLY the condition rollout
+  // recovery exists for, and recording `null` there does not mean "no count" -
+  // `null` means NOT DECLARED, which is a false statement about a reviewer who
+  // declared one. The COUNT is all these two writers take: spec §3 pins an
+  // exit-3 result to `status:"no_verdict"`, so neither may promote itself to a
+  // verdict on the strength of a scrape.
+  const SID_LIVE = "11112222-3333-4444-8555-666677778888";
+  const SID_OLD = "99998888-7777-4666-8555-444433332222";
+
+  /** A rollout JSONL whose turn ended with `text` as the final assistant message. */
+  function writeRollout(run: ReturnType<typeof mkRun>, sid: string, text: string): void {
+    const dir = join(run.codexHome, "sessions", "2026", "08", "05");
+    mkdirSync(dir, { recursive: true });
+    const lines = [
+      JSON.stringify({
+        timestamp: "2026-08-05T04:00:00.000Z",
+        type: "session_meta",
+        payload: { id: sid, cli_version: "0.146.0-alpha.6", originator: "codex_exec" },
+      }),
+      JSON.stringify({
+        timestamp: "2026-08-05T04:01:00.000Z",
+        type: "response_item",
+        payload: { type: "message", role: "assistant", content: [{ type: "output_text", text }] },
+      }),
+    ].join("\n");
+    writeFileSync(join(dir, `rollout-2026-08-05T04-00-00-${sid}.jsonl`), lines + "\n");
+  }
+
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+  /** Spawns the guard, waits for `sid` to reach attempt `n`'s stderr file, then SIGTERMs it. */
+  async function runAndInterrupt(
+    run: ReturnType<typeof mkRun>,
+    n: number,
+    sid: string,
+  ): Promise<number | null> {
+    const child = spawn(
+      process.execPath,
+      [
+        GUARD,
+        "review",
+        "--brief",
+        run.briefPath,
+        "--cwd",
+        run.cwdDir,
+        "--out",
+        run.outDir,
+        "--stage",
+        "spec",
+        "--round",
+        "1",
+      ],
+      {
+        env: guardEnv(run, {
+          CODEX_GUARD_STALL_SECS: "30",
+          CODEX_GUARD_ATTEMPT_MAX_SECS: "60",
+          CODEX_GUARD_TOTAL_MAX_SECS: "90",
+        }),
+      },
+    );
+    const exit = new Promise<number | null>((res) => child.on("exit", (c) => res(c)));
+    try {
+      // Wait on the BANNER reaching disk, not on a fixed delay: the live
+      // attempt's session id is the only handle the scrape has, and a SIGTERM
+      // landing before the stderr write would test a different scenario.
+      const deadline = Date.now() + 15000;
+      const stderrPath = join(run.outDir, `attempt-${n}.stderr.txt`);
+      for (;;) {
+        if (existsSync(stderrPath) && readFileSync(stderrPath, "utf8").includes(sid)) break;
+        if (Date.now() > deadline) throw new Error(`banner for ${sid} never reached ${stderrPath}`);
+        await sleep(50);
+      }
+      child.kill("SIGTERM");
+      return await exit;
+    } finally {
+      child.kill("SIGKILL");
+    }
+  }
+
+  it("records the count from the rollout when a SIGTERM lands with no -o file", async () => {
+    const run = mkRun();
+    writeRollout(run, SID_LIVE, "Two problems.\n\nFINDINGS: 2");
+    writeScenario(run, [
+      {
+        onCall: 1,
+        actions: [{ type: "stderr", text: `session id: ${SID_LIVE}\n` }, { type: "hang" }],
+      },
+    ]);
+
+    expect(await runAndInterrupt(run, 1, SID_LIVE)).toBe(3);
+    const r = readResult(run);
+    expect(r.failureReason).toBe("interrupted");
+    // The whole finding: `null` here would claim the reviewer declared nothing.
+    expect(r.findingCount).toBe(2);
+    // Spec §3: an exit-3 result stays a no-verdict result. The scrape supplies
+    // the COUNT and never promotes the row.
+    expect(r.status).toBe("no_verdict");
+    expect(r.verdict).toBeNull();
+  }, 30000);
+
+  it("records the count from the rollout on a wrapper_error with no readable -o file", async () => {
+    const run = mkRun();
+    writeRollout(run, SID_LIVE, "Five problems.\n\nFINDINGS: 5");
+    // A DIRECTORY where the -o file belongs: `existsSync` passes and the read
+    // throws, so classification fails and the throw reaches `main().catch` -
+    // the one writer that runs having never read the attempt's message.
+    mkdirSync(join(run.outDir, "attempt-1.last-message.txt"), { recursive: true });
+    writeScenario(run, [
+      {
+        onCall: 1,
+        actions: [
+          { type: "stderr", text: `session id: ${SID_LIVE}\n` },
+          { type: "exit", code: 0 },
+        ],
+      },
+    ]);
+
+    const res = await runGuard(run);
+    expect(res.code).toBe(3);
+    const r = readResult(run);
+    expect(r.failureReason).toBe("wrapper_error");
+    expect(r.findingCount).toBe(5);
+    expect(r.status).toBe("no_verdict");
+  }, 30000);
+
+  it("still records null when the NEWEST rollout declares nothing", async () => {
+    const run = mkRun();
+    // The older session declared 7 and the newest declares nothing. `null` is
+    // the newest message's own answer, not a hole to backfill from a session
+    // that ended earlier - the direction rule the newest-first recorder exists
+    // for. An implementation that scrapes only "when the count is still null"
+    // records 7 here and passes both tests above.
+    writeRollout(run, SID_OLD, "Seven problems.\n\nFINDINGS: 7");
+    writeRollout(run, SID_LIVE, "Still working.");
+    writeScenario(run, [
+      {
+        onCall: 1,
+        actions: [
+          { type: "stderr", text: `session id: ${SID_OLD}\n` },
+          { type: "lastMessage", text: "FINDINGS: 7\nStill working.\n" },
+          { type: "exit", code: 0 },
+        ],
+      },
+      {
+        onCall: 2,
+        actions: [{ type: "stderr", text: `session id: ${SID_LIVE}\n` }, { type: "hang" }],
+      },
+    ]);
+
+    expect(await runAndInterrupt(run, 2, SID_LIVE)).toBe(3);
+    const r = readResult(run);
+    expect(r.failureReason).toBe("interrupted");
+    expect(r.findingCount).toBeNull();
+  }, 30000);
 });

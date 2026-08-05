@@ -605,13 +605,28 @@ function stripCodeBlocks(text) {
 // emphasis, and a bullet is exactly where a reviewer restates the brief's
 // instruction: probed 2026-08-05, a trailing `* VERDICT: APPROVE` SHADOWED a
 // real `VERDICT: BLOCKING` on the line above and filed the round as an
-// infrastructure fault. One definition, shared by both markers, so the two
-// readers cannot drift on what a marker looks like.
-const LEADING_EMPHASIS = String.raw`(?:\*{1,2}|_{1,2})?`;
-const VERDICT_MARKER = new RegExp(`^\\s*${LEADING_EMPHASIS}VERDICT:\\s*\\S`);
-const FINDINGS_LINE = new RegExp(
-  `^\\s*${LEADING_EMPHASIS}FINDINGS:\\s*(\\d+)\\s*(?:\\*{1,2}|_{1,2})?\\s*$`,
-);
+// infrastructure fault. One definition, shared by both markers AND by the
+// trailing run, so no two readers can drift on what a marker looks like.
+//
+// A run is one to THREE delimiters, and they need not be identical. Requiring
+// one or two IDENTICAL characters recognised only the simple forms and lost
+// every CommonMark COMBINED one - `***…***`, `___…___`, `*__…__*`, `**_…_**`,
+// `_**…**_`, `__*…*__` - which is strong-inside-emphasis, the ordinary way a
+// reviewer bolds AND italicises its closing line. Probed 2026-08-05 and
+// cross-checked with remark: all six are single emphasis nodes, and all six
+// lost both markers - `***VERDICT: APPROVE***` recorded `no_marker` and
+// `***FINDINGS: 3***` recorded `null`. Both are losses in the direction this
+// surface exists to prevent: a spent review filed as an infrastructure fault,
+// and a declared count recorded as "not declared".
+//
+// What the widening must NOT admit stays fixed by the ADJACENCY, not by the
+// character set: no whitespace may sit between the run and the keyword, so the
+// list bullet `* VERDICT: APPROVE` is still not a marker; and the backtick is
+// still absent, so a code span quoting the brief's instruction is still not one
+// either.
+const EMPHASIS_RUN = String.raw`[*_]{0,3}`;
+const VERDICT_MARKER = new RegExp(`^\\s*${EMPHASIS_RUN}VERDICT:\\s*\\S`);
+const FINDINGS_LINE = new RegExp(`^\\s*${EMPHASIS_RUN}FINDINGS:\\s*(\\d+)\\s*${EMPHASIS_RUN}\\s*$`);
 
 function parseVerdict(text) {
   const noFences = stripCodeBlocks(text);
@@ -678,10 +693,17 @@ function parseFindingCount(text) {
  * or absent message is not a declaration of nothing, so it never erases an
  * earlier one - which is why every read site can call this unconditionally,
  * above its own guards, without checking anything first.
+ *
+ * Returns whether it recorded. The two exit-3 writers need that answer to know
+ * whether the attempt's `-o` file spoke at all: "absent, empty, or unreadable"
+ * is exactly the condition under which the rollout is the only remaining copy
+ * of the terminal message, and it is not distinguishable from "declared
+ * nothing" by looking at `state.findingCount` afterwards.
  */
 function recordDeclaredCount(state, text) {
-  if (typeof text !== "string" || text.trim() === "") return;
+  if (typeof text !== "string" || text.trim() === "") return false;
   state.findingCount = parseFindingCount(text);
+  return true;
 }
 
 /**
@@ -781,6 +803,30 @@ function killGroup(pid, signal) {
     process.kill(-pid, signal);
   } catch {
     /* group gone */
+  }
+}
+
+/**
+ * Latch an attempt's session id (the stderr banner) regardless of outcome — the
+ * rollout scrape needs it even for attempts that never earn the resume rung.
+ *
+ * Callable at any point after the stderr file exists, which is why it is a
+ * function rather than the inline block it used to be: `runAttempt` latches on
+ * the normal exit path, but the two exit-3 writers reach the rollout for an
+ * attempt that never got there — one still LIVE (interrupted) and one that
+ * threw before the latch line (a late stream failure). Without this the scrape
+ * has no session id for the very attempt whose message it is trying to find.
+ * Idempotent and non-throwing: a missing stderr file simply latches nothing.
+ */
+function latchSessionId(attempt, state) {
+  try {
+    const m = SESSION_ID_RE.exec(readFileSync(attempt.stderrPath, "utf8"));
+    if (m) {
+      attempt.sessionId = m[1];
+      if (!state.seenSids.includes(m[1])) state.seenSids.push(m[1]);
+    }
+  } catch {
+    /* no stderr file */
   }
 }
 
@@ -973,17 +1019,7 @@ async function runAttempt(cfg, n, kind, argvAfterExec, state) {
   if (attempt.killedReason === null && exitInfo.signal !== null)
     attempt.killedReason = "external_signal";
   attempt.durationSecs = nowSecs() - t0;
-  // Latch this attempt's session id (stderr banner) regardless of outcome — the rollout
-  // scrape needs it even for attempts that never earn the resume rung.
-  try {
-    const m = SESSION_ID_RE.exec(readFileSync(stderrPath, "utf8"));
-    if (m) {
-      attempt.sessionId = m[1];
-      if (!state.seenSids.includes(m[1])) state.seenSids.push(m[1]);
-    }
-  } catch {
-    /* no stderr file */
-  }
+  latchSessionId(attempt, state);
   try {
     classifyAttempt(attempt, state);
   } catch (e) {
@@ -1108,8 +1144,16 @@ function lastAgentMessage(path) {
   return text;
 }
 
-/** Returns a patch that upgrades the result to a verdict, or null when nothing is recoverable. */
-function tryRolloutScrape(cfg, state) {
+/**
+ * Returns a patch that upgrades the result to a verdict, or null when nothing is recoverable.
+ *
+ * `countOnly` takes the DECLARATION and stops — no verdict, no recovery file,
+ * always `null`. Spec §3 pins an exit-3 result to `status:"no_verdict"`, so the
+ * two exit-3 writers may not promote themselves on the strength of a scrape;
+ * what they may do is stop recording `null` for a count the reviewer plainly
+ * declared. Same scan, same recorder, same direction rule — one parsing path.
+ */
+function tryRolloutScrape(cfg, state, { countOnly = false } = {}) {
   // This scan runs NEWEST-FIRST, so it takes the newest-first recorder — the
   // chronological primitive would hand the answer to the oldest session here.
   const recordCount = newestFirstCountRecorder(state);
@@ -1122,6 +1166,11 @@ function tryRolloutScrape(cfg, state) {
       // a verdict, and it replaces any earlier attempt's declaration -
       // including replacing a number with "not declared" when it declares none.
       recordCount(msg);
+      // The newest non-empty message has now answered, and under `countOnly`
+      // its answer is the whole errand. Returning here also keeps the recorder's
+      // direction rule visible: nothing older may speak after it, not even to
+      // fill in a `null`, because `null` IS its answer.
+      if (countOnly) return null;
       const parsed = parseVerdict(msg);
       if (parsed.shape !== "ok") continue;
       const path = join(cfg.out, "recovered-from-rollout.txt");
@@ -1402,13 +1451,34 @@ function onSignal(sig) {
       // the FIRST read of it, not a second one. A hung attempt that wrote
       // nothing reads "" and changes nothing, so an earlier attempt's
       // declaration survives the interrupt untouched.
+      let spoke = false;
       try {
         const livePath = state.currentAttempt?.lastMessagePath;
         if (livePath && existsSync(livePath)) {
-          recordDeclaredCount(state, readFileSync(livePath, "utf8"));
+          spoke = recordDeclaredCount(state, readFileSync(livePath, "utf8"));
         }
       } catch {
         /* an unreadable message is never a reason to lose the interrupted row */
+      }
+      // ...and when it did NOT speak, the rollout is where the message went.
+      // An interrupt landing after the reviewer's final message but before the
+      // `-o` write is the ORIGINAL silent-death shape, and reading only the
+      // absent file recorded `null` — "not declared" — about a reviewer who
+      // declared a number. `giveUp` already scrapes here; these were the two
+      // writers that did not (probed 2026-08-05:
+      // {"findingCount":null,"failureReason":"interrupted"} against a rollout
+      // declaring 2). Count only: spec §3 keeps an exit-3 result a no-verdict
+      // result. The live attempt's sid is latched first because `runAttempt`
+      // latches on its EXIT path, which an interrupted attempt never reaches.
+      // Best-effort throughout — a scrape that fails inside a signal handler
+      // must not cost the row it was trying to improve.
+      if (!spoke && state.currentAttempt) {
+        try {
+          latchSessionId(state.currentAttempt, state);
+          tryRolloutScrape(cfg, state, { countOnly: true });
+        } catch {
+          /* the interrupted row is written either way */
+        }
       }
       writeResult(cfg, state, { failureReason: "interrupted", error: `signal ${sig}` });
     }
@@ -1432,13 +1502,32 @@ main().catch((e) => {
   // them, unconditionally: the failing attempt is by construction the LAST one
   // this dispatch ran, so its terminal message is the latest, and an absent or
   // empty one declares nothing and therefore erases nothing.
+  let spoke = false;
   try {
     const failedPath = e?.attempt?.lastMessagePath;
     if (state && failedPath && existsSync(failedPath)) {
-      recordDeclaredCount(state, readFileSync(failedPath, "utf8"));
+      spoke = recordDeclaredCount(state, readFileSync(failedPath, "utf8"));
     }
   } catch {
     /* an unreadable message is never a reason to lose the wrapper_error row */
+  }
+  // The other half of the same fix as `onSignal`: the file this writer reads is
+  // the one most likely never to have landed, since the throws that reach here
+  // are the ones that happened around the write. When it did not speak - absent,
+  // empty, or unreadable - the rollout is the only surviving copy of the
+  // terminal message, and `null` would be a false claim that none was declared.
+  // Gated on there BEING a failing attempt: a throw carrying no attempt has no
+  // `-o` file to have missed, and scraping then could overwrite a count an
+  // earlier attempt legitimately recorded. Count only (spec §3, exit 3 stays
+  // `no_verdict`), and the sid is latched first because a late stream failure
+  // throws ABOVE `runAttempt`'s own latch.
+  if (!spoke && state && e?.attempt) {
+    try {
+      latchSessionId(e.attempt, state);
+      tryRolloutScrape(cfg, state, { countOnly: true });
+    } catch {
+      /* the wrapper_error row is written either way */
+    }
   }
   const attempts = [
     ...(state?.attempts ?? []).map(({ parsed: _parsed, ...a }) => a),

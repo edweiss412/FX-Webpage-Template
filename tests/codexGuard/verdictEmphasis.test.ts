@@ -743,3 +743,100 @@ describe("a fence opener indented past three columns still hides its example", (
     },
   );
 });
+
+describe("combined and triple emphasis is emphasis: no marker survives only in pairs", () => {
+  // Failure caught (reviewer probe 2026-08-05, cross-checked with remark:
+  // {"shapes":6,"commonMarkEmphasis":6,"lostVerdicts":6,"lostCounts":6}): the
+  // shared marker prefix accepted a run of ONE OR TWO IDENTICAL delimiters, so
+  // every CommonMark COMBINED form - strong-inside-emphasis, in any of its six
+  // spellings - kept a delimiter the matcher could not see. `***VERDICT:
+  // APPROVE***` recorded `no_marker` and `***FINDINGS: 3***` recorded `null`.
+  // Both losses are in the direction this surface exists to prevent: a review
+  // the reviewer actually completed is filed as an infrastructure fault, and a
+  // count the reviewer actually declared is recorded as "not declared".
+  //
+  // The six shapes are the complete CommonMark set for a run of three: two
+  // homogeneous (`***`, `___`) and four mixed pairs. Each is a single emphasis
+  // node wrapping the whole line, which is what makes losing it a data loss
+  // rather than a formatting quibble.
+  const SHAPES: [string, string][] = [
+    ["***", "***"],
+    ["___", "___"],
+    ["*__", "__*"],
+    ["**_", "_**"],
+    ["_**", "**_"],
+    ["__*", "*__"],
+  ];
+
+  it("covers the six shapes the probe ran", () => {
+    expect(SHAPES).toHaveLength(6);
+  });
+
+  it.each(SHAPES)("recovers the verdict from %s…%s", async (open, close) => {
+    const line = `${open}VERDICT: APPROVE${close}`;
+    // `verdictLine` is the RAW line (§6 schema) - an implementation that gets
+    // the outcome right by rewriting the captured line breaks the contract
+    // happyPath scenario 2 depends on, so pin both here.
+    expect(await dispatchMessage(`${line}\n`)).toMatchObject({
+      status: "verdict",
+      verdict: "APPROVE",
+      verdictLine: line,
+    });
+  });
+
+  // The SECOND reader of the same prefix. A fix applied to the verdict matcher
+  // alone - the two-copies-that-drift shape - still fails here. The declared
+  // count is the corpus's own number, so losing it is silent.
+  it.each(SHAPES)("reads the declared count from %sFINDINGS: 3%s", async (open, close) => {
+    const result = await dispatchMessage(`${open}FINDINGS: 3${close}\nVERDICT: APPROVE\n`);
+    expect(result).toMatchObject({ status: "verdict", verdict: "APPROVE" });
+    expect(result.findingCount).toBe(3);
+  });
+
+  // Re-asserted, not delegated: the widening is one character of regex away
+  // from re-admitting every shape the tightenings above rule out, and each of
+  // these is a spent review filed as an infrastructure fault when it breaks.
+  it("still refuses a list bullet, which is not emphasis", async () => {
+    const result = await dispatchMessage("* VERDICT: APPROVE\nStill working.\n");
+    expect(result).toMatchObject({ status: "no_verdict", verdict: null, verdictLine: null });
+    expect(result.attempts[0]!.failureShape).toBe("no_marker");
+  });
+
+  it("still refuses a code span, which is not emphasis", async () => {
+    const result = await dispatchMessage("`VERDICT: APPROVE`\nStill working.\n");
+    expect(result).toMatchObject({ status: "no_verdict", verdict: null, verdictLine: null });
+    expect(result.attempts[0]!.failureShape).toBe("no_marker");
+  });
+
+  it.each([["***VERDICT: APPROVE or BLOCKING***"], ["*__VERDICT: APPROVE / NEEDS-ATTENTION__*"]])(
+    "still refuses the ambiguous line %j even when combined-emphasised",
+    async (line) => {
+      const result = await dispatchMessage(`${line}\n`);
+      expect(result).toMatchObject({ status: "no_verdict", verdict: null });
+    },
+  );
+
+  // The refusals above cannot die if the ambiguity filter is deleted - an
+  // ambiguous payload is unrecognized either way. This one can: the ambiguous
+  // line trails a real verdict and SHADOWS it the moment the filter stops
+  // excluding it.
+  it("a trailing combined-emphasised ambiguous line never shadows the real verdict", async () => {
+    const real = "***VERDICT: BLOCKING***";
+    expect(
+      await dispatchMessage(`${real}\n***VERDICT: APPROVE or NEEDS-ATTENTION***\n`),
+    ).toMatchObject({ status: "verdict", verdict: "BLOCKING", verdictLine: real });
+  });
+
+  // The terminal-punctuation fixpoint must still reach the payload through
+  // three delimiters, not just through two.
+  it.each([["***VERDICT: APPROVE***."], ["  _**VERDICT: APPROVE**_  "]])(
+    "still accepts %j",
+    async (line) => {
+      expect(await dispatchMessage(`${line}\n`)).toMatchObject({
+        status: "verdict",
+        verdict: "APPROVE",
+        verdictLine: line,
+      });
+    },
+  );
+});
