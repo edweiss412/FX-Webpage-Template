@@ -432,6 +432,32 @@ function parseVerdict(text) {
   return { verdict: null, verdictLine: raw, shape: "unrecognized_verdict" };
 }
 
+/**
+ * The DECLARED count, never an inferred one (spec §3/§5.3). Returns null when
+ * the line is absent or when two DIFFERENT counts are declared - `null` means
+ * NOT DECLARED, and it must never be confused with a declared zero.
+ */
+function parseFindingCount(text) {
+  const noFences = text.replace(/^ {0,3}```[^\n]*\n[\s\S]*?^ {0,3}```[^\n]*$/gm, "");
+  const seen = new Set();
+  for (const line of noFences.split("\n")) {
+    const m = /^\s*(?:\*{1,2}|_{1,2})?\s*FINDINGS:\s*(\d+)\s*(?:\*{1,2}|_{1,2})?\s*$/.exec(line);
+    if (m) seen.add(Number(m[1]));
+  }
+  return seen.size === 1 ? [...seen][0] : null;
+}
+
+/**
+ * The grain, in one place: the LAST NON-EMPTY terminal message wins. An empty
+ * or absent message is not a declaration of nothing, so it never erases an
+ * earlier one - which is why every read site can call this unconditionally,
+ * above its own guards, without checking anything first.
+ */
+function recordDeclaredCount(state, text) {
+  if (typeof text !== "string" || text.trim() === "") return;
+  state.findingCount = parseFindingCount(text);
+}
+
 // ---------------------------------------------------------------------------
 // Attempt runner (§4/§5)
 // ---------------------------------------------------------------------------
@@ -505,7 +531,18 @@ function killGroup(pid, signal) {
   }
 }
 
-function classifyAttempt(attempt) {
+function classifyAttempt(attempt, state) {
+  // ONE read, TWO extractions, and this one runs ABOVE every guard below it.
+  // A killed or nonzero-exit attempt can still have left a readable message,
+  // and that message's declaration is a fact about the review whatever the
+  // exit shape of the process that carried it was. `hasMsg` keeps absent and
+  // empty distinguishable, which the two failure shapes below still need; the
+  // read itself is the same call it always was, so a genuinely unreadable file
+  // still throws to the caller's classification catch exactly as before.
+  const hasMsg = existsSync(attempt.lastMessagePath);
+  const msg = hasMsg ? readFileSync(attempt.lastMessagePath, "utf8") : "";
+  recordDeclaredCount(state, msg);
+
   if (attempt.killedReason !== null) {
     attempt.failureShape = "killed";
     return;
@@ -514,11 +551,10 @@ function classifyAttempt(attempt) {
     attempt.failureShape = "nonzero_exit";
     return;
   }
-  if (!existsSync(attempt.lastMessagePath)) {
+  if (!hasMsg) {
     attempt.failureShape = "no_o_file";
     return;
   }
-  const msg = readFileSync(attempt.lastMessagePath, "utf8");
   if (msg.trim() === "") {
     attempt.failureShape = "empty_o_file";
     return;
@@ -696,7 +732,7 @@ async function runAttempt(cfg, n, kind, argvAfterExec, state) {
     /* no stderr file */
   }
   try {
-    classifyAttempt(attempt);
+    classifyAttempt(attempt, state);
   } catch (e) {
     state.currentAttempt = null;
     state.liveChild = null;
@@ -743,6 +779,10 @@ function writeResult(cfg, state, patch) {
     failureReason: null,
     error: null,
     recoveredFrom: null,
+    // Serves writers 1, 2 and 3 - every path through writeResult - from the one
+    // carrier. Placed above the `...patch` spread, so a patch may still override
+    // it; none does today.
+    findingCount: state.findingCount ?? null,
     nativeBinaryResolved: cfg.nativeBin ?? null,
     lintArm: (cfg.lintDocs ?? []).length > 0 ? "present" : "absent",
     startedAt: state.startedAtIso,
@@ -821,6 +861,11 @@ function tryRolloutScrape(cfg, state) {
     for (const rollout of findRollout(cfg, sid)) {
       const msg = lastAgentMessage(rollout);
       if (!msg) continue;
+      // ABOVE the guard below, for the same reason as site 1. A scraped message
+      // is a terminal message this dispatch produced whether or not it carries
+      // a verdict, and it replaces any earlier attempt's declaration -
+      // including replacing a number with "not declared" when it declares none.
+      recordDeclaredCount(state, msg);
       const parsed = parseVerdict(msg);
       if (parsed.shape !== "ok") continue;
       const path = join(cfg.out, "recovered-from-rollout.txt");
@@ -1044,6 +1089,9 @@ async function main() {
     resumeSid: null,
     seenSids: [],
     heldLockDir: null,
+    // The declared count of the LAST non-empty terminal message this dispatch
+    // produced. One carrier, so the four terminal writers cannot disagree.
+    findingCount: null,
   };
   globalThis.__guardState = state;
 
@@ -1094,6 +1142,18 @@ function onSignal(sig) {
       if (state.currentAttempt && !state.attempts.includes(state.currentAttempt)) {
         state.attempts.push(state.currentAttempt);
       }
+      // The live attempt may have written its message and then hung, so this is
+      // the FIRST read of it, not a second one. A hung attempt that wrote
+      // nothing reads "" and changes nothing, so an earlier attempt's
+      // declaration survives the interrupt untouched.
+      try {
+        const livePath = state.currentAttempt?.lastMessagePath;
+        if (livePath && existsSync(livePath)) {
+          recordDeclaredCount(state, readFileSync(livePath, "utf8"));
+        }
+      } catch {
+        /* an unreadable message is never a reason to lose the interrupted row */
+      }
       writeResult(cfg, state, { failureReason: "interrupted", error: `signal ${sig}` });
     }
   } catch {
@@ -1124,6 +1184,10 @@ main().catch((e) => {
     lintArm: (cfg?.lintDocs ?? []).length > 0 ? "present" : "absent",
     attempts,
     failureReason: "wrapper_error",
+    // Writer 4. `state` is already read here (globalThis.__guardState), and the
+    // optional chain matches the `state?.startedAtIso ?? null` line below: the
+    // handler can run before main() ever set state.
+    findingCount: state?.findingCount ?? null,
     error: String(e?.message ?? e),
     startedAt: state?.startedAtIso ?? null,
     endedAt: new Date().toISOString(),
