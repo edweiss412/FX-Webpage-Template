@@ -53,7 +53,11 @@ export function parseRow(line: string): ParseResult {
 
   if (!isStage(r.stage))
     return { ok: false, problem: `stage not in accept-set: ${String(r.stage)}` };
-  if (typeof r.round !== "number" || !Number.isInteger(r.round) || r.round < 1) {
+  // SAFE integer: an unsafe one has already been rounded by the JSON parse, so
+  // `Number.isInteger` admits a round number no author wrote. The wrapper now
+  // refuses it at the flag too; this is the boundary that catches a corpus
+  // written by anything else.
+  if (typeof r.round !== "number" || !Number.isSafeInteger(r.round) || r.round < 1) {
     return { ok: false, problem: `round must be an integer >= 1: ${String(r.round)}` };
   }
   if (r.status !== "verdict" && r.status !== "no_verdict") {

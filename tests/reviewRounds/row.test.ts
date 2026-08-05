@@ -108,11 +108,25 @@ describe("row serialization (spec §5.3)", () => {
     ["stage outside the accept-set", JSON.stringify({ ...ROW, stage: "review" })],
     ["round below 1", JSON.stringify({ ...ROW, round: 0 })],
     ["non-integer round", JSON.stringify({ ...ROW, round: 1.5 })],
+    // An UNSAFE integer is integral, so `Number.isInteger` admits it - and the
+    // JSON parse has already rounded it, so the value on the row is one no
+    // author ever wrote. The wrapper refuses it at the flag now; this is the
+    // boundary that catches a corpus written by anything else.
+    // Built by TEXT substitution, not object spread: `{...ROW, round: <literal>}`
+    // rounds in JS before `JSON.stringify` ever runs, so the fixture would not
+    // contain the unsafe digits it is named for.
+    ["unsafe-integer round", JSON.stringify(ROW).replace(/"round":3/, '"round":9007199254740993')],
     ["status outside the two literals", JSON.stringify({ ...ROW, status: "wrapper_error" })],
   ])("rejects %s with a problem string", (_name, line) => {
     const parsed = parseRow(line);
     expect(parsed.ok).toBe(false);
     if (!parsed.ok) expect(parsed.problem.length).toBeGreaterThan(0);
+  });
+
+  // The boundary, so the rejection above is not "reject anything large".
+  it("accepts MAX_SAFE_INTEGER as a round", () => {
+    const parsed = parseRow(JSON.stringify({ ...ROW, round: Number.MAX_SAFE_INTEGER }));
+    expect(parsed.ok).toBe(true);
   });
 
   // Failure caught: `null` findingCount rejected as malformed, which would make

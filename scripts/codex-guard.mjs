@@ -57,7 +57,11 @@ function num(name, raw, { integer = false } = {}) {
   const v = Number(raw);
   if (!Number.isFinite(v) || v <= 0)
     usageError(`${name} must be a positive ${integer ? "integer" : "number"}: ${raw}`);
-  if (integer && !Number.isInteger(v)) usageError(`${name} must be a positive integer: ${raw}`);
+  // SAFE integer, not merely integral: `Number()` has already ROUNDED an unsafe
+  // literal by the time this runs, so `Number.isInteger` is true for a value the
+  // caller never wrote (probed 2026-08-05: 9007199254740993 accepted as
+  // 9007199254740992). Same class as the declared-count repair, on the flag.
+  if (integer && !Number.isSafeInteger(v)) usageError(`${name} must be a positive integer: ${raw}`);
   return v;
 }
 
@@ -633,8 +637,27 @@ function stripCodeBlocks(text) {
 // the keyword, so `* VERDICT:` stays a list bullet), and the backtick's absence
 // from the character class does (so a code span stays a code span).
 const EMPHASIS_RUN = String.raw`[*_]*`;
-const VERDICT_MARKER = new RegExp(`^\\s*${EMPHASIS_RUN}VERDICT:\\s*\\S`);
-const FINDINGS_LINE = new RegExp(`^\\s*${EMPHASIS_RUN}FINDINGS:\\s*(\\d+)\\s*${EMPHASIS_RUN}\\s*$`);
+// Emphasis may sit at any of FOUR positions, not only around the whole line:
+// before the keyword, after it, after the colon, and around the value. Probed
+// 2026-08-05 — `**VERDICT:** APPROVE` (the commonest markdown spelling of all)
+// recorded `unrecognized_verdict` and `**FINDINGS:** 3` recorded `null`, while
+// the whole-line forms worked, because every earlier revision assumed the
+// emphasis WRAPPED the declaration. Four completed reviews in the 681-output
+// corpus were excluded from counting this way.
+//
+// This is a different axis from the run length above — where the delimiters
+// sit, not how many — and it is closed rather than enumerated: those four are
+// every position a delimiter run can occupy in `LABEL : VALUE`.
+//
+// The false-positive guards are unchanged and still do not come from the run:
+// there is no `\s*` between the LEADING run and the keyword, so `* VERDICT:`
+// stays a list bullet, and the backtick stays out of the class, so a code span
+// stays a code span.
+const LABEL = (word) => `^\\s*${EMPHASIS_RUN}${word}${EMPHASIS_RUN}\\s*:${EMPHASIS_RUN}\\s*`;
+const VERDICT_MARKER = new RegExp(`${LABEL("VERDICT")}${EMPHASIS_RUN}\\S`);
+const FINDINGS_LINE = new RegExp(
+  `${LABEL("FINDINGS")}${EMPHASIS_RUN}(\\d+)\\s*${EMPHASIS_RUN}\\s*$`,
+);
 
 function parseVerdict(text) {
   const noFences = stripCodeBlocks(text);
@@ -672,8 +695,30 @@ function parseVerdict(text) {
   for (;;) {
     const before = payload;
     payload = payload.trim().replace(/[.,;:!]+$/, "");
+    // The label strip must take the label WITH its own emphasis - requiring the
+    // whole line to unwrap first is what left `**VERDICT:** APPROVE` stuck at
+    // `unrecognized_verdict`, since nothing wraps that line, so the pair-unwrap
+    // never fires and a bare `VERDICT:` strip never matches.
+    //
+    // A bare `[*_]*` prefix here would be WRONG and silently breaks every mixed
+    // whole-line form: given `*__VERDICT: APPROVE__*`, the unwrap yields
+    // `__VERDICT: APPROVE__` and a greedy prefix eats the OPENING `__`,
+    // stranding `APPROVE__` forever. The delimiters that belong to the label
+    // are exactly the ones that CLOSE inside it, which is a backreference, not
+    // a character class. Ordered alternatives, most specific first; they are
+    // mutually exclusive, and after any fires the label is gone.
+    //
+    // ABOVE the pair-unwrap, because that unwrap is a weaker test than it looks
+    // - it matches any line that merely STARTS and ENDS with the same run, so
+    // `**VERDICT:** **APPROVE**` (two separate emphases, nothing wrapping the
+    // line) came back as `VERDICT:** **APPROVE` and never recovered. Anchored
+    // by a backreference inside the label, these three cannot make that mistake,
+    // so they get first refusal and the unwrap sees only what they leave.
+    payload = payload
+      .replace(/^\s*([*_]+)VERDICT\s*:\1\s*/, "") // **VERDICT:** APPROVE
+      .replace(/^\s*([*_]+)VERDICT\1\s*:\s*/, "") // **VERDICT**: APPROVE
+      .replace(/^\s*VERDICT\s*:\s*/, ""); // VERDICT: APPROVE, once unwrapped
     payload = payload.replace(/^(\*+|_+|`+)(.*?)\1$/, "$2");
-    payload = payload.replace(/^\s*VERDICT:\s*/, "");
     if (payload === before) break;
   }
   payload = payload.trim().toUpperCase();

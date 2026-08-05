@@ -902,3 +902,67 @@ describe("an emphasis run is not capped: four or more delimiters is still emphas
     });
   });
 });
+
+describe("emphasis on the LABEL or the VALUE, not only around the whole line", () => {
+  // Failure caught (reviewer probe 2026-08-05): every earlier repair here
+  // assumed emphasis WRAPS THE WHOLE DECLARATION, so the commonest markdown
+  // spelling of all - bolding just the label - was invisible.
+  //   **VERDICT:** APPROVE -> verdict:null, shape:"unrecognized_verdict"
+  //   **FINDINGS:** 3      -> count:null
+  // while whole-line `**VERDICT: APPROVE**` and `**FINDINGS: 3**` succeeded.
+  // The reviewer measured four completed reviews in the 681-output corpus
+  // excluded from counting this way, so an obligated arc reads as compliant.
+  //
+  // Note this is a different AXIS from the delimiter-run length above: that was
+  // how MANY delimiters, this is WHERE they sit. Emphasis may wrap the label,
+  // the value, both, or the line - so the marker admits a run at each of those
+  // positions, and the payload strip takes the label with its emphasis in one
+  // step rather than needing the whole line to unwrap first.
+  const VERDICT_FORMS = [
+    "**VERDICT:** APPROVE",
+    "**VERDICT**: APPROVE",
+    "VERDICT: **APPROVE**",
+    "*VERDICT:* APPROVE",
+    "__VERDICT:__ APPROVE",
+    "**VERDICT:** **APPROVE**",
+    "**VERDICT** : APPROVE",
+    "**VERDICT: APPROVE**", // the already-working whole-line form, re-pinned
+  ];
+
+  it.each(VERDICT_FORMS)("recovers the verdict from %j", async (line) => {
+    expect(await dispatchMessage(`${line}\n`)).toMatchObject({
+      status: "verdict",
+      verdict: "APPROVE",
+      verdictLine: line,
+    });
+  });
+
+  const FINDINGS_FORMS = [
+    "**FINDINGS:** 3",
+    "**FINDINGS**: 3",
+    "FINDINGS: **3**",
+    "**FINDINGS:** **3**",
+    "__FINDINGS:__ 3",
+    "**FINDINGS: 3**", // whole-line, re-pinned
+  ];
+
+  it.each(FINDINGS_FORMS)("reads the declared count from %j", async (line) => {
+    const result = await dispatchMessage(`${line}\nVERDICT: APPROVE\n`);
+    expect(result.findingCount).toBe(3);
+  });
+
+  // The guards must survive the widening. A bullet is still a bullet even
+  // though the label may now carry its own emphasis, and a code span is still
+  // quoted text.
+  it.each([
+    ["* VERDICT: APPROVE"],
+    ["* **VERDICT:** APPROVE"],
+    ["`**VERDICT:** APPROVE`"],
+    ["Write **VERDICT:** APPROVE at the end."], // prose: the line anchor holds
+  ])("still refuses %j", async (line) => {
+    expect(await dispatchMessage(`${line}\n`)).toMatchObject({
+      status: "no_verdict",
+      verdict: null,
+    });
+  });
+});

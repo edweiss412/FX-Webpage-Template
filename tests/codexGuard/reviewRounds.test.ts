@@ -40,6 +40,51 @@ describe("codex-guard --stage / --round validation (spec §5.1)", () => {
     expect(stderr).toContain("--stage");
   });
 
+  // Failure caught (reviewer probe 2026-08-05): `num()` validated with
+  // `Number.isInteger`, which is TRUE for an unsafe integer - the value has
+  // already been rounded by `Number()` before the check ever sees it. Probe:
+  // `9007199254740993 -> accepted:true, value:9007199254740992, safe:false`, so
+  // the corpus recorded a round number the caller did not declare. Same class
+  // as the declared-count repair below, on the flag rather than the message;
+  // the sweep that fixed one missed this one.
+  it.each([["9007199254740993"], ["1e21"]])("exits 2 naming --round for %s", async (raw) => {
+    const run = mkRun();
+    writeScenario(run, [
+      {
+        onCall: 1,
+        actions: [
+          { type: "lastMessage", text: "VERDICT: APPROVE\n" },
+          { type: "exit", code: 0 },
+        ],
+      },
+    ]);
+    const { code, stderr } = await runGuard(
+      run,
+      ["--stage", "diff", "--round", raw],
+      {},
+      { injectDefaults: false },
+    );
+    expect(code).toBe(2);
+    expect(stderr).toContain("--round");
+  });
+
+  // The boundary, so the repair is not "reject anything large".
+  it("still accepts MAX_SAFE_INTEGER as --round", async () => {
+    const run = mkRun();
+    const { base } = gitify(run.cwdDir);
+    writeScenario(run, [
+      {
+        onCall: 1,
+        actions: [
+          { type: "lastMessage", text: "VERDICT: APPROVE\n" },
+          { type: "exit", code: 0 },
+        ],
+      },
+    ]);
+    await runGuard(run, ["--stage", "diff", "--round", String(Number.MAX_SAFE_INTEGER)]);
+    expect(rowsIn(corpusPath(run.cwdDir, base))[0]!.round).toBe(Number.MAX_SAFE_INTEGER);
+  });
+
   // Failure caught: a required flag that silently defaults, which is the
   // "forgetting exempts the arc" hole the hard cutover exists to close.
   it("exits 2 naming --round when it is missing", async () => {
