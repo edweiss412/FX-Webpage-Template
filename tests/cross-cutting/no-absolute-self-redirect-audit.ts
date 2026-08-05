@@ -106,7 +106,12 @@ export const EXTERNAL_REDIRECT_ALLOWLIST: Readonly<
   // exemption still covers the call if its argument changes IN PLACE from
   // `data.url` to `new URL(path, request.url)`, which would reintroduce the flip
   // under cover of the row.
-  "app/api/auth/google/start/route.ts:72": {
+  //
+  // Moved 72 → 64 when this route's hand-built failure document was replaced by
+  // `interstitialDocument` (BL-AUTH-INTERSTITIAL-FONT). The call itself is
+  // untouched — which is exactly what the pinned `argument` re-proves, so the
+  // re-key is a line correction and not a widening.
+  "app/api/auth/google/start/route.ts:64": {
     reason: "Supabase-issued Google OAuth URL",
     argument: "data.url",
   },

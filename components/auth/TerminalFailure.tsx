@@ -17,6 +17,7 @@
  * failure (e.g., after `resolveShowPageAccess` returns the `infra_error`
  * arm).
  */
+import { AlertCircle } from "lucide-react";
 import Link from "next/link";
 
 import { messageFor, type MessageCode } from "@/lib/messages/lookup";
@@ -48,6 +49,16 @@ export function TerminalFailure({
       data-testid="terminal-failure"
       className="mx-auto flex min-h-screen max-w-md flex-col items-center justify-center px-4 py-section-gap text-center text-text"
     >
+      {/* The shape signal this surface otherwise lacks. DESIGN.md §1 bans
+          red/green as primary semantic colors, so the palette cannot carry
+          "something went wrong" on its own and the block reads at a glance like
+          any other centered page. The icon says it in form rather than hue, at
+          `--icon-lg` (32px, DESIGN.md:382) in the same muted token as the body.
+
+          `aria-hidden`, and deliberately: the h1 directly below already states
+          the failure, so an announced icon would only add "alert circle" in
+          front of a sentence that says it better. */}
+      <AlertCircle className="mb-4 size-8 text-text-subtle" aria-hidden="true" />
       <h1 className="text-2xl font-bold text-text-strong">{heading}</h1>
       <p className="mt-4 text-base text-text-subtle">{body}</p>
       {retryHref && (
