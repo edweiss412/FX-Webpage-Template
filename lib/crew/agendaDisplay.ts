@@ -17,6 +17,7 @@ import type {
 } from "@/lib/parser/types";
 import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
 import { stripAgendaUrls } from "@/lib/visibility/agendaUrls";
+import { suppressesDates } from "@/lib/crew/dateSuppression";
 
 /** §4.3 / D-6 display cap: render at most this many entries per day. */
 export const RUN_OF_SHOW_DISPLAY_CAP = 20;
@@ -146,7 +147,7 @@ export function visibleShowDays(
   dateRestriction: DateRestriction,
 ): string[] {
   const showDays = dates.showDays ?? [];
-  if (dateRestriction.kind === "unknown_asterisk") return [];
+  if (suppressesDates(dateRestriction)) return [];
   if (dateRestriction.kind === "explicit") {
     const allowed = new Set(dateRestriction.days);
     return showDays.filter((d) => allowed.has(d));

@@ -65,6 +65,7 @@ import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
 import { todayIsoInShowTimezone } from "@/lib/visibility/packList";
 import { transportTileVisible } from "@/lib/visibility/scopeTiles";
 import { type TileRenderLedger } from "@/lib/crew/tileRenderLedger";
+import { suppressesDates } from "@/lib/crew/dateSuppression";
 
 // Ported from NotesTile.tsx (:57-58) — the 5-source aggregation caps.
 const TRUNCATE_AT = 280;
@@ -229,10 +230,9 @@ export function TodaySection({
             viewerNameAliases: data.viewerNameAliases,
             isAdmin: ctx.isAdmin,
           });
-          const todays =
-            dateRestriction.kind === "unknown_asterisk"
-              ? []
-              : scheduleEntriesForViewer(data.runOfShow?.[todayIso]?.entries, { transportVisible });
+          const todays = suppressesDates(dateRestriction)
+            ? []
+            : scheduleEntriesForViewer(data.runOfShow?.[todayIso]?.entries, { transportVisible });
           // Unified show-day timeline: today's PLACEABLE agenda sessions (high-conf,
           // day-matched, aggregated across links). agendaToday.length>0 activates the merge.
           const agendaToday = agendaSessionsForToday(
@@ -276,12 +276,23 @@ export function TodaySection({
           // above Check in | Check out, which pair into the grid's two columns
           // and fill the card instead of leaving a tall empty right side. Below
           // 720px the grid collapses to the single stacked column.
+          // BL-CREW-UNKNOWN-ASTERISK-TODAY-DATES: an `unknown_asterisk` viewer's
+          // days are unconfirmed, and a hotel check-in date IS the travel-in
+          // date — so this card was the one date-bearing surface still telling
+          // them when the show runs after the schedule, agenda and key-times
+          // strip all stopped. The NAME stays: the ratified decision is about
+          // dates, and dropping the whole card is a larger change nothing
+          // ratified. The Hotel row loses its `span: 2` when it is alone, or the
+          // 2-up grid strands it across a row with nothing beside it.
+          const hideDates = suppressesDates(dateRestriction);
           const tonightRows: KeyValueRow[] = firstHotel
-            ? [
-                { k: "Hotel", v: firstHotel.hotel_name ?? "", span: 2 },
-                { k: "Check in", v: firstHotel.check_in ?? "" },
-                { k: "Check out", v: firstHotel.check_out ?? "" },
-              ]
+            ? hideDates
+              ? [{ k: "Hotel", v: firstHotel.hotel_name ?? "" }]
+              : [
+                  { k: "Hotel", v: firstHotel.hotel_name ?? "", span: 2 },
+                  { k: "Check in", v: firstHotel.check_in ?? "" },
+                  { k: "Check out", v: firstHotel.check_out ?? "" },
+                ]
             : [];
 
           // Where stays single-column: Venue + Address are inherently full-width

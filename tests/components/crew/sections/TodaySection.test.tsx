@@ -454,3 +454,95 @@ test("Load Out/Strike stage viewer → today KeyTimesStrip has NO set anchor, St
   expect(container.querySelector('[data-anchor="strike"]')).toBeTruthy();
   expect(container.querySelector('[data-anchor="set"]')).toBeNull();
 });
+
+// ---------------------------------------------------------------------------
+// BL-CREW-UNKNOWN-ASTERISK-TODAY-DATES — the Tonight card's two date rows.
+//
+// `unknown_asterisk` means "we have not confirmed which days you are on". The
+// schedule, the key-times strip and the agenda all already suppress every date
+// for such a viewer; the Tonight card did not, and a hotel check-in date is
+// effectively the travel-in date, so the card leaked the show window through
+// the side door. Ratified as SUPPRESS in spec §1.1.
+//
+// The HOTEL NAME stays. The privacy claim is about DATES, and suppressing the
+// whole card would be a different (larger) decision that nothing ratified.
+// ---------------------------------------------------------------------------
+
+/** The Tonight fixture, with the restriction under test on the viewer's row. */
+function tonightWith(restriction: {
+  kind: "none" | "unknown_asterisk" | "explicit";
+  days: string[] | null;
+}) {
+  const data = makeShowForViewer({
+    hotelReservations: [
+      {
+        ordinal: 0,
+        hotel_name: "Hyatt",
+        hotel_address: "1 St",
+        check_in: "2026-05-13",
+        check_out: "2026-05-15",
+        names: [],
+        confirmation_no: null,
+        notes: null,
+      },
+    ],
+  });
+  data.crewMembers = [
+    {
+      id: "ua",
+      name: "Asterisk Crew",
+      email: null,
+      phone: null,
+      role: "",
+      roleFlags: [],
+      dateRestriction: restriction as never,
+      stageRestriction: { kind: "none" },
+    },
+  ];
+  return data;
+}
+
+const renderTonight = (restriction: Parameters<typeof tonightWith>[0]) =>
+  render(
+    <TodaySection
+      {...ledgerProp()}
+      data={tonightWith(restriction)}
+      viewer={{ kind: "crew", crewMemberId: "ua" }}
+      today={at("2026-05-14")}
+      showId="s1"
+    />,
+  );
+
+test("unknown_asterisk viewer → Tonight card keeps the hotel NAME and drops both date rows", () => {
+  const { container } = renderTonight({ kind: "unknown_asterisk", days: null });
+  const section = container.querySelector('[data-testid="section-today"]')!;
+  // The card is still there and still useful.
+  expect(section.textContent).toContain("Hyatt");
+  // Neither label nor either value survives. Values are read from the SAME
+  // fixture literal the card renders, so a fixture edit cannot make this pass
+  // by making the assertion unreachable.
+  expect(section.textContent).not.toContain("Check in");
+  expect(section.textContent).not.toContain("Check out");
+  expect(section.textContent).not.toContain("2026-05-13");
+  expect(section.textContent).not.toContain("2026-05-15");
+});
+
+test("unrestricted viewer → the same Tonight card still renders both date rows (premise)", () => {
+  // Without this the test above passes against a card that renders nothing at
+  // all — including a fixture whose hotel never reached the component.
+  const { container } = renderTonight({ kind: "none", days: null });
+  const section = container.querySelector('[data-testid="section-today"]')!;
+  expect(section.textContent).toContain("Hyatt");
+  expect(section.textContent).toContain("Check in");
+  expect(section.textContent).toContain("Check out");
+});
+
+test("explicit-restriction viewer → date rows stay; only unknown_asterisk suppresses", () => {
+  // The narrow claim. An `explicit` viewer HAS confirmed days, so there is
+  // nothing to protect and the ratified change must not touch them — this is
+  // the assertion that fails if the gate is written as "any restriction".
+  const { container } = renderTonight({ kind: "explicit", days: ["2026-05-14"] });
+  const section = container.querySelector('[data-testid="section-today"]')!;
+  expect(section.textContent).toContain("Check in");
+  expect(section.textContent).toContain("Check out");
+});

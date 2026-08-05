@@ -9,6 +9,7 @@ import type { RoomRow } from "@/lib/parser/types";
 import { visibleShowDays } from "@/lib/crew/agendaDisplay";
 import { normalizeMeridiem } from "@/lib/crew/normalizeMeridiem";
 import { TERMINAL_RE } from "@/lib/parser/blocks/scheduleTimes";
+import { suppressesDates } from "@/lib/crew/dateSuppression";
 
 /** ShowForViewer.rooms element type: a parsed RoomRow plus its DB PK. */
 export type ProjectedRoomRow = RoomRow & { id: string };
@@ -106,7 +107,7 @@ export function resolveKeyTimes(
   stageRestriction: StageRestriction = { kind: "none" },
 ): KeyTimeAnchors {
   // unknown_asterisk → whole strip suppressed (zero date leak). Short-circuit BEFORE table.
-  if (dateRestriction.kind === "unknown_asterisk") return {};
+  if (suppressesDates(dateRestriction)) return {};
 
   const anchors: KeyTimeAnchors = {};
 
