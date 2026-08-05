@@ -1050,7 +1050,7 @@ Design memo captures six load-bearing principles: push-not-pull, severity tierin
 
 ### BL-X5-ROLE-TOKEN-DECIDED-BY-BOUNDARY — `role_token_mappings.decided_by` is a live email boundary absent from the AC-X.5 manifest
 
-**Filed:** 2026-08-03, during the DB-lockdown-trio cluster (`docs/superpowers/specs/db/2026-08-02-db-lockdown-trio-design.md` §5.3). **Class:** X.5 coverage completeness. **Effort:** S.
+**Status:** IN PROGRESS · **Branch:** docs/x5-decided-by-boundary · **Filed:** 2026-08-03, during the DB-lockdown-trio cluster (`docs/superpowers/specs/db/2026-08-02-db-lockdown-trio-design.md` §5.3). **Class:** X.5 coverage completeness. **Effort:** S.
 
 `role_token_mappings.decided_by` stores a canonical admin email and carries a DB CHECK (`role_token_mappings_decided_by_canonical`, `supabase/migrations/20260716000000_role_token_mappings.sql:8`). Both write paths canonicalize correctly today — `app/admin/show/[slug]/_actions/roleToken.ts:57` and `app/admin/settings/_actions/roleTokenMappings.ts:38` both call `canonicalize(email)` before the write.
 
