@@ -243,107 +243,33 @@ export function parseCreatedPublicTables(sql: string): string[] {
 }
 
 /**
- * `create [or replace] function [public.]<name>(` NAMES that survive to final
- * state, for the DB-free Layer-1 tripwire.
+ * NO DB-FREE FUNCTION CHECK. Deliberately, after seven review rounds.
  *
- * NAMES ONLY, and after five review rounds that bound is deliberate rather than
- * lazy. Successive attempts keyed on arity, then on a normalized parameter type
- * list; each closed the case it was shown and left another (two one-argument
- * overloads collide under arity; an unnamed multiword type collides under a
- * naive type list; and no DDL-derived key sees a posture flip, a return-type
- * change, or a parameter rename at all). A DDL string is not an identity — only
- * Postgres's own `pg_get_function_identity_arguments` is, and this side cannot
- * call it. Pretending otherwise produced a key that looked exact and was not,
- * which is worse than one that is honestly coarse.
+ * Layer 1 parses migration SQL, and five successive key designs each caught the
+ * case they were shown and missed another: names-only let an overload through;
+ * arity collided on two one-argument overloads; a normalized type list collided
+ * on an unnamed multiword type; last-op-wins erased a name whose sibling
+ * overload survived; counting with an unclamped drop omitted every function
+ * written with the repo's ordinary `drop function if exists …; create function …`
+ * idiom, and clamping it then produced a fresh false alarm on the real corpus.
  *
- * SO THE DIVISION OF LABOUR IS EXPLICIT:
- *   Layer 1 (here, DB-free, every run): a function NAME the manifest has never
- *     heard of. That is the #9 vector — a migration lands, the regen is
- *     forgotten — and a name is enough to catch it.
- *   Layer 3 (`unit-suite-db`, local stack, no TEST_DATABASE_URL): committed
- *     manifest vs a FRESH introspection, byte-for-byte. This is the exact tier,
- *     and it catches everything Layer 1 cannot — posture, return type,
- *     parameter names, overloads — because it compares Postgres's own encoding
- *     rather than guessing at it. A stale manifest cannot land.
- *   Layer 2 (`x-audits`, validation): validation must be a superset of the
- *     committed manifest at the full signature tier.
+ * The pattern is the finding. A DDL string is not an identity — only
+ * `pg_get_function_identity_arguments` is — and every attempt to approximate one
+ * traded a miss for a false alarm or back. A tripwire that is wrong in either
+ * direction is worse than no tripwire: a miss reads as coverage, and a false
+ * alarm trains people to ignore it.
  *
- * Together those close the pair the entry is about; separately, none of them
- * does, and Layer 1 was never the one that could.
+ * FUNCTIONS ARE COVERED, EXACTLY, ONE LAYER OVER. Layer 3 compares the committed
+ * manifest against a FRESH introspection byte-for-byte and runs in
+ * `unit-suite-db` on every PR, where a local stack exists and TEST_DATABASE_URL
+ * is unset. It catches a skipped regen — including a new function, an overload,
+ * a posture flip, a return change and a parameter rename — because it compares
+ * Postgres's own encoding instead of guessing at it. Layer 2 then asserts
+ * validation is a superset of that manifest at the full signature tier.
+ *
+ * So the DB-free layer keeps the job it can do honestly (tables and columns from
+ * `alter … add column` / `create table`) and makes no claim about functions.
  */
-export function parseCreatedPublicFunctions(sql: string): string[] {
-  const clean = stripSqlNoise(sql);
-  // COUNTED, not last-op-wins. A name can hold several overloads, and an ARGFUL
-  // drop removes exactly one of them — so neither "last op wins" nor "an argful
-  // drop never erases" is right. Last-op-wins reported nothing for
-  // `create f(uuid); create f(text); drop f(text)` while Postgres kept f(uuid)
-  // (Codex R6 MEDIUM); never-erase then demanded eight names the migrations
-  // genuinely dropped, which is a dead tripwire in the other direction.
-  //
-  // So: `create` adds one, an ARGFUL `drop` removes one, and a BARE `drop
-  // function name` — legal only when the name is unambiguous — clears the name
-  // outright. A name is demanded of the manifest iff its count ends above zero.
-  // `create or replace` still counts as a create; re-declaring an existing
-  // overload can overcount, which errs toward demanding a name the manifest
-  // lists anyway.
-  const ops: Array<{ index: number; name: string; delta: number | "clear" }> = [];
-  const createRe = /\bcreate\s+(?:or\s+replace\s+)?function\s+(?:(\w+)\.)?(\w+)\s*\(/gi;
-  const dropRe = /\bdrop\s+function\s+(?:if\s+exists\s+)?(?:(\w+)\.)?(\w+)\s*(\()?/gi;
-  let m: RegExpExecArray | null;
-  while ((m = createRe.exec(clean)) !== null) {
-    const schema = m[1]?.toLowerCase();
-    const name = m[2];
-    if (!name || (schema && schema !== "public")) continue;
-    ops.push({ index: m.index, name, delta: 1 });
-  }
-  while ((m = dropRe.exec(clean)) !== null) {
-    const schema = m[1]?.toLowerCase();
-    const name = m[2];
-    if (!name || (schema && schema !== "public")) continue;
-    ops.push({ index: m.index, name, delta: m[3] ? -1 : "clear" });
-  }
-  ops.sort((a, b) => a.index - b.index);
-  const count = new Map<string, number>();
-  for (const o of ops) {
-    if (o.delta === "clear") count.set(o.name, 0);
-    else count.set(o.name, (count.get(o.name) ?? 0) + o.delta);
-  }
-  return [...count.entries()]
-    .filter(([, n]) => n > 0)
-    .map(([n]) => n)
-    .sort();
-}
-
-/**
- * A comparable TYPE LIST for a parameter list, from either side.
- *
- * Arity alone was not enough (Codex R3 HIGH): two one-argument overloads
- * collide, which is exactly the shape the probe used. This drops the parameter
- * NAME and any DEFAULT, keeping the type text, so `p_show uuid` and
- * `p_email text` key differently while the same signature written on either
- * side keys the same.
- *
- * DOCUMENTED LIMIT, and it fails in the conservative direction: a type spelled
- * differently on the two sides (an alias, `character varying` vs `varchar`, a
- * schema qualification) keys differently and produces a FALSE ALARM, not a
- * miss — a contributor is told to regenerate, regenerates, and the noise ends.
- * The exact comparison remains Layer 2's, against Postgres's own identity
- * encoding; this side is a DB-free tripwire, not an authority on signatures.
- */
-
-/** The `name/typelist` keys a manifest declares, from its encoded signature rows. */
-export function functionNamesOf(manifest: SchemaManifest): Set<string> {
-  // `name/arity`, matching what parseCreatedPublicFunctions returns. The
-  // encoded row is `name(args) -> result [POSTURE]`, so arity is the top-level
-  // comma count of the identity-arguments string.
-  return new Set(
-    functionsOf(manifest).map((row) => {
-      const open = row.indexOf("(");
-      const close = row.lastIndexOf(") -> ");
-      return row.slice(0, open);
-    }),
-  );
-}
 
 /** SQL that lists public base tables and their columns (one row per column). */
 export const INTROSPECT_PUBLIC_COLUMNS_SQL = `

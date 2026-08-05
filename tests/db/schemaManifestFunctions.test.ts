@@ -26,8 +26,6 @@ import { describe, expect, it } from "vitest";
 
 import {
   FUNCTIONS_KEY,
-  functionNamesOf,
-  parseCreatedPublicFunctions,
   INTROSPECT_PUBLIC_FUNCTIONS_SQL,
   type FunctionRow,
   diffManifestAgainstLive,
@@ -185,102 +183,6 @@ describe("schema manifest — function signature tier", () => {
     // else encode identically, which is what "a body-only edit cannot move the
     // manifest" means operationally.
     expect(encodeFunctionRow(row)).toBe(encodeFunctionRow({ ...row }));
-  });
-
-  it("type spellings cannot raise a false alarm, because the key ignores types", () => {
-    // RETITLED after Codex R6 LOW: while the key was a normalized type list this
-    // row proved the alias table; with a name key it passes because BOTH sides
-    // reduce to the name, and a test whose title claims more than it proves is
-    // worse than no test. What it pins now is real and worth pinning — the
-    // whole class of alias false alarms (timestamptz vs timestamp with time
-    // zone, int vs integer, a schema-qualified composite) is structurally
-    // impossible, not merely handled.
-    const known = functionNamesOf(
-      manifestFromFunctionRows([
-        {
-          name: "bell_mark_read",
-          args: "p_id uuid, p_kind text, p_at timestamp with time zone",
-          result: "void",
-          definer: true,
-        },
-      ]),
-    );
-    const ddl =
-      "create function public.bell_mark_read(p_id uuid, p_kind text, p_at timestamptz) returns void as $$begin end$$ language plpgsql;";
-    expect(parseCreatedPublicFunctions(ddl).filter((n) => !known.has(n))).toEqual([]);
-  });
-
-  it("Layer 1 catches a function NAME the manifest has never heard of", () => {
-    // What Layer 1 is FOR: the #9 vector — a migration lands, the regen is
-    // forgotten. A name is enough for that, and after five review rounds it is
-    // all a DDL-derived key can honestly claim.
-    const known = functionNamesOf(
-      manifestFromFunctionRows([
-        { name: "existing_rpc", args: "p uuid", result: "void", definer: true },
-      ]),
-    );
-    const parsed = parseCreatedPublicFunctions(
-      "create function public.brand_new_rpc(p uuid) returns void as $$ $$ language sql;",
-    );
-    expect(parsed.filter((n) => !known.has(n))).toEqual(["brand_new_rpc"]);
-  });
-
-  it("Layer 1 does NOT claim to see signature drift — that is Layer 3's tier", () => {
-    // The documented bound, asserted so no future round mistakes coarseness for
-    // a bug and re-opens the type-list experiment. A posture flip, a return
-    // change, a parameter rename and an added overload all leave the NAME
-    // unchanged, so Layer 1 is silent by construction. Layer 3 compares the
-    // committed manifest against a fresh introspection byte-for-byte and is
-    // what actually catches these; it runs in unit-suite-db, where a local
-    // stack exists and TEST_DATABASE_URL is unset.
-    const known = functionNamesOf(
-      manifestFromFunctionRows([{ name: "f", args: "p uuid", result: "void", definer: true }]),
-    );
-    const drifts = [
-      "create function public.f(p uuid) returns void security invoker as $$ $$ language sql;",
-      "create function public.f(p uuid) returns boolean as $$select true$$ language sql;",
-      "create function public.f(renamed uuid) returns void as $$ $$ language sql;",
-      "create function public.f(p text) returns void as $$ $$ language sql;",
-    ];
-    for (const ddl of drifts) {
-      expect(
-        parseCreatedPublicFunctions(ddl).filter((n) => !known.has(n)),
-        `Layer 1 is name-keyed and must stay silent here: ${ddl.slice(0, 60)}`,
-      ).toEqual([]);
-    }
-  });
-
-  it("a dropped OVERLOAD does not erase a name whose siblings survive", () => {
-    // Codex R6 MEDIUM, its probe verbatim. Under last-op-wins this returned
-    // nothing while Postgres kept brand_new(uuid), so Layer 1 passed the
-    // unknown-NAME drift it exists to catch. Under never-erase it demanded
-    // eight names the migrations genuinely dropped. Counting is what gets both
-    // right, and all three shapes are pinned so neither over-correction can
-    // come back.
-    expect(
-      parseCreatedPublicFunctions(
-        "create function public.brand_new(p uuid) returns void as $$ $$ language sql;" +
-          "create function public.brand_new(p text) returns void as $$ $$ language sql;" +
-          "drop function public.brand_new(text);",
-      ),
-      "one overload dropped, one survives — the NAME is still unknown to the manifest",
-    ).toEqual(["brand_new"]);
-
-    expect(
-      parseCreatedPublicFunctions(
-        "create function public.gone(p uuid) returns void as $$ $$ language sql;" +
-          "drop function public.gone(uuid);",
-      ),
-      "its only overload dropped — demanding this name would be a false alarm",
-    ).toEqual([]);
-
-    expect(
-      parseCreatedPublicFunctions(
-        "create function public.gone(p uuid) returns void as $$ $$ language sql;" +
-          "drop function public.gone;",
-      ),
-      "a BARE drop is legal only when unambiguous, so it clears the name outright",
-    ).toEqual([]);
   });
 
   it("reports missing tables AND missing functions in one pass", () => {

@@ -57,9 +57,7 @@ import {
   parsePsqlFunctionRows,
   manifestFromRows,
   parseAlterAddColumns,
-  parseCreatedPublicFunctions,
   parseCreatedPublicTables,
-  functionNamesOf,
   parsePsqlRows,
   serializeManifest,
   type SchemaManifest,
@@ -175,35 +173,6 @@ describe("validation-schema-parity", () => {
         stale.map((t) => `  - ${t}`).join("\n") +
         `\nRun \`pnpm gen:schema-manifest\` (against your local stack) and commit the result.`,
     ).toEqual([]);
-  });
-
-  it("layer 1 — every migration `create function` (public) is reflected in the committed manifest", () => {
-    // The #9 vector applied to FUNCTIONS. Without this row, a contributor who
-    // commits a locally-applied function migration and forgets BOTH the manifest
-    // regen and the validation apply gets a green gate: Layer 2 compares two
-    // equally stale function sets and agrees with itself (Codex R1 HIGH).
-    const manifest = loadManifest();
-    const known = functionNamesOf(manifest);
-    const stale = parseCreatedPublicFunctions(allMigrationsSql()).filter((f) => !known.has(f));
-    expect(
-      stale,
-      `Committed ${MANIFEST_PATH} is STALE — it is missing public function(s) that a ` +
-        `migration creates:\n` +
-        stale.map((f) => `  - ${f}`).join("\n") +
-        `\nRun \`pnpm gen:schema-manifest\` (against your local stack) and commit the result.`,
-    ).toEqual([]);
-  });
-
-  it("layer 1 — sanity: the function half is not vacuous (anti-tautology)", () => {
-    // Both sides must be non-empty, or the filter above passes for the boring
-    // reason. The migrations really do create functions and the manifest really
-    // does carry them.
-    const parsed = parseCreatedPublicFunctions(allMigrationsSql());
-    expect(
-      parsed.length,
-      "the migration corpus should declare many public functions",
-    ).toBeGreaterThan(10);
-    expect(functionNamesOf(loadManifest()).size).toBeGreaterThan(10);
   });
 
   it("layer 1 — sanity: a real created table + the #9 columns are in the manifest (anti-tautology)", () => {
