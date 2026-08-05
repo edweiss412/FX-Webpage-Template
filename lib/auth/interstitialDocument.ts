@@ -73,14 +73,18 @@ export const INTERSTITIAL_STYLE = [
  *
  * `&` is replaced FIRST so an escape is never re-escaped into `&amp;lt;` — the
  * ordering bug every hand-rolled escaper gets wrong once.
+ *
+ * **Quotes are deliberately NOT escaped.** Every slot lands in a text position —
+ * `<h1>`, `<p>`, and `<title>`, which is RCDATA — never inside an attribute
+ * value, and a quote is literal text there. Escaping them anyway is not merely
+ * redundant: sign-out's heading is "Sign-out couldn't complete", and a
+ * `&#39;` in the middle of it corrupts real user-visible copy for no security
+ * benefit whatsoever. (It did: `tests/auth/oauth-flow.test.ts` caught it.) If a
+ * slot is ever interpolated into an attribute, that call site needs its own
+ * attribute-safe escape, not a wider one here.
  */
 function escapeText(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
+  return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
 export type InterstitialDocument = {

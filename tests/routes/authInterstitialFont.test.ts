@@ -150,17 +150,38 @@ describe("the text slots are escaped", () => {
     // test demanding its absence would be demanding stripping, not escaping.
     // What actually makes it inert is that no unescaped `<` survives to open a
     // tag, which the two checks above and the tag-count check below pin.
-    expect(doc).toContain("&lt;img src=x onerror=&quot;h()&quot;&gt;");
+    // Quotes stay literal: every slot is a TEXT position, never an attribute
+    // value, so escaping them buys nothing and corrupts real copy — sign-out's
+    // heading is "Sign-out couldn't complete".
+    expect(doc).toContain('&lt;img src=x onerror="h()"&gt;');
     // Escaped, not stripped: the copy still says what it said.
     expect(doc).toContain("&lt;script&gt;");
     // The interpolated payload opened no element: the document has exactly the
     // tags the builder itself emits, and a `</title>` break-out would add more.
     expect((doc.match(/<title\b/g) ?? []).length).toBe(1);
     expect((doc.match(/<\/title>/g) ?? []).length).toBe(1);
-    expect(doc).toContain("a &amp; b &lt; c &gt; d");
+    expect(doc).toContain("a &amp; b &lt; c &gt; d \" e ' f");
     // The ampersand is escaped FIRST, so an escape is never double-encoded into
     // `&amp;lt;` — the classic ordering bug in a hand-rolled escaper.
     expect(doc).not.toContain("&amp;lt;");
+  });
+
+  it("does not mangle an apostrophe in real copy", () => {
+    // Regression: the first version of the escaper also encoded `'` and `"`,
+    // which turned sign-out's real heading into "Sign-out couldn&#39;t
+    // complete". Caught by tests/auth/oauth-flow.test.ts in CI, pinned here at
+    // the boundary that caused it. Quotes are literal in a text position; only
+    // an attribute value would need them, and no slot lands in one.
+    const doc = interstitialDocument({
+      title: "Sign-out couldn't complete",
+      heading: "Sign-out couldn't complete",
+      body: 'He said "try again" and left.',
+    });
+    expect(doc).toContain("<h1>Sign-out couldn't complete</h1>");
+    expect(doc).toContain("<title>Sign-out couldn't complete</title>");
+    expect(doc).toContain('<p>He said "try again" and left.</p>');
+    expect(doc).not.toContain("&#39;");
+    expect(doc).not.toContain("&quot;");
   });
 
   it("leaves extraBodyHtml raw, because it is markup by contract", () => {
