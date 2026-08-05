@@ -25,10 +25,11 @@
  * contract) — no persistence promise beyond that.
  */
 
-import { useEffect, useId, useRef, useState } from "react";
+import { useContext, useEffect, useId, useRef, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { GRANTABLE_FLAGS, type GrantableFlag } from "@/lib/sync/roleMappingOverlay";
 import * as COPY from "@/components/admin/roleRecognizeCopy";
+import { UndoAnnounceContext } from "@/components/admin/undoAnnounceContext";
 import type { WarningControlSite } from "@/components/admin/warningControlSite";
 
 export type RoleRecognizeSaveMode = "create" | "revise";
@@ -99,6 +100,7 @@ export function RoleRecognizeControl({
 }) {
   const uid = useId();
   const [phase, setPhase] = useState<Phase>("collapsed");
+  const { announce } = useContext(UndoAnnounceContext);
   const [mode, setMode] = useState<RoleRecognizeSaveMode>("create");
   const [checks, setChecks] = useState<Checks>(EMPTY_CHECKS);
   const [errored, setErrored] = useState(false);
@@ -162,6 +164,12 @@ export function RoleRecognizeControl({
     if (outcome.kind === "saved") {
       setSaved({ state: outcome.state, grants: outcome.grants });
       setPhase("saved");
+      // BL-ANNOUNCE-REGION-UNMOUNT-CLASS. This control early-returns a DIFFERENT
+      // TREE per phase, so the saved card is inserted wholesale — and a live
+      // region that arrives already populated is not announced. An internal
+      // stable region is not even possible here: the subtree it would live in is
+      // the one being replaced. The provider's channel outlives every phase.
+      announce(`${COPY.SAVED_HEADING}. ${COPY.savedSummary(token, outcome.grants)}`);
     } else if (outcome.kind === "stale") {
       setPhase("stale");
     } else if (outcome.kind === "conflict") {
