@@ -148,13 +148,17 @@ export function analyzeSamples(
   const after = samples.slice(flipIndex);
   const final = after[after.length - 1] ?? Number.NaN;
   const start = after[0] ?? Number.NaN;
-  // Full precision, not 0.5px buckets: a tween's intermediate values differ from
-  // both endpoints by however little it moves per frame, and rounding them into
-  // an endpoint's bucket is exactly how a small tween hid.
-  const distinct = [...new Set(after.map((h) => Number(h.toFixed(2))))];
-  const changed = Number(start.toFixed(2)) !== Number(final.toFixed(2));
+  // EXACT, not rounded. "Full precision" was still `toFixed(2)`, which is a
+  // 0.01px bucket — smaller than the 0.5px one it replaced, and defeated the
+  // same way: [100, 100.004, 100.008] collapses to two values, reports a change,
+  // and reaches target in two frames (Codex R3 MEDIUM). A rAF-sampled rect of a
+  // static box returns the identical double every frame, so exact comparison is
+  // what "did not move" actually means; any bucket at all is a tween's hiding
+  // place, and picking a smaller one only moves the threshold.
+  const distinct = [...new Set(after)];
+  const changed = start !== final;
   // Frames from the FLIP to the first sample that reads final.
-  const settledAt = after.findIndex((h) => Number(h.toFixed(2)) === Number(final.toFixed(2)));
+  const settledAt = after.findIndex((h) => h === final);
   return { distinct, framesToTarget: settledAt === -1 ? after.length : settledAt, changed };
 }
 
@@ -254,6 +258,16 @@ test.describe("section header — measured across a React reconciliation", () =>
       delayedSnap.framesToTarget,
       "four frames of nothing then a snap is not an immediate swap; counting from the first " +
         "CHANGE scored this 0",
+    ).toBeGreaterThan(2);
+
+    // Codex R3 MEDIUM: the SAME shape one bucket smaller. `toFixed(2)` is still
+    // a bucket, and a tween moving 0.004px per frame hides in it exactly as the
+    // 0.1px tween hid in the 0.5px one. Rounding at any scale is a hiding place;
+    // this row is here so the fix cannot regress to "a smaller bucket".
+    const subCentiTween = analyzeSamples([100, 100.004, 100.008], 0);
+    expect(
+      subCentiTween.distinct.length,
+      "sub-0.01px travel is still travel; any rounding at all readmits it",
     ).toBeGreaterThan(2);
 
     const tinyTween = analyzeSamples([100, 100.1, 100.2, 100.3, 100.4], 0);

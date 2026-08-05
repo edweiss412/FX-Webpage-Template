@@ -968,7 +968,11 @@ test.describe("admin lifecycle layout dimensions (real browser, §3.3)", () => {
             const el = document.querySelector('[data-testid="share-hub-popover"]');
             if (!el) return null;
             const r = el.getBoundingClientRect();
-            return `${r.top.toFixed(2)}|${r.bottom.toFixed(2)}|${r.height.toFixed(2)}`;
+            // Exact, not rounded: a rect quantised to hundredths reads as
+            // stable while the box is still moving by less than 0.01px per
+            // frame, which is a settle predicate that settles on nothing
+            // (Codex R3 MEDIUM). A static box returns identical doubles.
+            return `${r.top}|${r.bottom}|${r.height}`;
           };
           const first = read();
           await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
@@ -1074,7 +1078,8 @@ test.describe("admin lifecycle layout dimensions (real browser, §3.3)", () => {
           if (!el) return null;
           const cs = getComputedStyle(el);
           const r = el.getBoundingClientRect();
-          return `${cs.transform}|${cs.opacity}|${r.top.toFixed(2)}|${r.height.toFixed(2)}`;
+          // Exact for the same reason as the geometry predicate above.
+          return `${cs.transform}|${cs.opacity}|${r.top}|${r.height}`;
         };
         const first = read();
         await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
