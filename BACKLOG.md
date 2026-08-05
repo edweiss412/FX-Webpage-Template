@@ -1284,17 +1284,19 @@ Plus fifteen conditionally-mounted region elements across thirteen sites (a cond
 
 ---
 
-### BL-CANONICAL-CLASS-ARRAY-BLINDSPOT — eslint canonical-class rule does not scan `[...].join(" ")` array classNames
+### BL-CLASSNAME-ARRAY-JOIN-MIGRATION — migrate the 18 array-join classNames so the canonical-class rule can see them
 
-**Status:** IN PROGRESS · **Branch:** chore/sweep-guards-tests · **Filed:** 2026-06-21 from the `chore/lint-format-ci-gates` adversarial review (hygiene lens).
+**Severity:** LOW (lint coverage, no user-visible defect) · **Class:** lint coverage · **Filed:** 2026-08-04 (`chore/sweep-guards-tests`, split out of BL-CANONICAL-CLASS-ARRAY-BLINDSPOT under class-sweep exception (c)) · **Effort:** M · **Reachability:** PROBED 2026-08-04 — 18 files, 33 sites, enumerated in `tests/specLint/canonicalClassArray.test.ts`.
 
-**Effort:** S
+**Description:** `better-tailwindcss/enforce-canonical-classes` cannot traverse `[...].join(" ")`, so Tailwind drift inside those classNames escapes `pnpm lint` and CI. The blind spot is now BOUNDED by a census guard — no NEW array-join className can land — but the 18 existing files remain unreadable to the rule.
 
-**Description:** `better-tailwindcss/enforce-canonical-classes` (`eslint.config.mjs`) canonicalizes Tailwind classes in plain-string classNames and `clsx`/`cn`/`cva` callees, but NOT in array-join patterns (`className={["a", cond ? "b" : "c"].join(" ")}`), which this codebase uses (e.g. `components/crew/primitives/DayCard.tsx`). Root cause (confirmed against the plugin source): the String matcher in `eslint-plugin-better-tailwindcss/lib/parsers/es.js` returns an `UNCROSSABLE_BOUNDARY` at any `CallExpression`, so `.join()` blocks traversal into the array; no plugin setting overrides this. Result: rem→unit / `@theme`-token / class-rename canonical violations inside those arrays escape the eslint gate (and thus CI's `pnpm lint`). Separately, the gate is Tailwind-signature-based and does **not** do px→spacing-unit conversion in ANY context — that suggestion is editor-only (`tailwindCSS.lint.suggestCanonicalClasses`) and out of scope here.
+**Two shapes,** both covered by the census: inline `className={[...].join(" ")}` (15 files) and joined-into-a-local-then-used-as-className (3 files: `_PickerInterstitial.tsx`, `Section.tsx`, `AccentButton.tsx`).
 
-**Why backlog, not deferred:** the gate still catches the same violations in direct string literals and `clsx`/`cn`/`cva` calls; array-join is a documented plugin limitation, not a correctness bug. No concrete trigger.
+**The parent entry's prescribed fix does not apply as written.** It says "migrate to `cn(...)` (already a default-detected callee)". Probed 2026-08-04: **there is no `cn` helper anywhere** under `lib/`, `components/` or `app/`, and neither `clsx` nor `class-variance-authority` is a dependency — the eslint config names them only in a comment describing plugin defaults. So this is not the mechanical `eslint --fix` the parent promises: it must first INTRODUCE a recognized callee, which is a dependency-or-helper decision in its own right. `tests/specLint/canonicalClassArray.test.ts` asserts the absence, so the day a `cn` lands this becomes cheap and the test says so.
 
-**Promotion prerequisite / mechanics:** the actionable fix is a refactor, not config — migrate `[...].join(" ")` classNames to `cn(...)` (already a default-detected callee), after which a single `eslint --fix` mechanically canonicalizes them. Promote if/when canonical violations inside array classNames become a real maintenance problem, or as part of a broader className-helper standardization pass.
+**Why not done on `chore/sweep-guards-tests`:** class-sweep exception (c). The repair spans 20 files under `components/` and `app/`, which would make that branch an invariant-8 UI surface; the plan scopes the dual gate to the UI branch and marks the guards branch `impeccable-gate: N/A — no UI surface`. Doing it there would either violate the plan's scoping or drag a 20-file UI refactor through a guards review.
+
+**Work:** decide the callee (add a small local `cn`, or take `clsx`), migrate the 33 sites, run `eslint --fix`, delete the census guard and its entry. Lands on a UI branch under the dual gate.
 
 ---
 

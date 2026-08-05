@@ -8,6 +8,14 @@ Same split as [DEFERRED.md](./DEFERRED.md) ↔ [DEFERRED-archive.md](./DEFERRED-
 
 ---
 
+## BL-CANONICAL-CLASS-ARRAY-BLINDSPOT — CLOSED 2026-08-04, bounded by census
+
+The blind spot is real and confirmed against the plugin source, and it is now **bounded**: `tests/specLint/canonicalClassArray.test.ts` enumerates every array-join className in the tree and fails on a new one, in both shapes the pattern takes. The set the linter cannot see can only shrink. Proven by planting a site and watching the guard reject it, not by assuming the recognizer works.
+
+The 33-site migration is filed as `BL-CLASSNAME-ARRAY-JOIN-MIGRATION` — see it for why it did not land here, and for the correction to this entry's prescribed fix (`cn` does not exist in this repo).
+
+---
+
 ## BL-FEED-BUTTON-SUCCESS-ANNOUNCE — SHIPPED 2026-08-04
 
 Shipped on `feat/sweep-ui-a11y`. Accept, Approve and Reject now announce their SUCCESS
