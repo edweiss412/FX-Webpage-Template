@@ -68,7 +68,7 @@ Three details the spec does not settle that implementation forces. Each is resol
 ### Meta-test inventory (mandatory declaration)
 
 - **CREATES:** tests/docs/_metaReviewRoundEconomy.test.ts — disk-discovered walk of `docs/review-rounds/`, gating obliged-arc filing, corpus schema, arc-identity agreement, and cited-id resolution.
-- **EXTENDS:** `tests/mutation/source/registry.ts` (`GUARD_SURFACES` at `registry.ts:120`) — enrolls `_metaReviewRoundEconomy` as a second guard surface, and `tests/mutation/guardSurfaces.gate.test.ts` (`EXPECTED_LEDGER_KINDS` at `tests/mutation/guardSurfaces.gate.test.ts:33`, control mutation at `tests/mutation/guardSurfaces.gate.test.ts:110-129`) to generalize the hardcoded `taskContract` control.
+- **EXTENDS:** `tests/mutation/source/registry.ts` (`GUARD_SURFACES` at `registry.ts:120`) — enrolls **two** new guard surfaces, `reviewRoundCount` (lib/reviewRounds/count.ts) and `reviewRoundCorpus` (lib/reviewRounds/corpus.ts), because `GuardSurface.sourcePath` is a single path (`tests/mutation/source/registry.ts:12-22`) and one row would leave the other module's decisions outside the mutant set. Also `tests/mutation/guardSurfaces.gate.test.ts` (`EXPECTED_LEDGER_KINDS` at `tests/mutation/guardSurfaces.gate.test.ts:33`, control mutation at `tests/mutation/guardSurfaces.gate.test.ts:110-129`) to generalize the hardcoded `taskContract` control.
 - **NOT extended, with reason:** `tests/auth/_metaInfraContract.test.ts` (no Supabase call boundary), `tests/auth/advisoryLockRpcDeadlock.test.ts` (no `pg_advisory*`), `tests/log/_metaMutationSurfaceObservability.test.ts` (no mutating HTTP route or `"use server"` action — the wrapper is a CLI and the report is read-only).
 
 ### Advisory-lock holder topology
@@ -349,6 +349,7 @@ git commit -m "feat(review-rounds): codex-guard requires --stage and --round"
 - Consumes: nothing.
 - Produces:
   - `ROUND_THRESHOLD: 4`, `STAGES: readonly ["spec","plan","diff","task"]`, `COUNTED_STAGES: readonly ["spec","plan","diff"]`, `type Stage`
+  - `adoptionBoundary(repoRoot: string): string | null` — the committer date of the first-parent commit on main that added the constants module, or `null` before it is there
   - `type ReviewRoundRow` (all scalar fields, spec §5.3)
   - `serializeRow(row: ReviewRoundRow): string` — one line, trailing `\n`
   - `parseRow(line: string): { ok: true; row: ReviewRoundRow } | { ok: false; problem: string }`
@@ -356,18 +357,26 @@ git commit -m "feat(review-rounds): codex-guard requires --stage and --round"
 
 No JSONL utility exists in the repo today (verified: `grep -rl 'jsonl\|JSONL' lib/` returns nothing). This is new.
 
+**`adoptionBoundary` is implemented here, so its first failing test is here too.** TDD invariant 1 is per task, not per feature: a function that ships in Task 2 and is first exercised in Task 8 is six tasks of implementation-before-test, and the red state that would have caught the dropped `main` ref never existed at the moment the argv was written. The case below builds a real repo, asserts `null` while the constants module lives only on a feature branch, then asserts the merge commit's `%cI` after merging to main — the whole contract, in the task that writes it. Task 8 keeps its own "production default" case, which asserts something different and is not a duplicate: that `buildReport` *reads* this function when no boundary is injected. One pins the function, the other pins the wiring.
+
 - [ ] **Step 1: Write the failing test**
 
 Create tests/reviewRounds/row.test.ts:
 
 ```ts
-import { mkdtempSync, readFileSync, writeFileSync, chmodSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { ROUND_THRESHOLD, STAGES, COUNTED_STAGES } from "../../lib/reviewRounds/constants";
+import {
+  adoptionBoundary,
+  COUNTED_STAGES,
+  ROUND_THRESHOLD,
+  STAGES,
+} from "../../lib/reviewRounds/constants";
 import { appendRow, parseRow, serializeRow, type ReviewRoundRow } from "../../lib/reviewRounds/row";
 
 const ROW: ReviewRoundRow = {
@@ -396,6 +405,45 @@ describe("review-round constants (spec §4.3)", () => {
     // non-review dispatches manufacture a filing obligation out of nothing.
     expect([...COUNTED_STAGES]).toEqual(["spec", "plan", "diff"]);
     expect(COUNTED_STAGES).not.toContain("task");
+  });
+});
+
+describe("adoption boundary (spec §9)", () => {
+  // Failure caught: a ref-less `git log`, which walks HEAD. On the branch that
+  // ADDS the constants module HEAD's first-parent history already contains that
+  // addition, so the query answers with the branch-local commit's date - a
+  // boundary EARLIER than the merge. Early is the unsafe direction: every arc
+  // that merged between that commit and the real merge is then printed as a
+  // silent arc, as fact. Adoption is a fact about main, and this case is the
+  // one that fails when the `main` ref is dropped from the argv.
+  it("is null until the module is on main, then is the merge commit's date", () => {
+    const repo = mkdtempSync(join(tmpdir(), "boundary-"));
+    const git = (...args: string[]): string =>
+      execFileSync("git", args, { cwd: repo, encoding: "utf8" }).trim();
+    git("init", "-q", "-b", "main");
+    git("config", "user.email", "t@example.com");
+    git("config", "user.name", "T");
+    writeFileSync(join(repo, "seed.txt"), "seed\n");
+    git("add", "seed.txt");
+    git("commit", "-qm", "seed");
+
+    git("checkout", "-q", "-b", "feat/adopting");
+    const constants = join(repo, "lib", "reviewRounds", "constants.ts");
+    mkdirSync(dirname(constants), { recursive: true });
+    writeFileSync(constants, "export const ROUND_THRESHOLD = 4;\n");
+    git("add", "lib/reviewRounds/constants.ts");
+    git("commit", "-qm", "feat: constants");
+
+    // The file IS reachable from HEAD here, and the answer must still be null:
+    // nothing has adopted anything until the merge lands.
+    expect(adoptionBoundary(repo)).toBeNull();
+
+    git("checkout", "-q", "main");
+    git("merge", "-q", "--no-ff", "-m", "merge feat/adopting", "feat/adopting");
+    // Derived from the fixture repo's own log, never a literal: the boundary IS
+    // the committer date of the first-parent merge that put the file on main.
+    const mergeDate = git("log", "-1", "--first-parent", "--format=%cI", "main");
+    expect(adoptionBoundary(repo)).toBe(mergeDate);
   });
 });
 
@@ -994,7 +1042,7 @@ git commit -m "feat(review-rounds): arc identity from branch and merge base"
 **Files:**
 - Modify: `scripts/codex-guard.mjs` — `writeResult` (`scripts/codex-guard.mjs:693-713`) and the `main().catch` wrapper-error site (`scripts/codex-guard.mjs:1075-1093`)
 - Create: scripts/reviewRoundEmit.mjs (ESM bridge — see below), tests/reviewRounds/_arcFixtures.ts, tests/reviewRounds/bridgeParity.test.ts
-- Modify: tests/codexGuard/reviewRounds.test.ts, tests/reviewRounds/arc.test.ts (Step 4a moves its fixture list into the shared module)
+- Modify: tests/codexGuard/reviewRounds.test.ts, tests/reviewRounds/arc.test.ts (Step 2 moves its fixture list into the shared module)
 
 **Interfaces:**
 - Consumes: `cfg.stage` / `cfg.round` (Task 1); `appendRow`, `ReviewRoundRow` (Task 2); `resolveArc` (Task 3).
@@ -1004,7 +1052,7 @@ git commit -m "feat(review-rounds): arc identity from branch and merge base"
 
 **Two implementations of one contract need a parity lock, not two test suites.** The wrapper executes the JavaScript copy; every other consumer executes the TypeScript one. Testing each against its own cases lets them drift on any case only one of them covers, and `on_main` is the sharp example: if the bridge alone lost that branch, it would write a corpus directory for an arc that does not exist while every TypeScript arc test stayed green. Enumerating the same cases twice does not fix that, because the enumeration is exactly what drifts.
 
-Step 4a therefore adds a **differential test**: it builds each arc-resolution fixture repo once and asserts `resolveArc` from lib/reviewRounds/arc.ts and `resolveArc` from scripts/reviewRoundEmit.mjs return the **same** `ok`, `kind`, `branch`, `baseSha`, and `corpusFile` for every one. A case added to Task 3 then covers the bridge automatically, and the two cannot silently diverge. Vitest imports the `.mjs` directly; no build step is involved.
+Step 2 therefore adds a **differential test**, written and run RED before the bridge exists (TDD invariant 1): it builds each arc-resolution fixture repo once and asserts `resolveArc` from lib/reviewRounds/arc.ts and `resolveArc` from scripts/reviewRoundEmit.mjs return the **same** `ok`, `kind`, `branch`, `baseSha`, and `corpusFile` for every one. A case added to Task 3 then covers the bridge automatically, and the two cannot silently diverge. Vitest imports the `.mjs` directly; no build step is involved.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -1188,12 +1236,75 @@ describe("row emission (spec §5.4)", () => {
 });
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [ ] **Step 2: Lock the bridge against the TypeScript implementation**
+
+Create tests/reviewRounds/bridgeParity.test.ts. It reuses Task 3's `makeRepo` helper and drives **both** implementations over the identical repo, so the two can never diverge on a case only one suite covers:
+
+```ts
+import { describe, expect, it } from "vitest";
+
+import { resolveArc as tsResolveArc } from "../../lib/reviewRounds/arc";
+// The wrapper runs this copy. Vitest imports the .mjs directly; no build step.
+import { resolveArc as jsResolveArc } from "../../scripts/reviewRoundEmit.mjs";
+import { arcFixtureCases } from "./_arcFixtures";
+
+/** Every arc-resolution case Task 3 defines, as (name, repo-builder) pairs:
+ *  feature branch, subdirectory cwd, reused branch, plain dir, detached HEAD,
+ *  on main, no merge base. */
+const CASES = arcFixtureCases();
+
+describe("bridge parity: scripts/reviewRoundEmit.mjs vs lib/reviewRounds/arc.ts", () => {
+  // Failure caught: the bridge losing a branch of the contract while the
+  // TypeScript suite stays green. `on_main` is the sharp case - a bridge that
+  // dropped it would write a corpus directory for an arc that does not exist,
+  // and no test in Task 3 would notice, because Task 3 never runs the bridge.
+  it.each(CASES)("agrees on %s", (_name, build) => {
+    const cwd = build();
+    const ts = tsResolveArc(cwd);
+    // The bridge is plain JS, so its return type is not the discriminated union
+    // `ArcResolution`. Reading it as a bag of fields keeps the comparison honest
+    // (a cast would assert the very shape under test) and keeps the file
+    // typechecking under `strict`.
+    const js: Record<string, unknown> = jsResolveArc(cwd);
+    expect(js.ok).toBe(ts.ok);
+    // Branching on `ts.ok` alone is sound because the line above already pinned
+    // the two to agree on it.
+    if (ts.ok) {
+      expect(js.branch).toBe(ts.branch);
+      expect(js.baseSha).toBe(ts.baseSha);
+      expect(js.corpusFile).toBe(ts.corpusFile);
+    } else {
+      expect(js.kind).toBe(ts.kind);
+    }
+  });
+
+  // Failure caught: a parity suite that passes because it exercises nothing.
+  // Derived from the case list, never a literal.
+  it("covers every refusal kind the contract defines", () => {
+    const kinds = new Set(
+      CASES.flatMap(([, build]) => {
+        const r = tsResolveArc(build());
+        return r.ok ? [] : [r.kind];
+      }),
+    );
+    expect([...kinds].sort()).toEqual(
+      ["detached_head", "no_merge_base", "not_a_repo", "on_main"].sort(),
+    );
+  });
+});
+```
+
+Extract `arcFixtureCases()` into tests/reviewRounds/_arcFixtures.ts in this step and have tests/reviewRounds/arc.test.ts consume it too, so one list feeds both suites. That shared list is what makes the parity lock automatic rather than another thing to remember. Its exported shape is `arcFixtureCases(): [name: string, build: () => string][]`, where `build()` returns the `cwd` to hand `resolveArc` — the repo root for most cases, the nested subdirectory for the subdirectory case.
+
+- [ ] **Step 3: Run both suites to verify they fail**
 
 Run: `pnpm exec vitest run tests/codexGuard/reviewRounds.test.ts -t "row emission"`
 Expected: FAIL — no corpus file is written; `rowsIn` throws ENOENT.
 
-- [ ] **Step 3: Write the bridge module**
+Run: `pnpm exec vitest run tests/reviewRounds/bridgeParity.test.ts`
+Expected: FAIL — `Cannot find module '../../scripts/reviewRoundEmit.mjs'`. The bridge does not exist yet, and that is the point: the parity lock is the test that decides whether the bridge is written correctly, so writing the bridge first would make it a description of whatever got typed rather than a constraint on it.
+
+- [ ] **Step 4: Write the bridge module**
 
 Create scripts/reviewRoundEmit.mjs:
 
@@ -1285,7 +1396,7 @@ export function emitRow(cfg, body) {
 }
 ```
 
-- [ ] **Step 4: Wire the wrapper**
+- [ ] **Step 5: Wire the wrapper**
 
 In `scripts/codex-guard.mjs`, add the import beside the existing ones at the top:
 
@@ -1329,77 +1440,17 @@ Finally, in `buildConfig`, after `cfg.cwd` is validated as a directory (`scripts
   if (!arc.ok && arc.kind === "detached_head") usageError(arc.problem);
 ```
 
-- [ ] **Step 4a: Lock the bridge against the TypeScript implementation**
-
-Create tests/reviewRounds/bridgeParity.test.ts. It reuses Task 3's `makeRepo` helper and drives **both** implementations over the identical repo, so the two can never diverge on a case only one suite covers:
-
-```ts
-import { describe, expect, it } from "vitest";
-
-import { resolveArc as tsResolveArc } from "../../lib/reviewRounds/arc";
-// The wrapper runs this copy. Vitest imports the .mjs directly; no build step.
-import { resolveArc as jsResolveArc } from "../../scripts/reviewRoundEmit.mjs";
-import { arcFixtureCases } from "./_arcFixtures";
-
-/** Every arc-resolution case Task 3 defines, as (name, repo-builder) pairs:
- *  feature branch, subdirectory cwd, reused branch, plain dir, detached HEAD,
- *  on main, no merge base. */
-const CASES = arcFixtureCases();
-
-describe("bridge parity: scripts/reviewRoundEmit.mjs vs lib/reviewRounds/arc.ts", () => {
-  // Failure caught: the bridge losing a branch of the contract while the
-  // TypeScript suite stays green. `on_main` is the sharp case - a bridge that
-  // dropped it would write a corpus directory for an arc that does not exist,
-  // and no test in Task 3 would notice, because Task 3 never runs the bridge.
-  it.each(CASES)("agrees on %s", (_name, build) => {
-    const cwd = build();
-    const ts = tsResolveArc(cwd);
-    // The bridge is plain JS, so its return type is not the discriminated union
-    // `ArcResolution`. Reading it as a bag of fields keeps the comparison honest
-    // (a cast would assert the very shape under test) and keeps the file
-    // typechecking under `strict`.
-    const js: Record<string, unknown> = jsResolveArc(cwd);
-    expect(js.ok).toBe(ts.ok);
-    // Branching on `ts.ok` alone is sound because the line above already pinned
-    // the two to agree on it.
-    if (ts.ok) {
-      expect(js.branch).toBe(ts.branch);
-      expect(js.baseSha).toBe(ts.baseSha);
-      expect(js.corpusFile).toBe(ts.corpusFile);
-    } else {
-      expect(js.kind).toBe(ts.kind);
-    }
-  });
-
-  // Failure caught: a parity suite that passes because it exercises nothing.
-  // Derived from the case list, never a literal.
-  it("covers every refusal kind the contract defines", () => {
-    const kinds = new Set(
-      CASES.flatMap(([, build]) => {
-        const r = tsResolveArc(build());
-        return r.ok ? [] : [r.kind];
-      }),
-    );
-    expect([...kinds].sort()).toEqual(
-      ["detached_head", "no_merge_base", "not_a_repo", "on_main"].sort(),
-    );
-  });
-});
-```
-
-Extract `arcFixtureCases()` into tests/reviewRounds/_arcFixtures.ts in this step and have tests/reviewRounds/arc.test.ts consume it too, so one list feeds both suites. That shared list is what makes the parity lock automatic rather than another thing to remember. Its exported shape is `arcFixtureCases(): [name: string, build: () => string][]`, where `build()` returns the `cwd` to hand `resolveArc` — the repo root for most cases, the nested subdirectory for the subdirectory case.
-
-- [ ] **Step 5: Run the tests to verify they pass**
+- [ ] **Step 6: Run the tests to verify they pass**
 
 Run: `pnpm exec vitest run tests/codexGuard/reviewRounds.test.ts tests/reviewRounds/bridgeParity.test.ts`
 Expected: PASS.
 
-- [ ] **Step 6: Run the whole codex-guard suite**
+- [ ] **Step 7: Run the whole codex-guard suite**
 
 Run: `pnpm exec vitest run tests/codexGuard/`
 Expected: PASS. Every pre-existing scenario runs against a non-repo `cwdDir`, so it takes the `not_a_repo` warn-and-skip path (plan R1) — a red run here means that path throws.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
 git add scripts/codex-guard.mjs scripts/reviewRoundEmit.mjs tests/codexGuard/reviewRounds.test.ts \
@@ -3280,7 +3331,7 @@ git commit -m "feat(review-rounds): merged-arc producer with declared accept-set
 
 **Interfaces:**
 - Consumes: `readArcs`/`checkCorpus` inputs (Task 6), `countedRounds`/`recordedRounds` (Task 6), `mergedArcs` (Task 7), `ROUND_THRESHOLD` (Task 2).
-- Produces: `buildReport(repoRoot: string, opts?: ReportOptions): Report` and a CLI that prints it. Read-only; gates nothing; exit 0 always except on its own usage error.
+- Produces: `buildReport(repoRoot: string, opts?: ReportOptions): Report`, plus the CLI surface that prints it — `render(report: Report): string` and `main(argv: string[]): number`, both **exported** so they are testable rather than smoke-run. Read-only; gates nothing; exit 0 always except on its own usage error.
 
 **Every output §9 promises gets behavioral coverage.** "Read-only" buys no test relief — the report presents its output as fact.
 
@@ -3294,8 +3345,8 @@ Append to tests/reviewRounds/report.test.ts — one describe per §9 output, eac
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
-import { adoptionBoundary, ROUND_THRESHOLD } from "../../lib/reviewRounds/constants";
-import { buildReport } from "../../scripts/review-economy";
+import { ROUND_THRESHOLD } from "../../lib/reviewRounds/constants";
+import { buildReport, main, render } from "../../scripts/review-economy";
 ```
 
 Then append the bodies to tests/reviewRounds/report.test.ts:
@@ -3555,6 +3606,44 @@ describe("report aggregation (spec §9)", () => {
     expect(report.notes.join(" ")).toMatch(/not yet adopted/i);
   });
 
+  // Failure caught: authoritative metrics computed from a corpus the report
+  // knows is incomplete, and printed as complete. `readArcs` keeps every
+  // rejected line in `arc.malformed`; a report that aggregates `arc.rows`
+  // alone prints `diff 3/3` over a four-line file, classifies the stage
+  // untriggered, and gives no sign its input was partial - while the merge
+  // gate, reading the SAME file, reports `malformed_row`. Two tools, one
+  // corpus, contradictory answers, and the one a human runs by hand is the one
+  // that hides it. This is the §8.2 failure arriving through the other door.
+  it("reports malformed rows and marks the affected arc's counts incomplete", () => {
+    const VALID = [{ round: 1 }, { round: 2 }, { round: 3 }];
+    const body = jrows(...VALID) + "{ not json\n";
+    const root = corpus(mkdtempSync(join(tmpdir(), "rep-malformed-")), [
+      { path: "feat/foo/aaaaaaaaaaaa.jsonl", body },
+    ]);
+    const report = buildReport(root, opts);
+
+    // Every expectation derived from the fixture body, never a literal: the
+    // 1-indexed position of the line that cannot parse, and the number of rows
+    // that can.
+    const badLine = body.split("\n").findIndex((l) => l.startsWith("{ not")) + 1;
+    expect(report.malformedRows).toHaveLength(1);
+    expect(report.malformedRows[0]!).toEqual({
+      arc: "feat/foo aaaaaaaaaaaa",
+      file: "docs/review-rounds/feat/foo/aaaaaaaaaaaa.jsonl",
+      line: badLine,
+    });
+
+    // The counts are still REPORTED, and still right about what they cover:
+    // the three valid rows are real data, so the report DISCLOSES rather than
+    // refusing. What it may not do is let the number read as whole.
+    const arc = report.arcs.find((a) => a.baseSha === "aaaaaaaaaaaa");
+    expect(arc?.stages.diff).toEqual({ counted: VALID.length, recorded: VALID.length });
+    const rendered = render(report)
+      .split("\n")
+      .find((l) => l.includes("aaaaaaaaaaaa") && l.includes("diff"));
+    expect(rendered).toContain("INCOMPLETE");
+  });
+
   // Failure caught: a partial answer labelled complete - the §8.2 failure.
   // Ambient-gated skipping cannot catch this: an implementation with NO
   // --is-shallow-repository check passes every other test in this file.
@@ -3575,15 +3664,78 @@ describe("report aggregation (spec §9)", () => {
   });
 });
 
+describe("CLI surface (spec §9)", () => {
+  /** A report built from a fixture corpus, so every expectation below is
+   *  derived from data the test planted rather than from a literal the
+   *  renderer could be wrong about in the same direction. */
+  const cliReport = (
+    files: { path: string; body: string }[],
+    boundary: string | null = BOUNDARY,
+  ) =>
+    buildReport(corpus(mkdtempSync(join(tmpdir(), "rep-cli-")), files), {
+      adoptionBoundary: boundary,
+    });
+
+  // Failure caught: a renderer that prints "silent arcs: 0" for a WITHHELD
+  // list. `Report` keeps null and [] distinct precisely so a refusal is not a
+  // clean bill of health, and the whole distinction is lost if the one surface
+  // a human actually reads collapses them back together.
+  it("names the refusal instead of printing a count when silentArcs is null", () => {
+    const report = cliReport([], null);
+    expect(report.silentArcs).toBeNull();
+    const text = render(report);
+    expect(text).toMatch(/silent arcs: WITHHELD/);
+    expect(text).not.toMatch(/silent arcs: 0/);
+    // The REASON reaches the reader too, not just the word.
+    for (const note of report.notes) expect(text).toContain(note);
+  });
+
+  // Failure caught: a renderer that drops the per-stage breakdown, leaving one
+  // collapsed number that cannot be compared against a per-stage threshold -
+  // the same defect the aggregation rejects, one layer later.
+  it("prints every arc's per-stage counted and recorded counts", () => {
+    const report = cliReport([
+      {
+        path: "feat/foo/aaaaaaaaaaaa.jsonl",
+        body: jrows(
+          { stage: "spec", round: 1 },
+          { stage: "diff", round: 1 },
+          { stage: "diff", round: 2 },
+        ),
+      },
+    ]);
+    const text = render(report);
+    // Guards the loop below against passing vacuously over zero arcs.
+    expect(report.arcs.length).toBeGreaterThan(0);
+    for (const arc of report.arcs) {
+      const line = text.split("\n").find((l) => l.includes(arc.baseSha));
+      expect(line, `no rendered line for ${arc.baseSha}`).toBeDefined();
+      for (const [stage, c] of Object.entries(arc.stages)) {
+        // Read off the report, so a fixture change cannot leave this asserting
+        // a pair the report no longer holds.
+        expect(line).toContain(`${stage} ${c.counted}/${c.recorded}`);
+      }
+    }
+  });
+
+  // Failure caught: argument handling that accepts anything and reports over
+  // the live corpus regardless, so a typo silently answers a question nobody
+  // asked. Neither branch below reaches git, so neither depends on the cwd.
+  it("exits 2 on an unknown argument and 0 on --help", () => {
+    expect(main(["--nope"])).toBe(2);
+    expect(main(["--help"])).toBe(0);
+  });
+});
+
 describe("adoption boundary, production default (spec §9)", () => {
-  // Failure caught: the boundary query defaulting to HEAD. Every other test in
-  // this file INJECTS `adoptionBoundary`, so the production path - the one that
-  // actually runs - has no other coverage at all. Without the `main` ref, a
-  // ref-less `git log` walks HEAD, finds the constants module's BRANCH-LOCAL
-  // addition, and returns a boundary EARLIER than the merge. Early is the
-  // unsafe direction: arcs that merged between that commit and the real merge
-  // are then printed as silent, as fact.
-  it("is null until the constants module is on main, then is the merge commit's date", () => {
+  // Failure caught: `buildReport` not WIRED to the production boundary at all.
+  // Every other case in this file INJECTS one, so an implementation that
+  // defaults to the epoch, or to null forever, passes all of them. What is
+  // asserted here is that the report READS `adoptionBoundary` when nothing is
+  // injected - a different claim from the function's own contract, which is
+  // pinned beside its implementation in tests/reviewRounds/row.test.ts
+  // (Task 2). One test owns the function, this one owns the wiring.
+  it("withholds before the constants module is on main and completes the scan after", () => {
     const repo = mkdtempSync(join(tmpdir(), "rep-boundary-"));
     const git = (...args: string[]): string =>
       execFileSync("git", args, { cwd: repo, encoding: "utf8" }).trim();
@@ -3601,13 +3753,9 @@ describe("adoption boundary, production default (spec §9)", () => {
     git("add", "lib/reviewRounds/constants.ts");
     git("commit", "-qm", "feat: constants");
 
-    // HEAD is the feature branch and the file IS reachable from HEAD. Adoption
-    // is a fact about MAIN, so the boundary must still be null here - this is
-    // the assertion a HEAD-defaulting query fails.
-    expect(adoptionBoundary(repo)).toBeNull();
-    // And the production default reaches the report: no injected boundary, so
-    // buildReport calls adoptionBoundary itself and must withhold rather than
-    // accuse.
+    // No injected boundary, so buildReport must call adoptionBoundary itself.
+    // The module is not on main yet, so the report has to withhold rather than
+    // accuse - which an epoch default cannot do.
     const early = buildReport(repo, {
       mergedArcs: [
         { sha: "4".repeat(40), branch: "feat/adopting", baseSha: "aaaaaaaaaaaa", mergedAt: "2026-09-04T00:00:00.000Z" },
@@ -3618,10 +3766,9 @@ describe("adoption boundary, production default (spec §9)", () => {
 
     git("checkout", "-q", "main");
     git("merge", "-q", "--no-ff", "-m", "merge feat/adopting", "feat/adopting");
-    // Derived from the fixture repo's own log, never a literal: the boundary IS
-    // the committer date of the first-parent merge that put the file on main.
-    const mergeDate = git("log", "-1", "--first-parent", "--format=%cI", "main");
-    expect(adoptionBoundary(repo)).toBe(mergeDate);
+    // WITHHELD becomes a COMPLETED scan: [] rather than null is reachable only
+    // if the default boundary is now non-null, so this is the assertion a
+    // never-wired or null-forever default fails.
     expect(buildReport(repo, { mergedArcs: [] }).silentArcs).toEqual([]);
   });
 });
@@ -3658,7 +3805,11 @@ describe("real history (spec §11.3 layer 2)", () => {
 
 **`buildReport` takes its boundary and its merged-arc list as options.** Both default to the production values — `adoptionBoundary(repoRoot)` (Task 2) and `mergedArcs(repoRoot)` (Task 7) — and both are injectable, for the two reasons the tests above make concrete: the production boundary reads git for the commit that added lib/reviewRounds/constants.ts, so it is `null` in every fixture repo and changes the day this merges; and the silent-arc join needs merged arcs that do not exist in any fixture repo's real history. The injection points are the seam, not a test-only backdoor: the CLI passes neither and gets production behavior.
 
-**Injection everywhere is how the production path goes untested, so one case refuses it.** The "adoption boundary, production default" describe above passes no `adoptionBoundary` and builds a real git repo instead, because the defect it catches lives entirely in the argv the production function hands `git`: a ref-less `git log` walks HEAD, and on the branch that adds the constants module HEAD's first-parent history contains its addition. Every injected test in this file is blind to that by construction.
+**Injection everywhere is how the production path goes untested, so one case refuses it.** The "adoption boundary, production default" describe above passes no `adoptionBoundary` and builds a real git repo instead, because an implementation that never calls the function at all — defaulting to the epoch, or to `null` forever — passes every injected case in this file by construction. It asserts the *wiring*, not the function: `adoptionBoundary`'s own contract, including the load-bearing `main` ref in its argv, is pinned beside its implementation in Task 2 (tests/reviewRounds/row.test.ts), per TDD invariant 1.
+
+**A malformed corpus is DISCLOSED, not refused — and the distinction is the point.** `readArcs` keeps every line it rejected in `arc.malformed`, and every count in this report is computed from `arc.rows`. A report that read only `rows` would print `diff 3/3` over a four-line file, classify the stage untriggered, and say nothing at all about its input being partial — while the merge gate, reading the same file, reports `malformed_row`. That is the same partial-answer-labelled-complete failure this plan refuses for a shallow clone, arriving through the other door, and a plan that rejects it in one place and ships it in another is inconsistent with itself. It does **not** refuse the way the shallow-clone path does, because the rows that parsed are real data and withholding them would destroy information the reader can use. It discloses: `malformedRows` names every rejected line by file and line, and any arc holding one carries a marker beside its counts, so the number cannot be read as whole. Refusal is for an answer that would be *wrong*; disclosure is for one that is *incomplete*, and conflating them costs the reader either truth or usefulness.
+
+**The CLI surface is tested, not smoke-run.** `render` and `main` are exported and carry their own cases. Left unexported and exercised only by the Step 5 `pnpm review:economy` run, the one surface a human actually reads has no assertion on it at all — a renderer that printed `silent arcs: 0` for a WITHHELD list would satisfy every `buildReport` test in the file while erasing the null-versus-empty distinction the type exists to carry.
 
 **`Report` shape**, fixed here so no field is invented at implementation time (and repeated verbatim in the module at Step 3, which is the file that declares it):
 
@@ -3666,6 +3817,12 @@ describe("real history (spec §11.3 layer 2)", () => {
 export type StageCounts = { counted: number; recorded: number };
 export type Report = {
   arcs: { branch: string; baseSha: string; stages: Record<string, StageCounts> }[];
+  /** Lines `readArcs` REJECTED. Non-empty means every count in this report was
+   *  computed over a partial corpus, and the arcs concerned say so beside their
+   *  counts. Disclosed rather than refused: the rows that DID parse are real
+   *  data, and disclosure is what separates a partial answer from one labelled
+   *  complete. */
+  malformedRows: { arc: string; file: string; line: number }[];
   triggerRateByMonth: Record<string, { population: number; triggered: number; rate: number }>;
   findingsByStage: Record<string, { total: number; declaredRows: number; undeclaredRows: number }>;
   /** null means WITHHELD - a shallow clone or an unset boundary. Never [] for
@@ -3704,6 +3861,12 @@ import type { ReviewRoundRow } from "../lib/reviewRounds/row";
 export type StageCounts = { counted: number; recorded: number };
 export type Report = {
   arcs: { branch: string; baseSha: string; stages: Record<string, StageCounts> }[];
+  /** Lines `readArcs` REJECTED. Non-empty means every count in this report was
+   *  computed over a partial corpus, and the arcs concerned say so beside their
+   *  counts. Disclosed rather than refused: the rows that DID parse are real
+   *  data, and disclosure is what separates a partial answer from one labelled
+   *  complete. */
+  malformedRows: { arc: string; file: string; line: number }[];
   triggerRateByMonth: Record<string, { population: number; triggered: number; rate: number }>;
   findingsByStage: Record<string, { total: number; declaredRows: number; undeclaredRows: number }>;
   /** null means WITHHELD - a shallow clone or an unset boundary. Never [] for
@@ -3748,6 +3911,25 @@ export function buildReport(repoRoot: string, opts: ReportOptions = {}): Report 
     }
     return { branch: arc.branch, baseSha: arc.baseSha, stages };
   });
+
+  // --- malformed rows, surfaced rather than swallowed ------------------------
+  // `readArcs` keeps every line it REJECTED, and the counts above are computed
+  // from `arc.rows` alone - so a corpus with three good lines and one bad one
+  // yields `diff 3/3` with nothing saying the input was partial, while the
+  // merge gate reading the SAME file reports `malformed_row`. Two tools, one
+  // corpus, contradictory answers. This does NOT refuse the way a shallow
+  // clone does: the rows that parsed are real data, so the report DISCLOSES,
+  // and disclosure is the whole difference between a partial answer and one
+  // labelled complete.
+  const malformedRows: Report["malformedRows"] = arcs.flatMap((arc) =>
+    arc.malformed.map((bad) => ({
+      arc: `${arc.branch} ${arc.baseSha}`,
+      // `malformed` can only come from a .jsonl, so corpusPath is set; the
+      // fallback keeps the field a real location rather than the string "null".
+      file: arc.corpusPath ?? arc.dir,
+      line: bad.line,
+    })),
+  );
 
   // --- trigger rate by month -------------------------------------------------
   // Population is (arc, stage) PAIRS that actually completed a review, not arcs.
@@ -3863,6 +4045,7 @@ export function buildReport(repoRoot: string, opts: ReportOptions = {}): Report 
 
   return {
     arcs: arcRows,
+    malformedRows,
     triggerRateByMonth,
     findingsByStage,
     silentArcs,
@@ -3878,7 +4061,7 @@ export function buildReport(repoRoot: string, opts: ReportOptions = {}): Report 
 // CLI. Read-only, gates nothing, exit 0 always except on its own usage error.
 // ---------------------------------------------------------------------------
 
-function render(report: Report): string {
+export function render(report: Report): string {
   const out: string[] = ["review round economy", ""];
 
   out.push(`arcs recorded: ${report.arcs.length}`);
@@ -3886,7 +4069,18 @@ function render(report: Report): string {
     const stages = Object.entries(arc.stages)
       .map(([stage, c]) => `${stage} ${c.counted}/${c.recorded}`)
       .join("  ");
-    out.push(`  ${arc.branch} ${arc.baseSha}  ${stages || "(no rows)"}`);
+    const key = `${arc.branch} ${arc.baseSha}`;
+    // The marker sits BESIDE the counts, never in a footnote further down. A
+    // reader scanning this list must not be able to take a partial count for a
+    // whole one, and a note they have to scroll to is one they may not reach.
+    const bad = report.malformedRows.filter((m) => m.arc === key).length;
+    const mark = bad > 0 ? `  INCOMPLETE (${bad} malformed row(s) excluded)` : "";
+    out.push(`  ${key}  ${stages || "(no rows)"}${mark}`);
+  }
+
+  if (report.malformedRows.length > 0) {
+    out.push("", `malformed rows, EXCLUDED from every count above: ${report.malformedRows.length}`);
+    for (const m of report.malformedRows) out.push(`  ${m.file}:${m.line}  (${m.arc})`);
   }
 
   out.push("", `filing threshold: ${ROUND_THRESHOLD} counted rounds in one stage`, "");
@@ -4142,9 +4336,11 @@ git commit -m "docs(review-rounds): the dispatch hook reports declared findings,
 
 **Interfaces:**
 - Consumes: lib/reviewRounds/corpus.ts and lib/reviewRounds/count.ts (Task 6) as the mutated sources.
-- Produces: a second enrolled `GuardSurface`, and a per-surface control mutation replacing the hardcoded one.
+- Produces: **two** enrolled `GuardSurface` rows, and a per-surface control mutation replacing the hardcoded one.
 
-**Two things block a second surface today**, and both are part of this task. `EXPECTED_LEDGER_KINDS` (`tests/mutation/guardSurfaces.gate.test.ts:33`) requires an entry keyed by surface id — verified: it currently holds only `taskContract: { equivalent: 18, "accepted-gap": 2 }` and the suite asserts its key set equals the enrolled ids exactly. And the control mutation (`tests/mutation/guardSurfaces.gate.test.ts:110-129`) is hardcoded to `'if (kind !== "plan") return [];'`, a `taskContract` source string — verified live. A second surface fails on both until the control is generalized per surface.
+**Two sources means two rows, because `sourcePath` is singular.** `GuardSurface.sourcePath` is one repo-relative string (`tests/mutation/source/registry.ts:12-22`), and the harness mutates exactly that file — so a single row naming count.ts leaves every structural decision in corpus.ts outside the mutant set entirely, while the gate still announces a score and an empty unaccepted-survivor set over it. The gap is not hypothetical and has a named site: `if (n < ROUND_THRESHOLD) continue;` in `checkCorpus`. A `relational-boundary` mutation of that comparison to `<=` suppresses the filing duty at exactly the threshold — the arc that burned precisely `ROUND_THRESHOLD` counted rounds walks past the gate — and under a one-row enrollment that mutant is never generated, so it can never appear as a survivor. Detecting its survival is the entire reason the second surface exists.
+
+**Two things block a new surface today**, and both are part of this task. `EXPECTED_LEDGER_KINDS` (`tests/mutation/guardSurfaces.gate.test.ts:33`) requires an entry keyed by surface id — verified: it currently holds only `taskContract: { equivalent: 18, "accepted-gap": 2 }` and the suite asserts its key set equals the enrolled ids exactly, so it grows to **three** rows here, one per enrolled surface. And the control mutation (`tests/mutation/guardSurfaces.gate.test.ts:110-129`) is hardcoded to `'if (kind !== "plan") return [];'`, a `taskContract` source string — verified live. Either new surface fails on both until the control is generalized per surface.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -4176,13 +4372,13 @@ In `tests/mutation/_metaGuardSurfaceRegistry.test.ts`, add the behavioral cases 
 
 `VALID` (`tests/mutation/_metaGuardSurfaceRegistry.test.ts:16`) gains a `controlMutation` in the same edit; without it the file does not typecheck once the field is required, and that failure is the first red state.
 
-Then add the new surface's row to `EXPECTED_LEDGER_KINDS` and run the gate. It fails on the hardcoded control, which is the second red state.
+Then add both new surfaces' rows to `EXPECTED_LEDGER_KINDS` and run the gate. It fails on the hardcoded control, which is the second red state.
 
 - [ ] **Step 2: Generalize the control**
 
 Add `controlMutation: { find: string; replace: string }` to `GuardSurface` (`tests/mutation/source/registry.ts:12-23`), validated in `validateSurface` (`registry.ts:41`) to require that `find` occurs **exactly once** in the surface's source — an authoring-time guard against a control that silently applies zero or many times. `taskContract` keeps its current pair, so its behavior is unchanged.
 
-**Swapping the strings is not enough: the existing control proves nothing about the control.** The live test (`tests/mutation/guardSurfaces.gate.test.ts:110-129`) builds `broken`, asserts it differs from the source, then **discards it** and runs `runSurface` over every `equality-flip` mutant, asserting only `killed > 0`. Nothing ties the kill to the declared mutation. Its own comment says "one operator, one site", but no site is pinned. On the new surface that is not hypothetical: lib/reviewRounds/count.ts has two equality sites — the status conjunct in `countedRounds` and the contiguity comparison in `roundGaps` — so the contiguity mutant can be killed while the status-conjunct control **survives**, and AC-3 still reports success. That is the exact vacuity the control exists to rule out, inside the vacuity check.
+**Swapping the strings is not enough: the existing control proves nothing about the control.** The live test (`tests/mutation/guardSurfaces.gate.test.ts:110-129`) builds `broken`, asserts it differs from the source, then **discards it** and runs `runSurface` over every `equality-flip` mutant, asserting only `killed > 0`. Nothing ties the kill to the declared mutation. Its own comment says "one operator, one site", but no site is pinned. On `reviewRoundCount` that is not hypothetical: lib/reviewRounds/count.ts has two equality sites — the status conjunct in `countedRounds` and the contiguity comparison in `roundGaps` — so the contiguity mutant can be killed while the status-conjunct control **survives**, and AC-3 still reports success. That is the exact vacuity the control exists to rule out, inside the vacuity check.
 
 The control therefore asserts its own mutant, by executing it — through the harness's existing overlay, never by writing the tracked file. Read `tests/mutation/source/runner.ts` before writing this: `runSuite(root, target, mutantFile, suite, context): number` (`tests/mutation/source/runner.ts:68`) returns the child's exit code, and `runSurface` (`tests/mutation/source/runner.ts:118-134`) shows the whole pattern — `mkdtempSync` a scratch dir, write the mutant text into a scratch mutant file, and pass the REAL `target` path alongside the scratch `mutantFile` so the overlay's `load` hook serves the mutant in its place.
 
@@ -4240,21 +4436,32 @@ import { runSuite, runSurface } from "./source/runner";
 
 This replaces the `runSurface(..., { operators: ["equality-flip"] })` probe rather than sitting beside it: that probe's only claim was liveness, and executing the declared mutant establishes liveness directly instead of inferring it from an unrelated mutant's death. `runSurface` keeps its other caller (`tests/mutation/guardSurfaces.gate.test.ts:49`), which is why it stays on the import line.
 
-- [ ] **Step 3: Enroll the surface**
+- [ ] **Step 3: Enroll BOTH surfaces**
 
-Add the `GUARD_SURFACES` row: `id: "reviewRoundEconomy"`, `sourcePath: "lib/reviewRounds/count.ts"`, `suitePaths: ["tests/reviewRounds/count.test.ts", "tests/docs/_metaReviewRoundEconomy.test.ts"]`, `operators: [...OPERATOR_NAMES]`, and a `scoreFloor` set from the measured score. Its control inverts the counting rule's status conjunct — the one mutation the suite must notice.
+`sourcePath` is one path, so the gate's two sources are two `GUARD_SURFACES` rows, each with its own suites, control, floor and ledger:
+
+| field | `reviewRoundCount` | `reviewRoundCorpus` |
+| --- | --- | --- |
+| `sourcePath` | lib/reviewRounds/count.ts | lib/reviewRounds/corpus.ts |
+| `suitePaths` | tests/reviewRounds/count.test.ts and tests/docs/_metaReviewRoundEconomy.test.ts | tests/docs/_metaReviewRoundEconomy.test.ts alone |
+| `operators` | `[...OPERATOR_NAMES]` | `[...OPERATOR_NAMES]` |
+| `controlMutation` | `find: 'r.status === "verdict"'`, `replace: 'r.status !== "verdict"'` — inverts the counting rule's status conjunct, so an infra fault counts as a round | `find: "if (n < ROUND_THRESHOLD) continue;"`, `replace: "if (n <= ROUND_THRESHOLD) continue;"` — the threshold comparison, which off by one suppresses the filing duty at exactly the threshold |
+| `scoreFloor` | set from the measured score | set from the measured score |
+| `accepted` | its own ledger | its own ledger |
+
+Both `find` strings occur exactly once in their own source — `validateSurface` enforces that at authoring time and Step 2's control case asserts it again at run time, because a control that applies zero times is the failure the whole probe exists to rule out. Note that the two rows share tests/docs/_metaReviewRoundEconomy.test.ts: count.ts is reached through `checkCorpus` as well as directly, and a mutant is KILLED if any listed suite goes red.
 
 - [ ] **Step 4: Run the gate and record the ledger**
 
 Run: `pnpm mutation:guards`
-Expected: both surfaces pass their floor. Every survivor is triaged into `accepted` as `equivalent` or `accepted-gap` with a reason, and `EXPECTED_LEDGER_KINDS` records the resulting counts. **An unaccepted survivor is a real gap in the guard** — fix the guard, do not raise the floor.
+Expected: all three enrolled surfaces — `taskContract` plus the two added here — pass their floor. Every survivor is triaged into `accepted` as `equivalent` or `accepted-gap` with a reason, and `EXPECTED_LEDGER_KINDS` carries one row per surface with the resulting counts. **An unaccepted survivor is a real gap in the guard** — fix the guard, do not raise the floor.
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add tests/mutation/source/registry.ts tests/mutation/guardSurfaces.gate.test.ts \
         tests/mutation/_metaGuardSurfaceRegistry.test.ts
-git commit -m "test(review-rounds): enroll the round-economy gate as a mutation surface"
+git commit -m "test(review-rounds): enroll count.ts and corpus.ts as mutation surfaces"
 ```
 
 ---
@@ -4359,7 +4566,7 @@ Ten findings, all confirmed against the live tree before repair. Recorded so a l
 | 4 | HIGH - `mkRun`, not `makeRun`, at all 19 call sites; Task 9 had no imports and two mangled template literals that swallowed the exit action | Renamed, imports added, both literals rebuilt |
 | 5 | HIGH - `tests/codexGuard/signals.test.ts:104` spawns the wrapper directly, bypassing the harness default, so the hard cutover regresses the suite | New Step 3a edits that literal array, plus a `grep -rn '"review"'` sweep so the fix is not keyed to one known site |
 | 6 | HIGH - the wrapper-error test could not reach the second writer: `buildConfig` and the whole `--lint-doc` block run at MODULE TOP LEVEL (`scripts/codex-guard.mjs:921` and `scripts/codex-guard.mjs:926`), before `main` is defined (`scripts/codex-guard.mjs:994`) | Trigger changed to a `CODEX_HOME` pointing at a plain file, which throws inside `main()` while leaving `cfg.out` writable; a structural test asserting an emit at both sites backs it up |
-| 7 | MEDIUM - the `.mjs` bridge and the TypeScript module were tested separately, so they could drift on any case only one covered | Step 4a differential test drives **both** over one shared fixture list (tests/reviewRounds/_arcFixtures.ts), asserting identical results and full refusal-kind coverage |
+| 7 | MEDIUM - the `.mjs` bridge and the TypeScript module were tested separately, so they could drift on any case only one covered | A differential test (Task 4 Step 2, renumbered from 4a in round 6) drives **both** over one shared fixture list (tests/reviewRounds/_arcFixtures.ts), asserting identical results and full refusal-kind coverage |
 | 8 | HIGH - Task 8's twelve report cases were empty placeholders and never imported `buildReport`, so Step 2 could not fail as claimed | Every body written, `Report` shape fixed in the plan, boundary and merged-arc list made injectable with production defaults |
 | 9 | HIGH - `tests/mutation/_metaGuardSurfaceRegistry.test.ts:16` holds a typed `GuardSurface` literal, so requiring `controlMutation` breaks typecheck **there**; its validation had no behavioral case | File added to Task 11, three `validateSurface` cases written (zero matches, many matches, exactly one), plus a `grep -rn 'GuardSurface'` consumer sweep |
 | 10 | MEDIUM - `FINDINGS: 2 or 7` recorded as `2`, an unanchored recognizer turning an ambiguous declaration into a false scalar | Regex end-anchored; three ambiguous single-line cases added |
@@ -4419,6 +4626,19 @@ One finding, confirmed against the live tree before repair. It is the third cons
 **Why the existing three wiring tests could not catch any of it, which is the reason this shipped twice.** The no-verdict case exits cleanly, so it never reaches an exit-shape guard; the rollout case includes a verdict, so the scrape's guard is never the one that fires; and the interrupted and wrapper-error cases both take their declaration from an EARLIER completed attempt, so the carrier is already set before the path under test runs. Three tests over three terminal paths, and all three enter through the one branch that was already correct. The new cases are chosen by the guard they must cross, not by the writer they must reach.
 
 **The sweep this finding demands, run across the whole plan.** The shape is: a value the corpus records unconditionally, extracted inside a conditional branch. `findingCount` is the only unconditional-by-schema field the wrapper derives from reviewer output; every other row field is either identity resolved once per dispatch before any branch (Task 3's `branch`, `baseSha`, `arc`, and `stage` / `round` / `startedAt` straight off `cfg` and `state`) or is itself the branch outcome, where conditionality is the definition rather than a defect (`status`, `verdict`, `verdictLine`, `failureReason`, `recoveredFrom`). The report side reads only what the corpus holds and guards `null` explicitly at every total (Task 8's `undeclaredRows`). One near-peer surfaced and was repaired in place rather than filed: Task 10's fallback rule inherited the same defect from the other end — its "last non-empty attempt message" scan matches the wrapper on a nonzero-exit or killed attempt ONLY once Task 5's read sits above the exit-shape guards, so under the round-4 placement the advisory line and the corpus row disagreed there as well. Its one remaining blind spot, a scraped rollout that declared without a verdict and therefore wrote no file, is now stated as a documented limit of the fallback in Task 10 Step 1.
+
+## Review Round 6 Triage
+
+Three findings, all confirmed against the live tree before repair. Two are coverage gaps that let a gate announce a score over ground it never walked; the third is the plan contradicting itself — refusing a partial answer labelled complete in one place and shipping one in another.
+
+| # | Finding | Repair |
+| --- | --- | --- |
+| 1 | HIGH - three TDD sequencing violations against invariant 1. `adoptionBoundary` is implemented in Task 2 and first exercised in Task 8, so the red state that would have caught the dropped `main` ref did not exist at the moment the argv was written. Task 4 writes the `.mjs` bridge BEFORE the differential parity test that decides whether it is correct, which makes the parity lock a description of whatever got typed rather than a constraint on it. And Task 8 tests `buildReport` while `render`, `main`, argument handling and the package entry arrive with a post-implementation smoke run only - so a renderer printing `silent arcs: 0` for a WITHHELD list satisfies every test in the file while erasing the null-versus-empty distinction `Report` exists to carry | A focused `adoptionBoundary` case moves into Task 2's own suite, with its own red state: `null` while the constants module lives only on a feature branch, then the merge commit's `%cI` read back from the fixture repo's log after merging to main. Task 8's production-default case STAYS - retuned to assert what it uniquely covers, that `buildReport` READS the function when nothing is injected, which an epoch or null-forever default fails. Task 4's steps are reordered: parity test (Step 2), both suites run red (Step 3), THEN the bridge (Step 4) and the wiring (Step 5). `render` and `main` are exported and gain three cases - the refusal named rather than counted, every arc's per-stage pair read off the report rather than a literal, and unknown-argument / `--help` exit codes |
+| 1b | **Fenced, not fixed: Task 7's `PARALLEL_TEST_GLOBS` edit and Task 12's documentation edits.** Neither is code under invariant 1 and neither gets a ceremonial test | A vitest project glob has no behavior to assert in a unit test; what verifies it is the two-command check Task 7 Step 5 already carries - a parallel run that COLLECTS the new files and a serial listing that does NOT - which is a real before/after on the only observable the edit has. A documentation contract has no red state to write at all: there is no failing assertion that AGENTS.md prose is absent, only a diff. Writing tests for either would be invariant-1 theatre, and the plan says so here rather than growing two tests that assert nothing |
+| 2 | BLOCKING - the report computed authoritative metrics from a corpus it knew was partial, and printed them as complete. `buildReport` aggregated `arc.rows` only; `readArcs` preserves every rejected line in `arc.malformed` and Task 8 never read the field. Concrete state: rounds 1-3 valid and a fourth malformed JSONL line. The merge gate reports `malformed_row`; `pnpm review:economy`, reading the SAME file, independently prints `diff 3/3`, classifies the stage untriggered, and gives no indication its input was incomplete. That is the §8.2 failure this plan already refuses for shallow history, arriving through the other door, and a plan that rejects it in one place and ships it in another is inconsistent with itself | `Report` gains `malformedRows: { arc: string; file: string; line: number }[]` (both copies of the type block, which are verbatim-identical by design), `buildReport` populates it from `arc.malformed`, and `render` names every rejected line by file and line AND marks any arc holding one INCOMPLETE **beside its counts**, not in a footnote a reader may never scroll to. New test: three valid rows plus one malformed line asserts the malformed row is reported with its line derived from the fixture body, and that the arc's rendered counts carry the marker. Stated in prose: this DISCLOSES rather than refusing, unlike shallow history, because the rows that parsed are real data - refusal is for an answer that would be wrong, disclosure for one that is incomplete, and conflating them costs the reader either truth or usefulness |
+| 3 | BLOCKING - mutation enrollment covered one of the two sources it claimed. Task 11 said both corpus.ts and count.ts were mutated, but its registry row named lib/reviewRounds/count.ts alone, and `GuardSurface.sourcePath` is a single string (`tests/mutation/source/registry.ts:12-22`, read and confirmed). Every structural decision in corpus.ts was therefore outside the mutant set while the task still announced a score and an empty unaccepted-survivor set over it. Named site: a `relational-boundary` mutation of `if (n < ROUND_THRESHOLD) continue;` to `<=` suppresses the filing duty at exactly the threshold, and could never appear as a survivor | Two surfaces enrolled, `reviewRoundCount` (count.ts) and `reviewRoundCorpus` (corpus.ts), each with its own `suitePaths`, `controlMutation`, `scoreFloor` and `accepted` ledger, laid out as a per-field table so neither row inherits the other's numbers. `EXPECTED_LEDGER_KINDS` grows to three rows, one per enrolled surface, which the existing key-set assertion already enforces. Every "a second surface" phrasing in the task corrected, including the meta-test inventory. The singular `sourcePath` is stated in prose as the REASON this is two rows rather than one, and the threshold comparison is named as the specific site whose survival the second surface exists to detect |
+
+**Findings 1 and 3 are the same shape at two altitudes, so the sweep ran across both.** Each is a claim of coverage over ground nothing walked: a function whose test arrived six tasks after its implementation, and a registry row announcing a score over a file it never mutated. The sweep across the plan turned up the third instance in finding 1 itself — the CLI surface, whose only verification was a smoke run — and the fence in row 1b is the other half of the same pass: the two remaining untested edits were examined and found to have no red state to write, which is recorded here so a later round does not re-derive it or manufacture tests for them.
 
 ## Self-Review Record
 
