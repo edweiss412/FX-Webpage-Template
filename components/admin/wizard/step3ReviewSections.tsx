@@ -1645,7 +1645,12 @@ export function CrewBreakdown({
               polite region announces success; visible banners are decorative/alert.
               Gated on non-empty crew too — an empty section renders ONLY
               "No crew parsed." with no banner state (spec §5). */}
-          <div className="sr-only" role="status" aria-live="polite">
+          <div
+            className="sr-only"
+            role="status"
+            aria-live="polite"
+            data-testid="crew-row-reset-announcer"
+          >
             {outcome?.kind === "ok" ? outcome.message : ""}
           </div>
           {outcome?.kind === "ok" && (
@@ -3464,16 +3469,19 @@ export function AgendaBreakdown({
 
   const body = (
     <>
-      {state === "loading" ? (
-        <p
-          role="status"
-          aria-live="polite"
-          data-testid={`wizard-step3-card-${driveFileId}-agenda-parsing`}
-          className="text-xs text-text-subtle"
-        >
-          {`Parsing agenda… (${items.length} ${items.length === 1 ? "PDF" : "PDFs"})`}
-        </p>
-      ) : null}
+      {/* Mounted unconditionally, text toggled: a live region inserted together
+          with its text is never announced, and "parsing started" is exactly the
+          transition a reader needs (BL-ANNOUNCE-REGION-UNMOUNT-CLASS). */}
+      <p
+        role="status"
+        aria-live="polite"
+        data-testid={`wizard-step3-card-${driveFileId}-agenda-parsing`}
+        className={state === "loading" ? "text-xs text-text-subtle" : "sr-only"}
+      >
+        {state === "loading"
+          ? `Parsing agenda… (${items.length} ${items.length === 1 ? "PDF" : "PDFs"})`
+          : ""}
+      </p>
       <ul className="flex flex-col gap-3">
         {items.map((item, i) => (
           <AgendaItemRow key={`${item.label}-${i}`} item={item} state={state} index={i} />

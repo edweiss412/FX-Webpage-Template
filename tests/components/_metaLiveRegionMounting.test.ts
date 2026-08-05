@@ -76,6 +76,10 @@ const NON_TRANSIENT_GATES: ReadonlyMap<string, string> = new Map([
     "server-rendered banner: present on first paint with its text, never inserted later",
   ],
   [
+    "crew-row-reset-announcer",
+    "already a PERSISTENT sr-only region; the gate above it is the crew SECTION (actions enabled and members present), not the announcement's own state",
+  ],
+  [
     "unpublish-busy-notice",
     "whole-surface swap — the form is replaced by the busy notice, so nothing is 'inserted into' a live page",
   ],
@@ -94,7 +98,6 @@ const PENDING: ReadonlyMap<string, string> = new Map([
   ],
   // Found by THIS walk, not by the entry's filed list — which is the argument
   // for walking rather than listing.
-  ["components/admin/wizard/step3ReviewSections.tsx", "2 sites — toggle text"],
 ]);
 
 function walk(dir: string, out: string[] = []): string[] {
