@@ -12,7 +12,7 @@
 // perfectly correct tree. Measured: authored 1, compiled 2.
 import { createHash } from "node:crypto";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { dirname, relative, resolve, sep } from "node:path";
+import { dirname, relative, resolve } from "node:path";
 import { describe, expect, test } from "vitest";
 
 import {
@@ -89,9 +89,14 @@ function discoverShippedStylesheets(): Stylesheet[] {
     }
     found.set(absolute, { label, text });
 
-    // Quoted and UNQUOTED both: `@import url(x.css)` is valid CSS and was a
-    // live escape route past the quoted-only form.
-    const IMPORTS = [/@import\s+(?:url\()?["']([^"']+)["']/g, /@import\s+url\(\s*([^"')]+?)\s*\)/g];
+    // Every legal spelling of the at-rule. `@import url( "x.css" )` with
+    // whitespace inside the parens is valid CSS and slipped past a pattern that
+    // required the quote immediately after `url(`.
+    const IMPORTS = [
+      /@import\s+url\(\s*["']([^"']+)["']\s*\)/g, // url( "x.css" )
+      /@import\s+["']([^"']+)["']/g, //             "x.css"
+      /@import\s+url\(\s*([^"')]+?)\s*\)/g, //      url(x.css), unquoted
+    ];
     for (const pattern of IMPORTS) {
       for (const match of text.matchAll(pattern)) {
         const next = resolveSpecifier(match[1]!.trim(), absolute);
@@ -113,7 +118,8 @@ function discoverShippedStylesheets(): Stylesheet[] {
   // `require`, and dynamic `import()` are three syntaxes for one act, and a
   // guard that recognises only the first is a guard against one syntax.
   const SPECIFIERS = [
-    /\bimport\s+["']([^"']+\.css)["']/g,
+    /\bimport\s+["']([^"']+\.css)["']/g, //                        side-effect
+    /\bimport\s[^;\n]*?\bfrom\s*["']([^"']+\.css)["']/g, //       CSS Modules binding
     /\brequire\s*\(\s*["']([^"']+\.css)["']\s*\)/g,
     /\bimport\s*\(\s*["']([^"']+\.css)["']\s*\)/g,
   ];
@@ -122,12 +128,12 @@ function discoverShippedStylesheets(): Stylesheet[] {
     const dir = resolve(REPO_ROOT, root);
     if (!existsSync(dir)) continue;
     walk(dir, (file) => {
-      if (file.endsWith(".css")) {
-        // Every `app/**` stylesheet ships; a stray .css under components/ or
-        // lib/ only ships if something imports it, which the scan below sees.
-        if (file.includes(`${sep}app${sep}`)) read(file, relative(REPO_ROOT, file));
-        return;
-      }
+      // A stylesheet ships because something IMPORTS it, never because of where
+      // it sits. Next requires CSS to be imported; seeding every `app/**.css`
+      // by placement failed a tree carrying an unreferenced file that reaches
+      // no browser -- a false positive, and those are not the safe direction.
+      // Import scanning below finds the real graph, including new files.
+      if (file.endsWith(".css")) return;
       if (!/\.(tsx?|jsx?|mjs|cjs)$/.test(file)) return;
       const source = readFileSync(file, "utf8");
       for (const pattern of SPECIFIERS) {
@@ -148,6 +154,13 @@ function discoverShippedStylesheets(): Stylesheet[] {
  */
 function resolveSpecifier(specifier: string, importer: string): string | null {
   if (specifier.startsWith(".")) return resolve(dirname(importer), specifier);
+  // A root-relative `@import "/x.css"` is served from `public/`, which is the
+  // one place in this repo where a URL path and a file path differ.
+  if (specifier.startsWith("/")) {
+    const fromPublic = resolve(REPO_ROOT, "public", specifier.slice(1));
+    if (existsSync(fromPublic)) return fromPublic;
+    return null;
+  }
   if (specifier.startsWith("@/")) return resolve(REPO_ROOT, specifier.slice(2));
   for (const candidate of [specifier, `${specifier}/index.css`, `${specifier}.css`]) {
     const guess = resolve(REPO_ROOT, "node_modules", candidate);

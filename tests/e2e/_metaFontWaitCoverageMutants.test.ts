@@ -149,6 +149,60 @@ const MUTANTS: ReadonlyArray<{ id: string; why: string; source: string }> = [
       const h = await page.locator("#x").evaluate((n) => n.scrollHeight);
     `),
   },
+  // M16-M19: R3's escapes. A mention is not a settle; a combinator can make the
+  // wait optional or concurrent with the navigation it should follow.
+  {
+    id: "M16",
+    why: "the return is COMMENTED OUT — text matching credits it, the AST does not",
+    source: wrap(`
+      await page.goto(url);
+      await page.evaluate(() => {
+        // return document.fonts.ready;
+      });
+      const box = await page.getByTestId("x").evaluate((n) => n.getBoundingClientRect().height);
+    `),
+  },
+  {
+    id: "M17",
+    why: "return void discards the promise it names",
+    source: wrap(`
+      await page.goto(url);
+      await page.evaluate(() => {
+        return void document.fonts.ready;
+      });
+      const box = await page.getByTestId("x").evaluate((n) => n.getBoundingClientRect().height);
+    `),
+  },
+  {
+    id: "M18",
+    why: "Promise.race can settle on the timeout, never on the font promise",
+    source: wrap(`
+      await page.goto(url);
+      await Promise.race([page.evaluate(() => document.fonts.ready), timeout(500)]);
+      const box = await page.getByTestId("x").evaluate((n) => n.getBoundingClientRect().height);
+    `),
+  },
+  {
+    id: "M19",
+    why: "navigation reached the combinator through a binding, so text alone misses it",
+    source: wrap(`
+      const nav = page.goto(url);
+      await Promise.all([nav, page.evaluate(() => document.fonts.ready)]);
+      const box = await page.getByTestId("x").evaluate((n) => n.getBoundingClientRect().height);
+    `),
+  },
+
+  // M20: CSSOM resolved geometry. An intrinsically sized element's computed
+  // width is as font-dependent as its rect.
+  {
+    id: "M20",
+    why: "getComputedStyle width is resolved geometry",
+    source: wrap(`
+      await page.goto(url);
+      const w = await page.locator("#x").evaluate((el) => getComputedStyle(el).width);
+    `),
+  },
+
   {
     id: "M15",
     why: "getClientRects is the wrapped-line spelling of the same read",
@@ -166,6 +220,56 @@ describe("font-wait guard is falsifiable", () => {
 
   test.each(MUTANTS)("$id is reported — $why", ({ source }) => {
     expect(analyzeSource("mutant.spec.ts", source).length).toBeGreaterThan(0);
+  });
+
+  test.each([
+    [
+      "async callback awaiting fonts then a frame — the live stackedBandLayout idiom",
+      `
+      await page.goto(url);
+      await page.evaluate(async () => {
+        await document.fonts.ready;
+        await new Promise((r) => requestAnimationFrame(() => r(null)));
+      });
+      const box = await page.getByTestId("x").evaluate((n) => n.getBoundingClientRect().height);
+    `,
+    ],
+    [
+      "promise bound to a name, awaited after",
+      `
+      await page.goto(url);
+      const ready = page.evaluate(() => document.fonts.ready);
+      await ready;
+      const box = await page.getByTestId("x").evaluate((n) => n.getBoundingClientRect().height);
+    `,
+    ],
+    [
+      "Promise.all with no navigating sibling",
+      `
+      await page.goto(url);
+      await Promise.all([page.evaluate(() => document.fonts.ready), page.waitForTimeout(1)]);
+      const box = await page.getByTestId("x").evaluate((n) => n.getBoundingClientRect().height);
+    `,
+    ],
+  ])("CORRECT: %s is not reported", (_label, body) => {
+    // A guard that fails valid code teaches contributors to work around it.
+    // These three all settle the promise before the read; each was REJECTED by
+    // an over-eager repair, which is the failure mode this block pins.
+    expect(analyzeSource("valid.spec.ts", wrap(body))).toEqual([]);
+  });
+
+  test("a helper that waits counts for its callers", () => {
+    const source = `import { test } from "@playwright/test";
+async function settleFonts(page) {
+  await page.evaluate(() => document.fonts.ready);
+}
+test("t", async ({ page }) => {
+  await page.goto(url);
+  await settleFonts(page);
+  const box = await page.getByTestId("x").evaluate((n) => n.getBoundingClientRect().height);
+});
+`;
+    expect(analyzeSource("helper.spec.ts", source)).toEqual([]);
   });
 
   test("a navigation with no geometry after it is NOT reported", () => {

@@ -147,6 +147,26 @@ Per `docs/agents/writing-plans.md` and the round-economy contract, these are the
 | M24 | Wait present in text but never SETTLED (unawaited, block body with no `return`, or raced with the navigation inside `Promise.all`) | `settles()` in `_fontWaitCoverage.ts` |
 | M25 | Font-sensitive read spelled as a HEIGHT or rect list (`offsetHeight`, `clientHeight`, `scrollHeight`, `getClientRects`) | widened `GEOMETRY_NAMES` |
 | M26 | Stylesheet reached by a route the resolver did not walk (`.js/.jsx/.mjs/.cjs`, `require()`, dynamic `import()`, `@/` alias, transitive `lib/`, unquoted `@import url()`) | `resolveSpecifier` + widened roots |
+| M27 | Wait made OPTIONAL or CONCURRENT by a combinator (`Promise.race`/`any`; `all` with a navigating sibling, including one reached through a binding) | `racedOrOptional` + `navigates` |
+| M28 | Wait present only as text — commented-out `return`, or `return void` | AST-located access + `produces` |
+| M29 | CSSOM resolved geometry (`getComputedStyle(el).width`) | property-scoped `COMPUTED_GEOMETRY` |
+| M30 | Stylesheet bound rather than side-effect imported (CSS Modules), `@import url( "x" )` with inner whitespace, root-relative `@import "/x.css"` from `public/` | widened `SPECIFIERS`/`IMPORTS` + `public/` resolution |
+
+**Round 3 also fixed a REGRESSION the guard itself introduced, which is why the
+corpus of correct forms below is now pinned as hard as the mutants.** R2's
+repair demanded a `return` in every block body and so REJECTED three correct
+idioms — the async callback that awaits fonts then a frame (live at
+`stackedBandLayout.spec.ts:85`, and stronger than the concise form since it also
+waits a frame), a promise bound to a name and awaited after, and a helper that
+waits on its caller's behalf. A guard that fails valid code teaches contributors
+to work around it, and a worked-around guard protects nothing. Three
+`CORRECT: …` rows and a helper row now pin the accept side.
+
+**One more self-inflicted defect worth recording**, because it explains why the
+combinator check looked correct and was not: the wait was recorded from ANY call
+containing the access, so `Promise.race([...])` was itself credited as the wait,
+and the walk that looks UPWARD for a combinator never saw the array sitting
+below it. Waits are now recorded from the INNERMOST call containing the access.
 
 **M22 and M23 were added at whole-diff review, and both closed a gap this plan
 had already specified.** M21's own mutant (d) below — "two navigation sites, one
