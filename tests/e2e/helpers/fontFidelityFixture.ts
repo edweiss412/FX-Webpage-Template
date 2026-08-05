@@ -89,9 +89,23 @@ interface Observation {
   readonly families: string[];
   /** Registered `@font-face` families. Independent of whether anything rendered. */
   readonly faces: string[];
+  /** Set when the document was readable but the face query itself failed. */
+  readonly facesUnreadable?: true;
 }
 
 const collected: Observation[] = [];
+
+/**
+ * The CURRENT test's observations, owned by the `fontOracle` fixture.
+ *
+ * Enforcement used to run over `collected.slice(mark)`, which the fixture's own
+ * spec silently defeated: it calls `resetObservations()` in a `beforeEach` that
+ * runs AFTER the fixture captured its mark, so the slice started past the end of
+ * a now-empty array and `enforce()` judged nothing. A guard a `beforeEach` can
+ * switch off is not a guard — and it was switched off in exactly the file whose
+ * job is to prove the fixture works.
+ */
+let currentTest: Observation[] | null = null;
 
 /** Every observation this worker has made, for the fixture's own tests. */
 export function observations(): readonly Observation[] {
@@ -162,6 +176,9 @@ const WALK = (): string | null => {
  * stylesheet parses, so this vantage sees an impostor face the instant the
  * document loads, before anything renders.
  */
+/** Distinguishes "the face query threw" from "this document has no faces". */
+const FACES_UNREADABLE: string[] = [];
+
 const FACES = (): string[] => {
   const seen = new Set<string>();
   document.fonts.forEach((f) => seen.add(f.family.replace(/^["']|["']$/g, "")));
@@ -171,15 +188,28 @@ const FACES = (): string[] => {
 /** Record an observation from a frame, tolerating a document already gone. */
 async function observe(frame: Frame | Page, via: string): Promise<void> {
   const families = await frame.evaluate(WALK).catch(() => null);
-  const faces = await frame.evaluate(FACES).catch(() => null);
+  // FACES is evaluated separately and its failure is NOT collapsed into "no
+  // faces". Both used to land on `[]`, and `enforce()` only searches observed
+  // faces for UNEXPECTED ones — so an empty set passes. A serialization or
+  // API regression that made this evaluate throw would therefore have silenced
+  // the whole guard while every test stayed green, which is precisely the
+  // vacuous-guard shape this fixture exists to prevent (Codex R2 HIGH).
+  const faces = await frame.evaluate(FACES).catch(() => FACES_UNREADABLE);
   // Record when EITHER half saw something. Gating on `families` alone dropped
   // every document that had registered a face but not yet painted text.
-  if (!families && (faces === null || faces.length === 0)) return;
-  collected.push({
+  const unreadable = faces === FACES_UNREADABLE;
+  if (!families && !unreadable && faces.length === 0) return;
+  const observation: Observation = {
     via,
     families: families ? families.split(" ~ ") : [],
-    faces: faces ?? [],
-  });
+    faces: unreadable ? [] : faces,
+    // A document the WALK could read but the face query could not is a broken
+    // oracle, not a document without faces. Only that combination is flagged:
+    // a document already gone fails both, and is simply not recorded.
+    ...(unreadable && families ? { facesUnreadable: true as const } : {}),
+  };
+  collected.push(observation);
+  currentTest?.push(observation);
 }
 
 /** Observe every frame of a page. A page is not its frames (round 29). */
@@ -285,20 +315,22 @@ export const test = base.extend<{ fontOracle: void }>({
   /** After-body sweep, for documents that simply outlive the test. */
   fontOracle: [
     async ({ context }, provide) => {
-      const mark = collected.length;
+      const mine: Observation[] = [];
+      currentTest = mine;
       await provide();
       for (const page of context.pages()) {
         if (page.isClosed()) continue;
         await observePage(page, "after-body");
       }
+      currentTest = null;
       if (process.env.FONT_ORACLE_DUMP === "1") {
-        for (const o of collected.slice(mark)) {
+        for (const o of mine) {
           process.stdout.write(
             `[font-oracle] via=${o.via} faces=${JSON.stringify(o.faces)} families=${JSON.stringify(o.families)}\n`,
           );
         }
       }
-      enforce(collected.slice(mark));
+      enforce(mine);
     },
     { auto: true },
   ],
@@ -348,6 +380,18 @@ function enforce(seen: readonly Observation[]): void {
     throw new Error(
       `font oracle: parsed ${allowed.size} face families out of app/fonts.css, expected at least 2 ` +
         `(Inter plus its fallback). An empty accept-set would let every observation pass.`,
+    );
+  }
+  // A document whose faces could not be READ cannot be judged, and an
+  // unjudgeable document must not pass quietly — the enforcement below only
+  // looks for unexpected families, so an empty set is indistinguishable from a
+  // clean one.
+  const unreadable = seen.filter((o) => o.facesUnreadable).map((o) => o.via);
+  if (unreadable.length > 0) {
+    throw new Error(
+      `font oracle: the registered-face query failed on a document the element walk could read ` +
+        `(via ${[...new Set(unreadable)].join(", ")}). The guard cannot judge a document it cannot ` +
+        `read, and passing on one would make every other test's green meaningless.`,
     );
   }
   const bad = seen
