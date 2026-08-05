@@ -520,7 +520,14 @@ export type FinalizeRun = ReturnType<typeof useFinalizeRun>;
  * announced.
  */
 /** One source for the completion sentence — the announcer and the visible block
- *  must not be able to drift apart. */
+ *  must not be able to drift apart.
+ *
+ *  SUCCESS copy, not error copy. The M5-D8 guard keys on
+ *  `COPY` in a const name because error strings are what get inlined instead of
+ *  routed through `messageFor(code)`; there is no §12.4 code for "the wizard
+ *  finished", and minting one to satisfy a name pattern would put a non-error in
+ *  the error catalog. The name stays because it says what it is. */
+// not-subject:M5-D8 — success copy; see the block above for why no §12.4 code exists.
 export const COMPLETE_COPY = "Setup is complete. Your shows are live for crew now.";
 
 export function FinalizeAnnouncer({ run }: { run: FinalizeRun }) {

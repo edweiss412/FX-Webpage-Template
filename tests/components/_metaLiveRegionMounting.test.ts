@@ -85,20 +85,17 @@ const NON_TRANSIENT_GATES: ReadonlyMap<string, string> = new Map([
   ],
 ]);
 
-/** Files still carrying the defect, each with the shape its repair will use. */
-const PENDING: ReadonlyMap<string, string> = new Map([
-  // NOT a plain toggle: `_rowAssertions.ts` enforces EXACTLY ONE live region per
-  // ShareHub control row, so mounting both success banners persistently adds two
-  // and breaks that contract. The repair is ONE region whose text switches
-  // between the active and inactive copy — a real edit to the surface's shape,
-  // not the mechanical fix, which is why it is still listed here.
-  [
-    "app/admin/show/[slug]/RotateShareTokenButton.tsx",
-    "2 sites — ONE shared region, text switches",
-  ],
-  // Found by THIS walk, not by the entry's filed list — which is the argument
-  // for walking rather than listing.
-]);
+/**
+ * Files still carrying the defect, each with the shape its repair will use.
+ *
+ * EMPTY, AND KEPT ANYWAY. Every site the walk found is repaired, so this is not
+ * a debt list any more — it is the mechanism that stops one from re-forming.
+ * A future author who hits this guard on a new site has two honest exits (mount
+ * the region, or announce through the channel) and one dishonest one, which is
+ * to add a row here and move on. The row above it fails the moment the file goes
+ * clean, so a row is a claim with an expiry rather than a place to put a defect.
+ */
+const PENDING: ReadonlyMap<string, string> = new Map([]);
 
 function walk(dir: string, out: string[] = []): string[] {
   for (const entry of readdirSync(dir)) {

@@ -21,11 +21,29 @@
 
 import { AlertTriangle, Check, RotateCcw } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useEffect, useId, useRef, useState, useTransition, type ReactNode } from "react";
+import {
+  useContext,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  useTransition,
+  type ReactNode,
+} from "react";
 
 import { rotateShareToken } from "@/lib/auth/picker/rotateShareToken";
 import { useDevActionOverride } from "@/components/admin/dev/actionOverrideContext";
 import { ARM_EXPIRED_ANNOUNCEMENT, ARM_REVERT_MS } from "@/lib/admin/destructiveConfirm";
+import { UndoAnnounceContext } from "@/components/admin/undoAnnounceContext";
+
+/** The two success sentences, spelled ONCE because each is now rendered in the
+ *  banner AND spoken through the announce channel. Two copies of one sentence in
+ *  two files is the multi-surface copy defect; two copies fifteen lines apart in
+ *  ONE file is the same defect with a shorter fuse. */
+const ROTATED_ACTIVE_ANNOUNCEMENT =
+  "New share-link ready. The old link no longer works and everyone will re-pick their name. The updated link is shown above.";
+const ROTATED_INACTIVE_ANNOUNCEMENT =
+  "Share link rotated. The crew link stays inactive while this show is unpublished or archived.";
 
 // Armed-state auto-revert window — harmonized to 4s across every destructive
 // surface (spec §4; DESTRUCT-2). Shared naming idiom: ARM_REVERT_MS.
@@ -79,6 +97,7 @@ export function RotateShareTokenButton({
   // Gallery-only override seam; undefined in production (provider never mounted).
   const overrideRotate = useDevActionOverride("rotateShareToken");
   const [ui, setUi] = useState<UiState>("idle");
+  const { announce } = useContext(UndoAnnounceContext);
   // Spec 2026-08-01-announce-a11y-pass §3.3: set ONLY in the arm timer's
   // callback; cleared at arm and at the confirm dispatch.
   const [expired, setExpired] = useState(false);
@@ -171,6 +190,10 @@ export function RotateShareTokenButton({
           // must not surface a copyable URL). router.refresh() is the backstop that
           // re-reads other server-derived data.
           if (isCrewLinkActive) onRotated?.(r.new_share_token, r.new_epoch);
+          // Announced HERE, on the transition, rather than by mounting a region:
+          // this row is pinned `allowLiveRegion: false` (_rowAssertions.ts), so
+          // the channel in the admin layout is the only region available to it.
+          announce(isCrewLinkActive ? ROTATED_ACTIVE_ANNOUNCEMENT : ROTATED_INACTIVE_ANNOUNCEMENT);
           router.refresh();
         }
       } catch {
@@ -278,29 +301,19 @@ export function RotateShareTokenButton({
       {rotatedActive && (
         <p
           data-testid="admin-rotate-share-token-ok"
-          role="status"
-          aria-live="polite"
           className="flex w-full max-w-md items-start gap-1.5 rounded-sm bg-surface-sunken px-2 py-1 text-sm text-text-strong"
         >
           <Check aria-hidden="true" size={16} className="mt-0.5 shrink-0 text-accent-on-bg" />
-          <span>
-            New share-link ready. The old link no longer works and everyone will re-pick their name.
-            The updated link is shown above.
-          </span>
+          <span>{ROTATED_ACTIVE_ANNOUNCEMENT}</span>
         </p>
       )}
       {rotatedInactive && (
         <p
           data-testid="admin-rotate-share-token-ok-inactive"
-          role="status"
-          aria-live="polite"
           className="flex w-full max-w-md items-start gap-1.5 rounded-sm bg-surface-sunken px-2 py-1 text-sm text-text-strong"
         >
           <Check aria-hidden="true" size={16} className="mt-0.5 shrink-0 text-accent-on-bg" />
-          <span>
-            Share link rotated. The crew link stays inactive while this show is unpublished or
-            archived.
-          </span>
+          <span>{ROTATED_INACTIVE_ANNOUNCEMENT}</span>
         </p>
       )}
       {refusedMessage && (

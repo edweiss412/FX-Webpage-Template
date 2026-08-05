@@ -103,6 +103,27 @@ afterEach(() => {
   cleanup();
 });
 
+/**
+ * The not-degraded state, for a note that is now ALWAYS MOUNTED.
+ *
+ * These four assertions used to read `queryByTestId(...).not.toBeInTheDocument()`.
+ * BL-ANNOUNCE-REGION-UNMOUNT-CLASS made the note a permanent `role="status"`
+ * region — a region inserted together with its text is never announced, and a
+ * degraded state that arrives after first paint is exactly when the
+ * announcement matters — so absence is no longer the healthy shape.
+ *
+ * This is a STRONGER check than the one it replaces, not a weaker accommodation:
+ * it pins that the region is present (so it can announce later), silent (no
+ * copy), and visually gone (`sr-only`). The old assertion could not tell a
+ * healthy toggle from a note that had been deleted outright.
+ */
+function expectNotDegraded(testId: string): void {
+  const el = screen.getByTestId(testId);
+  expect(el, `${testId} must stay mounted so a later degrade can announce`).toBeInTheDocument();
+  expect(el.className, `${testId} must be visually hidden when healthy`).toContain("sr-only");
+  expect(el.textContent ?? "", `${testId} must carry no copy when healthy`).toBe("");
+}
+
 describe("Settings page data load (Task 8 / A3)", () => {
   it("happy path: derives all four toggle initials from getSettingsPageFlags, not the single getters", async () => {
     flags.getSettingsPageFlags.mockResolvedValue({
@@ -134,10 +155,10 @@ describe("Settings page data load (Task 8 / A3)", () => {
     );
     expect(screen.getByTestId("auto-publish-toggle").getAttribute("aria-checked")).toBe("true");
     // Nothing degraded on the happy path.
-    expect(screen.queryByTestId("auto-publish-degraded")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("alert-on-sync-problems-degraded")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("daily-review-digest-degraded")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("alert-on-auto-publish-degraded")).not.toBeInTheDocument();
+    expectNotDegraded("auto-publish-degraded");
+    expectNotDegraded("alert-on-sync-problems-degraded");
+    expectNotDegraded("daily-review-digest-degraded");
+    expectNotDegraded("alert-on-auto-publish-degraded");
   });
 
   it("per-toggle isolation: flags infra_error + a MIX of getters → only the failing toggle degrades", async () => {
@@ -161,16 +182,16 @@ describe("Settings page data load (Task 8 / A3)", () => {
     expect(screen.getByTestId("alert-on-sync-problems-degraded")).toBeInTheDocument();
 
     // The other three render their REAL values — NOT degraded.
-    expect(screen.queryByTestId("daily-review-digest-degraded")).not.toBeInTheDocument();
+    expectNotDegraded("daily-review-digest-degraded");
     expect(screen.getByTestId("daily-review-digest-toggle").getAttribute("aria-checked")).toBe(
       "true",
     );
-    expect(screen.queryByTestId("alert-on-auto-publish-degraded")).not.toBeInTheDocument();
+    expectNotDegraded("alert-on-auto-publish-degraded");
     expect(screen.getByTestId("alert-on-auto-publish-toggle").getAttribute("aria-checked")).toBe(
       "true",
     );
     // Auto-publish: real OFF (not degraded) → the off-explainer renders, no degraded notice.
-    expect(screen.queryByTestId("auto-publish-degraded")).not.toBeInTheDocument();
+    expectNotDegraded("auto-publish-degraded");
     expect(screen.getByTestId("auto-publish-off-explainer")).toBeInTheDocument();
     expect(screen.getByTestId("auto-publish-toggle").getAttribute("aria-checked")).toBe("false");
   });
