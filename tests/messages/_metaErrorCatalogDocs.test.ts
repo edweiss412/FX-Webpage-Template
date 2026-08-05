@@ -15,6 +15,7 @@ import {
 function makeEntry(overrides: Partial<MessageCatalogEntry>): MessageCatalogEntry {
   return {
     code: "SYNTHETIC",
+    warningClass: "general",
     dougFacing: null,
     crewFacing: null,
     followUp: null,

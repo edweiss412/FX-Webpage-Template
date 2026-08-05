@@ -10,7 +10,7 @@ import {
   DEFAULT_SHARED_EMAIL,
 } from "@/lib/dev/attentionScenarios/defaultContext";
 import { ATTENTION_ROUTES } from "@/lib/admin/attentionItems";
-import { INTERNAL_CODE_ENUMS } from "@/lib/messages/__generated__/internal-code-enums";
+import { catalogParseWarningCodes } from "@/lib/messages/warningPartition";
 import type { ParseWarning } from "@/lib/parser/types";
 import type { AlertIdentity } from "@/lib/adminAlerts/identityTypes";
 import type { AttentionScenario, ScenarioAlertRow } from "./types";
@@ -113,7 +113,7 @@ export function tier1AlertScenarios(): AttentionScenario[] {
 
 // ── Warning half (spec §3.2, §3.2a) ─────────────────────────────────────────
 //
-// INTERNAL_CODE_ENUMS is the sole source. Its producer recognizes a warning by
+// The catalog is the sole source. The scanner that used to be it recognizes a warning by
 // TYPE (lib/messages/__internal__/parseWarningSites.ts), so there is no residue
 // list to maintain and nothing to de-duplicate against. The hand-maintained
 // EXTRA_WARNING_CODES this replaced had already rotted: one of its four entries
@@ -122,11 +122,19 @@ export function tier1AlertScenarios(): AttentionScenario[] {
 // `source` is a comma-joined provenance list, so membership is the test, not
 // equality: a code that is both a parse warning and an admin alert is still a
 // parse warning. Equality silently dropped three such codes.
+//
+// INVERTED 2026-08-05 (BL-CATALOG-PARTITION-WARNING-CLASS). The gallery no
+// longer DERIVES the set from the scanner's provenance — it reads the class the
+// catalog declares. The scanner is still the check, just from the other
+// direction: `crossCheckWarningPartition` fails when the declaration and the
+// constructing sources disagree, in either direction and by name.
+//
+// The gap this closes is the one the note above could not: a scanner recognises
+// warnings by TYPE, so a code built where the type is erased (an `any`, a
+// higher-order factory) was invisible here, and its absence from the gallery
+// looked exactly like a code that does not exist.
 export function warningCodes(): string[] {
-  return Object.entries(INTERNAL_CODE_ENUMS)
-    .filter(([, v]) => v.source.split(",").includes("parse_warnings.code"))
-    .map(([k]) => k)
-    .sort();
+  return catalogParseWarningCodes();
 }
 
 /**
