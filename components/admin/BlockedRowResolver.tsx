@@ -245,15 +245,23 @@ export function BlockedRowResolver({
               : "Rebuilding…"
             : idleLabel}
       </button>
+      {/* The persistent announcer. It already carried the arm/expire states; the
+          error copy joins it because the visible error panel below is INSERTED
+          with its text and so never announced (BL-ANNOUNCE-REGION-UNMOUNT-CLASS),
+          and because that panel contains a HelpAffordance — interactive content
+          inside a live region is its own anti-pattern, which this repair removes
+          rather than relocates. */}
       <span role="status" className="sr-only">
-        {armed ? "Tap again to confirm." : expired ? ARM_EXPIRED_ANNOUNCEMENT : ""}
+        {errorState
+          ? errorState.copy
+          : armed
+            ? "Tap again to confirm."
+            : expired
+              ? ARM_EXPIRED_ANNOUNCEMENT
+              : ""}
       </span>
       {errorState ? (
-        <div
-          role="status"
-          aria-live="polite"
-          className="rounded-sm border border-border bg-warning-bg px-3 py-2 text-sm text-warning-text"
-        >
+        <div className="rounded-sm border border-border bg-warning-bg px-3 py-2 text-sm text-warning-text">
           <p>{renderEmphasis(errorState.copy)}</p>
           {errorState.kind === "coded" ? <HelpAffordance code={errorState.code} /> : null}
         </div>
