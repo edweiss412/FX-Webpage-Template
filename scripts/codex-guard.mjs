@@ -410,7 +410,15 @@ function composePrompt(cfg) {
 function parseVerdict(text) {
   // Markdown fences may be indented up to 3 spaces (CommonMark) — strip those too.
   const noFences = text.replace(/^ {0,3}```[^\n]*\n[\s\S]*?^ {0,3}```[^\n]*$/gm, "");
-  const lines = noFences.split("\n").filter((l) => /^\s*VERDICT:\s*\S/.test(l));
+  // Leading markdown emphasis is stripped before the marker test: three real
+  // dispatches in the 681-output probe corpus emitted `**VERDICT: …**` and were
+  // filed as infrastructure faults - a full review spent and then discarded.
+  // Fence stripping above still runs FIRST, so a fenced example is not a verdict,
+  // and the line anchor still holds, so the brief's own instruction to emit a
+  // verdict - text every brief in this repo carries - is never read as one.
+  const lines = noFences
+    .split("\n")
+    .filter((l) => /^\s*(?:\*{1,2}|_{1,2})?\s*VERDICT:\s*\S/.test(l));
   const survivors = lines.filter((l) => {
     const upper = l.toUpperCase();
     let occurrences = 0;
@@ -420,7 +428,11 @@ function parseVerdict(text) {
   });
   if (survivors.length === 0) return { verdict: null, verdictLine: null, shape: "no_marker" };
   const raw = survivors[survivors.length - 1]; // RAW, untrimmed (§6 schema)
-  let payload = raw.replace(/^\s*VERDICT:\s*/, "");
+  // The whole line may be wrapped in one BALANCED emphasis pair (`**VERDICT: …**`).
+  // Unwrap it before the prefix strip, or the trailing marker rides into the
+  // payload and the outcome stops matching. `verdictLine` still records `raw`.
+  let payload = raw.trim().replace(/^(\*{1,2}|_{1,2})(.*?)\1$/, "$2");
+  payload = payload.replace(/^\s*VERDICT:\s*/, "");
   for (;;) {
     const before = payload;
     payload = payload.trim().replace(/[.,;:!]+$/, "");
