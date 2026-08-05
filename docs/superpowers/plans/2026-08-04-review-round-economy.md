@@ -1081,20 +1081,24 @@ describe("row emission (spec §5.4)", () => {
   // (:994) and long before `main().catch` is installed (:1066). A bad
   // CODEX_GUARD_TSX therefore exits 2 in preprocessing, writes no result at
   // all, and never reaches the second writer. The fault must be raised INSIDE
-  // main(): pointing CODEX_HOME at a plain FILE makes the cache/lock work in
-  // the attempt loop throw, while cfg.out stays writable so the wrapper-error
-  // result.json is still produced.
+  // main(). A CODEX_HOME pointed at a plain file does NOT do it - every read of
+  // cfg.codexHome is already guarded (the heartbeat mkdir, the cache rung, and
+  // findRollout each swallow their own failure), so that dispatch runs to a
+  // clean verdict. Probed 2026-08-04: status "verdict", exit 0, twice. What
+  // does reach the site is a DIRECTORY planted where attempt 1's transcript
+  // file must go: createWriteStream errors, the stream-error latch rejects with
+  // fail() (scripts/codex-guard.mjs:561-564), and that rejection leaves the
+  // attempt loop for main().catch - while cfg.out stays writable, so the
+  // wrapper-error result.json is still produced. Probed the same day: exit 3,
+  // failureReason "wrapper_error".
   it("appends a row from the wrapper_error site too", async () => {
     const run = mkRun();
     const { base } = gitify(run.cwdDir);
     writeScenario(run, [{ onCall: 1, actions: [{ type: "lastMessage", text: "VERDICT: APPROVE\n" }, { type: "exit", code: 0 }] }]);
 
-    const notADir = join(run.dir, "codex-home-as-a-file");
-    writeFileSync(notADir, "");
-    const { code } = await runGuard(run, ["--stage", "spec", "--round", "1"], {
-      CODEX_HOME: notADir,
-    });
-    expect(code).not.toBe(2);
+    mkdirSync(join(run.outDir, "attempt-1.transcript.txt"), { recursive: true });
+    const { code } = await runGuard(run, ["--stage", "spec", "--round", "1"]);
+    expect(code).toBe(3);
 
     // Confirm the fault really took the second writer, not the first: a
     // wrapper_error result is the ONLY body that carries this failureReason
@@ -1409,7 +1413,7 @@ git commit -m "feat(review-rounds): emit a corpus row from both result.json writ
 ### Task 5: `FINDINGS: <n>` declared line
 
 **Files:**
-- Modify: `scripts/codex-guard.mjs` (a `parseFindingCount` beside `parseVerdict` at `scripts/codex-guard.mjs:389`, called at **both** parse sites — `scripts/codex-guard.mjs:505` and `scripts/codex-guard.mjs:783` — and threaded through both terminal write paths)
+- Modify: `scripts/codex-guard.mjs` (a `parseFindingCount` beside `parseVerdict` at `scripts/codex-guard.mjs:389`, called at **both** parse sites — `scripts/codex-guard.mjs:505` and `scripts/codex-guard.mjs:783` — and carried on `state` so that all **four** terminal write paths read one value)
 - Modify: `AGENTS.md` (brief-authoring contract, `AGENTS.md:186`)
 - Modify: tests/codexGuard/reviewRounds.test.ts
 
@@ -1424,6 +1428,13 @@ git commit -m "feat(review-rounds): emit a corpus row from both result.json writ
 Append to tests/codexGuard/reviewRounds.test.ts:
 
 ```ts
+// Task 4's `node:child_process` line and its `./harness` line each grow one
+// entry. The interrupted-path case drives the wrapper itself so it chooses when
+// SIGTERM lands, which `runGuard`'s execFile cannot do; `GUARD` and `guardEnv`
+// are what make that spawn identical to a harness run in every other respect.
+import { execFileSync, spawn } from "node:child_process";
+import { GUARD, guardEnv, mkRun, readResult, runGuard, writeScenario } from "./harness";
+
 describe("declared finding count (spec §5.3)", () => {
   // Failure caught: a count inferred from prose shape. The probe measured
   // inferred recognition at 64.8% against 681 real outputs; declared reaches
@@ -1541,15 +1552,88 @@ describe("declared finding count (spec §5.3)", () => {
     expect(row.findingCount).toBe(3);
     expect(row.verdict).toBe("BLOCKING");
   });
+
+  // Failure caught: the count wired at the two SUCCESS writers only. `onSignal`
+  // (scripts/codex-guard.mjs:1051-1057) writes its own terminal result, so a
+  // reviewer that declared FINDINGS: 2 and was then interrupted records `null`
+  // - "not declared" - and the corpus then reports a declaration that WAS made
+  // as one the reviewer never gave. A false fact about a real review, which is
+  // the outcome the consequence bound forbids.
+  it("records a declared count on an interrupted row", async () => {
+    const run = mkRun();
+    const { base } = gitify(run.cwdDir);
+    const DECLARED = 2;
+    // Attempt 1 declares its count and stops short of a VERDICT line, so the
+    // ladder continues (no_marker); attempt 2 hangs, which is what leaves a
+    // live child for the SIGTERM to interrupt.
+    writeScenario(run, [
+      { onCall: 1, actions: [{ type: "stdout", text: "x" }, { type: "lastMessage", text: `FINDINGS: ${DECLARED}\nStill working, no verdict yet.\n` }, { type: "exit", code: 0 }] },
+      { onCall: 2, actions: [{ type: "stdout", text: "x" }, { type: "hang" }] },
+    ]);
+    const child = spawn(
+      process.execPath,
+      [GUARD, "review", "--brief", run.briefPath, "--cwd", run.cwdDir, "--out", run.outDir, "--stage", "diff", "--round", "1"],
+      {
+        env: guardEnv(run, {
+          CODEX_GUARD_STALL_SECS: "30",
+          CODEX_GUARD_ATTEMPT_MAX_SECS: "60",
+          CODEX_GUARD_TOTAL_MAX_SECS: "90",
+        }),
+      },
+    );
+    const exited = new Promise<number | null>((res) => child.on("exit", (c) => res(c)));
+    const nap = (ms: number) => new Promise((r) => setTimeout(r, ms));
+    try {
+      // Waiting on attempt 2's pidfile is what makes this deterministic rather
+      // than a sleep: it proves attempt 1 was already read and classified, so
+      // there is a declared count present to lose.
+      for (let i = 0; i < 200 && !existsSync(join(run.recordDir, "pid-2.txt")); i++) await nap(50);
+      expect(existsSync(join(run.recordDir, "pid-2.txt"))).toBe(true);
+      child.kill("SIGTERM");
+      expect(await exited).toBe(3);
+    } finally {
+      child.kill("SIGKILL");
+    }
+    expect(readResult(run)).toMatchObject({ failureReason: "interrupted" });
+    const row = rowsIn(corpusPath(run.cwdDir, base))[0]!;
+    expect(row.failureReason).toBe("interrupted");
+    // Derived from the scenario's own declared line, never a literal repeated
+    // on the assertion side.
+    expect(row.findingCount).toBe(DECLARED);
+  }, 30000);
+
+  // Failure caught: the same gap at the fourth writer. The `main().catch`
+  // handler (scripts/codex-guard.mjs:1075-1093) builds its OWN body literal
+  // instead of going through `writeResult`, so a count threaded through
+  // `writeResult` alone is absent from every wrapper-error row - and an infra
+  // fault is exactly when an operator most wants the reviewer's own number.
+  it("records a declared count on a wrapper_error row", async () => {
+    const run = mkRun();
+    const { base } = gitify(run.cwdDir);
+    const DECLARED = 2;
+    writeScenario(run, [
+      { onCall: 1, actions: [{ type: "stdout", text: "x" }, { type: "lastMessage", text: `FINDINGS: ${DECLARED}\nStill working, no verdict yet.\n` }, { type: "exit", code: 0 }] },
+    ]);
+    // The fault must land inside main() and AFTER attempt 1 declared its count,
+    // so the directory goes where attempt TWO's transcript must be written.
+    // Task 4 Step 1 records why this is the trigger that reaches the site and
+    // why the CODEX_HOME one does not.
+    mkdirSync(join(run.outDir, "attempt-2.transcript.txt"), { recursive: true });
+    const { code } = await runGuard(run, ["--stage", "diff", "--round", "1"]);
+    expect(code).toBe(3);
+    expect(readResult(run)).toMatchObject({ status: "no_verdict", failureReason: "wrapper_error" });
+    const row = rowsIn(corpusPath(run.cwdDir, base))[0]!;
+    expect(row.findingCount).toBe(DECLARED);
+  });
 });
 ```
 
-This block adds **no** imports. Everything the two new cases reach for is already in the file's single import section after Task 4: `readResult` on the `./harness` line, and `join`, `mkdirSync`, and `writeFileSync` on the two `node:` lines. Re-importing any of them is a duplicate-identifier error, not a no-op.
+This block grows the file's single import section by **three** names across two lines, both spelled out at the top of the fence: `spawn` joins `execFileSync` on the `node:child_process` line, and `GUARD` and `guardEnv` join the `./harness` line. Everything else the cases reach for is already there after Task 4 — `readResult` on the `./harness` line, and `join`, `mkdirSync`, `existsSync` and `writeFileSync` on the two `node:` lines. Re-importing any of THOSE is a duplicate-identifier error, not a no-op.
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
 Run: `pnpm exec vitest run tests/codexGuard/reviewRounds.test.ts -t "declared finding count"`
-Expected: FAIL — `findingCount` is `null` on every row, so the two declared-count cases and both new wiring cases fail. The `null` cases pass vacuously today, which is why they are not the red state.
+Expected: FAIL — `findingCount` is `null` on every row, so the two declared-count cases and all **four** wiring cases (no-verdict, rollout-recovered, interrupted, wrapper_error) fail. The `null` cases pass vacuously today, which is why they are not the red state.
 
 - [ ] **Step 3: Implement the parser**
 
@@ -1572,14 +1656,73 @@ function parseFindingCount(text) {
 }
 ```
 
-**There are TWO parse sites, and wiring one leaves the other recording `null` — which reads as "the reviewer declared nothing".** Verified live: `parseVerdict` is called at `scripts/codex-guard.mjs:505` (the normal `-o` output path) and at `scripts/codex-guard.mjs:783` (the rollout scrape). Both get `parseFindingCount` beside them, and the terminal write paths carry the value through:
+**TWO sites read a terminal message; FOUR sites write a terminal result. Recomputing the count at the write sites is four chances to diverge, which is the defect class itself.** So it is computed exactly where a message is read, carried on `state`, and read back by every writer.
 
-1. **Normal output** (`scripts/codex-guard.mjs:505`). Beside `attempt.parsed = parsed`, add `attempt.findingCount = parseFindingCount(msg);`. This runs whenever the `-o` file exists and is non-empty, **independent of whether a verdict was found** — which is what makes a `no_verdict` response that still declared `FINDINGS: 2` record 2.
-2. **Rollout scrape** (`scripts/codex-guard.mjs:783`). The patch `tryRolloutScrape` returns (`scripts/codex-guard.mjs:791-797`) gains `findingCount: parseFindingCount(msg)`, read from the recovered message rather than from the attempt that never produced one.
-3. **The verdict-success write** (`scripts/codex-guard.mjs:1016-1021`) adds `findingCount: attempt.findingCount ?? null` to its patch.
-4. **`giveUp`** (`scripts/codex-guard.mjs:1026-1028`) adds the same field to its `base`. Because it spreads the scrape patch OVER `base`, a recovered verdict's declared count wins over the attempt's, which is the right precedence: the recovered message is the one that reached a conclusion.
+**The carrier and its grain.** `state` (`scripts/codex-guard.mjs:995-1006`) gains `findingCount: null` beside `heldLockDir`. It holds the declaration of the **last non-empty terminal message the dispatch produced** — nothing more subtle than that, because that is also the message a reader looking at the out-dir would pick, and Task 10's hook has to pick the same one.
 
-`findingCount` is a corpus field, and the bridge reads `body.findingCount ?? null`, so the patch is the whole wiring. It rides along as one additive key on result.json; no existing test pins that body's key set (verified: no `Object.keys` assertion over `readResult` in `tests/codexGuard/`), and an additive key is not a breaking change to the published shape.
+```js
+    heldLockDir: null,
+    // The declared count of the LAST non-empty terminal message this dispatch
+    // produced. One carrier, so the four terminal writers cannot disagree.
+    findingCount: null,
+```
+
+**Computation site 1 — the `-o` message** (`scripts/codex-guard.mjs:505`). `classifyAttempt` already reads the message and already returns early when there is no `-o` file or the file is empty, so putting the parse below those guards gives the grain for free: an attempt that produced no message never erases a count an earlier attempt declared. It needs `state`, so its one call site (`scripts/codex-guard.mjs:678`) passes it:
+
+```js
+  const msg = readFileSync(attempt.lastMessagePath, "utf8");
+  if (msg.trim() === "") {
+    attempt.failureShape = "empty_o_file";
+    return;
+  }
+  // Above the verdict parse ON PURPOSE: this runs whenever the -o file exists
+  // and is non-empty, INDEPENDENT of whether a verdict was found, which is what
+  // makes a no_verdict response that still declared FINDINGS: 2 record 2.
+  state.findingCount = parseFindingCount(msg);
+  const parsed = parseVerdict(msg);
+```
+
+```js
+  try {
+    classifyAttempt(attempt, state);
+  } catch (e) {
+```
+
+**Computation site 2 — the recovered rollout message** (`scripts/codex-guard.mjs:783`). It writes the carrier rather than returning `findingCount` in its patch. One carrier means precedence is settled by write order instead of by spread order, and the scrape's write is last by construction: it runs only after the attempt loop has already given up.
+
+```js
+      const parsed = parseVerdict(msg);
+      if (parsed.shape !== "ok") continue;
+      // The recovered message IS this dispatch's terminal message, so its
+      // declaration replaces any earlier attempt's - including replacing a
+      // number with "not declared" when the recovered message declares none.
+      state.findingCount = parseFindingCount(msg);
+```
+
+**The four terminal writers, and the two places they read from.** Writers 1, 2 and 3 all funnel through `writeResult`, so ONE default line serves them:
+
+1. **The verdict-success write** (`scripts/codex-guard.mjs:1016-1021`) — `writeResult`.
+2. **`giveUp`** (`scripts/codex-guard.mjs:1026-1029`) — `writeResult`, including the rollout-recovered case.
+3. **`onSignal`** (`scripts/codex-guard.mjs:1042-1058`) — `writeResult` with `failureReason: "interrupted"`. A reviewer that declared its count and was then interrupted is a real declaration, and this writer is why the count cannot live on the final `attempt`: at interrupt time the live attempt is the hung one, which declared nothing.
+4. **`main().catch`** (`scripts/codex-guard.mjs:1066-1093`) — builds its OWN body literal and never touches `writeResult`, so it is the one site that needs a second read.
+
+```js
+    recoveredFrom: null,
+    // Serves writers 1, 2 and 3 - every path through writeResult - from the one
+    // carrier. Placed above the `...patch` spread, so a patch may still override
+    // it; none does today.
+    findingCount: state.findingCount ?? null,
+```
+
+```js
+          failureReason: "wrapper_error",
+          // Writer 4. `state` is already read here (globalThis.__guardState),
+          // and the optional chain matches the `state?.startedAtIso ?? null`
+          // line below: the handler can run before main() ever set state.
+          findingCount: state?.findingCount ?? null,
+```
+
+`findingCount` is a corpus field, and the bridge reads `body.findingCount ?? null`, so those two reads are the whole wiring. It rides along as one additive key on result.json; no existing test pins that body's key set (verified: no `Object.keys` assertion over `readResult` in `tests/codexGuard/`), and an additive key is not a breaking change to the published shape.
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
@@ -2096,6 +2239,26 @@ describe("review-round economy gate (spec §7.1)", () => {
     ).toEqual([]);
   });
 
+  // Failure caught: a filing SECTION for a stage the spec permits no filing
+  // for. Spec §6 item 1 admits only spec, plan and diff; `task` rows are
+  // recorded and never counted (spec §5.1), so a task filing is a category
+  // error rather than a miscount. Every check downstream of the heading waved
+  // it through: `recorded.get("task")` is 4, so stage_without_rows stayed
+  // quiet, and `counted.get("task") ?? 0` is 0 against the declared 0, so
+  // count_mismatch did too. The case directly above cannot catch it - that one
+  // has no filing at all - so the gate returned CLEAN on a structurally
+  // invalid filing, which is the binding gate blessing what the spec forbids.
+  it("FAILS a filing section for a stage that carries no filings", () => {
+    const problems = check([
+      { path: `${ARC}.jsonl`, body: rows(...OBLIGING.map((o) => ({ ...o, stage: "task" }))) },
+      { path: `${ARC}.md`, body: "## task — 0 rounds\n\n**Examined:** R1-R4.\n**Infra:** none\n" },
+    ]);
+    // A green result here IS the defect, and the kind is what separates the fix
+    // from a coincidental failure on some other check.
+    expect(problems).not.toEqual([]);
+    expect(problems.map((p) => p.kind)).toContain("stage_not_filable");
+  });
+
   it("PASSES a parallel wave whose distinct rounds are below threshold", () => {
     expect(
       check([{ path: `${ARC}.jsonl`, body: rows({ round: 1 }, { round: 2 }, { round: 3 }, { round: 3 }, { round: 3 }) }]),
@@ -2285,7 +2448,7 @@ import {
   type ExtractOpts,
 } from "../../tests/docs/_ledgerMdast";
 import { CORPUS_DIR } from "./arc";
-import { ROUND_THRESHOLD, type Stage } from "./constants";
+import { COUNTED_STAGES, isCountedStage, ROUND_THRESHOLD, type Stage } from "./constants";
 import { countedRounds, recordedRounds, roundGaps } from "./count";
 import { parseFiling, type FilingSection } from "./filing";
 import { parseRow, type ReviewRoundRow } from "./row";
@@ -2297,6 +2460,7 @@ export type ProblemKind =
   | "missing_filing"
   | "filing_malformed"
   | "unresolved_id"
+  | "stage_not_filable"
   | "stage_without_rows"
   | "count_mismatch"
   | "duplicate_section"
@@ -2504,6 +2668,23 @@ export function checkCorpus(
         });
       }
       for (const section of group) {
+        // Spec §6 item 1: only spec, plan and diff are filable. `task` rows are
+        // RECORDED and never COUNTED (spec §5.1), so a `task` section is a
+        // CATEGORY ERROR rather than a miscount - and every check below waves
+        // it through. Against four contiguous `task` rows and a heading of
+        // `## task - 0 rounds`: `recorded.get("task")` is 4, so
+        // stage_without_rows does not fire, and `counted.get("task") ?? 0` is 0
+        // against a declared 0, so count_mismatch does not either. checkCorpus
+        // returned CLEAN on a filing the spec forbids. Checked before the
+        // heading's count, because a section for a stage that cannot be filed
+        // has no count worth reading.
+        if (!isCountedStage(stage)) {
+          problems.push({
+            kind: "stage_not_filable",
+            message: `${arc.filingPath}:${section.line}: stage ${stage} carries no filing; only ${[...COUNTED_STAGES].join(", ")} are counted stages`,
+          });
+          continue;
+        }
         // Spec §6 item 1: the heading CARRIES its round count. A loose heading
         // (`## diff`) parses to `declaredRounds: null`, and until this check
         // existed that section satisfied the filing duty by merely being there:
@@ -2565,12 +2746,12 @@ export function checkCorpus(
 
 Two shapes in there are load-bearing and easy to lose. The `malformed_row` message carries the repo-relative path **and** the 1-indexed line, because a gate that says only "a row is bad" costs the reader a manual scan of a file the tooling wrote. And the section checks `continue` after each problem, so one malformed section does not also report a count mismatch computed from a heading nobody can trust.
 
-**The null-count check is FIRST in that loop, and that ordering is the fix, not an accident.** `HEADING_LOOSE` exists so a filing is not rejected over a keyboard, but the section it builds carries `declaredRounds: null`, and every downstream check was permissive about `null`: `missing_filing` was suppressed by the section's mere presence, `hasExamined` / `hasDisposition` are body facts that a loose heading does not affect, and `count_mismatch` skipped `null` explicitly. A four-round arc filing a bare `## diff` heading therefore passed the gate. Running the check first, with a `continue`, makes the heading's round count a precondition for reading anything else out of that section — which is what spec §6 item 1 already said the heading was for.
+**The two heading checks LEAD that loop, in that order, and the ordering is the fix rather than an accident.** Spec §6 item 1 makes a filing heading carry two facts — a filable stage, and a round count — and until these checks existed a section discharged the filing duty by merely being present. Both holes have the same shape. `HEADING_LOOSE` exists so a filing is not rejected over a keyboard, but the section it builds carries `declaredRounds: null`, and every downstream check was permissive about `null`: `missing_filing` was suppressed by the section's mere presence, `hasExamined` / `hasDisposition` are body facts that a loose heading does not affect, and `count_mismatch` skipped `null` explicitly — so a four-round arc filing a bare `## diff` heading passed. A heading naming an unfilable stage (`## task — 0 rounds`) passed for the mirror-image reason: the stage was never checked against `COUNTED_STAGES` at all, and on a stage whose rows are recorded but never counted the two count checks positively agree with each other — `stage_without_rows` sees four recorded rows, `count_mismatch` compares a declared 0 against a counted 0. Running the stage check first and the count check second, each with a `continue`, makes both heading facts preconditions for reading anything else out of that section — which is what §6 item 1 already said the heading was for. The stage check leads because a section for a stage that carries no filing is not a filing at all, so its round count is not worth reading.
 
 - [ ] **Step 9: Run the gate to verify it passes**
 
 Run: `pnpm exec vitest run tests/docs/_metaReviewRoundEconomy.test.ts`
-Expected: PASS (25 cases).
+Expected: PASS (26 cases).
 
 - [ ] **Step 10: Typecheck and run the docs suite**
 
@@ -3717,7 +3898,7 @@ The hook counts findings with the numbered-bold pattern alone, which the probe m
 
 **The disposition, fixed here so Steps 2 and 4 cannot disagree:** the hook reports the reviewer's declared `FINDINGS:` count when present, and the literal text `not declared` otherwise. Never an inferred count, and never a silently dropped number — a blank where a tally used to be reads as "zero findings" to the next operator, which is the same false statement in quieter form.
 
-**The hook and `parseFindingCount` must agree, because they read the same reviewer output and an operator sees both.** They are two implementations of one rule, and the rule has a grain: `parseFindingCount` (Task 5) reads ONE terminal message per dispatch, strips fenced blocks, matches an end-anchored `FINDINGS: <n>` line, and returns `null` when two different values are declared. A hook that SUMS across a round's `attempt-*.last-message.txt` files reads a different grain and prints a different number for the same round — a round whose failed first attempt declared 2 and whose successful retry declared 1 records `findingCount: 1` in the corpus while the hook prints 3, and nothing on screen says which is the reviewer's actual claim. **Where both exist, the corpus row is authoritative**: it is the committed, reviewable record, and the hook's line is an advisory rendering of it. The repair below makes the hook read the corpus's rule rather than a rule of its own.
+**The hook and `parseFindingCount` must agree, because they read the same reviewer output and an operator sees both.** They are two implementations of one rule, and the rule has a grain: `parseFindingCount` (Task 5) reads ONE terminal message per dispatch, strips fenced blocks, matches an end-anchored `FINDINGS: <n>` line, and returns `null` when two different values are declared. A hook that SUMS across a round's `attempt-*.last-message.txt` files reads a different grain and prints a different number for the same round — a round whose failed first attempt declared 2 and whose successful retry declared 1 records `findingCount: 1` in the corpus while the hook prints 3, and nothing on screen says which is the reviewer's actual claim. **Where both exist, the corpus row is authoritative**: it is the committed, reviewable record, and the hook's line is an advisory rendering of it. The repair below makes the hook read the wrapper's own resolved answer wherever one survives on disk, and apply the corpus's rule rather than a rule of its own only where none does.
 
 **This file is outside the repo** and cannot be committed here. The repair is applied on this machine and the *contract* is recorded in `AGENTS.md`, which is the durable cross-CLI source of truth — the same posture AGENTS.md already takes for the reaper hook.
 
@@ -3731,12 +3912,14 @@ Run the probe's recognizer counts against the corpus described in `docs/superpow
 
 The hook is per-machine and untracked, so this step describes the precise change rather than a diff; the AGENTS.md prose in Step 4 is the durable contract. Two edits inside `$HOME/.claude/hooks/review-convergence-gate.sh`:
 
-1. Replace the inferring tally. The current assignment greps the numbered-bold pattern across every `attempt-*.last-message.txt` in each prior round's out-dir and sums the per-file counts — the 48.0% recognizer, at a grain the corpus does not use. Replace it with a per-dispatch read that mirrors `parseFindingCount` (Task 5) point for point:
-   - **One message per dispatch, not one per attempt.** A round's terminal message is the LAST `attempt-*.last-message.txt` in that out-dir with non-empty content; earlier attempts are superseded work, and the dispatch's result.json carries only the terminal one. This is the specific divergence: summing attempts is how a round whose failed first attempt declared 2 and whose retry declared 1 prints 3 against a corpus row of 1.
+1. Replace the inferring tally. The current assignment greps the numbered-bold pattern across every `attempt-*.last-message.txt` in each prior round's out-dir and sums the per-file counts — the 48.0% recognizer, at a grain the corpus does not use. Replace it with a per-dispatch read whose FIRST source is the dispatch's own answer:
+   - **The dispatch's result.json is authoritative and is never re-derived.** Each prior round's out-dir holds one, and after Task 5 it carries the resolved `findingCount` — the very value the corpus row holds, because the bridge copies it straight across (Task 4 Step 3). A number renders as itself; an explicit `null` renders `not declared`. Re-deriving a count the wrapper already resolved is the only way the two can disagree, so the hook does not.
+   - **Only a dispatch with no usable result.json falls through to the message files:** an out-dir from before this feature (a result.json with no `findingCount` key at all — absent is not `null`), a run whose result.json never landed, or a file that does not parse. Then, and only then, the scan below applies.
+   - **The scan picks the same message the wrapper did.** `recovered-from-rollout.txt` when the out-dir holds one, because on a rollout-recovered dispatch THAT file is the terminal message: `tryRolloutScrape` writes it and points `lastMessagePath` at it (`scripts/codex-guard.mjs:785-795`), which is the `recoveredFrom: "rollout_scrape"` contract AGENTS.md already documents. Otherwise the LAST `attempt-*.last-message.txt` with non-empty content — last, because earlier attempts are superseded work; non-empty, because an empty `-o` file returns before the wrapper's own parse (`scripts/codex-guard.mjs:501-504`) and so never resets its carrier either.
    - **Elide fenced blocks first**, the same elision `parseFindingCount` applies, so a `FINDINGS:` line quoted inside an example block is not read as a declaration.
    - **End-anchored pattern**, the same one: an optional bold or italic wrapper, `FINDINGS:`, decimal digits, and nothing else on the line. `FINDINGS: 2 or 7` declares nothing.
    - **Ambiguity renders as `not declared`.** Two DIFFERENT counts in one terminal message is `null` in `parseFindingCount`, and it must not become a number here.
-   - **Per round, never summed and never inferred.** The variable holds one rendering per prior round, so a reader can line the hook's output up against the corpus rows one to one.
+   - **Per round, never summed and never inferred.** Summing is how a round whose failed first attempt declared 2 and whose retry declared 1 prints 3 against a corpus row of 1. The variable holds one rendering per prior round, so a reader can line the hook's output up against the corpus rows one to one.
 2. Replace the `~$FINDINGS findings` fragment in the block message. `~` announces an estimate, and there is no longer an estimate: it becomes a per-round list built from that variable — `R1: 2, R2: not declared, R3: 1` — with `not declared` spelled out for every round that declared nothing. One shell variable feeds the message, so the rendering has a single source.
 
 Everything else in the hook is untouched: the round cap, the two convergence-criterion gates, and the `CONVERGENCE_ACK=1` override all keep their current behavior. The tally is advisory and stays advisory — this repair makes it honest, it does not make it load-bearing.
@@ -3748,12 +3931,14 @@ Run a dispatch that should be blocked (a 5th round on an artifact with four prio
 1. Prior rounds whose terminal messages carry `FINDINGS: <n>` lines — must print each round's own declared count, one per round.
 2. Prior rounds whose messages carry none — must print `not declared`. A run that prints `0` here is the original defect wearing a new number.
 3. **The divergence case, which is the reason this task exists:** one round whose FIRST attempt file declares `FINDINGS: 2` and whose LAST attempt file declares `FINDINGS: 1`. The hook must print `1` — the terminal message's count, the same value `parseFindingCount` would put in that round's corpus row. A `3` is the old summing grain surviving the repair.
+4. **Rollout recovery, where the terminal message is not an attempt file at all.** One round whose `attempt-1.last-message.txt` declares `FINDINGS: 2` with no VERDICT line, whose `recovered-from-rollout.txt` declares `FINDINGS: 3` with one, and whose result.json carries `findingCount: 3` and `recoveredFrom: "rollout_scrape"`. The hook must print `3`. A `2` is a scan reading an attempt file the wrapper superseded — and `2` is exactly what a "last non-empty attempt file" rule prints, which is why this fixture exists. Then delete that result.json and re-run: still `3`, because the fallback prefers the recovered message.
+5. **An exhausted round whose final attempt is empty.** `attempt-1.last-message.txt` declares `FINDINGS: 2`; `attempt-2.last-message.txt` is zero bytes; result.json carries `findingCount: 2`, because an empty message never resets the wrapper's carrier (Task 5 Step 3). The hook must print `2`. Then delete that result.json and re-run: still `2`, via the fallback's last-NON-EMPTY rule. Both sources agreeing on this shape is the whole point — a fallback that took the final attempt file regardless of content would print `not declared` against a corpus row of 2, which is the same "the reviewer declared nothing" falsehood in the operator's face rather than in the corpus.
 
 - [ ] **Step 4: Record the contract in AGENTS.md**
 
 Add to the convergence-criterion section, beside the existing install one-liner:
 
-> The hook's advisory finding tally was measured at 48.0% accuracy against 681 real reviewer outputs (`docs/superpowers/specs/ci/probes/2026-08-04-finding-format-probe.md`) because it inferred findings from a numbered-bold pattern. It now reports the reviewer's declared `FINDINGS: <n>` line per round, or says "not declared" — never an inferred count and never a sum. It reads that line by the same rule `parseFindingCount` in `scripts/codex-guard.mjs` uses: ONE terminal message per dispatch (the last attempt that produced one), fenced blocks elided, the pattern end-anchored, and two different declared values treated as "not declared". The two must agree, because an operator sees both; where both exist, the committed corpus row is authoritative and the hook's line is an advisory rendering of it. The hook is per-machine; this paragraph is the durable contract.
+> The hook's advisory finding tally was measured at 48.0% accuracy against 681 real reviewer outputs (`docs/superpowers/specs/ci/probes/2026-08-04-finding-format-probe.md`) because it inferred findings from a numbered-bold pattern. It now reports the reviewer's declared `FINDINGS: <n>` line per round, or says "not declared" — never an inferred count and never a sum. It takes that count from the dispatch's own result.json whenever one carries a `findingCount` key: that is the wrapper's resolved answer and the same value the corpus row holds, and re-deriving it is the only way the two can disagree. Only when no usable result.json survives does it read the message files itself, by the same rule `parseFindingCount` in `scripts/codex-guard.mjs` uses: ONE terminal message per dispatch — the recovered rollout message when the out-dir holds one, else the last attempt message with non-empty content — fenced blocks elided, the pattern end-anchored, and two different declared values treated as "not declared". The two must agree, because an operator sees both; where both exist, the committed corpus row is authoritative and the hook's line is an advisory rendering of it. The hook is per-machine; this paragraph is the durable contract.
 
 - [ ] **Step 5: Commit**
 
@@ -4029,6 +4214,17 @@ Five findings, all confirmed against the live tree before repair. Four of the fi
 | 5 | BLOCKING - the hook's declared tally still diverged from the corpus. The hook SUMMED matching lines across every `attempt-*.last-message.txt` in a round's out-dir; `parseFindingCount` reads ONE terminal message per dispatch. A round whose failed first attempt declares 2 and whose retry declares 1 records 1 and prints 3 | Task 10 now specifies the hook applying `parseFindingCount`'s rule point for point - terminal message only, fenced blocks elided, end-anchored pattern, ambiguity renders `not declared` - per round and never summed. Stated explicitly: the two must agree, and where both exist the corpus row is authoritative. Step 3 gains the divergence fixture as its third verification case |
 
 **Finding 4 is the third round in a row to spend a finding on a fence that does not compile, so the repair is mechanical rather than per-instance.** The round-2 checker caught unguarded indexed access, fenced em dashes, mangled template literals, and duplicate imports; it had nothing to say about a name that is simply never imported, which is what all three instances here were. It now collects each fence's imports, declarations, destructured bindings and parameters, and reports any well-known Node or vitest API used without one — resolving names across fences that target the same file, so an append block is not read as importing nothing, and skipping indented-only excerpts, which have no import section to grow. It reports 0 problems over 54 blocks. Same disposition as round 2: filed, not shipped in this PR (exception (c) — it is a change to the spec-lint surface this PR does not otherwise touch).
+
+## Review Round 4 Triage
+
+Two findings, both confirmed against the live tree before repair. Both are the same failure the last round named: the system stating a **false fact about itself** — a declaration the reviewer made recorded as one it never gave, and a filing the spec forbids reported as compliant — so each carries a test that fails on the old behavior.
+
+| # | Finding | Repair |
+| --- | --- | --- |
+| 1 | BLOCKING - `findingCount` diverged across terminal paths, and the hook read a different source than the corpus. Task 5 wired the count at the normal-success write and at `giveUp` only, so a reviewer that emitted `FINDINGS: 2` and was then interrupted (`scripts/codex-guard.mjs:1042-1058`) or hit a wrapper fault (`scripts/codex-guard.mjs:1066-1093`) recorded `null` — "not declared", which is a different and false claim. Separately, Task 10's hook read "the last non-empty attempt message", which disagrees with the corpus on a rollout-recovered dispatch (whose terminal message is `recovered-from-rollout.txt`) and on an exhausted run whose final attempt is empty | The count is computed at the TWO sites that read a terminal message and carried on `state.findingCount`; all FOUR terminal writers read that one carrier, three of them through a single `writeResult` default. Recomputing at four sites is four chances to diverge, which is the defect class itself. All four writers are now named in the task prose, and each unwired one gained a test: a SIGTERM landing after a declaring attempt, and a wrapper fault after one. The hook now prefers the dispatch's own result.json — the wrapper's resolved answer, and the value the corpus row holds — and scans message files only when none survives, preferring `recovered-from-rollout.txt` over the attempt files. Both divergence shapes are Step 3 fixtures, each run twice (with the result.json and without it) so the fallback is exercised too |
+| 2 | HIGH - the gate blessed a filing stage the spec forbids. `checkCorpus` never checked a section's stage against `COUNTED_STAGES`, and against contiguous `task` rows plus a `## task — 0 rounds` section the two count checks positively agree with each other: `recorded.get("task")` is 4 so `stage_without_rows` stays silent, and `counted.get("task") ?? 0` equals the declared 0 so `count_mismatch` does too. Spec §6 item 1 permits only `spec`, `plan` and `diff`. The existing "four task rounds without a filing" case cannot reach this — it has no filing at all | New `stage_not_filable` kind, added to the `ProblemKind` union, which is its only enumeration in the plan (verified by grep over every kind name). It is raised FIRST in the section loop with a `continue`, ahead of the round-count check, because a section for a stage that carries no filing is not a filing and its count is not worth reading. New gate case uses exactly the passing shape and asserts the kind rather than merely "some problem" |
+
+**Finding 1's repair turned up a peer in Task 4, repaired in place rather than filed.** Both new tests need a terminal path forced, and Task 4's wrapper-error test claimed a trigger that reaches none: a `CODEX_HOME` pointed at a plain file. Probed 2026-08-04 against the live wrapper — every read of `cfg.codexHome` is already guarded (the heartbeat `mkdir`, the cache rung, `findRollout`), so that dispatch runs to a clean `verdict` at exit 0, two runs out of two. The round-2 repair that introduced it (finding 6) was reasoned from module-load order and never probed, which is precisely the probe-less acceptance the admissibility contract charges as a review defect. Both tasks now plant a directory where an attempt's transcript file must be written: `createWriteStream` errors, the stream-error latch rejects with `fail()` (`scripts/codex-guard.mjs:561-564`), and that rejection leaves the attempt loop for `main().catch` while `cfg.out` stays writable. Probed the same day: exit 3, `failureReason: "wrapper_error"`.
 
 ## Self-Review Record
 
