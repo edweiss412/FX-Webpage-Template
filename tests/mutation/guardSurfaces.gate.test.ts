@@ -46,7 +46,7 @@ const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
   // -- plus ONE accepted-gap family of exactly THREE sites, the spawn timeouts
   // at :32-34. A fourth accepted-gap row means a new family, which needs its
   // own backlog entry rather than a bumped number here.
-  ledgerGit: { equivalent: 5, "accepted-gap": 3 },
+  ledgerGit: { equivalent: 6, "accepted-gap": 3 },
 };
 
 describe("guard-surface registry — ledger-kind expectations", () => {

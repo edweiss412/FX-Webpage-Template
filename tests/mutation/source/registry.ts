@@ -337,6 +337,12 @@ export const GUARD_SURFACES: GuardSurface[] = [
     // named HEAD, which the constructed-namespace case in the suite notices.
     control: { from: 'if (name === "HEAD") continue;', to: 'if (name !== "HEAD") continue;' },
     accepted: [
+      {
+        siteId: "logical-connector:114:18:||>&&",
+        kind: "equivalent",
+        reason:
+          "localRefs reads `for-each-ref --format=%(objectname) %(refname)`, which always emits BOTH fields, and a git refname cannot contain whitespace -- so a one-field line, the only input separating `||` from `&&` here, cannot occur. An empty trailing line splits to a single empty string, making oid falsy, so both operators skip it identically. Its lsRemote twin at :89 IS killed, because ls-remote's output is not under the same format guarantee",
+      },
       // ---- equivalent: cannot change observable behavior (spec §2.4) -------
       {
         siteId: "logical-connector:67:12:||>&&",
