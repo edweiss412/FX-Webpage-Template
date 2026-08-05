@@ -40,11 +40,24 @@
  * variant of "roughly this styling" costs the consistency this exists to hold.
  */
 export const INTERSTITIAL_STYLE = [
-  "body{font:16px/1.5 system-ui,sans-serif;margin:0;padding:2rem;max-width:32rem;margin-inline:auto;color:#1a1a1a}",
+  "body{font:16px/1.5 system-ui,sans-serif;margin:0;padding:2rem;max-width:32rem;margin-inline:auto;background:#ffffff;color:#1a1a1a}",
   "h1{font-size:1.5rem;margin:0 0 1rem}",
   "p{margin:0 0 1rem}",
   "form{margin:1rem 0 0}",
-  "button{font:inherit;padding:.6rem 1rem;border:1px solid #999;background:#f5f5f5;border-radius:.375rem;cursor:pointer}",
+  // 44px min tap target for the venue-floor phone context (PRODUCT.md), and a
+  // border at #767676 rather than the #999 this block carried as sign-out's:
+  // #999 measures 2.85:1 on white, under the 3:1 non-text floor. It was one
+  // document's defect before; extracting the block would have made it four.
+  "button{font:inherit;min-height:44px;padding:.6rem 1rem;border:1px solid #767676;background:#f5f5f5;color:#1a1a1a;border-radius:.375rem;cursor:pointer}",
+  // Both schemes are first-class on this product (PRODUCT.md): a crew member
+  // hitting a sign-in failure backstage at midnight should not get a full-white
+  // flash. A media block costs no assets, which is the only constraint these
+  // documents actually have. Values track the app's own dark surface without
+  // depending on it — nothing here may import a token.
+  "@media (prefers-color-scheme:dark){",
+  "body{background:#0f1014;color:#e8e8ea}",
+  "button{border-color:#8a8b93;background:#23242b;color:#e8e8ea}",
+  "}",
 ].join("");
 
 /**

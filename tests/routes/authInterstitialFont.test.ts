@@ -82,6 +82,53 @@ describe("the shared interstitial document", () => {
   });
 });
 
+describe("the style block is accessible in both schemes", () => {
+  // Both measured 2026-08-04 with the WCAG relative-luminance formula. The
+  // border was `#999` when this block belonged to sign-out alone: 2.85:1 on
+  // white, under the 3:1 non-text floor. Extracting the block propagated it to
+  // four documents, which is what makes it this change's problem to fix.
+  const ratio = (a: string, b: string): number => {
+    const lum = (hex: string): number => {
+      const [r, g, b2] = [0, 2, 4]
+        .map((i) => parseInt(hex.slice(1).substr(i, 2), 16) / 255)
+        .map((v) => (v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4)));
+      return 0.2126 * r! + 0.7152 * g! + 0.0722 * b2!;
+    };
+    const [l1, l2] = [lum(a), lum(b)];
+    return (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05);
+  };
+
+  it("clears the 3:1 non-text floor on the button border", () => {
+    const border = /button\{[^}]*border:1px solid (#[0-9a-f]{6})/.exec(INTERSTITIAL_STYLE)?.[1];
+    expect(border, "button border color not found in the style block").toBeDefined();
+    const fill = /button\{[^}]*background:(#[0-9a-f]{6})/.exec(INTERSTITIAL_STYLE)?.[1];
+    expect(fill).toBeDefined();
+    // Against BOTH neighbours: the page behind it and the fill it encloses.
+    expect(ratio(border!, "#ffffff")).toBeGreaterThanOrEqual(3);
+    expect(ratio(border!, fill!)).toBeGreaterThanOrEqual(3);
+  });
+
+  it("has a dark scheme, because both are first-class on this product", () => {
+    // A crew member hitting a sign-in failure backstage at midnight should not
+    // get a full-white flash. Costs a media block and no assets, which is the
+    // only constraint these documents actually have.
+    expect(INTERSTITIAL_STYLE).toContain("prefers-color-scheme:dark");
+    const dark = INTERSTITIAL_STYLE.slice(INTERSTITIAL_STYLE.indexOf("prefers-color-scheme:dark"));
+    const bg = /body\{[^}]*background:(#[0-9a-f]{6})/.exec(dark)?.[1];
+    const fg = /body\{[^}]*color:(#[0-9a-f]{6})/.exec(dark)?.[1];
+    expect(bg, "dark scheme sets no body background").toBeDefined();
+    expect(fg, "dark scheme sets no body color").toBeDefined();
+    expect(ratio(fg!, bg!)).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it("still ships zero assets after gaining a second scheme", () => {
+    // The dark block must not be the thing that sneaks a network dependency in.
+    expect(INTERSTITIAL_STYLE).not.toMatch(/url\(/i);
+    expect(INTERSTITIAL_STYLE).not.toMatch(/@import/i);
+    expect(INTERSTITIAL_STYLE).not.toMatch(/https?:/i);
+  });
+});
+
 describe("the text slots are escaped", () => {
   // Traced 2026-08-04: all four current call sites pass either a string literal
   // or `messageFor(...)` catalog copy, so nothing attacker-controlled reaches
