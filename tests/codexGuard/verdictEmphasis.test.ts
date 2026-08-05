@@ -1035,6 +1035,72 @@ describe("emphasis on the LABEL or the VALUE, not only around the whole line", (
     },
   );
 
+  // Failure caught (reviewer probe 2026-08-05): deleting every emphasis
+  // character outright FABRICATES a verdict. `VERDICT: AP_PROVE` is not
+  // APPROVE, but it became APPROVE - `status:"verdict"`, exit 0, and a counted
+  // corpus row - and the probe reproduced all nine combinations of `*`, `_` and
+  // backtick inserted into the three outcomes, every one returning `shape:"ok"`
+  // with `declaredIsKnown:false`.
+  //
+  // The direction decides this one. A LOST verdict is loud: exit 3,
+  // `no_verdict`, and an operator looking at a result. A FABRICATED verdict is
+  // silent and lands in the committed corpus as fact. So the deletion is now
+  // restricted to runs that are not flanked by word characters on both sides,
+  // which is also CommonMark's own rule for intraword `_`.
+  //
+  // The cost is that an outcome with emphasis INSIDE the word (`**APP**ROVE`)
+  // is no longer recovered. That is a documented limit in the surfaced
+  // direction, not a defect: nobody writes it, and if they did the dispatch
+  // reports no_verdict rather than inventing an answer.
+  const OUTCOMES = ["APPROVE", "NEEDS-ATTENTION", "BLOCKING"] as const;
+  const INTRUDERS = ["*", "_", "`"] as const;
+  const FABRICATION_VECTOR: [string, string][] = OUTCOMES.flatMap((o) =>
+    // Inserted strictly INSIDE the word, so both flanks are word characters.
+    INTRUDERS.map((c): [string, string] => [`${o.slice(0, 2)}${c}${o.slice(2)}`, o]),
+  );
+
+  it("covers the nine combinations the probe ran", () => {
+    expect(FABRICATION_VECTOR).toHaveLength(9);
+  });
+
+  it.each(FABRICATION_VECTOR)("refuses %j rather than fabricating %s", async (mangled) => {
+    const result = await dispatchMessage(`VERDICT: ${mangled}\n`);
+    expect(result).toMatchObject({ status: "no_verdict", verdict: null });
+    // The line WAS a marker and was rejected on its payload - `no_marker` here
+    // would mean the marker test changed, which is a different behavior.
+    expect(result.attempts[0]!.failureShape).toBe("unrecognized_verdict");
+  });
+
+  // `NEEDS-ATTENTION` must not be reassemblable across its own separator: a
+  // flanking test that treats `-` as punctuation deletes the run in
+  // `NEEDS-_ATTENTION` and fabricates the outcome. This is the case that makes
+  // the hyphen in the word-character class load-bearing rather than decorative.
+  it.each([["NEEDS-_ATTENTION"], ["NEEDS-*ATTENTION"], ["NEEDS_-ATTENTION"]])(
+    "refuses %j rather than reassembling NEEDS-ATTENTION",
+    async (mangled) => {
+      expect(await dispatchMessage(`VERDICT: ${mangled}\n`)).toMatchObject({
+        status: "no_verdict",
+        verdict: null,
+      });
+    },
+  );
+
+  // The restriction must not cost the emphasis forms every earlier round paid
+  // for: every one of those runs is flanked by a non-word character.
+  it.each([
+    ["**VERDICT: APPROVE**", "APPROVE"],
+    ["**VERDICT:** APPROVE", "APPROVE"],
+    ["VERDICT:**APPROVE**", "APPROVE"],
+    ["*__VERDICT:__* APPROVE", "APPROVE"],
+    ["**VERDICT:**__NEEDS-ATTENTION__", "NEEDS-ATTENTION"],
+    ["___VERDICT: BLOCKING___", "BLOCKING"],
+  ])("still recovers %j as %s", async (line, want) => {
+    expect(await dispatchMessage(`${line}\n`)).toMatchObject({
+      status: "verdict",
+      verdict: want,
+    });
+  });
+
   // The guards must survive the widening. A bullet is still a bullet even
   // though the label may now carry its own emphasis, and a code span is still
   // quoted text.

@@ -679,9 +679,22 @@ function parseVerdict(text) {
   const raw = survivors[survivors.length - 1]; // RAW, untrimmed (§6 schema)
   // EMPHASIS IS IRRELEVANT TO IDENTIFYING THE OUTCOME, so it is deleted rather
   // than parsed. Every value in `KNOWN_OUTCOMES` is letters and one hyphen — no
-  // `*`, `_` or backtick appears in any of them — so removing every emphasis
-  // character is lossless for any VALID outcome and cannot turn an invalid one
-  // valid. What is left is a plain `VERDICT: <word>` line.
+  // `*`, `_` or backtick appears in any of them — so removing an emphasis run is
+  // lossless for any VALID outcome. What is left is a plain `VERDICT: <word>`.
+  //
+  // But NOT every occurrence: deleting them all FABRICATES a verdict.
+  // `VERDICT: AP_PROVE` is not APPROVE and became APPROVE, with exit 0 and a
+  // counted corpus row (probed 2026-08-05: all nine combinations of the three
+  // characters inserted into the three outcomes returned `ok`). The direction
+  // decides it — a LOST verdict is loud (exit 3, `no_verdict`, an operator
+  // reading a result), a FABRICATED one is silent and lands in the committed
+  // corpus as fact — so a run is deleted only when it is NOT flanked by word
+  // characters on both sides, which is also CommonMark's own rule for
+  // intraword `_`.
+  //
+  // Documented limit, in the surfaced direction: emphasis INSIDE the word
+  // (`**APP**ROVE`) is no longer recovered and reports `no_verdict` rather than
+  // inventing an answer.
   //
   // This replaces a hand-rolled markdown unwrapper that cost FOUR consecutive
   // review rounds, each one a real trailing verdict lost and filed as an
@@ -697,7 +710,17 @@ function parseVerdict(text) {
   // prose instruction nor a code span is a marker; and the ambiguity filter
   // above still rejects a line naming two outcomes. `verdictLine` still records
   // `raw`, untrimmed, per the §6 schema.
-  let payload = raw.replace(/[*_`]/g, "").trim();
+  // The hyphen counts as a word character here so `NEEDS-ATTENTION` cannot be
+  // reassembled across its own separator either.
+  const WORDISH = /[A-Za-z0-9-]/;
+  let payload = raw
+    .replace(/[*_`]+/g, (run, at, whole) => {
+      const before = whole[at - 1];
+      const after = whole[at + run.length];
+      const intraword = before && after && WORDISH.test(before) && WORDISH.test(after);
+      return intraword ? run : "";
+    })
+    .trim();
   payload = payload.replace(/^VERDICT\s*:\s*/, "").trim();
   payload = payload.replace(/[.,;:!]+$/, "");
   payload = payload.trim().toUpperCase();
