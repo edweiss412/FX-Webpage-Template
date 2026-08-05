@@ -214,17 +214,6 @@ From the same audit. A needs-you row's accessible name is now `"needs review —
 
 **Un-defer trigger:** owner review of the row's accessible name, or the first screen-reader pass on the merged panel.
 
-### DESTRUCT-FOCUSRING-1 — [P1] the light-mode focus ring measures 1.60:1
-
-**Effort:** L
-**Status:** IN PROGRESS · **Branch:** chore/ledger-sizing-sweep
-
-From the impeccable audit of `fix/destruct-thumb-order-drift-guard` (2026-07-25). `--color-focus-ring` composites over white to ≈`#FFC075`, **1.60:1** against adjacent colors, where WCAG 1.4.11 non-text contrast expects 3:1. Dark mode passes at 4.40:1.
-
-**Accepted, not fixed.** This is a token, not a surface: every `focus-visible:ring-focus-ring` control in the app inherits it, so changing it inside a two-button branch would ship an app-wide visual change under a diff about button order. `DESIGN.md`'s contrast table has no focus-ring row, which is why it was never pinned. Tracked by the pre-existing `BL-FOCUS-RING-CONTRAST`, which already owns the token decision and the ~90 bare `ring-offset-2` sweep; this run contributed the measured ratios.
-
-**Un-defer trigger:** the next DESIGN.md token pass, or any a11y sweep that touches focus appearance.
-
 ### SHEETLINK-SUBTLE-ACTION-CLASS-1 — [P1] `text-text-subtle` survives on four sibling icon-only action targets
 
 **Effort:** M

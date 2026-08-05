@@ -1,3 +1,30 @@
+## DESTRUCT-FOCUSRING-1 — [P1] the light-mode focus ring measures 1.60:1 — RESOLVED 2026-08-01 (graduation-verified 2026-08-05)
+
+Verified LIVE on `chore/ledger-sizing-sweep` before archiving. Every premise is closed by the
+2026-08-01 `fix/focus-ring-a11y-pass` merge, and both un-defer triggers have already fired:
+
+**The token is fixed.** `DESIGN.md:40` — light `--color-focus-ring` went opaque `#E06000`
+(owner-ratified Option B); the old translucent orange's 1.60:1 composite is this entry's exact
+measurement, and `#E06000` clears 3.07-3.59:1 on every backdrop family (dark 3.69-4.56:1).
+
+**The missing contrast-table row exists.** `DESIGN.md:55` is the focus-ring row (SC 2.4.13,
+nine-family matrix), pinned by `tests/styles/focusRingContrast.test.ts` — the "no focus-ring row,
+which is why it was never pinned" premise is gone.
+
+**The named owner shipped and graduated.** `BL-FOCUS-RING-CONTRAST` is `✅ RESOLVED (2026-08-01,
+fix/focus-ring-a11y-pass)` in `BACKLOG-archive.md`, including the ~90 bare `ring-offset-2` sweep
+this entry deferred to it (guarded by `tests/styles/noBareRingOffset.test.ts`).
+
+Original entry, verbatim (minus heading):
+
+**Effort:** L
+
+From the impeccable audit of `fix/destruct-thumb-order-drift-guard` (2026-07-25). `--color-focus-ring` composites over white to ≈`#FFC075`, **1.60:1** against adjacent colors, where WCAG 1.4.11 non-text contrast expects 3:1. Dark mode passes at 4.40:1.
+
+**Accepted, not fixed.** This is a token, not a surface: every `focus-visible:ring-focus-ring` control in the app inherits it, so changing it inside a two-button branch would ship an app-wide visual change under a diff about button order. `DESIGN.md`'s contrast table has no focus-ring row, which is why it was never pinned. Tracked by the pre-existing `BL-FOCUS-RING-CONTRAST`, which already owns the token decision and the ~90 bare `ring-offset-2` sweep; this run contributed the measured ratios.
+
+**Un-defer trigger:** the next DESIGN.md token pass, or any a11y sweep that touches focus appearance.
+
 ## DESTRUCT-DURATION-TOKENS-1 — [P1] `duration-fast` / `duration-normal` emit no CSS — RESOLVED 2026-08-04 (graduation-verified)
 
 Verified LIVE on `docs/sweep-comment-drift` before archiving, which is the whole point of a
