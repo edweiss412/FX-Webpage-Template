@@ -407,18 +407,80 @@ function composePrompt(cfg) {
 // Verdict parsing (§6)
 // ---------------------------------------------------------------------------
 
-/** A CommonMark list marker: bullet or ordered, itself indented up to 3 spaces. */
-const LIST_MARKER = String.raw` {0,3}(?:[-*+]|\d{1,9}[.)])`;
-/** A fence opener at the start of a line, or on a list-marker line. */
-const ROOT_FENCE = /^ {0,3}(`{3,}|~{3,})(.*)$/;
-const LIST_FENCE = new RegExp(String.raw`^${LIST_MARKER}[ \t]+(\`{3,}|~{3,})(.*)$`);
+/** A CommonMark list marker and the whitespace that opens its content. */
+const MARKER_HEAD = /^([-*+]|\d{1,9}[.)])([ \t]+)/;
+/** A fence, once the container prefix has been peeled off the line. */
+const FENCE_OPEN = /^(`{3,}|~{3,})(.*)$/;
+/** A closing fence: its own leading whitespace, then nothing but the run. */
+const FENCE_CLOSE = /^([ \t]*)(`{3,}|~{3,})[ \t]*$/;
+const TAB_STOP = 4;
+
+/** The column reached by advancing over `s` from `col`, tabs to the next stop. */
+function advance(s, col) {
+  let c = col;
+  for (const ch of s) c += ch === "\t" ? TAB_STOP - (c % TAB_STOP) : 1;
+  return c;
+}
+
+/** A line's leading whitespace measured in COLUMNS, so a tab counts as four. */
+function indentColumns(line) {
+  let c = 0;
+  for (const ch of line) {
+    if (ch !== " " && ch !== "\t") break;
+    c = advance(ch, c);
+  }
+  return c;
+}
+
 /**
- * An indented code block that opens ON a list-marker line: content set 4+
- * columns past the item's own content column. Five spaces after a one-character
- * marker puts the first character at column 6 = content column 2 + 4.
+ * Where a line's content begins once the list containers it opens are peeled.
+ *
+ * CommonMark measures a fence opener's indentation, and the four columns that
+ * make a line indented code, RELATIVE to the innermost container's content
+ * column — never absolutely. Probed 2026-08-05: an absolute three-column cap
+ * missed every fence opened inside a nested list item (18/18 shapes leaked
+ * their example, plus 2/2 where the opener sat on a marker line indented four),
+ * because a reviewer quoting an example under a sub-bullet of a numbered
+ * finding writes the opener well past column 3. The indented-code fallback did
+ * not catch them either: that rule requires a preceding blank line and a quoted
+ * example follows its lead-in directly.
+ *
+ * `base` is the innermost item's content column — the origin every measurement
+ * below is taken from. `col`/`idx` locate the first character that is not
+ * container prefix. This tracks ONE content column rather than a container
+ * stack: a dedent re-derives from the root instead of popping, and block quotes
+ * are not containers here at all (§8.3 documented limit 12).
  */
-const LIST_INDENTED = new RegExp(String.raw`^${LIST_MARKER} {5,}\S`);
-const INDENTED_LINE = /^(?: {4}|\t)/;
+function scanContainers(line, entering) {
+  let base = entering;
+  let idx = 0;
+  let col = 0;
+  let sawMarker = false;
+  for (;;) {
+    let j = idx;
+    let c = col;
+    while (j < line.length && (line[j] === " " || line[j] === "\t")) {
+      c = advance(line[j], c);
+      j += 1;
+    }
+    // A dedent past the container we believed open: re-derive from the root.
+    if (c < base) base = 0;
+    // Four or more columns past the content column is indented code, never a
+    // marker — stop peeling and let the caller classify what it found.
+    if (c > base + 3) return { base, col: c, idx: j, sawMarker };
+    const m = MARKER_HEAD.exec(line.slice(j));
+    if (m === null) return { base, col: c, idx: j, sawMarker };
+    sawMarker = true;
+    const markerEnd = c + m[1].length;
+    const afterWs = advance(m[2], markerEnd);
+    // Five or more columns of whitespace after a marker is indented code INSIDE
+    // the item, whose content column is then the marker plus one (CommonMark
+    // 5.2) — the rule that makes `-     VERDICT: …` a code block, not text.
+    base = afterWs - markerEnd >= 5 ? markerEnd + 1 : afterWs;
+    idx = j + m[1].length + m[2].length;
+    col = afterWs;
+  }
+}
 
 /**
  * Every CommonMark code block the document CLOSES, removed — in ONE place,
@@ -454,23 +516,30 @@ const INDENTED_LINE = /^(?: {4}|\t)/;
  * hold the document's last non-empty line. Note what the rule is NOT: it never
  * consults the outcome. "Strip unless it would remove the verdict" would rot.
  *
- * - Fenced (CommonMark 4.5): ``` or ~~~, at line start or after a list marker,
- *   closed by a fence of the SAME character at least as long. The close accepts
- *   any leading whitespace, because a fence opened inside a list item closes at
- *   the item's content column — and leniency about where a block ENDS can only
- *   strip less, never more.
- * - Indented (CommonMark 4.4): 4 spaces or a tab. These may not interrupt a
- *   paragraph, so one starts only after a blank line — without that rule an
- *   over-indented continuation line carrying the verdict would be eaten — or on
- *   a list-marker line, where the marker plays the part of the blank line.
+ * - Fenced (CommonMark 4.5): ``` or ~~~, opened at most 3 columns past its
+ *   container's content column and closed by a fence of the SAME character at
+ *   least as long, itself at most 3 columns past that same origin. The closer's
+ *   cap is what makes an over-indented run inside the block CONTENT rather than
+ *   the end of it: probed 2026-08-05, an unbounded closer let a nested example's
+ *   fence end the outer block four lines early and leak everything after it
+ *   (4/4 shapes). Capping it can only ever strip MORE, so it cannot resurrect
+ *   the regression above — a block that closes later still states its end after
+ *   whatever it holds, and one that stops closing strips nothing at all.
+ * - Indented (CommonMark 4.4): 4 columns past the content column. These may not
+ *   interrupt a paragraph, so one starts only after a blank line — without that
+ *   rule an over-indented continuation line carrying the verdict would be eaten
+ *   — or on a list-marker line, where the marker plays the part of the blank.
  */
 function stripCodeBlocks(text) {
   const lines = text.split("\n");
   const out = lines.slice();
   // The lines of the block currently open. They are blanked only if the block
   // closes; abandoning the list is how "open at EOF strips nothing" is spelled.
-  let block = null; // { kind: "fence" | "indented", char, len, at: number[] }
+  // `col` is the container content column the block was opened at, and every
+  // indentation test against it is relative to that origin.
+  let block = null; // { kind: "fence" | "indented", char, len, col, at: number[] }
   let prevBlank = true; // start of document opens a block just like a blank line does
+  let listCol = 0; // content column of the innermost list item believed open
   const closeBlock = () => {
     for (const i of block.at) out[i] = "";
     block = null;
@@ -479,7 +548,13 @@ function stripCodeBlocks(text) {
     const line = lines[i];
     if (block !== null && block.kind === "fence") {
       block.at.push(i); // the closing fence line belongs to the block
-      if (new RegExp(`^[ \\t]*${block.char}{${block.len},}[ \\t]*$`).test(line)) {
+      const close = FENCE_CLOSE.exec(line);
+      if (
+        close !== null &&
+        close[2][0] === block.char &&
+        close[2].length >= block.len &&
+        advance(close[1], 0) <= block.col + 3
+      ) {
         closeBlock();
         prevBlank = true; // a block boundary — what follows may open another
       }
@@ -487,30 +562,37 @@ function stripCodeBlocks(text) {
     }
     const blank = line.trim() === "";
     if (block !== null) {
-      // Indented: a blank line does not end it, any other unindented line does —
-      // and that terminating line is NOT part of the block, so it falls through
-      // to the openers below (it may itself open a fence).
-      if (blank || INDENTED_LINE.test(line)) {
+      // Indented: a blank line does not end it, any other line back inside the
+      // content column does — and that terminating line is NOT part of the
+      // block, so it falls through to the openers below (it may open a fence).
+      if (blank || indentColumns(line) >= block.col + 4) {
         block.at.push(i);
         prevBlank = blank;
         continue;
       }
       closeBlock();
     }
-    const open = ROOT_FENCE.exec(line) ?? LIST_FENCE.exec(line);
+    if (blank) {
+      prevBlank = true;
+      continue;
+    }
+    const { base, col, idx, sawMarker } = scanContainers(line, listCol);
+    listCol = base;
+    const relative = col - base;
+    const open = relative <= 3 ? FENCE_OPEN.exec(line.slice(idx)) : null;
     // A BACKTICK fence's info string may not contain a backtick (CommonMark
     // 4.5) — the rule that keeps an inline `code span` from opening a block.
     if (open && !(open[1][0] === "`" && open[2].includes("`"))) {
-      block = { kind: "fence", char: open[1][0], len: open[1].length, at: [i] };
+      block = { kind: "fence", char: open[1][0], len: open[1].length, col: base, at: [i] };
       prevBlank = false;
       continue;
     }
-    if (!blank && ((prevBlank && INDENTED_LINE.test(line)) || LIST_INDENTED.test(line))) {
-      block = { kind: "indented", at: [i] };
+    if (relative >= 4 && (prevBlank || sawMarker)) {
+      block = { kind: "indented", col: base, at: [i] };
       prevBlank = false;
       continue;
     }
-    prevBlank = blank;
+    prevBlank = false;
   }
   // EOF with a block still open: the document never said where it ends, so
   // nothing is blanked. See the asymmetry above.

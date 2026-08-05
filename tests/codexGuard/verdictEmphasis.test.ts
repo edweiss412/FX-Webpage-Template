@@ -533,3 +533,213 @@ describe("a code block the document never closes strips nothing", () => {
     expect(result).toMatchObject({ status: "verdict", verdict: "NEEDS-ATTENTION" });
   });
 });
+
+const EXAMPLE_COUNT = 4;
+const EXAMPLE_BODY = [`FINDINGS: ${EXAMPLE_COUNT}`, "VERDICT: APPROVE"];
+const FENCE_CHARS: [string, string][] = [
+  ["backtick", "```"],
+  ["tilde", "~~~"],
+];
+
+const dispatchMessage = async (text: string) => {
+  const run = mkRun();
+  writeScenario(run, [
+    {
+      onCall: 1,
+      actions: [
+        { type: "lastMessage", text },
+        { type: "exit", code: 0 },
+      ],
+    },
+  ]);
+  await runGuard(run, ["--max-attempts", "1"]);
+  return readResult(run);
+};
+
+describe("a closing fence indented four or more columns is content, not a closer", () => {
+  // Failure caught (reviewer probe 2026-08-05, false approvals=4/4): the closer
+  // test accepted ANY leading whitespace. CommonMark 4.5 allows a closing fence
+  // at most three columns past its container's content column; at four or more
+  // the line is CONTENT of the block it sits in. So a reviewer quoting a nested
+  // fence inside an example - the one shape that puts an over-indented fence run
+  // in a message at all - closed the outer block early, and every line after it,
+  // including the example's own `VERDICT:` and `FINDINGS:`, was read as the
+  // reviewer's own. Probed `verdict=APPROVE, count=4` on all four combinations.
+  //
+  // The tightening only ever strips MORE, never less, so it cannot resurrect the
+  // verdict-swallowing regression pinned above: a block that now stays open
+  // longer either closes later (its stated end still follows the verdict it
+  // holds) or never closes at all, and an unclosed block strips nothing.
+  it.each(
+    FENCE_CHARS.flatMap(([name, fence]) =>
+      [4, 8].map((pad): [string, number, string] => [
+        name,
+        pad,
+        [
+          "Emit this at the end:",
+          "",
+          fence,
+          " ".repeat(pad) + fence,
+          ...EXAMPLE_BODY,
+          fence,
+          "",
+          "Still working.",
+          "",
+        ].join("\n"),
+      ]),
+    ),
+  )(
+    "does not let a %s run indented %d columns close the block early",
+    async (_name, _pad, text) => {
+      const result = await dispatchMessage(text);
+      expect(result).toMatchObject({ status: "no_verdict", verdict: null, verdictLine: null });
+      // `no_marker`, not `unrecognized_verdict`: the example must be GONE before
+      // the marker test, exactly as an unindented closer already makes it.
+      expect(result.attempts[0]!.failureShape).toBe("no_marker");
+      // The SECOND caller of the same stripper, on the number the fixture is
+      // built from - a fix in `parseVerdict` alone still fails here.
+      expect(result.findingCount).toBeNull();
+    },
+  );
+
+  // The control, re-measured rather than assumed: a closer AT the three-column
+  // limit still closes. Without it the whole table above passes on a stripper
+  // that stopped recognizing closers entirely - which would leave every fenced
+  // example open to EOF and strip nothing, the opposite defect. The two declared
+  // counts differ, so the assertion can tell "block stripped" (count 1) from
+  // "block admitted" (two counts seen, therefore null).
+  it("still closes on a fence indented three columns", async () => {
+    const result = await dispatchMessage(
+      [
+        "Emit this at the end:",
+        "",
+        "```",
+        ...EXAMPLE_BODY,
+        "   ```",
+        "",
+        "FINDINGS: 1",
+        "",
+        "VERDICT: NEEDS-ATTENTION",
+        "",
+      ].join("\n"),
+    );
+    expect(result).toMatchObject({ status: "verdict", verdict: "NEEDS-ATTENTION" });
+    expect(result.findingCount).toBe(1);
+  });
+});
+
+describe("a fence opener indented past three columns still hides its example", () => {
+  // Failure caught (reviewer probe 2026-08-05, FALSE_APPROVE=18/18 plus a
+  // nested marker-line pair at 2/2): opener recognition capped indentation at
+  // three columns ABSOLUTELY. CommonMark measures it relative to the container's
+  // content column, so a fence opened inside a nested list item - a reviewer
+  // quoting an example under a sub-bullet of a numbered finding - was not a
+  // fence at all, and its `VERDICT:`/`FINDINGS:` lines were read as the
+  // reviewer's own. The indented-code fallback did not save it: that rule needs
+  // a preceding blank line, and a quoted example follows its lead-in directly.
+  const OUTCOME = "APPROVE" as const;
+
+  /**
+   * 18 shapes: three container depths x three innermost markers x two fence
+   * characters. Each nests bullets to push the innermost item's content column
+   * to 4, 6 or 8 (9 with a two-character marker) - past the old absolute cap -
+   * and opens the fence on a continuation line, where `prevBlank` is false.
+   */
+  const nested: [string, string][] = [2, 3, 4].flatMap((depth) =>
+    ["-", "*", "1."].flatMap((marker) =>
+      FENCE_CHARS.map(([name, fence]): [string, string] => {
+        const outer: string[] = [];
+        let col = 0;
+        for (let d = 1; d < depth; d += 1) {
+          outer.push(" ".repeat(col) + "- Finding:");
+          col += 2;
+        }
+        const pad = " ".repeat(col + marker.length + 1);
+        return [
+          `depth ${depth}, marker ${marker}, ${name} at column ${col + marker.length + 1}`,
+          [
+            ...outer,
+            " ".repeat(col) + `${marker} Nested finding:`,
+            pad + "Emit this at the end:",
+            pad + fence,
+            ...EXAMPLE_BODY.map((l) => pad + l),
+            pad + fence,
+            "",
+            "Still working.",
+            "",
+          ].join("\n"),
+        ];
+      }),
+    ),
+  );
+
+  /** The reviewer's second probe: the opener sits ON a marker line indented 4. */
+  const markerLine: [string, string][] = FENCE_CHARS.map(([name, fence]): [string, string] => [
+    `nested marker line, ${name}`,
+    [
+      "1. Finding:",
+      `    - ${fence}`,
+      ...EXAMPLE_BODY.map((l) => "      " + l),
+      `      ${fence}`,
+      "",
+      "Still working.",
+      "",
+    ].join("\n"),
+  ]);
+
+  it("covers the 18 nested shapes and the 2 marker-line shapes the probe ran", () => {
+    expect(nested).toHaveLength(18);
+    expect(markerLine).toHaveLength(2);
+  });
+
+  it.each([...nested, ...markerLine])(
+    "does not read the example inside %s",
+    async (_shape, text) => {
+      const result = await dispatchMessage(text);
+      expect(result).toMatchObject({ status: "no_verdict", verdict: null, verdictLine: null });
+      expect(result.attempts[0]!.failureShape).toBe("no_marker");
+      expect(result.findingCount).toBeNull();
+    },
+  );
+
+  // The reference, re-measured: the SAME nesting with no code block at all still
+  // yields a verdict. Without it every row above passes on a stripper that
+  // blanked any indented line it met, and the fix would have bought nothing.
+  it("still reads a verdict written at the same depth outside a code block", async () => {
+    const result = await dispatchMessage(
+      [
+        "- Finding:",
+        "  - Nested finding:",
+        "    Emit this at the end:",
+        "",
+        `FINDINGS: 1`,
+        "",
+        `VERDICT: ${OUTCOME}`,
+        "",
+      ].join("\n"),
+    );
+    expect(result).toMatchObject({ status: "verdict", verdict: OUTCOME });
+    expect(result.findingCount).toBe(1);
+  });
+
+  // The asymmetry survives the widening: a nested fence the document never
+  // closes still strips nothing, so the trailing verdict lives.
+  it.each(FENCE_CHARS)(
+    "keeps a trailing verdict when a nested %s fence is left open",
+    async (_name, fence) => {
+      const result = await dispatchMessage(
+        [
+          "- Finding:",
+          "  - Nested finding:",
+          "    Emit this at the end:",
+          "    " + fence,
+          ...EXAMPLE_BODY.map((l) => "    " + l),
+          "",
+          "VERDICT: NEEDS-ATTENTION",
+          "",
+        ].join("\n"),
+      );
+      expect(result).toMatchObject({ status: "verdict", verdict: "NEEDS-ATTENTION" });
+    },
+  );
+});

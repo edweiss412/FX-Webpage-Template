@@ -267,6 +267,15 @@ Over-obligation — a filing demanded where nothing was mechanizable — costs o
 9. **`stage: "task"` rows never oblige a filing** (§5.1). A non-review dispatch is recorded for completeness and is invisible to the threshold.
 10. **A `--cwd` outside a git repository records nothing.** The wrapper warns on stderr and leaves the exit code and result.json untouched. Distinct from a detached HEAD (exit 2) deliberately: inside a repo, a detached HEAD is a live arc whose identity cannot be determined, so under-recording it silently is the §8.2 failure; outside a repo there is no arc to record. (Plan resolution R1.)
 11. **A filing may cite a DEFERRED entry by an id the gate does not recognize.** DEFERRED entries carry bare SHOUTY ids (`PSQL-GUARD-RECALL-RESIDUAL`), not a `DEF-` prefix, and the citation recognizer matches `BL-`/`DEF-` tokens only (`lib/reviewRounds/filing.ts:24`). An unrecognized token is not treated as a citation, so it is neither resolved nor rejected. Conservative under-check; widening the recognizer would classify ordinary prose as a citation. (Plan resolution R2.)
+12. **The code-block recognizer is a bounded approximation of CommonMark, not an implementation of it.** A verdict-shaped or findings-shaped line inside an exotically-constructed code block may be read as a declaration. Three things bound the damage: the brief contract mandates a real `VERDICT:` line as the message's LAST line and the last surviving marker wins, so a compliant reviewer's real verdict always beats an example; a block left open at EOF strips nothing, so the tail is never discarded; and a reviewer that emits only a fake verdict inside a code block is an arc that LIES, which §8.1 fences out of the threat model. Closing the remaining gap means parsing CommonMark properly rather than widening regexes, which is filed (`BL-CODEX-GUARD-COMMONMARK-PARSE`) rather than done here.
+
+    **What the approximation misses, named rather than left undescribed.** `scanContainers` in `scripts/codex-guard.mjs` tracks ONE container content column, not a container stack, and knows only list items:
+
+    - **Block quotes are not containers.** A `>` prefix is never peeled, so a fenced block inside a block quote is measured from column 0 and its opener reads as ordinary text. Everything it holds leaks.
+    - **A dedent re-derives from the root instead of popping.** Leaving a nested item resets the tracked column to 0 and re-reads it from the next marker line, so a fence opened on a bare continuation line of an OUTER item, immediately after a deeper one, is measured from 0 rather than from that item's content column.
+    - **Lazy continuation, HTML blocks, link reference definitions and setext headings are not modelled at all.** A fence inside any of them is measured as if it stood at the root.
+
+    Every one of these misses in the ADMIT direction — an unrecognized block leaks its example rather than swallowing a verdict — which is the cheap error under §8.2 and the same asymmetry the open-at-EOF rule already encodes.
 
 ## 9. Report
 
