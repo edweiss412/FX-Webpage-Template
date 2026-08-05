@@ -59,6 +59,110 @@ Original entry, verbatim:
 
 **Status:** OPEN.
 
+## BL-CODE-ENUM-PROVENANCE-COMMENT-BLIND — a doc comment silently rewrites generated code provenance — CLOSED 2026-08-04
+
+The provenance decision is now `claimsAdminAlertProvenance`, which strips COMMENTS before testing,
+and the regeneration reverted exactly the six codes this entry named — code membership unchanged,
+which is what the entry predicted and what confirms the fix touched provenance only.
+
+**The Work section's prescription was half wrong, and the regression suite is what caught it.** It
+asked to strip "comments and string literals". Stripping literals was implemented, and it failed
+the suite's real-call cases: `sb.from("admin_alerts")` and `sb.rpc("upsert_admin_alert")` reach the
+table THROUGH a string, so blanking literals made two of the four write shapes invisible — a
+recognizer strictly worse than the one being replaced. Literal stripping was reverted.
+
+**Documented limit, pinned rather than left unstated:** a literal containing PROSE about the writer
+(`const msg = "call upsertAdminAlert here"`) still claims provenance. That is strictly narrower than
+the comment case that caused the incident, and closing it would require telling a table reference
+from a sentence, which stripping cannot do. The suite asserts the limit so it reads as a decision.
+
+Stripping rather than skipping the file is also load-bearing: a file that both writes an alert AND
+comments about it must still claim provenance, so "any comment mentions it, ignore the file" would
+have dropped provenance from real writers. Pinned as its own case.
+
+Original entry, verbatim:
+
+`scripts/extract-internal-code-enums.ts:161` decides whether a file's codes claim `admin_alerts.code` provenance by regexing the **raw source**:
+
+```
+if (/\badmin_alerts?\b|upsertAdminAlert|upsert_admin_alert/i.test(source)) {
+```
+
+That test is comment-blind. Adding a doc comment that merely _names_ `upsertAdminAlert` — as the apply/undo branch did at `app/api/admin/onboarding/finalize/route.ts` and `app/api/admin/onboarding/finalize-cas/route.ts`, explaining why an emit does NOT belong at a given point — flips provenance for **every** code in that file. Six §12.4 codes widened to claim `admin_alerts.code` on that regeneration (`ONBOARDING_FINALIZE_INTERNAL_ERROR`, `ONBOARDING_LEGACY_ROW_AMBIGUOUS`, `ROLE_MAPPINGS_OUTDATED_AT_PUBLISH`, `STAGED_PARSE_OUTDATED_AT_PHASE_D`, `STAGED_PARSE_REVISION_RACE_DURING_FINALIZE`, `WIZARD_REVIEWER_CHOICES_VERSION_UNSUPPORTED`) without any of them gaining a write site.
+
+**Benign as shipped, which is exactly why it is worth filing.** Code membership is unchanged and no consumer keys on `admin_alerts.code` — the live filters key on `parse_warnings.code` — so the widening changed nothing observable and the regenerated manifest was committed rather than the extractor patched mid-branch. The defect is that a generated artifact's provenance field can be rewritten by prose, so it cannot be trusted as evidence of a write site, and the next person to rely on it will not know that.
+
+**Work:** gate on parsed source rather than raw text — strip comments and string literals before the provenance test, the same shape `stripLogEmissionCalls` already uses for the §12.4 scans. A regression fixture is a file whose only mention of the writer is in a comment.
+
+---
+
+## BL-BELLPANEL-DISMISS-COMMENT-DRIFT — six BellPanel comments name a label the panel stopped rendering — CLOSED 2026-08-04
+
+The six comments now name the control by its ROLE ("the resolve control") rather than by a verb the
+panel stopped rendering, and the pending-state comment names the two real pending labels
+("Confirming…" / "Resolving…") instead of "Dismissing…".
+
+**Eight, not six.** Sweeping the shape rather than the named instances found two more the entry did
+not count: the module header offered `"Dismiss"/"Retry"` as its example of uncataloged UI chrome
+(now `"Mark resolved"/"Retry"`), and the scrim comment described a hypothetical focusable
+`"Dismiss"` button — quoted like a label, which is the same misreading in a place where no control
+exists at all. It now reads "focusable close button". No occurrence of the string survives in the
+file.
+
+**`DESIGN.md` §16 needed no change, which the entry asked to be checked rather than assumed.** Its
+wording already names Dismiss only historically — "the bell previously said Dismiss" — while
+describing the intent-driven labels as current. It was the source of truth the comments had drifted
+from, not another copy of the drift.
+
+Original entry, verbatim:
+
+`components/admin/BellPanel.tsx` calls its trailing ghost control "Dismiss" in six comments
+beginning at `components/admin/BellPanel.tsx:224` ("Trailing ghost Dismiss (DESIGN.md §16)", "must
+not stay stuck at Dismissing…", "Health rows … have no Dismiss", and so on). The control renders
+`Confirm` or `Mark resolved`, chosen by the alert code's intent
+(`components/admin/BellPanel.tsx:377-388`, `lib/adminAlerts/resolveActionLabel.ts:73-76`); no
+"Dismiss" string reaches the DOM.
+
+**Why filed rather than swept:** it is the same defect CLASS as the branch that found it (prose
+asserting something the code does not do) but a different SHAPE — a renamed label, not a citation to
+a deleted file — and the branch that found it was retiring components, not editing alert chrome.
+Sweeping it in would have grown that diff past its subject. No product question: the code is right
+and the comments are stale.
+
+**Fix (when prioritized):** reword the six comments to the rendered labels, and check whether
+`DESIGN.md §16`'s own wording still names a Dismiss affordance.
+
+**Trigger:** the next branch touching `BellPanel` or the alert-resolve labels.
+
+---
+
+## BL-CI-STALE-BRANCH-PROTECTION-COMMENT — one-line docs fix — ✅ RESOLVED (2026-07-26, PR2 of the CI-dark cluster) — GRADUATED 2026-08-04 (verified live)
+
+The entry declared itself resolved and asked to be kept in place as a sub-entry of an open parent.
+Verified against the tree before graduating rather than trusting the declaration:
+
+- `tests/ci/_metaE2eWorkflowCoverage.test.ts` now states the claim was STALE and corrects it —
+  twelve contexts, measured 2026-07-26. The only surviving occurrence of the old phrasing anywhere
+  outside the frozen ledger fixture is inside that correction sentence, quoting what it corrects.
+- The sibling sweep the entry claims also holds: `BL-E2E-LIFECYCLE-SPECS-CI-DARK` carries both the
+  quoted stale phrase and the twelve-context correction, so the second site was fixed, not missed.
+
+**One forward-looking note.** That comment records a DATED measurement (2026-07-26), which is honest
+as written. But `BL-SECTION-HEADER-VISUAL-REQUIRED-CONTEXT` is an approved, verified-green flip that
+would take the required set to THIRTEEN. Whoever lands it should re-measure and update that comment
+in the same commit, or it becomes stale again in exactly the way this entry was filed for.
+
+Original entry, verbatim:
+
+**Resolved.** The comment is corrected in `tests/ci/_metaE2eWorkflowCoverage.test.ts`, and the same stale claim was swept from this file's `BL-E2E-LIFECYCLE-SPECS-CI-DARK` entry — it appeared in two places, not one. Kept here rather than graduated to the archive because it is a sub-entry of a still-open parent section, not a standalone item. Original text below for provenance.
+
+`tests/ci/_metaE2eWorkflowCoverage.test.ts:11` states branch protection "deliberately requires ONLY
+the `quality` context". Measured live 2026-07-26: `main` requires **twelve** contexts (`quality`,
+`unit-suite`, `x1`–`x6`, `validation-schema-parity`, `affordance-matrix-parity`,
+`postgrest-dml-lockdown`, `traceability-audit`), and `scripts/generate-traceability.ts` resolves a
+third, different list of eight. Any reasoning that treats the repo's e2e jobs as "the only required
+check is quality" is wrong — notably, edits to `unit-suite` DO touch a merge-blocking context.
+
 ---
 
 ## BL-TASKCONTRACT-SORT-COMPARATOR-EQUALKEY — finding-order comparator is unpinnable for equal `(docLine, code)` pairs — CLOSED 2026-08-04

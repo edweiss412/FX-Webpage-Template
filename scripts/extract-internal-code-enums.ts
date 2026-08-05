@@ -2,14 +2,54 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import ts from "typescript";
 import { Project } from "ts-morph";
 
+import { stripCommentsSafely } from "@/tests/_shared/stripComments";
 import { walkSourceFiles } from "@/lib/messages/__internal__/walkSourceFiles";
 import { stripLogEmissionCalls } from "@/lib/messages/__internal__/stripLogEmissionCalls";
 import {
   scanParseWarningSites,
   type SiteScan,
 } from "@/lib/messages/__internal__/parseWarningSites";
+
+/**
+ * Does this file actually WRITE an admin alert, as opposed to talking about one?
+ *
+ * The provenance test used to regex the raw source, which cannot tell code from
+ * prose: a comment that merely NAMES `upsertAdminAlert` — the kind written to
+ * explain why an emit does NOT belong at some point — flipped provenance for
+ * every code in the file. Six §12.4 codes widened to claim `admin_alerts.code`
+ * on one regeneration without any of them gaining a write site
+ * (BL-CODE-ENUM-PROVENANCE-COMMENT-BLIND).
+ *
+ * Comments are stripped before the test, the same shape `stripLogEmissionCalls`
+ * already uses for the §12.4 scans.
+ *
+ * **String literals are deliberately NOT stripped**, and the entry that filed
+ * this asked for them to be. Stripping them was tried and reverted, because a
+ * literal is often the write site itself: `sb.from("admin_alerts")` and
+ * `sb.rpc("upsert_admin_alert")` reach the table through a string, and blanking
+ * literals makes both invisible. The regression suite pins all four call shapes
+ * for exactly that reason.
+ *
+ * The residual hole is a literal containing PROSE about the writer
+ * (`const msg = "call upsertAdminAlert here"`), which still claims provenance.
+ * That is a documented limit, not an oversight: it is strictly narrower than the
+ * comment case that caused the incident, and closing it would require telling a
+ * table reference from a sentence — which no amount of stripping can do.
+ *
+ * Note this strips rather than skipping the file — a file that both writes an
+ * alert and comments about it must still claim provenance. "Any comment mentions
+ * it, ignore the file" would drop provenance from files that genuinely write.
+ *
+ * Exported for its own regression suite: the decision is a predicate over source
+ * text, so it is testable directly rather than through a full regeneration.
+ */
+export function claimsAdminAlertProvenance(source: string): boolean {
+  const code = stripCommentsSafely(source, ts.ScriptKind.TS);
+  return /\badmin_alerts?\b|upsertAdminAlert|upsert_admin_alert/i.test(code);
+}
 
 export type InternalCodeEnumPayload = {
   source: string;
@@ -158,7 +198,7 @@ export function extractInternalCodeEnums(): InternalCodeEnums {
   }
 
   for (const { source } of readFiles(["lib", "app/api"])) {
-    if (/\badmin_alerts?\b|upsertAdminAlert|upsert_admin_alert/i.test(source)) {
+    if (claimsAdminAlertProvenance(source)) {
       addCodeLiteralsFromSource(out, source, "admin_alerts.code", CODE_PROPERTY_RE);
       addCodeLiteralsFromSource(out, source, "admin_alerts.code", CONST_CODE_RE);
     }
