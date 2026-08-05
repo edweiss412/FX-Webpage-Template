@@ -296,8 +296,33 @@ let checker: ts.TypeChecker | null = null;
 function resolveBinding(id: ts.Identifier): ts.Expression | null {
   const symbol = checker?.getSymbolAtLocation(id);
   const declaration = symbol?.valueDeclaration ?? symbol?.declarations?.[0];
-  if (declaration && ts.isVariableDeclaration(declaration)) return declaration.initializer ?? null;
-  return null;
+  if (!declaration || !ts.isVariableDeclaration(declaration)) return null;
+  // A REASSIGNED binding's initializer is not what it holds. `let pending =
+  // page.goto(u); ...; pending = fetch(h);` resolves to the navigation the
+  // binder recorded, while the value awaited later is the fetch -- reporting
+  // correct code. Identity is what the binder answers; VALUE over time is not,
+  // and a guard that cannot tell should say so rather than guess.
+  return isReassigned(symbol!, declaration) ? null : (declaration.initializer ?? null);
+}
+
+/** Whether anything assigns to this symbol after its declaration. */
+function isReassigned(symbol: ts.Symbol, declaration: ts.Node): boolean {
+  let found = false;
+  const walk = (n: ts.Node): void => {
+    if (found) return;
+    if (
+      ts.isBinaryExpression(n) &&
+      n.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+      ts.isIdentifier(n.left) &&
+      checker?.getSymbolAtLocation(n.left) === symbol
+    ) {
+      found = true;
+      return;
+    }
+    ts.forEachChild(n, walk);
+  };
+  walk(declaration.getSourceFile());
+  return found;
 }
 
 /** Whether an element names a binding initialised by a navigation, in scope. */

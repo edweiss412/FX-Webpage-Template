@@ -400,6 +400,20 @@ test("t", async ({ page }) => {
 `,
     ],
     [
+      "a let reassigned from a navigation to a fetch — R8",
+      `import { test } from "@playwright/test";
+test("t", async ({ page }) => {
+  let pending = page.goto(firstUrl);
+  await pending;
+  await page.goto(secondUrl);
+  pending = fetch(healthUrl);
+  const fontsReady = page.evaluate(() => document.fonts.ready);
+  await Promise.all([fontsReady, pending]);
+  await page.getByTestId("x").evaluate((n) => n.getBoundingClientRect().height);
+});
+`,
+    ],
+    [
       "catch parameter shadowing a navigation binding",
       `import { test } from "@playwright/test";
 test("t", async ({ page }) => {
