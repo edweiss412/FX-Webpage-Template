@@ -35,6 +35,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { bodyDefinedIds, ledgerIds, type ExtractOpts } from "./_ledgerMdast";
+import { ledgerFiles, unregisteredLedgerFiles } from "@/scripts/lib/ledger-fields";
 
 const ROOT = join(__dirname, "..", "..");
 
@@ -52,12 +53,25 @@ const BACKLOG_OPTS: ExtractOpts = { requirePrefix: "BL-", levels: [2, 3] };
  * asserts. Keeping this list SHORT is the point: a new ledger file added here
  * should be a deliberate, reviewed decision, not a way to make a red run green.
  */
-const LEDGERS = [
-  "BACKLOG.md",
-  "BACKLOG-archive.md",
-  "DEFERRED.md",
-  "DEFERRED-archive.md",
-] as const;
+/**
+ * DERIVED FROM THE REGISTRY, not repeated here (BL-LEDGER-DISCOVERY-FAMILY-SCOPED).
+ *
+ * This was four hand-written filenames, which meant a new ledger family stayed
+ * invisible to THIS guard even once discovery learned about it — three
+ * consumers, three chances to forget. `LEDGER_FAMILIES` in
+ * `scripts/lib/ledger-fields.ts` is the single grammar holder now, so adding a
+ * family there covers this guard too. The "keep it short, adding one is a
+ * deliberate reviewed decision" intent above is unchanged; it lives at the
+ * registry, which is one place instead of three.
+ */
+const LEDGERS: readonly string[] = ledgerFiles();
+
+// The unregistered half of the accept-set, asserted where the citation guard
+// runs: a ledger-shaped file no family claims would have its entries walked by
+// nobody, and its citations resolvable from nowhere.
+it("has no ledger-shaped file outside the registry", () => {
+  expect(unregisteredLedgerFiles(), "add a LEDGER_FAMILIES row or rename the file").toEqual([]);
+});
 
 /**
  * An id never ends in `-`. Allowing it would capture the head of a soft-wrapped

@@ -24,24 +24,105 @@ import { extractEntries, type ExtractOpts } from "../../tests/docs/_ledgerMdast"
 const BACKLOG_OPTS: ExtractOpts = { requirePrefix: "BL-", levels: [2, 3] };
 const DEFERRED_OPTS: ExtractOpts = { requirePrefix: null, levels: [3] };
 
+/** A ledger family: the stem its files are named for, plus how they parse. */
+export type LedgerFamily = { readonly name: string; readonly opts: ExtractOpts };
+
 /**
- * Per-ledger opts. Not interchangeable: applying the backlog opts to a deferred
- * file yields zero entries, so a whole ledger disappears without any file being
- * empty.
+ * THE REGISTRY — the single grammar holder for what a ledger file IS.
+ *
+ * Discovery used to be a regex naming two families inline, and two other
+ * consumers repeated the same four filenames independently: the
+ * referential-integrity guard's own list and the claim reader. A fifth family
+ * was therefore invisible three times over, which is
+ * `BL-LEDGER-DISCOVERY-FAMILY-SCOPED`.
+ *
+ * WIDENED BY REGISTRATION RATHER THAN BY LOOSENING THE REGEX. Adding a family
+ * here is one reviewed line and every consumer sees it at once; a looser pattern
+ * would instead admit whatever it failed to model, and the repo root is full of
+ * all-caps markdown that is not a ledger (README, AGENTS, CLAUDE, MEMORY). The
+ * opts travel WITH the name because they are not interchangeable — applying the
+ * backlog opts to a deferred file yields zero entries, so a whole ledger
+ * disappears without any file being empty.
  */
-export function optsFor(file: string): ExtractOpts {
-  return /^DEFERRED(-archive)?\.md$/.test(file) ? DEFERRED_OPTS : BACKLOG_OPTS;
+export const LEDGER_FAMILIES: readonly LedgerFamily[] = [
+  { name: "BACKLOG", opts: BACKLOG_OPTS },
+  { name: "DEFERRED", opts: DEFERRED_OPTS },
+];
+
+/** `<FAMILY>.md` or `<FAMILY>-archive.md`, for one registered family. */
+const fileRe = (family: string): RegExp => new RegExp(`^${family}(-archive)?\\.md$`);
+
+/**
+ * Ledger-SHAPED: an all-caps stem with an optional `-archive` suffix.
+ *
+ * Deliberately narrower than "a markdown file". This pattern exists only to
+ * decide what `unregisteredLedgerFiles` is willing to COMPLAIN about, and a
+ * report that names README.md on every run is one people learn to ignore —
+ * which is the same dark ledger by another route.
+ */
+const LEDGER_SHAPED = /^[A-Z][A-Z0-9]*(?:[_-][A-Z0-9]+)*(-archive)?\.md$/;
+
+/** Stems that are all-caps markdown at the repo root but are not ledgers. */
+const NOT_LEDGERS = new Set([
+  "README",
+  "AGENTS",
+  "CLAUDE",
+  "MEMORY",
+  "PRODUCT",
+  "DESIGN",
+  "LICENSE",
+]);
+
+/**
+ * Per-ledger opts, resolved through the registry.
+ *
+ * Falls back to the backlog opts for an unrecognised name so existing callers
+ * that hand it an arbitrary string keep their previous behaviour.
+ */
+export function optsFor(
+  file: string,
+  families: readonly LedgerFamily[] = LEDGER_FAMILIES,
+): ExtractOpts {
+  return families.find((f) => fileRe(f.name).test(file))?.opts ?? BACKLOG_OPTS;
 }
 
 /**
- * Ledger files, discovered rather than listed — within one naming family. A new
- * family (or a differently-suffixed archive) is invisible to this and to the two
- * guards that hardcode the same four names; tracked as
- * `BL-LEDGER-DISCOVERY-FAMILY-SCOPED`.
+ * Ledger files, discovered rather than listed — for every REGISTERED family.
+ *
+ * `families` is a parameter so a test can register a fifth family against a
+ * fixture root without mutating module state, which is also what proves the
+ * registry is consulted rather than a widened regex.
  */
-export function ledgerFiles(root: string = join(__dirname, "..", "..")): string[] {
+export function ledgerFiles(
+  root: string = join(__dirname, "..", ".."),
+  families: readonly LedgerFamily[] = LEDGER_FAMILIES,
+): string[] {
+  const accept = families.map((f) => fileRe(f.name));
   return readdirSync(root)
-    .filter((f) => /^(BACKLOG|DEFERRED)(-archive)?\.md$/.test(f))
+    .filter((f) => accept.some((re) => re.test(f)))
+    .sort();
+}
+
+/**
+ * Ledger-shaped files at `root` that NO registered family claims.
+ *
+ * The other half of an accept-set: everything outside it is reported BY NAME
+ * rather than skipped in silence. A new ledger family added to the repo without
+ * a registry row shows up here instead of going dark, so the cost of forgetting
+ * is a named failure rather than a guard that quietly stops covering a file.
+ */
+export function unregisteredLedgerFiles(
+  root: string = join(__dirname, "..", ".."),
+  families: readonly LedgerFamily[] = LEDGER_FAMILIES,
+): string[] {
+  const claimed = families.map((f) => fileRe(f.name));
+  return readdirSync(root)
+    .filter(
+      (f) =>
+        LEDGER_SHAPED.test(f) &&
+        !claimed.some((re) => re.test(f)) &&
+        !NOT_LEDGERS.has(f.replace(/(-archive)?\.md$/, "")),
+    )
     .sort();
 }
 
@@ -118,17 +199,28 @@ export function fieldsOfLine(line: string): Record<string, string> {
  */
 const parseCache = new Map<string, LedgerItem[]>();
 
-export function ledgerItems(file: string, text: string): LedgerItem[] {
-  const key = `${file}\u0000${text.length}\u0000${text}`;
+export function ledgerItems(
+  file: string,
+  text: string,
+  families: readonly LedgerFamily[] = LEDGER_FAMILIES,
+): LedgerItem[] {
+  // The registry participates in the cache key: the same file text parsed under
+  // a different family's opts is a DIFFERENT result, and keying on text alone
+  // would serve one test's parse to another.
+  const key = `${families.map((f) => f.name).join(",")}\u0000${file}\u0000${text.length}\u0000${text}`;
   const hit = parseCache.get(key);
   if (hit !== undefined) return hit;
-  const out = ledgerItemsUncached(file, text);
+  const out = ledgerItemsUncached(file, text, families);
   parseCache.set(key, out);
   return out;
 }
 
-function ledgerItemsUncached(file: string, text: string): LedgerItem[] {
-  const entries = extractEntries(text, optsFor(file));
+function ledgerItemsUncached(
+  file: string,
+  text: string,
+  families: readonly LedgerFamily[],
+): LedgerItem[] {
+  const entries = extractEntries(text, optsFor(file, families));
   const lines = text.split("\n");
 
   return entries.map((e, n) => {
