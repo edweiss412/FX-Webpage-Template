@@ -2,7 +2,7 @@
  * Font binding — does the app actually RENDER the family it commits to?
  *
  * `DESIGN.md:133` commits the product to Inter, "single contemporary sans for
- * all UI", loaded via `next/font/local` from `app/fonts.ts`, which supplies an
+ * all UI", declared as a committed `@font-face` in `app/fonts.css`, which supplies an
  * explicit `weight: "100 900"` range and whose generated family is `inter`
  * (lowercased from the loader's variable name — the google loader emitted the
  * literal `Inter`, which is why every assertion below reads the family out of
@@ -51,7 +51,7 @@ type FontReport = {
   fontInterToken: string;
   /** The family `--font-inter` names first — what the loader actually generated. */
   loaderFamily: string;
-  /** Its second entry — next/font's generated metric-matched companion. */
+  /** Its second entry — the metric-matched companion declared beside the face. */
   companionFamily: string;
 };
 
@@ -66,7 +66,7 @@ async function measureFonts(page: Page): Promise<FontReport> {
   await page.evaluate(() => document.fonts.ready);
   return page.evaluate((text: string) => {
     // BOTH families `--font-inter` names, unquoted: [0] the real face, [1]
-    // next/font's generated metric-matched companion. Both are READ rather than
+    // the metric-matched companion. Both are READ rather than
     // spelled literally — review R16 showed that deriving only the first left
     // every companion assertion hardcoded, so a future Next emitting
     // `__Inter_ab12` / `__Inter_Fallback_ab12` would keep the app correctly
@@ -97,7 +97,7 @@ async function measureFonts(page: Page): Promise<FontReport> {
       inherited: measure(null),
       // The family the LOADER exposes, read from `--font-inter` rather than
       // hardcoded. `--font-sans` consumes that token, so this is the family the
-      // app is contracted to render — whatever next/font decides to call it.
+      // app is contracted to render — whatever the stylesheet decides to call it.
       // Hardcoding `"Inter"` made the suite fail on a future Next that hashes
       // the generated family name, even though the app would still be correctly
       // bound through the same token indirection (review R15).
@@ -204,7 +204,7 @@ function assertRendersInter(report: FontReport, surface: string): void {
   //     for a DIFFERENT family shows up as a second family name here, whatever
   //     shape its call site took.
   //
-  //     `Inter Fallback` is next/font's generated size-adjusted companion, and
+  //     `Inter Fallback` is the size-adjusted companion declared beside it, and
   //     `__nextjs-*` faces belong to the dev-mode error overlay, not the app.
   const appFaces = report.faces.filter(
     (f) => !f.family.startsWith("__nextjs-") && f.family !== report.companionFamily,
@@ -214,7 +214,7 @@ function assertRendersInter(report: FontReport, surface: string): void {
   expect(
     [...appFamilies].sort(),
     `${surface}: the document registers exactly one font family — a second ` +
-      `next/font loader for a DIFFERENT family would add one, in any call syntax`,
+      `second @font-face for a DIFFERENT family would add one, however it is declared`,
   ).toEqual([report.loaderFamily]);
 
   // (5) NO DUPLICATE FACES. Review R4 showed (4) alone cannot see the case the
@@ -223,7 +223,7 @@ function assertRendersInter(report: FontReport, surface: string): void {
   //     Face IDENTITY is the discriminating signal — a duplicate loader emits
   //     exact duplicate (family, style, weight, unicodeRange) tuples.
   // EXACT FACE COUNT. This was `toBeGreaterThan(1)` while the family came from
-  // `next/font/google`, whose loader emits one face per unicode-range slice —
+  // a seven-subset delivery, which emitted one face per unicode-range slice —
   // seven of them, so "more than one" was both true and the non-vacuity guard
   // for the duplicate check below. The vendored local font is a SINGLE file with
   // no unicode-range splitting, so the browser registers exactly one app face
@@ -268,9 +268,9 @@ function assertRendersInter(report: FontReport, surface: string): void {
 }
 
 /**
- * `--font-inter` is the token `app/fonts.ts` asks the loader to expose, and it
+ * `--font-inter` is the token `app/fonts.css` defines on :root, and it
  * IS what binds the font. The generated family name is not stable across
- * loaders: `next/font/google` emitted the literal `Inter`, and `next/font/local`
+ * mechanisms: the Google loader emitted the literal `Inter`, the local loader
  * emits `inter`, lowercased from the loader module's variable name. So every
  * assertion here reads the family OUT of this token rather than comparing a
  * spelled literal — a test that hard-coded `Inter` would have broken on a
@@ -286,7 +286,7 @@ function assertExposesFontInterToken(report: FontReport, surface: string): void 
     `${surface}: <html> exposes --font-inter (the loader's \`variable\` option)`,
   ).not.toBe("");
 
-  // THE METRIC-MATCHED FALLBACK IS IN THE CASCADE. next/font generates a
+  // THE METRIC-MATCHED FALLBACK IS IN THE CASCADE. app/fonts.css declares a
   // companion face with size-adjust/ascent-override so the `display: "swap"`
   // window reflows FAR LESS — not zero, since metric overrides narrow the
   // mismatch without equalising per-string advances (DESIGN.md §2.1). This
@@ -304,7 +304,7 @@ function assertExposesFontInterToken(report: FontReport, surface: string): void 
   ).toBeTruthy();
   expect(
     report.htmlFontFamily,
-    `${surface}: the resolved cascade names next/font's metric-matched companion ` +
+    `${surface}: the resolved cascade names the metric-matched companion ` +
       `(got: ${report.htmlFontFamily})`,
   ).toContain(report.companionFamily);
 

@@ -32,7 +32,13 @@ const root = process.cwd();
  * taskContract's 18/2 against every surface in `describe.each`).
  */
 const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
-  taskContract: { equivalent: 18, "accepted-gap": 2 },
+  // 18/2 → 22/0 (2026-08-04, BL-TASKCONTRACT-SORT-COMPARATOR-EQUALKEY). The two
+  // `accepted-gap` rows were the comparator's equal-key blind spot, and adding
+  // the message as a third key removed the gap rather than re-accepting it. The
+  // comparator also moved into `compareFindings`, whose own mutants split into
+  // four sign-not-magnitude and two guarded-branch equivalents — all six with
+  // control-flow arguments, which is why the surface now carries NO accepted gap.
+  taskContract: { equivalent: 22 },
   // Counted from the surface, not read back off its ledger: `scripts/lib/
   // ledger-claims-core.ts` has exactly THREE `?? 0` fallbacks whose key is
   // always present -- two in the tip comparator, one in the age loop -- and

@@ -38,7 +38,7 @@
  *
  * Runs via tests/e2e/standalone.config.ts (no webServer / Supabase).
  */
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./helpers/fontFidelityFixture";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -134,6 +134,7 @@ async function rectOf(
 ): Promise<{ left: number; right: number; width: number; height: number }> {
   await page.setViewportSize(MOBILE);
   await page.goto(`${baseUrl}${stateKey}.html`);
+  await page.evaluate(() => document.fonts.ready);
   const el = page.getByTestId(testid);
   await expect(el).toBeVisible();
   return el.evaluate((n) => {
@@ -159,6 +160,7 @@ test.describe("CASP-2 inline toggle strip — 390px geometry (spec §8.10)", () 
     // overhang over the rail content below the sticky strip.
     await page.setViewportSize({ width: 800, height: 900 });
     await page.goto(`${baseUrl}finalizeShort.html`);
+    await page.evaluate(() => document.fonts.ready);
     const stripBox = await page.getByTestId("show-status-strip").evaluate((n) => {
       const r = n.getBoundingClientRect();
       return { top: r.top, bottom: r.bottom };
@@ -177,10 +179,12 @@ test.describe("CASP-2 inline toggle strip — 390px geometry (spec §8.10)", () 
     const DESKTOP = { width: 800, height: 900 };
     await page.setViewportSize(DESKTOP);
     await page.goto(`${baseUrl}idleShort.html`);
+    await page.evaluate(() => document.fonts.ready);
     const idleH = await page
       .getByTestId("show-status-strip")
       .evaluate((n) => n.getBoundingClientRect().height);
     await page.goto(`${baseUrl}finalizeShort.html`);
+    await page.evaluate(() => document.fonts.ready);
     const finalizeH = await page
       .getByTestId("show-status-strip")
       .evaluate((n) => n.getBoundingClientRect().height);
@@ -216,6 +220,7 @@ test.describe("CASP-2 inline toggle strip — 390px geometry (spec §8.10)", () 
     const heightAt = async (stateKey: string): Promise<number> => {
       await page.setViewportSize(DESKTOP);
       await page.goto(`${baseUrl}${stateKey}.html`);
+      await page.evaluate(() => document.fonts.ready);
       const el = page.getByTestId("show-status-strip");
       await expect(el).toBeVisible();
       return el.evaluate((n) => n.getBoundingClientRect().height);
@@ -233,6 +238,7 @@ test.describe("CASP-2 inline toggle strip — 390px geometry (spec §8.10)", () 
     // variant (spec 2026-07-24-strip-mobile-stacked-band §9.5).
     await page.setViewportSize({ width: 800, height: 900 });
     await page.goto(`${baseUrl}finalizeShort.html`);
+    await page.evaluate(() => document.fonts.ready);
     const chip = await page.getByTestId("published-toggle-popover").evaluate((n) => {
       const r = n.getBoundingClientRect();
       return { left: r.left, right: r.right, width: r.width };
@@ -257,6 +263,7 @@ test.describe("CASP-2 inline toggle strip — 390px geometry (spec §8.10)", () 
     // max-sm:hidden and R1 stays a single capped row.
     await page.setViewportSize(MOBILE);
     await page.goto(`${baseUrl}finalizeShort.html`);
+    await page.evaluate(() => document.fonts.ready);
     await expect(page.getByTestId("published-toggle-popover")).not.toBeVisible();
     await expect(page.getByTestId("published-toggle-sublabel")).toBeVisible();
     const row = await page
@@ -278,6 +285,7 @@ test.describe("CASP-2 inline toggle strip — 390px geometry (spec §8.10)", () 
     page,
   }) => {
     await page.goto(`${baseUrl}liveShort.html`);
+    await page.evaluate(() => document.fonts.ready);
 
     // ≥sm: `hidden sm:block` → the divider renders with real width, sitting between the
     // toggle cluster's right edge and the live badge's left edge.

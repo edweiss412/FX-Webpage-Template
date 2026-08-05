@@ -35,7 +35,8 @@
  *   node_modules/.bin/playwright test --config tests/e2e/standalone.config.ts \
  *     tests/e2e/compact-alert-card-layout.spec.ts
  */
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect } from "./helpers/fontFidelityFixture";
+import type { Page } from "@playwright/test";
 import { mkdtempSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -142,6 +143,7 @@ test.describe("compact alert card layout (real browser, real CSS)", () => {
   test.beforeEach(async ({ page }) => {
     await page.setViewportSize({ width: 900, height: 900 });
     await page.goto(baseUrl + "live.html");
+    await page.evaluate(() => document.fonts.ready);
     await expect(page.getByTestId("card-short-400")).toBeVisible();
     // CSS sanity guard: if Tailwind did not emit, every layout assertion below
     // would pass or fail for the wrong reason.
@@ -286,6 +288,7 @@ test.describe("compact alert card layout (real browser, real CSS)", () => {
 test.describe("compact trigger geometry (warning-card-copy-restore)", () => {
   test.beforeEach(async ({ page }) => {
     await page.goto(baseUrl + "live.html");
+    await page.evaluate(() => document.fonts.ready);
     await page.getByTestId("mount-warning-card").waitFor();
   });
 

@@ -307,6 +307,18 @@ function isEmailLikeDbColumn(name: string): boolean {
     name === "reported_by" ||
     name === "applied_by" ||
     name === "resolved_by" ||
+    // Added 2026-08-04 (BL-X5-ROLE-TOKEN-DECIDED-BY-BOUNDARY). This list is what
+    // actually decides whether a column is checked at all, and `decided_by` was
+    // absent — so registering `role_token_mappings.decided_by` as a boundary and
+    // widening the scan roots BOTH failed to kill a deleted-canonicalize mutant.
+    // The boundary manifest says which columns matter; this says which the
+    // recognizer can SEE, and the two had drifted.
+    name === "decided_by" ||
+    // Its sibling, evaluated in the same amendment as the task asks: the
+    // `ignored_warnings.ignored_by` CHECK is pinned in a DB test but the column
+    // was equally invisible here. Same one-line shape, so it is repaired with
+    // its twin rather than filed to recur.
+    name === "ignored_by" ||
     name === "wizard_approved_by_email"
   );
 }
@@ -761,6 +773,16 @@ export function auditLiveEmailCanonicalization(): string[] {
       "lib/notify",
     ]),
     ...walkSourceFiles(["app/api/admin"]),
+    // Server actions under `app/admin/**/_actions/` are a write surface too, and
+    // were dark: registering `role_token_mappings.decided_by` as a boundary
+    // changed nothing until this root was added, because the audit never READ
+    // the files that write it. Deleting either `canonicalize()` call still
+    // passed the gate — "boundary registered on paper, gate still blind"
+    // (BL-X5-ROLE-TOKEN-DECIDED-BY-BOUNDARY). The whole `app/admin` tree is
+    // walked rather than an enumerated `_actions` list: a hand-written predicate
+    // is what lets a scope shrink silently, and a non-writing file simply audits
+    // clean.
+    ...walkSourceFiles(["app/admin"]),
     // M12 Phase 0.C Task 0.C.9 — extend audit to validation tooling
     // (DEFERRED.md M12-PHASE0C-EMAIL-CANON-EXT). Validation tooling IS a
     // boundary for email writes (fixture INSERTs into crew_members); AGENTS.md

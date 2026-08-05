@@ -31,6 +31,9 @@ const EXPECTED_ENV_TOUCHING: Record<string, number> = {
   "tests/scripts/ledgerClaimsCheck.test.ts": 15,
   "tests/scripts/ledgerClaims.test.ts": 0,
   "tests/specLint/taskContract.test.ts": 0,
+  // Enrolled by main as taskContract's second suite (2026-08-05). Pure: it
+  // exercises compareFindings over literal fixtures and reads no environment.
+  "tests/specLint/taskContractFindingOrder.test.ts": 0,
 };
 
 const suites = [...new Set(GUARD_SURFACES.flatMap((s) => s.suitePaths))].sort();

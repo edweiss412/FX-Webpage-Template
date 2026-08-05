@@ -40,7 +40,7 @@
  *
  * Runs via tests/e2e/standalone.config.ts (no webServer / Supabase).
  */
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./helpers/fontFidelityFixture";
 import { mkdtempSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -204,6 +204,7 @@ test.describe("Step-3 review page — layout dimensions (spec §7)", () => {
   test("DI-1: the stepper does not overflow at 320px", async ({ page }) => {
     await page.setViewportSize({ width: 320, height: 800 });
     await page.goto(baseUrl);
+    await page.evaluate(() => document.fonts.ready);
     // Measure the stepper's intrinsic CONTENT width against the container it lives
     // in — comparing the nav to ITSELF would pass even when the nav grows past its
     // parent (nav.scrollWidth === nav.clientWidth). The container is the width the
@@ -220,6 +221,7 @@ test.describe("Step-3 review page — layout dimensions (spec §7)", () => {
   }) => {
     await page.setViewportSize({ width: 1024, height: 900 });
     await page.goto(baseUrl);
+    await page.evaluate(() => document.fonts.ready);
     // A SELECTABLE card (one that actually has the visible checkbox box). Scope to
     // the ARTICLE, not a descendant testid.
     const cardEl = page
@@ -241,6 +243,7 @@ test.describe("Step-3 review page — layout dimensions (spec §7)", () => {
   }) => {
     await page.setViewportSize({ width: 1024, height: 700 });
     await page.goto(baseUrl);
+    await page.evaluate(() => document.fonts.ready);
     const wrapperEl = page.getByTestId("wizard-footer"); // fixed full-bleed positioning layer
     const barEl = page.getByTestId("wizard-footer-inner"); // the VISIBLE bar (border-t + wash)
     const container = page.getByTestId("onboarding-wizard");
@@ -302,6 +305,7 @@ test.describe("Step-3 review page — layout dimensions (spec §7)", () => {
   }) => {
     await page.setViewportSize({ width: 320, height: 800 });
     await page.goto(baseUrl);
+    await page.evaluate(() => document.fonts.ready);
     const barEl = page.getByTestId("wizard-footer");
     // The bar itself must not scroll horizontally (its children wrap, they do not
     // overflow). The bar spans the container, which spans the viewport at 320px.
@@ -325,6 +329,7 @@ test.describe("Step-3 review page — layout dimensions (spec §7)", () => {
   }) => {
     await page.setViewportSize({ width: 360, height: 780 });
     await page.goto(baseUrl);
+    await page.evaluate(() => document.fonts.ready);
     const cardEl = page
       .locator('article[data-testid^="wizard-step3-card-"]:has([data-testid$="-checkbox-box"])')
       .first();

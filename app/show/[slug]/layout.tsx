@@ -15,10 +15,10 @@
  *      respect that override.
  *
  * NO FONT LOADER HERE. This file used to call `Inter()` from
- * `next/font/google` itself (the app moved to `next/font/local` later, in
+ * the framework font loader itself (the app moved off it entirely later, in
  * `BL-INTER-NUMERAL-DISAMBIGUATION`), which bound the DESIGN.md §2.1 family for the
  * crew subtree ONLY — every other tree (admin, auth, help) rendered the
- * system fallback. The loader now lives at `app/fonts.ts`, shared by both
+ * system fallback. The face now lives in `app/fonts.css`, imported by both
  * of Next 16's roots, so all trees inherit one family. Re-adding a loader
  * here fails `tests/assets/singleFontLoader.test.ts`, which pins the loader's
  * path rather than merely counting loaders — a count cannot tell "one loader,

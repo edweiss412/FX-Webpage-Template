@@ -21,7 +21,7 @@
  *
  * Runs via tests/e2e/standalone.config.ts (no webServer / Supabase).
  */
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./helpers/fontFidelityFixture";
 import { mkdtempSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -95,6 +95,7 @@ test.describe("accent-edge boundary — computed style + §9.1 geometry", () => 
     page,
   }) => {
     await page.goto(baseUrl);
+    await page.evaluate(() => document.fonts.ready);
 
     // Computed-style proof: the utility generated real CSS (#7a3d00 light).
     // If the @theme alias were missing, the border-color would resolve to the

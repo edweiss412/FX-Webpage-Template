@@ -35,7 +35,8 @@
  *
  * Runs standalone via tests/e2e/standalone.config.ts (no webServer / Supabase).
  */
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect } from "./helpers/fontFidelityFixture";
+import type { Page } from "@playwright/test";
 import { mkdtempSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -184,6 +185,7 @@ test.describe("DeveloperToggleButton layout invariants (spec §13)", () => {
   test("(a) every developer-toggle tap target is >= 44px in height AND width", async ({ page }) => {
     await page.setViewportSize({ width: 640, height: 900 });
     await page.goto(baseUrl);
+    await page.evaluate(() => document.fonts.ready);
 
     for (const dataRow of ["a", "b", "c", "locked"] as const) {
       const sel = `li[data-row="${dataRow}"] [data-testid="developer-toggle"]`;
@@ -203,6 +205,7 @@ test.describe("DeveloperToggleButton layout invariants (spec §13)", () => {
   test("(b) the AdminRow does not collapse and fully contains the toggle", async ({ page }) => {
     await page.setViewportSize({ width: 640, height: 900 });
     await page.goto(baseUrl);
+    await page.evaluate(() => document.fonts.ready);
 
     // Measure a MIDDLE row (full py-3 both edges) — the first row carries
     // `first:pt-0` and the last `last:pb-0`, so those are structurally shorter by

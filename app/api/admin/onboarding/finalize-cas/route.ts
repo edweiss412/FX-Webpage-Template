@@ -1061,25 +1061,29 @@ async function runFinalizeCas(
         /* best-effort */
       }
     }
-    // Task 10 (invariant 10): the corrupt-row rebuild-exhaustion escalation. This row's
-    // withRowTx has ALREADY resolved (comment above) — the in-txn idempotent claim inside
-    // applyShadow already committed durably as part of THIS row's own locked transaction, so
-    // this emit is POST-COMMIT, outside the lock txn, exactly like SHOW_FINALIZED above.
-    // logAdminOutcome never throws (fail-open internally) — no try/catch needed at the
-    // callsite, matching the SHOW_FINALIZED precedent.
+    // Task 10 (invariant 10): the corrupt-row rebuild-exhaustion escalation.
+    //
+    // COLLECTED, not emitted — corrected 2026-08-04
+    // (BL-SHADOW-REBUILD-EXHAUSTED-EMIT-PLACEMENT). This row's withRowTx has
+    // resolved, so its own claim committed durably; but the OUTER `deps.withTx`
+    // is still open here, holding tryFinalizeLock and the `app_settings FOR
+    // UPDATE` row. An emit at this point is inside the locked transaction, which
+    // is exactly what invariant 10 forbids — the same reason the two sibling
+    // emits beside it were already deferred. The prior comment claimed "outside
+    // the lock txn" on the strength of the ROW tx having committed, which is the
+    // wrong transaction: the row lock is not the one that matters here.
+    //
+    // Each handler flushes this in its own `finally`, after withTx resolves, so
+    // it lands post-commit on the success path AND on the rollback path.
     if (result.escalationFlipped) {
-      await logAdminOutcome({
-        code: "ONBOARDING_SHADOW_REBUILD_EXHAUSTED",
-        source: "api.admin.onboarding.finalizeCas",
+      pendingEmits.rebuildExhausted.push({
         actorEmail,
         driveFileId: row.drive_file_id,
         wizardSessionId,
         showId: row.show_id,
         result: result.code,
-        extra: {
-          corruptionReason: result.corruptionReason ?? null,
-          attemptCount: result.rebuildAttempts ?? 0,
-        },
+        corruptionReason: result.corruptionReason ?? null,
+        attemptCount: result.rebuildAttempts ?? 0,
       });
     }
     const parsed = parseShadowPayloadForApply(row.payload);

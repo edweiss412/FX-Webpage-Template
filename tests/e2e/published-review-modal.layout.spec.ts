@@ -48,7 +48,8 @@
  *   node_modules/.bin/playwright test --config tests/e2e/standalone.config.ts \
  *     tests/e2e/published-review-modal.layout.spec.ts
  */
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect } from "./helpers/fontFidelityFixture";
+import type { Page } from "@playwright/test";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -197,6 +198,7 @@ async function openHarness(page: Page, viewport: { width: number; height: number
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.setViewportSize(viewport);
   await page.goto(baseUrl + htmlPath);
+  await page.evaluate(() => document.fonts.ready);
   await expect(page.locator(MODAL)).toBeVisible();
 }
 
