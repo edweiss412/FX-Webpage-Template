@@ -99,11 +99,19 @@ const WALK = (): string | null => {
   const families = new Set<string>();
   const walkRoot = (root: Node): void => {
     const w = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT);
-    for (let n = w.currentNode as Element | null; n; n = w.nextNode() as Element | null) {
+    // Start at the root only when it IS an element. `currentNode` begins at the
+    // root and SHOW_ELEMENT filters only what `nextNode()` RETURNS, so
+    // recursing into a shadow root handed a DocumentFragment to
+    // `getComputedStyle`, which throws. Here that was INVISIBLE rather than
+    // loud: `observe()` wraps this in `.catch(() => null)`, so the vantage
+    // recorded nothing and read as a document with no families at all. Same
+    // defect the census hit under mobile-safari, swept per the class rule.
+    let n: Node | null = root.nodeType === Node.ELEMENT_NODE ? root : w.nextNode();
+    for (; n; n = w.nextNode()) {
       const hasText = Array.from(n.childNodes).some(
         (c) => c.nodeType === 3 && (c.textContent ?? "").trim() !== "",
       );
-      if (hasText) families.add(getComputedStyle(n).fontFamily);
+      if (hasText) families.add(getComputedStyle(n as Element).fontFamily);
       const shadow = (n as Element).shadowRoot;
       if (shadow) walkRoot(shadow);
     }
