@@ -1198,40 +1198,6 @@ screen-disposition 2026-08-04: PREREQ-FENCED + ANNOTATED, stays open, NOT claime
 
 ---
 
-### BL-IDENTITYCHIP-SR-SEPARATOR — `<name> · <role>` separator SR experience polish
-
-**Status:** IN PROGRESS · **Branch:** feat/sweep-ui-a11y · **Filed:** 2026-05-24 from M11.5 §B impeccable v3 attestation (Unit 3 — post-pick header chrome audit P3).
-
-**Effort:** S
-
-**Description:** IdentityChip renders `<name>` + `·` separator + `<role>` as flat siblings inside a single span. The `·` is `aria-hidden="true"` so SRs don't announce the punctuation, but they read "Eric Weiss Lead A2" as a flat phrase rather than "Eric Weiss, Lead A2" (proper pause). A `aria-label="Eric Weiss, Lead A2"` on the parent span (or wrapping in a comma-separated visually-hidden duplicate) would tighten the experience.
-
-**Why backlog, not deferred:** The current SR behavior is acceptable per WCAG (no ambiguous content, no missing context). The polish is genuinely speculative — depends on whether SR users complain about the run-on phrasing.
-
-**Promotion prerequisite:** EITHER (a) an a11y audit pass picks it up as part of a broader SR-experience review, OR (b) a crew member reports the issue.
-
-**Promotion mechanics:** Add `aria-label={`${name}, ${role}`}` to the parent `<span>` and visually-hide the middle dot separator. ~3-line edit.
-
-screen-disposition 2026-08-04: KEEP — not a hypothetical about a surface that does not exist. The markup is live and reads as claimed: `components/auth/IdentityChip.tsx:46` is the parent span, `:48-50` the `aria-hidden` middle dot, `:51` the role span, all flat siblings, mounted at `app/show/[slug]/[shareToken]/_CrewShell.tsx:467`. The body's "genuinely speculative" applies to whether anyone will COMPLAIN, not to whether the run-on phrasing happens — it does, deterministically. Closing on `feat/sweep-ui-a11y` (a ~3-line edit on the branch that already carries the impeccable dual gate) costs less than carrying the row.
-
----
-
-### BL-TERMINAL-FAILURE-ICON — visual failure cue beyond muted gray
-
-**Status:** IN PROGRESS · **Branch:** feat/sweep-ui-a11y · **Filed:** 2026-05-24 from M11.5 §B impeccable v3 attestation (Unit 2 — TerminalFailure critique LOW).
-
-**Effort:** S
-
-**Description:** `<TerminalFailure>` uses the muted text-text-strong / text-text-subtle palette and renders as a centered max-w-md block. DESIGN.md §1 correctly bans red/green as primary semantic colors, but the surface has no iconography or shape signal that this IS a failure render. A neutral icon (e.g., lucide-react `AlertCircle` or `CloudOff`) above the h1 would improve glance-ability without violating the color-blind floor.
-
-**Why backlog, not deferred:** The surface is rare in production — only renders on infra-error paths. Crew will encounter it at most a few times per quarter. Adding an icon is a glanceability nicety, not a recovery affordance gap (the new retryHref already closes that).
-
-**Promotion prerequisite:** EITHER (a) a polish pass picks it up as part of a broader auth-surface visual update, OR (b) production telemetry shows TerminalFailure is rendering often enough that glanceability becomes load-bearing.
-
-**Promotion mechanics:** Add an icon (lucide-react `AlertCircle`) above the h1, sized at `--icon-lg` (32px), in `text-text-subtle`. ~5-line edit.
-
-screen-disposition 2026-08-04: KEEP — the promotion gate the body names ("production telemetry shows TerminalFailure is rendering often enough") is a PRIORITIZATION gate, not a prerequisite: nothing about adding the icon can be wrong before the telemetry arrives, so honoring the entry does not require waiting. Surface verified live — `components/auth/TerminalFailure.tsx:47-51`, no icon and no lucide import today. Closing on `feat/sweep-ui-a11y` as a ~5-line edit under the dual gate.
-
 ### BL-TWO-WAY-SHEET-SYNC — Write corrections back to the source Google Sheet
 
 **Filed:** 2026-06-08, during the "sync changes feed + identity-only gate" brainstorming (`docs/superpowers/specs/v1-pre-deployment-amendments/2026-06-08-sync-changes-feed-identity-gate-design.md`). Surfaced when evaluating whether **undo** could write the old value back to the sheet to keep app and sheet consistent (instead of the chosen "revert + per-entity hold" approach).
@@ -1259,18 +1225,6 @@ screen-disposition 2026-08-04: KEEP — the promotion gate the body names ("prod
 **Why backlog, not deferred — F6 showed it's "not cheap" + no committed trigger:** the undo restore path needs the **pre-apply state** in `before_image`, but the Phase-2 snapshot (`applyShowSnapshot` → `previousCrewMembers`, `lib/sync/runScheduledCronSync.ts:913-932,1088-1100`) captures **prior crew rows ONLY**. It does NOT snapshot prior hotel/room/contact rows, show fields, diagrams, or reel state. Backing non-crew undo requires **widening that prior-state capture** per domain (a real Phase-2 change), plus a domain-specific restore in `undo_change` and the feed's undoable predicate. The approved scope call (#9) was "crew-identity undo first, non-crew only if cheap"; F6 determined non-crew is not cheap.
 
 **Technical home + promotion prerequisite:** widen `applyShowSnapshot`/`before_image` to capture the relevant prior non-crew rows → add the domain to `undo_change`'s direction handling + the feed's `isCrewDomainChangeKind`-style predicate (it currently single-sources `{crew_added,crew_removed,crew_renamed}`). Promote when an operator explicitly wants to undo a non-crew change in-app (rather than re-editing the sheet), and the capture-widening cost is judged worth it.
-
----
-
-### BL-FEED-BUTTON-SUCCESS-ANNOUNCE — Accept and Approve/Reject announce failures but not successes
-
-**Status:** IN PROGRESS · **Branch:** feat/sweep-ui-a11y · **Filed:** 2026-08-03 from `feat/sync-feed-undo-announce`. **Class:** a11y asymmetry. **Effort:** S.
-
-That branch gave Undo a success announcement and made all three feed action buttons announce their FAILURES (the card wrapper is now an always-mounted `role="status"`). Accept and Approve/Reject were deliberately left without success announcements: the mechanism is free now (consume `UndoAnnounceContext`, call `announce`), but the COPY is a product decision, not a mechanical one — "Change accepted"? naming the row? saying what acceptance means? Undo's copy took two review rounds to settle punctuation alone.
-
-**Work:** decide the copy for each, then reuse `undoneAnnouncement`'s shape in `components/admin/undoAnnounceContext.ts`.
-
-**Status:** OPEN.
 
 ---
 
@@ -1590,22 +1544,6 @@ docblock states the gap rather than papering over it.
 **Status:** OPEN.
 
 ---
-
-## BL-AUTH-INTERSTITIAL-FONT — four hand-built HTML auth responses mount no React root, so they miss the app font
-
-**Status:** IN PROGRESS · **Branch:** feat/sweep-ui-a11y · **Filed:** 2026-08-03 (`feat/font-binding-modal-freshness-cue`, adversarial review R5). **Class:** consistency / completeness. **Effort:** S–M depending on the approach chosen.
-
-Four route handlers build and return a complete `<html>` document as a string, so neither Next root renders them and neither the font loader's generated class nor the app stylesheet reaches them: `app/api/auth/google/start/route.ts`, `app/api/auth/picker-bootstrap/route.ts`, `app/auth/callback/route.ts`, and `app/auth/sign-out/route.ts` — the last of which explicitly sets `system-ui, sans-serif` in its own inline style.
-
-**What they are.** Persistent ERROR documents with readable copy and no automatic redirect: a 503 from the Google-auth start, 403/502 from the picker bootstrap, a 503 from the auth callback, and a 500 from sign-out carrying explanatory copy and a retry button. A user who lands on one reads it. (An earlier filing called them transient bounces; review R6 corrected that, and the correction matters — the disposition below rests on the accurate reading.)
-
-**Why it was not fixed with the font binding.** Sign-out's explicit `system-ui, sans-serif` rests on one narrow, checkable fact: it is a self-contained document that requests **zero external assets** (it inlines its own `<style>` block — it is NOT styleless, a claim review R8 disproved). A webfont would add its first network dependency, on a page reached because a request already failed. This is NOT a general "error pages should avoid webfonts" principle, which would contradict the app's own fatal-error page, where the font IS bound. The real gap is the other three, which fall to browser defaults: a serif nobody chose. Covering them means either inlining an `@font-face` into each hand-built document, which is a SECOND font-delivery mechanism (the same objection that keeps `BL-HARNESS-FONT-FIDELITY` open), or routing them through React, which is a far larger change to auth plumbing than a font justifies. Recorded as a documented limit rather than left as an implied-but-false "app-wide" claim.
-
-**Work:** the three pages that fall to browser-default serif are the real gap — the Google-auth start, the picker bootstrap and the auth callback. Sign-out already carries an explicit system stack and is the LEAST urgent of the four, not the most. Worth pairing with any future pass over the auth interstitials rather than doing on its own.
-
----
-
-screen-disposition 2026-08-04: KEEP — and the entry's own dichotomy is REFUTED by a precedent already in the tree. The body argues both directions are bad ("either inlining an `@font-face` into each hand-built document, which is a SECOND font-delivery mechanism … or routing them through React"), but `app/auth/sign-out/route.ts:33` already takes a THIRD: an inline `body{font:16px/1.5 system-ui,sans-serif;…}` — a stack DECLARATION, not a delivery mechanism, with zero external assets and no React. Probed 2026-08-04: the other three documents (`app/api/auth/google/start/route.ts:24-37`, `app/api/auth/picker-bootstrap/route.ts:38-48`, `app/auth/callback/route.ts:49-62`) carry charset/title/viewport and nothing else, so they fall to browser-default serif while their sibling does not. Closing on `feat/sweep-ui-a11y` by extending the sign-out precedent to the other three; `app/auth/**` is an invariant-8 UI surface, which is why it lands on the dual-gate branch.
 
 ## BL-HARNESS-FONT-FIDELITY — the 31 standalone harnesses measure a different font than the product renders
 
