@@ -99,6 +99,20 @@ interface Stylesheet {
  * construction; widening this one to parse JS string literals would chase what
  * the other already catches.
  */
+/**
+ * THE SOURCE WALK IS THE FAST PRE-CHECK, NOT THE ORACLE
+ * (BL-FONT-STYLESHEET-GRAPH-FIDELITY, ratified spec §1.1 item 3).
+ *
+ * It follows `@import` chains from source CSS, which cannot reach a stylesheet
+ * that no CSS names: a dependency whose JS entry imports its own stylesheet, or
+ * a stylesheet resolved through a package `exports` subpath. Both escapes are
+ * committed as fixtures and PROVEN invisible here in
+ * `tests/styles/fontBuiltArtifact.test.ts`, which asserts the same property
+ * against the BUILT artifact — the production build's emitted CSS, where
+ * whatever reached the reader actually is, regardless of how it got there.
+ *
+ * Keep both. This one runs everywhere and is instant; the oracle needs a build.
+ */
 function discoverShippedStylesheets(): Stylesheet[] {
   const found = new Map<string, Stylesheet>();
 
