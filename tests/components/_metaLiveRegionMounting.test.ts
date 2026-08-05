@@ -36,6 +36,21 @@ const ROOTS = ["components", "app"];
  *
  * A row here is a claim that the file imports `UndoAnnounceContext` and calls
  * `announce`, which the test below verifies rather than trusts.
+ *
+ * WHAT YOU WILL STILL FIND IN THESE FILES, so the next reader is not misled.
+ * Several of them keep a conditionally-inserted `role="status"` on a VISIBLE
+ * card — `RoleRecognizeControl.tsx:209` and `:257`, `RecentAutoAppliedStrip.tsx`
+ * `:506` and `:686`, `ReSyncButton.tsx:362`. Those attributes announce NOTHING,
+ * for the same reason this whole guard exists, and that is not a latent defect
+ * here: the channel already announced the message, so nothing is lost. They are
+ * misleading rather than broken — an attribute that reads like a live region and
+ * is not one.
+ *
+ * Deliberately NOT stripped in this pass. Removing `role="status"` from a card
+ * is only safe once you have verified, per site, that the channel really does
+ * carry every message that card shows — the error card at `:686` in particular
+ * is not obviously covered — and that is a different question from the mounting
+ * class this guard closes. Filed as `BL-CHANNEL-ANNOUNCER-RESIDUAL-ROLE-STATUS`.
  */
 const CHANNEL_ANNOUNCERS: readonly string[] = [
   "components/admin/RescanSheetButton.tsx",
