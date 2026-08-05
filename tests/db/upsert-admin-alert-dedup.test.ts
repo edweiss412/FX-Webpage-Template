@@ -7,8 +7,9 @@ import { afterAll, describe, expect, test } from "vitest";
  * validation project in x-audits.yml; locally, the dev DB). `gen:schema-manifest`
  * DOES now capture function signatures and `validation-schema-parity` compares
  * them (BL-VALIDATION-PARITY-FUNCTIONS-UNCHECKED), but that covers EXISTENCE and
- * SHAPE — not behaviour. This live RPC test remains the only guard that the surgical
- * function apply actually landed in validation. Skipped when no DB_URL.
+ * SHAPE — not behaviour. The parity gate therefore detects a missing or
+ * drifted apply by itself; this live RPC test is the only guard on the
+ * function's BEHAVIOUR, which is a different claim. Skipped when no DB_URL.
  *
  * Connection pattern mirrors tests/notify/deliver-real-db.test.ts.
  */
