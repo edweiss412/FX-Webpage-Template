@@ -10,17 +10,20 @@
  * declares that row" when the claim may be their own, or when the reader never
  * verified the branch universe at all.
  */
-import { describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it } from "vitest";
+
+import { premise, premiseHolds } from "@/tests/_shared/premise";
 
 import { type GitSurface, resolveClaims } from "@/scripts/lib/ledger-claims-core";
 import { reportEnvelope } from "@/scripts/ledger-claims";
+import { realGitSurface } from "@/scripts/lib/ledger-git";
 import { runCheck, verifyUniverse } from "@/scripts/lib/ledger-check";
 
 const MARKER = (branch: string, id: string) =>
   `## ${id} — planted\n\n**Status:** IN PROGRESS · **Branch:** ${branch}\n`;
 
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -390,22 +393,61 @@ describe("untrusted dominates a collision (whole-diff review F1)", () => {
 });
 
 describe("the real git adapter and the JSON envelope (whole-diff F3/F9)", () => {
-  it("parses is-shallow-repository as a STRING, not for truthiness", async () => {
-    // git prints the literal "false". Boolean("false") is true, which would call
-    // every full clone shallow and disable the merged-exclusion permanently.
+  it("parses is-shallow-repository as a STRING, against BOTH values", async () => {
+    // git prints the literal "false". Boolean("false") is true, which would
+    // call every full clone shallow and disable the merged-exclusion forever.
+    //
+    // Asserted against a CONSTRUCTED pair, not the ambient checkout. The
+    // version this replaces compared isShallow() to git's answer in the same
+    // repository, and CI's checkout is shallow -- so `truth` was true, the
+    // Boolean(out) mutant returned true, and the guard could not discriminate
+    // in exactly the environment that merge-gates. Its own comment conceded it
+    // "fails wherever git says false", which is a developer's full clone and
+    // not CI (spec §3.3.4).
+    //
+    // Both arms are required: with only the shallow arm, Boolean(out) still
+    // passes.
     const { realGitSurface } = await import("@/scripts/lib/ledger-git");
-    const { execFileSync } = await import("node:child_process");
-    const truth =
-      execFileSync("git", ["rev-parse", "--is-shallow-repository"], {
-        cwd: ROOT,
+    const full = mkdtempSync(join(tmpdir(), "ledger-full-"));
+    const shallow = mkdtempSync(join(tmpdir(), "ledger-shallow-"));
+    const prev = process.env.LEDGER_GIT_ROOT;
+    try {
+      const g = (cwd: string, ...args: string[]) =>
+        execFileSync("git", args, { cwd, encoding: "utf8", timeout: 30_000 });
+      g(full, "init", "--quiet", "--initial-branch=main");
+      g(full, "config", "user.email", "t@example.com");
+      g(full, "config", "user.name", "t");
+      g(full, "commit", "--quiet", "--allow-empty", "-m", "one");
+      g(full, "commit", "--quiet", "--allow-empty", "-m", "two");
+      execFileSync("git", ["clone", "--quiet", "--depth", "1", `file://${full}`, shallow], {
         encoding: "utf8",
-      }).trim() === "true";
-    // Asserted against git's OWN answer, not against this checkout's shape: a
-    // local full clone and a CI shallow checkout give opposite values, and
-    // hardcoding either makes the test environment-dependent rather than
-    // behavioural. Under a Boolean(output) mutant this returns true in BOTH
-    // environments, so it fails wherever git says "false".
-    expect(realGitSurface().isShallow()).toBe(truth);
+        timeout: 60_000,
+      });
+
+      for (const [expected, repo] of [
+        [false, full],
+        [true, shallow],
+      ] as const) {
+        process.env.LEDGER_GIT_ROOT = repo;
+        // The fixture's own premise: git must agree the repo has the shape this
+        // arm is named for, or the arm proves nothing about the reader.
+        const asGit =
+          execFileSync("git", ["rev-parse", "--is-shallow-repository"], {
+            cwd: repo,
+            encoding: "utf8",
+          }).trim() === "true";
+        premiseHolds(
+          `the constructed repo is ${expected ? "shallow" : "full"}`,
+          asGit === expected,
+        );
+        expect(realGitSurface().isShallow(), `shallow=${expected}`).toBe(expected);
+      }
+    } finally {
+      if (prev === undefined) delete process.env.LEDGER_GIT_ROOT;
+      else process.env.LEDGER_GIT_ROOT = prev;
+      rmSync(full, { recursive: true, force: true });
+      rmSync(shallow, { recursive: true, force: true });
+    }
   });
 
   it("resolves real refs, and origin/HEAD is absent from both maps", async () => {
@@ -428,6 +470,15 @@ describe("the real git adapter and the JSON envelope (whole-diff F3/F9)", () => 
     }
     // The alias the reader must never surface as a branch named "origin".
     g("update-ref", "refs/remotes/origin/HEAD", head);
+    // The construction is this test's whole premise. If it silently produced no
+    // refs, every assertion below -- cardinality, HEAD exclusion, the OID shape
+    // loop -- would be satisfied by an adapter returning an empty map, which is
+    // precisely the vacuity the throwaway repository exists to remove.
+    premise(
+      "the constructed repo has refs for the reader to disagree with",
+      g("for-each-ref", "--format=%(refname)", "refs/remotes/origin/").trim().split("\n").length,
+      1,
+    );
 
     const { realGitSurface } = await import("@/scripts/lib/ledger-git");
     const prev = process.env.LEDGER_GIT_ROOT;
@@ -483,6 +534,10 @@ describe("the real git adapter and the JSON envelope (whole-diff F3/F9)", () => 
       timeout: 90_000,
     });
     expect(r.status, `CLI failed: ${r.stderr}`).toBe(0);
+    // Everything below parses stdout. If the CLI produced none, JSON.parse
+    // throws for an incidental reason rather than this test discriminating
+    // anything -- state it instead of relying on the accident.
+    premise("the CLI produced output to parse", r.stdout.trim().length, 0);
     // The direct-invocation guard is fail-OPEN if it breaks: a false
     // `process.argv[1] === fileURLToPath(import.meta.url)` makes the CLI exit 0
     // having done nothing, and preflight would print an empty claim list that
@@ -505,9 +560,20 @@ describe("the real git adapter and the JSON envelope (whole-diff F3/F9)", () => 
     // own count so it cannot rot as the corpus changes.
     const { realGitSurface } = await import("@/scripts/lib/ledger-git");
     const core = resolveClaims(realGitSurface(), { fetch: false });
-    expect(payload.claims.length, "the CLI truncated what the core resolved").toBe(
-      core.claims.length,
-    );
+    if (core.claims.length === 0) {
+      // Stated rather than hidden: CI checks this repository out with zero
+      // refs/remotes/origin/*, so both sides are 0 there and this comparison
+      // cannot tell a correct envelope from `claims: []`. It is the same
+      // degenerate-truth-source shape as whole-diff R13 (spec §1.2). The
+      // cardinality contract itself is proven against a CONSTRUCTED 101-claim
+      // corpus in the reportEnvelope case below, which is reachable in every
+      // environment -- so this branch asserts what it can and claims no more.
+      expect(payload.claims).toEqual([]);
+    } else {
+      expect(payload.claims.length, "the CLI truncated what the core resolved").toBe(
+        core.claims.length,
+      );
+    }
     expect(payload).toHaveProperty("status");
     expect(payload).toHaveProperty("degraded");
     expect(Array.isArray(payload.claims)).toBe(true);
@@ -559,9 +625,16 @@ describe("ordering and identity edges (whole-diff R3)", () => {
       },
     });
     runCheck(g, ["BL-UNRELATED"], { now: NOW, fetch: true, verify: true });
-    expect(calls.indexOf("fetch"), "fetch must precede the snapshot").toBeLessThan(
-      calls.indexOf("localRefs"),
-    );
+    const fetchAt = calls.indexOf("fetch");
+    const snapshotAt = calls.indexOf("localRefs");
+    // Without these, deleting git.fetch() entirely LEAVES THIS TEST GREEN:
+    // indexOf returns -1 for the absent event and -1 is less than every real
+    // index. Probed against that mutant -- it passed. An ordering guard that
+    // holds when the first event never happens is the defect this whole arc is
+    // about (spec §1.4.1, vacuity shape V3).
+    premise("fetch occurred at all; an absent event indexes to -1", fetchAt, -1);
+    premise("the snapshot occurred at all; an absent event indexes to -1", snapshotAt, -1);
+    expect(fetchAt, "fetch must precede the snapshot").toBeLessThan(snapshotAt);
   });
 
   it("exits 2, not 1, on a detached HEAD with a collision", () => {
@@ -657,5 +730,409 @@ describe("content is read from the verified OID (whole-diff R10 F2)", () => {
       { fetch: false, now: NOW },
     );
     expect(asked, "content must be requested by OID, not by branch name").toEqual(["TIP-A"]);
+  });
+});
+
+/**
+ * The real git adapter, against repositories the fixtures BUILD
+ * (guard-premise-reachability, Task 8).
+ *
+ * `scripts/lib/ledger-git.ts` is the only module that spawns, and until now it
+ * was exercised almost entirely through the ambient checkout — which CI clones
+ * with zero `refs/remotes/origin/*`, so most of the adapter's behavior was
+ * asserted by nothing there (spec §1.2, §1.3). Every case below constructs the
+ * repository, remote, ref namespace or environment it asserts against, so its
+ * verdict is the same in a full clone and in CI. That is not a style
+ * preference: a mutant whose verdict depends on where it ran may not be
+ * ledgered at all (spec AC-6).
+ *
+ * `gitRoot()` honours `LEDGER_GIT_ROOT` only under vitest
+ * (`scripts/lib/ledger-git.ts:25-30`), which is what makes this possible while
+ * production stays unredirectable.
+ */
+const scratchDirs: string[] = [];
+
+afterAll(() => {
+  for (const dir of scratchDirs) rmSync(dir, { recursive: true, force: true });
+});
+
+/** A throwaway repository with one empty commit, and a runner bound to it. */
+function throwawayRepo(): { dir: string; g: (...args: string[]) => string; head: string } {
+  const dir = mkdtempSync(join(tmpdir(), "ledger-git-"));
+  scratchDirs.push(dir);
+  const g = (...args: string[]) =>
+    execFileSync("git", args, { cwd: dir, encoding: "utf8", timeout: 30_000 });
+  g("init", "--quiet", "--initial-branch=main");
+  g("config", "user.email", "t@example.com");
+  g("config", "user.name", "t");
+  g("commit", "--quiet", "--allow-empty", "-m", "base");
+  return { dir, g, head: g("rev-parse", "HEAD").trim() };
+}
+
+/**
+ * Runs `fn` with the adapter pointed at `dir` and `env` applied, restoring
+ * every variable it touched.
+ *
+ * An explicit `undefined` DELETES the variable rather than skipping it. That is
+ * load-bearing: `GITHUB_ACTIONS` is genuinely `"true"` when this suite runs in
+ * Actions, so a case about the non-CI path that merely declined to set it would
+ * assert the opposite thing there.
+ */
+function atRepo<T>(
+  dir: string,
+  fn: (git: GitSurface) => T,
+  env: Record<string, string | undefined> = {},
+): T {
+  const saved = new Map<string, string | undefined>();
+  const set = (key: string, value: string | undefined) => {
+    if (!saved.has(key)) saved.set(key, process.env[key]);
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  };
+  set("LEDGER_GIT_ROOT", dir);
+  for (const [key, value] of Object.entries(env)) set(key, value);
+  try {
+    return fn(realGitSurface());
+  } finally {
+    for (const [key, value] of saved) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+}
+
+/**
+ * A fake `gh` first on PATH.
+ *
+ * `prList` spawns the binary by name, so PATH is the seam — no refactor of the
+ * adapter is needed to reach its status handling, which is otherwise the one
+ * reader nothing in this suite drives.
+ */
+function withFakeGh<T>(body: string, fn: () => T): { result: T; ran: boolean } {
+  const bin = mkdtempSync(join(tmpdir(), "fake-gh-"));
+  scratchDirs.push(bin);
+  // The shim records that it ran, so the cases below can state the premise that
+  // actually matters — that the PATH injection took, and the rows under
+  // assertion came from THIS script rather than from a real gh or from nothing.
+  const marker = join(bin, "ran");
+  writeFileSync(join(bin, "gh"), `#!/bin/sh\n: > ${JSON.stringify(marker)}\n${body}`, {
+    mode: 0o755,
+  });
+  const prev = process.env.PATH;
+  process.env.PATH = `${bin}:${prev ?? ""}`;
+  try {
+    return { result: fn(), ran: existsSync(marker) };
+  } finally {
+    if (prev === undefined) delete process.env.PATH;
+    else process.env.PATH = prev;
+  }
+}
+
+describe("the git adapter, against a constructed checkout (guard-premise Task 8)", () => {
+  it("names the failing subcommand and carries git's own stderr", () => {
+    // Kills `args.slice(0, 2)` -> `slice(1, 2)` and `-> slice(0, 3)`, and the
+    // `stderr.trim() || \`status ${r.status}\`` fallback -> `&&`. The fallback
+    // is a LAST resort; an `&&` mutant takes it whenever stderr is non-empty,
+    // discarding git's diagnosis, which is the entire content of the message.
+    const repo = throwawayRepo();
+    let message = "";
+    atRepo(repo.dir, (git) => {
+      try {
+        git.tipEpoch("no-such-ref");
+      } catch (e) {
+        message = (e as Error).message;
+      }
+    });
+    premiseHolds("the read failed at all, so there is a message to inspect", message !== "");
+    expect(message).toMatch(/^git log -1 failed: /);
+    expect(message, "git's own stderr was discarded").toContain("no-such-ref");
+  });
+
+  it("fetches the remote's heads into refs/remotes/origin", () => {
+    // Kills removal of the `git fetch` call itself. Nothing in either suite
+    // asserted the network read happened, so the whole freshness argument
+    // rested on a statement that could be deleted with the suite green
+    // (spec §3.2.2).
+    const remote = throwawayRepo();
+    remote.g("branch", "feat/pushed");
+    const local = throwawayRepo();
+    local.g("remote", "add", "origin", `file://${remote.dir}`);
+    const before = local.g("for-each-ref", "--format=%(refname)", "refs/remotes/origin").trim();
+    premiseHolds("the local checkout starts with no origin refs, as CI's does", before === "");
+
+    atRepo(local.dir, (git) => git.fetch());
+
+    expect(
+      local
+        .g("for-each-ref", "--format=%(refname)", "refs/remotes/origin")
+        .trim()
+        .split("\n")
+        .sort(),
+    ).toEqual(["refs/remotes/origin/feat/pushed", "refs/remotes/origin/main"]);
+  });
+
+  it("reads the remote's heads by name, dropping a head literally called HEAD", () => {
+    // Kills five mutants on one line: `pair &&` -> `||` (which dereferences the
+    // null parse of the trailing blank line), `pair[0] !== "HEAD"` -> `===` and
+    // -> `pair[1] !== "HEAD"`, and both index shifts in `map.set(pair[0], pair[1])`.
+    //
+    // `refs/heads/HEAD` is creatable: git refuses the NAME at `git branch`, but
+    // `update-ref` takes it and `ls-remote --heads` advertises it like any
+    // other head. Without one the HEAD guard is unreachable and its mutants
+    // cannot be killed at all.
+    const remote = throwawayRepo();
+    remote.g("branch", "feat/one");
+    remote.g("update-ref", "refs/heads/HEAD", remote.head);
+    const local = throwawayRepo();
+    local.g("remote", "add", "origin", `file://${remote.dir}`);
+
+    const map = atRepo(local.dir, (git) => git.lsRemote());
+
+    premiseHolds(
+      "the remote really advertises a head named HEAD, or the guard has nothing to exclude",
+      remote.g("ls-remote", "--heads", ".").includes("refs/heads/HEAD"),
+    );
+    expect([...map.keys()].sort(), "HEAD leaked in, or the map is keyed by OID").toEqual([
+      "feat/one",
+      "main",
+    ]);
+    for (const oid of map.values()) expect(oid).toMatch(/^[0-9a-f]{40}$/);
+  });
+
+  it("reports branches merged into the pinned main, and nothing else", () => {
+    // Kills the `||` joining the empty-name test to the origin/main exclusion
+    // (an `&&` stops excluding main at all), the removal of the two-field guard
+    // above it (which makes the exclusion the BODY of that guard, so it runs
+    // only for malformed lines), and `name.length === 0` -> `=== 1`.
+    //
+    // That last one needs `refs/remotes/x`: a ref directly under refs/remotes
+    // has a ONE-CHARACTER `%(refname:short)`, so a length test off by one drops
+    // a real merged branch. The guard is there to reject the EMPTY name of the
+    // trailing blank line, and nothing shorter than that.
+    const repo = throwawayRepo();
+    repo.g("commit", "--quiet", "--allow-empty", "-m", "second");
+    const mainOid = repo.g("rev-parse", "HEAD").trim();
+    repo.g("update-ref", "refs/remotes/origin/main", mainOid);
+    repo.g("update-ref", "refs/remotes/origin/merged", repo.head);
+    repo.g("update-ref", "refs/remotes/x", repo.head);
+    repo.g("checkout", "--quiet", "-b", "side", repo.head);
+    repo.g("commit", "--quiet", "--allow-empty", "-m", "side");
+    repo.g("update-ref", "refs/remotes/origin/unmerged", repo.g("rev-parse", "HEAD").trim());
+
+    const map = atRepo(repo.dir, (git) => git.mergedIntoMain(mainOid));
+
+    premiseHolds(
+      "the fixture holds an unmerged branch too, so 'merged' is a real distinction",
+      repo.g("for-each-ref", "--format=%(refname)", "refs/remotes/origin").includes("unmerged"),
+    );
+    premiseHolds(
+      "git really reports a one-character short name for refs/remotes/x",
+      repo
+        .g("branch", "-r", "--merged", mainOid, "--format=%(refname:short)")
+        .split("\n")
+        .includes("x"),
+    );
+    expect([...map.keys()].sort(), "main, an empty name, or a short one went wrong").toEqual([
+      "origin/merged",
+      "x",
+    ]);
+    expect(map.get("origin/merged"), "the merged-at OID is the one git reported").toBe(repo.head);
+  });
+
+  it("returns content at a ref, null for an absent path, and throws on a bad ref", () => {
+    // Kills `r.status === 0` -> `!==` and -> `=== 1` (either turns every
+    // successful read into a throw), and the `stderr.trim() ||` fallback in the
+    // fault message -> `&&`.
+    //
+    // "absent" and "failed" are different answers here, and collapsing them
+    // drops every declaration on a branch whose ref was pruned mid-run.
+    const repo = throwawayRepo();
+    writeFileSync(join(repo.dir, "BACKLOG.md"), "## BL-X — planted\n");
+    repo.g("add", "BACKLOG.md");
+    repo.g("commit", "--quiet", "-m", "add a ledger");
+    const tip = repo.g("rev-parse", "HEAD").trim();
+
+    atRepo(repo.dir, (git) => {
+      expect(git.showFile(tip, "BACKLOG.md")).toBe("## BL-X — planted\n");
+      expect(git.showFile(tip, "DEFERRED.md"), "an absent path is null, never a throw").toBeNull();
+
+      let message = "";
+      try {
+        git.showFile("no-such-ref", "BACKLOG.md");
+      } catch (e) {
+        message = (e as Error).message;
+      }
+      premiseHolds("a bad ref threw rather than reading as absence", message !== "");
+      expect(message, "git's own stderr was discarded").toMatch(/fatal/i);
+    });
+  });
+
+  it("distinguishes no-merge-base from a merge-base fault", () => {
+    // Kills `r.status === 1` -> `!==` and -> `=== 2`, plus the `||` fallback in
+    // its fault message. Exit 1 is the ONE reader where failure is a legitimate
+    // answer; every other status is a fault, and treating them alike either
+    // throws on a shallow clone or swallows a real fault.
+    const repo = throwawayRepo();
+    const mainOid = repo.head;
+    repo.g("checkout", "--quiet", "--orphan", "unrelated");
+    repo.g("commit", "--quiet", "--allow-empty", "-m", "an unrelated root");
+    const orphan = repo.g("rev-parse", "HEAD").trim();
+    premiseHolds("the fixture built two genuinely unrelated roots", orphan !== mainOid);
+
+    atRepo(repo.dir, (git) => {
+      expect(git.mergeBase(orphan, mainOid), "unrelated roots have no merge base").toBeNull();
+      expect(git.mergeBase(mainOid, mainOid)).toBe(mainOid);
+
+      let message = "";
+      try {
+        git.mergeBase("no-such-ref", mainOid);
+      } catch (e) {
+        message = (e as Error).message;
+      }
+      premiseHolds("a bad ref threw rather than reading as no-merge-base", message !== "");
+      expect(message, "git's own stderr was discarded").toMatch(/fatal/i);
+    });
+  });
+
+  it("parses a single-line hunk, which carries no explicit count", () => {
+    // Kills `!hm?.[1]` -> `!hm?.[2]` (which drops every one-line hunk) and the
+    // `hm[2] === undefined ? 1 : …` default -> `2`. `git diff --unified=0`
+    // prints `@@ -2 +2 @@` for a one-line change: the count group is ABSENT,
+    // not 1, so only this shape separates the default from a wrong constant.
+    const repo = throwawayRepo();
+    writeFileSync(join(repo.dir, "BACKLOG.md"), "a\nb\nc\n");
+    repo.g("add", "BACKLOG.md");
+    repo.g("commit", "--quiet", "-m", "one");
+    const base = repo.g("rev-parse", "HEAD").trim();
+    writeFileSync(join(repo.dir, "BACKLOG.md"), "a\nB\nc\n");
+    repo.g("commit", "--quiet", "-a", "-m", "two");
+    const tip = repo.g("rev-parse", "HEAD").trim();
+
+    const hunks = atRepo(repo.dir, (git) => git.diffHunks(base, tip, ["BACKLOG.md"]));
+
+    premiseHolds(
+      "the diff really is a countless one-line hunk",
+      repo.g("diff", "--unified=0", base, tip, "--", "BACKLOG.md").includes("@@ -2 +2 @@"),
+    );
+    expect(hunks).toEqual([{ file: "BACKLOG.md", start: 2, count: 1 }]);
+  });
+
+  it("refuses a tip date it cannot use, at the epoch and one second past it", () => {
+    // Kills `!Number.isFinite(n) || n <= 0` -> `&&`, `n <= 0` -> `n < 0`, and
+    // `n <= 0` -> `n <= 1`. Returning 0 would date every branch to 1970 and
+    // mark the whole report stale, which is the silent failure the throw
+    // replaces. Both ages are constructed because the three mutants separate
+    // only at exactly 0 and exactly 1.
+    const repo = throwawayRepo();
+    const commitAt = (seconds: string, branch: string) => {
+      execFileSync("git", ["commit", "--quiet", "--allow-empty", "-m", branch], {
+        cwd: repo.dir,
+        encoding: "utf8",
+        timeout: 30_000,
+        env: {
+          ...process.env,
+          GIT_COMMITTER_DATE: `@${seconds} +0000`,
+          GIT_AUTHOR_DATE: `@${seconds} +0000`,
+        },
+      });
+      repo.g("branch", branch);
+      return repo.g("rev-parse", branch).trim();
+    };
+    const atZero = commitAt("0", "at-zero");
+    const atOne = commitAt("1", "at-one");
+    premiseHolds(
+      "the fixture's tips carry the two dates the mutants separate at",
+      repo.g("log", "-1", "--format=%ct", atZero).trim() === "0" &&
+        repo.g("log", "-1", "--format=%ct", atOne).trim() === "1",
+    );
+
+    atRepo(repo.dir, (git) => {
+      expect(() => git.tipEpoch(atZero), "an epoch-dated tip was accepted").toThrow(/no tip date/);
+      expect(git.tipEpoch(atOne), "a one-second tip was rejected").toBe(1);
+      expect(git.tipEpoch(repo.head)).toBeGreaterThan(1);
+    });
+  });
+
+  it("trusts GITHUB_HEAD_REF only inside CI, and reports a detached HEAD as no branch", () => {
+    // Kills `GITHUB_ACTIONS === "true"` -> `!==` in currentBranch, `name &&` ->
+    // `||`, and `name !== "HEAD"` -> `===`. Locally GITHUB_HEAD_REF is ambient
+    // state that may be stale or spoofed, and trusting it self-excludes another
+    // branch's real declaration.
+    const repo = throwawayRepo();
+    expect(
+      atRepo(repo.dir, (git) => git.currentBranch(), {
+        GITHUB_ACTIONS: undefined,
+        GITHUB_HEAD_REF: "spoofed",
+      }),
+      "a local run trusted an ambient GITHUB_HEAD_REF",
+    ).toBe("main");
+    expect(
+      atRepo(repo.dir, (git) => git.currentBranch(), {
+        GITHUB_ACTIONS: "true",
+        GITHUB_HEAD_REF: "feat/from-ci",
+      }),
+    ).toBe("feat/from-ci");
+
+    repo.g("checkout", "--quiet", "--detach", repo.head);
+    premiseHolds(
+      "the fixture is genuinely detached, or the null case proves nothing",
+      repo.g("rev-parse", "--abbrev-ref", "HEAD").trim() === "HEAD",
+    );
+    expect(
+      atRepo(repo.dir, (git) => git.currentBranch(), {
+        GITHUB_ACTIONS: undefined,
+        GITHUB_HEAD_REF: undefined,
+      }),
+      "a detached HEAD is not a branch named HEAD",
+    ).toBeNull();
+  });
+
+  it("treats only GITHUB_ACTIONS=true as CI, in both directions", () => {
+    // Kills `GITHUB_ACTIONS === "true"` -> `!==` in inCI. A bare CI=true is set
+    // by many local harnesses — including this repo's own serial vitest project
+    // — and reading it as CI sends a local run down the event-payload path,
+    // where identity reads unresolved and the run blocks on its own declaration.
+    // no-premise: both environments are CONSTRUCTED by atRepo rather than read,
+    // so neither arm can be degenerate; the test supplies the very variable it
+    // asserts on, in both directions.
+    const repo = throwawayRepo();
+    expect(atRepo(repo.dir, (git) => git.inCI(), { GITHUB_ACTIONS: "true" })).toBe(true);
+    expect(
+      atRepo(repo.dir, (git) => git.inCI(), { GITHUB_ACTIONS: undefined, CI: "true" }),
+      "a bare CI=true was read as GitHub Actions",
+    ).toBe(false);
+  });
+
+  it("parses gh's rows, keeping the fork flag it reports", () => {
+    // Kills `r.status !== 0` -> `===` and -> `!== 1`, and
+    // `x.isCrossRepository === true` -> `!==`. Reached through a `gh` first on
+    // PATH: the adapter spawns the binary by name, so no refactor is needed to
+    // drive its status handling.
+    const repo = throwawayRepo();
+    const { result: rows, ran } = withFakeGh(
+      "cat <<'JSON'\n" +
+        '[{"number":689,"headRefName":"feat/a","headRepositoryOwner":{"login":"base"},"isCrossRepository":false},' +
+        '{"number":999,"headRefName":"feat/a","headRepositoryOwner":{"login":"fork"},"isCrossRepository":true}]\n' +
+        "JSON\n",
+      () => atRepo(repo.dir, (git) => git.prList()),
+    );
+    premiseHolds("the PATH shim is the gh that ran", ran);
+    expect(rows).toEqual([
+      { number: 689, headRefName: "feat/a", headRepositoryOwner: "base", isCrossRepository: false },
+      { number: 999, headRefName: "feat/a", headRepositoryOwner: "fork", isCrossRepository: true },
+    ]);
+  });
+
+  it("discards a failed gh's output even when it printed well-formed JSON", () => {
+    // Kills `r.status !== 0 || !r.stdout` -> `&&`, which reads the payload of a
+    // FAILED gh. That is how an error-shaped or partial page becomes a PR
+    // number attached to somebody's claim.
+    const repo = throwawayRepo();
+    const { result: rows, ran } = withFakeGh(
+      `echo '[{"number":1,"headRefName":"x","isCrossRepository":false}]'\n` + "exit 1\n",
+      () => atRepo(repo.dir, (git) => git.prList()),
+    );
+    premiseHolds("the PATH shim is the gh that ran, and it printed a parseable page", ran);
+    expect(rows, "a failed gh's output was trusted").toEqual([]);
   });
 });
