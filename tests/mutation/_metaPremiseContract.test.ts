@@ -34,6 +34,17 @@ const EXPECTED_ENV_TOUCHING: Record<string, number> = {
   // Enrolled by main as taskContract's second suite (2026-08-05). Pure: it
   // exercises compareFindings over literal fixtures and reads no environment.
   "tests/specLint/taskContractFindingOrder.test.ts": 0,
+  // The review-round economy's two suites, enrolled by reviewRoundCount and
+  // reviewRoundCorpus. Both declare 0, and the declaration is honest rather
+  // than convenient: neither reaches any member of ENVIRONMENT_SOURCES.
+  // count.test.ts imports only vitest and lib/reviewRounds, driving literal
+  // ReviewRoundRow fixtures. The corpus suite does use node:fs, but only
+  // against scratch trees it builds itself under mkdtempSync -- node:fs is
+  // deliberately NOT provenance here (the set is child_process, ledger-git and
+  // process.env), because a test that constructs the tree it reads cannot be
+  // decided by the ambient one.
+  "tests/reviewRounds/count.test.ts": 0,
+  "tests/docs/_metaReviewRoundEconomy.test.ts": 0,
 };
 
 const suites = [...new Set(GUARD_SURFACES.flatMap((s) => s.suitePaths))].sort();

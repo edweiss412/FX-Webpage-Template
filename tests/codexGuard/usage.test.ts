@@ -53,8 +53,25 @@ function expectUsage(res: GuardExit, run: Run): void {
 describe("codex-guard usage errors (spec §7, scenario 8)", () => {
   it("missing --brief", async () => {
     const run = mkRun();
-    const res = await rawGuard(run, ["review", "--cwd", run.cwdDir, "--out", run.outDir]);
+    // The review-round flags are validated BEFORE --brief, so a row that omits
+    // them exits 2 on --stage instead. expectUsage cannot tell the two apart -
+    // it asserts exit 2 and the generic `codex-guard:` prefix, which both
+    // satisfy - so this case would keep passing while testing nothing.
+    const res = await rawGuard(run, [
+      "review",
+      "--cwd",
+      run.cwdDir,
+      "--out",
+      run.outDir,
+      "--stage",
+      "spec",
+      "--round",
+      "1",
+    ]);
     expectUsage(res, run);
+    // Failure caught: exiting 2 for the wrong reason. Naming the flag is what
+    // makes the assertion specific to the case the test is named for.
+    expect(res.stderr).toContain("--brief");
   });
 
   it("--artifact without --fallback", async () => {

@@ -1,0 +1,1119 @@
+import { execFileSync, spawn } from "node:child_process";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+
+import { afterAll, describe, expect, it } from "vitest";
+
+// `readResult` arrives HERE, in the task that first calls it: Task 4 must be
+// runnable and committable on its own (TDD invariant 1), and a test block whose
+// helper is imported by a later task's fence is red for a reason that has
+// nothing to do with the behavior under test.
+import {
+  GUARD,
+  type Run,
+  cleanupRuns,
+  guardEnv,
+  mkRun,
+  readResult,
+  runGuard,
+  writeScenario,
+} from "./harness";
+
+afterAll(cleanupRuns);
+
+describe("codex-guard --stage / --round validation (spec §5.1)", () => {
+  // Failure caught: inference creeping back in - a wrapper that guesses the
+  // stage from the brief or the --out path instead of being told.
+  it("exits 2 naming --stage when it is missing", async () => {
+    const run = mkRun();
+    writeScenario(run, [
+      {
+        onCall: 1,
+        actions: [
+          { type: "lastMessage", text: "VERDICT: APPROVE\n" },
+          { type: "exit", code: 0 },
+        ],
+      },
+    ]);
+    const { code, stderr } = await runGuard(run, ["--round", "1"], {}, { injectDefaults: false });
+    expect(code).toBe(2);
+    expect(stderr).toContain("--stage");
+  });
+
+  // Failure caught (reviewer probe 2026-08-05): `num()` validated with
+  // `Number.isInteger`, which is TRUE for an unsafe integer - the value has
+  // already been rounded by `Number()` before the check ever sees it. Probe:
+  // `9007199254740993 -> accepted:true, value:9007199254740992, safe:false`, so
+  // the corpus recorded a round number the caller did not declare. Same class
+  // as the declared-count repair below, on the flag rather than the message;
+  // the sweep that fixed one missed this one.
+  it.each([["9007199254740993"], ["1e21"]])("exits 2 naming --round for %s", async (raw) => {
+    const run = mkRun();
+    writeScenario(run, [
+      {
+        onCall: 1,
+        actions: [
+          { type: "lastMessage", text: "VERDICT: APPROVE\n" },
+          { type: "exit", code: 0 },
+        ],
+      },
+    ]);
+    const { code, stderr } = await runGuard(
+      run,
+      ["--stage", "diff", "--round", raw],
+      {},
+      { injectDefaults: false },
+    );
+    expect(code).toBe(2);
+    expect(stderr).toContain("--round");
+  });
+
+  // The boundary, so the repair is not "reject anything large".
+  it("still accepts MAX_SAFE_INTEGER as --round", async () => {
+    const run = mkRun();
+    const { base } = gitify(run.cwdDir);
+    writeScenario(run, [
+      {
+        onCall: 1,
+        actions: [
+          { type: "lastMessage", text: "VERDICT: APPROVE\n" },
+          { type: "exit", code: 0 },
+        ],
+      },
+    ]);
+    await runGuard(run, ["--stage", "diff", "--round", String(Number.MAX_SAFE_INTEGER)]);
+    expect(rowsIn(corpusPath(run.cwdDir, base))[0]!.round).toBe(Number.MAX_SAFE_INTEGER);
+  });
+
+  // Failure caught: a required flag that silently defaults, which is the
+  // "forgetting exempts the arc" hole the hard cutover exists to close.
+  it("exits 2 naming --round when it is missing", async () => {
+    const run = mkRun();
+    writeScenario(run, [
+      {
+        onCall: 1,
+        actions: [
+          { type: "lastMessage", text: "VERDICT: APPROVE\n" },
+          { type: "exit", code: 0 },
+        ],
+      },
+    ]);
+    const { code, stderr } = await runGuard(
+      run,
+      ["--stage", "spec"],
+      {},
+      { injectDefaults: false },
+    );
+    expect(code).toBe(2);
+    expect(stderr).toContain("--round");
+  });
+
+  // Failure caught: a silent `unknown` stage bucket - an exemption from the
+  // gate wearing the costume of tolerance.
+  it("exits 2 on a stage outside the accept-set, naming the value", async () => {
+    const run = mkRun();
+    writeScenario(run, [
+      {
+        onCall: 1,
+        actions: [
+          { type: "lastMessage", text: "VERDICT: APPROVE\n" },
+          { type: "exit", code: 0 },
+        ],
+      },
+    ]);
+    const { code, stderr } = await runGuard(run, ["--stage", "review", "--round", "1"]);
+    expect(code).toBe(2);
+    expect(stderr).toContain("--stage");
+    expect(stderr).toContain("review");
+  });
+
+  it.each([["0"], ["-1"], ["1.5"], ["abc"], [""]])("exits 2 on --round %j", async (bad) => {
+    const run = mkRun();
+    writeScenario(run, [
+      {
+        onCall: 1,
+        actions: [
+          { type: "lastMessage", text: "VERDICT: APPROVE\n" },
+          { type: "exit", code: 0 },
+        ],
+      },
+    ]);
+    const { code, stderr } = await runGuard(run, ["--stage", "spec", "--round", bad]);
+    expect(code).toBe(2);
+    expect(stderr).toContain("--round");
+  });
+
+  it.each([["spec"], ["plan"], ["diff"], ["task"]])("accepts stage %j", async (stage) => {
+    const run = mkRun();
+    writeScenario(run, [
+      {
+        onCall: 1,
+        actions: [
+          { type: "lastMessage", text: "VERDICT: APPROVE\n" },
+          { type: "exit", code: 0 },
+        ],
+      },
+    ]);
+    const { code } = await runGuard(run, ["--stage", stage, "--round", "2"]);
+    expect(code).toBe(0);
+  });
+});
+
+/** Turn a harness run's cwdDir into a real repo on a feature branch. */
+function gitify(cwdDir: string): { base: string } {
+  const g = (...args: string[]) =>
+    execFileSync("git", args, { cwd: cwdDir, encoding: "utf8" }).trim();
+  g("init", "-q", "-b", "main");
+  g("config", "user.email", "t@example.com");
+  g("config", "user.name", "T");
+  writeFileSync(join(cwdDir, "seed.txt"), "seed\n");
+  g("add", "seed.txt");
+  g("commit", "-qm", "seed");
+  const base = g("rev-parse", "HEAD");
+  g("update-ref", "refs/remotes/origin/main", base);
+  g("checkout", "-q", "-b", "feat/emit");
+  return { base };
+}
+
+const corpusPath = (cwdDir: string, base: string): string =>
+  join(cwdDir, "docs", "review-rounds", "feat", "emit", `${base.slice(0, 12)}.jsonl`);
+
+const rowsIn = (file: string): Record<string, unknown>[] =>
+  readFileSync(file, "utf8")
+    .split("\n")
+    .filter(Boolean)
+    .map((l) => JSON.parse(l) as Record<string, unknown>);
+
+describe("row emission (spec §5.4)", () => {
+  // Failure caught: emission silently no-ops and the corpus is empty forever,
+  // so every arc reads as having run zero rounds.
+  it("appends a row after a successful verdict", async () => {
+    const run = mkRun();
+    const { base } = gitify(run.cwdDir);
+    writeScenario(run, [
+      {
+        onCall: 1,
+        actions: [
+          { type: "lastMessage", text: "VERDICT: APPROVE\n" },
+          { type: "exit", code: 0 },
+        ],
+      },
+    ]);
+    const { code } = await runGuard(run, ["--stage", "diff", "--round", "2"]);
+    expect(code).toBe(0);
+
+    const rows = rowsIn(corpusPath(run.cwdDir, base));
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!).toMatchObject({
+      stage: "diff",
+      round: 2,
+      branch: "feat/emit",
+      baseSha: base.slice(0, 12),
+      status: "verdict",
+      verdict: "APPROVE",
+    });
+    // Failure caught: a row whose identity disagrees with its own path - a
+    // false identity in the committed corpus that the report prints as fact.
+    expect(rows[0]!.baseSha).toBe(base.slice(0, 12));
+  });
+
+  // Failure caught: wrapper failures missing from the corpus entirely. Only
+  // ONE of the two write sites emitting is the documented defect (spec §5.4).
+  //
+  // The trigger matters and is NOT the lint arm. `buildConfig` and the whole
+  // `--lint-doc` preprocessing block run at MODULE TOP LEVEL, before `main` is
+  // even defined and long before `main().catch` is installed. A bad
+  // CODEX_GUARD_TSX therefore exits 2 in preprocessing, writes no result at
+  // all, and never reaches the second writer. The fault must be raised INSIDE
+  // main(). A CODEX_HOME pointed at a plain file does NOT do it - every read of
+  // cfg.codexHome is already guarded (the heartbeat mkdir, the cache rung, and
+  // findRollout each swallow their own failure), so that dispatch runs to a
+  // clean verdict. Probed 2026-08-04: status "verdict", exit 0, twice. What
+  // does reach the site is a DIRECTORY planted where attempt 1's transcript
+  // file must go: createWriteStream errors, the stream-error latch rejects with
+  // fail() (scripts/codex-guard.mjs:576-579), and that rejection leaves the
+  // attempt loop for main().catch - while cfg.out stays writable, so the
+  // wrapper-error result.json is still produced. Probed the same day: exit 3,
+  // failureReason "wrapper_error".
+  it("appends a row from the wrapper_error site too", async () => {
+    const run = mkRun();
+    const { base } = gitify(run.cwdDir);
+    writeScenario(run, [
+      {
+        onCall: 1,
+        actions: [
+          { type: "lastMessage", text: "VERDICT: APPROVE\n" },
+          { type: "exit", code: 0 },
+        ],
+      },
+    ]);
+
+    mkdirSync(join(run.outDir, "attempt-1.transcript.txt"), { recursive: true });
+    const { code } = await runGuard(run, ["--stage", "spec", "--round", "1"]);
+    expect(code).toBe(3);
+
+    // Confirm the fault really took the second writer, not the first: a
+    // wrapper_error result is the ONLY body that carries this failureReason.
+    expect(readResult(run)).toMatchObject({
+      status: "no_verdict",
+      failureReason: "wrapper_error",
+    });
+    const rows = rowsIn(corpusPath(run.cwdDir, base));
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!).toMatchObject({ status: "no_verdict", failureReason: "wrapper_error" });
+  });
+
+  // Belt-and-braces on the same defect, and independent of any trigger being
+  // available: if a future refactor moves the fault surface, the integration
+  // test above can silently stop reaching the second writer while still
+  // passing on the first. This one cannot.
+  it("has an emit call at BOTH result.json write sites", () => {
+    const src = readFileSync(join(process.cwd(), "scripts", "codex-guard.mjs"), "utf8");
+    const writes = [...src.matchAll(/result\.json/g)].length;
+    const emits = [...src.matchAll(/emitReviewRoundRow\(/g)].length;
+    // Derived from the source, not a literal: every result.json write site is
+    // paired with an emit, plus the one emit inside the shared helper.
+    expect(emits).toBeGreaterThanOrEqual(2);
+    expect(writes).toBeGreaterThan(0);
+  });
+
+  // Failure caught: infra faults vanishing, or worse being recorded as
+  // verdicts - the reaper bug killed 58% of dispatches at one point, and
+  // counting those would push nearly every arc over threshold on noise.
+  it("records a no_verdict row and marks it", async () => {
+    const run = mkRun();
+    const { base } = gitify(run.cwdDir);
+    writeScenario(run, [{ onCall: 1, actions: [{ type: "exit", code: 0 }] }]);
+    await runGuard(run, ["--stage", "spec", "--round", "1", "--max-attempts", "1"]);
+    const rows = rowsIn(corpusPath(run.cwdDir, base));
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!).toMatchObject({ status: "no_verdict", verdict: null });
+    expect(rows[0]!.failureReason).toBe("attempts_exhausted");
+  });
+
+  // Failure caught: telemetry breaking a review. The row is attached to work
+  // that already happened; a corpus that cannot be written must not change the
+  // exit code or lose the result.json.
+  it("warns and preserves exit code and result.json when the corpus is unwritable", async () => {
+    const run = mkRun();
+    const { base } = gitify(run.cwdDir);
+    // Plant a DIRECTORY where the row file must go: mkdir succeeds, append fails.
+    mkdirSync(corpusPath(run.cwdDir, base), { recursive: true });
+    writeScenario(run, [
+      {
+        onCall: 1,
+        actions: [
+          { type: "lastMessage", text: "VERDICT: APPROVE\n" },
+          { type: "exit", code: 0 },
+        ],
+      },
+    ]);
+    const { code, stderr } = await runGuard(run, ["--stage", "spec", "--round", "1"]);
+    expect(code).toBe(0);
+    expect(existsSync(join(run.outDir, "result.json"))).toBe(true);
+    expect(stderr.toLowerCase()).toContain("review-round");
+  });
+
+  // Plan resolution R1. Failure caught: a non-repo --cwd throwing, which would
+  // break every pre-existing tests/codexGuard scenario.
+  it("warns and exits 0 when --cwd is not a git repository", async () => {
+    const run = mkRun(); // cwdDir is a bare mkdirSync temp dir
+    writeScenario(run, [
+      {
+        onCall: 1,
+        actions: [
+          { type: "lastMessage", text: "VERDICT: APPROVE\n" },
+          { type: "exit", code: 0 },
+        ],
+      },
+    ]);
+    const { code, stderr } = await runGuard(run, ["--stage", "spec", "--round", "1"]);
+    expect(code).toBe(0);
+    expect(stderr.toLowerCase()).toContain("review-round");
+  });
+
+  // Failure caught: rows landing in a nonsense location under a detached HEAD.
+  it("exits 2 on a detached HEAD", async () => {
+    const run = mkRun();
+    gitify(run.cwdDir);
+    execFileSync("git", ["checkout", "-q", "--detach"], { cwd: run.cwdDir });
+    writeScenario(run, [
+      {
+        onCall: 1,
+        actions: [
+          { type: "lastMessage", text: "VERDICT: APPROVE\n" },
+          { type: "exit", code: 0 },
+        ],
+      },
+    ]);
+    const { code, stderr } = await runGuard(run, ["--stage", "spec", "--round", "1"]);
+    expect(code).toBe(2);
+    expect(stderr.toLowerCase()).toContain("detached");
+  });
+
+  // Failure caught: a corpus written under `<repo>/app/docs/` that the gate,
+  // walking from the repo root, never sees - so an obliged arc passes.
+  it("writes the repo-root corpus when --cwd is a subdirectory", async () => {
+    const run = mkRun();
+    const { base } = gitify(run.cwdDir);
+    const sub = join(run.cwdDir, "app", "nested");
+    mkdirSync(sub, { recursive: true });
+    writeScenario(run, [
+      {
+        onCall: 1,
+        actions: [
+          { type: "lastMessage", text: "VERDICT: APPROVE\n" },
+          { type: "exit", code: 0 },
+        ],
+      },
+    ]);
+    await runGuard(run, ["--stage", "spec", "--round", "1", "--cwd", sub]);
+    expect(existsSync(corpusPath(run.cwdDir, base))).toBe(true);
+    expect(existsSync(join(sub, "docs", "review-rounds"))).toBe(false);
+  });
+});
+
+describe("declared finding count (spec §5.3)", () => {
+  // Failure caught: a count inferred from prose shape. The probe measured
+  // inferred recognition at 64.8% against 681 real outputs; declared reaches
+  // 99.6%. A recognizer here is the denylist shape the accept-set rule forbids.
+  it("records the declared count", async () => {
+    const run = mkRun();
+    const { base } = gitify(run.cwdDir);
+    writeScenario(run, [
+      {
+        onCall: 1,
+        actions: [
+          { type: "lastMessage", text: "FINDINGS: 5\nVERDICT: BLOCKING\n" },
+          { type: "exit", code: 0 },
+        ],
+      },
+    ]);
+    await runGuard(run, ["--stage", "diff", "--round", "1"]);
+    expect(rowsIn(corpusPath(run.cwdDir, base))[0]!.findingCount).toBe(5);
+  });
+
+  it("records 0 as 0, distinct from undeclared", async () => {
+    const run = mkRun();
+    const { base } = gitify(run.cwdDir);
+    writeScenario(run, [
+      {
+        onCall: 1,
+        actions: [
+          { type: "lastMessage", text: "FINDINGS: 0\nVERDICT: APPROVE\n" },
+          { type: "exit", code: 0 },
+        ],
+      },
+    ]);
+    await runGuard(run, ["--stage", "diff", "--round", "1"]);
+    expect(rowsIn(corpusPath(run.cwdDir, base))[0]!.findingCount).toBe(0);
+  });
+
+  // Failure caught: `null` folded into zero, which understates every report
+  // total and is indistinguishable from "no findings found" (spec §5.3).
+  it("records null when no line was declared, never zero", async () => {
+    const run = mkRun();
+    const { base } = gitify(run.cwdDir);
+    writeScenario(run, [
+      {
+        onCall: 1,
+        actions: [
+          { type: "lastMessage", text: "I found 3 problems, listed above.\nVERDICT: BLOCKING\n" },
+          { type: "exit", code: 0 },
+        ],
+      },
+    ]);
+    await runGuard(run, ["--stage", "diff", "--round", "1"]);
+    expect(rowsIn(corpusPath(run.cwdDir, base))[0]!.findingCount).toBeNull();
+  });
+
+  // Failure caught: an unanchored recognizer reading "FINDINGS: 2 or 7" as 2,
+  // recording an ambiguous declaration as a fact. This is an ordinary malformed
+  // reviewer response, not hiding, so the consequence bound applies: the corpus
+  // must not carry a false scalar.
+  it.each([["FINDINGS: 2 or 7"], ["FINDINGS: 3 (plus 2 nits)"], ["FINDINGS: 4 and rising"]])(
+    "records null for the ambiguous single line %j",
+    async (line) => {
+      const run = mkRun();
+      const { base } = gitify(run.cwdDir);
+      writeScenario(run, [
+        {
+          onCall: 1,
+          actions: [
+            { type: "lastMessage", text: `${line}\nVERDICT: BLOCKING\n` },
+            { type: "exit", code: 0 },
+          ],
+        },
+      ]);
+      await runGuard(run, ["--stage", "diff", "--round", "1"]);
+      expect(rowsIn(corpusPath(run.cwdDir, base))[0]!.findingCount).toBeNull();
+    },
+  );
+
+  // Failure caught: an ambiguous double declaration silently taking the first.
+  it("records null when two different counts are declared", async () => {
+    const run = mkRun();
+    const { base } = gitify(run.cwdDir);
+    writeScenario(run, [
+      {
+        onCall: 1,
+        actions: [
+          { type: "lastMessage", text: "FINDINGS: 2\nFINDINGS: 7\nVERDICT: BLOCKING\n" },
+          { type: "exit", code: 0 },
+        ],
+      },
+    ]);
+    await runGuard(run, ["--stage", "diff", "--round", "1"]);
+    expect(rowsIn(corpusPath(run.cwdDir, base))[0]!.findingCount).toBeNull();
+  });
+
+  // Failure caught: the carrier's grain reduced to "last message wins". The
+  // ladder reads a terminal message per attempt, and the later ones are
+  // routinely EMPTY or ABSENT - that is what a reaped attempt looks like. An
+  // empty message is not a declaration of nothing, so folding it in overwrites
+  // the real declaration with `null` and the corpus reports a reviewer that
+  // gave a number as one that never did. Probed 2026-08-04: with the
+  // non-empty check removed from `recordDeclaredCount`, the whole file stayed
+  // green at 35/35, so nothing else pins this.
+  it("keeps an earlier declaration when later attempts read empty or absent", async () => {
+    const run = mkRun();
+    const { base } = gitify(run.cwdDir);
+    const DECLARED = 2;
+    writeScenario(run, [
+      // Declares, but never reaches a VERDICT line, so the ladder continues.
+      {
+        onCall: 1,
+        actions: [
+          { type: "lastMessage", text: `FINDINGS: ${DECLARED}\nStill working, no verdict yet.\n` },
+          { type: "exit", code: 0 },
+        ],
+      },
+      // Present but empty, then absent entirely: BOTH shapes the guard folds to
+      // "" - one test covers both branches of the same check.
+      {
+        onCall: 2,
+        actions: [
+          { type: "lastMessage", text: "" },
+          { type: "exit", code: 0 },
+        ],
+      },
+      { onCall: 3, actions: [{ type: "exit", code: 0 }] },
+    ]);
+    await runGuard(run, ["--stage", "diff", "--round", "1"]);
+
+    // Proves the two later reads actually happened - without this the test
+    // could pass on a ladder that stopped after attempt 1.
+    const shapes = readResult(run).attempts.map((a) => a.failureShape);
+    expect(shapes).toEqual(["no_marker", "empty_o_file", "no_o_file"]);
+    const row = rowsIn(corpusPath(run.cwdDir, base))[0]!;
+    // Derived from attempt 1's own declared line, never a literal repeated on
+    // the assertion side.
+    expect(row.findingCount).toBe(DECLARED);
+  }, 30000);
+
+  // Failure caught: wiring the count at the verdict-success path only. A
+  // reviewer that declares its count and then dies before emitting a VERDICT
+  // line records `null`, which means NOT DECLARED - so a real declaration is
+  // erased, and the corpus reports the reviewer never gave a number.
+  it("records a declared count on a no_verdict row, never null", async () => {
+    const run = mkRun();
+    const { base } = gitify(run.cwdDir);
+    writeScenario(run, [
+      {
+        onCall: 1,
+        actions: [
+          { type: "lastMessage", text: "FINDINGS: 2\nStill working, no verdict yet.\n" },
+          { type: "exit", code: 0 },
+        ],
+      },
+    ]);
+    await runGuard(run, ["--stage", "diff", "--round", "1", "--max-attempts", "1"]);
+    const row = rowsIn(corpusPath(run.cwdDir, base))[0]!;
+    expect(row.status).toBe("no_verdict");
+    expect(row.findingCount).toBe(2);
+  });
+
+  // Failure caught: the SECOND parse site left unwired. A rollout-recovered
+  // verdict is a full review that reached a conclusion, and recording its
+  // declared count as `null` says the reviewer declared nothing.
+  it("records the declared count on a rollout-recovered verdict", async () => {
+    const run = mkRun();
+    const { base } = gitify(run.cwdDir);
+    const SID = "0199aa11-2233-4455-6677-889900aabbcc";
+    const rolloutDir = join(run.codexHome, "sessions", "2026", "07", "24");
+    mkdirSync(rolloutDir, { recursive: true });
+    // The -o write never lands; the verdict AND its count survive only in the
+    // rollout, which is exactly the shape the reaper bug produced.
+    const rollout = [
+      JSON.stringify({
+        timestamp: "2026-07-24T20:30:43.000Z",
+        type: "session_meta",
+        payload: { id: SID, cli_version: "0.146.0-alpha.6", originator: "codex_exec" },
+      }),
+      JSON.stringify({
+        timestamp: "2026-07-24T20:31:00.000Z",
+        type: "response_item",
+        payload: {
+          type: "message",
+          role: "assistant",
+          content: [{ type: "output_text", text: "FINDINGS: 3\n\nVERDICT: BLOCKING" }],
+        },
+      }),
+    ].join("\n");
+    writeFileSync(join(rolloutDir, `rollout-2026-07-24T20-30-43-${SID}.jsonl`), rollout + "\n");
+
+    writeScenario(run, [
+      {
+        onCall: 1,
+        actions: [
+          { type: "stderr", text: `session id: ${SID}\n` },
+          { type: "exit", code: 0 },
+        ],
+      },
+      {
+        onCall: 2,
+        actions: [
+          { type: "stderr", text: "dead\n" },
+          { type: "exit", code: 0 },
+        ],
+      },
+      {
+        onCall: 3,
+        actions: [
+          { type: "stderr", text: "dead\n" },
+          { type: "exit", code: 0 },
+        ],
+      },
+    ]);
+    await runGuard(run, ["--stage", "diff", "--round", "1"]);
+
+    expect(readResult(run)).toMatchObject({ status: "verdict", recoveredFrom: "rollout_scrape" });
+    const row = rowsIn(corpusPath(run.cwdDir, base))[0]!;
+    // Derived from the rollout fixture's own declared line, not a literal
+    // repeated from the assertion side.
+    expect(row.findingCount).toBe(3);
+    expect(row.verdict).toBe("BLOCKING");
+  });
+
+  // Failure caught: the count wired at the two SUCCESS writers only. `onSignal`
+  // (scripts/codex-guard.mjs:1051-1057) writes its own terminal result, so a
+  // reviewer that declared FINDINGS: 2 and was then interrupted records `null`
+  // - "not declared" - and the corpus then reports a declaration that WAS made
+  // as one the reviewer never gave. A false fact about a real review, which is
+  // the outcome the consequence bound forbids.
+  it("records a declared count on an interrupted row", async () => {
+    const run = mkRun();
+    const { base } = gitify(run.cwdDir);
+    const DECLARED = 2;
+    // Attempt 1 declares its count and stops short of a VERDICT line, so the
+    // ladder continues (no_marker); attempt 2 hangs, which is what leaves a
+    // live child for the SIGTERM to interrupt.
+    writeScenario(run, [
+      {
+        onCall: 1,
+        actions: [
+          { type: "stdout", text: "x" },
+          { type: "lastMessage", text: `FINDINGS: ${DECLARED}\nStill working, no verdict yet.\n` },
+          { type: "exit", code: 0 },
+        ],
+      },
+      { onCall: 2, actions: [{ type: "stdout", text: "x" }, { type: "hang" }] },
+    ]);
+    const child = spawn(
+      process.execPath,
+      [
+        GUARD,
+        "review",
+        "--brief",
+        run.briefPath,
+        "--cwd",
+        run.cwdDir,
+        "--out",
+        run.outDir,
+        "--stage",
+        "diff",
+        "--round",
+        "1",
+      ],
+      {
+        env: guardEnv(run, {
+          CODEX_GUARD_STALL_SECS: "30",
+          CODEX_GUARD_ATTEMPT_MAX_SECS: "60",
+          CODEX_GUARD_TOTAL_MAX_SECS: "90",
+        }),
+      },
+    );
+    const exited = new Promise<number | null>((res) => child.on("exit", (c) => res(c)));
+    const nap = (ms: number) => new Promise((r) => setTimeout(r, ms));
+    try {
+      // Waiting on attempt 2's pidfile is what makes this deterministic rather
+      // than a sleep: it proves attempt 1 was already read and classified, so
+      // there is a declared count present to lose.
+      for (let i = 0; i < 200 && !existsSync(join(run.recordDir, "pid-2.txt")); i++) await nap(50);
+      expect(existsSync(join(run.recordDir, "pid-2.txt"))).toBe(true);
+      child.kill("SIGTERM");
+      expect(await exited).toBe(3);
+    } finally {
+      child.kill("SIGKILL");
+    }
+    expect(readResult(run)).toMatchObject({ failureReason: "interrupted" });
+    const row = rowsIn(corpusPath(run.cwdDir, base))[0]!;
+    expect(row.failureReason).toBe("interrupted");
+    // Derived from the scenario's own declared line, never a literal repeated
+    // on the assertion side.
+    expect(row.findingCount).toBe(DECLARED);
+  }, 30000);
+
+  // Failure caught: the same gap at the fourth writer. The `main().catch`
+  // handler (scripts/codex-guard.mjs:1075-1093) builds its OWN body literal
+  // instead of going through `writeResult`, so a count threaded through
+  // `writeResult` alone is absent from every wrapper-error row - and an infra
+  // fault is exactly when an operator most wants the reviewer's own number.
+  it("records a declared count on a wrapper_error row", async () => {
+    const run = mkRun();
+    const { base } = gitify(run.cwdDir);
+    const DECLARED = 2;
+    writeScenario(run, [
+      {
+        onCall: 1,
+        actions: [
+          { type: "stdout", text: "x" },
+          { type: "lastMessage", text: `FINDINGS: ${DECLARED}\nStill working, no verdict yet.\n` },
+          { type: "exit", code: 0 },
+        ],
+      },
+    ]);
+    // The fault must land inside main() and AFTER attempt 1 declared its count,
+    // so the directory goes where attempt TWO's transcript must be written.
+    // Task 4 Step 1 records why this is the trigger that reaches the site and
+    // why the CODEX_HOME one does not.
+    mkdirSync(join(run.outDir, "attempt-2.transcript.txt"), { recursive: true });
+    const { code } = await runGuard(run, ["--stage", "diff", "--round", "1"]);
+    expect(code).toBe(3);
+    expect(readResult(run)).toMatchObject({ status: "no_verdict", failureReason: "wrapper_error" });
+    const row = rowsIn(corpusPath(run.cwdDir, base))[0]!;
+    expect(row.findingCount).toBe(DECLARED);
+  });
+
+  // Failure caught: the wrapper_error case above passes WITHOUT the fourth
+  // writer ever reading anything - attempt 1 there is classified normally, so
+  // the carrier is already loaded before the fault. This is the case that is
+  // not: the FIRST attempt declares its count and then dies BEFORE
+  // classification. A transcript write-stream error throws out of the poll loop
+  // (scripts/codex-guard.mjs:683-688) with the attempt attached to the error,
+  // so `classifyAttempt` - the only site that ever opens attempt 1's message -
+  // never runs, and `main().catch` builds its body from a carrier no site set.
+  // Probed 2026-08-04: parser sees 7, the row records null, and null means
+  // NOT DECLARED, which is false about a review that plainly declared.
+  it("records a declared count when the FIRST attempt dies before classification", async () => {
+    const run = mkRun();
+    const { base } = gitify(run.cwdDir);
+    const DECLARED = 7;
+    writeScenario(run, [
+      {
+        onCall: 1,
+        actions: [
+          { type: "lastMessage", text: `FINDINGS: ${DECLARED}\nStill working, no verdict yet.\n` },
+          { type: "hang" },
+        ],
+      },
+    ]);
+    // A DIRECTORY where attempt ONE's transcript must go: the write stream
+    // fails EISDIR and the poll loop rethrows it out of main().
+    mkdirSync(join(run.outDir, "attempt-1.transcript.txt"), { recursive: true });
+    const { code } = await runGuard(run, ["--stage", "diff", "--round", "1"], {
+      // A poll interval wider than the fixture's boot is what puts the throw
+      // AFTER the message lands: the stream check runs at the top of the
+      // SECOND iteration, so the declaration is on disk with a full interval
+      // to spare. The watchdogs are pushed out so none of them fires first.
+      CODEX_GUARD_POLL_INTERVAL_SECS: "1.5",
+      CODEX_GUARD_FIRST_OUTPUT_SECS: "30",
+      CODEX_GUARD_STALL_SECS: "30",
+      CODEX_GUARD_ATTEMPT_MAX_SECS: "60",
+      CODEX_GUARD_TOTAL_MAX_SECS: "90",
+    });
+    expect(code).toBe(3);
+    const result = readResult(run);
+    // Proves the fault landed on attempt ONE and above classification: one
+    // attempt, no failureShape ever assigned, and the stream error named.
+    expect(result.failureReason).toBe("wrapper_error");
+    expect(result.error).toContain("transcript write failed");
+    expect(result.attempts).toHaveLength(1);
+    expect(result.attempts[0]!.failureShape).toBeNull();
+    // Derived from the scenario's own declared line, never a literal repeated
+    // on the assertion side - and asserted on BOTH terminal outputs, which the
+    // fourth writer builds separately.
+    expect(result.findingCount).toBe(DECLARED);
+    expect(rowsIn(corpusPath(run.cwdDir, base))[0]!.findingCount).toBe(DECLARED);
+  }, 30000);
+
+  // Failure caught: the count extracted below the FIRST of `classifyAttempt`'s
+  // guards specifically. `killed` and `nonzero_exit` are two separate early
+  // returns, so a read hoisted past only the second one still loses every
+  // watchdog-killed attempt - and the reaper era is exactly the regime where a
+  // reviewer writes its message and is then killed. Probed 2026-08-04: with the
+  // read moved below the `killedReason` guard alone, the whole file stayed
+  // green at 34/34, so the nonzero-exit case below does NOT cover this path.
+  it("records a declared count on a watchdog-killed attempt whose message landed", async () => {
+    const run = mkRun();
+    const { base } = gitify(run.cwdDir);
+    const DECLARED = 2;
+    // The message lands and the process then produces no bytes at all, so the
+    // first-output watchdog kills it (`no_output`, scripts/codex-guard.mjs:690)
+    // rather than it exiting on its own.
+    writeScenario(run, [
+      {
+        onCall: 1,
+        actions: [
+          { type: "lastMessage", text: `FINDINGS: ${DECLARED}\nVERDICT: BLOCKING\n` },
+          { type: "hang" },
+        ],
+      },
+    ]);
+    await runGuard(run, ["--stage", "diff", "--round", "1", "--max-attempts", "1"]);
+    // Proves the attempt really took the `killed` guard and not some other
+    // early return, so the assertion below cannot pass via the wrong path.
+    const result = readResult(run);
+    expect(result.attempts[0]!.killedReason).toBe("no_output");
+    expect(result.attempts[0]!.failureShape).toBe("killed");
+    const row = rowsIn(corpusPath(run.cwdDir, base))[0]!;
+    expect(row.status).toBe("no_verdict");
+    expect(row.verdict).toBeNull();
+    // Derived from the scenario's own declared line, never a literal repeated
+    // on the assertion side.
+    expect(row.findingCount).toBe(DECLARED);
+  }, 30000);
+
+  // Failure caught: the count extracted BELOW `classifyAttempt`'s exit-shape
+  // guards. An attempt that writes its message and then exits nonzero returns
+  // at the `nonzero_exit` guard (scripts/codex-guard.mjs:492-495), which is
+  // ABOVE the read, so the message is never opened and the corpus records
+  // `null` - "not declared" - against a message that plainly declares. The
+  // reviewer's own number is a fact about the review, not about the exit code
+  // of the process that carried it.
+  it("records a declared count on a nonzero-exit attempt whose message landed", async () => {
+    const run = mkRun();
+    const { base } = gitify(run.cwdDir);
+    const DECLARED = 2;
+    writeScenario(run, [
+      {
+        onCall: 1,
+        actions: [
+          { type: "lastMessage", text: `FINDINGS: ${DECLARED}\nVERDICT: BLOCKING\n` },
+          { type: "exit", code: 1 },
+        ],
+      },
+    ]);
+    await runGuard(run, ["--stage", "diff", "--round", "1", "--max-attempts", "1"]);
+    const row = rowsIn(corpusPath(run.cwdDir, base))[0]!;
+    // The verdict is NOT accepted, because the attempt failed - and the
+    // declared count survives anyway. That is the decoupling stated as an
+    // assertion: one row carrying both answers, reached by different paths.
+    expect(row.status).toBe("no_verdict");
+    expect(row.verdict).toBeNull();
+    // Derived from the scenario's own declared line, never a literal repeated
+    // on the assertion side.
+    expect(row.findingCount).toBe(DECLARED);
+  });
+
+  // Failure caught: the count extracted BELOW the scrape's verdict guard.
+  // `tryRolloutScrape` continues at `parsed.shape !== "ok"`
+  // (scripts/codex-guard.mjs:783-784), so a rollout whose message declares a
+  // count but never reached a VERDICT line loses it - and on this dispatch
+  // nothing else ever read a message, so the declaration is gone outright
+  // rather than merely stale.
+  it("records a declared count from a rollout message carrying no verdict", async () => {
+    const run = mkRun();
+    const { base } = gitify(run.cwdDir);
+    const DECLARED = 2;
+    const SID = "0199bb22-3344-5566-7788-99aabbccddee";
+    const rolloutDir = join(run.codexHome, "sessions", "2026", "07", "24");
+    mkdirSync(rolloutDir, { recursive: true });
+    const rollout = [
+      JSON.stringify({
+        timestamp: "2026-07-24T21:10:00.000Z",
+        type: "session_meta",
+        payload: { id: SID, cli_version: "0.146.0-alpha.6", originator: "codex_exec" },
+      }),
+      JSON.stringify({
+        timestamp: "2026-07-24T21:11:00.000Z",
+        type: "response_item",
+        payload: {
+          type: "message",
+          role: "assistant",
+          content: [
+            {
+              type: "output_text",
+              text: `FINDINGS: ${DECLARED}\n\nStill working, no verdict yet.`,
+            },
+          ],
+        },
+      }),
+    ].join("\n");
+    writeFileSync(join(rolloutDir, `rollout-2026-07-24T21-10-00-${SID}.jsonl`), rollout + "\n");
+
+    // The -o write never lands, so the ONLY terminal message this dispatch
+    // produced is the scraped one.
+    writeScenario(run, [
+      {
+        onCall: 1,
+        actions: [
+          { type: "stderr", text: `session id: ${SID}\n` },
+          { type: "exit", code: 0 },
+        ],
+      },
+    ]);
+    await runGuard(run, ["--stage", "diff", "--round", "1", "--max-attempts", "1"]);
+
+    // No verdict is recovered - there was none to recover - and the count
+    // lands regardless, which is the whole point of the split.
+    expect(readResult(run)).toMatchObject({ status: "no_verdict", recoveredFrom: null });
+    const row = rowsIn(corpusPath(run.cwdDir, base))[0]!;
+    // Derived from the rollout fixture's own declared line.
+    expect(row.findingCount).toBe(DECLARED);
+  });
+
+  // Failure caught: the interrupt path reading nothing at all. The live
+  // attempt writes its terminal message and then hangs, so `classifyAttempt`
+  // never runs for it and neither read site is ever reached; `onSignal`
+  // (scripts/codex-guard.mjs:1042-1058) then writes the interrupted result
+  // from a carrier that is still null. A declaration sitting on disk in the
+  // out-dir is recorded as one the reviewer never gave, on the one dispatch
+  // shape where no later attempt and no scrape can recover it.
+  it("records a declared count when SIGTERM lands before the attempt is classified", async () => {
+    const run = mkRun();
+    const { base } = gitify(run.cwdDir);
+    const DECLARED = 2;
+    writeScenario(run, [
+      {
+        onCall: 1,
+        actions: [
+          { type: "stdout", text: "x" },
+          { type: "lastMessage", text: `FINDINGS: ${DECLARED}\nStill working, no verdict yet.\n` },
+          { type: "hang" },
+        ],
+      },
+    ]);
+    const child = spawn(
+      process.execPath,
+      [
+        GUARD,
+        "review",
+        "--brief",
+        run.briefPath,
+        "--cwd",
+        run.cwdDir,
+        "--out",
+        run.outDir,
+        "--stage",
+        "diff",
+        "--round",
+        "1",
+      ],
+      {
+        env: guardEnv(run, {
+          CODEX_GUARD_STALL_SECS: "30",
+          CODEX_GUARD_ATTEMPT_MAX_SECS: "60",
+          CODEX_GUARD_TOTAL_MAX_SECS: "90",
+        }),
+      },
+    );
+    const exitedAt = new Promise<number | null>((res) => child.on("exit", (c) => res(c)));
+    const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
+    const msgPath = join(run.outDir, "attempt-1.last-message.txt");
+    try {
+      // Waiting on the MESSAGE FILE rather than a pidfile is what puts the
+      // signal in the right window: the file existing proves the declaration
+      // is on disk, and attempt 1 hanging proves nothing has classified it.
+      for (let i = 0; i < 200 && !existsSync(msgPath); i++) await pause(50);
+      expect(existsSync(msgPath)).toBe(true);
+      // No second attempt was ever started, so no other read could have run.
+      expect(existsSync(join(run.recordDir, "pid-2.txt"))).toBe(false);
+      child.kill("SIGTERM");
+      expect(await exitedAt).toBe(3);
+    } finally {
+      child.kill("SIGKILL");
+    }
+    expect(readResult(run)).toMatchObject({ failureReason: "interrupted" });
+    const row = rowsIn(corpusPath(run.cwdDir, base))[0]!;
+    expect(row.failureReason).toBe("interrupted");
+    // Derived from the scenario's own declared line, never a literal repeated
+    // on the assertion side.
+    expect(row.findingCount).toBe(DECLARED);
+  }, 30000);
+
+  // Failure caught (reviewer probe 2026-08-05): the digits were converted with
+  // `Number()` and recorded unchecked, so a declaration past 2^53 was silently
+  // ROUNDED into the corpus -
+  //   single-unsafe:     parsed=9007199254740992   (declared ...993)
+  //   distinct-collapse: parsed=9007199254740992   (two DIFFERENT declarations)
+  //   overflow:          parsed=Infinity  serialized={"findingCount":null}
+  // The middle one is the worst shape: two different declared numbers collapse
+  // to one value, so the "two different counts means not declared" rule reads
+  // them as agreeing. A number the reviewer never wrote, recorded as fact.
+  //
+  // Unrepresentable is NOT DECLARED. That is the same disposition this parser
+  // already gives an ambiguous declaration, and it is the conservative
+  // direction: `null` understates, a rounded integer asserts.
+  it.each([
+    ["9007199254740993", "one declaration past the safe range"],
+    ["99999999999999999999", "a declaration that overflows to Infinity"],
+  ])("records null for %s (%s)", async (digits) => {
+    const run = mkRun();
+    const { base } = gitify(run.cwdDir);
+    writeScenario(run, [
+      {
+        onCall: 1,
+        actions: [
+          { type: "lastMessage", text: `FINDINGS: ${digits}\nVERDICT: APPROVE\n` },
+          { type: "exit", code: 0 },
+        ],
+      },
+    ]);
+    await runGuard(run, ["--stage", "diff", "--round", "1"]);
+    const row = rowsIn(corpusPath(run.cwdDir, base))[0]!;
+    expect(row.findingCount).toBeNull();
+    // The verdict is a separate question and must survive: an unreadable count
+    // is not a reason to discard a review the reviewer completed.
+    expect(row.verdict).toBe("APPROVE");
+  });
+
+  it("records null when two unsafe declarations would collapse to one value", async () => {
+    const run = mkRun();
+    const { base } = gitify(run.cwdDir);
+    // Distinct as written, identical after `Number()`. Recording either one
+    // asserts a number no line of the message contains.
+    writeScenario(run, [
+      {
+        onCall: 1,
+        actions: [
+          {
+            type: "lastMessage",
+            text: "FINDINGS: 9007199254740993\nFINDINGS: 9007199254740992\nVERDICT: APPROVE\n",
+          },
+          { type: "exit", code: 0 },
+        ],
+      },
+    ]);
+    await runGuard(run, ["--stage", "diff", "--round", "1"]);
+    expect(rowsIn(corpusPath(run.cwdDir, base))[0]!.findingCount).toBeNull();
+  });
+
+  // The boundary itself, so the repair cannot be "reject anything large".
+  it("still records the largest safe integer", async () => {
+    const run = mkRun();
+    const { base } = gitify(run.cwdDir);
+    const SAFE = Number.MAX_SAFE_INTEGER;
+    writeScenario(run, [
+      {
+        onCall: 1,
+        actions: [
+          { type: "lastMessage", text: `FINDINGS: ${SAFE}\nVERDICT: APPROVE\n` },
+          { type: "exit", code: 0 },
+        ],
+      },
+    ]);
+    await runGuard(run, ["--stage", "diff", "--round", "1"]);
+    expect(rowsIn(corpusPath(run.cwdDir, base))[0]!.findingCount).toBe(SAFE);
+  });
+});
+
+describe("the rollout scrape reads sessions newest-first (the grain, scanned backwards)", () => {
+  // Failure caught (reviewer probe 2026-08-05): `tryRolloutScrape` walks
+  // `state.seenSids` REVERSED - newest session first - and called the
+  // record-count primitive on every message it visited. That primitive's grain
+  // is "the LAST non-empty message wins", which names the newest one only for a
+  // caller reading CHRONOLOGICALLY; read backwards it makes the OLDEST
+  // declaration win. Probed: newest message declaring nothing, an older one
+  // declaring FINDINGS: 7 -> the row recorded 7, a number the terminal message
+  // never gave, on a dispatch that recovered no verdict at all. A false fact
+  // about a real review, which is exactly what the count exists not to be.
+  const SID_OLD = "0199cc33-4455-6677-8899-aabbccddeeff";
+  const SID_NEW = "0199dd44-5566-7788-99aa-bbccddeeff00";
+  const OLD_COUNT = 7;
+  const NEW_COUNT = 2; // deliberately different, so "newest wins" is observable
+  const NO_DECLARATION = "No declaration here; still working.";
+  const declares = (n: number): string => `FINDINGS: ${n}\nStill working.`;
+
+  const writeRollout = (run: Run, sid: string, hhmmss: string, text: string): void => {
+    const dir = join(run.codexHome, "sessions", "2026", "07", "24");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      join(dir, `rollout-2026-07-24T${hhmmss}-${sid}.jsonl`),
+      [
+        JSON.stringify({
+          timestamp: `2026-07-24T${hhmmss.replace(/-/g, ":")}.000Z`,
+          type: "session_meta",
+          payload: { id: sid, cli_version: "0.146.0-alpha.6", originator: "codex_exec" },
+        }),
+        JSON.stringify({
+          timestamp: `2026-07-24T${hhmmss.replace(/-/g, ":")}.000Z`,
+          type: "response_item",
+          payload: {
+            type: "message",
+            role: "assistant",
+            content: [{ type: "output_text", text }],
+          },
+        }),
+      ].join("\n") + "\n",
+    );
+  };
+
+  // Two attempts, each announcing its own session id on stderr and leaving no
+  // `-o` file behind: the only terminal messages this dispatch has are the two
+  // rollouts, and `seenSids` holds [older, newer] in the order they were seen.
+  const dispatchTwoSessions = async (run: Run): Promise<void> => {
+    writeScenario(run, [
+      {
+        onCall: 1,
+        actions: [
+          { type: "stderr", text: `session id: ${SID_OLD}\n` },
+          { type: "exit", code: 0 },
+        ],
+      },
+      {
+        onCall: 2,
+        actions: [
+          { type: "stderr", text: `session id: ${SID_NEW}\n` },
+          { type: "exit", code: 0 },
+        ],
+      },
+    ]);
+    await runGuard(run, ["--stage", "diff", "--round", "1", "--max-attempts", "2"]);
+  };
+
+  it("records the NEWEST session's declaration, never an older one's", async () => {
+    const run = mkRun();
+    const { base } = gitify(run.cwdDir);
+    writeRollout(run, SID_OLD, "20-00-00", declares(OLD_COUNT));
+    writeRollout(run, SID_NEW, "21-00-00", declares(NEW_COUNT));
+    await dispatchTwoSessions(run);
+    // Both session ids were latched, so the scan really did have both rollouts
+    // in reach - without this the assertion passes on a scrape that read one.
+    expect(readResult(run).attempts.map((a) => a.sessionId)).toEqual([SID_OLD, SID_NEW]);
+    // Derived from the rollout fixtures' own declared lines.
+    expect(rowsIn(corpusPath(run.cwdDir, base))[0]!.findingCount).toBe(NEW_COUNT);
+  }, 30000);
+
+  it("keeps `not declared` when the newest session declares nothing", async () => {
+    const run = mkRun();
+    const { base } = gitify(run.cwdDir);
+    writeRollout(run, SID_OLD, "20-00-00", declares(OLD_COUNT));
+    writeRollout(run, SID_NEW, "21-00-00", NO_DECLARATION);
+    await dispatchTwoSessions(run);
+    expect(readResult(run)).toMatchObject({ status: "no_verdict", recoveredFrom: null });
+    // A genuine null: the terminal message gave no number, and "not declared"
+    // is an answer, not a hole to backfill from a session that ended earlier.
+    expect(rowsIn(corpusPath(run.cwdDir, base))[0]!.findingCount).toBeNull();
+
+    // CONTROL - the same dispatch with the newest rollout absent. The older
+    // declaration IS reachable by this scan and IS recorded once it is the
+    // newest message there is. Without it, the `null` above is equally well
+    // explained by a scrape that read no rollout at all.
+    const control = mkRun();
+    const { base: controlBase } = gitify(control.cwdDir);
+    writeRollout(control, SID_OLD, "20-00-00", declares(OLD_COUNT));
+    await dispatchTwoSessions(control);
+    expect(rowsIn(corpusPath(control.cwdDir, controlBase))[0]!.findingCount).toBe(OLD_COUNT);
+  }, 45000);
+});
