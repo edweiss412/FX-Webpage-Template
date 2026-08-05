@@ -132,6 +132,7 @@ export const PARALLEL_TEST_GLOBS = [
   "tests/github/**/*.test.{ts,tsx}",
   "tests/venue/**/*.test.{ts,tsx}",
   "tests/docs/**/*.test.{ts,tsx}",
+  "tests/reviewRounds/**/*.test.{ts,tsx}",
   // The source-mutation UNIT tests are pure and fast; the nightly gate file in
   // the same tree is excluded from both default projects by NIGHTLY_ONLY_EXCLUDES.
   "tests/mutation/**/*.test.{ts,tsx}",

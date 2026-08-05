@@ -430,4 +430,56 @@ export const GUARD_SURFACES: GuardSurface[] = [
       },
     ],
   },
+  /**
+   * The review-round economy gate's two sources, enrolled as TWO rows because
+   * `sourcePath` is singular and the harness mutates exactly that file. A single
+   * row naming count.ts would leave every structural decision in corpus.ts
+   * outside the mutant set while the gate still announced a score and an empty
+   * unaccepted-survivor set over it — `if (n < ROUND_THRESHOLD) continue;` in
+   * `checkCorpus` is the named site, whose `<=` mutant suppresses the filing
+   * duty at exactly the threshold.
+   *
+   * They share tests/docs/_metaReviewRoundEconomy.test.ts: count.ts is reached
+   * through `checkCorpus` as well as directly, and a mutant is KILLED if ANY
+   * listed suite goes red.
+   */
+  {
+    id: "reviewRoundCount",
+    sourcePath: "lib/reviewRounds/count.ts",
+    suitePaths: ["tests/reviewRounds/count.test.ts", "tests/docs/_metaReviewRoundEconomy.test.ts"],
+    operators: [...OPERATOR_NAMES],
+    scoreFloor: 1,
+    // Inverts the counting rule's status conjunct, so an infra fault counts as
+    // a round.
+    control: { from: 'r.status === "verdict"', to: 'r.status !== "verdict"' },
+    accepted: [],
+  },
+  {
+    id: "reviewRoundCorpus",
+    sourcePath: "lib/reviewRounds/corpus.ts",
+    suitePaths: ["tests/docs/_metaReviewRoundEconomy.test.ts"],
+    operators: [...OPERATOR_NAMES],
+    scoreFloor: 1,
+    // The threshold comparison, which off by one suppresses the filing duty at
+    // exactly the threshold.
+    control: {
+      from: "if (n < ROUND_THRESHOLD) continue;",
+      to: "if (n <= ROUND_THRESHOLD) continue;",
+    },
+    accepted: [
+      // ---- equivalent: cannot change observable behavior (spec §2.4) -------
+      {
+        siteId: "statement-removal:77:7:continue;>(removed)",
+        kind: "equivalent",
+        reason:
+          "falling through after the recursive walk reaches `if (!entry.isFile()) continue;` on the very next line (corpus.ts:79), and a Dirent for a directory returns false from isFile(), so neither push below it can be reached",
+      },
+      {
+        siteId: "relational-boundary:144:25:<><=",
+        kind: "equivalent",
+        reason:
+          'the extra iteration reads lines[i] === undefined, which `?? ""` turns into the empty string, and the blank-line skip at corpus.ts:146 continues before parseRow sees it',
+      },
+    ],
+  },
 ];

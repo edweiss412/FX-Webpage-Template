@@ -1,0 +1,10 @@
+# `docs/superpowers/specs/ci/probes/` — Draft-time measurements
+
+Evidence cited by the CI specs beside this directory. A probe is a measurement, not a design: it answers one question against real data so a spec can state a fact instead of an assumption.
+
+Written under the probe-before-argue rule in [`../../../../agents/spec-self-review.md`](../../../../agents/spec-self-review.md) — for detector, classifier, and heuristic surfaces, corpus-calibrated bounds are a draft-time input, not a late-round discovery.
+
+| Probe | Question | Feeds |
+| --- | --- | --- |
+| [`2026-08-04-finding-format-probe.md`](./2026-08-04-finding-format-probe.md) | Can a finding count be recognized from reviewer output, or must it be declared? | [`../2026-08-04-review-round-economy.md`](../2026-08-04-review-round-economy.md) §3 |
+| [`2026-08-04-mergebase-stability-probe.md`](./2026-08-04-mergebase-stability-probe.md) | Is `git merge-base` stable enough to key an arc identity on? | [`../2026-08-04-review-round-economy.md`](../2026-08-04-review-round-economy.md) §5.2 |

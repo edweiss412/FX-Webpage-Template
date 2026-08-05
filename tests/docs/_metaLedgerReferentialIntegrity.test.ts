@@ -257,6 +257,31 @@ const NOT_A_CITATION: Record<string, Record<string, string>> = {
     "BL-X": "planted entry id in the Task 3/4 resolver fixtures",
     "BL-Y": "the second planted entry in Task 4's boundary-overlap hunk fixture",
   },
+  "docs/superpowers/specs/ci/2026-08-04-review-round-economy.md": {
+    "BL-SPEC-CITATION-RESOLVE": "invented id in §6's sample filing, showing where a real one goes",
+  },
+  "docs/review-rounds/README.md": {
+    "BL-SPEC-CITATION-RESOLVE": "the same §6 sample filing, reproduced so the corpus explains itself",
+  },
+  "docs/superpowers/plans/2026-08-04-review-round-economy.md": {
+    "BL-SPEC-CITATION-RESOLVE": "the spec's §6 sample filing, quoted into Task 6's pasted filing test",
+    "BL-ONE": "planted token in Task 6's `parseFiling` prefix-recognizer fixture",
+    "BL-REAL": "Task 6's injected resolvable control in the gate-test fixtures",
+    "BL-NOT-A-REAL-ID": "the unresolvable citation it is the control for",
+  },
+  "tests/reviewRounds/filing.test.ts": {
+    "BL-SPEC-CITATION-RESOLVE": "the spec's §6 sample filing, parsed as the worked example's citation",
+    "BL-ONE": "planted token proving the recognizer admits BL- and DEF- and nothing else",
+  },
+  "tests/docs/_metaReviewRoundEconomy.test.ts": {
+    "BL-REAL": "the injected resolvable id every fixture arc's filing cites",
+    "BL-NOT-A-REAL-ID": "the unresolvable citation it is the control for",
+    "BL-PLANTED-HEADING-ROW": "planted `## BL-… —` entry in the fixture-root BACKLOG.md",
+    "BL-PLANTED-NESTED-HEADING-ROW":
+      "planted `### BL-… —` entry there, pinning that a level-3 row resolves too",
+    "BL-PLANTED-SUBITEM-ROW": "planted body sub-item there, pinning the heading-only documented limit",
+    "BL-PLANTED-ABSENT-ROW": "an id defined in no fixture ledger, for the unresolved case",
+  },
   "docs/superpowers/specs/2026-08-03-ledger-claim-visibility-design.md": {
     "BL-SOME-OTHER-ROW": "placeholder row in §3.2's sample report output",
     "BL-A": "§3.3's `--check BL-A BL-B` usage example",

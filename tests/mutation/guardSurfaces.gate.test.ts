@@ -53,6 +53,16 @@ const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
   // at :32-34. A fourth accepted-gap row means a new family, which needs its
   // own backlog entry rather than a bumped number here.
   ledgerGit: { equivalent: 6, "accepted-gap": 3 },
+  // Counted from the surface: count.ts carries NO blessed survivor at all. Its
+  // floor is 1, so any row appearing here is a coverage regression to repair
+  // rather than a number to update.
+  reviewRoundCount: {},
+  // Counted from the surface: exactly TWO reachability arguments -- the
+  // directory fallthrough at corpus.ts:77, which lands on the very next line's
+  // `isFile()` skip, and the one-past-the-end read at :144, which `?? ""` turns
+  // into a blank line the parser never sees. No accepted-gap: this surface's
+  // floor is 1, so a gap here would have to be repaid, not blessed.
+  reviewRoundCorpus: { equivalent: 2 },
 };
 
 describe("guard-surface registry — ledger-kind expectations", () => {

@@ -1828,6 +1828,12 @@ describe("sheet-link phrase containment (spec §7.10)", () => {
       // replaced, kept as the guard's historical regression fixture. Neither is
       // resolvable by the module graph, which is what this census is about.
       ".woff2",
+      // The review-round corpus under docs/review-rounds/**: newline-delimited
+      // JSON rows the codex-guard wrapper appends, one per dispatch. Data, like
+      // .json above and unlike anything the bundler resolves - no pinned-config
+      // resolver treats .jsonl as a module without a rules/loader entry (denied
+      // above), and nothing imports one.
+      ".jsonl",
     ]);
     const DOTFILE_BASENAMES = new Set([
       ".gitattributes",
