@@ -28,15 +28,28 @@ const read = (f: string) => readFileSync(f, "utf8");
 
 describe("_metaAdminOutcomeContract", () => {
   test("Assertion 1 — every registered mutation route emits logAdminOutcome with its code", () => {
-    for (const { file, code } of AUDITABLE_MUTATIONS) {
-      const src = read(file);
-      expect(src, `${file} must import logAdminOutcome`).toContain(
+    for (const { file, code, emittedVia } of AUDITABLE_MUTATIONS) {
+      // The mechanical checks follow the CALL. A surface that defers its emit to
+      // a shared flush — which invariant 10 forces when the natural emit point is
+      // inside a locked transaction — has no `logAdminOutcome(` of its own to
+      // find, and demanding one there would penalise the correct placement.
+      // `file` remains the surface of record either way.
+      const emitFile = emittedVia ?? file;
+      const src = read(emitFile);
+      expect(src, `${emitFile} must import logAdminOutcome`).toContain(
         'from "@/lib/log/logAdminOutcome"',
       );
       // Must be AWAITED — a fire-and-forget logAdminOutcome in a Server Action can be
       // frozen/terminated after return before the async persist completes → dropped audit row.
-      expect(src, `${file} must AWAIT logAdminOutcome(`).toMatch(/await\s+logAdminOutcome\(/);
-      expect(src, `${file} must carry code "${code}"`).toContain(`"${code}"`);
+      expect(src, `${emitFile} must AWAIT logAdminOutcome(`).toMatch(/await\s+logAdminOutcome\(/);
+      expect(src, `${emitFile} must carry code "${code}"`).toContain(`"${code}"`);
+      // A deferral is a claim about the surface too: the route must actually
+      // reach the flush, or the row points at a module this surface never calls.
+      if (emittedVia !== undefined) {
+        expect(read(file), `${file} declares emittedVia but never flushes`).toMatch(
+          /flushDeferredApplyEmits\(/,
+        );
+      }
     }
   });
 

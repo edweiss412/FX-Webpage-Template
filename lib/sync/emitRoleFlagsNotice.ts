@@ -2,6 +2,7 @@ import { upsertAdminAlert as defaultUpsertAdminAlert } from "@/lib/adminAlerts/u
 import { emitLeadRoleApplied } from "@/lib/log/emitLeadRoleApplied";
 import { emitIdentityLinkRenameUnlanded } from "@/lib/log/emitIdentityLinkRenameUnlanded";
 import { log } from "@/lib/log";
+import { logAdminOutcome } from "@/lib/log/logAdminOutcome";
 import { serializeError } from "@/lib/log/serializeError";
 import type { RoleFlagsNotice } from "@/lib/sync/phase2";
 import type { UnlandedRename } from "@/lib/sync/applyParseResult";
@@ -58,10 +59,32 @@ export type DeferredApplyEmits = {
     showId: string;
     driveFileId: string;
   }>;
+  /**
+   * Corrupt-row rebuild exhaustion (`ONBOARDING_SHADOW_REBUILD_EXHAUSTED`).
+   *
+   * Deferred for the same reason as its two siblings, and it is the one that was
+   * left behind: finalize-cas emitted it inline in the per-row loop, which runs
+   * while the outer `withTx` still holds `tryFinalizeLock` and the `app_settings
+   * FOR UPDATE` row — an emit from inside the locked transaction, which
+   * invariant 10 forbids (BL-SHADOW-REBUILD-EXHAUSTED-EMIT-PLACEMENT).
+   *
+   * The defect was PLACEMENT, not loss: the inline emit did fire. That is why
+   * the regression test asserts ORDER rather than occurrence — an
+   * occurrence-only assertion is green against the bug it is meant to catch.
+   */
+  rebuildExhausted: Array<{
+    actorEmail: string;
+    driveFileId: string;
+    wizardSessionId: string;
+    showId: string | null;
+    result: string;
+    corruptionReason: string | null;
+    attemptCount: number;
+  }>;
 };
 
 export function createDeferredApplyEmits(): DeferredApplyEmits {
-  return { roleFlagsNotices: [], unlandedRenames: [] };
+  return { roleFlagsNotices: [], unlandedRenames: [], rebuildExhausted: [] };
 }
 
 /**
@@ -112,6 +135,37 @@ export async function flushDeferredApplyEmits(
         source: ctx.source,
         code: "IDENTITY_LINK_RENAME_UNLANDED_EMIT_FAILED",
         showId: entry.showId,
+        driveFileId: entry.driveFileId,
+        error: serializeError(error),
+      });
+      await escalation.catch(() => {
+        /* best-effort: the escalation itself must never throw out of a finally */
+      });
+    }
+  }
+  for (const entry of pending.rebuildExhausted) {
+    // `logAdminOutcome` is fail-open internally, so this try/catch is belt to its
+    // braces — but it runs in a `finally` beside two emitters that DO throw, and
+    // an unguarded call here could mask an in-flight outer error.
+    try {
+      await logAdminOutcome({
+        code: "ONBOARDING_SHADOW_REBUILD_EXHAUSTED",
+        source: ctx.source,
+        actorEmail: entry.actorEmail,
+        driveFileId: entry.driveFileId,
+        wizardSessionId: entry.wizardSessionId,
+        ...(entry.showId === null ? {} : { showId: entry.showId }),
+        result: entry.result,
+        extra: {
+          corruptionReason: entry.corruptionReason,
+          attemptCount: entry.attemptCount,
+        },
+      });
+    } catch (error) {
+      // Unchained for the same stripLogEmissionCalls reason as the two above.
+      const escalation = log.error("deferred rebuild-exhausted emit failed", {
+        source: ctx.source,
+        code: "SHADOW_REBUILD_EXHAUSTED_EMIT_FAILED",
         driveFileId: entry.driveFileId,
         error: serializeError(error),
       });
