@@ -271,11 +271,11 @@ function combinatorDefeats(expression: ts.Expression, name: string): boolean {
   if (!list || !ts.isArrayLiteralExpression(list)) return false;
   return list.elements
     .filter((e) => !mentionsIdentifier(e, name))
-    .some((e) => NAVIGATION_IN_TEXT.test(e.getText()) || mentionsNavigationBinding(e, expression));
+    .some((e) => NAVIGATION_IN_TEXT.test(e.getText()) || mentionsNavigationBinding(e));
 }
 
 /** Whether an element is, or names, a binding initialised by a navigation. */
-function mentionsNavigationBinding(element: ts.Expression, scope: ts.Node): boolean {
+function mentionsNavigationBinding(element: ts.Expression): boolean {
   if (!ts.isIdentifier(element)) return false;
   const target = element.text;
   let found = false;
