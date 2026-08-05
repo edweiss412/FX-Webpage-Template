@@ -659,59 +659,6 @@ const FINDINGS_LINE = new RegExp(
   `${LABEL("FINDINGS")}${EMPHASIS_RUN}(\\d+)\\s*${EMPHASIS_RUN}\\s*$`,
 );
 
-/**
- * Strips a leading `VERDICT:` label together with the emphasis decorating IT,
- * and leaves emphasis that wraps the whole line for the pair-unwrap.
- *
- * Telling those apart is the entire job. A run belongs to the label when it
- * CLOSES inside the label, and CommonMark closes a nested run in MIRROR order —
- * `*__` closes with `__*`, not with `*__`. An earlier repair used a
- * backreference, which can only express an IDENTICAL closer, so all four
- * combined pairs failed with the colon on either side (probed 2026-08-05,
- * cross-checked with remark-parse: 8/8 forms lost a real trailing verdict while
- * the whole-line control succeeded).
- *
- * Deriving the closer from the opener rather than listing the shapes is what
- * makes this closed over nesting depth and composition — the property the
- * delimiter-count caps kept failing to have.
- */
-const LABEL_OPEN = /^\s*([*_]*)VERDICT/;
-function stripVerdictLabel(s) {
-  const m = LABEL_OPEN.exec(s);
-  if (!m) return s;
-  const open = m[1];
-  const mirrored = [...open].reverse().join("");
-  let rest = s.slice(m[0].length);
-  // CONSUME EXACTLY `mirrored`, never a greedy `[*_]*`. With no space before the
-  // value, a run after the colon is ambiguous - it can be the label's closer OR
-  // the VALUE's opening emphasis - and a greedy read took the value's opener as
-  // the label's closer, compared `**` against an opener of `` and refused to
-  // strip. `VERDICT:**APPROVE**` was lost that way while `VERDICT: **APPROVE**`
-  // worked, which is how five rounds of fixtures missed it: every one had the
-  // space (probed 2026-08-05, 9/9 lost, remark cross-checked).
-  //
-  // Taking exactly mirror(opener) removes the ambiguity by construction: that
-  // many characters close the label and everything after belongs to the value.
-  // An empty opener has nothing to close, so no run after the colon is ever
-  // taken from the value.
-  let closed = mirrored === "";
-  const eat = () => {
-    if (!closed && mirrored !== "" && rest.startsWith(mirrored)) {
-      rest = rest.slice(mirrored.length);
-      closed = true;
-    }
-  };
-  eat(); // `**VERDICT**:` - closer before the colon
-  const colon = /^\s*:/.exec(rest);
-  if (!colon) return s;
-  rest = rest.slice(colon[0].length);
-  eat(); // `**VERDICT:**` - closer after it
-  // Never closed: the run opened something that wraps the whole line, so it is
-  // the pair-unwrap's to remove, not ours.
-  if (!closed) return s;
-  return rest.replace(/^[ \t]*/, "");
-}
-
 function parseVerdict(text) {
   const noFences = stripCodeBlocks(text);
   // Leading markdown emphasis is stripped before the marker test: three real
@@ -730,47 +677,29 @@ function parseVerdict(text) {
   });
   if (survivors.length === 0) return { verdict: null, verdictLine: null, shape: "no_marker" };
   const raw = survivors[survivors.length - 1]; // RAW, untrimmed (§6 schema)
-  // Normalization is a FIXED POINT, not a sequence - and the `VERDICT:` prefix
-  // strip belongs INSIDE it, because the whole line may be wrapped in one
-  // emphasis pair (`**VERDICT: …**`) and the prefix is not exposed until that
-  // pair comes off. Run once, ahead of the loop, it accepted the wrapped form
-  // only when nothing blocked the unwrap: the emphasis marker must sit at
-  // end-of-line, so a single trailing `.` deferred the unwrap into the loop,
-  // by which time the prefix strip had already run and never ran again.
-  // `**VERDICT: APPROVE**.` was rejected while `VERDICT: APPROVE.` was accepted
-  // (probed 2026-08-04: 20/20 across `*`/`**`/`_`/`__` x `.,;:!`) - a completed
-  // review recorded as an infrastructure fault, which is worse than losing the
-  // emphasis case outright, because the arc reads as never having spent the
-  // round. §6 step 3's fixpoint is unchanged; the payload it operates on is
-  // step 2's capture, and this is what "the text after VERDICT:" means once
-  // the marker admits a wrapped line. `verdictLine` still records `raw`.
-  let payload = raw.trim();
-  for (;;) {
-    const before = payload;
-    payload = payload.trim().replace(/[.,;:!]+$/, "");
-    // The label strip must take the label WITH its own emphasis - requiring the
-    // whole line to unwrap first is what left `**VERDICT:** APPROVE` stuck at
-    // `unrecognized_verdict`, since nothing wraps that line, so the pair-unwrap
-    // never fires and a bare `VERDICT:` strip never matches.
-    //
-    // A bare `[*_]*` prefix here would be WRONG and silently breaks every mixed
-    // whole-line form: given `*__VERDICT: APPROVE__*`, the unwrap yields
-    // `__VERDICT: APPROVE__` and a greedy prefix eats the OPENING `__`,
-    // stranding `APPROVE__` forever. The delimiters that belong to the label
-    // are exactly the ones that CLOSE inside it, which is a backreference, not
-    // a character class. Ordered alternatives, most specific first; they are
-    // mutually exclusive, and after any fires the label is gone.
-    //
-    // ABOVE the pair-unwrap, because that unwrap is a weaker test than it looks
-    // - it matches any line that merely STARTS and ENDS with the same run, so
-    // `**VERDICT:** **APPROVE**` (two separate emphases, nothing wrapping the
-    // line) came back as `VERDICT:** **APPROVE` and never recovered. Anchored
-    // by a backreference inside the label, these three cannot make that mistake,
-    // so they get first refusal and the unwrap sees only what they leave.
-    payload = stripVerdictLabel(payload);
-    payload = payload.replace(/^(\*+|_+|`+)(.*?)\1$/, "$2");
-    if (payload === before) break;
-  }
+  // EMPHASIS IS IRRELEVANT TO IDENTIFYING THE OUTCOME, so it is deleted rather
+  // than parsed. Every value in `KNOWN_OUTCOMES` is letters and one hyphen — no
+  // `*`, `_` or backtick appears in any of them — so removing every emphasis
+  // character is lossless for any VALID outcome and cannot turn an invalid one
+  // valid. What is left is a plain `VERDICT: <word>` line.
+  //
+  // This replaces a hand-rolled markdown unwrapper that cost FOUR consecutive
+  // review rounds, each one a real trailing verdict lost and filed as an
+  // infrastructure fault: a delimiter run capped at three (round 2), emphasis on
+  // the label rather than the line (round 4), a nested run that closes MIRRORED
+  // rather than identically (round 5), and a closer read greedily where it was
+  // ambiguous with the value's opener (round 6). Every one of those is a
+  // question about emphasis STRUCTURE, and this parser no longer asks one.
+  //
+  // The guards that matter are unchanged and sit elsewhere: `stripCodeBlocks`
+  // ran first, so a fenced example is not a verdict; `VERDICT_MARKER` is
+  // line-anchored and excludes the backtick from its run, so neither the brief's
+  // prose instruction nor a code span is a marker; and the ambiguity filter
+  // above still rejects a line naming two outcomes. `verdictLine` still records
+  // `raw`, untrimmed, per the §6 schema.
+  let payload = raw.replace(/[*_`]/g, "").trim();
+  payload = payload.replace(/^VERDICT\s*:\s*/, "").trim();
+  payload = payload.replace(/[.,;:!]+$/, "");
   payload = payload.trim().toUpperCase();
   if (KNOWN_OUTCOMES.includes(payload)) return { verdict: payload, verdictLine: raw, shape: "ok" };
   return { verdict: null, verdictLine: raw, shape: "unrecognized_verdict" };
