@@ -185,11 +185,13 @@ export function ArchivedTabOffer(props: ArchivedTabOfferProps) {
           </button>
         ) : null}
       </div>
-      {error ? (
-        <p role="status" aria-live="polite">
-          {error}
-        </p>
-      ) : null}
+      {/* Mounted unconditionally, text toggled: a live region inserted with its
+          text is never announced (BL-ANNOUNCE-REGION-UNMOUNT-CLASS). These are
+          post-action failures, which is exactly when a reader needs to hear
+          something. */}
+      <p role="status" aria-live="polite" className="empty:hidden">
+        {error ?? ""}
+      </p>
     </div>
   );
 }
@@ -245,11 +247,13 @@ export function ArchivedTabIncludedNote({
       >
         {pending ? "Revoking…" : "Revoke"}
       </button>
-      {error ? (
-        <p role="status" aria-live="polite" className="basis-full">
-          {error}
-        </p>
-      ) : null}
+      {/* Mounted unconditionally, text toggled: a live region inserted with its
+          text is never announced (BL-ANNOUNCE-REGION-UNMOUNT-CLASS). These are
+          post-action failures, which is exactly when a reader needs to hear
+          something. */}
+      <p role="status" aria-live="polite" className="basis-full">
+        {error ?? ""}
+      </p>
     </div>
   );
 }
