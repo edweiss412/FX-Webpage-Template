@@ -675,16 +675,41 @@ const FINDINGS_LINE = new RegExp(
  * makes this closed over nesting depth and composition — the property the
  * delimiter-count caps kept failing to have.
  */
-const LABEL_STRIP = /^\s*([*_]*)VERDICT([*_]*)\s*:([*_]*)\s*/;
+const LABEL_OPEN = /^\s*([*_]*)VERDICT/;
 function stripVerdictLabel(s) {
-  const m = LABEL_STRIP.exec(s);
+  const m = LABEL_OPEN.exec(s);
   if (!m) return s;
   const open = m[1];
-  // Whichever side of the colon the closing run fell on; only one can be
-  // non-empty in a well-formed line, and concatenating handles both spellings.
-  const close = m[2] + m[3];
-  // Also the plain case: no opener mirrors to no closer, so `VERDICT: X` strips.
-  return close === [...open].reverse().join("") ? s.slice(m[0].length) : s;
+  const mirrored = [...open].reverse().join("");
+  let rest = s.slice(m[0].length);
+  // CONSUME EXACTLY `mirrored`, never a greedy `[*_]*`. With no space before the
+  // value, a run after the colon is ambiguous - it can be the label's closer OR
+  // the VALUE's opening emphasis - and a greedy read took the value's opener as
+  // the label's closer, compared `**` against an opener of `` and refused to
+  // strip. `VERDICT:**APPROVE**` was lost that way while `VERDICT: **APPROVE**`
+  // worked, which is how five rounds of fixtures missed it: every one had the
+  // space (probed 2026-08-05, 9/9 lost, remark cross-checked).
+  //
+  // Taking exactly mirror(opener) removes the ambiguity by construction: that
+  // many characters close the label and everything after belongs to the value.
+  // An empty opener has nothing to close, so no run after the colon is ever
+  // taken from the value.
+  let closed = mirrored === "";
+  const eat = () => {
+    if (!closed && mirrored !== "" && rest.startsWith(mirrored)) {
+      rest = rest.slice(mirrored.length);
+      closed = true;
+    }
+  };
+  eat(); // `**VERDICT**:` - closer before the colon
+  const colon = /^\s*:/.exec(rest);
+  if (!colon) return s;
+  rest = rest.slice(colon[0].length);
+  eat(); // `**VERDICT:**` - closer after it
+  // Never closed: the run opened something that wraps the whole line, so it is
+  // the pair-unwrap's to remove, not ours.
+  if (!closed) return s;
+  return rest.replace(/^[ \t]*/, "");
 }
 
 function parseVerdict(text) {

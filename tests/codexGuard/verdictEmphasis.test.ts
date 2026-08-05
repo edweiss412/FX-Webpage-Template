@@ -982,6 +982,47 @@ describe("emphasis on the LABEL or the VALUE, not only around the whole line", (
     });
   });
 
+  // Failure caught (reviewer probe 2026-08-05, remark cross-checked, 9/9 lost):
+  // the run after the colon was captured GREEDILY and treated as the label's
+  // closer, but with no space before the value that run can equally be the
+  // VALUE'S OPENING emphasis. `VERDICT:**APPROVE**` therefore compared a closer
+  // of `**` against an opener of `` and refused to strip, stranding the whole
+  // line at `unrecognized_verdict`. The spaced forms all worked, which is why
+  // five rounds of tests missed it - every fixture had a space.
+  //
+  // The rule is now consume-exactly: the label's closer is precisely
+  // mirror(opener), so that many characters are taken and no more. When there
+  // is no opener there is nothing to close, and any run after the colon belongs
+  // to the value untouched.
+  const COMPACT_FORMS = [
+    "VERDICT:**APPROVE**",
+    "**VERDICT:**__APPROVE__",
+    "**VERDICT**:__APPROVE__",
+    "VERDICT:__APPROVE__",
+    "*__VERDICT:__***APPROVE**",
+    "***VERDICT***:*APPROVE*",
+  ];
+
+  it.each(COMPACT_FORMS)("recovers the verdict from the compact form %j", async (line) => {
+    expect(await dispatchMessage(`${line}\n`)).toMatchObject({
+      status: "verdict",
+      verdict: "APPROVE",
+      verdictLine: line,
+    });
+  });
+
+  // The outcome must not be the only thing that varies: a rule that consumed
+  // the wrong number of characters could still land on APPROVE by luck.
+  it.each([
+    ["VERDICT:**NEEDS-ATTENTION**", "NEEDS-ATTENTION"],
+    ["**VERDICT:**__BLOCKING__", "BLOCKING"],
+  ])("recovers %j as %s", async (line, want) => {
+    expect(await dispatchMessage(`${line}\n`)).toMatchObject({
+      status: "verdict",
+      verdict: want,
+    });
+  });
+
   // The mirror rule must not start eating a WRAPPER's opening run, which is the
   // regression the backreference was protecting against in the first place.
   it.each([["*__VERDICT: APPROVE__*"], ["**_VERDICT: APPROVE_**"], ["__*VERDICT: APPROVE*__"]])(
