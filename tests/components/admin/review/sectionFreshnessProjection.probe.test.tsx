@@ -71,6 +71,31 @@ function probe(id: SectionId, mutate: Mutate): { base: string; edited: string } 
   return { base: renderSection(id), edited: renderSection(id, mutate) };
 }
 
+/**
+ * PER-CASE PREMISE: does THIS mutation reach the renderer at all?
+ *
+ * The global premise below proves the harness can tell a painting edit from a
+ * non-painting one — using a VENUE edit. That says nothing about whether the
+ * crew, contacts, hotels, transport or packlist mutations land on the right
+ * field, and a mutation that writes to a path the adapter does not read
+ * produces two identical renders and reports "byte-identical" as a PASS. That
+ * is the exact false-negative this suite exists to prevent, and whole-diff
+ * review R1 demonstrated it: a deliberately wrong path passed every equality
+ * assertion.
+ *
+ * So each case first proves its own reachability, by making a mutation of the
+ * SAME SHAPE that MUST paint, and asserting it does.
+ */
+function expectMutationReaches(id: SectionId, paintingMutation: Mutate): void {
+  const base = renderSection(id);
+  const edited = renderSection(id, paintingMutation);
+  expect(
+    edited,
+    `premise: a ${id} mutation of this shape must reach the renderer — ` +
+      "if it does not, the byte-identical result below proves nothing",
+  ).not.toBe(base);
+}
+
 describe("BL-FRESHNESS-PROJECTION-NARROWING probes", () => {
   it("PREMISE: the harness can tell a painting edit from a non-painting one", () => {
     // Without this, every "byte-identical" below could be a harness that renders
@@ -120,6 +145,9 @@ describe("BL-FRESHNESS-PROJECTION-NARROWING probes", () => {
   });
 
   it("event: two opening_reel values that strip to the same text", () => {
+    expectMutationReaches("event", (s) => {
+      (showOf(s).event_details as Record<string, unknown>).opening_reel = "PAINTS DISTINCTLY";
+    });
     const before = "Watch here: https://drive.google.com/file/d/REEL_ONE/view";
     const after = "Watch here: https://drive.google.com/file/d/REEL_TWO/view";
     expect(
@@ -137,6 +165,9 @@ describe("BL-FRESHNESS-PROJECTION-NARROWING probes", () => {
   });
 
   it("crew: the day list on an unknown_asterisk restriction", () => {
+    expectMutationReaches("crew", (s) => {
+      rowsOf(s, "crew_members")[0]!.date_restriction = { kind: "explicit", days: ["2026-08-03"] };
+    });
     const before = { kind: "unknown_asterisk", days: ["2026-08-03"] };
     const after = { kind: "unknown_asterisk", days: ["2026-08-03", "2026-08-04"] };
     expect(
@@ -155,6 +186,16 @@ describe("BL-FRESHNESS-PROJECTION-NARROWING probes", () => {
   });
 
   it("contacts: a field inside an all-blank contact block", () => {
+    expectMutationReaches("contacts", (s) => {
+      rowsOf(s, "contacts").push({
+        id: "x",
+        kind: "other",
+        name: "REACHES",
+        email: "",
+        phone: "",
+        notes: null,
+      });
+    });
     // `contactBlocks` drops a block with no name AND no content rows, so the
     // whole block is absent from the DOM and nothing inside it can paint.
     const blank = { id: "blank-1", kind: "other", name: "", email: "", phone: "", notes: null };
@@ -169,6 +210,10 @@ describe("BL-FRESHNESS-PROJECTION-NARROWING probes", () => {
   });
 
   it("hotels: a blank guest name added to a reservation", () => {
+    expectMutationReaches("hotels", (s) => {
+      const h = rowsOf(s, "hotel_reservations")[0]!;
+      h.names = [...(h.names as string[]), "Reaches Renderer"];
+    });
     expect(hasContent("   "), "premise: whitespace must not be content").toBe(false);
     const withBefore = renderSection("hotels");
     const withAfter = renderSection("hotels", (s) => {
@@ -179,6 +224,11 @@ describe("BL-FRESHNESS-PROJECTION-NARROWING probes", () => {
   });
 
   it("transport: date and time re-split across the same joined `when`", () => {
+    expectMutationReaches("transport", (s) => {
+      rowsOf(s, "transportation")[0]!.schedule = [
+        { stage: "REACHES", date: "2026-08-01", time: "09:00", assigned_names: [] },
+      ];
+    });
     // The body joins `[date, time]` with a space, so "08-01" + "09:00" and
     // "08-01 09:00" + "" produce one identical string.
     const legBefore = { stage: "Load-in", date: "2026-08-01", time: "09:00", assigned_names: [] };
@@ -197,6 +247,10 @@ describe("BL-FRESHNESS-PROJECTION-NARROWING probes", () => {
   });
 
   it("packlist: a cat sentinel swapped for another sentinel", () => {
+    expectMutationReaches("packlist", (s) => {
+      const c = (showOf(s).pull_sheet as Record<string, unknown>[])[0]!;
+      (c.items as Record<string, unknown>[])[0]!.item = "REACHES RENDERER";
+    });
     const withBefore = renderSection("packlist", (s) => {
       const c = (showOf(s).pull_sheet as Record<string, unknown>[])[0]!;
       (c.items as Record<string, unknown>[])[0]!.cat = "TBD";

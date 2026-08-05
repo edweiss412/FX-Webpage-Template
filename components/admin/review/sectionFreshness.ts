@@ -84,6 +84,7 @@ import {
   findUseRawDecision,
   packItemLabel,
   contactBlocks,
+  nightsBetween,
 } from "@/components/admin/wizard/step3ReviewSections";
 import { buildSheetDeepLink } from "@/lib/sheet-links/buildSheetDeepLink";
 // BL-FRESHNESS-PROJECTION-NARROWING: the four renderer collapses the bodies
@@ -594,10 +595,23 @@ const OWN_FIELDS: Record<Exclude<SectionId, "report">, (d: PublishedSectionData)
   hotels: (d) =>
     pickAll(d.hotels, HOTEL_KEYS_NARROWED, HOTELS_CAP, (row) => {
       const names = Array.isArray(row.names) ? row.names : [];
+      const checkIn = (row.check_in ?? null) as string | null;
+      const checkOut = (row.check_out ?? null) as string | null;
       return [
         names.filter((n) => hasContent(n)),
-        row.check_in ? formatIsoDate(row.check_in as string, "weekday-short") : null,
-        row.check_out ? formatIsoDate(row.check_out as string, "weekday-short") : null,
+        checkIn ? formatIsoDate(checkIn, "weekday-short") : null,
+        checkOut ? formatIsoDate(checkOut, "weekday-short") : null,
+        // THE NIGHTS PILL READS THE RAW DATES, NOT THE LABELS. `weekday-short`
+        // drops the YEAR, so "Sat, Aug 1" 2027 and "Sat, Aug 1" 2021 are the
+        // same painted label with wildly different night counts — a MISSED cue,
+        // the severe direction. Probed: labels equal, nights 2195 vs 4, HTML
+        // different, signature equal. (Whole-diff review R1.)
+        //
+        // This is the venue defect exactly: narrow to the collapse the text uses
+        // and you lose the count computed from the same field. Once is a bug;
+        // twice in one commit is the shape worth naming — a projection must
+        // cover EVERY painted derivation of a field, not the most visible one.
+        nightsBetween(checkIn, checkOut),
       ];
     }),
   // The SAME leg filter the body applies (`step3ReviewSections.tsx:1349`): a leg

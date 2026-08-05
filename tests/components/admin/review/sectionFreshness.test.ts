@@ -15,6 +15,7 @@
 import { describe, expect, it } from "vitest";
 
 import { buildPublishedSectionData } from "@/components/admin/review/publishedAdapter";
+import { formatIsoDate } from "@/lib/format/date";
 import { renderedSectionIds } from "@/components/admin/review/sectionInclusion";
 import {
   buildSectionSignatures,
@@ -991,5 +992,30 @@ describe("section freshness detector", () => {
     expect(changedSectionIds(signaturesOf(withCat("TBD")), signaturesOf(withCat("N/A")))).toEqual(
       [],
     );
+  });
+
+  it("D25b: same painted dates, different NIGHT COUNT still cues (whole-diff R1)", () => {
+    // The missed-cue guard for D25's narrowing, and the second instance of the
+    // venue shape in one commit: `weekday-short` drops the YEAR, so two check-in
+    // dates six years apart paint the SAME label while the nights pill moves
+    // from 4 to 2195. Narrowing to the label alone lost the pill.
+    const withDates = (checkIn: string) => {
+      const s = reviewSnapshot();
+      const h = (s.hotel_reservations as Record<string, unknown>[])[0]!;
+      h.check_in = checkIn;
+      h.check_out = "2026-08-05";
+      return s;
+    };
+    // Premise: the two inputs really do paint the same label, or this case is
+    // asserting something other than what it claims.
+    expect(formatIsoDate("2020-08-01", "weekday-short")).toBe(
+      formatIsoDate("2026-08-01", "weekday-short"),
+    );
+    expect(
+      changedSectionIds(
+        signaturesOf(withDates("2020-08-01")),
+        signaturesOf(withDates("2026-08-01")),
+      ),
+    ).toContain("hotels");
   });
 });
