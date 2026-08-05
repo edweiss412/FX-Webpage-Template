@@ -8,6 +8,64 @@ Same split as [DEFERRED.md](./DEFERRED.md) ↔ [DEFERRED-archive.md](./DEFERRED-
 
 ---
 
+## BL-TASKCONTRACT-SORT-COMPARATOR-EQUALKEY — finding-order comparator is unpinnable for equal `(docLine, code)` pairs — CLOSED 2026-08-04
+
+Closed on `chore/sweep-guards-tests` with the entry's own suggestion: the message as a third sort
+key, making the comparator total over the fields a Finding varies in. Extracted as an exported
+`compareFindings` so the ordering RELATION is testable directly, and placed BELOW
+`checkTaskContract` (declarations hoist) so the mutation registry's line-keyed siteIds above it keep
+their coordinates — putting it at the top invalidated fifteen rows at once.
+
+**Both `accepted-gap` rows retired in the same commit**, and the surface now carries NONE: they
+described this exact blind spot, and it is closed rather than re-accepted. The gate needed three
+further things the entry did not mention, each a real hole — `suitePaths` had to gain the new suite
+(nine mutants survived for want of any listed suite that called the function), the suite must import
+relatively rather than through `@/` (an aliased import resolves past the runner's substituted
+mutant), and the six remaining survivors needed classifying, all six argued from control flow rather
+than from V8's sort being stable — which is what the old rows rested on. `pnpm mutation:guards` 8/8.
+
+Original entry, verbatim:
+
+Two source mutants of the `findings.sort(...)` comparator at `lib/specLint/taskContract.ts:247` survive the suite and cannot be killed through the function's output: `a.code > b.code` → `>=` and the final `: 0` → `: 1`. Both are reached only when `a.docLine - b.docLine` is `0`, and each differs from clean behavior only when the two `code` values are ALSO equal — for unequal codes both take an identical path.
+
+Such a pair is reachable: `ac=AC-90,AC-91` with both ids unresolved emits two `TASK_AC_UNRESOLVED` findings on one line, sharing `(docLine, code)` and differing only in `message`. Probed against the real `checkTaskContract` on `node v20.20.1` — clean `AC-90,AC-91`; `>=` mutant `AC-90,AC-91`; `: 0`→`: 1` mutant `AC-90,AC-91`. Neither reorders.
+
+A **third** mutant of the same comparator, `a.code < b.code` → `<=`, was originally filed here and does NOT belong: it reverses the pair to `AC-91,AC-90`, so it is killable and was repaid by test in the same arc. It was misfiled because the first probe sorted elements identical in every field, a fixture that cannot express a reversal and therefore reported "no difference" for a mutant that plainly reorders real findings. That trap is recorded as documented limit **L-8** of `docs/superpowers/specs/ci/2026-08-04-source-mutation-guard-gate.md`.
+
+The two survivors are ledgered `accepted-gap` (not `equivalent`) in the source-mutation registry and counted as survivors, costing ~2.4 points of that surface's mutation score. `equivalent` would overclaim: an inconsistent comparator is implementation-defined in ECMA-262, so the argument rests on V8's stable sort rather than on control flow — documented limit **L-7** of the same spec.
+
+**Closing this** means making the comparator total so no equal-key pair exists — add a third tiebreak (e.g. `message`), after which both mutants become killable and their ledger rows go stale, which the gate reports rather than absorbs.
+
+**Deferred from `feat/mutation-gate-guard-surfaces` under class-sweep exception (a) — it needs a product decision this PR cannot settle.** Ordering for same-line, same-code findings is `spec:lint`'s user-visible report contract; that arc ships a mutation harness plus test debt and touches no `taskContract.ts` product code. The sweep itself was complete — all three comparator sites were found and classified together, one repaid and two ledgered — so this entry covers every remaining instance of the class, not one peer of several.
+
+---
+
+## BL-SHADOW-REBUILD-EXHAUSTED-EMIT-PLACEMENT — a durable event for a committed row is skipped when the outer finalize rolls back — CLOSED 2026-08-04
+
+Closed on `chore/sweep-guards-tests`. The emit moved into `DeferredApplyEmits` — the accumulator
+its two sibling emits already used — and is flushed in EACH finalize handler's `finally`, so it
+lands post-commit on the success path and the rollback path alike, on the streaming handler as well
+as the non-streaming one.
+
+**The defect was PLACEMENT, not loss**, and that distinction drove the test design: the inline emit
+DID fire on a rollback, so an occurrence-only assertion is green against the bug. Each case pins
+that the emit's tick lands AFTER `withTx` settles. The route's old comment claimed "outside the lock
+txn" on the strength of the ROW transaction having committed, which is the wrong transaction.
+
+It also surfaced a real gap in the invariant-10 registry: Assertion 1 required the registered route
+file to contain `await logAdminOutcome(`, so a surface that DEFERS its emit failed for doing exactly
+what invariant 10 demands. Rows may now declare `emittedVia`.
+
+Original entry, verbatim:
+
+`logAdminOutcome({ code: "ONBOARDING_SHADOW_REBUILD_EXHAUSTED", … })` (`app/api/admin/onboarding/finalize-cas/route.ts:1025-1038`) fires inside `runFinalizeCas`, which runs inside the outer `deps.withTx` holding `tryFinalizeLock` (`app/api/admin/onboarding/finalize-cas/route.ts:905`). The row mutation it describes commits in its own `withRowTx`, independently of that outer transaction — so when the outer commit fails, the mutation stands and the event describing it is silently skipped.
+
+**The exposure is the lock, not a lost event.** The emit fires after `withRowTx` resolves (`app/api/admin/onboarding/finalize-cas/route.ts:968-970`, `:1020-1022`) and before the outer transaction finishes, so a later outer rollback cannot retract it — an earlier draft of this row claimed the event was skipped, which is wrong. What is true is that it runs while `tryFinalizeLock` is still held, which is the invariant-10 posture AGENTS.md states for emits ("POST-COMMIT, outside any advisory-lock tx"). Its neighbour `SHOW_FINALIZED` shares the placement, but both finalize routes have deliberate, test-pinned behavior for it (ordinary finalize suppresses on outer failure, `tests/onboarding/finalize.test.ts:864`; finalize-cas preserves it, `tests/onboarding/finalize-cas.test.ts:685-686`), so it is not in this row's scope.
+
+**Why this is exception (a), not a mechanical fix.** Moving the emit outside the lock also changes when it fires relative to an outer rollback, and whether an operator should hear about an exhausted shadow rebuild belonging to a finalize attempt that then failed is a product question about their mental model. If the answer is yes, the fix is the accumulator-and-`finally` pattern the closing branch establishes for its own emits. Surfaced by cross-model review R9 of that branch, which identified the placement while the branch had no basis to settle the semantics.
+
+---
+
 ## BL-REALTIME-BROADCAST-FRAME-DROP-WATCH — ~9% local broadcast-frame loss on a healthy socket — CLOSED 2026-08-04, watch found nothing
 
 INVESTIGATION discharged on `chore/sweep-guards-tests`. The entry's own decision rule was retry
