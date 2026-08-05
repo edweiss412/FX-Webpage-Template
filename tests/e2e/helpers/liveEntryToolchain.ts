@@ -28,8 +28,15 @@
  * under `tests/e2e/**` names a toolchain binary.
  */
 import { execFileSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { appendFileSync, copyFileSync, existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+
+import { displayOf, familyOf, parseFontFaces, srcOf } from "../../helpers/fontCss";
+import {
+  HARNESS_FONT_FILENAME,
+  PUBLIC_FONT_PATH,
+  PUBLIC_FONT_URL,
+} from "../../helpers/fontManifest";
 
 // Derived from this file's location, NOT process.cwd(): every spec already
 // uses `join(__dirname, "..", "..")` for exactly this reason, and cwd is only
@@ -138,4 +145,82 @@ export function compileEntryCss({ entryCss, outFile }: CssOptions): void {
     // MAXIMUM across call sites means migration cannot regress any of them.
     timeout: 180_000,
   });
+
+  emitCommittedFace(outFile);
+}
+
+/**
+ * Append the committed `@font-face` to the compiled output and copy the binary
+ * beside it.
+ *
+ * WHY THIS IS A POST-STEP ON THE OUTPUT, not something callers opt into. The 32
+ * callers build their entry CSS in materially different ways -- inline template
+ * literals, `sources.map`, arrays of pre-formatted `@source` directives -- and a
+ * previous attempt to consolidate that produced 54 TypeScript errors across 12
+ * files. None of that diversity matters here: the face is appended AFTER the CLI
+ * returns, so every caller gets it regardless of how it assembled its input, and
+ * no caller's entry stylesheet is touched.
+ *
+ * WITHOUT THIS the harnesses have no face at all. They compile `app/globals.css`
+ * with no Next runtime, so `--font-inter` is undefined and `--font-sans` falls
+ * through to its inline literal -- which named a host-INSTALLED Inter if one
+ * existed, and the ambient system font otherwise (SF Pro locally, DejaVu Sans on
+ * the CI runner). That is BL-HARNESS-FONT-FIDELITY: 28 harnesses measuring
+ * geometry a font determines, against a font the product never renders.
+ *
+ * TWO DESCRIPTORS DIVERGE FROM THE APP, both deliberately:
+ *   - `font-display: block`, not `swap`. A reader must never stare at invisible
+ *     text; a measurement harness must never measure the WRONG face. The files
+ *     are served from the same directory as the page, so the block period is a
+ *     local read.
+ *   - `src` is a BARE sibling filename. The app requests `/fonts/...` from a
+ *     server root; a harness serves one flat directory, and all 32 callers write
+ *     `outFile` into the directory they serve.
+ *
+ * The block is DERIVED from `app/fonts.css` rather than hand-duplicated, so the
+ * two cannot drift the first time one is edited.
+ */
+function emitCommittedFace(outFile: string): void {
+  const fontsCss = readFileSync(join(REPO_ROOT, "app", "fonts.css"), "utf8");
+  const outDir = dirname(outFile);
+
+  // Rewrite the served URL to a bare sibling, and swap the display value.
+  // Anchored to the exact declarations rather than a loose pattern: a silent
+  // no-op here would ship the app's `/fonts/` URL into every harness, where it
+  // 404s and renders identically to a missing face.
+  const faceBlock = fontsCss
+    .replace(`url("${PUBLIC_FONT_URL}")`, `url("${HARNESS_FONT_FILENAME}")`)
+    .replace("font-display: swap;", "font-display: block;");
+
+  // Verify the rewrite through the PARSER, not a substring search. The
+  // stylesheet's own comment names `public/fonts/InterVariable-latin.woff2`,
+  // which contains the served URL as a substring -- so a text check reports the
+  // URL surviving when only the prose mentions it. Ask what the src actually
+  // says instead.
+  const rewritten = parseFontFaces(faceBlock);
+  const interFace = rewritten.find((face) => familyOf(face) === "Inter");
+  const emittedUrl = interFace ? srcOf(interFace)[0]?.url : undefined;
+  if (emittedUrl !== HARNESS_FONT_FILENAME) {
+    throw new Error(
+      `compileEntryCss: the harness face src is "${emittedUrl ?? "absent"}", expected the bare ` +
+        `sibling "${HARNESS_FONT_FILENAME}". app/fonts.css must spell its src as ` +
+        `url("${PUBLIC_FONT_URL}") for the rewrite to find it; otherwise the harness requests a ` +
+        `path that does not exist beside its stylesheet, which 404s and renders identically to ` +
+        `a missing face.`,
+    );
+  }
+  if (interFace && displayOf(interFace) !== "block") {
+    throw new Error(
+      "compileEntryCss: font-display was not rewritten to `block`. A harness that swaps can " +
+        "measure the fallback frame, which is the failure the wait invariant also guards.",
+    );
+  }
+
+  appendFileSync(
+    outFile,
+    `
+/* harness face (BL-HARNESS-FONT-FIDELITY) */
+${faceBlock}`,
+  );
+  copyFileSync(join(REPO_ROOT, PUBLIC_FONT_PATH), join(outDir, HARNESS_FONT_FILENAME));
 }

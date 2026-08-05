@@ -81,6 +81,11 @@
       "[\"standalone-chromium\",\"standalone-chromium\",\"8a59777c90aaeb75d334-e96d6786c9afe1d72ec6\",[\"bulk-ignore-eyebrow.layout.spec.ts\",\"DI-5 375px idle: the row keeps its one-line height (the fix costs nothing at rest)\"]]",
       "[\"standalone-chromium\",\"standalone-chromium\",\"8a59777c90aaeb75d334-f7731743b8a4d5d202c7\",[\"bulk-ignore-eyebrow.layout.spec.ts\",\"DI-1 375px idle: no zero-extent in-flow child charges the row's gap\"]]"
     ],
+    "tests/e2e/censusWalkShadow.spec.ts": [
+      "[\"standalone-chromium\",\"standalone-chromium\",\"e27e19e0f4178574df06-0be3675ee692ad7f9a48\",[\"censusWalkShadow.spec.ts\",\"census walk\",\"reports which structural selectors an element matches\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"e27e19e0f4178574df06-aa0856f0c81840d9b039\",[\"censusWalkShadow.spec.ts\",\"census walk\",\"reports a content-bearing pseudo-element\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"e27e19e0f4178574df06-df0660d204260a2f3a15\",[\"censusWalkShadow.spec.ts\",\"census walk\",\"crosses an open shadow root without throwing on the fragment\"]]"
+    ],
     "tests/e2e/collapse-panel-morph.spec.ts": [
       "[\"standalone-chromium\",\"standalone-chromium\",\"5578d67002b3fbf1e63d-35350282f8bf5fb636c9\",[\"collapse-panel-morph.spec.ts\",\"CollapsePanel height morph (real browser, reduced-motion)\",\"region grid-item height is 0 closed and > 0 open\"]]"
     ],
@@ -112,6 +117,16 @@
     ],
     "tests/e2e/directive-form-action.spec.ts": [
       "[\"standalone-chromium\",\"standalone-chromium\",\"03c27f11cd03906ece97-f2b0e3d1ea1c4adaec43\",[\"directive-form-action.spec.ts\",\"use-server directive stub is loud at the real form-action boundary\",\"submitting a form whose action is a stubbed server action throws the plugin message\"]]"
+    ],
+    "tests/e2e/fontFidelityFixture.spec.ts": [
+      "[\"standalone-chromium\",\"standalone-chromium\",\"deb094caf6e4b8421f83-1424ae40dee4a92b4464\",[\"fontFidelityFixture.spec.ts\",\"shadow-root and frame text are BOTH observed\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"deb094caf6e4b8421f83-3a41acf9c2f97087c8de\",[\"fontFidelityFixture.spec.ts\",\"a browser-originated navigation reports the OUTGOING document\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"deb094caf6e4b8421f83-a6fdea269c79449571fb\",[\"fontFidelityFixture.spec.ts\",\"a caller-owned context that closes ITSELF is still reported\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"deb094caf6e4b8421f83-c2c1136748c3484dbd05\",[\"fontFidelityFixture.spec.ts\",\"a reused page reports EVERY document, not only the last\"]]"
+    ],
+    "tests/e2e/harness-font-face.spec.ts": [
+      "[\"standalone-chromium\",\"standalone-chromium\",\"e636dd64a8ae43b62865-7f5137d4d1c2143e5025\",[\"harness-font-face.spec.ts\",\"the emitted face blocks rather than swaps\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"e636dd64a8ae43b62865-d797df23a6be87e60901\",[\"harness-font-face.spec.ts\",\"the harness loads and renders the committed Inter bytes\"]]"
     ],
     "tests/e2e/hoverhelp-geometry.spec.ts": [
       "[\"standalone-chromium\",\"standalone-chromium\",\"2b63b6d01fa9765a06cf-0c5d2b5c8cbb366a9dfe\",[\"hoverhelp-geometry.spec.ts\",\"T-VV visual viewport under zoom\",\"T-VV1 body host: exact coordinates inside the visual viewport\"]]",
@@ -538,5 +553,5 @@
       "[\"standalone-chromium\",\"standalone-chromium\",\"a2b6e93af0c9aab00ac1-e226ed179b8245e9207f\",[\"wizard-blocker-modal.layout.spec.ts\",\"finalize blocker modal — real-browser layout (spec §8)\",\"panel is viewport-pinned and capped at 85vh; it paints above an app-root z-50 dialog\"]]"
     ]
   },
-  "totalTests": 471
+  "totalTests": 480
 }

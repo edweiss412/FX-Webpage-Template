@@ -31,7 +31,8 @@ import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { expect, test, type Page } from "@playwright/test";
+import { test, expect } from "./helpers/fontFidelityFixture";
+import type { Page } from "@playwright/test";
 import { compileEntryCss } from "./helpers/liveEntryToolchain";
 
 const REPO_ROOT = join(__dirname, "..", "..");
@@ -120,6 +121,7 @@ async function open(page: Page, file: string, width: number) {
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.setViewportSize({ width, height: 700 });
   await page.goto(`${baseUrl}${file}`, { waitUntil: "load" });
+  await page.evaluate(() => document.fonts.ready);
 }
 
 for (const { key, page: pageFile, row } of ROWS) {

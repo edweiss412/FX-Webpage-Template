@@ -215,7 +215,18 @@ function mdxMentionsFontModule(source: string): boolean {
  *  family name. DESIGN.md:133 named app/layout.tsx and was amended in lockstep to
  *  name this module — the same load site, hoisted so the second root can
  *  share it. */
-const CANONICAL_LOADER = "app/fonts.ts";
+/**
+ * RETIRED. `app/fonts.ts` is gone: the face is declared in `app/fonts.css` and
+ * read by both Next roots AND by `compileEntryCss`, so the harnesses render what
+ * the product renders (BL-HARNESS-FONT-FIDELITY). There is no loader to be the
+ * canonical one.
+ *
+ * The contract this file enforces did not weaken, it MOVED: "one family, one
+ * delivery point, no second mechanism" is now "no censused file imports
+ * `next/font` at all, and exactly one place declares an @font-face". Both are
+ * asserted below.
+ */
+const CANONICAL_STYLESHEET = "app/fonts.css";
 
 /** Matches the MODULE, not a font name, so switching family — or to a local
  *  face — still registers as a loader. */
@@ -414,10 +425,10 @@ describe("single next/font loader — live tree", () => {
       rel.some((f) => !f.includes("/")),
       "the census covers root-level modules, not just named subtrees",
     ).toBe(true);
-    expect(rel).toContain(CANONICAL_LOADER);
+    expect(rel).toContain("app/layout.tsx");
   });
 
-  it("exactly one censused file imports a font loader, and it is the shared module", () => {
+  it("NO censused file imports a font loader", () => {
     // Keyed on the IMPORT, not on a successful invocation count — see
     // hasFontImport. This is the assertion that actually cannot be evaded by
     // call syntax.
@@ -433,14 +444,18 @@ describe("single next/font loader — live tree", () => {
     // toEqual on the SET, not a length check: a length check passes on a tree
     // whose single loader lives in the wrong layout — the pre-fix state this
     // guard exists to reject (M6).
+    // The retired mechanism must not come back alongside the committed one:
+    // two sources for one family is the drift the stylesheet exists to prevent.
+    // Scope stays REPO-WIDE. Narrowing to `app/` is the already-refuted reading
+    // that a components/-hosted loader walks straight through.
     expect(
       loaders,
-      `only ${CANONICAL_LOADER} may load a font (DESIGN.md:133 — one family, ` +
-        `loaded from one shared module so both Next roots inherit it)`,
-    ).toEqual([CANONICAL_LOADER]);
+      `no file may import next/font — the face is declared in ${CANONICAL_STYLESHEET} ` +
+        `and read by both Next roots and by compileEntryCss (BL-HARNESS-FONT-FIDELITY)`,
+    ).toEqual([]);
   });
 
-  it("the censused files invoke a font loader exactly once", () => {
+  it("the censused files invoke a font loader zero times", () => {
     const total = appFiles.reduce(
       (sum, file) =>
         sum +
@@ -451,9 +466,9 @@ describe("single next/font loader — live tree", () => {
     );
     expect(
       total,
-      "one loader invocation across the census — a second emits a duplicate @font-face " +
-        "set under the same family name, invisibly",
-    ).toBe(1);
+      "zero loader invocations across the census — the mechanism is retired, and a " +
+        "reintroduction emits a second @font-face set under the same family name, invisibly",
+    ).toBe(0);
   });
 });
 

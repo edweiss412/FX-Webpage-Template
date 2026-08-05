@@ -25,7 +25,8 @@ import { execFileSync } from "node:child_process";
 import { createServer, type Server } from "node:http";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { expect, test, type Locator, type Page } from "@playwright/test";
+import { test, expect } from "./helpers/fontFidelityFixture";
+import type { Locator, Page } from "@playwright/test";
 import { compileEntryCss } from "./helpers/liveEntryToolchain";
 import { ROW_WIDTHS } from "./_sectionHeaderWidths";
 
@@ -149,6 +150,7 @@ test.afterAll(async () => {
 async function openPage(page: Page, file: string, width: number, theme: string) {
   await page.setViewportSize({ width, height: 900 });
   await page.goto(`${baseUrl}${file}`, { waitUntil: "load" });
+  await page.evaluate(() => document.fonts.ready);
   await page.evaluate((t) => document.documentElement.setAttribute("data-theme", t), theme);
   const applied = await page.evaluate(() => document.documentElement.getAttribute("data-theme"));
   expect(applied, "requested theme is applied before capture").toBe(theme);

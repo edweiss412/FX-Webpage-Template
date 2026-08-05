@@ -26,7 +26,8 @@
  *   pnpm exec playwright test --config tests/e2e/standalone.config.ts \
  *     tests/e2e/share-link-flash.spec.ts
  */
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect } from "./helpers/fontFidelityFixture";
+import type { Page } from "@playwright/test";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";

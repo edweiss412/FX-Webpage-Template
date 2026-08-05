@@ -20,7 +20,8 @@ import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { expect, test, type Page } from "@playwright/test";
+import { test, expect } from "./helpers/fontFidelityFixture";
+import type { Page } from "@playwright/test";
 import { compileEntryCss } from "./helpers/liveEntryToolchain";
 
 const REPO_ROOT = join(__dirname, "..", "..");
@@ -143,6 +144,7 @@ async function openHairline(page: Page) {
   // and the test could not have seen it (review round 2).
   await page.setViewportSize({ width: 320, height: 700 });
   await page.goto(`${baseUrl}hairline.html`, { waitUntil: "load" });
+  await page.evaluate(() => document.fonts.ready);
 }
 
 test("hairline floor @ 240px row", async ({ page }) => {
@@ -162,24 +164,36 @@ test("hairline floor @ 240px row", async ({ page }) => {
     const rule = label.nextElementSibling;
     if (!(rule instanceof HTMLElement)) return { error: "rule sibling not found" };
 
-    // PIN THE FONT for this one measurement. The app's stack is
-    // `"Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", "Helvetica
-    // Neue", sans-serif` and NOTHING loads Inter — no `@font-face`, no next/font —
-    // so it resolves to SF Pro on macOS and falls all the way through to DejaVu
-    // Sans on a bare Linux CI runner. DejaVu is wide enough that this label fills
-    // the 240px row unaided, which made the floor look like the cause of a wrap it
-    // had nothing to do with: CI measured 33.59px floored against 16.8px unfloored.
+    // PIN THE FONT for this one measurement -- now at INTER, the face the product
+    // actually renders.
     //
-    // Arial / Liberation Sans are metric-compatible and one of the two is present
-    // on macOS, Windows and the Ubuntu runner, so this reads the same on all three.
-    // Applied to the CONTAINER so the label and the rule share it, and only in this
-    // test — the 15-cell matrix measures the ambient stack deliberately, and its
-    // header heights are pinned against it.
+    // WHY THIS PIN EXISTED. The app's stack was `"Inter", ui-sans-serif, …` with
+    // no @font-face reaching the harness, so it resolved to SF Pro on macOS and
+    // fell all the way through to DejaVu Sans on a bare Linux runner. DejaVu is
+    // wide enough that this label filled the 240px row unaided, which made the
+    // floor look like the cause of a wrap it had nothing to do with: CI measured
+    // 33.59px floored against 16.8px unfloored. Arial / Liberation Sans are
+    // metric-compatible and one of the two is present on macOS, Windows and the
+    // Ubuntu runner, so pinning there read the same on all three.
+    //
+    // WHY IT IS RETARGETED. BL-HARNESS-FONT-FIDELITY closed that gap:
+    // compileEntryCss now emits the committed face, so the harness renders a
+    // REPO-CONTROLLED font that is byte-identical on every host. The reason to
+    // stand in a metric-compatible substitute is gone -- and measuring under a
+    // font the product never renders is exactly the fidelity defect the backlog
+    // entry was filed about. The assertion and its floor are UNCHANGED; only the
+    // face beneath them moves, from a stand-in to the one that ships. This is
+    // not a tolerance widening, and the entry explicitly refuses widening as a
+    // resolution.
+    //
+    // Applied to the CONTAINER so the label and the rule share it, and only in
+    // this test — the 15-cell matrix measures the inherited stack deliberately,
+    // and its header heights are pinned against it.
     //
     // What this does NOT claim: that the floor is free under EVERY possible fallback.
     // Under DejaVu it is not, and that is recorded as a real (narrow) exposure in
     // BL-HEADER-FONT-FALLBACK-WRAP rather than asserted away here.
-    container.style.fontFamily = 'Arial, "Liberation Sans", Helvetica, sans-serif';
+    container.style.fontFamily = '"Inter", ui-sans-serif, system-ui, sans-serif';
     void container.offsetWidth; // force reflow before measuring
 
     const cs = getComputedStyle(rule);
@@ -370,6 +384,7 @@ for (const spec of MATRIX) {
       await page.emulateMedia({ reducedMotion: "reduce" });
       await page.setViewportSize({ width: viewport, height: 900 });
       await page.goto(`${baseUrl}${spec.cell}-${viewport}.html`, { waitUntil: "load" });
+      await page.evaluate(() => document.fonts.ready);
 
       const m = await page.evaluate(
         ({ cell, headingText }) => {
@@ -569,6 +584,7 @@ for (const viewport of [320, 375, 430] as const) {
 
     for (const spec of MATRIX) {
       await page.goto(`${baseUrl}${spec.cell}-${viewport}.html`, { waitUntil: "load" });
+      await page.evaluate(() => document.fonts.ready);
       const m = await page.evaluate(
         ({ cell }) => {
           const root = document.querySelector(`[data-cell="${cell}"]`);
@@ -701,6 +717,7 @@ for (const viewport of [640, 1280] as const) {
 
     for (const spec of MATRIX) {
       await page.goto(`${baseUrl}${spec.cell}-${viewport}.html`, { waitUntil: "load" });
+      await page.evaluate(() => document.fonts.ready);
       const m = await page.evaluate(
         ({ cell }) => {
           const root = document.querySelector(`[data-cell="${cell}"]`);
@@ -817,6 +834,7 @@ test("boundary pair: stacked at 639, inline at 640 (same container)", async ({ p
   ] as const) {
     await page.setViewportSize({ width: viewport, height: 900 });
     await page.goto(`${baseUrl}G1-flagged-640.html`, { waitUntil: "load" });
+    await page.evaluate(() => document.fonts.ready);
     const m = await page.evaluate(() => {
       const root = document.querySelector('[data-cell="G1-flagged"]');
       const icon = root?.querySelector('span[aria-hidden="true"]');
@@ -850,6 +868,7 @@ test("wide inline row: pill's right edge is not the link's hit area @ 640", asyn
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.setViewportSize({ width: 640, height: 900 });
   await page.goto(`${baseUrl}G1-flagged-640.html`, { waitUntil: "load" });
+  await page.evaluate(() => document.fonts.ready);
   const m = await page.evaluate(() => {
     const root = document.querySelector('[data-cell="G1-flagged"]');
     const link = root?.querySelector("a[href]");
@@ -879,6 +898,7 @@ test("transition audit: wide header keeps 44px when its pill changes on a mounte
   await page.emulateMedia({ reducedMotion: "no-preference" });
   await page.setViewportSize({ width: 640, height: 900 });
   await page.goto(`${baseUrl}G1-flagged-640.html`, { waitUntil: "load" });
+  await page.evaluate(() => document.fonts.ready);
   const m = await page.evaluate(() => {
     const root = document.querySelector('[data-cell="G1-flagged"]');
     const icon = root?.querySelector('span[aria-hidden="true"]');
@@ -925,6 +945,7 @@ test("corner link carries a 44px tap target @ 375", async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.setViewportSize({ width: 375, height: 900 });
   await page.goto(`${baseUrl}G1-clean-375.html`, { waitUntil: "load" });
+  await page.evaluate(() => document.fonts.ready);
 
   const m = await page.evaluate(() => {
     const link = document.querySelector('[data-cell="G1-clean"] a[href]');
@@ -1058,6 +1079,7 @@ for (const viewport of [320, 375] as const) {
     await page.emulateMedia({ reducedMotion: "reduce" });
     await page.setViewportSize({ width: viewport, height: 900 });
     await page.goto(`${baseUrl}saturated-name-${viewport}.html`, { waitUntil: "load" });
+    await page.evaluate(() => document.fonts.ready);
     const m = await measureOverlayAndNeighbours(page, '[data-cell="saturated-name"]');
     expect(m.error, "fixture shape").toBeNull();
     if (m.error !== null) return;
@@ -1097,6 +1119,7 @@ test("flagged narrow: overlay clears the line-2 pill @ 375", async ({ page }) =>
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.setViewportSize({ width: 375, height: 900 });
   await page.goto(`${baseUrl}G1-flagged-375.html`, { waitUntil: "load" });
+  await page.evaluate(() => document.fonts.ready);
   const m = await measureOverlayAndNeighbours(page, '[data-cell="G1-flagged"]');
   expect(m.error, "fixture shape").toBeNull();
   if (m.error !== null) return;
@@ -1112,6 +1135,7 @@ test("wide inline: overlay clears pill, count and heading @ 640", async ({ page 
   await page.setViewportSize({ width: 640, height: 900 });
   for (const cell of ["G1-flagged", "G1-clean"] as const) {
     await page.goto(`${baseUrl}${cell}-640.html`, { waitUntil: "load" });
+    await page.evaluate(() => document.fonts.ready);
     const m = await measureOverlayAndNeighbours(page, `[data-cell="${cell}"]`);
     expect(m.error, `fixture shape (${cell})`).toBeNull();
     if (m.error !== null) return;
@@ -1266,6 +1290,7 @@ async function sweepCell(
 ) {
   {
     await page.goto(`${baseUrl}${spec.cell}-${viewport}.html`, { waitUntil: "load" });
+    await page.evaluate(() => document.fonts.ready);
     await page.evaluate((t) => document.documentElement.setAttribute("data-theme", t), theme);
 
     // THREE STATES, not just idle. Review round 1: reading computed style on an
@@ -1394,6 +1419,7 @@ test("transition audit: the header snaps when its pill changes on a mounted node
   await page.emulateMedia({ reducedMotion: "no-preference" });
   await page.setViewportSize({ width: 375, height: 900 });
   await page.goto(`${baseUrl}G1-flagged-375.html`, { waitUntil: "load" });
+  await page.evaluate(() => document.fonts.ready);
 
   const m = await page.evaluate(() => {
     const root = document.querySelector('[data-cell="G1-flagged"]');
@@ -1458,6 +1484,7 @@ test("corner link's focus-ring offset matches the surface behind it", async ({ p
 
   for (const theme of ["light", "dark"] as const) {
     await page.goto(`${baseUrl}G1-clean-375.html`, { waitUntil: "load" });
+    await page.evaluate(() => document.fonts.ready);
     await page.evaluate((t) => document.documentElement.setAttribute("data-theme", t), theme);
 
     // FOCUS FIRST, and by keyboard. `--tw-ring-offset-color` is only assigned by

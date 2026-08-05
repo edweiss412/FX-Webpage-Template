@@ -21,7 +21,8 @@
  *   node_modules/.bin/playwright test --config tests/e2e/standalone.config.ts \
  *     tests/e2e/attention-pill-focus.spec.ts
  */
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect } from "./helpers/fontFidelityFixture";
+import type { Page } from "@playwright/test";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -102,6 +103,7 @@ const MENU = '[data-testid="published-show-review-attention-menu"]';
 
 async function boot(page: Page, a: number, n: number, s: number) {
   await page.goto(baseUrl);
+  await page.evaluate(() => document.fonts.ready);
   await page.waitForFunction(
     () => (window as unknown as { __hydrated?: boolean }).__hydrated === true,
   );

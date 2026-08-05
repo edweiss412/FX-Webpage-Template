@@ -51,7 +51,8 @@
  *   node_modules/.bin/playwright test --config tests/e2e/standalone.config.ts \
  *     tests/e2e/step3-review-modal.agenda.spec.ts
  */
-import { test, expect, type Locator, type Page } from "@playwright/test";
+import { test, expect } from "./helpers/fontFidelityFixture";
+import type { Locator, Page } from "@playwright/test";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -179,6 +180,7 @@ async function openAgenda(page: Page, width: number) {
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.setViewportSize({ width, height: 900 });
   await page.goto(baseUrl + "live.html");
+  await page.evaluate(() => document.fonts.ready);
   await expect(page.locator(PANEL)).toBeVisible();
   // READY GATE: the parsing status line is gone and every fixture session has
   // painted. Sessions render only in the `ready` state, so this IS the state

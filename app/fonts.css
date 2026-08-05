@@ -1,0 +1,63 @@
+/* The app's one type family, declared here rather than generated at build time.
+ *
+ * WHY A HAND-WRITTEN STYLESHEET. The 32 standalone e2e harnesses have no Next
+ * runtime: they compile `app/globals.css` with the Tailwind CLI and serve the
+ * result beside their own markup, so a face that exists only inside a framework
+ * build never reaches them, and they measured whatever font the host machine
+ * happened to have -- SF Pro locally, DejaVu Sans on the CI runner
+ * (BL-HARNESS-FONT-FIDELITY). One committed binary and one declaration, read by
+ * both the app and `compileEntryCss`, is the only shape that gives the product
+ * and its measurements the same face.
+ *
+ * WHY THESE BYTES. `public/fonts/InterVariable-latin.fada467b.woff2` is a latin +
+ * latin-ext subset of the upstream Inter v4.1 release, NOT the build Google
+ * Fonts serves -- that one has the character variants and stylistic sets
+ * stripped, so DESIGN.md 2.4's feature contract would be declaring tags no
+ * served font could honor. `public/fonts/PROVENANCE.md` records the version and
+ * checksums; `tests/styles/fontFeatureAvailability.test.ts` fails the build on
+ * any tag the binary cannot honor.
+ *
+ * Imported by BOTH Next roots. `app/global-error.tsx` renders its own <html>
+ * and replaces the root layout, so anything the root sets up is absent there. */
+
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("/fonts/InterVariable-latin.fada467b.woff2") format("woff2");
+}
+
+/* The metric-matched companion, reproducing verbatim what the framework loader
+ * generated from THIS binary before the swap (measured from a clean build:
+ * ascent 89.79%, descent 22.36%, line-gap 0%, size-adjust 107.89%).
+ *
+ * It is what keeps the `font-display: swap` window from reflowing about 10% --
+ * measured 187.28px snapping to 168.91px on a real string. Far less, not none:
+ * metric overrides narrow the mismatch, they cannot equalise per-string
+ * advances. Repointing `local()` at another family would leave these four
+ * numbers scaling glyphs they no longer describe, which is worse than shipping
+ * no fallback at all. */
+
+@font-face {
+  font-family: "Inter Fallback";
+  src: local("Arial");
+  ascent-override: 89.79%;
+  descent-override: 22.36%;
+  line-gap-override: 0%;
+  size-adjust: 107.89%;
+}
+
+:root {
+  /* BOTH families, because `--font-sans` consumes this token rather than naming
+   * a family literally. Dropping the companion here makes the metric-matched
+   * face unreachable through the token while every other guard row still
+   * passes.
+   *
+   * This whole file is appended verbatim to every harness stylesheet by
+   * `compileEntryCss`, so the harnesses resolve this token exactly as the app
+   * does. The literal `"Inter"` in globals.css's var() fallback is the safety
+   * net for a surface that lacks the token, not the harness binding mechanism;
+   * it must still name the family declared above, which a guard row pins. */
+  --font-inter: "Inter", "Inter Fallback";
+}

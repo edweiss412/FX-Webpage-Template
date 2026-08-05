@@ -132,6 +132,7 @@ const LOCAL_ONLY_ALLOWLIST: Record<string, string> = {
   "tests/e2e/alert-action-links.spec.ts": PATH_GATED_BY_EXCLUSION,
   "tests/e2e/crew-section-toggle.spec.ts": PATH_GATED_BY_EXCLUSION,
   "tests/e2e/font-binding.spec.ts": PATH_GATED_BY_EXCLUSION,
+  "tests/e2e/font-rendering-census.spec.ts": PATH_GATED_BY_EXCLUSION,
   "tests/e2e/crew-page.spec.ts": UNSEEN,
   "tests/e2e/deep-link-walker.spec.ts": UNSEEN,
   "tests/e2e/dev-capture.spec.ts": UNSEEN,

@@ -20,7 +20,8 @@
  * clipping/visibility proof (BACKLOG.md documents it lying about clipping);
  * true visibility uses document.elementFromPoint.
  */
-import { test, expect, type CDPSession, type Page } from "@playwright/test";
+import { test, expect } from "./helpers/fontFidelityFixture";
+import type { CDPSession, Page } from "@playwright/test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -112,6 +113,7 @@ type Box = {
 
 async function open(page: Page, kase: string, triggerId: string): Promise<void> {
   await page.goto(`${baseUrl}/live.html?case=${kase}`);
+  await page.evaluate(() => document.fonts.ready);
   await page.getByTestId("harness-ready").waitFor({ state: "attached" });
   await clickOpen(page, triggerId);
 }
@@ -342,6 +344,7 @@ test.describe("T6 document integrity + coordinates", () => {
   }) => {
     const INITIAL_SCROLL_Y = 1200; // matches the existing scrolly-case scroll depth
     await page.goto(`${baseUrl}/live.html?case=scrolly`);
+    await page.evaluate(() => document.fonts.ready);
     await page.getByTestId("harness-ready").waitFor({ state: "attached" });
     await page.evaluate((y) => window.scrollTo(0, y), INITIAL_SCROLL_Y);
     await clickOpen(page, "scrolly-help");
@@ -450,6 +453,7 @@ test.describe("T8 keyboard (body host)", () => {
     // timer cannot fire between the pointer leave and the Tab press.
     await page.clock.install();
     await page.goto(`${baseUrl}/live.html?case=learnmore`);
+    await page.evaluate(() => document.fonts.ready);
     await page.getByTestId("harness-ready").waitFor({ state: "attached" });
     const trigger = page.getByTestId("lm-help-trigger");
     await trigger.hover(); // hover-open
@@ -469,6 +473,7 @@ test.describe("T8 keyboard (body host)", () => {
     page,
   }) => {
     await page.goto(`${baseUrl}/live.html?case=learnmore`);
+    await page.evaluate(() => document.fonts.ready);
     await page.getByTestId("harness-ready").waitFor({ state: "attached" });
     await clickOpen(page, "lm-help");
     const trigger = page.getByTestId("lm-help-trigger");
@@ -565,6 +570,7 @@ test.describe("caret geometry (spec 2026-07-22-hoverhelp-caret-blur-close §8)",
     const INITIAL_SCROLL_Y = 1200; // matches the existing scrolly-case scroll depth
     const SCROLL_DELTA = 60;
     await page.goto(`${baseUrl}/live.html?case=scrolly`);
+    await page.evaluate(() => document.fonts.ready);
     await page.getByTestId("harness-ready").waitFor({ state: "attached" });
     await page.evaluate((y) => window.scrollTo(0, y), INITIAL_SCROLL_Y);
     await clickOpen(page, "scrolly-help");
@@ -687,6 +693,7 @@ test.describe("caret geometry (spec 2026-07-22-hoverhelp-caret-blur-close §8)",
     page,
   }) => {
     await page.goto(`${baseUrl}/live.html?case=caret`);
+    await page.evaluate(() => document.fonts.ready);
     await page.getByTestId("harness-ready").waitFor({ state: "attached" });
     const trigger = page.getByTestId("caret-blur-trigger");
     await trigger.focus();
@@ -804,6 +811,7 @@ test.describe("T-VV visual viewport under zoom", () => {
    */
   async function keyboardOpen(page: Page, kase: string, triggerId: string): Promise<void> {
     await page.goto(`${baseUrl}/live.html?case=${kase}`);
+    await page.evaluate(() => document.fonts.ready);
     await page.getByTestId("harness-ready").waitFor({ state: "attached" });
     const trigger = page.getByTestId(`${triggerId}-trigger`);
     await trigger.focus();
