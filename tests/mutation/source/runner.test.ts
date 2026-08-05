@@ -37,13 +37,10 @@ const surface = (suitePaths: string[]) => ({
   sourcePath: "lib/specLint/taskContract.ts",
   suitePaths,
   operators: [...OPERATOR_NAMES],
-  // Unread by the runner - the control is the gate's probe, not the run's - but
-  // required by GuardSurface, so the fixture carries the real one.
-  controlMutation: {
-    find: 'if (kind !== "plan") return [];',
-    replace: 'if (kind === "plan") return [];',
-  },
   scoreFloor: 0.95,
+  // Unused by these cases; runSurface never reads it. Present because the
+  // registry requires every surface to declare a liveness control.
+  control: { from: 'if (kind !== "plan") return [];', to: 'if (kind === "plan") return [];' },
   accepted: [],
 });
 

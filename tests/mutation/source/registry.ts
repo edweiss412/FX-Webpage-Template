@@ -17,22 +17,23 @@ export type GuardSurface = {
   suitePaths: string[];
   /** Per-surface subset of the declared operator set. */
   operators: OperatorName[];
-  /**
-   * The surface's OWN liveness control (spec §3.6, AC-3): a mutation this
-   * surface's suites must notice, stated per surface rather than shared.
-   *
-   * It is per-surface because the control has to name a real site in a real
-   * source, and no single string does that for two different modules — the
-   * previous single hardcoded control (`taskContract`'s kind guard) simply does
-   * not occur in either `lib/reviewRounds` source, so any second surface fails
-   * on it. `find` must occur EXACTLY ONCE in `sourcePath`, enforced by
-   * `validateSurface`: zero matches makes the probe apply nothing and pass
-   * vacuously, and several matches leaves "whichever `String.replace` hit
-   * first" deciding what was proved.
-   */
-  controlMutation: { find: string; replace: string };
   /** Minimum acceptable mutation score, in (0, 1]. */
   scoreFloor: number;
+  /**
+   * A deliberately behavior-changing edit the surface's own suite MUST notice.
+   *
+   * It proves the overlay is live: a harness whose overlay silently failed to
+   * apply reports a PERFECT score, every mutant having run against clean
+   * source, with every other gate condition still passing.
+   *
+   * Per-surface, because the first version hardcoded a literal that exists only
+   * in taskContract.ts inside a `describe.each` over this registry -- so
+   * enrolling any second surface red the gate. It was also never RUN: the
+   * `broken` text was computed, asserted non-equal to the source, and then
+   * never passed to the runner, so the assertion proved a string existed in a
+   * file.
+   */
+  control: { from: string; to: string };
   accepted: AcceptedSurvivor[];
 };
 
@@ -57,20 +58,6 @@ export function validateSurface(surface: GuardSurface): string[] {
 
   if (!surface.sourcePath || !existsSync(surface.sourcePath)) {
     problems.push(`${surface.id}: sourcePath does not exist on disk: ${surface.sourcePath}`);
-  } else {
-    // The authoring-time half of the AC-3 liveness guarantee. A `find` that
-    // matches ZERO times leaves the probe running clean source and reporting
-    // success while proving nothing; a `find` that matches SEVERAL times makes
-    // the mutated site whichever one `String.replace` reached first, which is
-    // not a decision anyone made. Counted by `split`, so overlapping matches
-    // cannot be double-counted the way a global regex would.
-    const hits =
-      readFileSync(surface.sourcePath, "utf8").split(surface.controlMutation.find).length - 1;
-    if (hits !== 1) {
-      problems.push(
-        `${surface.id}: controlMutation.find must occur exactly once in ${surface.sourcePath}, got ${hits}: ${JSON.stringify(surface.controlMutation.find)}`,
-      );
-    }
   }
 
   if (surface.suitePaths.length === 0) {
@@ -92,6 +79,22 @@ export function validateSurface(surface: GuardSurface): string[] {
   const floor = surface.scoreFloor;
   if (!Number.isFinite(floor) || floor <= 0 || floor > 1) {
     problems.push(`${surface.id}: scoreFloor must be a finite number in (0, 1], got ${floor}`);
+  }
+
+  const { from, to } = surface.control;
+  if (from === to) {
+    problems.push(`${surface.id}: control.from and control.to are identical; it mutates nothing`);
+  }
+  if (existsSync(surface.sourcePath)) {
+    const occurrences = readFileSync(surface.sourcePath, "utf8").split(from).length - 1;
+    if (occurrences === 0) {
+      problems.push(`${surface.id}: control.from does not occur in ${surface.sourcePath}`);
+    } else if (occurrences > 1) {
+      problems.push(
+        `${surface.id}: control.from occurs ${occurrences} times in ${surface.sourcePath}; ` +
+          `an ambiguous anchor makes the control's target unknowable, so it must occur exactly once`,
+      );
+    }
   }
 
   const declared = new Set<string>(surface.operators);
@@ -158,13 +161,10 @@ export const GUARD_SURFACES: GuardSurface[] = [
       "tests/specLint/taskContractFindingOrder.test.ts",
     ],
     operators: [...OPERATOR_NAMES],
-    // Unchanged from the hardcoded control this field generalizes: inverting
-    // the function's own kind guard, which the suite must notice.
-    controlMutation: {
-      find: 'if (kind !== "plan") return [];',
-      replace: 'if (kind === "plan") return [];',
-    },
     scoreFloor: 0.95,
+    // Moved here from the gate test body, where it was hardcoded for this one
+    // surface. Same text, same behavior; it is now a property of the surface.
+    control: { from: 'if (kind !== "plan") return [];', to: 'if (kind === "plan") return [];' },
     accepted: [
       // ---- equivalent: cannot change observable behavior (spec §2.4) -------
       {
@@ -310,6 +310,126 @@ export const GUARD_SURFACES: GuardSurface[] = [
       // rows, which is why they retire in the same commit as the fix.
     ],
   },
+  {
+    id: "ledgerClaimsCore",
+    sourcePath: "scripts/lib/ledger-claims-core.ts",
+    suitePaths: ["tests/scripts/ledgerClaimsCheck.test.ts", "tests/scripts/ledgerClaims.test.ts"],
+    operators: [...OPERATOR_NAMES],
+    // Measured 58/58 counted (61 mutants, 3 equivalent) on this branch. The
+    // floor is a FLOOR, not a snapshot: pinning it at the measured value turns
+    // every future line of this module into a gate failure before it has a
+    // test, which is how a ratchet becomes a wall.
+    scoreFloor: 0.95,
+    // Inverting the fetch branch makes `--no-fetch` fetch and stop emitting
+    // `no-fetch-cached-refs`, which ledgerClaims.test.ts asserts IN PROCESS.
+    control: { from: "if (opts.fetch) {", to: "if (!opts.fetch) {" },
+    accepted: [
+      // ---- equivalent: cannot change observable behavior (spec §2.4) -------
+      //
+      // All three are the same argument: `tipOf` is constructed FROM
+      // `candidates` (ledger-claims-core.ts:193-195), and every later lookup is
+      // keyed on a member of that same array, so no `?? 0` fallback can ever be
+      // taken. `candidates.sort` at :198 reorders the array in place; it adds
+      // and removes nothing, so the key set the sort and the loop read is the
+      // key set the map was built from.
+      {
+        siteId: "integer-literal:198:46:0>1",
+        kind: "equivalent",
+        reason:
+          "the comparator at ledger-claims-core.ts:198 sorts `candidates`, and `tipOf` was built from `candidates` at :193-195, so `tipOf.get(b)` is always present and the `?? 0` fallback is unreachable",
+      },
+      {
+        siteId: "integer-literal:198:68:0>1",
+        kind: "equivalent",
+        reason: "same reachability argument for `tipOf.get(a)` in the same comparator",
+      },
+      {
+        siteId: "integer-literal:216:57:0>1",
+        kind: "equivalent",
+        reason:
+          "the age loop at ledger-claims-core.ts:212 iterates the same `candidates` array `tipOf` was built from, so `tipOf.get(ref)` is always present and this `?? 0` is unreachable too",
+      },
+    ],
+  },
+  {
+    id: "ledgerGit",
+    sourcePath: "scripts/lib/ledger-git.ts",
+    suitePaths: ["tests/scripts/ledgerClaimsCheck.test.ts"],
+    operators: [...OPERATOR_NAMES],
+    // Measured 72/75 counted (81 mutants, 6 equivalent, 3 accepted-gap) on this
+    // branch. Every verdict is environment-INDEPENDENT by construction: each
+    // case builds the repository, remote, ref namespace or environment it
+    // asserts against, so none of them can read differently on a developer's
+    // full clone than in CI's zero-ref checkout (spec AC-6, limit L-6).
+    scoreFloor: 0.9,
+    // Inverting the origin/HEAD exclusion makes localRefs return ONLY a ref
+    // named HEAD, which the constructed-namespace case in the suite notices.
+    control: { from: 'if (name === "HEAD") continue;', to: 'if (name !== "HEAD") continue;' },
+    accepted: [
+      // ---- equivalent: cannot change observable behavior (spec §2.4) -------
+      {
+        siteId: "logical-connector:114:18:||>&&",
+        kind: "equivalent",
+        reason:
+          "localRefs reads `for-each-ref --format=%(objectname) %(refname)`, which always emits BOTH fields, and a git refname cannot contain whitespace -- so a one-field line, the only input separating `||` from `&&` here, cannot occur. An empty trailing line splits to a single empty string, making oid falsy, so both operators skip it identically. Its lsRemote twin at :89 IS killed, because ls-remote's output is not under the same format guarantee",
+      },
+      {
+        siteId: "logical-connector:67:12:||>&&",
+        kind: "equivalent",
+        reason:
+          "parseRefLine has exactly one caller, lsRemote (ledger-git.ts:88), which feeds it lines of `git ls-remote --heads`; that format is OID TAB REF, so a line either splits into two truthy fields or is the trailing blank one, where both operands are falsy and `||` and `&&` agree. A one-truthy-field line, the only input that separates them, is not producible",
+      },
+      {
+        siteId: "logical-connector:176:32:||>&&",
+        kind: "equivalent",
+        reason:
+          "the only line `git branch -r --format='%(refname:short) %(objectname)'` emits with a missing field is the trailing blank one, where name is `''` and oid is undefined; `&&` declines to skip it, and the very next guard (ledger-git.ts:177) skips it on `name.length === 0` instead. Same outcome, one line later",
+      },
+      {
+        siteId: "integer-literal:202:17:1>2",
+        kind: "equivalent",
+        reason:
+          "`if (m?.[1] && m[2])` guards a regex whose two groups are `([0-9a-f]{40})` and `(.+)`; a match populates both non-empty and a non-match makes `m` null, so testing group 2 twice selects exactly the same lines as testing group 1 then group 2",
+      },
+      {
+        siteId: "statement-removal:261:11:continue;>(removed)",
+        kind: "equivalent",
+        reason:
+          "falling out of the `+++ b/` branch reaches the hunk regex, which is anchored at `^@@ ` and therefore cannot match a line the `^\\+\\+\\+ b/` regex just matched; the `!hm?.[1]` guard below then continues anyway",
+      },
+      {
+        siteId: "logical-connector:306:14:||>&&",
+        kind: "equivalent",
+        reason:
+          "headRepo's three inputs all end at the same answer under `&&`: an unset GITHUB_EVENT_PATH still returns null (existsSync(undefined) is false, not a throw), a set-but-missing path falls through to readFileSync, which throws into the function's own catch and returns null, and a readable path takes the identical branch either way",
+      },
+      // ---- accepted-gap: real, deliberately uncovered (spec §2.5) ----------
+      //
+      // One family, three sites. Separating a 30_000 ms bound from a 30_001 ms
+      // one means a child that runs for exactly that long, so the assertion is
+      // either a 30 s wait on a merge-gating suite or an injected spawn. Not
+      // `equivalent`: a timeout a test COULD reach would be observable, so an
+      // equivalence claim here would overclaim (spec limit L-7's posture).
+      {
+        siteId: "integer-literal:32:18:30000>30001",
+        kind: "accepted-gap",
+        reason: "FETCH_MS is passed straight to spawnSync's timeout; see the backlog entry",
+        ref: "BL-LEDGER-GIT-TIMEOUT-CONSTANTS",
+      },
+      {
+        siteId: "integer-literal:33:22:30000>30001",
+        kind: "accepted-gap",
+        reason: "LS_REMOTE_MS, same family and same argument",
+        ref: "BL-LEDGER-GIT-TIMEOUT-CONSTANTS",
+      },
+      {
+        siteId: "integer-literal:34:15:10000>10001",
+        kind: "accepted-gap",
+        reason: "GH_MS, same family and same argument",
+        ref: "BL-LEDGER-GIT-TIMEOUT-CONSTANTS",
+      },
+    ],
+  },
   /**
    * The review-round economy gate's two sources, enrolled as TWO rows because
    * `sourcePath` is singular and the harness mutates exactly that file. A single
@@ -328,13 +448,10 @@ export const GUARD_SURFACES: GuardSurface[] = [
     sourcePath: "lib/reviewRounds/count.ts",
     suitePaths: ["tests/reviewRounds/count.test.ts", "tests/docs/_metaReviewRoundEconomy.test.ts"],
     operators: [...OPERATOR_NAMES],
+    scoreFloor: 1,
     // Inverts the counting rule's status conjunct, so an infra fault counts as
     // a round.
-    controlMutation: {
-      find: 'r.status === "verdict"',
-      replace: 'r.status !== "verdict"',
-    },
-    scoreFloor: 1,
+    control: { from: 'r.status === "verdict"', to: 'r.status !== "verdict"' },
     accepted: [],
   },
   {
@@ -342,13 +459,13 @@ export const GUARD_SURFACES: GuardSurface[] = [
     sourcePath: "lib/reviewRounds/corpus.ts",
     suitePaths: ["tests/docs/_metaReviewRoundEconomy.test.ts"],
     operators: [...OPERATOR_NAMES],
+    scoreFloor: 1,
     // The threshold comparison, which off by one suppresses the filing duty at
     // exactly the threshold.
-    controlMutation: {
-      find: "if (n < ROUND_THRESHOLD) continue;",
-      replace: "if (n <= ROUND_THRESHOLD) continue;",
+    control: {
+      from: "if (n < ROUND_THRESHOLD) continue;",
+      to: "if (n <= ROUND_THRESHOLD) continue;",
     },
-    scoreFloor: 1,
     accepted: [
       // ---- equivalent: cannot change observable behavior (spec §2.4) -------
       {
