@@ -108,9 +108,27 @@ export function facesInEmittedCss(
  * the parser cannot help. The scan is deliberately narrow: it only reads
  * `font-family` inside an `@font-face` block it has already matched.
  */
+/** A face's full source list, as one comparable string. */
+function srcKey(sources: ReturnType<typeof srcOf>): string {
+  return sources
+    .map((s) => (s.kind === "local" ? `local(${s.local ?? ""})` : `url(${s.url ?? ""})`))
+    .join(",");
+}
+
+/** The (family -> source key) the product itself declares, from app/fonts.css. */
+function expectedFaceSources(): Map<string, string> {
+  const css = readFileSync(join(REPO_ROOT, "app", "fonts.css"), "utf8");
+  return new Map(parseFontFaces(css).map((f) => [familyOf(f), srcKey(srcOf(f))]));
+}
+
 function familiesIn(text: string): Array<{ family: string; src: string }> {
+  // ALL sources, url AND local, in order — not just the first `.url`.
+  // Codex R3 HIGH: `srcOf(f)[0]?.url ?? ""` collapsed every `local(...)` face to
+  // the empty string and discarded later sources, so two different local
+  // fallbacks keyed identically and two faces differing only after their first
+  // URL were indistinguishable. The key must be the whole source list.
   const parsed = parseFontFaces(text, { errorRecovery: true })
-    .map((f) => ({ family: familyOf(f), src: srcOf(f)[0]?.url ?? "" }))
+    .map((f) => ({ family: familyOf(f), src: srcKey(srcOf(f)) }))
     .filter((r) => r.family !== "");
   if (parsed.length > 0) return parsed;
   const out: Array<{ family: string; src: string }> = [];
@@ -286,8 +304,35 @@ describe("font faces in the BUILT CSS artifact", () => {
     expect(faces.filter((f) => !EXPECTED_FAMILIES.has(f.family))).toEqual([]);
     // The src-aware one does not.
     const srcs = new Set(faces.filter((f) => f.family === "Inter").map((f) => f.src));
-    expect([...srcs].sort()).toEqual(["dependency.woff2", "inter.woff2"]);
+    expect([...srcs].sort()).toEqual(["url(dependency.woff2)", "url(inter.woff2)"]);
     expect(srcs.size, "one family, two binaries — whichever loads last wins").toBeGreaterThan(1);
+  });
+
+  it("distinguishes two different local() fallbacks under one family", () => {
+    // Codex R3 HIGH: `srcOf(f)[0]?.url ?? ""` made every local() face key on the
+    // empty string, so two different fallback fonts were indistinguishable.
+    const dir = emittedDirWith([
+      { name: "a.css", text: '@font-face{font-family:"Inter Fallback";src:local(Arial)}' },
+      { name: "b.css", text: '@font-face{font-family:"Inter Fallback";src:local(serif)}' },
+    ]);
+    const srcs = new Set(facesInEmittedCss(dir).map((f) => f.src));
+    expect(srcs.size, "two different local fallbacks must not key identically").toBe(2);
+  });
+
+  it("distinguishes faces differing only AFTER their first source", () => {
+    // The other half of the same defect: only the first source was retained.
+    const dir = emittedDirWith([
+      {
+        name: "a.css",
+        text: '@font-face{font-family:"Inter";src:url(shared.woff2),url(product.woff2)}',
+      },
+      {
+        name: "b.css",
+        text: '@font-face{font-family:"Inter";src:url(shared.woff2),url(dep.woff2)}',
+      },
+    ]);
+    const srcs = new Set(facesInEmittedCss(dir).map((f) => f.src));
+    expect(srcs.size, "a differing later source must still change the key").toBe(2);
   });
 
   it("does NOT flag the same src repeated across emitted chunks", () => {
@@ -344,18 +389,23 @@ describe("font faces in the BUILT CSS artifact", () => {
     // dependency escape this gate exists to catch. Identity is (family, src),
     // so each expected family must resolve to exactly ONE distinct source.
     // Chunk duplication of the SAME src is fine and stays fine.
-    const bySrc = new Map<string, Set<string>>();
-    for (const f of faces) {
-      if (!EXPECTED_FAMILIES.has(f.family)) continue;
-      (bySrc.get(f.family) ?? bySrc.set(f.family, new Set()).get(f.family)!).add(f.src);
-    }
-    const competing = [...bySrc.entries()]
-      .filter(([, srcs]) => srcs.size > 1)
-      .map(([family, srcs]) => `${family} <- ${[...srcs].sort().join(" AND ")}`);
+    // EQUALITY with what the product declares, not cardinality. Counting
+    // distinct sources per family passes a SOLE dependency-provided face —
+    // there is only one source, it is simply the wrong one (Codex R3 HIGH).
+    // The expectation is derived from app/fonts.css, the same file the build
+    // emits from, so it cannot drift from what the product actually ships.
+    const expectedSrc = expectedFaceSources();
     expect(
-      competing,
-      "two different binaries are declared for one family; whichever loads last wins, and the " +
-        "product's own face may not be it",
+      expectedSrc.size,
+      "app/fonts.css must declare the faces this assertion compares against",
+    ).toBeGreaterThanOrEqual(2);
+    const wrongSource = faces
+      .filter((f) => expectedSrc.has(f.family) && f.src !== expectedSrc.get(f.family))
+      .map((f) => `${f.family} in ${f.file} <- ${f.src} (expected ${expectedSrc.get(f.family)})`);
+    expect(
+      wrongSource,
+      "a face declares the product's family from a source the product does not declare; whichever " +
+        "loads last wins, and it may not be the product's own binary",
     ).toEqual([]);
 
     const shipped = new Set(faces.map((f) => f.family));
