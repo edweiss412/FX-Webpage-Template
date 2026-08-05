@@ -23,7 +23,9 @@
 //   - data.kind === "infra_error" → a bounded, plain-language sentence; the raw
 //     kind token and internal message NEVER reach the DOM (invariant 5).
 "use client";
-import { useEffect, useId, useRef, useState, useTransition } from "react";
+import { useContext, useEffect, useId, useRef, useState, useTransition } from "react";
+
+import { UndoAnnounceContext } from "@/components/admin/undoAnnounceContext";
 import { ChevronRight } from "lucide-react";
 import type {
   AutoAppliedGroup,
@@ -329,6 +331,7 @@ function GroupSection({
   // all-success announcement added for DESTRUCT-3). Lifecycle: open clears (null); completion
   // always writes {failed,total}. failed>0 → visible failure alert; failed===0 → sr-only
   // success status so SR users hear the undo landed (sighted users see rows self-heal).
+  const { announce } = useContext(UndoAnnounceContext);
   const [bulkUndoOutcome, setBulkUndoOutcome] = useState<{ failed: number; total: number } | null>(
     null,
   );
@@ -395,6 +398,14 @@ function GroupSection({
       // Always record the outcome (DESTRUCT-3): failure → visible alert, all-success
       // → sr-only status. Only the open-clears path writes null.
       setBulkUndoOutcome({ failed, total });
+      // BL-BULK-UNDO-ANNOUNCE-UNMOUNT. The in-group region below is the right
+      // SHAPE (always mounted, text swapped) but lives in the wrong PLACE: an
+      // all-success undo is exactly what makes these rows self-heal on
+      // revalidate, so the group can unmount and take the region with it before
+      // a reader gets to it. The provider's region outlives the group.
+      if (failed === 0 && total > 0) {
+        announce(`Undid all ${total} ${total === 1 ? "change" : "changes"}.`);
+      }
     });
   }
 

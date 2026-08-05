@@ -1237,3 +1237,32 @@ it("leaves the bulk Undo-all channel untouched (R2 non-regression)", () => {
   expect(bulk.getAttribute("role")).toBe("status");
   expect(bulk).toHaveTextContent("");
 });
+
+it("the all-success bulk announcement reaches a region outside the group", async () => {
+  // BL-BULK-UNDO-ANNOUNCE-UNMOUNT. The sr-only region here is already the RIGHT
+  // SHAPE — always mounted, text swapped — and its comment says why. The defect
+  // is WHERE it lives: inside the group. The success it announces is exactly the
+  // event that makes the rows self-heal on revalidate, so the group can unmount
+  // and take the region with it before a screen reader reads it. A region that
+  // is stable relative to the wrong branch is not stable.
+  //
+  // ANTI-TAUTOLOGY: the assertion is on the PROVIDER's region and on that region
+  // NOT containing the group. Asserting the in-group region holds the text
+  // passes on the broken shape whenever the group happens to survive.
+  render(
+    <AdminAnnounceProvider testId="admin-undo-status" label="Updates">
+      <RecentAutoAppliedStrip data={okData()} actions={noopActions()} defaultExpanded />
+    </AdminAnnounceProvider>,
+  );
+  await openConfirmAndRunUndoAll();
+  const region = screen.getByTestId("admin-undo-status");
+  expect(
+    region.textContent ?? "",
+    "the all-success line must reach a region that outlives the group",
+  ).toMatch(/Undid all/);
+  const group = screen.getByTestId(`auto-applied-group-${FIN_ID}`);
+  expect(
+    region.contains(group),
+    "the surviving region must be outside the group, or it unmounts with it",
+  ).toBe(false);
+});
