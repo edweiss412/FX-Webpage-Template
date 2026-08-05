@@ -144,6 +144,9 @@ Per `docs/agents/writing-plans.md` and the round-economy contract, these are the
 | M21 | Wait removal / mis-anchoring (removed, once-per-file, or anchored to navigation) | static wait-coverage row |
 | M22 | Geometry read hidden inside an `evaluate` arrow (the dominant spelling in this corpus) | wait-coverage row, attribution by enclosing CALL |
 | M23 | A second shipped stylesheet declaring a face (new `app/*.css`, or third-party via side-effect import) | discovery-based row in `fontLoading.test.ts` |
+| M24 | Wait present in text but never SETTLED (unawaited, block body with no `return`, or raced with the navigation inside `Promise.all`) | `settles()` in `_fontWaitCoverage.ts` |
+| M25 | Font-sensitive read spelled as a HEIGHT or rect list (`offsetHeight`, `clientHeight`, `scrollHeight`, `getClientRects`) | widened `GEOMETRY_NAMES` |
+| M26 | Stylesheet reached by a route the resolver did not walk (`.js/.jsx/.mjs/.cjs`, `require()`, dynamic `import()`, `@/` alias, transitive `lib/`, unquoted `@import url()`) | `resolveSpecifier` + widened roots |
 
 **M22 and M23 were added at whole-diff review, and both closed a gap this plan
 had already specified.** M21's own mutant (d) below — "two navigation sites, one

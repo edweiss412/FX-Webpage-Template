@@ -9,11 +9,38 @@ import ts from "typescript";
 /** Navigation methods that replace the document under measurement. */
 const NAVIGATION = /^(goto|setContent|reload|goBack|goForward)$/;
 
-/** Reads whose value depends on which face is resolved at the moment of the read. */
-const GEOMETRY = /^(getBoundingClientRect|boundingBox|offsetWidth|scrollWidth|clientWidth)$/;
+/**
+ * Reads whose value depends on which face is resolved at the moment of the read.
+ *
+ * HEIGHTS ARE THE MAJORITY OF THIS CORPUS AND WERE ALL MISSING. The first
+ * version listed `offsetWidth|scrollWidth|clientWidth` and no height at all,
+ * which is precisely backwards for layout tests: a wrong face changes line
+ * height and wraps, so height is the MORE font-sensitive axis, not the less.
+ * Measured across `tests/e2e/*.spec.ts`: 47 `scrollHeight`, 46 `clientHeight`,
+ * 13 `getClientRects`, 5 `offsetHeight` — 111 reads the ordering rule silently
+ * exempted, including the very shape of the live defect this guard caught
+ * (`statusStripToggleLayout`, a strip HEIGHT comparison, which was only seen
+ * because it happened to be spelled `getBoundingClientRect`).
+ *
+ * Offsets are included for the same reason: a shifted baseline moves an
+ * element's origin as surely as it resizes it.
+ */
+const GEOMETRY_NAMES = [
+  "getBoundingClientRect",
+  "getClientRects",
+  "boundingBox",
+  "offsetWidth",
+  "offsetHeight",
+  "offsetTop",
+  "offsetLeft",
+  "scrollWidth",
+  "scrollHeight",
+  "clientWidth",
+  "clientHeight",
+] as const;
 
-const GEOMETRY_IN_TEXT =
-  /\.(getBoundingClientRect|boundingBox|offsetWidth|scrollWidth|clientWidth)\b/;
+const GEOMETRY = new RegExp(`^(${GEOMETRY_NAMES.join("|")})$`);
+const GEOMETRY_IN_TEXT = new RegExp(`\\.(${GEOMETRY_NAMES.join("|")})\\b`);
 
 type Kind = "navigate" | "geometry" | "wait";
 
@@ -21,6 +48,94 @@ interface Site {
   readonly kind: Kind;
   readonly pos: number;
   readonly line: number;
+}
+
+/**
+ * Whether a call mentioning `document.fonts.ready` actually SETTLES it before
+ * the next statement runs.
+ *
+ * The text of the promise is not the awaiting of it, and all three ways to get
+ * that wrong are ordinary authoring slips rather than obfuscation:
+ *
+ *   page.evaluate(() => document.fonts.ready);              // never awaited
+ *   await page.evaluate(() => { document.fonts.ready; });   // never returned
+ *   await Promise.all([page.goto(u), page.evaluate(() => document.fonts.ready)]);
+ *
+ * The third is the subtlest and the most tempting: it reads like a tidy
+ * parallelisation, but the wait races the navigation it is supposed to follow,
+ * so it can settle against the OUTGOING document and resolve before the new one
+ * has requested a face at all.
+ */
+function settles(call: ts.CallExpression, source: ts.SourceFile): boolean {
+  // (1) The result must be consumed by an `await`, directly or through a
+  //     wrapper like `Promise.all([...])`.
+  let awaited = false;
+  for (let n: ts.Node | undefined = call.parent; n; n = n.parent) {
+    if (ts.isAwaitExpression(n)) {
+      awaited = true;
+      break;
+    }
+    // A `return` hands the promise to a caller that awaits it; anything that
+    // starts a new function body means this call's value was discarded.
+    if (ts.isFunctionLike(n) && !ts.isArrowFunction(n)) break;
+    if (ts.isExpressionStatement(n)) break;
+  }
+  if (!awaited) return false;
+
+  // (2) Inside the browser callback, the promise must be the value produced,
+  //     not merely mentioned. A concise arrow body produces it; a block body
+  //     needs an explicit `return`.
+  const access = findFontsReadyAccess(call, source);
+  if (access) {
+    for (let n: ts.Node | undefined = access.parent; n && n !== call; n = n.parent) {
+      if (ts.isReturnStatement(n)) break;
+      if (ts.isArrowFunction(n)) {
+        if (ts.isBlock(n.body)) return false;
+        break;
+      }
+      if (ts.isFunctionLike(n)) return false;
+    }
+  }
+
+  // (3) Concurrency with a navigation defeats the ordering this credits.
+  for (let n: ts.Node | undefined = call.parent; n; n = n.parent) {
+    if (!ts.isArrayLiteralExpression(n)) continue;
+    const parent = n.parent;
+    if (
+      !ts.isCallExpression(parent) ||
+      !/^Promise\.(all|race|allSettled|any)$/.test(parent.expression.getText(source))
+    ) {
+      continue;
+    }
+    const siblings = n.elements.filter((e) => !isAncestorOrSelf(e, call));
+    if (siblings.some((e) => NAVIGATION_IN_TEXT.test(e.getText(source)))) return false;
+  }
+
+  return true;
+}
+
+const NAVIGATION_IN_TEXT = /\.(goto|setContent|reload|goBack|goForward)\s*\(/;
+
+function isAncestorOrSelf(candidate: ts.Node, node: ts.Node): boolean {
+  for (let n: ts.Node | undefined = node; n; n = n.parent) if (n === candidate) return true;
+  return false;
+}
+
+function findFontsReadyAccess(
+  call: ts.CallExpression,
+  source: ts.SourceFile,
+): ts.PropertyAccessExpression | null {
+  let found: ts.PropertyAccessExpression | null = null;
+  const walk = (n: ts.Node): void => {
+    if (found) return;
+    if (ts.isPropertyAccessExpression(n) && n.getText(source).endsWith("document.fonts.ready")) {
+      found = n;
+      return;
+    }
+    ts.forEachChild(n, walk);
+  };
+  ts.forEachChild(call, walk);
+  return found;
 }
 
 /**
@@ -77,7 +192,7 @@ function sitesByFunction(source: ts.SourceFile): Map<ts.Node, Site[]> {
       // Record the OUTERMOST call for each: a nested match (the inner
       // `n.getBoundingClientRect()` inside an `evaluate`) also matches, but it
       // starts later, and every rule below reads the FIRST site by position.
-      if (text.includes("document.fonts.ready")) record(node, "wait");
+      if (text.includes("document.fonts.ready") && settles(node, source)) record(node, "wait");
       if (GEOMETRY_IN_TEXT.test(text)) record(node, "geometry");
     }
     if (ts.isPropertyAccessExpression(node)) {

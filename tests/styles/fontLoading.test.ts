@@ -58,6 +58,23 @@ interface Stylesheet {
  * catch a face someone added, and a specifier this resolver cannot follow is a
  * limit of the resolver. `app/globals.css` is asserted present by the caller,
  * so a discovery that silently collapses to nothing cannot pass as clean.
+ *
+ * ROUTES PROVEN CLOSED, each by a probe that plants a real `@font-face` and
+ * confirms this row turns red: static `import` from `.ts/.tsx/.js/.jsx/.mjs`,
+ * `require()` from `.cjs`, dynamic `import()`, the `@/` alias from
+ * `tsconfig.json` paths, a transitive sheet reached only through `lib/`, and
+ * `@import url(x.css)` UNQUOTED. Every one escaped the first version of this
+ * resolver.
+ *
+ * DOCUMENTED LIMIT — CSS-in-JS. A face built as a JS template string and
+ * injected at runtime is not a stylesheet file and no file walk will find it.
+ * That is not left uncovered: runtime face registration is mutation family M17,
+ * and the surface that owns it is the runtime oracle, which reads
+ * `document.fonts` from the live page and so sees a face however it arrived
+ * (`tests/e2e/harness-font-face.spec.ts`, `tests/e2e/font-rendering-census.spec.ts`).
+ * A static file walk and a runtime face-set read are complementary by
+ * construction; widening this one to parse JS string literals would chase what
+ * the other already catches.
  */
 function discoverShippedStylesheets(): Stylesheet[] {
   const found = new Map<string, Stylesheet>();
@@ -72,21 +89,15 @@ function discoverShippedStylesheets(): Stylesheet[] {
     }
     found.set(absolute, { label, text });
 
-    for (const match of text.matchAll(/@import\s+(?:url\()?["']([^"']+)["']/g)) {
-      const specifier = match[1]!;
-      const next = specifier.startsWith(".")
-        ? resolve(dirname(absolute), specifier)
-        : resolveBare(specifier);
-      if (next) read(next, relative(REPO_ROOT, next));
+    // Quoted and UNQUOTED both: `@import url(x.css)` is valid CSS and was a
+    // live escape route past the quoted-only form.
+    const IMPORTS = [/@import\s+(?:url\()?["']([^"']+)["']/g, /@import\s+url\(\s*([^"')]+?)\s*\)/g];
+    for (const pattern of IMPORTS) {
+      for (const match of text.matchAll(pattern)) {
+        const next = resolveSpecifier(match[1]!.trim(), absolute);
+        if (next) read(next, relative(REPO_ROOT, next));
+      }
     }
-  };
-
-  const resolveBare = (specifier: string): string | null => {
-    for (const candidate of [specifier, `${specifier}/index.css`, `${specifier}.css`]) {
-      const guess = resolve(REPO_ROOT, "node_modules", candidate);
-      if (existsSync(guess) && statSync(guess).isFile()) return guess;
-    }
-    return null;
   };
 
   const walk = (dir: string, visit: (file: string) => void): void => {
@@ -98,25 +109,51 @@ function discoverShippedStylesheets(): Stylesheet[] {
     }
   };
 
-  for (const root of ["app", "components"]) {
-    walk(resolve(REPO_ROOT, root), (file) => {
+  // Every spelling that pulls a stylesheet into the bundle. Static `import`,
+  // `require`, and dynamic `import()` are three syntaxes for one act, and a
+  // guard that recognises only the first is a guard against one syntax.
+  const SPECIFIERS = [
+    /\bimport\s+["']([^"']+\.css)["']/g,
+    /\brequire\s*\(\s*["']([^"']+\.css)["']\s*\)/g,
+    /\bimport\s*\(\s*["']([^"']+\.css)["']\s*\)/g,
+  ];
+
+  for (const root of ["app", "components", "lib"]) {
+    const dir = resolve(REPO_ROOT, root);
+    if (!existsSync(dir)) continue;
+    walk(dir, (file) => {
       if (file.endsWith(".css")) {
+        // Every `app/**` stylesheet ships; a stray .css under components/ or
+        // lib/ only ships if something imports it, which the scan below sees.
         if (file.includes(`${sep}app${sep}`)) read(file, relative(REPO_ROOT, file));
         return;
       }
-      if (!/\.tsx?$/.test(file)) return;
+      if (!/\.(tsx?|jsx?|mjs|cjs)$/.test(file)) return;
       const source = readFileSync(file, "utf8");
-      for (const match of source.matchAll(/^import\s+["']([^"']+\.css)["']/gm)) {
-        const specifier = match[1]!;
-        const target = specifier.startsWith(".")
-          ? resolve(dirname(file), specifier)
-          : resolveBare(specifier);
-        if (target) read(target, relative(REPO_ROOT, target));
+      for (const pattern of SPECIFIERS) {
+        for (const match of source.matchAll(pattern)) {
+          const target = resolveSpecifier(match[1]!, file);
+          if (target) read(target, relative(REPO_ROOT, target));
+        }
       }
     });
   }
 
   return [...found.values()];
+}
+
+/**
+ * One specifier to one absolute path: relative, `@/`-aliased per
+ * `tsconfig.json`'s `paths`, or bare from `node_modules`.
+ */
+function resolveSpecifier(specifier: string, importer: string): string | null {
+  if (specifier.startsWith(".")) return resolve(dirname(importer), specifier);
+  if (specifier.startsWith("@/")) return resolve(REPO_ROOT, specifier.slice(2));
+  for (const candidate of [specifier, `${specifier}/index.css`, `${specifier}.css`]) {
+    const guess = resolve(REPO_ROOT, "node_modules", candidate);
+    if (existsSync(guess) && statSync(guess).isFile()) return guess;
+  }
+  return null;
 }
 
 /**

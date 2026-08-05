@@ -92,6 +92,71 @@ const MUTANTS: ReadonlyArray<{ id: string; why: string; source: string }> = [
       const box = await page.getByTestId("x").evaluate((n) => n.getBoundingClientRect().height);
     `),
   },
+
+  // M9-M11: the text of the promise is not the awaiting of it. R2 finding 1.
+  {
+    id: "M9",
+    why: "wait never awaited — the promise is created and dropped",
+    source: wrap(`
+      await page.goto(url);
+      page.evaluate(() => document.fonts.ready);
+      const box = await page.getByTestId("x").evaluate((n) => n.getBoundingClientRect().height);
+    `),
+  },
+  {
+    id: "M10",
+    why: "callback has a block body and never returns the promise",
+    source: wrap(`
+      await page.goto(url);
+      await page.evaluate(() => {
+        document.fonts.ready;
+      });
+      const box = await page.getByTestId("x").evaluate((n) => n.getBoundingClientRect().height);
+    `),
+  },
+  {
+    id: "M11",
+    why: "wait races the navigation instead of following it",
+    source: wrap(`
+      await Promise.all([page.goto(url), page.evaluate(() => document.fonts.ready)]);
+      const box = await page.getByTestId("x").evaluate((n) => n.getBoundingClientRect().height);
+    `),
+  },
+
+  // M12-M15: heights and rect lists are geometry. R2 finding 2 — these were the
+  // majority spelling in the corpus and carried no requirement at all.
+  {
+    id: "M12",
+    why: "offsetHeight is font-sensitive geometry",
+    source: wrap(`
+      await page.goto(url);
+      const h = await page.locator("#x").evaluate((n) => n.offsetHeight);
+    `),
+  },
+  {
+    id: "M13",
+    why: "clientHeight is font-sensitive geometry",
+    source: wrap(`
+      await page.goto(url);
+      const h = await page.locator("#x").evaluate((n) => n.clientHeight);
+    `),
+  },
+  {
+    id: "M14",
+    why: "scrollHeight is font-sensitive geometry — 47 occurrences in this corpus",
+    source: wrap(`
+      await page.goto(url);
+      const h = await page.locator("#x").evaluate((n) => n.scrollHeight);
+    `),
+  },
+  {
+    id: "M15",
+    why: "getClientRects is the wrapped-line spelling of the same read",
+    source: wrap(`
+      await page.goto(url);
+      const rects = await page.locator("#x").evaluate((n) => n.getClientRects().length);
+    `),
+  },
 ];
 
 describe("font-wait guard is falsifiable", () => {
