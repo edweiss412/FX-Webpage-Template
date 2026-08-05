@@ -26,6 +26,7 @@
 import { readdirSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 
+import { collectFontFindings } from "./helpers/censusWalk";
 import { expect, test } from "./helpers/fontFidelityFixture";
 import { CANNOT_HOST_PROBE, CHECKED_PSEUDOS } from "./helpers/fontOracle";
 import { entriesForRoute, isExpectedMono } from "./helpers/monoSurfaces";
@@ -196,48 +197,10 @@ test.describe("font rendering census", () => {
         });
         await page.evaluate(() => document.fonts.ready);
 
-        const findings = await page.evaluate(
-          ({ cannotHost, pseudos }) => {
-            const out: { tag: string; family: string; kind: string; testid: string }[] = [];
-            const walkRoot = (root: Node): void => {
-              const w = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT);
-              for (let n = w.currentNode as Element | null; n; n = w.nextNode() as Element | null) {
-                const el = n as HTMLElement;
-                if (el.offsetParent === null && el.tagName !== "BODY") continue;
-                const hasText = Array.from(el.childNodes).some(
-                  (c) => c.nodeType === 3 && (c.textContent ?? "").trim() !== "",
-                );
-                const testid = el.getAttribute("data-testid") ?? "";
-                if (hasText) {
-                  out.push({
-                    tag: el.tagName,
-                    family: getComputedStyle(el).fontFamily,
-                    kind: el.matches(cannotHost) ? "computed-only" : "probe-hostable",
-                    testid,
-                  });
-                }
-                // Pseudo-elements cannot host a child probe at all; the
-                // demonstrated escape is ::placeholder { font-family: Arial },
-                // which no child probe anywhere in the document can see.
-                for (const pseudo of pseudos) {
-                  const cs = getComputedStyle(el, pseudo);
-                  if (cs.content && cs.content !== "none" && cs.content !== "normal") {
-                    out.push({
-                      tag: `${el.tagName}${pseudo}`,
-                      family: cs.fontFamily,
-                      kind: "pseudo",
-                      testid,
-                    });
-                  }
-                }
-                if (el.shadowRoot) walkRoot(el.shadowRoot);
-              }
-            };
-            walkRoot(document.body);
-            return out;
-          },
-          { cannotHost: CANNOT_HOST_PROBE, pseudos: [...CHECKED_PSEUDOS] },
-        );
+        const findings = await page.evaluate(collectFontFindings, {
+          cannotHost: CANNOT_HOST_PROBE,
+          pseudos: [...CHECKED_PSEUDOS],
+        });
 
         expect(findings.length, `${route} rendered no text-bearing elements`).toBeGreaterThan(0);
 
