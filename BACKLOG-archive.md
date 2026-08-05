@@ -8,6 +8,40 @@ Same split as [DEFERRED.md](./DEFERRED.md) ↔ [DEFERRED-archive.md](./DEFERRED-
 
 ---
 
+## BL-REALTIME-BROADCAST-FRAME-DROP-WATCH — ~9% local broadcast-frame loss on a healthy socket — CLOSED 2026-08-04, watch found nothing
+
+INVESTIGATION discharged on `chore/sweep-guards-tests`. The entry's own decision rule was retry
+frequency in the realtime-dependent CI history, on the reasoning that a real drop rate would be
+absorbed by retries rather than by failures. Sampled 2026-08-04, 60 runs per workflow:
+
+| workflow                                        | failures / 60 | flaky in 4 sampled green runs |
+| ----------------------------------------------- | ------------- | ----------------------------- |
+| `published-modal-e2e` (the realtime-heavy spec) | 2             | 1                             |
+| `phantom-gap-e2e`                               | 0             | 0                             |
+| `lifecycle-layout-e2e`                          | 0             | 0                             |
+| `crew-e2e` (broad, not realtime-specific)       | 6             | not sampled                   |
+
+A subscriber missing ~1 frame in 11 would fail assertions routinely; the realtime-dependent specs
+are effectively clean, with a single flaky case across the sample. So the ~9% loss does NOT
+reproduce in CI, which is exactly the outcome the entry predicted for a local-stack artifact: "if
+the drop rate is an artifact of the local stack it should disappear against validation/prod". No
+reconcile-on-focus fallback is owed.
+
+**Bounded honestly:** CI is not production, and Playwright retries could in principle absorb a
+small drop rate without surfacing as flaky. What is established is that the rate is nowhere near
+9% anywhere but the local stack. A production report of missed realtime updates re-opens this with
+new evidence rather than re-running the same sample.
+
+Original entry, verbatim:
+
+PR #505 measured local realtime silently dropping ~9% of broadcast frames on an otherwise healthy socket; absorbed by CI runner retries and explicitly NOT a code defect of that diff. Filed as a watch item so the observation is not lost: if the drop rate is an artifact of the local stack it should disappear against validation/prod, and if it does not, subscriber code that assumes every broadcast arrives needs a reconcile-on-focus fallback.
+
+**Work:** sample the realtime-dependent e2e/CI history for retry frequency before deciding whether there is anything to fix.
+
+**Status:** open (watch).
+
+---
+
 ## BL-WARNING-SCAN-SCOPE-HAS-NO-ANCHOR — the recognizer signals unresolvable sites, but a narrowed scan scope drops codes with nothing to signal — CLOSED 2026-08-04
 
 Closed on `chore/sweep-guards-tests` with the anchor the entry's Work section specifies: a
