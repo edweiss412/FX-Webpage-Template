@@ -75,6 +75,24 @@ describe("X.5 email canonicalization audit", () => {
     );
   });
 
+  test("role_token_mappings.decided_by is a registered boundary", () => {
+    // BL-X5-ROLE-TOKEN-DECIDED-BY-BOUNDARY. The column stores a canonical admin
+    // email and carries a DB CHECK, and BOTH write paths canonicalize today —
+    // the gap was COVERAGE, not behavior. Absent from the manifest, deleting
+    // either `canonicalize()` call failed nothing here; only the CHECK caught it,
+    // and only at write time.
+    //
+    // Asserted on the DERIVED manifest, not on the prose, so it cannot pass by
+    // someone writing the column name into a doc without the generator agreeing.
+    const row = EMAIL_BOUNDARIES.find((b) => b.path === "role_token_mappings.decided_by");
+    expect(row, "role_token_mappings.decided_by is not a registered boundary").toBeDefined();
+    // BOTH write paths must be named in the check. Registering the column while
+    // naming only one path would let the gate report it as policed while half
+    // its writes stayed unchecked — the failure this entry exists to prevent.
+    expect(row!.boundaryCheck).toContain("app/admin/show/[slug]/_actions/roleToken.ts");
+    expect(row!.boundaryCheck).toContain("app/admin/settings/_actions/roleTokenMappings.ts");
+  });
+
   test("boundary parity emits named diffs when plan Step 1 drifts from spec AC-X.5", () => {
     const extracted = extractEmailBoundariesFromDocs(
       read(specPath),
@@ -91,10 +109,13 @@ describe("X.5 email canonicalization audit", () => {
   test("boundary parity emits named diffs when spec AC-X.5 adds a boundary absent from the plan", () => {
     // Failure mode: spec-side boundary extraction is a hardcoded TS list and ignores new AC-X.5 codespans.
     const extracted = extractEmailBoundariesFromDocs(
-      read(specPath).replace(
-        "admin_bell_state.admin_email`, AND read-side",
-        "admin_bell_state.admin_email`, `webhook_audit.requester_email`, AND read-side",
-      ),
+      // Anchored on the LIST TERMINATOR, not on the last boundary in the list.
+      // The previous anchor named `admin_bell_state.admin_email` explicitly, so
+      // registering any new boundary after it turned this `.replace()` into a
+      // silent no-op and the negative control asserted nothing — which is what
+      // adding `role_token_mappings.decided_by` did
+      // (BL-X5-ROLE-TOKEN-DECIDED-BY-BOUNDARY). This anchor survives that.
+      read(specPath).replace(", AND read-side", ", `webhook_audit.requester_email`, AND read-side"),
       read(planPath),
     );
     expect(

@@ -8,6 +8,57 @@ Same split as [DEFERRED.md](./DEFERRED.md) ↔ [DEFERRED-archive.md](./DEFERRED-
 
 ---
 
+## BL-X5-ROLE-TOKEN-DECIDED-BY-BOUNDARY — `role_token_mappings.decided_by` is a live email boundary absent from the AC-X.5 manifest — CLOSED 2026-08-04
+
+Registered in master spec §17.2 AC-X.5 and the plan's Task X.5 boundary table in lockstep,
+regenerated (22 → 23 boundaries), and PROVEN by mutant: deleting the `canonicalize()` call on either
+write path now fails `x5-email-canonicalization` by name and line.
+
+**Registering the boundary was not enough, and that is the finding.** The task's stated failure mode
+is "boundary registered on paper, gate still blind", and the first mutant run hit it exactly: with
+the boundary in the manifest, deleting a `canonicalize()` call still passed. Two further layers were
+dark, each found only because the mutant was actually run rather than assumed:
+
+1. **Scan roots.** `auditLiveEmailCanonicalization` walked `app/api/admin` but not `app/admin`, so
+   the server actions that write this column were never READ. Widened to the whole `app/admin` tree
+   rather than an enumerated `_actions` list — a hand-written predicate is how a scope shrinks
+   silently, and a non-writing file simply audits clean.
+2. **Column recognition.** `isEmailLikeDbColumn` is a hand-enumerated list and `decided_by` was
+   absent, so the expression was never checked even once the file was read. The boundary manifest
+   says which columns MATTER; that list says which the recognizer can SEE, and the two had drifted.
+
+**Sibling constraints, evaluated as the task asks.** `admin_emails.email` is already covered by the
+recognizer's `/^email$/` rule. `ignored_warnings.ignored_by` had the identical one-line defect and is
+repaired with its twin rather than filed to recur.
+
+**One real defect surfaced by the widening**, which is the point of widening: `app/admin/actions.ts`
+writes `admin_alerts.resolved_by` — an ALREADY-registered boundary — from a destructured
+`requireDeveloperIdentity()` result. The value is canonical in fact, but the audit cannot trace
+through a destructured binding to prove it, so the write now canonicalizes defensively at the
+boundary, matching the documented `applyParseResult` pattern. Idempotent at runtime, checkable by
+the gate.
+
+**Also repaired: a negative control that had gone vacuous.** The parity test planted a spec-only
+boundary via `.replace()` anchored on the last entry in the AC-X.5 list. Amending that list turned
+the replace into a silent no-op, so the control asserted nothing. Re-anchored on the list terminator,
+so the next boundary registration cannot blind it the same way.
+
+Original entry, verbatim:
+
+**Filed:** 2026-08-03, during the DB-lockdown-trio cluster (`docs/superpowers/specs/db/2026-08-02-db-lockdown-trio-design.md` §5.3). **Class:** X.5 coverage completeness. **Effort:** S.
+
+`role_token_mappings.decided_by` stores a canonical admin email and carries a DB CHECK (`role_token_mappings_decided_by_canonical`, `supabase/migrations/20260716000000_role_token_mappings.sql:8`). Both write paths canonicalize correctly today — `app/admin/show/[slug]/_actions/roleToken.ts:57` and `app/admin/settings/_actions/roleTokenMappings.ts:38` both call `canonicalize(email)` before the write.
+
+**The gap is coverage, not behavior.** The boundary is absent from `lib/audit/email-boundaries.generated.ts`, which derives from master spec AC-X.5 prose (`scripts/extract-email-boundaries.ts:87`). So deleting either `canonicalize()` call would NOT fail the `x5-email-canonicalization` gate — only the DB CHECK would catch it, and only at write time.
+
+**Why not fixed in the lockdown cluster:** registering the boundary requires a master spec §17.2 AC-X.5 amendment, which has lockstep consequences for `pnpm gen:email-boundaries`, the `x5-email-canonicalization` gate, and traceability. That is its own review cycle, not a rider on a lockdown cluster. The cluster pins the CHECK's existence via the new `CATALOG_CANONICAL_CHECKS` registry, so the constraint cannot be dropped silently.
+
+**Scope of a fix:** amend master spec §17.2 AC-X.5 to name `role_token_mappings.decided_by`; regenerate; confirm the x5 gate covers both write paths. Two sibling constraints (`admin_emails.email`, `ignored_warnings.ignored_by`) are pinned elsewhere (`tests/db/admin-emails.test.ts:135`, `tests/db/ignored-warnings-schema.test.ts:39`) and may warrant the same treatment in the same amendment.
+
+**Promotion prerequisite:** any milestone already amending master spec §17.2, OR a decision that unpoliced canonicalization on this boundary is a real risk.
+
+**Status:** OPEN.
+
 ## BL-CODE-ENUM-PROVENANCE-COMMENT-BLIND — a doc comment silently rewrites generated code provenance — CLOSED 2026-08-04
 
 The provenance decision is now `claimsAdminAlertProvenance`, which strips COMMENTS before testing,

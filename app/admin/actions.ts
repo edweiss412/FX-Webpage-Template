@@ -259,7 +259,14 @@ export async function resolveHealthAlertFormAction(formData: FormData): Promise<
     .from("admin_alerts")
     .update({
       resolved_at: new Date().toISOString(), // not-render-side: mutation timestamp (resolved_at write)
-      resolved_by: devEmail,
+      // Defensive canonicalize at the write boundary, matching the documented
+      // pattern for `applyParseResult`: `requireDeveloperIdentity()` already
+      // returns a canonical email, but the audit cannot see through a
+      // destructured binding to prove it, and §4.1.1 wants the guarantee AT the
+      // write. Idempotent, so this is a no-op at runtime and a fact the gate can
+      // check (BL-X5-ROLE-TOKEN-DECIDED-BY-BOUNDARY widened the audit to this
+      // tree and surfaced the site).
+      resolved_by: canonicalize(devEmail),
     })
     .eq("id", id)
     .is("resolved_at", null)
