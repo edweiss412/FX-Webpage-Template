@@ -11,6 +11,8 @@ import {
   MUTATION_TEST_GLOBS,
   NIGHTLY_ONLY_EXCLUDES,
   TEST_FAST_DEFERRED,
+  REPO_ALIAS,
+  TEST_TIMEOUT_MS,
 } from "./vitest.projects";
 import { WeightBalancedSequencer } from "./vitest.sequencer";
 
@@ -82,8 +84,8 @@ export default defineConfig({
     // which also bans the OTHER wall-clock budget this class hides behind:
     // vi.waitFor's own 1000ms default, which testTimeout does not govern.
     // Cost: a genuinely hung test burns 30s before failing instead of 5s.
-    testTimeout: 30_000,
-    hookTimeout: 30_000,
+    testTimeout: TEST_TIMEOUT_MS,
+    hookTimeout: TEST_TIMEOUT_MS,
     // PR E: weight-balanced --shard partition (the two hot serial files no longer
     // both land in shard 1). No-op unless --shard is passed (vitest gates shard()
     // on config.shard), so local `pnpm test` + the x-audits' `vitest run <file>`
@@ -147,7 +149,7 @@ export default defineConfig({
     ],
   },
   resolve: {
-    alias: { "@": dirname(fileURLToPath(import.meta.url)) },
+    alias: REPO_ALIAS(dirname(fileURLToPath(import.meta.url))),
     // Allow `await import("@/app/help/<slug>/page")` to resolve `.mdx`
     // without a literal extension in the import specifier. Mirrors
     // next.config.ts's `pageExtensions` registration of `mdx`.

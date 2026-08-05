@@ -147,3 +147,22 @@ export const PARALLEL_TEST_GLOBS = [
 // vitest exclude pattern, epilogue CLI filter, meta-test existsSync
 // (tests/cross-cutting/test-fast-deferred.test.ts pins all of it; spec §4.1.3).
 export const TEST_FAST_DEFERRED = ["tests/components/admin/settings/DevToolsRow.absent.test.tsx"];
+
+// --- shared with the mutation harness's per-mutant config -------------------
+//
+// ONE definition, two readers: vitest.config.ts and
+// tests/mutation/source/mutantOverlay.config.ts. They had already drifted, and
+// silently: the overlay config declared no alias at all, so all 1461 of this
+// repo's 1788 test files that import through `@/` failed assertCleanBaseline on
+// UNMUTATED source; and with no testTimeout, vitest's 5_000ms default failed
+// any suite holding a slower test. Neither appeared in the harness spec's
+// documented-limits table, because its one enrolled surface happened to use
+// relative imports and fast tests.
+//
+// Spec: docs/superpowers/specs/2026-08-04-guard-premise-reachability-design.md
+
+/** The `@` alias, given the root it should resolve against. */
+export const REPO_ALIAS = (root: string): Record<string, string> => ({ "@": root });
+
+/** Test and hook budget. Pinned against drift by db-test-timeout-floor.test.ts. */
+export const TEST_TIMEOUT_MS = 30_000;

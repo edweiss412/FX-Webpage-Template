@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 
 import { stripCommentsForFile } from "@/tests/_shared/stripComments";
 import vitestConfig from "@/vitest.config";
+import { REPO_ALIAS, TEST_TIMEOUT_MS } from "@/vitest.projects";
 
 // Structural guard for BL-CONCURRENT-RETRY-DB-TIMEOUT-FLAKE.
 //
@@ -588,5 +589,24 @@ describe("DB-touching tests are not exposed to wall-clock timeout flake", () => 
         `inline it. If a short budget is the POINT of the test, add an inline ` +
         `\`${EXEMPT_MARKER} <reason>\` comment on that line`,
     ).toEqual([]);
+  });
+});
+
+// --- guard-premise Unit 1 -------------------------------------------------
+//
+// The alias and the timeouts became ONE definition with two readers, because
+// they had already drifted: the mutation harness's per-mutant config carried
+// neither, so every suite importing through `@/` failed assertCleanBaseline on
+// UNMUTATED source, and vitest's 5_000ms default did the same to any suite with
+// a slower test. Spec: docs/superpowers/specs/2026-08-04-guard-premise-reachability-design.md
+describe("one definition, two readers (guard-premise Unit 1)", () => {
+  it("the root config reads the shared timeout rather than its own literal", () => {
+    expect(TEST_TIMEOUT_MS).toBe(TIMEOUT_FLOOR_MS);
+    expect(rootTest?.testTimeout).toBe(TEST_TIMEOUT_MS);
+    expect(rootTest?.hookTimeout).toBe(TEST_TIMEOUT_MS);
+  });
+
+  it("the shared alias maps @ to the root it is given", () => {
+    expect(REPO_ALIAS("/tmp/anywhere")).toEqual({ "@": "/tmp/anywhere" });
   });
 });

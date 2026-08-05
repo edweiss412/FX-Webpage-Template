@@ -1,8 +1,9 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { childRun, INERT_TARGET } from "./source/childRun";
 import { evaluateGate } from "./source/gate";
 import { GUARD_SURFACES } from "./source/registry";
-import { runSurface } from "./source/runner";
+import { runControl, runSurface } from "./source/runner";
 
 /**
  * The nightly source-mutation gate (spec §3.6, AC-13/AC-15).
@@ -38,6 +39,20 @@ const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
   // four sign-not-magnitude and two guarded-branch equivalents — all six with
   // control-flow arguments, which is why the surface now carries NO accepted gap.
   taskContract: { equivalent: 22 },
+  // Counted from the surface, not read back off its ledger: `scripts/lib/
+  // ledger-claims-core.ts` has exactly THREE `?? 0` fallbacks whose key is
+  // always present -- two in the tip comparator, one in the age loop -- and
+  // nothing else that survives. No accepted-gap: every other survivor was
+  // repaid by a test, so a row appearing here later is a regression to
+  // explain rather than a number to update.
+  ledgerClaimsCore: { equivalent: 3 },
+  // Counted from the surface: SIX reachability arguments -- the three two-field
+  // parses at ledger-git.ts:67, :114 and :176, the twice-tested regex group at :202,
+  // the `+++ b/` fallthrough at :261, and headRepo's three-way collapse at :306
+  // -- plus ONE accepted-gap family of exactly THREE sites, the spawn timeouts
+  // at :32-34. A fourth accepted-gap row means a new family, which needs its
+  // own backlog entry rather than a bumped number here.
+  ledgerGit: { equivalent: 6, "accepted-gap": 3 },
 };
 
 describe("guard-surface registry — ledger-kind expectations", () => {
@@ -113,25 +128,53 @@ describe.each(GUARD_SURFACES.map((s) => [s.id, s] as const))(
       expect(readFileSync(surface.sourcePath).equals(before)).toBe(true);
     });
 
-    it("kills a deliberately-broken control mutant, proving the overlay is live (AC-3)", () => {
-      // Without this, a harness whose overlay silently failed to apply would
-      // report a PERFECT score — every mutant running against clean source —
-      // and every other assertion here would still pass. The control inverts
-      // the function's own kind guard, which the suite must notice.
+    it("kills THIS surface's own control mutant, proving the overlay is live (AC-3)", () => {
+      // Without this, a harness whose overlay silently failed to apply reports a
+      // PERFECT score -- every mutant running against clean source -- and every
+      // other assertion here still passes.
+      //
+      // The previous version READ as if it made this assertion and did not: it
+      // computed `broken`, asserted it differed from the source, and then called
+      // runSurface with the surface's own operators, never passing `broken` to
+      // anything. So it proved a string occurred in a file. It also hardcoded
+      // taskContract's text inside this describe.each, which meant enrolling a
+      // second surface red the gate.
       const source = readFileSync(surface.sourcePath, "utf8");
-      const broken = source.replace(
-        'if (kind !== "plan") return [];',
-        'if (kind === "plan") return [];',
-      );
-      expect(broken, "control mutation did not apply").not.toBe(source);
-
-      const control = runSurface(root, {
-        ...surface,
-        // One operator, one site: this is a liveness probe, not a second run.
-        operators: ["equality-flip"],
-      });
-      expect(control.mutantCount).toBeGreaterThan(0);
-      expect(control.killed).toBeGreaterThan(0);
-    });
+      const broken = source.replace(surface.control.from, surface.control.to);
+      expect(
+        broken,
+        "control did not apply; validateSurface should have rejected this row",
+      ).not.toBe(source);
+      expect(
+        runControl(root, surface, broken),
+        "the suite did not notice this surface's control mutant",
+      ).not.toBe(0);
+      // Explicit budget, because this case SPAWNS A FULL CHILD SUITE RUN and
+      // the shared 30s default is a per-test budget meant for in-process work.
+      // The gate's other cases run runSurface at module scope, outside any
+      // `it`, so no timeout applies to them -- this one moved inside an `it`
+      // precisely so the control's verdict is asserted, and inherited a budget
+      // that fits an ordinary test rather than a child vitest process. Green
+      // locally at ~33s and RED on CI's slower runner, which is the whole
+      // reason "real CI green" is a separate gate from "local green".
+    }, 600_000);
   },
 );
+
+/**
+ * The per-mutant config's timeout is actually in force (guard-premise Task 3).
+ *
+ * Nightly, because the fixture sleeps 5.2s. The merge-gating structural check
+ * in tests/mutation/_metaOverlayConfigParity.test.ts compares the config VALUE
+ * on every merge; this proves the value takes effect, which comparing a number
+ * to a number cannot.
+ */
+describe("the per-mutant config's timeout is in force", () => {
+  it("runs a fixture that outlives vitest's 5000ms default", () => {
+    expect(childRun(root, "tests/mutation/source/fixtures/slowTest.fixture.ts", INERT_TARGET)).toBe(
+      0,
+    );
+    // Same reason, and doubly so: the fixture deliberately sleeps past 5s, so
+    // the child cannot finish inside a budget meant for in-process work.
+  }, 300_000);
+});
