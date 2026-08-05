@@ -353,6 +353,28 @@ on the resolved clip ancestor, routed through the same coalescer as the other si
 
 ---
 
+## BL-GUARD-PREMISE-REACHABILITY — RESOLVED (2026-08-04, PR #707 `chore/guard-premise-reachability`)
+
+Shipped. A guard's premise — the condition under which its assertion has discriminating power — is now stated executably, and mutation-gate enrollment is possible at all.
+
+**The probe answered the arc's question in both directions, and neither was guessable.** The PR #703 source-mutation gate covers **less** than expected: instance 1's mutant inserts a `.slice(0, 100)` call, and no declared operator synthesizes a call, so enrollment can never generate it. It covers **more** than expected too: instance 2's mutant IS generated, and because the gate runs in CI's zero-ref checkout — exactly where that assertion cannot discriminate — it would have read SURVIVED. And enrollment did **not** cost one registry row: the per-mutant config declared no `@` alias and no `testTimeout`, so **1461 of 1788** test files failed `assertCleanBaseline` on *unmutated* source. Neither gap was in #703's limits table, because its one enrolled surface uses relative imports and fast tests.
+
+**Enrolling found four vacuous guards that fourteen adversarial rounds had not.** An ordering guard that passes with the fetch deleted, because `indexOf` returns `-1` and `-1 <` every real index. `isShallow()` compared to git's answer in the same checkout — CI's is shallow, so `truth` is `true` and the `Boolean(out)` mutant returns `true`, vacuous in exactly the environment that merge-gates. A CLI/core claim-count comparison that is zero on both sides in CI. And the gate's **own** liveness control, which computed a mutant, asserted it differed from the source, and never ran it — proving only that a string occurred in a file — while hardcoding one surface's literal inside a `describe.each` over the registry, so enrolling any second surface would have red it.
+
+**Shipped:** the per-mutant config at parity with the root config from one shared definition, guarded structurally and by a fixture that really imports through `@/`; a per-surface liveness control, validated for a unique anchor and actually run; both ledger modules enrolled (`ledger-claims-core` 58/58, floor 0.95; `ledger-git` 72/75 = 0.96, floor 0.90, with 6 `equivalent` and 3 `accepted-gap`), every verdict environment-**independent** by construction; `premise`/`premiseHolds` plus a checker over the declaration-reference graph; and the rule itself in `docs/agents/writing-plans.md`, where it is tracked and cross-CLI rather than in a per-machine memory file — which is precisely why the prose version failed.
+
+**Five claims this work disproved, each corrected where it was made.** The spec named the wrong `git.fetch()` (there are two; the ordering guard covers `runCheck`'s, vacuously, and `resolveClaims`'s had no guard at all). Two plan survivor dispositions named cases that cannot kill their mutant. The plan claimed the `gh` path needed a refactor to be testable — it does not, since `prList` spawns `gh` **by name**, so `PATH` is already the seam and all four mutants die to a shim; that backlog row was retracted rather than filed, because it would have recorded debt that does not exist. And the spec promised nothing would be silently unclassified, which is a soundness claim about static analysis of a Turing-complete language that no version of this checker could honor — the reason four consecutive review rounds each found a real hole. The bound is now stated over a closed list of analyzed forms.
+
+**The sharpest finding landed inside the mechanism built to catch the class.** `test.each([])` registers zero cases, so a premise in the callback never executes — in precisely the degenerate case it exists to detect. Probed: the vacuous variant reports `Tests 1 passed (1)`. Fixed as a rule (a premise must execute unconditionally relative to what it guards) rather than a patch, and proved by four fixtures that must FAIL, each invoked as a child run because a deliberately failing fixture cannot be a discovered test.
+
+**Filed by this branch:** `BL-LEDGER-GIT-TIMEOUT-CONSTANTS` (the three spawn timeouts, ledgered `accepted-gap` rather than `equivalent` because a reachable timeout WOULD be observable, so they depress the score honestly).
+
+**Known limit, worth the next reader's attention:** the gate's oracle counts any non-zero suite exit as KILLED, so a flaky suite fabricates kills. That is this arc's own defect class inside the oracle — a verdict earned by accident rather than by the assertion — and it is what made one sweep score `logical-connector:114:18` KILLED while the gate scored it SURVIVED. Not repaired here.
+
+Spec `docs/superpowers/specs/2026-08-04-guard-premise-reachability-design.md` (12 adversarial rounds), plan `docs/superpowers/plans/2026-08-04-guard-premise-reachability.md`. Cross-model review of the implementation was waived by the user for this arc under a Codex usage limit; the merge bar was real CI green plus the gate's own criterion.
+
+---
+
 ## BL-FINALIZE-CAS-ROLEFLAGS-NOTICE-DROP — RESOLVED (2026-08-04, PR #697 `fix/apply-undo-audit-fidelity`, merge `644f8bb06`)
 
 **The entry named ONE discard site; the class sweep found four.** The shape it describes — a path
