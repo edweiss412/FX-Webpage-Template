@@ -8,6 +8,102 @@ Same split as [DEFERRED.md](./DEFERRED.md) ↔ [DEFERRED-archive.md](./DEFERRED-
 
 ---
 
+## BL-CI-OVERLAP-BOOT-WITH-SETUP — run the Supabase boot concurrently with pnpm install — CLOSED 2026-08-06 (L-wave, `feat/l-wave-docs`, DEMOTED: answered-negative)
+
+
+**Resolution: DEMOTED and archived as an ANSWERED-NEGATIVE question.** This was built, measured
+against real CI, missed its own pre-ratified accept gate, and was reverted in the same PR — and then
+it stayed open, which is the only thing left to fix. Executed under the ratified reader-demote
+authority (spec §1.1 item 9); the entry's own text already said "the question this entry framed has
+an answer".
+
+**The measurement is the closure. Preserved in full so it is never re-run:**
+
+|                  | leg-median fixed overhead | max leg | run         |
+| ---------------- | ------------------------- | ------- | ----------- |
+| main baseline    | **96s**                   | 255s    | 30783618781 |
+| with the overlap | **102s**                  | 324s    | 30796409070 |
+
+Eight legs each, all green, `(job wall) − (vitest step)` per leg. Per-leg with the overlap: 92, 98,
+101, 102, 102, 102, 107, 136. Baseline: 89, 91, 92, 94, 98, 101, 109, 112. **The overlap did not save
+the install's ~16s; it COST 6s of median.** The accept threshold was ≥8s of REDUCTION (≤88s), set at
+half the theoretical gain precisely so runner noise could not manufacture a result. The distributions
+overlap heavily and the median moved the wrong way: this is not a gain too small to see, it is no
+gain.
+
+**Why the prediction was wrong, which is the transferable lesson:** the design assumed the two
+operations contend for nothing because one is "network-bound" and the other "registry-bound". On a
+4-core GitHub-hosted runner they contend for the same cores, NIC, and disk — `docker pull`
+decompresses layers while pnpm unpacks a `node_modules` tree. The spec's §3 anticipated contention
+"possibly less" than the 16s of gain without considering that contention could EXCEED it. The 136s
+outlier leg is consistent with that. Any future CI-overlap proposal on this runner class inherits this
+result.
+
+**Durable runner facts, established by probe (run 29743206592, real CI) — keep, they outlive this
+entry:** a process detached in one step DOES survive into later steps on a GitHub-hosted runner, and a
+filesystem status marker it publishes IS visible to a later step's shell (worker started 12:42:09,
+observed 12:42:49, status 7 written and read); `echo N > file` produced 0 empty reads in 400
+create/read races.
+
+**Reusable assets, kept:** the write-surface audit is now empirical rather than inferred (three probes,
+including a fresh x86_64-Linux install under a recursive `inotifywait` recording zero events under
+`supabase/`), and the implementation spec at
+`docs/superpowers/specs/ci/2026-08-02-ci-boot-overlap-implementation.md` carries it plus the validated
+`legfix` / `legwall` measurement procedure (§7.1) that any future CI wall-clock work should reuse.
+
+**The named remaining lever, NOT closed by this archive:** a pre-baked Postgres image, which removes
+the ~14s schema-init + migration phase outright rather than hiding the install behind the pull. That
+is a different entry if anyone wants it — it is recorded here as the live alternative so this archive
+does not read as "CI wall clock is done".
+
+**Reconciliation note on the source branch:** the dormant spec-stage branch
+`origin/chore/ci-overlap-boot-with-setup` was never opened as a PR and remains the source of the
+underlying spec. `pnpm ledger:claims` reports an INFERRED (not declared) claim on it for this id, from
+its ledger diff — that is a stale artifact of a branch whose final commit already says "stop the
+boot/setup overlap at spec stage", not a live claim, and it is recorded here so a future claims sweep
+does not read it as work in flight.
+
+**Re-open trigger:** new information that invalidates the measurement — a materially different runner
+class (more cores, separate I/O paths), or a redesign whose gain does not depend on overlapping those
+two specific operations. Rebuilding it as specified is answered.
+
+---
+
+**Status:** OPEN, but with the lever now MEASURED and REVERTED. Do not rebuild it without new information — the question this entry framed has an answer.
+
+**Effort:** L
+
+**Update 2026-08-03 (PR #670, branch `chore/ci-boot-overlap-and-popover-flake`).** The overlap was implemented, measured against real CI, missed its accept gate, and was reverted in the same PR under the gate's pre-ratified rule. The measurement, both figures per spec §7.4:
+
+|                  | leg-median fixed overhead | max leg | run         |
+| ---------------- | ------------------------- | ------- | ----------- |
+| main baseline    | **96s**                   | 255s    | 30783618781 |
+| with the overlap | **102s**                  | 324s    | 30796409070 |
+
+Eight legs each, all green, `(job wall) − (vitest step)` per leg. The overlap did not save the install's ~16s; it **cost 6s of median**. Per-leg with the overlap: 92, 98, 101, 102, 102, 102, 107, 136. Baseline: 89, 91, 92, 94, 98, 101, 109, 112. The distributions overlap heavily and the median moved the wrong way, so this is not "a gain too small to see" — there is no gain. The accept threshold was ≥8s of REDUCTION (≤88s), chosen at half the theoretical 16s precisely so runner noise could not manufacture a result.
+
+**The likely reason, and why it was not predicted.** The design assumed the two operations contend for nothing because they are "network-bound" and "registry-bound". On a 4-core GitHub-hosted runner they contend for the same cores, the same NIC and the same disk: the boot's `docker pull` decompresses layers while pnpm unpacks a `node_modules` tree, and the spec's own §3 anticipated contention "possibly less" than 16s of gain without considering that contention could exceed it. The 136s outlier leg is consistent with that.
+
+**What is preserved from the attempt, and is worth keeping:** the write-surface audit is now empirical rather than inferred (three probes, including a fresh x86_64-Linux install under a recursive `inotifywait` that recorded zero events under `supabase/`), and the implementation spec at `docs/superpowers/specs/ci/2026-08-02-ci-boot-overlap-implementation.md` carries it along with a reusable, validated measurement procedure (`legfix` / `legwall`, §7.1). **If revisited:** this is now a measured-negative lever, not an unexplored one. The remaining wall-clock lever the spec names is a pre-baked Postgres image, which removes the ~14s schema+migration phase outright rather than trying to hide the install behind the pull.
+
+Original status: OPEN — spec complete and probe-backed on `chore/ci-overlap-boot-with-setup`; NOT implemented, NOT merged. Read this before restarting: eight adversarial rounds are already sunk into it.
+
+The last unexploited lever on unit-suite wall clock is the ~101s of per-leg FIXED overhead (leg-median; per-leg 89-108s on run 29741812457), of which ~70s is the Supabase boot and ~16s is `pnpm install`. They share no data but run sequentially, so overlapping them should reclaim up to ~16s per leg — roughly 6.5% of a 245s leg.
+
+**What is already established, and is worth keeping:**
+
+- **Probe (run 29743206592, real CI).** A process detached in one step DOES survive into later steps on a GitHub-hosted runner, and a filesystem status marker it publishes IS visible to a later step's shell (worker started 12:42:09, observed 12:42:49, status 7 written and read). `echo N > file` produced 0 empty reads in 400 create/read races. These are durable runner facts.
+- **The final design is one step, not a cross-step protocol:** background the bootstrap, capture the PID, run `pnpm install --frozen-lockfile` in the foreground, `wait` on the PID, under `set -euo pipefail`. Native `wait` on a real child makes it fail-closed with no sentinel, no deadline arithmetic, and live log streaming. Adversarial review confirmed this success path correct and the overlap real.
+- **Accepted non-goal:** if the install fails, the still-running bootstrap holds the step's stdout pipe and delays the failure report (typically ~70s; the only hard bound is the job's `timeout-minutes: 20`). Correct cleanup needs process-group termination plus a join plus PID-reuse care, and must not interrupt the bootstrap's held-aside-migration restore trap — a large surface for a rare path.
+
+**Why it stopped.** Eight spec rounds without reaching implementation, on a ≤16s gain, with the correctness surface still expanding each round. The final round also caught a factual error in the spec's own write-surface audit: it claimed `pnpm-workspace.yaml`'s `allowBuilds` contained only `@sentry/cli`, when it contains five keys (`@sentry/cli`, `esbuild`, `sharp`, `unrs-resolver` enabled; `simple-git-hooks` deliberately false). The disjointness premise — that concurrent install writes never touch `supabase/` — is probably still true, but it has no audited basis until someone checks those four build scripts.
+
+**If revisited:** start from the single-step design (skip rounds 1-4, which died on a cross-step protocol), redo the write-surface audit against all of `allowBuilds`, and decide up front whether ~16s justifies the failure-path tradeoff. A larger adjacent lever is the boot itself: a pre-baked Postgres image would remove the ~14s schema-init + migration phase, at the cost of a publish pipeline and a staleness contract.
+
+**Provenance:** lifted to `main` 2026-08-01 from `chore/ci-overlap-boot-with-setup`, which was never opened as a PR; the branch remains the source of the underlying spec.
+
+---
+
 ## BL-ROLEFLAGSNOTICE-DROP-GUARD — no guard detects a path that obtains a `roleFlagsNotice` and never emits it — CLOSED 2026-08-06 (L-wave, `feat/l-wave-docs`, DEMOTED)
 
 
