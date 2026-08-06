@@ -132,7 +132,10 @@ describe("ledger is triageable — no blanket 'unaudited' (Codex whole-diff R3)"
   // Every corrupting operator maps to the audit finding it exercises (documented #) or a real
   // BACKLOG.md id, so a stale/new ledger failure is recoverable by operator class, not thousands of
   // opaque rows. header-typo→#5 and blank-row:*→#10 are documented audit findings; the rest are
-  // BL-MUTATION-* backlog sub-items (see BACKLOG.md § BL-MUTATION-HARNESS-OPEN-HOLES).
+  // BL-MUTATION-* backlog entries. Each is a STANDALONE, sized row in BACKLOG.md as of the
+  // 2026-08-06 L-wave decomposition (BL-MUTATION-REF-SUB, -MERGED-CELL, -UNICODE, -COLUMN-SHIFT,
+  // -SECTION-ORDER); they used to be sub-items of the BL-MUTATION-HARNESS-OPEN-HOLES umbrella,
+  // whose decomposition record is now in BACKLOG-archive.md under that id.
   const CORRUPTING = [
     "header-typo",
     "ref-sub",

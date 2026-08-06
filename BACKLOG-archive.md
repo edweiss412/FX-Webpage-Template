@@ -8,6 +8,76 @@ Same split as [DEFERRED.md](./DEFERRED.md) ↔ [DEFERRED-archive.md](./DEFERRED-
 
 ---
 
+## BL-MUTATION-HARNESS-OPEN-HOLES — parser silent-fragility classes pinned by the mutation harness — CLOSED 2026-08-06 (L-wave, `feat/l-wave-docs`, DECOMPOSED)
+
+
+**Resolution: DECOMPOSED into five standalone entries, one per operator class.** Ratified 2026-08-05
+(spec §1.1 item 10 / §2.1.4). The umbrella was an L that could never be scheduled: it bundled five
+independent parser-hardening projects behind one id, so no one could pick up "the `#REF!` one" without
+appearing to sign up for all five. The sub-items were already named in this body — the decomposition
+promotes them from body-defined ids to real, sized, schedulable rows.
+
+**The five children, each sized M:**
+
+| Child | Holes ledgered | Class |
+| --- | --- | --- |
+| `BL-MUTATION-REF-SUB` | 3314 (3094 wrong / 220 signal_loss) | value corruption |
+| `BL-MUTATION-MERGED-CELL` | 2404 (2271 wrong / 133 signal_loss) | cell fusion |
+| `BL-MUTATION-UNICODE` | 827 (827 wrong / 0 signal_loss) | invisible character |
+| `BL-MUTATION-COLUMN-SHIFT` | 211 (193 wrong / 18 signal_loss) | layout shift |
+| `BL-MUTATION-SECTION-ORDER` | 82 (58 wrong / 24 signal_loss) | order sensitivity |
+
+Counts derived 2026-08-06 from `RAW_HOLES` in `tests/parser/mutation/knownHoles.ts` (7842 rows total;
+the remaining 1004 map to documented audit findings #5 and #10, which are NOT this entry's classes and
+keep their own rows). The `section-reorder` figure reproduces this body's own "58 `SILENT_WRONG` + 24
+`SILENT_SIGNAL_LOSS`" exactly, which is the check that the derivation is reading what the body meant.
+
+**Why every child is M — decided once here so no child re-litigates its own size.** Each is one
+corpus-calibrated detection heuristic + one new warn-severity `ParseWarning` code carrying the §12.4
+lockstep triple (master-spec §12.4 prose + `pnpm gen:spec-codes` + `lib/messages/catalog.ts`, same
+commit) and a warning-card copy row, plus the `knownHoles` ratchet shrink. None is S — each adds a
+catalog row and needs corpus calibration against live shows. None is L — each is fenced to a single
+operator class, with the harness, the ledger, and the ratchet already built.
+
+**The ratchet contract, inherited by every child and restated on each:** the ledger is SHRINK-ONLY.
+When a fix hardens a class, its holes become `staleRows` and the nightly harness FAILS until they are
+removed from `knownHoles.ts` — which turns each parser-robustness fix into a measurable ledger
+reduction. Do NOT grow the ledger silently; a NEW hole is a regression and fails as `newAlarms`.
+
+**Referential integrity is preserved BY the decomposition, not despite it.**
+`OPERATOR_FINDING_MAP` (`tests/parser/mutation/knownHoles.ts:80-89`) maps four of these operators to
+their `BL-MUTATION-*` ids, and `tests/parser/mutation/knownHoles.test.ts` asserts every corrupting
+operator resolves to an audit `#N` or a real `BL-` id. Standalone entries keep every one of those ids
+resolvable — strictly better than body-defined ids, which depended on this umbrella's continued
+existence. The one ripple: that suite's comment pointed readers at
+"BACKLOG.md § BL-MUTATION-HARNESS-OPEN-HOLES", which this archive move retires, so the comment now
+names the five standalone entries and this archive. It landed in the same commit.
+
+**Preserved from the umbrella:** the harness itself (`tests/parser/mutationHarness.test.ts`, nightly
+workflow) pins **7,885 day-1 silent holes** (7842 after the 2026-07-28 blank-row ratchet shrink) —
+mutants whose parse changed with no compensating signal (`SILENT_WRONG` / `SILENT_SIGNAL_LOSS`). The
+two DOCUMENTED-finding classes stay mapped to their audit numbers and are NOT part of this
+decomposition: `header-typo` → audit #5 (short-header typo intolerance,
+`sectionHeaderNormalize.ts:16,66`) and `blank-row:inject` / `blank-row:remove` → audit #10
+(blank-row block segmentation, `exportSheetToMarkdown.ts:104`, tracked by
+`BL-EXPORT-BLANK-ROW-SEGMENTATION`).
+
+---
+
+**Status:** OPEN (2026-07-06, feat/mutation-harness) · **Severity:** medium · **Class:** PARSER ROBUSTNESS · **Effort:** L
+
+The rec-5 mutation-testing harness (`tests/parser/mutationHarness.test.ts`, nightly workflow) pins **7,885 day-1 silent holes** — mutants whose parse changed with no compensating signal (`SILENT_WRONG` / `SILENT_SIGNAL_LOSS`), recorded in `tests/parser/mutation/knownHoles.ts`. Each hole's `finding` field maps its operator class to the audit finding it exercises (`OPERATOR_FINDING_MAP`), so a ledger failure is triageable by operator. Documented-finding classes: **`header-typo` → audit #5** (short-header typo intolerance, `sectionHeaderNormalize.ts:16,66`); **`blank-row:inject` / `blank-row:remove` → audit #10** (blank-row block segmentation, `exportSheetToMarkdown.ts:104`). The remaining operator classes are silent-fragility surfaces the audit did not enumerate as a numbered finding; each is tracked as a backlog sub-item below and its holes shrink when that class is hardened:
+
+- **`BL-MUTATION-REF-SUB`** — a body cell rewritten to the literal `#REF!` (a real broken-reference export artifact, present in 3/7 live shows) is absorbed into the parse with no signal. Value-corruption class.
+- **`BL-MUTATION-UNICODE`** — a zero-width non-joiner (U+200C) injected into a cell value is silently retained (the fintech live ZWNJ shape). Invisible-character class.
+- **`BL-MUTATION-COLUMN-SHIFT`** — a spurious leading empty column shifts a section's row grid with no signal (the East Coast column-shifted outlier). Layout-shift class.
+- **`BL-MUTATION-MERGED-CELL`** — deleting one interior pipe (how a merged cell exports) fuses two adjacent cells silently. Cell-fusion class.
+- **`BL-MUTATION-SECTION-ORDER`** — reordering two adjacent top-level blocks silently reorders the parser's output arrays (the parser preserves source order). **Order-sensitivity discovered by the harness on 2026-07-06** (58 `SILENT_WRONG` + 24 `SILENT_SIGNAL_LOSS` across the corpus); section-reorder was reclassified cosmetic → corrupting as a result.
+
+**Ratchet:** the ledger is a shrink-only baseline. When a downstream fix hardens one of these classes, the corresponding holes become `staleRows` and the nightly harness fails until they are removed from `knownHoles.ts` — turning each parser-robustness fix into a measurable ledger reduction. Do NOT grow the ledger silently; a NEW hole (regression) fails the harness as `newAlarms`.
+
+---
+
 ## BL-CI-PARALLEL-DB-FALLBACK-AUDIT — re-run the closed-port protocol across the parallel project — CLOSED 2026-08-06 (L-wave, `feat/l-wave-docs`, PROBED: answered-negative)
 
 

@@ -479,22 +479,65 @@ screen-disposition 2026-08-04: KEEP — PROBED, and the mislabeling is determini
 
 The cron sync path also synthesizes workbooks (`lib/sync/runScheduledCronSync.ts:3118,3144`). A throw at either site escapes `prepareProcessOneFile` and is caught by the outer per-file loop (`:3915-3925`), which records `outcome: "parse_error"` with `classifySyncFailure(error)` — typically `SYNC_FILE_FAILED`. So it is already parse-family rather than Drive-family (unlike the onboarding paths this batch fixed), and the open question is narrower: should a corrupt workbook there report `PARSE_ERROR_LAST_GOOD`, whose copy tells Doug the latest edit did not parse and the previous version is still live? **Fix (when prioritized):** key on the `WorkbookSynthesisError` type this batch introduced. Deferred because it changes a live crew-visible sync contract and belongs in its own spec.
 
-### BL-MUTATION-HARNESS-OPEN-HOLES — parser silent-fragility classes pinned by the mutation harness
+### BL-MUTATION-REF-SUB — an exported `#REF!` is absorbed into the parse with no signal
 
-**Status:** IN PROGRESS · **Branch:** feat/l-wave-docs
-**Status:** OPEN (2026-07-06, feat/mutation-harness) · **Severity:** medium · **Class:** PARSER ROBUSTNESS · **Effort:** L
+**Status:** OPEN (2026-08-06, L-wave decomposition of `BL-MUTATION-HARNESS-OPEN-HOLES`) · **Severity:** medium · **Class:** PARSER ROBUSTNESS · **Effort:** M
 
-The rec-5 mutation-testing harness (`tests/parser/mutationHarness.test.ts`, nightly workflow) pins **7,885 day-1 silent holes** — mutants whose parse changed with no compensating signal (`SILENT_WRONG` / `SILENT_SIGNAL_LOSS`), recorded in `tests/parser/mutation/knownHoles.ts`. Each hole's `finding` field maps its operator class to the audit finding it exercises (`OPERATOR_FINDING_MAP`), so a ledger failure is triageable by operator. Documented-finding classes: **`header-typo` → audit #5** (short-header typo intolerance, `sectionHeaderNormalize.ts:16,66`); **`blank-row:inject` / `blank-row:remove` → audit #10** (blank-row block segmentation, `exportSheetToMarkdown.ts:104`). The remaining operator classes are silent-fragility surfaces the audit did not enumerate as a numbered finding; each is tracked as a backlog sub-item below and its holes shrink when that class is hardened:
+A body cell rewritten to the literal `#REF!` — a real broken-reference export artifact, **present in 3 of the 7 live shows** — parses as an ordinary value. Value-corruption class: the operator sees a crew page with `#REF!` where a name or time belongs, and nothing upstream said so.
 
-- **`BL-MUTATION-REF-SUB`** — a body cell rewritten to the literal `#REF!` (a real broken-reference export artifact, present in 3/7 live shows) is absorbed into the parse with no signal. Value-corruption class.
-- **`BL-MUTATION-UNICODE`** — a zero-width non-joiner (U+200C) injected into a cell value is silently retained (the fintech live ZWNJ shape). Invisible-character class.
-- **`BL-MUTATION-COLUMN-SHIFT`** — a spurious leading empty column shifts a section's row grid with no signal (the East Coast column-shifted outlier). Layout-shift class.
-- **`BL-MUTATION-MERGED-CELL`** — deleting one interior pipe (how a merged cell exports) fuses two adjacent cells silently. Cell-fusion class.
-- **`BL-MUTATION-SECTION-ORDER`** — reordering two adjacent top-level blocks silently reorders the parser's output arrays (the parser preserves source order). **Order-sensitivity discovered by the harness on 2026-07-06** (58 `SILENT_WRONG` + 24 `SILENT_SIGNAL_LOSS` across the corpus); section-reorder was reclassified cosmetic → corrupting as a result.
+**Ledgered blast radius: 3314 holes** (3094 `wrong` / 220 `signal_loss`), the LARGEST class in the harness — derived 2026-08-06 from `RAW_HOLES` in `tests/parser/mutation/knownHoles.ts`. Linkage: `OPERATOR_FINDING_MAP["ref-sub"] = "BL-MUTATION-REF-SUB"` (`tests/parser/mutation/knownHoles.ts:82`), pinned by `tests/parser/mutation/knownHoles.test.ts` — this id must stay resolvable while that row exists.
 
-**Ratchet:** the ledger is a shrink-only baseline. When a downstream fix hardens one of these classes, the corresponding holes become `staleRows` and the nightly harness fails until they are removed from `knownHoles.ts` — turning each parser-robustness fix into a measurable ledger reduction. Do NOT grow the ledger silently; a NEW hole (regression) fails the harness as `newAlarms`.
+**Shape (M):** one corpus-calibrated detection heuristic (`#REF!` is an unambiguous literal, so the discriminator is cheap — the calibration is deciding WHICH fields warn vs hard-fail) plus one new warn-severity `ParseWarning` code carrying the §12.4 lockstep triple (master-spec §12.4 prose + `pnpm gen:spec-codes` + `lib/messages/catalog.ts`, same commit) and a warning-card copy row.
 
----
+**Ratchet contract:** the ledger is SHRINK-ONLY. Hardening this class turns its holes into `staleRows` and the nightly harness FAILS until they are removed from `knownHoles.ts`, so the fix is measurable as a ledger reduction. Never grow the ledger silently; a NEW hole fails as `newAlarms`. Decomposition record: `BACKLOG-archive.md` § `BL-MUTATION-HARNESS-OPEN-HOLES`.
+
+### BL-MUTATION-MERGED-CELL — a merged cell exports as a deleted pipe and silently fuses two cells
+
+**Status:** OPEN (2026-08-06, L-wave decomposition of `BL-MUTATION-HARNESS-OPEN-HOLES`) · **Severity:** medium · **Class:** PARSER ROBUSTNESS · **Effort:** M
+
+Deleting one interior pipe — which is exactly how a merged cell exports to markdown — fuses two adjacent cells with no signal. Cell-fusion class: two columns become one value, and every downstream column index shifts within that row.
+
+**Ledgered blast radius: 2404 holes** (2271 `wrong` / 133 `signal_loss`), the second-largest class — derived 2026-08-06 from `RAW_HOLES`. Linkage: `OPERATOR_FINDING_MAP["merged-cell"] = "BL-MUTATION-MERGED-CELL"` (`tests/parser/mutation/knownHoles.ts:87`), pinned by `knownHoles.test.ts`.
+
+**Shape (M):** the discriminator is a row whose cell count is short by one against its section's established width, which needs corpus calibration — genuinely ragged rows are normal sheet authoring, so the heuristic must separate "merged cell" from "author left a trailing cell blank". Plus the warn-severity `ParseWarning` code with its §12.4 lockstep triple and warning-card copy row.
+
+**Ratchet contract:** SHRINK-ONLY, as above — `staleRows` on hardening, `newAlarms` on regression. Decomposition record: `BACKLOG-archive.md` § `BL-MUTATION-HARNESS-OPEN-HOLES`.
+
+### BL-MUTATION-UNICODE — an injected zero-width character is silently retained
+
+**Status:** OPEN (2026-08-06, L-wave decomposition of `BL-MUTATION-HARNESS-OPEN-HOLES`) · **Severity:** medium · **Class:** PARSER ROBUSTNESS · **Effort:** M
+
+A zero-width non-joiner (U+200C) injected into a cell value survives the parse intact — the live fintech ZWNJ shape. Invisible-character class, and the reason it matters is that it defeats EQUALITY: a name carrying a zero-width character does not match the same name without one, so identity linking, crew matching, and every string comparison silently miss while the rendered page looks correct.
+
+**Ledgered blast radius: 827 holes** (827 `wrong` / 0 `signal_loss`) — derived 2026-08-06 from `RAW_HOLES`. Linkage: `OPERATOR_FINDING_MAP["unicode-inject"] = "BL-MUTATION-UNICODE"` (`tests/parser/mutation/knownHoles.ts:83`), pinned by `knownHoles.test.ts`.
+
+**Shape (M):** detection is a scan for the zero-width/format-character class, but the design decision needing corpus calibration is STRIP vs WARN — silently stripping is an auto-correct, which the project's posture treats as a worse failure than a surfaced signal. Plus the warn-severity `ParseWarning` code with its §12.4 lockstep triple and warning-card copy row.
+
+**Ratchet contract:** SHRINK-ONLY, as above. Decomposition record: `BACKLOG-archive.md` § `BL-MUTATION-HARNESS-OPEN-HOLES`.
+
+### BL-MUTATION-COLUMN-SHIFT — a spurious leading empty column shifts a section's row grid with no signal
+
+**Status:** OPEN (2026-08-06, L-wave decomposition of `BL-MUTATION-HARNESS-OPEN-HOLES`) · **Severity:** medium · **Class:** PARSER ROBUSTNESS · **Effort:** M
+
+A spurious leading empty column shifts every cell in a section's row grid one position right, and the parse absorbs it — the East Coast column-shifted outlier, i.e. a shape observed in a LIVE show, not a synthetic one. Layout-shift class: every field in the section reads its neighbour's value, which is the most damaging silent outcome in this set because each individual value still looks well-formed.
+
+**Ledgered blast radius: 211 holes** (193 `wrong` / 18 `signal_loss`) — derived 2026-08-06 from `RAW_HOLES`. Linkage: `OPERATOR_FINDING_MAP["column-shift"] = "BL-MUTATION-COLUMN-SHIFT"` (`tests/parser/mutation/knownHoles.ts:84`), pinned by `knownHoles.test.ts`.
+
+**Shape (M):** the discriminator is a section whose header-to-column alignment breaks while cell count holds, calibrated against the corpus so a legitimately indented section does not warn. Plus the warn-severity `ParseWarning` code with its §12.4 lockstep triple and warning-card copy row.
+
+**Ratchet contract:** SHRINK-ONLY, as above. Decomposition record: `BACKLOG-archive.md` § `BL-MUTATION-HARNESS-OPEN-HOLES`.
+
+### BL-MUTATION-SECTION-ORDER — reordering two adjacent blocks silently reorders parser output
+
+**Status:** OPEN (2026-08-06, L-wave decomposition of `BL-MUTATION-HARNESS-OPEN-HOLES`) · **Severity:** medium · **Class:** PARSER ROBUSTNESS · **Effort:** M
+
+Reordering two adjacent top-level blocks silently reorders the parser's output arrays, because the parser preserves source order. **Order-sensitivity was DISCOVERED by the harness on 2026-07-06** and section-reorder was reclassified cosmetic → corrupting as a result — this class exists because the harness found something no one had posited, which is the strongest evidence in the set that the remaining classes are worth detecting.
+
+**Ledgered blast radius: 82 holes** (58 `wrong` / 24 `signal_loss`) — derived 2026-08-06 from `RAW_HOLES`, reproducing the umbrella's own stated "58 `SILENT_WRONG` + 24 `SILENT_SIGNAL_LOSS`" exactly. Linkage: `OPERATOR_FINDING_MAP["section-reorder"] = "BL-MUTATION-SECTION-ORDER"` (`tests/parser/mutation/knownHoles.ts:88`), pinned by `knownHoles.test.ts`.
+
+**Shape (M):** this one is the least like the others and should be spec'd before it is built — the honest question is whether output order should be NORMALIZED (making the reorder a non-event) rather than detected, and that is a parser-contract decision, not a heuristic. If detection is chosen instead, it carries the same warn-severity `ParseWarning` code plus §12.4 lockstep triple and warning-card copy row as its siblings.
+
+**Ratchet contract:** SHRINK-ONLY, as above. Decomposition record: `BACKLOG-archive.md` § `BL-MUTATION-HARNESS-OPEN-HOLES`.
 
 ### BL-LEDGER-GIT-TIMEOUT-CONSTANTS — the git adapter's three spawn timeouts are unassertable through its own surface
 
