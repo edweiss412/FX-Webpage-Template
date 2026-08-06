@@ -8,6 +8,52 @@ Same split as [DEFERRED.md](./DEFERRED.md) ↔ [DEFERRED-archive.md](./DEFERRED-
 
 ---
 
+## BL-CI-RECLASSIFY-PARALLEL-STABILITY — revive the serial→parallel reclassification only with a concurrency-stability + clean-wall proof — CLOSED 2026-08-06 (L-wave, `feat/l-wave-docs`, DEMOTED)
+
+
+**Resolution: DEMOTED and archived.** The entry was shelved by its own text and has been sitting open
+as a set of preconditions nobody was working toward. Executed under the ratified reader-demote
+authority (spec §1.1 item 9). What closed it is not new information — it is that a shelving with two
+named do-not-re-attempt-without conditions is a terminal state, not a queue item.
+
+**Why it was shelved, preserved:** the DB-free serial→parallel reclassification (PR #528, closed
+unmerged) is CORRECTNESS-VERIFIED, but moving ~527 files into the parallel project raises per-shard
+concurrency, and timing-sensitive moved files (e.g. `tests/admin/_metaInfraContract.test.ts`) starve
+past the 5s test timeout under CI load — candidate CI run 1 green, run 2 red **on identical code**. A
+required gate cannot flake, and the class is load-dependent, so it is not fully enumerable up front.
+The wall-clock win was also unproven: ~17s in contention-noisy samples, under the spec's own 30s gate.
+This was the seventh lever the CI program rejected on the local-passes-CI-fails pattern.
+
+**The two re-attempt preconditions, verbatim and still binding. Do NOT re-attempt the move without,
+in this order:** (1) solve criterion-3 at CI scale STRUCTURALLY — cap the parallel project's per-leg
+worker concurrency (`poolOptions.maxWorkers`) or raise the parallel `testTimeout` — and prove
+stability across **≥5 consecutive green CI runs**; (2) demonstrate a clean **≥30s** wall win with
+sequential, non-contending measurements (one CI run at a time). Absent both, the correctness tooling
+can stand alone (e.g. a nightly DB-drift audit) WITHOUT the move — that standalone path is the part
+most likely to be forgotten, and it needs neither precondition.
+
+**Reusable assets, kept:** the DB-touch probe and the static `DB_BINDING_SIGNALS` matcher (branches
+`spike/db-touch-instrumentation`, `perf/ci-reclassify-db-free-serial`). Retrospective:
+`docs/superpowers/specs/ci/2026-07-20-serial-parallel-reclassification-retrospective.md`.
+
+**Re-open trigger:** somebody actually satisfying precondition (1) — a structural concurrency cap
+proven over ≥5 green runs. At that point the wall-clock question is worth re-measuring and this row
+can come back with its assets intact.
+
+---
+
+**Filed:** 2026-07-20 (arc SHELVED). **Class:** CI perf. **Effort:** L (structural stability + multi-run measurement).
+
+The DB-free serial→parallel reclassification (PR #528, closed unmerged) is correctness-verified but was shelved: moving ~527 files into the parallel project raises per-shard concurrency, and timing-sensitive moved files (e.g. `tests/admin/_metaInfraContract.test.ts`) starve past the 5s test timeout under CI load — candidate CI run 1 green, run 2 red on identical code. A required gate cannot flake, and the class is load-dependent (not fully enumerable up front). The wall-clock win was also unproven (~17s in contention-noisy samples, under the spec's 30s gate). Seventh lever this program has rejected on the local-passes-CI-fails pattern.
+
+**Reusable asset:** the DB-touch probe + static `DB_BINDING_SIGNALS` matcher (branches `spike/db-touch-instrumentation`, `perf/ci-reclassify-db-free-serial`). Retrospective: `docs/superpowers/specs/ci/2026-07-20-serial-parallel-reclassification-retrospective.md`.
+
+**Do NOT re-attempt the move without, in this order:** (1) solve criterion-3 at CI scale structurally — cap the parallel project's per-leg worker concurrency (`poolOptions.maxWorkers`) or raise the parallel `testTimeout` — and prove stability across ≥5 consecutive green CI runs; (2) demonstrate a clean ≥30s wall win with sequential, non-contending measurements (one CI run at a time). Absent both, the correctness tooling can stand alone (e.g. a nightly DB-drift audit) without the move.
+
+**Status:** open (shelved).
+
+---
+
 ## BL-CI-OVERLAP-BOOT-WITH-SETUP — run the Supabase boot concurrently with pnpm install — CLOSED 2026-08-06 (L-wave, `feat/l-wave-docs`, DEMOTED: answered-negative)
 
 
