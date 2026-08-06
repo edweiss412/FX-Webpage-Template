@@ -6,8 +6,10 @@
 // `cond ? <p role="status">{msg}</p> : null` reads as an announcement in review
 // and makes none at runtime — which is why this class survived a11y passes.
 //
-// WHY A GUARD RATHER THAN 17 FIXED SITES. The entry was filed FROM a sweep, and
-// a sweep's output is a list that rots. This walks the tree instead, so a NEW
+// WHY A GUARD RATHER THAN A LIST OF FIXED SITES. The entry was filed FROM a
+// sweep — it named 17 — and
+// a sweep's output is a list that rots. The AST walk below found ELEVEN more
+// than the filed list, which settles the argument. It walks the tree, so a NEW
 // conditionally-inserted region fails here rather than waiting for the next
 // person to run the same grep. `role="alert"` is deliberately not covered:
 // alerts ARE announced on insertion, so the conditional form is correct for
@@ -59,6 +61,23 @@ const CHANNEL_ANNOUNCERS: readonly string[] = [
   "components/admin/RecentAutoAppliedStrip.tsx",
   "components/admin/ReSyncButton.tsx",
 ];
+
+/**
+ * How many `announce(` calls each channel announcer makes.
+ *
+ * A FLOOR AGAINST THE FILE-LEVEL SKIP. `CHANNEL_ANNOUNCERS` exempts a whole
+ * file once it proves one call exists, which is why review found outcomes with
+ * no announcement at all inside exempted files. This does not prove per-message
+ * coverage — it proves the number cannot fall silently, and forces anyone adding
+ * an outcome to look. The remaining gap is recorded on
+ * BL-CHANNEL-ANNOUNCER-RESIDUAL-ROLE-STATUS.
+ */
+const CHANNEL_ANNOUNCE_CALLS: ReadonlyMap<string, number> = new Map([
+  ["components/admin/RescanSheetButton.tsx", 2],
+  ["components/admin/RoleRecognizeControl.tsx", 1],
+  ["components/admin/RecentAutoAppliedStrip.tsx", 1],
+  ["components/admin/ReSyncButton.tsx", 1],
+]);
 
 /**
  * Sites whose gate is NOT transient state, so the conditional form is correct.
@@ -118,10 +137,6 @@ const NON_TRANSIENT_GATES: ReadonlyMap<string, string> = new Map([
   [
     "components/agenda/AgendaPdfViewer.tsx::",
     'the `loading` placeholder handed to the PDF viewer — announced ON INSERTION is the correct behaviour for a loading state, which is why `role="alert"`-style insertion semantics are wanted here',
-  ],
-  [
-    "unpublish-busy-notice",
-    "whole-surface swap — the form is replaced by the busy notice, so nothing is 'inserted into' a live page",
   ],
 ]);
 
@@ -274,6 +289,22 @@ describe("live regions are mounted before their text (BL-ANNOUNCE-REGION-UNMOUNT
       return !src.includes("UndoAnnounceContext") || !/\bannounce\(/.test(src);
     });
     expect(bad, "exempt as a channel announcer but does not announce").toEqual([]);
+
+    // AND THE COUNT, because "at least one announce() exists" was the whole
+    // weakness (whole-diff review R1): the exemption skips the FILE, so a
+    // component with three outcomes and one `announce(` call had two silent
+    // ones and passed. RoleRecognizeControl's stale and conflict outcomes and
+    // ReSyncButton's ordinary success summary were exactly that. Pinning the
+    // per-file call count does not prove each MESSAGE is covered — only a
+    // behavioural test can — but it does stop the count from silently dropping,
+    // and it makes adding an outcome without an announcement a failure here.
+    for (const [f, expected] of CHANNEL_ANNOUNCE_CALLS) {
+      const src = readFileSync(join(REPO_ROOT, f), "utf8");
+      const calls = (src.match(/(?<![A-Za-z0-9_])announce\(/g) ?? []).length;
+      expect(calls, `${f}: announce() call count changed — is every outcome still covered?`).toBe(
+        expected,
+      );
+    }
   });
 
   it("no UNREGISTERED file inserts a live region together with its text", () => {

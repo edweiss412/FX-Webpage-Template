@@ -40,10 +40,12 @@
  * keeps the button from spinning the request count unnecessarily).
  */
 import Link from "next/link";
-import { forwardRef, useEffect, useId, useRef, useState } from "react";
+import { useContext, forwardRef, useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Loader2 } from "lucide-react";
 import { useRouter } from "next/navigation";
+
+import { UndoAnnounceContext } from "@/components/admin/undoAnnounceContext";
 import { messageFor } from "@/lib/messages/lookup";
 import { useDialogFocus } from "@/lib/a11y/dialogFocus";
 import { useHasMounted } from "@/lib/a11y/useHasMounted";
@@ -169,6 +171,7 @@ export function useFinalizeRun({
   mode = "publish",
 }: FinalizeRunProps) {
   const router = useRouter();
+  const { announce } = useContext(UndoAnnounceContext);
   const [state, setState] = useState<ButtonState>({ kind: "idle" });
   // D5 soft confirm: a CONTROLLED open flag (not an in-onClick self-disable —
   // see feedback_react_form_action_synchronous_disable_cancels_submit). Opening
@@ -435,6 +438,12 @@ export function useFinalizeRun({
       return;
     }
     setState({ kind: "complete" });
+    // Announced on the LAYOUT channel, not the local announcer (whole-diff
+    // review R1). `router.refresh()` on the next line navigates out of the
+    // wizard, so the announcer this component owns is unmounted by the same
+    // action that fills it — the branch-stable requirement is about outliving
+    // the transition, and a region owned by the departing surface never can.
+    announce(COMPLETE_COPY);
     router.refresh();
   }
 

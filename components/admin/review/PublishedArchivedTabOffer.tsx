@@ -1,7 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useContext, useState } from "react";
 import { useRouter } from "next/navigation";
+
+import { UndoAnnounceContext } from "@/components/admin/undoAnnounceContext";
 
 import type { PullSheetOverrideWire } from "@/components/admin/review/sectionData";
 import {
@@ -80,6 +82,10 @@ type BaseProps = {
 export function PublishedArchivedTabOffer(props: BaseProps & { tabName: string }) {
   const { tabName, driveFileId, wire, canMutate, onDismissFocus } = props;
   const router = useRouter();
+  // The offer surface is REPLACED by `router.refresh()` on every success path
+  // below, so a region owned by this component cannot outlive the message it
+  // reports (whole-diff review R1). The layout's channel does.
+  const { announce } = useContext(UndoAnnounceContext);
   const [pending, setPending] = useState(false);
   const [dismissed, setDismissed] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -104,7 +110,11 @@ export function PublishedArchivedTabOffer(props: BaseProps & { tabName: string }
         expectedOverrideSnapshot: wire,
       });
       if (res.ok) {
-        if (json.sync && !json.sync.ok) setTransient(syncLine("set", json.sync.kind));
+        if (json.sync && !json.sync.ok) {
+          const m = syncLine("set", json.sync.kind);
+          setTransient(m);
+          announce(m);
+        }
         router.refresh();
         return;
       }
@@ -178,6 +188,9 @@ export function PublishedArchivedTabOffer(props: BaseProps & { tabName: string }
 export function PublishedArchivedTabIncludedNote(props: BaseProps) {
   const { wire, driveFileId, canMutate } = props;
   const router = useRouter();
+  // Same reason as the offer above: this note is replaced by the refresh that
+  // follows its own success, so the announcement rides the layout channel.
+  const { announce } = useContext(UndoAnnounceContext);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [transient, setTransient] = useState<string | null>(null);
@@ -200,7 +213,11 @@ export function PublishedArchivedTabIncludedNote(props: BaseProps) {
         expectedOverrideSnapshot: wire,
       });
       if (res.ok) {
-        if (json.sync && !json.sync.ok) setTransient(syncLine("cleared", json.sync.kind));
+        if (json.sync && !json.sync.ok) {
+          const m = syncLine("cleared", json.sync.kind);
+          setTransient(m);
+          announce(m);
+        }
         router.refresh();
         return;
       }
