@@ -1,8 +1,8 @@
 # M-wave — W-UI closeout
 
-Branch `feat/m-wave-ui`, the fourth and last unit of the M-wave. 69 files, +3072/−311
-against merge-base `fc4902004` — roughly half of that added by two rounds of
-cross-model review, which is recorded below rather than smoothed over.
+Branch `feat/m-wave-ui`, the fourth and last unit of the M-wave. 72 files, +3261/−327
+against merge-base `fc4902004` — more than half of that added by cross-model
+review, which is recorded below rather than smoothed over.
 
 Seven ledger entries: `BL-ANNOUNCE-REGION-UNMOUNT-CLASS`, `BL-BULK-UNDO-ANNOUNCE-UNMOUNT`,
 `BL-ADMIN-BADGE-CONTRAST-TOKEN`, `BL-FRESHNESS-PROJECTION-NARROWING`,
@@ -61,6 +61,24 @@ to guard-clause returns and `role={"status"}`, the idle scanner blind to
 attributes written before `role` in a multiline tag, and the parity guard
 filling the wrong argument so a false "No action link." claim could hide among
 unresolved builders.
+
+**R3 — five P1s, and the whole-file skip was the structural one.** Exempting a
+FILE meant any new conditional region added to it passed silently; exemption is
+per-site now, with a declared count, so site N+1 fails. Two exemption reasons
+turned out to be factually false, and one of them hid a regression R2 had
+introduced: Step2Verify's inner announcer mounts already containing its text, so
+it never announced the submitting transition, while R2's duplicate-fix had
+blanked the outer region — leaving that transition announced by nobody. The
+scanner also learned that `aria-live` alone is a live region, which surfaced a
+real conditional region in `UseRawControl`.
+
+**One finding became a documented limit rather than a third patch.** The agenda
+region is born populated because a guard clause makes its empty branch
+unreachable at mount; deferring the text by an effect is what
+`react-hooks/set-state-in-effect` correctly rejects, and the real repair is for
+the parent to own the region across that guard. Recorded on
+`BL-LIVE-REGION-AST-WALK-RESIDUE` with the reason it cannot be done locally.
+Later transitions still announce; only first paint cannot.
 
 **The recurring shape, stated once.** Nearly every finding was a guard or a
 claim that could not fail — a detector with formatting-shaped blind spots, a
