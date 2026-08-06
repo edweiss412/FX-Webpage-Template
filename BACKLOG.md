@@ -743,29 +743,6 @@ since the value of the scale is that every site uses it.
 
 ---
 
-## BL-ATTENTION-PANEL-NAME-LEADING-SECTION — the panel is named for its first section, not its contents
-
-**Status:** IN PROGRESS · **Branch:** feat/l-wave-docs
-**Effort:** S
-
-Surfaced by the non-degraded impeccable gate rerun on PR #658 (2026-08-02).
-
-`components/admin/showpage/AttentionMenu.tsx` names the panel `"Needs you"` when any needs-you
-item exists and `"Monitoring"` otherwise — the first group actually present. When both groups
-are present the panel therefore announces as "Needs you" while also containing Monitoring rows,
-so its accessible name understates what it holds.
-
-This is deliberate and documented in-code: the name mirrors the visible leading heading, which
-is what a sighted user sees at the top of the panel, and the alternative names ("Needs you and
-monitoring", or a neutral third noun) either read as clutter or drift from the visible text.
-The related genuine defect — the inner scroller calling itself "Show issues", which was wrong
-for a monitoring-only list — is fixed separately.
-
-**Trigger:** a screen-reader pass on the show page that judges the understatement in practice,
-or a redesign that gives the panel a visible title of its own to name it from.
-
----
-
 ## Merged from the plans backlog (2026-08-02)
 
 `docs/superpowers/plans/BACKLOG.md` was a second, disjoint `BL-` registry: 53 entries under

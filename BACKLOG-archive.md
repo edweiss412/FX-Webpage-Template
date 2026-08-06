@@ -8,6 +8,48 @@ Same split as [DEFERRED.md](./DEFERRED.md) ↔ [DEFERRED-archive.md](./DEFERRED-
 
 ---
 
+## BL-ATTENTION-PANEL-NAME-LEADING-SECTION — the panel is named for its first section, not its contents — CLOSED 2026-08-06 (L-wave, `feat/l-wave-docs`)
+
+
+**Resolution: the owner KEEPS the leading-section name. Zero code changed.** Ratified by the user
+2026-08-05 (L-wave decisions brief; spec §1.1 item 4 / §4.5 item 4). The understatement is accepted:
+the accessible name mirrors the visible leading heading, which is what a sighted user reads at the
+top of the panel, and both alternatives the entry evaluated are worse — "Needs you and monitoring"
+reads as clutter, and a neutral third noun drifts from the visible text. `AttentionMenu.tsx` is
+untouched by this closure.
+
+**This closes as a DECIDED RETENTION, not as a fixed defect.** The distinction matters for anyone
+re-reading the surface later: the naming is deliberate and stays deliberate. The genuine defect
+found alongside it — the inner scroller calling itself "Show issues", wrong for a monitoring-only
+list — was a separate fix and is not part of this row.
+
+**Re-open trigger, preserved verbatim from the entry:** a screen-reader pass on the show page that
+judges the understatement in practice, or a redesign that gives the panel a visible title of its own
+to name it from. Either one supplies evidence this ruling did not have; absent one, re-litigating the
+name is re-deriving a settled owner decision.
+
+---
+
+**Effort:** S
+
+Surfaced by the non-degraded impeccable gate rerun on PR #658 (2026-08-02).
+
+`components/admin/showpage/AttentionMenu.tsx` names the panel `"Needs you"` when any needs-you
+item exists and `"Monitoring"` otherwise — the first group actually present. When both groups
+are present the panel therefore announces as "Needs you" while also containing Monitoring rows,
+so its accessible name understates what it holds.
+
+This is deliberate and documented in-code: the name mirrors the visible leading heading, which
+is what a sighted user sees at the top of the panel, and the alternative names ("Needs you and
+monitoring", or a neutral third noun) either read as clutter or drift from the visible text.
+The related genuine defect — the inner scroller calling itself "Show issues", which was wrong
+for a monitoring-only list — is fixed separately.
+
+**Trigger:** a screen-reader pass on the show page that judges the understatement in practice,
+or a redesign that gives the panel a visible title of its own to name it from.
+
+---
+
 ## BL-COVERAGE-CLAIMS-CITE-SKIPPED-SUITES — contract artifacts claim e2e coverage from suites that do not execute — CLOSED 2026-08-06 (L-wave, `feat/l-wave-docs`)
 
 **Resolution: the sentence class was DELETED, and deliberately NOT guarded.** Ratified by the user
