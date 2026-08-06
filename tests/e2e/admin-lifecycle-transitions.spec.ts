@@ -252,8 +252,9 @@ test.describe("admin lifecycle transition audit (§3.4)", () => {
       // ratified by the 2026-07-20 row-variant amendment (ArchiveShowButton.tsx
       // rowLabel doc block) and the archive-row-menu-idiom spec §4, which names
       // it the ONLY animated property. Every §3.4 STATE pair stays instant.
-      // (This guard sat dark in CI and had been red since that amendment —
-      // BL-E2E-APP-DEPENDENT-SPECS-CI-DARK carries the wiring work.)
+      // (This guard sat dark in CI and had been red since that amendment.
+      // It is no longer dark: lifecycle-layout-e2e.yml runs this spec on
+      // mobile-safari on every PR as of 2026-07-27.)
       const permitted =
         rel === "components/admin/PublishedToggle.tsx"
           ? /transition-(?!colors\b|transform\b)[a-z]+/g

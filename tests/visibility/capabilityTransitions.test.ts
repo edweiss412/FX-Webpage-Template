@@ -5,9 +5,12 @@
  * Structural invariants of the matrix are pinned here; the matrix is
  * the single source of truth for visibility-delta semantics across
  * predicate flips. Compound transitions (multiple predicates flipping
- * simultaneously) are exercised nowhere: the e2e suite in
- * `tests/e2e/right-now-transitions.spec.ts` is `describe.skip` and
- * runs in no CI workflow (BL-E2E-APP-DEPENDENT-SPECS-CI-DARK).
+ * simultaneously) are exercised HERE at the data level — see the
+ * composed-delta cases below, which run in the parallel project on
+ * every PR. Their DOM-level continuity is what has no executing
+ * coverage: the e2e suite in `tests/e2e/right-now-transitions.spec.ts`
+ * is `test.describe.skip` and is named by no workflow
+ * (BL-E2E-APP-DEPENDENT-SPECS-CI-DARK).
  */
 import { describe, expect, test } from "vitest";
 import {
@@ -242,8 +245,10 @@ describe("Plan Step 4 worked examples — three compound cases", () => {
    * Audio disappears (no LEAD, no A1), Video stays via hasV1's new
    * truth (the reason for visibility shifted from LEAD branch to V1
    * branch — net visibility unchanged). Matrix encodes single-flip
-   * deltas; the no-flicker invariant has no executing verification
-   * (the e2e compound suite is skipped).
+   * deltas; the DATA-level no-flicker invariant is asserted below in
+   * this file. Only its DOM-level counterpart (AnimatePresence keeping
+   * the tile mounted) has no executing verification, because the e2e
+   * compound suite is skipped.
    *
    * The hasV1 flip alone (with everything else false) appears Video.
    */

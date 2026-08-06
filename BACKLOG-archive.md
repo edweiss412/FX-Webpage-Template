@@ -10,7 +10,6 @@ Same split as [DEFERRED.md](./DEFERRED.md) ↔ [DEFERRED-archive.md](./DEFERRED-
 
 ## BL-ADOPTION-PIN-REACHABILITY-BLIND — the shared-helper adoption guard cannot prove LIVE-PATH use — CLOSED 2026-08-06 (L-wave, `feat/l-wave-docs`, DEMOTED)
 
-
 **Resolution: DEMOTED and archived. This is a DOCUMENTED LIMIT filed as open work, and the entry says
 so in its own words — "Accepted, not open."** Classified DEMOTE by the 2026-08-06 L-wave screen under
 the ledger filing bar (AGENTS.md; `docs/superpowers/specs/2026-08-04-backlog-convergence-design.md`
@@ -120,7 +119,6 @@ risk, since deleting one silently converts this accepted limit into an uncovered
 
 ## BL-OPS-LOG — Structured operator-log sink + producer wiring — CLOSED 2026-08-06 (L-wave, `feat/l-wave-docs`, DECOMPOSED)
 
-
 **Resolution: DECOMPOSED into three sized children and archived.** Ratified 2026-08-05 (spec §1.1
 item 10 / §2.1.4). The entry contradicted its own scope: it was filed as an L for building a durable
 operator-log sink, and **the sink is BUILT** (`lib/log/persist.ts:16` writes `app_events`; the module
@@ -130,11 +128,11 @@ why it never got scheduled.
 
 **Children:**
 
-| Child | Effort | Residual |
-| --- | --- | --- |
-| `BL-OPS-LOG-OAUTH-EMITS` | S | the `OAUTH_REDIRECT_INVALID` branches emit nothing durable |
-| `BL-OPS-LOG-ONBOARDING-EMIT` | S | `ONBOARDING_OPERATOR_ERROR` is render-only, no producer |
-| `BL-OPS-LOG-DASHBOARD-BANNER` | M | the sink's only reader is developer-gated; Doug cannot see it |
+| Child                         | Effort | Residual                                                      |
+| ----------------------------- | ------ | ------------------------------------------------------------- |
+| `BL-OPS-LOG-OAUTH-EMITS`      | S      | the `OAUTH_REDIRECT_INVALID` branches emit nothing durable    |
+| `BL-OPS-LOG-ONBOARDING-EMIT`  | S      | `ONBOARDING_OPERATOR_ERROR` is render-only, no producer       |
+| `BL-OPS-LOG-DASHBOARD-BANNER` | M      | the sink's only reader is developer-gated; Doug cannot see it |
 
 **What was BUILT, recorded so no child re-derives it:** the durable sink (`lib/log/persist.ts:16`
 writes `app_events`) and the sign-out producer (`app/auth/sign-out/route.ts:108,117`).
@@ -208,7 +206,6 @@ into small, independently schedulable rows.
 
 ## BL-E2E-LIFECYCLE-SPECS-CI-DARK — admin-lifecycle e2e specs are matched by playwright projects but invoked by no workflow — CLOSED 2026-08-06 (L-wave, `feat/l-wave-docs`, REFILED at honest scope)
 
-
 **Resolution: the HEADING PREMISE IS REFUTED, and the residual is REFILED as
 `BL-E2E-APP-DEPENDENT-SPECS-CI-DARK` (L).** Ratified 2026-08-05 (spec §1.1 item 10 / §2.1.4).
 
@@ -276,7 +273,6 @@ earlier on this same branch.
 
 ## BL-MUTATION-HARNESS-OPEN-HOLES — parser silent-fragility classes pinned by the mutation harness — CLOSED 2026-08-06 (L-wave, `feat/l-wave-docs`, DECOMPOSED)
 
-
 **Resolution: DECOMPOSED into five standalone entries, one per operator class.** Ratified 2026-08-05
 (spec §1.1 item 10 / §2.1.4). The umbrella was an L that could never be scheduled: it bundled five
 independent parser-hardening projects behind one id, so no one could pick up "the `#REF!` one" without
@@ -285,13 +281,13 @@ promotes them from body-defined ids to real, sized, schedulable rows.
 
 **The five children, each sized M:**
 
-| Child | Holes ledgered | Class |
-| --- | --- | --- |
-| `BL-MUTATION-REF-SUB` | 3314 (3094 wrong / 220 signal_loss) | value corruption |
-| `BL-MUTATION-MERGED-CELL` | 2404 (2271 wrong / 133 signal_loss) | cell fusion |
-| `BL-MUTATION-UNICODE` | 827 (827 wrong / 0 signal_loss) | invisible character |
-| `BL-MUTATION-COLUMN-SHIFT` | 211 (193 wrong / 18 signal_loss) | layout shift |
-| `BL-MUTATION-SECTION-ORDER` | 82 (58 wrong / 24 signal_loss) | order sensitivity |
+| Child                       | Holes ledgered                      | Class               |
+| --------------------------- | ----------------------------------- | ------------------- |
+| `BL-MUTATION-REF-SUB`       | 3314 (3094 wrong / 220 signal_loss) | value corruption    |
+| `BL-MUTATION-MERGED-CELL`   | 2404 (2271 wrong / 133 signal_loss) | cell fusion         |
+| `BL-MUTATION-UNICODE`       | 827 (827 wrong / 0 signal_loss)     | invisible character |
+| `BL-MUTATION-COLUMN-SHIFT`  | 211 (193 wrong / 18 signal_loss)    | layout shift        |
+| `BL-MUTATION-SECTION-ORDER` | 82 (58 wrong / 24 signal_loss)      | order sensitivity   |
 
 Counts derived 2026-08-06 from `RAW_HOLES` in `tests/parser/mutation/knownHoles.ts` (7842 rows total;
 the remaining 1004 map to documented audit findings #5 and #10, which are NOT this entry's classes and
@@ -319,10 +315,17 @@ existence. The one ripple: that suite's comment pointed readers at
 "BACKLOG.md § BL-MUTATION-HARNESS-OPEN-HOLES", which this archive move retires, so the comment now
 names the five standalone entries and this archive. It landed in the same commit.
 
-**Preserved from the umbrella:** the harness itself (`tests/parser/mutationHarness.test.ts`, nightly
-workflow) pins **7,885 day-1 silent holes** (7842 after the 2026-07-28 blank-row ratchet shrink) —
-mutants whose parse changed with no compensating signal (`SILENT_WRONG` / `SILENT_SIGNAL_LOSS`). The
-two DOCUMENTED-finding classes stay mapped to their audit numbers and are NOT part of this
+**Preserved from the umbrella:** the harness itself pins **7,885 day-1 silent holes** (7842 after the 2026-07-28 blank-row ratchet shrink) —
+mutants whose parse changed with no compensating signal (`SILENT_WRONG` / `SILENT_SIGNAL_LOSS`).
+
+**Harness path corrected 2026-08-06 (cross-model review):** the umbrella's body names
+`tests/parser/mutationHarness.test.ts`, a monolith that is DELIBERATELY GONE —
+`tests/parser/mutation/shardPartition.test.ts:106` asserts its absence. The harness is now
+`mutationHarness.gates.test.ts` plus `mutationHarness.shard0..shard7.test.ts`, with the ledger and
+`OPERATOR_FINDING_MAP` at `tests/parser/mutation/knownHoles.ts`. Any child implementing a class runs
+the shards, not the retired file.
+
+The two DOCUMENTED-finding classes stay mapped to their audit numbers and are NOT part of this
 decomposition: `header-typo` → audit #5 (short-header typo intolerance,
 `sectionHeaderNormalize.ts:16,66`) and `blank-row:inject` / `blank-row:remove` → audit #10
 (blank-row block segmentation, `exportSheetToMarkdown.ts:104`, tracked by
@@ -345,7 +348,6 @@ The rec-5 mutation-testing harness (`tests/parser/mutationHarness.test.ts`, nigh
 ---
 
 ## BL-CI-PARALLEL-DB-FALLBACK-AUDIT — re-run the closed-port protocol across the parallel project — CLOSED 2026-08-06 (L-wave, `feat/l-wave-docs`, PROBED: answered-negative)
-
 
 **Resolution: the probe RAN and came back empty. Archived answered-negative.** This entry was
 `**Reachability:** INFERRED, NOT PROBED` and named zero instances, so by the filing bar the probe was
@@ -378,13 +380,13 @@ produced a false negative that looked exactly like this one:
 
 1. **The first baseline was the wrong state.** The ambient shell had all three endpoint variables
    UNSET (vitest loads no `.env.local`: `vitest.config.ts` calls no `dotenv`/`loadEnv`, and
-   `tests/setup.ts` only assigns with `??=`). Setting just `TEST_DATABASE_URL` compared *absent
-   endpoint* to *closed port* — precisely the two states this entry exists to distinguish. Re-run with
+   `tests/setup.ts` only assigns with `??=`). Setting just `TEST_DATABASE_URL` compared _absent
+   endpoint_ to _closed port_ — precisely the two states this entry exists to distinguish. Re-run with
    all three explicitly live.
 2. **The instrument was proven sensitive before the zero was believed.** A temporary sentinel modelling
    the exact shape the entry describes (a file that silently asserts less when the endpoint is refused)
    was planted in the parallel glob space; the differ caught it — `passing 3 -> 1; newly skipped
-   0 -> 2` — and routed to the STAYS-OPEN branch. So the env genuinely reaches the test process, and
+0 -> 2` — and routed to the STAYS-OPEN branch. So the env genuinely reaches the test process, and
    the differ genuinely detects the fallback shape. Supporting premises also checked, not assumed:
    `127.0.0.1:1` returns `ECONNREFUSED` (a refused port, not a filtered one that would time out into
    the very fallback under study), and the live stack answers HTTP 200.
@@ -425,7 +427,6 @@ screen-disposition 2026-08-04: ANNOTATE-INFERRED, stays open. The entry names no
 ---
 
 ## BL-ACCENT-BUTTON-ATOM-SWEEP — migrate remaining raw accent-button compositions to the shared `<AccentButton>` atom — CLOSED 2026-08-06 (L-wave, `feat/l-wave-docs`, DEMOTED at honest census)
-
 
 **Resolution: DEMOTED and archived at an HONEST census.** Executed under the ratified reader-demote
 authority (spec §1.1 item 9). Two facts settle it, and the entry supplies both itself: **"No
@@ -487,7 +488,6 @@ dual gate. No concrete trigger exists today, which is why it archives.
 
 ## BL-CI-RECLASSIFY-PARALLEL-STABILITY — revive the serial→parallel reclassification only with a concurrency-stability + clean-wall proof — CLOSED 2026-08-06 (L-wave, `feat/l-wave-docs`, DEMOTED)
 
-
 **Resolution: DEMOTED and archived.** The entry was shelved by its own text and has been sitting open
 as a set of preconditions nobody was working toward. Executed under the ratified reader-demote
 authority (spec §1.1 item 9). What closed it is not new information — it is that a shelving with two
@@ -532,7 +532,6 @@ The DB-free serial→parallel reclassification (PR #528, closed unmerged) is cor
 ---
 
 ## BL-CI-OVERLAP-BOOT-WITH-SETUP — run the Supabase boot concurrently with pnpm install — CLOSED 2026-08-06 (L-wave, `feat/l-wave-docs`, DEMOTED: answered-negative)
-
 
 **Resolution: DEMOTED and archived as an ANSWERED-NEGATIVE question.** This was built, measured
 against real CI, missed its own pre-ratified accept gate, and was reverted in the same PR — and then
@@ -629,7 +628,6 @@ The last unexploited lever on unit-suite wall clock is the ~101s of per-leg FIXE
 
 ## BL-ROLEFLAGSNOTICE-DROP-GUARD — no guard detects a path that obtains a `roleFlagsNotice` and never emits it — CLOSED 2026-08-06 (L-wave, `feat/l-wave-docs`, DEMOTED)
 
-
 **Resolution: DEMOTED and archived.** It guards a HYPOTHETICAL fifth site via an unbuilt
 static-analysis surface, while all four known instances are closed. Executed under the already-ratified
 reader-demote authority (AGENTS.md ledger filing bar + `docs/superpowers/specs/2026-08-04-backlog-convergence-design.md`
@@ -688,7 +686,6 @@ Structural note for whoever takes this: the emit is attached to the locked wrapp
 
 ## BL-RESYNC-STAGED-REVIEW-UI — no inline "review the diff, then approve the smaller roster" surface for an existing show — CLOSED 2026-08-06 (L-wave, `feat/l-wave-docs`)
 
-
 **Resolution: ARCHIVED unbuilt. The owner never asked for the diff-review workflow.** Ratified by the
 user 2026-08-05 (L-wave decisions brief; spec §1.1 item 5 / §4.5 item 5). The entry was filed
 retroactively to honor a spec's promise to file it, not because anyone wanted the surface — and four
@@ -709,8 +706,10 @@ persist the held parse, so "apply exactly the version I first reviewed" is not a
 `acceptShrink` applies the CURRENT sheet only if its `modifiedTime` still matches the reviewed one,
 and otherwise re-holds. A future diff-review surface therefore needs a persisted parse, not just a
 component — that is the real cost, and it is why the entry sized M rather than S. The build shape it
-named stays valid: restore or re-home `StagedReviewCard` in an existing-show mode exposing
-Apply / Keep-current, and update the `perShowPage.test.tsx` retirement pins.
+named stays valid with one path corrected: restore or re-home `StagedReviewCard` in an existing-show
+mode exposing Apply / Keep-current, and update the retirement pins — which now live in
+`tests/app/admin/showReviewModalLoader.test.tsx` (2026-08-06: `perShowPage.test.tsx` no longer
+exists; that suite's header records it as the Task-7 loader retarget of the per-show page body).
 
 ---
 
@@ -725,7 +724,6 @@ The shrink gate holds a reduced roster and offers `acceptShrink`, which applies 
 ---
 
 ## BL-ATTENTION-PANEL-NAME-LEADING-SECTION — the panel is named for its first section, not its contents — CLOSED 2026-08-06 (L-wave, `feat/l-wave-docs`)
-
 
 **Resolution: the owner KEEPS the leading-section name. Zero code changed.** Ratified by the user
 2026-08-05 (L-wave decisions brief; spec §1.1 item 4 / §4.5 item 4). The understatement is accepted:
@@ -785,7 +783,7 @@ sites the plan-time table did not carry**, which is the third independent confir
 thesis:
 
 - `components/atoms/Section.tsx:235` — a bare `Verified by tests/e2e/layout-dimensions.spec.ts
-  (AC-4.4).` in a component file. Every prior sweep had scoped itself to `lib/` and `tests/`.
+(AC-4.4).` in a component file. Every prior sweep had scoped itself to `lib/` and `tests/`.
 - `lib/time/rightNowTransitions.ts:12` — present-tense "drive their assertions from this constant"
   for the Playwright audit, qualified by a reason that had itself gone stale twice over
   (`test.fixme` pending `framer-motion`; the suite is now `describe.skip`, and framer-motion landed).
@@ -806,19 +804,19 @@ a DB present — outside this class by construction, recorded so no future sweep
 **Sites REPAIRED (claim deleted or rewritten to honest present tense).** Each now states that the
 cited suite does not execute and points at the live CI-dark entry:
 
-| Site | Was |
-| --- | --- |
+| Site                                                                                                       | Was                                                                                                                                                                                                                                           |
+| ---------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `lib/visibility/capabilityTransitions.ts` (header, delta note, inline note, and the entry `reason` STRING) | compound transitions "are exercised by the e2e compound-transition tests"; "the delta is empty (the e2e compound tests cover those cases)"; "(covered by compound tests)"; reason ending "LEAD/admin compound interactions are tested by e2e" |
-| `lib/time/rightNowTransitions.ts` (module header + the `unreachable` treatment note) | the Playwright audit "drive[s] their assertions from this constant"; `unreachable` cells "Regression-guarded by the audit suite" |
-| `lib/visibility/openingReelText.ts` | the `empty-state.spec.ts` AC-4.5 suite "pins this invariant end-to-end" |
-| `components/atoms/Section.tsx` | "Verified by tests/e2e/layout-dimensions.spec.ts (AC-4.4)." |
-| `tests/visibility/capabilityTransitions.test.ts` (header + no-flicker note) | header restatement; "the e2e compound test verifies the no-flicker invariant" |
-| `tests/visibility/transportTransitions.test.ts` (header) | "animation behavior is exercised in e2e tests" |
-| `tests/time/rightNowTransitions.test.ts` (header) | "Animation-behavior tests live in … (scaffolded as `test.fixme()` …)" |
-| `tests/components/atoms/Section.test.tsx` | layout invariants "are verified separately by tests/e2e/layout-dimensions.spec.ts" |
-| `tests/components/crew/transitionAudit.test.tsx` | the compound real-browser half "lives in tests/e2e/crew-page.spec.ts" |
-| `tests/e2e/helpers/rightNow.ts` (4 sites) | "the compound tests … cover the recovery paths"; "the helper covers TIME-DRIVEN transitions"; "The audit suite documents which transitions …"; the `right-now.spec.ts` present-tense description |
-| `tests/e2e/right-now-transitions.spec.ts` (5 sites, incl. the runner-visible skip-reason STRING) | self-referential prose describing its own skipped siblings as live coverage |
+| `lib/time/rightNowTransitions.ts` (module header + the `unreachable` treatment note)                       | the Playwright audit "drive[s] their assertions from this constant"; `unreachable` cells "Regression-guarded by the audit suite"                                                                                                              |
+| `lib/visibility/openingReelText.ts`                                                                        | the `empty-state.spec.ts` AC-4.5 suite "pins this invariant end-to-end"                                                                                                                                                                       |
+| `components/atoms/Section.tsx`                                                                             | "Verified by tests/e2e/layout-dimensions.spec.ts (AC-4.4)."                                                                                                                                                                                   |
+| `tests/visibility/capabilityTransitions.test.ts` (header + no-flicker note)                                | header restatement; "the e2e compound test verifies the no-flicker invariant"                                                                                                                                                                 |
+| `tests/visibility/transportTransitions.test.ts` (header)                                                   | "animation behavior is exercised in e2e tests"                                                                                                                                                                                                |
+| `tests/time/rightNowTransitions.test.ts` (header)                                                          | "Animation-behavior tests live in … (scaffolded as `test.fixme()` …)"                                                                                                                                                                         |
+| `tests/components/atoms/Section.test.tsx`                                                                  | layout invariants "are verified separately by tests/e2e/layout-dimensions.spec.ts"                                                                                                                                                            |
+| `tests/components/crew/transitionAudit.test.tsx`                                                           | the compound real-browser half "lives in tests/e2e/crew-page.spec.ts"                                                                                                                                                                         |
+| `tests/e2e/helpers/rightNow.ts` (4 sites)                                                                  | "the compound tests … cover the recovery paths"; "the helper covers TIME-DRIVEN transitions"; "The audit suite documents which transitions …"; the `right-now.spec.ts` present-tense description                                              |
+| `tests/e2e/right-now-transitions.spec.ts` (5 sites, incl. the runner-visible skip-reason STRING)           | self-referential prose describing its own skipped siblings as live coverage                                                                                                                                                                   |
 
 **Sites deliberately NOT touched, with the reason — so a later pass does not "fix" them:**
 

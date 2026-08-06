@@ -1,9 +1,12 @@
 /**
  * Playwright audit suite for the §8.2 RightNow 12-state transition
- * matrix (M4 Task 4.12 Batch 2). SKIPPED: this file is
- * `describe.skip` and executes in no CI workflow
- * (BL-E2E-APP-DEPENDENT-SPECS-CI-DARK), so nothing it describes below is
- * exercised anywhere.
+ * matrix (M4 Task 4.12 Batch 2). CI-DARK, and partly skipped besides: no
+ * workflow names this file, so nothing in it runs in CI
+ * (BL-E2E-APP-DEPENDENT-SPECS-CI-DARK). Two of its three blocks are also
+ * `test.describe.skip` — the 66-pair audit (:159) and the 6 compound audits
+ * (:296) — so they would not run even if the file were invoked. The §5.7
+ * anchor-selection block (:603) is NOT skipped and does run under a local
+ * `pnpm test:e2e`.
  *
  * Wired in Batch 2: framer-motion is installed, the Today hero renders
  * via AnimatePresence + matrix-driven motion props, and this suite

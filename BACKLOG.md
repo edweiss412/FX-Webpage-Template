@@ -457,7 +457,9 @@ A zero-width non-joiner (U+200C) injected into a cell value survives the parse i
 
 **Ledgered blast radius: 827 holes** (827 `wrong` / 0 `signal_loss`) — derived 2026-08-06 from `RAW_HOLES`. Linkage: `OPERATOR_FINDING_MAP["unicode-inject"] = "BL-MUTATION-UNICODE"` (`tests/parser/mutation/knownHoles.ts:83`), pinned by `knownHoles.test.ts`.
 
-**Shape (M):** detection is a scan for the zero-width/format-character class, but the design decision needing corpus calibration is STRIP vs WARN — silently stripping is an auto-correct, which the project's posture treats as a worse failure than a surfaced signal. Plus the warn-severity `ParseWarning` code with its §12.4 lockstep triple and warning-card copy row.
+**STRIP IS ALREADY THE RATIFIED POLICY — this row is incomplete ENFORCEMENT of it, not an open strip-vs-warn question.** Corrected 2026-08-06 after cross-model review probed the claim: `clean()` strips `[\u200B-\u200D\uFEFF]` at the shared cell boundary (`lib/parser/blocks/_helpers.ts:44-50`, which covers ZWNJ U+200C), and the live fintech ZWNJ shape has an executing regression asserting removal (`tests/parser/blocks/transport.test.ts:409-417`). The 827 holes are real and are fields the mutation harness reaches that this boundary does not.
+
+**Shape (M):** find the paths that bypass `clean()` and route them through it (or through the same character class), then shrink the ledger. The corpus calibration is establishing WHICH fields are still unprotected and whether any legitimately needs a zero-width character preserved. A warn-severity `ParseWarning` code is warranted only for a residue that cannot be stripped safely; if the whole 827 closes by routing through the existing boundary, no catalog row and no §12.4 lockstep is needed — which would make this smaller than M, and the first task should establish that.
 
 **Ratchet contract:** SHRINK-ONLY, as above. Decomposition record: `BACKLOG-archive.md` § `BL-MUTATION-HARNESS-OPEN-HOLES`.
 
@@ -489,9 +491,9 @@ Reordering two adjacent top-level blocks silently reorders the parser's output a
 
 **Status:** OPEN · **Severity:** medium · **Class:** PARSER ROBUSTNESS / DATA PROVENANCE · **Effort:** L · **Filed:** 2026-08-06 (L-wave, spec §2.1.5)
 
-The 2026-07-07 e2e real-world-variation preparedness audit names a per-field provenance/confidence model as the structural fix for its P0-2 class (confident wrong values rendering as authoritative). It is listed as **§7 item 5, "Medium (structural, from prior audit, still the right long-term move)"** and carried in the §11 shipped-status table as item 4: *"Provenance model (§7 item 5 remainder) — the long-term move for the P0-2 zero-signal residuals; 9+ territory. — ⏳ still the open long-term move."* This row is that remainder, filed honestly rather than left as a dangling audit reference.
+The 2026-07-07 e2e real-world-variation preparedness audit names a per-field provenance/confidence model as the structural fix for its P0-2 class (confident wrong values rendering as authoritative). It is listed as **§7 item 5, "Medium (structural, from prior audit, still the right long-term move)"** and carried in the §11 shipped-status table as item 4: _"Provenance model (§7 item 5 remainder) — the long-term move for the P0-2 zero-signal residuals; 9+ territory. — ⏳ still the open long-term move."_ This row is that remainder, filed honestly rather than left as a dangling audit reference.
 
-**What already SHIPPED, so this entry is not re-litigated as unstarted.** The audit's §10.5 P0-2 row records the class as **BOUNDED, not closed**, by three layers that all landed: detection (`CREW_COLUMN_POSITIONAL_FALLBACK` #361, then ambiguity-warnings-v1 **#367** — four judgment-call warn codes with `blockRef.field` anchors and the wizard third state), monitoring (#366/#370), and a three-legged single-source correction layer (fix-in-sheet + Re-sync, use-raw reversal #388/#393/#394, role-token mapping #396). The `fast-check` property-fuzz layer (**#379**) is the other half-step toward provenance. The audit's own words: the structural fix is *"partway there."*
+**What already SHIPPED, so this entry is not re-litigated as unstarted.** The audit's §10.5 P0-2 row records the class as **BOUNDED, not closed**, by three layers that all landed: detection (`CREW_COLUMN_POSITIONAL_FALLBACK` #361, then ambiguity-warnings-v1 **#367** — four judgment-call warn codes with `blockRef.field` anchors and the wizard third state), monitoring (#366/#370), and a three-legged single-source correction layer (fix-in-sheet + Re-sync, use-raw reversal #388/#393/#394, role-token mapping #396). The `fast-check` property-fuzz layer (**#379**) is the other half-step toward provenance. The audit's own words: the structural fix is _"partway there."_
 
 **The residual this entry actually covers — the audit's named zero-signal cases, the ones where NO warning fires by construction:**
 
@@ -645,7 +647,21 @@ Consequence: Doug must leave the dashboard to see operator telemetry and, as a n
 
 **Status:** OPEN · **Severity:** MEDIUM (dark regression coverage) · **Class:** CI wiring · **Effort:** L · **Filed:** 2026-08-06 (L-wave, refile of `BL-E2E-LIFECYCLE-SPECS-CI-DARK` at honest scope)
 
-Roughly **60 standalone-allowlist e2e specs execute in no CI workflow.** They are the residual of the 2026-07-26 CI-dark cluster, which closed everything that did NOT need a running application: `standalone-e2e.yml` now runs the whole standalone config unfiltered on every PR, and that alone retired 30 allowlist rows. What is left all shares one blocker — **each needs a dev server AND a seeded database**, which is exactly why the cluster's ratified scope excluded them.
+**43 standalone-allowlist e2e specs are named by no CI workflow** — the `UNSEEN` rows of `tests/ci/_metaE2eWorkflowCoverage.test.ts`. They are the residual of the 2026-07-26 CI-dark cluster, which closed everything that did NOT need a running application: `standalone-e2e.yml` now runs the whole standalone config unfiltered on every PR, and that alone retired 30 allowlist rows.
+
+**Census, counted 2026-08-06 rather than estimated** (the "~60" this entry was first filed with was wrong, and the miscount is recorded so the number is not re-inflated):
+
+| Allowlist rows                                                          | 67  |
+| ----------------------------------------------------------------------- | --- |
+| `UNSEEN` — named by no workflow, **this entry's population**            | 43  |
+| `PATH_GATED` — named by a workflow, runs when its filter matches        | 13  |
+| `PATH_GATED_BY_EXCLUSION` — named, runs unless the change is prose-only | 6   |
+| `LOCAL_ONLY` — local artifact by design                                 | 1   |
+| complex-invocation row (`admin-lifecycle-transitions`, runs every PR)   | 1   |
+
+Path-gated rows are NOT this entry's scope: a workflow does name them, and "not PR-blocking-capable" is a different property from "runs nowhere". Conflating the two is what produced the original overcount.
+
+**The blocker is not uniform, and promoting the cheap ones first is the obvious first batch.** Most of the 43 need a dev server AND a seeded database, which is why the cluster excluded them — but not all do: `sample.spec.ts`, for instance, requests `/` and asserts the title. Sorting the 43 by what they actually require, and wiring the no-seed ones first, is a cheaper opening move than the entry's original all-or-nothing framing implied.
 
 **This entry replaces a row whose heading premise had gone false.** Its predecessor was named for two `admin-lifecycle` specs being invoked by no workflow; both have been wired since 2026-07-27 and run on `mobile-safari` on every `pull_request` (`.github/workflows/lifecycle-layout-e2e.yml:110,130,132`, re-verified 2026-08-06). The full wiring history is preserved in `BACKLOG-archive.md` § `BL-E2E-LIFECYCLE-SPECS-CI-DARK`. Only the app-dependent residual survives here, and the scope has not changed — only the name now matches it.
 
@@ -793,7 +809,7 @@ Asset URLs are proxied through `/api/asset/diagram/...` which returns auth-check
 ### BL-ADMIN-PER-SHOW-HISTORY — Sync-health-history + parse-warnings-history sections on per-show panel
 
 **Effort:** L (scope floor — design-gated)
-**l-wave-screen 2026-08-06:** PREREQ — scope floor — a schema/data-model decision. Possible bundle with BL-OPS-LOG-DASHBOARD-BANNER: both want an operator-history read over app_events, and building them apart would mean two read paths and two design passes.
+**l-wave-screen 2026-08-06:** PREREQ — scope floor — a schema/data-model decision, and the store is part of what must be decided. This entry's own body names `sync_history` / `pending_syncs` / `shows` and `shows_internal.parse_warnings`; sync history and warnings persist to `sync_log` (`lib/sync/syncLog.ts:43`), NOT to `app_events`. A possible bundle with BL-OPS-LOG-DASHBOARD-BANNER is worth evaluating because both surface operator history to an admin, but they read DIFFERENT stores today, so the bundle is a design question rather than a shared read path. (Corrected 2026-08-06: an earlier version of this stamp asserted a shared `app_events` read path, which pre-selected a store that does not hold this history.)
 
 **Origin:** M11-E-D4 (MEDIUM) filed 2026-05-20. M11 `/help/admin/per-show-panel` documents per-spec §9.2 a "sync health" section (last 5 sync attempts) and a dedicated parse-warnings history section. Shipped `app/admin/show/[slug]/page.tsx` renders `PerShowAlertSection` + `ReSyncButton` + `ParsePanel` + `HelpTooltip` only; no historical-aggregate views.
 
@@ -1080,10 +1096,15 @@ there is the working template. `lifecycle-layout-e2e.yml` is the worked example 
 a batch must clear — **five consecutive green normal-dispatch runs** before a spec counts as wired
 (spec §6.1 / AC-6). Land green globs as they pass rather than flipping the project on at once.
 
-**Relationship to `BL-E2E-APP-DEPENDENT-SPECS-CI-DARK`, stated so the two are not merged by a future
-reader:** that entry is the ~60 app-dependent standalone-allowlist specs needing a dev server and a
-seeded DB. This one is the mobile-safari tile/crew subset. They overlap in mechanism (a spec no
-workflow names) and differ in population; either may be closed without the other.
+**Relationship to `BL-E2E-APP-DEPENDENT-SPECS-CI-DARK` — it is a SUBSET, not a sibling.** Probed
+2026-08-06: all twelve specs listed above are `UNSEEN` rows of the same
+`tests/ci/_metaE2eWorkflowCoverage.test.ts` allowlist that entry's 43-row population is drawn from.
+An earlier draft of this note claimed the two cover different populations and may close
+independently; that was false in the direction that matters, and is corrected here rather than left
+to be re-derived. **Closing the parent closes this one.** This entry survives as a distinct row only
+because it names a coherent, prioritizable BATCH — the mobile-safari tile/crew specs, which share one
+project, one seed, and one template — and the parent's own promotion path is explicitly incremental
+batches. If the parent is worked wholesale, archive this as absorbed.
 
 ## BL-TOGGLE-BANNER-ANCHOR-ROOM-UNMEASURED — one clip-fit anchor still has no real-surface number
 
