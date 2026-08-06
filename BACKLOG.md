@@ -8,23 +8,6 @@ Last reconciled: 2026-08-04 — `feat/harness-font-fidelity` (PR #705) graduated
 
 ---
 
-## BL-ROLEFLAGSNOTICE-DROP-GUARD — no guard detects a path that obtains a `roleFlagsNotice` and never emits it
-
-**Status:** IN PROGRESS · **Branch:** feat/l-wave-docs
-**Status:** OPEN · **Severity:** LOW-MEDIUM (all four known instances closed; the class is unguarded) · **Class:** guard completeness, static analysis · **Filed:** 2026-08-03 (`fix/apply-undo-audit-fidelity`, descoped at spec review R5 after the vector produced a finding in four consecutive rounds) · **Effort:** L
-
-`tests/sync/_metaLeadRoleAppliedTopology.test.ts:29` matches `upsertAdminAlert(<expr>roleFlagsNotice` and asserts the discovered emit-site list. That detects a site that upserts the alert **without** the durable event. It has never detected the opposite and more damaging shape: a path that obtains a real notice and emits nothing. `BL-FINALIZE-CAS-ROLEFLAGS-NOTICE-DROP` was one instance of that shape; the closing branch found and repaired four.
-
-**Why this is L, not S — read before attempting.** Four adversarial rounds each refuted a cheaper design, and those refutations are the real specification:
-
-1. Keying on `applyStagedCore` callers misses `runManualStageForFirstSeen`, which takes its notice straight from `runPhase2` (`lib/sync/runManualStageForFirstSeen.ts:111`).
-2. Keying on `runPhase2` consumers still misses the one known bypass: the pending-ingestion retry route is not a `runPhase2` OR a `processOneFile_unlocked` consumer. It calls `runManualSyncForShow_unlocked`, which forwards through an import alias and a dependency-injection seam (`lib/sync/runManualSyncForShow.ts:13`, `lib/sync/runManualSyncForShow.ts:287-288`). A direct-consumer guard would approve that helper for faithfully preserving the envelope while staying blind to the route that drops it.
-3. So the guard needs **recursive carrier tracking** from every producer through those seams to terminal sinks, plus an exemption syntax and a registry — a static-analysis surface with its own design.
-
-Structural note for whoever takes this: the emit is attached to the locked wrapper (`lib/sync/runScheduledCronSync.ts:2750`), not to the apply, which is why every `_unlocked` caller is a discard site by construction. A future design might close the class at that layer instead of by analysis. Deferred under class-sweep exception (c) — a redesign of a surface the closing PR does not otherwise touch.
-
----
-
 ## BL-CAPABILITY-LOSS-SURVIVING-ROW-FALSE-POSITIVE — arm (c) reports a capability loss for a row that is still live
 
 **Status:** OPEN · **Severity:** LOW-MEDIUM (false operator alert; no data impact) · **Class:** notice fidelity · **Filed:** 2026-08-03 (`fix/apply-undo-audit-fidelity`, spec §9, deferred under class-sweep exception (c)) · **Effort:** S · **Reachability: PROBED 2026-08-04 — REACHABLE on one hold shape of four.**

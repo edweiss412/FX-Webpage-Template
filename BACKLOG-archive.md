@@ -8,6 +8,65 @@ Same split as [DEFERRED.md](./DEFERRED.md) ↔ [DEFERRED-archive.md](./DEFERRED-
 
 ---
 
+## BL-ROLEFLAGSNOTICE-DROP-GUARD — no guard detects a path that obtains a `roleFlagsNotice` and never emits it — CLOSED 2026-08-06 (L-wave, `feat/l-wave-docs`, DEMOTED)
+
+
+**Resolution: DEMOTED and archived.** It guards a HYPOTHETICAL fifth site via an unbuilt
+static-analysis surface, while all four known instances are closed. Executed under the already-ratified
+reader-demote authority (AGENTS.md ledger filing bar + `docs/superpowers/specs/2026-08-04-backlog-convergence-design.md`
+§2; L-wave spec §1.1 item 9) — no per-entry user ask, because the filing bar itself is what this
+fails: the entry names zero reachable live instances, only a class that could regrow.
+
+**What is actually true at close, so the demotion cannot read as coverage loss.** The four instances
+the filing branch found were all repaired through one shared `lib/sync/emitRoleFlagsNotice.ts`
+(finalize-cas, ordinary finalize, `runManualStageForFirstSeen`, and the pending-ingestion retry),
+flushed in a `finally` after the outer transaction at three sites including the STREAMING finalize-cas
+handler — the one real operator traffic reaches. The EXISTING guard
+(`tests/sync/_metaLeadRoleAppliedTopology.test.ts:29`) still detects the shape it always
+detected: a site that upserts the alert WITHOUT the durable event. What stays unguarded is the
+opposite and more damaging shape — a path that obtains a real notice and emits nothing — for a fifth
+site that does not currently exist.
+
+**The four refuted designs ARE the specification. Read them before attempting a rebuild; each cost an
+adversarial round to establish, and re-deriving them is the expensive mistake:**
+
+1. **Keying on `applyStagedCore` callers** misses `runManualStageForFirstSeen`, which takes its notice
+   straight from `runPhase2` (`lib/sync/runManualStageForFirstSeen.ts:111`).
+2. **Keying on `runPhase2` consumers** still misses the one known bypass: the pending-ingestion retry
+   route is neither a `runPhase2` nor a `processOneFile_unlocked` consumer. It calls
+   `runManualSyncForShow_unlocked`, which forwards through an import alias AND a dependency-injection
+   seam (`lib/sync/runManualSyncForShow.ts:13`, `:287-288`). A direct-consumer guard would APPROVE
+   that helper for faithfully preserving the envelope while staying blind to the route that drops it.
+3. **So a correct guard needs recursive carrier tracking** from every producer, through those seams,
+   to terminal sinks — plus an exemption syntax and a registry. That is a static-analysis surface with
+   its own design and its own spec, which is why the entry sized L.
+4. **The structural note that may make all of the above unnecessary:** the emit is attached to the
+   LOCKED WRAPPER (`lib/sync/runScheduledCronSync.ts:2750`), not to the apply, which is why every
+   `_unlocked` caller is a discard site BY CONSTRUCTION. A future design should first ask whether the
+   class closes at that layer — a topology change rather than an analysis — before building the
+   analyzer. This is the cheapest unexplored lever and it is recorded here precisely because the
+   analysis-shaped framing crowds it out.
+
+**Re-open trigger:** a fifth real drop site is found in live code, or the notice-carrying topology is
+reworked such that `_unlocked` callers stop being discard sites by construction (at which point the
+guard becomes cheap and the lever in item 4 is the design). A hypothetical does not re-open it.
+
+---
+
+**Status:** OPEN · **Severity:** LOW-MEDIUM (all four known instances closed; the class is unguarded) · **Class:** guard completeness, static analysis · **Filed:** 2026-08-03 (`fix/apply-undo-audit-fidelity`, descoped at spec review R5 after the vector produced a finding in four consecutive rounds) · **Effort:** L
+
+`tests/sync/_metaLeadRoleAppliedTopology.test.ts:29` matches `upsertAdminAlert(<expr>roleFlagsNotice` and asserts the discovered emit-site list. That detects a site that upserts the alert **without** the durable event. It has never detected the opposite and more damaging shape: a path that obtains a real notice and emits nothing. `BL-FINALIZE-CAS-ROLEFLAGS-NOTICE-DROP` was one instance of that shape; the closing branch found and repaired four.
+
+**Why this is L, not S — read before attempting.** Four adversarial rounds each refuted a cheaper design, and those refutations are the real specification:
+
+1. Keying on `applyStagedCore` callers misses `runManualStageForFirstSeen`, which takes its notice straight from `runPhase2` (`lib/sync/runManualStageForFirstSeen.ts:111`).
+2. Keying on `runPhase2` consumers still misses the one known bypass: the pending-ingestion retry route is not a `runPhase2` OR a `processOneFile_unlocked` consumer. It calls `runManualSyncForShow_unlocked`, which forwards through an import alias and a dependency-injection seam (`lib/sync/runManualSyncForShow.ts:13`, `lib/sync/runManualSyncForShow.ts:287-288`). A direct-consumer guard would approve that helper for faithfully preserving the envelope while staying blind to the route that drops it.
+3. So the guard needs **recursive carrier tracking** from every producer through those seams to terminal sinks, plus an exemption syntax and a registry — a static-analysis surface with its own design.
+
+Structural note for whoever takes this: the emit is attached to the locked wrapper (`lib/sync/runScheduledCronSync.ts:2750`), not to the apply, which is why every `_unlocked` caller is a discard site by construction. A future design might close the class at that layer instead of by analysis. Deferred under class-sweep exception (c) — a redesign of a surface the closing PR does not otherwise touch.
+
+---
+
 ## BL-RESYNC-STAGED-REVIEW-UI — no inline "review the diff, then approve the smaller roster" surface for an existing show — CLOSED 2026-08-06 (L-wave, `feat/l-wave-docs`)
 
 
