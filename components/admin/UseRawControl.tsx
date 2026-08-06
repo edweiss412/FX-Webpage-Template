@@ -584,11 +584,12 @@ export function UseRawControl({
         </p>
       )}
 
-      {busy && (
-        <p className="text-xs text-text-subtle" aria-live="polite">
-          Saving&hellip;
-        </p>
-      )}
+      {/* Mounted unconditionally, text toggled (R3): an `aria-live` region is a
+          live region whether or not it also carries `role="status"`, and one
+          inserted together with "Saving…" announces nothing. */}
+      <p className={busy ? "text-xs text-text-subtle" : "sr-only"} aria-live="polite">
+        {busy ? "Saving…" : ""}
+      </p>
 
       {failed && (
         <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">

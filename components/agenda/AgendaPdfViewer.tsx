@@ -246,9 +246,13 @@ export function AgendaPdfViewer({ src }: AgendaPdfViewerProps) {
             }
           }}
           loading={
-            <div role="status" aria-live="polite" className="py-8 text-sm text-text-subtle">
-              Loading agenda…
-            </div>
+            // NOT a live region (R3): this placeholder is handed to the PDF
+            // viewer and is INSERTED already carrying "Loading agenda…", so the
+            // role announced nothing. Announcing a loading state needs a region
+            // the parent owns across the transition — filed on
+            // BL-LIVE-REGION-AST-WALK-RESIDUE rather than implied by a role that
+            // does not work.
+            <div className="py-8 text-sm text-text-subtle">Loading agenda…</div>
           }
           className="flex w-full flex-col items-center"
         >

@@ -354,8 +354,14 @@ export function Step2Verify({ priorScan }: { priorScan?: Step2PriorScan } = {}) 
             it made a later phase change mutate BOTH regions and speak the line
             twice. This region's job is the transition the inner one cannot
             report — the arrival at success, when the inner announcer is gone. */}
+        {/* SUBMITTING SPEAKS AGAIN (R3). R2 blanked this branch to stop the
+            inner announcer and this one both saying `heading` — but the inner
+            one never announced anything (it is born with its text), so blanking
+            here left the submitting transition announced by nobody. The inner
+            span has dropped its role instead, and this stable region — which
+            outlives every branch — is the single speaker. */}
         {state.kind === "submitting"
-          ? ""
+          ? heading
           : state.kind === "success"
             ? formatTotals(state.result.totals) === 0
               ? "This folder is empty."
@@ -488,10 +494,12 @@ export function Step2Verify({ priorScan }: { priorScan?: Step2PriorScan } = {}) 
                 {reading.lastName}
               </p>
             ) : null}
-            {/* Screen-reader announcer: phase changes only, not every tick. */}
-            <span className="sr-only" role="status" aria-live="polite">
-              {heading}
-            </span>
+            {/* NOT a live region (R3). This span mounts WITH the submitting
+                block and already contains `heading`, so it could never announce
+                the arrival of submitting — the stable region above the branches
+                does that. It stays as sr-only text for anyone navigating the
+                progress block after the fact. */}
+            <span className="sr-only">{heading}</span>
           </div>
         ) : (
           <>

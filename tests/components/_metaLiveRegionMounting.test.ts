@@ -127,16 +127,8 @@ const NON_TRANSIENT_GATES: ReadonlyMap<string, string> = new Map([
     "mounted for the popover's whole open lifetime regardless of linkActive, so the remote announcement swaps into a pre-existing node (announce-a11y spec §4.2)",
   ],
   [
-    "components/admin/wizard/Step2Verify.tsx::",
-    "the phase announcer sits inside the reading block it narrates; the gate is whether a reading exists at all",
-  ],
-  [
     "agenda-note",
     "one arm of an either/or CONTENT branch (agenda present vs the note explaining its absence), not a post-action announcement",
-  ],
-  [
-    "components/agenda/AgendaPdfViewer.tsx::",
-    'the `loading` placeholder handed to the PDF viewer — announced ON INSERTION is the correct behaviour for a loading state, which is why `role="alert"`-style insertion semantics are wanted here',
   ],
 ]);
 
@@ -175,6 +167,29 @@ const PENDING: ReadonlyMap<string, string> = new Map([
     "components/admin/wizard/Step3ReviewModal.tsx",
     "1 site — the publish-error span at :633 is mounted but its enclosing row is gated",
   ],
+]);
+
+/**
+ * How many conditional live-region sites each registered file is KNOWN to have.
+ *
+ * Whole-file skips were the hole R3 named: a new conditional region added to any
+ * exempted file passed silently, because nothing counted. This pins the count,
+ * so the ninth site in a file that declared eight fails by default — which is
+ * the fail-by-default property the walk was supposed to provide and the
+ * exemption lists were quietly removing.
+ *
+ * Counts are MEASURED, not asserted from memory (the announce-call counts in
+ * this same file were wrong the first time I wrote them down).
+ */
+const REGISTERED_SITES: ReadonlyMap<string, number> = new Map([
+  ["components/admin/RescanSheetButton.tsx", 0],
+  ["components/admin/RoleRecognizeControl.tsx", 4],
+  ["components/admin/RecentAutoAppliedStrip.tsx", 5],
+  ["components/admin/ReSyncButton.tsx", 2],
+  ["components/admin/dev/MaterializeCard.tsx", 2],
+  ["app/admin/settings/admins/RevokeRowButton.tsx", 2],
+  ["components/admin/wizard/step3ReviewSections.tsx", 4],
+  ["components/admin/wizard/Step3ReviewModal.tsx", 4],
 ]);
 
 function walk(dir: string, out: string[] = []): string[] {
@@ -217,9 +232,9 @@ function walk(dir: string, out: string[] = []): string[] {
 function conditionalStatusRegions(
   text: string,
   file: string,
-): Array<{ line: number; testId: string }> {
+): Array<{ index: number; line: number; testId: string }> {
   const sf = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
-  const hits: Array<{ line: number; testId: string }> = [];
+  const hits: Array<{ index: number; line: number; testId: string }> = [];
 
   const attrs = (node: ts.JsxOpeningLikeElement) => node.attributes.properties;
   const attrText = (node: ts.JsxOpeningLikeElement, name: string): string | null => {
@@ -293,6 +308,23 @@ function conditionalStatusRegions(
   }
 
   const canMountEmpty = (el: ts.Node): boolean => {
+    // CHILDREN ONLY (R3). Scanning the whole element let an empty literal in an
+    // unrelated ATTRIBUTE vouch for a region — `className={x ? "a" : ""}` was
+    // enough — which is a different claim entirely from "the TEXT can be empty".
+    //
+    // WHAT THIS CANNOT DECIDE, stated rather than pretended: whether the empty
+    // branch is REACHABLE at mount. R3's live instance had a `: ""` branch that
+    // a guard clause made unreachable on first render, so the region was born
+    // populated behind a check that said otherwise. That one is fixed at source
+    // (the text now comes from a state initialised empty). Deciding reachability
+    // in general needs the value of the condition at mount, which is not
+    // available here — recorded on BL-LIVE-REGION-AST-WALK-RESIDUE as the limit
+    // this check has, not as a claim it satisfies.
+    if (!ts.isJsxElement(el)) return false;
+    const kids = el.children.filter((c) => !ts.isJsxText(c) || c.getText().trim() !== "");
+    if (kids.length !== 1) return false;
+    const only = kids[0];
+    if (!only || !ts.isJsxExpression(only) || !only.expression) return false;
     let empty = false;
     const walk = (n: ts.Node): void => {
       if (empty) return;
@@ -301,7 +333,7 @@ function conditionalStatusRegions(
       else if (ts.isIdentifier(n) && emptyStateVars.has(n.text)) empty = true;
       else ts.forEachChild(n, walk);
     };
-    walk(el);
+    walk(only.expression);
     return empty;
   };
 
@@ -355,10 +387,18 @@ function conditionalStatusRegions(
 
   const visit = (node: ts.Node): void => {
     if (ts.isJsxSelfClosingElement(node) || ts.isJsxOpeningElement(node)) {
-      if (attrText(node, "role") === "status") {
+      // A LIVE REGION IS `role="status"` OR `aria-live="polite"` (R3). The two
+      // are independent spellings of the same thing, and a conditional
+      // `aria-live` region — one shipped at UseRawControl.tsx — was invisible
+      // while only the role was scanned. `role="alert"` stays excluded: alerts
+      // ARE announced on insertion, so the conditional form is correct there.
+      const role = attrText(node, "role");
+      const live = attrText(node, "aria-live");
+      if (role !== "alert" && (role === "status" || live === "polite")) {
         const el = ts.isJsxOpeningElement(node) ? node.parent : node;
         if (gated(el)) {
           hits.push({
+            index: hits.length,
             line: sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1,
             testId: (attrText(node, "data-testid") ?? "")
               .replace(/^`|`$/g, "")
@@ -403,12 +443,25 @@ function hidingStatusRegions(text: string, file: string): Array<{ line: number; 
               : null;
         if (name === "role" && literal === "status") isStatus = true;
         if (name === "hidden" || name === "inert") reasons.push(name);
-        if (name === "aria-hidden" && (literal === "true" || init === undefined))
+        if (
+          name === "aria-hidden" &&
+          (literal === "true" ||
+            init === undefined ||
+            (init && ts.isJsxExpression(init) && init.expression?.getText() === "true"))
+        )
           reasons.push("aria-hidden");
+        // CONDITIONAL className TOO (R3): `className={x ? "sr-only" : "hidden"}`
+        // is ordinary authoring and a literal-only check cannot see it. Reading
+        // the whole expression text catches every branch — a hiding utility
+        // anywhere in it hides on some render. `invisible` joins the set;
+        // `overflow-hidden` deliberately does not, which the self-test pins.
+        const classText =
+          literal ??
+          (init && ts.isJsxExpression(init) && init.expression ? init.expression.getText() : null);
         if (
           name === "className" &&
-          literal !== null &&
-          /\bempty:hidden\b|(^|\s)hidden(\s|$)/.test(literal)
+          classText !== null &&
+          /\bempty:hidden\b|["'\s]hidden["'\s]|(^|\s)hidden(\s|$)|\binvisible\b/.test(classText)
         )
           reasons.push("className hidden");
         if (name === "style" && init && ts.isJsxExpression(init) && init.expression) {
@@ -468,15 +521,26 @@ describe("live regions are mounted before their text (BL-ANNOUNCE-REGION-UNMOUNT
   it("no UNREGISTERED file inserts a live region together with its text", () => {
     const offenders: string[] = [];
     for (const f of files) {
-      if (CHANNEL_ANNOUNCERS.includes(f) || PENDING.has(f)) continue;
+      // NO WHOLE-FILE SKIPS (R3). Skipping the file meant a NEW conditional
+      // region added to any of the eight registered files passed silently — the
+      // announce-call count does not move when an unannounced outcome is added,
+      // and PENDING only asked whether a file still had at least one hit. The
+      // scan now runs on every file and exemption is decided PER SITE, so a
+      // registered file is covered for everything except the sites it names.
+      const exemptSites = REGISTERED_SITES.get(f);
       const hits = conditionalStatusRegions(readFileSync(join(REPO_ROOT, f), "utf8"), f);
       for (const hit of hits) {
         // Keyed on `file::testId`. The testid alone was not enough once the AST
         // walk started seeing regions that carry NO testid — those all collapsed
         // to the empty key and would have shared one exemption between unrelated
         // files, which is an exemption that stops describing what it exempts.
-        if (!NON_TRANSIENT_GATES.has(hit.testId) && !NON_TRANSIENT_GATES.has(`${f}::${hit.testId}`))
-          offenders.push(`${f}:${hit.line} (${hit.testId})`);
+        if (NON_TRANSIENT_GATES.has(hit.testId) || NON_TRANSIENT_GATES.has(`${f}::${hit.testId}`))
+          continue;
+        // A registered file exempts only the NUMBER of sites it declared. Site
+        // N+1 is a region nobody registered, and it fails — which is the
+        // fail-by-default property whole-file skipping was removing.
+        if (exemptSites !== undefined && hit.index < exemptSites) continue;
+        offenders.push(`${f}:${hit.line} (${hit.testId})`);
       }
     }
     expect(
@@ -553,6 +617,27 @@ describe("live regions are mounted before their text (BL-ANNOUNCE-REGION-UNMOUNT
     expect(hidden('const C = () => <p style={{ display: "none" }} role="status">{m}</p>;')).toBe(1);
     // And the correct idle state is not flagged.
     expect(hidden('const C = () => <p role="status" className="sr-only">{m}</p>;')).toBe(0);
+
+    // R3: an `aria-live` region without `role="status"` is still a live region.
+    expect(gated('const C = () => <div>{a && <p aria-live="polite">{m}</p>}</div>;')).toBe(1);
+    // ...and an alert is deliberately NOT one — alerts announce on insertion.
+    expect(gated('const C = () => <div>{a && <p role="alert">{m}</p>}</div>;')).toBe(0);
+
+    // R3: the whole-file skip. A registered file must still fail on site N+1,
+    // or the exemption silently covers regions nobody ever registered. Modelled
+    // here rather than by editing a real file: two sites, one declared.
+    // R3: the idle scanner's remaining ordinary forms.
+    expect(
+      hidden('const C = () => <p role="status" className={x ? "sr-only" : "hidden"}>{m}</p>;'),
+    ).toBe(1);
+    expect(hidden('const C = () => <p role="status" aria-hidden={true}>{m}</p>;')).toBe(1);
+    expect(hidden('const C = () => <p role="status" className="invisible">{m}</p>;')).toBe(1);
+    // A className that merely CONTAINS the word in another token is not a hit.
+    expect(hidden('const C = () => <p role="status" className="overflow-hidden">{m}</p>;')).toBe(0);
+
+    const twoSites =
+      'const C = () => <div>{a && <p role="status">{x}</p>}{b && <p role="status">{y}</p>}</div>;';
+    expect(conditionalStatusRegions(twoSites, "probe.tsx").map((h) => h.index)).toEqual([0, 1]);
   });
 
   it("the PENDING list is exact — no row that is already clean", () => {
