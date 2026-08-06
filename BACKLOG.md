@@ -54,6 +54,7 @@ screen-disposition 2026-08-04: KEEP — probe (`tests/sync/capabilityLossReachab
 
 ## BL-TASK-ENROLLMENT-SINGLE-DEPTH — the declared task region cannot express hierarchical or interleaved plan shapes
 
+**Status:** IN PROGRESS · **Branch:** docs/l-wave-spec
 **Status:** OPEN · **Severity:** LOW (opt-in convention; conservative failure with a surfaced finding, never silent) · **Class:** spec-lint task contract, enrollment expressiveness · **Filed:** 2026-08-03, from `docs/superpowers/specs/2026-08-03-pre-review-gate-arms-design.md` §6 items 6 and 7 · **Effort:** L
 
 The `<!-- tasks: depth=N -->` region declares ONE heading depth. Two real corpus shapes do not fit it, both measured:
@@ -198,6 +199,7 @@ The adapter is the substance of the work, not the rendering — `getShowForViewe
 
 ## BL-ADOPTION-PIN-REACHABILITY-BLIND — the shared-helper adoption guard cannot prove LIVE-PATH use
 
+**Status:** IN PROGRESS · **Branch:** docs/l-wave-spec
 **Effort:** L
 
 Surfaced by cross-model review of `fix/admin-popover-overlay-cluster` (2026-08-02, PR #658),
@@ -366,6 +368,7 @@ then archive this entry. Nothing else is owed.
 
 ### BL-PUBLISHED-TOGGLE-CLIENT-COMMIT-WEDGE — a fast server action can leave the Published toggle stuck pending on WebKit
 
+**Status:** IN PROGRESS · **Branch:** docs/l-wave-spec
 **Status:** OPEN · **Severity:** MEDIUM (real-user exposure unquantified; measured 7/10 in a CI loop) · **Class:** upstream framework defect, product exposure · **Filed:** 2026-07-26 (BL-E2E-LIFECYCLE-TRANSITIONS-ROUNDTRIP-FLAKE measurement work) · **Effort:** L
 
 **Measured, not theorized** (CI run 30233337644 retry1 trace + baseline loop 30235889083, 7/10 samples): `setShowPublishedAction` POSTs, the server commits and responds 200 `{ok:true}` in ~230ms with the re-rendered `published:false` tree in the response body, the page stays responsive — and the `PublishedToggle` switch sits `disabled aria-busy="true"` with the OLD `aria-checked` indefinitely. `await setPublished(...)` inside the form action never resolves, so `useFormStatus().pending` never clears and `router.refresh()` is never reached. React never commits the applied tree (React 19 replay-loss class; nearest public report vercel/next.js discussion 88767). Vendored React is identical through next 16.2.12 (`19.3.0-canary-3f0b9e61-20260317`), so no patch-bump fix exists today.
@@ -408,6 +411,7 @@ The DB-free serial→parallel reclassification (PR #528, closed unmerged) is cor
 
 ## BL-PG-CRON-COVERAGE-UNRUN — the live pg-cron introspection suite runs in no CI workflow
 
+**Status:** IN PROGRESS · **Branch:** docs/l-wave-spec
 **Status:** PARTIALLY CLOSED 2026-07-26 (PR3 of the CI-dark coverage cluster) · **Severity:** medium · **Surfaced:** 2026-07-25, whole-diff review round 17 · **Effort:** L
 
 **What closed.** The suite now runs in `unit-suite-db` (removed from `ENV_BOUND_EXCLUDES`, which applied only under `VITEST_EXCLUDE_ENV_BOUND=1` — so it ran locally and was dark in CI only), and against the persistent validation project via the new `pg-cron-validation-parity` job in `x-audits.yml`. Under CI an unreachable `psql` now throws instead of skipping, and a live-case counter refuses a run where zero live cases executed — measured before: exit 0 with "2 passed | 6 skipped", asserting nothing.
@@ -426,6 +430,7 @@ So every assertion in it is dead in CI, including the `active=true` gate that ex
 
 ## BL-WATCH-PROMOTION-ACTIVATION-RACE — a folder switch racing a subscriber can leave one stale active channel
 
+**Status:** IN PROGRESS · **Branch:** docs/l-wave-spec
 **Status:** OPEN · **Severity:** low (bounded to one lease; no data loss) · **Surfaced:** 2026-07-26, watch-renewal-lifecycle spec rounds 2-5 · **Effort:** L
 
 `promoteSettings` supersedes the prior folder's `active` channels and orphans its `pending` ones inside the settings-swap transaction, and `activatePending` refuses a zero-row activation. That closes every window where the pending row exists when promotion runs. It does NOT close the window where a subscriber reads the old configured folder, promotion commits, and the subscriber then inserts and activates its pending row — nor the one where the subscriber commits its activation while promotion is still uncommitted, since under READ COMMITTED it reads the previous committed folder.
@@ -658,6 +663,7 @@ Ledgered `accepted-gap`, not `equivalent`, in `tests/mutation/source/registry.ts
 
 ### BL-EXPORT-BLANK-ROW-SEGMENTATION — blank-row block segmentation fuses/splits sections silently (audit #10)
 
+**Status:** IN PROGRESS · **Branch:** docs/l-wave-spec
 **Status:** PARTIALLY CLOSED (2026-07-27, `fix/export-blank-row-segmentation` — spec `docs/superpowers/specs/2026-07-27-export-blank-row-segmentation.md`) · **Severity:** medium · **Class:** EXPORT/PARSER ROBUSTNESS · **Effort:** L
 
 **Partial closure (2026-07-27):** two of the three spec'd fix directions shipped. (b) **Header-aware segmentation** — `splitBlocks` now starts a new block at a mid-block row whose first non-blank cell is an uppercase known section header (`isMidBlockSectionStart`, `lib/parser/knownSections.ts`; `CLIENT` excluded on corpus evidence), closing the FUSE case structurally for uppercase-known headers with corpus-verified zero output drift (`tests/drive/round-trip-fixture.test.ts` byte-equality + archived-tab fingerprint golden). (c) **Crew-scoped orphan detection** — a new warn-severity `ORPHANED_CREW_ROWS` ParseWarning (operator card + crew-region deep link) fires when a table block's first row carries a crew-role cell (≥2 distinct Load In / Load Out / Strike / Set tokens on one line) with no section header — the SPLIT case for crew rosters, at 0 corpus false positives and 29/29 simulated-split recall (ratcheted by `tests/parser/orphanedCrewRowsCorpus.test.ts`). **The backlog entry's generic orphan-block rule ("no recognizable header adjacent to a recognized section") was probed and REFUTED: 30 false positives on the live corpus** (GEAR-tab gear lists under room headers, INFO free-text blocks, PULL SHEET title rows) — blocks starting with non-header rows are normal sheet layout. **Residuals (still open):** splits of non-crew sections (hotel/transport/details tails have no corpus-clean discriminator); fuses onto mixed-case or unknown headers; crew rows carrying fewer than two role tokens on one line of one cell (including role cells authored with literal pipes, which the parser's cell split decomposes); and the mutation harness cannot observe the exporter-level fuse fix (it mutates exported markdown, never the grid), so `blank-row:remove` ledger holes remain by construction.
@@ -668,6 +674,7 @@ Ledgered `accepted-gap`, not `equivalent`, in `tests/mutation/source/registry.ts
 
 ### BL-TRANSPORT-ID-RESOLUTION — id-based transport visibility + no-match admin warning (deferred from Flow 8.4 to 8.3)
 
+**Status:** IN PROGRESS · **Branch:** docs/l-wave-spec
 **Status:** PARTIALLY CLOSED (2026-07-09, Flow 8.4 PR #374) · **Severity:** medium · **Class:** CREW VISIBILITY / ENRICH · **Effort:** L
 
 **Partial closure (Flow 8.4, PR #374 — `docs/superpowers/specs/2026-07-09-flow8.4-transport-assignee-warning.md`):** the **enrich-time no-match admin warning** shipped. `lib/sync/enrichTransportAssignees.ts` emits one admin-only aggregate data-gap warning (`TRAVEL_TRANSPORT_NAME_UNMATCHED`, `gateExempt: true`) when a transport driver/assignee name references a crew member who would not see their own tile — turning silent invisibility into a staged-review data-quality signal. **Still deferred to 8.3:** id-persistence + id-based visibility matching (a crew `id` does not exist at enrich time — the uuid is DB-assigned at APPLY via `gen_random_uuid()`, `initial_public_schema.sql:32` — so resolve-to-id-and-persist is architecturally infeasible in the enrich pass; 8.3 must move it to an apply-time step). The regression pins below also remain for 8.3, which changes the `transportTileVisible` predicate.
@@ -830,7 +837,7 @@ self-review, adversarial review, planning, adversarial review.
 
 ### BL-OPS-LOG — Structured operator-log sink + producer wiring
 
-**Status:** IN PROGRESS · **Branch:** docs/l-wave-spec
+**Status:** IN PROGRESS · **Branch:** docs/l-wave-spec · **Effort:** L
 **VERIFIED INCOMPLETE 2026-08-03 — 3 of 6 scope clauses unshipped. Do not archive.** Checked clause-by-clause during the merged-backlog sweep; recorded so the next reader does not re-derive it.
 
 - **Built** — the durable sink: `lib/log/persist.ts:16` writes `app_events` (module is `lib/log/`, not the proposed `lib/operatorLog/` — equivalent). Sign-out producer: `app/auth/sign-out/route.ts:108,117`.
@@ -880,6 +887,7 @@ Design memo captures six load-bearing principles: push-not-pull, severity tierin
 
 ### BL-PRIVATE-IMAGE-PIPELINE — Migrate diagrams gallery to `next/image` with auth-preserving pipeline
 
+**Status:** IN PROGRESS · **Branch:** docs/l-wave-spec
 **Effort:** L (scope floor — design-gated)
 
 **Origin:** DEFERRED entry M7-D3 (Diagrams gallery `<img>` → `next/image`). Re-deferred at M9 C6b 2026-05-13 after an in-cluster attempt failed P0 (auth cookies don't forward through `/_next/image`; private Cache-Control rewritten to public, breaking revocation propagation).
@@ -911,6 +919,7 @@ Asset URLs are proxied through `/api/asset/diagram/...` which returns auth-check
 
 ### BL-ADMIN-PER-SHOW-HISTORY — Sync-health-history + parse-warnings-history sections on per-show panel
 
+**Status:** IN PROGRESS · **Branch:** docs/l-wave-spec
 **Effort:** L (scope floor — design-gated)
 
 **Origin:** M11-E-D4 (MEDIUM) filed 2026-05-20. M11 `/help/admin/per-show-panel` documents per-spec §9.2 a "sync health" section (last 5 sync attempts) and a dedicated parse-warnings history section. Shipped `app/admin/show/[slug]/page.tsx` renders `PerShowAlertSection` + `ReSyncButton` + `ParsePanel` + `HelpTooltip` only; no historical-aggregate views.
@@ -1010,6 +1019,7 @@ screen-disposition 2026-08-04: PREREQ-FENCED + ANNOTATED, stays open, NOT claime
 
 ### BL-NON-CREW-UNDO — Undo for non-crew feed rows (section shrinkage / field degradation / asset drift)
 
+**Status:** IN PROGRESS · **Branch:** docs/l-wave-spec
 **Effort:** L
 
 **Filed:** 2026-06-10 from the shipped "sync changes feed + identity-only gate" milestone (PR #19, `docs/superpowers/specs/v1-pre-deployment-amendments/2026-06-08-sync-changes-feed-identity-gate-design.md` §1 non-goals / §7 / finding F6).
@@ -1079,6 +1089,7 @@ screen-disposition 2026-08-04: PREREQ-FENCED + ANNOTATED, stays open, NOT claime
 
 ### BL-CREW-SHEET-TEMPLATE-V2 — Standardized downloadable show-spec template to capture redesign-required fields
 
+**Status:** IN PROGRESS · **Branch:** docs/l-wave-spec
 **Effort:** L (scope floor — design-gated)
 
 **Filed:** 2026-06-15, during the crew-show-page redesign audit (Claude Design handoff bundle `fxav-crew-pages`; design source at `/tmp/design_extract/...` ephemeral, intent recorded in milestone memory). Owner is considering a **downloadable, standardized sheet template** Doug (and future operators) would fill in, so the richer crew-page surfaces have a reliable source instead of depending on organic per-show sheet conventions.

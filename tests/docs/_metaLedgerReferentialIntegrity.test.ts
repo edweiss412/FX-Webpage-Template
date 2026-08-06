@@ -125,6 +125,22 @@ const KNOWN_DANGLING: Record<string, string> = {
   // not exempted — the stale-row ratchet below is what proves that.
   "BL-RESOLVED":
     "cited in docs/audits/pr-38-217-bug-audit-2026-07-02.md — no entry as of 2026-08-02",
+  // L-wave forward references (spec 2026-08-06-l-wave-design.md + its plan): ids the
+  // wave's W-LDOCS branch FILES as part of its ratified decompositions/filings. Each
+  // row is debt that the filing commit repays — the stale-row ratchet forces removal
+  // of the row in the same change that creates the entry.
+  "BL-E2E-APP-DEPENDENT-SPECS-CI-DARK":
+    "filed by L-wave W-LDOCS task L4b (refile of BL-E2E-LIFECYCLE-SPECS-CI-DARK) — remove this row when it lands",
+  "BL-MOBILE-SAFARI-TILE-SPECS-CI-DARK":
+    "candidate refile id in L-wave plan L4d (id decision: keep original) — remove when W-LDOCS lands either way",
+  "BL-OPS-LOG-DASHBOARD-BANNER":
+    "filed by L-wave W-LDOCS task L4c (BL-OPS-LOG decomposition) — remove this row when it lands",
+  "BL-OPS-LOG-OAUTH-EMITS":
+    "filed by L-wave W-LDOCS task L4c (BL-OPS-LOG decomposition) — remove this row when it lands",
+  "BL-OPS-LOG-ONBOARDING-EMIT":
+    "filed by L-wave W-LDOCS task L4c (BL-OPS-LOG decomposition) — remove this row when it lands",
+  "BL-PARSER-FIELD-PROVENANCE-MODEL":
+    "filed by L-wave W-LDOCS task L5 (spec 2026-08-06-l-wave-design.md §2.1.5) — remove this row when it lands",
 };
 
 type Cited = { id: string; files: string[] };
