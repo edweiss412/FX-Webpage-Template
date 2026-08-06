@@ -820,6 +820,7 @@ self-review, adversarial review, planning, adversarial review.
 
 ### BL-OPS-LOG — Structured operator-log sink + producer wiring
 
+**Effort:** L
 **VERIFIED INCOMPLETE 2026-08-03 — 3 of 6 scope clauses unshipped. Do not archive.** Checked clause-by-clause during the merged-backlog sweep; recorded so the next reader does not re-derive it.
 
 - **Built** — the durable sink: `lib/log/persist.ts:16` writes `app_events` (module is `lib/log/`, not the proposed `lib/operatorLog/` — equivalent). Sign-out producer: `app/auth/sign-out/route.ts:108,117`.
