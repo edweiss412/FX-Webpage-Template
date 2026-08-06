@@ -10,6 +10,7 @@ Last reconciled: 2026-08-04 — `feat/harness-font-fidelity` (PR #705) graduated
 
 ## BL-ROLEFLAGSNOTICE-DROP-GUARD — no guard detects a path that obtains a `roleFlagsNotice` and never emits it
 
+**Status:** IN PROGRESS · **Branch:** docs/l-wave-spec
 **Status:** OPEN · **Severity:** LOW-MEDIUM (all four known instances closed; the class is unguarded) · **Class:** guard completeness, static analysis · **Filed:** 2026-08-03 (`fix/apply-undo-audit-fidelity`, descoped at spec review R5 after the vector produced a finding in four consecutive rounds) · **Effort:** L
 
 `tests/sync/_metaLeadRoleAppliedTopology.test.ts:29` matches `upsertAdminAlert(<expr>roleFlagsNotice` and asserts the discovered emit-site list. That detects a site that upserts the alert **without** the durable event. It has never detected the opposite and more damaging shape: a path that obtains a real notice and emits nothing. `BL-FINALIZE-CAS-ROLEFLAGS-NOTICE-DROP` was one instance of that shape; the closing branch found and repaired four.
@@ -66,6 +67,7 @@ The `<!-- tasks: depth=N -->` region declares ONE heading depth. Two real corpus
 
 ## BL-COVERAGE-CLAIMS-CITE-SKIPPED-SUITES — contract artifacts claim e2e coverage from suites that do not execute
 
+**Status:** IN PROGRESS · **Branch:** docs/l-wave-spec
 **Status:** OPEN · **Severity:** LOW-MEDIUM (dark coverage on documented contracts; no product impact) · **Class:** docs/contract, test-coverage claims · **Filed:** 2026-08-03 (`docs/settle-lead-capability-prose`, descoped at spec review R3 after three rounds of under-counting) · **Effort:** L
 
 Twelve artifacts tell a maintainer that compound capability transitions, RightNow transition behavior, and transport animation are exercised by e2e suites. **They are not.** Both named suites are `test.describe.skip`, and neither contains an assertion about the thing claimed.
@@ -171,6 +173,7 @@ The host embedded in `cron.job.command` is environment-supplied and varies by ta
 
 ## BL-RESYNC-STAGED-REVIEW-UI — no inline "review the diff, then approve the smaller roster" surface for an existing show
 
+**Status:** IN PROGRESS · **Branch:** docs/l-wave-spec
 **Filed:** 2026-08-02 (retroactively; `docs/superpowers/specs/data-quality/2026-07-04-resync-quality-gate-design.md:267` §13 says it "files to `BACKLOG.md`", and it never did). **Class:** UX enhancement. **Effort:** M.
 
 The shrink gate holds a reduced roster and offers `acceptShrink`, which applies the CURRENT sheet only if its `modifiedTime` still matches the reviewed one, and otherwise re-holds. That is deliberately not byte-exact: the design does not persist the held parse, so "apply exactly the version I first reviewed" is not available. This entry is that surface — restore or re-home `StagedReviewCard` in an existing-show mode exposing Apply / Keep-current, and update the `perShowPage.test.tsx` retirement pins.
@@ -281,6 +284,7 @@ review surface.
 
 ## BL-CI-OVERLAP-BOOT-WITH-SETUP — run the Supabase boot concurrently with pnpm install (built, MEASURED, and reverted — it does not pay)
 
+**Status:** IN PROGRESS · **Branch:** docs/l-wave-spec
 **Status:** OPEN, but with the lever now MEASURED and REVERTED. Do not rebuild it without new information — the question this entry framed has an answer.
 
 **Effort:** L
@@ -372,6 +376,7 @@ then archive this entry. Nothing else is owed.
 
 ## BL-CI-PARALLEL-DB-FALLBACK-AUDIT — re-run the closed-port protocol across the parallel project
 
+**Status:** IN PROGRESS · **Branch:** docs/l-wave-spec
 **Status:** OPEN, raised by adversarial review of PR #517 (finding 2).
 
 **Effort:** L
@@ -388,6 +393,7 @@ screen-disposition 2026-08-04: ANNOTATE-INFERRED, stays open. The entry names no
 
 ## BL-CI-RECLASSIFY-PARALLEL-STABILITY — revive the serial→parallel reclassification only with a concurrency-stability + clean-wall proof
 
+**Status:** IN PROGRESS · **Branch:** docs/l-wave-spec
 **Filed:** 2026-07-20 (arc SHELVED). **Class:** CI perf. **Effort:** L (structural stability + multi-run measurement).
 
 The DB-free serial→parallel reclassification (PR #528, closed unmerged) is correctness-verified but was shelved: moving ~527 files into the parallel project raises per-shard concurrency, and timing-sensitive moved files (e.g. `tests/admin/_metaInfraContract.test.ts`) starve past the 5s test timeout under CI load — candidate CI run 1 green, run 2 red on identical code. A required gate cannot flake, and the class is load-dependent (not fully enumerable up front). The wall-clock win was also unproven (~17s in contention-noisy samples, under the spec's 30s gate). Seventh lever this program has rejected on the local-passes-CI-fails pattern.
@@ -621,6 +627,7 @@ The cron sync path also synthesizes workbooks (`lib/sync/runScheduledCronSync.ts
 
 ### BL-MUTATION-HARNESS-OPEN-HOLES — parser silent-fragility classes pinned by the mutation harness
 
+**Status:** IN PROGRESS · **Branch:** docs/l-wave-spec
 **Status:** OPEN (2026-07-06, feat/mutation-harness) · **Severity:** medium · **Class:** PARSER ROBUSTNESS · **Effort:** L
 
 The rec-5 mutation-testing harness (`tests/parser/mutationHarness.test.ts`, nightly workflow) pins **7,885 day-1 silent holes** — mutants whose parse changed with no compensating signal (`SILENT_WRONG` / `SILENT_SIGNAL_LOSS`), recorded in `tests/parser/mutation/knownHoles.ts`. Each hole's `finding` field maps its operator class to the audit finding it exercises (`OPERATOR_FINDING_MAP`), so a ledger failure is triageable by operator. Documented-finding classes: **`header-typo` → audit #5** (short-header typo intolerance, `sectionHeaderNormalize.ts:16,66`); **`blank-row:inject` / `blank-row:remove` → audit #10** (blank-row block segmentation, `exportSheetToMarkdown.ts:104`). The remaining operator classes are silent-fragility surfaces the audit did not enumerate as a numbered finding; each is tracked as a backlog sub-item below and its holes shrink when that class is hardened:
@@ -700,6 +707,8 @@ ParsePanel was not alone. Shape swept: **a file under `components/` that no file
 **The debt is still not silent**, and it gained a second guard. `tests/components/_metaOrphanedComponents.test.ts` walks `components/**` every run and fails on any zero-production-importer file absent from `ORPHAN_ALLOWLIST`; `tests/docs/retiredIdentifierReferences.test.ts` walks every tracked file for references to what this branch retired, keyed by line content, so a stale citation to a deleted component cannot survive either. Emptying the allowlist is no longer this entry's goal; keeping every row's reason true is.
 
 ## BL-E2E-LIFECYCLE-SPECS-CI-DARK — admin-lifecycle e2e specs are matched by playwright projects but invoked by no workflow
+
+**Status:** IN PROGRESS · **Branch:** docs/l-wave-spec
 
 > **UPDATE 2026-07-26 (PR4 of the CI-dark cluster).** `admin-lifecycle-transitions.spec.ts` stays allowlisted, but for a materially different reason than before: its two DETERMINISTIC breaks are fixed (a retired-testid assertion that failed every run, and a compound case the ShareHub backdrop made unreachable) and the pre-hydration swallow is repaired. It went from failing every run to one flaky case, measured 4/5 locally with one real-CI failure on the round-trip. Not wired, per spec §6.1's five-consecutive-greens acceptance and its pre-ratified fallback. Tracked as `BL-E2E-LIFECYCLE-TRANSITIONS-ROUNDTRIP-FLAKE`. The rest of this umbrella is the ~60 app-dependent specs needing a dev server and seeded database, deliberately out of the cluster's ratified scope.
 >
@@ -783,6 +792,7 @@ since the value of the scale is that every site uses it.
 
 ## BL-ATTENTION-PANEL-NAME-LEADING-SECTION — the panel is named for its first section, not its contents
 
+**Status:** IN PROGRESS · **Branch:** docs/l-wave-spec
 **Effort:** S
 
 Surfaced by the non-degraded impeccable gate rerun on PR #658 (2026-08-02).
@@ -820,6 +830,7 @@ self-review, adversarial review, planning, adversarial review.
 
 ### BL-OPS-LOG — Structured operator-log sink + producer wiring
 
+**Status:** IN PROGRESS · **Branch:** docs/l-wave-spec
 **VERIFIED INCOMPLETE 2026-08-03 — 3 of 6 scope clauses unshipped. Do not archive.** Checked clause-by-clause during the merged-backlog sweep; recorded so the next reader does not re-derive it.
 
 - **Built** — the durable sink: `lib/log/persist.ts:16` writes `app_events` (module is `lib/log/`, not the proposed `lib/operatorLog/` — equivalent). Sign-out producer: `app/auth/sign-out/route.ts:108,117`.
@@ -848,6 +859,7 @@ self-review, adversarial review, planning, adversarial review.
 
 ### BL-PUSH-NOTIFICATIONS — Email-primary operator push surface
 
+**Status:** IN PROGRESS · **Branch:** docs/l-wave-spec
 **VERIFIED INCOMPLETE 2026-08-03 — 5.5 of 6 design principles shipped. Do not archive.** Checked during the merged-backlog sweep; recorded so the next reader does not re-derive it.
 
 - **Built** — push-not-pull (`lib/notify/deliver.ts`, `app/api/cron/notify/route.ts`), severity tiering (`lib/notify/constants.ts:2`), push-debounce (`constants.ts:11`, 1h), coalescing (`constants.ts:15-16`), quiet success (`digest.ts:228` `no_send`). Provider decision settled on Resend (`lib/notify/send.ts:1`); the memo was ratified via `docs/superpowers/specs/v1-pre-deployment-amendments/2026-06-12-m12.13-unpublish-delivery-design.md`.
@@ -1012,6 +1024,7 @@ screen-disposition 2026-08-04: PREREQ-FENCED + ANNOTATED, stays open, NOT claime
 
 ### BL-EM-DASH-POLICY — Resolve the DESIGN.md §9 em-dash ban vs. shipped usage
 
+**Status:** IN PROGRESS · **Branch:** docs/l-wave-spec
 **Effort:** M (if lockstep sweep; XS if amend-only — owner picks)
 
 **Filed:** 2026-06-13 from the Doug/crew copy audit. Owner decision (2026-06-13): **defer for future consideration after a full review** — do NOT sweep now.
@@ -1051,6 +1064,7 @@ screen-disposition 2026-08-04: PREREQ-FENCED + ANNOTATED, stays open, NOT claime
 
 ### BL-ACCENT-BUTTON-ATOM-SWEEP — Migrate remaining raw accent-button compositions to the shared `<AccentButton>` atom
 
+**Status:** IN PROGRESS · **Branch:** docs/l-wave-spec
 **Filed:** 2026-06-21, during M5-D7 (extract shared `components/shared/AccentButton.tsx`).
 
 **Effort:** L
@@ -1167,6 +1181,7 @@ The Phase 1 crew-page projection alert (`TILE_PROJECTION_FETCH_FAILED`, §4.13 o
 
 ### BL-RESURRECT-MOBILE-SAFARI-E2E — lift the rest of the mobile-safari Playwright project into CI
 
+**Status:** IN PROGRESS · **Branch:** docs/l-wave-spec
 **Filed:** 2026-06-23 (discovered building the crew-e2e CI job). NO CI workflow runs the `mobile-safari` Playwright project — every CI playwright run is project-filtered (`dev-gate-e2e.yml`→dev/prod-build; `help-affordances.yml`→help-docs; `screenshots-*.yml`→screenshots). So `tests/e2e/crew-page.spec.ts` + the ~20 M4 tile specs (schedule-tile, transport-tile, status-financials, role-spoof, pack-list, notes-tile, right-now*, layout-dimensions, empty-state*, apply-driven-refresh, redeem-link, leaked-link, auth-chain, …) are committed but **dead-in-CI** (only run via local `pnpm test:e2e`, which cold-builds ~4 webServers — impractical). The new `.github/workflows/crew-e2e.yml` runs ONLY `crew-section-toggle.spec.ts` (the perf gate + 0-network/dimensional proofs) — the `CREW_E2E_ONLY` filter + `db:seed` pattern there is the reusable template for the rest.
 
 **Effort:** L
