@@ -1012,6 +1012,7 @@ screen-disposition 2026-08-04: PREREQ-FENCED + ANNOTATED, stays open, NOT claime
 
 ### BL-EM-DASH-POLICY — Resolve the DESIGN.md §9 em-dash ban vs. shipped usage
 
+**Status:** IN PROGRESS · **Branch:** feat/l-wave-emdash
 **Effort:** M (if lockstep sweep; XS if amend-only — owner picks)
 
 **Filed:** 2026-06-13 from the Doug/crew copy audit. Owner decision (2026-06-13): **defer for future consideration after a full review** — do NOT sweep now.
