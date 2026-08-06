@@ -141,26 +141,6 @@ it" already specifies it exactly — arm a cue, begin a close, abort inside the 
 no card carries `data-section-freshness-flash` on reopen, on
 `tests/e2e/published-review-modal.realtime.spec.ts`. Nothing about that needs re-deriving.
 
-## BL-FRESHNESS-PROJECTION-NARROWING — seven freshness projections hash a wider model than their renderer paints, so they can over-cue
-
-**Status:** IN PROGRESS · **Branch:** feat/m-wave-ui · **Filed:** 2026-08-03 (class-sweep triggered by the whole-diff review of `feat/modal-freshness-cue`) · **Class:** correctness (cosmetic) · **Effort:** M (seven independent projections, each needing its own probe) · **Severity:** low
-
-`components/admin/review/sectionFreshness.ts` holds one contract: the signature reads what the RENDERER reads. The whole-diff review found two violations where the detector read NARROWER than the renderer, which is the severe direction — content changes on screen and no cue fires. Both are fixed (the diagrams `{current,pending}` unwrap; the agenda projection), as are the two further missed-cue instances the follow-up class-sweep turned up (the uncapped `roomHasScope` rail count; the strike/load-out entry cap exemption).
-
-The sweep also found seven places where the detector reads WIDER than the renderer. Each is over-cue only — the renderer collapses or drops something the detector already hashes, so the worst case is a card that flashes without a visible change, never a change that fails to flash:
-
-- **venue** — `googleLink` is gated through `isParseableUrl` before it reaches `VenueMapTile` (`step3ReviewSections.tsx:1253`); an unparseable-to-unparseable edit paints nothing.
-- **event** — `opening_reel` is painted as `stripOpeningReelText(text).trim()` (`:2224`).
-- **crew** — `date_restriction` is painted through `partialAttendanceLabel(..., { humanize: false })` (`:1682`), which collapses `kind:"none"`, ignores `days` for `unknown_asterisk`, and drops blank days.
-- **contacts** — `contactBlocks` drops any block with no name and no content rows (`:1155`), so an all-blank contact row moves the hash and nothing else.
-- **hotels** — names run through `.filter(hasContent)` and the dates through `formatIsoDate` (`:2726-2728`).
-- **transport** — inside a surviving leg, `assigned_names` is filtered by `hasContent` and date+time are joined into one `when` string (`:1351-1354`).
-- **packlist** — `packItemLabel` erases `TBD`/`N/A`/`TBA` from `cat`/`subCat` via `shouldHideGenericOptional` (`:2379-2380`).
-
-**Why backlog, not land-now:** each fix is an independent projection rewrite, and this project's finding-admissibility rule says a recognizer is not tightened without a probe demonstrating the corruption it prevents. Seven unprobed tightenings landed at merge time is precisely how a projection drifts from its renderer — the same failure this row documents. The severity asymmetry sets the ordering: a missed cue breaks the feature silently and was fixed immediately; an extra flash is visible, self-explaining, and costs nothing to leave.
-
-**What would close it:** per projection, a probe that renders the section with and without the candidate edit, asserts the HTML is byte-identical, then a `D`-row in `tests/components/admin/review/sectionFreshness.test.ts` asserting no cue. Import the shipped predicate rather than re-typing it — every instance above is a re-typed derivation waiting to happen. One further sweep claim, that the schedule day domain misses the `aggregateDays` bookends, was REFUTED by probe: `pick(d.dates, DATE_KEYS)` already covers them and `D20` pins it. Do not re-raise it.
-
 ## BL-SOURCE-ANCHORS-STALE-AFTER-FAILED-GID-FETCH — a preserved anchor map has no revision stamp, so a stale range reads as a valid deep link
 
 **Filed:** 2026-08-03 (surfaced by the cross-model review of the `fix/onboarding-cas-source-anchors` spec). **Class:** data fidelity. **Effort:** M (needs a schema decision first).
@@ -709,20 +689,6 @@ ParsePanel was not alone. Shape swept: **a file under `components/` that no file
 
 **The debt is still not silent**, and it gained a second guard. `tests/components/_metaOrphanedComponents.test.ts` walks `components/**` every run and fails on any zero-production-importer file absent from `ORPHAN_ALLOWLIST`; `tests/docs/retiredIdentifierReferences.test.ts` walks every tracked file for references to what this branch retired, keyed by line content, so a stale citation to a deleted component cannot survive either. Emptying the allowlist is no longer this entry's goal; keeping every row's reason true is.
 
-## BL-RESYNC-REGRESSED-JUMP-LINK — the alert's "open the parse panel" pointer is prose, not an affordance
-
-**Status:** IN PROGRESS · **Branch:** feat/m-wave-ui · **Severity:** LOW-MEDIUM (discoverability) · **Class:** UX — surfaced by the correction-loop de-duplication (#516, 2026-07-20) · **Effort:** M
-
-`RESYNC_QUALITY_REGRESSED`'s body ends "…open the parse panel to see what degraded and fix the sheet." That sentence is the ONLY thing routing Doug from the alert to the Parse warnings panel, and it is plain prose: no link, no jump control.
-
-This pointer became load-bearing in #516. Before that change, the Overview section rendered the correction-loop instruction ("Fixed it in the sheet? … then re-sync.") directly under the alert, so a reader who never scrolled still got the how-to-fix. #516 removed that copy as a duplicate — correctly, since the Parse warnings panel renders the same sentence on a strictly wider condition — which means the alert's prose pointer is now the whole bridge between "something degraded" and "here is how to fix it".
-
-**Why this is NOT a code fix:** master spec §12.4 (`docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:2801`) ratifies "No action link." for this row. Adding a jump affordance contradicts a ratified contract, so it needs a spec amendment first, not a patch. Do not "just add a link" in a UI PR.
-
-**Options to weigh at spec time:** (a) amend the §12.4 row to permit a section-jump action link (note the row's `resolution:"auto"` posture — the link would be navigational, not resolving, which is a different affordance class than the action links other rows carry); (b) leave the alert alone and instead make the rail's "Parse warnings" section carry the attention dot the alert implies, so the route is visible in the nav rather than in prose; (c) accept the prose pointer as sufficient given the rail is always visible in the modal.
-
-**Trigger:** next milestone touching §12.4 alert rows, the attention surface, or `CompactAlertCard` affordances.
-
 ## BL-E2E-LIFECYCLE-SPECS-CI-DARK — admin-lifecycle e2e specs are matched by playwright projects but invoked by no workflow
 
 > **UPDATE 2026-07-26 (PR4 of the CI-dark cluster).** `admin-lifecycle-transitions.spec.ts` stays allowlisted, but for a materially different reason than before: its two DETERMINISTIC breaks are fixed (a retired-testid assertion that failed every run, and a compound case the ShareHub backdrop made unreachable) and the pre-hydration swallow is repaired. It went from failing every run to one flaky case, measured 4/5 locally with one real-CI failure on the round-trip. Not wired, per spec §6.1's five-consecutive-greens acceptance and its pre-ratified fallback. Tracked as `BL-E2E-LIFECYCLE-TRANSITIONS-ROUNDTRIP-FLAKE`. The rest of this umbrella is the ~60 app-dependent specs needing a dev server and seeded database, deliberately out of the cluster's ratified scope.
@@ -1020,41 +986,6 @@ screen-disposition 2026-08-04: PREREQ-FENCED + ANNOTATED, stays open, NOT claime
 
 ---
 
-### BL-BULK-UNDO-ANNOUNCE-UNMOUNT — the bulk Undo-all announcement dies with its group
-
-**Status:** IN PROGRESS · **Branch:** feat/m-wave-ui · **Filed:** 2026-08-03 from `feat/sync-feed-undo-announce`. **Class:** the announce-region unmount defect. **Effort:** M.
-
-`bulkUndoOutcome` lives in `GroupSection` (`components/admin/RecentAutoAppliedStrip.tsx:331`) and its region renders inside that group's panel (`RecentAutoAppliedStrip.tsx:544`). Undoing every undoable row in a show empties the group, so the group unmounts and the all-success announcement goes with it — the same defect `BL-SYNCFEED-UI-1` fixed for the per-row channel, one component over. **Pre-existing**, not introduced by that branch.
-
-Not fixed there because the branch's spec §1.1 R2 ratified the bulk channel as out of scope and promised it byte-identical; fixing it means hoisting per-group state and per-group copy to a stable owner, which is a redesign of the surface that decision fenced.
-
-**Work:** move the bulk outcome onto the layout/dialog channel (`AdminAnnounceProvider`), or hoist its own region above the group. The per-row channel is the worked example.
-
-**Status:** OPEN.
-
----
-
-### BL-ANNOUNCE-REGION-UNMOUNT-CLASS — four more surfaces announce into a region their own success destroys
-
-**Status:** IN PROGRESS · **Branch:** feat/m-wave-ui · **Filed:** 2026-08-03 from `feat/sync-feed-undo-announce`, by sweeping every live region in `components/` and `app/`. **Class:** a11y. **Effort:** M per surface.
-
-`DESIGN.md` already requires announcement regions to be branch-stable, so these are violations of a ratified rule rather than an unlucky pattern.
-
-| Severity | Surface                                                 | Region                                                                     | Removal mechanism                                                                                                                                                                 |
-| -------- | ------------------------------------------------------- | -------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| P0       | `components/admin/RescanSheetButton.tsx`                | `RescanSheetButton.tsx:211` / `:221`, both under the conditional at `:182` | `router.refresh()` on success (`:135`) flips the row's status; Step-3 re-partitions rows, so card, button and the just-set region all unmount. Eight call sites.                  |
-| P1       | `components/admin/FinalizeButton.tsx`                   | conditionally inserted at `FinalizeButton.tsx:579`                         | Sets `complete` and refreshes at `:437`, immediately before the wizard is replaced by the dashboard.                                                                              |
-| P1       | `components/admin/review/PublishedArchivedTabOffer.tsx` | `:135` and `:227`                                                          | Both set a transient message then refresh (`:95`, `:188`); the revalidated `gear.wire` switches the parent between two owning components (`step3ReviewSections.tsx:2515`).        |
-| P2       | `components/admin/RoleRecognizeControl.tsx:195`         | the saved card IS the region, rendered only while `phase === "saved"`      | The action syncs, calls `revalidateShow`, then returns the saved result (`app/admin/show/[slug]/_actions/roleToken.ts:179`); success removes the warning the control is gated on. |
-
-Plus fifteen conditionally-mounted region elements across thirteen sites (a conditionally INSERTED live region is itself the not-announced pitfall): `RoleMappingRow.tsx:212`, `AddAdminForm.tsx:157`, `RotateShareTokenButton.tsx:278` (two), `ReportModal.tsx:553`, `ReSyncButton.tsx:354`, `Step2Verify.tsx:496` (two), `MaterializeCard.tsx:222`, `MaintenanceResetButtons.tsx:193`, `:240`, `ReapStaleSessionsButton.tsx:154`; and as ERROR rather than success regions, `BlockedRowResolver.tsx:251`, `archivedTabOffer.tsx:189`, `:248`.
-
-**Work:** per surface, move the region to an owner above the branch its own success flips. `AdminAnnounceProvider` + `components/admin/announceLog.tsx` are the shipped pattern.
-
-**Status:** OPEN.
-
----
-
 ### BL-EM-DASH-POLICY — Resolve the DESIGN.md §9 em-dash ban vs. shipped usage
 
 **Filed:** 2026-06-13 from the Doug/crew copy audit. Owner decision (2026-06-13): **defer for future consideration after a full review** — do NOT sweep now.
@@ -1162,12 +1093,6 @@ Plus fifteen conditionally-mounted region elements across thirteen sites (a cond
 
 ---
 
-### BL-ADMIN-BADGE-CONTRAST-TOKEN — badge token pair + nav polish batch
-
-**Status:** IN PROGRESS · **Branch:** feat/m-wave-ui · **Effort:** M
-
-Filed 2026-06-10 (mobile needs-attention milestone impeccable dispositions). Project-wide badge token pair (accent-bg badges are ~2.3:1 white-on-#FF8C1A at 12px; e.g. #C25E00 bg ≈4.9:1 AA) applied to BOTH `NotifBell` and the attention-tab badge in the same change. Fold in two P3/LOW polish items from the same gate run: summary-card zero-state copy redundancy (`NeedsAttentionSummaryCard` "All caught up" + "Nothing waiting on you." say the same thing) and `app/admin/layout.tsx` serial `fetchUnresolvedAlertCount` → `loadNeedsAttentionCount` awaits (Promise.all saves a round-trip per admin render). Technical home: `app/globals.css` @theme token pair + the two badge components + layout. No trigger; speculative polish.
-
 ### BL-PROJECTION-ALERT-VIEWER-INDEPENDENT-PROBE — true viewer-independent financials/lead-only alerting — **filed 2026-06-17 (crew-page redesign Phase 1 spec R44)**
 
 **Effort:** M
@@ -1183,16 +1108,6 @@ The Phase 1 crew-page projection alert (`TILE_PROJECTION_FETCH_FAILED`, §4.13 o
 **Why backlog, not now:** intentional per the ratified spec decision to render the raw `" | "`-split legs WITHOUT deep-structuring (the split is positional — for a round-trip the first leg is arrival, second is departure, but a one-way leg cannot be disambiguated, and deep-parsing route/airline/time/conf from the space-separated string is fragile/YAGNI). Adding labels/structure is only sound once a structured-leg source exists. The cleanest enabler is `DEF-FLIGHT-1` (the TRAVEL-tab parser), which could normalize into a structured shape; alternatively a TECH-path post-parser that splits arrival vs departure deterministically.
 
 **Promotion prerequisite:** EITHER (a) `DEF-FLIGHT-1` lands a structured flight shape this card can label, OR (b) operator feedback that the unlabeled legs are a real readability friction. Until then the unlabeled raw-leg render is truthful and passes the impeccable gate.
-
-### BL-CREW-UNKNOWN-ASTERISK-TODAY-DATES — Today Tonight/Where date rows for date-restricted viewers
-
-**Status:** IN PROGRESS · **Branch:** feat/m-wave-ui · **Filed:** 2026-06-19 (crew mock-fidelity Today Mode-A review, Codex plan R3 HIGH). The Today section's Tonight/Where quick-cards render hotel `check_in`/`check_out` (`TodaySection.tsx:164-165`) + venue dates via `KeyValueRows` for ALL viewers, including `unknown_asterisk` (the date-restricted "we haven't confirmed your days yet" marker). `ScheduleSection` already hides every date for `unknown_asterisk`; Today does not gate the Tonight/Where date-bearing rows. The mock-fidelity pass gated the NEW run-of-show timeline (Mode A renders no timeline for `unknown_asterisk`), but did not change the pre-existing Tonight-card contract.
-
-**Effort:** M
-
-**Why backlog, not now:** changing the Tonight/Where contract is beyond a UI-fidelity pass (it touches the existing Today data contract + its tests) and is a broader product/privacy decision — hotel check-in ≈ travel-in date, so it leaks "when the show runs," but hotel/venue facts may be intentionally viewer-independent. Scoping it into the fidelity pass would silently expand the Today contract.
-
-**Promotion prerequisite:** a dedicated crew-privacy review (groups with `BL-CREW-PII-DB-LOCKDOWN`) deciding whether `unknown_asterisk` suppresses Today's Tonight/Where date rows. Until then the timeline gate holds the line on the NEW surface.
 
 ### BL-CI-UNIT-GATE-EXCLUSIONS — gate the two files excluded from the full-suite job
 
@@ -1225,40 +1140,6 @@ The Phase 1 crew-page projection alert (`TILE_PROJECTION_FETCH_FAILED`, §4.13 o
 **Why backlog, not now:** these specs have been unran in CI for a long time and could surface latent seed/timing/env failures (the crew corpus + the M4 tile fixtures mutate shared rows; `workers:1` already serializes them, but resurrecting ~20 at once is a multi-round debugging slog, not a follow-on edit). Scoping the crew-e2e job to one spec delivers the perf gate now without that risk.
 
 **Promotion prerequisite:** extend `crew-e2e.yml` (or a sibling) to run `--project=mobile-safari` (all specs), triaging each failure (most likely: seed dependencies the corpus no longer satisfies, or specs that assumed a pre-redesign DOM). Land green incrementally (add spec globs as they pass) rather than flipping the whole project on at once.
-
-### BL-HELP-UI-LABEL-CROSSWALK-EXACT-MATCH — tighten short action labels in the /help UI-label crosswalk
-
-**Status:** IN PROGRESS · **Branch:** feat/m-wave-ui · **Filed:** 2026-06-23 (Codex flagged it reviewing the D9 sync-model doc fix, PR #96). The crosswalk (`tests/help/_metaUiLabelCrosswalk.test.ts`) verifies each bold/quoted /help label exists in shipped `app/`+`components/` source via **substring** matching. So a short bolded label like `Undo` passes against any longer shipped string (`Undo this change`, `Undo auto-publish`, `Undoing…`) even if the doc means a different control. It catches invented labels but not subtly-wrong ones. (The D9 fix sidestepped this by naming the exact control "Undo this change" in the copy, so no current doc relies on the loose match — this is hardening, not a live bug.)
-
-**Effort:** M
-
-**Why backlog, not now:** tightening short labels to require exact / word-boundary UI-text match is a meta-test change that would re-validate **every** existing bold label across all /help pages at once, likely surfacing a batch of pre-existing loose matches (e.g. `**Sync**` vs shipped `Sync status`) that each need reconciliation or a declared-exception — a multi-round sweep, not a one-line edit. Low ROI relative to that risk.
-
-**Promotion prerequisite:** a /help-docs hardening pass that can absorb re-validating the full label set, OR a concrete instance where a loose match let a wrong label ship. Then add an exact/word-boundary tier for labels under ~6 chars (keep substring for long, unambiguous labels), and reconcile every now-failing label in the same commit (per the structural-defense-calibration rule).
-
-screen-disposition 2026-08-04: KEEP — PROBED, and the entry's own premise is REFUTED. The body says "no current doc relies on the loose match — this is hardening, not a live bug." It is a live bug. Enumerating every bold/backtick candidate of six characters or fewer across `app/help/**` (17 of them) against a comment-stripped `app/` + `components/` haystack found two that have NO standalone UI-string occurrence and pass the crosswalk only by matching an IMPORT IDENTIFIER: `**Share**` (`app/help/getting-started/page.mdx:8`) first matches `import { loadShowShareToken } …`, and `**Viewer**` (`:10`) first matches `import { getShowForViewer, … } …`. Grepping `app` + `components` (excluding `app/help`) for `"Share"` / `'Share'` / `>Share<` and the same three shapes for `Viewer` returns zero hits each, and neither is registered in `tests/help/_uiLabelExceptions.ts`. The matching sites are `tests/help/_metaUiLabelCrosswalk.test.ts:328` (heuristic layer) and `:408` (declared registry), both `includes`. Stays open with the premise corrected: the guard is currently attesting two labels that the product does not render.
-
----
-
-### Items considered for backlog but NOT included
-
-These were on the deferred-vs-backlog audit list (2026-05-19) but determined to be genuine deferrals, not speculative future work. They stay in their plan's DEFERRED.md:
-
-- **M2-D3** (`transportation.show_id` single-row uniqueness) — concrete trigger ("real multi-driver fixture surfaces"); spec question with a clear answer mechanism.
-- **M2-D5** (seed hardcoded restage filename) — has a clear technical home ("next seed touch") even if the trigger hasn't fired.
-- **M4-D1** (parser canonical-key probe) — clear technical home ("M1 follow-up touch OR cross-cutting key-canonicalization task").
-- **M5-D7** (accent button atom) — concrete trigger (4th accent button variant materializes; YAGNI gate).
-- **M9-D-C6c-1** (pinch-zoom discoverability hint) — declined with concrete re-open trigger ("FXAV crew explicitly identifies pinch-discovery friction").
-
-### M12.2 B2 UI polish (impeccable v3 dual-gate deferrals, 2026-06-02)
-
-Speculative finish polish from the B2 UI external impeccable attestation (gate PASSED, zero HIGH/P0/P1; these are LOW/P3 with no user-facing harm, no concrete trigger). Dispositions also in the B2 handoff §12.
-
-- **BACKLOG-B2UI-1** — `DashboardBucketSegmentedControl`: disabled "Archived (0)" segment can read as clickable-but-dead on first encounter; consider `title="No archived shows"`.
-- **BACKLOG-B2UI-2** — `ArchiveShowButton`: two `min-w-[18rem]` arbitrary literals; tokenize (sibling of the shipped `--spacing-confirm-box`) or accept the one-off button-pair width.
-- **BACKLOG-B2UI-3** — `ArchiveShowButton`: armed confirm button's `hover:bg-warning-bg` equals its resting bg (no hover feedback); add a distinct `hover` token.
-
----
 
 ## BL-TOGGLE-BANNER-ANCHOR-ROOM-UNMEASURED — one clip-fit anchor still has no real-surface number
 
