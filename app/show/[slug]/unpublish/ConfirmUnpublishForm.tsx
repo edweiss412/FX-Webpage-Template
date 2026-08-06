@@ -61,12 +61,21 @@ export function ConfirmUnpublishForm({
           <RetryNotice />
         </div>
       ) : null}
+      {/* The ANNOUNCEMENT rides a permanently-mounted region; the visible card
+          below stays conditional and is no longer a live region itself.
+          Whole-diff review R1 refuted the exemption this used to carry ("the
+          form is replaced by the busy notice"): the form renders directly
+          underneath, so the card is a transient result INSERTED into a live
+          page — the defect shape exactly, and the reviewer read the file rather
+          than the exemption's own description of it. */}
+      <p role="status" aria-live="polite" className="sr-only">
+        {state.status === "busy" ? `${BUSY_HEADING}. ${BUSY_BODY}` : ""}
+      </p>
       {state.status === "busy" ? (
         // Published-toggle §3.4: finalize-owned refusal — transient; keep the form
         // available (same recovery-window posture as the infra retry notice).
         <div
           data-testid="unpublish-busy-notice"
-          role="status"
           className="mt-4 rounded-sm border border-border bg-surface-sunken p-3 text-left"
         >
           <p className="text-sm font-semibold text-text-strong">{BUSY_HEADING}</p>

@@ -1045,6 +1045,15 @@ export function ShowReviewSurface({
               return (
                 <section
                   key={s.id}
+                  // BL-RESYNC-REGRESSED-JUMP-LINK: a DOM id so the
+                  // RESYNC_QUALITY_REGRESSED alert's `#warnings` fragment lands
+                  // on a real element. Only this one section gets an id, not
+                  // `id={s.id}` for all of them: every registry id would then
+                  // become a page-wide anchor, and `overview` already belongs to
+                  // OverviewSection — a second element claiming it makes the
+                  // existing #overview links land wherever the document order
+                  // happens to put them.
+                  {...(s.id === "warnings" ? { id: "warnings" } : {})}
                   data-testid={`wizard-step3-card-${dfid}-review-section-${s.id}`}
                   ref={(el) => {
                     if (el) sectionElsRef.current.set(s.id, el);

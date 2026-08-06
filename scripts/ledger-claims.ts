@@ -179,5 +179,18 @@ function main(argv: string[]): number {
 // uncapped-envelope guard could previously only be written against the core
 // (whole-diff R11 F3). Same idiom as scripts/extract-spec-codes.ts:479.
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
-  process.exit(main(process.argv.slice(2)));
+  // `process.exitCode`, NOT `process.exit()`. Writes to a PIPE are asynchronous;
+  // `process.exit()` terminates the moment it is called, discarding whatever the
+  // pipe buffer had not yet accepted. The `--json` envelope is already 10 KB and
+  // the buffer is 8 KB, so `pnpm ledger:claims --json | …` was truncating at
+  // exactly 8192 bytes — non-deterministically, because it depends on how fast
+  // the reader drains, which is why it passed interactively and failed under a
+  // test harness.
+  //
+  // The consequence is the one this tool must never produce: a partial claim
+  // set. JSON.parse rejects it loudly, but the HUMAN path just prints a short
+  // table, and a short table of claims reads exactly like "nothing is in
+  // flight" — the failure invariant 12 exists to prevent. Setting exitCode lets
+  // Node drain stdout and exit with the same status.
+  process.exitCode = main(process.argv.slice(2));
 }

@@ -1,7 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useContext, useState } from "react";
 import { useRouter } from "next/navigation";
+
+import { UndoAnnounceContext } from "@/components/admin/undoAnnounceContext";
 
 import type { PullSheetOverrideWire } from "@/components/admin/review/sectionData";
 import {
@@ -80,6 +82,10 @@ type BaseProps = {
 export function PublishedArchivedTabOffer(props: BaseProps & { tabName: string }) {
   const { tabName, driveFileId, wire, canMutate, onDismissFocus } = props;
   const router = useRouter();
+  // The offer surface is REPLACED by `router.refresh()` on every success path
+  // below, so a region owned by this component cannot outlive the message it
+  // reports (whole-diff review R1). The layout's channel does.
+  const { announce } = useContext(UndoAnnounceContext);
   const [pending, setPending] = useState(false);
   const [dismissed, setDismissed] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -104,7 +110,15 @@ export function PublishedArchivedTabOffer(props: BaseProps & { tabName: string }
         expectedOverrideSnapshot: wire,
       });
       if (res.ok) {
-        if (json.sync && !json.sync.ok) setTransient(syncLine("set", json.sync.kind));
+        if (json.sync && !json.sync.ok) {
+          // The VISIBLE line stays local; the ANNOUNCEMENT goes only through the
+          // channel, and the local node is NOT a live region (R2 finding 4).
+          // Keeping both speaking meant one sentence twice on any render where
+          // this component survives the refresh.
+          const m = syncLine("set", json.sync.kind);
+          setTransient(m);
+          announce(m);
+        }
         router.refresh();
         return;
       }
@@ -131,11 +145,17 @@ export function PublishedArchivedTabOffer(props: BaseProps & { tabName: string }
         <span className="font-medium text-text-strong">{tabName}</span>. We left it out to avoid
         mixing in old gear.
       </p>
-      {transient ? (
-        <p role="status" aria-live="polite" className="text-xs text-text-subtle">
-          {transient}
-        </p>
-      ) : null}
+      {/* Mounted UNCONDITIONALLY, text toggled (BL-ANNOUNCE-REGION-UNMOUNT-CLASS).
+          The conditional form inserted the region together with its text, which
+          screen readers do not announce — they announce mutations WITHIN a
+          region that was already there. Empty at rest, so there is nothing to
+          read until there is. */}
+      {/* NOT a live region: the channel announces this line (R2 finding 4).
+          Two speakers for one event says it twice whenever this component
+          survives the refresh — and it is the channel that must own it, because
+          on the renders where the refresh DOES replace this tree, a local
+          region would be destroyed before it could speak at all. */}
+      <p className="text-xs text-text-subtle">{transient ?? ""}</p>
       {error ? (
         <p role="alert" className="text-xs text-warning-text">
           {error}
@@ -175,6 +195,9 @@ export function PublishedArchivedTabOffer(props: BaseProps & { tabName: string }
 export function PublishedArchivedTabIncludedNote(props: BaseProps) {
   const { wire, driveFileId, canMutate } = props;
   const router = useRouter();
+  // Same reason as the offer above: this note is replaced by the refresh that
+  // follows its own success, so the announcement rides the layout channel.
+  const { announce } = useContext(UndoAnnounceContext);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [transient, setTransient] = useState<string | null>(null);
@@ -197,7 +220,15 @@ export function PublishedArchivedTabIncludedNote(props: BaseProps) {
         expectedOverrideSnapshot: wire,
       });
       if (res.ok) {
-        if (json.sync && !json.sync.ok) setTransient(syncLine("cleared", json.sync.kind));
+        if (json.sync && !json.sync.ok) {
+          // The VISIBLE line stays local; the ANNOUNCEMENT goes only through the
+          // channel, and the local node is NOT a live region (R2 finding 4).
+          // Keeping both speaking meant one sentence twice on any render where
+          // this component survives the refresh.
+          const m = syncLine("cleared", json.sync.kind);
+          setTransient(m);
+          announce(m);
+        }
         router.refresh();
         return;
       }
@@ -223,11 +254,17 @@ export function PublishedArchivedTabIncludedNote(props: BaseProps) {
         Gear from tab <span className="font-medium text-text-strong">{label}</span> is included when
         this show syncs.
       </p>
-      {transient ? (
-        <p role="status" aria-live="polite" className="text-xs text-text-subtle">
-          {transient}
-        </p>
-      ) : null}
+      {/* Mounted UNCONDITIONALLY, text toggled (BL-ANNOUNCE-REGION-UNMOUNT-CLASS).
+          The conditional form inserted the region together with its text, which
+          screen readers do not announce — they announce mutations WITHIN a
+          region that was already there. Empty at rest, so there is nothing to
+          read until there is. */}
+      {/* NOT a live region: the channel announces this line (R2 finding 4).
+          Two speakers for one event says it twice whenever this component
+          survives the refresh — and it is the channel that must own it, because
+          on the renders where the refresh DOES replace this tree, a local
+          region would be destroyed before it could speak at all. */}
+      <p className="text-xs text-text-subtle">{transient ?? ""}</p>
       {error ? (
         <p role="alert" className="text-xs text-warning-text">
           {error}

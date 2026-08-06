@@ -16,6 +16,7 @@ import { cleanup, fireEvent, render, waitFor, within } from "@testing-library/re
 import "@testing-library/jest-dom/vitest";
 import { MESSAGE_CATALOG } from "@/lib/messages/catalog";
 import { ReSyncButton } from "@/components/admin/ReSyncButton";
+import { AdminAnnounceProvider } from "@/components/admin/AdminAnnounceProvider";
 
 const refreshMock = vi.fn();
 vi.mock("next/navigation", () => ({
@@ -374,6 +375,41 @@ describe("ReSyncButton", () => {
     fireEvent.click(button);
     await waitFor(() => expect(desktopVisibleLabel()).toBe("Syncing…"));
     resolve({ json: async () => ({ ok: true }) } as unknown as Response);
+  });
+
+  test("T-RESYNC-SHRINK: the pending decision announces through the channel, and the panel is not a live region", async () => {
+    // BL-ANNOUNCE-REGION-UNMOUNT-CLASS. Two defects in one element. The panel
+    // was `role="status"` and INSERTED with its text, so it never announced —
+    // and it holds the decision's buttons, so a screen reader that DID announce
+    // it would read the controls as part of the announcement. Interactive
+    // content inside a live region is its own anti-pattern.
+    //
+    // The fix is a move, not a toggle: the panel is interactive UI and must stay
+    // conditional, so the arrival is announced on the branch-stable channel
+    // instead.
+    //
+    // ANTI-TAUTOLOGY: the assertion reads the PROVIDER's region, which is
+    // outside the panel — querying inside the panel passes on the broken shape.
+    fetchMock.mockResolvedValue(shrinkHeld());
+    const { getByTestId, findByTestId } = render(
+      <AdminAnnounceProvider testId="admin-undo-status" label="Updates">
+        <ReSyncButton slug="s" />
+      </AdminAnnounceProvider>,
+    );
+    fireEvent.click(getByTestId("admin-resync-button"));
+    const panel = await findByTestId("admin-resync-shrink-confirm");
+    expect(
+      panel.getAttribute("role"),
+      "a panel holding the decision's own buttons must not claim to be a live region",
+    ).not.toBe("status");
+    const region = getByTestId("admin-undo-status");
+    expect(region.contains(panel), "the region must be outside the panel").toBe(false);
+    await waitFor(() =>
+      expect(
+        region.textContent ?? "",
+        "the pending decision must be announced on a region that already existed",
+      ).not.toBe(""),
+    );
   });
 
   test("T-RESYNC-SHRINK: the confirm renders in the OVERLAY, still focuses the safe control, and has NO neutral dismiss", async () => {

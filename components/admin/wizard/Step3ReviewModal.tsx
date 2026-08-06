@@ -489,21 +489,28 @@ export function Step3ReviewModal({
                   )}
                 </button>
                 {/* §11: instant — deliberate (status text presence; spec 2026-07-22 §7.4 all-instant) */}
-                {devCapture.state !== "idle" ? (
-                  <span
-                    role="status"
-                    data-testid={`wizard-step3-card-${dfid}-dev-capture-status`}
-                    // max-w + truncate (impeccable critique P2): shrink-0 actions
-                    // row would otherwise squeeze the title at 390px for the 6 s
-                    // error window. Full text is in the console by contract.
-                    className="max-w-40 truncate text-xs text-text-subtle"
-                  >
-                    {/* §11: instant — deliberate (copy swap; spec 2026-07-22 §7.4 all-instant) */}
-                    {devCapture.state === "busy"
-                      ? "Capturing the modal…"
+                {/* Region mounted whenever the row is; only the TEXT follows the
+                    capture state. A live region inserted together with its text
+                    is never announced (BL-ANNOUNCE-REGION-UNMOUNT-CLASS). */}
+                <span
+                  role="status"
+                  data-testid={`wizard-step3-card-${dfid}-dev-capture-status`}
+                  // max-w + truncate (impeccable critique P2): shrink-0 actions
+                  // row would otherwise squeeze the title at 390px for the 6 s
+                  // error window. Full text is in the console by contract.
+                  className={
+                    devCapture.state === "idle"
+                      ? "sr-only"
+                      : "max-w-40 truncate text-xs text-text-subtle"
+                  }
+                >
+                  {/* §11: instant — deliberate (copy swap; spec 2026-07-22 §7.4 all-instant) */}
+                  {devCapture.state === "busy"
+                    ? "Capturing the modal…"
+                    : devCapture.state === "idle"
+                      ? ""
                       : "Capture failed. Details are in the browser console."}
-                  </span>
-                ) : null}
+                </span>
               </>
             ) : null}
             <ModalCloseButton ref={closeRef} testId={`wizard-step3-card-${dfid}-review-close`} />
@@ -619,11 +626,22 @@ export function Step3ReviewModal({
                   : "All clear to publish"}
               </span>
               {/* §11 T7b: instant — deliberate (error note appears instantly, no animation) */}
-              {publishState === "error" ? (
-                <span role="status" className="min-w-0 text-sm font-medium text-warning-text">
-                  Couldn&apos;t update the publish selection. Try again.
-                </span>
-              ) : null}
+              {/* Mounted unconditionally, text toggled: this note appears only
+                  AFTER a failed publish toggle, which is exactly when insertion
+                  and announcement coincide and the reader hears nothing
+                  (BL-ANNOUNCE-REGION-UNMOUNT-CLASS). */}
+              <span
+                className={
+                  publishState === "error"
+                    ? "min-w-0 text-sm font-medium text-warning-text"
+                    : "sr-only"
+                }
+                role="status"
+              >
+                {publishState === "error"
+                  ? "Couldn't update the publish selection. Try again."
+                  : ""}
+              </span>
               <RescanSheetButton
                 driveFileId={dfid}
                 wizardSessionId={wizardSessionId}

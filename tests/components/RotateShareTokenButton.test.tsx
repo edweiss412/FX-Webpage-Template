@@ -24,6 +24,7 @@ vi.mock("next/navigation", () => ({
 
 import { RotateShareTokenButton } from "@/app/admin/show/[slug]/RotateShareTokenButton";
 import { rotateShareToken } from "@/lib/auth/picker/rotateShareToken";
+import { UndoAnnounceContext } from "@/components/admin/undoAnnounceContext";
 
 const SHOW_ID = "11111111-1111-1111-1111-111111111111";
 const SLUG = "sample-show";
@@ -485,5 +486,60 @@ describe("arm-expiry announcement — RotateShareTokenButton", () => {
       vi.advanceTimersByTime(4_000);
     });
     expect(screen.getByTestId("arm-expiry-announce").textContent).toBe(EXPIRY);
+  });
+});
+
+describe("BL-ANNOUNCE-REGION-UNMOUNT-CLASS: rotation announces through the channel", () => {
+  // WHY THE CHANNEL AND NOT A MOUNTED REGION, which is the shape every other
+  // site in this sweep used. The rotate row is pinned `allowLiveRegion: false`
+  // by tests/components/admin/showpage/_rowAssertions.ts — "the flag defaults to
+  // false so rotate cannot quietly grow one" — and its idle wrapper must contain
+  // EXACTLY the button. A persistent sibling region is therefore not available
+  // here; it would fail that contract, which exists so the ShareHub rows stay
+  // one-control-per-row. The two success banners keep their text (a reader can
+  // still navigate to it) and lose `role="status"`, which was announcing nothing
+  // anyway: both were inserted together with their copy.
+  const announced: string[] = [];
+
+  const renderWithChannel = (props: { isCrewLinkActive: boolean }) => {
+    announced.length = 0;
+    return render(
+      <UndoAnnounceContext.Provider value={{ announce: (m) => announced.push(m) }}>
+        <RotateShareTokenButton showId={SHOW_ID} slug={SLUG} {...props} />
+      </UndoAnnounceContext.Provider>,
+    );
+  };
+
+  test("active: the success sentence reaches the channel, once", async () => {
+    mockRotateOk();
+    renderWithChannel({ isCrewLinkActive: true });
+    await clickThroughConfirm();
+    await waitFor(() => screen.getByTestId("admin-rotate-share-token-ok"));
+
+    expect(announced).toHaveLength(1);
+    expect(announced[0]).toContain("no longer works and everyone will re-pick their name");
+    // The visible banner is the same sentence, so the two cannot drift apart.
+    expect(screen.getByTestId("admin-rotate-share-token-ok").textContent).toContain(announced[0]!);
+  });
+
+  test("inactive: the INACTIVE sentence reaches the channel, not the active one", async () => {
+    // The discriminating case: an implementation that announces one hardcoded
+    // string passes the test above and is wrong here.
+    mockRotateOk();
+    renderWithChannel({ isCrewLinkActive: false });
+    await clickThroughConfirm();
+    await waitFor(() => screen.getByTestId("admin-rotate-share-token-ok-inactive"));
+
+    expect(announced).toHaveLength(1);
+    expect(announced[0]).toContain("stays inactive");
+    expect(announced[0]).not.toContain("re-pick their name");
+  });
+
+  test("no rotation, no announcement (premise)", () => {
+    // Without this, both tests above would still pass against a component that
+    // announces on mount — and the whole point is announcing on the TRANSITION.
+    mockRotateOk();
+    renderWithChannel({ isCrewLinkActive: true });
+    expect(announced).toEqual([]);
   });
 });

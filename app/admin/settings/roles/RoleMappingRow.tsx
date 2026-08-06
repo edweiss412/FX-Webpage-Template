@@ -150,6 +150,26 @@ export function RoleMappingRow({ row }: { row: RoleMappingRowData }) {
         </span>
       </div>
 
+      {/* Mounted OUTSIDE the mode branches, and that placement is the whole
+          point (whole-diff review R1). Saving runs `setSavedConfirm(true)` and
+          `setMode("view")` together, so a region living inside the `view` arm is
+          MOUNTED, already populated, by the same update that fills it — never
+          announced, which is the exact defect
+          BL-ANNOUNCE-REGION-UNMOUNT-CLASS names. "Persistent" has to mean
+          persistent across the branch that changes, not merely unconditional
+          within one arm of it. */}
+      <p
+        role="status"
+        data-testid="role-mapping-saved-confirm"
+        className={
+          savedConfirm
+            ? "rounded-md border border-border bg-info-bg px-2.5 py-2 text-xs text-text-subtle min-[760px]:col-span-4"
+            : "sr-only"
+        }
+      >
+        {savedConfirm ? COPY.EDIT_SAVED_CONFIRM : ""}
+      </p>
+
       {mode === "view" ? (
         <>
           <div
@@ -209,15 +229,6 @@ export function RoleMappingRow({ row }: { row: RoleMappingRowData }) {
               {COPY.REMOVE_LABEL}
             </button>
           </div>
-          {savedConfirm ? (
-            <p
-              role="status"
-              data-testid="role-mapping-saved-confirm"
-              className="rounded-md border border-border bg-info-bg px-2.5 py-2 text-xs text-text-subtle min-[760px]:col-span-4"
-            >
-              {COPY.EDIT_SAVED_CONFIRM}
-            </p>
-          ) : null}
         </>
       ) : null}
 

@@ -58,6 +58,8 @@
   --color-accent-text: var(--color-accent-text-runtime);
   --color-accent-on-bg: var(--color-accent-on-bg-runtime);
   --color-accent-edge: var(--color-accent-edge-runtime);
+  --color-badge-count: var(--color-badge-count-runtime);
+  --color-badge-count-text: var(--color-badge-count-text-runtime);
   --color-stale-tint: var(--color-stale-tint-runtime);
   --color-warning-bg: var(--color-warning-bg-runtime);
   --color-warning-text: var(--color-warning-text-runtime);
@@ -322,6 +324,15 @@
   /* ON-state control boundary; 3.61:1 vs the orange track, 8.06:1 vs bg
      (WCAG 1.4.11 both-sides) */
   --color-accent-edge-runtime: #7a3d00;
+  /* Count badges (nav bell, attention tab) — BL-ADMIN-BADGE-CONTRAST-TOKEN.
+     Its OWN pair, deliberately not the accent. The badge renders whenever a
+     count is non-zero, and PRODUCT.md reserves orange for "this matters now";
+     an always-on orange dot spends the signature colour on chrome. It is also a
+     12px semibold numeral, which WCAG treats as ordinary body text at 4.5:1 —
+     white on #ff8c1a is 2.33:1, and on the ~#C25E00 the entry suggested it is
+     4.29:1, still under the floor. #b85800 measures 4.74:1. */
+  --color-badge-count-runtime: #b85800;
+  --color-badge-count-text-runtime: #ffffff;
   --color-stale-tint-runtime: #f4ece0;
   --color-warning-bg-runtime: #fff3d6;
   --color-warning-text-runtime: #5c3f00;
@@ -371,6 +382,10 @@
     --color-accent-on-bg-runtime: #ffa047;
     /* decorative in dark — the track itself is 8.16:1 vs bg */
     --color-accent-edge-runtime: #ffa047;
+    /* Dark keeps the same pair: it already clears 4.5:1 against white, and the
+       badge must read identically in both modes — a count is a count. */
+    --color-badge-count-runtime: #b85800;
+    --color-badge-count-text-runtime: #ffffff;
     --color-stale-tint-runtime: #26221b;
     --color-warning-bg-runtime: #3a2e14;
     --color-warning-text-runtime: #ffd68a;
@@ -416,6 +431,10 @@
   --color-accent-on-bg-runtime: #ffa047;
   /* decorative in dark — the track itself is 8.16:1 vs bg */
   --color-accent-edge-runtime: #ffa047;
+  /* Same pair as light: a count is a count, and #b85800 clears both floors in
+     dark too — 4.74:1 on white text, 3.75:1 against the dark surface. */
+  --color-badge-count-runtime: #b85800;
+  --color-badge-count-text-runtime: #ffffff;
   --color-stale-tint-runtime: #26221b;
   --color-warning-bg-runtime: #3a2e14;
   --color-warning-text-runtime: #ffd68a;

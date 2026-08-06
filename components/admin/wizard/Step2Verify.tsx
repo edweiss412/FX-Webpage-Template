@@ -339,6 +339,37 @@ export function Step2Verify({ priorScan }: { priorScan?: Step2PriorScan } = {}) 
       aria-labelledby="wizard-step2-heading"
       className="flex flex-col gap-section-gap"
     >
+      {/* THE STEP'S ONE LIVE REGION (BL-ANNOUNCE-REGION-UNMOUNT-CLASS).
+          Mounted for the step's whole life, so a phase change is a MUTATION a
+          screen reader announces. The result bodies below are swapped in
+          already populated — a live region on them is new DOM, not a mutation —
+          and two of them hold links, which must never sit inside a live region
+          because a reader would voice the control as part of the announcement.
+          The submitting branch's own announcer stays: it lives and dies with
+          that branch and reports tick-level phase text this one deliberately
+          does not. */}
+      <p role="status" aria-live="polite" className="sr-only">
+        {/* SUBMITTING IS DELIBERATELY BLANK HERE (R2 finding 4). The submitting
+            branch mounts its own announcer with this same `heading`, so echoing
+            it made a later phase change mutate BOTH regions and speak the line
+            twice. This region's job is the transition the inner one cannot
+            report — the arrival at success, when the inner announcer is gone. */}
+        {/* SUBMITTING SPEAKS AGAIN (R3). R2 blanked this branch to stop the
+            inner announcer and this one both saying `heading` — but the inner
+            one never announced anything (it is born with its text), so blanking
+            here left the submitting transition announced by nobody. The inner
+            span has dropped its role instead, and this stable region — which
+            outlives every branch — is the single speaker. */}
+        {state.kind === "submitting"
+          ? heading
+          : state.kind === "success"
+            ? formatTotals(state.result.totals) === 0
+              ? "This folder is empty."
+              : state.result.totals.staged === 0
+                ? "Scan finished. Nothing is ready to review."
+                : "Scan finished."
+            : ""}
+      </p>
       <header className="flex flex-col gap-2">
         <p
           data-testid="wizard-step2-eyebrow"
@@ -406,7 +437,6 @@ export function Step2Verify({ priorScan }: { priorScan?: Step2PriorScan } = {}) 
           <p
             id="wizard-step2-scanned-note"
             data-testid="wizard-step2-resume"
-            role="status"
             className="inline-flex items-center gap-1.5 text-sm font-medium text-text-subtle"
           >
             <Check aria-hidden="true" className="size-4 shrink-0 text-text-subtle" />
@@ -464,10 +494,12 @@ export function Step2Verify({ priorScan }: { priorScan?: Step2PriorScan } = {}) 
                 {reading.lastName}
               </p>
             ) : null}
-            {/* Screen-reader announcer: phase changes only, not every tick. */}
-            <span className="sr-only" role="status" aria-live="polite">
-              {heading}
-            </span>
+            {/* NOT a live region (R3). This span mounts WITH the submitting
+                block and already contains `heading`, so it could never announce
+                the arrival of submitting — the stable region above the branches
+                does that. It stays as sr-only text for anyone navigating the
+                progress block after the fact. */}
+            <span className="sr-only">{heading}</span>
           </div>
         ) : (
           <>
@@ -495,8 +527,6 @@ export function Step2Verify({ priorScan }: { priorScan?: Step2PriorScan } = {}) 
               formatTotals(state.result.totals) === 0 ? (
                 <div
                   data-testid="wizard-step2-empty"
-                  role="status"
-                  aria-live="polite"
                   className="mt-1 flex flex-col gap-2 rounded-sm border border-border bg-surface-sunken p-3 text-base text-text"
                 >
                   <p className="font-semibold text-text-strong">This folder is empty.</p>
@@ -515,8 +545,6 @@ export function Step2Verify({ priorScan }: { priorScan?: Step2PriorScan } = {}) 
               ) : (
                 <div
                   data-testid="wizard-step2-nothing-ready"
-                  role="status"
-                  aria-live="polite"
                   className="mt-1 flex flex-col gap-2 rounded-sm border border-border bg-surface-sunken p-3 text-base text-text"
                 >
                   <p className="font-semibold text-text-strong">

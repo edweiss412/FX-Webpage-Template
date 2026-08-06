@@ -15,6 +15,7 @@
 import { describe, expect, it } from "vitest";
 
 import { buildPublishedSectionData } from "@/components/admin/review/publishedAdapter";
+import { formatIsoDate } from "@/lib/format/date";
 import { renderedSectionIds } from "@/components/admin/review/sectionInclusion";
 import {
   buildSectionSignatures,
@@ -869,5 +870,165 @@ describe("section freshness detector", () => {
         signaturesOf(withEntries("Strike B")),
       ),
     ).toEqual(["schedule"]);
+  });
+
+  /**
+   * D21..D27 — BL-FRESHNESS-PROJECTION-NARROWING, one row per projection.
+   *
+   * EACH OF THESE HAS A PROBE BEHIND IT, and the probe is the load-bearing half.
+   * A "no cue fires" assertion is trivially satisfiable by a projection that
+   * reads nothing at all, so on its own it is a test that a bug would pass. What
+   * makes each row a claim is its twin in
+   * `sectionFreshnessProjection.probe.test.tsx`, which renders the same section
+   * with the same two inputs through the SHIPPED `step3Sections(...).render` and
+   * asserts the HTML is byte-identical. Together they say: this edit paints
+   * nothing, therefore it must not cue. Either half alone says very little.
+   *
+   * The venue row is the one to read if you only read one. The entry proposed
+   * gating the link through `isParseableUrl` and stopping there; the probe found
+   * the eyebrow COUNT still counts an unparseable link, so that narrowing would
+   * have traded an over-cue for a missed cue — the direction that breaks the
+   * feature silently. The shipped projection keeps a presence bit as well, and
+   * D21b is the regression pin for it.
+   */
+  it("D21: an unparseable googleLink swapped for another unparseable one does not cue", () => {
+    // BOTH sides carry a link. `changedBetween` would compare the base fixture,
+    // which has NO googleLink, against an unparseable one — that is the
+    // absent-to-unparseable case, and D21b asserts it DOES cue.
+    const withLink = (v: string) => {
+      const s = reviewSnapshot();
+      (showOf(s).venue as Record<string, unknown>).googleLink = v;
+      return s;
+    };
+    expect(
+      changedSectionIds(signaturesOf(withLink("not a url")), signaturesOf(withLink("also not"))),
+    ).toEqual([]);
+  });
+
+  it("D21b: but a link APPEARING still cues, because the field count paints it", () => {
+    // The missed-cue guard for D21's narrowing. Without the presence bit this
+    // passes only by accident of what else the projection hashes; with the naive
+    // `isParseableUrl`-only narrowing it fails.
+    const before = signaturesOf(reviewSnapshot());
+    const after = reviewSnapshot();
+    (showOf(after).venue as Record<string, unknown>).googleLink = "not a url";
+    expect(changedSectionIds(before, signaturesOf(after))).toContain("venue");
+  });
+
+  it("D22: an opening_reel edit confined to a stripped Drive URL does not cue", () => {
+    const withReel = (id: string) => {
+      const s = reviewSnapshot();
+      (showOf(s).event_details as Record<string, unknown>).opening_reel =
+        `Watch here: https://drive.google.com/file/d/${id}/view`;
+      return s;
+    };
+    expect(
+      changedSectionIds(signaturesOf(withReel("REEL_ONE")), signaturesOf(withReel("REEL_TWO"))),
+    ).toEqual([]);
+  });
+
+  it("D23: the day list on an unknown_asterisk restriction does not cue", () => {
+    const withDays = (days: string[]) => {
+      const s = reviewSnapshot();
+      (s.crew_members as Record<string, unknown>[])[0]!.date_restriction = {
+        kind: "unknown_asterisk",
+        days,
+      };
+      return s;
+    };
+    expect(
+      changedSectionIds(
+        signaturesOf(withDays(["2026-08-03"])),
+        signaturesOf(withDays(["2026-08-03", "2026-08-04"])),
+      ),
+    ).toEqual([]);
+  });
+
+  it("D24: editing a field inside an all-blank contact block does not cue", () => {
+    // THE MUTATED FIELD MUST BE ONE THE OLD PROJECTION READ, or this row passes
+    // with or without the narrowing it exists to pin. R2 probed the first
+    // version: it moved `notes`, which the legacy `pickAll(CONTACT_KEYS)` never
+    // hashed either, so both sides were equal for a reason that had nothing to
+    // do with `contactBlocks`. It was the only non-discriminating row of
+    // D21-D27, and it read exactly like the six that do discriminate.
+    //
+    // `kind` IS in CONTACT_KEYS, so the legacy projection moved on this edit
+    // while the renderer drops the whole block (no name, no content rows) and
+    // paints nothing. That is the narrowing, stated so it can fail.
+    const blank = { id: "blank-1", name: "", email: "", phone: "", notes: null };
+    const withBlank = (kind: string) => {
+      const s = reviewSnapshot();
+      (s.contacts as unknown[]).push({ ...blank, kind });
+      return s;
+    };
+    // Premise: the two blocks really are both dropped by the renderer, so the
+    // no-cue result is the narrowing rather than "the fixture never changed".
+    expect(withBlank("other").contacts).not.toEqual(withBlank("production").contacts);
+    expect(
+      changedSectionIds(signaturesOf(withBlank("other")), signaturesOf(withBlank("production"))),
+    ).toEqual([]);
+  });
+
+  it("D25: a blank guest name added to a reservation does not cue", () => {
+    const before = signaturesOf(reviewSnapshot());
+    const after = reviewSnapshot();
+    const h = (after.hotel_reservations as Record<string, unknown>[])[0]!;
+    h.names = [...(h.names as string[]), "   "];
+    expect(changedSectionIds(before, signaturesOf(after))).toEqual([]);
+  });
+
+  it("D26: a transport leg re-splitting date and time across one when-line does not cue", () => {
+    const withLeg = (leg: Record<string, unknown>) => {
+      const s = reviewSnapshot();
+      (s.transportation as Record<string, unknown>[])[0]!.schedule = [leg];
+      return s;
+    };
+    expect(
+      changedSectionIds(
+        signaturesOf(
+          withLeg({ stage: "Load-in", date: "2026-08-01", time: "09:00", assigned_names: [] }),
+        ),
+        signaturesOf(
+          withLeg({ stage: "Load-in", date: "2026-08-01 09:00", time: "", assigned_names: [] }),
+        ),
+      ),
+    ).toEqual([]);
+  });
+
+  it("D27: a packlist cat sentinel swapped for another sentinel does not cue", () => {
+    const withCat = (cat: string) => {
+      const s = reviewSnapshot();
+      const c = (showOf(s).pull_sheet as Record<string, unknown>[])[0]!;
+      (c.items as Record<string, unknown>[])[0]!.cat = cat;
+      return s;
+    };
+    expect(changedSectionIds(signaturesOf(withCat("TBD")), signaturesOf(withCat("N/A")))).toEqual(
+      [],
+    );
+  });
+
+  it("D25b: same painted dates, different NIGHT COUNT still cues (whole-diff R1)", () => {
+    // The missed-cue guard for D25's narrowing, and the second instance of the
+    // venue shape in one commit: `weekday-short` drops the YEAR, so two check-in
+    // dates six years apart paint the SAME label while the nights pill moves
+    // from 4 to 2195. Narrowing to the label alone lost the pill.
+    const withDates = (checkIn: string) => {
+      const s = reviewSnapshot();
+      const h = (s.hotel_reservations as Record<string, unknown>[])[0]!;
+      h.check_in = checkIn;
+      h.check_out = "2026-08-05";
+      return s;
+    };
+    // Premise: the two inputs really do paint the same label, or this case is
+    // asserting something other than what it claims.
+    expect(formatIsoDate("2020-08-01", "weekday-short")).toBe(
+      formatIsoDate("2026-08-01", "weekday-short"),
+    );
+    expect(
+      changedSectionIds(
+        signaturesOf(withDates("2020-08-01")),
+        signaturesOf(withDates("2026-08-01")),
+      ),
+    ).toContain("hotels");
   });
 });

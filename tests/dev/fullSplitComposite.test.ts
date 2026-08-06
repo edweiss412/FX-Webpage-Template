@@ -67,13 +67,19 @@ describe("t3-full-attention-split composite", () => {
     });
   });
 
-  it("overview row resolves the INTERNAL anchor from the gallery slug", () => {
+  it("the internal-anchor row resolves its anchor from the gallery slug", () => {
+    // RESYNC_QUALITY_REGRESSED moved from `#overview` to `#warnings`
+    // (BL-RESYNC-REGRESSED-JUMP-LINK): the alert's copy says "open the parse
+    // panel to see what degraded", and the link had been dropping the reader at
+    // the top of the page. What this case is ACTUALLY about is unchanged — that
+    // the gallery scenario threads its slug into an internal anchor — so it
+    // follows the code to its new destination rather than pinning the old one.
     const items = deriveScenarioAttention(scenario());
     const ov = items.find((i) => i.kind === "alert" && i.alert.code === "RESYNC_QUALITY_REGRESSED");
-    if (ov?.kind !== "alert") throw new Error("overview item missing");
+    if (ov?.kind !== "alert") throw new Error("internal-anchor item missing");
     expect(ov.alert.action).toEqual({
-      label: "Go to Overview",
-      href: `/admin?show=${GALLERY_SLUG}#overview`,
+      label: "See what degraded",
+      href: `/admin?show=${GALLERY_SLUG}#warnings`,
       external: false,
     });
   });

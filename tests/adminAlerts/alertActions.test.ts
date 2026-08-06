@@ -195,6 +195,40 @@ describe("RESYNC_SHRINK_HELD (re-sync quality gate, audit #3)", () => {
   });
 });
 
+describe("RESYNC_QUALITY_REGRESSED targets the Parse warnings panel (BL-RESYNC-REGRESSED-JUMP-LINK)", () => {
+  // Failure mode this closes: the alert HAD an action link the whole time, and it
+  // pointed at Overview — the top of the show page — while the alert's own copy
+  // tells the reader to "open the parse panel to see what degraded". The reader
+  // landed one scroll away from the only surface that answers the question, and
+  // §12.4 said "No action link." so nobody reading the spec knew there was a link
+  // to be wrong.
+  it("builds the #warnings fragment, labelled for the panel it lands on", () => {
+    expect(resolveAlertAction("RESYNC_QUALITY_REGRESSED", {}, slugOpts)).toEqual({
+      label: "See what degraded",
+      href: `/admin?show=${encodeURIComponent(slugOpts.slug)}#warnings`,
+      external: false,
+    });
+  });
+
+  it("→ null when slug missing/blank (fail-quiet, registry contract)", () => {
+    expect(resolveAlertAction("RESYNC_QUALITY_REGRESSED", {}, noSlug)).toBeNull();
+    expect(resolveAlertAction("RESYNC_QUALITY_REGRESSED", {}, { slug: "   " })).toBeNull();
+  });
+
+  it("ANTI-LEAK: the two sibling codes on the same builder stay at #overview", () => {
+    // `showAnchor("overview", "Go to Overview")` is shared by three codes. A
+    // re-target done by editing the HELPER instead of this row would move all
+    // three and pass the assertion above — this is the row that catches it.
+    for (const code of ["PARSE_ERROR_LAST_GOOD", "SHOW_UNPUBLISHED"] as const) {
+      expect(resolveAlertAction(code, {}, slugOpts), `${code} must not move`).toEqual({
+        label: "Go to Overview",
+        href: `/admin?show=${encodeURIComponent(slugOpts.slug)}#overview`,
+        external: false,
+      });
+    }
+  });
+});
+
 describe("ONBOARDING_SHEET_UNREADABLE (setup-scan hard-fail folder alert)", () => {
   // Failure mode: an unregistered code → resolveAlertAction returns null → the "sheets
   // couldn't be read" alert points only at re-running setup, with no way to jump to the
@@ -276,11 +310,13 @@ describe("needs-a-look action links (attention split §4)", () => {
     "EMBEDDED_ASSET_DRIFTED",
     "EMBEDDED_RECOVERY_REQUIRES_RESTAGE",
   ] as const;
-  const ANCHOR_CODES = [
-    "PARSE_ERROR_LAST_GOOD",
-    "RESYNC_QUALITY_REGRESSED",
-    "SHOW_UNPUBLISHED",
-  ] as const;
+  // RESYNC_QUALITY_REGRESSED LEFT THIS SET (BL-RESYNC-REGRESSED-JUMP-LINK): it
+  // now lands on `#warnings`, asserted in its own describe above along with the
+  // anti-leak row that keeps these two here. The single-`#` property it used to
+  // get from this loop is not lost — it is re-asserted below against the new
+  // destination, because "no `##`" is a property of the BUILDER and must hold
+  // wherever the builder points.
+  const ANCHOR_CODES = ["PARSE_ERROR_LAST_GOOD", "SHOW_UNPUBLISHED"] as const;
   const FILE = "FILE123";
   const sheetHref = `https://docs.google.com/spreadsheets/d/${FILE}/edit#gid=0`;
 
@@ -301,6 +337,16 @@ describe("needs-a-look action links (attention split §4)", () => {
       external: false,
     });
     expect((a?.href.match(/#/g) ?? []).length).toBe(1); // no ##overview
+  });
+
+  it("the re-targeted code keeps the single-# property at its new destination", () => {
+    const a = resolveAlertAction(
+      "RESYNC_QUALITY_REGRESSED",
+      {},
+      { slug: "demo", driveFileId: FILE },
+    );
+    expect(a?.href).toBe("/admin?show=demo#warnings");
+    expect((a?.href.match(/#/g) ?? []).length).toBe(1); // no ##warnings
   });
 
   it("RESYNC_SHRINK_HELD keeps its exact existing registration", () => {

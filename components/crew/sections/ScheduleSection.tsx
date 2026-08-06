@@ -69,6 +69,7 @@ import type { ShowForViewer, Viewer } from "@/lib/data/getShowForViewer";
 import { todayIsoInShowTimezone } from "@/lib/visibility/packList";
 import { transportTileVisible } from "@/lib/visibility/scopeTiles";
 import { type TileRenderLedger } from "@/lib/crew/tileRenderLedger";
+import { suppressesDates } from "@/lib/crew/dateSuppression";
 
 // Preserve the public export surface after the run-of-show predicates/renderer
 // were extracted to @/lib/crew/agendaDisplay + @/components/crew/primitives/
@@ -162,7 +163,7 @@ export function ScheduleSection({
   let dayDerivationError: unknown = null;
   // `unknown_asterisk` returns a placeholder and renders no agenda at all, so this work would
   // be discarded.
-  if (dateRestriction.kind !== "unknown_asterisk") {
+  if (!suppressesDates(dateRestriction)) {
     try {
       allDays = aggregateDays(data.show.dates);
       // visibleShowDays is the SINGLE SOURCE for the SHOW-DAY ∩ restriction set; the full
@@ -219,7 +220,7 @@ export function ScheduleSection({
   // Privacy trust boundary — unknown_asterisk leaks ZERO dates. Render ONLY the
   // placeholder and STOP before building the day list (testid does NOT start
   // with "schedule-day", so the prefix-counting selector reads 0 cards).
-  if (dateRestriction.kind === "unknown_asterisk") {
+  if (suppressesDates(dateRestriction)) {
     return (
       <div data-testid="section-schedule" className="flex flex-col gap-4">
         <div

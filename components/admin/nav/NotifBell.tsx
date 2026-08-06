@@ -76,7 +76,7 @@ export function NotifBell({
       {typeof count === "number" && count > 0 ? (
         <span
           data-testid="admin-notif-badge"
-          className="absolute -right-0.5 -top-0.5 inline-flex min-w-4 items-center justify-center rounded-pill bg-accent px-1 text-xs font-semibold tabular-nums text-accent-text"
+          className="absolute -right-0.5 -top-0.5 inline-flex min-w-4 items-center justify-center rounded-pill bg-badge-count px-1 text-xs font-semibold tabular-nums text-badge-count-text"
         >
           {count > 9 ? "9+" : String(count)}
         </span>

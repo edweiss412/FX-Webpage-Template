@@ -40,10 +40,12 @@
  * keeps the button from spinning the request count unnecessarily).
  */
 import Link from "next/link";
-import { forwardRef, useEffect, useId, useRef, useState } from "react";
+import { useContext, forwardRef, useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Loader2 } from "lucide-react";
 import { useRouter } from "next/navigation";
+
+import { UndoAnnounceContext } from "@/components/admin/undoAnnounceContext";
 import { messageFor } from "@/lib/messages/lookup";
 import { useDialogFocus } from "@/lib/a11y/dialogFocus";
 import { useHasMounted } from "@/lib/a11y/useHasMounted";
@@ -169,6 +171,7 @@ export function useFinalizeRun({
   mode = "publish",
 }: FinalizeRunProps) {
   const router = useRouter();
+  const { announce } = useContext(UndoAnnounceContext);
   const [state, setState] = useState<ButtonState>({ kind: "idle" });
   // D5 soft confirm: a CONTROLLED open flag (not an in-onClick self-disable —
   // see feedback_react_form_action_synchronous_disable_cancels_submit). Opening
@@ -435,6 +438,12 @@ export function useFinalizeRun({
       return;
     }
     setState({ kind: "complete" });
+    // Announced on the LAYOUT channel, not the local announcer (whole-diff
+    // review R1). `router.refresh()` on the next line navigates out of the
+    // wizard, so the announcer this component owns is unmounted by the same
+    // action that fills it — the branch-stable requirement is about outliving
+    // the transition, and a region owned by the departing surface never can.
+    announce(COMPLETE_COPY);
     router.refresh();
   }
 
@@ -454,7 +463,21 @@ export function useFinalizeRun({
           ? `Publish ${publishCount} show${publishCount === 1 ? "" : "s"} & finish setup`
           : "Finish setup and publish";
 
-  // Persistent SR live message for the transient running phases (rendered by the announcer below).
+  // Persistent SR live message, rendered by the announcer below.
+  //
+  // COMPLETION RIDES THIS TOO (BL-ANNOUNCE-REGION-UNMOUNT-CLASS). It used to
+  // exist only as the `state.kind === "complete"` block, which is a live region
+  // INSERTED together with its text — the shape screen readers do not announce.
+  // The announcer is mounted unconditionally and its text mutates, which is the
+  // mechanism this file's own header already describes; completion simply never
+  // used it, so the one message a user most needs was the one not announced.
+  // COMPLETION IS NOT HERE — it goes through the channel only (R2 finding 4).
+  // The running phases stay local: this announcer outlives them, and they are
+  // exactly the mutations-in-a-mounted-region that work. Completion is followed
+  // by `router.refresh()` out of the wizard, so the channel owns it — and
+  // keeping BOTH would speak the same sentence twice on any render where this
+  // component survives the commit. Shape 1 and shape 2 for one event is a
+  // duplicate, not a belt-and-braces.
   const liveMessage =
     state.kind === "running"
       ? state.phase === "cas"
@@ -510,6 +533,17 @@ export type FinalizeRun = ReturnType<typeof useFinalizeRun>;
  * already-populated is often missed; a stable region whose text mutates is
  * announced.
  */
+/** One source for the completion sentence — the announcer and the visible block
+ *  must not be able to drift apart.
+ *
+ *  SUCCESS copy, not error copy. The M5-D8 guard keys on
+ *  `COPY` in a const name because error strings are what get inlined instead of
+ *  routed through `messageFor(code)`; there is no §12.4 code for "the wizard
+ *  finished", and minting one to satisfy a name pattern would put a non-error in
+ *  the error catalog. The name stays because it says what it is. */
+// not-subject:M5-D8 — success copy; see the block above for why no §12.4 code exists.
+export const COMPLETE_COPY = "Setup is complete. Your shows are live for crew now.";
+
 export function FinalizeAnnouncer({ run }: { run: FinalizeRun }) {
   return (
     <span className="sr-only" role="status" aria-live="polite">
@@ -587,13 +621,11 @@ export function FinalizeStatusRegion({ run }: { run: FinalizeRun }) {
   return (
     <>
       {state.kind === "complete" ? (
-        <p
-          role="status"
-          aria-live="polite"
-          data-testid="wizard-finalize-publish-complete"
-          className="text-sm text-text-subtle"
-        >
-          Setup is complete. Your shows are live for crew now.
+        // No role/aria-live: the persistent announcer carries this now, and a
+        // second live region for one event is a double announcement. The block
+        // stays as the visible affordance.
+        <p data-testid="wizard-finalize-publish-complete" className="text-sm text-text-subtle">
+          {COMPLETE_COPY}
         </p>
       ) : null}
       <FinalizeBlockerModal run={run} />

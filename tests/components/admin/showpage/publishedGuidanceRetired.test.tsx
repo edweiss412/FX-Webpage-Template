@@ -190,3 +190,37 @@ describe("the published panel retires its panel-level guidance", () => {
     expect(text).toContain(NON_BLOCKING_SENTENCE);
   });
 });
+
+describe("the Parse warnings panel carries the #warnings fragment target", () => {
+  // BL-RESYNC-REGRESSED-JUMP-LINK. `RESYNC_QUALITY_REGRESSED` now links to
+  // `/admin?show=<slug>#warnings`, and a fragment with no element is SILENT —
+  // the browser simply stays where it is. That is the generalized `#resync` bug
+  // the e2e dead-fragment guard exists for, but that guard needs the whole
+  // stack; this one runs in the unit suite and fails in the same direction.
+  it("renders exactly one element with id=warnings, and it is the warnings section", () => {
+    const { container } = render(<Harness warnings={ALL_WARNINGS} />);
+    const targets = container.querySelectorAll("#warnings");
+    // EXACTLY one: a duplicate id makes the browser jump to whichever comes
+    // first in document order, which is a coin flip rather than a contract.
+    expect(targets, "exactly one #warnings target").toHaveLength(1);
+    expect(targets[0]!.getAttribute("data-testid")).toMatch(/review-section-warnings$/);
+  });
+
+  it("PREMISE + anti-leak: no OTHER registry section grew a DOM id", () => {
+    // The narrow claim. `id={s.id}` for every section would pass the test above
+    // and quietly turn every registry id into a page-wide anchor — including
+    // `overview`, which OverviewSection already owns, so the existing #overview
+    // links would start landing wherever document order put them.
+    const { container } = render(<Harness warnings={ALL_WARNINGS} />);
+    const sections = [...container.querySelectorAll("[data-testid*='review-section-']")];
+    expect(sections.length, "premise: the surface rendered its sections").toBeGreaterThan(3);
+    const withIds = sections
+      .filter((el) => el.hasAttribute("id"))
+      .map((el) => el.getAttribute("data-testid"));
+    expect(withIds).toEqual([
+      sections
+        .find((el) => el.getAttribute("data-testid")?.endsWith("review-section-warnings"))!
+        .getAttribute("data-testid"),
+    ]);
+  });
+});

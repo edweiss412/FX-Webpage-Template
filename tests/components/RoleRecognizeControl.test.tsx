@@ -29,6 +29,7 @@ import {
   type RoleRecognizeSaveOutcome,
 } from "@/components/admin/RoleRecognizeControl";
 import { RoleRecognizeControlBoundary } from "@/components/admin/RoleRecognizeControlBoundary";
+import { AdminAnnounceProvider } from "@/components/admin/AdminAnnounceProvider";
 import * as COPY from "@/components/admin/roleRecognizeCopy";
 import { mapRoleToken } from "@/app/admin/show/[slug]/_actions/roleToken";
 import { mapRoleTokenStaged } from "@/app/admin/onboarding/_actions/roleTokenStaged";
@@ -115,6 +116,41 @@ describe("RoleRecognizeControl — saving + terminal states", () => {
     expect(screen.getByTestId("role-recognize-save")).toBeDisabled();
     d.resolve({ kind: "saved", state: "applied", grants: ["A1"] });
     await waitFor(() => expect(screen.getByTestId("role-recognize-saved")).toBeInTheDocument());
+  });
+
+  it("the saved outcome announces into a region that survives the phase flip", async () => {
+    // BL-ANNOUNCE-REGION-UNMOUNT-CLASS. This control EARLY-RETURNS a different
+    // tree per phase, so the saved card — `role="status"` and all — is inserted
+    // wholesale when the phase flips. A live region that arrives already
+    // populated is not announced, and here an internal stable region is not even
+    // possible: the subtree it would live in is the one being replaced. So the
+    // announcement goes to the provider's channel, which outlives every phase.
+    //
+    // ANTI-TAUTOLOGY: the region asserted on is the PROVIDER's, and it must not
+    // contain the saved card. Querying inside the card passes on the broken
+    // shape, because the broken shape does render the text.
+    const grants: GrantableFlag[] = ["A1"];
+    const onSave = vi.fn(async () => ({ kind: "saved", state: "applied", grants }) as const);
+    render(
+      <AdminAnnounceProvider testId="admin-undo-status" label="Updates">
+        <RoleRecognizeControl roleToken={TOKEN} onSave={onSave} />
+      </AdminAnnounceProvider>,
+    );
+    expand();
+    fireEvent.click(screen.getByTestId("role-recognize-check-A1"));
+    fireEvent.click(screen.getByTestId("role-recognize-save"));
+    await waitFor(() => expect(screen.getByTestId("role-recognize-saved")).toBeInTheDocument());
+
+    const region = screen.getByTestId("admin-undo-status");
+    const card = screen.getByTestId("role-recognize-saved");
+    expect(
+      region.textContent ?? "",
+      "the saved outcome must reach the branch-stable region, not only the card that replaces the panel",
+    ).toContain(COPY.SAVED_HEADING);
+    expect(
+      region.contains(card),
+      "the region must be outside the replaced subtree, or this proves nothing",
+    ).toBe(false);
   });
 
   it("applied → saved card with grant summary", async () => {

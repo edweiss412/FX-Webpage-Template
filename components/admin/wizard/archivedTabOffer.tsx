@@ -185,11 +185,22 @@ export function ArchivedTabOffer(props: ArchivedTabOfferProps) {
           </button>
         ) : null}
       </div>
-      {error ? (
-        <p role="status" aria-live="polite">
-          {error}
-        </p>
-      ) : null}
+      {/* Mounted unconditionally, text toggled: a live region inserted with its
+          text is never announced (BL-ANNOUNCE-REGION-UNMOUNT-CLASS). These are
+          post-action failures, which is exactly when a reader needs to hear
+          something.
+
+          `sr-only` WHEN IDLE, NOT `empty:hidden` — and the difference is the
+          whole announcement (whole-diff review R1). `empty:hidden` compiles to
+          `:empty { display: none }`, and a `display: none` region is not IN the
+          accessibility tree at all; giving it text then reveals it, which is an
+          insertion, not a mutation inside an exposed region — exactly the
+          silence this conversion set out to fix, reintroduced by the utility
+          chosen to tidy the idle state. `sr-only` CLIPS the box while leaving
+          the element exposed, so the text change is a real mutation. */}
+      <p role="status" aria-live="polite" className={error ? "" : "sr-only"}>
+        {error ?? ""}
+      </p>
     </div>
   );
 }
@@ -245,11 +256,13 @@ export function ArchivedTabIncludedNote({
       >
         {pending ? "Revoking…" : "Revoke"}
       </button>
-      {error ? (
-        <p role="status" aria-live="polite" className="basis-full">
-          {error}
-        </p>
-      ) : null}
+      {/* Mounted unconditionally, text toggled: a live region inserted with its
+          text is never announced (BL-ANNOUNCE-REGION-UNMOUNT-CLASS). These are
+          post-action failures, which is exactly when a reader needs to hear
+          something. */}
+      <p role="status" aria-live="polite" className="basis-full">
+        {error ?? ""}
+      </p>
     </div>
   );
 }

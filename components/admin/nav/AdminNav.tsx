@@ -206,7 +206,7 @@ export function AdminNav({
                   <span
                     data-testid="admin-attention-badge"
                     aria-hidden="true"
-                    className="absolute -right-2.5 -top-1.5 inline-flex min-w-4 items-center justify-center rounded-pill bg-accent px-1 text-xs font-semibold tabular-nums text-accent-text"
+                    className="absolute -right-2.5 -top-1.5 inline-flex min-w-4 items-center justify-center rounded-pill bg-badge-count px-1 text-xs font-semibold tabular-nums text-badge-count-text"
                   >
                     {badgeDisplay}
                   </span>

@@ -25,10 +25,14 @@ function renderCard(props: {
 }
 
 describe("NeedsAttentionSummaryCard", () => {
-  it("totalCount 0 → 'All caught up' + 'Nothing waiting on you.' + link still points at the page", () => {
+  it("totalCount 0 → 'All caught up' + a sub-line that TEACHES + link still points at the page", () => {
     const card = renderCard({ totalCount: 0, ingestionTotal: 0, syncTotal: 0 });
     expect(within(card).getByText("All caught up")).toBeInTheDocument();
-    expect(within(card).getByText("Nothing waiting on you.")).toBeInTheDocument();
+    // The sub-line must say something the headline does not. Asserting the new
+    // copy AND the absence of the old restatement keeps the dedup from being
+    // undone by a well-meaning copy edit.
+    expect(within(card).getByText("Sheets that need a look show up here.")).toBeInTheDocument();
+    expect(within(card).queryByText("Nothing waiting on you.")).toBeNull();
     // The zero state stays a link to the page (spec §4.5 — no dead-end card).
     expect(card).toHaveAttribute("href", "/admin/needs-attention");
     // Count branch absent in the zero state.

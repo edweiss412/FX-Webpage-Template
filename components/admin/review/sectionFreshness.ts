@@ -82,8 +82,19 @@ import {
   SCHEDULE_DAYS_CAP,
   SCHEDULE_ENTRIES_CAP,
   findUseRawDecision,
+  packItemLabel,
+  contactBlocks,
+  nightsBetween,
 } from "@/components/admin/wizard/step3ReviewSections";
 import { buildSheetDeepLink } from "@/lib/sheet-links/buildSheetDeepLink";
+// BL-FRESHNESS-PROJECTION-NARROWING: the four renderer collapses the bodies
+// apply before painting. IMPORTED, never re-typed — a hand-copied collapse that
+// drifts from its renderer is the same defect this whole module exists to
+// prevent, one indirection further out.
+import { isParseableUrl } from "@/lib/url/isParseableUrl";
+import { stripOpeningReelText } from "@/lib/visibility/openingReelText";
+import { partialAttendanceLabel } from "@/lib/crew/partialAttendance";
+import { formatIsoDate } from "@/lib/format/date";
 
 /**
  * One-shot cue duration, paired with the `section-freshness-flash-*` keyframes in
@@ -205,9 +216,20 @@ const pickAll = (
   rows: readonly unknown[] | undefined,
   keys: readonly string[],
   cap: number | null,
+  /**
+   * Extra painted facets for a row, appended to the flat key pick
+   * (BL-FRESHNESS-PROJECTION-NARROWING). This is where a field that reaches the
+   * DOM through a renderer COLLAPSE goes — the field leaves `keys`, and the
+   * collapse comes back here as a call to the shipped function. Keeping both in
+   * one place is deliberate: a reader can see, per section, exactly which fields
+   * are raw and which are projected, without cross-referencing a second table.
+   */
+  project?: (row: Record<string, unknown>) => unknown,
 ) => [
   (cap === null ? (rows ?? []) : (rows ?? []).slice(0, cap)).map((row) =>
-    pick(row as object, keys),
+    project === undefined
+      ? pick(row as object, keys)
+      : [pick(row as object, keys), project((row ?? {}) as Record<string, unknown>)],
   ),
   (rows ?? []).length,
 ];
@@ -231,9 +253,20 @@ const pickAll = (
  * which is the same discipline the section registry already lives under.
  */
 const VENUE_KEYS = ["name", "address", "city", "loadingDock", "googleLink"] as const;
+/** VENUE_KEYS minus the link, which the projection handles through its own two
+ *  painted facets (presence for the count, parsed href for the tile). */
+const VENUE_KEYS_NARROWED = VENUE_KEYS.filter((k) => k !== "googleLink");
 const CREW_KEYS = ["name", "role", "date_restriction", "phone", "email"] as const;
+/** CREW_KEYS minus the restriction object, which the projection replaces with the
+ *  single label the row actually paints. */
+const CREW_KEYS_NARROWED = CREW_KEYS.filter((k) => k !== "date_restriction");
 const CONTACT_KEYS = ["kind", "name", "phone", "email"] as const;
 const HOTEL_KEYS = ["hotel_name", "hotel_address", "names", "check_in", "check_out"] as const;
+/** HOTEL_KEYS minus the three the projection paints through the renderer's own
+ *  collapses (name filter, date humanizer). */
+const HOTEL_KEYS_NARROWED = HOTEL_KEYS.filter(
+  (k) => k !== "names" && k !== "check_in" && k !== "check_out",
+);
 // The five ROOM_SCOPE rows plus the identity and timing fields the card shows.
 const ROOM_KEYS = [
   "name",
@@ -269,7 +302,21 @@ const TRANSPORT_KEYS = [
 function renderedEventDetails(d: PublishedSectionData): unknown {
   const details = (d.eventDetails ?? {}) as Record<string, unknown>;
   const keys = EVENT_DETAIL_GROUPS.flatMap((g) => g.keys as readonly string[]);
-  return keys.map((k) => details[k] ?? null);
+  // BL-FRESHNESS-PROJECTION-NARROWING: the body coerces every value with
+  // `String(...).trim()` and puts `opening_reel` through `stripOpeningReelText`
+  // first (`step3ReviewSections.tsx:2224-2231`), which erases embedded
+  // Drive/Docs URLs. Two raw values differing only inside a stripped URL paint
+  // the same characters, so hashing the raw text over-cues.
+  //
+  // The trim applies to EVERY key, not just the reel: `" house"` and `"house"`
+  // paint identically too, and a projection that narrowed only the named field
+  // would leave the same defect standing on the other twenty.
+  return keys.map((k) => {
+    const raw = details[k];
+    if (raw === undefined || raw === null) return null;
+    const text = String(raw).trim();
+    return k === "opening_reel" ? stripOpeningReelText(text) : text;
+  });
 }
 
 /**
@@ -332,9 +379,13 @@ function renderedPullSheet(d: PublishedSectionData): unknown {
         row.caseLabel ?? null,
         items
           .slice(0, PACK_LIST_ITEMS_CAP)
-          .map((i) =>
-            typeof i === "string" ? i : pick(i as object, ["qty", "item", "cat", "subCat"]),
-          ),
+          // BL-FRESHNESS-PROJECTION-NARROWING: the item paints as
+          // `packItemLabel(item)` and nothing else (`step3ReviewSections.tsx:2383`),
+          // which erases `TBD`/`N/A`/`TBA` from `cat`/`subCat` through
+          // `shouldHideGenericOptional`. One sentinel edited into another is a
+          // byte-identical row. Calling the shipped label rather than the four
+          // raw fields makes the projection exactly as wide as the string.
+          .map((i) => (typeof i === "string" ? i : packItemLabel(i as never))),
         items.length,
       ];
     }),
@@ -471,31 +522,98 @@ function renderedTransportation(d: PublishedSectionData): unknown {
   const legs = Array.isArray(t.schedule) ? t.schedule : [];
   return [
     pick(t, TRANSPORT_KEYS),
+    // BL-FRESHNESS-PROJECTION-NARROWING, INSIDE a surviving leg: the body joins
+    // date and time into ONE `when` string and filters passenger names by
+    // `hasContent` (`step3ReviewSections.tsx:1351-1355`). Two legs whose
+    // date/time split differently across the same joined line are the same
+    // painted characters, and a blank name is dropped before it can render.
     legs
       .filter((leg) => hasContent((leg as Record<string, unknown>)?.stage))
-      .map((leg) => pick(leg as object, ["stage", "date", "time", "assigned_names"])),
+      .map((leg) => {
+        const row = (leg ?? {}) as Record<string, unknown>;
+        const names = Array.isArray(row.assigned_names) ? row.assigned_names : [];
+        return [
+          row.stage ?? null,
+          [row.date, row.time].filter((x) => hasContent(x)).join(" "),
+          names.filter((n) => hasContent(n)),
+        ];
+      }),
   ];
 }
 
 const OWN_FIELDS: Record<Exclude<SectionId, "report">, (d: PublishedSectionData) => unknown> = {
-  venue: (d) => pick(d.venue, VENUE_KEYS),
+  // BL-FRESHNESS-PROJECTION-NARROWING. `googleLink` reaches the DOM only as
+  // `isParseableUrl(link) ? link.trim() : null` (`step3ReviewSections.tsx:1253`),
+  // so one unparseable value edited into another paints nothing.
+  //
+  // THE PRESENCE BIT IS KEPT, AND THE PROBE IS WHY. The obvious narrowing —
+  // replace the raw link with the gated href — is WRONG, and wrong in the
+  // missed-cue direction this entry's parent findings were about: the field
+  // COUNT in the section eyebrow counts the link whether or not it parses, so
+  // absent-to-unparseable moves a painted "(3)" to "(4)" that the gated href
+  // cannot see. Probed, not reasoned: `sectionFreshnessProjection.probe.test.tsx`
+  // renders both pairs and the count difference is in the transcript.
+  venue: (d) => [
+    pick(d.venue, VENUE_KEYS_NARROWED),
+    hasContent(d.venue?.googleLink),
+    isParseableUrl(d.venue?.googleLink) ? (d.venue?.googleLink ?? "").trim() : null,
+  ],
   event: renderedEventDetails,
   // `published` / `archived` are RENDERED state here, not lifecycle trivia: they
   // gate the crew row actions entirely (`step3ReviewSections.tsx:4183`), so a
   // toggle adds or removes a control on every row. `previewRoster` carries the
   // persisted ids those actions target.
   crew: (d) => [
-    pickAll(d.crewMembers, CREW_KEYS, CREW_CAP),
+    // BL-FRESHNESS-PROJECTION-NARROWING: `date_restriction` paints ONLY through
+    // `partialAttendanceLabel(dr, { humanize: false })`
+    // (`step3ReviewSections.tsx:1682`), which collapses `kind:"none"` to nothing,
+    // ignores `days` entirely for `unknown_asterisk`, and drops blank days. The
+    // raw object moved the hash on all three.
+    pickAll(d.crewMembers, CREW_KEYS_NARROWED, CREW_CAP, (row) => [
+      partialAttendanceLabel(row.date_restriction as never, { humanize: false }),
+    ]),
     d.published && !d.archived ? (d.previewRoster ?? null) : null,
   ],
-  contacts: (d) => [
-    pick(d.clientContact, ["name", "phone", "email", "officePhone", "secondary"]),
-    // No cap: the contacts body renders every row it is given.
-    pickAll(d.contacts, CONTACT_KEYS, null),
-  ],
+  // BL-FRESHNESS-PROJECTION-NARROWING: the body does not render the two source
+  // lists — it renders `contactBlocks(clientContact, contacts)`
+  // (`step3ReviewSections.tsx:1155`), which DROPS any block with no name and no
+  // content rows. An all-blank contact row therefore moved the hash and nothing
+  // else. Calling the shipped builder makes the projection the painted list by
+  // construction, so the drop rule cannot be transcribed wrong or drift later.
+  // No cap: the body renders every block it is given.
+  contacts: (d) =>
+    contactBlocks(
+      (d.clientContact ?? null) as never,
+      (d.contacts ?? []) as never,
+    ) as unknown as unknown[],
   schedule: (d) => [renderedRunOfShow(d), pick(d.dates, DATE_KEYS)],
   agenda: renderedAgenda,
-  hotels: (d) => pickAll(d.hotels, HOTEL_KEYS, HOTELS_CAP),
+  // BL-FRESHNESS-PROJECTION-NARROWING: guest names are filtered by `hasContent`
+  // and the two dates paint as `formatIsoDate(..., "weekday-short")`
+  // (`step3ReviewSections.tsx:2733-2734`), so a blank name and any two ISO
+  // strings that humanize to the same day were both over-cueing.
+  hotels: (d) =>
+    pickAll(d.hotels, HOTEL_KEYS_NARROWED, HOTELS_CAP, (row) => {
+      const names = Array.isArray(row.names) ? row.names : [];
+      const checkIn = (row.check_in ?? null) as string | null;
+      const checkOut = (row.check_out ?? null) as string | null;
+      return [
+        names.filter((n) => hasContent(n)),
+        checkIn ? formatIsoDate(checkIn, "weekday-short") : null,
+        checkOut ? formatIsoDate(checkOut, "weekday-short") : null,
+        // THE NIGHTS PILL READS THE RAW DATES, NOT THE LABELS. `weekday-short`
+        // drops the YEAR, so "Sat, Aug 1" 2027 and "Sat, Aug 1" 2021 are the
+        // same painted label with wildly different night counts — a MISSED cue,
+        // the severe direction. Probed: labels equal, nights 2195 vs 4, HTML
+        // different, signature equal. (Whole-diff review R1.)
+        //
+        // This is the venue defect exactly: narrow to the collapse the text uses
+        // and you lose the count computed from the same field. Once is a bug;
+        // twice in one commit is the shape worth naming — a projection must
+        // cover EVERY painted derivation of a field, not the most visible one.
+        nightsBetween(checkIn, checkOut),
+      ];
+    }),
   // The SAME leg filter the body applies (`step3ReviewSections.tsx:1349`): a leg
   // whose stage is blank is dropped before render, so its other fields cannot
   // reach the DOM and must not reach the signature. Round-3 review found four

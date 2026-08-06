@@ -190,15 +190,25 @@ export function MaintenanceResetButtons() {
           Reset validation data
         </button>
 
-        {resetResult.kind === "done" ? (
-          <div
-            role="status"
-            data-testid="validation-reset-result"
-            className="rounded-md border border-border bg-surface-sunken p-tile-pad text-sm text-text-strong"
-          >
-            {resetResult.count === 1 ? "1 show cleared." : `${resetResult.count} shows cleared.`}
-          </div>
-        ) : null}
+        {/* Mounted unconditionally, text toggled: a live region inserted with
+            its text is never announced (BL-ANNOUNCE-REGION-UNMOUNT-CLASS), and
+            this result only ever appears AFTER the action — the one case where
+            the insertion and the announcement coincide. */}
+        <div
+          role="status"
+          data-testid="validation-reset-result"
+          className={
+            resetResult.kind === "done"
+              ? "rounded-md border border-border bg-surface-sunken p-tile-pad text-sm text-text-strong"
+              : "sr-only"
+          }
+        >
+          {resetResult.kind === "done"
+            ? resetResult.count === 1
+              ? "1 show cleared."
+              : `${resetResult.count} shows cleared.`
+            : ""}
+        </div>
 
         {resetResult.kind === "error" ? (
           <div
@@ -237,15 +247,25 @@ export function MaintenanceResetButtons() {
           Reseed validation fixtures
         </button>
 
-        {reseedResult.kind === "done" ? (
-          <div
-            role="status"
-            data-testid="validation-reseed-result"
-            className="rounded-md border border-border bg-surface-sunken p-tile-pad text-sm text-text-strong"
-          >
-            {reseedResult.count === 1 ? "1 show seeded." : `${reseedResult.count} shows seeded.`}
-          </div>
-        ) : null}
+        {/* Mounted unconditionally, text toggled: a live region inserted with
+            its text is never announced (BL-ANNOUNCE-REGION-UNMOUNT-CLASS), and
+            this result only ever appears AFTER the action — the one case where
+            the insertion and the announcement coincide. */}
+        <div
+          role="status"
+          data-testid="validation-reseed-result"
+          className={
+            reseedResult.kind === "done"
+              ? "rounded-md border border-border bg-surface-sunken p-tile-pad text-sm text-text-strong"
+              : "sr-only"
+          }
+        >
+          {reseedResult.kind === "done"
+            ? reseedResult.count === 1
+              ? "1 show seeded."
+              : `${reseedResult.count} shows seeded.`
+            : ""}
+        </div>
 
         {reseedResult.kind === "error" ? (
           <div

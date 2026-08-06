@@ -3,6 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import "@testing-library/jest-dom/vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
+import { UndoAnnounceContext } from "@/components/admin/undoAnnounceContext";
+
 const refresh = vi.fn();
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ refresh, push: vi.fn(), replace: vi.fn(), prefetch: vi.fn() }),
@@ -157,6 +159,29 @@ describe("PublishedArchivedTabOffer (P2)", () => {
         ),
       ).toBeInTheDocument(),
     );
+  });
+
+  it("the transient line is NOT a live region — the channel announces it", async () => {
+    // BL-ANNOUNCE-REGION-UNMOUNT-CLASS, second iteration. The first fix mounted
+    // a local `role="status"` unconditionally and toggled its text. Whole-diff
+    // R1 showed that region cannot be trusted here at all: every success path
+    // calls `router.refresh()`, which may replace this component before the
+    // region speaks. So the announcement moved to the layout channel.
+    //
+    // R2 then caught the pair: keeping BOTH meant the sentence was spoken twice
+    // on any render where the component DID survive the refresh. The local node
+    // is now plain text, and the channel is the single speaker.
+    const announced: string[] = [];
+    render(
+      <UndoAnnounceContext.Provider value={{ announce: (m) => announced.push(m) }}>
+        <PublishedArchivedTabOffer {...base} tabName="OLD PULL SHEET" />
+      </UndoAnnounceContext.Provider>,
+    );
+    expect(
+      document.querySelectorAll('[role="status"]').length,
+      "this component owns no live region — a refresh can destroy it mid-announcement",
+    ).toBe(0);
+    expect(announced, "and nothing is announced before an action").toEqual([]);
   });
 
   it("success with a failed sync shows the transient partial-success line before refresh", async () => {

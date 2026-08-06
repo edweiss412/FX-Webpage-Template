@@ -299,4 +299,6 @@ function main(argv: string[]): number {
   return 0;
 }
 
-if (require.main === module) process.exit(main(process.argv.slice(2)));
+// `exitCode`, not `exit()` — see scripts/ledger-claims.ts: piped stdout is async,
+// and this CLI's report is well past one pipe buffer.
+if (require.main === module) process.exitCode = main(process.argv.slice(2));

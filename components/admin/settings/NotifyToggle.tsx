@@ -76,15 +76,21 @@ export function NotifyToggle({
         <div className="min-w-0">
           <h3 className="text-base font-semibold text-text-strong">{title}</h3>
           <p className="mt-1 max-w-prose text-sm text-text-subtle">{description}</p>
-          {degraded ? (
-            <p
-              data-testid={`${testId}-degraded`}
-              role="status"
-              className="mt-2 w-full max-w-prose rounded-sm bg-warning-bg px-2 py-1 text-sm text-warning-text"
-            >
-              We couldn&rsquo;t read this setting just now. Refresh to try again.
-            </p>
-          ) : null}
+          {/* Mounted unconditionally, text toggled: a live region inserted with its
+              text is never announced (BL-ANNOUNCE-REGION-UNMOUNT-CLASS). The
+              degraded state can arrive after first paint, which is exactly when
+              the announcement matters. */}
+          <p
+            data-testid={`${testId}-degraded`}
+            role="status"
+            className={
+              degraded
+                ? "mt-2 w-full max-w-prose rounded-sm bg-warning-bg px-2 py-1 text-sm text-warning-text"
+                : "sr-only"
+            }
+          >
+            {degraded ? "We couldn\u2019t read this setting just now. Refresh to try again." : ""}
+          </p>
         </div>
       </div>
 

@@ -315,7 +315,15 @@ describe("busy lockout — real hook, deferred capture (§2.2/§7)", () => {
     await act(async () => {
       vi.advanceTimersByTime(6000);
     });
-    expect(screen.queryByTestId("share-hub-dev-capture-status")).toBeNull();
+    // The status region STAYS MOUNTED and goes silent, rather than unmounting
+    // (BL-ANNOUNCE-REGION-UNMOUNT-CLASS): a `role="status"` inserted together
+    // with its text is never announced, so the region has to be in the DOM
+    // before the failure happens for the failure to be heard at all. Asserting
+    // mounted + empty + `sr-only` is strictly stronger than the `toBeNull()`
+    // this replaces, which could not tell a cleared status from a deleted one.
+    const cleared = screen.getByTestId("share-hub-dev-capture-status");
+    expect(cleared.textContent).toBe("");
+    expect(cleared.className).toContain("sr-only");
   });
 });
 

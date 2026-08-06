@@ -1645,7 +1645,12 @@ export function CrewBreakdown({
               polite region announces success; visible banners are decorative/alert.
               Gated on non-empty crew too — an empty section renders ONLY
               "No crew parsed." with no banner state (spec §5). */}
-          <div className="sr-only" role="status" aria-live="polite">
+          <div
+            className="sr-only"
+            role="status"
+            aria-live="polite"
+            data-testid="crew-row-reset-announcer"
+          >
             {outcome?.kind === "ok" ? outcome.message : ""}
           </div>
           {outcome?.kind === "ok" && (
@@ -3324,6 +3329,7 @@ export function AgendaBreakdown({
   const chrome = useContext(Step3SectionChromeContext);
   const [state, setState] = useState<AgendaState>(() => (baseline.length > 0 ? "loading" : "idle"));
   const [items, setItems] = useState<AdminAgendaItem[]>(baseline);
+
   // A ref tracking the LIVE generation key — every late resolution checks the
   // captured key against this before any setState (round-24 suppression).
   const currentKeyRef = useRef<string>(stateKey);
@@ -3464,16 +3470,36 @@ export function AgendaBreakdown({
 
   const body = (
     <>
-      {state === "loading" ? (
-        <p
-          role="status"
-          aria-live="polite"
-          data-testid={`wizard-step3-card-${driveFileId}-agenda-parsing`}
-          className="text-xs text-text-subtle"
-        >
-          {`Parsing agenda… (${items.length} ${items.length === 1 ? "PDF" : "PDFs"})`}
-        </p>
-      ) : null}
+      {/* Mounted unconditionally, text toggled: a live region inserted together
+          with its text is never announced, and "parsing started" is exactly the
+          transition a reader needs (BL-ANNOUNCE-REGION-UNMOUNT-CLASS). */}
+      {/* DOCUMENTED LIMIT — this region IS born populated, and R3 is right.
+          The §4.6 guard returns null unless `baseline.length > 0`, and a
+          non-empty baseline initialises `state` to "loading", so the first
+          render this component ever performs already carries the parsing text.
+          The empty branch below is unreachable AT MOUNT.
+
+          It is not fixable from inside this component. Deferring the text by an
+          effect is what `react-hooks/set-state-in-effect` forbids (correctly —
+          it is a cascading render), and the alternative is for the region to
+          live ABOVE the §4.6 guard, i.e. in the parent that persists across it.
+          That is the cross-component ownership case already filed on
+          BL-LIVE-REGION-AST-WALK-RESIDUE, and it is a real change to who owns
+          this surface rather than a line edit here.
+
+          The region stays mounted-and-toggled because that is still correct for
+          every LATER transition (loading → ready, ready → error); only the very
+          first paint cannot announce. */}
+      <p
+        role="status"
+        aria-live="polite"
+        data-testid={`wizard-step3-card-${driveFileId}-agenda-parsing`}
+        className={state === "loading" ? "text-xs text-text-subtle" : "sr-only"}
+      >
+        {state === "loading"
+          ? `Parsing agenda… (${items.length} ${items.length === 1 ? "PDF" : "PDFs"})`
+          : ""}
+      </p>
       <ul className="flex flex-col gap-3">
         {items.map((item, i) => (
           <AgendaItemRow key={`${item.label}-${i}`} item={item} state={state} index={i} />

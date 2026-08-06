@@ -260,8 +260,24 @@ function extractCandidates(filePath: string, content: string): Candidate[] {
  * shipped label would surface as a test failure (rather than the silent
  * false-positive class this strip eliminates).
  */
+/**
+ * `import` STATEMENTS ARE REMOVED, not just comments (BL-HELP-UI-LABEL-CROSSWALK-EXACT-MATCH).
+ *
+ * An import specifier is a module identifier; it is never rendered, so it can
+ * never attest that documented copy names a real control. Leaving them in is how
+ * `**Viewer**` at `app/help/getting-started/page.mdx:10` passed the crosswalk —
+ * on `import type { ShowForViewer, Viewer } from "@/lib/data/getShowForViewer"`,
+ * a bare word-bounded identifier that the word-boundary tier below cannot tell
+ * from a button label. Comments were already stripped; imports are the same
+ * category of non-text and were simply missed.
+ *
+ * Deliberately NOT extended to all identifiers. A component name that IS the
+ * label often appears as an identifier near where it renders, and stripping
+ * those would turn this guard's failures into noise. Imports are safe because
+ * the specifier list is syntactically closed and never reaches the DOM.
+ */
 function stripProductionSource(source: string, filePath: string): string {
-  return stripCommentsForFile(source, filePath);
+  return stripCommentsForFile(source, filePath).replace(/^\s*import\s[^;]*?;?\s*$/gm, "");
 }
 
 function buildProductionHaystack(): string {
@@ -288,6 +304,61 @@ function normalizeForCompare(s: string): string {
   return s
     .replace(/&rsquo;|&lsquo;|&apos;|[‘’‚‛]/g, "'")
     .replace(/&rdquo;|&ldquo;|&quot;|[“”„‟]/g, '"');
+}
+
+/**
+ * BL-HELP-UI-LABEL-CROSSWALK-EXACT-MATCH — the short-label tier.
+ *
+ * THE LIVE BUG. A plain substring test attests a /help label against ANY
+ * occurrence of those characters in production source, including one inside an
+ * identifier. `**Share**` at `app/help/getting-started/page.mdx:8` passed on
+ * `ShareHub` / `shareToken`; `**Viewer**` at :10 passed on `getShowForViewer`.
+ * Both are import names the user can never see, so the crosswalk was attesting
+ * that documented copy names a real control while proving nothing of the kind —
+ * and it fails in the SILENT direction, which is why it survived.
+ *
+ * WHY A LENGTH TIER rather than word-boundary matching for everything. A long
+ * label ("Re-sync from sheet") cannot collide with an identifier by accident;
+ * the collision risk is concentrated in short common words. Long labels also
+ * legitimately appear split across JSX children, where a `\b` regex over the
+ * flattened haystack would produce false FAILURES — and a guard that cries wolf
+ * gets exemptions added to silence it, which is worse than the hole it closed.
+ * Six characters INCLUSIVE, because `Viewer` is six and is one of the two live
+ * instances this closes.
+ *
+ * CONSEQUENCE BOUND: a label either matches at a word boundary or is reported by
+ * name. There is no third outcome and nothing is silently skipped.
+ *
+ * THREAT MODEL: ordinary authoring drift — copy naming a control that does not
+ * exist, or that was renamed. Not adversarial: source deliberately shaped to
+ * plant a boundary-delimited match is out of scope.
+ */
+export const SHORT_LABEL_MAX = 6;
+
+/** Regex-escape, so a label containing `(`/`.`/`+` is matched literally. */
+function escapeForRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * Does `haystack` contain `label` as REAL UI text?
+ *
+ * Short labels must match at word boundaries; longer ones keep the substring
+ * test. Both layers of the crosswalk call THIS function, so the two can never
+ * disagree about what counts as a match — the registry layer having a different
+ * matching rule from the heuristic layer would just move the hole.
+ */
+export function haystackAttestsLabel(haystack: string, label: string): boolean {
+  if (label.length > SHORT_LABEL_MAX) return haystack.includes(label);
+  // `\b` is wrong at both ends for a label that starts or ends with a
+  // non-word character (`+ Add`): `\b` there asserts a word char is adjacent,
+  // which inverts the intent. Anchor with an explicit non-word-or-edge lookaround
+  // on each side instead, chosen per end from the label's own first/last char.
+  const startsWord = /^\w/.test(label);
+  const endsWord = /\w$/.test(label);
+  const left = startsWord ? "(?<![\\w])" : "";
+  const right = endsWord ? "(?![\\w])" : "";
+  return new RegExp(`${left}${escapeForRegex(label)}${right}`).test(haystack);
 }
 
 function buildExceptionIndex(): Map<string, Set<string>> {
@@ -325,7 +396,7 @@ describe("Help MDX UI-label crosswalk (Phase E meta-test)", () => {
         const exemptionsForFile = exceptions.get(c.file);
         if (exemptionsForFile && exemptionsForFile.has(c.label)) continue;
 
-        if (haystack.includes(c.label)) continue;
+        if (haystackAttestsLabel(haystack, c.label)) continue;
 
         findings.push(
           `  ${c.file}:${c.line} — candidate label "${c.label}" was not found in production source\n` +
@@ -405,7 +476,7 @@ describe("Help MDX UI-label crosswalk — declared registry layer", () => {
     const findings: string[] = [];
     for (const entry of DECLARED_UI_LABELS) {
       const normLabel = normalizeForCompare(entry.label);
-      if (normalizedHaystack.includes(normLabel)) continue;
+      if (haystackAttestsLabel(normalizedHaystack, normLabel)) continue;
       const exemptionsForFile = normalizedExceptions.get(entry.file);
       if (exemptionsForFile && exemptionsForFile.has(normLabel)) continue;
       findings.push(
@@ -497,5 +568,53 @@ describe("Help MDX UI-label crosswalk: comment-stripping regression (R8)", () =>
   it('URL-style "https://" inside a string literal survives the line-comment strip', () => {
     const synthetic = "export const url = 'https://example.com/x';";
     expect(stripProductionSource(synthetic, "synthetic.tsx")).toContain("https://example.com/x");
+  });
+});
+
+describe("the short-label tier (BL-HELP-UI-LABEL-CROSSWALK-EXACT-MATCH)", () => {
+  it("PREMISE: the tier discriminates — a short label matches only at word boundaries", () => {
+    // Without this the tier could be `return true` and every crosswalk assertion
+    // would still pass. Both directions, on a label at the INCLUSIVE boundary.
+    expect(haystackAttestsLabel("<button>Viewer</button>", "Viewer")).toBe(true);
+    expect(haystackAttestsLabel("getShowForViewer", "Viewer")).toBe(false);
+    expect(haystackAttestsLabel("ShareHub shareToken", "Share")).toBe(false);
+    expect(haystackAttestsLabel('"Share link rotated."', "Share")).toBe(true);
+    // Length boundary: 6 is IN the tier, 7 is not.
+    expect("Viewer".length).toBe(SHORT_LABEL_MAX);
+    expect(haystackAttestsLabel("xxViewersxx", "Viewer")).toBe(false);
+    expect(haystackAttestsLabel("getShowForViewers", "Viewers")).toBe(true); // 7 → substring tier
+  });
+
+  it("a label bounded by non-word characters is matched, not rejected", () => {
+    // `\b` at both ends is wrong for a label whose own first/last char is not a
+    // word char: there `\b` demands an ADJACENT word char, inverting the intent.
+    expect(haystackAttestsLabel("<span>+ Add</span>", "+ Add")).toBe(true);
+    expect(haystackAttestsLabel("(3)", "(3)")).toBe(true);
+  });
+
+  it("DOCUMENTED LIMIT: a type annotation still attests, and these two rely on it", () => {
+    // The probe that settled U8, pinned so the finding cannot be re-derived.
+    //
+    // The plan expected `**Share**` and `**Viewer**` to FAIL once the tier
+    // landed. They do not, and the tier is not at fault: `Viewer` occurs as a
+    // bare word-bounded identifier in a TYPE ANNOTATION (`viewer: Viewer` in
+    // app/show/[slug]/[shareToken]/_CrewShell.tsx), which no lexical narrowing
+    // of a whole-source haystack can distinguish from a button label. Comments
+    // and imports are already excluded; annotations are not, and excluding
+    // identifiers wholesale would break every label that IS its component name.
+    //
+    // The plan also assumed the copy was wrong. It is not: both labels name
+    // GOOGLE DRIVE's controls ("click **Share** on that folder… Give it
+    // **Viewer** access"), so they are third-party UI and were never this app's
+    // labels to attest. That makes them the wrong instances to force through
+    // this guard at all.
+    //
+    // Real closure is a haystack of RENDERED TEXT ONLY (string literals + JSX
+    // text children), filed as BL-CROSSWALK-HAYSTACK-RENDERED-TEXT-ONLY. This
+    // assertion fails the day that lands, which is the point: it is the
+    // reminder to revisit these two, not a permanent blessing.
+    const haystack = buildProductionHaystack();
+    expect(haystackAttestsLabel(haystack, "Viewer")).toBe(true);
+    expect(haystack.includes("viewer: Viewer")).toBe(true);
   });
 });

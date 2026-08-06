@@ -775,9 +775,14 @@ describe("§H N4: rescan overlay result — fast pop-in on appear; instant (sync
     await waitFor(() => expect(q.getByTestId(`rescan-sheet-result-${DFID}`)).toBeTruthy());
     const result = q.getByTestId(`rescan-sheet-result-${DFID}`);
     expect(result.hasAttribute("data-rescan-overlay-result")).toBe(true); // CSS hook wired
-    // Live region is the INNER copy-only element (dual-gate P1) — the
-    // positioned wrapper itself carries no role.
-    expect(result.querySelector('[role="status"]')).not.toBeNull();
+    // The copy is the INNER element; the positioned wrapper carries no role.
+    // It is no longer a live region — an inserted-with-its-text region never
+    // announced, so the announcement moved to the branch-stable provider channel
+    // (BL-ANNOUNCE-REGION-UNMOUNT-CLASS). This row is about the ENTRANCE
+    // ANIMATION contract, which is unchanged: the hook attribute and the inner
+    // copy element are what it pins.
+    expect(result.querySelector('[role="status"]')).toBeNull();
+    expect(result.querySelector("p")).not.toBeNull();
     // Instant exit: the dismiss click removes the node within the SAME act —
     // no waitFor, no exit animation to linger through.
     fireEvent.click(within(result).getByRole("button", { name: "Dismiss" }));
@@ -1126,13 +1131,21 @@ function isClassified(
 }
 
 describe("§11 source-marker audit — every conditional-render site in Step3ReviewModal.tsx is classified", () => {
-  test("exactly 19 conditional-render sites exist (curated list length) — a new one added later must be classified or this count fails", () => {
+  test("exactly 17 conditional-render sites exist (curated list length) — a new one added later must be classified or this count fails", () => {
     // 16 sites as of the announcer bundle (see the pre-rebase comment in git
     // history for the per-era split) + 3 from dev-modal-capture §2.3: the
     // viewerIsDeveloper section head, the busy glyph swap ternary, and the
     // status-node presence conditional (all deliberate-instant, spec §7.4).
+    //
+    // MINUS 2 (BL-ANNOUNCE-REGION-UNMOUNT-CLASS): the dev-capture status node
+    // and the publish-error note stopped being conditional RENDERS and became
+    // conditional TEXT inside permanently-mounted live regions. A region
+    // inserted together with its text is never announced, so those two sites
+    // had to stop being conditionals — which is why this count moved rather
+    // than a new site being classified. Both remain deliberate-instant: there
+    // is now even less to animate, since only the text changes.
     const hits = findConditionalLines(MARKER_AUDIT_SRC);
-    expect(hits.length).toBe(19);
+    expect(hits.length).toBe(17);
   });
 
   test("every conditional-render site carries either the §11 instant marker or an animation/transition class on the line above it", () => {
