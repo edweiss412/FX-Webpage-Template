@@ -8,6 +8,86 @@ Same split as [DEFERRED.md](./DEFERRED.md) ↔ [DEFERRED-archive.md](./DEFERRED-
 
 ---
 
+## BL-CI-PARALLEL-DB-FALLBACK-AUDIT — re-run the closed-port protocol across the parallel project — CLOSED 2026-08-06 (L-wave, `feat/l-wave-docs`, PROBED: answered-negative)
+
+
+**Resolution: the probe RAN and came back empty. Archived answered-negative.** This entry was
+`**Reachability:** INFERRED, NOT PROBED` and named zero instances, so by the filing bar the probe was
+its first scheduled step — not the audit. That probe is now done, and the disposition follows the
+pre-ratified rule (L-wave spec §2.1.3): zero degrading files → archive with the transcript.
+
+**Full transcript, commands, and differ are committed:**
+`docs/superpowers/plans/2026-08-06-l-wave/l3-parallel-db-fallback-probe-2026-08-06.md` and
+`docs/superpowers/plans/2026-08-06-l-wave/l3-parallel-db-fallback-diff.mjs`. They are committed rather
+than discarded specifically so re-measuring is a command, not a re-derivation.
+
+**Result:**
+
+```
+db-present:  files=890 passed=12271 skipped=2 failed=0
+closed-port: files=890 passed=12271 skipped=2 failed=0
+DEGRADING FILES: 0
+```
+
+Run 1 pointed every Supabase endpoint at the live local stack; run 2 pointed all three
+(`SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_URL`, `TEST_DATABASE_URL`) at `127.0.0.1:1` — a REFUSED
+connection, which is the entry's own distinction from merely omitting the database. Per-file metric is
+the count of `assertionResults` with status `passed` (Vitest's JSON reporter exposes no per-file
+`numPassingAsserts`); a file degrades if that count drops for ANY reason, if it newly skips, or if it
+reports all-skipped. The 2 skipped assertions are identical in both runs, so they are unconditional
+skips rather than closed-port casualties.
+
+**Two corrections were made mid-probe, and they are the part worth keeping** — each would have
+produced a false negative that looked exactly like this one:
+
+1. **The first baseline was the wrong state.** The ambient shell had all three endpoint variables
+   UNSET (vitest loads no `.env.local`: `vitest.config.ts` calls no `dotenv`/`loadEnv`, and
+   `tests/setup.ts` only assigns with `??=`). Setting just `TEST_DATABASE_URL` compared *absent
+   endpoint* to *closed port* — precisely the two states this entry exists to distinguish. Re-run with
+   all three explicitly live.
+2. **The instrument was proven sensitive before the zero was believed.** A temporary sentinel modelling
+   the exact shape the entry describes (a file that silently asserts less when the endpoint is refused)
+   was planted in the parallel glob space; the differ caught it — `passing 3 -> 1; newly skipped
+   0 -> 2` — and routed to the STAYS-OPEN branch. So the env genuinely reaches the test process, and
+   the differ genuinely detects the fallback shape. Supporting premises also checked, not assumed:
+   `127.0.0.1:1` returns `ECONNREFUSED` (a refused port, not a filtered one that would time out into
+   the very fallback under study), and the live stack answers HTTP 200.
+
+**Count reconciliation:** the body's "~691 current parallel-project files" was stale, the 2026-08-04
+re-verification said 875, and the `parallel` project resolved **890** on this commit. The result is
+about 890.
+
+**What this does and does not settle — read before re-filing.** It SETTLES that the parallel project
+contains no file silently degrading under a refused Supabase connection: the `unit-suite-nodb` blind
+spot the entry identified ("does not FAIL without a database" is weaker than "touches no database")
+was a real concern and is empirically EMPTY across all 890 files. It does NOT settle the future — this
+is a point-in-time measurement, not a standing guard, and nothing stops a new file from arriving with
+a swallowed-connection fallback that the no-DB job would keep passing exactly as the entry warned.
+
+**Re-open trigger:** a re-run of the committed probe that returns a nonzero degrading set. That is one
+command against two JSON reports, which is why the tooling ships with this archive. Converting the
+probe into a standing CI gate is a DIFFERENT and larger piece of work (it needs a second full parallel
+run per PR) and was never this entry's ask — file it separately if the recurrence risk is judged worth
+that cost.
+
+---
+
+**Status:** OPEN, raised by adversarial review of PR #517 (finding 2).
+
+**Effort:** L
+
+The `unit-suite-nodb` job proves that no parallel-project file FAILS without a database. That is weaker than "touches no database": a test that swallows a connection error, skips on unavailability, returns early from a setup hook, or takes an untaken conditional DB path will pass while exercising a FALLBACK rather than the DB-backed behavior it was written to check. The no-DB job repeats that same observation every PR, so it shares the blind spot — it is a regression detector, not a proof.
+
+The stronger protocol already exists and was used for the original 2026-06-23 partition: point every Supabase endpoint at a CLOSED PORT rather than simply omitting the database. A refused connection surfaces swallowed-error paths that an absent server does not.
+
+**Work:** re-run that closed-port protocol across all ~691 current parallel-project files, and compare per-file assertion COUNTS against a run with the database present. A file whose assertion count drops is silently degrading. Any found either move to serial or get an explicit note saying the fallback path is what is under test.
+
+**Reachability:** INFERRED, NOT PROBED — the probe that settles it: run the `parallel` project once with the DB port closed and once with a DB present, and diff the PER-FILE assertion counts. A file whose count drops without a skip is the shape the entry describes. That probe, not the audit, is the first scheduled step.
+
+screen-disposition 2026-08-04: ANNOTATE-INFERRED, stays open. The entry names no instance, and the escape hatch it needs is the one the filing bar prescribes. Static facts re-verified 2026-08-04: the job is `.github/workflows/unit-suite.yml:146-147` (3 legs, `--project=parallel`, boots nothing), rolled up at `:188-198`, over `PARALLEL_TEST_GLOBS` at `vitest.projects.ts:94-140`. **Count corrected:** the body's "~691 current parallel-project files" is stale — the same globs now resolve 875 `.test.ts(x)` files, which makes the unmeasured surface ~27% larger than the row claims, not smaller.
+
+---
+
 ## BL-ACCENT-BUTTON-ATOM-SWEEP — migrate remaining raw accent-button compositions to the shared `<AccentButton>` atom — CLOSED 2026-08-06 (L-wave, `feat/l-wave-docs`, DEMOTED at honest census)
 
 
