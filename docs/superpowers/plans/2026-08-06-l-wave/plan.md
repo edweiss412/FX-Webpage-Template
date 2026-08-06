@@ -6,7 +6,7 @@
 
 **Architecture:** `docs/l-wave-spec` (this branch: spec + plan + claim handoff) merges first; then `feat/l-wave-docs`, `feat/l-wave-push`, `feat/l-wave-emdash` off `origin/main`, in that order, each TDD per task, cross-model reviewed, CI-green merged.
 
-**Date:** 2026-08-06 · **Spec:** `docs/superpowers/specs/2026-08-06-l-wave-design.md` (+ ratified brief `docs/superpowers/specs/2026-08-05-l-wave-decisions-brief.md`) · **Status:** DRAFT (pre-review)
+**Date:** 2026-08-06 · **Spec:** `docs/superpowers/specs/2026-08-06-l-wave-design.md` (+ ratified brief `docs/superpowers/specs/2026-08-05-l-wave-decisions-brief.md`) · **Status:** plan-APPROVED (codex-guard R4, 2026-08-06, commit cdd67e422; spec APPROVED codex-guard R4 same day). R4's two non-blocking findings dispositioned: generating commands now head both sweep artifacts and the scanner script is committed beside them (`e1-emdash-scan-command.mjs`); the per-string test-pin greps remain execution-time BY DESIGN — their inputs are the repaired strings, which exist only after each repair, and the required GREEN plus the guard make an omission loud (accepted under the consequence bound).
 
 ## Global constraints
 

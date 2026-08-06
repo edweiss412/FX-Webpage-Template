@@ -1,3 +1,4 @@
+# Generating command (plan R4 F1): node docs/superpowers/plans/2026-08-06-l-wave/e1-emdash-scan-command.mjs (committed alongside; run from repo root)
 components/admin/PublishedToggle.tsx:103 [StringLiteral] "Changes are being finalized — the switch unlocks when they commit."
 components/admin/PublishedToggle.tsx:104 [StringLiteral] "A publish is finishing — the switch unlocks when it's done."
 components/admin/PublishedToggle.tsx:107 [StringLiteral] "Crew link is off — nobody can open this show."

@@ -1,3 +1,9 @@
+# Generating commands (plan R4 F1 — exact, reproducible):
+#   grep -rn "compound test\|audit suite\|the helper covers\|exercised by e2e\|exercised in e2e\|compound-transition tests\|Regression-guarded by the audit\|covered by e2e\|covered in e2e\|tested by e2e" lib/ tests/ components/ app/ --include="*.ts" --include="*.tsx"
+#   for each dead suite name N in the wholly-dead set: grep -rn "N.spec" lib/ components/ app/ tests/ --include="*.ts" --include="*.tsx" (self-file hits classified in the plan table)
+#   grep -rln "describe\.skip(\|test\.fixme(\|test\.skip(" tests/
+#   grep -rn -B1 "^\s*\.skip(" tests/ --include="*.spec.ts" --include="*.test.ts"
+#   grep -rn "? describe : describe\.skip" tests/ --include="*.ts"
 === PHRASE SWEEP ===
 lib/visibility/capabilityTransitions.ts:39: * the e2e compound-transition tests in
 lib/visibility/capabilityTransitions.ts:152: * the delta is empty (the e2e compound tests cover those cases).
