@@ -29,6 +29,13 @@
  * predicate and sit outside the ratified scope of the Today change (spec §1.1),
  * so they are documented rather than silently implied to be handled.
  *
+ * The SHOW's own date is deliberately not on that list. `unknown_asterisk` means
+ * "which days you work is unconfirmed", not "the show's dates are secret" — the
+ * header date is on the link the viewer arrived through, so suppressing it would
+ * remove necessary context and protect nothing. The question is dates that imply
+ * the VIEWER's schedule, which is narrower than "any rendered date". Raised and
+ * refuted in cross-model R4; recorded on the backlog entry so it stays settled.
+ *
  * A predicate is not a policy. This function answers "does this viewer's
  * restriction mean dates must be withheld"; whether a given surface ASKS is a
  * property of that surface, and the list above is the only honest way to say

@@ -178,18 +178,23 @@ const PENDING: ReadonlyMap<string, string> = new Map([
  * the fail-by-default property the walk was supposed to provide and the
  * exemption lists were quietly removing.
  *
- * Counts are MEASURED, not asserted from memory (the announce-call counts in
- * this same file were wrong the first time I wrote them down).
+ * Counts are MEASURED. They have now been wrong TWICE from estimation — the
+ * announce-call counts, and then these, which R4 probed and found carried
+ * eleven slack slots across seven files, so appending an ordinary new site to
+ * any of them still produced zero offenders. Slack does not degrade this guard
+ * gracefully; it removes exactly the fail-by-default property the registry
+ * exists to provide. The self-test below pins the exactness rather than trusting
+ * the numbers.
  */
 const REGISTERED_SITES: ReadonlyMap<string, number> = new Map([
   ["components/admin/RescanSheetButton.tsx", 0],
-  ["components/admin/RoleRecognizeControl.tsx", 4],
-  ["components/admin/RecentAutoAppliedStrip.tsx", 5],
-  ["components/admin/ReSyncButton.tsx", 2],
-  ["components/admin/dev/MaterializeCard.tsx", 2],
-  ["app/admin/settings/admins/RevokeRowButton.tsx", 2],
-  ["components/admin/wizard/step3ReviewSections.tsx", 4],
-  ["components/admin/wizard/Step3ReviewModal.tsx", 4],
+  ["components/admin/RoleRecognizeControl.tsx", 2],
+  ["components/admin/RecentAutoAppliedStrip.tsx", 2],
+  ["components/admin/ReSyncButton.tsx", 1],
+  ["components/admin/dev/MaterializeCard.tsx", 1],
+  ["app/admin/settings/admins/RevokeRowButton.tsx", 1],
+  ["components/admin/wizard/step3ReviewSections.tsx", 1],
+  ["components/admin/wizard/Step3ReviewModal.tsx", 2],
 ]);
 
 function walk(dir: string, out: string[] = []): string[] {
@@ -518,6 +523,23 @@ describe("live regions are mounted before their text (BL-ANNOUNCE-REGION-UNMOUNT
     }
   });
 
+  it("REGISTERED_SITES is EXACT — no slack slot can absorb a new region", () => {
+    // R4 probed the counts I had measured and found eleven slack slots across
+    // seven files: appending one ordinary conditional site to any of them still
+    // produced zero offenders, so the registry was not failing new sites by
+    // default at all. Estimation has now put wrong numbers in this file twice,
+    // so the numbers are asserted against the scanner rather than trusted.
+    for (const [f, declared] of REGISTERED_SITES) {
+      const actual = conditionalStatusRegions(readFileSync(join(REPO_ROOT, f), "utf8"), f).filter(
+        (h) => !NON_TRANSIENT_GATES.has(h.testId) && !NON_TRANSIENT_GATES.has(`${f}::${h.testId}`),
+      ).length;
+      expect(
+        declared,
+        `${f}: registry must equal the scanner, or the slack absorbs a new site`,
+      ).toBe(actual);
+    }
+  });
+
   it("no UNREGISTERED file inserts a live region together with its text", () => {
     const offenders: string[] = [];
     for (const f of files) {
@@ -529,6 +551,10 @@ describe("live regions are mounted before their text (BL-ANNOUNCE-REGION-UNMOUNT
       // registered file is covered for everything except the sites it names.
       const exemptSites = REGISTERED_SITES.get(f);
       const hits = conditionalStatusRegions(readFileSync(join(REPO_ROOT, f), "utf8"), f);
+      // Counted AFTER the testid exemptions, matching what REGISTERED_SITES
+      // declares — comparing the raw index against it double-counted gated
+      // sites and made the two disagree about the same file.
+      let unexempt = 0;
       for (const hit of hits) {
         // Keyed on `file::testId`. The testid alone was not enough once the AST
         // walk started seeing regions that carry NO testid — those all collapsed
@@ -539,7 +565,8 @@ describe("live regions are mounted before their text (BL-ANNOUNCE-REGION-UNMOUNT
         // A registered file exempts only the NUMBER of sites it declared. Site
         // N+1 is a region nobody registered, and it fails — which is the
         // fail-by-default property whole-file skipping was removing.
-        if (exemptSites !== undefined && hit.index < exemptSites) continue;
+        unexempt += 1;
+        if (exemptSites !== undefined && unexempt <= exemptSites) continue;
         offenders.push(`${f}:${hit.line} (${hit.testId})`);
       }
     }

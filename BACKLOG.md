@@ -1314,7 +1314,9 @@ Show crew  UV Unknown Viewer You Partial (dates TBD)  EP Explicit Peer May 13 & 
 - personal flight dates — `components/crew/sections/TravelSection.tsx:603`
 - a PEER's explicit days via the roster attendance label — `components/crew/sections/CrewSection.tsx:191`
 
-The reviewer's census found no further ungated structured-date renderers, so this list is believed complete.
+**One candidate is REFUTED, recorded so it is not re-raised.** Cross-model R4 added the global header date (`components/layout/Header.tsx:45`, `May 13, 2026`) to this list. It does not belong: that is the SHOW's date, rendered to anyone holding the share link, and `unknown_asterisk` means "which days YOU work is unconfirmed" — not "the show's dates are secret". Suppressing it would remove the one piece of context every viewer needs and would not protect anything, since the date is on the link they used to arrive. The privacy question here is narrower than "any rendered date": it is dates that imply the VIEWER's own schedule. The four sites above are exactly that; the header is not.
+
+The census found no further ungated viewer-specific date renderers, so the list above is believed complete.
 
 **Why not fixed in the wave that found it:** all four predate `lib/crew/dateSuppression.ts` and sit outside the ratified scope of the Today change (spec §1.1 ratified the Tonight/Where rows specifically). The fourth is also not a mechanical gate — `partialAttendanceLabel` prints a peer's days to help crew coordinate, so suppressing it is a product decision about whose privacy wins, exactly the "dedicated crew-privacy review" that `BL-CREW-UNKNOWN-ASTERISK-TODAY-DATES` named as its own promotion prerequisite.
 
