@@ -37,7 +37,6 @@ screen-disposition 2026-08-04: KEEP — probe (`tests/sync/capabilityLossReachab
 
 ## BL-TASK-ENROLLMENT-SINGLE-DEPTH — the declared task region cannot express hierarchical or interleaved plan shapes
 
-**Status:** IN PROGRESS · **Branch:** feat/l-wave-docs
 **Status:** OPEN · **Severity:** LOW (opt-in convention; conservative failure with a surfaced finding, never silent) · **Class:** spec-lint task contract, enrollment expressiveness · **Filed:** 2026-08-03, from `docs/superpowers/specs/2026-08-03-pre-review-gate-arms-design.md` §6 items 6 and 7 · **Effort:** L
 **l-wave-screen 2026-08-06:** PREREQ — design-gated multi-depth enrollment redesign; the entry's own deferral-exception (c) fences it, so no wave can schedule it.
 
@@ -196,7 +195,6 @@ then archive this entry. Nothing else is owed.
 
 ### BL-PUBLISHED-TOGGLE-CLIENT-COMMIT-WEDGE — a fast server action can leave the Published toggle stuck pending on WebKit
 
-**Status:** IN PROGRESS · **Branch:** feat/l-wave-docs
 **Status:** OPEN · **Severity:** MEDIUM (real-user exposure unquantified; measured 7/10 in a CI loop) · **Class:** upstream framework defect, product exposure · **Filed:** 2026-07-26 (BL-E2E-LIFECYCLE-TRANSITIONS-ROUNDTRIP-FLAKE measurement work) · **Effort:** L
 **l-wave-screen 2026-08-06:** PARKED-WATCH — measured upstream React replay-loss defect; mitigations gated on real-user reports or a vendored React fix, and the watch signals are named in-body.
 
@@ -208,7 +206,6 @@ then archive this entry. Nothing else is owed.
 
 ## BL-PG-CRON-COVERAGE-UNRUN — the live pg-cron introspection suite runs in no CI workflow
 
-**Status:** IN PROGRESS · **Branch:** feat/l-wave-docs
 **Status:** PARTIALLY CLOSED 2026-07-26 (PR3 of the CI-dark coverage cluster) · **Severity:** medium · **Surfaced:** 2026-07-25, whole-diff review round 17 · **Effort:** M
 **l-wave-screen 2026-08-06:** KEEP at honest residual scope — the wired-in-CI half closed 2026-07-26/27 and only the per-job smoke residue remains, so it is resized L->M in this same commit.
 
@@ -228,7 +225,6 @@ So every assertion in it is dead in CI, including the `active=true` gate that ex
 
 ## BL-WATCH-PROMOTION-ACTIVATION-RACE — a folder switch racing a subscriber can leave one stale active channel
 
-**Status:** IN PROGRESS · **Branch:** feat/l-wave-docs
 **Status:** OPEN · **Severity:** low (bounded to one lease; no data loss) · **Surfaced:** 2026-07-26, watch-renewal-lifecycle spec rounds 2-5 · **Effort:** L
 **l-wave-screen 2026-08-06:** PARKED (ratified 2026-08-05) for its own lock-topology design session; not schedulable inside any wave (see the 2026-08-04 screen ruling in-body).
 
@@ -491,7 +487,6 @@ Reordering two adjacent top-level blocks silently reorders the parser's output a
 
 ### BL-PARSER-FIELD-PROVENANCE-MODEL — per-field provenance/confidence for the P0-2 zero-signal residuals
 
-**Status:** IN PROGRESS · **Branch:** feat/l-wave-docs
 **Status:** OPEN · **Severity:** medium · **Class:** PARSER ROBUSTNESS / DATA PROVENANCE · **Effort:** L · **Filed:** 2026-08-06 (L-wave, spec §2.1.5)
 
 The 2026-07-07 e2e real-world-variation preparedness audit names a per-field provenance/confidence model as the structural fix for its P0-2 class (confident wrong values rendering as authoritative). It is listed as **§7 item 5, "Medium (structural, from prior audit, still the right long-term move)"** and carried in the §11 shipped-status table as item 4: *"Provenance model (§7 item 5 remainder) — the long-term move for the P0-2 zero-signal residuals; 9+ territory. — ⏳ still the open long-term move."* This row is that remainder, filed honestly rather than left as a dangling audit reference.
@@ -528,7 +523,6 @@ Ledgered `accepted-gap`, not `equivalent`, in `tests/mutation/source/registry.ts
 
 ### BL-EXPORT-BLANK-ROW-SEGMENTATION — blank-row block segmentation fuses/splits sections silently (audit #10)
 
-**Status:** IN PROGRESS · **Branch:** feat/l-wave-docs
 **Status:** PARTIALLY CLOSED (2026-07-27, `fix/export-blank-row-segmentation` — spec `docs/superpowers/specs/2026-07-27-export-blank-row-segmentation.md`) · **Severity:** medium · **Class:** EXPORT/PARSER ROBUSTNESS · **Effort:** L
 **l-wave-screen 2026-08-06:** PREREQ-trigger — the residuals have no corpus-clean discriminator (the generic orphan-block rule was probed and REFUTED at 30 false positives); the in-body promote trigger is a live mis-grouped show.
 
@@ -540,7 +534,6 @@ Ledgered `accepted-gap`, not `equivalent`, in `tests/mutation/source/registry.ts
 
 ### BL-TRANSPORT-ID-RESOLUTION — the deferred red-first regression pins for `transportTileVisible`
 
-**Status:** IN PROGRESS · **Branch:** feat/l-wave-docs
 **Status:** OPEN at residual scope · **Severity:** low · **Class:** TEST COVERAGE · **Effort:** S · **Filed:** 2026-07-09 · **Resized:** 2026-08-06 (L-wave)
 
 > **RESIZED 2026-08-06 (L-wave, `feat/l-wave-docs`), decided by probe.** The entry's headline residual
@@ -650,7 +643,6 @@ Consequence: Doug must leave the dashboard to see operator telemetry and, as a n
 
 ## BL-E2E-APP-DEPENDENT-SPECS-CI-DARK — ~60 app-dependent e2e specs run in no CI workflow
 
-**Status:** IN PROGRESS · **Branch:** feat/l-wave-docs
 **Status:** OPEN · **Severity:** MEDIUM (dark regression coverage) · **Class:** CI wiring · **Effort:** L · **Filed:** 2026-08-06 (L-wave, refile of `BL-E2E-LIFECYCLE-SPECS-CI-DARK` at honest scope)
 
 Roughly **60 standalone-allowlist e2e specs execute in no CI workflow.** They are the residual of the 2026-07-26 CI-dark cluster, which closed everything that did NOT need a running application: `standalone-e2e.yml` now runs the whole standalone config unfiltered on every PR, and that alone retired 30 allowlist rows. What is left all shares one blocker — **each needs a dev server AND a seeded database**, which is exactly why the cluster's ratified scope excluded them.
@@ -768,7 +760,6 @@ Design memo captures six load-bearing principles: push-not-pull, severity tierin
 
 ### BL-PRIVATE-IMAGE-PIPELINE — Migrate diagrams gallery to `next/image` with auth-preserving pipeline
 
-**Status:** IN PROGRESS · **Branch:** feat/l-wave-docs
 **Effort:** L (scope floor — design-gated)
 **l-wave-screen 2026-08-06:** PREREQ — scope floor — needs its own private-image-pipeline design session.
 
@@ -801,7 +792,6 @@ Asset URLs are proxied through `/api/asset/diagram/...` which returns auth-check
 
 ### BL-ADMIN-PER-SHOW-HISTORY — Sync-health-history + parse-warnings-history sections on per-show panel
 
-**Status:** IN PROGRESS · **Branch:** feat/l-wave-docs
 **Effort:** L (scope floor — design-gated)
 **l-wave-screen 2026-08-06:** PREREQ — scope floor — a schema/data-model decision. Possible bundle with BL-OPS-LOG-DASHBOARD-BANNER: both want an operator-history read over app_events, and building them apart would mean two read paths and two design passes.
 
@@ -902,7 +892,6 @@ screen-disposition 2026-08-04: PREREQ-FENCED + ANNOTATED, stays open, NOT claime
 
 ### BL-NON-CREW-UNDO — Undo for non-crew feed rows (section shrinkage / field degradation / asset drift)
 
-**Status:** IN PROGRESS · **Branch:** feat/l-wave-docs
 **Effort:** L
 **l-wave-screen 2026-08-06:** PREREQ — waits on the operator explicitly wanting non-crew undo; the capture-widening cost is judged then, not now.
 
@@ -957,7 +946,6 @@ screen-disposition 2026-08-04: PREREQ-FENCED + ANNOTATED, stays open, NOT claime
 
 ### BL-CREW-SHEET-TEMPLATE-V2 — Standardized downloadable show-spec template to capture redesign-required fields
 
-**Status:** IN PROGRESS · **Branch:** feat/l-wave-docs
 **Effort:** L (scope floor — design-gated)
 **l-wave-screen 2026-08-06:** PREREQ — scope floor — an owner product decision on whether a standardized template is adopted at all.
 
@@ -1061,7 +1049,6 @@ The Phase 1 crew-page projection alert (`TILE_PROJECTION_FETCH_FAILED`, §4.13 o
 
 ### BL-RESURRECT-MOBILE-SAFARI-E2E — lift the remaining mobile-safari tile/crew specs into CI
 
-**Status:** IN PROGRESS · **Branch:** feat/l-wave-docs
 **Filed:** 2026-06-23 (discovered building the crew-e2e CI job). **Effort:** L
 
 > **CORRECTION 2026-08-06 (L-wave, `feat/l-wave-docs`).** The entry's founding premise — "NO CI

@@ -107,7 +107,6 @@ screen-disposition 2026-08-04: ANNOTATE, stays open as an owner action. It is no
 
 ### SHARELINK-COPY-REF-ORDERING-PROOF — test-coverage gap (2026-07-25, share-link-chrome-backlog)
 
-**Status:** IN PROGRESS · **Branch:** feat/l-wave-docs
 **Effort:** L
 **l-wave-screen 2026-08-06:** PREREQ — un-defer trigger is a scheduler harness that can resolve a promise between commit and passive effects; no such harness exists today.
 
@@ -168,7 +167,6 @@ handling together.
 
 ### SHARELINK-CUE-FORCED-COLORS-1 — impeccable audit P3 (2026-07-25, share-link-chrome-backlog)
 
-**Status:** IN PROGRESS · **Branch:** feat/l-wave-docs
 **Effort:** L
 **l-wave-screen 2026-08-06:** PREREQ — waits on a repo-wide forced-colors pass to set the pattern; solving it once here would pre-commit that pattern from a sample of one.
 
@@ -198,7 +196,6 @@ test rather than maintained by hand.
 
 ### ATTENTION-INDEX-JUMP-FOCUS-1 — [P1] pressing an index row drops focus to `<body>`
 
-**Status:** IN PROGRESS · **Branch:** feat/l-wave-docs
 **Effort:** L
 **l-wave-screen 2026-08-06:** PREREQ — needs its own focus-orchestration spec; trigger is a keyboard/SR report or the next jump-handler change.
 
