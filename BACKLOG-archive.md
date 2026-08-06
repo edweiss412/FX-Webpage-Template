@@ -8,6 +8,44 @@ Same split as [DEFERRED.md](./DEFERRED.md) ↔ [DEFERRED-archive.md](./DEFERRED-
 
 ---
 
+## BL-RESYNC-STAGED-REVIEW-UI — no inline "review the diff, then approve the smaller roster" surface for an existing show — CLOSED 2026-08-06 (L-wave, `feat/l-wave-docs`)
+
+
+**Resolution: ARCHIVED unbuilt. The owner never asked for the diff-review workflow.** Ratified by the
+user 2026-08-05 (L-wave decisions brief; spec §1.1 item 5 / §4.5 item 5). The entry was filed
+retroactively to honor a spec's promise to file it, not because anyone wanted the surface — and four
+years of operation have not produced the request.
+
+**Re-open trigger, the entry's own words, preserved verbatim: promote it if the diff-review workflow
+is actually wanted.** An operator asking for diff review is the trigger. Nothing else is.
+
+**What must NOT be re-derived — this is explicitly not a safety gap** (owner decision, resync
+quality-gate design spec §10, restated here because it is the single most likely thing for a future
+reader to mistake): retain-last-good plus the alert already prevent the data loss, and the
+`modifiedTime` binding on `acceptShrink` already makes acceptance explicit and version-bound. **Do
+not promote this on safety grounds.** The archive is not evidence of an accepted risk; the risk was
+never there.
+
+**The genuine limit behind the request, preserved for whoever builds it:** the design does not
+persist the held parse, so "apply exactly the version I first reviewed" is not available.
+`acceptShrink` applies the CURRENT sheet only if its `modifiedTime` still matches the reviewed one,
+and otherwise re-holds. A future diff-review surface therefore needs a persisted parse, not just a
+component — that is the real cost, and it is why the entry sized M rather than S. The build shape it
+named stays valid: restore or re-home `StagedReviewCard` in an existing-show mode exposing
+Apply / Keep-current, and update the `perShowPage.test.tsx` retirement pins.
+
+---
+
+**Filed:** 2026-08-02 (retroactively; `docs/superpowers/specs/data-quality/2026-07-04-resync-quality-gate-design.md:267` §13 says it "files to `BACKLOG.md`", and it never did). **Class:** UX enhancement. **Effort:** M.
+
+The shrink gate holds a reduced roster and offers `acceptShrink`, which applies the CURRENT sheet only if its `modifiedTime` still matches the reviewed one, and otherwise re-holds. That is deliberately not byte-exact: the design does not persist the held parse, so "apply exactly the version I first reviewed" is not available. This entry is that surface — restore or re-home `StagedReviewCard` in an existing-show mode exposing Apply / Keep-current, and update the `perShowPage.test.tsx` retirement pins.
+
+**Explicitly not a safety gap** (owner decision, spec §10): retain-last-good plus the alert already prevent the data loss, and the modifiedTime binding already makes acceptance explicit and version-bound. Do not promote this on safety grounds; promote it if the diff-review workflow is actually wanted.
+
+**Status:** OPEN.
+
+---
+
 ## BL-ATTENTION-PANEL-NAME-LEADING-SECTION — the panel is named for its first section, not its contents — CLOSED 2026-08-06 (L-wave, `feat/l-wave-docs`)
 
 
