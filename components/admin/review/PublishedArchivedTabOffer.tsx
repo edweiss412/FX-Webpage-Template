@@ -111,6 +111,10 @@ export function PublishedArchivedTabOffer(props: BaseProps & { tabName: string }
       });
       if (res.ok) {
         if (json.sync && !json.sync.ok) {
+          // The VISIBLE line stays local; the ANNOUNCEMENT goes only through the
+          // channel, and the local node is NOT a live region (R2 finding 4).
+          // Keeping both speaking meant one sentence twice on any render where
+          // this component survives the refresh.
           const m = syncLine("set", json.sync.kind);
           setTransient(m);
           announce(m);
@@ -146,9 +150,12 @@ export function PublishedArchivedTabOffer(props: BaseProps & { tabName: string }
           screen readers do not announce — they announce mutations WITHIN a
           region that was already there. Empty at rest, so there is nothing to
           read until there is. */}
-      <p role="status" aria-live="polite" className="text-xs text-text-subtle">
-        {transient ?? ""}
-      </p>
+      {/* NOT a live region: the channel announces this line (R2 finding 4).
+          Two speakers for one event says it twice whenever this component
+          survives the refresh — and it is the channel that must own it, because
+          on the renders where the refresh DOES replace this tree, a local
+          region would be destroyed before it could speak at all. */}
+      <p className="text-xs text-text-subtle">{transient ?? ""}</p>
       {error ? (
         <p role="alert" className="text-xs text-warning-text">
           {error}
@@ -214,6 +221,10 @@ export function PublishedArchivedTabIncludedNote(props: BaseProps) {
       });
       if (res.ok) {
         if (json.sync && !json.sync.ok) {
+          // The VISIBLE line stays local; the ANNOUNCEMENT goes only through the
+          // channel, and the local node is NOT a live region (R2 finding 4).
+          // Keeping both speaking meant one sentence twice on any render where
+          // this component survives the refresh.
           const m = syncLine("cleared", json.sync.kind);
           setTransient(m);
           announce(m);
@@ -248,9 +259,12 @@ export function PublishedArchivedTabIncludedNote(props: BaseProps) {
           screen readers do not announce — they announce mutations WITHIN a
           region that was already there. Empty at rest, so there is nothing to
           read until there is. */}
-      <p role="status" aria-live="polite" className="text-xs text-text-subtle">
-        {transient ?? ""}
-      </p>
+      {/* NOT a live region: the channel announces this line (R2 finding 4).
+          Two speakers for one event says it twice whenever this component
+          survives the refresh — and it is the channel that must own it, because
+          on the renders where the refresh DOES replace this tree, a local
+          region would be destroyed before it could speak at all. */}
+      <p className="text-xs text-text-subtle">{transient ?? ""}</p>
       {error ? (
         <p role="alert" className="text-xs text-warning-text">
           {error}

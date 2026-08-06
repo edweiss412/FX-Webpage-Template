@@ -945,14 +945,27 @@ describe("section freshness detector", () => {
   });
 
   it("D24: editing a field inside an all-blank contact block does not cue", () => {
-    const blank = { id: "blank-1", kind: "other", name: "", email: "", phone: "" };
-    const withBlank = (notes: string | null) => {
+    // THE MUTATED FIELD MUST BE ONE THE OLD PROJECTION READ, or this row passes
+    // with or without the narrowing it exists to pin. R2 probed the first
+    // version: it moved `notes`, which the legacy `pickAll(CONTACT_KEYS)` never
+    // hashed either, so both sides were equal for a reason that had nothing to
+    // do with `contactBlocks`. It was the only non-discriminating row of
+    // D21-D27, and it read exactly like the six that do discriminate.
+    //
+    // `kind` IS in CONTACT_KEYS, so the legacy projection moved on this edit
+    // while the renderer drops the whole block (no name, no content rows) and
+    // paints nothing. That is the narrowing, stated so it can fail.
+    const blank = { id: "blank-1", name: "", email: "", phone: "", notes: null };
+    const withBlank = (kind: string) => {
       const s = reviewSnapshot();
-      (s.contacts as unknown[]).push({ ...blank, notes });
+      (s.contacts as unknown[]).push({ ...blank, kind });
       return s;
     };
+    // Premise: the two blocks really are both dropped by the renderer, so the
+    // no-cue result is the narrowing rather than "the fixture never changed".
+    expect(withBlank("other").contacts).not.toEqual(withBlank("production").contacts);
     expect(
-      changedSectionIds(signaturesOf(withBlank(null)), signaturesOf(withBlank("into the void"))),
+      changedSectionIds(signaturesOf(withBlank("other")), signaturesOf(withBlank("production"))),
     ).toEqual([]);
   });
 

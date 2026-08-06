@@ -22,6 +22,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { MESSAGE_CATALOG } from "@/lib/messages/catalog";
+import { UndoAnnounceContext } from "@/components/admin/undoAnnounceContext";
 import { FinalizeButton } from "@/components/admin/FinalizeButton";
 
 const refreshMock = vi.fn();
@@ -999,8 +1000,11 @@ describe("FinalizeButton — streaming progress panel", () => {
     const batch = controllableNdjson();
     const cas = controllableNdjson();
     fetchMock.mockResolvedValueOnce(batch.response).mockResolvedValueOnce(cas.response);
+    const announced: string[] = [];
     const { getByTestId, queryByTestId, findByTestId } = render(
-      <FinalizeButton wizardSessionId={WIZARD_SESSION_ID} publishCount={2} />,
+      <UndoAnnounceContext.Provider value={{ announce: (m) => announced.push(m) }}>
+        <FinalizeButton wizardSessionId={WIZARD_SESSION_ID} publishCount={2} />
+      </UndoAnnounceContext.Provider>,
     );
 
     await act(async () => {
@@ -1056,16 +1060,26 @@ describe("FinalizeButton — streaming progress panel", () => {
     // ANTI-TAUTOLOGY: the region queried is the announcer's, which is OUTSIDE
     // the completion block. Asserting on the completion block itself passes on
     // the broken shape, because the broken shape does render the text.
+    // SECOND ITERATION (R2 finding 4). The local announcer was the fix for
+    // "completion never announced"; whole-diff R1 then showed completion is
+    // followed by `router.refresh()` OUT of the wizard, so a region this
+    // component owns may be destroyed before it speaks. The channel took over —
+    // and keeping both spoke the sentence twice whenever the component did
+    // survive. So the assertion inverts: the sentence must reach the CHANNEL,
+    // and the local announcer must be silent about completion.
     const announcer = document.querySelector(".sr-only[role='status']");
-    expect(announcer, "the persistent announcer must be mounted").not.toBeNull();
+    expect(
+      announcer,
+      "the persistent announcer is still mounted for the running phases",
+    ).not.toBeNull();
     expect(
       announcer!.textContent ?? "",
-      "the completion sentence must reach the STABLE region, not only the block that appears with it",
-    ).toContain("Setup is complete");
+      "completion must NOT also come from the local region — that is a duplicate utterance",
+    ).not.toContain("Setup is complete");
     expect(
-      announcer!.contains(complete),
-      "the stable region must be outside the completion block, or this assertion proves nothing",
-    ).toBe(false);
+      announced.join(" | "),
+      "the completion sentence must reach the announce channel",
+    ).toContain("Setup is complete");
     expect(
       complete.getAttribute("role"),
       "the completion block must not also claim to be a live region — two announcers, one event",

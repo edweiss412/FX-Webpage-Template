@@ -143,12 +143,17 @@ const NON_TRANSIENT_GATES: ReadonlyMap<string, string> = new Map([
 /**
  * Files still carrying the defect, each with the shape its repair will use.
  *
- * EMPTY, AND KEPT ANYWAY. Every site the walk found is repaired, so this is not
- * a debt list any more — it is the mechanism that stops one from re-forming.
- * A future author who hits this guard on a new site has two honest exits (mount
- * the region, or announce through the channel) and one dishonest one, which is
- * to add a row here and move on. The row above it fails the moment the file goes
- * clean, so a row is a claim with an expiry rather than a place to put a defect.
+ * NOT EMPTY — four rows, each a real site the AST walk found and named with the
+ * repair it needs (BL-LIVE-REGION-AST-WALK-RESIDUE). An earlier version of this
+ * comment claimed the map was empty and stayed that way after the rows landed,
+ * which R2 caught: a comment that describes a data structure is a claim about
+ * it, and this one had gone false.
+ *
+ * The mechanism is the point. A row FAILS the moment its file goes clean, so a
+ * row is a claim with an expiry rather than a place to put a defect and forget
+ * it. A future author who hits this guard on a new site has two honest exits —
+ * mount the region, or announce through the channel — and adding a row here is
+ * a third that costs them a name in the ledger.
  */
 const PENDING: ReadonlyMap<string, string> = new Map([
   // FOUND BY THE AST WALK (whole-diff review R1), not by the regex it replaced —
@@ -222,10 +227,82 @@ function conditionalStatusRegions(
       if (!ts.isJsxAttribute(a) || a.name.getText() !== name) continue;
       const init = a.initializer;
       if (init && ts.isStringLiteral(init)) return init.text;
-      if (init && ts.isJsxExpression(init) && init.expression) return init.expression.getText();
+      if (init && ts.isJsxExpression(init) && init.expression) {
+        // `role={"status"}` is the same attribute written differently (R2). Strip
+        // the quotes a string literal keeps in `getText()` so both spellings
+        // compare equal; anything non-literal falls through as its own text.
+        const e = init.expression;
+        return ts.isStringLiteral(e) ? e.text : e.getText();
+      }
       return "";
     }
     return null;
+  };
+
+  /** Does this statement contain a `return` anywhere inside it? */
+  const hasReturn = (node: ts.Node): boolean => {
+    let found = false;
+    const walk = (n: ts.Node): void => {
+      if (found) return;
+      if (ts.isReturnStatement(n)) {
+        found = true;
+        return;
+      }
+      if (ts.isFunctionDeclaration(n) || ts.isArrowFunction(n) || ts.isFunctionExpression(n))
+        return;
+      ts.forEachChild(n, walk);
+    };
+    walk(node);
+    return found;
+  };
+
+  /**
+   * Can this region's text be the empty string — i.e. can it mount silent?
+   *
+   * Two ways, both decidable and both real in this corpus: an empty-string
+   * branch in the JSX itself (`cond ? msg : ""`), or a bare identifier bound to
+   * `useState("")`, which starts empty and is filled later. The second is
+   * invisible from the element alone, which is why the first version of this
+   * check flagged `Step3SheetCard`'s `{liveMessage}` — a false positive on a
+   * region that works exactly as intended.
+   */
+  const emptyStateVars = new Set<string>();
+  {
+    const collect = (n: ts.Node): void => {
+      if (
+        ts.isVariableDeclaration(n) &&
+        ts.isArrayBindingPattern(n.name) &&
+        n.initializer &&
+        ts.isCallExpression(n.initializer) &&
+        n.initializer.expression.getText().endsWith("useState")
+      ) {
+        const arg = n.initializer.arguments[0];
+        const first = n.name.elements[0];
+        if (
+          arg &&
+          ts.isStringLiteral(arg) &&
+          arg.text === "" &&
+          first &&
+          ts.isBindingElement(first)
+        )
+          emptyStateVars.add(first.name.getText());
+      }
+      ts.forEachChild(n, collect);
+    };
+    collect(sf);
+  }
+
+  const canMountEmpty = (el: ts.Node): boolean => {
+    let empty = false;
+    const walk = (n: ts.Node): void => {
+      if (empty) return;
+      if ((ts.isStringLiteral(n) || ts.isNoSubstitutionTemplateLiteral(n)) && n.text === "")
+        empty = true;
+      else if (ts.isIdentifier(n) && emptyStateVars.has(n.text)) empty = true;
+      else ts.forEachChild(n, walk);
+    };
+    walk(el);
+    return empty;
   };
 
   /** Is this element's MOUNT gated by a conditional inside its own function? */
@@ -233,8 +310,33 @@ function conditionalStatusRegions(
     let cur: ts.Node | undefined = node.parent;
     let child: ts.Node = node;
     while (cur) {
-      if (ts.isFunctionDeclaration(cur) || ts.isArrowFunction(cur) || ts.isFunctionExpression(cur))
-        return false; // reached the component boundary without finding a gate
+      if (
+        ts.isFunctionDeclaration(cur) ||
+        ts.isArrowFunction(cur) ||
+        ts.isFunctionExpression(cur)
+      ) {
+        // GUARD-CLAUSE MOUNTING (R2): `if (!ok) return null; return <p role="status">…`
+        // has no conditional ANCESTOR — the region sits in the tail return — yet
+        // the component only reaches it on one path, so the region is inserted
+        // populated exactly as if it were ternary-gated. Ordinary authoring, not
+        // obfuscation. Detected by asking whether the function body contains an
+        // earlier `return` that is itself inside an `if`.
+        // ...BUT ONLY IF THE REGION CANNOT MOUNT SILENT. A guard-clause region
+        // whose text has an empty-string branch (`cond ? msg : ""`) arrives
+        // EMPTY and mutates afterwards, which is the working shape — flagging it
+        // would be a false positive, and false positives are how a guard gets
+        // silenced by exemptions until it guards nothing. Six live sites are
+        // exactly this and are correctly NOT reported.
+        if (canMountEmpty(node)) return false;
+        const body = (cur as ts.FunctionLikeDeclaration).body;
+        if (body && ts.isBlock(body)) {
+          for (const st of body.statements) {
+            if (ts.isIfStatement(st) && hasReturn(st)) return true;
+            if (ts.isSwitchStatement(st)) return true;
+          }
+        }
+        return false;
+      }
       if (ts.isConditionalExpression(cur) && (cur.whenTrue === child || cur.whenFalse === child))
         return true;
       if (
@@ -244,7 +346,7 @@ function conditionalStatusRegions(
         cur.right === child
       )
         return true;
-      if (ts.isIfStatement(cur)) return true;
+      if (ts.isIfStatement(cur) || ts.isSwitchStatement(cur) || ts.isCaseClause(cur)) return true;
       child = cur;
       cur = cur.parent;
     }
@@ -269,6 +371,62 @@ function conditionalStatusRegions(
   };
   visit(sf);
   return hits;
+}
+
+/**
+ * `role="status"` elements that remove themselves from the accessibility tree.
+ *
+ * Attribute-level and AST-based (R2): `hidden`, `aria-hidden="true"`, `inert`,
+ * a `display: none` / `visibility: hidden` inline style object, and the
+ * `empty:hidden` / `hidden` Tailwind utilities in `className`. Order within the
+ * opening tag is irrelevant here, which was the previous scan's main hole.
+ */
+function hidingStatusRegions(text: string, file: string): Array<{ line: number; how: string }> {
+  const sf = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  const out: Array<{ line: number; how: string }> = [];
+  const visit = (node: ts.Node): void => {
+    if (ts.isJsxSelfClosingElement(node) || ts.isJsxOpeningElement(node)) {
+      let isStatus = false;
+      const reasons: string[] = [];
+      for (const a of node.attributes.properties) {
+        if (!ts.isJsxAttribute(a)) continue;
+        const name = a.name.getText();
+        const init = a.initializer;
+        const literal =
+          init && ts.isStringLiteral(init)
+            ? init.text
+            : init &&
+                ts.isJsxExpression(init) &&
+                init.expression &&
+                ts.isStringLiteral(init.expression)
+              ? init.expression.text
+              : null;
+        if (name === "role" && literal === "status") isStatus = true;
+        if (name === "hidden" || name === "inert") reasons.push(name);
+        if (name === "aria-hidden" && (literal === "true" || init === undefined))
+          reasons.push("aria-hidden");
+        if (
+          name === "className" &&
+          literal !== null &&
+          /\bempty:hidden\b|(^|\s)hidden(\s|$)/.test(literal)
+        )
+          reasons.push("className hidden");
+        if (name === "style" && init && ts.isJsxExpression(init) && init.expression) {
+          const t = init.expression.getText().replace(/\s/g, "");
+          if (/display:["']none["']/.test(t)) reasons.push("style display:none");
+          if (/visibility:["'](hidden|collapse)["']/.test(t)) reasons.push("style visibility");
+        }
+      }
+      if (isStatus && reasons.length > 0)
+        out.push({
+          line: sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1,
+          how: reasons.join("+"),
+        });
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sf);
+  return out;
 }
 
 describe("live regions are mounted before their text (BL-ANNOUNCE-REGION-UNMOUNT-CLASS)", () => {
@@ -329,39 +487,72 @@ describe("live regions are mounted before their text (BL-ANNOUNCE-REGION-UNMOUNT
   });
 
   it("no live region hides itself with a display:none mechanism", () => {
-    // WHOLE-DIFF REVIEW R1 FOUND THIS ONE SHIPPED. `empty:hidden` compiles to
-    // `:empty { display: none }`, and a `display: none` element is not in the
-    // accessibility tree — so a region tidied that way is REVEALED with its
-    // text rather than mutated in place, which announces nothing. It is the
-    // original defect wearing the fix's clothes, and it passes every check that
-    // only looks at whether the element is conditionally RENDERED.
+    // WHOLE-DIFF R1 FOUND ONE SHIPPED (`empty:hidden` compiles to
+    // `:empty { display: none }`, and a display:none element is not in the
+    // accessibility tree — so the region is REVEALED with its text rather than
+    // mutated, announcing nothing). R2 then showed the line-window scan that
+    // replaced it had its own holes: it started AT the `role="status"` line, so
+    // it missed attributes written earlier in a multiline tag; it did not know
+    // `inert`; and it could not see `style={{ display: "none" }}`.
     //
-    // `sr-only` is the correct idle state: it clips the box and leaves the
-    // element exposed. Checked as a scan rather than a fixed list because the
-    // mechanism, not the site, is the thing being forbidden.
-    const HIDERS = /\bempty:hidden\b|\bhidden\b(?!:)|display:\s*none/;
+    // So this asks the AST for the element's OWN attributes — order-independent
+    // by construction, and it reads the style object rather than a text window.
     const offenders: string[] = [];
     for (const f of files) {
-      const lines = readFileSync(join(REPO_ROOT, f), "utf8").split("\n");
-      for (let i = 0; i < lines.length; i++) {
-        if (!lines[i]?.includes('role="status"')) continue;
-        const el = lines.slice(i, i + 8).join("\n");
-        // Only the element's OWN attributes, up to the closing bracket.
-        const own = el.slice(0, el.indexOf(">") === -1 ? el.length : el.indexOf(">"));
-        if (HIDERS.test(own)) offenders.push(`${f}:${i + 1}`);
+      for (const hit of hidingStatusRegions(readFileSync(join(REPO_ROOT, f), "utf8"), f)) {
+        offenders.push(`${f}:${hit.line} (${hit.how})`);
       }
     }
     expect(
       offenders,
-      "a display:none live region is not in the a11y tree — use sr-only for the idle state",
+      "a display:none / hidden / inert live region is not in the a11y tree — use sr-only when idle",
     ).toEqual([]);
   });
 
-  it("PREMISE: that scan rejects the exact shape review found (self-test)", () => {
-    // The guard above passes trivially on a clean tree, so prove it discriminates
-    // against the literal line that shipped.
-    const planted = '<p role="status" aria-live="polite" className="empty:hidden">';
-    expect(/\bempty:hidden\b/.test(planted)).toBe(true);
+  it("PREMISE: both scanners reject every shape review named (self-test)", () => {
+    // A guard that passes on a clean tree proves nothing about what it would
+    // catch. Every shape below was named by a review round as a MISS of an
+    // earlier version, so this is the regression record for all of them.
+    const gated = (src: string) => conditionalStatusRegions(src, "probe.tsx").length;
+    const hidden = (src: string) => hidingStatusRegions(src, "probe.tsx").length;
+
+    // R1: the line-window regex missed these three.
+    expect(gated('const C = () => <div>{a && <p role="status">{m}</p>}</div>;')).toBe(1);
+    expect(gated('const C = () => <div>{a ? <p role="status">{m}</p> : null}</div>;')).toBe(1);
+    expect(
+      gated(
+        'const C = () => <div>{a ? (\n<p\nid="x"\nclass="y"\ndata-z="w"\nrole="status"\n>{m}</p>\n) : null}</div>;',
+      ),
+    ).toBe(1);
+
+    // R2: expression-form role, switch/case, and guard-clause mounting.
+    expect(gated('const C = () => <div>{a ? <p role={"status"}>{m}</p> : null}</div>;')).toBe(1);
+    expect(
+      gated('function C(){ switch(k){ case 1: return <p role="status">{m}</p>; } return null; }'),
+    ).toBe(1);
+    expect(gated('function C(){ if(!ok) return null; return <p role="status">{m}</p>; }')).toBe(1);
+
+    // ...and the guard-clause rule must NOT fire when the region can mount
+    // silent, which is the working shape and the false positive that would get
+    // this whole guard exempted into uselessness.
+    expect(
+      gated('function C(){ if(!ok) return null; return <p role="status">{a ? m : ""}</p>; }'),
+    ).toBe(0);
+    expect(
+      gated(
+        'function C(){ const [m,setM]=useState(""); if(!ok) return null; return <p role="status">{m}</p>; }',
+      ),
+    ).toBe(0);
+
+    // R1+R2: every idle-hiding mechanism, including ones written before `role`
+    // in the tag, which the previous line-window scan structurally could not see.
+    expect(hidden('const C = () => <p role="status" className="empty:hidden">{m}</p>;')).toBe(1);
+    expect(hidden('const C = () => <p hidden role="status">{m}</p>;')).toBe(1);
+    expect(hidden('const C = () => <p aria-hidden="true" role="status">{m}</p>;')).toBe(1);
+    expect(hidden('const C = () => <p inert role="status">{m}</p>;')).toBe(1);
+    expect(hidden('const C = () => <p style={{ display: "none" }} role="status">{m}</p>;')).toBe(1);
+    // And the correct idle state is not flagged.
+    expect(hidden('const C = () => <p role="status" className="sr-only">{m}</p>;')).toBe(0);
   });
 
   it("the PENDING list is exact — no row that is already clean", () => {

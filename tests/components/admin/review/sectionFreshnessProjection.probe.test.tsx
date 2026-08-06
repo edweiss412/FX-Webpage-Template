@@ -72,28 +72,34 @@ function probe(id: SectionId, mutate: Mutate): { base: string; edited: string } 
 }
 
 /**
- * PER-CASE PREMISE: does THIS mutation reach the renderer at all?
+ * PER-CASE PREMISE: do THIS CASE'S OWN two inputs differ where it matters?
  *
- * The global premise below proves the harness can tell a painting edit from a
- * non-painting one — using a VENUE edit. That says nothing about whether the
- * crew, contacts, hotels, transport or packlist mutations land on the right
- * field, and a mutation that writes to a path the adapter does not read
- * produces two identical renders and reports "byte-identical" as a PASS. That
- * is the exact false-negative this suite exists to prevent, and whole-diff
- * review R1 demonstrated it: a deliberately wrong path passed every equality
- * assertion.
+ * The first version of this helper rendered a DIFFERENT, deliberately-painting
+ * mutation and asserted it moved the HTML. R2 probed it and showed the flaw:
+ * that proves the SECTION can paint, not that the pair under test reaches
+ * anything. A typo in the real pair's path leaves both renders byte-identical
+ * AND leaves this premise green — for crew, contacts, hotels and transport the
+ * mis-pathed pair produced identical ADAPTED INPUTS, so nothing anywhere in the
+ * case could tell.
  *
- * So each case first proves its own reachability, by making a mutation of the
- * SAME SHAPE that MUST paint, and asserting it does.
+ * So the premise now runs on the case's own two mutations and asserts the
+ * difference reaches the ADAPTER. That is the exact claim each case needs: the
+ * edit lands in the data the renderer consumes, and stops at the renderer.
+ * Identical adapted inputs mean the mutation went somewhere the section never
+ * reads, which is a vacuous case, not a passing one.
  */
-function expectMutationReaches(id: SectionId, paintingMutation: Mutate): void {
-  const base = renderSection(id);
-  const edited = renderSection(id, paintingMutation);
+function expectPairReachesAdapter(before: Mutate, after: Mutate): void {
+  const adapt = (m: Mutate) => {
+    const snapshot = reviewSnapshot();
+    m(snapshot);
+    return JSON.stringify(buildPublishedSectionData(snapshot, { slug: SLUG }));
+  };
   expect(
-    edited,
-    `premise: a ${id} mutation of this shape must reach the renderer — ` +
-      "if it does not, the byte-identical result below proves nothing",
-  ).not.toBe(base);
+    adapt(after),
+    "premise: this case's two mutations must produce DIFFERENT adapted inputs — " +
+      "identical ones mean the edit never reached the data the section renders, " +
+      "so the byte-identical HTML below proves nothing",
+  ).not.toBe(adapt(before));
 }
 
 describe("BL-FRESHNESS-PROJECTION-NARROWING probes", () => {
@@ -109,6 +115,26 @@ describe("BL-FRESHNESS-PROJECTION-NARROWING probes", () => {
     expect(base).toContain("Grand Hall");
     expect(edited).toContain("A Different Hall");
     expect(renderSection("venue")).toBe(base);
+  });
+
+  it("PREMISE SELF-TEST: the pair check rejects a mutation that reaches nothing", () => {
+    // R2's finding was that the previous premise validated a DIFFERENT mutation
+    // than the pair under test, so a mis-pathed pair stayed green. This proves
+    // the replacement does not: two mutations writing to a path the adapter
+    // never reads produce identical adapted inputs and must FAIL.
+    const misPathed =
+      (v: string): Mutate =>
+      (s) => {
+        (showOf(s) as Record<string, unknown>).not_a_field_the_adapter_reads = v;
+      };
+    expect(() => expectPairReachesAdapter(misPathed("a"), misPathed("b"))).toThrow();
+    // ...and a real one still passes, so the check is not simply always-throwing.
+    const real =
+      (v: string): Mutate =>
+      (s) => {
+        (showOf(s).venue as Record<string, unknown>).name = v;
+      };
+    expect(() => expectPairReachesAdapter(real("A Hall"), real("B Hall"))).not.toThrow();
   });
 
   it("venue: an unparseable googleLink swapped for another unparseable one", () => {
@@ -145,9 +171,6 @@ describe("BL-FRESHNESS-PROJECTION-NARROWING probes", () => {
   });
 
   it("event: two opening_reel values that strip to the same text", () => {
-    expectMutationReaches("event", (s) => {
-      (showOf(s).event_details as Record<string, unknown>).opening_reel = "PAINTS DISTINCTLY";
-    });
     const before = "Watch here: https://drive.google.com/file/d/REEL_ONE/view";
     const after = "Watch here: https://drive.google.com/file/d/REEL_TWO/view";
     expect(
@@ -155,80 +178,68 @@ describe("BL-FRESHNESS-PROJECTION-NARROWING probes", () => {
       "premise: the two raw values must strip to the same painted text",
     ).toBe(stripOpeningReelText(after));
     expect(before, "premise: the two raw values must actually differ").not.toBe(after);
-    const withBefore = renderSection("event", (s) => {
+    const mBefore: Mutate = (s) => {
       (showOf(s).event_details as Record<string, unknown>).opening_reel = before;
-    });
-    const withAfter = renderSection("event", (s) => {
+    };
+    const mAfter: Mutate = (s) => {
       (showOf(s).event_details as Record<string, unknown>).opening_reel = after;
-    });
+    };
+    expectPairReachesAdapter(mBefore, mAfter);
+    const withBefore = renderSection("event", mBefore);
+    const withAfter = renderSection("event", mAfter);
     expect(withAfter).toBe(withBefore);
   });
 
   it("crew: the day list on an unknown_asterisk restriction", () => {
-    expectMutationReaches("crew", (s) => {
-      rowsOf(s, "crew_members")[0]!.date_restriction = { kind: "explicit", days: ["2026-08-03"] };
-    });
     const before = { kind: "unknown_asterisk", days: ["2026-08-03"] };
     const after = { kind: "unknown_asterisk", days: ["2026-08-03", "2026-08-04"] };
     expect(
       partialAttendanceLabel(before as never, { humanize: false }),
       "premise: the shipped label must ignore `days` for unknown_asterisk",
     ).toBe(partialAttendanceLabel(after as never, { humanize: false }));
-    const withBefore = renderSection("crew", (s) => {
-      const m = rowsOf(s, "crew_members")[0]!;
-      m.date_restriction = before;
-    });
-    const withAfter = renderSection("crew", (s) => {
-      const m = rowsOf(s, "crew_members")[0]!;
-      m.date_restriction = after;
-    });
+    const mBefore: Mutate = (s) => {
+      rowsOf(s, "crew_members")[0]!.date_restriction = before;
+    };
+    const mAfter: Mutate = (s) => {
+      rowsOf(s, "crew_members")[0]!.date_restriction = after;
+    };
+    expectPairReachesAdapter(mBefore, mAfter);
+    const withBefore = renderSection("crew", mBefore);
+    const withAfter = renderSection("crew", mAfter);
     expect(withAfter).toBe(withBefore);
   });
 
   it("contacts: a field inside an all-blank contact block", () => {
-    expectMutationReaches("contacts", (s) => {
-      rowsOf(s, "contacts").push({
-        id: "x",
-        kind: "other",
-        name: "REACHES",
-        email: "",
-        phone: "",
-        notes: null,
-      });
-    });
     // `contactBlocks` drops a block with no name AND no content rows, so the
     // whole block is absent from the DOM and nothing inside it can paint.
     const blank = { id: "blank-1", kind: "other", name: "", email: "", phone: "", notes: null };
     expect(hasContent(blank.name), "premise: the block's name must be empty").toBe(false);
-    const withBefore = renderSection("contacts", (s) => {
-      rowsOf(s, "contacts").push({ ...blank });
-    });
-    const withAfter = renderSection("contacts", (s) => {
-      rowsOf(s, "contacts").push({ ...blank, notes: "edited into the void" });
-    });
+    const mBefore: Mutate = (s) => {
+      rowsOf(s, "contacts").push({ ...blank, kind: "other" });
+    };
+    const mAfter: Mutate = (s) => {
+      rowsOf(s, "contacts").push({ ...blank, kind: "production" });
+    };
+    expectPairReachesAdapter(mBefore, mAfter);
+    const withBefore = renderSection("contacts", mBefore);
+    const withAfter = renderSection("contacts", mAfter);
     expect(withAfter).toBe(withBefore);
   });
 
   it("hotels: a blank guest name added to a reservation", () => {
-    expectMutationReaches("hotels", (s) => {
-      const h = rowsOf(s, "hotel_reservations")[0]!;
-      h.names = [...(h.names as string[]), "Reaches Renderer"];
-    });
     expect(hasContent("   "), "premise: whitespace must not be content").toBe(false);
-    const withBefore = renderSection("hotels");
-    const withAfter = renderSection("hotels", (s) => {
+    const mBefore: Mutate = () => {};
+    const mAfter: Mutate = (s) => {
       const h = rowsOf(s, "hotel_reservations")[0]!;
       h.names = [...(h.names as string[]), "   "];
-    });
+    };
+    expectPairReachesAdapter(mBefore, mAfter);
+    const withBefore = renderSection("hotels", mBefore);
+    const withAfter = renderSection("hotels", mAfter);
     expect(withAfter).toBe(withBefore);
   });
 
   it("transport: date and time re-split across the same joined `when`", () => {
-    expectMutationReaches("transport", (s) => {
-      rowsOf(s, "transportation")[0]!.schedule = [
-        { stage: "REACHES", date: "2026-08-01", time: "09:00", assigned_names: [] },
-      ];
-    });
     // The body joins `[date, time]` with a space, so "08-01" + "09:00" and
     // "08-01 09:00" + "" produce one identical string.
     const legBefore = { stage: "Load-in", date: "2026-08-01", time: "09:00", assigned_names: [] };
@@ -237,28 +248,28 @@ describe("BL-FRESHNESS-PROJECTION-NARROWING probes", () => {
       [legBefore.date, legBefore.time].filter((x) => hasContent(x)).join(" "),
       "premise: both legs must produce the same joined when-line",
     ).toBe([legAfter.date, legAfter.time].filter((x) => hasContent(x)).join(" "));
-    const withBefore = renderSection("transport", (s) => {
+    const mBefore: Mutate = (s) => {
       rowsOf(s, "transportation")[0]!.schedule = [legBefore];
-    });
-    const withAfter = renderSection("transport", (s) => {
+    };
+    const mAfter: Mutate = (s) => {
       rowsOf(s, "transportation")[0]!.schedule = [legAfter];
-    });
+    };
+    expectPairReachesAdapter(mBefore, mAfter);
+    const withBefore = renderSection("transport", mBefore);
+    const withAfter = renderSection("transport", mAfter);
     expect(withAfter).toBe(withBefore);
   });
 
   it("packlist: a cat sentinel swapped for another sentinel", () => {
-    expectMutationReaches("packlist", (s) => {
-      const c = (showOf(s).pull_sheet as Record<string, unknown>[])[0]!;
-      (c.items as Record<string, unknown>[])[0]!.item = "REACHES RENDERER";
-    });
-    const withBefore = renderSection("packlist", (s) => {
-      const c = (showOf(s).pull_sheet as Record<string, unknown>[])[0]!;
-      (c.items as Record<string, unknown>[])[0]!.cat = "TBD";
-    });
-    const withAfter = renderSection("packlist", (s) => {
-      const c = (showOf(s).pull_sheet as Record<string, unknown>[])[0]!;
-      (c.items as Record<string, unknown>[])[0]!.cat = "N/A";
-    });
+    const withCat =
+      (cat: string): Mutate =>
+      (s) => {
+        const c = (showOf(s).pull_sheet as Record<string, unknown>[])[0]!;
+        (c.items as Record<string, unknown>[])[0]!.cat = cat;
+      };
+    expectPairReachesAdapter(withCat("TBD"), withCat("N/A"));
+    const withBefore = renderSection("packlist", withCat("TBD"));
+    const withAfter = renderSection("packlist", withCat("N/A"));
     expect(withAfter).toBe(withBefore);
   });
 });

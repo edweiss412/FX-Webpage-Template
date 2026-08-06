@@ -471,14 +471,19 @@ export function useFinalizeRun({
   // The announcer is mounted unconditionally and its text mutates, which is the
   // mechanism this file's own header already describes; completion simply never
   // used it, so the one message a user most needs was the one not announced.
+  // COMPLETION IS NOT HERE — it goes through the channel only (R2 finding 4).
+  // The running phases stay local: this announcer outlives them, and they are
+  // exactly the mutations-in-a-mounted-region that work. Completion is followed
+  // by `router.refresh()` out of the wizard, so the channel owns it — and
+  // keeping BOTH would speak the same sentence twice on any render where this
+  // component survives the commit. Shape 1 and shape 2 for one event is a
+  // duplicate, not a belt-and-braces.
   const liveMessage =
     state.kind === "running"
       ? state.phase === "cas"
         ? "Finishing setup"
         : "Publishing your shows"
-      : state.kind === "complete"
-        ? COMPLETE_COPY
-        : "";
+      : "";
 
   // The in-flight button label: while running, the Publish trigger stays put but
   // steps into a disabled "Publishing…" (or "Finishing setup…" during the CAS

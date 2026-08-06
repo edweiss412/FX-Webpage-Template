@@ -3,6 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import "@testing-library/jest-dom/vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
+import { UndoAnnounceContext } from "@/components/admin/undoAnnounceContext";
+
 const refresh = vi.fn();
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ refresh, push: vi.fn(), replace: vi.fn(), prefetch: vi.fn() }),
@@ -159,25 +161,27 @@ describe("PublishedArchivedTabOffer (P2)", () => {
     );
   });
 
-  it("the transient line's live region is mounted BEFORE the text arrives", () => {
-    // BL-ANNOUNCE-REGION-UNMOUNT-CLASS. Both offer variants rendered
-    // `transient ? <p role="status">…</p> : null` — a live region inserted
-    // together with its text, which screen readers do not announce. The fix is
-    // the mechanical one for this shape: mount the region unconditionally and
-    // toggle its TEXT, so what the reader sees is a mutation.
+  it("the transient line is NOT a live region — the channel announces it", async () => {
+    // BL-ANNOUNCE-REGION-UNMOUNT-CLASS, second iteration. The first fix mounted
+    // a local `role="status"` unconditionally and toggled its text. Whole-diff
+    // R1 showed that region cannot be trusted here at all: every success path
+    // calls `router.refresh()`, which may replace this component before the
+    // region speaks. So the announcement moved to the layout channel.
     //
-    // Asserted at REST, before any action: if the region only exists once there
-    // is something to say, it can never have announced it.
-    render(<PublishedArchivedTabOffer {...base} tabName="OLD PULL SHEET" />);
-    const regions = document.querySelectorAll('[role="status"][aria-live="polite"]');
+    // R2 then caught the pair: keeping BOTH meant the sentence was spoken twice
+    // on any render where the component DID survive the refresh. The local node
+    // is now plain text, and the channel is the single speaker.
+    const announced: string[] = [];
+    render(
+      <UndoAnnounceContext.Provider value={{ announce: (m) => announced.push(m) }}>
+        <PublishedArchivedTabOffer {...base} tabName="OLD PULL SHEET" />
+      </UndoAnnounceContext.Provider>,
+    );
     expect(
-      regions.length,
-      "a live region must already be in the DOM while there is nothing to announce",
-    ).toBeGreaterThan(0);
-    expect(
-      [...regions].every((r) => (r.textContent ?? "") === ""),
-      "and it must be empty at rest — a region that starts populated has nothing to mutate",
-    ).toBe(true);
+      document.querySelectorAll('[role="status"]').length,
+      "this component owns no live region — a refresh can destroy it mid-announcement",
+    ).toBe(0);
+    expect(announced, "and nothing is announced before an action").toEqual([]);
   });
 
   it("success with a failed sync shows the transient partial-success line before refresh", async () => {

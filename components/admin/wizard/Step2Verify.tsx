@@ -349,8 +349,13 @@ export function Step2Verify({ priorScan }: { priorScan?: Step2PriorScan } = {}) 
           that branch and reports tick-level phase text this one deliberately
           does not. */}
       <p role="status" aria-live="polite" className="sr-only">
+        {/* SUBMITTING IS DELIBERATELY BLANK HERE (R2 finding 4). The submitting
+            branch mounts its own announcer with this same `heading`, so echoing
+            it made a later phase change mutate BOTH regions and speak the line
+            twice. This region's job is the transition the inner one cannot
+            report — the arrival at success, when the inner announcer is gone. */}
         {state.kind === "submitting"
-          ? heading
+          ? ""
           : state.kind === "success"
             ? formatTotals(state.result.totals) === 0
               ? "This folder is empty."

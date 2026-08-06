@@ -58,24 +58,22 @@ const ANCHOR_CLAIM = /Action link:[^.]*?\(`#([a-z0-9-]+)`\)/;
  *  cannot read. A ceiling rather than an exact count: reconciling a row must
  *  never fail the build, and adding one must. */
 /**
- * How many action-bearing rows may describe their link in prose this guard
- * cannot read.
+ * How many action-bearing rows describe their link in prose this guard cannot
+ * read.
  *
- * 15, not 12. The number ROSE when the probe context gained a `driveFileId` and
- * a `folderId` — and that is the fix working, not a regression: twelve builders
- * previously returned `null` for want of ids, were miscounted as "builds no
- * link", and so never reached this census at all. A guard whose coverage number
- * goes UP when you stop under-supplying it was measuring its own blind spot.
+ * 20, and the number ROSE TWICE as the guard got stronger — 12 → 15 when the
+ * probe context gained ids, then 15 → 20 when R2's fix made every builder
+ * resolve. Both rises are the fix working: a code whose builder returned null
+ * was previously miscounted as "builds no link" and never entered this census
+ * at all. A coverage number that climbs when you stop under-supplying the probe
+ * was measuring its own blind spot, not the corpus.
  *
- * A CEILING, so enriching the context or reconciling a row is always allowed
- * and adding a new unreadable row is not.
+ * A CEILING, so reconciling a row is always allowed and adding a new unreadable
+ * one is not. Distinct from the unresolved check above, which is now exactly
+ * zero: unresolved means the guard cannot SEE the code, unreadable means it can
+ * see it and the §12.4 prose does not state its link in a recognized form.
  */
-const UNREADABLE_CEILING = 15;
-
-/** How many builders may stay unresolved under the probe context above. A
- *  CEILING, so enriching the context (and shrinking this) is always allowed and
- *  adding a new unresolvable builder is not. */
-const UNRESOLVED_CEILING = 12;
+const UNREADABLE_CEILING = 20;
 
 type Row = { code: string; description: string };
 
@@ -110,17 +108,31 @@ function specRows(): Row[] {
  */
 type Built = { kind: "none" } | { kind: "unresolved" } | { kind: "anchor"; anchor: string };
 
-/** Rich enough that a builder needing ids can actually produce its link. */
-const PROBE_OPTS = {
-  slug: "any-show",
-  driveFileId: "PROBE_FILE",
-  folderId: "PROBE_FOLDER",
+/**
+ * The CONTEXT every builder reads from — first argument, not `opts`.
+ *
+ * R2 caught the previous version supplying these keys as `opts` while the
+ * builders read `context`, so five stayed unresolved and the ceiling below let
+ * a FALSE "No action link." claim hide among them: injecting one for
+ * `ONBOARDING_SHEET_UNREADABLE` passed every assertion while a valid context
+ * built a real Drive link. Keys are the ones the builders actually read
+ * (`lib/adminAlerts/alertActions.ts`): `drive_file_id`, `folder_id`,
+ * `orphan_url`, `repo`.
+ */
+const PROBE_CONTEXT = {
+  drive_file_id: "PROBE_FILE",
+  folder_id: "PROBE_FOLDER",
+  orphan_url: "https://github.com/probe-owner/probe-repo/issues/1",
+  repo: "probe-owner/probe-repo",
 } as const;
+
+/** Slug-bearing opts, for the anchor builders that read the second argument. */
+const PROBE_OPTS = { slug: "any-show" } as const;
 
 function built(code: string): Built {
   const build = ALERT_ACTIONS[code as (typeof ALERT_ACTION_CODES)[number]];
   if (build === undefined) return { kind: "none" };
-  const link = build({} as never, PROBE_OPTS as never);
+  const link = build(PROBE_CONTEXT as never, PROBE_OPTS as never);
   if (link === null) return { kind: "unresolved" };
   const hash = link.href.indexOf("#");
   return { kind: "anchor", anchor: hash === -1 ? "" : link.href.slice(hash + 1) };
@@ -150,11 +162,17 @@ describe("§12.4 action-link claims match the shipped alert actions", () => {
     // ids they return null, and the row below must not mistake that for a spec
     // row that correctly claims no link. Listing them keeps the blind spot
     // visible instead of silently shrinking what the next assertion covers.
+    // ZERO, not a ceiling. A ceiling was the defect: any builder left unresolved
+    // is a code the "No action link." direction below silently skips, so a false
+    // claim can hide there — which R2 demonstrated by injecting one. Every
+    // registered builder must resolve under PROBE_CONTEXT, and a new builder
+    // that needs a key the context lacks fails HERE, naming itself.
     const unresolved = ALERT_ACTION_CODES.filter((c) => built(c).kind === "unresolved");
     expect(
-      unresolved.length,
-      `builders unresolved under the probe context: ${unresolved.join(", ")}`,
-    ).toBeLessThanOrEqual(UNRESOLVED_CEILING);
+      unresolved,
+      "every registered builder must resolve under the probe context, or the " +
+        "no-action-link check below silently skips it",
+    ).toEqual([]);
   });
 
   it("no row claims 'No action link.' while its code builds one", () => {

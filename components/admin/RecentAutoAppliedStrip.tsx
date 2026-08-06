@@ -558,11 +558,13 @@ function GroupSection({
               insertion — is what a screen reader announces; conditional mounting drops
               the announcement (project a11y rule, mirrors StagedReviewCard). Sighted
               users see the rows self-heal on revalidate; this is the SR equivalent. */}
-          <p
-            role="status"
-            data-testid={`auto-applied-bulk-undo-status-${group.showId}`}
-            className="sr-only"
-          >
+          {/* NOT a live region any more (R2 finding 4): the channel already
+              announces this outcome, and an all-success undo is exactly what
+              makes the group unmount on revalidate — so the local region either
+              says nothing (group gone) or says the same sentence a second time
+              (group survives). The node stays for the sighted-parity text and
+              for the testid other suites assert on. */}
+          <p data-testid={`auto-applied-bulk-undo-status-${group.showId}`} className="sr-only">
             {bulkUndoOutcome && bulkUndoOutcome.failed === 0 && bulkUndoOutcome.total > 0
               ? `Undid all ${bulkUndoOutcome.total} ${bulkUndoOutcome.total === 1 ? "change" : "changes"}.`
               : ""}
