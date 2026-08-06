@@ -848,6 +848,7 @@ self-review, adversarial review, planning, adversarial review.
 
 ### BL-PUSH-NOTIFICATIONS — Email-primary operator push surface
 
+**Status:** IN PROGRESS · **Branch:** feat/l-wave-push
 **VERIFIED INCOMPLETE 2026-08-03 — 5.5 of 6 design principles shipped. Do not archive.** Checked during the merged-backlog sweep; recorded so the next reader does not re-derive it.
 
 - **Built** — push-not-pull (`lib/notify/deliver.ts`, `app/api/cron/notify/route.ts`), severity tiering (`lib/notify/constants.ts:2`), push-debounce (`constants.ts:11`, 1h), coalescing (`constants.ts:15-16`), quiet success (`digest.ts:228` `no_send`). Provider decision settled on Resend (`lib/notify/send.ts:1`); the memo was ratified via `docs/superpowers/specs/v1-pre-deployment-amendments/2026-06-12-m12.13-unpublish-delivery-design.md`.
