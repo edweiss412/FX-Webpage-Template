@@ -1,7 +1,8 @@
 # M-wave — W-UI closeout
 
-Branch `feat/m-wave-ui`, the fourth and last unit of the M-wave. 57 files, +2055/−287
-against merge-base `fc4902004`.
+Branch `feat/m-wave-ui`, the fourth and last unit of the M-wave. 69 files, +3072/−311
+against merge-base `fc4902004` — roughly half of that added by two rounds of
+cross-model review, which is recorded below rather than smoothed over.
 
 Seven ledger entries: `BL-ANNOUNCE-REGION-UNMOUNT-CLASS`, `BL-BULK-UNDO-ANNOUNCE-UNMOUNT`,
 `BL-ADMIN-BADGE-CONTRAST-TOKEN`, `BL-FRESHNESS-PROJECTION-NARROWING`,
@@ -36,6 +37,38 @@ reading the code and wrong once something executed it.
 Each disproof produced a guard rather than only a patch: `D21b`,
 `tests/cross-cutting/specActionLinkParity.test.ts`, and an executable documented-limit
 test that fails the day the crosswalk's oracle is fixed.
+
+## What cross-model review changed
+
+Two rounds, three scopes each. Every round returned findings; the pattern is
+worth keeping because it repeats:
+
+**R1 — three BLOCKING.** A privacy P0 proved by RENDERING the crew page: this
+module's own header claimed every date-bearing surface was gated, and four were
+not (`BL-CREW-UNKNOWN-ASTERISK-TRAVEL-LEAK`). The venue over-cue defect repeating
+in hotels, where `weekday-short` drops the year so two dates six years apart
+paint one label and 2195 vs 4 nights. A live-region detector whose six-line
+regex missed same-line `&&`, direct ternaries, and the real RoleMappingRow
+defect it was written to catch. And an `empty:hidden` idle state that compiles
+to `display:none`, removing a region from the a11y tree entirely — the original
+defect wearing the fix's clothes.
+
+**R2 — one BLOCKING, and it was R1's fix.** Moving announcements to the layout
+channel was right where `router.refresh()` could destroy the local region first;
+leaving the local regions in place meant five paths spoke the same sentence
+TWICE whenever the component survived. R2 also found the new AST detector blind
+to guard-clause returns and `role={"status"}`, the idle scanner blind to
+attributes written before `role` in a multiline tag, and the parity guard
+filling the wrong argument so a false "No action link." claim could hide among
+unresolved builders.
+
+**The recurring shape, stated once.** Nearly every finding was a guard or a
+claim that could not fail — a detector with formatting-shaped blind spots, a
+premise that validated a different mutation than the one under test, a ceiling
+where zero was required, a comment describing a data structure it no longer
+matched. Both scanners now carry self-tests that PLANT every shape review named
+(nine positive, three negative), because a guard passing on a clean tree says
+nothing about what it would catch.
 
 ## Transition audit (Task U7.1)
 
