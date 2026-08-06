@@ -107,7 +107,6 @@ screen-disposition 2026-08-04: ANNOTATE, stays open as an owner action. It is no
 
 ### SHARELINK-COPY-REF-ORDERING-PROOF — test-coverage gap (2026-07-25, share-link-chrome-backlog)
 
-**Status:** IN PROGRESS · **Branch:** docs/l-wave-spec
 **Effort:** L
 
 `ShareLinkCopyButton` writes `urlRef` in a `useLayoutEffect` so the captured-url
@@ -167,7 +166,6 @@ handling together.
 
 ### SHARELINK-CUE-FORCED-COLORS-1 — impeccable audit P3 (2026-07-25, share-link-chrome-backlog)
 
-**Status:** IN PROGRESS · **Branch:** docs/l-wave-spec
 **Effort:** L
 
 Under `forced-colors` the cue is invisible: UAs drop `box-shadow` and force
@@ -196,7 +194,6 @@ test rather than maintained by hand.
 
 ### ATTENTION-INDEX-JUMP-FOCUS-1 — [P1] pressing an index row drops focus to `<body>`
 
-**Status:** IN PROGRESS · **Branch:** docs/l-wave-spec
 **Effort:** L
 
 From the impeccable audit of `feat/attention-index` (2026-07-25). A row's `onClick` runs `onClose()` then `onNavigate(item)`; the row unmounts with the menu, the jump handler in `ShowReviewSurface` only scrolls and flashes, and the rescue effect in `PublishedReviewModal` returns early on a user-initiated close. So after pill → Enter → Tab → Enter, the viewport lands on the card but `activeElement` is `<body>`, outside `[role="dialog"]` — the next Tab restarts at the document top, escaping the modal trap, and screen-reader users get no arrival announcement because the flash is visual-only.
@@ -235,7 +232,6 @@ From the impeccable v3 dual gate on `feat/sync-feed-undo-announce`. The critique
 
 ### UNDO-FAILURE-REANNOUNCE-1 — impeccable critique P1: a repeated identical failure does not re-announce (2026-08-03)
 
-**Status:** IN PROGRESS · **Branch:** docs/l-wave-spec
 **Effort:** L
 
 The three feed action buttons surface failures through an always-mounted `role="status"` card, which announces on text CHANGE. Two consecutive failures with the same error code (the common case, since the same cause yields the same code) mutate nothing, so nothing is spoken: the operator taps again and hears silence. This is the exact class the success channel uses `role="log"` to avoid.
