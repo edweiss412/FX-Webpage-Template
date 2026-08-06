@@ -8,6 +8,67 @@ Same split as [DEFERRED.md](./DEFERRED.md) ↔ [DEFERRED-archive.md](./DEFERRED-
 
 ---
 
+## BL-ACCENT-BUTTON-ATOM-SWEEP — migrate remaining raw accent-button compositions to the shared `<AccentButton>` atom — CLOSED 2026-08-06 (L-wave, `feat/l-wave-docs`, DEMOTED at honest census)
+
+
+**Resolution: DEMOTED and archived at an HONEST census.** Executed under the ratified reader-demote
+authority (spec §1.1 item 9). Two facts settle it, and the entry supplies both itself: **"No
+correctness bug"** are the entry's own words, and its census has rotted — the 8 named baseline call
+sites are **3 live** in `MIGRATED_FILES` (`tests/styles/accent-button-atom.test.ts`, re-verified
+2026-08-06: `PendingPanelRetryButton.tsx`, `FinalizeButton.tsx`, `StagedReviewCard.tsx`). Four of the
+eight were DELETED outright — `PublishShowButton` at `32fec4fac` with `/admin/unpublished`,
+`ResumeFinalizeButton` at the Step-3 consolidation, and `ResolveAlertButton` + `RunFinalCASButton` as
+zero-production-importer components — and `ReSyncButton` was deliberately DE-MIGRATED to a ghost
+trigger by the modal-header reconciliation (§6.7), because §4.2's orange budget makes the publish
+toggle the only orange CONTROL. That file's own comment already tracks this entry.
+
+**THIS DEMOTION IS NOT COVERAGE LOSS, and the distinction is the reason to read this paragraph.**
+`accent-button-atom.test.ts` walks `MIGRATED_FILES`, not the repo — it forbids RE-INLINING the
+composition in files already migrated. **Repo-wide `bg-accent` coverage is and remains
+`tests/styles/_metaBgAccentInventory.test.ts`'s job**, and it still enumerates every occurrence in the
+tree. Nothing about archiving this row changes what either guard sees. Anyone reading the demotion as
+"the accent-token sweep is now unguarded" has confused the two scopes.
+
+**Migration mechanics, preserved for whoever does the batch.** For each site, swap
+`<button className="…bg-accent…">` for `<AccentButton …variant props…>` (matching
+size / fontWeight / ringOffset / inline / selfStart / shadow / minWidthTap to the existing classes),
+preserving every `data-testid` and pending/`useFormStatus` wiring, then ADD the file to
+`MIGRATED_FILES` — the documented extension point — so it is pinned against re-drift. **The trap:**
+several sites (Share / Rotate / AddAdmin / wizard) use a `selected ? accentClass : otherClass` ternary
+or `cn(...)` / array-join `className`. Those need the atom's `className` escape hatch or a small
+refactor, NOT a pure prop swap.
+
+**The out-of-scope long tail as measured at migration time (~17 sites), kept so the batch does not
+start from a fresh grep:** `app/admin/error.tsx`, `app/admin/settings/error.tsx`,
+`app/admin/settings/admins/{error.tsx,AddAdminForm.tsx,RevokeRowButton.tsx ×3}`,
+`app/admin/show/[slug]/{ShareLinkCopyButton.tsx,ResetPickerEpochButton.tsx,RotateShareTokenButton.tsx ×2}`,
+`app/show/[slug]/unpublish/ConfirmUnpublishForm.tsx`,
+`app/show/[slug]/[shareToken]/_SignInOrSkipGate.tsx ×2`, `components/admin/Mi11GateActions.tsx`,
+`components/admin/wizard/{Step1Share,Step2Verify ×2,Step3Review}.tsx`,
+`components/admin/settings/AddAdminDisclosure.tsx`, `components/shared/{ReportButton.tsx,ReportModal.tsx ×4}`.
+That census is from migration time and has certainly rotted the same way the first one did — re-measure
+before trusting it. **Explicitly NOT in scope:** the pill-badge `bg-accent text-accent-text` spans in
+AdminNav / NotifBell and the active-step indicators in OnboardingWizard / Step3Review / me/page are not
+buttons; that is a different and legitimate use of the token pair.
+
+**Re-open trigger, the entry's own:** a className-helper standardization pass, or a UI-consistency
+milestone that makes the long tail worth closing in one batch. It is Opus/UI work under the invariant-8
+dual gate. No concrete trigger exists today, which is why it archives.
+
+---
+
+**Filed:** 2026-06-21, during M5-D7 (extract shared `components/shared/AccentButton.tsx`).
+
+**Effort:** L
+
+**Description:** M5-D7 extracted the canonical accent-fill button chrome (`bg-accent` + `text-accent-text` + `hover:bg-accent-hover` + focus-ring + disabled treatment) into one atom and migrated the **8 admin call sites** the deferral named (ResolveAlertButton ×2, PendingPanelRetryButton, ReSyncButton, PublishShowButton, RunFinalCASButton, ResumeFinalizeButton, FinalizeButton, StagedReviewCard). **Census note (2026-08-03):** four of those eight call sites have since been deleted — PublishShowButton at `32fec4fac` (with `/admin/unpublished`), ResumeFinalizeButton at the Step-3 consolidation, and ResolveAlertButton and RunFinalCASButton as zero-production-importer components — and `ReSyncButton` was separately DE-MIGRATED to a ghost trigger by the modal-header reconciliation (§6.7), so the executable `MIGRATED_FILES` census in `tests/styles/accent-button-atom.test.ts` is now three: `PendingPanelRetryButton`, `FinalizeButton`, `StagedReviewCard`. That scan walks the migrated files, not the repo; repo-wide `bg-accent` coverage belongs to `tests/styles/_metaBgAccentInventory.test.ts`. A repo-wide grep at migration time found the pattern still hand-rolled in **~17 other sites** OUT OF M5-D7 SCOPE: `app/admin/error.tsx`, `app/admin/settings/error.tsx`, `app/admin/settings/admins/{error.tsx,AddAdminForm.tsx,RevokeRowButton.tsx ×3}`, `app/admin/show/[slug]/{ShareLinkCopyButton.tsx,ResetPickerEpochButton.tsx,RotateShareTokenButton.tsx ×2}`, `app/show/[slug]/unpublish/ConfirmUnpublishForm.tsx`, `app/show/[slug]/[shareToken]/_SignInOrSkipGate.tsx ×2`, `components/admin/Mi11GateActions.tsx`, `components/admin/wizard/{Step1Share,Step2Verify ×2,Step3Review}.tsx`, `components/admin/settings/AddAdminDisclosure.tsx`, `components/shared/{ReportButton.tsx,ReportModal.tsx ×4}`. (Pill-badge `bg-accent text-accent-text` spans in AdminNav/NotifBell and the active-step indicators in OnboardingWizard/Step3Review/me/page are NOT buttons — they are a different, legitimate use of the token pair and out of scope for this atom.)
+
+**Why backlog, not deferred:** The 4th-variant YAGNI gate justified the atom; migrating the long tail is mechanical but unbounded and touches crew-page + unpublish surfaces (UI gate work — Opus only). No correctness bug; the anti-drift meta-test at `tests/styles/accent-button-atom.test.ts` only pins the 8 MIGRATED files, so the untouched sites are not regressions, just un-DRYed. No concrete trigger.
+
+**Promotion prerequisite / mechanics:** For each site, swap `<button className="…bg-accent…">` for `<AccentButton …variant props…>` (matching size/fontWeight/ringOffset/inline/selfStart/shadow/minWidthTap to the existing classes), preserving every `data-testid` and pending/useFormStatus wiring, then ADD the file to `MIGRATED_FILES` in `tests/styles/accent-button-atom.test.ts` (the documented extension point) so it's pinned against future re-drift. Note several of these (Share/Rotate/AddAdmin/wizard) use a `selected ? accentClass : otherClass` ternary or `cn(...)`/array-join className — those need the atom's `className` escape hatch or a small refactor, not a pure prop swap. Promote when a className-helper standardization pass or a UI-consistency milestone makes the long tail worth closing in one batch.
+
+---
+
 ## BL-CI-RECLASSIFY-PARALLEL-STABILITY — revive the serial→parallel reclassification only with a concurrency-stability + clean-wall proof — CLOSED 2026-08-06 (L-wave, `feat/l-wave-docs`, DEMOTED)
 
 
