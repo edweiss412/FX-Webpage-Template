@@ -129,8 +129,6 @@ const KNOWN_DANGLING: Record<string, string> = {
   // wave's W-LDOCS branch FILES as part of its ratified decompositions/filings. Each
   // row is debt that the filing commit repays — the stale-row ratchet forces removal
   // of the row in the same change that creates the entry.
-  "BL-E2E-APP-DEPENDENT-SPECS-CI-DARK":
-    "filed by L-wave W-LDOCS task L4b (refile of BL-E2E-LIFECYCLE-SPECS-CI-DARK) — remove this row when it lands",
   "BL-MOBILE-SAFARI-TILE-SPECS-CI-DARK":
     "candidate refile id in L-wave plan L4d (id decision: keep original) — remove when W-LDOCS lands either way",
   "BL-OPS-LOG-DASHBOARD-BANNER":

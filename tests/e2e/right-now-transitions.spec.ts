@@ -2,7 +2,7 @@
  * Playwright audit suite for the §8.2 RightNow 12-state transition
  * matrix (M4 Task 4.12 Batch 2). SKIPPED: this file is
  * `describe.skip` and executes in no CI workflow
- * (BL-E2E-LIFECYCLE-SPECS-CI-DARK), so nothing it describes below is
+ * (BL-E2E-APP-DEPENDENT-SPECS-CI-DARK), so nothing it describes below is
  * exercised anywhere.
  *
  * Wired in Batch 2: framer-motion is installed, the Today hero renders

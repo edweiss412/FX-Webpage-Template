@@ -12,7 +12,7 @@
  * from this constant and execute on every PR. The Playwright audit
  * (`tests/e2e/right-now-transitions.spec.ts`) also reads it, but that
  * suite is `describe.skip` and executes in no CI workflow
- * (BL-E2E-LIFECYCLE-SPECS-CI-DARK).
+ * (BL-E2E-APP-DEPENDENT-SPECS-CI-DARK).
  *
  * Treatment heuristic (first match wins per pair):
  *
@@ -88,7 +88,7 @@ export type RightNowStateKind = RightNowState["kind"];
  *                          would catch the state machine actually
  *                          producing one is `describe.skip` and runs
  *                          in no CI workflow
- *                          (BL-E2E-LIFECYCLE-SPECS-CI-DARK).
+ *                          (BL-E2E-APP-DEPENDENT-SPECS-CI-DARK).
  */
 export type TransitionTreatment =
   | "crossfade-body"

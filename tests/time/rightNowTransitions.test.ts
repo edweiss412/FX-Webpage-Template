@@ -6,7 +6,7 @@
  * Animation-behavior tests are written in
  * `tests/e2e/right-now-transitions.spec.ts` but do NOT execute: that
  * suite is `describe.skip` and runs in no CI workflow
- * (BL-E2E-LIFECYCLE-SPECS-CI-DARK).
+ * (BL-E2E-APP-DEPENDENT-SPECS-CI-DARK).
  *
  * The matrix is the single source of truth for the audit. Any drift
  * (size, duplicates, unreachable cells without rationale, asymmetric

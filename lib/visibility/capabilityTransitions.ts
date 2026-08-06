@@ -38,7 +38,7 @@
  * render cycle) are NOT modeled in the matrix, and nothing executing
  * exercises them: the compound-transition suite in
  * `tests/e2e/right-now-transitions.spec.ts` is `describe.skip` and
- * runs in no CI workflow (see BL-E2E-LIFECYCLE-SPECS-CI-DARK). The
+ * runs in no CI workflow (see BL-E2E-APP-DEPENDENT-SPECS-CI-DARK). The
  * pairwise matrix is the contract surface for unit-testable
  * visibility deltas.
  *
@@ -152,7 +152,7 @@ export interface TileVisibilityDelta {
  * SUFFICIENT to change visibility regardless of the other predicate.
  * If the visibility change depends on the other predicate's value,
  * the delta is empty. No executing test covers those cases: the e2e
- * compound suite is skipped (BL-E2E-LIFECYCLE-SPECS-CI-DARK).
+ * compound suite is skipped (BL-E2E-APP-DEPENDENT-SPECS-CI-DARK).
  */
 export const CAPABILITY_TRANSITION_MATRIX: CapabilityTransitionEntry[] = [
   // ── hasLead × hasA1 ───────────────────────────────────────────────
@@ -236,7 +236,7 @@ export const CAPABILITY_TRANSITION_MATRIX: CapabilityTransitionEntry[] = [
     aFlipDelta: { appears: ["AudioScopeTile"], disappears: [] },
     bFlipDelta: { appears: ["VideoScopeTile"], disappears: [] },
     reason:
-      "Independent atomic flags. hasA1 unlocks AudioScopeTile via the A1/A2 branch; hasV1 unlocks VideoScopeTile via the V1 branch. Both deltas hold when hasLead and hasAdmin are false (matrix entries are evaluated against the no-LEAD-no-admin viewer; LEAD/admin compound interactions have no executing e2e coverage, see BL-E2E-LIFECYCLE-SPECS-CI-DARK).",
+      "Independent atomic flags. hasA1 unlocks AudioScopeTile via the A1/A2 branch; hasV1 unlocks VideoScopeTile via the V1 branch. Both deltas hold when hasLead and hasAdmin are false (matrix entries are evaluated against the no-LEAD-no-admin viewer; LEAD/admin compound interactions have no executing e2e coverage, see BL-E2E-APP-DEPENDENT-SPECS-CI-DARK).",
   },
   // ── hasA1 × hasL1 ─────────────────────────────────────────────────
   {

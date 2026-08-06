@@ -7,7 +7,7 @@
  * predicate flips. Compound transitions (multiple predicates flipping
  * simultaneously) are exercised nowhere: the e2e suite in
  * `tests/e2e/right-now-transitions.spec.ts` is `describe.skip` and
- * runs in no CI workflow (BL-E2E-LIFECYCLE-SPECS-CI-DARK).
+ * runs in no CI workflow (BL-E2E-APP-DEPENDENT-SPECS-CI-DARK).
  */
 import { describe, expect, test } from "vitest";
 import {

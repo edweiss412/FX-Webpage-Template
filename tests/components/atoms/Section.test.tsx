@@ -25,7 +25,7 @@
  *
  * Layout invariants (`getBoundingClientRect`) are verified nowhere in
  * CI: tests/e2e/layout-dimensions.spec.ts is `describe.skip` and runs
- * in no workflow (BL-E2E-LIFECYCLE-SPECS-CI-DARK). This file stops at
+ * in no workflow (BL-E2E-APP-DEPENDENT-SPECS-CI-DARK). This file stops at
  * semantic + className-presence checks.
  */
 import { describe, expect, test } from "vitest";

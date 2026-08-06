@@ -8,7 +8,7 @@
  * transition pairs. Each pair carries an AnimatePresence treatment;
  * structural invariants are pinned here. Animation behavior is not
  * exercised anywhere in CI: the e2e suites that would drive it are
- * `describe.skip` (BL-E2E-LIFECYCLE-SPECS-CI-DARK).
+ * `describe.skip` (BL-E2E-APP-DEPENDENT-SPECS-CI-DARK).
  */
 import { describe, expect, test } from "vitest";
 import {

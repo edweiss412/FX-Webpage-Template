@@ -101,14 +101,14 @@ const ROOT = process.cwd();
 /** Deliberately-not-PR-gated specs. Every row carries a reason or backlog ref.
  *  The stale-row assertion below flags rows for deleted specs; the shadowing
  *  assertion flags rows whose spec became covered. Populated from the scan
- *  output at introduction time (all pre-existing; BL-E2E-LIFECYCLE-SPECS-CI-DARK
+ *  output at introduction time (all pre-existing; BL-E2E-APP-DEPENDENT-SPECS-CI-DARK
  *  is the umbrella work item for wiring them). */
 const PATH_GATED =
-  "path-gated PR workflow (runs when its filter matches, not PR-blocking-capable per the scanner contract); BL-E2E-LIFECYCLE-SPECS-CI-DARK umbrella";
+  "path-gated PR workflow (runs when its filter matches, not PR-blocking-capable per the scanner contract); BL-E2E-APP-DEPENDENT-SPECS-CI-DARK umbrella";
 const PATH_GATED_BY_EXCLUSION =
-  "path-gated by EXCLUSION (pull_request.paths-ignore, so it runs unless the change touches only prose no script reads — NOT docs/, which prebuild reads; broader than an allow-list, still not PR-blocking-capable per the scanner contract); BL-E2E-LIFECYCLE-SPECS-CI-DARK umbrella";
+  "path-gated by EXCLUSION (pull_request.paths-ignore, so it runs unless the change touches only prose no script reads — NOT docs/, which prebuild reads; broader than an allow-list, still not PR-blocking-capable per the scanner contract); BL-E2E-APP-DEPENDENT-SPECS-CI-DARK umbrella";
 const UNSEEN =
-  "not named in any workflow run command (project-only --project runs are invisible to the scanner, or no workflow runs it); BL-E2E-LIFECYCLE-SPECS-CI-DARK umbrella";
+  "not named in any workflow run command (project-only --project runs are invisible to the scanner, or no workflow runs it); BL-E2E-APP-DEPENDENT-SPECS-CI-DARK umbrella";
 const LOCAL_ONLY_GALLERY_CAPTURE =
   "local review artifact by design - the gallery capture sweep runs only via pnpm screenshot:gallery; no CI job, no committed baselines (docs/superpowers/specs/2026-07-26-gallery-screenshot-capture-design.md section 1.1)";
 const LOCAL_ONLY_ALLOWLIST: Record<string, string> = {
@@ -118,7 +118,7 @@ const LOCAL_ONLY_ALLOWLIST: Record<string, string> = {
   "tests/e2e/admin-layout-dimensions.spec.ts": PATH_GATED,
   "tests/e2e/admin-layout.spec.ts": UNSEEN,
   "tests/e2e/admin-lifecycle-transitions.spec.ts":
-    "its lifecycle-layout-e2e.yml run block validates the REPEATS input in a case/if block, and the R12 scanner refuses control-flow run blocks (both branches DO run the spec on every PR — REPEATS defaults to '1' — but the scanner cannot prove branch liveness by regex; the census pins the same block via complex-invocation registry rows); BL-E2E-LIFECYCLE-SPECS-CI-DARK umbrella",
+    "its lifecycle-layout-e2e.yml run block validates the REPEATS input in a case/if block, and the R12 scanner refuses control-flow run blocks (both branches DO run the spec on every PR — REPEATS defaults to '1' — but the scanner cannot prove branch liveness by regex; the census pins the same block via complex-invocation registry rows); BL-E2E-APP-DEPENDENT-SPECS-CI-DARK umbrella",
   "tests/e2e/admin-nav-layout-dimensions.spec.ts": PATH_GATED,
   "tests/e2e/nojs-loading-notice.spec.ts": PATH_GATED,
   "tests/e2e/admin-parse-panel.spec.ts": UNSEEN,

@@ -25,7 +25,7 @@
  *   initial render. THIS suite needs to assert pre→post transition
  *   behavior in a single session, so we use page.clock. Neither suite
  *   executes: both are `describe.skip` and run in no CI workflow
- *   (BL-E2E-LIFECYCLE-SPECS-CI-DARK), so nothing below is exercised.
+ *   (BL-E2E-APP-DEPENDENT-SPECS-CI-DARK), so nothing below is exercised.
  *
  * Seed contract:
  *   • drive_file_id `seed-fixture:2026-04-asset-mgmt-cfo-coo-waldorf`

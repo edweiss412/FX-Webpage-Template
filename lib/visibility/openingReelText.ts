@@ -20,7 +20,7 @@
  *   The `tests/e2e/empty-state.spec.ts` AC-4.5 suite would pin this
  *   invariant end-to-end across the documented value space, but it is
  *   `describe.skip` and executes in no CI workflow
- *   (BL-E2E-LIFECYCLE-SPECS-CI-DARK): nothing enforces the invariant
+ *   (BL-E2E-APP-DEPENDENT-SPECS-CI-DARK): nothing enforces the invariant
  *   end-to-end today.
  *
  * Strip rules:

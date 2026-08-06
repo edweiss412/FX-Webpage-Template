@@ -8,6 +8,74 @@ Same split as [DEFERRED.md](./DEFERRED.md) ↔ [DEFERRED-archive.md](./DEFERRED-
 
 ---
 
+## BL-E2E-LIFECYCLE-SPECS-CI-DARK — admin-lifecycle e2e specs are matched by playwright projects but invoked by no workflow — CLOSED 2026-08-06 (L-wave, `feat/l-wave-docs`, REFILED at honest scope)
+
+
+**Resolution: the HEADING PREMISE IS REFUTED, and the residual is REFILED as
+`BL-E2E-APP-DEPENDENT-SPECS-CI-DARK` (L).** Ratified 2026-08-05 (spec §1.1 item 10 / §2.1.4).
+
+**The premise this row is named for is no longer true. Re-verified 2026-08-06 against
+`.github/workflows/lifecycle-layout-e2e.yml`: BOTH named specs are wired and run on `mobile-safari`
+on every `pull_request`** — `admin-lifecycle-layout.spec.ts` at line 110, and
+`admin-lifecycle-transitions.spec.ts` at lines 130 and 132. The title says the lifecycle specs are
+invoked by no workflow; they are. Keeping a row whose HEADING is false is how a queue becomes
+unreadable, which is why this refiles rather than merely updating in place.
+
+**Wiring history, preserved in full — it is the record of how the premise stopped being true:**
+
+- **2026-07-26 (PR2 of the CI-dark coverage cluster).** The umbrella shrank substantially: 30
+  allowlist rows citing it are gone, because `standalone-e2e.yml` now runs the whole standalone
+  config unfiltered on every PR. 60 rows remained, all app-dependent.
+- **2026-07-26 (PR4).** `admin-lifecycle-transitions.spec.ts` stayed allowlisted, but for a materially
+  different reason than before: its two DETERMINISTIC breaks were fixed (a retired-testid assertion
+  that failed every run, and a compound case the ShareHub backdrop made unreachable) and the
+  pre-hydration swallow was repaired. It went from failing every run to one flaky case — measured 4/5
+  locally with one real-CI failure on the round-trip — and was held back by spec §6.1's
+  five-consecutive-greens acceptance rather than by brokenness.
+- **2026-07-27 (`fix/lifecycle-transitions-roundtrip-flake`).** The round-trip flake was fixed and the
+  spec WIRED: five consecutive green normal-dispatch runs met spec §6.1 / AC-6, and its allowlist row
+  was deleted. `BL-E2E-LIFECYCLE-TRANSITIONS-ROUNDTRIP-FLAKE` graduated.
+- **2026-08-03 (`chore/ci-boot-overlap-and-popover-flake`).** T-REGROW's two armed measurements no
+  longer take a fixed wait; the real run retries the whole measurement so a transient pre-re-placement
+  state retries while a regression still times out. A structural guard
+  (`tests/cross-cutting/e2e-regrow-settle-contract.test.ts`) anchors a retry at each arming site so
+  the fixed wait cannot creep back. The three fixed waits the class sweep found elsewhere in that file
+  are filed separately as `BL-E2E-LAYOUT-FIXED-WAIT-RESIDUE`.
+
+**The residual, carried to the refile unchanged:** the ~60 app-dependent standalone-allowlist specs
+that need a dev server AND a seeded database — deliberately out of the CI-dark cluster's ratified
+scope, and never part of what the 2026-07-27 wiring closed.
+
+**Owner action, preserved because it is NOT repo work and cannot be closed by a branch** (corrected
+2026-07-26): the claim that branch protection requires only the `quality` context is STALE — measured,
+the live required set holds TWELVE contexts. The e2e jobs are advisory not because one context is
+required, but because none of them is in that set. Promoting e2e jobs into it, so a red e2e blocks
+merge at the GitHub layer, is an owner GitHub-settings action. Until then, enforcement is the
+pipeline's all-checks-green procedural gate. Measurement:
+`docs/superpowers/specs/ci/2026-07-26-ci-dark-coverage-design.md` §2.5.
+
+**Citations re-pointed in the refiling commit.** Every code and workflow comment naming this id now
+names `BL-E2E-APP-DEPENDENT-SPECS-CI-DARK`, including the eleven coverage-claim rewrites task L1 made
+earlier on this same branch.
+
+---
+
+> **UPDATE 2026-07-26 (PR4 of the CI-dark cluster).** `admin-lifecycle-transitions.spec.ts` stays allowlisted, but for a materially different reason than before: its two DETERMINISTIC breaks are fixed (a retired-testid assertion that failed every run, and a compound case the ShareHub backdrop made unreachable) and the pre-hydration swallow is repaired. It went from failing every run to one flaky case, measured 4/5 locally with one real-CI failure on the round-trip. Not wired, per spec §6.1's five-consecutive-greens acceptance and its pre-ratified fallback. Tracked as `BL-E2E-LIFECYCLE-TRANSITIONS-ROUNDTRIP-FLAKE`. The rest of this umbrella is the ~60 app-dependent specs needing a dev server and seeded database, deliberately out of the cluster's ratified scope.
+>
+> **UPDATE 2026-07-27 (`fix/lifecycle-transitions-roundtrip-flake`).** The round-trip flake is fixed and `admin-lifecycle-transitions.spec.ts` is WIRED — `lifecycle-layout-e2e.yml` runs it on every `pull_request`, five consecutive green normal-dispatch runs met spec §6.1 / AC-6, and its allowlist row is deleted. `BL-E2E-LIFECYCLE-TRANSITIONS-ROUNDTRIP-FLAKE` graduated to `BACKLOG-archive.md`. This umbrella's remaining scope is unchanged: the ~60 app-dependent specs.
+
+**Status:** OPEN · **Severity:** MEDIUM (dark regression coverage) · **Class:** CI wiring — surfaced by the archive-row-menu-idiom spec R11 adversarial round (2026-07-24).
+
+**Effort:** L
+
+**PARTIAL 2026-07-26 (PR2 of the CI-dark coverage cluster).** The umbrella shrank substantially: 30 allowlist rows citing this item are gone, because `standalone-e2e.yml` now runs the whole standalone config unfiltered on every PR. 60 rows remain, all app-dependent specs that need a dev server and a seeded database — deliberately out of the cluster's ratified scope. `admin-lifecycle-transitions` specifically was PR4's subject and closed on 2026-07-27 (five consecutive greens, see the UPDATE above).
+
+`tests/e2e/admin-lifecycle-layout.spec.ts` and `tests/e2e/admin-lifecycle-transitions.spec.ts` appear in the `mobile-safari` project `testMatch` (`playwright.config.ts`), but every e2e workflow runs an explicit spec list and none names them — they run nowhere in CI. The archive-row-menu-idiom branch wires the LAYOUT spec (new `lifecycle-layout-e2e.yml`, since it carries that feature's load-bearing assertions); the TRANSITIONS spec remains dark. **Fix (when prioritized):** add `admin-lifecycle-transitions.spec.ts` to the same workflow (or its own) after fixing its local flake class — the 2026-07-24 flake audit (archive-row branch) measured: static source-guard red since 2026-07-20 (fixed on that branch via the ArchiveShowButton transition-opacity carve-out mirroring PublishedToggle's), plus 3 pre-hydration click-swallow failures (hub kebab open x2, published toggle x1) whose failing cases move between runs; the layout spec's toPass hydration-retry is the template. The structural guard for the class (workflow-coverage meta-test with a reasoned allowlist) SHIPPED with the archive-row-menu-idiom branch (spec §6 item 6); un-wiring work here is now just moving this spec off that allowlist by adding it to a workflow. Related owner decision (R18), **corrected 2026-07-26**: the claim that branch protection requires only the `quality` context is STALE — measured, the live required set holds TWELVE contexts. The e2e jobs are advisory not because one context is required, but because none of them is in that set. Promoting e2e jobs into it so a red e2e blocks merge at the GitHub layer remains an owner GitHub-settings action, not repo code; until then enforcement is the pipeline's all-checks-green procedural gate. Measurement: `docs/superpowers/specs/ci/2026-07-26-ci-dark-coverage-design.md` §2.5.
+
+**New instance observed 2026-07-26 — FIXED 2026-08-03** on `chore/ci-boot-overlap-and-popover-flake`: T-REGROW's two armed measurements no longer take a fixed wait. The real run retries the whole measurement so a transient pre-re-placement state retries while a regression still times out; the ladder sweep settles on observed growth. A structural guard (`tests/cross-cutting/e2e-regrow-settle-contract.test.ts`) anchors a retry at each arming site so the fixed wait cannot creep back. The three fixed waits the class sweep found ELSEWHERE in that file are filed separately as `BL-E2E-LAYOUT-FIXED-WAIT-RESIDUE`. The umbrella below — the ~60 app-dependent specs — is unchanged and stays OPEN. Original text follows, unedited, for provenance. (destruct-thumb-order PR #604): the LAYOUT spec — the one this row records as stabilized by the `toPass` hydration retry — failed once in `lifecycle-layout-e2e` on `mobile-safari`, at the archive-confirm popover assertions (`tests/e2e/admin-lifecycle-layout.spec.ts:411` `scrollIntoView(confirm) must have been called`, and `:538` armed body within the clip rect), 24 passed / 1 failed. Confirmed a flake, not a regression: the failing commit touched only `tests/e2e/pendingDiscardReal.layout.spec.ts`, which that workflow does not run, the two commits before it passed, and a re-run of the identical tree went green. So the hydration retry does NOT cover the popover-placement path — the growth-then-replace measurement takes a fixed `waitForTimeout(300)` rather than retrying to a condition, which is the likely remaining gap. \*\*Fix shape:\*\* replace that fixed wait with a `toPass` block around the armed measurement, same template as the rest of the spec.
+
+---
+
 ## BL-MUTATION-HARNESS-OPEN-HOLES — parser silent-fragility classes pinned by the mutation harness — CLOSED 2026-08-06 (L-wave, `feat/l-wave-docs`, DECOMPOSED)
 
 
@@ -580,13 +648,16 @@ each case renders as a specific non-LEAD crew identity that `signInAs` cannot re
 per-test crew rows matching `NON_ADMIN_CREW_FIXTURE` plus per-test fixture seeding. Reviving the
 suites is tracked by the CI-dark entry, NOT here.
 
-**Citation sequencing, recorded so it does not read as drift:** the repaired sites cite
-`BL-E2E-LIFECYCLE-SPECS-CI-DARK`, the entry live at the time of this commit. The same branch's later
-decomposition task archives that umbrella and refiles it as `BL-E2E-APP-DEPENDENT-SPECS-CI-DARK`,
-re-pointing every one of these citations in the same commit that files the new id. Citing the new id
-here would have left `tests/docs/_metaLedgerReferentialIntegrity.test.ts` red at this commit (it
-walks every tracked file and requires each cited `BL-` id to resolve), and green-on-every-commit is
-AC-L1.
+**Citation sequencing, recorded so it does not read as drift:** the repairs first cited
+`BL-E2E-LIFECYCLE-SPECS-CI-DARK`, the entry live at that commit; task L4b then archived that umbrella,
+refiled it as `BL-E2E-APP-DEPENDENT-SPECS-CI-DARK`, and re-pointed every one of these citations in the
+same commit that filed the new id. **Correction to the reasoning given at the time:** citing the new
+id immediately would ALSO have been green — the authoring session had pre-registered it as a
+`KNOWN_DANGLING` forward reference in `tests/docs/_metaLedgerReferentialIntegrity.test.ts`
+("remove this row when it lands"), precisely so the wave could cite ahead of filing. The L1 commit
+message asserts the citation would have failed the referential-integrity guard; that was wrong. The
+end state is identical either way, and the debt row was repaid in L4b's commit as its ratchet
+requires.
 
 **Re-open trigger:** none as a guard. If coverage-claim prose is found to have regrown at a rate that
 review is not catching, the decision to leave it unguarded is what should be revisited — and the

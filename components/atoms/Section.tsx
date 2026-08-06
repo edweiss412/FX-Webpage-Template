@@ -234,7 +234,7 @@ export function Section({
         keep the excess internal, never blowing past their row track.
         Not verified anywhere in CI: the AC-4.4 suite in
         tests/e2e/layout-dimensions.spec.ts is `describe.skip` and runs
-        in no workflow (BL-E2E-LIFECYCLE-SPECS-CI-DARK).
+        in no workflow (BL-E2E-APP-DEPENDENT-SPECS-CI-DARK).
 
         `flex-1` deliberately allows the body to grow into the row
         stretch (§8.4 invariant 2 — equal-height tiles in the first
