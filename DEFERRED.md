@@ -109,6 +109,7 @@ screen-disposition 2026-08-04: ANNOTATE, stays open as an owner action. It is no
 
 **Status:** IN PROGRESS · **Branch:** feat/l-wave-docs
 **Effort:** L
+**l-wave-screen 2026-08-06:** PREREQ — un-defer trigger is a scheduler harness that can resolve a promise between commit and passive effects; no such harness exists today.
 
 `ShareLinkCopyButton` writes `urlRef` in a `useLayoutEffect` so the captured-url
 guard compares against a ref that is already current when a clipboard promise
@@ -169,6 +170,7 @@ handling together.
 
 **Status:** IN PROGRESS · **Branch:** feat/l-wave-docs
 **Effort:** L
+**l-wave-screen 2026-08-06:** PREREQ — waits on a repo-wide forced-colors pass to set the pattern; solving it once here would pre-commit that pattern from a sample of one.
 
 Under `forced-colors` the cue is invisible: UAs drop `box-shadow` and force
 `background-color`, so both tracks vanish (`app/globals.css:884`). Systemic
@@ -198,6 +200,7 @@ test rather than maintained by hand.
 
 **Status:** IN PROGRESS · **Branch:** feat/l-wave-docs
 **Effort:** L
+**l-wave-screen 2026-08-06:** PREREQ — needs its own focus-orchestration spec; trigger is a keyboard/SR report or the next jump-handler change.
 
 From the impeccable audit of `feat/attention-index` (2026-07-25). A row's `onClick` runs `onClose()` then `onNavigate(item)`; the row unmounts with the menu, the jump handler in `ShowReviewSurface` only scrolls and flashes, and the rescue effect in `PublishedReviewModal` returns early on a user-initiated close. So after pill → Enter → Tab → Enter, the viewport lands on the card but `activeElement` is `<body>`, outside `[role="dialog"]` — the next Tab restarts at the document top, escaping the modal trap, and screen-reader users get no arrival announcement because the flash is visual-only.
 
