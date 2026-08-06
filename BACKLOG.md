@@ -1050,16 +1050,44 @@ The Phase 1 crew-page projection alert (`TILE_PROJECTION_FETCH_FAILED`, §4.13 o
 
 **Promotion prerequisite:** an established `<Suspense>` streaming pattern in the codebase + an AdminNav slot refactor that lets the badge counts arrive as a streamed server child without breaking the client-side pathname-refetch hook.
 
-### BL-RESURRECT-MOBILE-SAFARI-E2E — lift the rest of the mobile-safari Playwright project into CI
+### BL-RESURRECT-MOBILE-SAFARI-E2E — lift the remaining mobile-safari tile/crew specs into CI
 
 **Status:** IN PROGRESS · **Branch:** feat/l-wave-docs
-**Filed:** 2026-06-23 (discovered building the crew-e2e CI job). NO CI workflow runs the `mobile-safari` Playwright project — every CI playwright run is project-filtered (`dev-gate-e2e.yml`→dev/prod-build; `help-affordances.yml`→help-docs; `screenshots-*.yml`→screenshots). So `tests/e2e/crew-page.spec.ts` + the ~20 M4 tile specs (schedule-tile, transport-tile, status-financials, role-spoof, pack-list, notes-tile, right-now*, layout-dimensions, empty-state*, apply-driven-refresh, redeem-link, leaked-link, auth-chain, …) are committed but **dead-in-CI** (only run via local `pnpm test:e2e`, which cold-builds ~4 webServers — impractical). The new `.github/workflows/crew-e2e.yml` runs ONLY `crew-section-toggle.spec.ts` (the perf gate + 0-network/dimensional proofs) — the `CREW_E2E_ONLY` filter + `db:seed` pattern there is the reusable template for the rest.
+**Filed:** 2026-06-23 (discovered building the crew-e2e CI job). **Effort:** L
 
-**Effort:** L
+> **CORRECTION 2026-08-06 (L-wave, `feat/l-wave-docs`).** The entry's founding premise — "NO CI
+> workflow runs the `mobile-safari` Playwright project" — is **REFUTED**. Three workflows run it
+> today: `lifecycle-layout-e2e.yml` (`:110`, `:130`, `:132`), `crew-e2e.yml` (`:159`, alongside
+> desktop-chromium), and `phantom-gap-e2e.yml` (`:175`). The project is not dark; a **subset of specs
+> inside it** is. The id is KEPT deliberately — it is cross-referenced from the CI-dark cluster specs
+> and the 2026-08-05 sizing sweep, and a rename would cost more than the stale title saved. The body
+> below is rewritten at honest scope; the original claim is preserved in this note so the correction
+> is auditable rather than silent.
 
-**Why backlog, not now:** these specs have been unran in CI for a long time and could surface latent seed/timing/env failures (the crew corpus + the M4 tile fixtures mutate shared rows; `workers:1` already serializes them, but resurrecting ~20 at once is a multi-round debugging slog, not a follow-on edit). Scoping the crew-e2e job to one spec delivers the perf gate now without that risk.
+**Honest residual: the ~20 M4 tile/crew specs that no workflow names.** Every CI Playwright run is
+still an explicit spec list, so a spec matched by the `mobile-safari` project but named in no run
+command executes nowhere. That set is roughly: `crew-page`, `schedule-tile`, `transport-tile`,
+`status-financials`, `role-spoof`, `pack-list`, `notes-tile`, `right-now`, `right-now-transitions`,
+`layout-dimensions`, `empty-state`, `theme-toggle`, and their siblings — the twelve that are
+additionally `describe.skip` are enumerated in `BACKLOG-archive.md` §
+`BL-COVERAGE-CLAIMS-CITE-SKIPPED-SUITES`. **A spec being project-matched is not coverage**, and that
+distinction is the whole content of this row now.
 
-**Promotion prerequisite:** extend `crew-e2e.yml` (or a sibling) to run `--project=mobile-safari` (all specs), triaging each failure (most likely: seed dependencies the corpus no longer satisfies, or specs that assumed a pre-redesign DOM). Land green incrementally (add spec globs as they pass) rather than flipping the whole project on at once.
+**Why it is still L, and still not "now":** these specs have been unrun in CI for a long time and
+will surface latent seed/timing/env failures. The crew corpus and the M4 tile fixtures mutate shared
+rows — `workers: 1` already serializes them, but resurrecting ~20 at once is a multi-round debugging
+slog, not a follow-on edit. Several also predate the crew redesign and assume a pre-redesign DOM.
+
+**Promotion path — incremental, and the bar is already demonstrated.** Extend `crew-e2e.yml` (or a
+sibling) spec by spec, triaging each failure; the `CREW_E2E_ONLY` filter + `pnpm db:seed` pattern
+there is the working template. `lifecycle-layout-e2e.yml` is the worked example of the acceptance bar
+a batch must clear — **five consecutive green normal-dispatch runs** before a spec counts as wired
+(spec §6.1 / AC-6). Land green globs as they pass rather than flipping the project on at once.
+
+**Relationship to `BL-E2E-APP-DEPENDENT-SPECS-CI-DARK`, stated so the two are not merged by a future
+reader:** that entry is the ~60 app-dependent standalone-allowlist specs needing a dev server and a
+seeded DB. This one is the mobile-safari tile/crew subset. They overlap in mechanism (a spec no
+workflow names) and differ in population; either may be closed without the other.
 
 ## BL-TOGGLE-BANNER-ANCHOR-ROOM-UNMEASURED — one clip-fit anchor still has no real-surface number
 
