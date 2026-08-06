@@ -16,6 +16,25 @@ import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { MESSAGE_CATALOG } from "@/lib/messages/catalog";
 import { ReapStaleSessionsButton } from "@/components/admin/ReapStaleSessionsButton";
 
+/**
+ * Wait for the result region to SAY something, not merely to exist.
+ *
+ * BL-ANNOUNCE-REGION-UNMOUNT-CLASS made this region permanently mounted (a
+ * `role="status"` inserted with its text is never announced), which silently
+ * broke every `waitFor(() => expect(getByTestId(...)).toBeTruthy())` in this
+ * file: the element is now present on first paint, so the wait returns
+ * IMMEDIATELY with empty text and the assertions race the fetch. It passed
+ * locally and failed on CI shard 3 — the classic shape, and the mounting change
+ * is what turned an honest readiness signal into a vacuous one.
+ *
+ * Emptiness is the readiness signal now, so wait on emptiness ending.
+ */
+async function waitForResultText(get: (id: string) => HTMLElement): Promise<void> {
+  await waitFor(() =>
+    expect((get("reap-stale-sessions-result").textContent ?? "").length).toBeGreaterThan(0),
+  );
+}
+
 const refreshMock = vi.fn();
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ refresh: refreshMock, push: vi.fn() }),
@@ -68,7 +87,7 @@ describe("ReapStaleSessionsButton", () => {
     fireEvent.click(getByTestId("reap-stale-sessions-button"));
     fireEvent.click(getByTestId("reap-stale-sessions-confirm-yes"));
 
-    await waitFor(() => expect(getByTestId("reap-stale-sessions-result")).toBeTruthy());
+    await waitForResultText(getByTestId);
     expect(fetchMock).toHaveBeenCalledWith("/api/admin/onboarding/reap-stale-sessions", {
       method: "POST",
     });
@@ -97,7 +116,7 @@ describe("ReapStaleSessionsButton", () => {
     const { getByTestId } = render(<ReapStaleSessionsButton />);
     fireEvent.click(getByTestId("reap-stale-sessions-button"));
     fireEvent.click(getByTestId("reap-stale-sessions-confirm-yes"));
-    await waitFor(() => expect(getByTestId("reap-stale-sessions-result")).toBeTruthy());
+    await waitForResultText(getByTestId);
     const result = getByTestId("reap-stale-sessions-result").textContent ?? "";
     expect(result).toContain("Nothing was cleaned up this run.");
     expect(result).not.toContain("Cleaned up leftovers from 0");
@@ -124,7 +143,7 @@ describe("ReapStaleSessionsButton", () => {
     const { getByTestId } = render(<ReapStaleSessionsButton />);
     fireEvent.click(getByTestId("reap-stale-sessions-button"));
     fireEvent.click(getByTestId("reap-stale-sessions-confirm-yes"));
-    await waitFor(() => expect(getByTestId("reap-stale-sessions-result")).toBeTruthy());
+    await waitForResultText(getByTestId);
     // Focus returns to the re-enabled trigger via a PASSIVE effect that fires
     // after the async `done` commit. Poll for it — asserting synchronously the
     // instant the result appears races that effect under CI parallel-worker
@@ -151,7 +170,7 @@ describe("ReapStaleSessionsButton", () => {
     const { getByTestId, queryByTestId } = render(<ReapStaleSessionsButton />);
     fireEvent.click(getByTestId("reap-stale-sessions-button"));
     fireEvent.click(getByTestId("reap-stale-sessions-confirm-yes"));
-    await waitFor(() => expect(getByTestId("reap-stale-sessions-result")).toBeTruthy());
+    await waitForResultText(getByTestId);
     expect(getByTestId("reap-stale-sessions-result").textContent ?? "").toContain(
       "Nothing to clean up",
     );
