@@ -138,8 +138,6 @@ const KNOWN_DANGLING: Record<string, string> = {
   // like an id — and both ratchets hold: it never resolves, and it is still cited.
   "BL-MOBILE-SAFARI-TILE-SPECS-CI-DARK":
     "rejected refile id, L-wave L4d (2026-08-06): the id decision kept BL-RESURRECT-MOBILE-SAFARI-E2E and rewrote its body in place, so this id is never filed. Cited only as the rejected alternative in docs/superpowers/specs/2026-08-06-l-wave-design.md.",
-  "BL-PARSER-FIELD-PROVENANCE-MODEL":
-    "filed by L-wave W-LDOCS task L5 (spec 2026-08-06-l-wave-design.md §2.1.5) — remove this row when it lands",
 };
 
 type Cited = { id: string; files: string[] };
