@@ -1,0 +1,86 @@
+=== PHRASE SWEEP ===
+lib/visibility/capabilityTransitions.ts:39: * the e2e compound-transition tests in
+lib/visibility/capabilityTransitions.ts:152: * the delta is empty (the e2e compound tests cover those cases).
+lib/visibility/capabilityTransitions.ts:170:    // by compound tests).
+lib/visibility/capabilityTransitions.ts:235:      "Independent atomic flags. hasA1 unlocks AudioScopeTile via the A1/A2 branch; hasV1 unlocks VideoScopeTile via the V1 branch. Both deltas hold when hasLead and hasAdmin are false (matrix entries are evaluated against the no-LEAD-no-admin viewer; LEAD/admin compound interactions are tested by e2e).",
+lib/messages/__generated__/spec-codes.ts:219:    "helpfulContext": "Something drifted: a required check, a review requirement, admin enforcement, or a push or deletion restriction. Restore the settings so no PR can merge without the full audit suite.",
+lib/messages/catalog.ts:2451:      "Something drifted: a required check, a review requirement, admin enforcement, or a push or deletion restriction. Restore the settings so no PR can merge without the full audit suite.",
+lib/messages/catalog.ts:2454:      "The branch-protection monitor found that the main-branch protection no longer matches the X.6 contract: a required check is missing, reviews are not required, stale reviews are not dismissed, admin enforcement is off, or force pushes / deletions are allowed. Restore the settings so pull requests cannot merge without the full audit suite.",
+lib/time/rightNowTransitions.ts:83: *                          guarded by the audit suite — if the state
+tests/messages/popoverContextCopy.test.ts:62:    "Something drifted: a required check, a review requirement, admin enforcement, or a push or deletion restriction. Restore the settings so no PR can merge without the full audit suite.",
+tests/visibility/capabilityTransitions.test.ts:8: * simultaneously) are exercised by e2e tests in
+tests/visibility/capabilityTransitions.test.ts:244:   * deltas; the e2e compound test verifies the no-flicker invariant.
+tests/visibility/transportTransitions.test.ts:10: * exercised in e2e tests.
+tests/visibility/transportTransitions.test.ts:195: * same sync. The two compound tests below exercise the §8.1 contract
+tests/e2e/right-now-transitions.spec.ts:2: * Playwright audit suite for the §8.2 RightNow 12-state transition
+tests/e2e/right-now-transitions.spec.ts:44: *        require dedicated setup that the compound tests cover.
+tests/e2e/right-now-transitions.spec.ts:76: *     show.dates mutation, covered by compound tests)
+tests/e2e/right-now-transitions.spec.ts:84:  // Show-mutation endpoints — covered by compound tests with explicit
+tests/e2e/right-now-transitions.spec.ts:182:          : `endpoint requires show.dates mutation; covered by compound tests (${entry.from} ↔ ${entry.to})`;
+tests/e2e/helpers/rightNow.ts:239:  // audit skips pairs touching these endpoints and the compound tests
+tests/e2e/helpers/rightNow.ts:259: * the compound tests (setup phase).
+tests/e2e/helpers/rightNow.ts:288: * from a fresh DB read. So the helper covers TIME-DRIVEN transitions;
+tests/e2e/helpers/rightNow.ts:291: * to pick up the new restriction. The audit suite documents which
+=== SPEC-FILENAME CITATIONS (suite name incl. .spec/.test suffix, cited outside its own file) ===
+tests/admin/devSpecNonEmpty.test.ts:6: * playwright.config.ts. If admin-dev.spec.ts does not exist, all three
+tests/admin/devSpecNonEmpty.test.ts:12: *      the filename "admin-dev.spec.ts".
+tests/admin/devSpecNonEmpty.test.ts:14: * The test is RED when admin-dev.spec.ts is absent and turns GREEN once the
+tests/admin/devSpecNonEmpty.test.ts:17: * If someone later renames or deletes admin-dev.spec.ts, this guard fails
+tests/admin/devSpecNonEmpty.test.ts:49:    const filename = "admin-dev.spec.ts";
+tests/e2e/source-link-dimensional.spec.ts:37: * (port 3001) targets only `admin-dev.spec.ts`; the dev-flag-on port-3000 server
+tests/e2e/source-link-dimensional.spec.ts:45: * ADMIN_FIXTURE first (same pattern as admin-dev.spec.ts / crew-layout-dimensions
+tests/e2e/developer-tier.spec.ts:37: * true-404 arm only occurs under a flag-UNSET prod build (admin-dev.spec.ts).
+tests/e2e/right-now-transitions.spec.ts:607:   * crew-layout-dimensions.spec.ts:88 (SEED_RUN_OF_SHOW), derived from
+tests/e2e/stage-restricted-crew-schedule.spec.ts:8: * crew-layout-dimensions.spec.ts uses) and proves both:
+tests/help/walker-routes.test.ts:112:    // crew-layout-dimensions.spec.ts: the unified show-day timeline (Today Mode A)
+tests/help/walker-routes.test.ts:119:    ["crew-layout-dimensions.spec.ts", 2],
+lib/data/getShowForViewer.ts:129:// lib/parser/types.ts:311 with three crew-page-specific differences:
+tests/e2e/theme-toggle.spec.ts:17: * Slug source: same Waldorf seed used by crew-page.spec.ts. The toggle
+tests/e2e/crew-layout-dimensions.spec.ts:32: * Mirrors the §4.9 dimensional-invariant block in crew-page.spec.ts:
+tests/e2e/crew-layout-dimensions.spec.ts:47: * (exactly the gap inv3 in crew-page.spec.ts works around for GearSection). To
+tests/e2e/crew-section-toggle.spec.ts:272:  // Mirrors crew-page.spec §4.9 inv5: at 390px the sub-nav bottom bar is
+tests/e2e/crew-section-toggle.spec.ts:293:    // only on CI retry). Mirror crew-page.spec's goToSection: tick the frozen clock
+tests/e2e/report-modal.spec.ts:43:  // crew-page.spec.ts does rather than hardcoding a token that a re-seed
+tests/help/walker-routes.test.ts:120:    // crew-page.spec.ts: the crew-redesign §4.9/§4.10/nav rewrite (Phase 4) replaced
+tests/help/walker-routes.test.ts:125:    ["empty-state.spec.ts", 2],
+tests/cross-cutting/section-header-width-anchors.test.ts:7: * the real-route width chain in tests/e2e/admin-layout-dimensions.spec.ts.
+tests/ci/_metaE2eWorkflowCoverage.test.ts:118:  "tests/e2e/admin-layout-dimensions.spec.ts": PATH_GATED,
+tests/ci/_metaE2eWorkflowCoverage.test.ts:122:  "tests/e2e/admin-nav-layout-dimensions.spec.ts": PATH_GATED,
+tests/ci/_metaE2eWorkflowCoverage.test.ts:131:  "tests/e2e/crew-layout-dimensions.spec.ts": PATH_GATED,
+tests/ci/_metaSpecRegistration.test.ts:996:    'pnpm exec playwright test --reporter=list --project=desktop-chromium tests/e2e/admin-layout-dimensions.spec.ts -g "T-NOPHANTOM"':
+tests/ci/_metaSpecRegistration.test.ts:998:    'pnpm exec playwright test --reporter=list --project=mobile-safari tests/e2e/crew-layout-dimensions.spec.ts -g "T-NOPHANTOM-CREW"':
+tests/ci/_metaSpecRegistration.test.ts:1000:    'pnpm exec playwright test --reporter=list --project=desktop-chromium tests/e2e/admin-layout-dimensions.spec.ts -g "width chain"':
+tests/ci/_metaSpecRegistration.test.ts:1006:    'pnpm exec playwright test --reporter=list --project=desktop-chromium tests/e2e/admin-layout-dimensions.spec.ts -g "T-FRESHNESS-GEOMETRY"':
+tests/e2e/right-now-transitions.spec.ts:607:   * crew-layout-dimensions.spec.ts:88 (SEED_RUN_OF_SHOW), derived from
+tests/e2e/needs-attention-page.spec.ts:6: * admin-nav-layout-dimensions.spec.ts: signInAs(ADMIN_FIXTURE) + service-role
+tests/e2e/crew-layout-dimensions.spec.ts:2: * tests/e2e/crew-layout-dimensions.spec.ts — Task 10 of the crew mock-fidelity
+tests/e2e/crew-layout-dimensions.spec.ts:181:      `crew-layout-dimensions.spec: seeded show not found (run \`pnpm db:seed\` first). drive_file_id=${SEED_DRIVE_FILE_ID}, error=${showRes.error?.message ?? "no row"}`,
+tests/e2e/crew-layout-dimensions.spec.ts:196:      `crew-layout-dimensions.spec: no share_token for show ${showId} (run \`pnpm db:seed\`). error=${res.error?.message ?? "no row"}`,
+tests/e2e/admin-layout-dimensions.spec.ts:2: * tests/e2e/admin-layout-dimensions.spec.ts (M12.2 Phase A Task 11 — spec §9)
+tests/e2e/admin-nav-layout-dimensions.spec.ts:2: * tests/e2e/admin-nav-layout-dimensions.spec.ts (M12.2 Phase B1 Task 9.1 — spec §6)
+tests/help/walker-routes.test.ts:87:    ["admin-nav-layout-dimensions.spec.ts", 2],
+tests/help/walker-routes.test.ts:112:    // crew-layout-dimensions.spec.ts: the unified show-day timeline (Today Mode A)
+tests/help/walker-routes.test.ts:119:    ["crew-layout-dimensions.spec.ts", 2],
+tests/e2e/stage-restricted-crew-schedule.spec.ts:8: * crew-layout-dimensions.spec.ts uses) and proves both:
+tests/e2e/_sectionHeaderWidths.ts:10: *   - `admin-layout-dimensions.spec.ts` asserts the REAL `ShowReviewSurface` mount
+tests/e2e/layout-dimensions.spec.ts:44: *      (10 synthetic contact notes, à la notes-tile.spec) — leaves the
+tests/help/walker-routes.test.ts:128:    ["notes-tile.spec.ts", 5],
+tests/e2e/empty-state.spec.ts:18: * Mutation pattern mirrors notes-tile.spec.ts: snapshot the show's
+tests/help/walker-routes.test.ts:129:    ["pack-list.spec.ts", 9],
+tests/cross-cutting/picker-flow-e2e-ci-wiring.test.ts:50: * `run: echo ok # playwright test …picker-flow.spec.ts`,
+tests/cross-cutting/picker-flow-e2e-ci-wiring.test.ts:190:  // picker-flow.spec.ts:354 — "non-deterministic on a shared single-host local run. The DB
+tests/cross-cutting/picker-flow-e2e-ci-wiring.test.ts:421:    "crew-e2e.yml's own command collects the picker-flow spec",
+tests/e2e/stage-restricted-crew-schedule.spec.ts:48: * playwright.config.ts:54-62. picker-flow.spec.ts, which tests the picker
+tests/e2e/stage-restricted-crew-schedule.spec.ts:81: * is desktop-chromium and not mobile-safari for the reason picker-flow.spec.ts
+tests/help/walker-routes.test.ts:90:    // claimStamp.ts / seedShowWithCrew.ts / picker-flow.spec.ts write locked tables
+tests/help/walker-routes.test.ts:98:    ["picker-flow.spec.ts", 1],
+tests/help/walker-routes.test.ts:104:    ["published-review-modal.realtime.spec.ts", 1],
+tests/e2e/helpers/rightNow.ts:23: *   `right-now.spec.ts` (Task 4.11 AC-4.3 suite) uses the simpler
+tests/help/walker-routes.test.ts:130:    ["right-now.spec.ts", 1],
+tests/help/walker-routes.test.ts:84:  // rightNow.ts and schedule-tile.spec.ts are deliberately NOT exempt:
+tests/e2e/helpers/rightNow.ts:118: * schedule-tile.spec.ts's identical mutation uses it too. `leadCrewId`
+tests/help/walker-routes.test.ts:132:    ["transport-tile.spec.ts", 2],
+lib/time/rightNowTransitions.ts:11: * (`tests/time/rightNowTransitions.test.ts`) and the Playwright audit
+lib/time/rightNowTransitions.ts:604:  // tests/time/rightNowTransitions.test.ts.
+tests/e2e/right-now-transitions.spec.ts:12: *   invariants are pinned by `tests/time/rightNowTransitions.test.ts`.
+tests/e2e/right-now-transitions.spec.ts:275:      // `tests/time/rightNowTransitions.test.ts:transitionTreatment`.
