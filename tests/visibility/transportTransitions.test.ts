@@ -6,8 +6,9 @@
  * The 2×2 starting state space (driverNameMatch, anyScheduleTagMatch)
  * yields 4 states {FF, TF, FT, TT} and C(4, 2) = 6 unordered
  * transition pairs. Each pair carries an AnimatePresence treatment;
- * structural invariants are pinned here, animation behavior is
- * exercised in e2e tests.
+ * structural invariants are pinned here. Animation behavior is not
+ * exercised anywhere in CI: the e2e suites that would drive it are
+ * `describe.skip` (BL-E2E-LIFECYCLE-SPECS-CI-DARK).
  */
 import { describe, expect, test } from "vitest";
 import {

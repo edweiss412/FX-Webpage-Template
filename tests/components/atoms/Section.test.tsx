@@ -23,9 +23,10 @@
  *   - `VARIANT_BODY_DEFAULT` map exports the variant→element contract
  *     so consumers can rely on it when reading the source.
  *
- * Layout invariants (`getBoundingClientRect`) are verified separately
- * by tests/e2e/layout-dimensions.spec.ts; this file stops at semantic
- * + className-presence checks.
+ * Layout invariants (`getBoundingClientRect`) are verified nowhere in
+ * CI: tests/e2e/layout-dimensions.spec.ts is `describe.skip` and runs
+ * in no workflow (BL-E2E-LIFECYCLE-SPECS-CI-DARK). This file stops at
+ * semantic + className-presence checks.
  */
 import { describe, expect, test } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";

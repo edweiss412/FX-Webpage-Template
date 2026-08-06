@@ -3,9 +3,10 @@
  * 12-state transition audit matrix (M4 Task 4.12 Batch 1).
  *
  * These contract tests pin the matrix's structural invariants.
- * Animation-behavior tests live in
- * `tests/e2e/right-now-transitions.spec.ts` (scaffolded as
- * `test.fixme()` until Batch 2 lands `framer-motion`).
+ * Animation-behavior tests are written in
+ * `tests/e2e/right-now-transitions.spec.ts` but do NOT execute: that
+ * suite is `describe.skip` and runs in no CI workflow
+ * (BL-E2E-LIFECYCLE-SPECS-CI-DARK).
  *
  * The matrix is the single source of truth for the audit. Any drift
  * (size, duplicates, unreachable cells without rationale, asymmetric

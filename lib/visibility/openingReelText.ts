@@ -17,8 +17,11 @@
  *
  *   Crew DOM MUST NEVER contain `https://`, `drive.google.com`, or
  *   `docs.google.com` substrings for any opening-reel cell. The
- *   `tests/e2e/empty-state.spec.ts` AC-4.5 suite pins this invariant
- *   end-to-end across the documented value space.
+ *   The `tests/e2e/empty-state.spec.ts` AC-4.5 suite would pin this
+ *   invariant end-to-end across the documented value space, but it is
+ *   `describe.skip` and executes in no CI workflow
+ *   (BL-E2E-LIFECYCLE-SPECS-CI-DARK): nothing enforces the invariant
+ *   end-to-end today.
  *
  * Strip rules:
  *

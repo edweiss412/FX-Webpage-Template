@@ -3,8 +3,10 @@
  * tests/components/crew/transitionAudit.test.tsx — crew-redesign §4.10 transition
  * audit (Phase 4 Task 2, "test 14"). The STRUCTURAL half of the audit: a static
  * source enumeration + a jsdom render-shape pass. The COMPOUND, real-browser half
- * (opacity sampling, theme-toggle-during-nav, hero re-mount) lives in
- * tests/e2e/crew-page.spec.ts (mobile-safari, `-g "transition"`), because jsdom
+ * (opacity sampling, theme-toggle-during-nav, hero re-mount) is written in
+ * tests/e2e/crew-page.spec.ts (mobile-safari, `-g "transition"`) but does NOT
+ * execute: that §4.10 block is `.skip` and the file runs in no CI workflow
+ * (BL-E2E-LIFECYCLE-SPECS-CI-DARK). jsdom cannot substitute for it, because it
  * computes no layout and never advances framer's rAF-driven keyframes.
  *
  * The §4.10 inventory this file pins (each row → a named test):

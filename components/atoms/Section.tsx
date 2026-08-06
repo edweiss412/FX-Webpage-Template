@@ -232,7 +232,9 @@ export function Section({
         content height exceeds it. Tiles whose body fits inside 240px
         never see scroll because content < container; tiles that overflow
         keep the excess internal, never blowing past their row track.
-        Verified by tests/e2e/layout-dimensions.spec.ts (AC-4.4).
+        Not verified anywhere in CI: the AC-4.4 suite in
+        tests/e2e/layout-dimensions.spec.ts is `describe.skip` and runs
+        in no workflow (BL-E2E-LIFECYCLE-SPECS-CI-DARK).
 
         `flex-1` deliberately allows the body to grow into the row
         stretch (§8.4 invariant 2 — equal-height tiles in the first

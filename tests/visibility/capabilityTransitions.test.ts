@@ -5,8 +5,9 @@
  * Structural invariants of the matrix are pinned here; the matrix is
  * the single source of truth for visibility-delta semantics across
  * predicate flips. Compound transitions (multiple predicates flipping
- * simultaneously) are exercised by e2e tests in
- * `tests/e2e/right-now-transitions.spec.ts`.
+ * simultaneously) are exercised nowhere: the e2e suite in
+ * `tests/e2e/right-now-transitions.spec.ts` is `describe.skip` and
+ * runs in no CI workflow (BL-E2E-LIFECYCLE-SPECS-CI-DARK).
  */
 import { describe, expect, test } from "vitest";
 import {
@@ -241,7 +242,8 @@ describe("Plan Step 4 worked examples — three compound cases", () => {
    * Audio disappears (no LEAD, no A1), Video stays via hasV1's new
    * truth (the reason for visibility shifted from LEAD branch to V1
    * branch — net visibility unchanged). Matrix encodes single-flip
-   * deltas; the e2e compound test verifies the no-flicker invariant.
+   * deltas; the no-flicker invariant has no executing verification
+   * (the e2e compound suite is skipped).
    *
    * The hasV1 flip alone (with everything else false) appears Video.
    */

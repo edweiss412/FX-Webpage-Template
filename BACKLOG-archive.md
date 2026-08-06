@@ -8,6 +8,156 @@ Same split as [DEFERRED.md](./DEFERRED.md) ↔ [DEFERRED-archive.md](./DEFERRED-
 
 ---
 
+## BL-COVERAGE-CLAIMS-CITE-SKIPPED-SUITES — contract artifacts claim e2e coverage from suites that do not execute — CLOSED 2026-08-06 (L-wave, `feat/l-wave-docs`)
+
+**Resolution: the sentence class was DELETED, and deliberately NOT guarded.** Ratified by the user
+2026-08-05 (L-wave decisions brief, spec §1.1 item 1 / §4.5 item 1): prose coverage claims are
+unguardable, so the row's own open question was settled toward deleting the class of sentence rather
+than maintaining it. **No structural guard ships for this class, by decision** — a future claim is a
+review matter, not a CI matter (spec §4 limit 1). That is the one thing a reader should not
+re-derive: the absence of a guard here is a ratified choice, not an oversight.
+
+**The row's methodological finding was right, and the execution proved it again.** The row warned
+that its own 12-site table was a SEED, not a bound, and that hand-run sweeps under-count this class
+by PATTERN failure. The wave ran the mechanical enumeration the row asked for — every
+`describe.skip` / `test.fixme` / `test.skip` suite under `tests/`, then citing prose resolved by BOTH
+suite filename AND the phrase families that escape token-greps — and the plan-time sweep produced a
+per-hit disposition table. **Re-running those same commands at execution turned up two more repair
+sites the plan-time table did not carry**, which is the third independent confirmation of the row's
+thesis:
+
+- `components/atoms/Section.tsx:235` — a bare `Verified by tests/e2e/layout-dimensions.spec.ts
+  (AC-4.4).` in a component file. Every prior sweep had scoped itself to `lib/` and `tests/`.
+- `lib/time/rightNowTransitions.ts:12` — present-tense "drive their assertions from this constant"
+  for the Playwright audit, qualified by a reason that had itself gone stale twice over
+  (`test.fixme` pending `framer-motion`; the suite is now `describe.skip`, and framer-motion landed).
+
+Both were repaired in the same commit as the seed sites, per the AGENTS.md class-sweep disposition
+rule (every instance of one shape repaired in the same PR).
+
+**Ground truth at close (re-verified 2026-08-06):** 12 wholly-dead suites under `tests/e2e/`
+(top-level `describe.skip`) — `crew-page`, `empty-state`, `layout-dimensions`, `notes-tile`,
+`pack-list`, `right-now-transitions`, `right-now`, `role-spoof`, `schedule-tile`,
+`status-financials`, `theme-toggle`, `transport-tile`. Plus the multiline-chain form at
+`tests/e2e/crew-page.spec.ts:892-893` (`test.describe` on one line, `.skip(` on the next), which
+makes the §4.10 compound block dead. The 5 aliased `dbUp ? describe : describe.skip` sites
+(`resolveBlockerRebuild`, `finalizeInlineRescan`, `materializeRoundTrip`,
+`publishedPullSheetOverrideRpc`, `parseErrorReasonPersist`) are env-gated fallbacks that DO run with
+a DB present — outside this class by construction, recorded so no future sweep re-derives them.
+
+**Sites REPAIRED (claim deleted or rewritten to honest present tense).** Each now states that the
+cited suite does not execute and points at the live CI-dark entry:
+
+| Site | Was |
+| --- | --- |
+| `lib/visibility/capabilityTransitions.ts` (header, delta note, inline note, and the entry `reason` STRING) | compound transitions "are exercised by the e2e compound-transition tests"; "the delta is empty (the e2e compound tests cover those cases)"; "(covered by compound tests)"; reason ending "LEAD/admin compound interactions are tested by e2e" |
+| `lib/time/rightNowTransitions.ts` (module header + the `unreachable` treatment note) | the Playwright audit "drive[s] their assertions from this constant"; `unreachable` cells "Regression-guarded by the audit suite" |
+| `lib/visibility/openingReelText.ts` | the `empty-state.spec.ts` AC-4.5 suite "pins this invariant end-to-end" |
+| `components/atoms/Section.tsx` | "Verified by tests/e2e/layout-dimensions.spec.ts (AC-4.4)." |
+| `tests/visibility/capabilityTransitions.test.ts` (header + no-flicker note) | header restatement; "the e2e compound test verifies the no-flicker invariant" |
+| `tests/visibility/transportTransitions.test.ts` (header) | "animation behavior is exercised in e2e tests" |
+| `tests/time/rightNowTransitions.test.ts` (header) | "Animation-behavior tests live in … (scaffolded as `test.fixme()` …)" |
+| `tests/components/atoms/Section.test.tsx` | layout invariants "are verified separately by tests/e2e/layout-dimensions.spec.ts" |
+| `tests/components/crew/transitionAudit.test.tsx` | the compound real-browser half "lives in tests/e2e/crew-page.spec.ts" |
+| `tests/e2e/helpers/rightNow.ts` (4 sites) | "the compound tests … cover the recovery paths"; "the helper covers TIME-DRIVEN transitions"; "The audit suite documents which transitions …"; the `right-now.spec.ts` present-tense description |
+| `tests/e2e/right-now-transitions.spec.ts` (5 sites, incl. the runner-visible skip-reason STRING) | self-referential prose describing its own skipped siblings as live coverage |
+
+**Sites deliberately NOT touched, with the reason — so a later pass does not "fix" them:**
+
+- **Already honest (the row pins these):** `tests/visibility/capabilityTransitions.test.ts:224`
+  (gap deferred pending Realtime push, M6) and `:272` (future-tense about the same thing). Preserved
+  verbatim.
+- **"full audit suite" in `lib/messages/catalog.ts` (+ the generated `spec-codes.ts` row and its
+  `tests/messages/popoverContextCopy.test.ts` pin):** FALSE POSITIVE. "audit suite" there means the
+  branch-protection required-check set, not a test suite. Editing it would have triggered the §12.4
+  lockstep triple for zero gain.
+- **Same-file live reference:** `tests/visibility/transportTransitions.test.ts:196` ("the two
+  compound tests below") refers to tests that execute in that very file.
+- **Citations of LIVE files, provenance notes, and infrastructure rows:** citations of
+  `tests/time/rightNowTransitions.test.ts` (a live unit suite); "mirrors §4.9 / same seed as / reused
+  verbatim from" provenance comments; self-file headers; `walker-routes.test.ts` exemption rows, the
+  `_metaE2eWorkflowCoverage.test.ts` allowlist, `_metaSpecRegistration.test.ts` command strings, and
+  `picker-flow-e2e-ci-wiring.test.ts` (which names files as artifacts, claiming no execution);
+  `tests/e2e/empty-state-reachability.spec.ts:192` and
+  `tests/components/crew/rightNowHeroRecovery.test.tsx:49`, which cite dead suites as the SOURCE of a
+  fixture fact or a design decision while naming a live local assertion as the actual guard;
+  `tests/e2e/helpers/lockedCrewRestriction.ts:23`, which names consumers. None claims coverage.
+
+**The one blocker behind all of it, preserved:** the `?crew=`/`?as=admin` dev mock was retired, and
+each case renders as a specific non-LEAD crew identity that `signInAs` cannot reproduce without
+per-test crew rows matching `NON_ADMIN_CREW_FIXTURE` plus per-test fixture seeding. Reviving the
+suites is tracked by the CI-dark entry, NOT here.
+
+**Citation sequencing, recorded so it does not read as drift:** the repaired sites cite
+`BL-E2E-LIFECYCLE-SPECS-CI-DARK`, the entry live at the time of this commit. The same branch's later
+decomposition task archives that umbrella and refiles it as `BL-E2E-APP-DEPENDENT-SPECS-CI-DARK`,
+re-pointing every one of these citations in the same commit that files the new id. Citing the new id
+here would have left `tests/docs/_metaLedgerReferentialIntegrity.test.ts` red at this commit (it
+walks every tracked file and requires each cited `BL-` id to resolve), and green-on-every-commit is
+AC-L1.
+
+**Re-open trigger:** none as a guard. If coverage-claim prose is found to have regrown at a rate that
+review is not catching, the decision to leave it unguarded is what should be revisited — and the
+row's own methodological finding (sweep by phrase family AND by suite filename, over `lib/`,
+`tests/`, `components/`, AND `app/`) is the procedure to re-measure with.
+
+**Full reasoning for the original descope:**
+`docs/superpowers/specs/2026-08-03-lead-capability-prose-settle-design.md` §1.2 and §2.7. Filed
+2026-08-03 by `docs/settle-lead-capability-prose`, descoped at spec review R3 after three rounds of
+under-counting. Original body follows.
+
+---
+
+Twelve artifacts tell a maintainer that compound capability transitions, RightNow transition behavior, and transport animation are exercised by e2e suites. **They are not.** Both named suites are `test.describe.skip`, and neither contains an assertion about the thing claimed.
+
+**Instances found so far. The set is NOT known to be complete** — see the methodological finding below.
+
+| Site                                                 | Claim                                                                                                                          |
+| ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `lib/visibility/capabilityTransitions.ts:36-39`      | compound transitions "are exercised by the e2e compound-transition tests in `tests/e2e/right-now-transitions.spec.ts`"         |
+| `lib/visibility/capabilityTransitions.ts:130`        | "the delta is empty (the e2e compound tests cover those cases)"                                                                |
+| `lib/visibility/capabilityTransitions.ts:213`        | an entry `reason` ending "LEAD/admin compound interactions are tested by e2e"                                                  |
+| `tests/visibility/capabilityTransitions.test.ts:8-9` | the first claim restated in the test header                                                                                    |
+| `tests/visibility/capabilityTransitions.test.ts:194` | "the e2e compound test verifies the no-flicker invariant"                                                                      |
+| `tests/e2e/helpers/rightNow.ts:183`                  | skipped pairs "the compound tests handle them with explicit setup"                                                             |
+| `tests/e2e/helpers/rightNow.ts:239`                  | "the compound tests … cover the recovery paths"                                                                                |
+| `tests/e2e/helpers/rightNow.ts:286-292`              | "the helper covers TIME-DRIVEN transitions"; "the audit suite documents which transitions can be driven via tick-only"         |
+| `tests/visibility/transportTransitions.test.ts:10`   | "animation behavior is exercised in e2e tests"                                                                                 |
+| `lib/time/rightNowTransitions.ts:12-14`              | the Playwright audit "scaffolded as `test.fixme` until Batch 2 lands `framer-motion`" drives its assertions from this constant |
+| `lib/time/rightNowTransitions.ts:82-86`              | `unreachable` transitions are "Regression-guarded by the audit suite"                                                          |
+| `tests/time/rightNowTransitions.test.ts:6-8`         | "Animation-behavior tests live in `tests/e2e/right-now-transitions.spec.ts` (scaffolded as `test.fixme()` …)"                  |
+
+**Ground truth, probed 2026-08-03 — recorded so no future pass re-derives it:**
+
+```
+$ grep -n 'describe.skip' tests/e2e/right-now-transitions.spec.ts
+154:  RightNow §8.2 — 66-pair pairwise transition audit
+291:  RightNow §8.2 — 6 compound transition audits
+$ grep -c 'CAPABILITY_TRANSITION_MATRIX|affectedTilesOnFlip|FinancialsTile|AudioScopeTile' tests/e2e/right-now-transitions.spec.ts
+0
+$ grep -n 'describe.skip|test.describe(' tests/e2e/transport-tile.spec.ts
+225:  crew page — TransportTile (Task 4.7, §8.1)     [the file's ONLY describe]
+$ grep -c 'AnimatePresence|animation|transition|opacity' tests/e2e/transport-tile.spec.ts
+0
+$ grep -rl 'describe.skip' tests/e2e/ | wc -l
+12
+```
+
+**One blocker explains all of it:** the `?crew=`/`?as=admin` dev mock was retired, and each case renders as a specific non-LEAD crew identity that `signInAs` cannot reproduce without per-test crew rows matching `NON_ADMIN_CREW_FIXTURE` plus per-test fixture seeding (`tests/e2e/right-now-transitions.spec.ts:285-290`). Several claims are stale a SECOND way: they attribute non-execution to `test.fixme` pending `framer-motion`, a blocker that no longer applies.
+
+**Two sites are already honest and must NOT be "fixed":** `tests/visibility/capabilityTransitions.test.ts:224` says the gap is deferred pending Realtime push (M6); `:272` is future-tense about the same thing.
+
+**The methodological finding — this row's most valuable content.** Three hand-run sweeps under-counted this class (2 → 4 → 9 → 12), and each failure was a PATTERN failure, not an effort failure:
+
+- Sweeping `e2e|E2E` misses claims phrased "the audit suite", "the compound tests", "the helper covers" — no token in common.
+- Scoping the sweep to files the branch already had reason to open missed `tests/time/rightNowTransitions.test.ts` entirely.
+
+So the fix shape is **not** "grep harder". It is: enumerate every `describe.skip` / `test.fixme` / `test.skip` suite mechanically, resolve which modules and tests cite each one, and check the citing prose — **or** decide that prose coverage claims are unguardable and delete the class of sentence rather than maintain it. That decision is this row's open question and is a design call.
+
+**Why it was descoped rather than fixed:** it is a different class from the one `BL-LEAD-CAPABILITY-PROSE-STALE` filed (now in `BACKLOG-archive.md`) (restatements of whether a test EXECUTES, not of what a predicate COMPUTES), its extent is unmeasured, and bundling it into a branch chartered to settle two named claims drove three BLOCKING review rounds. Full reasoning: `docs/superpowers/specs/2026-08-03-lead-capability-prose-settle-design.md` §1.2 and §2.7.
+
+---
+
 ## BL-X5-ROLE-TOKEN-DECIDED-BY-BOUNDARY — `role_token_mappings.decided_by` is a live email boundary absent from the AC-X.5 manifest — CLOSED 2026-08-04
 
 Registered in master spec §17.2 AC-X.5 and the plan's Task X.5 boundary table in lockstep,
