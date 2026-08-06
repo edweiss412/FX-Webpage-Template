@@ -21,7 +21,7 @@ You are the Opus implementer session for the L-wave. This file is self-contained
 
 ## Execution order
 
-Plan order is binding: W-LDOCS (Tasks L1–L7, `feat/l-wave-docs`) → W-PUSH (P1–P2, `feat/l-wave-push`) → W-EMDASH (E1–E4, `feat/l-wave-emdash`, dual-gate). Each unit branch already exists with claims pushed; on entering one: install/link-env/preflight, merge `origin/main` (again after every prior unit lands and once more before opening its own PR), update labels and the marker file.
+Plan order is binding: W-LDOCS (Tasks L1–L7, `feat/l-wave-docs`) → W-PUSH (P1–P2, `feat/l-wave-push`) → W-EMDASH (E1–E4, `feat/l-wave-emdash`, dual-gate). Each unit branch already exists with claims pushed. **Unit-transition protocol (every transition, plan R2 F7):** in the NEW worktree — install/link-env/preflight; merge `origin/main` (again after every prior unit lands and once more before opening its own PR); write a fresh `.claude/ship-state.json` (branch, stage, next, your sessionId); REGISTER a new 10-minute cron nudge scoped to the new worktree's marker (same Stage-0 semantics: date first, supersession check, blockedOn silence, resume next) and only AFTER the new job's id is confirmed `CronDelete` the previous unit's job (register-then-delete, per AGENTS.md — never a moment with no nudge while a unit is live); update pane + agent labels to the new branch.
 
 ## Non-negotiables (the ones this wave exercises)
 

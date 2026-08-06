@@ -84,3 +84,39 @@ lib/time/rightNowTransitions.ts:11: * (`tests/time/rightNowTransitions.test.ts`)
 lib/time/rightNowTransitions.ts:604:  // tests/time/rightNowTransitions.test.ts.
 tests/e2e/right-now-transitions.spec.ts:12: *   invariants are pinned by `tests/time/rightNowTransitions.test.ts`.
 tests/e2e/right-now-transitions.spec.ts:275:      // `tests/time/rightNowTransitions.test.ts:transitionTreatment`.
+
+=== UNCONDITIONAL-SUITE COMMAND (files, re-run 2026-08-06 plan-R2) ===
+tests/cross-cutting/picker-flow-e2e-ci-wiring.test.ts
+tests/time/rightNowTransitions.test.ts
+tests/fixtures/ledger-mass/2026-08-04.ledgers.json
+tests/e2e/published-review-modal.prefetch.spec.ts
+tests/e2e/crew-layout-dimensions.spec.ts
+tests/e2e/role-spoof.spec.ts
+tests/e2e/alert-action-links.spec.ts
+tests/e2e/theme-toggle.spec.ts
+tests/e2e/transport-tile.spec.ts
+tests/e2e/right-now-transitions.spec.ts
+tests/e2e/status-financials.spec.ts
+tests/e2e/layout-dimensions.spec.ts
+tests/e2e/right-now.spec.ts
+tests/e2e/admin-dev.spec.ts
+tests/e2e/picker-flow.spec.ts
+tests/e2e/crew-page.spec.ts
+tests/e2e/empty-state.spec.ts
+tests/e2e/deep-link-walker.spec.ts
+tests/e2e/schedule-tile.spec.ts
+tests/e2e/notes-tile.spec.ts
+tests/e2e/published-review-modal.realtime.spec.ts
+tests/e2e/pack-list.spec.ts
+=== MULTILINE-CHAIN COMMAND (raw) ===
+tests/e2e/crew-page.spec.ts-892-test.describe
+tests/e2e/crew-page.spec.ts:893:  .skip("crew redesign §4.10 transition audit (compound, real browser / test 14)", () => {
+=== ALIASED COMMAND (sites; json fixture content elided — file name only) ===
+tests/cross-cutting/db-test-timeout-floor.test.ts:303:  //   const maybe = dbUp ? describe : describe.skip;
+tests/admin/publishedPullSheetOverrideRpc.db.test.ts:16:const d = loopback ? describe : describe.skip;
+tests/api/admin/onboarding/resolveBlockerRebuild.db.test.ts:412:const maybe = dbUp ? describe : describe.skip;
+tests/dev/materializeRoundTrip.realdb.test.ts:74:const SUITE = RUN ? describe : describe.skip;
+tests/sync/parseErrorReasonPersist.db.test.ts:28:const d = loopback ? describe : describe.skip;
+tests/onboarding/finalizeInlineRescan.db.test.ts:267:const maybe = dbUp ? describe : describe.skip;
+tests/fixtures/ledger-mass/2026-08-04.ledgers.json
+303:  //   const maybe = dbUp ? describe : describe.skip;
