@@ -10,6 +10,7 @@ Last reconciled: 2026-08-04 — `feat/harness-font-fidelity` (PR #705) graduated
 
 ## BL-ROLEFLAGSNOTICE-DROP-GUARD — no guard detects a path that obtains a `roleFlagsNotice` and never emits it
 
+**Status:** IN PROGRESS · **Branch:** feat/l-wave-docs
 **Status:** OPEN · **Severity:** LOW-MEDIUM (all four known instances closed; the class is unguarded) · **Class:** guard completeness, static analysis · **Filed:** 2026-08-03 (`fix/apply-undo-audit-fidelity`, descoped at spec review R5 after the vector produced a finding in four consecutive rounds) · **Effort:** L
 
 `tests/sync/_metaLeadRoleAppliedTopology.test.ts:29` matches `upsertAdminAlert(<expr>roleFlagsNotice` and asserts the discovered emit-site list. That detects a site that upserts the alert **without** the durable event. It has never detected the opposite and more damaging shape: a path that obtains a real notice and emits nothing. `BL-FINALIZE-CAS-ROLEFLAGS-NOTICE-DROP` was one instance of that shape; the closing branch found and repaired four.
@@ -53,6 +54,7 @@ screen-disposition 2026-08-04: KEEP — probe (`tests/sync/capabilityLossReachab
 
 ## BL-TASK-ENROLLMENT-SINGLE-DEPTH — the declared task region cannot express hierarchical or interleaved plan shapes
 
+**Status:** IN PROGRESS · **Branch:** feat/l-wave-docs
 **Status:** OPEN · **Severity:** LOW (opt-in convention; conservative failure with a surfaced finding, never silent) · **Class:** spec-lint task contract, enrollment expressiveness · **Filed:** 2026-08-03, from `docs/superpowers/specs/2026-08-03-pre-review-gate-arms-design.md` §6 items 6 and 7 · **Effort:** L
 
 The `<!-- tasks: depth=N -->` region declares ONE heading depth. Two real corpus shapes do not fit it, both measured:
@@ -66,6 +68,7 @@ The `<!-- tasks: depth=N -->` region declares ONE heading depth. Two real corpus
 
 ## BL-COVERAGE-CLAIMS-CITE-SKIPPED-SUITES — contract artifacts claim e2e coverage from suites that do not execute
 
+**Status:** IN PROGRESS · **Branch:** feat/l-wave-docs
 **Status:** OPEN · **Severity:** LOW-MEDIUM (dark coverage on documented contracts; no product impact) · **Class:** docs/contract, test-coverage claims · **Filed:** 2026-08-03 (`docs/settle-lead-capability-prose`, descoped at spec review R3 after three rounds of under-counting) · **Effort:** L
 
 Twelve artifacts tell a maintainer that compound capability transitions, RightNow transition behavior, and transport animation are exercised by e2e suites. **They are not.** Both named suites are `test.describe.skip`, and neither contains an assertion about the thing claimed.
@@ -171,6 +174,7 @@ The host embedded in `cron.job.command` is environment-supplied and varies by ta
 
 ## BL-RESYNC-STAGED-REVIEW-UI — no inline "review the diff, then approve the smaller roster" surface for an existing show
 
+**Status:** IN PROGRESS · **Branch:** feat/l-wave-docs
 **Filed:** 2026-08-02 (retroactively; `docs/superpowers/specs/data-quality/2026-07-04-resync-quality-gate-design.md:267` §13 says it "files to `BACKLOG.md`", and it never did). **Class:** UX enhancement. **Effort:** M.
 
 The shrink gate holds a reduced roster and offers `acceptShrink`, which applies the CURRENT sheet only if its `modifiedTime` still matches the reviewed one, and otherwise re-holds. That is deliberately not byte-exact: the design does not persist the held parse, so "apply exactly the version I first reviewed" is not available. This entry is that surface — restore or re-home `StagedReviewCard` in an existing-show mode exposing Apply / Keep-current, and update the `perShowPage.test.tsx` retirement pins.
@@ -195,6 +199,7 @@ The adapter is the substance of the work, not the rendering — `getShowForViewe
 
 ## BL-ADOPTION-PIN-REACHABILITY-BLIND — the shared-helper adoption guard cannot prove LIVE-PATH use
 
+**Status:** IN PROGRESS · **Branch:** feat/l-wave-docs
 **Effort:** L
 
 Surfaced by cross-model review of `fix/admin-popover-overlay-cluster` (2026-08-02, PR #658),
@@ -281,6 +286,7 @@ review surface.
 
 ## BL-CI-OVERLAP-BOOT-WITH-SETUP — run the Supabase boot concurrently with pnpm install (built, MEASURED, and reverted — it does not pay)
 
+**Status:** IN PROGRESS · **Branch:** feat/l-wave-docs
 **Status:** OPEN, but with the lever now MEASURED and REVERTED. Do not rebuild it without new information — the question this entry framed has an answer.
 
 **Effort:** L
@@ -362,6 +368,7 @@ then archive this entry. Nothing else is owed.
 
 ### BL-PUBLISHED-TOGGLE-CLIENT-COMMIT-WEDGE — a fast server action can leave the Published toggle stuck pending on WebKit
 
+**Status:** IN PROGRESS · **Branch:** feat/l-wave-docs
 **Status:** OPEN · **Severity:** MEDIUM (real-user exposure unquantified; measured 7/10 in a CI loop) · **Class:** upstream framework defect, product exposure · **Filed:** 2026-07-26 (BL-E2E-LIFECYCLE-TRANSITIONS-ROUNDTRIP-FLAKE measurement work) · **Effort:** L
 
 **Measured, not theorized** (CI run 30233337644 retry1 trace + baseline loop 30235889083, 7/10 samples): `setShowPublishedAction` POSTs, the server commits and responds 200 `{ok:true}` in ~230ms with the re-rendered `published:false` tree in the response body, the page stays responsive — and the `PublishedToggle` switch sits `disabled aria-busy="true"` with the OLD `aria-checked` indefinitely. `await setPublished(...)` inside the form action never resolves, so `useFormStatus().pending` never clears and `router.refresh()` is never reached. React never commits the applied tree (React 19 replay-loss class; nearest public report vercel/next.js discussion 88767). Vendored React is identical through next 16.2.12 (`19.3.0-canary-3f0b9e61-20260317`), so no patch-bump fix exists today.
@@ -372,6 +379,7 @@ then archive this entry. Nothing else is owed.
 
 ## BL-CI-PARALLEL-DB-FALLBACK-AUDIT — re-run the closed-port protocol across the parallel project
 
+**Status:** IN PROGRESS · **Branch:** feat/l-wave-docs
 **Status:** OPEN, raised by adversarial review of PR #517 (finding 2).
 
 **Effort:** L
@@ -388,6 +396,7 @@ screen-disposition 2026-08-04: ANNOTATE-INFERRED, stays open. The entry names no
 
 ## BL-CI-RECLASSIFY-PARALLEL-STABILITY — revive the serial→parallel reclassification only with a concurrency-stability + clean-wall proof
 
+**Status:** IN PROGRESS · **Branch:** feat/l-wave-docs
 **Filed:** 2026-07-20 (arc SHELVED). **Class:** CI perf. **Effort:** L (structural stability + multi-run measurement).
 
 The DB-free serial→parallel reclassification (PR #528, closed unmerged) is correctness-verified but was shelved: moving ~527 files into the parallel project raises per-shard concurrency, and timing-sensitive moved files (e.g. `tests/admin/_metaInfraContract.test.ts`) starve past the 5s test timeout under CI load — candidate CI run 1 green, run 2 red on identical code. A required gate cannot flake, and the class is load-dependent (not fully enumerable up front). The wall-clock win was also unproven (~17s in contention-noisy samples, under the spec's 30s gate). Seventh lever this program has rejected on the local-passes-CI-fails pattern.
@@ -402,6 +411,7 @@ The DB-free serial→parallel reclassification (PR #528, closed unmerged) is cor
 
 ## BL-PG-CRON-COVERAGE-UNRUN — the live pg-cron introspection suite runs in no CI workflow
 
+**Status:** IN PROGRESS · **Branch:** feat/l-wave-docs
 **Status:** PARTIALLY CLOSED 2026-07-26 (PR3 of the CI-dark coverage cluster) · **Severity:** medium · **Surfaced:** 2026-07-25, whole-diff review round 17 · **Effort:** L
 
 **What closed.** The suite now runs in `unit-suite-db` (removed from `ENV_BOUND_EXCLUDES`, which applied only under `VITEST_EXCLUDE_ENV_BOUND=1` — so it ran locally and was dark in CI only), and against the persistent validation project via the new `pg-cron-validation-parity` job in `x-audits.yml`. Under CI an unreachable `psql` now throws instead of skipping, and a live-case counter refuses a run where zero live cases executed — measured before: exit 0 with "2 passed | 6 skipped", asserting nothing.
@@ -420,6 +430,7 @@ So every assertion in it is dead in CI, including the `active=true` gate that ex
 
 ## BL-WATCH-PROMOTION-ACTIVATION-RACE — a folder switch racing a subscriber can leave one stale active channel
 
+**Status:** IN PROGRESS · **Branch:** feat/l-wave-docs
 **Status:** OPEN · **Severity:** low (bounded to one lease; no data loss) · **Surfaced:** 2026-07-26, watch-renewal-lifecycle spec rounds 2-5 · **Effort:** L
 
 `promoteSettings` supersedes the prior folder's `active` channels and orphans its `pending` ones inside the settings-swap transaction, and `activatePending` refuses a zero-row activation. That closes every window where the pending row exists when promotion runs. It does NOT close the window where a subscriber reads the old configured folder, promotion commits, and the subscriber then inserts and activates its pending row — nor the one where the subscriber commits its activation while promotion is still uncommitted, since under READ COMMITTED it reads the previous committed folder.
@@ -621,6 +632,7 @@ The cron sync path also synthesizes workbooks (`lib/sync/runScheduledCronSync.ts
 
 ### BL-MUTATION-HARNESS-OPEN-HOLES — parser silent-fragility classes pinned by the mutation harness
 
+**Status:** IN PROGRESS · **Branch:** feat/l-wave-docs
 **Status:** OPEN (2026-07-06, feat/mutation-harness) · **Severity:** medium · **Class:** PARSER ROBUSTNESS · **Effort:** L
 
 The rec-5 mutation-testing harness (`tests/parser/mutationHarness.test.ts`, nightly workflow) pins **7,885 day-1 silent holes** — mutants whose parse changed with no compensating signal (`SILENT_WRONG` / `SILENT_SIGNAL_LOSS`), recorded in `tests/parser/mutation/knownHoles.ts`. Each hole's `finding` field maps its operator class to the audit finding it exercises (`OPERATOR_FINDING_MAP`), so a ledger failure is triageable by operator. Documented-finding classes: **`header-typo` → audit #5** (short-header typo intolerance, `sectionHeaderNormalize.ts:16,66`); **`blank-row:inject` / `blank-row:remove` → audit #10** (blank-row block segmentation, `exportSheetToMarkdown.ts:104`). The remaining operator classes are silent-fragility surfaces the audit did not enumerate as a numbered finding; each is tracked as a backlog sub-item below and its holes shrink when that class is hardened:
@@ -651,6 +663,7 @@ Ledgered `accepted-gap`, not `equivalent`, in `tests/mutation/source/registry.ts
 
 ### BL-EXPORT-BLANK-ROW-SEGMENTATION — blank-row block segmentation fuses/splits sections silently (audit #10)
 
+**Status:** IN PROGRESS · **Branch:** feat/l-wave-docs
 **Status:** PARTIALLY CLOSED (2026-07-27, `fix/export-blank-row-segmentation` — spec `docs/superpowers/specs/2026-07-27-export-blank-row-segmentation.md`) · **Severity:** medium · **Class:** EXPORT/PARSER ROBUSTNESS · **Effort:** L
 
 **Partial closure (2026-07-27):** two of the three spec'd fix directions shipped. (b) **Header-aware segmentation** — `splitBlocks` now starts a new block at a mid-block row whose first non-blank cell is an uppercase known section header (`isMidBlockSectionStart`, `lib/parser/knownSections.ts`; `CLIENT` excluded on corpus evidence), closing the FUSE case structurally for uppercase-known headers with corpus-verified zero output drift (`tests/drive/round-trip-fixture.test.ts` byte-equality + archived-tab fingerprint golden). (c) **Crew-scoped orphan detection** — a new warn-severity `ORPHANED_CREW_ROWS` ParseWarning (operator card + crew-region deep link) fires when a table block's first row carries a crew-role cell (≥2 distinct Load In / Load Out / Strike / Set tokens on one line) with no section header — the SPLIT case for crew rosters, at 0 corpus false positives and 29/29 simulated-split recall (ratcheted by `tests/parser/orphanedCrewRowsCorpus.test.ts`). **The backlog entry's generic orphan-block rule ("no recognizable header adjacent to a recognized section") was probed and REFUTED: 30 false positives on the live corpus** (GEAR-tab gear lists under room headers, INFO free-text blocks, PULL SHEET title rows) — blocks starting with non-header rows are normal sheet layout. **Residuals (still open):** splits of non-crew sections (hotel/transport/details tails have no corpus-clean discriminator); fuses onto mixed-case or unknown headers; crew rows carrying fewer than two role tokens on one line of one cell (including role cells authored with literal pipes, which the parser's cell split decomposes); and the mutation harness cannot observe the exporter-level fuse fix (it mutates exported markdown, never the grid), so `blank-row:remove` ledger holes remain by construction.
@@ -661,6 +674,7 @@ Ledgered `accepted-gap`, not `equivalent`, in `tests/mutation/source/registry.ts
 
 ### BL-TRANSPORT-ID-RESOLUTION — id-based transport visibility + no-match admin warning (deferred from Flow 8.4 to 8.3)
 
+**Status:** IN PROGRESS · **Branch:** feat/l-wave-docs
 **Status:** PARTIALLY CLOSED (2026-07-09, Flow 8.4 PR #374) · **Severity:** medium · **Class:** CREW VISIBILITY / ENRICH · **Effort:** L
 
 **Partial closure (Flow 8.4, PR #374 — `docs/superpowers/specs/2026-07-09-flow8.4-transport-assignee-warning.md`):** the **enrich-time no-match admin warning** shipped. `lib/sync/enrichTransportAssignees.ts` emits one admin-only aggregate data-gap warning (`TRAVEL_TRANSPORT_NAME_UNMATCHED`, `gateExempt: true`) when a transport driver/assignee name references a crew member who would not see their own tile — turning silent invisibility into a staged-review data-quality signal. **Still deferred to 8.3:** id-persistence + id-based visibility matching (a crew `id` does not exist at enrich time — the uuid is DB-assigned at APPLY via `gen_random_uuid()`, `initial_public_schema.sql:32` — so resolve-to-id-and-persist is architecturally infeasible in the enrich pass; 8.3 must move it to an apply-time step). The regression pins below also remain for 8.3, which changes the `transportTileVisible` predicate.
@@ -701,6 +715,7 @@ ParsePanel was not alone. Shape swept: **a file under `components/` that no file
 
 ## BL-E2E-LIFECYCLE-SPECS-CI-DARK — admin-lifecycle e2e specs are matched by playwright projects but invoked by no workflow
 
+**Status:** IN PROGRESS · **Branch:** feat/l-wave-docs
 > **UPDATE 2026-07-26 (PR4 of the CI-dark cluster).** `admin-lifecycle-transitions.spec.ts` stays allowlisted, but for a materially different reason than before: its two DETERMINISTIC breaks are fixed (a retired-testid assertion that failed every run, and a compound case the ShareHub backdrop made unreachable) and the pre-hydration swallow is repaired. It went from failing every run to one flaky case, measured 4/5 locally with one real-CI failure on the round-trip. Not wired, per spec §6.1's five-consecutive-greens acceptance and its pre-ratified fallback. Tracked as `BL-E2E-LIFECYCLE-TRANSITIONS-ROUNDTRIP-FLAKE`. The rest of this umbrella is the ~60 app-dependent specs needing a dev server and seeded database, deliberately out of the cluster's ratified scope.
 >
 > **UPDATE 2026-07-27 (`fix/lifecycle-transitions-roundtrip-flake`).** The round-trip flake is fixed and `admin-lifecycle-transitions.spec.ts` is WIRED — `lifecycle-layout-e2e.yml` runs it on every `pull_request`, five consecutive green normal-dispatch runs met spec §6.1 / AC-6, and its allowlist row is deleted. `BL-E2E-LIFECYCLE-TRANSITIONS-ROUNDTRIP-FLAKE` graduated to `BACKLOG-archive.md`. This umbrella's remaining scope is unchanged: the ~60 app-dependent specs.
@@ -783,6 +798,7 @@ since the value of the scale is that every site uses it.
 
 ## BL-ATTENTION-PANEL-NAME-LEADING-SECTION — the panel is named for its first section, not its contents
 
+**Status:** IN PROGRESS · **Branch:** feat/l-wave-docs
 **Effort:** S
 
 Surfaced by the non-degraded impeccable gate rerun on PR #658 (2026-08-02).
@@ -820,6 +836,7 @@ self-review, adversarial review, planning, adversarial review.
 
 ### BL-OPS-LOG — Structured operator-log sink + producer wiring
 
+**Status:** IN PROGRESS · **Branch:** feat/l-wave-docs · **Effort:** L
 **VERIFIED INCOMPLETE 2026-08-03 — 3 of 6 scope clauses unshipped. Do not archive.** Checked clause-by-clause during the merged-backlog sweep; recorded so the next reader does not re-derive it.
 
 - **Built** — the durable sink: `lib/log/persist.ts:16` writes `app_events` (module is `lib/log/`, not the proposed `lib/operatorLog/` — equivalent). Sign-out producer: `app/auth/sign-out/route.ts:108,117`.
@@ -868,6 +885,7 @@ Design memo captures six load-bearing principles: push-not-pull, severity tierin
 
 ### BL-PRIVATE-IMAGE-PIPELINE — Migrate diagrams gallery to `next/image` with auth-preserving pipeline
 
+**Status:** IN PROGRESS · **Branch:** feat/l-wave-docs
 **Effort:** L (scope floor — design-gated)
 
 **Origin:** DEFERRED entry M7-D3 (Diagrams gallery `<img>` → `next/image`). Re-deferred at M9 C6b 2026-05-13 after an in-cluster attempt failed P0 (auth cookies don't forward through `/_next/image`; private Cache-Control rewritten to public, breaking revocation propagation).
@@ -899,6 +917,7 @@ Asset URLs are proxied through `/api/asset/diagram/...` which returns auth-check
 
 ### BL-ADMIN-PER-SHOW-HISTORY — Sync-health-history + parse-warnings-history sections on per-show panel
 
+**Status:** IN PROGRESS · **Branch:** feat/l-wave-docs
 **Effort:** L (scope floor — design-gated)
 
 **Origin:** M11-E-D4 (MEDIUM) filed 2026-05-20. M11 `/help/admin/per-show-panel` documents per-spec §9.2 a "sync health" section (last 5 sync attempts) and a dedicated parse-warnings history section. Shipped `app/admin/show/[slug]/page.tsx` renders `PerShowAlertSection` + `ReSyncButton` + `ParsePanel` + `HelpTooltip` only; no historical-aggregate views.
@@ -998,6 +1017,7 @@ screen-disposition 2026-08-04: PREREQ-FENCED + ANNOTATED, stays open, NOT claime
 
 ### BL-NON-CREW-UNDO — Undo for non-crew feed rows (section shrinkage / field degradation / asset drift)
 
+**Status:** IN PROGRESS · **Branch:** feat/l-wave-docs
 **Effort:** L
 
 **Filed:** 2026-06-10 from the shipped "sync changes feed + identity-only gate" milestone (PR #19, `docs/superpowers/specs/v1-pre-deployment-amendments/2026-06-08-sync-changes-feed-identity-gate-design.md` §1 non-goals / §7 / finding F6).
@@ -1051,6 +1071,7 @@ screen-disposition 2026-08-04: PREREQ-FENCED + ANNOTATED, stays open, NOT claime
 
 ### BL-ACCENT-BUTTON-ATOM-SWEEP — Migrate remaining raw accent-button compositions to the shared `<AccentButton>` atom
 
+**Status:** IN PROGRESS · **Branch:** feat/l-wave-docs
 **Filed:** 2026-06-21, during M5-D7 (extract shared `components/shared/AccentButton.tsx`).
 
 **Effort:** L
@@ -1065,6 +1086,7 @@ screen-disposition 2026-08-04: PREREQ-FENCED + ANNOTATED, stays open, NOT claime
 
 ### BL-CREW-SHEET-TEMPLATE-V2 — Standardized downloadable show-spec template to capture redesign-required fields
 
+**Status:** IN PROGRESS · **Branch:** feat/l-wave-docs
 **Effort:** L (scope floor — design-gated)
 
 **Filed:** 2026-06-15, during the crew-show-page redesign audit (Claude Design handoff bundle `fxav-crew-pages`; design source at `/tmp/design_extract/...` ephemeral, intent recorded in milestone memory). Owner is considering a **downloadable, standardized sheet template** Doug (and future operators) would fill in, so the richer crew-page surfaces have a reliable source instead of depending on organic per-show sheet conventions.
@@ -1167,6 +1189,7 @@ The Phase 1 crew-page projection alert (`TILE_PROJECTION_FETCH_FAILED`, §4.13 o
 
 ### BL-RESURRECT-MOBILE-SAFARI-E2E — lift the rest of the mobile-safari Playwright project into CI
 
+**Status:** IN PROGRESS · **Branch:** feat/l-wave-docs
 **Filed:** 2026-06-23 (discovered building the crew-e2e CI job). NO CI workflow runs the `mobile-safari` Playwright project — every CI playwright run is project-filtered (`dev-gate-e2e.yml`→dev/prod-build; `help-affordances.yml`→help-docs; `screenshots-*.yml`→screenshots). So `tests/e2e/crew-page.spec.ts` + the ~20 M4 tile specs (schedule-tile, transport-tile, status-financials, role-spoof, pack-list, notes-tile, right-now*, layout-dimensions, empty-state*, apply-driven-refresh, redeem-link, leaked-link, auth-chain, …) are committed but **dead-in-CI** (only run via local `pnpm test:e2e`, which cold-builds ~4 webServers — impractical). The new `.github/workflows/crew-e2e.yml` runs ONLY `crew-section-toggle.spec.ts` (the perf gate + 0-network/dimensional proofs) — the `CREW_E2E_ONLY` filter + `db:seed` pattern there is the reusable template for the rest.
 
 **Effort:** L
