@@ -131,12 +131,6 @@ const KNOWN_DANGLING: Record<string, string> = {
   // of the row in the same change that creates the entry.
   "BL-MOBILE-SAFARI-TILE-SPECS-CI-DARK":
     "candidate refile id in L-wave plan L4d (id decision: keep original) — remove when W-LDOCS lands either way",
-  "BL-OPS-LOG-DASHBOARD-BANNER":
-    "filed by L-wave W-LDOCS task L4c (BL-OPS-LOG decomposition) — remove this row when it lands",
-  "BL-OPS-LOG-OAUTH-EMITS":
-    "filed by L-wave W-LDOCS task L4c (BL-OPS-LOG decomposition) — remove this row when it lands",
-  "BL-OPS-LOG-ONBOARDING-EMIT":
-    "filed by L-wave W-LDOCS task L4c (BL-OPS-LOG decomposition) — remove this row when it lands",
   "BL-PARSER-FIELD-PROVENANCE-MODEL":
     "filed by L-wave W-LDOCS task L5 (spec 2026-08-06-l-wave-design.md §2.1.5) — remove this row when it lands",
 };

@@ -8,6 +8,94 @@ Same split as [DEFERRED.md](./DEFERRED.md) ↔ [DEFERRED-archive.md](./DEFERRED-
 
 ---
 
+## BL-OPS-LOG — Structured operator-log sink + producer wiring — CLOSED 2026-08-06 (L-wave, `feat/l-wave-docs`, DECOMPOSED)
+
+
+**Resolution: DECOMPOSED into three sized children and archived.** Ratified 2026-08-05 (spec §1.1
+item 10 / §2.1.4). The entry contradicted its own scope: it was filed as an L for building a durable
+operator-log sink, and **the sink is BUILT** (`lib/log/persist.ts:16` writes `app_events`; the module
+is `lib/log/`, not the proposed `lib/operatorLog/`, which is equivalent). One of its four consolidated
+producers is MOOT. What remained was three unrelated pieces of work behind one L-shaped id, which is
+why it never got scheduled.
+
+**Children:**
+
+| Child | Effort | Residual |
+| --- | --- | --- |
+| `BL-OPS-LOG-OAUTH-EMITS` | S | the `OAUTH_REDIRECT_INVALID` branches emit nothing durable |
+| `BL-OPS-LOG-ONBOARDING-EMIT` | S | `ONBOARDING_OPERATOR_ERROR` is render-only, no producer |
+| `BL-OPS-LOG-DASHBOARD-BANNER` | M | the sink's only reader is developer-gated; Doug cannot see it |
+
+**What was BUILT, recorded so no child re-derives it:** the durable sink (`lib/log/persist.ts:16`
+writes `app_events`) and the sign-out producer (`app/auth/sign-out/route.ts:108,117`).
+
+**What is MOOT and must NOT be rebuilt:** the redeem-link producer and its 10 codes.
+`app/api/auth/redeem-link/route.ts` was dropped at the M11.5 cutover and is now a BANNED term
+(`tests/cross-cutting/no-m9-5-surfaces.test.ts:38`). It cannot ship and was never a blocker.
+
+**Line anchors had ROTTED and are re-verified 2026-08-06 as SYMBOL anchors** (spec §2.1.4 — the
+entry's line numbers pointed at the wrong code):
+`signInRedirect(request, "OAUTH_REDIRECT_INVALID", …)` now at `app/auth/callback/route.ts:258` and
+`app/api/auth/google/start/route.ts:40`; `messageFor("ONBOARDING_OPERATOR_ERROR")` at
+`components/admin/OnboardingWizard.tsx:548`.
+
+**CLASS SWEEP — a THIRD route the entry and the spec both missed.**
+`app/api/auth/picker-bootstrap/route.ts` returns `htmlResponse("OAUTH_REDIRECT_INVALID", 403)` at
+**three** branches (`:162`, `:165`, `:176`), none of which emits a durable code either. So the OAuth
+residual is **five emit-less branches across three routes**, not two. The child carries all five.
+
+**Observability-scope note, so no child inherits a false obligation** (corrected per spec R4 F1, and
+re-verified here): all three routes are **GET** handlers (`app/auth/callback/route.ts:178`,
+`app/api/auth/google/start/route.ts:36`, `app/api/auth/picker-bootstrap/route.ts:158`) and the
+onboarding producer is render-only. **None of these surfaces is inside invariant 10's mutating-method
+scope**, so the children add durable emits as an observability improvement and create NO registry or
+guard obligation.
+
+**The load-bearing residual, and the reason it is M rather than S:** the sink's only reader is
+`/admin/dev/telemetry` (`app/admin/dev/telemetry/page.tsx:24`), gated by `requireDeveloperIdentity`.
+Re-verified 2026-08-06: `loadAppEvents` and `loadCronHealth` have exactly ONE UI consumer, that page
+(the `lib/observe/query/*` copies feed the `pnpm observe` CLI, not a surface). That is a
+developer-gated page, not a dashboard banner — Doug must leave the dashboard and, as a non-developer,
+likely cannot reach it at all. No admin-dashboard surface reads `app_events`; the two hits in
+`app/admin/actions.ts:81,168` are comments about paths that leave no row.
+
+**Provenance preserved:** this entry consolidated four DEFERRED entries from the FXAV crew-pages plan
+that all blocked on the same nonexistent infrastructure — M5-D9 (OAuth callback structured
+operator-log), M5-D10 (redeem-link structured operator-log), M5-D11 (sign-out teardown structured
+operator-log), M10-D-PHASE1-1 (`ONBOARDING_OPERATOR_ERROR` durable notification via Sentry +
+admin-visible banner). That infrastructure now exists, which is exactly why the remainder decomposes
+into small, independently schedulable rows.
+
+---
+
+**VERIFIED INCOMPLETE 2026-08-03 — 3 of 6 scope clauses unshipped. Do not archive.** Checked clause-by-clause during the merged-backlog sweep; recorded so the next reader does not re-derive it.
+
+- **Built** — the durable sink: `lib/log/persist.ts:16` writes `app_events` (module is `lib/log/`, not the proposed `lib/operatorLog/` — equivalent). Sign-out producer: `app/auth/sign-out/route.ts:108,117`.
+- **MOOT** — the redeem-link producer and its 10 codes: `app/api/auth/redeem-link/route.ts` was dropped at the M11.5 cutover and is now a banned term (`tests/cross-cutting/no-m9-5-surfaces.test.ts:38`). Cannot ship; not a blocker.
+- **REMAINS (1)** — the OAuth callback producer is partial. `OAUTH_STATE_INVALID` has adjacent durable emits (`app/auth/callback/route.ts:234,250`), but the `OAUTH_REDIRECT_INVALID` branch emits nothing (`app/auth/callback/route.ts:265-269`; same gap at `app/api/auth/google/start/route.ts:47-49`). Neither code is ever a persisted `code:` — it exists only as a `validateNextParam` return discriminant and a catalog copy row.
+- **REMAINS (2)** — the `ONBOARDING_OPERATOR_ERROR` producer. Render-only today: `components/admin/OnboardingWizard.tsx:548` displays catalog copy; no `log.*` emit anywhere.
+- **REMAINS (3), the load-bearing one** — the admin-visible banner. The only reader of the sink is `/admin/dev/telemetry` (`app/admin/dev/telemetry/page.tsx:24`), gated by `requireDeveloperIdentity`. That is a developer-gated page, not a dashboard banner: Doug must leave the dashboard and, as a non-developer, likely cannot reach it at all. No admin-dashboard surface reads `app_events` (the two hits in `app/admin/actions.ts:81,168` are comments about paths that leave no row).
+
+**Origin:** Consolidates four DEFERRED entries from the FXAV crew-pages plan that all blocked on the same nonexistent infrastructure: M5-D9 (OAuth callback structured operator-log), M5-D10 (Redeem-link structured operator-log), M5-D11 (Sign-out teardown structured operator-log), M10-D-PHASE1-1 (ONBOARDING_OPERATOR_ERROR durable notification via Sentry + admin-visible banner).
+
+**Effort:** L
+
+**Scope (combined from the four originating entries):**
+
+- A `lib/operatorLog/` module that writes structured operator-facing log entries to a durable sink. Sink design TBD — candidates: Supabase table, Sentry, or hybrid (Sentry for high-signal incidents + a Supabase audit table for everything else).
+- Producer call sites for:
+  - `app/auth/callback/route.ts` — emit `OAUTH_REDIRECT_INVALID` + `OAUTH_STATE_INVALID` alongside the redirect query codes.
+  - `app/api/auth/redeem-link/route.ts` — emit every redeem-link failure code (`CSRF_DENIED`, `CSRF_NONCE_EXPIRED`, `CSRF_KEY_ROTATED`, `LINK_REDEEM_KEY_ROTATED`, `SESSION_NOT_FOUND`, `LINK_NO_CREW_MATCH`, `LINK_VERSION_MISMATCH`, `LINK_REVOKED_FLOOR`, `LINK_REVOKED_SURGICAL`, `ADMIN_SESSION_LOOKUP_FAILED`).
+  - `app/auth/sign-out/route.ts` — emit on `deleteSession()` and Supabase `signOut()` failures.
+  - Onboarding wizard `ONBOARDING_OPERATOR_ERROR` producer (per M10 Phase 1 R1).
+- Admin-visible banner integration so Doug sees the most recent operator-log entries (without having to leave the dashboard).
+
+**Why backlog, not deferred:** The work is real and motivated, but: (a) no spec or plan exists; (b) the sink design needs a brainstorming session (Supabase vs Sentry vs hybrid); (c) no scheduled milestone exists to absorb it; (d) several of the producer surfaces work acceptably today via inline `console.error` or `admin_alerts` UPSERT — operator visibility is degraded, not absent. Picking this up requires first scoping the milestone (spec + plan), not just implementing the producer wiring.
+
+**Promotion prerequisite:** brainstorming session on sink design (Supabase audit table vs Sentry vs hybrid + retention + admin-banner integration shape).
+
+---
+
 ## BL-E2E-LIFECYCLE-SPECS-CI-DARK — admin-lifecycle e2e specs are matched by playwright projects but invoked by no workflow — CLOSED 2026-08-06 (L-wave, `feat/l-wave-docs`, REFILED at honest scope)
 
 

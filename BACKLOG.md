@@ -605,6 +605,44 @@ ParsePanel was not alone. Shape swept: **a file under `components/` that no file
 
 **The debt is still not silent**, and it gained a second guard. `tests/components/_metaOrphanedComponents.test.ts` walks `components/**` every run and fails on any zero-production-importer file absent from `ORPHAN_ALLOWLIST`; `tests/docs/retiredIdentifierReferences.test.ts` walks every tracked file for references to what this branch retired, keyed by line content, so a stale citation to a deleted component cannot survive either. Emptying the allowlist is no longer this entry's goal; keeping every row's reason true is.
 
+## BL-OPS-LOG-OAUTH-EMITS — the `OAUTH_REDIRECT_INVALID` branches emit no durable code
+
+**Status:** OPEN · **Severity:** low · **Class:** OBSERVABILITY · **Effort:** S · **Filed:** 2026-08-06 (L-wave decomposition of `BL-OPS-LOG`)
+
+`OAUTH_REDIRECT_INVALID` is never a persisted `code:` anywhere. It exists only as a `validateNextParam` return discriminant (`lib/auth/validateNextParam.ts:13`) and a §12.4 catalog copy row — so an operator hitting it leaves no durable trace, while its sibling `OAUTH_STATE_INVALID` DOES have adjacent durable emits (`app/auth/callback/route.ts:234,250`). That asymmetry is the whole entry.
+
+**Five emit-less branches across three GET routes** (symbol-anchored 2026-08-06; the parent entry's line anchors had rotted, and the parent named only the first two routes — the third was found by class sweep during the decomposition):
+
+- `app/auth/callback/route.ts:258` — `signInRedirect(request, "OAUTH_REDIRECT_INVALID", …)`
+- `app/api/auth/google/start/route.ts:40` — same call shape
+- `app/api/auth/picker-bootstrap/route.ts:162,165,176` — `htmlResponse("OAUTH_REDIRECT_INVALID", 403)`, three branches
+
+**Work:** add a durable `code:` emit on each branch, matching the shape the `OAUTH_STATE_INVALID` path already uses. S because the sink, the helper, and the pattern all exist — this is five call sites, not a design.
+
+**No registry obligation, and this is stated so implementation does not invent one:** all three routes are **GET** handlers (`:178`, `:36`, `:158`), so none is inside invariant 10's mutating-method scope. The emits are an observability improvement; they create no `AUDITABLE_MUTATIONS` row and no guard obligation. Decomposition record: `BACKLOG-archive.md` § `BL-OPS-LOG`.
+
+## BL-OPS-LOG-ONBOARDING-EMIT — `ONBOARDING_OPERATOR_ERROR` has no producer
+
+**Status:** OPEN · **Severity:** low · **Class:** OBSERVABILITY · **Effort:** S · **Filed:** 2026-08-06 (L-wave decomposition of `BL-OPS-LOG`)
+
+`ONBOARDING_OPERATOR_ERROR` is render-only. `components/admin/OnboardingWizard.tsx:548` calls `messageFor("ONBOARDING_OPERATOR_ERROR")` to display the §12.4 catalog copy to Doug, and **no `log.*` emit exists anywhere for it** (re-verified 2026-08-06: the only non-catalog hits in the tree are that render site and the component's own header comment). So the operator sees the error and the system retains nothing about it.
+
+**Work:** emit a durable `code:` when the wizard enters that state, so a support conversation has a row to look at. S — one emit at one site, against a sink that already exists.
+
+**No registry obligation:** the producer is a render path, not a mutating route or a `"use server"` action, so invariant 10's mutation-surface scope does not reach it. Decomposition record: `BACKLOG-archive.md` § `BL-OPS-LOG`.
+
+## BL-OPS-LOG-DASHBOARD-BANNER — the operator-log sink has no admin-visible reader
+
+**Status:** OPEN · **Severity:** medium · **Class:** OBSERVABILITY / UI · **Effort:** M (Opus/UI, design-gated) · **Filed:** 2026-08-06 (L-wave decomposition of `BL-OPS-LOG`)
+
+The durable sink is built and written (`lib/log/persist.ts:16` → `app_events`), but **its only reader is developer-gated.** Re-verified 2026-08-06: `loadAppEvents` and `loadCronHealth` have exactly ONE UI consumer, `app/admin/dev/telemetry/page.tsx`, which calls `requireDeveloperIdentity()` at `:24`. The `lib/observe/query/*` modules are non-logging copies feeding the `pnpm observe` CLI, not a surface. **No admin-dashboard surface reads `app_events` at all** — the two hits in `app/admin/actions.ts:81,168` are comments about paths that leave no row.
+
+Consequence: Doug must leave the dashboard to see operator telemetry and, as a non-developer, likely cannot reach the page at all. Everything the other two children emit lands somewhere he cannot look.
+
+**Why M and DESIGN-GATED, not S:** this is a new admin surface, not a query change. What belongs on a dashboard banner — which severities, what recency window, what dismissal behavior, whether it is a banner at all rather than a panel or a bell-badge source — is a product decision, and it is Opus/UI work under the invariant-8 dual gate. Do not implement it as "render the telemetry table on the dashboard."
+
+**Possible bundle:** `BL-ADMIN-PER-SHOW-HISTORY` wants a per-show operator history view over similar data; if both are built, they should share one read path and one design pass. Decomposition record: `BACKLOG-archive.md` § `BL-OPS-LOG`.
+
 ## BL-E2E-APP-DEPENDENT-SPECS-CI-DARK — ~60 app-dependent e2e specs run in no CI workflow
 
 **Status:** IN PROGRESS · **Branch:** feat/l-wave-docs
@@ -702,35 +740,6 @@ Promotion path these were filed under, retained: spec at `docs/superpowers/specs
 plan tree at `docs/superpowers/plans/<date>-<name>/`, a milestone number, then list it in
 `docs/superpowers/plans/README.md`. Promotion is gated like any milestone — brainstorming, spec
 self-review, adversarial review, planning, adversarial review.
-
-### BL-OPS-LOG — Structured operator-log sink + producer wiring
-
-**Status:** IN PROGRESS · **Branch:** feat/l-wave-docs · **Effort:** L
-**VERIFIED INCOMPLETE 2026-08-03 — 3 of 6 scope clauses unshipped. Do not archive.** Checked clause-by-clause during the merged-backlog sweep; recorded so the next reader does not re-derive it.
-
-- **Built** — the durable sink: `lib/log/persist.ts:16` writes `app_events` (module is `lib/log/`, not the proposed `lib/operatorLog/` — equivalent). Sign-out producer: `app/auth/sign-out/route.ts:108,117`.
-- **MOOT** — the redeem-link producer and its 10 codes: `app/api/auth/redeem-link/route.ts` was dropped at the M11.5 cutover and is now a banned term (`tests/cross-cutting/no-m9-5-surfaces.test.ts:38`). Cannot ship; not a blocker.
-- **REMAINS (1)** — the OAuth callback producer is partial. `OAUTH_STATE_INVALID` has adjacent durable emits (`app/auth/callback/route.ts:234,250`), but the `OAUTH_REDIRECT_INVALID` branch emits nothing (`app/auth/callback/route.ts:265-269`; same gap at `app/api/auth/google/start/route.ts:47-49`). Neither code is ever a persisted `code:` — it exists only as a `validateNextParam` return discriminant and a catalog copy row.
-- **REMAINS (2)** — the `ONBOARDING_OPERATOR_ERROR` producer. Render-only today: `components/admin/OnboardingWizard.tsx:548` displays catalog copy; no `log.*` emit anywhere.
-- **REMAINS (3), the load-bearing one** — the admin-visible banner. The only reader of the sink is `/admin/dev/telemetry` (`app/admin/dev/telemetry/page.tsx:24`), gated by `requireDeveloperIdentity`. That is a developer-gated page, not a dashboard banner: Doug must leave the dashboard and, as a non-developer, likely cannot reach it at all. No admin-dashboard surface reads `app_events` (the two hits in `app/admin/actions.ts:81,168` are comments about paths that leave no row).
-
-**Origin:** Consolidates four DEFERRED entries from the FXAV crew-pages plan that all blocked on the same nonexistent infrastructure: M5-D9 (OAuth callback structured operator-log), M5-D10 (Redeem-link structured operator-log), M5-D11 (Sign-out teardown structured operator-log), M10-D-PHASE1-1 (ONBOARDING_OPERATOR_ERROR durable notification via Sentry + admin-visible banner).
-
-**Effort:** L
-
-**Scope (combined from the four originating entries):**
-
-- A `lib/operatorLog/` module that writes structured operator-facing log entries to a durable sink. Sink design TBD — candidates: Supabase table, Sentry, or hybrid (Sentry for high-signal incidents + a Supabase audit table for everything else).
-- Producer call sites for:
-  - `app/auth/callback/route.ts` — emit `OAUTH_REDIRECT_INVALID` + `OAUTH_STATE_INVALID` alongside the redirect query codes.
-  - `app/api/auth/redeem-link/route.ts` — emit every redeem-link failure code (`CSRF_DENIED`, `CSRF_NONCE_EXPIRED`, `CSRF_KEY_ROTATED`, `LINK_REDEEM_KEY_ROTATED`, `SESSION_NOT_FOUND`, `LINK_NO_CREW_MATCH`, `LINK_VERSION_MISMATCH`, `LINK_REVOKED_FLOOR`, `LINK_REVOKED_SURGICAL`, `ADMIN_SESSION_LOOKUP_FAILED`).
-  - `app/auth/sign-out/route.ts` — emit on `deleteSession()` and Supabase `signOut()` failures.
-  - Onboarding wizard `ONBOARDING_OPERATOR_ERROR` producer (per M10 Phase 1 R1).
-- Admin-visible banner integration so Doug sees the most recent operator-log entries (without having to leave the dashboard).
-
-**Why backlog, not deferred:** The work is real and motivated, but: (a) no spec or plan exists; (b) the sink design needs a brainstorming session (Supabase vs Sentry vs hybrid); (c) no scheduled milestone exists to absorb it; (d) several of the producer surfaces work acceptably today via inline `console.error` or `admin_alerts` UPSERT — operator visibility is degraded, not absent. Picking this up requires first scoping the milestone (spec + plan), not just implementing the producer wiring.
-
-**Promotion prerequisite:** brainstorming session on sink design (Supabase audit table vs Sentry vs hybrid + retention + admin-banner integration shape).
 
 ### BL-PUSH-NOTIFICATIONS — Email-primary operator push surface
 
