@@ -8,6 +8,116 @@ Same split as [DEFERRED.md](./DEFERRED.md) ↔ [DEFERRED-archive.md](./DEFERRED-
 
 ---
 
+## BL-ADOPTION-PIN-REACHABILITY-BLIND — the shared-helper adoption guard cannot prove LIVE-PATH use — CLOSED 2026-08-06 (L-wave, `feat/l-wave-docs`, DEMOTED)
+
+
+**Resolution: DEMOTED and archived. This is a DOCUMENTED LIMIT filed as open work, and the entry says
+so in its own words — "Accepted, not open."** Classified DEMOTE by the 2026-08-06 L-wave screen under
+the ledger filing bar (AGENTS.md; `docs/superpowers/specs/2026-08-04-backlog-convergence-design.md`
+§2): a limit whose worst case is bounded, whose backstops are named, and whose own "act only if"
+conditions are triggers rather than work, belongs in the owning surface's limits record — which is
+exactly what it already has, at the guard header — not in the open queue.
+
+**Deleting a behavioural backstop converts this accepted limit into a real gap. That is the single
+thing this archive exists to preserve**, and it is the entry's own stated risk. The guard
+(`tests/components/admin/showpage/_metaSharedHelperAdoption.test.ts`) pins the WIRING layer; these
+five per-consumer BEHAVIOURAL tests are what actually catch a fork, and they must be read as load-bearing:
+
+- `ReSyncButton.test.tsx` — "overlay is capped to the room left inside a clipping ancestor"
+- `PublishedToggle.test.tsx` — "the banner is capped against the clip ancestor"
+- `attentionMenu.test.tsx` — its capped-scroller case
+- the two `HoverHelp` suites
+- `shareHubVisualViewport`'s T-S8 / T-S9
+
+The wiring layer and the behaviour layer are meant to be read together; **neither is sufficient
+alone.** Anyone narrowing or removing one of the five above owns re-opening this row.
+
+**Why it is not closable as written, preserved:** the guard's rules (i)-(viii) resolve imports and
+calls through the TypeScript type checker and forbid local copies by name and by shape, but they are
+**reachability-blind by construction** — none connects the imported helper's RESULT to live
+behaviour. Two evasion families were demonstrated against the SHIPPED guard, the second surviving a
+round of tightening:
+
+```text
+MUTANT HoverHelp executes sharedDecoy create+cancel, but all live
+schedule/cancel behavior uses PrivateCoalescer
+SHIPPED_GUARD_RESULTS 23 passed, 0 failed
+
+MUTANT PublishedToggle voids shared ref and attaches a private 1px-cap callback
+SHIPPED_GUARD_RESULTS 23 passed, 0 failed
+```
+
+Closing it statically means dataflow/reachability analysis, which is not what a meta-test should
+carry — and two rounds of rule-tightening each invited a new shape, the per-instance whack-a-mole the
+class-sweep discipline warns about. Affects all five consumers: `ShareHub`, `HoverHelp`,
+`PublishedToggle`, `AttentionMenu`, `ReSyncButton`.
+
+**Triggers, preserved verbatim — only act on this if** a consumer is found to have behaviourally
+forked despite a green guard, **or the behavioural backstops above are removed or narrowed**. The
+latter is the real risk, since deleting one silently converts this accepted limit into an uncovered
+gap.
+
+**Cross-reference:** its sibling gap `BL-POPOVER-REGISTRY-PER-FILE-AND-TAILWIND-ONLY` remains OPEN in
+`BACKLOG.md` — that one is a genuine coverage question, not an accepted limit, and this demotion says
+nothing about it. The original filing rationale ("a code comment is not a ledger") was right that the
+limit needed to be discoverable; it is now discoverable here AND at the guard header, which is the
+correct end state for a documented limit.
+
+---
+
+**Effort:** L
+
+Surfaced by cross-model review of `fix/admin-popover-overlay-cluster` (2026-08-02, PR #658),
+across three rounds of probes against the shipped guard.
+
+`tests/components/admin/showpage/_metaSharedHelperAdoption.test.ts` pins that each consumer
+imports the shared helper, CALLS it (resolved through the TypeScript type checker, not by
+name), declares no local copy by name or by shape, and — for coalescer rows — cancels the
+instance it schedules. Rules (i)-(viii) are nonetheless **reachability-blind by
+construction**: none of them connects the imported helper's RESULT to live behaviour. Two
+evasion families were demonstrated, the second surviving a round of tightening:
+
+1. **Executed decoy.** `createRafCoalescer(() => {}).cancel()` on a throwaway instance,
+   while a private class handles every real `schedule()`/`cancel()`:
+
+   ```text
+   MUTANT HoverHelp executes sharedDecoy create+cancel, but all live
+   schedule/cancel behavior uses PrivateCoalescer
+   SHIPPED_GUARD_RESULTS 23 passed, 0 failed
+   ```
+
+2. **Discarded result.** Call `useFitWithinClip(...)`, drop the returned ref, attach a
+   private callback to the node instead:
+
+   ```text
+   MUTANT PublishedToggle voids shared ref and attaches a private 1px-cap callback
+   SHIPPED_GUARD_RESULTS 23 passed, 0 failed
+   ```
+
+Affects all five consumers: `ShareHub`, `HoverHelp`, `PublishedToggle`, `AttentionMenu`,
+`ReSyncButton`.
+
+**Accepted, not open.** Closing this statically means dataflow/reachability analysis, which
+is not what a meta-test should carry, and two rounds of rule-tightening each invited a new
+shape (the per-instance whack-a-mole the class-sweep discipline warns about). The guard's
+header states the limit and names the per-consumer BEHAVIOURAL tests that do catch a fork —
+`ReSyncButton.test.tsx` "overlay is capped to the room left inside a clipping ancestor",
+`PublishedToggle.test.tsx` "the banner is capped against the clip ancestor",
+`attentionMenu.test.tsx`'s capped-scroller case, the two HoverHelp suites, and
+shareHubVisualViewport's T-S8/T-S9. The wiring layer and the behaviour layer are meant to be
+read together; neither is sufficient alone.
+
+**Filed here because a code comment is not a ledger.** The limit was documented at the guard
+(discoverable once you are already reading it) but not where someone greps for known
+weaknesses. Its sibling gap `BL-POPOVER-REGISTRY-PER-FILE-AND-TAILWIND-ONLY` went to this
+file; this one should have too.
+
+**Only act on this if** a consumer is found to have behaviourally forked despite a green
+guard, or the behavioural backstops above are removed or narrowed — the latter is the real
+risk, since deleting one silently converts this accepted limit into an uncovered gap.
+
+---
+
 ## BL-OPS-LOG — Structured operator-log sink + producer wiring — CLOSED 2026-08-06 (L-wave, `feat/l-wave-docs`, DECOMPOSED)
 
 

@@ -236,17 +236,6 @@ From the impeccable critique of `feat/sheet-icon-link-affordance-class` (2026-07
 
 From the impeccable v3 dual gate on `feat/sync-feed-undo-announce`. The critique's detector ran clean (0 findings) and contrast, tokens, tap targets, em-dash and ARIA all passed. Three findings are accepted and deferred rather than fixed, each with its reason and un-defer trigger.
 
-### UNDO-FAILURE-REANNOUNCE-1 — impeccable critique P1: a repeated identical failure does not re-announce (2026-08-03)
-
-**Status:** IN PROGRESS · **Branch:** feat/l-wave-docs
-**Effort:** L
-
-The three feed action buttons surface failures through an always-mounted `role="status"` card, which announces on text CHANGE. Two consecutive failures with the same error code (the common case, since the same cause yields the same code) mutate nothing, so nothing is spoken: the operator taps again and hears silence. This is the exact class the success channel uses `role="log"` to avoid.
-
-**Accepted, not fixed.** The spec's §1.1 R8 ratified it as a documented limit, and the alternative it names is worse: routing failures through the log channel would leave error copy in a region that persists after the visible card is gone, so a stale failure could be re-read long after it stopped applying. The visible card is present throughout in every case, and `Mi11GateActions` is already exempt because its pending-gated `failing` blanks the region on retry, producing a real text change (`components/admin/Mi11GateActions.tsx:137`).
-
-**Un-defer trigger:** an operator reports a silent retry, or the failure channel is redesigned for any other reason.
-
 ### UNDO-UNCATALOGUED-CODE-CARD-1 — impeccable critique P2: an uncatalogued error code renders an empty card and announces nothing (2026-08-03)
 
 **Effort:** M

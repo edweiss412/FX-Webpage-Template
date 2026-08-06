@@ -1,3 +1,44 @@
+### UNDO-FAILURE-REANNOUNCE-1 — [P1] a repeated identical failure does not re-announce — CLOSED 2026-08-06 (L-wave, `feat/l-wave-docs`, DEMOTED: ratified documented limit)
+
+**Resolution: DEMOTED and archived. This was RATIFIED as a documented limit by its own owning spec
+(§1.1 R8) before it was ever filed here**, so it entered the queue already terminal. Classified DEMOTE
+by the 2026-08-06 L-wave screen under the ledger filing bar: an entry whose disposition is "accepted,
+and the alternative is worse" is a limits record, not schedulable work.
+
+**The defect is real and is not being denied.** The three feed action buttons surface failures through
+an always-mounted `role="status"` card, which announces on text CHANGE. Two consecutive failures with
+the same error code — the COMMON case, since the same cause yields the same code — mutate nothing, so
+nothing is spoken: the operator taps again and hears silence. That is the exact class the success
+channel uses `role="log"` to avoid.
+
+**Why the obvious fix is worse, which is the whole reason this is accepted** (owning spec §1.1 R8):
+routing failures through the log channel would leave error copy in a region that PERSISTS after the
+visible card is gone, so a stale failure could be re-read long after it stopped applying. Trading a
+missed announcement for a false one is not an improvement. The visible card is present throughout in
+every case, so the failure is never invisible — only unannounced on repeat.
+
+**Already exempt, and the mechanism is the template for any future fix:** `Mi11GateActions` does not
+have this problem, because its pending-gated `failing` blanks the region on retry, producing a real
+text change (`components/admin/Mi11GateActions.tsx:137`). A fix for the other three would look like
+that — an intentional blank-then-rewrite — rather than a channel change.
+
+**Un-defer trigger, preserved verbatim:** an operator reports a silent retry, or the failure channel
+is redesigned for any other reason.
+
+**Cross-reference:** the ratification lives in the owning spec's §1.1 R8; this archive is the ledger
+half of that record so a reader grepping the id lands somewhere that explains the decision instead of
+a bare deleted row.
+
+---
+
+**Effort:** L
+
+The three feed action buttons surface failures through an always-mounted `role="status"` card, which announces on text CHANGE. Two consecutive failures with the same error code (the common case, since the same cause yields the same code) mutate nothing, so nothing is spoken: the operator taps again and hears silence. This is the exact class the success channel uses `role="log"` to avoid.
+
+**Accepted, not fixed.** The spec's §1.1 R8 ratified it as a documented limit, and the alternative it names is worse: routing failures through the log channel would leave error copy in a region that persists after the visible card is gone, so a stale failure could be re-read long after it stopped applying. The visible card is present throughout in every case, and `Mi11GateActions` is already exempt because its pending-gated `failing` blanks the region on retry, producing a real text change (`components/admin/Mi11GateActions.tsx:137`).
+
+**Un-defer trigger:** an operator reports a silent retry, or the failure channel is redesigned for any other reason.
+
 ## DESTRUCT-FOCUSRING-1 — [P1] the light-mode focus ring measures 1.60:1 — RESOLVED 2026-08-01 (graduation-verified 2026-08-05)
 
 Verified LIVE on `chore/ledger-sizing-sweep` before archiving. Every premise is closed by the
