@@ -11,12 +11,28 @@
  *
  * WHAT IT MEANS, so a later reader does not have to reconstruct it from the
  * enum. `unknown_asterisk` is the parsed `***` marker: the sheet says this crew
- * member is on SOME subset of days and does not say which. Every date-bearing
- * surface therefore shows nothing rather than guessing — the agenda renders no
- * days (`lib/crew/agendaDisplay.ts`), the key-times strip resolves to `{}`
- * (`lib/crew/resolveKeyTimes.ts`), the schedule skips day derivation entirely
- * (`components/crew/sections/ScheduleSection.tsx`), and now the Tonight card
- * drops its check-in/check-out rows.
+ * member is on SOME subset of days and does not say which.
+ *
+ * WHERE IT IS APPLIED — an exact list, because the obvious summary is FALSE.
+ * An earlier version of this comment said "every date-bearing surface therefore
+ * shows nothing", and cross-model review disproved it by rendering the page:
+ *   - agenda days (`lib/crew/agendaDisplay.ts`) — gated
+ *   - key-times strip (`lib/crew/resolveKeyTimes.ts`) — gated
+ *   - schedule day derivation (`components/crew/sections/ScheduleSection.tsx`) — gated
+ *   - the Today Tonight card's check-in/check-out rows — gated (this change)
+ *
+ * NOT GATED, and each is a real date reaching a viewer whose days are
+ * unconfirmed: TravelSection's ground-transport leg dates, its hotel
+ * check-in/check-out rows, and the personal flight line; plus the crew roster's
+ * partial-attendance label, which prints a PEER's explicit days. Filed with the
+ * rendering probe as `BL-CREW-UNKNOWN-ASTERISK-TRAVEL-LEAK`. They predate this
+ * predicate and sit outside the ratified scope of the Today change (spec §1.1),
+ * so they are documented rather than silently implied to be handled.
+ *
+ * A predicate is not a policy. This function answers "does this viewer's
+ * restriction mean dates must be withheld"; whether a given surface ASKS is a
+ * property of that surface, and the list above is the only honest way to say
+ * which ones currently do.
  *
  * NOT THE SAME AS "restricted". An `explicit` viewer has CONFIRMED days, so
  * there is nothing to protect and every date surface renders normally, filtered

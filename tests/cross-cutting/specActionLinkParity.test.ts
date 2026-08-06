@@ -57,7 +57,25 @@ const ANCHOR_CLAIM = /Action link:[^.]*?\(`#([a-z0-9-]+)`\)/;
 /** How many action-bearing rows may describe their link in prose this guard
  *  cannot read. A ceiling rather than an exact count: reconciling a row must
  *  never fail the build, and adding one must. */
-const UNREADABLE_CEILING = 12;
+/**
+ * How many action-bearing rows may describe their link in prose this guard
+ * cannot read.
+ *
+ * 15, not 12. The number ROSE when the probe context gained a `driveFileId` and
+ * a `folderId` — and that is the fix working, not a regression: twelve builders
+ * previously returned `null` for want of ids, were miscounted as "builds no
+ * link", and so never reached this census at all. A guard whose coverage number
+ * goes UP when you stop under-supplying it was measuring its own blind spot.
+ *
+ * A CEILING, so enriching the context or reconciling a row is always allowed
+ * and adding a new unreadable row is not.
+ */
+const UNREADABLE_CEILING = 15;
+
+/** How many builders may stay unresolved under the probe context above. A
+ *  CEILING, so enriching the context (and shrinking this) is always allowed and
+ *  adding a new unresolvable builder is not. */
+const UNRESOLVED_CEILING = 12;
 
 type Row = { code: string; description: string };
 
@@ -76,14 +94,42 @@ function specRows(): Row[] {
   return rows;
 }
 
-/** The anchor a builder actually produces, or null when it builds no link. */
-function builtAnchor(code: string): string | null {
+/**
+ * What a builder produces: its anchor, or an explicit "could not resolve".
+ *
+ * THE THREE OUTCOMES MATTER SEPARATELY (whole-diff review R1). The first version
+ * folded "this code has no builder" and "the builder returned null under my
+ * probe context" into one `null`, and then read that as "no action link" — so
+ * TWELVE registered builders that need a `driveFileId`, a folder id or a repo
+ * slug returned null on empty context and silently evaded the direction of the
+ * check that matters most. A guard that cannot tell "no link" from "I did not
+ * supply enough context to find out" is asserting the wrong thing about a
+ * quarter of the registry.
+ *
+ * `unresolved` is reported, never treated as absence.
+ */
+type Built = { kind: "none" } | { kind: "unresolved" } | { kind: "anchor"; anchor: string };
+
+/** Rich enough that a builder needing ids can actually produce its link. */
+const PROBE_OPTS = {
+  slug: "any-show",
+  driveFileId: "PROBE_FILE",
+  folderId: "PROBE_FOLDER",
+} as const;
+
+function built(code: string): Built {
   const build = ALERT_ACTIONS[code as (typeof ALERT_ACTION_CODES)[number]];
-  if (build === undefined) return null;
-  const link = build({} as never, { slug: "any-show" } as never);
-  if (link === null) return null;
+  if (build === undefined) return { kind: "none" };
+  const link = build({} as never, PROBE_OPTS as never);
+  if (link === null) return { kind: "unresolved" };
   const hash = link.href.indexOf("#");
-  return hash === -1 ? "" : link.href.slice(hash + 1);
+  return { kind: "anchor", anchor: hash === -1 ? "" : link.href.slice(hash + 1) };
+}
+
+/** The anchor when one resolved; null when the code builds nothing at all. */
+function builtAnchor(code: string): string | null {
+  const b = built(code);
+  return b.kind === "anchor" ? b.anchor : null;
 }
 
 describe("§12.4 action-link claims match the shipped alert actions", () => {
@@ -98,9 +144,22 @@ describe("§12.4 action-link claims match the shipped alert actions", () => {
     expect(ALERT_ACTION_CODES.length).toBeGreaterThan(0);
   });
 
+  it("a code whose builder cannot resolve is REPORTED, never read as 'no link'", () => {
+    // The finding, made executable. These codes are registered and DO build
+    // links given the right context; under any probe context that lacks their
+    // ids they return null, and the row below must not mistake that for a spec
+    // row that correctly claims no link. Listing them keeps the blind spot
+    // visible instead of silently shrinking what the next assertion covers.
+    const unresolved = ALERT_ACTION_CODES.filter((c) => built(c).kind === "unresolved");
+    expect(
+      unresolved.length,
+      `builders unresolved under the probe context: ${unresolved.join(", ")}`,
+    ).toBeLessThanOrEqual(UNRESOLVED_CEILING);
+  });
+
   it("no row claims 'No action link.' while its code builds one", () => {
     const liars = rows
-      .filter((r) => r.description.includes(NO_LINK) && builtAnchor(r.code) !== null)
+      .filter((r) => r.description.includes(NO_LINK) && built(r.code).kind === "anchor")
       .map((r) => r.code);
     expect(
       liars,
