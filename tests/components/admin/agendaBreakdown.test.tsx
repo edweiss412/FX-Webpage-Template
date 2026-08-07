@@ -295,6 +295,30 @@ describe("AgendaBreakdown — 5-state machine", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  // (d2) BL-LIVE-REGION-AST-WALK-RESIDUE, the file-local half. The parsing
+  // region used to sit BELOW the §4.6 `baseline.length === 0` early return, so
+  // within this file the region's own mounting was gated. It now hoists above
+  // that guard: present, empty, and invisible when there is no agenda at all.
+  //
+  // The claim is deliberately narrow, and the entry's accepted limit rides
+  // along: the SECTION is gated cross-component by `includesAgenda`, which the
+  // AST walk cannot see and this repair does not touch, so first paint still
+  // cannot announce. Later transitions do.
+  test("(d2) empty baseline still mounts the parsing region — present, empty, invisible", async () => {
+    renderCard({ baseline: [] });
+    await flush();
+    const region = document.querySelector(
+      `[data-testid="wizard-step3-card-${DFID}-agenda-parsing"]`,
+    ) as HTMLElement | null;
+    expect(region).not.toBeNull();
+    expect(region!.getAttribute("role")).toBe("status");
+    expect(region!.textContent).toBe("");
+    // Invisible, so "renders nothing" above stays true for a sighted operator.
+    expect(region!.className).toContain("sr-only");
+    // …and it did not drag the visible breakdown chrome up with it.
+    expect(section()).toBeNull();
+  });
+
   // (e) always-fetch: a baseline item that already carries a block does NOT bypass
   // the fetch and is NOT rendered as ready until a successful 200 arrives.
   test("(e) always-fetch — no baseline-block bypass (block present but fetch pending → not ready)", async () => {

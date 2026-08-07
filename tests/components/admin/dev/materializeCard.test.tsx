@@ -202,6 +202,43 @@ describe("MaterializeCard — the result readout", () => {
   });
 });
 
+describe("MaterializeCard — the result region announces", () => {
+  // BL-LIVE-REGION-AST-WALK-RESIDUE. A live region inserted together with its
+  // text is just new DOM and is never announced, so gating the region on the
+  // result it reports makes the announcement silent — which is the whole class.
+  // The region has to pre-exist the text, and the operator has just triggered a
+  // real database write, so silence here is the worst case for the surface.
+
+  test("the status region is mounted BEFORE any result exists", () => {
+    // The failing half. Today the region lives inside `result === null ? null :`,
+    // so at idle there is nothing for the eventual text to mutate INTO.
+    render(<MaterializeCard {...props()} />);
+    expect(screen.getByRole("status")).toBeInTheDocument();
+  });
+
+  test("the idle region renders NO bordered box", () => {
+    // The no-visual-change half, and the reason the repair is not simply
+    // "hoist the node": the gated node also owns the card's visual box, so
+    // hoisting it as-is would paint an empty bordered card in the idle state.
+    render(<MaterializeCard {...props()} />);
+    expect(screen.queryByTestId("result")).not.toBeInTheDocument();
+    expect(screen.getByRole("status").className).toBe("");
+  });
+
+  test("a result renders its box INSIDE the persistent region", () => {
+    // Containment is the assertion that matters: a box rendered as a SIBLING of
+    // the region would satisfy both cases above and still announce nothing.
+    render(
+      <MaterializeCard {...props({ lastResult: { kind: "infra_error", message: "boom" } })} />,
+    );
+    const region = screen.getByRole("status");
+    const box = screen.getByTestId("result");
+    expect(region.contains(box)).toBe(true);
+    expect(box.className).toContain("border");
+    expect(region.textContent ?? "").toContain("boom");
+  });
+});
+
 describe("MaterializeCard — mechanical UI invariants", () => {
   test("every control meets the tap-target minimum", () => {
     render(<MaterializeCard {...props()} />);

@@ -780,7 +780,7 @@ describe("DiagramsBreakdown body (follow-ups spec §B3 + §K8)", () => {
     expect(tiles.length).toBe(DIAGRAM_TILE_CAP);
     expect(
       scoped.getByText(
-        `+${stubs.length - DIAGRAM_TILE_CAP} more — all images are snapshotted when the show publishes.`,
+        `+${stubs.length - DIAGRAM_TILE_CAP} more. All images are snapshotted when the show publishes.`,
       ),
     ).toBeTruthy();
     // Count summary reflects ALL valid stubs (not the capped subset).
@@ -1162,7 +1162,7 @@ describe("ReportIssueSection — §D disclosure (collapsed by default; state sur
   // Mirrors reportAttemptStorageKey (step3ReviewSections.tsx) — deliberately
   // restated so a key-format drift fails here.
   const STORAGE_KEY = `fxav-report-attempt-wizard-${WSID}-${DFID}`;
-  const SUCCESS_COPY = "Sent — thanks. The developer will take a look.";
+  const SUCCESS_COPY = "Sent. Thanks, the developer will take a look.";
 
   beforeEach(() => window.sessionStorage.clear());
   afterEach(() => vi.unstubAllGlobals());
@@ -1193,6 +1193,24 @@ describe("ReportIssueSection — §D disclosure (collapsed by default; state sur
     expect((q.getByTestId(TEXTAREA) as HTMLTextAreaElement).value).toBe("the crew list is wrong");
   });
 
+  test("T-D3z: the report status region is mounted while the disclosure is COLLAPSED", () => {
+    // BL-LIVE-REGION-AST-WALK-RESIDUE, the failing half. The send is
+    // asynchronous and the operator can collapse the disclosure mid-flight, so
+    // the outcome settles while the region is ABSENT and re-expansion mounts the
+    // region together with its already-settled text — a dead announcement, the
+    // exact class defect. The region has to pre-exist the text, which means
+    // existing at the one moment there is no form at all.
+    const q = renderBody(sectionData(), "report");
+    expect(q.queryByTestId(TEXTAREA)).toBeNull(); // genuinely collapsed
+    const status = q.getByTestId(STATUS);
+    expect(status.getAttribute("role")).toBe("status");
+    expect(status.getAttribute("aria-live")).toBe("polite");
+    expect(status.textContent).toBe("");
+    // Present for AT, invisible on screen: the collapsed disclosure must not
+    // grow a visible status line or a box.
+    expect(status.className).toContain("sr-only");
+  });
+
   test("T-D3a: submit → success, collapse, re-expand — the sent confirmation still renders (status lives OUTSIDE the conditional subtree)", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
@@ -1207,7 +1225,10 @@ describe("ReportIssueSection — §D disclosure (collapsed by default; state sur
     await waitFor(() => expect(q.getByTestId(STATUS).textContent).toBe(SUCCESS_COPY));
 
     fireEvent.click(q.getByTestId(TOGGLE)); // collapse
-    expect(q.queryByTestId(STATUS)).toBeNull();
+    // The region survives the collapse rather than unmounting with the form: it
+    // goes visually hidden, keeping the settled copy available to AT.
+    expect(q.getByTestId(STATUS).className).toContain("sr-only");
+    expect(q.getByTestId(STATUS).textContent).toBe(SUCCESS_COPY);
     fireEvent.click(q.getByTestId(TOGGLE)); // re-expand
     expect(q.getByTestId(STATUS).textContent).toBe(SUCCESS_COPY);
   });
@@ -1231,10 +1252,19 @@ describe("ReportIssueSection — §D disclosure (collapsed by default; state sur
     expect(window.sessionStorage.getItem(STORAGE_KEY)).toBeTruthy(); // key persisted for the attempt
 
     fireEvent.click(q.getByTestId(TOGGLE)); // collapse mid-flight — allowed (§D1 guards)
-    expect(q.queryByTestId(STATUS)).toBeNull();
+    // The region PRE-EXISTS the settled text. This used to assert the region was
+    // gone, which is the same statement as "the outcome cannot be announced":
+    // it settles below, while collapsed, and a region that arrives with the
+    // settled copy on re-expansion announces nothing (the class this repairs).
+    const statusEl = q.getByTestId(STATUS);
+    expect(statusEl.className).toContain("sr-only");
+    expect(statusEl.textContent).toBe("Sending…");
     await act(async () => {
       resolveFetch({ ok: true, status: 201, json: async () => ({ ok: true, status: "created" }) });
     });
+    // Settled INTO the same node while collapsed — the mutation AT observes.
+    expect(q.getByTestId(STATUS)).toBe(statusEl);
+    expect(statusEl.textContent).toBe(SUCCESS_COPY);
     // Rotate-on-success is observable while collapsed (spec T-D3).
     expect(window.sessionStorage.getItem(STORAGE_KEY)).toBeNull();
     fireEvent.click(q.getByTestId(TOGGLE)); // re-expand

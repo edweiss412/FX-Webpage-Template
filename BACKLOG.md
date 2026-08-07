@@ -8,32 +8,27 @@ Last reconciled: 2026-08-04 — `feat/harness-font-fidelity` (PR #705) graduated
 
 ---
 
-## BL-CAPABILITY-LOSS-SURVIVING-ROW-FALSE-POSITIVE — arm (c) reports a capability loss for a row that is still live
+## BL-MI11-REMOVAL-FALLBACK-STALE-OVERWRITE — the mi11 genuine-removal fallback retains a frozen snapshot over a live row
 
-**Status:** OPEN · **Severity:** LOW-MEDIUM (false operator alert; no data impact) · **Class:** notice fidelity · **Filed:** 2026-08-03 (`fix/apply-undo-audit-fidelity`, spec §9, deferred under class-sweep exception (c)) · **Effort:** S · **Reachability: PROBED 2026-08-04 — REACHABLE on one hold shape of four.**
+**Filed:** 2026-08-07 (arc C Q1 class-sweep, `feat/backlog-quick-wins`). **Class:** correctness (silent data revert). **Effort:** S. **Severity:** low-medium — no loss of the row, but live edits are silently reverted.
 
-`capabilityRoleChangesForNotice` arm (c) (`lib/sync/phase2.ts:347-356`) reports a capability loss for any `previousCrewMembers` entry that is absent from `nextByName` and absent from `renamedAway`. `nextByName` is built from `appliedCrewMembers`, which is the post-hold **parse** list (`lib/sync/applyParseResult.ts:189`), while `deleteKeepNames` (`lib/sync/applyParseResult.ts:178`) protects rows from deletion **without** adding them to that list. A row can therefore survive the apply with its capability flags intact and still be reported as a loss.
+Arc C repaired the `crew_email` reject branch to retain the LIVE crew row instead of nothing. The sweep for that bug SHAPE — "a retain that sources a frozen snapshot while a live row exists" — found one more instance, and it ships today.
 
-The rename-linked instances of this shape were fixed in the filing PR via the survival test in its spec §2.1 A3. The non-rename instances are what this row tracks.
+`lib/sync/holds/holdAwareApply.ts:337`, the mi11 genuine-removal fallback, does `retainRows.set(hold.entity_key, rowFromHeldValue(held))`. `held` is the value captured when the hold OPENED. The retain feeds `plan.crewMembers`, which the snapshot-replace engine upserts across every column (`runScheduledCronSync.ts:1653-1685`), so every field edited on that member since the hold opened is reverted — phone, role, restrictions, flight info.
 
-**PROBED 2026-08-04**, per hold kind × domain × sub-shape, end-to-end through `runPhase2` (survival read from `crew_members` after the apply; the report read from the real `roleFlagsNotice`, since `capabilityRoleChangesForNotice` is not exported). Probe: `tests/sync/capabilityLossReachability.probe.test.ts`.
+**PROBED, not inferred.** `tests/sync/capabilityLossReachability.probe.test.ts` now carries a `phoneAfter` oracle: the live seed is `555-NEW` and every `heldValue` is `555-OLD`, so the two are distinguishable. The `mi11_pending/crew_email` row pins `phoneAfter: HELD_PHONE` — i.e. the live phone IS reverted, executably, today. That row is the reproduction; the arc left it pinned at current behaviour rather than fixing it here.
 
-| hold kind / domain / sub-shape                           | survived | reported | verdict                       |
-| -------------------------------------------------------- | -------- | -------- | ----------------------------- |
-| `mi11_pending` / `crew_email`                            | yes      | no       | correct                       |
-| `undo_override` / `crew_email`                           | yes      | **yes**  | **FALSE LOSS**                |
-| `undo_override` / `crew_identity` (held-present restore) | yes      | no       | correct                       |
-| `undo_override` / `crew_identity` (tombstone)            | no       | yes      | real loss, correctly reported |
+**Why this is a RULING question and not a straight fix, which is why it is filed rather than swept.** The two adjacent sites disagree on purpose, and the disagreement is documented:
 
-**The premise holds, but for ONE shape, and not for the reason the row assumed.** It is not arm (c)'s absence predicate that is wrong: it is a two-line asymmetry among the four branches that delete-protect a name. Every other branch also puts a row BACK — `mi11_pending`'s genuine-removal fallback retains the held row (`lib/sync/holds/holdAwareApply.ts:322`), and the `crew_identity` restore branch retains it (`lib/sync/holds/holdAwareApply.ts:449`) — and retained rows are merged into `plan.crewMembers` at `lib/sync/holds/holdAwareApply.ts:390`, which is what becomes `appliedCrewMembers`. `applyUndoOverrideToMaps`'s `crew_email` branch (`lib/sync/holds/holdAwareApply.ts:432-439`) adds `protectedNames` and `pinnedIdentity` and returns with no `retainRows.set`. That is precisely "survives the delete, absent from the applied list", so a live LEAD is announced to the operator as having lost LEAD access.
+- The `crew_identity` restore branch (`:477`) also retains `rowFromHeldValue(held)`, and there it is CORRECT — that branch resurrects a deleted row, so the held snapshot is the only source there is. The probe pins `phoneAfter: HELD_PHONE` for it as INTENDED.
+- The rename-fold path (`:392-397`) does the opposite: it takes the sheet row and overrides only the pinned identity fields (`{ ...m, name: pin.name, email: pin.email }`), i.e. live-row-wins with a narrow pin.
+- WM-F6 (`:308`) deliberately prefers held values in its own neighbourhood.
 
-**Re-sized M → S** on the probe: the search space collapsed from "redesign arm (c)'s absence predicate on a path no unit touches" to one branch that is asymmetric with its three siblings.
+So "retain the live row" is not obviously right at `:337`: the fallback runs when the member is genuinely absent from the sheet, which is precisely when there may be no live row to prefer, and the hold's semantics may intend the snapshot. **The entry's first step is that ruling — defect or intended hold semantics — not a patch.**
 
-screen-disposition 2026-08-04: KEEP — probe (`tests/sync/capabilityLossReachability.probe.test.ts`) demonstrates the false loss end-to-end on `undo_override`/`crew_email`; three sibling shapes verified correct in the same run, and all four are pinned at current behaviour.
+**Deferral exception: (a)** — needs a design decision about hold semantics that arc C's ratified scope (spec §1.1) does not settle, on a branch whose diff is otherwise two narrow changes. Swept and probed at round 0 rather than left for a later reader to rediscover.
 
-**Work.** Restore the symmetry at the source rather than loosening arm (c). The tombstone row above is the counterweight and is pinned in the same probe file: it is a REAL loss, and any fix that suppresses arm (c) more aggressively to silence the false positive will silence that one too. All four rows are pinned at current behaviour, so the fix arrives with a failing case waiting for it.
-
----
+**Promotion prerequisite:** the ruling above. If it lands as "defect", the fix mirrors arc C's: thread the live row and prefer it, with no-match falling back to today's behaviour.
 
 ## BL-TASK-ENROLLMENT-SINGLE-DEPTH — the declared task region cannot express hierarchical or interleaved plan shapes
 
@@ -48,31 +43,6 @@ The `<!-- tasks: depth=N -->` region declares ONE heading depth. Two real corpus
 **Deferral exception (c)** per the class-sweep disposition rule in `AGENTS.md`: the repair is a redesign of a surface this PR does not otherwise touch. Multi-depth enrollment forces a nesting model — a depth-3 task inside a depth-2 extent — whose marker ownership, extent boundaries, and `TASK_MARKER_MISSING` semantics are a design of their own, not a clause. Neither (a) nor (b) applies: this is not an unsettled product decision, and no prior ratification fences it.
 
 **Why it is safe to carry.** Enrollment is opt-in and no legacy plan is enrolled (measured: 534 plans scanned, 1 attempted, 0 findings). A plan of either shape either normalizes its task depths or stays unenrolled; the author is told plainly rather than checked wrongly. Re-open when someone wants to enrol a plan of one of these shapes.
-
-## BL-FRESHNESS-ABORTED-CLOSE-E2E — the freshness cue's clear-on-hide branch has no behavioural proof
-
-**Status:** OPEN · **Filed:** 2026-08-03 (round-3 cross-model review of `feat/modal-freshness-cue`) · **Class:** test coverage · **Effort:** S (one e2e case on an existing spec) · **Severity:** low
-
-`PublishedReviewModal`'s clear-on-hide branch fires when the published review modal is HIDDEN without unmounting — an aborted close, where the shell animates out but the component holding the freshness state stays mounted. Without it a live cue survives the hide and resumes on reopen with whatever was left of its 1600ms timer.
-
-The branch is guarded structurally by `S19` in `tests/components/admin/showpage/publishedModalFreshnessCue.test.tsx`, which asserts the WIRING only. It cannot be driven from jsdom: the close runs through the shell's animated exit, which never completes there, and with `?show` still committed the aborted-close self-heal un-hides during the very render that hid the surface, so no commit observes `closing` as true. Both were verified rather than assumed — a click-driven version of that row sat at "still armed" against a render-phase implementation AND a commit-phase one.
-
-S19's comment used to claim a behavioural twin lived in the realtime e2e. Round-3 review probed for it: no test under `tests/e2e` combines an aborted close with `data-section-freshness-flash`, and the freshness e2e coverage there is geometry and broadcast attribution. The claim has been removed from the comment; this row is the honest replacement.
-
-**What would close it:** one case on `tests/e2e/published-review-modal.realtime.spec.ts` that arms a cue, begins a close, aborts it inside the flash window, and asserts no card carries the attribute on reopen. A real browser can drive the animated exit that jsdom cannot.
-
-screen-disposition 2026-08-04: NOT ATTEMPTED on `chore/sweep-guards-tests`; claim released, entry
-unchanged. Recorded plainly rather than as a fence, because this is not fenced — the work is owed,
-specified, and ready to pick up.
-
-The other five Task 18 items were dispositioned on that branch (three closed, one prereq-fenced, one
-investigation discharged). This one is a single Playwright case that must drive an animated modal
-exit across a realtime-seeded two-context harness, and it cannot be verified without a dev server
-plus browsers; an e2e case pushed without ever being run is worse than no case, since a green CI
-tells you nothing about a test that was never observed failing. The entry's own "What would close
-it" already specifies it exactly — arm a cue, begin a close, abort inside the flash window, assert
-no card carries `data-section-freshness-flash` on reopen, on
-`tests/e2e/published-review-modal.realtime.spec.ts`. Nothing about that needs re-deriving.
 
 ## BL-SOURCE-ANCHORS-STALE-AFTER-FAILED-GID-FETCH — a preserved anchor map has no revision stamp, so a stale range reads as a valid deep link
 
@@ -903,29 +873,6 @@ screen-disposition 2026-08-04: PREREQ-FENCED + ANNOTATED, stays open, NOT claime
 
 ---
 
-### BL-EM-DASH-POLICY — Resolve the DESIGN.md §9 em-dash ban vs. shipped usage
-
-**Effort:** M (if lockstep sweep; XS if amend-only — owner picks)
-
-**Filed:** 2026-06-13 from the Doug/crew copy audit. Owner decision (2026-06-13): **defer for future consideration after a full review** — do NOT sweep now.
-
-**The conflict:** `DESIGN.md` §9 (and the global `~/.claude/CLAUDE.md` Copy rule) state "No em dashes. Use commas, colons, semicolons, periods, parentheses. Also not `--`." But shipped copy uses em dashes widely and the rule has never been enforced:
-
-- **§12.4 catalog** (`lib/messages/catalog.ts` + the spec §12.4 prose): dozens of `dougFacing`/`crewFacing`/`helpfulContext`/`longExplanation` rows contain `—` (e.g. `SYNC_DELAYED_SEVERE` "Push or cron is stalled — check the dashboard.").
-- **Help MDX** (`app/help/**`): 25+ instances across multiple pages.
-- **Components**: test-pinned strings include em dashes, e.g. `"Held — not published"` (pinned in `tests/components/admin/ShowsTable.test.tsx`, `tests/app/admin/perShowPage.test.tsx`) and the archive-confirm copy `"Confirm archive — crew links stop working now…"` (pinned in `tests/components/admin/ArchiveShowButton.test.tsx`).
-
-**Two coherent resolutions (pick one during the full review):**
-
-1. **Ratify reality (recommended).** Amend DESIGN.md §9 to permit em dashes in prose copy (optionally keep the ban for headings/eyebrow labels, or drop it entirely). One-line doc change, zero code/test churn. The ban appears inherited from the impeccable skill's defaults rather than chosen for this product; the shipped copy reads well.
-2. **Enforce the ban.** A repo-wide sweep replacing every `—` with commas/periods/parentheses. This touches the §12.4 three-way lockstep across dozens of rows (spec prose + `gen:spec-codes` regen + `catalog.ts`), multiple test pins, help MDX, and possibly screenshot baselines if any captured surface renders a dash. Multi-hour, high-churn, and it relitigates copy that passed many M12 adversarial rounds.
-
-**Why backlog, not deferred:** no spec, no plan, no scheduled milestone, no concrete trigger beyond "if/when the owner runs the full copy-voice review." If resolution (2) is ever chosen it should be its own scoped task (lockstep + test-pin updates + a structural guard, e.g. a meta-test banning `—` in `lib/messages/catalog.ts` and `app/help/**`), authored after the §9 decision is made.
-
-**Promotion prerequisite:** owner decision on resolution (1) vs (2). (1) is a trivial DESIGN.md edit, not really a milestone; (2) needs a scoped task with the lockstep + meta-test.
-
----
-
 ### BL-CLASSNAME-ARRAY-JOIN-MIGRATION — migrate the 18 array-join classNames so the canonical-class rule can see them
 
 **Severity:** LOW (lint coverage, no user-visible defect) · **Class:** lint coverage · **Filed:** 2026-08-04 (`chore/sweep-guards-tests`, split out of BL-CANONICAL-CLASS-ARRAY-BLINDSPOT under class-sweep exception (c)) · **Effort:** M · **Reachability:** PROBED 2026-08-04 — 18 files, 33 sites, enumerated in `tests/specLint/canonicalClassArray.test.ts`.
@@ -1124,66 +1071,6 @@ override on the shared harness would do it), or a decision about obstacle 2. Unt
 docblock states the gap rather than papering over it.
 
 ---
-
-## BL-CREW-UNKNOWN-ASTERISK-TRAVEL-LEAK — four date classes still reach a viewer whose days are unconfirmed
-
-**Filed:** 2026-08-05 (M-wave W-UI, whole-diff cross-model review R1, probed by rendering the real sections). **Class:** privacy. **Effort:** M. **Severity:** medium — no data loss, but it defeats the point of the `***` marker.
-
-`unknown_asterisk` means the sheet says a crew member works SOME subset of days and does not say which. The agenda, key-times strip, schedule and (as of this wave) the Today Tonight card all withhold dates for such a viewer. **Four classes do not**, confirmed by rendering `TravelSection` and `CrewSection` with an `unknown_asterisk` viewer rather than by reading them:
-
-```
-Your flight May 13 JFK → LAX   Getting there Driver Crew One load-in Wed, May 13 8AM · With Crew One
-Hotels Hyatt Check in May 13 Check out May 15
-Show crew  UV Unknown Viewer You Partial (dates TBD)  EP Explicit Peer May 13 & 15 only
-```
-
-- ground-transport leg dates — `components/crew/sections/TravelSection.tsx:439`
-- hotel check-in/check-out — `components/crew/sections/TravelSection.tsx:514`
-- personal flight dates — `components/crew/sections/TravelSection.tsx:603`
-- a PEER's explicit days via the roster attendance label — `components/crew/sections/CrewSection.tsx:191`
-
-**One candidate is REFUTED, recorded so it is not re-raised.** Cross-model R4 added the global header date (`components/layout/Header.tsx:45`, `May 13, 2026`) to this list. It does not belong: that is the SHOW's date, rendered to anyone holding the share link, and `unknown_asterisk` means "which days YOU work is unconfirmed" — not "the show's dates are secret". Suppressing it would remove the one piece of context every viewer needs and would not protect anything, since the date is on the link they used to arrive. The privacy question here is narrower than "any rendered date": it is dates that imply the VIEWER's own schedule. The four sites above are exactly that; the header is not.
-
-The census found no further ungated viewer-specific date renderers, so the list above is believed complete.
-
-**Why not fixed in the wave that found it:** all four predate `lib/crew/dateSuppression.ts` and sit outside the ratified scope of the Today change (spec §1.1 ratified the Tonight/Where rows specifically). The fourth is also not a mechanical gate — `partialAttendanceLabel` prints a peer's days to help crew coordinate, so suppressing it is a product decision about whose privacy wins, exactly the "dedicated crew-privacy review" that `BL-CREW-UNKNOWN-ASTERISK-TODAY-DATES` named as its own promotion prerequisite.
-
-**Deferral exception: (a)** — needs a product decision the closing PR cannot settle. What the PR DID do is stop `lib/crew/dateSuppression.ts` from claiming these were handled: its header now lists gated and ungated surfaces explicitly, so the next reader inherits the truth rather than the summary.
-
-**Status:** OPEN.
-
-## BL-LIVE-REGION-AST-WALK-RESIDUE — four regions the new AST walk found, and one gate shape it still cannot see
-
-**Filed:** 2026-08-05 (M-wave W-UI, whole-diff cross-model review R1). **Class:** a11y. **Effort:** S per site. **Severity:** low (each is one silent announcement).
-
-`BL-ANNOUNCE-REGION-UNMOUNT-CLASS` shipped with a line-window regex detector: it looked back six lines from `role="status"` for a `?` or `&&`. Review probed it and it missed same-line `&&`, direct ternaries, and any opening tag more than six lines below its gate — **including a real defect in `app/admin/settings/roles/RoleMappingRow.tsx` that returned no hit at all.** The detector is now a TypeScript AST walk that asks the structural question directly, and it immediately surfaced **eleven** further sites the regex never saw. Six are legitimate surface gates and carry exemption rows with reasons; four are real and are listed as PENDING in `tests/components/_metaLiveRegionMounting.test.ts`:
-
-- `components/admin/dev/MaterializeCard.tsx` — `result === null ? null : <div role="status">`; hoist the region above the result gate.
-- `app/admin/settings/admins/RevokeRowButton.tsx` — the couldn't-confirm warning is inserted with its text after a failed revoke.
-- `components/admin/wizard/step3ReviewSections.tsx` — the `-report-status` span is gated on the send outcome it reports.
-- `components/admin/wizard/Step3ReviewModal.tsx` — the publish-error span is mounted, but its enclosing row is gated.
-
-**A third site joined this list from R3, and it is the clearest statement of why the cross-component case matters.** `components/admin/wizard/step3ReviewSections.tsx`'s agenda-parsing region is born populated and cannot be fixed inside its own component: the §4.6 guard returns null unless `baseline.length > 0`, and a non-empty baseline initialises `state` to `"loading"`, so the first render always carries the parsing text. Deferring it with an effect is what `react-hooks/set-state-in-effect` forbids, correctly. The region has to live ABOVE that guard — in the parent that persists across it — which is the same ownership move the two entries below need. Later transitions (loading → ready, ready → error) still announce correctly; only first paint cannot.
-
-**Documented limit, not a silent one: the walk is blind to a CROSS-COMPONENT gate.** A parent rendering `{cond ? <Child/> : null}` where `Child` owns the region is the same defect and produces no hit, because the walk stops at the component boundary by construction. Catching it needs whole-program analysis, which is a different tool and a different change. The in-component shape — gate and region in one function, which is what every instance found so far has been — is fully covered.
-
-**Deferral exception: (c)** — four independent surface repairs plus a whole-program analysis question, on surfaces this PR does not otherwise touch. The PR closed the class it could close and left the residue enumerated and executable: a PENDING row FAILS the moment its file goes clean, so this list cannot rot into a lie.
-
-**Status:** OPEN.
-
-## BL-CHANNEL-ANNOUNCER-RESIDUAL-ROLE-STATUS — five visible cards keep a `role="status"` that announces nothing
-
-**Filed:** 2026-08-05 (M-wave W-UI, found by the class sweep that closed `BL-ANNOUNCE-REGION-UNMOUNT-CLASS`). **Class:** correctness (cosmetic / reader-misleading). **Effort:** S per site, M to verify. **Severity:** low.
-
-Four components announce through `UndoAnnounceContext` because their own region does not outlive the announcement. Each ALSO keeps a conditionally-inserted `role="status"` on a visible card: `components/admin/RoleRecognizeControl.tsx:209` and `:257`, `components/admin/RecentAutoAppliedStrip.tsx:506` and `:686`, `components/admin/ReSyncButton.tsx:362`.
-
-Those attributes announce nothing — a live region inserted together with its text never does, which is the entire premise of the class that was just closed. **Nothing is lost at runtime,** because the channel already carried the message; the defect is that the attribute READS like a live region to the next person editing the file, which is exactly the misreading that produced the original class.
-
-**Why not stripped in the same PR** (deferral exception (a) — needs a decision the closing PR could not settle): removing `role="status"` from a card is only safe once you have verified PER SITE that the channel carries every message that card displays. The error card at `RecentAutoAppliedStrip.tsx:686` is not obviously covered — the channel's announce calls are success-shaped — and asserting otherwise without probing each path is how a real announcement gets deleted. The verification is the work; the edit is trivial.
-
-**Recorded where it will be seen:** the `CHANNEL_ANNOUNCERS` header in `tests/components/_metaLiveRegionMounting.test.ts` names all five sites and says why they are still there, so a reader who finds one does not re-derive this.
-
-**Status:** OPEN.
 
 ## BL-CROSSWALK-HAYSTACK-RENDERED-TEXT-ONLY — the /help UI-label crosswalk attests against all source, so a type annotation counts as a button label
 

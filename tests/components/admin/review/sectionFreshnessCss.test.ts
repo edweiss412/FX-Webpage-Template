@@ -20,6 +20,7 @@ import {
   SECTION_FRESHNESS_FLASH_MS,
   SECTION_FRESHNESS_MAX_CUES,
 } from "@/components/admin/review/sectionFreshness";
+import { SECTION_FRESHNESS_FLASH_MS_E2E } from "@/tests/e2e/helpers/realtimeOracle";
 
 const ROOT = join(__dirname, "..", "..", "..", "..");
 const CSS = readFileSync(join(ROOT, "app/globals.css"), "utf8");
@@ -64,6 +65,13 @@ describe("section freshness cue: stylesheet contract", () => {
     // Two halves on purpose. The value alone permits a refactor that computes it;
     // the source match alone permits the constant to be shadowed at the call site.
     expect(SECTION_FRESHNESS_FLASH_MS).toBe(1600);
+    // The e2e mirror cannot import this module — `playwright --list` evaluates every
+    // spec and this import chain throws without HASH_FOR_LOG_PEPPER. So the copy is
+    // pinned from THIS side, where the env is loaded.
+    expect(
+      SECTION_FRESHNESS_FLASH_MS_E2E,
+      "tests/e2e/helpers/realtimeOracle.ts mirrors this constant; update both together",
+    ).toBe(SECTION_FRESHNESS_FLASH_MS);
     expect(MODULE_SRC).toMatch(/export const SECTION_FRESHNESS_FLASH_MS = 1600;/);
   });
 

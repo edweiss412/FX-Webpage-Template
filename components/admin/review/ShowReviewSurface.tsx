@@ -412,7 +412,7 @@ export function ShowReviewSurface({
    *  the nav control's accessible name so review state is conveyed to AT and to
    *  sighted users who don't perceive the hue. Rendered only where a dot is. */
   function dotStatusText(id: SectionId): string {
-    return needsReview(id) ? " — needs review" : " — no issues";
+    return needsReview(id) ? ", needs review" : ", no issues";
   }
 
   // ── §A2 nav-click scroll-spy suppression ───────────────────────────────────

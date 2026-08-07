@@ -1,6 +1,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { stripCommentsForFile } from "../_shared/stripComments";
 import { AFFORDANCE_MATRIX, DEFERRED_TESTIDS } from "@/app/help/_affordanceMatrix";
 import { allWalkableRows, prepKindFor, routeForPure, walksAt } from "../e2e/helpers/walkerRoutes";
 
@@ -208,10 +209,107 @@ describe("e2e suite holds no unlocked PostgREST DML on locked tables (structural
   // WHERE would let a stale/cross-show crew id mutate a row the held lock
   // doesn't cover. Lexical pin; the behavioral proof is the helper's no-row
   // RETURNING guard (cross-show ids throw — verified by live psql smoke).
-  it("lockedCrewRestriction.ts scopes its crew_members UPDATE to the advisory-locked show", () => {
-    const src = readFileSync(join(e2eDir, "helpers/lockedCrewRestriction.ts"), "utf8");
-    expect(src).toMatch(
-      /update public\.crew_members[\s\S]{0,400}?show_id = \(select id from public\.shows where drive_file_id = \$\{sqlString\(driveFileId\)\}\)/,
+  it("all locked crew_members writes share ONE lock-held transaction, and every helper delegates to it", () => {
+    // Arc C diff review R4, R5 (2), R6 — four P0s, every one of them a different
+    // way a PER-HELPER copy of the transaction block can be wrong while a
+    // lexical guard still passes:
+    //
+    //   R4:  a whole-file regex satisfied by the first helper, so the second
+    //        inherited a proof it never earned.
+    //   R5a: presence without ORDER — a lock moved below the UPDATE.
+    //   R5b: case-sensitive discovery — an uppercase third helper never walked,
+    //        while the "at least 2" floor was satisfied by the two that were.
+    //   R6:  order without HELD-NESS — `commit;` between the lock and the
+    //        UPDATE releases the lock, then the UPDATE runs unlocked.
+    //
+    // Recognizing a fourth paraphrase would have been the fourth round of the
+    // same argument. The helper instead collapsed to ONE `runLockedCrewUpdate`
+    // owning the entire begin/lock/update/returning/commit block, with each
+    // exported helper supplying only a SET fragment. So this guard now pins that
+    // single shape, and separately requires every exported helper to DELEGATE —
+    // which is what makes the paraphrase question closed rather than endless:
+    // there is no second copy of the shape to paraphrase.
+    // Comments are STRIPPED before any of this runs. The helper's own header
+    // discusses `begin;` and `commit;` in prose, and scanning the raw text found
+    // that prose first — a use-versus-mention error that failed the guard on a
+    // correct file. A doc comment describing the invariant must never be able to
+    // satisfy or break the check for it.
+    const lockedHelperPath = join(e2eDir, "helpers/lockedCrewRestriction.ts");
+    const src = stripCommentsForFile(readFileSync(lockedHelperPath, "utf8"), lockedHelperPath);
+
+    // Exactly one place writes the UPDATE at all.
+    const updates = [...src.matchAll(/update\s+public\.crew_members/gi)];
+    expect(updates.length, "crew_members UPDATE must exist in exactly ONE place").toBe(1);
+
+    const lockRe =
+      /pg_advisory_xact_lock\(hashtext\('show:' \|\| \$\{sqlString\(driveFileId\)\}\)\)/gi;
+    const locks = [...src.matchAll(lockRe)];
+    // Single-holder rule (invariant 2): zero is unlocked; two nested holders on
+    // one hashkey deadlock under burst.
+    expect(locks.length, "exactly one advisory-lock acquisition").toBe(1);
+
+    const beginAt = src.search(/\bbegin;/i);
+    const lockAt = locks[0]!.index!;
+    const updateAt = updates[0]!.index!;
+    // EVERY statement PostgreSQL documents as ending a transaction block, taken
+    // from the grammar rather than from the ones a reviewer happened to name:
+    //
+    //   COMMIT   [WORK | TRANSACTION] [AND [NO] CHAIN]
+    //   END      [WORK | TRANSACTION] [AND [NO] CHAIN]   (synonym for COMMIT)
+    //   ROLLBACK [WORK | TRANSACTION] [AND [NO] CHAIN]
+    //   ABORT    [WORK | TRANSACTION] [AND [NO] CHAIN]   (synonym for ROLLBACK)
+    //   PREPARE TRANSACTION 'gid'
+    //
+    // Enumerated in one go deliberately. R8 added `commit transaction;` after
+    // the bare `commit;` form let it through, and R9 then added `abort;` — one
+    // synonym per round is the drip this project charges to the author, not the
+    // reviewer. The set is closed because the grammar is documented and finite;
+    // any of these between the lock and the UPDATE releases the lock and leaves
+    // the UPDATE running unlocked.
+    const TXN_END = /\b(commit|rollback|end|abort|prepare\s+transaction)\b[^;]*;/gi;
+    const commitAt = src.search(/\b(commit|rollback|end|abort|prepare\s+transaction)\b[^;]*;/i);
+    expect(beginAt, "the block must open a transaction").toBeGreaterThanOrEqual(0);
+    expect(commitAt, "the block must commit").toBeGreaterThanOrEqual(0);
+    expect(beginAt, "begin before the lock").toBeLessThan(lockAt);
+    expect(lockAt, "lock before the UPDATE").toBeLessThan(updateAt);
+    // R6's mutant: a commit BETWEEN the lock and the UPDATE ends the transaction
+    // and releases the lock, so the UPDATE runs in a fresh implicit one. Taking
+    // the lock before the update is not the same as holding it for the update.
+    expect(updateAt, "the UPDATE must land inside the locked transaction").toBeLessThan(commitAt);
+    expect(
+      [...src.slice(lockAt, updateAt).matchAll(TXN_END)].length,
+      "nothing may end the transaction between taking the lock and running the UPDATE",
+    ).toBe(0);
+
+    expect(
+      src,
+      "the UPDATE must be scoped to the locked show (an id-only WHERE lets a stale or cross-show crew id mutate a row the held lock does not cover)",
+    ).toMatch(
+      /update\s+public\.crew_members[\s\S]{0,400}?show_id = \(select id from public\.shows where drive_file_id = \$\{sqlString\(driveFileId\)\}\)/i,
     );
+    expect(src, "a no-row match must throw, not pass quietly").toMatch(
+      /returning id;[\s\S]*?if \(!stdout\.includes\(crewId\)\)[\s\S]*?throw new Error/i,
+    );
+
+    // Every EXPORTED helper delegates. Reconciled, not floored: a floor is
+    // answered by the compliant helpers on behalf of the one that is not.
+    const exported = src
+      .split(/^export async function /m)
+      .slice(1)
+      .map((chunk) => ({ name: chunk.slice(0, chunk.indexOf("(")), body: chunk }));
+    const touching = exported.filter((f) => /crew_members|runLockedCrewUpdate/i.test(f.body));
+    expect(
+      touching.length,
+      "no exported crew_members helper found — the walk parsed nothing, so it proved nothing",
+    ).toBeGreaterThanOrEqual(2);
+    for (const { name, body } of touching) {
+      expect(body, `${name} must delegate to runLockedCrewUpdate`).toMatch(/runLockedCrewUpdate\(/);
+      expect(
+        /\b(begin|start\s+transaction|commit|rollback|end|abort|prepare\s+transaction)\b[^;]*;|pg_advisory_xact_lock|update\s+public\./i.test(
+          body,
+        ),
+        `${name} must not write its own SQL — the transaction shape lives in exactly one place`,
+      ).toBe(false);
+    }
   });
 });

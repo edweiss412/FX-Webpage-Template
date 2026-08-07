@@ -100,6 +100,21 @@ beforeEach(() => {
 });
 
 describe("RevokeRowButton — Task 7.1 revoke-hang watchdog", () => {
+  it("the couldn't-confirm region is mounted and EMPTY before any revoke", async () => {
+    // BL-LIVE-REGION-AST-WALK-RESIDUE, the failing half. The warning used to be
+    // inserted together with its text after a failed revoke, which announces
+    // nothing — a screen reader only reports mutations inside a region already
+    // in the DOM. It has to pre-exist the message, so it is asserted at idle,
+    // where there is no message yet.
+    const { getByTestId } = render(<RevokeRowButton email="x@example.com" disabled={false} />);
+    const announce = getByTestId("admin-allowlist-couldnt-confirm-announce");
+    expect(announce.getAttribute("role")).toBe("status");
+    expect(announce.textContent).toBe("");
+    // …and it is not the visible warning arriving early: the idle branch renders
+    // no couldn't-confirm line at all.
+    expect(document.querySelector('[data-testid="admin-allowlist-couldnt-confirm"]')).toBeNull();
+  });
+
   it("(a) infra_error result → inline error, button recovers from 'Revoking…' (real action path)", async () => {
     // Sanity: the real action maps the thrown AdminEmailsInfraError to the
     // typed result. If 6.4 is reverted (re-throw), this rejects and the
@@ -147,11 +162,21 @@ describe("RevokeRowButton — Task 7.1 revoke-hang watchdog", () => {
 
     const status = getByTestId("admin-allowlist-couldnt-confirm");
     expect(status).not.toBeNull();
-    expect(status.getAttribute("role")).toBe("status");
     // Curly apostrophe (&rsquo;) per DESIGN.md typography; normalize for the
     // assertion so it reads as the plain copy "Couldn't confirm. Refresh to check."
     const statusText = (status.textContent ?? "").replace(/’/g, "'");
     expect(statusText).toContain("Couldn't confirm. Refresh to check.");
+
+    // BL-LIVE-REGION-AST-WALK-RESIDUE. The announcement rides the PERSISTENT
+    // region, not this visible line: a `role="status"` inserted together with
+    // its text announces nothing, so the role assertion that used to live here
+    // was pinning a live region that never went live. The visible line keeps its
+    // copy and its Refresh affordance; the region carries the same sentence.
+    const announce = getByTestId("admin-allowlist-couldnt-confirm-announce");
+    expect(announce.getAttribute("role")).toBe("status");
+    expect((announce.textContent ?? "").replace(/’/g, "'")).toContain(
+      "Couldn't confirm. Refresh to check.",
+    );
 
     // The confirm/submit button is disabled so a second tap can't double-revoke.
     const confirmBtn = queryByTestId("admin-allowlist-revoke-confirm-button");

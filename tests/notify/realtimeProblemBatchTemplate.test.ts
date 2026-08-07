@@ -81,7 +81,7 @@ describe("renderRealtimeProblemBatch (batching spec §2.4)", () => {
     const batch = renderRealtimeProblemBatch("sync_problems", ORIGIN, members);
     expect(batch.text).toContain("Show 20");
     expect(batch.text).not.toContain("Show 21:");
-    expect(batch.text).toContain("…and 1 more — open the dashboard: https://fxav.example/admin");
+    expect(batch.text).toContain("…and 1 more. Open the dashboard: https://fxav.example/admin");
   });
 
   test("HTML-escapes member titles", () => {
@@ -99,7 +99,7 @@ describe("renderRealtimeProblemBatch (batching spec §2.4)", () => {
     const htmlParagraphs = (batch.html.match(/<p>/g) ?? []).length;
     expect(batch.text.split("\n\n")).toHaveLength(htmlParagraphs);
     if (n === 21) {
-      const overflowLine = "…and 1 more — open the dashboard: https://fxav.example/admin";
+      const overflowLine = "…and 1 more. Open the dashboard: https://fxav.example/admin";
       expect(batch.text).toContain(overflowLine);
       expect(batch.html).toContain("and 1 more");
     }

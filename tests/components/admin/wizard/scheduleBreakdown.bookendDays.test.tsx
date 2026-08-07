@@ -63,11 +63,11 @@ describe("wizard ScheduleBreakdown — all schedule days (bug #316 item 1)", () 
     // 2025-10-30 is NOT in the aggregate domain — a parser off-schedule strike.
     const ros = {
       "2025-10-30": day({
-        entries: [{ start: "5:00 PM", title: "Strike — GS", kind: "strike" as const }],
+        entries: [{ start: "5:00 PM", title: "Strike: GS", kind: "strike" as const }],
       }),
     };
     const { container } = render(<ScheduleBreakdown dfid="d" ros={ros} dates={fx} />);
-    expect(container.textContent).toContain("Strike — GS");
+    expect(container.textContent).toContain("Strike: GS");
     expect(phaseOf(container, "2025-10-30")).toBeNull(); // ros-only → no phase
   });
 
@@ -114,10 +114,10 @@ describe("wizard ScheduleBreakdown — all schedule days (bug #316 item 1)", () 
     const capFx = dates({ showDays: many });
     const ros = {
       "2025-12-31": day({
-        entries: [{ start: "5:00 PM", title: "Strike — GS", kind: "strike" as const }],
+        entries: [{ start: "5:00 PM", title: "Strike: GS", kind: "strike" as const }],
       }),
     };
     const { container } = render(<ScheduleBreakdown dfid="d" ros={ros} dates={capFx} />);
-    expect(container.textContent).toContain("Strike — GS");
+    expect(container.textContent).toContain("Strike: GS");
   });
 });

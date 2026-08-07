@@ -26,6 +26,24 @@
 import { useContext, useEffect, useId, useRef, useState, useTransition } from "react";
 
 import { UndoAnnounceContext } from "@/components/admin/undoAnnounceContext";
+
+/**
+ * The load-failure sentence, single-sourced so the card and its announcement are
+ * provably the same string. Bounded plain language: no raw kind token, no
+ * internal message (invariant 5); the curly apostrophe is the same character the
+ * `&apos;` entity rendered. No em dash (DESIGN.md).
+ */
+// NOT new error copy and not a §12.4 code. This is the component-local string
+// that was already inline in the JSX; it is hoisted to a constant precisely so
+// the visible card and its announcement are provably one string. Routing it
+// through the message-catalog lookup helper would mean adding a catalog row,
+// which arc A's spec
+// §5 explicitly excludes ("no new user-visible error code; all copy is existing
+// component-local constants"). Extracting it is what made a pre-existing pattern
+// visible to this scanner, not a new violation.
+// not-subject:M5-D8
+const AUTO_APPLIED_LOAD_FAILURE_COPY =
+  "We couldn’t load recently auto-applied changes right now. Refresh to try again.";
 import { ChevronRight } from "lucide-react";
 import type {
   AutoAppliedGroup,
@@ -501,9 +519,17 @@ function GroupSection({
             ) : null}
           </div>
 
+          {/* No `role="status"`, and deliberately NOT wired to the channel
+              either. This is an inline confirmation PROMPT, not a status
+              transition: it is interactive content adjacent to the control the
+              operator just activated, and focus lands on its buttons. Announcing
+              a prompt through a status channel is the wrong semantics — the
+              attribute here only ever read like a live region. The reason is
+              recorded in the CHANNEL_ANNOUNCERS header of
+              tests/components/_metaLiveRegionMounting.test.ts, which is the site
+              inventory of record. */}
           {confirming ? (
             <div
-              role="status"
               data-testid={`auto-applied-undo-all-confirm-${group.showId}`}
               className="flex flex-col gap-2 border-b border-border bg-warning-bg p-tile-pad text-warning-text"
             >
@@ -632,7 +658,7 @@ function StripHeader({
         learnMore={{ href: "/help/admin/review-queues#re-stage" }}
       >
         <p>
-          Changes that already went live on their own — crew added, removed, or renamed, plus
+          Changes that already went live on their own: crew added, removed, or renamed, plus
           schedule and field edits. Accept to clear them from this list, or undo the ones you
           didn&apos;t want.
         </p>
@@ -668,6 +694,34 @@ export function RecentAutoAppliedStrip({
   // /admin/needs-attention page (headingLevel 2) keeps its bare heading.
   const showAffordances = headingLevel === 4;
 
+  // BL-CHANNEL-ANNOUNCER-RESIDUAL-ROLE-STATUS. The error card's own
+  // `role="status"` announced nothing — it is inserted together with its text —
+  // and the file's only announce call is success-shaped and belongs to
+  // `GroupSection`, so a failed load was silent for AT.
+  //
+  // WHY AN EFFECT rather than a call beside a state set: this component owns no
+  // transition. It is a client component handed already-resolved `data` as a
+  // prop (the load runs server-side in `loadRecentAutoApplied`), so the only
+  // thing it can observe is the kind it was rendered WITH. The rule is
+  // therefore previously-observed-kind, not once-per-mount: a fresh server
+  // render of the error state announces once (mount counts as a transition from
+  // nothing), re-renders of the same data do not repeat, and a failure that
+  // recovers and fails again announces the second failure — which an
+  // announce-once-per-mount implementation would swallow.
+  //
+  // Declared BEFORE the early returns below (rules of hooks). Both host pages
+  // render under AdminAnnounceProvider; outside one the context default is a
+  // no-op, which is what `_metaUndoAnnounceProvider` exists to guard.
+  const { announce } = useContext(UndoAnnounceContext);
+  const prevKindRef = useRef<RecentAutoApplied["kind"] | null>(null);
+  useEffect(() => {
+    const prev = prevKindRef.current;
+    prevKindRef.current = data.kind;
+    if (data.kind === "infra_error" && prev !== "infra_error") {
+      announce(AUTO_APPLIED_LOAD_FAILURE_COPY);
+    }
+  }, [data.kind, announce]);
+
   if (data.kind === "infra_error") {
     // Bounded, plain-language fallback — never the raw kind token or internal
     // message (invariant 5). No error code is available at this layer to route
@@ -684,12 +738,14 @@ export function RecentAutoAppliedStrip({
           count={null}
           showAffordances={showAffordances}
         />
+        {/* No `role="status"`: this card is inserted with its text, so the
+            attribute announced nothing. The effect above carries the SAME
+            constant through the channel. */}
         <p
-          role="status"
           data-testid="auto-applied-error"
           className="rounded-md border border-border bg-surface p-tile-pad text-sm text-text-subtle"
         >
-          We couldn&apos;t load recently auto-applied changes right now. Refresh to try again.
+          {AUTO_APPLIED_LOAD_FAILURE_COPY}
         </p>
       </section>
     );

@@ -45,7 +45,7 @@ const DFID = "drive-abc-123";
 const WSID = "00000000-1111-4222-8333-444444444444";
 const STORAGE_KEY = `fxav-report-attempt-wizard-${WSID}-${DFID}`;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const SUCCESS_COPY = "Sent — thanks. The developer will take a look.";
+const SUCCESS_COPY = "Sent. Thanks, the developer will take a look.";
 
 /** The §D3 resolution rule, applied to a cataloged code — expectations DERIVE
  *  from the live catalog import, never restate copy. */

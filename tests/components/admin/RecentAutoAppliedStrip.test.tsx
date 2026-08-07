@@ -924,6 +924,109 @@ it("renders a bounded infra_error message that never leaks the raw code", () => 
   expect(screen.queryByText(/connection refused/)).toBeNull();
 });
 
+// ── BL-CHANNEL-ANNOUNCER-RESIDUAL-ROLE-STATUS: the load failure announces ─────
+//
+// This is the entry's named suspect site, and the probe confirmed it: the file's
+// one announce call is success-shaped and lives in a different component
+// (`GroupSection`'s undo-all), so the error card's own `role="status"` was the
+// only thing that looked like an announcement, and it announced nothing — it is
+// inserted together with its text.
+//
+// This component owns NO transition: it is a client component handed
+// already-resolved `data` as a prop (the load is server-side). So the announce
+// is an EFFECT keyed on the OBSERVED `data.kind`, and the four cases below are
+// the full semantics rather than a happy path. Mount counts as a transition from
+// nothing; an implementation that announces once per mount passes (i) and (ii)
+// and fails (iv) by name.
+//
+// Anti-tautology: expectations read the same copy the card renders, scraped from
+// the rendered card itself, so a copy edit cannot leave the two disagreeing.
+const ERROR_DATA: RecentAutoApplied = { kind: "infra_error", message: "boom" };
+
+function renderWithChannel(data: RecentAutoApplied) {
+  return render(
+    <AdminAnnounceProvider testId="admin-undo-status" label="Updates">
+      <RecentAutoAppliedStrip data={data} actions={noopActions()} />
+    </AdminAnnounceProvider>,
+  );
+}
+
+/**
+ * How many times `copy` appears in the region. CARDINALITY, not containment
+ * (cross-model review R1): the sink is a `role="log"` that ACCUMULATES, so a
+ * containment assertion is satisfied by the FIRST entry and can distinguish
+ * neither one announcement from two, nor a repeat failure that was silently
+ * dropped from one that was announced. Both directions are defects these cases
+ * exist to catch, so every one of them counts.
+ */
+function announceCount(copy: string): number {
+  const text = screen.getByTestId("admin-undo-status").textContent ?? "";
+  if (copy.length === 0) return 0;
+  return text.split(copy).length - 1;
+}
+
+it("(i) mounting with infra_error announces the load-failure copy EXACTLY ONCE", () => {
+  renderWithChannel(ERROR_DATA);
+  const cardCopy = screen.getByTestId("auto-applied-error").textContent ?? "";
+  expect(cardCopy.length).toBeGreaterThan(0);
+  // Exactly one: an effect that fired on mount AND on the first committed
+  // render would announce twice, which containment cannot see.
+  expect(announceCount(cardCopy)).toBe(1);
+  // The region is the provider's, outside the card that renders the same words.
+  expect(
+    screen.getByTestId("admin-undo-status").contains(screen.getByTestId("auto-applied-error")),
+  ).toBe(false);
+});
+
+it("(ii) re-rendering the SAME error data does not re-announce", () => {
+  const q = renderWithChannel(ERROR_DATA);
+  const region = screen.getByTestId("admin-undo-status");
+  const once = region.textContent ?? "";
+  q.rerender(
+    <AdminAnnounceProvider testId="admin-undo-status" label="Updates">
+      <RecentAutoAppliedStrip data={ERROR_DATA} actions={noopActions()} />
+    </AdminAnnounceProvider>,
+  );
+  expect(screen.getByTestId("admin-undo-status").textContent ?? "").toBe(once);
+});
+
+it("(iii) an ok payload that becomes infra_error announces", () => {
+  const q = renderWithChannel(okData());
+  expect(screen.getByTestId("admin-undo-status").textContent ?? "").toBe("");
+  q.rerender(
+    <AdminAnnounceProvider testId="admin-undo-status" label="Updates">
+      <RecentAutoAppliedStrip data={ERROR_DATA} actions={noopActions()} />
+    </AdminAnnounceProvider>,
+  );
+  const cardCopy = screen.getByTestId("auto-applied-error").textContent ?? "";
+  expect(announceCount(cardCopy)).toBe(1);
+});
+
+it("(iv) infra_error → ok → infra_error announces AGAIN (the previously-observed-kind rule)", () => {
+  // An announce-once-per-mount implementation fails exactly here: the second
+  // failure is a new outcome the operator has not been told about.
+  const q = renderWithChannel(ERROR_DATA);
+  const firstCopy = screen.getByTestId("auto-applied-error").textContent ?? "";
+  expect(announceCount(firstCopy)).toBe(1);
+
+  q.rerender(
+    <AdminAnnounceProvider testId="admin-undo-status" label="Updates">
+      <RecentAutoAppliedStrip data={okData()} actions={noopActions()} />
+    </AdminAnnounceProvider>,
+  );
+  q.rerender(
+    <AdminAnnounceProvider testId="admin-undo-status" label="Updates">
+      <RecentAutoAppliedStrip data={ERROR_DATA} actions={noopActions()} />
+    </AdminAnnounceProvider>,
+  );
+  const cardCopy = screen.getByTestId("auto-applied-error").textContent ?? "";
+  // TWO, COUNTED. The log accumulates, so the first entry alone satisfies a
+  // containment check — which is exactly the residue an announce-once-per-mount
+  // implementation leaves behind while silently dropping the second failure.
+  // Counting is the only assertion that separates those two worlds.
+  expect(announceCount(cardCopy)).toBe(2);
+});
+
 // ── Mobile auto-applied parity (Task 1): headingLevel prop + FLOW4-7 ──────────
 
 it("default: section heading is h4, group headings are h5 (dashboard regression pin)", () => {
@@ -1112,7 +1215,7 @@ it("REDESIGN-3: renders a fields diff with the field name as the heading", () =>
     <RecentAutoAppliedStrip
       data={fieldsData([
         { label: "COI status", from: "(none)", to: "received", note: null },
-        { label: "Role — Jordan A. Lee", from: "A1, LEAD", to: "A1", note: null },
+        { label: "Role: Jordan A. Lee", from: "A1, LEAD", to: "A1", note: null },
         { label: "PO number", from: null, to: null, note: "cleared on this sync" },
       ])}
       actions={noopActions()}
@@ -1120,7 +1223,7 @@ it("REDESIGN-3: renders a fields diff with the field name as the heading", () =>
     />,
   );
   expect(screen.getByText("COI status")).toBeInTheDocument();
-  expect(screen.getByText("Role — Jordan A. Lee")).toBeInTheDocument();
+  expect(screen.getByText("Role: Jordan A. Lee")).toBeInTheDocument();
   expect(screen.getByText("cleared on this sync")).toBeInTheDocument();
   // field label is the heading — carries semibold weight (over the diff values).
   expect(screen.getByText("COI status")).toHaveClass("font-semibold");
@@ -1154,7 +1257,7 @@ it("REDESIGN-3: crew rows STILL render the 'Crew member' label", () => {
 });
 
 it("REDESIGN-3: long values wrap on label/from/to/note (no overflow)", () => {
-  const lname = "Role — " + "N".repeat(110);
+  const lname = "Role: " + "N".repeat(110);
   const lfrom = "F".repeat(120);
   const lto = "T".repeat(120);
   const lnote = "P".repeat(120);
@@ -1175,7 +1278,7 @@ it("REDESIGN-3: long values wrap on label/from/to/note (no overflow)", () => {
 
 it("REDESIGN-3: renders ALL entries — no +N more collapse", () => {
   const entries: FieldChangeEntry[] = Array.from({ length: 14 }, (_, i) => ({
-    label: `Role — Person ${i}`,
+    label: `Role: Person ${i}`,
     from: "A1",
     to: "A1, LEAD",
     note: null,
@@ -1188,7 +1291,7 @@ it("REDESIGN-3: renders ALL entries — no +N more collapse", () => {
     />,
   );
   for (let i = 0; i < 14; i++) {
-    expect(screen.getByText(`Role — Person ${i}`)).toBeInTheDocument();
+    expect(screen.getByText(`Role: Person ${i}`)).toBeInTheDocument();
   }
   expect(screen.queryByText(/\+\d+ more|show more/i)).toBeNull();
 });
@@ -1201,7 +1304,7 @@ it("REDESIGN-3: the Unavailable marker renders as a distinct warning row", () =>
           label: "Unavailable",
           from: null,
           to: null,
-          note: "1 field change on this sync — details unavailable",
+          note: "1 field change on this sync: details unavailable",
         },
       ])}
       actions={noopActions()}
@@ -1220,7 +1323,7 @@ it("announces THAT row's summary when a single-row undo succeeds", async () => {
   // Expectation derives from the fixture's own summary.
   const actions = noopActions();
   render(
-    <AdminAnnounceProvider testId="admin-undo-status" label="Undo updates">
+    <AdminAnnounceProvider testId="admin-undo-status" label="Status updates">
       <RecentAutoAppliedStrip data={okData()} actions={actions} defaultExpanded />
     </AdminAnnounceProvider>,
   );

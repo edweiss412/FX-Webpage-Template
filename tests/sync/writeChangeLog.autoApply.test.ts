@@ -248,7 +248,7 @@ describe("writeAutoApplyChanges (Task 2.9)", () => {
       expect(fieldRow.after_image).toEqual({
         fieldChanges: [
           { label: "COI status", from: "pending", to: "received", note: null },
-          { label: "Role — Jordan Lee", from: "A1, LEAD", to: "A1", note: null },
+          { label: "Role: Jordan Lee", from: "A1, LEAD", to: "A1", note: null },
         ],
       });
       expect(fieldRow.summary).toBe("COI status, Role changed on this sync");
@@ -273,7 +273,7 @@ describe("writeAutoApplyChanges (Task 2.9)", () => {
       const row = (await readChangeLog(tx, showId)).find((r) => r.change_kind === "field_changed")!;
       expect(row.after_image).not.toBeNull();
       expect((row.after_image as { fieldChanges: unknown[] }).fieldChanges[0]).toMatchObject({
-        label: "Role — Sam",
+        label: "Role: Sam",
         from: "(none)",
         to: "LEAD",
       });

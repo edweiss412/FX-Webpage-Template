@@ -153,6 +153,62 @@ describe("RoleRecognizeControl — saving + terminal states", () => {
     ).toBe(false);
   });
 
+  // ── BL-CHANNEL-ANNOUNCER-RESIDUAL-ROLE-STATUS ────────────────────────────
+  // The card's `role="status"` announces nothing (it is inserted with its text,
+  // the class this file's other case documents), so the channel is the ONLY
+  // announcement. That makes per-message channel coverage the real contract,
+  // and the census found it incomplete: the announce always said
+  // `savedSummary`, which is the wrong copy for two of the three saved states,
+  // and the stale/conflict branches announced nothing at all.
+  //
+  // ANTI-TAUTOLOGY: expectations read the copy constants the card renders, never
+  // a duplicated literal, and the region asserted on is the PROVIDER's.
+  function renderWithChannel(onSave: () => Promise<RoleRecognizeSaveOutcome>) {
+    return render(
+      <AdminAnnounceProvider testId="admin-undo-status" label="Updates">
+        <RoleRecognizeControl roleToken={TOKEN} onSave={onSave} />
+      </AdminAnnounceProvider>,
+    );
+  }
+
+  it.each([
+    ["revised", COPY.EDIT_SAVED_CONFIRM],
+    ["apply_pending", COPY.APPLY_PENDING_SUMMARY],
+  ] as const)(
+    "a %s save announces the copy the card actually displays, not the applied summary",
+    async (state, expectedCopy) => {
+      // The pre-fix behaviour IS the failure mode: it announced
+      // `savedSummary(...)` for every saved state, so a screen-reader user was
+      // told the role had been applied to this show when it had not.
+      const grants: GrantableFlag[] = ["A1"];
+      renderWithChannel(async () => ({ kind: "saved", state, grants }) as const);
+      expand();
+      fireEvent.click(screen.getByTestId("role-recognize-save"));
+      await waitFor(() => expect(screen.getByTestId("role-recognize-saved")).toBeInTheDocument());
+
+      const region = screen.getByTestId("admin-undo-status");
+      expect(region.textContent ?? "").toContain(expectedCopy);
+      // …and it is NOT the applied-state summary the pre-fix code always sent.
+      expect(region.textContent ?? "").not.toContain(COPY.savedSummary(TOKEN, grants));
+      // The region is outside the replaced subtree, or this proves nothing.
+      expect(region.contains(screen.getByTestId("role-recognize-saved"))).toBe(false);
+    },
+  );
+
+  it.each([
+    ["stale", "role-recognize-stale", COPY.STALE_COPY],
+    ["conflict", "role-recognize-conflict", COPY.CONFLICT_COPY],
+  ] as const)("a %s outcome announces its own notice copy", async (kind, testId, expectedCopy) => {
+    renderWithChannel(async () => ({ kind }) as const);
+    expand();
+    fireEvent.click(screen.getByTestId("role-recognize-save"));
+    await waitFor(() => expect(screen.getByTestId(testId)).toBeInTheDocument());
+
+    const region = screen.getByTestId("admin-undo-status");
+    expect(region.textContent ?? "").toContain(expectedCopy);
+    expect(region.contains(screen.getByTestId(testId))).toBe(false);
+  });
+
   it("applied → saved card with grant summary", async () => {
     const grants: GrantableFlag[] = ["A1", "V1"];
     const onSave = vi.fn(async () => ({ kind: "saved", state: "applied", grants }) as const);
@@ -331,7 +387,15 @@ describe("RoleRecognizeControl — live regions + focus", () => {
     await waitFor(() => expect(screen.getByText(COPY.PANEL_HEADING)).toHaveFocus());
   });
 
-  it("saved card is a status live region and takes focus on save", async () => {
+  // BL-CHANNEL-ANNOUNCER-RESIDUAL-ROLE-STATUS. These two cases used to assert
+  // `role="status"` on the saved card and the stale notice. Both attributes were
+  // on nodes the phase flip inserts WHOLESALE, so neither was ever a live region
+  // — the assertions pinned the appearance of an announcement, which is exactly
+  // the misreading that produced the class. They now pin what is real: the copy
+  // renders, focus still lands where it did, and the announcement rides the
+  // channel (the per-outcome cases above).
+
+  it("saved card renders its copy and takes focus on save, carrying no dead status role", async () => {
     const onSave = vi.fn(
       async () => ({ kind: "saved", state: "applied", grants: ["A1"] }) as const,
     );
@@ -339,17 +403,18 @@ describe("RoleRecognizeControl — live regions + focus", () => {
     expand();
     fireEvent.click(screen.getByTestId("role-recognize-save"));
     await waitFor(() => expect(screen.getByTestId("role-recognize-saved")).toBeInTheDocument());
-    expect(screen.getByTestId("role-recognize-control")).toHaveAttribute("role", "status");
+    expect(screen.getByTestId("role-recognize-control")).not.toHaveAttribute("role");
     await waitFor(() => expect(screen.getByText(COPY.SAVED_HEADING)).toHaveFocus());
   });
 
-  it("stale / conflict notices are status live regions", async () => {
+  it("stale / conflict notices render their copy, carrying no dead status role", async () => {
     const onSave = vi.fn(async () => ({ kind: "stale" }) as const);
     render(<RoleRecognizeControl roleToken={TOKEN} onSave={onSave} />);
     expand();
     fireEvent.click(screen.getByTestId("role-recognize-save"));
     await waitFor(() => expect(screen.getByTestId("role-recognize-stale")).toBeInTheDocument());
-    expect(screen.getByTestId("role-recognize-stale")).toHaveAttribute("role", "status");
+    expect(screen.getByTestId("role-recognize-stale")).not.toHaveAttribute("role");
+    expect(screen.getByText(COPY.STALE_COPY)).toBeInTheDocument();
   });
 });
 

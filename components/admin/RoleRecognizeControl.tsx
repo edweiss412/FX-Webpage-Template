@@ -51,6 +51,29 @@ export type RoleRecognizeSaveOutcome =
   | { kind: "conflict" }
   | { kind: "error" };
 
+type SavedState = "applied" | "apply_pending" | "revised";
+
+/**
+ * The saved card's summary line. ONE selector, read by both the card and the
+ * announcement, because the three saved states carry MATERIALLY different
+ * convergence claims: `applied` says this show already reflects the change,
+ * `revised` and `apply_pending` say it will on the next sheet check. The
+ * announce used to send `savedSummary` unconditionally, so a screen-reader user
+ * heard the applied claim for all three. Two copies of this switch would drift
+ * back into exactly that.
+ */
+function savedSummaryLine(
+  state: SavedState,
+  token: string,
+  grants: readonly GrantableFlag[],
+): string {
+  return state === "applied"
+    ? COPY.savedSummary(token, grants)
+    : state === "revised"
+      ? COPY.EDIT_SAVED_CONFIRM
+      : COPY.APPLY_PENDING_SUMMARY;
+}
+
 type Phase = "collapsed" | "idle" | "saving" | "saved" | "stale" | "conflict";
 type Checks = Record<GrantableFlag, boolean>;
 
@@ -169,11 +192,21 @@ export function RoleRecognizeControl({
       // region that arrives already populated is not announced. An internal
       // stable region is not even possible here: the subtree it would live in is
       // the one being replaced. The provider's channel outlives every phase.
-      announce(`${COPY.SAVED_HEADING}. ${COPY.savedSummary(token, outcome.grants)}`);
+      //
+      // BL-CHANNEL-ANNOUNCER-RESIDUAL-ROLE-STATUS: the summary comes from the
+      // SAME selector the card renders. It used to be `savedSummary` for every
+      // saved state, so a revised or apply-pending save told a screen-reader
+      // user the role had been applied to this show when it had not.
+      announce(`${COPY.SAVED_HEADING}. ${savedSummaryLine(outcome.state, token, outcome.grants)}`);
     } else if (outcome.kind === "stale") {
       setPhase("stale");
+      // The notice card's own role="status" is inserted with its text and
+      // announces nothing, and the phase flip replaces the whole subtree — so
+      // without this the outcome was silent for AT entirely.
+      announce(COPY.STALE_COPY);
     } else if (outcome.kind === "conflict") {
       setPhase("conflict");
+      announce(COPY.CONFLICT_COPY);
     } else {
       setErrored(true);
       setPhase("idle"); // panel stays, selections kept
@@ -203,10 +236,13 @@ export function RoleRecognizeControl({
   // ── Saved confirmation (client-local until surface refresh unmounts) ──────
   if (phase === "saved" && saved) {
     return (
+      // BL-CHANNEL-ANNOUNCER-RESIDUAL-ROLE-STATUS: no `role="status"` here. The
+      // phase flip inserts this card wholesale, so the attribute announced
+      // nothing and only read like a live region to the next editor — the exact
+      // misreading that produced the class. The channel above carries it.
       <div
         data-testid={tid("role-recognize-control")}
         data-phase="saved"
-        role="status"
         className={`mt-2 flex items-start gap-2.5 rounded-md border border-border bg-surface px-3.5 py-3 ${popIn}`}
       >
         <span
@@ -228,11 +264,7 @@ export function RoleRecognizeControl({
             {COPY.SAVED_HEADING}
           </span>
           <span className="text-xs text-text-subtle">
-            {saved.state === "applied"
-              ? COPY.savedSummary(token, saved.grants)
-              : saved.state === "revised"
-                ? COPY.EDIT_SAVED_CONFIRM
-                : COPY.APPLY_PENDING_SUMMARY}{" "}
+            {savedSummaryLine(saved.state, token, saved.grants)}{" "}
             <button
               type="button"
               data-testid={tid("role-recognize-change")}
@@ -252,9 +284,11 @@ export function RoleRecognizeControl({
     const isStale = phase === "stale";
     return (
       <div data-testid={tid("role-recognize-control")} data-phase={phase} className="mt-2">
+        {/* No `role="status"`: the phase flip inserts this notice with its text,
+            so the attribute announced nothing. `save()` announces the same copy
+            through the channel on these branches. */}
         <p
           data-testid={tid(isStale ? "role-recognize-stale" : "role-recognize-conflict")}
-          role="status"
           className="rounded-md border border-border bg-info-bg px-3 py-2 text-xs text-text-subtle"
         >
           {isStale ? COPY.STALE_COPY : COPY.CONFLICT_COPY}

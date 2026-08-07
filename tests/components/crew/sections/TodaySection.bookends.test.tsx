@@ -111,7 +111,7 @@ test("when today is the set day, Today's run-of-show shows the synthesized Load 
 test("unassigned crew viewer is DENIED the load-out on today; the strike still shows", () => {
   const entries: AgendaEntry[] = [
     { start: "9:00 AM", title: "Registration" },
-    { start: "5:00 PM", title: "Strike — GS", kind: "strike" },
+    { start: "5:00 PM", title: "Strike: GS", kind: "strike" },
     { start: "6:00 PM", title: "Load Out", kind: "loadout" },
   ];
   const data = makeShowForViewer({
@@ -137,7 +137,7 @@ test("unassigned crew viewer is DENIED the load-out on today; the strike still s
   expect(loadoutRow(ros)).toBeNull();
   expect(ros.textContent ?? "").not.toContain("Load Out");
   // The strike title is still readable.
-  expect(within(ros).getByText("Strike — GS")).toBeTruthy();
+  expect(within(ros).getByText("Strike: GS")).toBeTruthy();
 });
 
 test("admin AND an assigned crew viewer both see today's load-out", () => {

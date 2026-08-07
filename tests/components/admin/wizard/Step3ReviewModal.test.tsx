@@ -914,6 +914,56 @@ describe("Step3ReviewModal — footer Unpublish + demoted gate (spec §C2/§C3)"
     expect(within(footer).getByTestId(tid("publish")).textContent).toBe("Unpublish");
   });
 
+  test("the publish-error region persists into a NON-default footer arm", () => {
+    // BL-LIVE-REGION-AST-WALK-RESIDUE, the failing half. The note itself was
+    // already mounted-and-toggled, but its enclosing ROW is the final else-arm
+    // of the resolution / dirty-rescan / finalize-demoted chain, so the region
+    // still arrived with the arm that carries its text. The region has to
+    // outlive the arm, which is only observable from a different arm.
+    const { q } = renderModal({ isDirtyRescan: true });
+    const footer = q.getByTestId(tid("footer"));
+    const region = within(footer).getByTestId(tid("publish-error"));
+    expect(region.getAttribute("role")).toBe("status");
+    // Present but silent: the dirty-rescan arm has no publish error to report.
+    expect(region.textContent).toBe("");
+    expect(region.className).toMatch(/\bsr-only\b/);
+  });
+
+  test("the publish-error TEXT stays arm-scoped: a retained error state does not resurface in another arm", async () => {
+    // `publishState` is never reset on an arm change, so a region whose text
+    // keyed on `publishState` alone would print a stale failure inside the
+    // dirty-rescan / resolution / finalize-demoted arms — copy that describes an
+    // action the operator is no longer looking at.
+    const { q } = renderModal({
+      checked: true,
+      isDirtyRescan: false,
+      onRequestSetChecked: vi.fn(async () => false),
+    });
+    const footer = q.getByTestId(tid("footer"));
+    fireEvent.click(within(footer).getByTestId(tid("publish")));
+    await waitFor(() =>
+      expect(within(footer).getByTestId(tid("publish-error")).textContent).toBe(
+        "Couldn't update the publish selection. Try again.",
+      ),
+    );
+
+    // Same mount, arm switched by the server-truth prop the chain reads.
+    q.rerender(
+      <Step3ReviewModal
+        data={sectionData()}
+        checked={true}
+        isDirtyRescan={true}
+        onRequestSetChecked={vi.fn(async () => true)}
+        onClose={vi.fn()}
+      />,
+    );
+    const after = q.getByTestId(tid("footer"));
+    expect(within(after).getByTestId(tid("publish-error")).textContent).toBe("");
+    expect(
+      within(after).queryByText("Couldn't update the publish selection. Try again."),
+    ).toBeNull();
+  });
+
   test("[BUG §B1] while unpublish is pending the slot follows the OPERATION: quiet 'Removing…' even though checked already flipped false (broken code renders the accent 'Selecting…'); rapid second click fires NO second request; success settles to the publish CTA", async () => {
     const d = deferred();
     const request = vi.fn(() => d.promise);
@@ -1209,8 +1259,8 @@ describe("Step3ReviewModal — chip rail (spec §6.3)", () => {
       if (s.hideDot) {
         expect(chip.textContent).toBe(s.label);
       } else {
-        expect(chip.textContent).toMatch(/ — (needs review|no issues)$/);
-        expect(chip.textContent?.replace(/ — (needs review|no issues)$/, "")).toBe(s.label);
+        expect(chip.textContent).toMatch(/, (needs review|no issues)$/);
+        expect(chip.textContent?.replace(/, (needs review|no issues)$/, "")).toBe(s.label);
       }
     }
   });

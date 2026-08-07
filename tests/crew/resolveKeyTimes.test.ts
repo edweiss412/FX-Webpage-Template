@@ -327,7 +327,7 @@ describe("resolveKeyTimes — synthetic strike/loadout entries are not show anch
     const runOfShow: RunOfShow = {
       "2025-05-14": {
         entries: [
-          { start: "4:30 PM", title: "Strike — GS", kind: "strike" },
+          { start: "4:30 PM", title: "Strike: GS", kind: "strike" },
           { start: "9:00 AM", title: "Keynote" },
         ],
         showStart: null,
