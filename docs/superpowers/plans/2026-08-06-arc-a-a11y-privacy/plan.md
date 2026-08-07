@@ -74,9 +74,10 @@ Every file/symbol/command named below was grep-verified 2026-08-06 in the author
 
 ### Task T5 — close the branch
 
-1. `/impeccable critique` + `/impeccable audit` on the unit diff (canonical v3 setup gates BEFORE this point — they run before the first component edit in T1); P0/P1 fixed or DEFERRED-entried; findings + dispositions in `closeout.md` in this directory with the filled `impeccable-gate:` marker line.
-2. Whole-diff codex-guard review `--stage diff` to APPROVE (round cap 4; split tight-scope briefs if needed: crew/privacy files vs admin a11y files). Brief carries the spec §1.1 do-not-relitigate list.
-3. Merge `origin/main` (sibling arcs and L-wave units contend on the ledgers; per-entry resolution, both sides preserved); strip any surviving marker in the last pre-merge commit (archived entries shed theirs in their moves — expected surviving set: none; the terminal check `grep -c 'Branch:\*\* feat/a11y-privacy-cluster' BACKLOG.md DEFERRED.md` returns 0). PR; real CI green; `gh pr merge --merge` same turn; ff main `0 0`.
+1. `/impeccable critique` + `/impeccable audit` on the unit diff (canonical v3 setup gates BEFORE this point — they run before the first component edit in T1); P0/P1 fixed or DEFERRED-entried; findings + dispositions in `closeout.md` in this directory with the filled `impeccable-gate:` marker line — closeout authored NOW, pre-merge (the AC-A5 artifact rides in the PR).
+2. Merge `origin/main` (sibling arcs and L-wave units contend on the ledgers; per-entry resolution, both sides preserved); strip any surviving marker (archived entries shed theirs in their moves — expected surviving set: none; terminal check `grep -c 'Branch:\*\* feat/a11y-privacy-cluster' BACKLOG.md DEFERRED.md` returns 0). THE DIFF IS NOW FINAL.
+3. Whole-diff codex-guard review `--stage diff` to APPROVE over that final diff (round cap 4; split tight-scope briefs if needed: crew/privacy files vs admin a11y files; brief carries the spec §1.1 do-not-relitigate list). NO functional commit lands after the APPROVE — a CI-forced change takes a scoped delta re-review.
+4. PR; real CI green; `gh pr merge --merge` same turn; ff main `0 0`.
 
 ## Adversarial review (cross-model)
 

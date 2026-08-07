@@ -30,7 +30,7 @@ Plan order is binding: T1 (travel-date suppression) → T2a–T2e (live regions)
 
 ## Non-negotiables (the ones this arc exercises)
 
-- TDD per task (invariant 1): the plan states each task's RED — the live-region RED (repair → observe the stale-PENDING failure by name → remove the row → green), the archive RED (move WITH marker → observe `_metaLedgerInProgress` fail by name → strip → green), and per-site behavioural REDs. T4's e2e RED must be OBSERVED failing before implementation.
+- TDD per task (invariant 1): the plan states each task's RED — the live-region RED is a BEHAVIOURAL region-presence case observed failing BEFORE the repair (plan global constraints; the stale-PENDING failure is a post-repair cross-check where the file goes clean), the archive RED (move WITH marker → observe `_metaLedgerInProgress` fail by name → strip → green), and T4's e2e RED must be OBSERVED failing before implementation.
 - Conventional commits (invariant 6); commit messages named per task in the plan.
 - Worktree-only edits (invariant 11). Ledger claims (invariant 12): markers strip inside each archive move; terminal check per plan T5.
 - Dual gate (invariant 8): setup gates BEFORE code (Step 0.8); critique + audit at close (T5); closeout carries the filled `impeccable-gate:` marker line. You are Opus — the UI hard rule is satisfied by you implementing it yourself.
@@ -41,7 +41,7 @@ Plan order is binding: T1 (travel-date suppression) → T2a–T2e (live regions)
 
 ## Escalation
 
-Genuine unresolvable ambiguity NOT covered by spec §1.1 → set `blockedOn`, PushNotification once, continue any unblocked work. An ambiguity that maps to a ratified decision is NOT a stop. T2c's exemption-vs-clean outcome is NOT an ambiguity — both outcomes are compliant; decide against `conditionalStatusRegions` output.
+Genuine unresolvable ambiguity NOT covered by spec §1.1 → set `blockedOn`, PushNotification once, continue any unblocked work. An ambiguity that maps to a ratified decision is NOT a stop. T2c's dispositions are SETTLED by the spec's R1/R2 probes (report-status hoists above the expanded gate; agenda hoists file-local) — not ambiguities.
 
 ## Arc completion
 
