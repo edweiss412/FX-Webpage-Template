@@ -65,6 +65,11 @@ const BACKLOG_OPTS: ExtractOpts = { requirePrefix: "BL-", levels: [2, 3] };
  * invariant reaches only headings that actually carry an id (see DEFERRAL_ID).
  */
 const GRADUATED = [
+  // feat/a11y-privacy-cluster (2026-08-07, arc A): the share-link scroll cue.
+  // Un-deferred by the user into an arc that could own both requirements the
+  // deferral named — a transition inventory for the new motion surface and a
+  // reduced-motion arm — so it graduated by satisfying them, not by waiving them.
+  "SHARELINK-CUE-VISIBILITY-1",
   "SETTINGS-DEVROW-GALLERY-RESIDUE-1",
   // feat/sharehub-archive-copy-reveal (2026-07-24). The first RESOLVED by the
   // popover placement migration; the second archived as REFUTED rather than

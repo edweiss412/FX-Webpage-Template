@@ -140,33 +140,6 @@ exempted, and the gap is recorded here where deferrals are actually reviewed.
 passive effects (a custom React scheduler shim, or `scheduler/unstable_mock`).
 Register the mutation as an adversary at that point and confirm it reds.
 
-### SHARELINK-CUE-VISIBILITY-1 — impeccable critique P1 (2026-07-25, share-link-chrome-backlog)
-
-**Status:** IN PROGRESS · **Branch:** feat/a11y-privacy-cluster
-
-**Effort:** M
-
-The crew-URL cue can fire above the fold. The URL block sits at the top of the
-share hub's scrolling popover and the rotate control is below it, so on a phone
-the operator has scrolled past the block by the time they tap Confirm
-(`admin-lifecycle-layout.spec.ts:393` already measures that popover overflowing
-at 390x560). The critique's proposed fix is the `scrollIntoView` idiom already
-in `components/admin/showpage/ShareHub.tsx:892-907`, fired on the null-to-non-null
-`flash` edge.
-
-DEFERRED, with the severity re-read down from P1. The `role="status"` banner
-renders inside the rotate control's own subtree — exactly where the operator
-just tapped and is therefore looking — and its copy already points upward ("The
-updated link is shown above."). So the OUTCOME is communicated on the local
-path whether or not the cue is seen; what is missed is the enhancement, not the
-message. Auto-scrolling a popover during a destructive confirm is also a new
-motion surface needing its own transition inventory and reduced-motion arm,
-which is more than a polish pass should take on unreviewed.
-
-Un-defer trigger: an operator reporting they missed a rotation, or the next
-admin mobile pass, which can own the scroll behaviour and its reduced-motion
-handling together.
-
 ### SHARELINK-CUE-FORCED-COLORS-1 — impeccable audit P3 (2026-07-25, share-link-chrome-backlog)
 
 **Effort:** L
