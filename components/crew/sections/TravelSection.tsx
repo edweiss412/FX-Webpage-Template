@@ -436,9 +436,15 @@ export function TravelSection({
               (transportation?.schedule ?? []).some(
                 (leg) => !shouldHideGenericOptional(leg.date),
               ) ||
-              // Under `allHidden` every flight row was withheld, so any segment
-              // at all means the withholding is what emptied the block.
-              sortedFlightSegments.length > 0);
+              // Keyed on a DATE here too, not on the row count. Under
+              // `allHidden` every flight row was withheld, but a row can be
+              // withheld by the raw-fallback rule WITHOUT having carried a date:
+              // "Charter pending" parses with `date` and `dateRaw` both null.
+              // Counting rows would tell that viewer their dates are hidden when
+              // none existed — the same falsehood as the hotel and leg terms
+              // above, pointed a third way. Its content loss is documented
+              // limit 7, and a plain absence beats a wrong reason.
+              sortedFlightSegments.some((seg) => seg.date !== null || seg.dateRaw !== null));
 
           // §4.9 mock `split-wide`: at ≥720px the section is two columns — a WIDE
           // LEFT "Getting there" (ground transport / itinerary) and a NARROW RIGHT

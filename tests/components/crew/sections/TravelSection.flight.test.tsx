@@ -326,6 +326,34 @@ describe("TravelSection — flight date suppression (unknown_asterisk viewer)", 
     expect(empty!.textContent).toBe("Travel dates are hidden until your days are confirmed.");
   });
 
+  it("an UNDATED raw itinerary does not claim dates were hidden", () => {
+    // Cross-model review R2, and the third instance of one class: the hotel and
+    // leg causes were keyed on whether a DATE existed, but the flight cause was
+    // keyed on whether a SEGMENT existed. "Charter pending" carries no date
+    // token at all, so it parses with `date: null` AND `dateRaw: null` — it is
+    // withheld by the raw-fallback rule, not by the date rule. Telling the
+    // viewer their dates are hidden is a false explanation for a row that never
+    // had one, which is the same falsehood the suppressed-copy branch exists to
+    // prevent, pointed a third way.
+    //
+    // The generic no-data copy is the honest arm here: the content loss for an
+    // undated raw row is documented limit 7, and asserting a WRONG REASON is
+    // worse than reporting a plain absence.
+    const { queryByTestId } = render(
+      <TravelSection
+        {...ledgerProp()}
+        data={restrict(baseData({ viewerFlightInfo: "Charter pending" }), UNKNOWN)}
+        viewer={VIEWER}
+        today={TODAY}
+        showId="s1"
+      />,
+    );
+    expect(queryByTestId("travel-flight")).toBeNull();
+    const empty = queryByTestId("section-empty");
+    expect(empty).toBeInTheDocument();
+    expect(empty!.textContent).toBe("No travel details on file yet.");
+  });
+
   it("a {kind: none} viewer still sees the date, the chip, the highlight, and the raw row", () => {
     // The non-suppression twin: a gate keyed on any restriction rather than the
     // ONE kind passes every case above and fails here by name.
