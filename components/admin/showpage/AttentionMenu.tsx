@@ -43,8 +43,8 @@ export type AttentionMenuProps = {
 };
 
 const TONE_DOT: Record<AttentionItem["tone"], { dot: string; srText: string }> = {
-  critical: { dot: "bg-status-degraded", srText: "urgent — " },
-  notice: { dot: "bg-status-review", srText: "needs review — " },
+  critical: { dot: "bg-status-degraded", srText: "urgent: " },
+  notice: { dot: "bg-status-review", srText: "needs review: " },
 };
 
 export function AttentionMenu({ items, open, onClose, onNavigate, pillRef }: AttentionMenuProps) {

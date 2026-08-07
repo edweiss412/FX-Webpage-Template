@@ -458,7 +458,7 @@ export function ShowsTable({
           data-testid="shows-table-overflow"
           className="rounded-md border border-border bg-surface-sunken p-3 text-sm text-text-subtle"
         >
-          Showing the first {rows.length} of {activeCount} shows — sorting and Find apply to just
+          Showing the first {rows.length} of {activeCount} shows; sorting and Find apply to just
           these {rows.length}, not the full set. Contact the developer if you need the full list.
         </p>
       ) : null}
@@ -483,7 +483,7 @@ export function ShowsTable({
             // searched (adversarial R1, M12.3). Scope the copy honestly so a
             // no-match never reads as "this show does not exist".
             <>
-              No matches for “{query.trim()}” among the {rows.length} shown shows — {overflowCount}{" "}
+              No matches for “{query.trim()}” among the {rows.length} shown shows; {overflowCount}{" "}
               more aren’t loaded here.
             </>
           ) : (

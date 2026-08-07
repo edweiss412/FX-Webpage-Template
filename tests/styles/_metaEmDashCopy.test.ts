@@ -56,7 +56,7 @@ const EM_DASH = "—";
  * text exclusively through §12.4 catalog codes (invariant 5), so their literals
  * are internal by contract — and the catalog itself is a covered surface.
  */
-const COVERED_TS_ROOTS: readonly string[] = ["lib/messages/catalog.ts", "lib"];
+const COVERED_TS_ROOTS: readonly string[] = ["lib/messages/catalog.ts", "lib", "components", "app"];
 
 /** Markdown/MDX prose roots. */
 const COVERED_MDX_ROOTS: readonly string[] = ["app/help"];
@@ -72,6 +72,10 @@ const COVERED_MDX_ROOTS: readonly string[] = ["app/help"];
  */
 const EXEMPT: Readonly<Record<string, string>> = {
   // ── Developer-gated surfaces: not product copy ──────────────────────────
+  "app/admin/dev/page.tsx":
+    "the developer-gated /admin/dev fixture page; Doug is not a developer and cannot reach it, so its literals are not product copy",
+  "components/admin/telemetry/TelemetryOverviewStrip.tsx":
+    "sentinel glyph on the developer-gated telemetry page",
   "lib/dev/**":
     "developer-gated dev tooling; nothing here renders to Doug or to crew (directory-level row is legal for a wholly-internal tree)",
 
@@ -95,6 +99,10 @@ const EXEMPT: Readonly<Record<string, string>> = {
   "lib/sync/unpublishBinding.ts": "log/throw diagnostic; surfaced only in consoles and CI",
   "lib/sync/phase2.ts": "diagnostic string; surfaced only in consoles and CI",
   "lib/audit/noGlobalCursor.ts": "audit-script diagnostic; CI output, not product copy",
+  "components/realtime/ShowRealtimeBridge.tsx":
+    "realtime bridge log strings; the component renders null by contract, so these reach a console and never a surface",
+  "app/help/_components/RefAnchor.tsx":
+    "throw messages for authoring mistakes in MDX call sites; they fail the build, they do not render",
   "lib/driveIdCoverage/introspect.ts": "introspection diagnostic; CI output, not product copy",
   "lib/validation/fixtures.ts": "validation-harness diagnostics; CI output, not product copy",
   "lib/validation/reseedFixtures.ts": "validation-harness diagnostics; CI output, not product copy",
@@ -131,7 +139,18 @@ const exemptPrefixes = () =>
     .filter((k) => k.endsWith("/**"))
     .map((k) => k.slice(0, -3));
 
+/**
+ * `app/api/**` is out of the accept-set BY CONTRACT, not by exemption row: route
+ * handlers surface user-visible text exclusively through §12.4 catalog codes
+ * (invariant 5), so their literals are internal by construction — and the
+ * catalog itself is a covered surface, so the copy is still guarded, one layer
+ * up. Encoded here rather than as ~N registry rows that would each restate the
+ * same reason.
+ */
+const OUT_OF_SET = (rel: string): boolean => rel.startsWith("app/api/");
+
 function isExempt(rel: string): boolean {
+  if (OUT_OF_SET(rel)) return true;
   if (Object.prototype.hasOwnProperty.call(EXEMPT, rel)) return true;
   return exemptPrefixes().some((p) => rel === p || rel.startsWith(`${p}/`));
 }
@@ -154,6 +173,13 @@ export function scanTypeScript(rel: string, source: string): Hit[] {
   const hits: Hit[] = [];
   const record = (node: ts.Node, text: string) => {
     if (!text.includes(EM_DASH)) return;
+    // A literal that IS the glyph, alone, is an empty-value SENTINEL, not prose
+    // ({checkIn ?? "—"}, a decorative aria-hidden separator). The spec exempts
+    // this class by name at lib/visibility/emptyState.ts; encoding it
+    // STRUCTURALLY rather than as per-file rows is what keeps the exemption
+    // narrow — a file may hold both a sentinel and real copy, and a per-file row
+    // would silently exempt the copy too.
+    if (text.trim() === EM_DASH) return;
     hits.push({
       file: rel,
       line: lineOf(source, node.getStart(sf)),
@@ -348,6 +374,44 @@ describe("em-dash copy guard — DESIGN.md §9", () => {
     }
     // And the root is actually in the covered list, not merely scannable.
     expect(COVERED_TS_ROOTS, "lib must be a covered root").toContain("lib");
+  });
+
+  it("PREMISE: the components/app roots are scanned, incl. JSX shapes", () => {
+    // Permanent, for the same reason as the lib premise: the corpus repairs
+    // make these roots clean, so nothing live would notice if a root stopped
+    // being scanned. JsxText and a JSX attribute string are the shapes unique
+    // to these roots.
+    const planted = [
+      `export const C = () => <p>jsx child — dash</p>;`,
+      `export const D = () => <img alt="attr copy — dash" />;`,
+      "export const E = `component frag ${x} — dash ${y}`;",
+    ];
+    for (const src of planted) {
+      expect(
+        scanTypeScript("components/premise.tsx", src),
+        `the component/app scanner must see: ${src}`,
+      ).not.toHaveLength(0);
+    }
+    expect(COVERED_TS_ROOTS, "components must be covered").toContain("components");
+    expect(COVERED_TS_ROOTS, "app must be covered").toContain("app");
+  });
+
+  it("PREMISE: a lone glyph is a sentinel, but glyph-plus-prose is not", () => {
+    // The sentinel carve-out must not become a way to smuggle prose past the
+    // guard. A literal that IS the glyph is skipped; the moment any prose joins
+    // it, it is copy again.
+    expect(scanTypeScript("x.tsx", `const a = "—";`), "a lone glyph is a sentinel").toHaveLength(0);
+    expect(
+      scanTypeScript("x.tsx", `const a = "— needs review";`),
+      "glyph plus prose is copy, not a sentinel",
+    ).not.toHaveLength(0);
+  });
+
+  it("PREMISE: app/api is out of the set, and the rest of app is not", () => {
+    expect(isExempt("app/api/report/route.ts"), "app/api is out of the accept-set").toBe(true);
+    expect(isExempt("app/admin/settings/admins/error.tsx"), "the rest of app IS covered").toBe(
+      false,
+    );
   });
 
   it("every EXEMPT row still names something that exists", () => {

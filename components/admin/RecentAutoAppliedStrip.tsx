@@ -632,7 +632,7 @@ function StripHeader({
         learnMore={{ href: "/help/admin/review-queues#re-stage" }}
       >
         <p>
-          Changes that already went live on their own — crew added, removed, or renamed, plus
+          Changes that already went live on their own: crew added, removed, or renamed, plus
           schedule and field edits. Accept to clear them from this list, or undo the ones you
           didn&apos;t want.
         </p>

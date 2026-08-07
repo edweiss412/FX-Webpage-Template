@@ -6,7 +6,7 @@
  * (archived pages never MOUNT the component — pinned at the page level in
  * per-show-lifecycle.test.tsx):
  *   Live                  → ON,  enabled  ("Crew link is active.")
- *   Held                  → OFF, enabled  ("Crew link is off — nobody can open this show.")
+ *   Held                  → OFF, enabled  ("Crew link is off; nobody can open this show.")
  *   Publishing… (¬pub)    → OFF, disabled (publish-finishing explainer)
  *   Live + finalize-owned → ON,  disabled (changes-finalizing explainer) — R2/R3: a
  *                           pending-changes finalize can own a LIVE show.
@@ -71,7 +71,7 @@ describe("PublishedToggle — mode boundaries", () => {
     renderToggle({ published: false });
     expect(switchEl().getAttribute("aria-checked")).toBe("false");
     expect(switchEl().hasAttribute("disabled")).toBe(false);
-    expect(row().textContent).toContain("Crew link is off — nobody can open this show.");
+    expect(row().textContent).toContain("Crew link is off; nobody can open this show.");
   });
 
   it("Publishing… (finalize-owned, not published) → OFF, DISABLED, publish-finishing explainer", () => {
@@ -421,12 +421,12 @@ describe("settings variant (spec 2026-07-24-strip-mobile-stacked-band §3 R1)", 
     cleanup();
     renderSettings({ published: true, finalizeOwned: true });
     expect(screen.getByTestId("published-toggle-sublabel").textContent).toBe(
-      "Changes are being finalized — the switch unlocks when they commit.",
+      "Changes are being finalized; the switch unlocks when they commit.",
     );
     cleanup();
     renderSettings({ published: false, finalizeOwned: true });
     expect(screen.getByTestId("published-toggle-sublabel").textContent).toBe(
-      "A publish is finishing — the switch unlocks when it's done.",
+      "A publish is finishing; the switch unlocks when it's done.",
     );
   });
 

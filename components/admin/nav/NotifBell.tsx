@@ -65,7 +65,7 @@ export function NotifBell({
       type="button"
       data-testid="admin-notif-bell"
       aria-label={
-        typeof count === "number" && count > 0 ? `Notifications — ${count} unseen` : "Notifications"
+        typeof count === "number" && count > 0 ? `Notifications: ${count} unseen` : "Notifications"
       }
       aria-haspopup="dialog"
       aria-expanded={open}

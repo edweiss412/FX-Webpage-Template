@@ -20,7 +20,7 @@ export type ConfirmUnpublishActionState =
  *  copy, not a cataloged error), so messageFor() cannot source it. */
 // not-subject:M5-D8 — spec §5 R5 prescribes this exact uncataloged retry copy
 export const RETRY_COPY =
-  "We couldn't check this link just now. Nothing has changed — try again in a minute.";
+  "We couldn't check this link just now. Nothing has changed; try again in a minute.";
 
 export const RETRY_HEADING = "Try again in a minute";
 
@@ -30,14 +30,14 @@ export const RETRY_HEADING = "Try again in a minute";
 export const BUSY_HEADING = "This show is being updated";
 
 export const BUSY_BODY =
-  "Changes are being finalized right now. Nothing has changed — try again in a few minutes.";
+  "Changes are being finalized right now. Nothing has changed; try again in a few minutes.";
 
 /** Neutral not-found state: no oracle about whether the slug exists, whether
  *  the link was ever real, or whether it was consumed/revoked/stale. */
 export const NEUTRAL_HEADING = "We couldn’t open this link";
 
 export const NEUTRAL_BODY =
-  "It may be incomplete, out of date, or already spent — either way, nothing has changed. " +
+  "It may be incomplete, out of date, or already spent; either way, nothing has changed. " +
   "If a show needs to come offline, you can always turn it off from its page in the admin.";
 
 export const CONFIRM_HEADING = "Take this show offline?";
@@ -52,12 +52,12 @@ export const CONFIRM_BUTTON_PENDING_LABEL = "Taking it offline…";
 
 /** Spec §5: secondary line stating that doing nothing leaves the show live. */
 export const KEEP_LIVE_LINE =
-  "Want to keep it live? Doing nothing leaves the show live — just close this page.";
+  "Want to keep it live? Doing nothing leaves the show live; just close this page.";
 
-export const SUCCESS_HEADING = "Done — it’s offline";
+export const SUCCESS_HEADING = "Done, it’s offline";
 
 /** Rendered as: <strong>{title}</strong> {SUCCESS_BODY_AFTER_TITLE} */
 export const SUCCESS_BODY_AFTER_TITLE =
-  "is now offline. Crew links are paused; flip Published back on from its page in the admin any time — the same link starts working again.";
+  "is now offline. Crew links are paused; flip Published back on from its page in the admin any time; the same link starts working again.";
 
 export const SUCCESS_ADMIN_LINK_LABEL = "Open it in the admin";
