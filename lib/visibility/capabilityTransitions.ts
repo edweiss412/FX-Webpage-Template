@@ -35,10 +35,17 @@
  * `true → false` removes the unlocked tiles, `false → true` adds them.
  *
  * Compound transitions (multiple predicates flipping in the same
- * render cycle) are NOT modeled in the matrix — they are exercised by
- * the e2e compound-transition tests in
- * `tests/e2e/right-now-transitions.spec.ts`. The pairwise matrix is
- * the contract surface for unit-testable visibility deltas.
+ * render cycle) are NOT modeled in the matrix. ONE compound case is
+ * covered at the data level by an executing test — `["LEAD","A1"] →
+ * ["V1"]` in `tests/visibility/capabilityTransitions.test.ts`, which
+ * composes the before/after role sets directly and runs in the parallel
+ * project on every PR. Other combinations are not directly composed.
+ * DOM-level continuity (AnimatePresence keeping a tile mounted across
+ * the render cycle) has no executing coverage at all: the e2e suite in
+ * `tests/e2e/right-now-transitions.spec.ts` is `test.describe.skip` and
+ * is named by no workflow (see BL-E2E-APP-DEPENDENT-SPECS-CI-DARK). The
+ * pairwise matrix is the contract surface for unit-testable
+ * visibility deltas.
  *
  * Pure data + a tiny lookup helper. No I/O, no environment reads.
  * Server-safe. Mirrors the structural pattern of
@@ -149,7 +156,11 @@ export interface TileVisibilityDelta {
  * when ONLY the flipped predicate changes — i.e., the flip is
  * SUFFICIENT to change visibility regardless of the other predicate.
  * If the visibility change depends on the other predicate's value,
- * the delta is empty (the e2e compound tests cover those cases).
+ * the delta is empty. Whether any given conditional case has an
+ * executing data-level test varies case by case — see
+ * `tests/visibility/capabilityTransitions.test.ts` for which are
+ * composed; DOM continuity is uncovered for all of them
+ * (BL-E2E-APP-DEPENDENT-SPECS-CI-DARK).
  */
 export const CAPABILITY_TRANSITION_MATRIX: CapabilityTransitionEntry[] = [
   // ── hasLead × hasA1 ───────────────────────────────────────────────
@@ -166,8 +177,9 @@ export const CAPABILITY_TRANSITION_MATRIX: CapabilityTransitionEntry[] = [
     },
     // hasA1 flip toggles AudioScopeTile only when hasLead is false;
     // when hasLead is true the audio tile is unconditionally visible
-    // via the LEAD branch. So the definitive delta is empty (covered
-    // by compound tests).
+    // via the LEAD branch. So the definitive delta is empty. This
+    // particular conditional case has no direct composed test; the
+    // skipped e2e suite is not covering it either.
     bFlipDelta: { appears: [], disappears: [] },
     reason:
       "hasLead unlocks FinancialsTile (financialsVisible) + VideoScopeTile (videoScopeVisible LEAD branch). AudioScopeTile is shared between LEAD and A1 branches; the matrix definitive delta records only tiles whose visibility flip is unconditional given the flipped predicate.",
@@ -232,7 +244,7 @@ export const CAPABILITY_TRANSITION_MATRIX: CapabilityTransitionEntry[] = [
     aFlipDelta: { appears: ["AudioScopeTile"], disappears: [] },
     bFlipDelta: { appears: ["VideoScopeTile"], disappears: [] },
     reason:
-      "Independent atomic flags. hasA1 unlocks AudioScopeTile via the A1/A2 branch; hasV1 unlocks VideoScopeTile via the V1 branch. Both deltas hold when hasLead and hasAdmin are false (matrix entries are evaluated against the no-LEAD-no-admin viewer; LEAD/admin compound interactions are tested by e2e).",
+      "Independent atomic flags. hasA1 unlocks AudioScopeTile via the A1/A2 branch; hasV1 unlocks VideoScopeTile via the V1 branch. Both deltas hold when hasLead and hasAdmin are false (matrix entries are evaluated against the no-LEAD-no-admin viewer; LEAD/admin compound interactions have no executing e2e DOM coverage, and only some are composed at the data level, see BL-E2E-APP-DEPENDENT-SPECS-CI-DARK).",
   },
   // ── hasA1 × hasL1 ─────────────────────────────────────────────────
   {

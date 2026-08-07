@@ -96,13 +96,26 @@ describe("ledgerItems", () => {
     // no guard can hold, which is why the ids are asserted here rather than the
     // section's prose.
     const ids = ledgerItems("DEFERRED.md", read("DEFERRED.md")).map((i) => i.id);
-    for (const id of [
-      "UNDO-FAILURE-REANNOUNCE-1",
-      "UNDO-UNCATALOGUED-CODE-CARD-1",
-      "UNDO-DIALOG-LABEL-CONSTANT-1",
-    ]) {
+    for (const id of ["UNDO-UNCATALOGUED-CODE-CARD-1", "UNDO-DIALOG-LABEL-CONSTANT-1"]) {
       expect(ids, `${id} is invisible to the DEFERRED.md walker`).toContain(id);
     }
+
+    // UNDO-FAILURE-REANNOUNCE-1 graduated to DEFERRED-archive.md on 2026-08-06
+    // (L-wave: a documented limit its own spec had already ratified). It stays
+    // asserted, moved rather than deleted, because the claim this test makes is
+    // about WALKER VISIBILITY, not about which file the entry sits in — an
+    // archived entry that no walker can see is the same defect in a quieter
+    // place. Deleting the row would have retired the assertion at the exact
+    // moment it started covering new ground: the archive move first wrote a
+    // `##` heading, which DEFERRED's `levels: [3]` walk cannot see, and this
+    // shape of assertion is what catches that.
+    const archived = ledgerItems("DEFERRED-archive.md", read("DEFERRED-archive.md")).map(
+      (i) => i.id,
+    );
+    expect(
+      archived,
+      "UNDO-FAILURE-REANNOUNCE-1 is invisible to the DEFERRED-archive.md walker",
+    ).toContain("UNDO-FAILURE-REANNOUNCE-1");
   });
 
   it("gives every entry a span ending before the next entry starts", () => {
