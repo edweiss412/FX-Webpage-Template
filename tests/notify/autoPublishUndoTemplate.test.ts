@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { describe, expect, test } from "vitest";
 import {
   renderAutoPublishUndo,
@@ -55,9 +56,14 @@ describe("renderAutoPublishUndo (spec §4.3)", () => {
     // makes that proxy wrong without making the intent wrong, so the assertion
     // now names what it always meant — and the footer is pinned as the ONLY
     // other anchor, which is stricter than the old count.
-    expect(out.html.match(/<a href="[^"]*\/unpublish\?/g)).toHaveLength(1);
+    // Anchors are PARSED, not regex-matched over serialized source: a
+    // commented-out anchor still matches a regex but renders nothing, so a
+    // source scan counts links the recipient never sees.
+    const host = document.createElement("div");
+    host.innerHTML = out.html;
+    const anchors = [...host.querySelectorAll("a")].map((a) => a.getAttribute("href") ?? "");
+    expect(anchors.filter((h) => h.includes("/unpublish?"))).toHaveLength(1);
     expect(out.text.match(/\/unpublish\?/g)).toHaveLength(1);
-    const anchors = [...out.html.matchAll(/<a href="([^"]+)"/g)].map((m) => m[1]!);
     expect(anchors).toHaveLength(2);
     expect(anchors.filter((h) => h.includes("/admin?show="))).toHaveLength(1);
   });

@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 /**
  * tests/notify/reportProblemLink.test.ts — BL-PUSH-NOTIFICATIONS residual.
  *
@@ -50,10 +51,27 @@ const dashboardHref = (origin: string) => `${origin}/admin`;
  * Both channels carry the link. `html` gets an anchor whose visible text is the
  * label and whose href is exact; `text` gets the label and the same URL.
  */
+/**
+ * Parse the fragment and return its LIVE anchors. String matching on serialized
+ * HTML was a third escape: a commented-out footer
+ * (`<!-- <a href="...">Report a problem</a> -->`) still contains the expected
+ * substring, so every shape passed while HTML recipients got no link at all.
+ * A parser drops comments, so only anchors that actually render are counted.
+ */
+function liveAnchors(html: string): { href: string; text: string }[] {
+  const host = document.createElement("div");
+  host.innerHTML = html;
+  return [...host.querySelectorAll("a")].map((a) => ({
+    href: a.getAttribute("href") ?? "",
+    text: a.textContent ?? "",
+  }));
+}
+
 function expectReportLink(rendered: { html: string; text: string }, expectedHref: string): void {
-  expect(rendered.html, "html body must carry the Report a problem anchor").toContain(
-    `<a href="${expectedHref}">${LABEL}</a>`,
-  );
+  const anchors = liveAnchors(rendered.html);
+  const report = anchors.filter((a) => a.text === LABEL);
+  expect(report, `html body must render exactly one live "${LABEL}" anchor`).toHaveLength(1);
+  expect(report[0]!.href, "the report anchor must point at the expected href").toBe(expectedHref);
   // Label and URL are asserted as ONE bound value, never independently.
   // Asserting them separately was a real tautology: four shapes (digest,
   // realtime global/ingestion/batch) already carry "Open the dashboard:
@@ -174,8 +192,9 @@ describe("Report a problem link — every render shape, both body channels", () 
 
   test("the link is on-origin in every shape (no off-origin report target)", () => {
     const rendered = renderRealtimeProblem({ kind: "global", origin: ORIGIN });
-    const hrefs = [...rendered.html.matchAll(/<a href="([^"]+)"/g)].map((m) => m[1]!);
-    premise("the body carries at least one anchor to check", hrefs.length, 0);
+    // Parsed anchors, not a regex over source, for the same reason as above.
+    const hrefs = liveAnchors(rendered.html).map((a) => a.href);
+    premise("the body carries at least one live anchor to check", hrefs.length, 0);
     for (const href of hrefs) {
       expect(href.startsWith(ORIGIN), `every anchor stays on-origin: ${href}`).toBe(true);
     }
