@@ -10,7 +10,6 @@ Last reconciled: 2026-08-04 — `feat/harness-font-fidelity` (PR #705) graduated
 
 ## BL-CAPABILITY-LOSS-SURVIVING-ROW-FALSE-POSITIVE — arm (c) reports a capability loss for a row that is still live
 
-
 **Status:** OPEN · **Severity:** LOW-MEDIUM (false operator alert; no data impact) · **Class:** notice fidelity · **Filed:** 2026-08-03 (`fix/apply-undo-audit-fidelity`, spec §9, deferred under class-sweep exception (c)) · **Effort:** S · **Reachability: PROBED 2026-08-04 — REACHABLE on one hold shape of four.**
 
 `capabilityRoleChangesForNotice` arm (c) (`lib/sync/phase2.ts:347-356`) reports a capability loss for any `previousCrewMembers` entry that is absent from `nextByName` and absent from `renamedAway`. `nextByName` is built from `appliedCrewMembers`, which is the post-hold **parse** list (`lib/sync/applyParseResult.ts:189`), while `deleteKeepNames` (`lib/sync/applyParseResult.ts:178`) protects rows from deletion **without** adding them to that list. A row can therefore survive the apply with its capability flags intact and still be reported as a loss.
@@ -51,7 +50,6 @@ The `<!-- tasks: depth=N -->` region declares ONE heading depth. Two real corpus
 **Why it is safe to carry.** Enrollment is opt-in and no legacy plan is enrolled (measured: 534 plans scanned, 1 attempted, 0 findings). A plan of either shape either normalizes its task depths or stays unenrolled; the author is told plainly rather than checked wrongly. Re-open when someone wants to enrol a plan of one of these shapes.
 
 ## BL-FRESHNESS-ABORTED-CLOSE-E2E — the freshness cue's clear-on-hide branch has no behavioural proof
-
 
 **Status:** OPEN · **Filed:** 2026-08-03 (round-3 cross-model review of `feat/modal-freshness-cue`) · **Class:** test coverage · **Effort:** S (one e2e case on an existing spec) · **Severity:** low
 
