@@ -41,6 +41,7 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import { describe, expect, it } from "vitest";
 import ts from "typescript";
+import { stripCssComments } from "@/tests/_shared/stripComments";
 
 const ROOT = join(__dirname, "..", "..");
 
@@ -294,49 +295,13 @@ export function scanTypeScript(rel: string, source: string): Hit[] {
  * `app/globals.css`'s 57 dashes are all in comments, so the corpus is clean
  * under the strict rule.
  */
-function stripCssComments(source: string): string {
-  let out = "";
-  let i = 0;
-  let quote: string | null = null;
-  while (i < source.length) {
-    const ch = source[i]!;
-    if (quote) {
-      if (ch === "\\") {
-        out += ch + (source[i + 1] ?? "");
-        i += 2;
-        continue;
-      }
-      if (ch === quote) quote = null;
-      out += ch;
-      i += 1;
-      continue;
-    }
-    if (ch === '"' || ch === "'") {
-      quote = ch;
-      out += ch;
-      i += 1;
-      continue;
-    }
-    if (ch === "/" && source[i + 1] === "*") {
-      const end = source.indexOf("*/", i + 2);
-      const stop = end === -1 ? source.length : end + 2;
-      // Preserve newlines so line numbers stay true.
-      out += source.slice(i, stop).replace(/[^\n]/g, " ");
-      i = stop;
-      continue;
-    }
-    out += ch;
-    i += 1;
-  }
-  return out;
-}
-
 export function scanCss(rel: string, source: string): Hit[] {
-  // STRING-AWARE comment stripping. A regex strip removed `/* — */` even when
-  // it was the VALUE of `content:` — a rendered string that merely looks like a
-  // comment. Walking the text with a two-state lexer (in-string vs not) is the
-  // only way to tell them apart, and getting it wrong deletes real copy from the
-  // scan rather than merely over-reporting.
+  // STRING-AWARE comment stripping, via the repo's SINGLE SOURCE
+  // (tests/_shared/stripComments). A regex strip removed `/* — */` even when it
+  // was the VALUE of `content:` — a rendered string that merely looks like a
+  // comment — and my first repair hand-rolled a second lexer, which
+  // _metaStripCommentsSingleSource correctly rejected. The shared one also
+  // handles CSS escape sequences in code state, which mine did not.
   const stripped = stripCssComments(source);
   const hits: Hit[] = [];
   stripped.split("\n").forEach((line, i) => {
