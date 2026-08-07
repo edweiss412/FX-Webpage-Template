@@ -577,7 +577,7 @@ ParsePanel was not alone. Shape swept: **a file under `components/` that no file
 
 ## BL-OPS-LOG-OAUTH-EMITS — the `OAUTH_REDIRECT_INVALID` branches emit no durable code
 
-**Status:** OPEN · **Severity:** low · **Class:** OBSERVABILITY · **Effort:** S · **Filed:** 2026-08-06 (L-wave decomposition of `BL-OPS-LOG`)
+**Status:** IN PROGRESS · **Branch:** feat/ops-log-code-emits · **Severity:** low · **Class:** OBSERVABILITY · **Effort:** S · **Filed:** 2026-08-06 (L-wave decomposition of `BL-OPS-LOG`)
 
 `OAUTH_REDIRECT_INVALID` is never a persisted `code:` anywhere. It exists only as a `validateNextParam` return discriminant (`lib/auth/validateNextParam.ts:13`) and a §12.4 catalog copy row — so an operator hitting it leaves no durable trace, while its sibling `OAUTH_STATE_INVALID` DOES have adjacent durable emits (`app/auth/callback/route.ts:234,250`). That asymmetry is the whole entry.
 
@@ -593,7 +593,7 @@ ParsePanel was not alone. Shape swept: **a file under `components/` that no file
 
 ## BL-OPS-LOG-ONBOARDING-EMIT — `ONBOARDING_OPERATOR_ERROR` has no producer
 
-**Status:** OPEN · **Severity:** low · **Class:** OBSERVABILITY · **Effort:** S · **Filed:** 2026-08-06 (L-wave decomposition of `BL-OPS-LOG`)
+**Status:** IN PROGRESS · **Branch:** feat/ops-log-code-emits · **Severity:** low · **Class:** OBSERVABILITY · **Effort:** S · **Filed:** 2026-08-06 (L-wave decomposition of `BL-OPS-LOG`)
 
 `ONBOARDING_OPERATOR_ERROR` is render-only. `components/admin/OnboardingWizard.tsx:548` calls `messageFor("ONBOARDING_OPERATOR_ERROR")` to display the §12.4 catalog copy to Doug, and **no `log.*` emit exists anywhere for it** (re-verified 2026-08-06: the only non-catalog hits in the tree are that render site and the component's own header comment). So the operator sees the error and the system retains nothing about it.
 
