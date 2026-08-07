@@ -1125,22 +1125,6 @@ docblock states the gap rather than papering over it.
 
 ---
 
-## BL-CHANNEL-ANNOUNCER-RESIDUAL-ROLE-STATUS — five visible cards keep a `role="status"` that announces nothing
-
-**Status:** IN PROGRESS · **Branch:** feat/a11y-privacy-cluster
-
-**Filed:** 2026-08-05 (M-wave W-UI, found by the class sweep that closed `BL-ANNOUNCE-REGION-UNMOUNT-CLASS`). **Class:** correctness (cosmetic / reader-misleading). **Effort:** S per site, M to verify. **Severity:** low.
-
-Four components announce through `UndoAnnounceContext` because their own region does not outlive the announcement. Each ALSO keeps a conditionally-inserted `role="status"` on a visible card: `components/admin/RoleRecognizeControl.tsx:209` and `:257`, `components/admin/RecentAutoAppliedStrip.tsx:506` and `:686`, `components/admin/ReSyncButton.tsx:362`.
-
-Those attributes announce nothing — a live region inserted together with its text never does, which is the entire premise of the class that was just closed. **Nothing is lost at runtime,** because the channel already carried the message; the defect is that the attribute READS like a live region to the next person editing the file, which is exactly the misreading that produced the original class.
-
-**Why not stripped in the same PR** (deferral exception (a) — needs a decision the closing PR could not settle): removing `role="status"` from a card is only safe once you have verified PER SITE that the channel carries every message that card displays. The error card at `RecentAutoAppliedStrip.tsx:686` is not obviously covered — the channel's announce calls are success-shaped — and asserting otherwise without probing each path is how a real announcement gets deleted. The verification is the work; the edit is trivial.
-
-**Recorded where it will be seen:** the `CHANNEL_ANNOUNCERS` header in `tests/components/_metaLiveRegionMounting.test.ts` names all five sites and says why they are still there, so a reader who finds one does not re-derive this.
-
-**Status:** OPEN.
-
 ## BL-CROSSWALK-HAYSTACK-RENDERED-TEXT-ONLY — the /help UI-label crosswalk attests against all source, so a type annotation counts as a button label
 
 **Filed:** 2026-08-05 (M-wave W-UI, U8 probe). **Class:** guard precision. **Effort:** M (touches every label in the crosswalk corpus). **Severity:** low.

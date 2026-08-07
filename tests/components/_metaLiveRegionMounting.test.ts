@@ -83,8 +83,13 @@ const CHANNEL_ANNOUNCERS: readonly string[] = [
  * file once it proves one call exists, which is why review found outcomes with
  * no announcement at all inside exempted files. This does not prove per-message
  * coverage — it proves the number cannot fall silently, and forces anyone adding
- * an outcome to look. The remaining gap is recorded on
- * BL-CHANNEL-ANNOUNCER-RESIDUAL-ROLE-STATUS.
+ * an outcome to look.
+ *
+ * The gap this used to point at was closed by the per-site census in arc A (see
+ * the CHANNEL_ANNOUNCERS header above); the floor stays because the census is a
+ * snapshot and a count is not. Per-message coverage is proven where it can only
+ * be proven — in each component's own behavioural cases, which assert the
+ * announcement carries the string the CARD renders.
  */
 const CHANNEL_ANNOUNCE_CALLS: ReadonlyMap<string, number> = new Map([
   ["components/admin/RescanSheetButton.tsx", 2],

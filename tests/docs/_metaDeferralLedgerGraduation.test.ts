@@ -104,6 +104,14 @@ const BACKLOG_GRADUATED = [
     id: "BL-LIVE-REGION-AST-WALK-RESIDUE",
     provenance: "feat/a11y-privacy-cluster",
   },
+  // feat/a11y-privacy-cluster (2026-08-07, arc A): the five dead role="status"
+  // attributes, stripped only after the per-site census the entry demanded —
+  // which found the entry's own "nothing is lost at runtime" premise false at
+  // four of the five sites, and wired those outcomes before stripping.
+  {
+    id: "BL-CHANNEL-ANNOUNCER-RESIDUAL-ROLE-STATUS",
+    provenance: "feat/a11y-privacy-cluster",
+  },
   // feat/needs-attention-holds-rollup (2026-08-03): the cross-show open-holds read
   // the entry was blocked on, plus the fourth needs-attention stream it unblocked.
   {

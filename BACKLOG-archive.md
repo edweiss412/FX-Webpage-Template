@@ -5393,6 +5393,37 @@ The census found no further ungated viewer-specific date renderers, so the list 
 
 **`Step3ReviewModal.tsx` is the one file that did not go clean, and that is by design:** a second `role="status"` dev-capture region remains under `viewerIsDeveloper`. The stale-PENDING cross-check cannot fire for a file that still has a site, so that row came off by hand with its justification and `REGISTERED_SITES` 2 -> 1 is what pins the residue instead.
 
+## BL-CHANNEL-ANNOUNCER-RESIDUAL-ROLE-STATUS — five visible cards keep a `role="status"` that announces nothing — ARCHIVED 2026-08-07 (arc A, `feat/a11y-privacy-cluster`)
+
+**Filed:** 2026-08-05 (M-wave W-UI, found by the class sweep that closed `BL-ANNOUNCE-REGION-UNMOUNT-CLASS`). **Class:** correctness (cosmetic / reader-misleading). **Effort:** S per site, M to verify. **Severity:** low.
+
+Four components announce through `UndoAnnounceContext` because their own region does not outlive the announcement. Each ALSO keeps a conditionally-inserted `role="status"` on a visible card: `components/admin/RoleRecognizeControl.tsx:209` and `:257`, `components/admin/RecentAutoAppliedStrip.tsx:506` and `:686`, `components/admin/ReSyncButton.tsx:362`.
+
+Those attributes announce nothing — a live region inserted together with its text never does, which is the entire premise of the class that was just closed. **Nothing is lost at runtime,** because the channel already carried the message; the defect is that the attribute READS like a live region to the next person editing the file, which is exactly the misreading that produced the original class.
+
+**Why not stripped in the same PR** (deferral exception (a) — needs a decision the closing PR could not settle): removing `role="status"` from a card is only safe once you have verified PER SITE that the channel carries every message that card displays. The error card at `RecentAutoAppliedStrip.tsx:686` is not obviously covered — the channel's announce calls are success-shaped — and asserting otherwise without probing each path is how a real announcement gets deleted. The verification is the work; the edit is trivial.
+
+**Recorded where it will be seen:** the `CHANNEL_ANNOUNCERS` header in `tests/components/_metaLiveRegionMounting.test.ts` names all five sites and says why they are still there, so a reader who finds one does not re-derive this.
+
+**RESOLVED 2026-08-07** (arc A, `feat/a11y-privacy-cluster`). All five attributes stripped — and the entry's own caution was right, which is the finding worth keeping.
+
+**The premise "nothing is lost at runtime, the channel already carried the message" was FALSE at four of the five sites.** The per-site census the entry demanded found:
+
+- **`RoleRecognizeControl`'s saved card announced the WRONG COPY.** The card renders three state variants and the announce sent `savedSummary` for all of them. Those carry materially different convergence claims — `applied` says this show already reflects the change, `revised` and `apply_pending` say it will on the next sheet check — so a screen-reader user was told the applied claim in every case. Fixed by one `savedSummaryLine` selector feeding both the card and the announce, so they cannot drift apart again.
+- **Its stale and conflict branches announced NOTHING.** They only set the phase; the notice cards' `role="status"` was the only thing that looked like an announcement, and it was inserted with its text.
+- **`RecentAutoAppliedStrip`'s load failure announced NOTHING** — the entry's named suspect, confirmed exactly as suspected: the file's one announce belongs to `GroupSection`'s undo-all and is success-shaped.
+- **`ReSyncButton`'s success summary announced NOTHING.** Its one prior call covers only the `shrink_held` pause branch, so the most common outcome of the most common admin action was silent.
+
+Had the five attributes been stripped in the filing PR on the stated premise, four real outcomes would have gone silent with nothing left to notice it. That is the case for the entry's own deferral exception, made concrete.
+
+**The auto-applied wiring is an EFFECT, not a call beside a state set, and the reason generalizes.** That component owns no transition: it is a client component handed already-resolved `data` as a prop, because the load runs server-side. All it can observe is the kind it was rendered WITH, so the rule is previously-observed-kind rather than once-per-mount — a fresh server render of the error announces once, re-renders of the same data do not repeat, and a failure that recovers and fails again announces the SECOND failure, which an announce-once-per-mount implementation swallows and which has its own test.
+
+**One site was stripped WITHOUT wiring, with the reason recorded at the site and in the guard header:** the undo-all confirmation prompt. It is an inline PROMPT, not a status transition — interactive content adjacent to the control the operator just activated, with focus landing on its own buttons — and announcing a prompt through a status channel is the wrong semantics. Re-open trigger: a screen-reader user reporting the prompt is missed.
+
+**The accessible name generalized with the content.** The log was labelled "Undo updates" while already carrying saved-role and sync-pause announcements, and this arc widened it further. All four production call sites are now "Status updates" / "Status updates in this dialog". The guard for it reads the four sites FROM DISK, because every other case in the provider suite supplies its own label prop and a fixture-level assertion would have passed against unrenamed sources; each also asserts the old name is GONE rather than outnumbered, so a partial rename cannot pass.
+
+**Counts, all MEASURED rather than predicted:** `CHANNEL_ANNOUNCE_CALLS` RoleRecognize 1 to 3 (the plan forecast 2, assuming one shared call for stale and conflict; each got its own branch), RecentAutoApplied 1 to 2, ReSync 1 to 2. All five `REGISTERED_SITES` rows are 0.
+
 ## BL-RESYNC-REGRESSED-JUMP-LINK — the alert's "open the parse panel" pointer is prose, not an affordance — ARCHIVED 2026-08-05 (M-wave W-UI, `feat/m-wave-ui`)
 
 **Severity:** LOW-MEDIUM (discoverability) · **Class:** UX — surfaced by the correction-loop de-duplication (#516, 2026-07-20) · **Effort:** M
