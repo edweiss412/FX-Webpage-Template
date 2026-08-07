@@ -151,10 +151,6 @@ const PENDING: ReadonlyMap<string, string> = new Map([
   // FOUND BY THE AST WALK (whole-diff review R1), not by the regex it replaced —
   // which is the argument for the rewrite. Each is a region born populated, and
   // each needs a real repair rather than a mechanical toggle:
-  [
-    "components/admin/wizard/Step3ReviewModal.tsx",
-    "1 site — the publish-error span at :633 is mounted but its enclosing row is gated",
-  ],
 ]);
 
 /**
@@ -193,7 +189,12 @@ const REGISTERED_SITES: ReadonlyMap<string, number> = new Map([
   // guard. The agenda SECTION's cross-component gate remains the documented
   // walk-blindness limit in this file's header, not a site.
   ["components/admin/wizard/step3ReviewSections.tsx", 0],
-  ["components/admin/wizard/Step3ReviewModal.tsx", 2],
+  // Repaired 2026-08-07 (arc A): the publish-error region hoisted above the
+  // four-arm footer chain, text arm-scoped. 2 -> 1, and the ONE remaining site
+  // is the dev-capture region under `viewerIsDeveloper` — which is why this
+  // file's PENDING row came off by hand rather than by going clean: the stale
+  // -PENDING cross-check does not fire for a file that still has a site.
+  ["components/admin/wizard/Step3ReviewModal.tsx", 1],
 ]);
 
 function walk(dir: string, out: string[] = []): string[] {
