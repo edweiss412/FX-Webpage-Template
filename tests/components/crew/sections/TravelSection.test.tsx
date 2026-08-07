@@ -618,6 +618,37 @@ test("unknown_asterisk viewer: an all-suppressed section says dates are HIDDEN, 
   expect(empty!.textContent).toMatch(/confirmed/i);
 });
 
+test("unknown_asterisk viewer: a contentless, DATELESS reservation does not claim dates were hidden", () => {
+  // Impeccable audit P2 — the mirror of the falsehood the branch above fixes.
+  // The reservation is dropped because it renders nothing at all, not because
+  // suppression took its dates: it never had any. Keying the copy on "was there
+  // a reservation" rather than "was there a DATE" tells the viewer their dates
+  // are being withheld when there were none to withhold.
+  const data = restrict(
+    suppressionData({
+      schedule: [],
+      hotels: [
+        {
+          ordinal: 0,
+          hotel_name: null,
+          hotel_address: null,
+          names: [],
+          confirmation_no: null,
+          check_in: null,
+          check_out: null,
+          notes: null,
+        },
+      ],
+    }),
+    UNKNOWN,
+  );
+  const { container } = renderTravelAs(data, CREW);
+  const empty = container.querySelector('[data-testid="section-empty"]');
+  expect(empty).toBeTruthy();
+  expect(empty!.textContent).toContain("No travel details on file yet.");
+  expect(empty!.textContent).not.toMatch(/hidden/i);
+});
+
 test("unknown_asterisk viewer with genuinely NO travel data still gets the no-data copy", () => {
   // The twin that stops the fix over-reaching: suppression did not cause this
   // emptiness, so blaming it would be its own false statement.

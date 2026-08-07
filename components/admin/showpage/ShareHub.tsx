@@ -536,8 +536,13 @@ export function ShareHub({
         : false;
     scrollCueRafRef.current = requestAnimationFrame(() => {
       scrollCueRafRef.current = null;
-      const popover = document.querySelector('[data-testid="share-hub-popover"]');
-      const target = popover?.querySelector('[data-testid="admin-current-share-link-row"]');
+      // Scoped to THIS hub's own panel, not a document-wide query: the popover
+      // testid is unique today, so a global lookup works by luck rather than by
+      // construction, and it would silently scroll the wrong hub the moment a
+      // second one mounts.
+      const target = panelRef.current?.querySelector(
+        '[data-testid="admin-current-share-link-row"]',
+      );
       if (!target || typeof target.scrollIntoView !== "function") return;
       target.scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "nearest" });
     });

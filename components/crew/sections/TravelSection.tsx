@@ -423,11 +423,21 @@ export function TravelSection({
           // and merely withheld is a trust failure — they would chase the admin
           // for data that already exists. Derived from the UNFILTERED inputs,
           // because that is the only place the difference survives.
+          // Keyed on whether a DATE actually existed to withhold, not merely on
+          // whether a row existed. A contentless reservation with null dates is
+          // dropped because it renders nothing, and blaming suppression for that
+          // is the same falsehood pointed the other way.
           const suppressionEmptiedSection =
             hideDates &&
             allHidden &&
-            (data.hotelReservations.length > 0 ||
-              (transportation?.schedule.length ?? 0) > 0 ||
+            (data.hotelReservations.some(
+              (res) => res.check_in !== null || res.check_out !== null,
+            ) ||
+              (transportation?.schedule ?? []).some(
+                (leg) => !shouldHideGenericOptional(leg.date),
+              ) ||
+              // Under `allHidden` every flight row was withheld, so any segment
+              // at all means the withholding is what emptied the block.
               sortedFlightSegments.length > 0);
 
           // §4.9 mock `split-wide`: at ≥720px the section is two columns — a WIDE
