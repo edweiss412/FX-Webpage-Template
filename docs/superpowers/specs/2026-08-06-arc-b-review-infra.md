@@ -1,6 +1,6 @@
 # Arc B — review-infra pair (plan-fence gate, codex-guard CommonMark parse)
 
-**Date:** 2026-08-06 · **Authoring branch:** `docs/arc-b-spec` · **Implementation branch:** `feat/review-infra-gates` · **Status:** DRAFT
+**Date:** 2026-08-06 · **Authoring branch:** `docs/arc-b-spec` · **Implementation branch:** `feat/review-infra-gates` · **Status:** spec-APPROVED (codex-guard R4, 2026-08-07; R1-R3 findings — 8, 9, 6 — all probe-confirmed and repaired in-branch)
 
 ## §0 Why this arc exists, and its scope
 
