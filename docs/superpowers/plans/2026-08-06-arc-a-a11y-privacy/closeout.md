@@ -172,6 +172,52 @@ not layout.
 
 ---
 
+## 13b. Cross-model whole-diff review
+
+Five rounds. R1 NEEDS-ATTENTION (2), R2 NEEDS-ATTENTION (1), R3
+NEEDS-ATTENTION (1), R4 **BLOCKING** (1), R5 the confirmation round. Every
+finding was probe-backed by the reviewer and repaired in-branch; the
+round-economy filing is at `docs/review-rounds/feat/a11y-privacy-cluster/`.
+
+**The brief's round cap was 4, and R5 exceeds it deliberately.** The cap exists
+to stop a guard surface ratcheting into a recognizer, and that is not what was
+happening: R4 raised a P1, not P3 noise, so the rounds were still buying
+correctness. Merging over a BLOCKING verdict without confirming its repair is
+not available, so the choice was a fifth round or an escalation, and a fifth
+round on a repaired P1 is the cheaper of the two. Recorded here rather than left
+to be noticed, because a silent cap overrun is how a ratchet starts.
+
+**Four of the five findings were one class, and neither the spec nor round 1
+named it.** The spec enumerated the fields whose PURPOSE is a date and gated
+those five paths. The class that actually bites is the other one: a date landing
+in a field that is not a date field at all, because the parser fills it with
+whatever tokens are left over. R3 found it in the flight card's unvalidated
+remainder; R4 in the ground leg's author-typed `stage` and `time`; R2 found the
+inverse, a withheld row being read as evidence a date existed and producing a
+false explanation.
+
+I swept a class after each round and twice swept the wrong one — "sites that
+render dates" rather than "fields that can contain one". That is the transferable
+cost, and it is in the economy filing: **a sweep over a mis-stated class reads
+exactly like a completed sweep.**
+
+Every repair is a WITHHOLD keyed on a closed question — can this field's own
+shape express a date? — never a date recognizer over field contents. Recognizing
+spellings (`MAY13`, `05132026`, `2026-05-13`, `5/14`) does not terminate and
+hands each round a wider target; "render the route, the times, and a value that
+parses as a clock time" does. The three resulting decisions are spec §4 limits
+9, 10 and 11, each with its probes and its content cost.
+
+The archived entry's completeness claim — "no further ungated viewer-specific
+date renderers" — was FALSE and is corrected in place, with why it was false
+recorded as the entry's most useful residue.
+
+**Reviewer infrastructure, worth knowing for future briefs:** Vitest could not
+execute in the reviewer's sandbox in any round (`EPERM` creating its temporary
+worker directories), so it verified by TypeScript plus its own server-render
+probes. That cost nothing here — the probes were the load-bearing evidence — but
+a brief that leans on the reviewer running the suite will not get it.
+
 ## 14. Acceptance criteria
 
 - **AC-A1 (travel leak):** met. Three sites gated; five flight paths covered
