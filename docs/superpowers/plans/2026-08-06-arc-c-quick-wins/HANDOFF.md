@@ -7,7 +7,7 @@ After arc C: arc B's handoff will be announced to this pane when its plan merges
 ## Step 0 — arc-transition protocol (FIRST turn of this arc, in order)
 
 1. Run `date`. Shell clock is the ONLY time truth; discard stale timing/blocked framing.
-2. GATE CHECK, from the MAIN checkout `/Users/ericweiss/FX-Webpage-Template` (post-merge by definition): `git -C /Users/ericweiss/FX-Webpage-Template pull --ff-only`, verify the arc C spec/plan PR is MERGED (`git log --oneline origin/main | head -5` shows the docs/arc-c-spec merge) and the plan's **Status** line there reads plan-APPROVED. Either check failing = STOP (launched early).
+2. GATE CHECK, from the MAIN checkout `/Users/ericweiss/FX-Webpage-Template` (post-merge by definition): `git -C /Users/ericweiss/FX-Webpage-Template pull --ff-only`, then `git -C /Users/ericweiss/FX-Webpage-Template show origin/main:docs/superpowers/plans/2026-08-06-arc-c-quick-wins/plan.md | grep -F "plan-APPROVED"` — the file existing ON origin/main with that Status IS the merged-and-approved proof, immune to how many merges landed since (R3 F3). Empty grep or missing file = STOP (launched early).
 3. In the worktree (`../FX-worktrees/backlog-quick-wins`, branch `feat/backlog-quick-wins`, already existing with claim markers pushed per spec §3), IN THIS ORDER: `git fetch origin` → `git merge origin/main` (arc A + this arc's docs just landed; ledger conflicts resolve per-entry, both sides preserved) → THEN `pnpm install && pnpm worktree:link-env && pnpm preflight`. NOW read in full from the post-merge worktree (skip any already read this session): `AGENTS.md`, the arc C spec, this plan directory's `plan.md`, `docs/agents/writing-plans.md`, `docs/agents/spec-self-review.md`.
 4. Write `/Users/ericweiss/FX-worktrees/backlog-quick-wins/.claude/ship-state.json` fresh: `{branch: "feat/backlog-quick-wins", stage: "arc-c-impl", tasksRemaining, next: "Task Q1", blockedOn: "", cronJobId, sessionId: <YOUR session UUID>}`.
 5. REGISTER a new 10-minute cron nudge scoped to this worktree's marker (date-first, supersession check, blockedOn silence, resume `next`), and only AFTER the new job id is confirmed, `CronDelete` the arc A job (register-then-delete — never a moment with no nudge while an arc is live). Write the new `cronJobId` into the marker.
@@ -23,7 +23,7 @@ After arc C: arc B's handoff will be announced to this pane when its plan merges
 
 ## Execution order
 
-Q1 (retainRows symmetry: flip pin RED → one-line retain → four green → archive) → Q2 (probes → e2e case → observed-RED-against-mutant → archive) → Q3 (diff review, markers, PR, CI, merge, ff `0 0`). Plan order binding.
+Q1 (retainRows symmetry: flip pin RED → live-row retain → four green → archive) → Q2 (e2e case per the settled harness contract → observed-RED-against-mutant → archive) → Q3 (closeout, merge origin/main + marker strip, FINAL-diff review to APPROVE, then PR, CI, merge, ff `0 0` — R3 F4: the review covers what merges). Plan order binding.
 
 ## Non-negotiables (the ones this arc exercises)
 
