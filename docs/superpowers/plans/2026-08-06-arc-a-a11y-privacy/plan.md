@@ -1,0 +1,98 @@
+# Arc A implementation plan — a11y/privacy cluster
+
+> **For agentic workers:** execute task-by-task per `HANDOFF.md` in this directory (the Opus pane's entry point). The spec is `docs/superpowers/specs/2026-08-06-arc-a-a11y-privacy.md`; this plan carries its own adversarial-review gate below.
+
+**Goal:** land the four ratified entry dispositions — travel-date suppression at three sites plus the recorded Option A ruling, the four live-region PENDING repairs, the channel-announcer verify/wire/strip pass, and the share-link scroll cue — on one implementation branch, TDD per task, to a merged PR.
+
+**Architecture:** `docs/arc-a-spec` (this branch: spec + plan + HANDOFF + claim handoff) merges first; then `feat/a11y-privacy-cluster` (worktree `../FX-worktrees/a11y-privacy-cluster`, created off `origin/main` with claims pushed BEFORE this branch merges, per spec §3) implements T1–T5 in order.
+
+**Date:** 2026-08-06 · **Spec:** `docs/superpowers/specs/2026-08-06-arc-a-a11y-privacy.md` · **Status:** DRAFT
+
+## Global constraints
+
+- Every AGENTS.md plan-wide invariant binds; the ones this arc exercises: 1 (TDD), 6 (conventional commits), 8 (dual gate — every task below touches invariant-8 UI surfaces), 11 (worktree-only), 12 (claims). Spec §1.1 lists the do-not-relitigate items.
+- Pre-code mechanical UI checklist before any component edit: no em dash in new user-visible copy (this arc adds none — §2.3 wiring reuses displayed strings verbatim), no new tap targets (no new interactive elements), canonical classes only where classNames change (none planned).
+- The archive RED, used by every archive task: move the entry body to `BACKLOG-archive.md` (or `DEFERRED-archive.md` for SHARELINK-CUE-VISIBILITY-1) WITH its flight marker intact, run `pnpm vitest run tests/docs/_metaLedgerInProgress.test.ts`, observe the named failure (archives categorically reject in-progress entries), then strip the marker and rerun to GREEN.
+- The live-region RED, used by every §2.2 site: repair the file, run `pnpm vitest run tests/components/_metaLiveRegionMounting.test.ts`, observe the stale-PENDING failure name the file (proof the walk sees the repair), remove the PENDING row, rerun to GREEN. The failing run is the task's executable RED for the structural half; each site also carries a behavioural assertion (below).
+
+## Pre-draft verification pass (writing-plans rule)
+
+Every file/symbol/command named below was grep-verified 2026-08-06 in the authoring worktree (three-agent citation pass + follow-up greps; anchors are file + symbol, line numbers are drafting-time locators). Key probe results the plan RELIES on:
+
+- `suppressesDates(restriction)` is the sole export of `lib/crew/dateSuppression.ts`; `resolveViewerContext(viewer, data)` already runs in `TravelSection` (locator :170) and `ViewerContext.dateRestriction` is total (fallback `{ kind: "none" }`, `lib/data/viewerContext.ts`). The three gated expressions: `dateIsPrimary = leg.date !== null` (:409) feeding the `<time>` primary (:439-440); the hotel `<dl>` gate `res.check_in !== null || res.check_out !== null` (:514); the flight expression `seg.date ? formatFlightDate(seg.date) : (seg.dateRaw ?? "")` (:603) and the today-chip comparison `seg.date === flightTodayIso` (:610-613).
+- The fixture pattern of record for an `unknown_asterisk` viewer is `withRestriction({ kind: "unknown_asterisk", days: null })` over `makeShowForViewer` (`tests/components/crew/sections/ScheduleSection.test.tsx` :40-42, leak sweep over `ALL_DATES` at :57); `makeShowForViewer` defaults `dateRestriction: { kind: "none" }` (`tests/fixtures/showForViewer.ts` :90).
+- `tests/components/_metaLiveRegionMounting.test.ts`: `PENDING` map (:150-172, four rows), staleness enforcement (:670, fails when a listed file yields zero `conditionalStatusRegions` hits), `CHANNEL_ANNOUNCERS` (:58-63), `CHANNEL_ANNOUNCE_CALLS` (:73-78: Rescan 2, RoleRecognize 1, RecentAutoApplied 1, ReSync 1), `REGISTERED_SITES` (:187-196), per-site exemption shapes with reasons (two lawful shapes, :19).
+- Channel coverage census (spec §2.3 table): `RoleRecognizeControl.tsx` announce only in `save()` success (:172); stale/conflict branches only `setPhase` (:174-177). `RecentAutoAppliedStrip.tsx` announce only in `GroupSection` undo-all success (:407); the error card (`data-testid="auto-applied-error"`, :688, gate `data.kind === "infra_error"` :671) has no announce. `ReSyncButton.tsx` announce only on `shrink_held` (:185); success message `summarizeResult(json.result)` (:83-95) unannounced.
+- `ShareHub.tsx`: `flash: number | null` (:471), bump site (:481, render-phase `prevToken !== token` branch), timer clear via `SHARE_LINK_FLASH_MS` (:493-497), close/inactive clear (:491); URL row `data-testid="admin-current-share-link-row"` (:861-863), code element `admin-current-share-link-url` (:875-881); popover scroller `share-hub-popover`; archive-scroll idiom rAF + `querySelector` + `typeof target.scrollIntoView !== "function"` guard (:990-1005). No ref exists on the URL row.
+- Reduced-motion one-shot idiom: `window.matchMedia("(prefers-reduced-motion: reduce)").matches` (`components/diagrams/GalleryLightbox.tsx` :162, `components/admin/review/ReviewModalShell.tsx` :360). The hook `usePrefersReducedMotion` returns `null` on first render (`lib/a11y/usePrefersReducedMotion.ts` :45) — wrong for an event-time decision; not used here.
+- e2e harness (`tests/e2e/admin-lifecycle-layout.spec.ts`): `page.addInitScript` monkeypatches `Element.prototype.scrollIntoView` into `window.__siv` recording `{testid, opts, before, after}` with popover `scrollTop` before/after (:334-354); viewport 390x560 (:355); hydration gate = `LOADED_REVIEW_MODAL` wait + `toPass` retry loop clicking `share-hub-kebab` (:365-370); direct DOM `el.click()` to keep Playwright actionability-scrolling out (:374); geometry premise via `popover.evaluate` (:401-415). Project `mobile-safari` (`playwright.config.ts` :54, testMatch includes `admin-lifecycle-layout` :64-65); CI workflow `.github/workflows/lifecycle-layout-e2e.yml`; seeds `seedHeldShow`/`seedArchivedShow` + `signInAs(ADMIN_FIXTURE)` in `beforeAll` (:92).
+- `tests/components/admin/showpage/shareHubFlashState.test.tsx` exists (production-ancestry mount); `tests/components/admin/showpage/pageTransitions.test.tsx` pins every ShareHub conditional as instant (no AnimatePresence) — the new effect adds no conditional render, so that registry is untouched.
+- `DEFERRED-archive.md` exists and `tests/docs/_metaDeferralLedgerGraduation.test.ts` requires graduated DEFERRED ids to appear there.
+- New-suite wiring: no new test FILE is created anywhere in this plan — every new case lands in an existing wired suite (TravelSection suites, component suites, `shareHubFlashState.test.tsx`, `admin-lifecycle-layout.spec.ts`), so no testMatch or workflow change is needed.
+
+## Meta-test inventory (declared per writing-plans rule)
+
+- **EXTENDS:** `tests/components/_metaLiveRegionMounting.test.ts` — four PENDING rows removed (T2), `CHANNEL_ANNOUNCERS` header + `CHANNEL_ANNOUNCE_CALLS` counts (RoleRecognize 1→2, RecentAutoApplied 1→2, ReSync 1→2) + five `REGISTERED_SITES` rows dropped (T3), the confirm-prompt no-wire reason and the re-homed cross-component-blindness limit added to its header (T2e/T3b).
+- **CREATES:** nothing structural (spec §5).
+- **Registries:** invariant-9/10 — no new Supabase call site, no new mutation surface (client-only changes); a discovery to the contrary adds the row in the same commit. Advisory locks untouched. §12.4 catalog untouched.
+
+## e2e harness readiness (writing-plans rule, for T4)
+
+(a) Server boot: the existing `lifecycle-layout-e2e` mechanism — prod build served on `E2E_PORT` per `playwright.config.ts` baseURL and the workflow's boot steps; T4 adds a case to the already-wired spec file, changing nothing about boot. (b) Readiness gate: the file's established pattern — `LOADED_REVIEW_MODAL` wait plus the `toPass` hydration-retry loop on the kebab click; the new case reuses it verbatim. (c) Detach-safety: all scroll observations go through the `__siv` init-script recording (captured synchronously inside the monkeypatched prototype method), never through `locator.evaluate` on a node that can unmount; clicks on armed controls use the direct-DOM `el.click()` idiom.
+
+## Unit tasks — `feat/a11y-privacy-cluster`
+
+### Task T1 — travel-date suppression (spec §2.1)
+
+1. **T1a RED:** add to the existing TravelSection suites, using the `withRestriction` fixture pattern: for an `unknown_asterisk` viewer — (i) no leg `<time>` mounts and no fixture date string appears in the legs subtree (primary falls back to `leg.time ?? leg.stage`); (ii) no Check in / Check out row and no hotel date string (hotel name still renders); (iii) no flight date, no `dateRaw` string, no today-chip (airline/route still render); each assertion scoped to its gated subtree (anti-tautology: sweep the fixture's own date values, `ALL_DATES`-style; derive expected fallbacks from the fixture's `time`/`stage`/name fields). Twin cases with `{ kind: "none" }` pin today's output (dates present). Concrete failure modes caught: a gate that hides the whole card instead of the dates; a `dateTime` attribute leaking while text is suppressed; a `days`-listed partial accidentally swept into the gate.
+2. **T1b GREEN:** import `suppressesDates`; `const hideDates = suppressesDates(ctx.dateRestriction)`; gate the three expressions (force `dateIsPrimary` false; add `&& !hideDates` to the hotel `<dl>` gate; suppress both flight-date arms and the chip comparison). Update the `lib/crew/dateSuppression.ts` header in the same commit: three sites move to the gated list; the NOT-GATED list shrinks to the roster label with the Option A ruling. Commit `feat(crew-page): withhold travel dates from an unknown-asterisk viewer at all three leak sites`.
+3. **T1c:** record the Option A ruling on the BACKLOG entry (refutation-style paragraph, the entry's own Header.tsx precedent as template), then archive the entry (archive RED) with all four sites dispositioned. Commit `docs(backlog): archive BL-CREW-UNKNOWN-ASTERISK-TRAVEL-LEAK — three sites gated, roster label ruled Option A`.
+
+### Task T2 — live-region PENDING repairs (spec §2.2; one commit per file, live-region RED each)
+
+- **T2a** `components/admin/dev/MaterializeCard.tsx`: hoist the `role="status"` region above the `result === null` gate (region mounts always; result content renders into it). Behavioural: the existing/added case asserting the result text renders inside the region on success. Commit `fix(admin): hoist MaterializeCard result region above its gate`.
+- **T2b** `app/admin/settings/admins/RevokeRowButton.tsx`: give the couldn't-confirm warning a persistent region (in-file precedent: the `arm-expiry-region` key-stable block); text inserted into it on the failed-revoke transition. Behavioural: warning text renders on `effectiveUi === "couldnt_confirm"`. Commit `fix(admin): mount RevokeRowButton couldnt-confirm region persistently`.
+- **T2c** `components/admin/wizard/step3ReviewSections.tsx` (both moves, one commit): (i) hoist the `-report-status` span above the send-outcome gate inside `ReportIssueSection`; if the walk still flags the surrounding `expanded` surface gate, register the per-site surface-gate exemption with reason per the suite's two-lawful-shapes contract — decided against `conditionalStatusRegions` output at execution, both outcomes compliant. (ii) move `AgendaBreakdown`'s parsing region above the `baseline.length === 0` guard into the persisting parent (the agenda section's `render` in `step3Sections`, through `BreakdownSection`/`ModalSectionChrome`); preserve the entry's accepted first-paint limit note in the in-file DOCUMENTED LIMIT block. Behavioural: parsing/loading and report-status messages still render on their states. Commit `fix(admin): mount step3 review status regions above the gates they report`.
+- **T2d** `components/admin/wizard/Step3ReviewModal.tsx`: hoist the publish-error region above the `resolution ? ... : ...` chain so it persists across all four arms; error text inserted on the failure state. Behavioural: the publish-error copy renders on the failure state. Commit `fix(admin): mount the Step3ReviewModal publish-error region persistently`.
+- **T2e** archive `BL-LIVE-REGION-AST-WALK-RESIDUE` (archive RED); re-home the cross-component-blindness limit to the guard-file header in the same commit. Commit `docs(backlog): archive BL-LIVE-REGION-AST-WALK-RESIDUE — four PENDING sites repaired, walk-blindness limit re-homed`.
+
+### Task T3 — channel-announcer wire + strip (spec §2.3 table; one commit per file)
+
+- **T3a** `components/admin/RoleRecognizeControl.tsx`: RED — spy on the context value (render under a test `UndoAnnounceContext.Provider`), drive `save()` into the stale and conflict outcomes, assert `announce` fires with the SAME constant the card renders (`COPY.STALE_COPY` / `COPY.CONFLICT_COPY` — expectation reads the constant, not a duplicated literal). GREEN — announce on those branches (in the handler, beside `setPhase`); strip both `role="status"` attributes (:209, :257); update `CHANNEL_ANNOUNCE_CALLS` RoleRecognize 1→2 and drop its two `REGISTERED_SITES` rows in the same commit. Commit `fix(admin): announce RoleRecognizeControl stale and conflict outcomes; strip the dead status attributes`.
+- **T3b** `components/admin/RecentAutoAppliedStrip.tsx`: RED — drive the fetch to `infra_error`, assert `announce` fires with the error-card copy. GREEN — announce in the fetch-resolution handler (state-transition site, never render); strip the error-card and confirm-prompt `role="status"` attributes; the prompt is deliberately NOT wired — record the reason row in the `CHANNEL_ANNOUNCERS` header (spec §2.3: an inline confirmation prompt is interactive content adjacent to the just-activated control, not a status transition); counts RecentAutoApplied 1→2, drop its two `REGISTERED_SITES` rows. Commit `fix(admin): announce the auto-applied load failure; strip the dead status attributes`.
+- **T3c** `components/admin/ReSyncButton.tsx`: RED — drive a successful re-sync, assert `announce` fires with `summarizeResult`'s output (expectation derives from the same fixture result the component receives). GREEN — announce on the success branch; strip the success `role="status"`; counts ReSync 1→2, drop its row. Commit `fix(admin): announce the re-sync success summary; strip the dead status attribute`.
+- **T3d** archive `BL-CHANNEL-ANNOUNCER-RESIDUAL-ROLE-STATUS` (archive RED) with the executed verification table. Commit `docs(backlog): archive BL-CHANNEL-ANNOUNCER-RESIDUAL-ROLE-STATUS — three outcomes wired, five dead attributes stripped`.
+
+### Task T4 — share-link scroll cue (spec §2.4)
+
+1. **RED (jsdom):** in `shareHubFlashState.test.tsx` — define `Element.prototype.scrollIntoView` as a spy (jsdom lacks it; the production guard tolerates both); assert (i) it fires targeting the URL row when `flash` transitions null→non-null, (ii) fires again on n→n+1 (re-rotation), (iii) does NOT fire on unrelated re-renders, (iv) `behavior` is `"smooth"` with `matchMedia` mocked no-preference and `"auto"` with reduce — the test hardcodes the two literal behavior strings per mocked media state (the data-source side; never read them from the implementation). Concrete failure modes: an effect keyed on `token` instead of `flash` (fires on non-rotation token syncs); a missing reduced-motion arm; a scroll on every render.
+2. **RED (e2e):** new case in `admin-lifecycle-layout.spec.ts` on the existing harness — open popover at 390x560, scroll the popover down to the rotate control (geometry premise, asserted first: popover overflows AND the URL row's bottom is above the scrolled viewport top — the row is out of view), arm + confirm rotation via direct-DOM clicks, then assert a `__siv` record whose testid is `admin-current-share-link-row` and that popover `scrollTop` decreased across the call. Both REDs observed failing before implementation.
+3. **GREEN:** effect in `ShareHub` on the flash edge (deps `[flash]`, act when non-null): rAF, `querySelector` on the popover subtree for the URL row, `typeof target.scrollIntoView !== "function"` guard, `behavior: matchMedia reduce ? "auto" : "smooth"`, `block: "nearest"`. No conditional render added (the pageTransitions instant-pin registry is untouched). Commit `feat(admin): scroll the share-link cue into view on rotation, reduced-motion aware`.
+4. Archive `SHARELINK-CUE-VISIBILITY-1` out of DEFERRED.md into `DEFERRED-archive.md` (archive RED; graduation meta-suite green). Commit `docs(backlog): graduate SHARELINK-CUE-VISIBILITY-1 — scroll cue shipped with reduced-motion arm`.
+
+### Task T5 — close the branch
+
+1. `/impeccable critique` + `/impeccable audit` on the unit diff (canonical v3 setup gates BEFORE this point — they run before the first component edit in T1); P0/P1 fixed or DEFERRED-entried; findings + dispositions in `closeout.md` in this directory with the filled `impeccable-gate:` marker line.
+2. Whole-diff codex-guard review `--stage diff` to APPROVE (round cap 4; split tight-scope briefs if needed: crew/privacy files vs admin a11y files). Brief carries the spec §1.1 do-not-relitigate list.
+3. Merge `origin/main` (sibling arcs and L-wave units contend on the ledgers; per-entry resolution, both sides preserved); strip any surviving marker in the last pre-merge commit (archived entries shed theirs in their moves — expected surviving set: none; the terminal check `grep -c 'Branch:\*\* feat/a11y-privacy-cluster' BACKLOG.md DEFERRED.md` returns 0). PR; real CI green; `gh pr merge --merge` same turn; ff main `0 0`.
+
+## Adversarial review (cross-model)
+
+- This plan: self-review (checklist below) → codex-guard `--stage plan --round <n>` to APPROVE before the HANDOFF is finalized. Briefs: REVIEWER ONLY, CONSEQUENCE BOUND / THREAT MODEL FENCE with the literal phrase "never silently wrong", VERDICT + FINDINGS lines, round cap 4, spec §1.1 do-not-relitigate list.
+- Implementation branch: whole-diff `--stage diff` review per T5.
+
+## Execution handoff
+
+Per spec §3: the impl worktree + branch + claims land BEFORE this branch's PR merges (handoff-by-overlap; `pnpm ledger:claims --check` from the main checkout must name `docs/arc-a-spec` only — exit 1 is the planned signature); this branch strips its four markers in its last pre-merge commit; the Opus pane executes T1–T5 from `HANDOFF.md` in this directory. Never end a turn mid-pipeline; 10-minute nudge per Stage-0 semantics in the driving session.
+
+## Impeccable gate (this authoring branch)
+
+impeccable-gate: N/A — no UI surface (authoring branch; `feat/a11y-privacy-cluster` carries the dual gate, its filled marker lands in this directory's closeout.md)
+
+## Self-review checklist (run before dispatching the plan review)
+
+- [ ] Every named file/symbol re-grepped (pre-draft pass above; re-verify any task edited during review rounds).
+- [ ] Anti-tautology: T1 date sweeps fixture-derived; T3 expectations read the displayed constants; T4 jsdom behavior strings hardcoded per mocked media state; T4 e2e geometry premise asserted before the scroll assertion.
+- [ ] No new test file — every case lands in a wired suite (verified above).
+- [ ] `pnpm spec:lint docs/superpowers/plans/2026-08-06-arc-a-a11y-privacy/plan.md` 0 hard.
+- [ ] Numeric sweep after every repair round (counts: 4 PENDING rows, 5 stripped attributes, 3 wired sites, announce counts 1→2 ×3).
