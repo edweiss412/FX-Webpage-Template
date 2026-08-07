@@ -208,10 +208,42 @@ describe("e2e suite holds no unlocked PostgREST DML on locked tables (structural
   // WHERE would let a stale/cross-show crew id mutate a row the held lock
   // doesn't cover. Lexical pin; the behavioral proof is the helper's no-row
   // RETURNING guard (cross-show ids throw — verified by live psql smoke).
-  it("lockedCrewRestriction.ts scopes its crew_members UPDATE to the advisory-locked show", () => {
+  it("EVERY locked crew_members UPDATE holds the show lock and is scoped to it", () => {
+    // Arc C diff review R4, P0. This assertion used to be ONE regex over the
+    // whole file, which the first exported function satisfied on its own — so a
+    // second helper could ship with no advisory lock at all and the guard stayed
+    // green. It now walks each exported function independently, which makes a
+    // THIRD helper fail by default rather than inherit someone else's proof.
     const src = readFileSync(join(e2eDir, "helpers/lockedCrewRestriction.ts"), "utf8");
-    expect(src).toMatch(
-      /update public\.crew_members[\s\S]{0,400}?show_id = \(select id from public\.shows where drive_file_id = \$\{sqlString\(driveFileId\)\}\)/,
-    );
+    const bodies = src
+      .split(/^export async function /m)
+      .slice(1)
+      .map((chunk) => ({ name: chunk.slice(0, chunk.indexOf("(")), body: chunk }))
+      .filter((f) => /update public\.crew_members/.test(f.body));
+
+    // Premise, stated executably: a walk that finds nothing asserts nothing, and
+    // reads exactly like a walk that found everything in order.
+    expect(
+      bodies.length,
+      "no exported crew_members UPDATE found — the walk parsed nothing, so it proved nothing",
+    ).toBeGreaterThanOrEqual(2);
+
+    for (const { name, body } of bodies) {
+      const locks = body.match(
+        /pg_advisory_xact_lock\(hashtext\('show:' \|\| \$\{sqlString\(driveFileId\)\}\)\)/g,
+      );
+      // Exactly one, per invariant 2's single-holder rule: zero is unlocked, and
+      // two nested holders on one hashkey deadlock under burst.
+      expect(locks?.length ?? 0, `${name} must take the show advisory lock exactly once`).toBe(1);
+      expect(
+        body,
+        `${name} must scope its UPDATE to the locked show (an id-only WHERE lets a stale or cross-show crew id mutate a row the held lock does not cover)`,
+      ).toMatch(
+        /update public\.crew_members[\s\S]{0,400}?show_id = \(select id from public\.shows where drive_file_id = \$\{sqlString\(driveFileId\)\}\)/,
+      );
+      expect(body, `${name} must fail loudly when the UPDATE matches no row`).toMatch(
+        /returning id;[\s\S]*?if \(!stdout\.includes\(crewId\)\)[\s\S]*?throw new Error/,
+      );
+    }
   });
 });

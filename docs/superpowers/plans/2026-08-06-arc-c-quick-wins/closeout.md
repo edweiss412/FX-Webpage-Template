@@ -201,3 +201,33 @@ because "same defect, different line" is not on its own a reason to defer.
 The other FAIL lines in that suite run belong to `pg-cron-coverage`'s
 mechanism-probe guard, which runs a mutant child and asserts it fails; the run
 summary counted one failing file, not three.
+
+**R4 — NEEDS-ATTENTION, 1 P0, accepted.** The invariant-2 proof in
+`tests/help/walker-routes.test.ts` was ONE regex over the whole helper file, and
+the older `setDateRestrictionLocked` block satisfied it on its own. So the new
+`setCrewRoleLocked` inherited a proof it never earned: strip its advisory lock or
+its show scope and the guard stayed green. The PostgREST scanner cannot cover the
+gap either — it deliberately ignores raw SQL.
+
+Repair: the assertion now walks each exported function independently and requires,
+per function, exactly one `pg_advisory_xact_lock` on the show hashkey (zero is
+unlocked; two nested holders on one hashkey deadlock under burst, invariant 2's
+single-holder rule), a show-scoped UPDATE, and a loud no-row failure. It also
+states its own premise executably — a walk that parses nothing asserts nothing and
+reads exactly like a walk that found everything in order.
+
+**Verified by mutation rather than by reading**, since "the guard does not pin what
+it claims" is only settled by a mutant:
+
+| mutant | result |
+| --- | --- |
+| remove `setCrewRoleLocked`'s advisory lock | KILLED |
+| remove `setCrewRoleLocked`'s show scope | KILLED |
+| remove `setDateRestrictionLocked`'s advisory lock | KILLED |
+
+The first is the exact mutant R4 predicted would survive. The third confirms the
+rewrite did not trade new coverage for old.
+
+A third helper added later fails by default rather than inheriting either proof,
+which is the property the single-regex version lacked.
+
