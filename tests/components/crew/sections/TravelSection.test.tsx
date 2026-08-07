@@ -724,3 +724,61 @@ test("unknown_asterisk viewer: a dates-only hotel reservation is withheld, not a
   expect(container.querySelector('[data-testid="travel-hotels"]')).toBeNull();
   expect(container.querySelector('[data-testid="section-empty"]')).toBeTruthy();
 });
+
+// ── Cross-model review R4: dates inside the leg's own author-typed fields ────
+//
+// `stage` and `time` are sheet-authored columns, so ordinary parser output puts
+// date text in them and it renders even though `leg.date` was cleared. Two
+// probes from the reviewer, both from real template paths:
+//
+//   v4 date-like stage      → { stage: "5/13", date: null, time: null }
+//   v2 duplicated date cell → { stage: "Pick Up Venue", date: "2026-05-13", time: "5/14" }
+//
+// The rule is the same closed one the flight card uses (spec §4 limit 9): render
+// only what the field's OWN declared semantics can express. A clock time is
+// shape-checkable and a real call time always matches, so `time` is validated
+// positively rather than scanned for dates. `stage` has no closed shape — it is
+// an arbitrary author label — so it is withheld outright under suppression.
+// Withholding beats recognizing: enumerating date spellings does not terminate.
+test.each([
+  ["a date-like stage with nothing else", { stage: "5/13", date: null, time: null }],
+  [
+    "a duplicated date cell leaking through time",
+    { stage: "Pick Up Venue", date: "2026-05-13", time: "5/14" },
+  ],
+])("unknown_asterisk viewer: no date survives in %s", (_label, leg) => {
+  const data = restrict(
+    suppressionData({
+      schedule: [{ ...leg, assigned_names: ["Jamie Rivera"] }],
+      hotels: [],
+    }),
+    UNKNOWN,
+  );
+  const { container } = renderTravelAs(data, CREW);
+  // Swept over the WHOLE render: the defect is that the text escaped the gated
+  // date paths, so scoping to those would be the tautology.
+  const text = container.textContent ?? "";
+  for (const leak of ["5/13", "5/14", "2026-05-13"])
+    expect(text, `"${leak}" reached an unknown_asterisk viewer`).not.toContain(leak);
+});
+
+test("unknown_asterisk viewer: a REAL call time survives, because a clock time cannot express a date", () => {
+  // The twin that stops the fix degenerating into "hide the leg". Positive
+  // validation of the field's own semantics loses nothing legitimate — and the
+  // call time plus who else is on it is what a crew member actually needs.
+  const data = restrict(
+    suppressionData({
+      schedule: [
+        { stage: "Load in", date: LEG_ISO, time: "8:00 AM", assigned_names: ["Jamie Rivera"] },
+      ],
+      hotels: [],
+    }),
+    UNKNOWN,
+  );
+  const { container } = renderTravelAs(data, CREW);
+  const block = container.querySelector('[data-testid="travel-getting-there"]');
+  expect(block).toBeTruthy();
+  expect(block!.textContent).toContain("8:00 AM");
+  expect(block!.textContent).toContain("Jamie Rivera");
+  for (const spelling of dateSpellings(LEG_ISO)) expect(block!.textContent).not.toContain(spelling);
+});
