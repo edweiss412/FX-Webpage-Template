@@ -8,6 +8,938 @@ Same split as [DEFERRED.md](./DEFERRED.md) ↔ [DEFERRED-archive.md](./DEFERRED-
 
 ---
 
+## BL-ADOPTION-PIN-REACHABILITY-BLIND — the shared-helper adoption guard cannot prove LIVE-PATH use — CLOSED 2026-08-06 (L-wave, `feat/l-wave-docs`, DEMOTED)
+
+**Resolution: DEMOTED and archived. This is a DOCUMENTED LIMIT filed as open work, and the entry says
+so in its own words — "Accepted, not open."** Classified DEMOTE by the 2026-08-06 L-wave screen under
+the ledger filing bar (AGENTS.md; `docs/superpowers/specs/2026-08-04-backlog-convergence-design.md`
+§2): a limit whose worst case is bounded, whose backstops are named, and whose own "act only if"
+conditions are triggers rather than work, belongs in the owning surface's limits record — which is
+exactly what it already has, at the guard header — not in the open queue.
+
+**Deleting a behavioural backstop converts this accepted limit into a real gap. That is the single
+thing this archive exists to preserve**, and it is the entry's own stated risk. The guard
+(`tests/components/admin/showpage/_metaSharedHelperAdoption.test.ts`) pins the WIRING layer; these
+five per-consumer BEHAVIOURAL tests are what actually catch a fork, and they must be read as load-bearing:
+
+- `ReSyncButton.test.tsx` — "overlay is capped to the room left inside a clipping ancestor"
+- `PublishedToggle.test.tsx` — "the banner is capped against the clip ancestor"
+- `attentionMenu.test.tsx` — its capped-scroller case
+- the two `HoverHelp` suites
+- `shareHubVisualViewport`'s T-S8 / T-S9
+
+The wiring layer and the behaviour layer are meant to be read together; **neither is sufficient
+alone.** Anyone narrowing or removing one of the five above owns re-opening this row.
+
+**Why it is not closable as written, preserved:** the guard's rules (i)-(viii) resolve imports and
+calls through the TypeScript type checker and forbid local copies by name and by shape, but they are
+**reachability-blind by construction** — none connects the imported helper's RESULT to live
+behaviour. Two evasion families were demonstrated against the SHIPPED guard, the second surviving a
+round of tightening:
+
+```text
+MUTANT HoverHelp executes sharedDecoy create+cancel, but all live
+schedule/cancel behavior uses PrivateCoalescer
+SHIPPED_GUARD_RESULTS 23 passed, 0 failed
+
+MUTANT PublishedToggle voids shared ref and attaches a private 1px-cap callback
+SHIPPED_GUARD_RESULTS 23 passed, 0 failed
+```
+
+Closing it statically means dataflow/reachability analysis, which is not what a meta-test should
+carry — and two rounds of rule-tightening each invited a new shape, the per-instance whack-a-mole the
+class-sweep discipline warns about. Affects all five consumers: `ShareHub`, `HoverHelp`,
+`PublishedToggle`, `AttentionMenu`, `ReSyncButton`.
+
+**Triggers, preserved verbatim — only act on this if** a consumer is found to have behaviourally
+forked despite a green guard, **or the behavioural backstops above are removed or narrowed**. The
+latter is the real risk, since deleting one silently converts this accepted limit into an uncovered
+gap.
+
+**Cross-reference:** its sibling gap `BL-POPOVER-REGISTRY-PER-FILE-AND-TAILWIND-ONLY` remains OPEN in
+`BACKLOG.md` — that one is a genuine coverage question, not an accepted limit, and this demotion says
+nothing about it. The original filing rationale ("a code comment is not a ledger") was right that the
+limit needed to be discoverable; it is now discoverable here AND at the guard header, which is the
+correct end state for a documented limit.
+
+---
+
+**Effort:** L
+
+Surfaced by cross-model review of `fix/admin-popover-overlay-cluster` (2026-08-02, PR #658),
+across three rounds of probes against the shipped guard.
+
+`tests/components/admin/showpage/_metaSharedHelperAdoption.test.ts` pins that each consumer
+imports the shared helper, CALLS it (resolved through the TypeScript type checker, not by
+name), declares no local copy by name or by shape, and — for coalescer rows — cancels the
+instance it schedules. Rules (i)-(viii) are nonetheless **reachability-blind by
+construction**: none of them connects the imported helper's RESULT to live behaviour. Two
+evasion families were demonstrated, the second surviving a round of tightening:
+
+1. **Executed decoy.** `createRafCoalescer(() => {}).cancel()` on a throwaway instance,
+   while a private class handles every real `schedule()`/`cancel()`:
+
+   ```text
+   MUTANT HoverHelp executes sharedDecoy create+cancel, but all live
+   schedule/cancel behavior uses PrivateCoalescer
+   SHIPPED_GUARD_RESULTS 23 passed, 0 failed
+   ```
+
+2. **Discarded result.** Call `useFitWithinClip(...)`, drop the returned ref, attach a
+   private callback to the node instead:
+
+   ```text
+   MUTANT PublishedToggle voids shared ref and attaches a private 1px-cap callback
+   SHIPPED_GUARD_RESULTS 23 passed, 0 failed
+   ```
+
+Affects all five consumers: `ShareHub`, `HoverHelp`, `PublishedToggle`, `AttentionMenu`,
+`ReSyncButton`.
+
+**Accepted, not open.** Closing this statically means dataflow/reachability analysis, which
+is not what a meta-test should carry, and two rounds of rule-tightening each invited a new
+shape (the per-instance whack-a-mole the class-sweep discipline warns about). The guard's
+header states the limit and names the per-consumer BEHAVIOURAL tests that do catch a fork —
+`ReSyncButton.test.tsx` "overlay is capped to the room left inside a clipping ancestor",
+`PublishedToggle.test.tsx` "the banner is capped against the clip ancestor",
+`attentionMenu.test.tsx`'s capped-scroller case, the two HoverHelp suites, and
+shareHubVisualViewport's T-S8/T-S9. The wiring layer and the behaviour layer are meant to be
+read together; neither is sufficient alone.
+
+**Filed here because a code comment is not a ledger.** The limit was documented at the guard
+(discoverable once you are already reading it) but not where someone greps for known
+weaknesses. Its sibling gap `BL-POPOVER-REGISTRY-PER-FILE-AND-TAILWIND-ONLY` went to this
+file; this one should have too.
+
+**Only act on this if** a consumer is found to have behaviourally forked despite a green
+guard, or the behavioural backstops above are removed or narrowed — the latter is the real
+risk, since deleting one silently converts this accepted limit into an uncovered gap.
+
+---
+
+## BL-OPS-LOG — Structured operator-log sink + producer wiring — CLOSED 2026-08-06 (L-wave, `feat/l-wave-docs`, DECOMPOSED)
+
+**Resolution: DECOMPOSED into three sized children and archived.** Ratified 2026-08-05 (spec §1.1
+item 10 / §2.1.4). The entry contradicted its own scope: it was filed as an L for building a durable
+operator-log sink, and **the sink is BUILT** (`lib/log/persist.ts:16` writes `app_events`; the module
+is `lib/log/`, not the proposed `lib/operatorLog/`, which is equivalent). One of its four consolidated
+producers is MOOT. What remained was three unrelated pieces of work behind one L-shaped id, which is
+why it never got scheduled.
+
+**Children:**
+
+| Child                         | Effort | Residual                                                      |
+| ----------------------------- | ------ | ------------------------------------------------------------- |
+| `BL-OPS-LOG-OAUTH-EMITS`      | S      | the `OAUTH_REDIRECT_INVALID` branches emit nothing durable    |
+| `BL-OPS-LOG-ONBOARDING-EMIT`  | S      | `ONBOARDING_OPERATOR_ERROR` is render-only, no producer       |
+| `BL-OPS-LOG-DASHBOARD-BANNER` | M      | the sink's only reader is developer-gated; Doug cannot see it |
+
+**What was BUILT, recorded so no child re-derives it:** the durable sink (`lib/log/persist.ts:16`
+writes `app_events`) and the sign-out producer (`app/auth/sign-out/route.ts:108,117`).
+
+**What is MOOT and must NOT be rebuilt:** the redeem-link producer and its 10 codes.
+`app/api/auth/redeem-link/route.ts` was dropped at the M11.5 cutover and is now a BANNED term
+(`tests/cross-cutting/no-m9-5-surfaces.test.ts:38`). It cannot ship and was never a blocker.
+
+**Line anchors had ROTTED and are re-verified 2026-08-06 as SYMBOL anchors** (spec §2.1.4 — the
+entry's line numbers pointed at the wrong code):
+`signInRedirect(request, "OAUTH_REDIRECT_INVALID", …)` now at `app/auth/callback/route.ts:258` and
+`app/api/auth/google/start/route.ts:40`; `messageFor("ONBOARDING_OPERATOR_ERROR")` at
+`components/admin/OnboardingWizard.tsx:548`.
+
+**CLASS SWEEP — a THIRD route the entry and the spec both missed.**
+`app/api/auth/picker-bootstrap/route.ts` returns `htmlResponse("OAUTH_REDIRECT_INVALID", 403)` at
+**three** branches (`:162`, `:165`, `:176`), none of which emits a durable code either. So the OAuth
+residual is **five emit-less branches across three routes**, not two. The child carries all five.
+
+**Observability-scope note, so no child inherits a false obligation** (corrected per spec R4 F1, and
+re-verified here): all three routes are **GET** handlers (`app/auth/callback/route.ts:178`,
+`app/api/auth/google/start/route.ts:36`, `app/api/auth/picker-bootstrap/route.ts:158`) and the
+onboarding producer is render-only. **None of these surfaces is inside invariant 10's mutating-method
+scope**, so the children add durable emits as an observability improvement and create NO registry or
+guard obligation.
+
+**The load-bearing residual, and the reason it is M rather than S:** the sink's only reader is
+`/admin/dev/telemetry` (`app/admin/dev/telemetry/page.tsx:24`), gated by `requireDeveloperIdentity`.
+Re-verified 2026-08-06: `loadAppEvents` and `loadCronHealth` have exactly ONE UI consumer, that page
+(the `lib/observe/query/*` copies feed the `pnpm observe` CLI, not a surface). That is a
+developer-gated page, not a dashboard banner — Doug must leave the dashboard and, as a non-developer,
+likely cannot reach it at all. No admin-dashboard surface reads `app_events`; the two hits in
+`app/admin/actions.ts:81,168` are comments about paths that leave no row.
+
+**Provenance preserved:** this entry consolidated four DEFERRED entries from the FXAV crew-pages plan
+that all blocked on the same nonexistent infrastructure — M5-D9 (OAuth callback structured
+operator-log), M5-D10 (redeem-link structured operator-log), M5-D11 (sign-out teardown structured
+operator-log), M10-D-PHASE1-1 (`ONBOARDING_OPERATOR_ERROR` durable notification via Sentry +
+admin-visible banner). That infrastructure now exists, which is exactly why the remainder decomposes
+into small, independently schedulable rows.
+
+---
+
+**VERIFIED INCOMPLETE 2026-08-03 — 3 of 6 scope clauses unshipped. Do not archive.** Checked clause-by-clause during the merged-backlog sweep; recorded so the next reader does not re-derive it.
+
+- **Built** — the durable sink: `lib/log/persist.ts:16` writes `app_events` (module is `lib/log/`, not the proposed `lib/operatorLog/` — equivalent). Sign-out producer: `app/auth/sign-out/route.ts:108,117`.
+- **MOOT** — the redeem-link producer and its 10 codes: `app/api/auth/redeem-link/route.ts` was dropped at the M11.5 cutover and is now a banned term (`tests/cross-cutting/no-m9-5-surfaces.test.ts:38`). Cannot ship; not a blocker.
+- **REMAINS (1)** — the OAuth callback producer is partial. `OAUTH_STATE_INVALID` has adjacent durable emits (`app/auth/callback/route.ts:234,250`), but the `OAUTH_REDIRECT_INVALID` branch emits nothing (`app/auth/callback/route.ts:265-269`; same gap at `app/api/auth/google/start/route.ts:47-49`). Neither code is ever a persisted `code:` — it exists only as a `validateNextParam` return discriminant and a catalog copy row.
+- **REMAINS (2)** — the `ONBOARDING_OPERATOR_ERROR` producer. Render-only today: `components/admin/OnboardingWizard.tsx:548` displays catalog copy; no `log.*` emit anywhere.
+- **REMAINS (3), the load-bearing one** — the admin-visible banner. The only reader of the sink is `/admin/dev/telemetry` (`app/admin/dev/telemetry/page.tsx:24`), gated by `requireDeveloperIdentity`. That is a developer-gated page, not a dashboard banner: Doug must leave the dashboard and, as a non-developer, likely cannot reach it at all. No admin-dashboard surface reads `app_events` (the two hits in `app/admin/actions.ts:81,168` are comments about paths that leave no row).
+
+**Origin:** Consolidates four DEFERRED entries from the FXAV crew-pages plan that all blocked on the same nonexistent infrastructure: M5-D9 (OAuth callback structured operator-log), M5-D10 (Redeem-link structured operator-log), M5-D11 (Sign-out teardown structured operator-log), M10-D-PHASE1-1 (ONBOARDING_OPERATOR_ERROR durable notification via Sentry + admin-visible banner).
+
+**Effort:** L
+
+**Scope (combined from the four originating entries):**
+
+- A `lib/operatorLog/` module that writes structured operator-facing log entries to a durable sink. Sink design TBD — candidates: Supabase table, Sentry, or hybrid (Sentry for high-signal incidents + a Supabase audit table for everything else).
+- Producer call sites for:
+  - `app/auth/callback/route.ts` — emit `OAUTH_REDIRECT_INVALID` + `OAUTH_STATE_INVALID` alongside the redirect query codes.
+  - `app/api/auth/redeem-link/route.ts` — emit every redeem-link failure code (`CSRF_DENIED`, `CSRF_NONCE_EXPIRED`, `CSRF_KEY_ROTATED`, `LINK_REDEEM_KEY_ROTATED`, `SESSION_NOT_FOUND`, `LINK_NO_CREW_MATCH`, `LINK_VERSION_MISMATCH`, `LINK_REVOKED_FLOOR`, `LINK_REVOKED_SURGICAL`, `ADMIN_SESSION_LOOKUP_FAILED`).
+  - `app/auth/sign-out/route.ts` — emit on `deleteSession()` and Supabase `signOut()` failures.
+  - Onboarding wizard `ONBOARDING_OPERATOR_ERROR` producer (per M10 Phase 1 R1).
+- Admin-visible banner integration so Doug sees the most recent operator-log entries (without having to leave the dashboard).
+
+**Why backlog, not deferred:** The work is real and motivated, but: (a) no spec or plan exists; (b) the sink design needs a brainstorming session (Supabase vs Sentry vs hybrid); (c) no scheduled milestone exists to absorb it; (d) several of the producer surfaces work acceptably today via inline `console.error` or `admin_alerts` UPSERT — operator visibility is degraded, not absent. Picking this up requires first scoping the milestone (spec + plan), not just implementing the producer wiring.
+
+**Promotion prerequisite:** brainstorming session on sink design (Supabase audit table vs Sentry vs hybrid + retention + admin-banner integration shape).
+
+---
+
+## BL-E2E-LIFECYCLE-SPECS-CI-DARK — admin-lifecycle e2e specs are matched by playwright projects but invoked by no workflow — CLOSED 2026-08-06 (L-wave, `feat/l-wave-docs`, REFILED at honest scope)
+
+**Resolution: the HEADING PREMISE IS REFUTED, and the residual is REFILED as
+`BL-E2E-APP-DEPENDENT-SPECS-CI-DARK` (L).** Ratified 2026-08-05 (spec §1.1 item 10 / §2.1.4).
+
+**The premise this row is named for is no longer true. Re-verified 2026-08-06 against
+`.github/workflows/lifecycle-layout-e2e.yml`: BOTH named specs are wired and run on `mobile-safari`
+on every `pull_request`** — `admin-lifecycle-layout.spec.ts` at line 110, and
+`admin-lifecycle-transitions.spec.ts` at lines 130 and 132. The title says the lifecycle specs are
+invoked by no workflow; they are. Keeping a row whose HEADING is false is how a queue becomes
+unreadable, which is why this refiles rather than merely updating in place.
+
+**Wiring history, preserved in full — it is the record of how the premise stopped being true:**
+
+- **2026-07-26 (PR2 of the CI-dark coverage cluster).** The umbrella shrank substantially: 30
+  allowlist rows citing it are gone, because `standalone-e2e.yml` now runs the whole standalone
+  config unfiltered on every PR. 60 rows remained, all app-dependent.
+- **2026-07-26 (PR4).** `admin-lifecycle-transitions.spec.ts` stayed allowlisted, but for a materially
+  different reason than before: its two DETERMINISTIC breaks were fixed (a retired-testid assertion
+  that failed every run, and a compound case the ShareHub backdrop made unreachable) and the
+  pre-hydration swallow was repaired. It went from failing every run to one flaky case — measured 4/5
+  locally with one real-CI failure on the round-trip — and was held back by spec §6.1's
+  five-consecutive-greens acceptance rather than by brokenness.
+- **2026-07-27 (`fix/lifecycle-transitions-roundtrip-flake`).** The round-trip flake was fixed and the
+  spec WIRED: five consecutive green normal-dispatch runs met spec §6.1 / AC-6, and its allowlist row
+  was deleted. `BL-E2E-LIFECYCLE-TRANSITIONS-ROUNDTRIP-FLAKE` graduated.
+- **2026-08-03 (`chore/ci-boot-overlap-and-popover-flake`).** T-REGROW's two armed measurements no
+  longer take a fixed wait; the real run retries the whole measurement so a transient pre-re-placement
+  state retries while a regression still times out. A structural guard
+  (`tests/cross-cutting/e2e-regrow-settle-contract.test.ts`) anchors a retry at each arming site so
+  the fixed wait cannot creep back. The three fixed waits the class sweep found elsewhere in that file
+  are filed separately as `BL-E2E-LAYOUT-FIXED-WAIT-RESIDUE`.
+
+**The residual, carried to the refile:** the app-dependent standalone-allowlist specs that need a dev
+server and (mostly) a seeded database — counted at refile time as **43** `UNSEEN` rows, correcting the
+"~60" this umbrella had long carried — deliberately out of the CI-dark cluster's ratified
+scope, and never part of what the 2026-07-27 wiring closed.
+
+**Owner action, preserved because it is NOT repo work and cannot be closed by a branch** (corrected
+2026-07-26): the claim that branch protection requires only the `quality` context is STALE — measured,
+the live required set holds TWELVE contexts. The e2e jobs are advisory not because one context is
+required, but because none of them is in that set. Promoting e2e jobs into it, so a red e2e blocks
+merge at the GitHub layer, is an owner GitHub-settings action. Until then, enforcement is the
+pipeline's all-checks-green procedural gate. Measurement:
+`docs/superpowers/specs/ci/2026-07-26-ci-dark-coverage-design.md` §2.5.
+
+**Citations re-pointed in the refiling commit.** Every code and workflow comment naming this id now
+names `BL-E2E-APP-DEPENDENT-SPECS-CI-DARK`, including the eleven coverage-claim rewrites task L1 made
+earlier on this same branch.
+
+---
+
+> **UPDATE 2026-07-26 (PR4 of the CI-dark cluster).** `admin-lifecycle-transitions.spec.ts` stays allowlisted, but for a materially different reason than before: its two DETERMINISTIC breaks are fixed (a retired-testid assertion that failed every run, and a compound case the ShareHub backdrop made unreachable) and the pre-hydration swallow is repaired. It went from failing every run to one flaky case, measured 4/5 locally with one real-CI failure on the round-trip. Not wired, per spec §6.1's five-consecutive-greens acceptance and its pre-ratified fallback. Tracked as `BL-E2E-LIFECYCLE-TRANSITIONS-ROUNDTRIP-FLAKE`. The rest of this umbrella is the ~60 app-dependent specs needing a dev server and seeded database, deliberately out of the cluster's ratified scope.
+>
+> **UPDATE 2026-07-27 (`fix/lifecycle-transitions-roundtrip-flake`).** The round-trip flake is fixed and `admin-lifecycle-transitions.spec.ts` is WIRED — `lifecycle-layout-e2e.yml` runs it on every `pull_request`, five consecutive green normal-dispatch runs met spec §6.1 / AC-6, and its allowlist row is deleted. `BL-E2E-LIFECYCLE-TRANSITIONS-ROUNDTRIP-FLAKE` graduated to `BACKLOG-archive.md`. This umbrella's remaining scope is unchanged: the ~60 app-dependent specs.
+
+**Status:** OPEN · **Severity:** MEDIUM (dark regression coverage) · **Class:** CI wiring — surfaced by the archive-row-menu-idiom spec R11 adversarial round (2026-07-24).
+
+**Effort:** L
+
+**PARTIAL 2026-07-26 (PR2 of the CI-dark coverage cluster).** The umbrella shrank substantially: 30 allowlist rows citing this item are gone, because `standalone-e2e.yml` now runs the whole standalone config unfiltered on every PR. 60 rows remain, all app-dependent specs that need a dev server and a seeded database — deliberately out of the cluster's ratified scope. `admin-lifecycle-transitions` specifically was PR4's subject and closed on 2026-07-27 (five consecutive greens, see the UPDATE above).
+
+`tests/e2e/admin-lifecycle-layout.spec.ts` and `tests/e2e/admin-lifecycle-transitions.spec.ts` appear in the `mobile-safari` project `testMatch` (`playwright.config.ts`), but every e2e workflow runs an explicit spec list and none names them — they run nowhere in CI. The archive-row-menu-idiom branch wires the LAYOUT spec (new `lifecycle-layout-e2e.yml`, since it carries that feature's load-bearing assertions); the TRANSITIONS spec remains dark. **Fix (when prioritized):** add `admin-lifecycle-transitions.spec.ts` to the same workflow (or its own) after fixing its local flake class — the 2026-07-24 flake audit (archive-row branch) measured: static source-guard red since 2026-07-20 (fixed on that branch via the ArchiveShowButton transition-opacity carve-out mirroring PublishedToggle's), plus 3 pre-hydration click-swallow failures (hub kebab open x2, published toggle x1) whose failing cases move between runs; the layout spec's toPass hydration-retry is the template. The structural guard for the class (workflow-coverage meta-test with a reasoned allowlist) SHIPPED with the archive-row-menu-idiom branch (spec §6 item 6); un-wiring work here is now just moving this spec off that allowlist by adding it to a workflow. Related owner decision (R18), **corrected 2026-07-26**: the claim that branch protection requires only the `quality` context is STALE — measured, the live required set holds TWELVE contexts. The e2e jobs are advisory not because one context is required, but because none of them is in that set. Promoting e2e jobs into it so a red e2e blocks merge at the GitHub layer remains an owner GitHub-settings action, not repo code; until then enforcement is the pipeline's all-checks-green procedural gate. Measurement: `docs/superpowers/specs/ci/2026-07-26-ci-dark-coverage-design.md` §2.5.
+
+**New instance observed 2026-07-26 — FIXED 2026-08-03** on `chore/ci-boot-overlap-and-popover-flake`: T-REGROW's two armed measurements no longer take a fixed wait. The real run retries the whole measurement so a transient pre-re-placement state retries while a regression still times out; the ladder sweep settles on observed growth. A structural guard (`tests/cross-cutting/e2e-regrow-settle-contract.test.ts`) anchors a retry at each arming site so the fixed wait cannot creep back. The three fixed waits the class sweep found ELSEWHERE in that file are filed separately as `BL-E2E-LAYOUT-FIXED-WAIT-RESIDUE`. The umbrella below — the ~60 app-dependent specs — is unchanged and stays OPEN. Original text follows, unedited, for provenance. (destruct-thumb-order PR #604): the LAYOUT spec — the one this row records as stabilized by the `toPass` hydration retry — failed once in `lifecycle-layout-e2e` on `mobile-safari`, at the archive-confirm popover assertions (`tests/e2e/admin-lifecycle-layout.spec.ts:411` `scrollIntoView(confirm) must have been called`, and `:538` armed body within the clip rect), 24 passed / 1 failed. Confirmed a flake, not a regression: the failing commit touched only `tests/e2e/pendingDiscardReal.layout.spec.ts`, which that workflow does not run, the two commits before it passed, and a re-run of the identical tree went green. So the hydration retry does NOT cover the popover-placement path — the growth-then-replace measurement takes a fixed `waitForTimeout(300)` rather than retrying to a condition, which is the likely remaining gap. \*\*Fix shape:\*\* replace that fixed wait with a `toPass` block around the armed measurement, same template as the rest of the spec.
+
+---
+
+## BL-MUTATION-HARNESS-OPEN-HOLES — parser silent-fragility classes pinned by the mutation harness — CLOSED 2026-08-06 (L-wave, `feat/l-wave-docs`, DECOMPOSED)
+
+**Resolution: DECOMPOSED into five standalone entries, one per operator class.** Ratified 2026-08-05
+(spec §1.1 item 10 / §2.1.4). The umbrella was an L that could never be scheduled: it bundled five
+independent parser-hardening projects behind one id, so no one could pick up "the `#REF!` one" without
+appearing to sign up for all five. The sub-items were already named in this body — the decomposition
+promotes them from body-defined ids to real, sized, schedulable rows.
+
+**The five children, each sized M:**
+
+| Child                       | Holes ledgered                      | Class               |
+| --------------------------- | ----------------------------------- | ------------------- |
+| `BL-MUTATION-REF-SUB`       | 3314 (3094 wrong / 220 signal_loss) | value corruption    |
+| `BL-MUTATION-MERGED-CELL`   | 2404 (2271 wrong / 133 signal_loss) | cell fusion         |
+| `BL-MUTATION-UNICODE`       | 827 (827 wrong / 0 signal_loss)     | invisible character |
+| `BL-MUTATION-COLUMN-SHIFT`  | 211 (193 wrong / 18 signal_loss)    | layout shift        |
+| `BL-MUTATION-SECTION-ORDER` | 82 (58 wrong / 24 signal_loss)      | order sensitivity   |
+
+Counts derived 2026-08-06 from `RAW_HOLES` in `tests/parser/mutation/knownHoles.ts` (7842 rows total;
+the remaining 1004 map to documented audit findings #5 and #10, which are NOT this entry's classes and
+keep their own rows). The `section-reorder` figure reproduces this body's own "58 `SILENT_WRONG` + 24
+`SILENT_SIGNAL_LOSS`" exactly, which is the check that the derivation is reading what the body meant.
+
+**Why every child is M — decided once here so no child re-litigates its own size.** Each is one
+corpus-calibrated detection heuristic + one new warn-severity `ParseWarning` code carrying the §12.4
+lockstep triple (master-spec §12.4 prose + `pnpm gen:spec-codes` + `lib/messages/catalog.ts`, same
+commit) and a warning-card copy row, plus the `knownHoles` ratchet shrink. None is S — each adds a
+catalog row and needs corpus calibration against live shows. None is L — each is fenced to a single
+operator class, with the harness, the ledger, and the ratchet already built.
+
+**The ratchet contract, inherited by every child and restated on each:** the ledger is SHRINK-ONLY.
+When a fix hardens a class, its holes become `staleRows` and the nightly harness FAILS until they are
+removed from `knownHoles.ts` — which turns each parser-robustness fix into a measurable ledger
+reduction. Do NOT grow the ledger silently; a NEW hole is a regression and fails as `newAlarms`.
+
+**Referential integrity is preserved BY the decomposition, not despite it.**
+`OPERATOR_FINDING_MAP` (`tests/parser/mutation/knownHoles.ts:80-89`) maps four of these operators to
+their `BL-MUTATION-*` ids, and `tests/parser/mutation/knownHoles.test.ts` asserts every corrupting
+operator resolves to an audit `#N` or a real `BL-` id. Standalone entries keep every one of those ids
+resolvable — strictly better than body-defined ids, which depended on this umbrella's continued
+existence. The one ripple: that suite's comment pointed readers at
+"BACKLOG.md § BL-MUTATION-HARNESS-OPEN-HOLES", which this archive move retires, so the comment now
+names the five standalone entries and this archive. It landed in the same commit.
+
+**Preserved from the umbrella:** the harness itself pins **7,885 day-1 silent holes** (7842 after the 2026-07-28 blank-row ratchet shrink) —
+mutants whose parse changed with no compensating signal (`SILENT_WRONG` / `SILENT_SIGNAL_LOSS`).
+
+**Harness path corrected 2026-08-06 (cross-model review):** the umbrella's body names
+`tests/parser/mutationHarness.test.ts`, a monolith that is DELIBERATELY GONE —
+`tests/parser/mutation/shardPartition.test.ts:106` asserts its absence. The harness is now
+`mutationHarness.gates.test.ts` plus `mutationHarness.shard0..shard7.test.ts`, with the ledger and
+`OPERATOR_FINDING_MAP` at `tests/parser/mutation/knownHoles.ts`. Any child implementing a class runs
+the shards, not the retired file.
+
+The two DOCUMENTED-finding classes stay mapped to their audit numbers and are NOT part of this
+decomposition: `header-typo` → audit #5 (short-header typo intolerance,
+`sectionHeaderNormalize.ts:16,66`) and `blank-row:inject` / `blank-row:remove` → audit #10
+(blank-row block segmentation, `exportSheetToMarkdown.ts:104`, tracked by
+`BL-EXPORT-BLANK-ROW-SEGMENTATION`).
+
+---
+
+**Status:** OPEN (2026-07-06, feat/mutation-harness) · **Severity:** medium · **Class:** PARSER ROBUSTNESS · **Effort:** L
+
+The rec-5 mutation-testing harness (`tests/parser/mutationHarness.test.ts`, nightly workflow) pins **7,885 day-1 silent holes** — mutants whose parse changed with no compensating signal (`SILENT_WRONG` / `SILENT_SIGNAL_LOSS`), recorded in `tests/parser/mutation/knownHoles.ts`. Each hole's `finding` field maps its operator class to the audit finding it exercises (`OPERATOR_FINDING_MAP`), so a ledger failure is triageable by operator. Documented-finding classes: **`header-typo` → audit #5** (short-header typo intolerance, `sectionHeaderNormalize.ts:16,66`); **`blank-row:inject` / `blank-row:remove` → audit #10** (blank-row block segmentation, `exportSheetToMarkdown.ts:104`). The remaining operator classes are silent-fragility surfaces the audit did not enumerate as a numbered finding; each is tracked as a backlog sub-item below and its holes shrink when that class is hardened:
+
+- **`BL-MUTATION-REF-SUB`** — a body cell rewritten to the literal `#REF!` (a real broken-reference export artifact, present in 3/7 live shows) is absorbed into the parse with no signal. Value-corruption class.
+- **`BL-MUTATION-UNICODE`** — a zero-width non-joiner (U+200C) injected into a cell value is silently retained (the fintech live ZWNJ shape). Invisible-character class.
+- **`BL-MUTATION-COLUMN-SHIFT`** — a spurious leading empty column shifts a section's row grid with no signal (the East Coast column-shifted outlier). Layout-shift class.
+- **`BL-MUTATION-MERGED-CELL`** — deleting one interior pipe (how a merged cell exports) fuses two adjacent cells silently. Cell-fusion class.
+- **`BL-MUTATION-SECTION-ORDER`** — reordering two adjacent top-level blocks silently reorders the parser's output arrays (the parser preserves source order). **Order-sensitivity discovered by the harness on 2026-07-06** (58 `SILENT_WRONG` + 24 `SILENT_SIGNAL_LOSS` across the corpus); section-reorder was reclassified cosmetic → corrupting as a result.
+
+**Ratchet:** the ledger is a shrink-only baseline. When a downstream fix hardens one of these classes, the corresponding holes become `staleRows` and the nightly harness fails until they are removed from `knownHoles.ts` — turning each parser-robustness fix into a measurable ledger reduction. Do NOT grow the ledger silently; a NEW hole (regression) fails the harness as `newAlarms`.
+
+---
+
+## BL-CI-PARALLEL-DB-FALLBACK-AUDIT — re-run the closed-port protocol across the parallel project — CLOSED 2026-08-06 (L-wave, `feat/l-wave-docs`, PROBED: answered-negative)
+
+**Resolution: the probe RAN and came back empty. Archived answered-negative.** This entry was
+`**Reachability:** INFERRED, NOT PROBED` and named zero instances, so by the filing bar the probe was
+its first scheduled step — not the audit. That probe is now done, and the disposition follows the
+pre-ratified rule (L-wave spec §2.1.3): zero degrading files → archive with the transcript.
+
+**Full transcript, commands, and differ are committed:**
+`docs/superpowers/plans/2026-08-06-l-wave/l3-parallel-db-fallback-probe-2026-08-06.md` and
+`docs/superpowers/plans/2026-08-06-l-wave/l3-parallel-db-fallback-diff.mjs`. They are committed rather
+than discarded specifically so re-measuring is a command, not a re-derivation.
+
+**Result:**
+
+```
+db-present:  files=890 passed=12271 skipped=2 failed=0
+closed-port: files=890 passed=12271 skipped=2 failed=0
+DEGRADING FILES: 0
+```
+
+Run 1 pointed every Supabase endpoint at the live local stack; run 2 pointed all three
+(`SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_URL`, `TEST_DATABASE_URL`) at `127.0.0.1:1` — a REFUSED
+connection, which is the entry's own distinction from merely omitting the database.
+
+**The measured claim, at its exact width:** no test that PASSED with the DB present ceased passing
+under the closed port. Vitest's JSON reporter emits one row per TEST CASE, not per `expect()`, so the
+metric is per-test outcomes keyed by `fullName` — not the "assertion counts" the entry's Work section
+asks for, and the difference is stated rather than glossed. The two skipped tests are identical
+across runs BY IDENTITY (the differ compares and reports this), so they are unconditional skips
+rather than closed-port casualties. Assertion weakening INSIDE a still-passing test is invisible to
+any comparison the reporter permits; that is a documented limit of the probe, recorded in the
+transcript.
+
+**Two corrections were made mid-probe, and they are the part worth keeping** — each would have
+produced a false negative that looked exactly like this one:
+
+1. **The first baseline was the wrong state.** The ambient shell had all three endpoint variables
+   UNSET (vitest loads no `.env.local`: `vitest.config.ts` calls no `dotenv`/`loadEnv`, and
+   `tests/setup.ts` only assigns with `??=`). Setting just `TEST_DATABASE_URL` compared _absent
+   endpoint_ to _closed port_ — precisely the two states this entry exists to distinguish. Re-run with
+   all three explicitly live.
+2. **The instrument was proven sensitive before the zero was believed.** A temporary sentinel modelling
+   the exact shape the entry describes (a file that silently asserts less when the endpoint is refused)
+   was planted in the parallel glob space; the differ caught it — `passing 3 -> 1; newly skipped
+0 -> 2` — and routed to the STAYS-OPEN branch. So the env genuinely reaches the test process, and
+   the differ genuinely detects the fallback shape. Supporting premises also checked, not assumed:
+   `127.0.0.1:1` returns `ECONNREFUSED` (a refused port, not a filtered one that would time out into
+   the very fallback under study), and the live stack answers HTTP 200.
+
+**Count reconciliation:** the body's "~691 current parallel-project files" was stale, the 2026-08-04
+re-verification said 875, and the `parallel` project resolved **890** on this commit. The result is
+about 890.
+
+**What this does and does not settle — read before re-filing.** It SETTLES that across all 890 files
+no baseline-passing test ceased passing under a refused Supabase connection, with the non-passing set
+unchanged by identity. The `unit-suite-nodb` blind spot the entry identified ("does not FAIL without
+a database" is weaker than "touches no database") was a real concern, and no instance of it surfaced
+at that bound on this commit. It does NOT settle the future — this
+is a point-in-time measurement, not a standing guard, and nothing stops a new file from arriving with
+a swallowed-connection fallback that the no-DB job would keep passing exactly as the entry warned.
+
+**Re-open trigger:** a re-run of the committed probe that returns a nonzero degrading set. That is one
+command against two JSON reports, which is why the tooling ships with this archive. Converting the
+probe into a standing CI gate is a DIFFERENT and larger piece of work (it needs a second full parallel
+run per PR) and was never this entry's ask — file it separately if the recurrence risk is judged worth
+that cost.
+
+---
+
+**Status:** OPEN, raised by adversarial review of PR #517 (finding 2).
+
+**Effort:** L
+
+The `unit-suite-nodb` job proves that no parallel-project file FAILS without a database. That is weaker than "touches no database": a test that swallows a connection error, skips on unavailability, returns early from a setup hook, or takes an untaken conditional DB path will pass while exercising a FALLBACK rather than the DB-backed behavior it was written to check. The no-DB job repeats that same observation every PR, so it shares the blind spot — it is a regression detector, not a proof.
+
+The stronger protocol already exists and was used for the original 2026-06-23 partition: point every Supabase endpoint at a CLOSED PORT rather than simply omitting the database. A refused connection surfaces swallowed-error paths that an absent server does not.
+
+**Work:** re-run that closed-port protocol across all ~691 current parallel-project files, and compare per-file assertion COUNTS against a run with the database present. A file whose assertion count drops is silently degrading. Any found either move to serial or get an explicit note saying the fallback path is what is under test.
+
+**Reachability:** INFERRED, NOT PROBED — the probe that settles it: run the `parallel` project once with the DB port closed and once with a DB present, and diff the PER-FILE assertion counts. A file whose count drops without a skip is the shape the entry describes. That probe, not the audit, is the first scheduled step.
+
+screen-disposition 2026-08-04: ANNOTATE-INFERRED, stays open. The entry names no instance, and the escape hatch it needs is the one the filing bar prescribes. Static facts re-verified 2026-08-04: the job is `.github/workflows/unit-suite.yml:146-147` (3 legs, `--project=parallel`, boots nothing), rolled up at `:188-198`, over `PARALLEL_TEST_GLOBS` at `vitest.projects.ts:94-140`. **Count corrected:** the body's "~691 current parallel-project files" is stale — the same globs now resolve 875 `.test.ts(x)` files, which makes the unmeasured surface ~27% larger than the row claims, not smaller.
+
+---
+
+## BL-ACCENT-BUTTON-ATOM-SWEEP — migrate remaining raw accent-button compositions to the shared `<AccentButton>` atom — CLOSED 2026-08-06 (L-wave, `feat/l-wave-docs`, DEMOTED at honest census)
+
+**Resolution: DEMOTED and archived at an HONEST census.** Executed under the ratified reader-demote
+authority (spec §1.1 item 9). Two facts settle it, and the entry supplies both itself: **"No
+correctness bug"** are the entry's own words, and its census has rotted — the 8 named baseline call
+sites are **3 live** in `MIGRATED_FILES` (`tests/styles/accent-button-atom.test.ts`, re-verified
+2026-08-06: `PendingPanelRetryButton.tsx`, `FinalizeButton.tsx`, `StagedReviewCard.tsx`). Four of the
+eight were DELETED outright — `PublishShowButton` at `32fec4fac` with `/admin/unpublished`,
+`ResumeFinalizeButton` at the Step-3 consolidation, and `ResolveAlertButton` + `RunFinalCASButton` as
+zero-production-importer components — and `ReSyncButton` was deliberately DE-MIGRATED to a ghost
+trigger by the modal-header reconciliation (§6.7), because §4.2's orange budget makes the publish
+toggle the only orange CONTROL. That file's own comment already tracks this entry.
+
+**THIS DEMOTION IS NOT COVERAGE LOSS, and the distinction is the reason to read this paragraph.**
+`accent-button-atom.test.ts` walks `MIGRATED_FILES`, not the repo — it forbids RE-INLINING the
+composition in files already migrated. **Repo-wide `bg-accent` coverage is and remains
+`tests/styles/_metaBgAccentInventory.test.ts`'s job**, and it still enumerates every occurrence in the
+tree. Nothing about archiving this row changes what either guard sees. Anyone reading the demotion as
+"the accent-token sweep is now unguarded" has confused the two scopes.
+
+**Migration mechanics, preserved for whoever does the batch.** For each site, swap
+`<button className="…bg-accent…">` for `<AccentButton …variant props…>` (matching
+size / fontWeight / ringOffset / inline / selfStart / shadow / minWidthTap to the existing classes),
+preserving every `data-testid` and pending/`useFormStatus` wiring, then ADD the file to
+`MIGRATED_FILES` — the documented extension point — so it is pinned against re-drift. **The trap:**
+several sites (Share / Rotate / AddAdmin / wizard) use a `selected ? accentClass : otherClass` ternary
+or `cn(...)` / array-join `className`. Those need the atom's `className` escape hatch or a small
+refactor, NOT a pure prop swap.
+
+**The out-of-scope long tail as measured at migration time (~17 sites), kept so the batch does not
+start from a fresh grep:** `app/admin/error.tsx`, `app/admin/settings/error.tsx`,
+`app/admin/settings/admins/{error.tsx,AddAdminForm.tsx,RevokeRowButton.tsx ×3}`,
+`app/admin/show/[slug]/{ShareLinkCopyButton.tsx,ResetPickerEpochButton.tsx,RotateShareTokenButton.tsx ×2}`,
+`app/show/[slug]/unpublish/ConfirmUnpublishForm.tsx`,
+`app/show/[slug]/[shareToken]/_SignInOrSkipGate.tsx ×2`, `components/admin/Mi11GateActions.tsx`,
+`components/admin/wizard/{Step1Share,Step2Verify ×2,Step3Review}.tsx`,
+`components/admin/settings/AddAdminDisclosure.tsx`, `components/shared/{ReportButton.tsx,ReportModal.tsx ×4}`.
+That census is from migration time and has certainly rotted the same way the first one did — re-measure
+before trusting it. **Explicitly NOT in scope:** the pill-badge `bg-accent text-accent-text` spans in
+AdminNav / NotifBell and the active-step indicators in OnboardingWizard / Step3Review / me/page are not
+buttons; that is a different and legitimate use of the token pair.
+
+**Re-open trigger, the entry's own:** a className-helper standardization pass, or a UI-consistency
+milestone that makes the long tail worth closing in one batch. It is Opus/UI work under the invariant-8
+dual gate. No concrete trigger exists today, which is why it archives.
+
+---
+
+**Filed:** 2026-06-21, during M5-D7 (extract shared `components/shared/AccentButton.tsx`).
+
+**Effort:** L
+
+**Description:** M5-D7 extracted the canonical accent-fill button chrome (`bg-accent` + `text-accent-text` + `hover:bg-accent-hover` + focus-ring + disabled treatment) into one atom and migrated the **8 admin call sites** the deferral named (ResolveAlertButton ×2, PendingPanelRetryButton, ReSyncButton, PublishShowButton, RunFinalCASButton, ResumeFinalizeButton, FinalizeButton, StagedReviewCard). **Census note (2026-08-03):** four of those eight call sites have since been deleted — PublishShowButton at `32fec4fac` (with `/admin/unpublished`), ResumeFinalizeButton at the Step-3 consolidation, and ResolveAlertButton and RunFinalCASButton as zero-production-importer components — and `ReSyncButton` was separately DE-MIGRATED to a ghost trigger by the modal-header reconciliation (§6.7), so the executable `MIGRATED_FILES` census in `tests/styles/accent-button-atom.test.ts` is now three: `PendingPanelRetryButton`, `FinalizeButton`, `StagedReviewCard`. That scan walks the migrated files, not the repo; repo-wide `bg-accent` coverage belongs to `tests/styles/_metaBgAccentInventory.test.ts`. A repo-wide grep at migration time found the pattern still hand-rolled in **~17 other sites** OUT OF M5-D7 SCOPE: `app/admin/error.tsx`, `app/admin/settings/error.tsx`, `app/admin/settings/admins/{error.tsx,AddAdminForm.tsx,RevokeRowButton.tsx ×3}`, `app/admin/show/[slug]/{ShareLinkCopyButton.tsx,ResetPickerEpochButton.tsx,RotateShareTokenButton.tsx ×2}`, `app/show/[slug]/unpublish/ConfirmUnpublishForm.tsx`, `app/show/[slug]/[shareToken]/_SignInOrSkipGate.tsx ×2`, `components/admin/Mi11GateActions.tsx`, `components/admin/wizard/{Step1Share,Step2Verify ×2,Step3Review}.tsx`, `components/admin/settings/AddAdminDisclosure.tsx`, `components/shared/{ReportButton.tsx,ReportModal.tsx ×4}`. (Pill-badge `bg-accent text-accent-text` spans in AdminNav/NotifBell and the active-step indicators in OnboardingWizard/Step3Review/me/page are NOT buttons — they are a different, legitimate use of the token pair and out of scope for this atom.)
+
+**Why backlog, not deferred:** The 4th-variant YAGNI gate justified the atom; migrating the long tail is mechanical but unbounded and touches crew-page + unpublish surfaces (UI gate work — Opus only). No correctness bug; the anti-drift meta-test at `tests/styles/accent-button-atom.test.ts` only pins the 8 MIGRATED files, so the untouched sites are not regressions, just un-DRYed. No concrete trigger.
+
+**Promotion prerequisite / mechanics:** For each site, swap `<button className="…bg-accent…">` for `<AccentButton …variant props…>` (matching size/fontWeight/ringOffset/inline/selfStart/shadow/minWidthTap to the existing classes), preserving every `data-testid` and pending/useFormStatus wiring, then ADD the file to `MIGRATED_FILES` in `tests/styles/accent-button-atom.test.ts` (the documented extension point) so it's pinned against future re-drift. Note several of these (Share/Rotate/AddAdmin/wizard) use a `selected ? accentClass : otherClass` ternary or `cn(...)`/array-join className — those need the atom's `className` escape hatch or a small refactor, not a pure prop swap. Promote when a className-helper standardization pass or a UI-consistency milestone makes the long tail worth closing in one batch.
+
+---
+
+## BL-CI-RECLASSIFY-PARALLEL-STABILITY — revive the serial→parallel reclassification only with a concurrency-stability + clean-wall proof — CLOSED 2026-08-06 (L-wave, `feat/l-wave-docs`, DEMOTED)
+
+**Resolution: DEMOTED and archived.** The entry was shelved by its own text and has been sitting open
+as a set of preconditions nobody was working toward. Executed under the ratified reader-demote
+authority (spec §1.1 item 9). What closed it is not new information — it is that a shelving with two
+named do-not-re-attempt-without conditions is a terminal state, not a queue item.
+
+**Why it was shelved, preserved:** the DB-free serial→parallel reclassification (PR #528, closed
+unmerged) is CORRECTNESS-VERIFIED, but moving ~527 files into the parallel project raises per-shard
+concurrency, and timing-sensitive moved files (e.g. `tests/admin/_metaInfraContract.test.ts`) starve
+past the 5s test timeout under CI load — candidate CI run 1 green, run 2 red **on identical code**. A
+required gate cannot flake, and the class is load-dependent, so it is not fully enumerable up front.
+The wall-clock win was also unproven: ~17s in contention-noisy samples, under the spec's own 30s gate.
+This was the seventh lever the CI program rejected on the local-passes-CI-fails pattern.
+
+**The two re-attempt preconditions, verbatim and still binding. Do NOT re-attempt the move without,
+in this order:** (1) solve criterion-3 at CI scale STRUCTURALLY — cap the parallel project's per-leg
+worker concurrency (`poolOptions.maxWorkers`) or raise the parallel `testTimeout` — and prove
+stability across **≥5 consecutive green CI runs**; (2) demonstrate a clean **≥30s** wall win with
+sequential, non-contending measurements (one CI run at a time). Absent both, the correctness tooling
+can stand alone (e.g. a nightly DB-drift audit) WITHOUT the move — that standalone path is the part
+most likely to be forgotten, and it needs neither precondition.
+
+**Reusable assets, kept:** the DB-touch probe and the static `DB_BINDING_SIGNALS` matcher (branches
+`spike/db-touch-instrumentation`, `perf/ci-reclassify-db-free-serial`). Retrospective:
+`docs/superpowers/specs/ci/2026-07-20-serial-parallel-reclassification-retrospective.md`.
+
+**Re-open trigger:** somebody actually satisfying precondition (1) — a structural concurrency cap
+proven over ≥5 green runs. At that point the wall-clock question is worth re-measuring and this row
+can come back with its assets intact.
+
+---
+
+**Filed:** 2026-07-20 (arc SHELVED). **Class:** CI perf. **Effort:** L (structural stability + multi-run measurement).
+
+The DB-free serial→parallel reclassification (PR #528, closed unmerged) is correctness-verified but was shelved: moving ~527 files into the parallel project raises per-shard concurrency, and timing-sensitive moved files (e.g. `tests/admin/_metaInfraContract.test.ts`) starve past the 5s test timeout under CI load — candidate CI run 1 green, run 2 red on identical code. A required gate cannot flake, and the class is load-dependent (not fully enumerable up front). The wall-clock win was also unproven (~17s in contention-noisy samples, under the spec's 30s gate). Seventh lever this program has rejected on the local-passes-CI-fails pattern.
+
+**Reusable asset:** the DB-touch probe + static `DB_BINDING_SIGNALS` matcher (branches `spike/db-touch-instrumentation`, `perf/ci-reclassify-db-free-serial`). Retrospective: `docs/superpowers/specs/ci/2026-07-20-serial-parallel-reclassification-retrospective.md`.
+
+**Do NOT re-attempt the move without, in this order:** (1) solve criterion-3 at CI scale structurally — cap the parallel project's per-leg worker concurrency (`poolOptions.maxWorkers`) or raise the parallel `testTimeout` — and prove stability across ≥5 consecutive green CI runs; (2) demonstrate a clean ≥30s wall win with sequential, non-contending measurements (one CI run at a time). Absent both, the correctness tooling can stand alone (e.g. a nightly DB-drift audit) without the move.
+
+**Status:** open (shelved).
+
+---
+
+## BL-CI-OVERLAP-BOOT-WITH-SETUP — run the Supabase boot concurrently with pnpm install — CLOSED 2026-08-06 (L-wave, `feat/l-wave-docs`, DEMOTED: answered-negative)
+
+**Resolution: DEMOTED and archived as an ANSWERED-NEGATIVE question.** This was built, measured
+against real CI, missed its own pre-ratified accept gate, and was reverted in the same PR — and then
+it stayed open, which is the only thing left to fix. Executed under the ratified reader-demote
+authority (spec §1.1 item 9); the entry's own text already said "the question this entry framed has
+an answer".
+
+**The measurement is the closure. Preserved in full so it is never re-run:**
+
+|                  | leg-median fixed overhead | max leg | run         |
+| ---------------- | ------------------------- | ------- | ----------- |
+| main baseline    | **96s**                   | 255s    | 30783618781 |
+| with the overlap | **102s**                  | 324s    | 30796409070 |
+
+Eight legs each, all green, `(job wall) − (vitest step)` per leg. Per-leg with the overlap: 92, 98,
+101, 102, 102, 102, 107, 136. Baseline: 89, 91, 92, 94, 98, 101, 109, 112. **The overlap did not save
+the install's ~16s; it COST 6s of median.** The accept threshold was ≥8s of REDUCTION (≤88s), set at
+half the theoretical gain precisely so runner noise could not manufacture a result. The distributions
+overlap heavily and the median moved the wrong way: this is not a gain too small to see, it is no
+gain.
+
+**Why the prediction was wrong, which is the transferable lesson:** the design assumed the two
+operations contend for nothing because one is "network-bound" and the other "registry-bound". On a
+4-core GitHub-hosted runner they contend for the same cores, NIC, and disk — `docker pull`
+decompresses layers while pnpm unpacks a `node_modules` tree. The spec's §3 anticipated contention
+"possibly less" than the 16s of gain without considering that contention could EXCEED it. The 136s
+outlier leg is consistent with that. Any future CI-overlap proposal on this runner class inherits this
+result.
+
+**Durable runner facts, established by probe (run 29743206592, real CI) — keep, they outlive this
+entry:** a process detached in one step DOES survive into later steps on a GitHub-hosted runner, and a
+filesystem status marker it publishes IS visible to a later step's shell (worker started 12:42:09,
+observed 12:42:49, status 7 written and read); `echo N > file` produced 0 empty reads in 400
+create/read races.
+
+**Reusable assets, kept:** the write-surface audit is now empirical rather than inferred (three probes,
+including a fresh x86_64-Linux install under a recursive `inotifywait` recording zero events under
+`supabase/`), and the implementation spec at
+`docs/superpowers/specs/ci/2026-08-02-ci-boot-overlap-implementation.md` carries it plus the validated
+`legfix` / `legwall` measurement procedure (§7.1) that any future CI wall-clock work should reuse.
+
+**The named remaining lever, NOT closed by this archive:** a pre-baked Postgres image, which removes
+the ~14s schema-init + migration phase outright rather than hiding the install behind the pull. That
+is a different entry if anyone wants it — it is recorded here as the live alternative so this archive
+does not read as "CI wall clock is done".
+
+**Reconciliation note on the source branch:** the dormant spec-stage branch
+`origin/chore/ci-overlap-boot-with-setup` was never opened as a PR and remains the source of the
+underlying spec. `pnpm ledger:claims` reports an INFERRED (not declared) claim on it for this id, from
+its ledger diff — that is a stale artifact of a branch whose final commit already says "stop the
+boot/setup overlap at spec stage", not a live claim, and it is recorded here so a future claims sweep
+does not read it as work in flight.
+
+**Re-open trigger:** new information that invalidates the measurement — a materially different runner
+class (more cores, separate I/O paths), or a redesign whose gain does not depend on overlapping those
+two specific operations. Rebuilding it as specified is answered.
+
+---
+
+**Status:** OPEN, but with the lever now MEASURED and REVERTED. Do not rebuild it without new information — the question this entry framed has an answer.
+
+**Effort:** L
+
+**Update 2026-08-03 (PR #670, branch `chore/ci-boot-overlap-and-popover-flake`).** The overlap was implemented, measured against real CI, missed its accept gate, and was reverted in the same PR under the gate's pre-ratified rule. The measurement, both figures per spec §7.4:
+
+|                  | leg-median fixed overhead | max leg | run         |
+| ---------------- | ------------------------- | ------- | ----------- |
+| main baseline    | **96s**                   | 255s    | 30783618781 |
+| with the overlap | **102s**                  | 324s    | 30796409070 |
+
+Eight legs each, all green, `(job wall) − (vitest step)` per leg. The overlap did not save the install's ~16s; it **cost 6s of median**. Per-leg with the overlap: 92, 98, 101, 102, 102, 102, 107, 136. Baseline: 89, 91, 92, 94, 98, 101, 109, 112. The distributions overlap heavily and the median moved the wrong way, so this is not "a gain too small to see" — there is no gain. The accept threshold was ≥8s of REDUCTION (≤88s), chosen at half the theoretical 16s precisely so runner noise could not manufacture a result.
+
+**The likely reason, and why it was not predicted.** The design assumed the two operations contend for nothing because they are "network-bound" and "registry-bound". On a 4-core GitHub-hosted runner they contend for the same cores, the same NIC and the same disk: the boot's `docker pull` decompresses layers while pnpm unpacks a `node_modules` tree, and the spec's own §3 anticipated contention "possibly less" than 16s of gain without considering that contention could exceed it. The 136s outlier leg is consistent with that.
+
+**What is preserved from the attempt, and is worth keeping:** the write-surface audit is now empirical rather than inferred (three probes, including a fresh x86_64-Linux install under a recursive `inotifywait` that recorded zero events under `supabase/`), and the implementation spec at `docs/superpowers/specs/ci/2026-08-02-ci-boot-overlap-implementation.md` carries it along with a reusable, validated measurement procedure (`legfix` / `legwall`, §7.1). **If revisited:** this is now a measured-negative lever, not an unexplored one. The remaining wall-clock lever the spec names is a pre-baked Postgres image, which removes the ~14s schema+migration phase outright rather than trying to hide the install behind the pull.
+
+Original status: OPEN — spec complete and probe-backed on `chore/ci-overlap-boot-with-setup`; NOT implemented, NOT merged. Read this before restarting: eight adversarial rounds are already sunk into it.
+
+The last unexploited lever on unit-suite wall clock is the ~101s of per-leg FIXED overhead (leg-median; per-leg 89-108s on run 29741812457), of which ~70s is the Supabase boot and ~16s is `pnpm install`. They share no data but run sequentially, so overlapping them should reclaim up to ~16s per leg — roughly 6.5% of a 245s leg.
+
+**What is already established, and is worth keeping:**
+
+- **Probe (run 29743206592, real CI).** A process detached in one step DOES survive into later steps on a GitHub-hosted runner, and a filesystem status marker it publishes IS visible to a later step's shell (worker started 12:42:09, observed 12:42:49, status 7 written and read). `echo N > file` produced 0 empty reads in 400 create/read races. These are durable runner facts.
+- **The final design is one step, not a cross-step protocol:** background the bootstrap, capture the PID, run `pnpm install --frozen-lockfile` in the foreground, `wait` on the PID, under `set -euo pipefail`. Native `wait` on a real child makes it fail-closed with no sentinel, no deadline arithmetic, and live log streaming. Adversarial review confirmed this success path correct and the overlap real.
+- **Accepted non-goal:** if the install fails, the still-running bootstrap holds the step's stdout pipe and delays the failure report (typically ~70s; the only hard bound is the job's `timeout-minutes: 20`). Correct cleanup needs process-group termination plus a join plus PID-reuse care, and must not interrupt the bootstrap's held-aside-migration restore trap — a large surface for a rare path.
+
+**Why it stopped.** Eight spec rounds without reaching implementation, on a ≤16s gain, with the correctness surface still expanding each round. The final round also caught a factual error in the spec's own write-surface audit: it claimed `pnpm-workspace.yaml`'s `allowBuilds` contained only `@sentry/cli`, when it contains five keys (`@sentry/cli`, `esbuild`, `sharp`, `unrs-resolver` enabled; `simple-git-hooks` deliberately false). The disjointness premise — that concurrent install writes never touch `supabase/` — is probably still true, but it has no audited basis until someone checks those four build scripts.
+
+**If revisited:** start from the single-step design (skip rounds 1-4, which died on a cross-step protocol), redo the write-surface audit against all of `allowBuilds`, and decide up front whether ~16s justifies the failure-path tradeoff. A larger adjacent lever is the boot itself: a pre-baked Postgres image would remove the ~14s schema-init + migration phase, at the cost of a publish pipeline and a staleness contract.
+
+**Provenance:** lifted to `main` 2026-08-01 from `chore/ci-overlap-boot-with-setup`, which was never opened as a PR; the branch remains the source of the underlying spec.
+
+---
+
+## BL-ROLEFLAGSNOTICE-DROP-GUARD — no guard detects a path that obtains a `roleFlagsNotice` and never emits it — CLOSED 2026-08-06 (L-wave, `feat/l-wave-docs`, DEMOTED)
+
+**Resolution: DEMOTED and archived.** It guards a HYPOTHETICAL fifth site via an unbuilt
+static-analysis surface, while all four known instances are closed. Executed under the already-ratified
+reader-demote authority (AGENTS.md ledger filing bar + `docs/superpowers/specs/2026-08-04-backlog-convergence-design.md`
+§2; L-wave spec §1.1 item 9) — no per-entry user ask, because the filing bar itself is what this
+fails: the entry names zero reachable live instances, only a class that could regrow.
+
+**What is actually true at close, so the demotion cannot read as coverage loss.** The four instances
+the filing branch found were all repaired through one shared `lib/sync/emitRoleFlagsNotice.ts`
+(finalize-cas, ordinary finalize, `runManualStageForFirstSeen`, and the pending-ingestion retry),
+flushed in a `finally` after the outer transaction at three sites including the STREAMING finalize-cas
+handler — the one real operator traffic reaches. The EXISTING guard
+(`tests/sync/_metaLeadRoleAppliedTopology.test.ts:29`) still detects the shape it always
+detected: a site that upserts the alert WITHOUT the durable event. What stays unguarded is the
+opposite and more damaging shape — a path that obtains a real notice and emits nothing — for a fifth
+site that does not currently exist.
+
+**The four refuted designs ARE the specification. Read them before attempting a rebuild; each cost an
+adversarial round to establish, and re-deriving them is the expensive mistake:**
+
+1. **Keying on `applyStagedCore` callers** misses `runManualStageForFirstSeen`, which takes its notice
+   straight from `runPhase2` (`lib/sync/runManualStageForFirstSeen.ts:111`).
+2. **Keying on `runPhase2` consumers** still misses the one known bypass: the pending-ingestion retry
+   route is neither a `runPhase2` nor a `processOneFile_unlocked` consumer. It calls
+   `runManualSyncForShow_unlocked`, which forwards through an import alias AND a dependency-injection
+   seam (`lib/sync/runManualSyncForShow.ts:13`, `:287-288`). A direct-consumer guard would APPROVE
+   that helper for faithfully preserving the envelope while staying blind to the route that drops it.
+3. **So a correct guard needs recursive carrier tracking** from every producer, through those seams,
+   to terminal sinks — plus an exemption syntax and a registry. That is a static-analysis surface with
+   its own design and its own spec, which is why the entry sized L.
+4. **The structural note that may make all of the above unnecessary:** the emit is attached to the
+   LOCKED WRAPPER (`lib/sync/runScheduledCronSync.ts:2750`), not to the apply, which is why every
+   `_unlocked` caller is a discard site BY CONSTRUCTION. A future design should first ask whether the
+   class closes at that layer — a topology change rather than an analysis — before building the
+   analyzer. This is the cheapest unexplored lever and it is recorded here precisely because the
+   analysis-shaped framing crowds it out.
+
+**Re-open trigger:** a fifth real drop site is found in live code, or the notice-carrying topology is
+reworked such that `_unlocked` callers stop being discard sites by construction (at which point the
+guard becomes cheap and the lever in item 4 is the design). A hypothetical does not re-open it.
+
+---
+
+**Status:** OPEN · **Severity:** LOW-MEDIUM (all four known instances closed; the class is unguarded) · **Class:** guard completeness, static analysis · **Filed:** 2026-08-03 (`fix/apply-undo-audit-fidelity`, descoped at spec review R5 after the vector produced a finding in four consecutive rounds) · **Effort:** L
+
+`tests/sync/_metaLeadRoleAppliedTopology.test.ts:29` matches `upsertAdminAlert(<expr>roleFlagsNotice` and asserts the discovered emit-site list. That detects a site that upserts the alert **without** the durable event. It has never detected the opposite and more damaging shape: a path that obtains a real notice and emits nothing. `BL-FINALIZE-CAS-ROLEFLAGS-NOTICE-DROP` was one instance of that shape; the closing branch found and repaired four.
+
+**Why this is L, not S — read before attempting.** Four adversarial rounds each refuted a cheaper design, and those refutations are the real specification:
+
+1. Keying on `applyStagedCore` callers misses `runManualStageForFirstSeen`, which takes its notice straight from `runPhase2` (`lib/sync/runManualStageForFirstSeen.ts:111`).
+2. Keying on `runPhase2` consumers still misses the one known bypass: the pending-ingestion retry route is not a `runPhase2` OR a `processOneFile_unlocked` consumer. It calls `runManualSyncForShow_unlocked`, which forwards through an import alias and a dependency-injection seam (`lib/sync/runManualSyncForShow.ts:13`, `lib/sync/runManualSyncForShow.ts:287-288`). A direct-consumer guard would approve that helper for faithfully preserving the envelope while staying blind to the route that drops it.
+3. So the guard needs **recursive carrier tracking** from every producer through those seams to terminal sinks, plus an exemption syntax and a registry — a static-analysis surface with its own design.
+
+Structural note for whoever takes this: the emit is attached to the locked wrapper (`lib/sync/runScheduledCronSync.ts:2750`), not to the apply, which is why every `_unlocked` caller is a discard site by construction. A future design might close the class at that layer instead of by analysis. Deferred under class-sweep exception (c) — a redesign of a surface the closing PR does not otherwise touch.
+
+---
+
+## BL-RESYNC-STAGED-REVIEW-UI — no inline "review the diff, then approve the smaller roster" surface for an existing show — CLOSED 2026-08-06 (L-wave, `feat/l-wave-docs`)
+
+**Resolution: ARCHIVED unbuilt. The owner never asked for the diff-review workflow.** Ratified by the
+user 2026-08-05 (L-wave decisions brief; spec §1.1 item 5 / §4.5 item 5). The entry was filed
+retroactively to honor a spec's promise to file it, not because anyone wanted the surface — and four
+years of operation have not produced the request.
+
+**Re-open trigger, the entry's own words, preserved verbatim: promote it if the diff-review workflow
+is actually wanted.** An operator asking for diff review is the trigger. Nothing else is.
+
+**What must NOT be re-derived — this is explicitly not a safety gap** (owner decision, resync
+quality-gate design spec §10, restated here because it is the single most likely thing for a future
+reader to mistake): retain-last-good plus the alert already prevent the data loss, and the
+`modifiedTime` binding on `acceptShrink` already makes acceptance explicit and version-bound. **Do
+not promote this on safety grounds.** The archive is not evidence of an accepted risk; the risk was
+never there.
+
+**The genuine limit behind the request, preserved for whoever builds it:** the design does not
+persist the held parse, so "apply exactly the version I first reviewed" is not available.
+`acceptShrink` applies the CURRENT sheet only if its `modifiedTime` still matches the reviewed one,
+and otherwise re-holds. A future diff-review surface therefore needs a persisted parse, not just a
+component — that is the real cost, and it is why the entry sized M rather than S. The build shape it
+named stays valid with one path corrected: restore or re-home `StagedReviewCard` in an existing-show
+mode exposing Apply / Keep-current, and update the retirement pins — which now live in
+`tests/app/admin/showReviewModalLoader.test.tsx` (2026-08-06: `perShowPage.test.tsx` no longer
+exists; that suite's header records it as the Task-7 loader retarget of the per-show page body).
+
+---
+
+**Filed:** 2026-08-02 (retroactively; `docs/superpowers/specs/data-quality/2026-07-04-resync-quality-gate-design.md:267` §13 says it "files to `BACKLOG.md`", and it never did). **Class:** UX enhancement. **Effort:** M.
+
+The shrink gate holds a reduced roster and offers `acceptShrink`, which applies the CURRENT sheet only if its `modifiedTime` still matches the reviewed one, and otherwise re-holds. That is deliberately not byte-exact: the design does not persist the held parse, so "apply exactly the version I first reviewed" is not available. This entry is that surface — restore or re-home `StagedReviewCard` in an existing-show mode exposing Apply / Keep-current, and update the `perShowPage.test.tsx` retirement pins.
+
+**Explicitly not a safety gap** (owner decision, spec §10): retain-last-good plus the alert already prevent the data loss, and the modifiedTime binding already makes acceptance explicit and version-bound. Do not promote this on safety grounds; promote it if the diff-review workflow is actually wanted.
+
+**Status:** OPEN.
+
+---
+
+## BL-ATTENTION-PANEL-NAME-LEADING-SECTION — the panel is named for its first section, not its contents — CLOSED 2026-08-06 (L-wave, `feat/l-wave-docs`)
+
+**Resolution: the owner KEEPS the leading-section name. Zero code changed.** Ratified by the user
+2026-08-05 (L-wave decisions brief; spec §1.1 item 4 / §4.5 item 4). The understatement is accepted:
+the accessible name mirrors the visible leading heading, which is what a sighted user reads at the
+top of the panel, and both alternatives the entry evaluated are worse — "Needs you and monitoring"
+reads as clutter, and a neutral third noun drifts from the visible text. `AttentionMenu.tsx` is
+untouched by this closure.
+
+**This closes as a DECIDED RETENTION, not as a fixed defect.** The distinction matters for anyone
+re-reading the surface later: the naming is deliberate and stays deliberate. The genuine defect
+found alongside it — the inner scroller calling itself "Show issues", wrong for a monitoring-only
+list — was a separate fix and is not part of this row.
+
+**Re-open trigger, preserved verbatim from the entry:** a screen-reader pass on the show page that
+judges the understatement in practice, or a redesign that gives the panel a visible title of its own
+to name it from. Either one supplies evidence this ruling did not have; absent one, re-litigating the
+name is re-deriving a settled owner decision.
+
+---
+
+**Effort:** S
+
+Surfaced by the non-degraded impeccable gate rerun on PR #658 (2026-08-02).
+
+`components/admin/showpage/AttentionMenu.tsx` names the panel `"Needs you"` when any needs-you
+item exists and `"Monitoring"` otherwise — the first group actually present. When both groups
+are present the panel therefore announces as "Needs you" while also containing Monitoring rows,
+so its accessible name understates what it holds.
+
+This is deliberate and documented in-code: the name mirrors the visible leading heading, which
+is what a sighted user sees at the top of the panel, and the alternative names ("Needs you and
+monitoring", or a neutral third noun) either read as clutter or drift from the visible text.
+The related genuine defect — the inner scroller calling itself "Show issues", which was wrong
+for a monitoring-only list — is fixed separately.
+
+**Trigger:** a screen-reader pass on the show page that judges the understatement in practice,
+or a redesign that gives the panel a visible title of its own to name it from.
+
+---
+
+## BL-COVERAGE-CLAIMS-CITE-SKIPPED-SUITES — contract artifacts claim e2e coverage from suites that do not execute — CLOSED 2026-08-06 (L-wave, `feat/l-wave-docs`)
+
+**Resolution: the sentence class was DELETED, and deliberately NOT guarded.** Ratified by the user
+2026-08-05 (L-wave decisions brief, spec §1.1 item 1 / §4.5 item 1): prose coverage claims are
+unguardable, so the row's own open question was settled toward deleting the class of sentence rather
+than maintaining it. **No structural guard ships for this class, by decision** — a future claim is a
+review matter, not a CI matter (spec §4 limit 1). That is the one thing a reader should not
+re-derive: the absence of a guard here is a ratified choice, not an oversight.
+
+**The row's methodological finding was right, and the execution proved it again.** The row warned
+that its own 12-site table was a SEED, not a bound, and that hand-run sweeps under-count this class
+by PATTERN failure. The wave ran the mechanical enumeration the row asked for — every
+`describe.skip` / `test.fixme` / `test.skip` suite under `tests/`, then citing prose resolved by BOTH
+suite filename AND the phrase families that escape token-greps — and the plan-time sweep produced a
+per-hit disposition table. **Re-running those same commands at execution turned up two more repair
+sites the plan-time table did not carry**, which is the third independent confirmation of the row's
+thesis:
+
+- `components/atoms/Section.tsx:235` — a bare `Verified by tests/e2e/layout-dimensions.spec.ts
+(AC-4.4).` in a component file. Every prior sweep had scoped itself to `lib/` and `tests/`.
+- `lib/time/rightNowTransitions.ts:12` — present-tense "drive their assertions from this constant"
+  for the Playwright audit, qualified by a reason that had itself gone stale twice over
+  (`test.fixme` pending `framer-motion`; the suite is now `describe.skip`, and framer-motion landed).
+
+Both were repaired in the same commit as the seed sites, per the AGENTS.md class-sweep disposition
+rule (every instance of one shape repaired in the same PR).
+
+**Ground truth at close (re-verified 2026-08-06):** 12 files under `tests/e2e/` carry a top-level
+`describe.skip`. "Wholly dead" is the wrong word for two of them and is corrected here rather than
+repeated: `crew-page.spec.ts` has two LIVE blocks (§4.9 layout invariants, and the nav/preview-as
+block) alongside six skipped ones (five `test.describe.skip` plus the multiline `.skip(` chain), and `right-now-transitions.spec.ts` has a live §5.7
+anchor-selection block. Every one of the 12 is CI-DARK — named by no workflow — which is the property
+that actually mattered for this sweep; "skipped" and "dark" are different claims and conflating them
+is what the class sweep kept catching. The 12 are — `crew-page`, `empty-state`, `layout-dimensions`, `notes-tile`,
+`pack-list`, `right-now-transitions`, `right-now`, `role-spoof`, `schedule-tile`,
+`status-financials`, `theme-toggle`, `transport-tile`. Plus the multiline-chain form at
+`tests/e2e/crew-page.spec.ts:892-893` (`test.describe` on one line, `.skip(` on the next), which
+makes the §4.10 compound block dead. The 5 aliased `dbUp ? describe : describe.skip` sites
+(`resolveBlockerRebuild`, `finalizeInlineRescan`, `materializeRoundTrip`,
+`publishedPullSheetOverrideRpc`, `parseErrorReasonPersist`) are env-gated fallbacks that DO run with
+a DB present — outside this class by construction, recorded so no future sweep re-derives them.
+
+**Sites REPAIRED (claim deleted or rewritten to honest present tense).** Each now states that the
+cited suite does not execute and points at the live CI-dark entry:
+
+| Site                                                                                                       | Was                                                                                                                                                                                                                                                                                                                        |
+| ---------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `lib/visibility/capabilityTransitions.ts` (header, delta note, inline note, and the entry `reason` STRING) | compound transitions "are exercised by the e2e compound-transition tests"; "the delta is empty (the e2e compound tests cover those cases)"; "(covered by compound tests)"; reason ending "LEAD/admin compound interactions are tested by e2e"                                                                              |
+| `lib/time/rightNowTransitions.ts` (module header + the `unreachable` treatment note)                       | the Playwright audit "drive[s] their assertions from this constant"; `unreachable` cells "Regression-guarded by the audit suite"                                                                                                                                                                                           |
+| `lib/visibility/openingReelText.ts`                                                                        | the `empty-state.spec.ts` AC-4.5 suite "pins this invariant end-to-end"                                                                                                                                                                                                                                                    |
+| `components/atoms/Section.tsx`                                                                             | "Verified by tests/e2e/layout-dimensions.spec.ts (AC-4.4)."                                                                                                                                                                                                                                                                |
+| `tests/visibility/capabilityTransitions.test.ts` (header + no-flicker note)                                | header restatement; "the e2e compound test verifies the no-flicker invariant"                                                                                                                                                                                                                                              |
+| `tests/visibility/transportTransitions.test.ts` (header)                                                   | "animation behavior is exercised in e2e tests"                                                                                                                                                                                                                                                                             |
+| `tests/time/rightNowTransitions.test.ts` (header)                                                          | "Animation-behavior tests live in … (scaffolded as `test.fixme()` …)"                                                                                                                                                                                                                                                      |
+| `tests/components/atoms/Section.test.tsx`                                                                  | layout invariants "are verified separately by tests/e2e/layout-dimensions.spec.ts"                                                                                                                                                                                                                                         |
+| `tests/components/crew/transitionAudit.test.tsx`                                                           | the compound real-browser half "lives in tests/e2e/crew-page.spec.ts"                                                                                                                                                                                                                                                      |
+| `tests/e2e/helpers/rightNow.ts` (6 sites)                                                                  | "the compound tests … cover the recovery paths"; "the helper covers TIME-DRIVEN transitions"; "The audit suite documents which transitions …"; the `right-now.spec.ts` present-tense description; plus the two `requiresShowMutation` notes attributing the undriven `unknown`/`dateless` endpoints to the compound audits |
+| `tests/e2e/right-now-transitions.spec.ts` (5 sites, incl. the runner-visible skip-reason STRING)           | self-referential prose describing its own skipped siblings as live coverage                                                                                                                                                                                                                                                |
+
+**Sites deliberately NOT touched, with the reason — so a later pass does not "fix" them:**
+
+- **Already honest (the row pins these):** `tests/visibility/capabilityTransitions.test.ts:224`
+  (gap deferred pending Realtime push, M6) and `:272` (future-tense about the same thing). Preserved
+  verbatim.
+
+  **CHALLENGED AND DELIBERATELY NOT ACTIONED (cross-model review R2, recorded so it is not
+  re-raised).** The reviewer read `:272`'s "The DOM-level no-flicker continuity … is exercised at the
+  e2e level — that part requires Realtime push (M6) and is deferred" as self-contradictory: present
+  tense "is exercised" beside "is deferred". The observation is fair on its face. It was not actioned
+  because the entry ratifies these exact two sites as already-honest and instructs that they be
+  preserved verbatim rather than "fixed" (spec §2.1.1 item 3), and the sentence does resolve on a
+  full read — the deferral clause governs the claim. Editing a site the entry protects, on a
+  reviewer's stylistic read, would be the branch overriding its own ratified scope. If the wording is
+  genuinely worth tightening, that is a separate change against the surface that owns it.
+
+- **"full audit suite" in `lib/messages/catalog.ts` (+ the generated `spec-codes.ts` row and its
+  `tests/messages/popoverContextCopy.test.ts` pin):** FALSE POSITIVE. "audit suite" there means the
+  branch-protection required-check set, not a test suite. Editing it would have triggered the §12.4
+  lockstep triple for zero gain.
+- **Same-file live reference:** `tests/visibility/transportTransitions.test.ts:196` ("the two
+  compound tests below") refers to tests that execute in that very file.
+- **Citations of LIVE files, provenance notes, and infrastructure rows:** citations of
+  `tests/time/rightNowTransitions.test.ts` (a live unit suite); "mirrors §4.9 / same seed as / reused
+  verbatim from" provenance comments; self-file headers; `walker-routes.test.ts` exemption rows, the
+  `_metaE2eWorkflowCoverage.test.ts` allowlist, `_metaSpecRegistration.test.ts` command strings, and
+  `picker-flow-e2e-ci-wiring.test.ts` (which names files as artifacts, claiming no execution);
+  `tests/e2e/empty-state-reachability.spec.ts:192` and
+  `tests/components/crew/rightNowHeroRecovery.test.tsx:49`, which cite dead suites as the SOURCE of a
+  fixture fact or a design decision while naming a live local assertion as the actual guard;
+  `tests/e2e/helpers/lockedCrewRestriction.ts:23`, which names consumers. None claims coverage.
+
+**The one blocker behind all of it, preserved:** the `?crew=`/`?as=admin` dev mock was retired, and
+each case renders as a specific non-LEAD crew identity that `signInAs` cannot reproduce without
+per-test crew rows matching `NON_ADMIN_CREW_FIXTURE` plus per-test fixture seeding. Reviving the
+suites is tracked by the CI-dark entry, NOT here.
+
+**Citation sequencing, recorded so it does not read as drift:** the repairs first cited
+`BL-E2E-LIFECYCLE-SPECS-CI-DARK`, the entry live at that commit; task L4b then archived that umbrella,
+refiled it as `BL-E2E-APP-DEPENDENT-SPECS-CI-DARK`, and re-pointed every one of these citations in the
+same commit that filed the new id. **Correction to the reasoning given at the time:** citing the new
+id immediately would ALSO have been green — the authoring session had pre-registered it as a
+`KNOWN_DANGLING` forward reference in `tests/docs/_metaLedgerReferentialIntegrity.test.ts`
+("remove this row when it lands"), precisely so the wave could cite ahead of filing. The L1 commit
+message asserts the citation would have failed the referential-integrity guard; that was wrong. The
+end state is identical either way, and the debt row was repaid in L4b's commit as its ratchet
+requires.
+
+**Re-open trigger:** none as a guard. If coverage-claim prose is found to have regrown at a rate that
+review is not catching, the decision to leave it unguarded is what should be revisited — and the
+row's own methodological finding (sweep by phrase family AND by suite filename, over `lib/`,
+`tests/`, `components/`, AND `app/`) is the procedure to re-measure with.
+
+**Full reasoning for the original descope:**
+`docs/superpowers/specs/2026-08-03-lead-capability-prose-settle-design.md` §1.2 and §2.7. Filed
+2026-08-03 by `docs/settle-lead-capability-prose`, descoped at spec review R3 after three rounds of
+under-counting. Original body follows.
+
+---
+
+Twelve artifacts tell a maintainer that compound capability transitions, RightNow transition behavior, and transport animation are exercised by e2e suites. **They are not.** Both named suites are `test.describe.skip`, and neither contains an assertion about the thing claimed.
+
+**Instances found so far. The set is NOT known to be complete** — see the methodological finding below.
+
+| Site                                                 | Claim                                                                                                                          |
+| ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `lib/visibility/capabilityTransitions.ts:36-39`      | compound transitions "are exercised by the e2e compound-transition tests in `tests/e2e/right-now-transitions.spec.ts`"         |
+| `lib/visibility/capabilityTransitions.ts:130`        | "the delta is empty (the e2e compound tests cover those cases)"                                                                |
+| `lib/visibility/capabilityTransitions.ts:213`        | an entry `reason` ending "LEAD/admin compound interactions are tested by e2e"                                                  |
+| `tests/visibility/capabilityTransitions.test.ts:8-9` | the first claim restated in the test header                                                                                    |
+| `tests/visibility/capabilityTransitions.test.ts:194` | "the e2e compound test verifies the no-flicker invariant"                                                                      |
+| `tests/e2e/helpers/rightNow.ts:183`                  | skipped pairs "the compound tests handle them with explicit setup"                                                             |
+| `tests/e2e/helpers/rightNow.ts:239`                  | "the compound tests … cover the recovery paths"                                                                                |
+| `tests/e2e/helpers/rightNow.ts:286-292`              | "the helper covers TIME-DRIVEN transitions"; "the audit suite documents which transitions can be driven via tick-only"         |
+| `tests/visibility/transportTransitions.test.ts:10`   | "animation behavior is exercised in e2e tests"                                                                                 |
+| `lib/time/rightNowTransitions.ts:12-14`              | the Playwright audit "scaffolded as `test.fixme` until Batch 2 lands `framer-motion`" drives its assertions from this constant |
+| `lib/time/rightNowTransitions.ts:82-86`              | `unreachable` transitions are "Regression-guarded by the audit suite"                                                          |
+| `tests/time/rightNowTransitions.test.ts:6-8`         | "Animation-behavior tests live in `tests/e2e/right-now-transitions.spec.ts` (scaffolded as `test.fixme()` …)"                  |
+
+**Ground truth, probed 2026-08-03 — recorded so no future pass re-derives it:**
+
+```
+$ grep -n 'describe.skip' tests/e2e/right-now-transitions.spec.ts
+154:  RightNow §8.2 — 66-pair pairwise transition audit
+291:  RightNow §8.2 — 6 compound transition audits
+$ grep -c 'CAPABILITY_TRANSITION_MATRIX|affectedTilesOnFlip|FinancialsTile|AudioScopeTile' tests/e2e/right-now-transitions.spec.ts
+0
+$ grep -n 'describe.skip|test.describe(' tests/e2e/transport-tile.spec.ts
+225:  crew page — TransportTile (Task 4.7, §8.1)     [the file's ONLY describe]
+$ grep -c 'AnimatePresence|animation|transition|opacity' tests/e2e/transport-tile.spec.ts
+0
+$ grep -rl 'describe.skip' tests/e2e/ | wc -l
+12
+```
+
+**One blocker explains all of it:** the `?crew=`/`?as=admin` dev mock was retired, and each case renders as a specific non-LEAD crew identity that `signInAs` cannot reproduce without per-test crew rows matching `NON_ADMIN_CREW_FIXTURE` plus per-test fixture seeding (`tests/e2e/right-now-transitions.spec.ts:285-290`). Several claims are stale a SECOND way: they attribute non-execution to `test.fixme` pending `framer-motion`, a blocker that no longer applies.
+
+**Two sites are already honest and must NOT be "fixed":** `tests/visibility/capabilityTransitions.test.ts:224` says the gap is deferred pending Realtime push (M6); `:272` is future-tense about the same thing.
+
+**The methodological finding — this row's most valuable content.** Three hand-run sweeps under-counted this class (2 → 4 → 9 → 12), and each failure was a PATTERN failure, not an effort failure:
+
+- Sweeping `e2e|E2E` misses claims phrased "the audit suite", "the compound tests", "the helper covers" — no token in common.
+- Scoping the sweep to files the branch already had reason to open missed `tests/time/rightNowTransitions.test.ts` entirely.
+
+So the fix shape is **not** "grep harder". It is: enumerate every `describe.skip` / `test.fixme` / `test.skip` suite mechanically, resolve which modules and tests cite each one, and check the citing prose — **or** decide that prose coverage claims are unguardable and delete the class of sentence rather than maintain it. That decision is this row's open question and is a design call.
+
+**Why it was descoped rather than fixed:** it is a different class from the one `BL-LEAD-CAPABILITY-PROSE-STALE` filed (now in `BACKLOG-archive.md`) (restatements of whether a test EXECUTES, not of what a predicate COMPUTES), its extent is unmeasured, and bundling it into a branch chartered to settle two named claims drove three BLOCKING review rounds. Full reasoning: `docs/superpowers/specs/2026-08-03-lead-capability-prose-settle-design.md` §1.2 and §2.7.
+
+---
+
 ## BL-X5-ROLE-TOKEN-DECIDED-BY-BOUNDARY — `role_token_mappings.decided_by` is a live email boundary absent from the AC-X.5 manifest — CLOSED 2026-08-04
 
 Registered in master spec §17.2 AC-X.5 and the plan's Task X.5 boundary table in lockstep,

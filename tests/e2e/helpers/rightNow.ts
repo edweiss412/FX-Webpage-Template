@@ -2,7 +2,7 @@
  * tests/e2e/helpers/rightNow.ts — shared driving infrastructure for the
  * §8.2 RightNow transition audit (M4 Task 4.12 Batch 2).
  *
- * The 66-pair pairwise audit + 6 compound transition tests in
+ * The 66-pair pairwise audit + 7 compound transition tests in
  * `tests/e2e/right-now-transitions.spec.ts` all share the same
  * scaffolding: look up the seeded show, mutate the LEAD viewer's
  * `date_restriction`, pin Playwright's clock controller to a chosen
@@ -20,10 +20,15 @@
  *   `Date.now` shim alone freezes time but does not cause the existing
  *   setInterval to fire — there's no "advance" capability.
  *
- *   `right-now.spec.ts` (Task 4.11 AC-4.3 suite) uses the simpler
- *   addInitScript shim because it only needs to assert the initial
- *   render. THIS suite needs to assert pre→post transition behavior
- *   in a single session, so we use page.clock.
+ *   `right-now.spec.ts` (Task 4.11 AC-4.3 suite) is written against the
+ *   simpler addInitScript shim because it only needs to assert the
+ *   initial render. THIS suite needs to assert pre→post transition
+ *   behavior in a single session, so we use page.clock. Neither file runs
+ *   in CI — no workflow names either (BL-E2E-APP-DEPENDENT-SPECS-CI-DARK).
+ *   `right-now.spec.ts` is wholly `describe.skip`; in
+ *   `right-now-transitions.spec.ts` the two audit blocks are skipped but the
+ *   §5.7 anchor block is LIVE and does call `driveToState`, so this helper is
+ *   exercised there under a local `pnpm test:e2e`.
  *
  * Seed contract:
  *   • drive_file_id `seed-fixture:2026-04-asset-mgmt-cfo-coo-waldorf`
@@ -169,9 +174,9 @@ export async function setSystemTime(page: Page, isoDate: string): Promise<void> 
  * Some kinds require show.dates mutation (e.g., `dateless` requires
  * stripping every parseable date). Those are listed as `requiresShowMutation: true`
  * and the parametrized audit skips pairs where either endpoint requires
- * dates mutation — they're harder to drive without polluting the
- * shared seed and are covered by the dedicated compound-transition
- * tests with explicit setup/teardown.
+ * dates mutation — they're harder to drive without polluting the shared
+ * seed. No block drives them: the compound audits perform zero shows.dates
+ * mutations (probed 2026-08-06), so these endpoints are simply undriven.
  */
 export type StateDriver = {
   clockDate: string;
@@ -179,8 +184,9 @@ export type StateDriver = {
   /**
    * If true, this kind cannot be driven via clock + restriction
    * alone — needs `shows.dates` mutation. The parametrized audit
-   * skips pairs where either endpoint has this set; the compound
-   * tests handle them with explicit setup.
+   * skips pairs where either endpoint has this set, and NO block drives
+   * them: the compound audits perform zero `shows.dates` mutations
+   * (probed 2026-08-06), so these endpoints are undriven.
    */
   requiresShowMutation?: boolean;
 };
@@ -236,8 +242,11 @@ export const STATE_DRIVERS: Record<string, StateDriver> = {
     restriction: { kind: "explicit", days: [SEED_DATES.showDay1] },
   },
   // unknown / dateless require show.dates mutation — the parametrized
-  // audit skips pairs touching these endpoints and the compound tests
-  // (which mutate dates with explicit setup) cover the recovery paths.
+  // audit skips pairs touching these endpoints. NOTHING drives them:
+  // probed 2026-08-06, the compound audit block performs ZERO shows.dates
+  // mutations and never calls a driver for these kinds, so the long-standing
+  // claim that the compound tests "cover the recovery paths" was false even
+  // before those blocks were skipped. These endpoints are undriven, full stop.
   unknown: {
     clockDate: SEED_DATES.showDay1,
     restriction: { kind: "none", days: null },
@@ -255,8 +264,8 @@ export const STATE_DRIVERS: Record<string, StateDriver> = {
  * viewer's restriction, pinning the clock, and navigating. Returns the
  * page-level Playwright assertion that the resolved kind matches.
  *
- * Used by both the parametrized audit (initial-state assertion) and
- * the compound tests (setup phase).
+ * Called by both the parametrized audit (initial-state assertion) and
+ * the (skipped) compound audits (setup phase). Neither executes.
  */
 export async function driveToState(page: Page, show: SeededShow, kind: string): Promise<void> {
   const driver = STATE_DRIVERS[kind];
@@ -285,11 +294,12 @@ export async function driveToState(page: Page, show: SeededShow, kind: string): 
  * holds the old value (pages re-fetch on navigation, not on tick).
  * This means our viewer-aware drivers cannot be exercised across the
  * tick alone — the React tree only re-derives state from `now`, not
- * from a fresh DB read. So the helper covers TIME-DRIVEN transitions;
+ * from a fresh DB read. So the helper HANDLES TIME-DRIVEN transitions;
  * VIEWER-AWARE transitions (where the kind change is driven by a
  * date_restriction mutation, not a clock tick) require a navigation
- * to pick up the new restriction. The audit suite documents which
- * transitions can be driven via tick-only and which require navigation.
+ * to pick up the new restriction. The audit suite records which
+ * transitions can be driven via tick-only and which require
+ * navigation, but it is skipped, so neither group is exercised.
  */
 export async function transitionTo(page: Page, toKind: string): Promise<void> {
   const driver = STATE_DRIVERS[toKind];

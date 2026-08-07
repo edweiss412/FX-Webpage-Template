@@ -129,18 +129,15 @@ const KNOWN_DANGLING: Record<string, string> = {
   // wave's W-LDOCS branch FILES as part of its ratified decompositions/filings. Each
   // row is debt that the filing commit repays — the stale-row ratchet forces removal
   // of the row in the same change that creates the entry.
-  "BL-E2E-APP-DEPENDENT-SPECS-CI-DARK":
-    "filed by L-wave W-LDOCS task L4b (refile of BL-E2E-LIFECYCLE-SPECS-CI-DARK) — remove this row when it lands",
+  // SETTLED 2026-08-06 by L-wave task L4d, and the row STAYS. The plan offered two
+  // branches — refile under this id, or keep BL-RESURRECT-MOBILE-SAFARI-E2E and rewrite
+  // its body — and the second was taken, so this id is deliberately never filed. Its own
+  // "remove when W-LDOCS lands either way" was wrong for that branch: the id is still
+  // cited by the wave's spec as the rejected alternative, so deleting the row would leave
+  // that citation dangling. This is genuine debt of the intended kind — prose that looks
+  // like an id — and both ratchets hold: it never resolves, and it is still cited.
   "BL-MOBILE-SAFARI-TILE-SPECS-CI-DARK":
-    "candidate refile id in L-wave plan L4d (id decision: keep original) — remove when W-LDOCS lands either way",
-  "BL-OPS-LOG-DASHBOARD-BANNER":
-    "filed by L-wave W-LDOCS task L4c (BL-OPS-LOG decomposition) — remove this row when it lands",
-  "BL-OPS-LOG-OAUTH-EMITS":
-    "filed by L-wave W-LDOCS task L4c (BL-OPS-LOG decomposition) — remove this row when it lands",
-  "BL-OPS-LOG-ONBOARDING-EMIT":
-    "filed by L-wave W-LDOCS task L4c (BL-OPS-LOG decomposition) — remove this row when it lands",
-  "BL-PARSER-FIELD-PROVENANCE-MODEL":
-    "filed by L-wave W-LDOCS task L5 (spec 2026-08-06-l-wave-design.md §2.1.5) — remove this row when it lands",
+    "rejected refile id, L-wave L4d (2026-08-06): the id decision kept BL-RESURRECT-MOBILE-SAFARI-E2E and rewrote its body in place, so this id is never filed. Cited only as the rejected alternative in docs/superpowers/specs/2026-08-06-l-wave-design.md.",
 };
 
 type Cited = { id: string; files: string[] };

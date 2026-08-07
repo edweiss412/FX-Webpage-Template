@@ -165,9 +165,11 @@ export function Section({
   // declares `items-stretch`; this wrapper MUST declare `h-full` to
   // actually consume the stretched cell. Without it, tiles collapse to
   // intrinsic content height and the §8.4 row-stretch invariant fails.
-  // See memory/feedback_tailwind_v4_flex_items_stretch.md and the Task
-  // 4.13 layout-dimensions Playwright assertion that verifies it end-
-  // to-end. The outer wrapper is variant-invariant — every variant
+  // See memory/feedback_tailwind_v4_flex_items_stretch.md. The Task 4.13
+  // layout-dimensions Playwright assertion that would verify it end-to-end
+  // does not execute: that suite is `describe.skip` and is named by no
+  // workflow (BL-E2E-APP-DEPENDENT-SPECS-CI-DARK). The outer wrapper is
+  // variant-invariant — every variant
   // shares the same shell so the §8.4 dimensional invariants hold for
   // every tile regardless of shape.
   const outerClass = [
@@ -232,7 +234,9 @@ export function Section({
         content height exceeds it. Tiles whose body fits inside 240px
         never see scroll because content < container; tiles that overflow
         keep the excess internal, never blowing past their row track.
-        Verified by tests/e2e/layout-dimensions.spec.ts (AC-4.4).
+        Not verified anywhere in CI: the AC-4.4 suite in
+        tests/e2e/layout-dimensions.spec.ts is `describe.skip` and runs
+        in no workflow (BL-E2E-APP-DEPENDENT-SPECS-CI-DARK).
 
         `flex-1` deliberately allows the body to grow into the row
         stretch (§8.4 invariant 2 — equal-height tiles in the first
