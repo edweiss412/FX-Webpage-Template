@@ -924,6 +924,89 @@ it("renders a bounded infra_error message that never leaks the raw code", () => 
   expect(screen.queryByText(/connection refused/)).toBeNull();
 });
 
+// ── BL-CHANNEL-ANNOUNCER-RESIDUAL-ROLE-STATUS: the load failure announces ─────
+//
+// This is the entry's named suspect site, and the probe confirmed it: the file's
+// one announce call is success-shaped and lives in a different component
+// (`GroupSection`'s undo-all), so the error card's own `role="status"` was the
+// only thing that looked like an announcement, and it announced nothing — it is
+// inserted together with its text.
+//
+// This component owns NO transition: it is a client component handed
+// already-resolved `data` as a prop (the load is server-side). So the announce
+// is an EFFECT keyed on the OBSERVED `data.kind`, and the four cases below are
+// the full semantics rather than a happy path. Mount counts as a transition from
+// nothing; an implementation that announces once per mount passes (i) and (ii)
+// and fails (iv) by name.
+//
+// Anti-tautology: expectations read the same copy the card renders, scraped from
+// the rendered card itself, so a copy edit cannot leave the two disagreeing.
+const ERROR_DATA: RecentAutoApplied = { kind: "infra_error", message: "boom" };
+
+function renderWithChannel(data: RecentAutoApplied) {
+  return render(
+    <AdminAnnounceProvider testId="admin-undo-status" label="Updates">
+      <RecentAutoAppliedStrip data={data} actions={noopActions()} />
+    </AdminAnnounceProvider>,
+  );
+}
+
+it("(i) mounting with infra_error announces the load-failure copy ONCE", () => {
+  renderWithChannel(ERROR_DATA);
+  const cardCopy = screen.getByTestId("auto-applied-error").textContent ?? "";
+  expect(cardCopy.length).toBeGreaterThan(0);
+  const region = screen.getByTestId("admin-undo-status");
+  expect(region.textContent ?? "").toContain(cardCopy);
+  // The region is the provider's, outside the card that renders the same words.
+  expect(region.contains(screen.getByTestId("auto-applied-error"))).toBe(false);
+});
+
+it("(ii) re-rendering the SAME error data does not re-announce", () => {
+  const q = renderWithChannel(ERROR_DATA);
+  const region = screen.getByTestId("admin-undo-status");
+  const once = region.textContent ?? "";
+  q.rerender(
+    <AdminAnnounceProvider testId="admin-undo-status" label="Updates">
+      <RecentAutoAppliedStrip data={ERROR_DATA} actions={noopActions()} />
+    </AdminAnnounceProvider>,
+  );
+  expect(screen.getByTestId("admin-undo-status").textContent ?? "").toBe(once);
+});
+
+it("(iii) an ok payload that becomes infra_error announces", () => {
+  const q = renderWithChannel(okData());
+  expect(screen.getByTestId("admin-undo-status").textContent ?? "").toBe("");
+  q.rerender(
+    <AdminAnnounceProvider testId="admin-undo-status" label="Updates">
+      <RecentAutoAppliedStrip data={ERROR_DATA} actions={noopActions()} />
+    </AdminAnnounceProvider>,
+  );
+  const cardCopy = screen.getByTestId("auto-applied-error").textContent ?? "";
+  expect(screen.getByTestId("admin-undo-status").textContent ?? "").toContain(cardCopy);
+});
+
+it("(iv) infra_error → ok → infra_error announces AGAIN (the previously-observed-kind rule)", () => {
+  // An announce-once-per-mount implementation fails exactly here: the second
+  // failure is a new outcome the operator has not been told about.
+  const q = renderWithChannel(ERROR_DATA);
+  const region = () => screen.getByTestId("admin-undo-status");
+  const first = region().textContent ?? "";
+  expect(first.length).toBeGreaterThan(0);
+
+  q.rerender(
+    <AdminAnnounceProvider testId="admin-undo-status" label="Updates">
+      <RecentAutoAppliedStrip data={okData()} actions={noopActions()} />
+    </AdminAnnounceProvider>,
+  );
+  q.rerender(
+    <AdminAnnounceProvider testId="admin-undo-status" label="Updates">
+      <RecentAutoAppliedStrip data={ERROR_DATA} actions={noopActions()} />
+    </AdminAnnounceProvider>,
+  );
+  const cardCopy = screen.getByTestId("auto-applied-error").textContent ?? "";
+  expect(region().textContent ?? "").toContain(cardCopy);
+});
+
 // ── Mobile auto-applied parity (Task 1): headingLevel prop + FLOW4-7 ──────────
 
 it("default: section heading is h4, group headings are h5 (dashboard regression pin)", () => {

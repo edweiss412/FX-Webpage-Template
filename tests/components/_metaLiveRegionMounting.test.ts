@@ -40,20 +40,34 @@ const ROOTS = ["components", "app"];
  * A row here is a claim that the file imports `UndoAnnounceContext` and calls
  * `announce`, which the test below verifies rather than trusts.
  *
- * WHAT YOU WILL STILL FIND IN THESE FILES, so the next reader is not misled.
- * Several of them keep a conditionally-inserted `role="status"` on a VISIBLE
- * card — `RoleRecognizeControl.tsx:209` and `:257`, `RecentAutoAppliedStrip.tsx`
- * `:506` and `:686`, `ReSyncButton.tsx:362`. Those attributes announce NOTHING,
- * for the same reason this whole guard exists, and that is not a latent defect
- * here: the channel already announced the message, so nothing is lost. They are
- * misleading rather than broken — an attribute that reads like a live region and
- * is not one.
+ * THE FIVE RESIDUAL `role="status"` ATTRIBUTES ARE GONE (arc A, 2026-08-07,
+ * BL-CHANNEL-ANNOUNCER-RESIDUAL-ROLE-STATUS). They sat on visible cards that are
+ * inserted together with their text, so none of them announced anything —
+ * misleading rather than broken. Stripping them was gated on the per-site
+ * verification the entry demanded, and that verification found the channel did
+ * NOT cover four of the messages:
  *
- * Deliberately NOT stripped in this pass. Removing `role="status"` from a card
- * is only safe once you have verified, per site, that the channel really does
- * carry every message that card shows — the error card at `:686` in particular
- * is not obviously covered — and that is a different question from the mounting
- * class this guard closes. Filed as `BL-CHANNEL-ANNOUNCER-RESIDUAL-ROLE-STATUS`.
+ *   - RoleRecognizeControl's saved card renders THREE state variants and the
+ *     announce always sent the `applied` summary — the wrong convergence claim
+ *     for `revised` and `apply_pending`. One selector now feeds both the card
+ *     and the announce, so they cannot drift apart again.
+ *   - Its stale and conflict branches announced nothing at all; both now do.
+ *   - RecentAutoAppliedStrip's load-failure card announced nothing. This was the
+ *     entry's named suspect and the probe confirmed it. It announces through an
+ *     EFFECT keyed on the previously-observed `data.kind`, because that
+ *     component owns no transition: it receives already-resolved data as a prop.
+ *   - ReSyncButton's success summary announced nothing; it now does.
+ *
+ * ONE SITE WAS STRIPPED WITHOUT WIRING, deliberately: RecentAutoAppliedStrip's
+ * undo-all confirmation prompt. It is an inline PROMPT, not a status transition
+ * — interactive content adjacent to the control the operator just activated,
+ * with focus landing on its own buttons — and announcing a prompt through a
+ * status channel is the wrong semantics. Re-open trigger: a screen-reader user
+ * reporting that the prompt is missed.
+ *
+ * The file-level exemption these rows grant is still only as strong as the
+ * per-message coverage above; `CHANNEL_ANNOUNCE_CALLS` below is the floor that
+ * keeps the count from falling back silently.
  */
 const CHANNEL_ANNOUNCERS: readonly string[] = [
   "components/admin/RescanSheetButton.tsx",
@@ -82,7 +96,12 @@ const CHANNEL_ANNOUNCE_CALLS: ReadonlyMap<string, number> = new Map([
   // variant-correct, which no count can see — that is what the behavioural
   // cases in RoleRecognizeControl.test.tsx pin.
   ["components/admin/RoleRecognizeControl.tsx", 3],
-  ["components/admin/RecentAutoAppliedStrip.tsx", 1],
+  // 1 -> 2 (arc A): the load-failure card announced nothing. The file's one
+  // prior call is success-shaped and belongs to `GroupSection`, so this was the
+  // entry's named suspect site and the probe confirmed it. The new call is an
+  // EFFECT — this component owns no transition, it receives already-resolved
+  // data as a prop — keyed on the previously-OBSERVED `data.kind`.
+  ["components/admin/RecentAutoAppliedStrip.tsx", 2],
   ["components/admin/ReSyncButton.tsx", 1],
 ]);
 
@@ -195,7 +214,11 @@ const REGISTERED_SITES: ReadonlyMap<string, number> = new Map([
   // carries the saved state's OWN copy (variant-correct across applied /
   // revised / apply_pending) and the stale and conflict notices.
   ["components/admin/RoleRecognizeControl.tsx", 0],
-  ["components/admin/RecentAutoAppliedStrip.tsx", 2],
+  // Stripped 2026-08-07 (arc A): 2 -> 0. The error card's attribute came off
+  // once the channel demonstrably carried its copy; the undo-all confirm PROMPT
+  // came off WITHOUT wiring, on purpose — see the no-wire reason in the
+  // CHANNEL_ANNOUNCERS header above.
+  ["components/admin/RecentAutoAppliedStrip.tsx", 0],
   ["components/admin/ReSyncButton.tsx", 1],
   // Repaired 2026-08-07 (arc A): the region hoisted above the result gate, the
   // visual box moved inside it and left result-scoped. No conditional site left.
