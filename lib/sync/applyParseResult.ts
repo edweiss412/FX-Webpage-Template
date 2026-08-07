@@ -166,6 +166,11 @@ export async function applyParseResult(
         baseModifiedTime: args.holds.baseModifiedTime,
         // P2-F4: distinguish added vs pre-existing rows so reservation never deletes a live member.
         previousCrewNames: args.snapshot.previousCrewNames,
+        // The crew_email reject branch retains the LIVE row, so it needs the
+        // rows and not only their names.
+        ...(args.snapshot.previousCrewMembers
+          ? { previousCrewMembers: args.snapshot.previousCrewMembers }
+          : {}),
       });
       crewMembers = plan.crewMembers;
       deleteProtectedNames = [...plan.protectedNames];
