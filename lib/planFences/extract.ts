@@ -111,9 +111,25 @@ export type Extraction = { fences: Fence[]; unplaced: UnplacedFence[] };
  */
 const FENCE_SHAPED = /^[ \t]*(?:`{3,}|~{3,})/;
 
-/** Fence-shaped after container peeling — `>     ```ts` counts (R2 finding 1). */
+/**
+ * Fence-shaped after ANY amount of container punctuation.
+ *
+ * `peelContainers` is stateless — it sees only this line — so a quote nested
+ * inside a list (`10. item` then `    >     ```ts`) peels one level and stops.
+ * For the UNPLACEABLE check that is the wrong question: the point is not "which
+ * container is this in" but "is this a fence delimiter I failed to place", and
+ * for that, stripping every leading marker and quote character is exactly right.
+ * Being liberal here can only ever REPORT more, never analyze less
+ * (R2 finding 1, R3 finding 1).
+ */
+const CONTAINER_PUNCT = /^(?:[ \t]*(?:>|[-*+]|\d{1,9}[.)]))+[ \t]*/;
+
 function looksLikeFence(line: string): boolean {
-  return FENCE_SHAPED.test(line) || FENCE_SHAPED.test(peelContainers(line).rest);
+  return (
+    FENCE_SHAPED.test(line) ||
+    FENCE_SHAPED.test(peelContainers(line).rest) ||
+    FENCE_SHAPED.test(line.replace(CONTAINER_PUNCT, ""))
+  );
 }
 
 export function extractFences(path: string, text: string): Extraction {

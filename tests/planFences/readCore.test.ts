@@ -447,16 +447,25 @@ describe("R2 repairs", () => {
     expect(hits(calls)).toContain("UNIMPORTED_IDENTIFIER:expect");
   });
 
-  it("(6) gives a DUPLICATED fence its own identity", () => {
+  it("(6) makes a DUPLICATED fence visible by SUMMING, not by renaming", () => {
+    // A positional ordinal was tried and reverted: it is order-dependent, so a
+    // copy inserted BEFORE a frozen fence renamed the historical one and
+    // produced an offender AND a stale row for a document nobody touched
+    // (R3 finding 6). Identity stays content-only; the COUNT carries the
+    // duplication, which no insertion position can change.
     const fence = ["```ts", "const n = rows[0].name;", "```"];
-    const text = ["In `lib/a.ts`:", "", ...fence, "", "Again in `lib/a.ts`:", "", ...fence].join(
+    const one = ["In `lib/a.ts`:", "", ...fence].join("\n");
+    const two = ["In `lib/a.ts`:", "", ...fence, "", "Again in `lib/a.ts`:", "", ...fence].join(
       "\n",
     );
-    const keys = analyzePlan("docs/superpowers/plans/x/plan.md", text).findings.map(
-      (f) => f.fenceKey,
-    );
-    // Two identical fences must not share one baseline row, or a COPY of an
-    // already-frozen defect is pardoned by the original's row.
-    expect(new Set(keys).size).toBe(2);
+    const countOf = (text: string): number => {
+      const f = analyzePlan("docs/superpowers/plans/x/plan.md", text).findings.find(
+        (x) => x.rule === "UNCHECKED_INDEX",
+      );
+      return f?.count ?? 0;
+    };
+    expect(countOf(one)).toBe(1);
+    // The copy doubles the count, so a baseline row frozen at 1 fails.
+    expect(countOf(two)).toBe(2);
   });
 });

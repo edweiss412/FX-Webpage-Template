@@ -185,3 +185,46 @@ Baseline regenerated under the new identity: **3551 rows, 3629 occurrences.**
 Six regression cases added, one per finding, each failing against the post-R1
 code.
 
+**R3 — BLOCKING, 6 findings, all six confirmed and repaired.** Scoped to R2's
+repairs. **Finding 3 is the one to read: R2's finding 4 had never been applied at
+all.** The edit was a string replace whose anchor no longer matched, followed by a
+success message that reported nothing about whether anything changed — the exact
+failure this session had already recorded once, and repeated because that repair
+was the one where the assertion was skipped. The reviewer caught it by running
+the mutant against the tree instead of reading the commit message.
+
+The repair then needed a second part the finding did not name: widening the
+interrupting set was not sufficient, because an ATX heading is a LEAF block and
+must also CLOSE the paragraph. With `paragraphOpen` still true, type-7 HTML could
+not open on the next line and the example verdict stayed live. Two fixtures pin
+both halves.
+
+The other five:
+
+- **Finding 1** — peeling is stateless, so a quote nested inside a list
+  (`10. item` then `    >     ```ts`) still peeled one level and was dropped. The
+  unplaceable check now strips ALL leading container punctuation; being liberal
+  there can only REPORT more, never analyze less.
+- **Finding 2** — the fail-closed ceiling check was correct and UNTESTED, so
+  deleting it left every suite green. The decision is now a pure function in
+  `lib/planFences/baselineGuard.ts` with seven cases, including the reformat
+  bypass and the absent-versus-unreadable distinction. **A rule nothing exercises
+  is a rule the next person removes**, and the closeout's earlier "one case per
+  finding" claim was false for this one.
+- **Finding 4** — interpolation masking counted one brace level, so
+  `${expect({ a: { b: 1 } })}` was masked wholesale, hiding executable code. Brace
+  counting replaced the regex.
+- **Finding 5** — method binding missed modifiers (`public`, `private`, …) and did
+  not bind the method's OWN parameters.
+- **Finding 6** — the occurrence ORDINAL introduced in R2 was order-dependent:
+  inserting a waived copy BEFORE a frozen fence renamed the historical one and
+  produced an offender AND a stale row for an untouched document. Identity is
+  content-only again and the gate compares SUMMED counts, which keeps a duplicate
+  visible (a copy doubles the total) without making identity depend on position.
+  R2 and R3 fixed the same field in opposite directions; the summing form
+  satisfies both.
+
+Baseline regenerated: **3551 rows, 3629 occurrences** — unchanged, which is the
+expected result of a repair that changes identity semantics without changing what
+the rules find.
+

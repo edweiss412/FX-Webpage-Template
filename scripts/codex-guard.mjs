@@ -796,10 +796,15 @@ function stripCodeBlocks(text) {
     // interrupting block is a dedent no matter what preceded it.
     if (m.matched < stack.length) {
       const tail = line.slice(m.idx).replace(/^[ \t]*/, "");
+      // Everything CommonMark lets interrupt a paragraph. ATX headings and
+      // thematic breaks were missing, so `- item` / `# heading` / `<x-tag>` kept
+      // a stale list frame and left the example verdict live (R2 finding 4).
       const interrupts =
         FENCE_OPEN.test(tail) ||
         MARKER_HEAD.test(tail) ||
         tail.startsWith(">") ||
+        /^#{1,6}(?:\s|$)/.test(tail) ||
+        /^(?:\*[ \t]*){3,}$|^(?:-[ \t]*){3,}$|^(?:_[ \t]*){3,}$/.test(tail) ||
         htmlOpener(tail) !== null;
       if (interrupts || !paragraphOpen) stack = stack.slice(0, m.matched);
     }
@@ -842,6 +847,20 @@ function stripCodeBlocks(text) {
     // blank line — or on a list-marker line, where the marker plays that part.
     if (relative >= 4 && (prevBlank || after.sawMarker)) {
       block = { kind: "indented", at: [i] };
+      prevBlank = false;
+      paragraphOpen = false;
+      continue;
+    }
+
+    // An ATX heading or a thematic break is a LEAF block, not a paragraph: it
+    // ends any paragraph it follows. Leaving `paragraphOpen` true after one kept
+    // type-7 HTML from opening on the next line — which is why widening the
+    // interrupting set alone did not fix R2 finding 4, and why the fixture that
+    // proves it had to be written before the repair was believed.
+    if (
+      /^#{1,6}(?:\s|$)/.test(rest) ||
+      /^(?:\*[ \t]*){3,}$|^(?:-[ \t]*){3,}$|^(?:_[ \t]*){3,}$/.test(rest)
+    ) {
       prevBlank = false;
       paragraphOpen = false;
       continue;

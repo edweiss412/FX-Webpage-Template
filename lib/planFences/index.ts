@@ -164,11 +164,18 @@ function declaredBindings(body: string[]): Set<string> {
   // character separates `expect(x) {` from `expect(x);`, so definitions can bind
   // without binding calls — which is what made the earlier blanket exclusion
   // necessary (R2 finding 5).
+  // Modifiers (`public`, `private`, `protected`, `readonly`, `override`,
+  // `abstract`) precede the name in a class body, and a method's OWN parameters
+  // are bindings too — missing either made correct code false-fire
+  // (R3 finding 5).
   const METHOD_DEF =
-    /(?:^|[\n;{,])\s*(?:async\s+|static\s+|get\s+|set\s+)*([A-Za-z_$][\w$]*)\s*\([^)]*\)\s*(?::\s*[^{;]+)?\{/g;
+    /(?:^|[\n;{,])\s*(?:(?:public|private|protected|readonly|override|abstract|async|static|get|set)\s+)*([A-Za-z_$][\w$]*)\s*\(([^)]*)\)\s*(?::\s*[^{;]+)?\{/g;
   let m: RegExpExecArray | null;
   while ((m = DECL.exec(src)) !== null) out.add(m[1]!);
-  while ((m = METHOD_DEF.exec(src)) !== null) out.add(m[1]!);
+  while ((m = METHOD_DEF.exec(src)) !== null) {
+    out.add(m[1]!);
+    paramNames(m[2] ?? "");
+  }
   while ((m = DESTRUCTURE.exec(src)) !== null) patternNames(m[1]!);
   while ((m = PARAMS.exec(src)) !== null) paramNames(m[1] ?? m[2] ?? m[3] ?? "");
   return out;
@@ -216,22 +223,15 @@ export function analyzePlan(path: string, text: string): PlanFenceReport {
 
   const eligible = fences.filter((f) => f.eligible);
 
-  // Disambiguate identical fences within one file. A digest alone let a COPY of
-  // an already-baselined fence pass on the original's row — the duplicate was
-  // invisible to both the offender and the stale checks (R2 finding 6). The
-  // ordinal is per (file, digest), so it is stable under prose edits and under
-  // moving the fence, and only a genuine duplicate advances it.
-  const ordinalOf = new Map<Fence, number>();
-  const seenKey = new Map<string, number>();
-  for (const f of fences) {
-    const n = (seenKey.get(f.key) ?? 0) + 1;
-    seenKey.set(f.key, n);
-    ordinalOf.set(f, n);
-  }
-  const keyOf = (f: Fence): string => {
-    const n = ordinalOf.get(f) ?? 1;
-    return n === 1 ? f.key : `${f.key}#${n}`;
-  };
+  // Identical fences within one file share an identity ON PURPOSE, and the gate
+  // compares SUMMED counts. A positional ordinal was tried and reverted: it is
+  // order-DEPENDENT, so inserting a waived copy BEFORE a frozen fence renamed
+  // the historical one and produced an offender AND a stale row for a document
+  // nobody had touched (R2 finding 6 fixed one way, R3 finding 6 the other).
+  // Summing keeps the duplicate visible — a copy doubles the total — without
+  // making identity depend on where in the file it sits.
+  const keyOf = (f: Fence): string => f.key;
+
   const attribution = new Map<Fence, string | null>();
   for (const f of eligible) attribution.set(f, attributionOf(lines, f.openLine));
 
@@ -319,6 +319,17 @@ export function analyzePlan(path: string, text: string): PlanFenceReport {
     }
   }
 
+  // Merge by identity across the file, so N identical fences contribute one row
+  // whose count is their sum.
+  const merged = new Map<string, Finding>();
+  for (const f of raw) {
+    const id = `${f.path}|${f.fenceKey}|${f.rule}|${f.instance}`;
+    const prev = merged.get(id);
+    if (prev) prev.count += f.count;
+    else merged.set(id, { ...f });
+  }
+  const rawMerged = [...merged.values()];
+
   // ── waivers ────────────────────────────────────────────────────────────────
   const waiverErrors: WaiverError[] = [];
   const findings: Finding[] = [];
@@ -383,7 +394,7 @@ export function analyzePlan(path: string, text: string): PlanFenceReport {
   };
 
   const consumed = new Set<Parsed>();
-  for (const f of raw) {
+  for (const f of rawMerged) {
     let hit: Parsed | undefined;
     for (const w of parsed) {
       if (w.rule === null && !w.specLint) continue;

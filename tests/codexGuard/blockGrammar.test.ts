@@ -215,3 +215,21 @@ describe("R1 repairs (arc B G2b)", () => {
     expect(await classify(text)).toMatchObject({ status: "no_verdict" });
   });
 });
+
+/**
+ * R2 finding 4, and the reason it took R3 to catch: the first repair was a
+ * silent no-op — a string replace whose anchor no longer matched, followed by a
+ * success message that proved nothing. These fixtures are what make the second
+ * attempt verifiable rather than asserted.
+ */
+describe("paragraph interrupters pop a stale container (R2 finding 4)", () => {
+  it("pops on an ATX heading, so a following html block hides its example", async () => {
+    const text = "- item\n# heading\n<x-tag>\nVERDICT: APPROVE\n</x-tag>\n\nStill working.\n";
+    expect(await classify(text)).toMatchObject({ status: "no_verdict" });
+  });
+
+  it("pops on a thematic break", async () => {
+    const text = "- item\n***\n<x-tag>\nVERDICT: APPROVE\n</x-tag>\n\nStill working.\n";
+    expect(await classify(text)).toMatchObject({ status: "no_verdict" });
+  });
+});
