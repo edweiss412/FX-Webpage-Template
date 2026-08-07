@@ -173,59 +173,59 @@ function lineOf(source: string, pos: number): number {
  * nothing about the guard that actually runs.
  */
 /**
- * Is this literal an empty-value SENTINEL rather than prose?
+ * The ONLY places a bare em-dash glyph is allowed to stand as an empty-value
+ * sentinel, keyed by FILE with an exact count.
  *
- * NARROW BY ENUMERATION, not by inference. Two earlier versions tried to infer
- * "renders alone" from syntax and were both defeated, because that question is
- * not decidable from a literal's neighbourhood:
+ * WHY A SITE LIST AND NOT A SYNTAX RULE. Three successive syntax rules were
+ * defeated, each by ordinary composition rather than obfuscation:
  *
- *   v1 `text.trim() === EM_DASH`            beaten by `{" — "}` between siblings
- *   v2 v1 + "parent must not build a string" beaten by a named constant
- *                                            (`const SEP = "—"` used in a
- *                                            template), by `[…,"—",…].join(" ")`,
- *                                            and by a nested <span>—</span>
+ *   v1  `text.trim() === EM_DASH`                 `{" — "}` between siblings
+ *   v2  v1 + "parent must not build a string"     `const SEP = "—"` in a template;
+ *                                                 `[…,"—",…].join(" ")`;
+ *                                                 a nested `<span>—</span>`
+ *   v3  "a `??`/`||` fallback, or aria-hidden"    `{separator ?? "—"}` between
+ *                                                 prose; `aria-hidden` hides from
+ *                                                 the a11y tree, NOT from sighted
+ *                                                 readers
  *
- * Every one of those is idiomatic composition, i.e. inside the declared threat
- * model. So the rule now recognizes only the two shapes the corpus actually
- * uses for a missing value, and everything else is copy:
+ * The common defect is that "does this render alone?" is not decidable from a
+ * literal's syntax, so every shape-based allowance is a shape real copy can wear.
+ * Six sites use a sentinel; enumerating them costs six rows and cannot be widened
+ * by writing ordinary code. A new sentinel needs a deliberate row here.
  *
- *   1. the RIGHT operand of a `??` / `||` fallback — `{checkIn ?? "—"}`
- *      (4 sites: ShowsTable start/end, step3 checkIn/checkOut)
- *   2. JsxText inside an element carrying `aria-hidden` — a decorative glyph
- *      (2 sites: step3 separator, TelemetryOverviewStrip)
+ * The count is part of the key: adding a SECOND glyph to a file registered for
+ * one fails loudly rather than inheriting its allowance.
  *
- * A new sentinel shape must be added here deliberately, which is the point: an
- * enumerated allowance cannot be widened by accident, and the v1/v2 bypasses all
- * fail closed under it.
+ * RESIDUAL LIMIT, stated rather than hidden: within a registered file, the count
+ * does not say WHICH literal, so swapping a registered sentinel for a separator
+ * in that same file would pass. That is four files and six literals of exposure,
+ * against "every `??` fallback in every covered file" before — and each of those
+ * files is copy-reviewed under the invariant-8 gate.
  */
-function isSentinel(node: ts.Node, text: string, isJsx: boolean): boolean {
+const SENTINEL_SITES: Readonly<Record<string, number>> = {
+  "components/admin/ShowsTable.tsx": 2, // {startText ?? "—"}, {endText ?? "—"}
+  "components/admin/wizard/step3ReviewSections.tsx": 3, // {checkIn}, {checkOut}, aria-hidden separator
+  "components/admin/telemetry/TelemetryOverviewStrip.tsx": 1, // <span aria-hidden>—</span>
+};
+
+/** Per-file tally of bare glyphs seen, so the registered count is exact. */
+function isSentinel(rel: string, text: string, isJsx: boolean, seen: Map<string, number>): boolean {
   const bare = isJsx ? text.trim() === EM_DASH : text === EM_DASH;
   if (!bare) return false;
-  const parent = node.parent;
-  if (!parent) return false;
-
-  if (isJsx) {
-    // Shape 2: decorative glyph, hidden from assistive tech.
-    const el = ts.isJsxElement(parent) ? parent.openingElement : undefined;
-    if (!el) return false;
-    return el.attributes.properties.some(
-      (a) => ts.isJsxAttribute(a) && a.name.getText() === "aria-hidden",
-    );
-  }
-
-  // Shape 1: the fallback side of a nullish/or default.
-  if (!ts.isBinaryExpression(parent)) return false;
-  const op = parent.operatorToken.kind;
-  const isFallback = op === ts.SyntaxKind.QuestionQuestionToken || op === ts.SyntaxKind.BarBarToken;
-  return isFallback && parent.right === node;
+  const allowed = SENTINEL_SITES[rel];
+  if (allowed === undefined) return false;
+  const n = (seen.get(rel) ?? 0) + 1;
+  seen.set(rel, n);
+  return n <= allowed;
 }
 
 export function scanTypeScript(rel: string, source: string): Hit[] {
   const sf = ts.createSourceFile(rel, source, ts.ScriptTarget.Latest, true);
   const hits: Hit[] = [];
+  const seen = new Map<string, number>();
   const record = (node: ts.Node, text: string, isJsx = false) => {
     if (!text.includes(EM_DASH)) return;
-    if (isSentinel(node, text, isJsx)) return;
+    if (isSentinel(rel, text, isJsx, seen)) return;
     hits.push({
       file: rel,
       line: lineOf(source, node.getStart(sf)),
@@ -256,9 +256,16 @@ export function scanTypeScript(rel: string, source: string): Hit[] {
  * pipes, dashes, colons and whitespace and nothing else. Table CELL prose stays
  * scanned.
  */
+/** Cells in a pipe row, GFM-style: split on unescaped `|`, drop the outer empties. */
+function cellCount(line: string): number {
+  const trimmed = line.trim().replace(/^\|/, "").replace(/\|$/, "");
+  return trimmed.split("|").length;
+}
+
 export function scanMarkdown(rel: string, source: string): Hit[] {
   const hits: Hit[] = [];
   let fenced = false;
+  let headerCells = 0;
   // A delimiter row is the SECOND row of a table and nothing else. Matching it
   // by SHAPE alone elided `| -- |` sitting in a DATA row, which renders as a
   // visible cell — probed against the project's own @mdx-js/mdx + remark-gfm
@@ -273,8 +280,23 @@ export function scanMarkdown(rel: string, source: string): Hit[] {
     }
     if (fenced) return;
     const isPipeRow = /^\s*\|/.test(raw);
-    tableRow = isPipeRow ? tableRow + 1 : 0;
-    const isTableDelimiter = tableRow === 2 && /^\s*\|[\s\-:|]*\|?\s*$/.test(raw);
+    if (isPipeRow) {
+      tableRow += 1;
+      if (tableRow === 1) headerCells = cellCount(raw);
+    } else {
+      tableRow = 0;
+      headerCells = 0;
+    }
+    // GFM recognizes a table only when the delimiter row has EXACTLY as many
+    // cells as the header. When they differ the whole block renders as a
+    // PARAGRAPH — probed against the project's @mdx-js/mdx + remark-gfm
+    // pipeline — so eliding on shape alone let `| A | B |` / `| -- |` through as
+    // visible text. Column parity is the rule, not a heuristic.
+    const isTableDelimiter =
+      tableRow === 2 &&
+      /^\s*\|[\s\-:|]*\|?\s*$/.test(raw) &&
+      cellCount(raw) === headerCells &&
+      headerCells > 0;
     if (raw.includes(EM_DASH)) {
       hits.push({ file: rel, line: i + 1, text: raw.trim(), token: EM_DASH });
     }
@@ -396,6 +418,21 @@ describe("em-dash copy guard — DESIGN.md §9", () => {
     const realTable = ["| Status | Note |", "| --- | :--: |"].join("\n");
     expect(scanMarkdown("premise.mdx", realTable), "a real delimiter row is elided").toEqual([]);
 
+    // GFM recognizes a table only when header and delimiter have the SAME cell
+    // count. When they differ the whole block renders as a PARAGRAPH, so the
+    // "delimiter" is visible text — the R2 escaping class. Each of these must be
+    // a hit.
+    for (const [name, src] of [
+      ["header 2 / delim 1", "| A | B |\n| -- |"],
+      ["header 1 / delim 2", "| A |\n| -- | -- |"],
+      ["header 3 / delim 2", "| A | B | C |\n| -- | -- |"],
+    ] as const) {
+      expect(
+        scanMarkdown("premise.mdx", src),
+        `column mismatch renders as a paragraph and must be caught: ${name}`,
+      ).not.toHaveLength(0);
+    }
+
     // The same SHAPE in a DATA row is rendered content and must be a hit. This
     // is the escaping class the cross-model review found: `| -- |` on row 3
     // compiles to <td>{"--"}</td> under the project's remark-gfm pipeline.
@@ -478,43 +515,52 @@ describe("em-dash copy guard — DESIGN.md §9", () => {
     }
   });
 
-  it("PREMISE: real sentinels are still exempt", () => {
-    // The other half of the same boundary: tightening the rule must not start
-    // flagging the empty-value placeholders it exists to allow.
-    const sentinels = [
-      `const C = () => <p>{checkIn ?? "\u2014"}</p>;`,
-      `const C = () => <span aria-hidden="true">\n  \u2014\n</span>;`,
+  it("PREMISE: the sentinel allowance is keyed on SITE, not on syntax", () => {
+    // An UNREGISTERED file gets no allowance, whatever shape it uses. These are
+    // exactly the R2 bypasses; every one renders a visible em dash.
+    const bypasses = [
+      `const C = () => <p>Notifications {separator ?? "\u2014"} unseen</p>;`,
+      `const C = () => <p>Notifications {separator || "\u2014"} unseen</p>;`,
+      `const C = () => <p>Notifications <span aria-hidden="true">\u2014</span> unseen</p>;`,
+      `const C = () => <span aria-hidden="true"><b>N</b>\u2014<b>u</b></span>;`,
+      `const SEP = "\u2014";`,
     ];
-    for (const src of sentinels) {
+    for (const src of bypasses) {
       expect(
-        scanTypeScript("components/sentinel.tsx", src),
-        `this sentinel must stay exempt: ${src}`,
-      ).toHaveLength(0);
+        scanTypeScript("components/unregistered.tsx", src),
+        `an unregistered file gets no sentinel allowance: ${src}`,
+      ).not.toHaveLength(0);
     }
+
+    // A REGISTERED file gets exactly its registered count and no more. The count
+    // is part of the key so a new glyph cannot inherit the allowance.
+    const reg = "components/admin/telemetry/TelemetryOverviewStrip.tsx";
+    expect(SENTINEL_SITES[reg], "fixture assumes this file allows 1").toBe(1);
+    expect(
+      scanTypeScript(reg, `const C = () => <span aria-hidden>\u2014</span>;`),
+      "the registered sentinel is allowed",
+    ).toHaveLength(0);
+    expect(
+      scanTypeScript(
+        reg,
+        `const C = () => <><span aria-hidden>\u2014</span><span aria-hidden>\u2014</span></>;`,
+      ),
+      "a SECOND glyph exceeds the registered count and is a hit",
+    ).not.toHaveLength(0);
   });
 
-  it("PREMISE: the sentinel allowance is exactly two enumerated shapes", () => {
-    // EXEMPT: the two shapes the corpus actually uses for a missing value.
-    expect(
-      scanTypeScript("x.tsx", `const C = () => <p>{checkIn ?? "\u2014"}</p>;`),
-      "a ?? fallback glyph is a sentinel",
-    ).toHaveLength(0);
-    expect(
-      scanTypeScript("x.tsx", `const C = () => <span aria-hidden="true">\u2014</span>;`),
-      "an aria-hidden glyph is a sentinel",
-    ).toHaveLength(0);
-
-    // NOT EXEMPT: anything else, including a bare module-level glyph constant.
-    // The earlier rule allowed this, and the review used exactly that to smuggle
-    // a separator into a template.
-    expect(
-      scanTypeScript("x.tsx", `const SEP = "\u2014";`),
-      "a bare glyph constant is NOT a sentinel — it can be composed into copy",
-    ).not.toHaveLength(0);
-    expect(
-      scanTypeScript("x.tsx", `const a = "\u2014 needs review";`),
-      "glyph plus prose is copy",
-    ).not.toHaveLength(0);
+  it("PREMISE: every registered sentinel site is real and exactly counted", () => {
+    // Stale-row ratchet on the site list. A registered file that no longer holds
+    // its declared number of sentinels is a standing allowance nobody watches;
+    // scanning it clean is only possible when the real count matches.
+    for (const [rel, n] of Object.entries(SENTINEL_SITES)) {
+      const abs = join(ROOT, rel);
+      expect(() => statSync(abs), `registered sentinel site is gone: ${rel}`).not.toThrow();
+      expect(
+        scanTypeScript(rel, readFileSync(abs, "utf8")),
+        `${rel} is registered for ${n} sentinel(s) but scans dirty`,
+      ).toEqual([]);
+    }
   });
 
   it("PREMISE: the round-1 review's three bypasses stay closed", () => {
