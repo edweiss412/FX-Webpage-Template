@@ -149,3 +149,25 @@ clear-on-hide mutant. It could not run vitest or the production-server e2e from
 its sandbox and said so rather than inferring — recorded here so a later round
 does not read that silence as a clean run.
 
+**R2 — APPROVE, 0 findings.** Scoped to the repair. The reviewer confirmed the
+nested `finally` attempts `context.close()` even when `deleteSeededShow` throws,
+that the show delete cascades to the seeded crew and the trigger-created share
+token, that the new case creates no `admin_alerts` (those are unique to
+`runScenario`), and that the class-sweep is sound at exactly 16 files with every
+successful seed torn down.
+
+**R3 — the locked-table DML pin.** The full local suite (1823 files) surfaced one
+real failure, in `tests/help/walker-routes.test.ts`: the structural pin freezing
+per-file counts of service-role PostgREST DML under `tests/e2e/` read 3
+locked-table mutations in the realtime spec against a frozen 1. The two new ones
+are the baseline-buying and cue-arming `crew_members.role` UPDATEs, which are the
+same elevated-seed class the file's existing entry already exempts — the locked
+seed cannot express them, because what is under test is the BROADCAST a live
+UPDATE emits, not the resulting rows. Count raised 1 -> 3 with that reason at the
+entry. The pin is two-way (it also fails when a count SHRINKS), so the raise is a
+claim that can go stale loudly rather than silently.
+
+The other FAIL lines in that run belong to `pg-cron-coverage`'s mechanism-probe
+guard, which runs a mutant child and asserts it fails; the run summary counted
+one failing file, not three.
+
