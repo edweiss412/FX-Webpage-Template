@@ -3,6 +3,7 @@ import { MESSAGE_CATALOG } from "@/lib/messages/catalog";
 import { resolveIngestionCopy } from "@/lib/admin/needsAttention";
 import { BATCH_EMAIL_MAX_ITEMS } from "@/lib/notify/constants";
 import { escapeHtml, assertNoUnresolvedPlaceholder } from "./escapeHtml";
+import { reportLinkHtml, reportLinkText } from "./reportProblem";
 
 export type RealtimeInput =
   | {
@@ -92,9 +93,14 @@ export function renderRealtimeProblem(input: RealtimeInput): RenderedEmail {
   const href =
     input.kind === "show" ? `${input.origin}/admin/show/${input.slug}` : `${input.origin}/admin`;
 
+  // Only the `show` kind has a single show context to scope the report link to.
+  const reportSlug = input.kind === "show" ? input.slug : null;
+
   const subject = `FXAV · ${subjectShow}: sync problem`;
-  const text = `${bodyText}\n\nOpen the dashboard: ${href}`;
-  const html = `<p>${escapeHtml(bodyText)}</p><p><a href="${escapeHtml(href)}">Open the dashboard</a></p>`;
+  const text = `${bodyText}\n\nOpen the dashboard: ${href}\n\n${reportLinkText(input.origin, reportSlug)}`;
+  const html =
+    `<p>${escapeHtml(bodyText)}</p><p><a href="${escapeHtml(href)}">Open the dashboard</a></p>` +
+    reportLinkHtml(input.origin, reportSlug);
   return { subject, html, text };
 }
 
@@ -125,6 +131,7 @@ export function renderRealtimeProblemBatch(
     ...lines.map((line) => `${line.label}: ${line.bodyText}`),
     ...(overflowLine ? [overflowLine] : []),
     `Open the dashboard: ${href}`,
+    reportLinkText(origin),
   ].join("\n\n");
   const html =
     lines
@@ -133,6 +140,7 @@ export function renderRealtimeProblemBatch(
       )
       .join("") +
     (overflowLine ? `<p>${escapeHtml(overflowLine)}</p>` : "") +
-    `<p><a href="${escapeHtml(href)}">Open the dashboard</a></p>`;
+    `<p><a href="${escapeHtml(href)}">Open the dashboard</a></p>` +
+    reportLinkHtml(origin);
   return { subject, html, text };
 }

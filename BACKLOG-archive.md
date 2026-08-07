@@ -8,6 +8,90 @@ Same split as [DEFERRED.md](./DEFERRED.md) ↔ [DEFERRED-archive.md](./DEFERRED-
 
 ---
 
+## BL-PUSH-NOTIFICATIONS — Email-primary operator push surface — CLOSED 2026-08-06 (L-wave, `feat/l-wave-push`, SHIPPED at resized scope)
+
+**Resolution: the residual SHIPPED, and the entry closes at S.** Ratified 2026-08-05 (L-wave spec
+§1.1 item 9 / §2.2): the six-principle push surface was 5.5 of 6 built, and the remainder was ONE
+"Report a problem" link across the notify templates — not the L-sized programme the entry was still
+carrying.
+
+**What shipped:** a footer "Report a problem" link in EVERY email-body-producing template, in BOTH
+channels of `RenderedEmail`. Helper at `lib/notify/templates/reportProblem.ts`, wired into all five
+entry points. Unit-pinned per RENDER SHAPE rather than per source file
+(`tests/notify/reportProblemLink.test.ts`): the five entry points produce SEVEN shapes, because
+`renderRealtimeProblem` renders three discriminated `kind`s, and a per-file sweep would have covered
+four of seven while looking complete.
+
+Link targets: shapes with ONE show context land on `${origin}/admin?show=<slug>` (the show modal,
+where the existing show-scoped report controls actually render, and the destination the per-show
+route itself redirects to); shapes without one — digest, both multi-item batch bodies, realtime
+`global` and `ingestion` — land on `${origin}/admin`.
+
+**DOCUMENTED LIMIT — this is a NAVIGATIONAL entry point, not memo form 1.** The memo's full form-1
+mechanism is one click from the email INTO a freeform report form with show/staging/parse context
+auto-attached. That requires a NEW surface: probed 2026-08-06, the admin report affordance
+(`components/shared/ReportButton.tsx` → `ReportModal` → `POST /api/report`) is rendered only by
+`PreviewBanner`, `DataQualityWarningControls`, and `StagedReviewCard` — all show-scoped contexts
+inside the show modal. NO admin surface renders it unconditionally, and no report-init GET route
+exists. The ratified resize deliberately did not carry that work, and its non-show half is
+PREREQ-fenced as `BL-HELP-NON-SHOW-REPORT-SURFACE`.
+
+**Un-archive trigger:** operator feedback that the pointer is insufficient (Doug clicks through and
+cannot report what he meant to), OR promotion of `BL-HELP-NON-SHOW-REPORT-SURFACE`, which would give
+form 1 somewhere to land.
+
+**Explicitly NOT shipped, recorded so nobody reads this closure as the whole memo:**
+
+- **Memo form 1's one-click report form** — the delta above.
+- **Memo form 2, reply-to ingest** (operator replies to the email and the reply becomes a report).
+- **Memo form 3, apply-from-email** (acting on a staging decision without opening the dashboard).
+- **The UNVERIFIED prerequisite (b), "Doug-workflow observation from a live v1 deployment."** No
+  artifact was found either way. It is not required for the link, and it remains unverified — it
+  gates WIDENING the surface, which is what forms 2 and 3 would be.
+
+**The staleness repair that justified the resize, kept because it is the reusable lesson:** two of
+the entry's three prerequisites were refuted BY ITS OWN BODY without the size ever following. (a)
+"the design memo needs ratification" was settled by
+`docs/superpowers/specs/v1-pre-deployment-amendments/2026-06-12-m12.13-unpublish-delivery-design.md`;
+(c) "email-provider integration requires a vendor decision + account setup" was settled on Resend
+(`lib/notify/send.ts:1`) with deliver/cron/digest all live. An entry whose Built section keeps
+growing while its Effort never moves is the shape this wave exists to catch.
+
+**Cross-reference:** design memo at
+`docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/notification-design-memo.md` (§120 is the
+form-1 sketch); Doug-validation questions at
+`docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/doug-validation-questions.md` §4-§5.
+
+---
+
+**VERIFIED INCOMPLETE 2026-08-03 — 5.5 of 6 design principles shipped. Do not archive.** Checked during the merged-backlog sweep; recorded so the next reader does not re-derive it.
+
+- **Built** — push-not-pull (`lib/notify/deliver.ts`, `app/api/cron/notify/route.ts`), severity tiering (`lib/notify/constants.ts:2`), push-debounce (`constants.ts:11`, 1h), coalescing (`constants.ts:15-16`), quiet success (`digest.ts:228` `no_send`). Provider decision settled on Resend (`lib/notify/send.ts:1`); the memo was ratified via `docs/superpowers/specs/v1-pre-deployment-amendments/2026-06-12-m12.13-unpublish-delivery-design.md`.
+- **SHIPPED 2026-08-06 (L-wave `feat/l-wave-push`)** — principle 6's residual. A "Report a problem" footer link now renders in EVERY email-body-producing template, in BOTH channels of `RenderedEmail` (`lib/notify/templates/reportProblem.ts`, wired into all five entry points). Unit-pinned per RENDER SHAPE rather than per file — the five entry points produce SEVEN shapes, because `renderRealtimeProblem` renders three discriminated `kind`s (`tests/notify/reportProblemLink.test.ts`).
+- **UNVERIFIED** — promotion prerequisite (b), "Doug-workflow observation from a live v1 deployment"; no artifact found either way. Not required for the link, and still unverified.
+
+**Origin:** DEFERRED entry M6-D1 (Push notification surface, operator-facing). Filed 2026-05-09 following ratification of plan amendments 7 + 8 on the FXAV crew-pages plan. Design memo lives at `2026-04-30-fxav-crew-pages-v1/notification-design-memo.md`; Doug-validation questions consolidated at `2026-04-30-fxav-crew-pages-v1/doug-validation-questions.md` (§4 channels/timing, §5 feedback/communication).
+
+**Effort:** S
+
+**RESIZED L → S, 2026-08-06 (L-wave, `feat/l-wave-push`), with the staleness repair that justifies it.** Two of the three prerequisites this entry was sized around are REFUTED BY ITS OWN BODY, which had been updated without the size following:
+
+- **(a) "the design memo needs ratification via spec amendment"** — settled. The memo was ratified via `docs/superpowers/specs/v1-pre-deployment-amendments/2026-06-12-m12.13-unpublish-delivery-design.md`, as this entry's own Built line records.
+- **(c) "email-provider integration requires a vendor decision + account setup"** — settled. The provider decision landed on Resend (`lib/notify/send.ts:1`) and delivery is LIVE: deliver, cron, and digest all shipped.
+- **(b) the Doug-workflow observation** remains genuinely unverified — and it gates WIDENING the surface, not the one link.
+
+So the entry was carrying an L for work that was 5.5 of 6 principles complete. The residual was one navigational link across the notify templates, which is what shipped in this commit.
+
+**Scope:** The v1 spec currently has zero push surface. Every staging event (FIRST_SEEN_REVIEW, MI-6..MI-14, MI-1..MI-5b hard fails on existing shows) is functionally invisible to Doug until he visits the dashboard. The MI staging system is calibrated for an operator who isn't watching for it. A push surface — email primary; SMS/webhook optional — would close the loop.
+
+Design memo captures six load-bearing principles: push-not-pull, severity tiering, push-debounce, coalescing, quiet success, two-way feedback. Concrete sketch includes schema additions, route shapes, integration with the existing M8 report pipeline, and action-token signing for one-click acknowledgements.
+
+**Why backlog, not deferred:** Three independent prerequisites: (a) the design memo needs ratification via spec amendment + brainstorming; (b) Doug-validation questions need real answers from Doug's first-show workflow; (c) email-provider integration (Resend / Postmark / SES) requires a vendor decision + account setup + secrets management. Spec amendment + dedicated milestone plan, not a sub-milestone task. The notification-design-memo notes that MI-8/MI-8b modtime-stability debounce (ratified in plan amendment 7) becomes redundant once push-debounce lands — both achieve the same anti-spam UX outcome from different layers, so push-debounce might retire MI-8/MI-8b infrastructure.
+
+**Promotion prerequisite:** Doug-workflow observation from a live v1 deployment (need real data on which staging events Doug actually misses) + email-provider integration decision + spec amendment formalizing the notification design memo.
+
+---
+
 ## BL-ADOPTION-PIN-REACHABILITY-BLIND — the shared-helper adoption guard cannot prove LIVE-PATH use — CLOSED 2026-08-06 (L-wave, `feat/l-wave-docs`, DEMOTED)
 
 **Resolution: DEMOTED and archived. This is a DOCUMENTED LIMIT filed as open work, and the entry says
