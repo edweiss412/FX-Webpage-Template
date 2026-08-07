@@ -397,3 +397,35 @@ what makes this a terminating question, unlike the structural rounds 4-6.
 `abort transaction;`, and `prepare transaction 'gid1';` between the lock and the
 UPDATE.
 
+**R10 — APPROVE, 0 findings.** No omitted transaction-ending statement: the
+reviewer checked the enumerated set against the PostgreSQL grammars for COMMIT,
+END, ROLLBACK, ABORT and PREPARE TRANSACTION at all three guard sites, and
+reported zero survivors across 29 grammar variants.
+
+### What the ten rounds actually cost, and what they bought
+
+Ten rounds, ten findings, **ten accepted, zero argued down.** No round was spent
+relitigating a refuted claim, which is the failure mode this project's
+round-economy discipline was written against. A different one showed up instead.
+
+Rounds 4 through 9 were all one guard, and they split cleanly in two:
+
+- **Structural (R4, R5a, R5b, R6)** — the guard could not see the property. Each
+  repair taught it one more paraphrase, which is a ratchet: the sixth would have
+  gone the same way as the fifth. Ended by deleting the second copy of the
+  transaction shape rather than describing it better.
+- **Vocabulary (R8, R9)** — the guard saw the property but knew one spelling.
+  Ended by enumerating the documented grammar. R9 should not have existed: R8's
+  repair added the synonym that had just been reported instead of reading the
+  documentation, and that is a round chargeable to the author.
+
+**R7 is the one worth keeping.** It found that a commit message described a
+collapse the commit did not contain — the implementer had lost the change to a
+`git checkout HEAD -- <file>` during an unrelated investigation. No mutant, no
+argument, just checking the tree against the claim. Every green in that window
+had been earned against a file that no longer existed on disk.
+
+The guard is now pinned by seventeen executed mutants and one closed grammar. The
+arc's two shipped behaviors — the live-row retain and the aborted-close case —
+were approved at R2 and never regressed through any of it.
+
