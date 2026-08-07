@@ -6,7 +6,7 @@
 
 **Architecture:** `docs/arc-b-spec` (this branch: spec + plan + HANDOFF + probe artifacts + claim handoff) merges first; then `feat/review-infra-gates` (worktree `../FX-worktrees/review-infra-gates`, created off `origin/main` with claims pushed BEFORE this branch merges, per spec §3) implements G1–G3 in order.
 
-**Date:** 2026-08-06 · **Spec:** `docs/superpowers/specs/2026-08-06-arc-b-review-infra.md` · **Status:** DRAFT
+**Date:** 2026-08-06 · **Spec:** `docs/superpowers/specs/2026-08-06-arc-b-review-infra.md` · **Status:** plan-APPROVED (codex-guard R4, 2026-08-07, APPROVE 0 findings; R1-R3 trains — 4 BLOCKING, 4 NEEDS-ATTENTION, 1 NEEDS-ATTENTION — repaired in-branch)
 
 ## Global constraints
 
