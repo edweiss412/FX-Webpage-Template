@@ -272,3 +272,45 @@ each repair was verified by executing that mutant rather than by argument. The
 stopping rule is stated in the R6 brief in those terms — an empty surviving-mutant
 set over the declared operators, not an empty imagination.
 
+**R6 — NEEDS-ATTENTION, 1 P0, accepted: "before" does not prove "held during."**
+Moving `commit;` to immediately after the advisory-lock statement ends the
+transaction and releases the lock; the UPDATE then runs in a fresh implicit one.
+Every assertion stayed true — discovery reconciled, exactly one lock, its index
+before the UPDATE, scope and RETURNING intact. An ordinary transaction-boundary
+edit, not obfuscation.
+
+**The repair is not a fourth paraphrase.** R4, R5a, R5b and R6 are four different
+ways a PER-HELPER copy of the transaction block can be subtly wrong while a
+lexical guard passes, and each previous repair taught the guard to recognize one
+more of them. That is the ratchet, and recognizing a fifth would not have ended
+it. So the helper collapsed instead: `runLockedCrewUpdate` now owns the entire
+`begin` / lock / UPDATE / `returning` / `commit` block, and each exported helper
+supplies only a SET fragment. The guard pins that ONE shape, and separately
+requires every exported helper to DELEGATE and to contain no SQL of its own.
+There is no fourth paraphrase available because there is no second copy of the
+shape to paraphrase.
+
+One defect in the guard found by running it: scanning the raw source matched the
+helper's own header, which discusses `begin;` and `commit;` in prose — a
+use-versus-mention error that failed the guard on a correct file. Comments are
+stripped before any scanning now, so a doc comment describing the invariant can
+neither satisfy nor break the check for it.
+
+**Full mutant set against the collapsed shape:**
+
+| mutant | result |
+| --- | --- |
+| remove the advisory lock | KILLED |
+| move the lock BELOW the UPDATE (R5a) | KILLED |
+| `commit;` between lock and UPDATE (R6) | KILLED |
+| remove the show scope | KILLED |
+| remove the no-row RETURNING guard | KILLED |
+| remove `begin;` | KILLED |
+| add an uppercase helper writing its own unlocked SQL (R5b) | KILLED |
+
+Seven for seven. Both live consumers re-verified: the realtime spec's two cases
+pass, and `right-now-transitions.spec.ts` behaves identically before and after —
+its 3 failures reproduce with the merge-base helper checked out, so they are
+pre-existing and unrelated (`schedule-tile.spec.ts` is `describe.skip`, not a
+live consumer).
+
