@@ -218,6 +218,35 @@ worker directories), so it verified by TypeScript plus its own server-render
 probes. That cost nothing here — the probes were the load-bearing evidence — but
 a brief that leans on the reviewer running the suite will not get it.
 
+### 13c. R5 findings refuted or scoped, recorded so they are not re-derived
+
+Two of R5's four findings are not defects in this diff. Recorded with their
+evidence, per the refuted-claim rule, so a later round or reader does not
+re-raise them.
+
+**REFUTED — "a successful agenda extraction is silently dropped by the live
+regions" (claimed P1).** The parsing region empties on `ready` because its text
+has ALWAYS been `state === "loading" ? … : ""`. That is verbatim on
+`origin/main` (`git show origin/main:components/admin/wizard/step3ReviewSections.tsx`,
+the `agenda-parsing` block), and this arc changed only WHERE the region mounts —
+hoisting it above the in-file `baseline.length === 0` guard — never its text
+logic. So the behaviour predates the branch, is untouched by it, and sits outside
+the entry's ratified scope, which was the four PENDING MOUNTING sites. Whether
+the ready state should announce at all is a real product question and a
+different one; it is not a regression this diff introduced.
+
+**SCOPED, not fixed — `empty:hidden` applies to every viewer (P2).** True as
+stated: the class is unconditional, so a `{kind: "none"}` viewer with a
+names-only leg now gets a hidden empty primary where `origin/main` rendered an
+empty one with a gap. The spec's "byte-identical for every other viewer" claim is
+therefore inexact, and the claim is what gets corrected rather than the code: an
+empty bold line spending its stack gap is a defect for EVERY viewer, and making
+the fix conditional would mean deliberately keeping a known blank-line bug for
+non-suppressed viewers in order to satisfy a sentence. The exception is narrow
+(one class, only when `primary` resolves empty, which for a non-suppressed viewer
+requires a leg with names and no stage, date or time) and strictly an
+improvement. Amended in spec §2.1 rather than left to read as unqualified.
+
 ## 14. Acceptance criteria
 
 - **AC-A1 (travel leak):** met. Three sites gated; five flight paths covered

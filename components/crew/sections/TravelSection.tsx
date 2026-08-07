@@ -203,23 +203,6 @@ function flightRowFields(
 }
 
 /**
- * A clock time, and nothing that could also be a date. `8:00 AM`, `8AM`, `08:00`
- * and `19:45` match; `5/14`, `MAY13` and `2026-05-13` do not.
- *
- * Used ONLY under date suppression, and it validates the field's own declared
- * semantics rather than scanning it for dates. That direction matters: `time` is
- * a sheet-authored column, so ordinary parser output can put a duplicated date
- * in it (probe: a v2 `5/13 @ 5/14` cell parses to `time: "5/14"`), and
- * enumerating date spellings to reject does not terminate. Asking "is this a
- * clock time" is closed, and a real call time always answers yes.
- */
-const CLOCK_TIME_RE = /^\d{1,2}(:\d{2})?\s*(am|pm)?$/i;
-
-function rendersAsClockTime(value: string | null): boolean {
-  return value !== null && CLOCK_TIME_RE.test(value.trim());
-}
-
-/**
  * Does this reservation render ANYTHING once its check-in/check-out rows are
  * withheld? Mirrors the hotel block's own read sites (name / address /
  * confirmation / notes). Used only under date suppression: a reservation whose
@@ -338,28 +321,13 @@ export function TravelSection({
           // A leg with NO surviving real field (no stage, no date, no time, no
           // names) is dropped entirely so the list never shows an empty row.
           const legs = (transportation ? transportation.schedule : []).flatMap((leg) => {
-            // LEAK SITE 1b (cross-model review R4). `stage` and `time` are
-            // sheet-authored columns, so ordinary parser output puts date text
-            // in them and it renders even though `leg.date` was cleared. Two
-            // probed paths: a v4 date-like stage (`{stage:"5/13"}`) and a v2
-            // duplicated date cell (`{stage:"Pick Up Venue", time:"5/14"}`).
-            //
-            // Same closed rule as the flight card (§4 limit 9): render only what
-            // the field's OWN semantics can express. A clock time is
-            // shape-checkable and a real call time always matches, so `time` is
-            // validated positively. `stage` is an arbitrary author label with no
-            // closed shape, so under suppression it is withheld outright —
-            // withholding terminates where a date recognizer would not. The cost
-            // is a label; the call time and the assignees, which are what a crew
-            // member actually needs, both survive.
-            const stage = hideDates || shouldHideGenericOptional(leg.stage) ? null : leg.stage;
+            const stage = !shouldHideGenericOptional(leg.stage) ? leg.stage : null;
             // LEAK SITE 1. Withheld before the retention check below, so a leg
             // whose only content WAS its date leaves the list rather than
             // rendering an empty row — and `dateIsPrimary` (which mounts the
             // <time dateTime=…>, itself the leak) is false by construction.
             const date = hideDates || shouldHideGenericOptional(leg.date) ? null : leg.date;
-            const rawTime = !shouldHideGenericOptional(leg.time) ? leg.time : null;
-            const time = hideDates && !rendersAsClockTime(rawTime) ? null : rawTime;
+            const time = !shouldHideGenericOptional(leg.time) ? leg.time : null;
             // The projection preserves schedule members unvalidated, so a blank
             // or corrupt assignee can reach here. It renders as an empty "With "
             // label — not visible content, and therefore not something that may

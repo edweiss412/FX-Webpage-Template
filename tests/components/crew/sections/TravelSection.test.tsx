@@ -725,60 +725,62 @@ test("unknown_asterisk viewer: a dates-only hotel reservation is withheld, not a
   expect(container.querySelector('[data-testid="section-empty"]')).toBeTruthy();
 });
 
-// ── Cross-model review R4: dates inside the leg's own author-typed fields ────
+// ── DOCUMENTED LIMIT: a date an author types into a leg's own fields ────────
 //
-// `stage` and `time` are sheet-authored columns, so ordinary parser output puts
-// date text in them and it renders even though `leg.date` was cleared. Two
-// probes from the reviewer, both from real template paths:
+// `stage` and `time` are OPEN-VOCABULARY author-typed columns, so a date typed
+// into either reaches an `unknown_asterisk` viewer. Probed (review R4):
+// `{stage:"5/13"}` renders "Getting there 5/13"; a v2 `5/13 @ 5/14` cell parses
+// to `{time:"5/14"}` and renders it.
 //
-//   v4 date-like stage      → { stage: "5/13", date: null, time: null }
-//   v2 duplicated date cell → { stage: "Pick Up Venue", date: "2026-05-13", time: "5/14" }
+// GATING THEM WAS TRIED AND REVERTED, which is the part worth keeping. The
+// closed-question rule that works for the flight card ("can this field's own
+// SHAPE express a date?") has no answer here, because neither field has a closed
+// shape:
 //
-// The rule is the same closed one the flight card uses (spec §4 limit 9): render
-// only what the field's OWN declared semantics can express. A clock time is
-// shape-checkable and a real call time always matches, so `time` is validated
-// positively rather than scanned for dates. `stage` has no closed shape — it is
-// an arbitrary author label — so it is withheld outright under suppression.
-// Withholding beats recognizing: enumerating date spellings does not terminate.
-test.each([
-  ["a date-like stage with nothing else", { stage: "5/13", date: null, time: null }],
-  [
-    "a duplicated date cell leaking through time",
-    { stage: "Pick Up Venue", date: "2026-05-13", time: "5/14" },
-  ],
-])("unknown_asterisk viewer: no date survives in %s", (_label, leg) => {
+//   - A `time` validator that accepts what authors actually write must accept
+//     `1730`, `0800`, `noon`, `6p`, `8h00`, `8:00 PM PST`… Enumerating those is
+//     the same non-terminating problem as enumerating date spellings, pointed
+//     the other way — and every miss SILENTLY DELETES a real call time, which is
+//     strictly worse than the leak it prevents.
+//   - A `stage` allowlist would have to be the template vocabulary, and the
+//     repo's `STAGE_VOCAB` holds 4 entries while the 2026 template ships 8
+//     (`Pick Up Venue`, `Rental Pickup`, `Load at Warehouse`, …). It would
+//     delete most real stage labels.
+//
+// So this is ruled the same way spec §4 limit 8 rules `transportNotes` and
+// `hotelAddress`: a date an author types into a non-date field is editorial
+// content, not the system asserting the viewer's schedule. The case below pins
+// the RULING, so a future reader sees it was decided rather than missed.
+test("DOCUMENTED LIMIT: a date typed into a leg's stage or time still renders", () => {
   const data = restrict(
     suppressionData({
-      schedule: [{ ...leg, assigned_names: ["Jamie Rivera"] }],
+      schedule: [{ stage: "5/13", date: null, time: "5/14", assigned_names: ["Jamie Rivera"] }],
       hotels: [],
     }),
     UNKNOWN,
   );
   const { container } = renderTravelAs(data, CREW);
-  // Swept over the WHOLE render: the defect is that the text escaped the gated
-  // date paths, so scoping to those would be the tautology.
   const text = container.textContent ?? "";
-  for (const leak of ["5/13", "5/14", "2026-05-13"])
-    expect(text, `"${leak}" reached an unknown_asterisk viewer`).not.toContain(leak);
+  // Both survive. If a future change gates these, this case fails and the
+  // ruling above is what needs revisiting — not the test.
+  expect(text).toContain("5/13");
+  expect(text).toContain("5/14");
 });
 
-test("unknown_asterisk viewer: a REAL call time survives, because a clock time cannot express a date", () => {
-  // The twin that stops the fix degenerating into "hide the leg". Positive
-  // validation of the field's own semantics loses nothing legitimate — and the
-  // call time plus who else is on it is what a crew member actually needs.
-  const data = restrict(
-    suppressionData({
-      schedule: [
-        { stage: "Load in", date: LEG_ISO, time: "8:00 AM", assigned_names: ["Jamie Rivera"] },
-      ],
-      hotels: [],
-    }),
-    UNKNOWN,
-  );
-  const { container } = renderTravelAs(data, CREW);
-  const block = container.querySelector('[data-testid="travel-getting-there"]');
-  expect(block).toBeTruthy();
-  expect(block!.textContent).toContain("8:00 AM");
-  expect(block!.textContent).toContain("Jamie Rivera");
-  for (const spelling of dateSpellings(LEG_ISO)) expect(block!.textContent).not.toContain(spelling);
+test("a real call time is never silently deleted, whatever spelling the author used", () => {
+  // The regression the reverted gate would have shipped: a validator tight
+  // enough to reject "5/14" also rejected "1730" and "noon". Losing a crew
+  // member's call time with no signal is worse than echoing a typed date.
+  for (const time of ["8:00 AM", "1730", "0800", "noon", "6p", "8h00"]) {
+    cleanup();
+    const data = restrict(
+      suppressionData({
+        schedule: [{ stage: "Load in", date: LEG_ISO, time, assigned_names: ["Jamie Rivera"] }],
+        hotels: [],
+      }),
+      UNKNOWN,
+    );
+    const { container } = renderTravelAs(data, CREW);
+    expect(container.textContent ?? "", `call time "${time}" was dropped`).toContain(time);
+  }
 });
