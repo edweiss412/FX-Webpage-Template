@@ -3805,7 +3805,7 @@ export function DiagramsBreakdown({
       ) : null}
       {extra > 0 ? (
         <p className="text-xs text-text-subtle">
-          +{extra} more — all images are snapshotted when the show publishes.
+          +{extra} more. All images are snapshotted when the show publishes.
         </p>
       ) : null}
       {hasFolder ? (
@@ -4162,7 +4162,7 @@ export function ReportIssueSection({ data }: { data: StagedSectionData }) {
             {status.kind === "pending"
               ? "Sending…"
               : status.kind === "success"
-                ? "Sent — thanks. The developer will take a look."
+                ? "Sent. Thanks, the developer will take a look."
                 : status.kind === "error"
                   ? status.copy
                   : ""}

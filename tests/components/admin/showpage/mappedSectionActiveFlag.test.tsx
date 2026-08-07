@@ -8,7 +8,7 @@
  * ACTIVE counts, but every MAPPED section's rail state was still derived from
  * every warn row INCLUDING ignored ones. So the moment an operator ignored the
  * last active Crew warning, the panel said nothing needed a look while the Crew
- * rail item still carried the amber dot and announced " — needs review", and
+ * rail item still carried the amber dot and announced ", needs review", and
  * that contradiction persisted across refreshes because ignoring does not delete
  * the warning.
  *
@@ -105,11 +105,11 @@ function Harness({
  */
 function railNamesFor(label: string): string[] {
   // Anchored, with an optional count between the label and the status clause —
-  // the chip rail renders "Crew2 — needs review" where the pane renders
-  // "Crew — needs review". A bare `startsWith` also swallows the SEPARATE
+  // the chip rail renders "Crew2, needs review" where the pane renders
+  // "Crew, needs review". A bare `startsWith` also swallows the SEPARATE
   // "Crew schedule" section, which is how the first draft of this helper read a
   // different row's status and reported the wrong answer twice.
-  const pattern = new RegExp(`^${label}\\d* — (needs review|no issues)$`);
+  const pattern = new RegExp(`^${label}\\d*, (needs review|no issues)$`);
   return screen
     .getAllByRole("button")
     .map((b) => (b.getAttribute("aria-label") ?? b.textContent ?? "").replace(/\s+/g, " ").trim())
@@ -121,7 +121,7 @@ function expectRailState(label: string, state: "needs review" | "no issues") {
   // Both rails, or the assertion is half-blind.
   expect(names.length, `${label} must appear in both rails`).toBeGreaterThanOrEqual(2);
   for (const name of names) {
-    expect(name, `${label} rail control`).toContain(`— ${state}`);
+    expect(name, `${label} rail control`).toContain(`, ${state}`);
   }
 }
 

@@ -145,7 +145,7 @@ describe("decodeRunOfShow — AgendaEntry.kind enum allow-list", () => {
     const raw = {
       "2026-05-06": {
         entries: [
-          { start: "4:30 PM", title: "Strike — General Session", kind: "strike" },
+          { start: "4:30 PM", title: "Strike: General Session", kind: "strike" },
           { start: "6:00 PM", title: "Load Out", kind: "loadout" },
         ],
         showStart: null,

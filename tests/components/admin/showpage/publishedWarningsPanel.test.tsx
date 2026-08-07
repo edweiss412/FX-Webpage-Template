@@ -531,7 +531,7 @@ describe("the heading's pill agrees with the rows it shows", () => {
 
 describe("the warnings rail row describes its OWN content", () => {
   it("Elsewhere state does not mark the warnings row as needing review", () => {
-    // impeccable audit P1: the dot and its sr-only " — needs review" describe
+    // impeccable audit P1: the dot and its sr-only ", needs review" describe
     // the warnings row. Counting `elsewhere` made AT announce "needs review"
     // immediately before the body says "Nothing else to note here"; those
     // warnings light their own sections' dots instead.

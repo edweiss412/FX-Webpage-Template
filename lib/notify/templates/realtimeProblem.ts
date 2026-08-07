@@ -124,7 +124,7 @@ export function renderRealtimeProblemBatch(
       : `FXAV: ${members.length} new sheets need attention`;
   const lines = shown.map(memberLine);
   const overflowLine =
-    overflow > 0 ? `…and ${overflow} more — open the dashboard: ${origin}/admin` : null;
+    overflow > 0 ? `…and ${overflow} more. Open the dashboard: ${origin}/admin` : null;
   const href = `${origin}/admin`;
 
   const text = [

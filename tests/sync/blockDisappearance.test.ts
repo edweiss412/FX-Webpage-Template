@@ -73,7 +73,7 @@ describe("blockDisappearanceWarnings", () => {
       {
         severity: "warn",
         code: "SECTION_HEADER_NO_FIELDS",
-        message: 'Recognized "hotels" section header but parsed zero fields — section dropped.',
+        message: 'Recognized "hotels" section header but parsed zero fields; section dropped.',
         blockRef: { kind: "hotels" },
       },
     ];

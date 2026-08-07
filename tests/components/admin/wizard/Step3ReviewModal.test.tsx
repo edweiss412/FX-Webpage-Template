@@ -1259,8 +1259,8 @@ describe("Step3ReviewModal — chip rail (spec §6.3)", () => {
       if (s.hideDot) {
         expect(chip.textContent).toBe(s.label);
       } else {
-        expect(chip.textContent).toMatch(/ — (needs review|no issues)$/);
-        expect(chip.textContent?.replace(/ — (needs review|no issues)$/, "")).toBe(s.label);
+        expect(chip.textContent).toMatch(/, (needs review|no issues)$/);
+        expect(chip.textContent?.replace(/, (needs review|no issues)$/, "")).toBe(s.label);
       }
     }
   });
