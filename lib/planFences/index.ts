@@ -111,6 +111,45 @@ function importedBindings(body: string[]): Set<string> {
  * one that gets switched off (R1 finding 7). Replacing rather than deleting
  * keeps every offset intact for anything measured against the same text.
  */
+/**
+ * Mask a template literal's TEXT while leaving `${...}` interpolations live, at
+ * ANY nesting depth. A regex counts one brace level, so
+ * `${expect({ a: { b: 1 } })}` was masked wholesale — hiding executable code
+ * rather than string text, a false NEGATIVE the single-level fixture could not
+ * see (R3 finding 4). Brace counting is the only correct answer.
+ */
+function maskTemplateText(lit: string): string {
+  let out = "";
+  let i = 0;
+  while (i < lit.length) {
+    if (lit[i] === "\\") {
+      out += "  ";
+      i += 2;
+      continue;
+    }
+    if (lit[i] === "$" && lit[i + 1] === "{") {
+      let depth = 0;
+      const start = i;
+      while (i < lit.length) {
+        if (lit[i] === "{") depth += 1;
+        else if (lit[i] === "}") {
+          depth -= 1;
+          if (depth === 0) {
+            i += 1;
+            break;
+          }
+        }
+        i += 1;
+      }
+      out += lit.slice(start, i);
+      continue;
+    }
+    out += " ";
+    i += 1;
+  }
+  return out;
+}
+
 function maskNonCode(src: string): string {
   return (
     src
@@ -119,11 +158,7 @@ function maskNonCode(src: string): string {
       // Template literals: mask the LITERAL TEXT but keep `${...}` interpolations
       // live — they are executable code, and blanking them hid real uses
       // (R2 finding 5).
-      .replace(/`(?:\\.|[^`\\])*`/g, (lit) =>
-        lit.replace(/\$\{(?:[^{}]|\{[^{}]*\})*\}|[^]/g, (piece) =>
-          piece.startsWith("${") ? piece : " ",
-        ),
-      )
+      .replace(/`(?:\\.|[^`\\])*`/g, maskTemplateText)
       .replace(/"(?:\\.|[^"\\])*"/g, (m) => " ".repeat(m.length))
       .replace(/'(?:\\.|[^'\\])*'/g, (m) => " ".repeat(m.length))
   );
@@ -169,7 +204,7 @@ function declaredBindings(body: string[]): Set<string> {
   // are bindings too — missing either made correct code false-fire
   // (R3 finding 5).
   const METHOD_DEF =
-    /(?:^|[\n;{,])\s*(?:(?:public|private|protected|readonly|override|abstract|async|static|get|set)\s+)*([A-Za-z_$][\w$]*)\s*\(([^)]*)\)\s*(?::\s*[^{;]+)?\{/g;
+    /(?:^|[\n;{,])\s*(?:(?:public|private|protected|readonly|override|abstract|async|static|get|set)\s+)*([A-Za-z_$][\w$]*)\s*(?:<[^<>]*>)?\s*\(([^)]*)\)\s*(?::\s*[^{;]+)?\{/g;
   let m: RegExpExecArray | null;
   while ((m = DECL.exec(src)) !== null) out.add(m[1]!);
   while ((m = METHOD_DEF.exec(src)) !== null) {
@@ -319,17 +354,6 @@ export function analyzePlan(path: string, text: string): PlanFenceReport {
     }
   }
 
-  // Merge by identity across the file, so N identical fences contribute one row
-  // whose count is their sum.
-  const merged = new Map<string, Finding>();
-  for (const f of raw) {
-    const id = `${f.path}|${f.fenceKey}|${f.rule}|${f.instance}`;
-    const prev = merged.get(id);
-    if (prev) prev.count += f.count;
-    else merged.set(id, { ...f });
-  }
-  const rawMerged = [...merged.values()];
-
   // ── waivers ────────────────────────────────────────────────────────────────
   const waiverErrors: WaiverError[] = [];
   const findings: Finding[] = [];
@@ -394,7 +418,7 @@ export function analyzePlan(path: string, text: string): PlanFenceReport {
   };
 
   const consumed = new Set<Parsed>();
-  for (const f of rawMerged) {
+  for (const f of raw) {
     let hit: Parsed | undefined;
     for (const w of parsed) {
       if (w.rule === null && !w.specLint) continue;
@@ -427,10 +451,25 @@ export function analyzePlan(path: string, text: string): PlanFenceReport {
     });
   }
 
+  // Merge AFTER waiver resolution, so a waiver covers its own fence and nothing
+  // else. Summing first made suppression order-dependent: a waived copy placed
+  // FIRST suppressed both occurrences, placed SECOND it suppressed neither and
+  // reported `waiver_suppressed_nothing` (R4 finding 2).
+  const mergeById = (list: Finding[]): Finding[] => {
+    const out = new Map<string, Finding>();
+    for (const f of list) {
+      const id = `${f.path}|${f.fenceKey}|${f.rule}|${f.instance}`;
+      const prev = out.get(id);
+      if (prev) prev.count += f.count;
+      else out.set(id, { ...f });
+    }
+    return [...out.values()];
+  };
+
   return {
     path,
-    findings,
-    waived,
+    findings: mergeById(findings),
+    waived: mergeById(waived),
     waiverErrors,
     unplaced,
     fences: fences.length,

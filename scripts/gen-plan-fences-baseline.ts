@@ -20,8 +20,10 @@ import { join } from "node:path";
 import { analyzePlan } from "../lib/planFences";
 import { decideRegeneration } from "../lib/planFences/baselineGuard";
 
-const ROOT = "docs/superpowers/plans";
-const OUT = "tests/docs/planFencesBaseline.ts";
+const ROOT = process.env.PLAN_FENCES_ROOT ?? "docs/superpowers/plans";
+// Overridable so the integration test can drive the real script against a temp
+// tree rather than the committed baseline.
+const OUT = process.env.PLAN_FENCES_OUT ?? "tests/docs/planFencesBaseline.ts";
 
 function markdownFiles(dir: string): string[] {
   const out: string[] = [];

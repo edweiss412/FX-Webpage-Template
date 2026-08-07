@@ -228,3 +228,44 @@ Baseline regenerated: **3551 rows, 3629 occurrences** — unchanged, which is th
 expected result of a repair that changes identity semantics without changing what
 the rules find.
 
+**R4 — BLOCKING, 5 findings, all five confirmed and repaired.**
+
+**Finding 1 was a SECOND phantom repair**, and this one is worth the space because the
+mechanism differs from R3's. The edit script DID assert its anchor — but a later
+assertion in the same script failed, and because the script writes once at the end,
+the earlier successful edit was discarded with it. The assertion was fine; the write
+granularity was not. Both times, a commit message described a change the commit did
+not contain, and both times the reviewer found it by running the mutant against the
+tree rather than reading the diff. Everything after this point was verified by
+grepping the tree for the new content before reporting success.
+
+**Findings 3, 4 and 5 were the same shape: correct repairs with no case that would
+notice their removal.** The reviewer supplied a surviving mutant for each — delete the
+generator's decision block, delete `looksLikeFence`'s third disjunct, revert the
+modifier and own-parameter binding — and every suite stayed green against all three.
+Four regression cases and one integration test now cover them, and the full mutant
+set was re-run afterwards:
+
+| mutant | result |
+| --- | --- |
+| drop `looksLikeFence`'s container-punctuation disjunct | KILLED |
+| drop generic-method support | KILLED |
+| drop modifier support in method binding | KILLED |
+| delete the generator's decision block entirely | KILLED |
+| revert to whole-template-literal masking | KILLED |
+
+**Finding 2 closed a real ordering hole R3's own repair opened.** Findings were summed
+BEFORE waiver resolution, so a waived duplicate suppressed both occurrences when placed
+first and neither when placed second — and in the first arrangement, following the
+gate's own stale-row instruction would have removed the historical row and silently
+pardoned the unwaived original. Waivers resolve per-fence now and the merge happens
+after, which is what "a waiver covers ITS fence" was supposed to mean.
+
+The generator gained `PLAN_FENCES_ROOT` / `PLAN_FENCES_OUT` overrides so the
+integration test can drive the real script against a temp tree instead of the
+committed baseline.
+
+Round-economy filing at
+`docs/review-rounds/feat/review-infra-gates/61281c23e8ce.md`: four rounds, 26 findings,
+26 accepted, 0 refuted.
+

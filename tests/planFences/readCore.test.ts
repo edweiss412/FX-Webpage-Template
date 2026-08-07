@@ -469,3 +469,79 @@ describe("R2 repairs", () => {
     expect(countOf(two)).toBe(2);
   });
 });
+
+/**
+ * Diff review R4. Four of the five findings were UNPINNED repairs — correct code
+ * with no case that would notice its removal. Each gets its mutant's shape as a
+ * test here; the generator-integration pin lives in `baselineGuard.test.ts`.
+ */
+describe("R4 repairs", () => {
+  it("(1) sees code inside a NESTED-brace template interpolation", () => {
+    // A one-level regex masked `${expect({ a: { b: 1 } })}` wholesale, hiding
+    // executable code. The earlier fixture used a brace-free interpolation and
+    // could not tell the difference.
+    const text = [
+      "In `lib/a.ts`:",
+      "",
+      "```ts",
+      'import { readFileSync } from "node:fs";',
+      "const s = `v: ${expect({ a: { b: 1 } }, readFileSync(p))}`;",
+      "```",
+    ].join("\n");
+    expect(hits(text)).toContain("UNIMPORTED_IDENTIFIER:expect");
+  });
+
+  it("(2) a waiver covers ITS fence regardless of where the copy sits", () => {
+    // Summing before waiver resolution made suppression order-dependent: the
+    // waived copy placed FIRST suppressed both occurrences, placed SECOND it
+    // suppressed neither. Both arrangements must now waive exactly one.
+    const fence = ["```ts", "const n = rows[0].name;", "```"];
+    const waiver = "<!-- plan-fences: ignore UNCHECKED_INDEX — reviewed -->";
+    const first = ["In `lib/a.ts`:", "", waiver, ...fence, "", "In `lib/a.ts`:", "", ...fence].join(
+      "\n",
+    );
+    const second = [
+      "In `lib/a.ts`:",
+      "",
+      ...fence,
+      "",
+      "In `lib/a.ts`:",
+      "",
+      waiver,
+      ...fence,
+    ].join("\n");
+    for (const text of [first, second]) {
+      const r = analyzePlan("docs/superpowers/plans/x/plan.md", text);
+      const live = r.findings.find((f) => f.rule === "UNCHECKED_INDEX");
+      const waived = r.waived.find((f) => f.rule === "UNCHECKED_INDEX");
+      expect(live?.count, "exactly one occurrence survives the waiver").toBe(1);
+      expect(waived?.count, "exactly one occurrence is reported as waived").toBe(1);
+      expect(r.waiverErrors, "the waiver suppressed something, so no error").toEqual([]);
+    }
+  });
+
+  it("(4) REPORTS a fence nested inside a list AND a quote", () => {
+    // `peelContainers` is stateless and peels one level, so this was dropped
+    // silently. The unplaceable check strips all leading container punctuation.
+    const text = ["10. item", "", "    >     ```ts", "    >     const n = 1;"].join("\n");
+    const r = analyzePlan("docs/superpowers/plans/x/plan.md", text);
+    expect(
+      r.unplaced.length,
+      "a fence the extractor cannot place must be reported",
+    ).toBeGreaterThan(0);
+  });
+
+  it("(5) binds a modifier-prefixed GENERIC method's own parameter", () => {
+    // `public run<T>(expect: T) { … }` is valid TypeScript; without modifier and
+    // type-parameter support the bound parameter `expect` false-fired.
+    const text = [
+      "In `lib/a.ts`:",
+      "",
+      "```ts",
+      'import { readFileSync } from "node:fs";',
+      "class O { public run<T>(expect: T) { return readFileSync(String(expect)); } }",
+      "```",
+    ].join("\n");
+    expect(rulesOf(text)).not.toContain("UNIMPORTED_IDENTIFIER");
+  });
+});
