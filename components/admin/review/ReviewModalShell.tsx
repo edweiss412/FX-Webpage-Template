@@ -638,7 +638,7 @@ function OpenReviewModalShell({
             // duplicate it would prevent. The duplicate needs two shells attached
             // at once, which only Step-3's per-card state allows. Tracked as
             // DEFERRED (impeccable critique P3).
-            label="Undo updates in this dialog"
+            label="Status updates in this dialog"
           >
             <PopoverHostContext.Provider value={panelRef}>
               {/* Grab strip — sheet mode only (§9.4). Full-width 44px button; the

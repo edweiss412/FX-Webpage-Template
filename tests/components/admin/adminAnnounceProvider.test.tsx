@@ -7,6 +7,8 @@
 // its region node REPLACED on the success it announces, so these assertions are
 // about node identity, not text.
 import "@testing-library/jest-dom/vitest";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { act, render, screen } from "@testing-library/react";
 import { useContext } from "react";
 import { describe, expect, it } from "vitest";
@@ -23,7 +25,7 @@ function DeepConsumer({ message }: { message: string }) {
   );
 }
 
-const LAYOUT = { testId: "admin-undo-status", label: "Undo updates" } as const;
+const LAYOUT = { testId: "admin-undo-status", label: "Status updates" } as const;
 
 describe("AdminAnnounceProvider", () => {
   it("renders its region as the FIRST child, before children", () => {
@@ -108,13 +110,13 @@ describe("AdminAnnounceProvider", () => {
     render(
       <AdminAnnounceProvider
         testId="show-review-modal-undo-status"
-        label="Undo updates in this dialog"
+        label="Status updates in this dialog"
       >
         <span>x</span>
       </AdminAnnounceProvider>,
     );
     const el = screen.getByTestId("show-review-modal-undo-status");
-    expect(el.getAttribute("aria-label")).toBe("Undo updates in this dialog");
+    expect(el.getAttribute("aria-label")).toBe("Status updates in this dialog");
     expect(el.getAttribute("role")).toBe("log");
   });
 
@@ -124,7 +126,7 @@ describe("AdminAnnounceProvider", () => {
     // this — React context resolves to the nearest provider.
     render(
       <AdminAnnounceProvider {...LAYOUT}>
-        <AdminAnnounceProvider testId="dialog-undo-status" label="Undo updates in this dialog">
+        <AdminAnnounceProvider testId="dialog-undo-status" label="Status updates in this dialog">
           <DeepConsumer message={'Undone. "Crew member Cy Ng removed" no longer applies.'} />
         </AdminAnnounceProvider>
       </AdminAnnounceProvider>,
@@ -136,5 +138,36 @@ describe("AdminAnnounceProvider", () => {
       'Undone. "Crew member Cy Ng removed" no longer applies.',
     );
     expect(screen.getByTestId("admin-undo-status")).toHaveTextContent("");
+  });
+});
+
+describe("the announce log's accessible name — PRODUCTION call sites", () => {
+  // BL-CHANNEL-ANNOUNCER-RESIDUAL-ROLE-STATUS, the accessible-name half. The log
+  // used to be named for undo alone, and the channel had already outgrown that
+  // before this arc — it carries saved-role and sync-pause announcements — while
+  // this arc widens it further with a load failure and a re-sync summary. A
+  // region a screen-reader user navigates to by name should not misdescribe what
+  // they will hear in it.
+  //
+  // READ FROM DISK, deliberately. Every other case in this file passes its OWN
+  // `label` prop, so a fixture-level assertion proves nothing about what
+  // production actually renders — it would pass against unrenamed sources. These
+  // four are the real call sites; the assertion is green only when they rename.
+  const read = (p: string) => readFileSync(join(__dirname, "..", "..", "..", p), "utf8");
+
+  it("app/admin/layout.tsx labels all THREE providers 'Status updates'", () => {
+    const src = read("app/admin/layout.tsx");
+    expect(src.match(/label="Status updates"/g) ?? []).toHaveLength(3);
+    // The old name must be GONE, not merely outnumbered: a partial rename that
+    // left one provider behind would satisfy a count-only assertion only by
+    // luck, and would give a screen-reader user two differently-named logs for
+    // one channel.
+    expect(src).not.toContain('label="Undo updates"');
+  });
+
+  it("ReviewModalShell labels the dialog log 'Status updates in this dialog'", () => {
+    const src = read("components/admin/review/ReviewModalShell.tsx");
+    expect(src).toContain('label="Status updates in this dialog"');
+    expect(src).not.toContain('label="Undo updates in this dialog"');
   });
 });

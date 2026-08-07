@@ -1303,7 +1303,7 @@ it("announces THAT row's summary when a single-row undo succeeds", async () => {
   // Expectation derives from the fixture's own summary.
   const actions = noopActions();
   render(
-    <AdminAnnounceProvider testId="admin-undo-status" label="Undo updates">
+    <AdminAnnounceProvider testId="admin-undo-status" label="Status updates">
       <RecentAutoAppliedStrip data={okData()} actions={actions} defaultExpanded />
     </AdminAnnounceProvider>,
   );

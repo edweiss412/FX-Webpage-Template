@@ -36,7 +36,7 @@ describe("SPIKE part 1 — announcement survives a branch swap under a stable pr
   it("keeps the region node and its entry when children change wholesale", async () => {
     let run!: () => Promise<void>;
     const { rerender } = render(
-      <AdminAnnounceProvider testId="admin-undo-status" label="Undo updates">
+      <AdminAnnounceProvider testId="admin-undo-status" label="Status updates">
         <AsyncAnnouncer onReady={(r) => (run = r)} />
       </AdminAnnounceProvider>,
     );
@@ -45,7 +45,7 @@ describe("SPIKE part 1 — announcement survives a branch swap under a stable pr
       await run();
     });
     rerender(
-      <AdminAnnounceProvider testId="admin-undo-status" label="Undo updates">
+      <AdminAnnounceProvider testId="admin-undo-status" label="Status updates">
         <div data-testid="different-tree">the branch changed</div>
       </AdminAnnounceProvider>,
     );
@@ -63,7 +63,7 @@ describe("SPIKE part 2 — announcement resolving AFTER its own component unmoun
     function Host() {
       const [showChild, setShowChild] = useState(true);
       return (
-        <AdminAnnounceProvider testId="admin-undo-status" label="Undo updates">
+        <AdminAnnounceProvider testId="admin-undo-status" label="Status updates">
           {showChild ? <AsyncAnnouncer onReady={(r) => (run = r)} /> : null}
           <button type="button" onClick={() => setShowChild(false)}>
             unmount child
@@ -101,7 +101,7 @@ describe("SPIKE part 3 — the provider itself being REMOUNTED", () => {
     // resolved shell, after any fallback swap has already happened.
     let run!: () => Promise<void>;
     const { rerender } = render(
-      <AdminAnnounceProvider key="a" testId="admin-undo-status" label="Undo updates">
+      <AdminAnnounceProvider key="a" testId="admin-undo-status" label="Status updates">
         <AsyncAnnouncer onReady={(r) => (run = r)} />
       </AdminAnnounceProvider>,
     );
@@ -112,7 +112,7 @@ describe("SPIKE part 3 — the provider itself being REMOUNTED", () => {
     expect(before).toHaveTextContent(MSG);
 
     rerender(
-      <AdminAnnounceProvider key="b" testId="admin-undo-status" label="Undo updates">
+      <AdminAnnounceProvider key="b" testId="admin-undo-status" label="Status updates">
         <div>remounted</div>
       </AdminAnnounceProvider>,
     );
