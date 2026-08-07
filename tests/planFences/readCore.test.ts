@@ -1,0 +1,344 @@
+/**
+ * tests/planFences/readCore.test.ts — the five-shape plan-fence read-core.
+ *
+ * Spec: docs/superpowers/specs/2026-08-06-arc-b-review-infra.md §2.1. Every
+ * accept-set here is the SETTLED one, not the calibration probe's — the probe
+ * committed beside the plan approximates in five named ways, and the last
+ * describe in this file pins the gate to the settled side of each divergence.
+ */
+import { describe, expect, it } from "vitest";
+import { analyzePlan, RULE_NAMES, type RuleName } from "@/lib/planFences";
+
+/** Compact accessor: the (rule, instance) pairs a plan yields, non-waived. */
+function hits(text: string, path = "docs/superpowers/plans/x/plan.md"): string[] {
+  return analyzePlan(path, text)
+    .findings.map((f) => `${f.rule}:${f.instance}`)
+    .sort();
+}
+
+function rulesOf(text: string): RuleName[] {
+  return [
+    ...new Set(analyzePlan("docs/superpowers/plans/x/plan.md", text).findings.map((f) => f.rule)),
+  ];
+}
+
+describe("plan-fence read-core (spec §2.1)", () => {
+  describe("UNIMPORTED_IDENTIFIER", () => {
+    it("fires on a known-API identifier a module-shaped fence neither imports nor declares", () => {
+      const text = [
+        "Prose in `lib/thing.ts`:",
+        "",
+        "```ts",
+        'import { readFileSync } from "node:fs";',
+        "const out = readFileSync(p);",
+        "expect(out).toBe(1);",
+        "```",
+      ].join("\n");
+      expect(hits(text)).toContain("UNIMPORTED_IDENTIFIER:expect");
+    });
+
+    it("does NOT fire when the identifier is imported, aliased, or locally declared", () => {
+      const imported = [
+        "In `lib/a.ts`:",
+        "",
+        "```ts",
+        'import { expect } from "vitest";',
+        'import { readFileSync as rfs } from "node:fs";',
+        "const join = (a) => a;",
+        "expect(rfs(join(1))).toBe(1);",
+        "```",
+      ].join("\n");
+      expect(rulesOf(imported)).not.toContain("UNIMPORTED_IDENTIFIER");
+    });
+
+    it("does NOT fire on a fence with no import line (not module-shaped)", () => {
+      const text = ["In `lib/a.ts`:", "", "```ts", "expect(x).toBe(1);", "```"].join("\n");
+      expect(rulesOf(text)).not.toContain("UNIMPORTED_IDENTIFIER");
+    });
+
+    it("does NOT fire on an identifier outside the closed known-API registry", () => {
+      // Documented limit 2: the registry is the accept-set; anything else escapes
+      // BY DESIGN. Pinned so a later widening is a deliberate, visible edit.
+      const text = [
+        "In `lib/a.ts`:",
+        "",
+        "```ts",
+        'import { readFileSync } from "node:fs";',
+        "wildlyBespokeHelper(readFileSync(p));",
+        "```",
+      ].join("\n");
+      expect(rulesOf(text)).not.toContain("UNIMPORTED_IDENTIFIER");
+    });
+  });
+
+  describe("DUPLICATE_IMPORT", () => {
+    it("fires when the same imported binding appears in two fences attributed to one file", () => {
+      const text = [
+        "First, `lib/a.ts`:",
+        "",
+        "```ts",
+        'import { expect } from "vitest";',
+        "const x = 1;",
+        "```",
+        "",
+        "Then `lib/a.ts` again:",
+        "",
+        "```ts",
+        'import { expect } from "vitest";',
+        "const y = 2;",
+        "```",
+      ].join("\n");
+      expect(hits(text)).toContain("DUPLICATE_IMPORT:expect");
+    });
+
+    it("does NOT fire across fences attributed to DIFFERENT files", () => {
+      const text = [
+        "In `lib/a.ts`:",
+        "",
+        "```ts",
+        'import { expect } from "vitest";',
+        "const x = 1;",
+        "```",
+        "",
+        "In `lib/b.ts`:",
+        "",
+        "```ts",
+        'import { expect } from "vitest";',
+        "const y = 2;",
+        "```",
+      ].join("\n");
+      expect(rulesOf(text)).not.toContain("DUPLICATE_IMPORT");
+    });
+
+    it("skips UNATTRIBUTED fences but still reports attribution coverage", () => {
+      const text = [
+        "Prose naming `lib/a.ts` and `lib/b.ts` — two tokens, so unattributed:",
+        "",
+        "```ts",
+        'import { expect } from "vitest";',
+        "const x = 1;",
+        "```",
+        "",
+        "Also `lib/a.ts` and `lib/b.ts`:",
+        "",
+        "```ts",
+        'import { expect } from "vitest";',
+        "const y = 2;",
+        "```",
+      ].join("\n");
+      const report = analyzePlan("docs/superpowers/plans/x/plan.md", text);
+      expect(report.findings.map((f) => f.rule)).not.toContain("DUPLICATE_IMPORT");
+      // Not a silent skip: the demotion is a visible number (limit 3b).
+      expect(report.fences).toBe(2);
+      expect(report.attributedFences).toBe(0);
+    });
+  });
+
+  describe("MANGLED_TEMPLATE", () => {
+    it("fires on an escaped backtick and an escaped ${ as DISTINCT identities", () => {
+      const text = [
+        "In `lib/a.ts`:",
+        "",
+        "```ts",
+        "const a = \\`hello\\`;",
+        "const b = `x \\${y}`;",
+        "```",
+      ].join("\n");
+      const got = hits(text).filter((h) => h.startsWith("MANGLED_TEMPLATE"));
+      expect(new Set(got).size).toBe(2);
+    });
+  });
+
+  describe("UNCHECKED_INDEX", () => {
+    it("fires on identifier[0].member with no ! and no ?.", () => {
+      const text = ["In `lib/a.ts`:", "", "```ts", "const n = rows[0].name;", "```"].join("\n");
+      expect(hits(text)).toContain("UNCHECKED_INDEX:rows[0].name");
+    });
+
+    it("does NOT fire when the access is non-null-asserted or optional", () => {
+      const text = [
+        "In `lib/a.ts`:",
+        "",
+        "```ts",
+        "const a = rows[0]!.name;",
+        "const b = rows[0]?.name;",
+        "```",
+      ].join("\n");
+      expect(rulesOf(text)).not.toContain("UNCHECKED_INDEX");
+    });
+  });
+
+  describe("FENCE_EM_DASH", () => {
+    it("fires on the raw character and on every encoded spelling", () => {
+      const text = [
+        "In `lib/a.ts`:",
+        "",
+        "```ts",
+        'const a = "one — two";',
+        'const b = "three &mdash; four";',
+        'const c = "five &#8212; six";',
+        'const d = "seven &#x2014; eight";',
+        'const e = "nine \\u2014 ten";',
+        'const f = "eleven \\u{2014} twelve";',
+        "```",
+      ].join("\n");
+      const got = hits(text).filter((h) => h.startsWith("FENCE_EM_DASH"));
+      expect(got.length).toBe(6);
+    });
+
+    it("does NOT fire in a NON-code fence (limit 4 scopes the rule to code)", () => {
+      const text = ["Output from `lib/a.ts`:", "", "```text", "run — done", "```"].join("\n");
+      expect(rulesOf(text)).not.toContain("FENCE_EM_DASH");
+    });
+
+    it("honors an existing spec-lint: ignore stack over the fence (dual-honor contract)", () => {
+      const text = [
+        "In `lib/a.ts`:",
+        "",
+        "<!-- spec-lint: ignore — quoting shipped copy -->",
+        "```ts",
+        'const a = "one — two";',
+        "```",
+      ].join("\n");
+      expect(rulesOf(text)).not.toContain("FENCE_EM_DASH");
+    });
+  });
+
+  describe("the gate's own rule-scoped waiver", () => {
+    const waived = (token: string): ReturnType<typeof analyzePlan> =>
+      analyzePlan(
+        "docs/superpowers/plans/x/plan.md",
+        [
+          "In `lib/a.ts`:",
+          "",
+          token,
+          "```ts",
+          "const n = rows[0].name;",
+          'const s = "a — b";',
+          "```",
+        ].join("\n"),
+      );
+
+    it("suppresses EXACTLY its named rule and leaves the others firing", () => {
+      const r = waived(
+        "<!-- plan-fences: ignore UNCHECKED_INDEX — reviewed, length-checked above -->",
+      );
+      expect(r.findings.map((f) => f.rule)).toContain("FENCE_EM_DASH");
+      expect(r.findings.map((f) => f.rule)).not.toContain("UNCHECKED_INDEX");
+    });
+
+    it("REPORTS the waived finding rather than dropping it", () => {
+      const r = waived("<!-- plan-fences: ignore UNCHECKED_INDEX — reviewed -->");
+      expect(r.waived.map((f) => f.rule)).toContain("UNCHECKED_INDEX");
+    });
+
+    it("rejects an unknown rule name", () => {
+      const r = waived("<!-- plan-fences: ignore NOT_A_RULE — whatever -->");
+      expect(r.waiverErrors.map((e) => e.code)).toContain("UNKNOWN_RULE");
+    });
+
+    it("rejects an empty reason", () => {
+      const r = waived("<!-- plan-fences: ignore UNCHECKED_INDEX —  -->");
+      expect(r.waiverErrors.map((e) => e.code)).toContain("MISSING_REASON");
+    });
+
+    it("rejects a waiver that suppresses nothing", () => {
+      const r = analyzePlan(
+        "docs/superpowers/plans/x/plan.md",
+        [
+          "In `lib/a.ts`:",
+          "",
+          "<!-- plan-fences: ignore UNCHECKED_INDEX — nothing to suppress -->",
+          "```ts",
+          "const n = 1;",
+          "```",
+        ].join("\n"),
+      );
+      expect(r.waiverErrors.map((e) => e.code)).toContain("SUPPRESSED_NOTHING");
+    });
+  });
+
+  describe("unplaceable fences are REPORTED, never silently skipped (limit 3b)", () => {
+    it("names an unclosed fence by path and line", () => {
+      const text = ["In `lib/a.ts`:", "", "```ts", "const n = rows[0].name;"].join("\n");
+      const r = analyzePlan("docs/superpowers/plans/x/plan.md", text);
+      expect(r.unplaced.length).toBeGreaterThan(0);
+      expect(r.unplaced[0]!.line).toBe(3);
+    });
+  });
+
+  /**
+   * The probe committed beside the plan is CALIBRATION, and it approximates in
+   * five named ways. The corpus cannot exercise these branches (that is why the
+   * divergences went unnoticed in the numbers), so each gets a planted case
+   * pinning the gate to the SETTLED accept-set rather than the probe's.
+   */
+  describe("divergence-discriminating fixtures (plan G1a R3 F1)", () => {
+    it("(i) a root-level 4-space-indented delimiter is INDENTED CODE, not a fence", () => {
+      const text = [
+        "In `lib/a.ts`:",
+        "",
+        "    ```ts",
+        "    const n = rows[0].name;",
+        "    ```",
+      ].join("\n");
+      expect(analyzePlan("docs/superpowers/plans/x/plan.md", text).fences).toBe(0);
+    });
+
+    it("(ii) an import/export-only fence is ELIGIBLE (the union arm the corpus never exercises)", () => {
+      const text = ["In `lib/a.ts`:", "", "```ts", 'import { expect } from "vitest"', "```"].join(
+        "\n",
+      );
+      const r = analyzePlan("docs/superpowers/plans/x/plan.md", text);
+      expect(r.eligibleFences).toBe(1);
+    });
+
+    it("(iii) attribution SKIPS a waiver line between the prose and the fence", () => {
+      const text = [
+        "In `lib/a.ts`:",
+        "",
+        "<!-- plan-fences: ignore FENCE_EM_DASH — unrelated -->",
+        "```ts",
+        "const n = 1;",
+        "```",
+      ].join("\n");
+      expect(analyzePlan("docs/superpowers/plans/x/plan.md", text).attributedFences).toBe(1);
+    });
+
+    it("(iv) only the four SOURCE extensions attribute; a css path leaves the fence unattributed", () => {
+      const text = ["Styles in `app/globals.css`:", "", "```ts", "const n = 1;", "```"].join("\n");
+      expect(analyzePlan("docs/superpowers/plans/x/plan.md", text).attributedFences).toBe(0);
+    });
+
+    it("(v) DUPLICATE_IMPORT binds IMPORTED bindings only, never a repeated local const", () => {
+      const text = [
+        "In `lib/a.ts`:",
+        "",
+        "```ts",
+        'import { expect } from "vitest";',
+        "const q = 1;",
+        "```",
+        "",
+        "In `lib/a.ts`:",
+        "",
+        "```ts",
+        'import { describe } from "vitest";',
+        "const q = 2;",
+        "```",
+      ].join("\n");
+      expect(rulesOf(text)).not.toContain("DUPLICATE_IMPORT");
+    });
+  });
+
+  it("exposes exactly the five ratified rule names (closed set, spec §1.1 item 2)", () => {
+    expect([...RULE_NAMES].sort()).toEqual(
+      [
+        "DUPLICATE_IMPORT",
+        "FENCE_EM_DASH",
+        "MANGLED_TEMPLATE",
+        "UNCHECKED_INDEX",
+        "UNIMPORTED_IDENTIFIER",
+      ].sort(),
+    );
+  });
+});

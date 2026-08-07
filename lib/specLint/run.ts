@@ -2,6 +2,7 @@ import { checkCitations } from "./citations";
 import { checkCopy } from "./copyRules";
 import { checkNumerics } from "./numerics";
 import { parseDoc } from "./parse";
+import { fenceCoverage, waiverTarget } from "./waiverCoverage";
 import { checkTaskContract } from "./taskContract";
 import { checkSections } from "./sections";
 import type { Check, FileResolver, Finding, LintDoc, LintResult } from "./types";
@@ -52,29 +53,14 @@ export function runLint(doc: LintDoc, resolver: FileResolver): LintResult {
       .filter((f) => f.code === "WAIVER_MISSING_REASON")
       .map((f) => f.docLine),
   ]);
-  const isBlank = (lineNo: number): boolean => (model.lines[lineNo - 1] ?? "").trim() === "";
 
-  /** Target line of a waiver: next non-blank, non-waiver line; null if the stack reaches EOF. */
-  function targetOf(waiverLine: number): number | null {
-    for (let l = waiverLine + 1; l <= model.lines.length; l++) {
-      if (waiverShapedLines.has(l) || isBlank(l)) continue;
-      return l;
-    }
-    return null;
-  }
-
-  /** Coverage of a target line: the whole fence region when the target opens a fence. */
-  function coverageOf(target: number): Set<number> {
-    const cov = new Set<number>([target]);
-    if (model.fencedInfo[target - 1] === null) {
-      // opening delimiter: extend through interior to the closing delimiter (or EOF)
-      for (let l = target + 1; l <= model.lines.length; l++) {
-        cov.add(l);
-        if (model.fencedInfo[l - 1] === null) break; // closer
-      }
-    }
-    return cov;
-  }
+  // Both helpers now live in ./waiverCoverage — ONE definition, shared with
+  // lib/planFences, which must agree with this linter about which lines a
+  // waiver covers (arc B spec §2.1). Behavior here is unchanged.
+  const targetOf = (waiverLine: number): number | null =>
+    waiverTarget(model.lines, (l) => waiverShapedLines.has(l), waiverLine);
+  const coverageOf = (target: number): Set<number> =>
+    fenceCoverage(model.lines, (l) => model.fencedInfo[l - 1] === null, target);
 
   const ignores = model.waivers.filter((w) => w.kind === "ignore");
   const byTarget = new Map<number | null, typeof ignores>();
