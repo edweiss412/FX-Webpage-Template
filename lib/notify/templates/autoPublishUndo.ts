@@ -1,6 +1,7 @@
 import { BATCH_EMAIL_MAX_ITEMS } from "@/lib/notify/constants";
 import { recipientBindingFor } from "@/lib/sync/unpublishBinding";
 import { escapeHtml } from "./escapeHtml";
+import { reportLinkHtml, reportLinkText } from "./reportProblem";
 import type { RenderedEmail } from "./realtimeProblem";
 
 /**
@@ -65,14 +66,19 @@ export function renderAutoPublishUndo(input: AutoPublishUndoInput): RenderedEmai
   )} from now).`;
 
   const subject = `FXAV: ${input.showTitle} published itself`;
-  const text = [opening, window, `${LINK_LABEL}: ${href}`, `${WHAT_UNDO_DOES} ${IGNORING}`].join(
-    "\n\n",
-  );
+  const text = [
+    opening,
+    window,
+    `${LINK_LABEL}: ${href}`,
+    `${WHAT_UNDO_DOES} ${IGNORING}`,
+    reportLinkText(input.origin, input.slug),
+  ].join("\n\n");
   const html =
     `<p>${escapeHtml(opening)}</p>` +
     `<p>${escapeHtml(window)}</p>` +
     `<p><a href="${escapeHtml(href)}">${escapeHtml(LINK_LABEL)}</a></p>` +
-    `<p>${escapeHtml(WHAT_UNDO_DOES)} ${escapeHtml(IGNORING)}</p>`;
+    `<p>${escapeHtml(WHAT_UNDO_DOES)} ${escapeHtml(IGNORING)}</p>` +
+    reportLinkHtml(input.origin, input.slug);
 
   return { subject, html, text };
 }
@@ -133,6 +139,7 @@ export function renderAutoPublishUndoBatch(input: AutoPublishUndoBatchInput): Re
     ...blocks.map((block) => `${block.title}\n${block.window}\n${LINK_LABEL}: ${block.href}`),
     ...(overflowLine ? [overflowLine] : []),
     closing,
+    reportLinkText(input.origin),
   ].join("\n\n");
   const html =
     `<p>${escapeHtml(intro)}</p>` +
@@ -144,7 +151,8 @@ export function renderAutoPublishUndoBatch(input: AutoPublishUndoBatchInput): Re
       )
       .join("") +
     (overflowLine ? `<p>${escapeHtml(overflowLine)}</p>` : "") +
-    `<p>${escapeHtml(closing)}</p>`;
+    `<p>${escapeHtml(closing)}</p>` +
+    reportLinkHtml(input.origin);
 
   return { subject, html, text };
 }
