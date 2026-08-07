@@ -338,3 +338,35 @@ that cannot see a runtime property — and the arc's answer was to stop growing 
 recognizer and delete the second copy of the shape. The seventh caught the
 implementer losing that answer to a git command.
 
+**R8 — NEEDS-ATTENTION, 1 P0, accepted: `commit transaction;`.** The
+between-lock-and-UPDATE check matched only the bare `commit;` form, so the same
+statement written in a synonym slipped through — lock released, UPDATE unlocked,
+every assertion still true. `COMMIT [WORK | TRANSACTION | AND CHAIN]`, `END
+[TRANSACTION]` and `ROLLBACK [WORK | TRANSACTION]` are one statement to
+PostgreSQL, and the guard now treats them as one, in all three places it asked
+the question.
+
+Note the difference between this and rounds 4-6: those were structural (the check
+could not see the property), this is vocabulary (the check saw the property but
+knew one spelling of it). Vocabulary IS enumerable over a documented grammar, so
+closing it terminates; that is why it was repaired here rather than filed as an
+operator proposal.
+
+**Full mutant set, eleven operators:**
+
+| mutant | result |
+| --- | --- |
+| remove the advisory lock | KILLED |
+| move the lock BELOW the UPDATE | KILLED |
+| `commit;` between lock and UPDATE | KILLED |
+| `commit transaction;` between lock and UPDATE (R8) | KILLED |
+| `commit work;` between lock and UPDATE | KILLED |
+| `end transaction;` between lock and UPDATE | KILLED |
+| `rollback work;` between lock and UPDATE | KILLED |
+| remove the show scope | KILLED |
+| remove the no-row RETURNING guard | KILLED |
+| remove `begin;` | KILLED |
+| uppercase helper writing its own unlocked SQL | KILLED |
+
+Eleven for eleven.
+

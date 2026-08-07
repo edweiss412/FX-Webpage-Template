@@ -251,7 +251,13 @@ describe("e2e suite holds no unlocked PostgREST DML on locked tables (structural
     const beginAt = src.search(/\bbegin;/i);
     const lockAt = locks[0]!.index!;
     const updateAt = updates[0]!.index!;
-    const commitAt = src.search(/\bcommit;/i);
+    // `COMMIT [WORK | TRANSACTION | AND CHAIN]`, `END [TRANSACTION]` and
+    // `ROLLBACK [WORK | TRANSACTION]` are all the same statement to PostgreSQL.
+    // Matching only the bare `commit;` form let `commit transaction;` sit
+    // between the lock and the UPDATE — lock released, UPDATE unlocked, every
+    // assertion still true (arc C diff review R8).
+    const TXN_END = /\b(commit|rollback|end)\b[^;]*;/gi;
+    const commitAt = src.search(/\b(commit|rollback|end)\b[^;]*;/i);
     expect(beginAt, "the block must open a transaction").toBeGreaterThanOrEqual(0);
     expect(commitAt, "the block must commit").toBeGreaterThanOrEqual(0);
     expect(beginAt, "begin before the lock").toBeLessThan(lockAt);
@@ -261,7 +267,7 @@ describe("e2e suite holds no unlocked PostgREST DML on locked tables (structural
     // the lock before the update is not the same as holding it for the update.
     expect(updateAt, "the UPDATE must land inside the locked transaction").toBeLessThan(commitAt);
     expect(
-      [...src.slice(lockAt, updateAt).matchAll(/\b(commit|rollback|end);/gi)].length,
+      [...src.slice(lockAt, updateAt).matchAll(TXN_END)].length,
       "nothing may end the transaction between taking the lock and running the UPDATE",
     ).toBe(0);
 
@@ -289,7 +295,7 @@ describe("e2e suite holds no unlocked PostgREST DML on locked tables (structural
     for (const { name, body } of touching) {
       expect(body, `${name} must delegate to runLockedCrewUpdate`).toMatch(/runLockedCrewUpdate\(/);
       expect(
-        /\b(begin|commit|rollback);|pg_advisory_xact_lock|update\s+public\./i.test(body),
+        /\b(begin|commit|rollback|end)\b[^;]*;|pg_advisory_xact_lock|update\s+public\./i.test(body),
         `${name} must not write its own SQL — the transaction shape lives in exactly one place`,
       ).toBe(false);
     }
