@@ -8,32 +8,27 @@ Last reconciled: 2026-08-04 — `feat/harness-font-fidelity` (PR #705) graduated
 
 ---
 
-## BL-CAPABILITY-LOSS-SURVIVING-ROW-FALSE-POSITIVE — arm (c) reports a capability loss for a row that is still live
+## BL-MI11-REMOVAL-FALLBACK-STALE-OVERWRITE — the mi11 genuine-removal fallback retains a frozen snapshot over a live row
 
-**Status:** OPEN · **Severity:** LOW-MEDIUM (false operator alert; no data impact) · **Class:** notice fidelity · **Filed:** 2026-08-03 (`fix/apply-undo-audit-fidelity`, spec §9, deferred under class-sweep exception (c)) · **Effort:** S · **Reachability: PROBED 2026-08-04 — REACHABLE on one hold shape of four.**
+**Filed:** 2026-08-07 (arc C Q1 class-sweep, `feat/backlog-quick-wins`). **Class:** correctness (silent data revert). **Effort:** S. **Severity:** low-medium — no loss of the row, but live edits are silently reverted.
 
-`capabilityRoleChangesForNotice` arm (c) (`lib/sync/phase2.ts:347-356`) reports a capability loss for any `previousCrewMembers` entry that is absent from `nextByName` and absent from `renamedAway`. `nextByName` is built from `appliedCrewMembers`, which is the post-hold **parse** list (`lib/sync/applyParseResult.ts:189`), while `deleteKeepNames` (`lib/sync/applyParseResult.ts:178`) protects rows from deletion **without** adding them to that list. A row can therefore survive the apply with its capability flags intact and still be reported as a loss.
+Arc C repaired the `crew_email` reject branch to retain the LIVE crew row instead of nothing. The sweep for that bug SHAPE — "a retain that sources a frozen snapshot while a live row exists" — found one more instance, and it ships today.
 
-The rename-linked instances of this shape were fixed in the filing PR via the survival test in its spec §2.1 A3. The non-rename instances are what this row tracks.
+`lib/sync/holds/holdAwareApply.ts:337`, the mi11 genuine-removal fallback, does `retainRows.set(hold.entity_key, rowFromHeldValue(held))`. `held` is the value captured when the hold OPENED. The retain feeds `plan.crewMembers`, which the snapshot-replace engine upserts across every column (`runScheduledCronSync.ts:1653-1685`), so every field edited on that member since the hold opened is reverted — phone, role, restrictions, flight info.
 
-**PROBED 2026-08-04**, per hold kind × domain × sub-shape, end-to-end through `runPhase2` (survival read from `crew_members` after the apply; the report read from the real `roleFlagsNotice`, since `capabilityRoleChangesForNotice` is not exported). Probe: `tests/sync/capabilityLossReachability.probe.test.ts`.
+**PROBED, not inferred.** `tests/sync/capabilityLossReachability.probe.test.ts` now carries a `phoneAfter` oracle: the live seed is `555-NEW` and every `heldValue` is `555-OLD`, so the two are distinguishable. The `mi11_pending/crew_email` row pins `phoneAfter: HELD_PHONE` — i.e. the live phone IS reverted, executably, today. That row is the reproduction; the arc left it pinned at current behaviour rather than fixing it here.
 
-| hold kind / domain / sub-shape                           | survived | reported | verdict                       |
-| -------------------------------------------------------- | -------- | -------- | ----------------------------- |
-| `mi11_pending` / `crew_email`                            | yes      | no       | correct                       |
-| `undo_override` / `crew_email`                           | yes      | **yes**  | **FALSE LOSS**                |
-| `undo_override` / `crew_identity` (held-present restore) | yes      | no       | correct                       |
-| `undo_override` / `crew_identity` (tombstone)            | no       | yes      | real loss, correctly reported |
+**Why this is a RULING question and not a straight fix, which is why it is filed rather than swept.** The two adjacent sites disagree on purpose, and the disagreement is documented:
 
-**The premise holds, but for ONE shape, and not for the reason the row assumed.** It is not arm (c)'s absence predicate that is wrong: it is a two-line asymmetry among the four branches that delete-protect a name. Every other branch also puts a row BACK — `mi11_pending`'s genuine-removal fallback retains the held row (`lib/sync/holds/holdAwareApply.ts:322`), and the `crew_identity` restore branch retains it (`lib/sync/holds/holdAwareApply.ts:449`) — and retained rows are merged into `plan.crewMembers` at `lib/sync/holds/holdAwareApply.ts:390`, which is what becomes `appliedCrewMembers`. `applyUndoOverrideToMaps`'s `crew_email` branch (`lib/sync/holds/holdAwareApply.ts:432-439`) adds `protectedNames` and `pinnedIdentity` and returns with no `retainRows.set`. That is precisely "survives the delete, absent from the applied list", so a live LEAD is announced to the operator as having lost LEAD access.
+- The `crew_identity` restore branch (`:477`) also retains `rowFromHeldValue(held)`, and there it is CORRECT — that branch resurrects a deleted row, so the held snapshot is the only source there is. The probe pins `phoneAfter: HELD_PHONE` for it as INTENDED.
+- The rename-fold path (`:392-397`) does the opposite: it takes the sheet row and overrides only the pinned identity fields (`{ ...m, name: pin.name, email: pin.email }`), i.e. live-row-wins with a narrow pin.
+- WM-F6 (`:308`) deliberately prefers held values in its own neighbourhood.
 
-**Re-sized M → S** on the probe: the search space collapsed from "redesign arm (c)'s absence predicate on a path no unit touches" to one branch that is asymmetric with its three siblings.
+So "retain the live row" is not obviously right at `:337`: the fallback runs when the member is genuinely absent from the sheet, which is precisely when there may be no live row to prefer, and the hold's semantics may intend the snapshot. **The entry's first step is that ruling — defect or intended hold semantics — not a patch.**
 
-screen-disposition 2026-08-04: KEEP — probe (`tests/sync/capabilityLossReachability.probe.test.ts`) demonstrates the false loss end-to-end on `undo_override`/`crew_email`; three sibling shapes verified correct in the same run, and all four are pinned at current behaviour.
+**Deferral exception: (a)** — needs a design decision about hold semantics that arc C's ratified scope (spec §1.1) does not settle, on a branch whose diff is otherwise two narrow changes. Swept and probed at round 0 rather than left for a later reader to rediscover.
 
-**Work.** Restore the symmetry at the source rather than loosening arm (c). The tombstone row above is the counterweight and is pinned in the same probe file: it is a REAL loss, and any fix that suppresses arm (c) more aggressively to silence the false positive will silence that one too. All four rows are pinned at current behaviour, so the fix arrives with a failing case waiting for it.
-
----
+**Promotion prerequisite:** the ruling above. If it lands as "defect", the fix mirrors arc C's: thread the live row and prefer it, with no-match falling back to today's behaviour.
 
 ## BL-TASK-ENROLLMENT-SINGLE-DEPTH — the declared task region cannot express hierarchical or interleaved plan shapes
 
@@ -48,31 +43,6 @@ The `<!-- tasks: depth=N -->` region declares ONE heading depth. Two real corpus
 **Deferral exception (c)** per the class-sweep disposition rule in `AGENTS.md`: the repair is a redesign of a surface this PR does not otherwise touch. Multi-depth enrollment forces a nesting model — a depth-3 task inside a depth-2 extent — whose marker ownership, extent boundaries, and `TASK_MARKER_MISSING` semantics are a design of their own, not a clause. Neither (a) nor (b) applies: this is not an unsettled product decision, and no prior ratification fences it.
 
 **Why it is safe to carry.** Enrollment is opt-in and no legacy plan is enrolled (measured: 534 plans scanned, 1 attempted, 0 findings). A plan of either shape either normalizes its task depths or stays unenrolled; the author is told plainly rather than checked wrongly. Re-open when someone wants to enrol a plan of one of these shapes.
-
-## BL-FRESHNESS-ABORTED-CLOSE-E2E — the freshness cue's clear-on-hide branch has no behavioural proof
-
-**Status:** OPEN · **Filed:** 2026-08-03 (round-3 cross-model review of `feat/modal-freshness-cue`) · **Class:** test coverage · **Effort:** S (one e2e case on an existing spec) · **Severity:** low
-
-`PublishedReviewModal`'s clear-on-hide branch fires when the published review modal is HIDDEN without unmounting — an aborted close, where the shell animates out but the component holding the freshness state stays mounted. Without it a live cue survives the hide and resumes on reopen with whatever was left of its 1600ms timer.
-
-The branch is guarded structurally by `S19` in `tests/components/admin/showpage/publishedModalFreshnessCue.test.tsx`, which asserts the WIRING only. It cannot be driven from jsdom: the close runs through the shell's animated exit, which never completes there, and with `?show` still committed the aborted-close self-heal un-hides during the very render that hid the surface, so no commit observes `closing` as true. Both were verified rather than assumed — a click-driven version of that row sat at "still armed" against a render-phase implementation AND a commit-phase one.
-
-S19's comment used to claim a behavioural twin lived in the realtime e2e. Round-3 review probed for it: no test under `tests/e2e` combines an aborted close with `data-section-freshness-flash`, and the freshness e2e coverage there is geometry and broadcast attribution. The claim has been removed from the comment; this row is the honest replacement.
-
-**What would close it:** one case on `tests/e2e/published-review-modal.realtime.spec.ts` that arms a cue, begins a close, aborts it inside the flash window, and asserts no card carries the attribute on reopen. A real browser can drive the animated exit that jsdom cannot.
-
-screen-disposition 2026-08-04: NOT ATTEMPTED on `chore/sweep-guards-tests`; claim released, entry
-unchanged. Recorded plainly rather than as a fence, because this is not fenced — the work is owed,
-specified, and ready to pick up.
-
-The other five Task 18 items were dispositioned on that branch (three closed, one prereq-fenced, one
-investigation discharged). This one is a single Playwright case that must drive an animated modal
-exit across a realtime-seeded two-context harness, and it cannot be verified without a dev server
-plus browsers; an e2e case pushed without ever being run is worse than no case, since a green CI
-tells you nothing about a test that was never observed failing. The entry's own "What would close
-it" already specifies it exactly — arm a cue, begin a close, abort inside the flash window, assert
-no card carries `data-section-freshness-flash` on reopen, on
-`tests/e2e/published-review-modal.realtime.spec.ts`. Nothing about that needs re-deriving.
 
 ## BL-SOURCE-ANCHORS-STALE-AFTER-FAILED-GID-FETCH — a preserved anchor map has no revision stamp, so a stale range reads as a valid deep link
 

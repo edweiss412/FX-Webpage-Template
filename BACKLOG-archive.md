@@ -8,6 +8,56 @@ Same split as [DEFERRED.md](./DEFERRED.md) ↔ [DEFERRED-archive.md](./DEFERRED-
 
 ---
 
+## BL-FRESHNESS-ABORTED-CLOSE-E2E — the freshness cue's clear-on-hide branch has no behavioural proof — CLOSED 2026-08-07 (`feat/backlog-quick-wins`, arc C Q2)
+
+**Status:** CLOSED · **Filed:** 2026-08-03 (round-3 cross-model review of `feat/modal-freshness-cue`) · **Class:** test coverage · **Effort:** S (one e2e case on an existing spec) · **Severity:** low
+
+`PublishedReviewModal`'s clear-on-hide branch fires when the published review modal is HIDDEN without unmounting — an aborted close, where the shell animates out but the component holding the freshness state stays mounted. Without it a live cue survives the hide and resumes on reopen with whatever was left of its 1600ms timer.
+
+The branch is guarded structurally by `S19` in `tests/components/admin/showpage/publishedModalFreshnessCue.test.tsx`, which asserts the WIRING only. It cannot be driven from jsdom: the close runs through the shell's animated exit, which never completes there, and with `?show` still committed the aborted-close self-heal un-hides during the very render that hid the surface, so no commit observes `closing` as true. Both were verified rather than assumed — a click-driven version of that row sat at "still armed" against a render-phase implementation AND a commit-phase one.
+
+S19's comment used to claim a behavioural twin lived in the realtime e2e. Round-3 review probed for it: no test under `tests/e2e` combines an aborted close with `data-section-freshness-flash`, and the freshness e2e coverage there is geometry and broadcast attribution. The claim has been removed from the comment; this row is the honest replacement.
+
+**What would close it:** one case on `tests/e2e/published-review-modal.realtime.spec.ts` that arms a cue, begins a close, aborts it inside the flash window, and asserts no card carries the attribute on reopen. A real browser can drive the animated exit that jsdom cannot.
+
+screen-disposition 2026-08-04: NOT ATTEMPTED on `chore/sweep-guards-tests`; claim released, entry
+unchanged. Recorded plainly rather than as a fence, because this is not fenced — the work is owed,
+specified, and ready to pick up.
+
+The other five Task 18 items were dispositioned on that branch (three closed, one prereq-fenced, one
+investigation discharged). This one is a single Playwright case that must drive an animated modal
+exit across a realtime-seeded two-context harness, and it cannot be verified without a dev server
+plus browsers; an e2e case pushed without ever being run is worse than no case, since a green CI
+tells you nothing about a test that was never observed failing. The entry's own "What would close
+it" already specifies it exactly — arm a cue, begin a close, abort inside the flash window, assert
+no card carries `data-section-freshness-flash` on reopen, on
+`tests/e2e/published-review-modal.realtime.spec.ts`. Nothing about that needs re-deriving.
+
+**Resolution: the case exists and was observed RED.** `tests/e2e/published-review-modal.realtime.spec.ts`,
+"an ABORTED close clears armed freshness cues" — arms a cue via a realtime role swap, begins the
+close on the scrim, aborts it with a same-row re-click while the close navigation is still pending,
+and asserts page-wide that nothing carries `data-section-freshness-flash` once the shell returns.
+Mutant protocol: the `closing` arm of the clear-on-hide branch commented out yields
+
+    Error: an aborted close must clear armed freshness cues; a survivor resumes its timer on reopen
+    Received: 1
+
+and restoring it yields a pass, alongside the pre-existing scenario in the same file.
+
+**The screen-disposition above was right to refuse it, and for a reason it did not name.** It held
+the case back because an unrun e2e is worse than none. It could not have known that the first two
+runnable versions were ALSO worse than none: both went green while the clear-on-hide branch was
+fully neutered. One copied the reopen spec's 2500ms throttle and reached the reopen 3931ms after
+arming, past the 1600ms timer that clears the cue on its own; the other mutated once, which only
+established the modal's baseline and armed nothing. Each is a false-premise assertion — the
+condition that makes the assertion discriminate was absent where it ran — and neither is visible
+from a green.
+
+**Documented limit, recorded here rather than left to be rediscovered:** the case requires the
+production-build server (CI's `CI=true` webServer). The reopen renders in ~440ms there against
+~1900ms under `next dev`, over the 1600ms budget the observation must fit inside. On a dev server it
+fails its own premise with a message that says so, rather than reporting anything about the modal.
+
 ## BL-EM-DASH-POLICY — Resolve the DESIGN.md §9 em-dash ban vs. shipped usage — CLOSED 2026-08-07 (L-wave, `feat/l-wave-emdash`, RESOLUTION 2: ENFORCE)
 
 **Resolution: the user chose ENFORCE — resolution 2, over the entry's own "(recommended)" tag on
@@ -5514,6 +5564,52 @@ Had the five attributes been stripped in the filing PR on the stated premise, fo
 **The accessible name generalized with the content.** The log was labelled "Undo updates" while already carrying saved-role and sync-pause announcements, and this arc widened it further. All four production call sites are now "Status updates" / "Status updates in this dialog". The guard for it reads the four sites FROM DISK, because every other case in the provider suite supplies its own label prop and a fixture-level assertion would have passed against unrenamed sources; each also asserts the old name is GONE rather than outnumbered, so a partial rename cannot pass.
 
 **Counts, all MEASURED rather than predicted:** `CHANNEL_ANNOUNCE_CALLS` RoleRecognize 1 to 3 (the plan forecast 2, assuming one shared call for stale and conflict; each got its own branch), RecentAutoApplied 1 to 2, ReSync 1 to 2. All five `REGISTERED_SITES` rows are 0.
+
+## BL-CAPABILITY-LOSS-SURVIVING-ROW-FALSE-POSITIVE — arm (c) reports a capability loss for a row that is still live — ARCHIVED 2026-08-07 (arc C, `feat/backlog-quick-wins`)
+
+**Severity:** LOW-MEDIUM (false operator alert; no data impact) · **Class:** notice fidelity · **Filed:** 2026-08-03 (`fix/apply-undo-audit-fidelity`, spec §9, deferred under class-sweep exception (c)) · **Effort:** S · **Reachability: PROBED 2026-08-04 — REACHABLE on one hold shape of four.**
+
+`capabilityRoleChangesForNotice` arm (c) (`lib/sync/phase2.ts:347-356`) reports a capability loss for any `previousCrewMembers` entry that is absent from `nextByName` and absent from `renamedAway`. `nextByName` is built from `appliedCrewMembers`, which is the post-hold **parse** list (`lib/sync/applyParseResult.ts:189`), while `deleteKeepNames` (`lib/sync/applyParseResult.ts:178`) protects rows from deletion **without** adding them to that list. A row can therefore survive the apply with its capability flags intact and still be reported as a loss.
+
+The rename-linked instances of this shape were fixed in the filing PR via the survival test in its spec §2.1 A3. The non-rename instances are what this row tracks.
+
+**PROBED 2026-08-04**, per hold kind × domain × sub-shape, end-to-end through `runPhase2` (survival read from `crew_members` after the apply; the report read from the real `roleFlagsNotice`, since `capabilityRoleChangesForNotice` is not exported). Probe: `tests/sync/capabilityLossReachability.probe.test.ts`.
+
+| hold kind / domain / sub-shape                           | survived | reported | verdict                       |
+| -------------------------------------------------------- | -------- | -------- | ----------------------------- |
+| `mi11_pending` / `crew_email`                            | yes      | no       | correct                       |
+| `undo_override` / `crew_email`                           | yes      | **yes**  | **FALSE LOSS**                |
+| `undo_override` / `crew_identity` (held-present restore) | yes      | no       | correct                       |
+| `undo_override` / `crew_identity` (tombstone)            | no       | yes      | real loss, correctly reported |
+
+**The premise holds, but for ONE shape, and not for the reason the row assumed.** It is not arm (c)'s absence predicate that is wrong: it is a two-line asymmetry among the four branches that delete-protect a name. Every other branch also puts a row BACK — `mi11_pending`'s genuine-removal fallback retains the held row (`lib/sync/holds/holdAwareApply.ts:322`), and the `crew_identity` restore branch retains it (`lib/sync/holds/holdAwareApply.ts:449`) — and retained rows are merged into `plan.crewMembers` at `lib/sync/holds/holdAwareApply.ts:390`, which is what becomes `appliedCrewMembers`. `applyUndoOverrideToMaps`'s `crew_email` branch (`lib/sync/holds/holdAwareApply.ts:432-439`) adds `protectedNames` and `pinnedIdentity` and returns with no `retainRows.set`. That is precisely "survives the delete, absent from the applied list", so a live LEAD is announced to the operator as having lost LEAD access.
+
+**Re-sized M → S** on the probe: the search space collapsed from "redesign arm (c)'s absence predicate on a path no unit touches" to one branch that is asymmetric with its three siblings.
+
+screen-disposition 2026-08-04: KEEP — probe (`tests/sync/capabilityLossReachability.probe.test.ts`) demonstrates the false loss end-to-end on `undo_override`/`crew_email`; three sibling shapes verified correct in the same run, and all four are pinned at current behaviour.
+
+**Work.** Restore the symmetry at the source rather than loosening arm (c). The tombstone row above is the counterweight and is pinned in the same probe file: it is a REAL loss, and any fix that suppresses arm (c) more aggressively to silence the false positive will silence that one too. All four rows are pinned at current behaviour, so the fix arrives with a failing case waiting for it.
+
+---
+
+**RESOLVED 2026-08-07** (arc C, `feat/backlog-quick-wins`). The symmetry is restored at the source, exactly as the entry's Work section directed — arm (c) is untouched, and the tombstone counterweight still fires.
+
+**The fix retains the LIVE row, not the held snapshot, and that distinction is the whole of it.** Every sibling branch retains via `rowFromHeldValue(held)`, so the obvious symmetry repair was to copy them. That would have traded a false notice for a silent data revert: `held` is captured when the hold OPENS, the retain feeds `plan.crewMembers`, and the snapshot-replace engine upserts every column — so a held snapshot reverts every field edited since. The branch now threads `snapshot.previousCrewMembers` and retains the matching live row; no match means no retain, which is today's behaviour and a documented degrade rather than a silent one.
+
+**The probe gained the oracle that can tell those two apart.** "No false loss" is satisfied by either retain, so the suite could not have caught the wrong one. Each `heldValue` carries `555-OLD` while the live seed now diverges to `555-NEW`, and every row pins `phoneAfter`. That divergence was necessary: the testkit default was ALSO `555-OLD`, so the oracle would have been vacuous — it could not have failed.
+
+**Post-fix probe table:**
+
+| hold kind / domain / sub-shape                           | survived | reported | phoneAfter | verdict                                  |
+| -------------------------------------------------------- | -------- | -------- | ---------- | ---------------------------------------- |
+| `mi11_pending` / `crew_email`                            | yes      | no       | `555-OLD`  | notice correct; row REVERTED (sibling)   |
+| `undo_override` / `crew_email`                           | yes      | **no**   | `555-NEW`  | **FIXED — live row retained**            |
+| `undo_override` / `crew_identity` (held-present restore) | yes      | no       | `555-OLD`  | correct; snapshot is right for a restore |
+| `undo_override` / `crew_identity` (tombstone)            | no       | yes      | n/a        | real loss, correctly reported            |
+
+**The oracle paid for itself immediately: row 1 is a second defect, now visible.** The mi11 genuine-removal fallback retains a frozen snapshot while a live row exists — the same stale-overwrite shape, shipping today, filed as `BL-MI11-REMOVAL-FALLBACK-STALE-OVERWRITE` with that pinned row as its reproduction. It is a ruling question rather than a patch, because the restore branch's identical code is CORRECT there and the rename-fold path deliberately does the opposite.
+
+**RED was the flipped pin, not a new assertion.** The entry shipped its four rows pinned at current behaviour "so the fix arrives with a failing case waiting for it", and that is what happened: flipping the `crew_email` row failed against the unfixed tree while the other three stayed green. All 1290 tests in `tests/sync/` pass after the fix, with no pin of the old notice output needing an update.
 
 ## BL-RESYNC-REGRESSED-JUMP-LINK — the alert's "open the parse panel" pointer is prose, not an affordance — ARCHIVED 2026-08-05 (M-wave W-UI, `feat/m-wave-ui`)
 

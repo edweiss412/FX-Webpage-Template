@@ -64,6 +64,7 @@ import type { RoleFlag, TriggeredReviewItem } from "@/lib/parser/types";
 import { runPhase2 } from "@/lib/sync/phase2";
 
 import { crew, parseResult, phase2Tx, readCrew, seedCrew, seedShow } from "./_holdAwareTestkit";
+import { premiseHolds } from "@/tests/_shared/premise";
 
 const DB_URL =
   process.env.TEST_DATABASE_URL ??
@@ -143,10 +144,21 @@ async function seedHold(
   );
 }
 
+/**
+ * The two phones the `phoneAfter` oracle discriminates between.
+ *
+ * Annotated `string` rather than left as literal types on purpose: the premise
+ * below compares them at RUNTIME, and with literal types TypeScript resolves
+ * that comparison statically and rejects it as unintentional. A premise the
+ * compiler can answer is not a premise — it has to be able to fail.
+ */
+const LIVE_PHONE: string = "555-NEW";
+const HELD_PHONE: string = "555-OLD";
+
 const heldRow = (name: string, email: string, extra: Record<string, unknown> = {}) => ({
   name,
   email,
-  phone: "555-OLD",
+  phone: HELD_PHONE,
   role: "A1",
   role_flags: LEAD,
   date_restriction: { kind: "none" },
@@ -160,6 +172,16 @@ type Observation = {
   survived: boolean;
   reported: boolean;
   reportedFlags: string[] | null;
+  /**
+   * The surviving row's phone AFTER the apply, or null if it did not survive.
+   *
+   * This is the oracle that separates "retained the LIVE row" from "retained a
+   * FROZEN SNAPSHOT of it". The live seed carries `555-NEW` while every
+   * `heldValue` carries `555-OLD`, so the two are distinguishable — without that
+   * divergence the testkit default and `heldRow` would both say `555-OLD` and
+   * the assertion could not fail (arc C plan Q1 / R3 F1).
+   */
+  phoneAfter: string | null;
 };
 
 /**
@@ -177,7 +199,10 @@ async function observe(
   },
 ): Promise<Observation> {
   const { showId, driveFileId } = await seedShow(tx);
-  const held = crew("Held", { email: "held@old", role_flags: LEAD });
+  // `555-NEW` is the divergence the `phoneAfter` oracle rests on: every
+  // `heldValue` below carries `555-OLD`, so a retain that reverts the row to
+  // its frozen snapshot is observable rather than silent.
+  const held = crew("Held", { email: "held@old", role_flags: LEAD, phone: LIVE_PHONE });
   await seedCrew(tx, showId, held);
   // A second member the sheet still lists, so the parse is a live roster rather
   // than an empty one — an empty parse is its own (already-guarded) shape and
@@ -199,7 +224,17 @@ async function observe(
   const result = await runPhase2(phase2Tx(tx) as never, runArgs(driveFileId, next));
 
   const rows = await readCrew(tx, showId);
-  const survived = rows.some((r) => r.name === "Held");
+  const heldAfter = rows.find((r) => r.name === "Held");
+  const survived = heldAfter !== undefined;
+
+  // The oracle discriminates only while the live and held phones differ. Stated
+  // here, unconditionally, rather than trusted: if a future fixture change makes
+  // them equal, this fails by name instead of the phone assertions passing
+  // vacuously.
+  premiseHolds(
+    `${label}: live seed phone must differ from the held snapshot phone`,
+    LIVE_PHONE !== HELD_PHONE,
+  );
 
   const notice = (
     result as {
@@ -215,6 +250,7 @@ async function observe(
     survived,
     reported: change !== undefined,
     reportedFlags: change ? change.prior_flags : null,
+    phoneAfter: heldAfter ? ((heldAfter as { phone?: string | null }).phone ?? null) : null,
   };
 }
 
@@ -238,6 +274,11 @@ describe("BL-CAPABILITY-LOSS-SURVIVING-ROW-FALSE-POSITIVE — reachability per h
       survived: true,
       reported: false,
       reportedFlags: null,
+      // The genuine-removal fallback retains the FROZEN snapshot, so the live
+      // phone is reverted. Not this arc's fix (filed as the sibling entry
+      // BL-MI11-REMOVAL-FALLBACK-STALE-OVERWRITE); pinned here so the shape is
+      // executable rather than described.
+      phoneAfter: HELD_PHONE,
     });
   });
 
@@ -258,8 +299,12 @@ describe("BL-CAPABILITY-LOSS-SURVIVING-ROW-FALSE-POSITIVE — reachability per h
     expect(o, o.label).toEqual({
       label: "undo_override/crew_email",
       survived: true,
-      reported: true,
-      reportedFlags: LEAD,
+      reported: false,
+      reportedFlags: null,
+      // The LIVE row is retained, not a snapshot of it — so the surviving row
+      // still carries the phone the sheet last had. A frozen-snapshot retain
+      // fails here by name.
+      phoneAfter: LIVE_PHONE,
     });
   });
 
@@ -277,6 +322,10 @@ describe("BL-CAPABILITY-LOSS-SURVIVING-ROW-FALSE-POSITIVE — reachability per h
       survived: true,
       reported: false,
       reportedFlags: null,
+      // The restore branch retains `rowFromHeldValue(held)` by design — this IS
+      // a resurrection of a deleted row, so the held snapshot is the right
+      // source and the reverted phone is intended, not the Q1 defect.
+      phoneAfter: HELD_PHONE,
     });
   });
 
@@ -297,6 +346,8 @@ describe("BL-CAPABILITY-LOSS-SURVIVING-ROW-FALSE-POSITIVE — reachability per h
       survived: false,
       reported: true,
       reportedFlags: LEAD,
+      // Genuinely deleted, so there is no row to carry a phone.
+      phoneAfter: null,
     });
   });
 });

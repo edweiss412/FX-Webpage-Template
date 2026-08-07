@@ -93,6 +93,14 @@ const GRADUATED = [
  * that recorded the finding.
  */
 const BACKLOG_GRADUATED = [
+  // feat/backlog-quick-wins (2026-08-07, arc C): the retainRows asymmetry. The
+  // fix retains the LIVE row rather than the held snapshot — copying the
+  // siblings would have traded a false notice for a silent data revert — and the
+  // probe gained a phoneAfter oracle that can tell those two apart.
+  {
+    id: "BL-CAPABILITY-LOSS-SURVIVING-ROW-FALSE-POSITIVE",
+    provenance: "feat/backlog-quick-wins",
+  },
   // feat/a11y-privacy-cluster (2026-08-07, arc A): the travel-date privacy leak.
   // Three of its four sites gated off the shipped `suppressesDates` predicate;
   // the fourth — a peer's attendance days on the roster — closed by an OWNER

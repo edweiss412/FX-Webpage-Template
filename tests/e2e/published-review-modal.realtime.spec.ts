@@ -34,9 +34,11 @@ import {
   type SeedCrewMemberInput,
 } from "./helpers/seedShowWithCrew";
 import { admin } from "./helpers/supabaseAdmin";
+import { setCrewRoleLocked } from "./helpers/lockedCrewRestriction";
 import { settleDashboardAdminState } from "./helpers/dashboardState";
 import {
   CONTENT_SWAP_TIMEOUT_MS,
+  SECTION_FRESHNESS_FLASH_MS_E2E,
   INVALIDATION_FRAME_TIMEOUT_MS,
   JOIN_REPLY_TIMEOUT_MS,
   MODAL_OPEN_TIMEOUT_MS,
@@ -48,14 +50,27 @@ import {
 } from "./helpers/realtimeOracle";
 
 const BASE = "published-show-review";
-const MODAL = `[data-testid="${BASE}-modal"]:has([data-testid="${BASE}-title"])`;
+// The SHELL. `MODAL` below additionally requires the title, i.e. a LOADED
+// modal — which on the aborted-close drive means waiting out a deliberately
+// throttled RSC fetch (measured 3.9s of a 1600ms budget). The abort's
+// self-heal is a client-side un-hide and lands in ~15ms, so that case watches
+// the shell and never the payload.
+const MODAL_ANY = `[data-testid="${BASE}-modal"]`;
+const MODAL = `${MODAL_ANY}:has([data-testid="${BASE}-title"])`;
 const MENU = `[data-testid="${BASE}-attention-menu"]`;
 const PILL = `${MODAL} [data-testid="${BASE}-alert-pill"]`;
 const SKELETON_TESTID = "published-show-review-loading";
-const BASE_URL = "http://127.0.0.1:3000";
+// Derived from the SAME expression `playwright.config.ts` uses for its
+// webServer, not a hardcoded 3000: manual `browser.newContext` calls do not
+// inherit the project baseURL, and under an E2E_PORT relocation a hardcoded
+// port silently exercises a SIBLING worktree's server (plan 1b(a) / R3 F1).
+const BASE_URL = `http://127.0.0.1:${process.env.E2E_PORT ?? "3000"}`;
 const VIEWPORT = { width: 1280, height: 800 };
 const OLD_ROLE = "Realtime Old Role";
 const NEW_ROLE = "Realtime Swapped Role";
+// Spent establishing the freshness BASELINE in the aborted-close case below;
+// distinct from NEW_ROLE so the two content swaps are independently awaitable.
+const BASELINE_ROLE = "Realtime Baseline Role";
 
 test.skip(
   process.env.MODAL_REALTIME_E2E !== "1",
@@ -63,6 +78,118 @@ test.skip(
 );
 
 type Stamped = { at: number; text: string };
+
+/**
+ * Wait until the dashboard row's React onClick is attached.
+ *
+ * Body is verbatim from `published-review-modal.reopen.spec.ts`, where the
+ * helper is module-local and therefore not importable. A click dispatched
+ * before hydration is swallowed, which on the abort-close drive below would
+ * look exactly like the modal failing to reopen — the defect under test.
+ */
+async function waitForRowHydration(page: Page, slug: string): Promise<void> {
+  await expect
+    .poll(
+      () =>
+        page.evaluate((tid) => {
+          const el = document.querySelector(`[data-testid="${tid}"]`) as
+            | (Element & Record<string, { onClick?: unknown }>)
+            | null;
+          if (!el) return false;
+          return Object.keys(el).some(
+            (k) => k.startsWith("__reactProps$") && typeof el[k]?.onClick === "function",
+          );
+        }, `shows-table-row-${slug}`),
+      { message: "row link hydrated (React onClick attached)", timeout: 30_000 },
+    )
+    .toBe(true);
+}
+
+/**
+ * Install the freshness-cue recorder. ARMED BEFORE the stimulus, always: a
+ * post-hoc DOM poll cannot tell "never armed" from "armed and already expired",
+ * so a poll-based assertion would pass against a completely broken
+ * implementation. Extracted from `runScenario` unchanged so both cases record
+ * cues the same way.
+ */
+async function installFreshnessObserver(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const w = window as unknown as {
+      __freshnessSeen?: string[];
+      __freshnessObserver?: MutationObserver;
+    };
+    w.__freshnessSeen = [];
+    const observer = new MutationObserver((records) => {
+      for (const r of records) {
+        const el = r.target as Element;
+        if (!el.hasAttribute?.("data-section-freshness-flash")) continue;
+        const id = el.getAttribute("data-testid") ?? "(no testid)";
+        w.__freshnessSeen?.push(id);
+      }
+    });
+    observer.observe(document.body, {
+      subtree: true,
+      attributes: true,
+      attributeFilter: ["data-section-freshness-flash"],
+    });
+    w.__freshnessObserver = observer;
+  });
+}
+
+/**
+ * Stamp the instant the FIRST freshness cue becomes visible in the DOM.
+ *
+ * Separate from the recorder above, and watching `childList` as well as
+ * `attributes`, because the two shapes are not interchangeable: React sometimes
+ * SETS the attribute on a surviving card (an attributes record) and sometimes
+ * INSERTS a card that already carries it (a childList record, no attributes
+ * record at all — the same "arrives with its content" blind spot that makes a
+ * freshly-inserted live region silent). An attributes-only watcher misses the
+ * second shape and reports "never armed" on a run where a cue plainly armed.
+ *
+ * The stamp is taken page-side at mutation time, not at poll time, so the
+ * elapsed check below cannot be flattered by polling latency.
+ */
+async function installFreshnessArmStamp(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const w = window as unknown as {
+      __freshnessArmedAt?: number | null;
+      __freshnessArmObserver?: MutationObserver;
+    };
+    w.__freshnessArmedAt = null;
+    const stamp = () => {
+      if (w.__freshnessArmedAt != null) return;
+      if (document.querySelector("[data-section-freshness-flash]"))
+        w.__freshnessArmedAt = Date.now();
+    };
+    const observer = new MutationObserver(stamp);
+    observer.observe(document.body, {
+      subtree: true,
+      childList: true,
+      attributes: true,
+      attributeFilter: ["data-section-freshness-flash"],
+    });
+    w.__freshnessArmObserver = observer;
+    stamp();
+  });
+}
+
+async function disconnectFreshnessArmStamp(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const w = window as unknown as { __freshnessArmObserver?: MutationObserver | undefined };
+    w.__freshnessArmObserver?.disconnect();
+    w.__freshnessArmObserver = undefined;
+  });
+}
+
+/** Disconnect it, so no observer outlives its page and hangs Playwright. */
+async function disconnectFreshnessObserver(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const w = window as unknown as { __freshnessObserver?: MutationObserver | undefined };
+    w.__freshnessObserver?.disconnect();
+    w.__freshnessObserver = undefined;
+  });
+}
 
 /** 25 rows force the modal scroller to scroll; roles are UNIQUE per row. */
 function buildRoster(): SeedCrewMemberInput[] {
@@ -362,27 +489,7 @@ async function runScenario(browser: Browser): Promise<ScenarioOutcome> {
       // happen instead. The record lives on `window`; the observer is
       // disconnected in the page's own teardown below, so no sampler outlives
       // its element and hangs Playwright's auto-wait.
-      await page.evaluate(() => {
-        const w = window as unknown as {
-          __freshnessSeen?: string[];
-          __freshnessObserver?: MutationObserver;
-        };
-        w.__freshnessSeen = [];
-        const observer = new MutationObserver((records) => {
-          for (const r of records) {
-            const el = r.target as Element;
-            if (!el.hasAttribute?.("data-section-freshness-flash")) continue;
-            const id = el.getAttribute("data-testid") ?? "(no testid)";
-            w.__freshnessSeen?.push(id);
-          }
-        });
-        observer.observe(document.body, {
-          subtree: true,
-          attributes: true,
-          attributeFilter: ["data-section-freshness-flash"],
-        });
-        w.__freshnessObserver = observer;
-      });
+      await installFreshnessObserver(page);
 
       // ── Mutate (the pinned key-stable stimulus: role swap on ONE row) ──────
       const commitAt = Date.now();
@@ -538,11 +645,7 @@ async function runScenario(browser: Browser): Promise<ScenarioOutcome> {
         "a refresh that changed nothing must cue nothing; the Synced readout is that signal",
       ).toEqual([]);
 
-      await page.evaluate(() => {
-        const w = window as unknown as { __freshnessObserver?: MutationObserver | undefined };
-        w.__freshnessObserver?.disconnect();
-        w.__freshnessObserver = undefined;
-      });
+      await disconnectFreshnessObserver(page);
 
       // Reconnect flake guard BEFORE the attribution assertion: a close/error or
       // re-join in the window legitimately fetches /version → environmental flake.
@@ -639,6 +742,221 @@ test.describe("published review modal — realtime broadcast refresh (realtime-r
   });
   test.afterAll(async () => {
     await restoreDashboardState?.();
+  });
+
+  test("an ABORTED close clears armed freshness cues (BL-FRESHNESS-ABORTED-CLOSE-E2E)", async ({
+    browser,
+  }) => {
+    test.setTimeout(240_000);
+
+    // REQUIRES THE PRODUCTION-BUILD SERVER, which is what CI runs (the workflow
+    // sets CI=true, so playwright.config's webServer is `build && start`). The
+    // reopen render costs ~440ms there and ~1900ms against `next dev`, and the
+    // budget below is 1600ms — so on a dev server this case fails its own
+    // premise rather than reporting anything about the modal. That failure is
+    // deliberate and its message says so: the alternative is a case that goes
+    // green on a dev server for a reason unrelated to the code under test.
+
+    // The defect this pins: `PublishedReviewModal`'s clear-on-hide branch drops
+    // armed cues when the modal starts closing. An ABORTED close — begun, then
+    // cancelled inside the 1600ms flash window — is the shape where a surviving
+    // cue would resume its timer on reopen and flash content that is no longer
+    // fresh. Observed RED against a mutant with that branch commented out
+    // before this green was trusted (see the task record).
+    const seeded: SeededShow = await seedShowWithCrew({ crew: buildRoster() });
+    const target = seeded.crew.find((c) => c.name === "Realtime Target")!;
+    const wireTopic = `realtime:show:${seeded.showId}:invalidation`;
+    let context: BrowserContext | undefined;
+    try {
+      context = await browser.newContext({ baseURL: BASE_URL, viewport: VIEWPORT });
+      const page: Page = await context.newPage();
+      // Same media context the reopen spec's abort case uses — the race is only
+      // driveable with the close transition un-animated.
+      await page.emulateMedia({ reducedMotion: "reduce" });
+
+      const frames: Stamped[] = [];
+      // Listeners BEFORE goto — the socket opens during hydration.
+      page.on("websocket", (ws) => {
+        ws.on("framereceived", (f) => frames.push({ at: Date.now(), text: String(f.payload) }));
+        ws.on("framesent", (f) =>
+          frames.push({ at: Date.now(), text: `SENT ${String(f.payload)}` }),
+        );
+      });
+
+      await signInAs(page, ADMIN_FIXTURE);
+      await page.goto("/admin");
+      await waitForRowHydration(page, seeded.slug);
+      await page.click(`[data-testid="shows-table-row-${seeded.slug}"]`);
+      await expect(page.locator(MODAL)).toBeVisible({ timeout: MODAL_OPEN_TIMEOUT_MS });
+
+      // SUBSCRIBED on the wire before any stimulus: the file's own comments
+      // record that a broadcast fired before the join is simply dropped, which
+      // would make this case pass for the wrong reason.
+      const join = await poll(
+        () =>
+          frames.find((f) => !f.text.startsWith("SENT") && isJoinReplyOk(f.text, seeded.showId)),
+        JOIN_REPLY_TIMEOUT_MS,
+      );
+      expect(join, `ok join reply on ${wireTopic}`).toBeTruthy();
+
+      // Cold-start warm-up, same bounded shape as the scenario above.
+      let warmupOk = false;
+      for (let attempt = 1; attempt <= 3 && !warmupOk; attempt += 1) {
+        const warmupAt = Date.now();
+        const rpcRes = await admin.rpc("publish_show_invalidation", { p_show_id: seeded.showId });
+        expect(rpcRes.error, "warm-up publish rpc").toBeNull();
+        const frame = await poll(
+          () =>
+            frames.find(
+              (f) =>
+                f.at > warmupAt &&
+                !f.text.startsWith("SENT") &&
+                isInvalidationFrame(f.text, seeded.showId),
+            ),
+          INVALIDATION_FRAME_TIMEOUT_MS,
+        );
+        warmupOk = frame !== undefined;
+      }
+      expect(warmupOk, "broadcast pipeline undeliverable after 3 warm-up publishes").toBe(true);
+
+      const targetRow = page
+        .locator(`li:has([data-testid="crew-row-menu-button-${target.id}"])`)
+        .first();
+
+      // BASELINE FIRST. The component arms nothing on the first signature it
+      // sees — that one becomes the baseline, which is the whole mechanism that
+      // stops a stale prefetch from flashing on open. So a single mutation here
+      // would establish the baseline and arm NOTHING, and the abort below would
+      // then be aborting over an empty cue set: green against any implementation.
+      // This mutation is spent buying the baseline; the next one arms.
+      await setCrewRoleLocked(seeded.driveFileId, target.id, BASELINE_ROLE);
+      await expect(targetRow).toContainText(BASELINE_ROLE, { timeout: CONTENT_SWAP_TIMEOUT_MS });
+
+      // Arm a real cue: install the stamper FIRST, then mutate.
+      await installFreshnessArmStamp(page);
+      const commitAt = Date.now();
+      await setCrewRoleLocked(seeded.driveFileId, target.id, NEW_ROLE);
+
+      // Phase (i) FIRST, exactly as `runScenario` does: local delivery loss is a
+      // measured ~9% of runs, and absorbing it here means a dropped frame reads
+      // as a transport miss (retried at the runner) instead of masquerading as
+      // "the cue never armed", which is a claim about the component.
+      const inval = await poll(
+        () =>
+          frames.find(
+            (f) =>
+              f.at > commitAt &&
+              !f.text.startsWith("SENT") &&
+              isInvalidationFrame(f.text, seeded.showId),
+          ),
+        INVALIDATION_FRAME_TIMEOUT_MS,
+      );
+      expect(inval, "post-mutation invalidation frame (phase i)").toBeTruthy();
+
+      // The cue must actually arm, or the abort below proves nothing. This is
+      // the premise of the whole case, so it is asserted rather than assumed.
+      const armedAt = await poll(
+        () =>
+          page
+            .evaluate(
+              () =>
+                (window as unknown as { __freshnessArmedAt?: number | null }).__freshnessArmedAt,
+            )
+            .then((at) => at ?? undefined),
+        CONTENT_SWAP_TIMEOUT_MS,
+      );
+      expect(
+        armedAt,
+        "a freshness cue must ARM before the abort — otherwise nothing is under test",
+      ).toBeTruthy();
+
+      // Begin the close and abort it INSIDE the flash window.
+      //
+      // THE BUDGET IS THE WHOLE DESIGN OF THIS DRIVE. A cue clears itself on a
+      // 1600ms timer that keeps running while the modal is hidden, so every ms
+      // between arming and the reopen is spent against the only window in which
+      // a survivor is distinguishable from a correctly-cleared one. Measured, at
+      // the reopen spec's 2500ms throttle: reopen at 3931ms, and the case passed
+      // against a FULLY NEUTERED clear-on-hide branch — a green earned by
+      // outrunning the defect. 200ms is therefore the throttle: it exists only
+      // to hold the close navigation open the ~15ms it takes to re-click, which
+      // the mid-transition probe below then proves it did.
+      await page.route("**/admin?*", async (route) => {
+        await new Promise((r) => setTimeout(r, 200));
+        await route.continue();
+      });
+      await page
+        .locator("[data-review-modal-scrim]")
+        .click({ position: { x: 4, y: 4 }, noWaitAfter: true });
+      await expect(page.locator(MODAL_ANY)).toHaveCount(0);
+
+      // The close navigation must still be PENDING. If it committed, the modal
+      // unmounted and the re-click mounts a FRESH one whose freshness state is
+      // empty by construction — the assertion would then hold no matter what
+      // the clear-on-hide branch does. Asserting the un-changed URL is what
+      // makes this an ABORTED close rather than a close-then-open.
+      const midTransition = await page.evaluate(
+        (tid) => ({
+          rowHref:
+            (
+              document.querySelector(`[data-testid="${tid}"]`) as HTMLAnchorElement | null
+            )?.getAttribute("href") ?? null,
+          search: window.location.search,
+        }),
+        `shows-table-row-${seeded.slug}`,
+      );
+      expect(midTransition.rowHref, "close nav still pending (row href)").toBe(
+        `/admin?show=${seeded.slug}`,
+      );
+      expect(midTransition.search, "close nav still pending (url)").toBe(`?show=${seeded.slug}`);
+
+      await page.click(`[data-testid="shows-table-row-${seeded.slug}"]`, { noWaitAfter: true });
+      await expect(page.locator(MODAL_ANY)).toBeVisible({ timeout: MODAL_OPEN_TIMEOUT_MS });
+
+      // ONE evaluate, so the elapsed reading and the DOM reading cannot drift
+      // apart across a round trip.
+      const observed = await page.evaluate(() => {
+        const w = window as unknown as { __freshnessArmedAt?: number | null };
+        return {
+          sinceArm: w.__freshnessArmedAt == null ? null : Date.now() - w.__freshnessArmedAt,
+          flashing: document.querySelectorAll("[data-section-freshness-flash]").length,
+        };
+      });
+
+      // PREMISE, asserted rather than assumed: a cue clears itself on a 1600ms
+      // timer that keeps running while the modal is hidden, so past that
+      // deadline `flashing === 0` is what a BROKEN implementation reports too.
+      // Failing here says the drive was too slow, never that the modal is fine.
+      expect(
+        observed.sinceArm,
+        "no cue arm was ever recorded — the case is testing nothing",
+      ).not.toBeNull();
+      expect(
+        observed.sinceArm!,
+        `abort drive outran the ${SECTION_FRESHNESS_FLASH_MS_E2E}ms flash window, so a surviving ` +
+          `cue would have expired on its own and this case cannot discriminate`,
+      ).toBeLessThan(SECTION_FRESHNESS_FLASH_MS_E2E);
+
+      // THE ASSERTION. Page-wide, because a survivor anywhere is the defect.
+      expect(
+        observed.flashing,
+        "an aborted close must clear armed freshness cues; a survivor resumes its timer on reopen",
+      ).toBe(0);
+
+      await disconnectFreshnessArmStamp(page);
+    } finally {
+      // Nested exactly as `runScenario`'s teardown is, so a failing earlier
+      // cleanup can never skip a later one. Dropping the seeded show is not
+      // optional: the drive id is random, so the helper's pre-seed cleanup
+      // cannot reach an earlier run's residue, and every pass or CI retry would
+      // otherwise leave another published show in the shared database for the
+      // following specs to trip over.
+      try {
+        await deleteSeededShow(seeded.driveFileId);
+      } finally {
+        await context?.close();
+      }
+    }
   });
 
   test("realtime broadcast reconciles the open modal in place", async ({ browser }) => {

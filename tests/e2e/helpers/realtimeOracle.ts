@@ -40,6 +40,21 @@ export const JOIN_REPLY_TIMEOUT_MS = 15_000; // max(15_000, 3×1263)
 export const QUIESCENCE_ACQUIRE_TIMEOUT_MS = 10_000; // max(10_000, 20×QUIET_WINDOW_MS) — bound on ACHIEVING quiescence
 export const INVALIDATION_FRAME_TIMEOUT_MS = 10_000; // max(10_000, 5×14)
 export const POST_FRAME_REQUEST_TIMEOUT_MS = 5_000; // max(5_000, 5×109)
+/**
+ * Mirror of `SECTION_FRESHNESS_FLASH_MS` (components/admin/review/sectionFreshness.ts).
+ *
+ * COPIED, not imported, and the reason is mechanical rather than stylistic: that module
+ * pulls in app code that throws at import time without HASH_FOR_LOG_PEPPER, and
+ * `playwright test --list` EVALUATES every spec module. A spec importing it fails the
+ * spec-registration meta-test in `unit-suite-db`, which sets no such env — a break that
+ * appears only in CI, never locally, where the e2e env is exported by hand.
+ *
+ * Drift is closed from the other side: `tests/components/admin/review/sectionFreshnessCss.test.ts`
+ * asserts this constant equals the real one, and that test CAN import the module because
+ * vitest loads the env.
+ */
+export const SECTION_FRESHNESS_FLASH_MS_E2E = 1600;
+
 export const CONTENT_SWAP_TIMEOUT_MS = 10_000; // max(10_000, 5×554)
 
 type WireFrame = {

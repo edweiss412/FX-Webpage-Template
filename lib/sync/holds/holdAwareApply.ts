@@ -142,6 +142,18 @@ export type HoldAwareApplyArgs = {
    * (treat all parse rows as added) when the snapshot is unavailable.
    */
   previousCrewNames?: string[];
+  /**
+   * Prior live crew ROWS, keyed by name downstream. Distinct from
+   * `previousCrewNames` on purpose: the `crew_email` reject branch must retain
+   * the row the sheet last had, and a name alone cannot reconstruct one.
+   *
+   * Deliberately NOT `rowFromHeldValue(held)` — the held value is a FROZEN
+   * SNAPSHOT taken when the hold was opened, and the upsert writes every column,
+   * so retaining it reverts every live field edited since. Optional: with no
+   * snapshot there is no live row to retain and the branch keeps today's
+   * behaviour (spec §4 limit 4, a documented degrade rather than a silent one).
+   */
+  previousCrewMembers?: CrewMemberRow[];
 };
 
 /**
@@ -224,6 +236,7 @@ export async function planHoldAwareApply(
         pinnedIdentity,
         // WM-F4: same prior-live snapshot the rename-fold (WM-F3) + reservation (P2-F4) guards use.
         previousCrewNames: new Set(args.previousCrewNames ?? []),
+        previousByName: new Map((args.previousCrewMembers ?? []).map((m) => [m.name, m])),
       });
       continue;
     }
@@ -426,6 +439,7 @@ function applyUndoOverrideToMaps(
     retainRows: Map<string, CrewMemberRow>;
     pinnedIdentity: Map<string, { name: string; email: string | null }>;
     previousCrewNames: Set<string>;
+    previousByName: Map<string, CrewMemberRow>;
   },
 ): void {
   const held = hold.held_value;
@@ -436,6 +450,20 @@ function applyUndoOverrideToMaps(
       name: String(held.name ?? hold.entity_key),
       email: (held.email as string | null) ?? null,
     });
+    // RETAIN THE LIVE ROW — the asymmetry this branch used to carry
+    // (BL-CAPABILITY-LOSS-SURVIVING-ROW-FALSE-POSITIVE). Every sibling branch
+    // adds a retain row; this one added `protectedNames` and returned, so the
+    // name was excluded from the delete but never put back into
+    // `plan.crewMembers`. Downstream, `appliedCrewMembers` therefore omitted a
+    // member who was still very much alive, and the capability-loss notice told
+    // the operator a live LEAD had lost LEAD access.
+    //
+    // The retained row is the LIVE one, never `rowFromHeldValue(held)`: the
+    // upsert writes every column, so retaining the frozen snapshot would revert
+    // every field edited since the hold opened. No matching live row means no
+    // retain — today's behaviour, and the documented degrade.
+    const live = maps.previousByName.get(hold.entity_key);
+    if (live) maps.retainRows.set(hold.entity_key, live);
     return;
   }
   // crew_identity
