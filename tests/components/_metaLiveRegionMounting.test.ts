@@ -152,10 +152,6 @@ const PENDING: ReadonlyMap<string, string> = new Map([
   // which is the argument for the rewrite. Each is a region born populated, and
   // each needs a real repair rather than a mechanical toggle:
   [
-    "components/admin/dev/MaterializeCard.tsx",
-    '1 site — `result === null ? null : <div role="status">`; needs the region hoisted above the result gate',
-  ],
-  [
     "app/admin/settings/admins/RevokeRowButton.tsx",
     "1 site — the couldn't-confirm warning is inserted with its text after a failed revoke",
   ],
@@ -191,7 +187,9 @@ const REGISTERED_SITES: ReadonlyMap<string, number> = new Map([
   ["components/admin/RoleRecognizeControl.tsx", 2],
   ["components/admin/RecentAutoAppliedStrip.tsx", 2],
   ["components/admin/ReSyncButton.tsx", 1],
-  ["components/admin/dev/MaterializeCard.tsx", 1],
+  // Repaired 2026-08-07 (arc A): the region hoisted above the result gate, the
+  // visual box moved inside it and left result-scoped. No conditional site left.
+  ["components/admin/dev/MaterializeCard.tsx", 0],
   ["app/admin/settings/admins/RevokeRowButton.tsx", 1],
   ["components/admin/wizard/step3ReviewSections.tsx", 1],
   ["components/admin/wizard/Step3ReviewModal.tsx", 2],
