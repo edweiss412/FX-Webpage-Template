@@ -152,10 +152,6 @@ const PENDING: ReadonlyMap<string, string> = new Map([
   // which is the argument for the rewrite. Each is a region born populated, and
   // each needs a real repair rather than a mechanical toggle:
   [
-    "components/admin/wizard/step3ReviewSections.tsx",
-    "1 site — the report-status span (`-report-status`) is gated on the send outcome it reports",
-  ],
-  [
     "components/admin/wizard/Step3ReviewModal.tsx",
     "1 site — the publish-error span at :633 is mounted but its enclosing row is gated",
   ],
@@ -190,7 +186,13 @@ const REGISTERED_SITES: ReadonlyMap<string, number> = new Map([
   // second key-stable persistent region beside the arm-expiry one; the visible
   // warning line keeps its copy and drops the role it could never honour.
   ["app/admin/settings/admins/RevokeRowButton.tsx", 0],
-  ["components/admin/wizard/step3ReviewSections.tsx", 1],
+  // Repaired 2026-08-07 (arc A), both dispositions in this file: the
+  // report-status region hoisted above the `expanded` disclosure (which is NOT
+  // an exemptible surface gate — an async send settles while collapsed), and the
+  // agenda parsing region hoisted above the in-file `baseline.length === 0`
+  // guard. The agenda SECTION's cross-component gate remains the documented
+  // walk-blindness limit in this file's header, not a site.
+  ["components/admin/wizard/step3ReviewSections.tsx", 0],
   ["components/admin/wizard/Step3ReviewModal.tsx", 2],
 ]);
 

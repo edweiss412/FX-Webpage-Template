@@ -3462,44 +3462,48 @@ export function AgendaBreakdown({
     onLiveKeyLayout?.(currentKeyRef.current);
   });
 
+  // Mounted unconditionally, text toggled: a live region inserted together with
+  // its text is never announced, and "parsing started" is exactly the transition
+  // a reader needs (BL-ANNOUNCE-REGION-UNMOUNT-CLASS).
+  //
+  // HOISTED ABOVE THE §4.6 GUARD (BL-LIVE-REGION-AST-WALK-RESIDUE). It used to
+  // sit below the early return, so within this file the region's own mounting
+  // was gated — the shape the walk names. It is now the one thing the empty
+  // branch renders: `state` initialises to "idle" when the baseline is empty, so
+  // it is empty and `sr-only`, i.e. still "no breakdown at all" for a sighted
+  // operator, while later transitions have a node to mutate into.
+  //
+  // DOCUMENTED LIMIT, unchanged by the hoist and deliberately restated rather
+  // than deleted: the AGENDA SECTION is gated cross-component by `includesAgenda`
+  // (`components/admin/review/sectionInclusion.ts`), which the AST walk cannot
+  // see and this repair does not claim to fix. A non-empty baseline initialises
+  // `state` to "loading", so the first render a mounted breakdown performs still
+  // carries the parsing text and first paint still cannot announce. Deferring
+  // that text by an effect is what `react-hooks/set-state-in-effect` forbids,
+  // correctly — it is a cascading render. Every LATER transition (loading →
+  // ready, ready → error) announces.
+  const parsingRegion = (
+    <p
+      role="status"
+      aria-live="polite"
+      data-testid={`wizard-step3-card-${driveFileId}-agenda-parsing`}
+      className={state === "loading" ? "text-xs text-text-subtle" : "sr-only"}
+    >
+      {state === "loading"
+        ? `Parsing agenda… (${items.length} ${items.length === 1 ? "PDF" : "PDFs"})`
+        : ""}
+    </p>
+  );
+
   // §4.6 guard: no agenda links → no breakdown at all (and the effect above
-  // never POSTs).
-  if (baseline.length === 0) return null;
+  // never POSTs). The region is all that survives it, and it paints nothing.
+  if (baseline.length === 0) return parsingRegion;
 
   const sourceHref = buildSheetDeepLink(driveFileId);
 
   const body = (
     <>
-      {/* Mounted unconditionally, text toggled: a live region inserted together
-          with its text is never announced, and "parsing started" is exactly the
-          transition a reader needs (BL-ANNOUNCE-REGION-UNMOUNT-CLASS). */}
-      {/* DOCUMENTED LIMIT — this region IS born populated, and R3 is right.
-          The §4.6 guard returns null unless `baseline.length > 0`, and a
-          non-empty baseline initialises `state` to "loading", so the first
-          render this component ever performs already carries the parsing text.
-          The empty branch below is unreachable AT MOUNT.
-
-          It is not fixable from inside this component. Deferring the text by an
-          effect is what `react-hooks/set-state-in-effect` forbids (correctly —
-          it is a cascading render), and the alternative is for the region to
-          live ABOVE the §4.6 guard, i.e. in the parent that persists across it.
-          That is the cross-component ownership case already filed on
-          BL-LIVE-REGION-AST-WALK-RESIDUE, and it is a real change to who owns
-          this surface rather than a line edit here.
-
-          The region stays mounted-and-toggled because that is still correct for
-          every LATER transition (loading → ready, ready → error); only the very
-          first paint cannot announce. */}
-      <p
-        role="status"
-        aria-live="polite"
-        data-testid={`wizard-step3-card-${driveFileId}-agenda-parsing`}
-        className={state === "loading" ? "text-xs text-text-subtle" : "sr-only"}
-      >
-        {state === "loading"
-          ? `Parsing agenda… (${items.length} ${items.length === 1 ? "PDF" : "PDFs"})`
-          : ""}
-      </p>
+      {parsingRegion}
       <ul className="flex flex-col gap-3">
         {items.map((item, i) => (
           <AgendaItemRow key={`${item.label}-${i}`} item={item} state={state} index={i} />
@@ -4085,26 +4089,51 @@ export function ReportIssueSection({ data }: { data: StagedSectionData }) {
       >
         Write a report
       </button>
-      {/* §D2: instant — deliberate (collapsed↔expanded; the status swaps inside are §D2 instant too) */}
-      {expanded ? (
-        <form id={formId} onSubmit={handleSubmit} className="flex flex-col gap-2">
-          <label htmlFor={textareaId} className="text-sm font-medium text-text-strong">
-            What&rsquo;s wrong or missing?
-          </label>
-          <textarea
-            id={textareaId}
-            ref={textareaRef}
-            data-testid={`wizard-step3-card-${dfid}-report-textarea`}
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            maxLength={REPORT_MESSAGE_MAX_CHARS}
-            rows={3}
-            /* border-border on bg-bg was 1.22:1 — far under the 3:1 non-text
-               minimum (impeccable audit P2, WCAG 1.4.11). border-strong + the
-               surface fill together make the field read as a field. */
-            className="w-full rounded-sm border border-border-strong bg-surface p-2 text-sm text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
-          />
-          <div className="flex items-center gap-3">
+      {/* §D2: instant — deliberate (collapsed↔expanded; the status swaps inside are §D2 instant too)
+
+          BL-LIVE-REGION-AST-WALK-RESIDUE. The `expanded` disclosure is NOT an
+          exemptible surface gate: the send is asynchronous and the operator can
+          collapse mid-flight, so the outcome settles while the region is absent
+          and re-expansion mounts the region together with its already-settled
+          text — a dead announcement, which is the class defect exactly.
+
+          So the FORM stays mounted and only its contents are gated, which keeps
+          the status region above the disclosure gate without moving it out of
+          the button row it shares (the visible layout, expanded, is unchanged).
+          `contents` while collapsed removes the form's box from the section's
+          flex flow entirely, so the collapsed section gains no stray gap; the
+          textarea and submit are still genuinely unmounted, so the disclosure
+          contract and the draft-preservation behaviour are untouched.
+          `aria-controls` now also points at an element that actually exists. */}
+      <form
+        id={formId}
+        onSubmit={handleSubmit}
+        className={expanded ? "flex flex-col gap-2" : "contents"}
+      >
+        {/* §D2: instant — deliberate (the form's own contents; same pair as the disclosure above) */}
+        {expanded ? (
+          <>
+            <label htmlFor={textareaId} className="text-sm font-medium text-text-strong">
+              What&rsquo;s wrong or missing?
+            </label>
+            <textarea
+              id={textareaId}
+              ref={textareaRef}
+              data-testid={`wizard-step3-card-${dfid}-report-textarea`}
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              maxLength={REPORT_MESSAGE_MAX_CHARS}
+              rows={3}
+              /* border-border on bg-bg was 1.22:1 — far under the 3:1 non-text
+                 minimum (impeccable audit P2, WCAG 1.4.11). border-strong + the
+                 surface fill together make the field read as a field. */
+              className="w-full rounded-sm border border-border-strong bg-surface p-2 text-sm text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+            />
+          </>
+        ) : null}
+        <div className={expanded ? "flex items-center gap-3" : "contents"}>
+          {/* §D2: instant — deliberate (the submit control; the status beside it never unmounts) */}
+          {expanded ? (
             <button
               type="submit"
               data-testid={`wizard-step3-card-${dfid}-report-submit`}
@@ -4118,24 +4147,28 @@ export function ReportIssueSection({ data }: { data: StagedSectionData }) {
             >
               Send report
             </button>
-            <span
-              data-testid={`wizard-step3-card-${dfid}-report-status`}
-              role="status"
-              aria-live="polite"
-              className={`min-w-0 text-sm ${status.kind === "error" ? "font-medium text-warning-text" : "text-text-subtle"}`}
-            >
-              {/* §D3 status line — instant text swaps (spec §H N7) */}
-              {status.kind === "pending"
-                ? "Sending…"
-                : status.kind === "success"
-                  ? "Sent — thanks. The developer will take a look."
-                  : status.kind === "error"
-                    ? status.copy
-                    : ""}
-            </span>
-          </div>
-        </form>
-      ) : null}
+          ) : null}
+          <span
+            data-testid={`wizard-step3-card-${dfid}-report-status`}
+            role="status"
+            aria-live="polite"
+            className={
+              expanded
+                ? `min-w-0 text-sm ${status.kind === "error" ? "font-medium text-warning-text" : "text-text-subtle"}`
+                : "sr-only"
+            }
+          >
+            {/* §D3 status line — instant text swaps (spec §H N7) */}
+            {status.kind === "pending"
+              ? "Sending…"
+              : status.kind === "success"
+                ? "Sent — thanks. The developer will take a look."
+                : status.kind === "error"
+                  ? status.copy
+                  : ""}
+          </span>
+        </div>
+      </form>
     </BreakdownSection>
   );
 }
