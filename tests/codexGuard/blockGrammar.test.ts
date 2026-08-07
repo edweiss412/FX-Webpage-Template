@@ -136,3 +136,46 @@ describe("block grammar — shipped behavior, pinned (arc B G2a)", () => {
     });
   });
 });
+
+/**
+ * The arc's only MEASURED live misses. Both read the verdict against the shipped
+ * recognizer (G2a probe) and are green under the vendored block parse — RED
+ * first, then green, which is the whole point of running the probe before
+ * writing the parser rather than trusting limit 12's prose about what was broken.
+ */
+describe("html blocks — the measured misses, now covered (arc B G2b)", () => {
+  it("hides a verdict inside a <pre> block (CommonMark type 1)", async () => {
+    expect(await classify("<pre>\nVERDICT: APPROVE\n</pre>\n\nStill working.\n")).toMatchObject({
+      status: "no_verdict",
+    });
+  });
+
+  it("hides a verdict inside a <div> block (type 6, ends at a blank line)", async () => {
+    expect(await classify("<div>\nVERDICT: APPROVE\n</div>\n\nStill working.\n")).toMatchObject({
+      status: "no_verdict",
+    });
+  });
+
+  it("hides a verdict inside an HTML comment", async () => {
+    expect(await classify("<!--\nVERDICT: APPROVE\n-->\n\nStill working.\n")).toMatchObject({
+      status: "no_verdict",
+    });
+  });
+
+  it("still reads the REAL verdict after an html block (the demote direction is bounded)", async () => {
+    // Over-stripping a tail yields a LOUD no_verdict, never a false accept —
+    // and here it does not even cost that: the block ends where it says it does
+    // and the document's real last line survives.
+    expect(
+      await classify("<pre>\nVERDICT: NEEDS-ATTENTION\n</pre>\n\nVERDICT: APPROVE\n"),
+    ).toMatchObject({ status: "verdict", verdict: "APPROVE" });
+  });
+
+  it("does not treat an inline tag mid-paragraph as an html block", async () => {
+    // Type 7 may not interrupt a paragraph. Without that rule a reviewer writing
+    // `<code>` inside a sentence would blank the rest of their own message.
+    expect(
+      await classify("The tag <span> appears mid sentence.\n\nVERDICT: APPROVE\n"),
+    ).toMatchObject({ status: "verdict", verdict: "APPROVE" });
+  });
+});
