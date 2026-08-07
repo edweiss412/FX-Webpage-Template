@@ -113,7 +113,7 @@ describe("GET render states", () => {
     const { container } = await renderPage();
     expect(
       screen.getByText(
-        "We couldn't check this link just now. Nothing has changed — try again in a minute.",
+        "We couldn't check this link just now. Nothing has changed; try again in a minute.",
       ),
     ).toBeInTheDocument();
     expect(screen.queryByText(/we couldn.t open this link/i)).toBeNull();
@@ -158,7 +158,7 @@ describe("POST outcome rendering in place (client form + mocked server action)",
     expect(strong.tagName).toBe("STRONG");
     expect(
       screen.getByText(
-        /crew links are paused; flip published back on from its page in the admin any time/i,
+        /crew links are paused\. flip published back on from its page in the admin any time/i,
       ),
     ).toBeInTheDocument();
     const adminLink = screen.getByRole("link", { name: /open it in the admin/i });
@@ -200,7 +200,7 @@ describe("POST outcome rendering in place (client form + mocked server action)",
     await waitFor(() => {
       expect(
         screen.getByText(
-          "We couldn't check this link just now. Nothing has changed — try again in a minute.",
+          "We couldn't check this link just now. Nothing has changed; try again in a minute.",
         ),
       ).toBeInTheDocument();
     });
