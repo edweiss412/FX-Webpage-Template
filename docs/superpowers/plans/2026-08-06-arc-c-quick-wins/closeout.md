@@ -123,3 +123,29 @@ than reporting anything about the modal.
       `impeccable-gate: N/A — no UI surface` (§12). Cross-model diff review
       APPROVE, real CI green including `published-modal-e2e.yml`, and main ff'd
       to `0 0` are recorded at merge.
+
+## 15. Cross-model review train
+
+**R1 — NEEDS-ATTENTION, 1 finding.** Whole final diff, `--stage diff`.
+
+- **P2 — the new e2e case leaked its seeded show.** CONFIRMED and repaired. The
+  `finally` closed the browser context but never dropped the show, so every pass
+  and every CI retry left another published show with 25 crew members in the
+  shared database; the drive id is random, so the helper's pre-seed cleanup
+  cannot reach an earlier run's residue. Teardown is now nested exactly as
+  `runScenario`'s is, so a failing earlier step cannot skip a later one. Both
+  cases re-verified green after the change.
+
+  **Class-sweep** over the shape "a seed with no matching teardown", across every
+  `tests/e2e/*.spec.ts` that calls `seedShowWithCrew`: 16 files, and the new case
+  was the only instance. `picker-flow.spec.ts` reads 6 seeds / 0
+  `deleteSeededShow` calls but is NOT an instance — it accumulates drive file ids
+  and deletes them in an `afterEach` (`:88-92`). No peer was deferred, because
+  none was found.
+
+The reviewer explicitly reported no wrong-and-silent Q1 input within the stated
+fence, and judged the Q2 timing and oracles capable of detecting the specified
+clear-on-hide mutant. It could not run vitest or the production-server e2e from
+its sandbox and said so rather than inferring — recorded here so a later round
+does not read that silence as a clean run.
+

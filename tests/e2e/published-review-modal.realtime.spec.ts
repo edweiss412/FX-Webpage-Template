@@ -952,7 +952,17 @@ test.describe("published review modal — realtime broadcast refresh (realtime-r
 
       await disconnectFreshnessArmStamp(page);
     } finally {
-      await context?.close();
+      // Nested exactly as `runScenario`'s teardown is, so a failing earlier
+      // cleanup can never skip a later one. Dropping the seeded show is not
+      // optional: the drive id is random, so the helper's pre-seed cleanup
+      // cannot reach an earlier run's residue, and every pass or CI retry would
+      // otherwise leave another published show in the shared database for the
+      // following specs to trip over.
+      try {
+        await deleteSeededShow(seeded.driveFileId);
+      } finally {
+        await context?.close();
+      }
     }
   });
 
