@@ -74,7 +74,14 @@ const CHANNEL_ANNOUNCERS: readonly string[] = [
  */
 const CHANNEL_ANNOUNCE_CALLS: ReadonlyMap<string, number> = new Map([
   ["components/admin/RescanSheetButton.tsx", 2],
-  ["components/admin/RoleRecognizeControl.tsx", 1],
+  // 1 -> 3 (arc A). The stale and conflict branches announced nothing at all and
+  // each got its own call, on its own branch beside its own `setPhase`. The plan
+  // predicted 2 by assuming one shared call; these counts are MEASURED, not
+  // predicted, and collapsing two branches into one ternary to hit a forecast
+  // number is the wrong direction. The saved announce also became
+  // variant-correct, which no count can see — that is what the behavioural
+  // cases in RoleRecognizeControl.test.tsx pin.
+  ["components/admin/RoleRecognizeControl.tsx", 3],
   ["components/admin/RecentAutoAppliedStrip.tsx", 1],
   ["components/admin/ReSyncButton.tsx", 1],
 ]);
@@ -183,7 +190,11 @@ const PENDING: ReadonlyMap<string, string> = new Map([]);
  */
 const REGISTERED_SITES: ReadonlyMap<string, number> = new Map([
   ["components/admin/RescanSheetButton.tsx", 0],
-  ["components/admin/RoleRecognizeControl.tsx", 2],
+  // Stripped 2026-08-07 (arc A): 2 -> 0. Both attributes sat on cards inserted
+  // wholesale by a phase flip, so neither ever announced. The channel now
+  // carries the saved state's OWN copy (variant-correct across applied /
+  // revised / apply_pending) and the stale and conflict notices.
+  ["components/admin/RoleRecognizeControl.tsx", 0],
   ["components/admin/RecentAutoAppliedStrip.tsx", 2],
   ["components/admin/ReSyncButton.tsx", 1],
   // Repaired 2026-08-07 (arc A): the region hoisted above the result gate, the
