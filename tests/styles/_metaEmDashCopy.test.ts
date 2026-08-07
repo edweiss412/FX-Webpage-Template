@@ -173,59 +173,69 @@ function lineOf(source: string, pos: number): number {
  * nothing about the guard that actually runs.
  */
 /**
- * The ONLY places a bare em-dash glyph is allowed to stand as an empty-value
- * sentinel, keyed by FILE with an exact count.
+ * The ONLY places a bare em-dash glyph may stand as an empty-value sentinel,
+ * keyed by FILE and by the EXACT enclosing expression.
  *
- * WHY A SITE LIST AND NOT A SYNTAX RULE. Three successive syntax rules were
- * defeated, each by ordinary composition rather than obfuscation:
+ * WHY NOT A SYNTAX RULE, AND WHY NOT A COUNT. Four allowances have been defeated
+ * on this branch, each by ordinary composition rather than obfuscation:
  *
- *   v1  `text.trim() === EM_DASH`                 `{" — "}` between siblings
- *   v2  v1 + "parent must not build a string"     `const SEP = "—"` in a template;
- *                                                 `[…,"—",…].join(" ")`;
- *                                                 a nested `<span>—</span>`
- *   v3  "a `??`/`||` fallback, or aria-hidden"    `{separator ?? "—"}` between
- *                                                 prose; `aria-hidden` hides from
- *                                                 the a11y tree, NOT from sighted
- *                                                 readers
+ *   v1  `text.trim() === EM_DASH`              `{" — "}` between siblings
+ *   v2  + "parent must not build a string"     `const SEP = "—"` in a template;
+ *                                              `[…,"—",…].join(" ")`; nested span
+ *   v3  "a `??`/`||` fallback, or aria-hidden" `{sep ?? "—"}` between prose;
+ *                                              aria-hidden hides from the a11y
+ *                                              tree, NOT from sighted readers
+ *   v4  a per-file COUNT                       RELOCATION: move the glyph to a
+ *                                              visible label, demote a real
+ *                                              sentinel to "-", count unchanged
  *
- * The common defect is that "does this render alone?" is not decidable from a
- * literal's syntax, so every shape-based allowance is a shape real copy can wear.
- * Six sites use a sentinel; enumerating them costs six rows and cannot be widened
- * by writing ordinary code. A new sentinel needs a deliberate row here.
+ * So the key is the enclosing expression's own source text, normalized for
+ * whitespace. Moving a glyph anywhere else in the same file changes that text
+ * and is a hit; the allowance cannot be inherited by new code.
  *
- * The count is part of the key: adding a SECOND glyph to a file registered for
- * one fails loudly rather than inheriting its allowance.
- *
- * RESIDUAL LIMIT, stated rather than hidden: within a registered file, the count
- * does not say WHICH literal, so swapping a registered sentinel for a separator
- * in that same file would pass. That is four files and six literals of exposure,
- * against "every `??` fallback in every covered file" before — and each of those
- * files is copy-reviewed under the invariant-8 gate.
+ * Both ratchets below are load-bearing: every registered anchor must still be
+ * FOUND (a stale allowance is a standing hole), and a registered file must scan
+ * clean (no extra glyph rides along).
  */
-const SENTINEL_SITES: Readonly<Record<string, number>> = {
-  "components/admin/ShowsTable.tsx": 2, // {startText ?? "—"}, {endText ?? "—"}
-  "components/admin/wizard/step3ReviewSections.tsx": 3, // {checkIn}, {checkOut}, aria-hidden separator
-  "components/admin/telemetry/TelemetryOverviewStrip.tsx": 1, // <span aria-hidden>—</span>
+const SENTINEL_ANCHORS: Readonly<Record<string, readonly string[]>> = {
+  "components/admin/ShowsTable.tsx": ['startText ?? "—"', 'endText ?? "—"'],
+  "components/admin/wizard/step3ReviewSections.tsx": [
+    'checkIn ?? "—"',
+    'checkOut ?? "—"',
+    '<span aria-hidden="true" className="px-1.5 font-normal text-text-faint"> — </span>',
+  ],
+  "components/admin/telemetry/TelemetryOverviewStrip.tsx": ["<span aria-hidden>—</span>"],
 };
 
-/** Per-file tally of bare glyphs seen, so the registered count is exact. */
-function isSentinel(rel: string, text: string, isJsx: boolean, seen: Map<string, number>): boolean {
+/** Whitespace-normalized source text, so formatting churn is not a false alarm. */
+const anchorKey = (node: ts.Node): string => node.getText().replace(/\s+/g, " ").trim();
+
+function isSentinel(
+  rel: string,
+  text: string,
+  isJsx: boolean,
+  node: ts.Node,
+  hit: Set<string>,
+): boolean {
   const bare = isJsx ? text.trim() === EM_DASH : text === EM_DASH;
   if (!bare) return false;
-  const allowed = SENTINEL_SITES[rel];
-  if (allowed === undefined) return false;
-  const n = (seen.get(rel) ?? 0) + 1;
-  seen.set(rel, n);
-  return n <= allowed;
+  const anchors = SENTINEL_ANCHORS[rel];
+  if (!anchors) return false;
+  const parent = node.parent;
+  if (!parent) return false;
+  const key = anchorKey(parent);
+  if (!anchors.includes(key)) return false;
+  hit.add(key);
+  return true;
 }
 
 export function scanTypeScript(rel: string, source: string): Hit[] {
   const sf = ts.createSourceFile(rel, source, ts.ScriptTarget.Latest, true);
   const hits: Hit[] = [];
-  const seen = new Map<string, number>();
+  const anchorsHit = new Set<string>();
   const record = (node: ts.Node, text: string, isJsx = false) => {
     if (!text.includes(EM_DASH)) return;
-    if (isSentinel(rel, text, isJsx, seen)) return;
+    if (isSentinel(rel, text, isJsx, node, anchorsHit)) return;
     hits.push({
       file: rel,
       line: lineOf(source, node.getStart(sf)),
@@ -256,15 +266,48 @@ export function scanTypeScript(rel: string, source: string): Hit[] {
  * pipes, dashes, colons and whitespace and nothing else. Table CELL prose stays
  * scanned.
  */
+/**
+ * CSS `content:` declarations RENDER TEXT, so they are copy — and they were the
+ * one covered surface the scanner could not see (it selected only .ts/.tsx and
+ * help markdown). `body::after { content: "—" }` displayed an em dash while the
+ * guard stayed green.
+ *
+ * Comments are stripped FIRST, so the same
+ * comments-are-not-copy rule the TypeScript scanner gets from parsing applies
+ * here too: `app/globals.css` carries 57 em dashes and every one is in a
+ * comment, which is exactly the kind of count that inflated this entry's
+ * original census.
+ */
+export function scanCss(rel: string, source: string): Hit[] {
+  const stripped = source.replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " "));
+  const hits: Hit[] = [];
+  stripped.split("\n").forEach((line, i) => {
+    const m = /content\s*:([^;}]*)/i.exec(line);
+    if (!m) return;
+    if (m[1]!.includes(EM_DASH)) {
+      hits.push({ file: rel, line: i + 1, text: line.trim(), token: EM_DASH });
+    }
+  });
+  return hits;
+}
+
 /** Cells in a pipe row, GFM-style: split on unescaped `|`, drop the outer empties. */
 function cellCount(line: string): number {
-  const trimmed = line.trim().replace(/^\|/, "").replace(/\|$/, "");
-  return trimmed.split("|").length;
+  // `\|` inside a cell is an ESCAPED pipe and does not split a cell. Splitting
+  // on every pipe counted `| A \| B |` as two cells, so a genuinely one-cell
+  // header matched a two-cell delimiter and the block (which GFM renders as a
+  // PARAGRAPH) had its second line elided.
+  const trimmed = line
+    .trim()
+    .replace(/^\|/, "")
+    .replace(/\|\s*$/, "");
+  return trimmed.split(/(?<!\\)\|/).length;
 }
 
 export function scanMarkdown(rel: string, source: string): Hit[] {
   const hits: Hit[] = [];
-  let fenced = false;
+  let fenceChar: string | null = null;
+  let fenceLen = 0;
   let headerCells = 0;
   // A delimiter row is the SECOND row of a table and nothing else. Matching it
   // by SHAPE alone elided `| -- |` sitting in a DATA row, which renders as a
@@ -273,12 +316,39 @@ export function scanMarkdown(rel: string, source: string): Hit[] {
   // makes the elision structural rather than a shape that real content can wear.
   let tableRow = 0;
   source.split("\n").forEach((raw, i) => {
-    if (/^\s*(```|~~~)/.test(raw)) {
-      fenced = !fenced;
-      tableRow = 0;
-      return;
+    // GFM fences: a closer must use the SAME character and be at least as long
+    // as the opener, and a backtick opener's info string may not contain a
+    // backtick. A single boolean toggled by "starts with ``` or ~~~" was
+    // defeated three ways — an invalid backtick info string, a ~~~ line inside a
+    // backtick fence, and a ``` line inside a storage fence — each leaving
+    // later prose unscanned.
+    const fence = /^\s{0,3}(`{3,}|~{3,})(.*)$/.exec(raw);
+    if (fence) {
+      const marks = fence[1]!;
+      const info = fence[2] ?? "";
+      const char = marks[0]!;
+      if (!fenceChar) {
+        // Opening. A backtick opener with a backtick in its info string is not
+        // a fence at all.
+        if (char === "`" && info.includes("`")) {
+          // not a fence; fall through and scan this line as prose
+        } else {
+          fenceChar = char;
+          fenceLen = marks.length;
+          tableRow = 0;
+          return;
+        }
+      } else if (char === fenceChar && marks.length >= fenceLen && info.trim() === "") {
+        fenceChar = null;
+        fenceLen = 0;
+        tableRow = 0;
+        return;
+      } else {
+        // A different fence char, a short run, or an info string: still inside.
+        return;
+      }
     }
-    if (fenced) return;
+    if (fenceChar) return;
     const isPipeRow = /^\s*\|/.test(raw);
     if (isPipeRow) {
       tableRow += 1;
@@ -348,6 +418,15 @@ function liveHits(): Hit[] {
       const rel = relative(ROOT, f);
       if (isExempt(rel)) continue;
       hits.push(...scanMarkdown(rel, readFileSync(f, "utf8")));
+    }
+  }
+
+  // CSS `content:` renders text, so it is a covered surface too.
+  for (const root of COVERED_TS_ROOTS) {
+    for (const f of walkFiles(join(ROOT, root), (x) => /\.css$/.test(x))) {
+      const rel = relative(ROOT, f);
+      if (isExempt(rel) || OUT_OF_SET(rel)) continue;
+      hits.push(...scanCss(rel, readFileSync(f, "utf8")));
     }
   }
 
@@ -515,51 +594,82 @@ describe("em-dash copy guard — DESIGN.md §9", () => {
     }
   });
 
-  it("PREMISE: the sentinel allowance is keyed on SITE, not on syntax", () => {
-    // An UNREGISTERED file gets no allowance, whatever shape it uses. These are
-    // exactly the R2 bypasses; every one renders a visible em dash.
-    const bypasses = [
-      `const C = () => <p>Notifications {separator ?? "\u2014"} unseen</p>;`,
-      `const C = () => <p>Notifications {separator || "\u2014"} unseen</p>;`,
-      `const C = () => <p>Notifications <span aria-hidden="true">\u2014</span> unseen</p>;`,
-      `const C = () => <span aria-hidden="true"><b>N</b>\u2014<b>u</b></span>;`,
+  it("PREMISE: the sentinel allowance is keyed on the EXACT enclosing expression", () => {
+    // An unregistered file gets no allowance, whatever shape it uses.
+    for (const src of [
+      `const C = () => <p>N {separator ?? "\u2014"} u</p>;`,
+      `const C = () => <p>N {separator || "\u2014"} u</p>;`,
+      `const C = () => <p>N <span aria-hidden="true">\u2014</span> u</p>;`,
       `const SEP = "\u2014";`,
-    ];
-    for (const src of bypasses) {
+    ]) {
       expect(
         scanTypeScript("components/unregistered.tsx", src),
-        `an unregistered file gets no sentinel allowance: ${src}`,
+        `unregistered files get no allowance: ${src}`,
       ).not.toHaveLength(0);
     }
 
-    // A REGISTERED file gets exactly its registered count and no more. The count
-    // is part of the key so a new glyph cannot inherit the allowance.
-    const reg = "components/admin/telemetry/TelemetryOverviewStrip.tsx";
-    expect(SENTINEL_SITES[reg], "fixture assumes this file allows 1").toBe(1);
+    // RELOCATION, the v4 bypass: inside a REGISTERED file, moving the glyph to a
+    // different expression must be a hit even though the file's glyph count is
+    // unchanged. A registered anchor is the expression, not a budget.
+    const reg = "components/admin/ShowsTable.tsx";
     expect(
-      scanTypeScript(reg, `const C = () => <span aria-hidden>\u2014</span>;`),
-      "the registered sentinel is allowed",
+      scanTypeScript(reg, `const a = startText ?? "\u2014";`),
+      "the registered anchor is allowed",
     ).toHaveLength(0);
     expect(
-      scanTypeScript(
-        reg,
-        `const C = () => <><span aria-hidden>\u2014</span><span aria-hidden>\u2014</span></>;`,
-      ),
-      "a SECOND glyph exceeds the registered count and is a hit",
+      scanTypeScript(reg, `const label = heldText ?? "\u2014";`),
+      "a DIFFERENT expression in a registered file is NOT covered by its allowance",
     ).not.toHaveLength(0);
   });
 
-  it("PREMISE: every registered sentinel site is real and exactly counted", () => {
-    // Stale-row ratchet on the site list. A registered file that no longer holds
-    // its declared number of sentinels is a standing allowance nobody watches;
-    // scanning it clean is only possible when the real count matches.
-    for (const [rel, n] of Object.entries(SENTINEL_SITES)) {
+  it("PREMISE: every registered sentinel anchor is still found, and its file scans clean", () => {
+    // Two ratchets. A registered anchor that no longer exists is a standing
+    // allowance nobody is watching; a registered file that scans dirty means an
+    // extra glyph rode in beside the sanctioned ones.
+    for (const [rel, anchors] of Object.entries(SENTINEL_ANCHORS)) {
       const abs = join(ROOT, rel);
       expect(() => statSync(abs), `registered sentinel site is gone: ${rel}`).not.toThrow();
+      const src = readFileSync(abs, "utf8");
+      expect(scanTypeScript(rel, src), `${rel} scans dirty beside its anchors`).toEqual([]);
+      const normalized = src.replace(/\s+/g, " ");
+      for (const a of anchors) {
+        expect(
+          normalized.includes(a.replace(/\s+/g, " ")),
+          `registered anchor no longer present in ${rel}: ${a}`,
+        ).toBe(true);
+      }
+    }
+  });
+
+  it("PREMISE: CSS content: is scanned, and CSS comments are not", () => {
+    expect(
+      scanCss("app/x.css", `body::after { content: "\u2014"; }`),
+      "a rendered content: glyph must be caught",
+    ).not.toHaveLength(0);
+    expect(
+      scanCss("app/x.css", `/* a comment \u2014 with a dash */\n.a { color: red; }`),
+      "CSS comments are not copy",
+    ).toEqual([]);
+  });
+
+  it("PREMISE: markdown fences and cells follow GFM, not a shape guess", () => {
+    // Escaped pipe: GFM sees ONE header cell, so the two-cell delimiter does not
+    // form a table and the block renders as a paragraph.
+    expect(
+      scanMarkdown("x.mdx", "| A \\| B |\n| -- | -- |"),
+      "an escaped pipe means the columns do not match, so this is prose",
+    ).not.toHaveLength(0);
+
+    // Fence forms that a single boolean toggle got wrong.
+    for (const [name, src] of [
+      ["invalid backtick info string", "```js`x\nVisible -- prose\n"],
+      ["~~~ inside a backtick fence", "```\n~~~\n```\nVisible -- prose\n"],
+      ["``` inside a ```` fence", "````\n```\n````\nVisible -- prose\n"],
+    ] as const) {
       expect(
-        scanTypeScript(rel, readFileSync(abs, "utf8")),
-        `${rel} is registered for ${n} sentinel(s) but scans dirty`,
-      ).toEqual([]);
+        scanMarkdown("x.mdx", src),
+        `prose after this fence form must still be scanned: ${name}`,
+      ).not.toHaveLength(0);
     }
   });
 
