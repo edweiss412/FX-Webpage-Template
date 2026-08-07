@@ -58,6 +58,91 @@ production-build server (CI's `CI=true` webServer). The reopen renders in ~440ms
 ~1900ms under `next dev`, over the 1600ms budget the observation must fit inside. On a dev server it
 fails its own premise with a message that says so, rather than reporting anything about the modal.
 
+## BL-PLAN-SNIPPET-FENCE-GATE — the plan-fence checker exists as a prototype and gates nothing — CLOSED 2026-08-07 (`feat/review-infra-gates`, arc B G1)
+
+**Status:** OPEN.
+
+**Filed:** 2026-08-05 (`feat/review-round-economy`, plan rounds 1-2). **Class:** review-round economy / docs tooling. **Effort:** M.
+
+Plan review rounds 1 and 2 each spent findings on TypeScript snippets pasted into a plan that the repo's strict tsconfig would reject — one instance per round, which is precisely the drip-feed the class-sweep rule names and this arc exists to measure. The response was a mechanical checker, `check-plan-snippets.mjs`, which extracts every fence from a plan and reports five decidable shapes:
+
+- `UNIMPORTED_IDENTIFIER` — a fence that reads as a whole module calls a well-known Node/vitest API it never imports or declares. The class that actually bit.
+- `DUPLICATE_IMPORT` — the same binding imported twice across fences that append to one file.
+- `MANGLED_TEMPLATE` — a template literal broken by markdown escaping.
+- `UNCHECKED_INDEX` — an index access that `noUncheckedIndexedAccess` rejects.
+- `FENCE_EM_DASH` — the em-dash ban reaching into fence content, honoring the same `spec-lint: ignore` waiver the real linter uses (`lib/specLint/parse.ts:35`).
+
+It works — 64 fenced blocks, 0 problems against this arc's own plan — and it is **a throwaway in a session scratchpad**, so it gates nothing, no CI job runs it, and the next plan that pastes a broken fence discovers it the same way: in a review round.
+
+**Reachability is not in question:** the two findings that motivated it were real review rounds already spent, and nothing about the next plan is different.
+
+**Work.** Promote it to `scripts/` with a meta-test walking `docs/superpowers/plans/**` from disk (so a new plan is covered by default rather than silently exempt), decide the fence-to-file attribution rule properly — the prototype infers it from the nearest non-blank prose line above the fence, which is a heuristic that will need its own accept-set — and settle whether a violation blocks or advises. Full `tsc` over a fence is NOT the alternative and was already rejected: fences are excerpts that reference helpers defined in neighbouring fences, so they do not typecheck as modules. That is why the checker tests specific decidable shapes instead.
+
+**Deferral exception: (c)** — a new gate over `docs/superpowers/plans/**`, a surface this PR does not otherwise touch. The PR's own plan is clean under the checker; what remains is standing up a gate, its meta-test, its waiver story, and its CI wiring, which is a different change to a different contract than the corpus this PR ships.
+
+**Prototype location is ephemeral** (a session scratchpad, not tracked), so the rule list above is the durable artifact — treat the script as a sketch to rebuild from, not as an input that will still be there.
+
+---
+
+**Resolution: the gate is live and blocking.** Shipped on `feat/review-infra-gates`
+as the three-part spec-lint idiom this repo already trusts — a pure read-core at
+`lib/planFences/**` (no I/O, pinned structurally), a CLI frontend at
+`pnpm plan:fences`, and the gate itself at
+`tests/docs/_metaPlanSnippetFences.test.ts`, which walks the plans tree FROM DISK
+so a new plan is covered by default rather than silently exempt. Blocking by
+construction rather than configuration: `tests/docs/**` is in the `parallel`
+project run by `unit-suite.yml`'s required shards, which also makes the filename
+load-bearing.
+
+**Shipped accept-sets**, each pinned in its rule header with boundary negatives in
+`tests/planFences/readCore.test.ts`:
+
+- **Fence eligibility** — info string in {ts, tsx, typescript, js, jsx, mjs} or
+  bare, AND a body matching `/[;{}=]|=>/` OR a line-anchored import/export
+  statement. The union arm has zero corpus instances, so it carries a planted case.
+- **Attribution** — scan upward at most 6 lines, skipping blanks and waivers; the
+  first prose line is accepted only if it carries EXACTLY ONE backticked token with
+  a `.ts`/`.tsx`/`.mjs`/`.js` extension. Unattributed fences are still checked by
+  every per-fence rule, exempt only from the cross-fence `DUPLICATE_IMPORT`.
+- **UNIMPORTED_IDENTIFIER** — a FREE identifier from the closed known-API registry
+  that a module-shaped fence neither imports nor declares.
+- **DUPLICATE_IMPORT** — the same IMPORTED binding across two fences attributed to
+  one file. Local `const` bindings are not import identities.
+- **MANGLED_TEMPLATE** — an escaped backtick and an escaped `${`, distinct identities.
+- **UNCHECKED_INDEX** — `identifier[integer].member` with neither `!` nor `?.`.
+- **FENCE_EM_DASH** — the canonical em-dash class INCLUDING encoded spellings,
+  scoped to code fences, reusing `lib/specLint`'s class rather than re-declaring it.
+
+**Baseline: 4044 rows, 4122 total occurrences**, over 561 plan files (5440 fences,
+3587 eligible, 1249 attributed, 0 unplaced, 0 waiver errors). By rule —
+FENCE_EM_DASH 2906, UNIMPORTED_IDENTIFIER 1027, UNCHECKED_INDEX 145,
+MANGLED_TEMPLATE 44, **DUPLICATE_IMPORT 0**. That last confirms the spec's read of
+the calibration probe: its 5 DUPLICATE_IMPORT rows were artifacts of iterating
+declared bindings rather than imports, and the true corpus count is zero. Two
+decrease-only ceilings ride beside the rows (`FROZEN_ROWS`, `FROZEN_TOTAL`),
+because a row count cannot see a count bump on an existing row and a total cannot
+see a row split.
+
+**The corpus run found a false-positive class the probe's numbers had hidden.**
+`re.test(x)`, `parts.join("/")` and `Promise.resolve()` are property reads whose
+names merely collide with the registry, and `{ test: 1 }` is a property key —
+counting them made test/resolve/join the top three hits at 360/96/89 of 1353. The
+scan takes free identifiers now and the count fell to 1027. A rule that fires that
+often on correct plans is one nobody keeps enabled. The remaining vitest-global
+hits are genuine: `vitest.config.ts` sets `globals: false`, so a fence calling
+`it(` without importing it does not compile.
+
+**Ratchet proved by mutation, not by reading** — three mutants, all KILLED: a new
+violation appended to a real plan, a stale row for a hit that no longer exists, and
+`FROZEN_ROWS` lowered below the live count. Two more killed at G1c: a `node:fs`
+import into the read-core, and a rule silenced in the core.
+
+**Probe cross-reference.** Calibration of record is
+`docs/superpowers/plans/2026-08-06-arc-b-review-infra/fence-gate-probe.mjs` with its
+committed 2026-08-06 output. The gate's numbers differ from it in the five ways the
+spec predicted, each pinned by a divergence-discriminating planted case, plus the
+member-access class above, which the probe shared and nobody had noticed.
+
 ## BL-EM-DASH-POLICY — Resolve the DESIGN.md §9 em-dash ban vs. shipped usage — CLOSED 2026-08-07 (L-wave, `feat/l-wave-emdash`, RESOLUTION 2: ENFORCE)
 
 **Resolution: the user chose ENFORCE — resolution 2, over the entry's own "(recommended)" tag on
