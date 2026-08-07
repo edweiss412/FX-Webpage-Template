@@ -6,7 +6,7 @@ You are the Opus implementer session for arc B of the ABC batch (review-infra pa
 
 1. Run `date`. Shell clock only; discard stale framing.
 2. Read in full (skip any already read this session): `AGENTS.md`, `docs/superpowers/specs/2026-08-06-arc-b-review-infra.md`, `docs/superpowers/plans/2026-08-06-arc-b-review-infra/plan.md` (+ the committed probe artifacts beside it), `docs/agents/writing-plans.md`, `docs/agents/spec-self-review.md`.
-3. The implementation worktree ALREADY EXISTS with claim markers pushed (`../FX-worktrees/review-infra-gates`, branch `feat/review-infra-gates`). Verify the arc B spec/plan PR is MERGED into origin/main (if not, STOP). In the worktree: `pnpm install && pnpm worktree:link-env && pnpm preflight`, then `git merge origin/main` (arcs A and C landed; ledger conflicts per-entry, both sides).
+3. GATE CHECK, from the MAIN checkout: `git -C /Users/ericweiss/FX-Webpage-Template pull --ff-only`, then `git -C /Users/ericweiss/FX-Webpage-Template show origin/main:docs/superpowers/plans/2026-08-06-arc-b-review-infra/plan.md | grep -F "plan-APPROVED"` — empty grep or missing file = STOP (launched early). Then in the worktree (`../FX-worktrees/review-infra-gates`, branch `feat/review-infra-gates`, already existing with claim markers pushed): `git fetch origin` → `git merge origin/main` FIRST (arcs A and C landed; ledger conflicts per-entry, both sides) → THEN `pnpm install && pnpm worktree:link-env && pnpm preflight`.
 4. Write `/Users/ericweiss/FX-worktrees/review-infra-gates/.claude/ship-state.json` fresh: `{branch: "feat/review-infra-gates", stage: "arc-b-impl", tasksRemaining, next: "Task G1a", blockedOn: "", cronJobId, sessionId: <YOUR session UUID>}`.
 5. REGISTER a new 10-minute cron nudge for this worktree (date-first, supersession check, blockedOn silence, resume `next`); only after its id is confirmed, `CronDelete` the arc C job (register-then-delete). Write `cronJobId` into the marker.
 6. Labels: `[ -n "$HERDR_PANE_ID" ] && herdr pane rename "$HERDR_PANE_ID" "feat/review-infra-gates" && herdr agent rename "$HERDR_PANE_ID" "feat/review-infra-gates"`. NEVER rename the workspace.
@@ -20,7 +20,7 @@ You are the Opus implementer session for arc B of the ABC batch (review-infra pa
 
 ## Execution order
 
-G1 (fence gate: read-core TDD → meta-test + shrink-only baseline → CLI → archive) → G2 (grammar fixtures RED against the shipped recognizer → vendored block parse → import-surface pin → limit-12 rewrite + archive) → G3 (diff review, markers, PR, CI, merge, ff `0 0`). Plan order binding.
+G1 (fence gate: read-core TDD → meta-test + shrink-only baseline → CLI → archive) → G2 (grammar fixtures RED against the shipped recognizer → vendored block parse → import-surface pin → limit-12 rewrite + archive) → G3 (closeout, merge origin/main + marker strip, FINAL-diff review to APPROVE, then PR, CI, merge, ff `0 0`). Plan order binding.
 
 ## Non-negotiables (the ones this arc exercises)
 

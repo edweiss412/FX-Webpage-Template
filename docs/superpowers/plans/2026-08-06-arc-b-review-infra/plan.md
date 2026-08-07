@@ -54,8 +54,10 @@ Grep-verified 2026-08-06 (citation pass at `a0e41551c` + the committed probe); a
 
 ### Task G3 — close the branch
 
-1. Whole-diff codex-guard review `--stage diff` to APPROVE (round cap 4; REVIEWER ONLY; CONSEQUENCE BOUND / THREAT MODEL FENCE with the literal phrase "never silently wrong"; VERDICT + FINDINGS lines; spec §1.1 do-not-relitigate list — notably: five shapes closed, tsc rejected, vendor-inline ratified, new escaping shape needs a live mutant against the SHIPPED parser). Note the recursion wrinkle: the diff under review modifies the wrapper doing the reviewing — the dispatch runs the COMMITTED main-checkout `codex-guard.mjs` via the shim, not the branch copy; state this in the brief so the reviewer does not flag it.
-2. Merge `origin/main`; strip surviving markers in the last pre-merge commit (both entries archive in G1d/G2d — terminal check `grep -c 'Branch:\*\* feat/review-infra-gates' BACKLOG.md DEFERRED.md` returns 0). PR (preflight ran — the branch runs test suites); real CI green; `gh pr merge --merge` same turn; ff main `0 0`.
+1. Author `closeout.md` in this plan directory (pre-merge): the `impeccable-gate: N/A — no UI surface` marker line, baseline row count, fixture inventory, AC-B1..B3 checklist. Commit `docs(plan): arc B closeout`.
+2. Merge `origin/main`; strip surviving markers (both entries archive in G1d/G2d — terminal check `grep -c 'Branch:\*\* feat/review-infra-gates' BACKLOG.md DEFERRED.md` returns 0). THE DIFF IS NOW FINAL.
+3. Whole-diff codex-guard review `--stage diff` to APPROVE over that final diff (round cap 4; REVIEWER ONLY; CONSEQUENCE BOUND / THREAT MODEL FENCE with the literal phrase "never silently wrong"; VERDICT + FINDINGS lines; spec §1.1 do-not-relitigate list — notably: five shapes closed, tsc rejected, vendor-inline ratified, new escaping shape needs a live mutant against the SHIPPED parser). NO functional commit lands after the APPROVE — a CI-forced change takes a scoped delta re-review. Note the recursion wrinkle: the diff under review modifies the wrapper doing the reviewing — the dispatch runs the COMMITTED main-checkout `codex-guard.mjs` via the shim, not the branch copy; state this in the brief so the reviewer does not flag it.
+4. PR (preflight ran — the branch runs test suites); real CI green; `gh pr merge --merge` same turn; ff main `0 0`.
 
 ## Adversarial review (cross-model)
 
