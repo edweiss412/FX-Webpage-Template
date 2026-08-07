@@ -641,9 +641,9 @@ Consequence: Doug must leave the dashboard to see operator telemetry and, as a n
 
 **Why M and DESIGN-GATED, not S:** this is a new admin surface, not a query change. What belongs on a dashboard banner — which severities, what recency window, what dismissal behavior, whether it is a banner at all rather than a panel or a bell-badge source — is a product decision, and it is Opus/UI work under the invariant-8 dual gate. Do not implement it as "render the telemetry table on the dashboard."
 
-**Possible bundle:** `BL-ADMIN-PER-SHOW-HISTORY` wants a per-show operator history view over similar data; if both are built, they should share one read path and one design pass. Decomposition record: `BACKLOG-archive.md` § `BL-OPS-LOG`.
+**Possible bundle, with the caveat that decides it:** `BL-ADMIN-PER-SHOW-HISTORY` wants a per-show operator history view, and both surface operator history to an admin — but they read DIFFERENT stores today. This entry's sink is `app_events`; that entry's own body names `sync_history` / `pending_syncs` / `shows` and `shows_internal.parse_warnings`, and sync history persists to `sync_log` (`lib/sync/syncLog.ts:43`). So a bundle is a DESIGN question (should one surface span both stores?), not a shared read path to be reused. Decomposition record: `BACKLOG-archive.md` § `BL-OPS-LOG`.
 
-## BL-E2E-APP-DEPENDENT-SPECS-CI-DARK — ~60 app-dependent e2e specs run in no CI workflow
+## BL-E2E-APP-DEPENDENT-SPECS-CI-DARK — 43 app-dependent e2e specs are named by no CI workflow
 
 **Status:** OPEN · **Severity:** MEDIUM (dark regression coverage) · **Class:** CI wiring · **Effort:** L · **Filed:** 2026-08-06 (L-wave, refile of `BL-E2E-LIFECYCLE-SPECS-CI-DARK` at honest scope)
 
@@ -651,13 +651,13 @@ Consequence: Doug must leave the dashboard to see operator telemetry and, as a n
 
 **Census, counted 2026-08-06 rather than estimated** (the "~60" this entry was first filed with was wrong, and the miscount is recorded so the number is not re-inflated):
 
-| Allowlist rows                                                          | 67  |
-| ----------------------------------------------------------------------- | --- |
-| `UNSEEN` — named by no workflow, **this entry's population**            | 43  |
-| `PATH_GATED` — named by a workflow, runs when its filter matches        | 13  |
-| `PATH_GATED_BY_EXCLUSION` — named, runs unless the change is prose-only | 6   |
-| `LOCAL_ONLY` — local artifact by design                                 | 1   |
-| complex-invocation row (`admin-lifecycle-transitions`, runs every PR)   | 1   |
+| Allowlist rows                                                                                         | 66  |
+| ------------------------------------------------------------------------------------------------------ | --- |
+| `UNSEEN` — named by no workflow, **this entry's population**                                           | 43  |
+| `PATH_GATED` — named by a workflow, runs when its filter matches                                       | 13  |
+| `PATH_GATED_BY_EXCLUSION` — named, runs unless the change is prose-only                                | 6   |
+| `LOCAL_ONLY` — local artifact by design                                                                | 1   |
+| custom-reason rows (`admin-lifecycle-transitions`, `attention-modal-gallery`, `section-header-visual`) | 3   |
 
 Path-gated rows are NOT this entry's scope: a workflow does name them, and "not PR-blocking-capable" is a different property from "runs nowhere". Conflating the two is what produced the original overcount.
 
@@ -665,7 +665,7 @@ Path-gated rows are NOT this entry's scope: a workflow does name them, and "not 
 
 **This entry replaces a row whose heading premise had gone false.** Its predecessor was named for two `admin-lifecycle` specs being invoked by no workflow; both have been wired since 2026-07-27 and run on `mobile-safari` on every `pull_request` (`.github/workflows/lifecycle-layout-e2e.yml:110,130,132`, re-verified 2026-08-06). The full wiring history is preserved in `BACKLOG-archive.md` § `BL-E2E-LIFECYCLE-SPECS-CI-DARK`. Only the app-dependent residual survives here, and the scope has not changed — only the name now matches it.
 
-**Promotion path — the entry's own, and it is incremental by design:** land green batches one at a time rather than attempting all ~60. `crew-e2e.yml`'s `CREW_E2E_ONLY` + `pnpm db:seed` pattern is the working template for an app-dependent job, and `lifecycle-layout-e2e.yml` is the worked example of the acceptance bar a batch must clear: **five consecutive green normal-dispatch runs** before a spec is considered wired (spec §6.1 / AC-6). That bar is what took the transitions spec from "one flaky case" to wired, and it is the reason batches must be small.
+**Promotion path — the entry's own, and it is incremental by design:** land green batches one at a time rather than attempting all 43. `crew-e2e.yml`'s `CREW_E2E_ONLY` + `pnpm db:seed` pattern is the working template for an app-dependent job, and `lifecycle-layout-e2e.yml` is the worked example of the acceptance bar a batch must clear: **five consecutive green normal-dispatch runs** before a spec is considered wired (spec §6.1 / AC-6). That bar is what took the transitions spec from "one flaky case" to wired, and it is the reason batches must be small.
 
 **Owner action that no branch can close.** Promoting e2e jobs into the branch-protection required set — so a red e2e blocks merge at the GitHub layer — is a GitHub-settings action, not repo code. Measured 2026-07-26: the live required set holds TWELVE contexts, and no e2e job is among them, which is why every e2e job is advisory. Until an owner changes that, enforcement is the pipeline's all-checks-green procedural gate. Measurement: `docs/superpowers/specs/ci/2026-07-26-ci-dark-coverage-design.md` §2.5.
 

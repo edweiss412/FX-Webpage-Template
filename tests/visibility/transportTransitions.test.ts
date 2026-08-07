@@ -7,7 +7,7 @@
  * yields 4 states {FF, TF, FT, TT} and C(4, 2) = 6 unordered
  * transition pairs. Each pair carries an AnimatePresence treatment;
  * structural invariants are pinned here and run on every PR. The DOM
- * animation behaviour they describe is not exercised anywhere in CI:
+ * animation behaviour they describe is not exercised anywhere:
  * the e2e suites that would drive it are `test.describe.skip` and are
  * named by no workflow (BL-E2E-APP-DEPENDENT-SPECS-CI-DARK).
  */

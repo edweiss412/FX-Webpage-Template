@@ -172,8 +172,8 @@ export async function setSystemTime(page: Page, isoDate: string): Promise<void> 
  * stripping every parseable date). Those are listed as `requiresShowMutation: true`
  * and the parametrized audit skips pairs where either endpoint requires
  * dates mutation — they're harder to drive without polluting the
- * shared seed and are covered by the dedicated compound-transition
- * tests with explicit setup/teardown.
+ * shared seed, and are written only in the (skipped) compound-transition
+ * audits with explicit setup/teardown. Neither block executes.
  */
 export type StateDriver = {
   clockDate: string;
@@ -181,7 +181,7 @@ export type StateDriver = {
   /**
    * If true, this kind cannot be driven via clock + restriction
    * alone — needs `shows.dates` mutation. The parametrized audit
-   * skips pairs where either endpoint has this set; the compound
+   * skips pairs where either endpoint has this set; the (skipped) compound
    * tests handle them with explicit setup.
    */
   requiresShowMutation?: boolean;

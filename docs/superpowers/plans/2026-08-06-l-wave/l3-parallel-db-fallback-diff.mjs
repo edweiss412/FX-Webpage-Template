@@ -17,13 +17,23 @@
  * another starts passing — which preserves the totals and hides the fallback.
  * Identity keying makes that case a per-test transition, so it is caught.
  *
+ * EXACT BOUND OF THE DEGRADATION RULE. The rule below iterates the tests that
+ * PASSED in the DB-present run and asks whether each still passes. So what it
+ * establishes is precisely: **no DB-present passing test ceased passing.** It
+ * is NOT "no test changes outcome" — a test that was skipped in the baseline
+ * and passes under the closed port, or two skips trading places, is outside the
+ * rule by construction. That is deliberate (neither is the fallback shape the
+ * entry describes), but the claim must be stated at its real width.
+ *
+ * The skipped SET is therefore reported separately and compared by identity, so
+ * "the skips are unchanged" is something this script proves rather than
+ * something a reader infers from equal counts.
+ *
  * DOCUMENTED LIMIT (inherent to the reporter, not a gap this script can close):
  * assertions weakened INSIDE a test that still passes are invisible here,
  * because the reporter exposes no per-test assertion count. A test that stops
  * asserting but keeps passing therefore reads as unchanged. Closing that would
- * need an assertion-level reporter or an instrumented `expect`. The probe's
- * claim is bounded accordingly: it establishes that no test CHANGES OUTCOME
- * under a refused connection — never that no assertion weakened.
+ * need an assertion-level reporter or an instrumented `expect`.
  *
  * VALIDITY GATE RUNS FIRST. The decision rule is total only over a VALID
  * probe. An absent field is INVALID, never zero — defaulting a missing field to
@@ -182,6 +192,17 @@ const closedTotalPassed = [...closed.values()].reduce((n, m) => n + m.passed, 0)
 const dbSkipped = [...db.values()].reduce((n, m) => n + m.skipped, 0);
 const closedSkipped = [...closed.values()].reduce((n, m) => n + m.skipped, 0);
 
+// The skipped SET, compared by identity rather than by count — equal counts do
+// not mean the same tests skipped.
+const skippedIds = (m) => {
+  const out = [];
+  for (const [file, v] of m) for (const [id, st] of v.tests) if (st !== "passed") out.push(`${file} :: ${id} [${st}]`);
+  return out.sort();
+};
+const dbSkipIds = skippedIds(db);
+const closedSkipIds = skippedIds(closed);
+const skipsIdentical = JSON.stringify(dbSkipIds) === JSON.stringify(closedSkipIds);
+
 console.log("PROBE VALID");
 console.log(`  files compared:          ${dbFiles.length}`);
 console.log(`  tests passing   db:      ${dbTotalPassed}`);
@@ -189,6 +210,14 @@ console.log(`  tests passing   closed:  ${closedTotalPassed}`);
 console.log(`  tests skipped   db:      ${dbSkipped}`);
 console.log(`  tests skipped   closed:  ${closedSkipped}`);
 console.log(`  metric: per-TEST outcomes keyed by fullName (not per-expect assertions)`);
+console.log(`  rule bound: no DB-present PASSING test ceased passing`);
+console.log(`  non-passing set identical by identity: ${skipsIdentical ? "yes" : "NO"}`);
+if (!skipsIdentical) {
+  const onlyDbSkip = dbSkipIds.filter((x) => !closedSkipIds.includes(x));
+  const onlyClosedSkip = closedSkipIds.filter((x) => !dbSkipIds.includes(x));
+  for (const x of onlyDbSkip) console.log(`    only skipped with DB present: ${x}`);
+  for (const x of onlyClosedSkip) console.log(`    only skipped under closed port: ${x}`);
+}
 console.log("");
 if (degrading.length === 0) {
   console.log("DEGRADING FILES: 0");

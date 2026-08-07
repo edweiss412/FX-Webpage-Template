@@ -28,7 +28,10 @@
  *   | initial={false} EVERYWHERE | no animating-from-hidden SSR (M12.11 framer trap)|
  *
  * Compound rows (theme-toggle-during-nav; hero-state-change mid section-swap;
- * re-enter Today) are exercised in the real browser — see the e2e suite.
+ * re-enter Today) are written for the real browser in the §4.10 block of
+ * tests/e2e/crew-page.spec.ts, but that block is `.skip` and the file is named
+ * by no workflow, so they are exercised NOWHERE
+ * (BL-E2E-APP-DEPENDENT-SPECS-CI-DARK).
  */
 import "@testing-library/jest-dom/vitest";
 import { execSync } from "node:child_process";

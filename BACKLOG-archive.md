@@ -369,11 +369,16 @@ DEGRADING FILES: 0
 
 Run 1 pointed every Supabase endpoint at the live local stack; run 2 pointed all three
 (`SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_URL`, `TEST_DATABASE_URL`) at `127.0.0.1:1` — a REFUSED
-connection, which is the entry's own distinction from merely omitting the database. Per-file metric is
-the count of `assertionResults` with status `passed` (Vitest's JSON reporter exposes no per-file
-`numPassingAsserts`); a file degrades if that count drops for ANY reason, if it newly skips, or if it
-reports all-skipped. The 2 skipped assertions are identical in both runs, so they are unconditional
-skips rather than closed-port casualties.
+connection, which is the entry's own distinction from merely omitting the database.
+
+**The measured claim, at its exact width:** no test that PASSED with the DB present ceased passing
+under the closed port. Vitest's JSON reporter emits one row per TEST CASE, not per `expect()`, so the
+metric is per-test outcomes keyed by `fullName` — not the "assertion counts" the entry's Work section
+asks for, and the difference is stated rather than glossed. The two skipped tests are identical
+across runs BY IDENTITY (the differ compares and reports this), so they are unconditional skips
+rather than closed-port casualties. Assertion weakening INSIDE a still-passing test is invisible to
+any comparison the reporter permits; that is a documented limit of the probe, recorded in the
+transcript.
 
 **Two corrections were made mid-probe, and they are the part worth keeping** — each would have
 produced a false negative that looked exactly like this one:
@@ -395,10 +400,11 @@ produced a false negative that looked exactly like this one:
 re-verification said 875, and the `parallel` project resolved **890** on this commit. The result is
 about 890.
 
-**What this does and does not settle — read before re-filing.** It SETTLES that the parallel project
-contains no file silently degrading under a refused Supabase connection: the `unit-suite-nodb` blind
-spot the entry identified ("does not FAIL without a database" is weaker than "touches no database")
-was a real concern and is empirically EMPTY across all 890 files. It does NOT settle the future — this
+**What this does and does not settle — read before re-filing.** It SETTLES that across all 890 files
+no baseline-passing test ceased passing under a refused Supabase connection, with the non-passing set
+unchanged by identity. The `unit-suite-nodb` blind spot the entry identified ("does not FAIL without
+a database" is weaker than "touches no database") was a real concern, and no instance of it surfaced
+at that bound on this commit. It does NOT settle the future — this
 is a point-in-time measurement, not a standing guard, and nothing stops a new file from arriving with
 a swallowed-connection fallback that the no-DB job would keep passing exactly as the entry warned.
 
@@ -791,8 +797,13 @@ thesis:
 Both were repaired in the same commit as the seed sites, per the AGENTS.md class-sweep disposition
 rule (every instance of one shape repaired in the same PR).
 
-**Ground truth at close (re-verified 2026-08-06):** 12 wholly-dead suites under `tests/e2e/`
-(top-level `describe.skip`) — `crew-page`, `empty-state`, `layout-dimensions`, `notes-tile`,
+**Ground truth at close (re-verified 2026-08-06):** 12 files under `tests/e2e/` carry a top-level
+`describe.skip`. "Wholly dead" is the wrong word for two of them and is corrected here rather than
+repeated: `crew-page.spec.ts` has two LIVE blocks (§4.9 layout invariants, and the nav/preview-as
+block) alongside five skipped ones, and `right-now-transitions.spec.ts` has a live §5.7
+anchor-selection block. Every one of the 12 is CI-DARK — named by no workflow — which is the property
+that actually mattered for this sweep; "skipped" and "dark" are different claims and conflating them
+is what the class sweep kept catching. The 12 are — `crew-page`, `empty-state`, `layout-dimensions`, `notes-tile`,
 `pack-list`, `right-now-transitions`, `right-now`, `role-spoof`, `schedule-tile`,
 `status-financials`, `theme-toggle`, `transport-tile`. Plus the multiline-chain form at
 `tests/e2e/crew-page.spec.ts:892-893` (`test.describe` on one line, `.skip(` on the next), which
@@ -823,6 +834,17 @@ cited suite does not execute and points at the live CI-dark entry:
 - **Already honest (the row pins these):** `tests/visibility/capabilityTransitions.test.ts:224`
   (gap deferred pending Realtime push, M6) and `:272` (future-tense about the same thing). Preserved
   verbatim.
+
+  **CHALLENGED AND DELIBERATELY NOT ACTIONED (cross-model review R2, recorded so it is not
+  re-raised).** The reviewer read `:272`'s "The DOM-level no-flicker continuity … is exercised at the
+  e2e level — that part requires Realtime push (M6) and is deferred" as self-contradictory: present
+  tense "is exercised" beside "is deferred". The observation is fair on its face. It was not actioned
+  because the entry ratifies these exact two sites as already-honest and instructs that they be
+  preserved verbatim rather than "fixed" (spec §2.1.1 item 3), and the sentence does resolve on a
+  full read — the deferral clause governs the claim. Editing a site the entry protects, on a
+  reviewer's stylistic read, would be the branch overriding its own ratified scope. If the wording is
+  genuinely worth tightening, that is a separate change against the surface that owns it.
+
 - **"full audit suite" in `lib/messages/catalog.ts` (+ the generated `spec-codes.ts` row and its
   `tests/messages/popoverContextCopy.test.ts` pin):** FALSE POSITIVE. "audit suite" there means the
   branch-protection required-check set, not a test suite. Editing it would have triggered the §12.4

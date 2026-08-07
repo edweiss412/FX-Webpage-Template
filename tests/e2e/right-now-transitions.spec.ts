@@ -3,10 +3,13 @@
  * matrix (M4 Task 4.12 Batch 2). CI-DARK, and partly skipped besides: no
  * workflow names this file, so nothing in it runs in CI
  * (BL-E2E-APP-DEPENDENT-SPECS-CI-DARK). Two of its three blocks are also
- * `test.describe.skip` — the 66-pair audit (:159) and the 6 compound audits
- * (:296) — so they would not run even if the file were invoked. The §5.7
- * anchor-selection block (:603) is NOT skipped and does run under a local
- * `pnpm test:e2e`.
+ * `test.describe.skip` — the 66-pair audit and the compound audits — so they
+ * would not run even if the file were invoked. The §5.7 anchor-selection block
+ * is NOT skipped and does run under a local `pnpm test:e2e`. (Block titles are
+ * cited rather than line numbers, which rot on every edit to this header. The
+ * compound block's own title says "6 compound transition audits"; it contains
+ * SEVEN tests — a miscount that predates this comment and is left in the title
+ * only because renaming a skipped block's title is not this branch's scope.)
  *
  * Wired in Batch 2: framer-motion is installed, the Today hero renders
  * via AnimatePresence + matrix-driven motion props, and this suite

@@ -71,12 +71,24 @@ executable demonstration:
    exit 2
    ```
 
+**THE EXACT BOUND (narrowed again at R2 F1).** The decision rule iterates the tests that PASSED with
+the DB present and asks whether each still passes. So the probe establishes precisely: **no
+DB-present passing test ceased passing.** It does NOT establish "no test changes outcome" — a
+baseline-skipped test that passes under the closed port, or two skips trading places, is outside the
+rule by construction. Both are deliberate exclusions (neither is the fallback shape the entry
+describes), but the claim is now stated at its real width rather than a flattering one.
+
+**The skipped set is PROVEN unchanged, not inferred from equal counts** (R2 F1). The differ compares
+non-passing tests by identity and reports it: `non-passing set identical by identity: yes`. Both runs
+skip exactly `drive/embeddedObjectsLiveSmoke.test.ts :: extractEmbeddedObjects — live Google export
+smoke …` and `reviewRounds/report.test.ts :: real history (spec §11.3 layer 2) SKIPS BY NAME on a
+shallow clone`, so they are unconditional skips rather than closed-port casualties — asserted from
+identity, which is what the earlier count-only claim could not support.
+
 **DOCUMENTED LIMIT, inherent to the reporter:** assertions weakened INSIDE a test that still passes
 are invisible, because no per-test assertion count is exposed. A test that stops asserting but keeps
 passing reads as unchanged. Closing that needs an assertion-level reporter or an instrumented
-`expect`. **The probe's claim is bounded accordingly: it establishes that no test CHANGES OUTCOME
-under a refused connection — never that no assertion weakened.** The disposition rests on that
-bounded claim, which is what §2.1.3's decision rule actually requires.
+`expect`.
 
 **File count note:** the differ compares **890** files, against the entry's stale "~691" and the
 2026-08-04 re-verification's "875". All three are counts of different things over time; 890 is what
@@ -142,20 +154,22 @@ the probe hunts), and the live stack answers `HTTP 200` at `127.0.0.1:54321/rest
 
 ## Decision
 
-The rule is pre-ratified and total over a valid probe (spec §2.1.3): a file whose passing count
-drops, that newly skips, or that reports all-skipped under the closed port is DEGRADING — a drop
-"explained" by a skip is exactly the fallback shape, never a pardon. **Zero degrading files →
-archive with this transcript.**
+The rule is pre-ratified and total over a valid probe (spec §2.1.3): a file with a baseline-passing
+test that stops passing under the closed port — by skipping, failing, or disappearing — is
+DEGRADING. A drop "explained" by a skip is exactly the fallback shape, never a pardon. **Zero
+degrading files → archive with this transcript.**
 
-The 2 skipped assertions are identical in both runs (same files, same count), so they are
-unconditional skips, not closed-port casualties.
+The 2 skipped tests are identical in both runs BY IDENTITY (not merely by count — see above), so
+they are unconditional skips, not closed-port casualties.
 
 ## What this settles, and what it does not
 
-**Settles:** across all 890 files, no test CHANGES OUTCOME under a refused Supabase connection — none
-starts skipping, starts failing, or disappears. The `unit-suite-nodb` job's blind spot — that "does
-not FAIL without a database" is weaker than "touches no database" — was real as a concern and is
-empirically empty at this bound, as of this commit.
+**Settles:** across all 890 files, **no test that passed with the DB present ceased passing under a
+refused connection** — none started skipping, started failing, or disappeared — and the non-passing
+set is identical by identity across the two runs. That is the measured claim, at its exact width.
+The `unit-suite-nodb` job's blind spot — that "does not FAIL without a database" is weaker than
+"touches no database" — was a real concern, and no instance of it surfaced at this bound on this
+commit.
 
 **Does not settle:** (a) assertion-level weakening inside a still-passing test, per the documented
 limit above; (b) the future — this is a point-in-time measurement, not a standing guard, and nothing
