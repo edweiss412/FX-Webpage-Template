@@ -53,12 +53,14 @@ import { WrappedSection } from "@/components/crew/WrappedSection";
 import { resolveViewerContext } from "@/lib/data/viewerContext";
 import type { ShowForViewer, Viewer } from "@/lib/data/getShowForViewer";
 import { formatIsoDate } from "@/lib/format/date";
+import { suppressesDates } from "@/lib/crew/dateSuppression";
 import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
 import {
   parseFlightItinerary,
   sortSegmentsByDate,
   pickUpcomingIndex,
   formatFlightDate,
+  type FlightSegment,
 } from "@/lib/crew/flightDisplay";
 import { todayIsoInShowTimezone } from "@/lib/visibility/packList";
 import { transportTileVisible } from "@/lib/visibility/scopeTiles";
@@ -155,6 +157,41 @@ function TravelRow({
   );
 }
 
+/**
+ * The flight card's structured-vs-raw decision, extracted so the card and the
+ * date-suppression filter below read it from ONE place. Two copies of this
+ * predicate would drift, and the drift is silent: the filter would withhold a
+ * row the card would have rendered structurally (content lost) or keep one the
+ * card renders raw (a date leaked through the fallback).
+ */
+function flightRowFields(seg: FlightSegment): {
+  carrier: string | null;
+  route: string;
+  showStructured: boolean;
+} {
+  const carrier = seg.flightNo ?? seg.airline;
+  const route =
+    seg.origin && seg.dest ? `${seg.origin} → ${seg.dest}` : (seg.origin ?? seg.dest ?? "");
+  const hasContent = Boolean(carrier || route || seg.depTime || seg.arrTime);
+  return { carrier, route, showStructured: seg.structured && hasContent };
+}
+
+/**
+ * Does this reservation render ANYTHING once its check-in/check-out rows are
+ * withheld? Mirrors the hotel block's own read sites (name / address /
+ * confirmation / notes). Used only under date suppression: a reservation whose
+ * sole rendered content was its dates would otherwise leave an empty bordered
+ * block inside a titled "Hotels" card — section chrome wrapping nothing.
+ */
+function reservationHasNonDateContent(res: ShowForViewer["hotelReservations"][number]): boolean {
+  return Boolean(
+    res.hotel_name ||
+    !shouldHideGenericOptional(res.hotel_address) ||
+    !shouldHideGenericOptional(res.confirmation_no) ||
+    !shouldHideGenericOptional(res.notes),
+  );
+}
+
 export function TravelSection({
   data,
   viewer,
@@ -168,6 +205,17 @@ export function TravelSection({
   // MalformedProjectionError (INTENTIONALLY outside WrappedSection so the
   // route-level infra arm catches it, not the per-block fallback).
   const ctx = resolveViewerContext(viewer, data);
+
+  // BL-CREW-UNKNOWN-ASTERISK-TRAVEL-LEAK. `unknown_asterisk` means the sheet says
+  // this viewer works SOME subset of days and does not say which, so every date
+  // this section renders is a claim about the VIEWER'S OWN schedule. The three
+  // sites gated below (ground-leg dates, hotel check-in/out, the personal flight
+  // block) are the ones `lib/crew/dateSuppression.ts` used to list as NOT gated.
+  // Computed ONCE here; every derivation downstream runs over POST-suppression
+  // content so the viewer never sees a blank row, an empty card, or section
+  // chrome wrapping nothing — each such case falls back to the same designed
+  // empty state a viewer with no travel data at all receives.
+  const hideDates = suppressesDates(ctx.dateRestriction);
 
   return (
     <div data-testid="section-travel" className="flex flex-col gap-4">
@@ -248,9 +296,20 @@ export function TravelSection({
           // names) is dropped entirely so the list never shows an empty row.
           const legs = (transportation ? transportation.schedule : []).flatMap((leg) => {
             const stage = !shouldHideGenericOptional(leg.stage) ? leg.stage : null;
-            const date = !shouldHideGenericOptional(leg.date) ? leg.date : null;
+            // LEAK SITE 1. Withheld before the retention check below, so a leg
+            // whose only content WAS its date leaves the list rather than
+            // rendering an empty row — and `dateIsPrimary` (which mounts the
+            // <time dateTime=…>, itself the leak) is false by construction.
+            const date = hideDates || shouldHideGenericOptional(leg.date) ? null : leg.date;
             const time = !shouldHideGenericOptional(leg.time) ? leg.time : null;
-            const assignedNames = leg.assigned_names;
+            // The projection preserves schedule members unvalidated, so a blank
+            // or corrupt assignee can reach here. It renders as an empty "With "
+            // label — not visible content, and therefore not something that may
+            // keep a date-emptied row alive. Sanitized ONLY under suppression so
+            // every other viewer's output stays byte-identical to today's.
+            const assignedNames = hideDates
+              ? leg.assigned_names.filter((n) => typeof n === "string" && n.trim().length > 0)
+              : leg.assigned_names;
             // No surviving real content → omit the whole leg.
             if (stage === null && date === null && time === null && assignedNames.length === 0) {
               return [];
@@ -294,7 +353,13 @@ export function TravelSection({
             hasDriver || hasLoadout || hasVehicle || legs.length > 0 || transportNotes !== null;
 
           // --- Hotels: sort ascending by ordinal, regardless of array order ---------
-          const reservations = [...data.hotelReservations].sort((a, b) => a.ordinal - b.ordinal);
+          // LEAK SITE 2 (the filter half). Under suppression the check-in/out <dl>
+          // does not mount, so a dates-only reservation would render an empty
+          // block; it is dropped here and `hasHotels` re-derives from what is
+          // actually visible.
+          const reservations = [...data.hotelReservations]
+            .sort((a, b) => a.ordinal - b.ordinal)
+            .filter((res) => !hideDates || reservationHasNonDateContent(res));
           const hasHotels = reservations.length > 0;
 
           // §4.13 mechanism #3 — active-section FETCH-error visual fallback.
@@ -324,9 +389,24 @@ export function TravelSection({
               ).slice(0, 4),
             ) || Number(flightTodayIso.slice(0, 4));
           const flightItinerary = parseFlightItinerary(data.viewerFlightInfo, showYear);
-          const flightSegments = sortSegmentsByDate(flightItinerary.segments);
+          const sortedFlightSegments = sortSegmentsByDate(flightItinerary.segments);
+          // LEAK SITE 3 (the row-set half). A raw-fallback row prints `seg.raw`
+          // verbatim — the designated render of the viewer's OWN itinerary line,
+          // date included by construction, and unparseable mixed text that cannot
+          // be split into date and non-date parts. Withholding the whole row is
+          // the conservative arm; the content cost is recorded as a documented
+          // limit. The filter runs BEFORE `showFlight`, so an all-raw itinerary
+          // produces exactly the no-flight-data render rather than a stranded
+          // empty "Your flight" card that would also suppress the empty state.
+          const flightSegments = hideDates
+            ? sortedFlightSegments.filter((seg) => flightRowFields(seg).showStructured)
+            : sortedFlightSegments;
           const showFlight = flightSegments.length > 0;
-          const flightNextIdx = pickUpcomingIndex(flightSegments, flightTodayIso);
+          // "Which flight is next" is the same viewer-schedule claim as the date,
+          // rendered as a chip AND as row styling; both hang off this index.
+          const flightNextIdx = hideDates
+            ? null
+            : pickUpcomingIndex(flightSegments, flightTodayIso);
 
           const allHidden = !showFlight && !hasGettingThere && !hasHotels;
 
@@ -511,7 +591,11 @@ export function TravelSection({
                           <p className="text-sm text-text-subtle">{hotelAddress}</p>
                         ) : null}
 
-                        {res.check_in !== null || res.check_out !== null ? (
+                        {/* LEAK SITE 2 (the render half). Under suppression the whole
+                            <dl> stays unmounted — the hotel card renders name and its
+                            other non-date fields exactly as it does when both dates are
+                            null, mirroring the Tonight card's treatment. */}
+                        {!hideDates && (res.check_in !== null || res.check_out !== null) ? (
                           <dl className="grid grid-cols-2 gap-3">
                             {res.check_in !== null ? (
                               <div className="flex flex-col gap-1">
@@ -573,17 +657,20 @@ export function TravelSection({
                   >
                     <div data-testid="travel-flight" className="flex flex-col gap-1.5">
                       {flightSegments.map((seg, i) => {
-                        const carrier = seg.flightNo ?? seg.airline;
-                        const route =
-                          seg.origin && seg.dest
-                            ? `${seg.origin} → ${seg.dest}`
-                            : (seg.origin ?? seg.dest ?? "");
                         // Render structured fields ONLY when a leg has real content beyond a bare
                         // date — otherwise (e.g. "3/22 Charter pending") fall back to the raw line so
                         // the operator's text is never dropped. The date still drives sort/emphasis.
-                        const hasContent = Boolean(carrier || route || seg.depTime || seg.arrTime);
-                        const showStructured = seg.structured && hasContent;
+                        // Single-sourced with the suppression filter above so the two decisions
+                        // cannot drift.
+                        const { carrier, route, showStructured } = flightRowFields(seg);
                         const isNext = i === flightNextIdx;
+                        // LEAK SITE 3 (the label half). BOTH arms are suppressed: `dateRaw`
+                        // is the raw M/D token and leaks identically to the formatted ISO.
+                        const dateLabel = hideDates
+                          ? ""
+                          : seg.date
+                            ? formatFlightDate(seg.date)
+                            : (seg.dateRaw ?? "");
                         return (
                           <div
                             key={i}
@@ -598,20 +685,25 @@ export function TravelSection({
                               // §2.4: tabular figures so flight numbers / times / codes read at a
                               // glance and don't shift width; alpha tokens unaffected by tnum.
                               <div className="flex min-w-0 flex-col gap-0.5">
-                                <p className="flex items-center gap-2 text-[10.5px] font-bold uppercase leading-none tracking-eyebrow text-text-faint">
-                                  <span>
-                                    {seg.date ? formatFlightDate(seg.date) : (seg.dateRaw ?? "")}
-                                  </span>
-                                  {isNext ? (
-                                    <span
-                                      data-testid="flight-next-chip"
-                                      // accent-on-bg (5.34:1 AA) — NOT raw text-accent (2.23:1, decorative-only) per DESIGN.md §1.1
-                                      className="rounded-full bg-accent/15 px-1.5 py-0.5 text-[9px] font-bold tracking-normal text-accent-on-bg"
-                                    >
-                                      {seg.date === flightTodayIso ? "Today" : "Next"}
-                                    </span>
-                                  ) : null}
-                                </p>
+                                {/* The eyebrow row is omitted outright when it would carry
+                                    neither a date nor a chip — a structured segment ALWAYS has
+                                    one of the two spellings of its date, so this is unreachable
+                                    for every viewer except a suppressed one, whose rows would
+                                    otherwise gain a blank 10.5px line above them. */}
+                                {dateLabel || isNext ? (
+                                  <p className="flex items-center gap-2 text-[10.5px] font-bold uppercase leading-none tracking-eyebrow text-text-faint">
+                                    {dateLabel ? <span>{dateLabel}</span> : null}
+                                    {isNext ? (
+                                      <span
+                                        data-testid="flight-next-chip"
+                                        // accent-on-bg (5.34:1 AA) — NOT raw text-accent (2.23:1, decorative-only) per DESIGN.md §1.1
+                                        className="rounded-full bg-accent/15 px-1.5 py-0.5 text-[9px] font-bold tracking-normal text-accent-on-bg"
+                                      >
+                                        {seg.date === flightTodayIso ? "Today" : "Next"}
+                                      </span>
+                                    ) : null}
+                                  </p>
+                                ) : null}
                                 <p className="text-sm/relaxed text-text tabular-nums">
                                   {carrier ? (
                                     <span className="font-semibold">{carrier}</span>

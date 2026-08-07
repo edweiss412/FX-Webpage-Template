@@ -6,6 +6,8 @@ import { render, within, cleanup } from "@testing-library/react";
 import { TravelSection } from "@/components/crew/sections/TravelSection";
 import { makeShowForViewer } from "@/tests/fixtures/showForViewer";
 import type { ShowForViewer, Viewer } from "@/lib/data/getShowForViewer";
+import type { DateRestriction } from "@/lib/parser/types";
+import { formatFlightDate } from "@/lib/crew/flightDisplay";
 import { ledgerProp } from "./_ledgerProp";
 
 afterEach(cleanup);
@@ -187,5 +189,162 @@ describe("TravelSection — flight card", () => {
     const { queryByTestId } = renderTravel(baseData({ viewerFlightInfo: null }));
     expect(queryByTestId("section-empty")).toBeInTheDocument();
     expect(queryByTestId("travel-flight")).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Arc A §2.1 — the personal-flight leak site, THREE render paths.
+//
+// BL-CREW-UNKNOWN-ASTERISK-TRAVEL-LEAK. The flight card is the viewer's OWN
+// itinerary, so every date on it asserts the viewer's schedule directly. The
+// site is the flight BLOCK, not one expression: (i) the structured date, whose
+// `dateRaw` fallback arm leaks identically; (ii) the Today/Next chip, derived
+// from the same date; (iii) the RAW-FALLBACK row, which renders the operator's
+// unparseable line verbatim and routinely contains a date; and (iv) the
+// upcoming-row highlight, which is `flightNextIdx` rendered as styling rather
+// than text and is the same viewer-schedule claim.
+//
+// Anti-tautology: expected strings derive from the fixture's own flight text and
+// its `formatFlightDate` rendering, and each negative assertion is scoped to the
+// flight card so a sibling block's suppression cannot carry it.
+// ---------------------------------------------------------------------------
+describe("TravelSection — flight date suppression (unknown_asterisk viewer)", () => {
+  const UNKNOWN: DateRestriction = { kind: "unknown_asterisk", days: null };
+
+  /** Re-point the fixture's single crew row (id c1) at a specific DateRestriction. */
+  function restrict(data: ShowForViewer, r: DateRestriction): ShowForViewer {
+    const crew = data.crewMembers[0]!;
+    return { ...data, crewMembers: [{ ...crew, id: "c1", dateRestriction: r }] };
+  }
+
+  // Two dated TECH legs: the first is TODAY (2024-05-13), so the chip AND the
+  // next-row highlight are both live in the unsuppressed render.
+  const TWO_LEGS =
+    "EWR-FLL UNITED 5/13 - 11:29am - 2:34pm HQQ79F | FLL-EWR JET BLUE 5/15 - 8:59pm - 11:58pm OSUULZ";
+  const TWO_LEGS_DATES = { travelIn: "2024-05-13" };
+
+  it("suppresses the structured date, the Today/Next chip, and the next-row highlight; keeps carrier and route", () => {
+    const { container, queryByTestId, getByTestId } = render(
+      <TravelSection
+        {...ledgerProp()}
+        data={restrict(
+          baseData({ viewerFlightInfo: TWO_LEGS, show: { dates: TWO_LEGS_DATES } as never }),
+          UNKNOWN,
+        )}
+        viewer={VIEWER}
+        today={TODAY}
+        showId="s1"
+      />,
+    );
+    const card = getByTestId("travel-flight");
+    // (i) both date arms gone — formatFlightDate's rendering and the raw M/D token.
+    expect(card.textContent).not.toContain(formatFlightDate("2024-05-13"));
+    expect(card.textContent).not.toContain(formatFlightDate("2024-05-15"));
+    expect(card.textContent).not.toContain("5/13");
+    expect(card.textContent).not.toContain("5/15");
+    // (ii) the chip is a viewer-schedule date claim in words.
+    expect(queryByTestId("flight-next-chip")).toBeNull();
+    // (iii) the highlight is the same claim rendered as styling.
+    for (const seg of container.querySelectorAll('[data-testid="travel-flight-seg"]'))
+      expect(seg.className).not.toContain("bg-surface-sunken");
+    // The itinerary itself still renders — this is a date gate, not a card gate.
+    expect(card).toHaveTextContent("UNITED");
+    expect(card).toHaveTextContent("EWR → FLL");
+    expect(card).toHaveTextContent("11:29am");
+  });
+
+  it("suppresses the dateRaw fallback arm (ISO inference failed, raw M/D token would render)", () => {
+    // month 13 passes the M/D token shape but fails calendar validation, so
+    // `date` is null and the component falls through to `seg.dateRaw` — the raw
+    // token is a date and leaks identically.
+    const { getByTestId } = render(
+      <TravelSection
+        {...ledgerProp()}
+        data={restrict(
+          baseData({ viewerFlightInfo: "13/45 AA100 LGA - ORD 7:00am - 9:00am" }),
+          UNKNOWN,
+        )}
+        viewer={VIEWER}
+        today={TODAY}
+        showId="s1"
+      />,
+    );
+    const card = getByTestId("travel-flight");
+    expect(card.textContent).not.toContain("13/45");
+    expect(card).toHaveTextContent("AA100");
+    expect(card).toHaveTextContent("LGA → ORD");
+  });
+
+  it("withholds a raw-fallback flight row entirely, keeping the structured legs", () => {
+    // `seg.raw` is unparseable mixed text that cannot be split into date and
+    // non-date parts, so the conservative arm withholds the whole row. The
+    // fixture is the pinned "3/22 Charter pending" shape from the raw-leg case.
+    const { getByTestId, queryAllByTestId } = render(
+      <TravelSection
+        {...ledgerProp()}
+        data={restrict(
+          baseData({
+            viewerFlightInfo: `3/22 Charter pending | ${TWO_LEGS}`,
+            show: { dates: TWO_LEGS_DATES } as never,
+          }),
+          UNKNOWN,
+        )}
+        viewer={VIEWER}
+        today={TODAY}
+        showId="s1"
+      />,
+    );
+    const card = getByTestId("travel-flight");
+    expect(queryAllByTestId("travel-flight-leg")).toHaveLength(0);
+    expect(card.textContent).not.toContain("Charter pending");
+    expect(card).toHaveTextContent("UNITED");
+  });
+
+  it("an ALL-raw itinerary renders the no-flight-data state, not a stranded empty card", () => {
+    // Card visibility derives from the VISIBLE-row set: withholding every row
+    // without re-deriving `showFlight` would strand a silent empty "Your flight"
+    // card AND suppress the section's empty state (a present card makes
+    // `allHidden` false). The expected render is byte-for-byte the one a viewer
+    // with no flight data at all receives.
+    const { queryByTestId } = render(
+      <TravelSection
+        {...ledgerProp()}
+        data={restrict(baseData({ viewerFlightInfo: "3/22 Charter pending" }), UNKNOWN)}
+        viewer={VIEWER}
+        today={TODAY}
+        showId="s1"
+      />,
+    );
+    expect(queryByTestId("travel-flight")).toBeNull();
+    expect(queryByTestId("section-empty")).toBeInTheDocument();
+  });
+
+  it("a {kind: none} viewer still sees the date, the chip, the highlight, and the raw row", () => {
+    // The non-suppression twin: a gate keyed on any restriction rather than the
+    // ONE kind passes every case above and fails here by name.
+    const { container, getByTestId } = render(
+      <TravelSection
+        {...ledgerProp()}
+        data={restrict(
+          baseData({
+            viewerFlightInfo: `${TWO_LEGS} | 3/22 Charter pending`,
+            show: { dates: TWO_LEGS_DATES } as never,
+          }),
+          { kind: "none" },
+        )}
+        viewer={VIEWER}
+        today={TODAY}
+        showId="s1"
+      />,
+    );
+    const card = getByTestId("travel-flight");
+    expect(card).toHaveTextContent(formatFlightDate("2024-05-13"));
+    expect(getByTestId("flight-next-chip")).toHaveTextContent(/Today/i);
+    expect(
+      [...container.querySelectorAll('[data-testid="travel-flight-seg"]')].some((s) =>
+        s.className.includes("bg-surface-sunken"),
+      ),
+    ).toBe(true);
+    expect(within(card).getByTestId("travel-flight-leg")).toHaveTextContent("Charter pending");
   });
 });

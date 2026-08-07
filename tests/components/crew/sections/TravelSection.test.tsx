@@ -5,6 +5,9 @@ import { render, cleanup, within } from "@testing-library/react";
 
 import { TravelSection } from "@/components/crew/sections/TravelSection";
 import { makeShowForViewer } from "@/tests/fixtures/showForViewer";
+import type { ShowForViewer, Viewer } from "@/lib/data/getShowForViewer";
+import type { DateRestriction } from "@/lib/parser/types";
+import { formatIsoDate } from "@/lib/format/date";
 import { ledgerProp } from "./_ledgerProp";
 
 afterEach(cleanup);
@@ -355,4 +358,256 @@ test("a leg with only sentinel sub-fields is omitted (no empty travelrow)", () =
   // leg reflowed out entirely.
   const rows = getAllByTestId("travelrow");
   expect(rows).toHaveLength(1);
+});
+
+// ---------------------------------------------------------------------------
+// Arc A §2.1 — travel-date suppression for an `unknown_asterisk` viewer.
+//
+// BL-CREW-UNKNOWN-ASTERISK-TRAVEL-LEAK. `unknown_asterisk` is the parsed `***`
+// marker: the sheet says this crew member works SOME subset of days and does not
+// say which. Every date TravelSection renders for that viewer is therefore a
+// claim about the VIEWER'S OWN schedule the system is not entitled to make —
+// the same rule `suppressesDates` already enforces on the agenda, the key-times
+// strip, the schedule day derivation, and the Tonight card.
+//
+// These cases pin two of the three leak sites (ground legs, hotel check-in/out;
+// the flight site lives in TravelSection.flight.test.tsx beside the rest of the
+// flight coverage) PLUS the uniform post-suppression visibility rule: an
+// `unknown_asterisk` viewer never sees a blank row, an empty card, or section
+// chrome wrapping nothing — each such case renders the same designed empty state
+// the corresponding no-data viewer gets.
+//
+// ANTI-TAUTOLOGY. Every expected date string is derived from the fixture's own
+// ISO value via `dateSpellings` (raw ISO plus BOTH rendered `formatIsoDate`
+// forms), never a hardcoded literal — otherwise a fixture edit would leave the
+// sweep asserting against a string the component never rendered. Each negative
+// assertion is scoped to the specific gated subtree, because the legs block and
+// the hotels block independently render `<time>` elements and dates: a
+// container-wide sweep would let either site pass on the other's suppression.
+// ---------------------------------------------------------------------------
+
+const LEG_ISO = "2026-05-12";
+const CHECK_IN_ISO = "2026-05-13";
+const CHECK_OUT_ISO = "2026-05-15";
+const UNKNOWN: DateRestriction = { kind: "unknown_asterisk", days: null };
+const CREW: Viewer = { kind: "crew", crewMemberId: "c1" };
+
+/** Every spelling a fixture ISO date can reach the DOM as (raw + both render modes). */
+function dateSpellings(iso: string): string[] {
+  return [iso, formatIsoDate(iso, "weekday-short"), formatIsoDate(iso, "short")];
+}
+
+/**
+ * The viewer is a resolved transport owner so `transportTileVisible` passes for a
+ * NON-admin crew viewer and the legs actually render. Without it the block would
+ * be hidden for the wrong reason (the PII gate), and a suppression assertion
+ * would pass vacuously against a block that was never mounted.
+ */
+function suppressionData(over?: {
+  schedule?: {
+    stage: string;
+    date: string | null;
+    time: string | null;
+    assigned_names: string[];
+  }[];
+  hotels?: ShowForViewer["hotelReservations"];
+}): ShowForViewer {
+  return makeShowForViewer({
+    viewerId: "c1",
+    transportationOwnerIds: ["c1"],
+    transportation: {
+      driver_name: null,
+      driver_phone: null,
+      driver_email: null,
+      loadout_name: null,
+      loadout_phone: null,
+      loadout_email: null,
+      vehicle: null,
+      license_plate: null,
+      color: null,
+      parking: null,
+      schedule: over?.schedule ?? [
+        { stage: "Load in", date: LEG_ISO, time: "8:00 AM", assigned_names: ["Jamie Rivera"] },
+      ],
+      notes: null,
+    },
+    hotelReservations: over?.hotels ?? [
+      {
+        ordinal: 0,
+        hotel_name: "Grand Hotel",
+        hotel_address: null,
+        names: [],
+        confirmation_no: "CNF-42",
+        check_in: CHECK_IN_ISO,
+        check_out: CHECK_OUT_ISO,
+        notes: null,
+      },
+    ],
+  });
+}
+
+/** Re-point the fixture's single crew row (id c1) at a specific DateRestriction. */
+function restrict(data: ShowForViewer, r: DateRestriction): ShowForViewer {
+  const crew = data.crewMembers[0]!;
+  return { ...data, crewMembers: [{ ...crew, id: "c1", dateRestriction: r }] };
+}
+
+function renderTravelAs(data: ShowForViewer, viewer: Viewer) {
+  return render(
+    <TravelSection {...ledgerProp()} data={data} viewer={viewer} today={TODAY} showId={SHOW_ID} />,
+  );
+}
+
+test("unknown_asterisk viewer: a ground leg keeps its time and names, never its date", () => {
+  // Failure modes: a gate that hides the whole card instead of the dates; a
+  // `dateTime` attribute leaking while the visible text is suppressed.
+  const { container } = renderTravelAs(restrict(suppressionData(), UNKNOWN), CREW);
+  const block = container.querySelector('[data-testid="travel-getting-there"]');
+  expect(block).toBeTruthy();
+  expect(block!.querySelector("time")).toBeNull(); // the dateTime attribute IS the leak
+  for (const spelling of dateSpellings(LEG_ISO)) expect(block!.textContent).not.toContain(spelling);
+  // The non-date content survives: `primary` falls through to the existing
+  // non-date arm exactly as a null-date leg already renders today.
+  expect(block!.textContent).toContain("8:00 AM");
+  expect(block!.textContent).toContain("Jamie Rivera");
+});
+
+test("unknown_asterisk viewer: a hotel keeps its name and confirmation, never check-in/check-out", () => {
+  const { container } = renderTravelAs(restrict(suppressionData(), UNKNOWN), CREW);
+  const block = container.querySelector('[data-testid="travel-hotels"]');
+  expect(block).toBeTruthy();
+  expect(block!.querySelector("time")).toBeNull();
+  expect(block!.textContent).not.toContain("Check in");
+  expect(block!.textContent).not.toContain("Check out");
+  for (const iso of [CHECK_IN_ISO, CHECK_OUT_ISO])
+    for (const spelling of dateSpellings(iso)) expect(block!.textContent).not.toContain(spelling);
+  expect(block!.textContent).toContain("Grand Hotel");
+  expect(block!.textContent).toContain("CNF-42");
+});
+
+// The non-suppression twins. A gate written as `kind !== "none"` — or one keyed
+// on any restriction rather than the ONE kind — passes every case above and
+// fails here by name, which is the whole point of pinning all four arms.
+test.each<[string, DateRestriction, Viewer]>([
+  ["none", { kind: "none" }, CREW],
+  ["explicit days", { kind: "explicit", days: [LEG_ISO, CHECK_IN_ISO] }, CREW],
+  [
+    "bare admin (restrictions resolve to none)",
+    { kind: "unknown_asterisk", days: null },
+    { kind: "admin" },
+  ],
+])("%s viewer still sees every travel date", (_label, restriction, viewer) => {
+  const { container } = renderTravelAs(restrict(suppressionData(), restriction), viewer);
+  const legs = container.querySelector('[data-testid="travel-getting-there"]');
+  const hotels = container.querySelector('[data-testid="travel-hotels"]');
+  expect(legs!.querySelector("time")).toBeTruthy();
+  expect(legs!.textContent).toContain(formatIsoDate(LEG_ISO, "weekday-short"));
+  expect(hotels!.textContent).toContain("Check in");
+  expect(hotels!.textContent).toContain(formatIsoDate(CHECK_IN_ISO, "short"));
+  expect(hotels!.textContent).toContain(formatIsoDate(CHECK_OUT_ISO, "short"));
+});
+
+test("admin_preview of an unknown_asterisk member sees the SUPPRESSED render", () => {
+  // admin_preview takes the matched-crew restriction path in resolveViewerContext,
+  // so it must match every already-gated surface rather than the bare-admin one.
+  const { container } = renderTravelAs(restrict(suppressionData(), UNKNOWN), {
+    kind: "admin_preview",
+    crewMemberId: "c1",
+  });
+  const legs = container.querySelector('[data-testid="travel-getting-there"]');
+  const hotels = container.querySelector('[data-testid="travel-hotels"]');
+  expect(legs!.querySelector("time")).toBeNull();
+  expect(hotels!.querySelector("time")).toBeNull();
+  for (const iso of [LEG_ISO, CHECK_IN_ISO, CHECK_OUT_ISO])
+    for (const spelling of dateSpellings(iso))
+      expect(container.textContent).not.toContain(spelling);
+});
+
+test("unknown_asterisk viewer: a date-only leg is withheld, not rendered blank", () => {
+  // The leg's ONLY content is its date (sentinel stage, no time, no names), so
+  // after suppression nothing visible remains. It must leave the list AND the
+  // legs-present derivation must consume the FILTERED list — otherwise the
+  // section renders "Getting there" chrome wrapping an empty row.
+  const data = restrict(
+    suppressionData({
+      schedule: [{ stage: "", date: LEG_ISO, time: null, assigned_names: [] }],
+      hotels: [],
+    }),
+    UNKNOWN,
+  );
+  const { container } = renderTravelAs(data, CREW);
+  expect(container.querySelectorAll('[data-testid="travelrow"]')).toHaveLength(0);
+  expect(container.querySelector('[data-testid="travel-getting-there"]')).toBeNull();
+  // The designed no-data state, identical to a viewer with no travel data at all.
+  expect(container.querySelector('[data-testid="section-empty"]')).toBeTruthy();
+});
+
+test("unknown_asterisk viewer: a leg whose only non-date content is assigned names KEEPS its row", () => {
+  // The conservative arm must not over-reach: operational non-date content
+  // survives suppression. Expectation derives from the fixture's own value.
+  const names = ["Jamie Rivera"];
+  const data = restrict(
+    suppressionData({
+      schedule: [{ stage: "", date: LEG_ISO, time: null, assigned_names: names }],
+      hotels: [],
+    }),
+    UNKNOWN,
+  );
+  const { container } = renderTravelAs(data, CREW);
+  const rows = container.querySelectorAll('[data-testid="travelrow"]');
+  expect(rows).toHaveLength(1);
+  expect(rows[0]!.textContent).toContain(`With ${names[0]}`);
+  for (const spelling of dateSpellings(LEG_ISO))
+    expect(rows[0]!.textContent).not.toContain(spelling);
+});
+
+test.each<[string, string[]]>([
+  ["an empty string", [""]],
+  ["whitespace only", ["   "]],
+  // The repo's malformed-fixture idiom (tests/visibility/scopeTiles.test.ts): the
+  // projection preserves members unvalidated, so a corrupt row can reach the render.
+  ["a null member", [null as never]],
+])(
+  "unknown_asterisk viewer: a date-only leg whose assigned names are %s is withheld",
+  (_label, assigned_names) => {
+    const data = restrict(
+      suppressionData({
+        schedule: [{ stage: "", date: LEG_ISO, time: null, assigned_names }],
+        hotels: [],
+      }),
+      UNKNOWN,
+    );
+    const { container } = renderTravelAs(data, CREW);
+    expect(container.querySelectorAll('[data-testid="travelrow"]')).toHaveLength(0);
+    expect(container.querySelector('[data-testid="travel-getting-there"]')).toBeNull();
+    expect(container.querySelector('[data-testid="section-empty"]')).toBeTruthy();
+  },
+);
+
+test("unknown_asterisk viewer: a dates-only hotel reservation is withheld, not an empty card", () => {
+  // Nothing else on the reservation renders (no name, no address, no stay rows),
+  // so post-suppression it would be an empty bordered block inside a titled
+  // "Hotels" card — chrome wrapping nothing. The hotels block's visibility
+  // re-derives from the POST-suppression reservation set instead.
+  const data = restrict(
+    suppressionData({
+      schedule: [],
+      hotels: [
+        {
+          ordinal: 0,
+          hotel_name: null,
+          hotel_address: null,
+          names: [],
+          confirmation_no: null,
+          check_in: CHECK_IN_ISO,
+          check_out: CHECK_OUT_ISO,
+          notes: null,
+        },
+      ],
+    }),
+    UNKNOWN,
+  );
+  const { container } = renderTravelAs(data, CREW);
+  expect(container.querySelector('[data-testid="travel-hotels"]')).toBeNull();
+  expect(container.querySelector('[data-testid="section-empty"]')).toBeTruthy();
 });
