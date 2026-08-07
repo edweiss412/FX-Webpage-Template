@@ -535,7 +535,11 @@ function scanContainers(line, entering) {
  *   — or on a list-marker line, where the marker plays the part of the blank.
  */
 function stripCodeBlocks(text) {
-  const lines = text.split("\n");
+  // Normalize CRLF first. Splitting on "\n" alone leaves a trailing "\r" that
+  // FENCE_CLOSE rejects, so every fenced block in a CRLF message stayed open and
+  // its example stayed live (diff review R1 finding 5). Callers only regex-match
+  // lines, so returning normalized text costs nothing.
+  const lines = text.replace(/\r\n/g, "\n").split("\n");
   const out = lines.slice();
 
   // The container stack. Each frame owns the column its CONTENT starts at, and
@@ -670,7 +674,12 @@ function stripCodeBlocks(text) {
   const HTML_BLOCK_NAMES =
     "address|article|aside|base|basefont|blockquote|body|caption|center|col|colgroup|dd|details|dialog|dir|div|dl|dt|fieldset|figcaption|figure|footer|form|frame|frameset|h1|h2|h3|h4|h5|h6|head|header|hr|html|iframe|legend|li|link|main|menu|menuitem|nav|noframes|ol|optgroup|option|p|param|section|source|summary|table|tbody|td|tfoot|th|thead|title|tr|track|ul";
   const HTML_TYPE_6 = new RegExp(`^</?(?:${HTML_BLOCK_NAMES})(?:\\s|/?>|$)`, "i");
-  const HTML_TYPE_7 = /^<\/?[A-Za-z][A-Za-z0-9-]*(?:\s+[^<>]*)?\/?>\s*$/;
+  // Attribute VALUES may contain `>` when quoted, so `[^<>]*` was too strict and
+  // under-classified valid type-7 blocks (diff review R1 finding 6). This matches
+  // an attribute list of quoted values, unquoted values, and bare names.
+  const HTML_ATTR = /(?:\s+[A-Za-z_:][A-Za-z0-9_.:-]*(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s"'=<>`]+))?)*/
+    .source;
+  const HTML_TYPE_7 = new RegExp(`^</?[A-Za-z][A-Za-z0-9-]*${HTML_ATTR}\\s*/?>\\s*$`);
 
   const htmlOpener = (rest) => {
     if (HTML_TYPE_1.test(rest)) return { end: "tag" };
@@ -774,11 +783,26 @@ function stripCodeBlocks(text) {
       continue;
     }
 
-    // A line matching fewer frames than are open either dedents or continues a
-    // paragraph lazily. LAZY CONTINUATION is the case that must NOT pop: the
-    // paragraph is still inside its container, so popping would let the next
-    // fence be measured from the wrong origin.
-    if (m.matched < stack.length && !paragraphOpen) stack = stack.slice(0, m.matched);
+    // A line matching fewer frames than are open either DEDENTS or continues a
+    // paragraph lazily. Only the second must not pop — the paragraph is still
+    // inside its container, so popping would measure the next fence from the
+    // wrong origin.
+    //
+    // Refusing to pop whenever a paragraph was open conflated the two: a root
+    // fence written directly after `- item`, with no blank line, kept the stale
+    // list frame, so its root closer could not match the stored depth and the
+    // closed fence stripped nothing (diff review R1 finding 4). Lazy
+    // continuation is by definition a PARAGRAPH line; a line that starts an
+    // interrupting block is a dedent no matter what preceded it.
+    if (m.matched < stack.length) {
+      const tail = line.slice(m.idx).replace(/^[ \t]*/, "");
+      const interrupts =
+        FENCE_OPEN.test(tail) ||
+        MARKER_HEAD.test(tail) ||
+        tail.startsWith(">") ||
+        htmlOpener(tail) !== null;
+      if (interrupts || !paragraphOpen) stack = stack.slice(0, m.matched);
+    }
 
     const after = openContainers(line, m.idx, m.col);
     const contentCol = stack.length > 0 ? stack[stack.length - 1].col : 0;

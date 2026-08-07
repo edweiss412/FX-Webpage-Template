@@ -266,12 +266,12 @@ describe("plan-fence read-core (spec §2.1)", () => {
 
     it("rejects an unknown rule name", () => {
       const r = waived("<!-- plan-fences: ignore NOT_A_RULE — whatever -->");
-      expect(r.waiverErrors.map((e) => e.code)).toContain("UNKNOWN_RULE");
+      expect(r.waiverErrors.map((e) => e.code)).toContain("waiver_unknown_rule");
     });
 
     it("rejects an empty reason", () => {
       const r = waived("<!-- plan-fences: ignore UNCHECKED_INDEX —  -->");
-      expect(r.waiverErrors.map((e) => e.code)).toContain("MISSING_REASON");
+      expect(r.waiverErrors.map((e) => e.code)).toContain("waiver_missing_reason");
     });
 
     it("rejects a waiver that suppresses nothing", () => {
@@ -286,7 +286,7 @@ describe("plan-fence read-core (spec §2.1)", () => {
           "```",
         ].join("\n"),
       );
-      expect(r.waiverErrors.map((e) => e.code)).toContain("SUPPRESSED_NOTHING");
+      expect(r.waiverErrors.map((e) => e.code)).toContain("waiver_suppressed_nothing");
     });
   });
 

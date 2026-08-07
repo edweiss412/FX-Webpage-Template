@@ -38,8 +38,12 @@ function scan(root: string): Report[] {
   return markdownFiles(root).map((f) => analyzePlan(f, readFileSync(f, "utf8")));
 }
 
-/** The four-field identity a baseline row matches on. */
-const identity = (f: Finding): string => `${f.path}|${f.fenceLine}|${f.rule}|${f.instance}`;
+/**
+ * The four-field identity a baseline row matches on. `fenceKey` is a digest of
+ * the fence's own content, NOT its line: keying on the line meant one blank line
+ * inserted near the top of a historical plan invalidated every row below it.
+ */
+const identity = (f: Finding): string => `${f.path}|${f.fenceKey}|${f.rule}|${f.instance}`;
 
 describe("plan snippet fences (arc B spec §2.1)", () => {
   describe("the gate can FAIL — planted premise fixtures", () => {

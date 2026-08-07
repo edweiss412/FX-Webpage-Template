@@ -15,6 +15,23 @@
  */
 import type { UnplacedFence } from "./types";
 
+/**
+ * A short, stable digest of a fence's own content.
+ *
+ * Pure and dependency-free on purpose — the read-core takes no imports beyond
+ * its siblings, so this is FNV-1a rather than `node:crypto`. Collisions cost a
+ * baseline row that matches the wrong fence in the same file, which is a
+ * one-in-4-billion mis-pardon rather than a silent miss.
+ */
+function digest(text: string): string {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) {
+    h ^= text.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h.toString(16).padStart(8, "0");
+}
+
 /** The set of info strings that can carry code, plus bare (spec §2.1 R1 F4). */
 const CODE_INFO = new Set(["ts", "tsx", "typescript", "js", "jsx", "mjs"]);
 
@@ -33,6 +50,8 @@ export type Fence = {
   /** 1-based line of the closing delimiter. */
   closeLine: number;
   info: string;
+  /** Stable, content-derived identity — see `Finding.fenceKey`. */
+  key: string;
   /** Interior lines, container prefixes already peeled. */
   body: string[];
   /** 1-based document line of each body entry, parallel to `body`. */
@@ -83,14 +102,25 @@ function delimiterOf(line: string): Delim | null {
 
 export type Extraction = { fences: Fence[]; unplaced: UnplacedFence[] };
 
+/**
+ * Any line whose content, after container peeling, starts a fence run — used to
+ * catch delimiters this extractor does NOT place. Without it a fence indented
+ * four columns under `10. Example:` was neither analyzed nor reported: silently
+ * dropped, which is the one outcome the consequence bound forbids (diff review
+ * R1 finding 1).
+ */
+const FENCE_SHAPED = /^[ \t]*(?:`{3,}|~{3,})/;
+
 export function extractFences(path: string, text: string): Extraction {
   const lines = text.replace(/\r\n/g, "\n").split("\n");
   const fences: Fence[] = [];
   const unplaced: UnplacedFence[] = [];
+  const placed = new Set<number>();
 
   let open: { at: number; d: Delim } | null = null;
   let body: string[] = [];
   let bodyLines: number[] = [];
+  const interior: number[] = [];
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]!;
@@ -117,10 +147,13 @@ export function extractFences(path: string, text: string): Extraction {
       const eligible =
         (CODE_INFO.has(info.toLowerCase()) || info === "") &&
         (BODY_LOOKS_LIKE_CODE.test(joined) || BODY_HAS_MODULE_STATEMENT.test(joined));
+      placed.add(open.at);
+      placed.add(i + 1);
       fences.push({
         openLine: open.at,
         closeLine: i + 1,
         info,
+        key: digest(`${info}\n${joined}`),
         body,
         bodyLines,
         eligible,
@@ -130,17 +163,33 @@ export function extractFences(path: string, text: string): Extraction {
     }
     body.push(peelContainers(line).rest);
     bodyLines.push(i + 1);
+    interior.push(i + 1);
   }
+
+  for (const l of interior) placed.add(l);
 
   if (open !== null) {
     // Open at EOF: the extractor cannot place it. Reported by path and line —
     // the whole point of limit 3b is that this number is visible.
+    placed.add(open.at);
     unplaced.push({
       path,
       line: open.at,
       reason: "fence opened and never closed",
     });
   }
+
+  // Every remaining fence-shaped line is one this extractor could not place —
+  // reported by path and line, never dropped. That is what makes the limit a
+  // documented demotion instead of a hole.
+  lines.forEach((line, i) => {
+    if (placed.has(i + 1) || !FENCE_SHAPED.test(line)) return;
+    unplaced.push({
+      path,
+      line: i + 1,
+      reason: "fence-shaped line the extractor could not place in a container",
+    });
+  });
 
   return { fences, unplaced };
 }

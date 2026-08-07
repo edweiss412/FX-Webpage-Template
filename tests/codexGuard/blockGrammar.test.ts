@@ -179,3 +179,39 @@ describe("html blocks — the measured misses, now covered (arc B G2b)", () => {
     ).toMatchObject({ status: "verdict", verdict: "APPROVE" });
   });
 });
+
+/**
+ * Diff review R1 repairs. Each of these FAILED against the parser as first
+ * written, and each names the finding it closes — a fix with no case that would
+ * have caught it is a claim, not a repair.
+ */
+describe("R1 repairs (arc B G2b)", () => {
+  it("closes a fenced block in a CRLF message (finding 5)", async () => {
+    // Splitting on \n alone left a trailing \r that FENCE_CLOSE rejects, so the
+    // block never closed and its example stayed live.
+    expect(
+      await classify("```\r\nVERDICT: APPROVE\r\n```\r\n\r\nStill working.\r\n"),
+    ).toMatchObject({
+      status: "no_verdict",
+    });
+  });
+
+  it("hides a root fence written directly after a list item, with no blank line (finding 4)", async () => {
+    // The stale list frame meant the root closer could not match the stored
+    // depth, so the CLOSED fence stripped nothing.
+    expect(await classify("- item\n```\nVERDICT: APPROVE\n```\n\nStill working.\n")).toMatchObject({
+      status: "no_verdict",
+    });
+  });
+
+  it("still honors lazy continuation, which must NOT pop (finding 4, the other direction)", async () => {
+    const text =
+      "- a bullet whose paragraph\ncontinues lazily here\n\n  ```\n  VERDICT: APPROVE\n  ```\n\nStill working.\n";
+    expect(await classify(text)).toMatchObject({ status: "no_verdict" });
+  });
+
+  it("classifies a type-7 html block whose attribute value contains > (finding 6)", async () => {
+    const text = '<x-tag title=">">\nVERDICT: APPROVE\n</x-tag>\n\nStill working.\n';
+    expect(await classify(text)).toMatchObject({ status: "no_verdict" });
+  });
+});

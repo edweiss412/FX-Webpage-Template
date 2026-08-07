@@ -1,12 +1,21 @@
 /**
- * scripts/gen-plan-fences-baseline.ts — generate the shrink-only baseline.
+ * scripts/gen-plan-fences-baseline.ts — regenerate the shrink-only baseline.
  *
- * Run ONCE at implementation time, and again only to SHRINK the file after real
- * repairs. It is deliberately a separate script rather than a flag on the gate:
- * a gate that can rewrite its own baseline is a gate that passes by rewriting
- * its own baseline.
+ * Separate from the gate deliberately: a gate that can rewrite its own baseline
+ * is a gate that passes by rewriting its own baseline.
+ *
+ * AND SEPARATION ALONE WAS NOT ENOUGH. The first version regenerated the rows
+ * AND both "frozen" ceilings from whatever the corpus currently held, so the
+ * documented shrink-only contract was a convention a reviewer had to enforce by
+ * reading. The surviving mutant was two commands long: add a violation, run the
+ * generator, commit — the new row and the raised ceilings land together and
+ * every assertion stays green (diff review R1 finding 2).
+ *
+ * This script now REFUSES to raise either ceiling. Shrinking is free; growing
+ * requires deleting the committed file outright, which is a deliberate,
+ * review-visible act rather than a rerun.
  */
-import { readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { analyzePlan } from "../lib/planFences";
 
@@ -23,16 +32,33 @@ function markdownFiles(dir: string): string[] {
   return out.sort();
 }
 
+const priorSrc = existsSync(OUT) ? readFileSync(OUT, "utf8") : "";
+const priorRows = Number(/export const FROZEN_ROWS = (\d+);/.exec(priorSrc)?.[1] ?? Infinity);
+const priorTotal = Number(/export const FROZEN_TOTAL = (\d+);/.exec(priorSrc)?.[1] ?? Infinity);
+
 const rows: string[] = [];
 let total = 0;
 for (const file of markdownFiles(ROOT)) {
   const report = analyzePlan(file, readFileSync(file, "utf8"));
   for (const f of report.findings) {
-    rows.push(`${f.path}|${f.fenceLine}|${f.rule}|${f.instance}|${f.count}`);
+    // Identity is the fence's CONTENT digest, never its line number: a blank
+    // line inserted above it must not invalidate the row.
+    rows.push(`${f.path}|${f.fenceKey}|${f.rule}|${f.instance}|${f.count}`);
     total += f.count;
   }
 }
 rows.sort();
+
+if (rows.length > priorRows || total > priorTotal) {
+  console.error(
+    `refusing to raise the baseline: rows ${priorRows} -> ${rows.length}, ` +
+      `total ${priorTotal} -> ${total}.\n` +
+      "The baseline is shrink-only. New violations are fixed or waived, not frozen.\n" +
+      "If a raise is genuinely intended, delete the committed baseline first — that " +
+      "makes it a visible, reviewable act rather than a rerun.",
+  );
+  process.exit(1);
+}
 
 const header = `/**
  * tests/docs/planFencesBaseline.ts — GENERATED. Frozen legacy plan-fence hits.

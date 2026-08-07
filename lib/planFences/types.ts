@@ -32,8 +32,16 @@ export function isRuleName(s: string): s is RuleName {
  */
 export type Finding = {
   path: string;
-  /** 1-based line of the fence OPENER the finding belongs to. */
+  /** 1-based line of the fence OPENER — for the human reading the failure. */
   fenceLine: number;
+  /**
+   * Content-derived identity of the fence, and the field the BASELINE matches
+   * on. Deliberately not the line number: keying on it meant inserting a blank
+   * line near the top of a historical plan invalidated every row below, which is
+   * a mass false positive on correct prose and precisely how a gate gets turned
+   * off (diff review R1 finding 9).
+   */
+  fenceKey: string;
   rule: RuleName;
   instance: string;
   /** Occurrences of this exact identity within this fence. */
@@ -42,7 +50,15 @@ export type Finding = {
   waivedReason?: string;
 };
 
-export type WaiverErrorCode = "UNKNOWN_RULE" | "MISSING_REASON" | "SUPPRESSED_NOTHING";
+/**
+ * Lowercase on purpose: SHOUTY_SNAKE reads as a §12.4 user-facing message code
+ * to the catalog guard, which flagged these three as orphan producer codes.
+ * They are internal waiver diagnostics and belong to no catalog.
+ */
+export type WaiverErrorCode =
+  | "waiver_unknown_rule"
+  | "waiver_missing_reason"
+  | "waiver_suppressed_nothing";
 
 export type WaiverError = {
   path: string;
