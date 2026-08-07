@@ -200,19 +200,18 @@ const STATE_LABEL: Record<StatusState, string> = {
   live: "Live",
   published: "Published",
   publishing: "Publishing…",
-  held: "Held", // overridden to the verbose "Held — not published" for place="inline"
+  held: "Held", // overridden to the verbose "Held, not published" for place="inline"
 };
 
 // `place` selects BOTH the Held label compaction AND the testid namespace (§3.1/§4.1):
-// place="inline" → verbose "Held — not published" + shows-{state}-pill;
+// place="inline" → verbose "Held, not published" + shows-{state}-pill;
 // place="column" → compact "Held" + shows-statuscol-{state}. No animation — the dot is
 // static (the pulsing ping animation lives only in StatusIndicator, the Sync cell).
 function StatePill({ row, place }: { row: ActiveShowRow; place: PillPlace }) {
   const state = statusState(row);
   const tone = PILL_TONE[state];
   const testId = `${(place === "column" ? COLUMN_TESTID : INLINE_TESTID)[state]}-${row.slug}`;
-  const label =
-    state === "held" && place === "inline" ? "Held — not published" : STATE_LABEL[state];
+  const label = state === "held" && place === "inline" ? "Held, not published" : STATE_LABEL[state];
   return (
     <span
       data-testid={testId}
