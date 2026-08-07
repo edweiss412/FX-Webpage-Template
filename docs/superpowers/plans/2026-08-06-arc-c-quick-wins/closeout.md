@@ -429,3 +429,29 @@ The guard is now pinned by seventeen executed mutants and one closed grammar. Th
 arc's two shipped behaviors — the live-row retain and the aborted-close case —
 were approved at R2 and never regressed through any of it.
 
+### Two CI-only failures, both invisible locally
+
+Real CI on PR #727 failed `unit-suite-db (5)` with two breaks that a full local
+suite, ten review rounds and seventeen mutants had all missed — the
+local-passes-CI-fails class this project already documents.
+
+1. **`_metaStripCommentsSingleSource`.** The comment stripper written for the R6
+   use-versus-mention fix was a LOCAL idiom, and this repo has a single-source
+   rule: comment handling comes from `tests/_shared/stripComments`. Swapped to
+   `stripCommentsForFile`, which is also strictly better — it parses with the
+   TypeScript compiler and knows a `/` inside a string or regex is not a comment,
+   where the hand-rolled pair of regexes did not.
+
+2. **`_metaSpecRegistration`.** Importing `SECTION_FRESHNESS_FLASH_MS` from
+   `components/admin/review/sectionFreshness` into an e2e spec broke
+   `playwright test --list`, which EVALUATES every spec module: that import chain
+   throws without `HASH_FOR_LOG_PEPPER`, and `unit-suite-db` sets no such env. It
+   passed locally only because the e2e env is exported by hand there. The
+   constant is now mirrored as `SECTION_FRESHNESS_FLASH_MS_E2E` in the env-free
+   `tests/e2e/helpers/realtimeOracle.ts`, and the copy is pinned from the vitest
+   side — `sectionFreshnessCss.test.ts` imports both and asserts they are equal,
+   which it can do because vitest loads the env.
+
+Both fixes re-verified: the four affected suites pass, and the mutant set still
+kills every operator after the stripper swap.
+

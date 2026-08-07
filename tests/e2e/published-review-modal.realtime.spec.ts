@@ -35,10 +35,10 @@ import {
 } from "./helpers/seedShowWithCrew";
 import { admin } from "./helpers/supabaseAdmin";
 import { setCrewRoleLocked } from "./helpers/lockedCrewRestriction";
-import { SECTION_FRESHNESS_FLASH_MS } from "@/components/admin/review/sectionFreshness";
 import { settleDashboardAdminState } from "./helpers/dashboardState";
 import {
   CONTENT_SWAP_TIMEOUT_MS,
+  SECTION_FRESHNESS_FLASH_MS_E2E,
   INVALIDATION_FRAME_TIMEOUT_MS,
   JOIN_REPLY_TIMEOUT_MS,
   MODAL_OPEN_TIMEOUT_MS,
@@ -933,9 +933,9 @@ test.describe("published review modal — realtime broadcast refresh (realtime-r
       ).not.toBeNull();
       expect(
         observed.sinceArm!,
-        `abort drive outran the ${SECTION_FRESHNESS_FLASH_MS}ms flash window, so a surviving ` +
+        `abort drive outran the ${SECTION_FRESHNESS_FLASH_MS_E2E}ms flash window, so a surviving ` +
           `cue would have expired on its own and this case cannot discriminate`,
-      ).toBeLessThan(SECTION_FRESHNESS_FLASH_MS);
+      ).toBeLessThan(SECTION_FRESHNESS_FLASH_MS_E2E);
 
       // THE ASSERTION. Page-wide, because a survivor anywhere is the defect.
       expect(

@@ -1,6 +1,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { stripCommentsForFile } from "../_shared/stripComments";
 import { AFFORDANCE_MATRIX, DEFERRED_TESTIDS } from "@/app/help/_affordanceMatrix";
 import { allWalkableRows, prepKindFor, routeForPure, walksAt } from "../e2e/helpers/walkerRoutes";
 
@@ -233,9 +234,8 @@ describe("e2e suite holds no unlocked PostgREST DML on locked tables (structural
     // that prose first — a use-versus-mention error that failed the guard on a
     // correct file. A doc comment describing the invariant must never be able to
     // satisfy or break the check for it.
-    const src = readFileSync(join(e2eDir, "helpers/lockedCrewRestriction.ts"), "utf8")
-      .replace(/\/\*[\s\S]*?\*\//g, "")
-      .replace(/^[ \t]*\/\/.*$/gm, "");
+    const lockedHelperPath = join(e2eDir, "helpers/lockedCrewRestriction.ts");
+    const src = stripCommentsForFile(readFileSync(lockedHelperPath, "utf8"), lockedHelperPath);
 
     // Exactly one place writes the UPDATE at all.
     const updates = [...src.matchAll(/update\s+public\.crew_members/gi)];
