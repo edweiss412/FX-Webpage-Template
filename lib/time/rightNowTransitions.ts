@@ -7,11 +7,12 @@
  * `lib/time/rightNow.ts` `RightNowState`). AGENTS.md §3 requires a
  * Transition Inventory table enumerating every unordered state pair
  * (`C(12,2) = 66`) with one of four animation treatments. This module
- * is the single source of truth — both vitest contract tests
- * (`tests/time/rightNowTransitions.test.ts`) and the Playwright audit
- * (`tests/e2e/right-now-transitions.spec.ts`, scaffolded as
- * `test.fixme` until Batch 2 lands `framer-motion`) drive their
- * assertions from this constant.
+ * is the single source of truth. The vitest contract tests
+ * (`tests/time/rightNowTransitions.test.ts`) drive their assertions
+ * from this constant and execute on every PR. The Playwright audit
+ * (`tests/e2e/right-now-transitions.spec.ts`) also reads it, but that
+ * suite is `describe.skip` and executes in no CI workflow
+ * (BL-E2E-APP-DEPENDENT-SPECS-CI-DARK).
  *
  * Treatment heuristic (first match wins per pair):
  *
@@ -79,11 +80,15 @@ export type RightNowStateKind = RightNowState["kind"];
  *                          either time-driven, sync-driven, or
  *                          unreachable).
  *   - `unreachable`        No natural code path reaches this transition
- *                          on the 60-second clock tick. Regression-
- *                          guarded by the audit suite — if the state
- *                          machine ever produces one of these, the
- *                          assumption underlying the matrix is broken
- *                          and the test must fail loudly.
+ *                          on the 60-second clock tick. The executing
+ *                          guard is the matrix contract suite
+ *                          (`tests/time/rightNowTransitions.test.ts`),
+ *                          which requires a recorded rationale for
+ *                          every such cell. The Playwright audit that
+ *                          would catch the state machine actually
+ *                          producing one is `describe.skip` and runs
+ *                          in no CI workflow
+ *                          (BL-E2E-APP-DEPENDENT-SPECS-CI-DARK).
  */
 export type TransitionTreatment =
   | "crossfade-body"

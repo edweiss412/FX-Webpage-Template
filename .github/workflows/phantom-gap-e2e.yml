@@ -14,11 +14,11 @@ name: phantom-gap-e2e
 # WHY ITS OWN WORKFLOW. Both host specs — crew-layout-dimensions.spec.ts and
 # admin-layout-dimensions.spec.ts — are matched by playwright projects but were
 # invoked by NO workflow, so everything in them has been running nowhere in CI
-# (the BL-E2E-LIFECYCLE-SPECS-CI-DARK shape). Mounting a probe into a dark spec
+# (the BL-E2E-APP-DEPENDENT-SPECS-CI-DARK shape). Mounting a probe into a dark spec
 # would have made the probe dark too: green locally, catching nothing on any PR.
 # This job is what makes the mount real. It runs ONLY the probe cases (`-g`), so
 # it does not adopt the rest of those files' flake surface; un-darkening the
-# remaining cases is still BL-E2E-LIFECYCLE-SPECS-CI-DARK's job.
+# remaining cases is still BL-E2E-APP-DEPENDENT-SPECS-CI-DARK's job.
 #
 # TWO PROJECTS, deliberately. The dashboard cases run under desktop-chromium; the
 # crew cases run under mobile-safari because that describe is single-writer (it

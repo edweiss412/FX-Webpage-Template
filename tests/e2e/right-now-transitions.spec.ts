@@ -1,6 +1,15 @@
 /**
  * Playwright audit suite for the §8.2 RightNow 12-state transition
- * matrix (M4 Task 4.12 Batch 2).
+ * matrix (M4 Task 4.12 Batch 2). CI-DARK, and partly skipped besides: no
+ * workflow names this file, so nothing in it runs in CI
+ * (BL-E2E-APP-DEPENDENT-SPECS-CI-DARK). Two of its three blocks are also
+ * `test.describe.skip` — the 66-pair audit and the compound audits — so they
+ * would not run even if the file were invoked. The §5.7 anchor-selection block
+ * is NOT skipped and does run under a local `pnpm test:e2e`. (Block titles are
+ * cited rather than line numbers, which rot on every edit to this header. The
+ * compound block's own title says "6 compound transition audits"; it contains
+ * SEVEN tests — a miscount that predates this comment and is left in the title
+ * only because renaming a skipped block's title is not this branch's scope.)
  *
  * Wired in Batch 2: framer-motion is installed, the Today hero renders
  * via AnimatePresence + matrix-driven motion props, and this suite
@@ -41,7 +50,9 @@
  *      • UNREACHABLE / SHOW_MUTATION — `test.skip` with stamped
  *        reason. Unreachable pairs are matrix-declared as never
  *        firing on the natural code path; show.dates mutation pairs
- *        require dedicated setup that the compound tests cover.
+ *        require dedicated setup that NO block in this file performs —
+ *        the compound audits below make zero shows.dates mutations
+ *        (probed 2026-08-06), so these pairs are undriven, not deferred.
  *
  *   The matrix is the single dispatch table — every entry maps to
  *   exactly one of these categories via `categorize(entry)`.
@@ -73,7 +84,7 @@ type Category = "TICK_DRIVABLE" | "NAV_DRIVABLE" | "SKIP";
  *
  *   - Unreachable cells → SKIP (matrix-declared no-fire)
  *   - Either endpoint is `unknown` or `dateless` → SKIP (requires
- *     show.dates mutation, covered by compound tests)
+ *     show.dates mutation, which no block in this file performs)
  *   - Both endpoints are time-driven AND adjacent on the show-day
  *     sequence → TICK_DRIVABLE (clock advance alone fires the kind
  *     change in-session)
@@ -81,8 +92,8 @@ type Category = "TICK_DRIVABLE" | "NAV_DRIVABLE" | "SKIP";
  */
 function categorize(entry: TransitionMatrixEntry): Category {
   if (entry.treatment === "unreachable") return "SKIP";
-  // Show-mutation endpoints — covered by compound tests with explicit
-  // dates setup/teardown.
+  // Show-mutation endpoints — no block in this file performs a shows.dates
+  // mutation, so these pairs are undriven rather than deferred elsewhere.
   if (
     STATE_DRIVERS[entry.from]?.requiresShowMutation ||
     STATE_DRIVERS[entry.to]?.requiresShowMutation
@@ -179,7 +190,7 @@ test.describe.skip("RightNow §8.2 — 66-pair pairwise transition audit", () =>
       const reason =
         entry.treatment === "unreachable"
           ? `unreachable per matrix: ${entry.reason ?? "(no reason recorded)"}`
-          : `endpoint requires show.dates mutation; covered by compound tests (${entry.from} ↔ ${entry.to})`;
+          : `endpoint requires show.dates mutation, which no block in this file performs (${entry.from} ↔ ${entry.to})`;
       test.skip(title, () => {
         // Document-only body; never executed. The string above is the
         // skip reason captured by the runner.

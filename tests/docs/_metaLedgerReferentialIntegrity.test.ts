@@ -125,6 +125,19 @@ const KNOWN_DANGLING: Record<string, string> = {
   // not exempted — the stale-row ratchet below is what proves that.
   "BL-RESOLVED":
     "cited in docs/audits/pr-38-217-bug-audit-2026-07-02.md — no entry as of 2026-08-02",
+  // L-wave forward references (spec 2026-08-06-l-wave-design.md + its plan): ids the
+  // wave's W-LDOCS branch FILES as part of its ratified decompositions/filings. Each
+  // row is debt that the filing commit repays — the stale-row ratchet forces removal
+  // of the row in the same change that creates the entry.
+  // SETTLED 2026-08-06 by L-wave task L4d, and the row STAYS. The plan offered two
+  // branches — refile under this id, or keep BL-RESURRECT-MOBILE-SAFARI-E2E and rewrite
+  // its body — and the second was taken, so this id is deliberately never filed. Its own
+  // "remove when W-LDOCS lands either way" was wrong for that branch: the id is still
+  // cited by the wave's spec as the rejected alternative, so deleting the row would leave
+  // that citation dangling. This is genuine debt of the intended kind — prose that looks
+  // like an id — and both ratchets hold: it never resolves, and it is still cited.
+  "BL-MOBILE-SAFARI-TILE-SPECS-CI-DARK":
+    "rejected refile id, L-wave L4d (2026-08-06): the id decision kept BL-RESURRECT-MOBILE-SAFARI-E2E and rewrote its body in place, so this id is never filed. Cited only as the rejected alternative in docs/superpowers/specs/2026-08-06-l-wave-design.md.",
 };
 
 type Cited = { id: string; files: string[] };

@@ -8,22 +8,6 @@ Last reconciled: 2026-08-04 — `feat/harness-font-fidelity` (PR #705) graduated
 
 ---
 
-## BL-ROLEFLAGSNOTICE-DROP-GUARD — no guard detects a path that obtains a `roleFlagsNotice` and never emits it
-
-**Status:** OPEN · **Severity:** LOW-MEDIUM (all four known instances closed; the class is unguarded) · **Class:** guard completeness, static analysis · **Filed:** 2026-08-03 (`fix/apply-undo-audit-fidelity`, descoped at spec review R5 after the vector produced a finding in four consecutive rounds) · **Effort:** L
-
-`tests/sync/_metaLeadRoleAppliedTopology.test.ts:29` matches `upsertAdminAlert(<expr>roleFlagsNotice` and asserts the discovered emit-site list. That detects a site that upserts the alert **without** the durable event. It has never detected the opposite and more damaging shape: a path that obtains a real notice and emits nothing. `BL-FINALIZE-CAS-ROLEFLAGS-NOTICE-DROP` was one instance of that shape; the closing branch found and repaired four.
-
-**Why this is L, not S — read before attempting.** Four adversarial rounds each refuted a cheaper design, and those refutations are the real specification:
-
-1. Keying on `applyStagedCore` callers misses `runManualStageForFirstSeen`, which takes its notice straight from `runPhase2` (`lib/sync/runManualStageForFirstSeen.ts:111`).
-2. Keying on `runPhase2` consumers still misses the one known bypass: the pending-ingestion retry route is not a `runPhase2` OR a `processOneFile_unlocked` consumer. It calls `runManualSyncForShow_unlocked`, which forwards through an import alias and a dependency-injection seam (`lib/sync/runManualSyncForShow.ts:13`, `lib/sync/runManualSyncForShow.ts:287-288`). A direct-consumer guard would approve that helper for faithfully preserving the envelope while staying blind to the route that drops it.
-3. So the guard needs **recursive carrier tracking** from every producer through those seams to terminal sinks, plus an exemption syntax and a registry — a static-analysis surface with its own design.
-
-Structural note for whoever takes this: the emit is attached to the locked wrapper (`lib/sync/runScheduledCronSync.ts:2750`), not to the apply, which is why every `_unlocked` caller is a discard site by construction. A future design might close the class at that layer instead of by analysis. Deferred under class-sweep exception (c) — a redesign of a surface the closing PR does not otherwise touch.
-
----
-
 ## BL-CAPABILITY-LOSS-SURVIVING-ROW-FALSE-POSITIVE — arm (c) reports a capability loss for a row that is still live
 
 **Status:** OPEN · **Severity:** LOW-MEDIUM (false operator alert; no data impact) · **Class:** notice fidelity · **Filed:** 2026-08-03 (`fix/apply-undo-audit-fidelity`, spec §9, deferred under class-sweep exception (c)) · **Effort:** S · **Reachability: PROBED 2026-08-04 — REACHABLE on one hold shape of four.**
@@ -54,6 +38,7 @@ screen-disposition 2026-08-04: KEEP — probe (`tests/sync/capabilityLossReachab
 ## BL-TASK-ENROLLMENT-SINGLE-DEPTH — the declared task region cannot express hierarchical or interleaved plan shapes
 
 **Status:** OPEN · **Severity:** LOW (opt-in convention; conservative failure with a surfaced finding, never silent) · **Class:** spec-lint task contract, enrollment expressiveness · **Filed:** 2026-08-03, from `docs/superpowers/specs/2026-08-03-pre-review-gate-arms-design.md` §6 items 6 and 7 · **Effort:** L
+**l-wave-screen 2026-08-06:** PREREQ — design-gated multi-depth enrollment redesign; the entry's own deferral-exception (c) fences it, so no wave can schedule it.
 
 The `<!-- tasks: depth=N -->` region declares ONE heading depth. Two real corpus shapes do not fit it, both measured:
 
@@ -63,58 +48,6 @@ The `<!-- tasks: depth=N -->` region declares ONE heading depth. Two real corpus
 **Deferral exception (c)** per the class-sweep disposition rule in `AGENTS.md`: the repair is a redesign of a surface this PR does not otherwise touch. Multi-depth enrollment forces a nesting model — a depth-3 task inside a depth-2 extent — whose marker ownership, extent boundaries, and `TASK_MARKER_MISSING` semantics are a design of their own, not a clause. Neither (a) nor (b) applies: this is not an unsettled product decision, and no prior ratification fences it.
 
 **Why it is safe to carry.** Enrollment is opt-in and no legacy plan is enrolled (measured: 534 plans scanned, 1 attempted, 0 findings). A plan of either shape either normalizes its task depths or stays unenrolled; the author is told plainly rather than checked wrongly. Re-open when someone wants to enrol a plan of one of these shapes.
-
-## BL-COVERAGE-CLAIMS-CITE-SKIPPED-SUITES — contract artifacts claim e2e coverage from suites that do not execute
-
-**Status:** OPEN · **Severity:** LOW-MEDIUM (dark coverage on documented contracts; no product impact) · **Class:** docs/contract, test-coverage claims · **Filed:** 2026-08-03 (`docs/settle-lead-capability-prose`, descoped at spec review R3 after three rounds of under-counting) · **Effort:** L
-
-Twelve artifacts tell a maintainer that compound capability transitions, RightNow transition behavior, and transport animation are exercised by e2e suites. **They are not.** Both named suites are `test.describe.skip`, and neither contains an assertion about the thing claimed.
-
-**Instances found so far. The set is NOT known to be complete** — see the methodological finding below.
-
-| Site                                                 | Claim                                                                                                                          |
-| ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| `lib/visibility/capabilityTransitions.ts:36-39`      | compound transitions "are exercised by the e2e compound-transition tests in `tests/e2e/right-now-transitions.spec.ts`"         |
-| `lib/visibility/capabilityTransitions.ts:130`        | "the delta is empty (the e2e compound tests cover those cases)"                                                                |
-| `lib/visibility/capabilityTransitions.ts:213`        | an entry `reason` ending "LEAD/admin compound interactions are tested by e2e"                                                  |
-| `tests/visibility/capabilityTransitions.test.ts:8-9` | the first claim restated in the test header                                                                                    |
-| `tests/visibility/capabilityTransitions.test.ts:194` | "the e2e compound test verifies the no-flicker invariant"                                                                      |
-| `tests/e2e/helpers/rightNow.ts:183`                  | skipped pairs "the compound tests handle them with explicit setup"                                                             |
-| `tests/e2e/helpers/rightNow.ts:239`                  | "the compound tests … cover the recovery paths"                                                                                |
-| `tests/e2e/helpers/rightNow.ts:286-292`              | "the helper covers TIME-DRIVEN transitions"; "the audit suite documents which transitions can be driven via tick-only"         |
-| `tests/visibility/transportTransitions.test.ts:10`   | "animation behavior is exercised in e2e tests"                                                                                 |
-| `lib/time/rightNowTransitions.ts:12-14`              | the Playwright audit "scaffolded as `test.fixme` until Batch 2 lands `framer-motion`" drives its assertions from this constant |
-| `lib/time/rightNowTransitions.ts:82-86`              | `unreachable` transitions are "Regression-guarded by the audit suite"                                                          |
-| `tests/time/rightNowTransitions.test.ts:6-8`         | "Animation-behavior tests live in `tests/e2e/right-now-transitions.spec.ts` (scaffolded as `test.fixme()` …)"                  |
-
-**Ground truth, probed 2026-08-03 — recorded so no future pass re-derives it:**
-
-```
-$ grep -n 'describe.skip' tests/e2e/right-now-transitions.spec.ts
-154:  RightNow §8.2 — 66-pair pairwise transition audit
-291:  RightNow §8.2 — 6 compound transition audits
-$ grep -c 'CAPABILITY_TRANSITION_MATRIX|affectedTilesOnFlip|FinancialsTile|AudioScopeTile' tests/e2e/right-now-transitions.spec.ts
-0
-$ grep -n 'describe.skip|test.describe(' tests/e2e/transport-tile.spec.ts
-225:  crew page — TransportTile (Task 4.7, §8.1)     [the file's ONLY describe]
-$ grep -c 'AnimatePresence|animation|transition|opacity' tests/e2e/transport-tile.spec.ts
-0
-$ grep -rl 'describe.skip' tests/e2e/ | wc -l
-12
-```
-
-**One blocker explains all of it:** the `?crew=`/`?as=admin` dev mock was retired, and each case renders as a specific non-LEAD crew identity that `signInAs` cannot reproduce without per-test crew rows matching `NON_ADMIN_CREW_FIXTURE` plus per-test fixture seeding (`tests/e2e/right-now-transitions.spec.ts:285-290`). Several claims are stale a SECOND way: they attribute non-execution to `test.fixme` pending `framer-motion`, a blocker that no longer applies.
-
-**Two sites are already honest and must NOT be "fixed":** `tests/visibility/capabilityTransitions.test.ts:224` says the gap is deferred pending Realtime push (M6); `:272` is future-tense about the same thing.
-
-**The methodological finding — this row's most valuable content.** Three hand-run sweeps under-counted this class (2 → 4 → 9 → 12), and each failure was a PATTERN failure, not an effort failure:
-
-- Sweeping `e2e|E2E` misses claims phrased "the audit suite", "the compound tests", "the helper covers" — no token in common.
-- Scoping the sweep to files the branch already had reason to open missed `tests/time/rightNowTransitions.test.ts` entirely.
-
-So the fix shape is **not** "grep harder". It is: enumerate every `describe.skip` / `test.fixme` / `test.skip` suite mechanically, resolve which modules and tests cite each one, and check the citing prose — **or** decide that prose coverage claims are unguardable and delete the class of sentence rather than maintain it. That decision is this row's open question and is a design call.
-
-**Why it was descoped rather than fixed:** it is a different class from the one `BL-LEAD-CAPABILITY-PROSE-STALE` filed (now in `BACKLOG-archive.md`) (restatements of whether a test EXECUTES, not of what a predicate COMPUTES), its extent is unmeasured, and bundling it into a branch chartered to settle two named claims drove three BLOCKING review rounds. Full reasoning: `docs/superpowers/specs/2026-08-03-lead-capability-prose-settle-design.md` §1.2 and §2.7.
 
 ## BL-FRESHNESS-ABORTED-CLOSE-E2E — the freshness cue's clear-on-hide branch has no behavioural proof
 
@@ -169,18 +102,6 @@ The host embedded in `cron.job.command` is environment-supplied and varies by ta
 
 ---
 
-## BL-RESYNC-STAGED-REVIEW-UI — no inline "review the diff, then approve the smaller roster" surface for an existing show
-
-**Filed:** 2026-08-02 (retroactively; `docs/superpowers/specs/data-quality/2026-07-04-resync-quality-gate-design.md:267` §13 says it "files to `BACKLOG.md`", and it never did). **Class:** UX enhancement. **Effort:** M.
-
-The shrink gate holds a reduced roster and offers `acceptShrink`, which applies the CURRENT sheet only if its `modifiedTime` still matches the reviewed one, and otherwise re-holds. That is deliberately not byte-exact: the design does not persist the held parse, so "apply exactly the version I first reviewed" is not available. This entry is that surface — restore or re-home `StagedReviewCard` in an existing-show mode exposing Apply / Keep-current, and update the `perShowPage.test.tsx` retirement pins.
-
-**Explicitly not a safety gap** (owner decision, spec §10): retain-last-good plus the alert already prevent the data loss, and the modifiedTime binding already makes acceptance explicit and version-bound. Do not promote this on safety grounds; promote it if the diff-review workflow is actually wanted.
-
-**Status:** OPEN.
-
----
-
 ## BL-STEP3-FULL-CREW-PREVIEW — no full crew-page preview from a staged parse in wizard step 3
 
 **Filed:** 2026-08-02 (retroactively; `docs/superpowers/specs/step3-onboarding/2026-06-23-onboarding-step3-review-redesign.md:290` lists it under §11 Out of scope / Backlog, with no row anywhere). **Class:** UX enhancement. **Effort:** M.
@@ -192,59 +113,6 @@ The adapter is the substance of the work, not the rendering — `getShowForViewe
 **Status:** OPEN.
 
 ---
-
-## BL-ADOPTION-PIN-REACHABILITY-BLIND — the shared-helper adoption guard cannot prove LIVE-PATH use
-
-**Effort:** L
-
-Surfaced by cross-model review of `fix/admin-popover-overlay-cluster` (2026-08-02, PR #658),
-across three rounds of probes against the shipped guard.
-
-`tests/components/admin/showpage/_metaSharedHelperAdoption.test.ts` pins that each consumer
-imports the shared helper, CALLS it (resolved through the TypeScript type checker, not by
-name), declares no local copy by name or by shape, and — for coalescer rows — cancels the
-instance it schedules. Rules (i)-(viii) are nonetheless **reachability-blind by
-construction**: none of them connects the imported helper's RESULT to live behaviour. Two
-evasion families were demonstrated, the second surviving a round of tightening:
-
-1. **Executed decoy.** `createRafCoalescer(() => {}).cancel()` on a throwaway instance,
-   while a private class handles every real `schedule()`/`cancel()`:
-
-   ```text
-   MUTANT HoverHelp executes sharedDecoy create+cancel, but all live
-   schedule/cancel behavior uses PrivateCoalescer
-   SHIPPED_GUARD_RESULTS 23 passed, 0 failed
-   ```
-
-2. **Discarded result.** Call `useFitWithinClip(...)`, drop the returned ref, attach a
-   private callback to the node instead:
-
-   ```text
-   MUTANT PublishedToggle voids shared ref and attaches a private 1px-cap callback
-   SHIPPED_GUARD_RESULTS 23 passed, 0 failed
-   ```
-
-Affects all five consumers: `ShareHub`, `HoverHelp`, `PublishedToggle`, `AttentionMenu`,
-`ReSyncButton`.
-
-**Accepted, not open.** Closing this statically means dataflow/reachability analysis, which
-is not what a meta-test should carry, and two rounds of rule-tightening each invited a new
-shape (the per-instance whack-a-mole the class-sweep discipline warns about). The guard's
-header states the limit and names the per-consumer BEHAVIOURAL tests that do catch a fork —
-`ReSyncButton.test.tsx` "overlay is capped to the room left inside a clipping ancestor",
-`PublishedToggle.test.tsx` "the banner is capped against the clip ancestor",
-`attentionMenu.test.tsx`'s capped-scroller case, the two HoverHelp suites, and
-shareHubVisualViewport's T-S8/T-S9. The wiring layer and the behaviour layer are meant to be
-read together; neither is sufficient alone.
-
-**Filed here because a code comment is not a ledger.** The limit was documented at the guard
-(discoverable once you are already reading it) but not where someone greps for known
-weaknesses. Its sibling gap `BL-POPOVER-REGISTRY-PER-FILE-AND-TAILWIND-ONLY` went to this
-file; this one should have too.
-
-**Only act on this if** a consumer is found to have behaviourally forked despite a green
-guard, or the behavioural backstops above are removed or narrowed — the latter is the real
-risk, since deleting one silently converts this accepted limit into an uncovered gap.
 
 ## BL-POPOVER-REGISTRY-PER-FILE-AND-TAILWIND-ONLY — the anchored-scroller registry is fail-by-default per FILE, and only for the Tailwind idiom
 
@@ -278,41 +146,6 @@ limit explicitly in the registry header so the contract stops over-promising.
 Not fixed in the cluster that surfaced it: closing it means re-keying an existing
 registry and re-dispositioning seven files, which is its own change with its own
 review surface.
-
-## BL-CI-OVERLAP-BOOT-WITH-SETUP — run the Supabase boot concurrently with pnpm install (built, MEASURED, and reverted — it does not pay)
-
-**Status:** OPEN, but with the lever now MEASURED and REVERTED. Do not rebuild it without new information — the question this entry framed has an answer.
-
-**Effort:** L
-
-**Update 2026-08-03 (PR #670, branch `chore/ci-boot-overlap-and-popover-flake`).** The overlap was implemented, measured against real CI, missed its accept gate, and was reverted in the same PR under the gate's pre-ratified rule. The measurement, both figures per spec §7.4:
-
-|                  | leg-median fixed overhead | max leg | run         |
-| ---------------- | ------------------------- | ------- | ----------- |
-| main baseline    | **96s**                   | 255s    | 30783618781 |
-| with the overlap | **102s**                  | 324s    | 30796409070 |
-
-Eight legs each, all green, `(job wall) − (vitest step)` per leg. The overlap did not save the install's ~16s; it **cost 6s of median**. Per-leg with the overlap: 92, 98, 101, 102, 102, 102, 107, 136. Baseline: 89, 91, 92, 94, 98, 101, 109, 112. The distributions overlap heavily and the median moved the wrong way, so this is not "a gain too small to see" — there is no gain. The accept threshold was ≥8s of REDUCTION (≤88s), chosen at half the theoretical 16s precisely so runner noise could not manufacture a result.
-
-**The likely reason, and why it was not predicted.** The design assumed the two operations contend for nothing because they are "network-bound" and "registry-bound". On a 4-core GitHub-hosted runner they contend for the same cores, the same NIC and the same disk: the boot's `docker pull` decompresses layers while pnpm unpacks a `node_modules` tree, and the spec's own §3 anticipated contention "possibly less" than 16s of gain without considering that contention could exceed it. The 136s outlier leg is consistent with that.
-
-**What is preserved from the attempt, and is worth keeping:** the write-surface audit is now empirical rather than inferred (three probes, including a fresh x86_64-Linux install under a recursive `inotifywait` that recorded zero events under `supabase/`), and the implementation spec at `docs/superpowers/specs/ci/2026-08-02-ci-boot-overlap-implementation.md` carries it along with a reusable, validated measurement procedure (`legfix` / `legwall`, §7.1). **If revisited:** this is now a measured-negative lever, not an unexplored one. The remaining wall-clock lever the spec names is a pre-baked Postgres image, which removes the ~14s schema+migration phase outright rather than trying to hide the install behind the pull.
-
-Original status: OPEN — spec complete and probe-backed on `chore/ci-overlap-boot-with-setup`; NOT implemented, NOT merged. Read this before restarting: eight adversarial rounds are already sunk into it.
-
-The last unexploited lever on unit-suite wall clock is the ~101s of per-leg FIXED overhead (leg-median; per-leg 89-108s on run 29741812457), of which ~70s is the Supabase boot and ~16s is `pnpm install`. They share no data but run sequentially, so overlapping them should reclaim up to ~16s per leg — roughly 6.5% of a 245s leg.
-
-**What is already established, and is worth keeping:**
-
-- **Probe (run 29743206592, real CI).** A process detached in one step DOES survive into later steps on a GitHub-hosted runner, and a filesystem status marker it publishes IS visible to a later step's shell (worker started 12:42:09, observed 12:42:49, status 7 written and read). `echo N > file` produced 0 empty reads in 400 create/read races. These are durable runner facts.
-- **The final design is one step, not a cross-step protocol:** background the bootstrap, capture the PID, run `pnpm install --frozen-lockfile` in the foreground, `wait` on the PID, under `set -euo pipefail`. Native `wait` on a real child makes it fail-closed with no sentinel, no deadline arithmetic, and live log streaming. Adversarial review confirmed this success path correct and the overlap real.
-- **Accepted non-goal:** if the install fails, the still-running bootstrap holds the step's stdout pipe and delays the failure report (typically ~70s; the only hard bound is the job's `timeout-minutes: 20`). Correct cleanup needs process-group termination plus a join plus PID-reuse care, and must not interrupt the bootstrap's held-aside-migration restore trap — a large surface for a rare path.
-
-**Why it stopped.** Eight spec rounds without reaching implementation, on a ≤16s gain, with the correctness surface still expanding each round. The final round also caught a factual error in the spec's own write-surface audit: it claimed `pnpm-workspace.yaml`'s `allowBuilds` contained only `@sentry/cli`, when it contains five keys (`@sentry/cli`, `esbuild`, `sharp`, `unrs-resolver` enabled; `simple-git-hooks` deliberately false). The disjointness premise — that concurrent install writes never touch `supabase/` — is probably still true, but it has no audited basis until someone checks those four build scripts.
-
-**If revisited:** start from the single-step design (skip rounds 1-4, which died on a cross-step protocol), redo the write-surface audit against all of `allowBuilds`, and decide up front whether ~16s justifies the failure-path tradeoff. A larger adjacent lever is the boot itself: a pre-baked Postgres image would remove the ~14s schema-init + migration phase, at the cost of a publish pipeline and a staleness contract.
-
-**Provenance:** lifted to `main` 2026-08-01 from `chore/ci-overlap-boot-with-setup`, which was never opened as a PR; the branch remains the source of the underlying spec.
 
 ## BL-SECTION-HEADER-VISUAL-REQUIRED-CONTEXT — promote the visual gate into branch protection's required set after soak
 
@@ -363,6 +196,7 @@ then archive this entry. Nothing else is owed.
 ### BL-PUBLISHED-TOGGLE-CLIENT-COMMIT-WEDGE — a fast server action can leave the Published toggle stuck pending on WebKit
 
 **Status:** OPEN · **Severity:** MEDIUM (real-user exposure unquantified; measured 7/10 in a CI loop) · **Class:** upstream framework defect, product exposure · **Filed:** 2026-07-26 (BL-E2E-LIFECYCLE-TRANSITIONS-ROUNDTRIP-FLAKE measurement work) · **Effort:** L
+**l-wave-screen 2026-08-06:** PARKED-WATCH — measured upstream React replay-loss defect; mitigations gated on real-user reports or a vendored React fix, and the watch signals are named in-body.
 
 **Measured, not theorized** (CI run 30233337644 retry1 trace + baseline loop 30235889083, 7/10 samples): `setShowPublishedAction` POSTs, the server commits and responds 200 `{ok:true}` in ~230ms with the re-rendered `published:false` tree in the response body, the page stays responsive — and the `PublishedToggle` switch sits `disabled aria-busy="true"` with the OLD `aria-checked` indefinitely. `await setPublished(...)` inside the form action never resolves, so `useFormStatus().pending` never clears and `router.refresh()` is never reached. React never commits the applied tree (React 19 replay-loss class; nearest public report vercel/next.js discussion 88767). Vendored React is identical through next 16.2.12 (`19.3.0-canary-3f0b9e61-20260317`), so no patch-bump fix exists today.
 
@@ -370,39 +204,10 @@ then archive this entry. Nothing else is owed.
 
 **Watch signals:** `[wedge-recovery]` lines in the lifecycle-transitions e2e output (tier=nudge/reload counts per run), and admin reports of a stuck Published switch. **Candidate mitigations if real-user reports arrive:** a client-side watchdog in `PublishedToggle.formAction` (`Promise.race` the action against a generous timeout, then `router.refresh()` — the mutation is NOT retried, only the read is), or an upstream React/Next bump once the replay fix ships in a stable vendored canary.
 
-## BL-CI-PARALLEL-DB-FALLBACK-AUDIT — re-run the closed-port protocol across the parallel project
-
-**Status:** OPEN, raised by adversarial review of PR #517 (finding 2).
-
-**Effort:** L
-
-The `unit-suite-nodb` job proves that no parallel-project file FAILS without a database. That is weaker than "touches no database": a test that swallows a connection error, skips on unavailability, returns early from a setup hook, or takes an untaken conditional DB path will pass while exercising a FALLBACK rather than the DB-backed behavior it was written to check. The no-DB job repeats that same observation every PR, so it shares the blind spot — it is a regression detector, not a proof.
-
-The stronger protocol already exists and was used for the original 2026-06-23 partition: point every Supabase endpoint at a CLOSED PORT rather than simply omitting the database. A refused connection surfaces swallowed-error paths that an absent server does not.
-
-**Work:** re-run that closed-port protocol across all ~691 current parallel-project files, and compare per-file assertion COUNTS against a run with the database present. A file whose assertion count drops is silently degrading. Any found either move to serial or get an explicit note saying the fallback path is what is under test.
-
-**Reachability:** INFERRED, NOT PROBED — the probe that settles it: run the `parallel` project once with the DB port closed and once with a DB present, and diff the PER-FILE assertion counts. A file whose count drops without a skip is the shape the entry describes. That probe, not the audit, is the first scheduled step.
-
-screen-disposition 2026-08-04: ANNOTATE-INFERRED, stays open. The entry names no instance, and the escape hatch it needs is the one the filing bar prescribes. Static facts re-verified 2026-08-04: the job is `.github/workflows/unit-suite.yml:146-147` (3 legs, `--project=parallel`, boots nothing), rolled up at `:188-198`, over `PARALLEL_TEST_GLOBS` at `vitest.projects.ts:94-140`. **Count corrected:** the body's "~691 current parallel-project files" is stale — the same globs now resolve 875 `.test.ts(x)` files, which makes the unmeasured surface ~27% larger than the row claims, not smaller.
-
-## BL-CI-RECLASSIFY-PARALLEL-STABILITY — revive the serial→parallel reclassification only with a concurrency-stability + clean-wall proof
-
-**Filed:** 2026-07-20 (arc SHELVED). **Class:** CI perf. **Effort:** L (structural stability + multi-run measurement).
-
-The DB-free serial→parallel reclassification (PR #528, closed unmerged) is correctness-verified but was shelved: moving ~527 files into the parallel project raises per-shard concurrency, and timing-sensitive moved files (e.g. `tests/admin/_metaInfraContract.test.ts`) starve past the 5s test timeout under CI load — candidate CI run 1 green, run 2 red on identical code. A required gate cannot flake, and the class is load-dependent (not fully enumerable up front). The wall-clock win was also unproven (~17s in contention-noisy samples, under the spec's 30s gate). Seventh lever this program has rejected on the local-passes-CI-fails pattern.
-
-**Reusable asset:** the DB-touch probe + static `DB_BINDING_SIGNALS` matcher (branches `spike/db-touch-instrumentation`, `perf/ci-reclassify-db-free-serial`). Retrospective: `docs/superpowers/specs/ci/2026-07-20-serial-parallel-reclassification-retrospective.md`.
-
-**Do NOT re-attempt the move without, in this order:** (1) solve criterion-3 at CI scale structurally — cap the parallel project's per-leg worker concurrency (`poolOptions.maxWorkers`) or raise the parallel `testTimeout` — and prove stability across ≥5 consecutive green CI runs; (2) demonstrate a clean ≥30s wall win with sequential, non-contending measurements (one CI run at a time). Absent both, the correctness tooling can stand alone (e.g. a nightly DB-drift audit) without the move.
-
-**Status:** open (shelved).
-
----
-
 ## BL-PG-CRON-COVERAGE-UNRUN — the live pg-cron introspection suite runs in no CI workflow
 
-**Status:** PARTIALLY CLOSED 2026-07-26 (PR3 of the CI-dark coverage cluster) · **Severity:** medium · **Surfaced:** 2026-07-25, whole-diff review round 17 · **Effort:** L
+**Status:** PARTIALLY CLOSED 2026-07-26 (PR3 of the CI-dark coverage cluster) · **Severity:** medium · **Surfaced:** 2026-07-25, whole-diff review round 17 · **Effort:** M
+**l-wave-screen 2026-08-06:** KEEP at honest residual scope — the wired-in-CI half closed 2026-07-26/27 and only the per-job smoke residue remains, so it is resized L->M in this same commit.
 
 **What closed.** The suite now runs in `unit-suite-db` (removed from `ENV_BOUND_EXCLUDES`, which applied only under `VITEST_EXCLUDE_ENV_BOUND=1` — so it ran locally and was dark in CI only), and against the persistent validation project via the new `pg-cron-validation-parity` job in `x-audits.yml`. Under CI an unreachable `psql` now throws instead of skipping, and a live-case counter refuses a run where zero live cases executed — measured before: exit 0 with "2 passed | 6 skipped", asserting nothing.
 
@@ -421,6 +226,7 @@ So every assertion in it is dead in CI, including the `active=true` gate that ex
 ## BL-WATCH-PROMOTION-ACTIVATION-RACE — a folder switch racing a subscriber can leave one stale active channel
 
 **Status:** OPEN · **Severity:** low (bounded to one lease; no data loss) · **Surfaced:** 2026-07-26, watch-renewal-lifecycle spec rounds 2-5 · **Effort:** L
+**l-wave-screen 2026-08-06:** PARKED (ratified 2026-08-05) for its own lock-topology design session; not schedulable inside any wave (see the 2026-08-04 screen ruling in-body).
 
 `promoteSettings` supersedes the prior folder's `active` channels and orphans its `pending` ones inside the settings-swap transaction, and `activatePending` refuses a zero-row activation. That closes every window where the pending row exists when promotion runs. It does NOT close the window where a subscriber reads the old configured folder, promotion commits, and the subscriber then inserts and activates its pending row — nor the one where the subscriber commits its activation while promotion is still uncommitted, since under READ COMMITTED it reads the previous committed folder.
 
@@ -619,21 +425,89 @@ screen-disposition 2026-08-04: KEEP — PROBED, and the mislabeling is determini
 
 The cron sync path also synthesizes workbooks (`lib/sync/runScheduledCronSync.ts:3118,3144`). A throw at either site escapes `prepareProcessOneFile` and is caught by the outer per-file loop (`:3915-3925`), which records `outcome: "parse_error"` with `classifySyncFailure(error)` — typically `SYNC_FILE_FAILED`. So it is already parse-family rather than Drive-family (unlike the onboarding paths this batch fixed), and the open question is narrower: should a corrupt workbook there report `PARSE_ERROR_LAST_GOOD`, whose copy tells Doug the latest edit did not parse and the previous version is still live? **Fix (when prioritized):** key on the `WorkbookSynthesisError` type this batch introduced. Deferred because it changes a live crew-visible sync contract and belongs in its own spec.
 
-### BL-MUTATION-HARNESS-OPEN-HOLES — parser silent-fragility classes pinned by the mutation harness
+### BL-MUTATION-REF-SUB — an exported `#REF!` is absorbed into the parse with no signal
 
-**Status:** OPEN (2026-07-06, feat/mutation-harness) · **Severity:** medium · **Class:** PARSER ROBUSTNESS · **Effort:** L
+**Status:** OPEN (2026-08-06, L-wave decomposition of `BL-MUTATION-HARNESS-OPEN-HOLES`) · **Severity:** medium · **Class:** PARSER ROBUSTNESS · **Effort:** M
 
-The rec-5 mutation-testing harness (`tests/parser/mutationHarness.test.ts`, nightly workflow) pins **7,885 day-1 silent holes** — mutants whose parse changed with no compensating signal (`SILENT_WRONG` / `SILENT_SIGNAL_LOSS`), recorded in `tests/parser/mutation/knownHoles.ts`. Each hole's `finding` field maps its operator class to the audit finding it exercises (`OPERATOR_FINDING_MAP`), so a ledger failure is triageable by operator. Documented-finding classes: **`header-typo` → audit #5** (short-header typo intolerance, `sectionHeaderNormalize.ts:16,66`); **`blank-row:inject` / `blank-row:remove` → audit #10** (blank-row block segmentation, `exportSheetToMarkdown.ts:104`). The remaining operator classes are silent-fragility surfaces the audit did not enumerate as a numbered finding; each is tracked as a backlog sub-item below and its holes shrink when that class is hardened:
+A body cell rewritten to the literal `#REF!` — a real broken-reference export artifact, **present in 3 of the 7 live shows** — parses as an ordinary value. Value-corruption class: the operator sees a crew page with `#REF!` where a name or time belongs, and nothing upstream said so.
 
-- **`BL-MUTATION-REF-SUB`** — a body cell rewritten to the literal `#REF!` (a real broken-reference export artifact, present in 3/7 live shows) is absorbed into the parse with no signal. Value-corruption class.
-- **`BL-MUTATION-UNICODE`** — a zero-width non-joiner (U+200C) injected into a cell value is silently retained (the fintech live ZWNJ shape). Invisible-character class.
-- **`BL-MUTATION-COLUMN-SHIFT`** — a spurious leading empty column shifts a section's row grid with no signal (the East Coast column-shifted outlier). Layout-shift class.
-- **`BL-MUTATION-MERGED-CELL`** — deleting one interior pipe (how a merged cell exports) fuses two adjacent cells silently. Cell-fusion class.
-- **`BL-MUTATION-SECTION-ORDER`** — reordering two adjacent top-level blocks silently reorders the parser's output arrays (the parser preserves source order). **Order-sensitivity discovered by the harness on 2026-07-06** (58 `SILENT_WRONG` + 24 `SILENT_SIGNAL_LOSS` across the corpus); section-reorder was reclassified cosmetic → corrupting as a result.
+**Ledgered blast radius: 3314 holes** (3094 `wrong` / 220 `signal_loss`), the LARGEST class in the harness — derived 2026-08-06 from `RAW_HOLES` in `tests/parser/mutation/knownHoles.ts`. Linkage: `OPERATOR_FINDING_MAP["ref-sub"] = "BL-MUTATION-REF-SUB"` (`tests/parser/mutation/knownHoles.ts:82`), pinned by `tests/parser/mutation/knownHoles.test.ts` — this id must stay resolvable while that row exists.
 
-**Ratchet:** the ledger is a shrink-only baseline. When a downstream fix hardens one of these classes, the corresponding holes become `staleRows` and the nightly harness fails until they are removed from `knownHoles.ts` — turning each parser-robustness fix into a measurable ledger reduction. Do NOT grow the ledger silently; a NEW hole (regression) fails the harness as `newAlarms`.
+**Shape (M):** one corpus-calibrated detection heuristic (`#REF!` is an unambiguous literal, so the discriminator is cheap — the calibration is deciding WHICH fields warn vs hard-fail) plus one new warn-severity `ParseWarning` code carrying the §12.4 lockstep triple (master-spec §12.4 prose + `pnpm gen:spec-codes` + `lib/messages/catalog.ts`, same commit) and a warning-card copy row.
 
----
+**Ratchet contract:** the ledger is SHRINK-ONLY. Hardening this class turns its holes into `staleRows` and the nightly harness FAILS until they are removed from `knownHoles.ts`, so the fix is measurable as a ledger reduction. Never grow the ledger silently; a NEW hole fails as `newAlarms`. Decomposition record: `BACKLOG-archive.md` § `BL-MUTATION-HARNESS-OPEN-HOLES`.
+
+### BL-MUTATION-MERGED-CELL — a merged cell exports as a deleted pipe and silently fuses two cells
+
+**Status:** OPEN (2026-08-06, L-wave decomposition of `BL-MUTATION-HARNESS-OPEN-HOLES`) · **Severity:** medium · **Class:** PARSER ROBUSTNESS · **Effort:** M
+
+Deleting one interior pipe — which is exactly how a merged cell exports to markdown — fuses two adjacent cells with no signal. Cell-fusion class: two columns become one value, and every downstream column index shifts within that row.
+
+**Ledgered blast radius: 2404 holes** (2271 `wrong` / 133 `signal_loss`), the second-largest class — derived 2026-08-06 from `RAW_HOLES`. Linkage: `OPERATOR_FINDING_MAP["merged-cell"] = "BL-MUTATION-MERGED-CELL"` (`tests/parser/mutation/knownHoles.ts:87`), pinned by `knownHoles.test.ts`.
+
+**Shape (M):** the discriminator is a row whose cell count is short by one against its section's established width, which needs corpus calibration — genuinely ragged rows are normal sheet authoring, so the heuristic must separate "merged cell" from "author left a trailing cell blank". Plus the warn-severity `ParseWarning` code with its §12.4 lockstep triple and warning-card copy row.
+
+**Ratchet contract:** SHRINK-ONLY, as above — `staleRows` on hardening, `newAlarms` on regression. Decomposition record: `BACKLOG-archive.md` § `BL-MUTATION-HARNESS-OPEN-HOLES`.
+
+### BL-MUTATION-UNICODE — an injected zero-width character is silently retained
+
+**Status:** OPEN (2026-08-06, L-wave decomposition of `BL-MUTATION-HARNESS-OPEN-HOLES`) · **Severity:** medium · **Class:** PARSER ROBUSTNESS · **Effort:** M
+
+A zero-width non-joiner (U+200C) injected into a cell value survives the parse intact — the live fintech ZWNJ shape. Invisible-character class, and the reason it matters is that it defeats EQUALITY: a name carrying a zero-width character does not match the same name without one, so identity linking, crew matching, and every string comparison silently miss while the rendered page looks correct.
+
+**Ledgered blast radius: 827 holes** (827 `wrong` / 0 `signal_loss`) — derived 2026-08-06 from `RAW_HOLES`. Linkage: `OPERATOR_FINDING_MAP["unicode-inject"] = "BL-MUTATION-UNICODE"` (`tests/parser/mutation/knownHoles.ts:83`), pinned by `knownHoles.test.ts`.
+
+**STRIP IS ALREADY THE RATIFIED POLICY — this row is incomplete ENFORCEMENT of it, not an open strip-vs-warn question.** Corrected 2026-08-06 after cross-model review probed the claim: `clean()` strips `[\u200B-\u200D\uFEFF]` at the shared cell boundary (`lib/parser/blocks/_helpers.ts:44-50`, which covers ZWNJ U+200C), and the live fintech ZWNJ shape has an executing regression asserting removal (`tests/parser/blocks/transport.test.ts:409-417`). The 827 holes are real and are fields the mutation harness reaches that this boundary does not.
+
+**Shape (M):** find the paths that bypass `clean()` and route them through it (or through the same character class), then shrink the ledger. The corpus calibration is establishing WHICH fields are still unprotected and whether any legitimately needs a zero-width character preserved. A warn-severity `ParseWarning` code is warranted only for a residue that cannot be stripped safely; if the whole 827 closes by routing through the existing boundary, no catalog row and no §12.4 lockstep is needed — which would make this smaller than M, and the first task should establish that.
+
+**Ratchet contract:** SHRINK-ONLY, as above. Decomposition record: `BACKLOG-archive.md` § `BL-MUTATION-HARNESS-OPEN-HOLES`.
+
+### BL-MUTATION-COLUMN-SHIFT — a spurious leading empty column shifts a section's row grid with no signal
+
+**Status:** OPEN (2026-08-06, L-wave decomposition of `BL-MUTATION-HARNESS-OPEN-HOLES`) · **Severity:** medium · **Class:** PARSER ROBUSTNESS · **Effort:** M
+
+A spurious leading empty column shifts every cell in a section's row grid one position right, and the parse absorbs it — the East Coast column-shifted outlier, i.e. a shape observed in a LIVE show, not a synthetic one. Layout-shift class: every field in the section reads its neighbour's value, which is the most damaging silent outcome in this set because each individual value still looks well-formed.
+
+**Ledgered blast radius: 211 holes** (193 `wrong` / 18 `signal_loss`) — derived 2026-08-06 from `RAW_HOLES`. Linkage: `OPERATOR_FINDING_MAP["column-shift"] = "BL-MUTATION-COLUMN-SHIFT"` (`tests/parser/mutation/knownHoles.ts:84`), pinned by `knownHoles.test.ts`.
+
+**Shape (M):** the discriminator is a section whose header-to-column alignment breaks while cell count holds, calibrated against the corpus so a legitimately indented section does not warn. Plus the warn-severity `ParseWarning` code with its §12.4 lockstep triple and warning-card copy row.
+
+**Ratchet contract:** SHRINK-ONLY, as above. Decomposition record: `BACKLOG-archive.md` § `BL-MUTATION-HARNESS-OPEN-HOLES`.
+
+### BL-MUTATION-SECTION-ORDER — reordering two adjacent blocks silently reorders parser output
+
+**Status:** OPEN (2026-08-06, L-wave decomposition of `BL-MUTATION-HARNESS-OPEN-HOLES`) · **Severity:** medium · **Class:** PARSER ROBUSTNESS · **Effort:** M
+
+Reordering two adjacent top-level blocks silently reorders the parser's output arrays, because the parser preserves source order. **Order-sensitivity was DISCOVERED by the harness on 2026-07-06** and section-reorder was reclassified cosmetic → corrupting as a result — this class exists because the harness found something no one had posited, which is the strongest evidence in the set that the remaining classes are worth detecting.
+
+**Ledgered blast radius: 82 holes** (58 `wrong` / 24 `signal_loss`) — derived 2026-08-06 from `RAW_HOLES`, reproducing the umbrella's own stated "58 `SILENT_WRONG` + 24 `SILENT_SIGNAL_LOSS`" exactly. Linkage: `OPERATOR_FINDING_MAP["section-reorder"] = "BL-MUTATION-SECTION-ORDER"` (`tests/parser/mutation/knownHoles.ts:88`), pinned by `knownHoles.test.ts`.
+
+**Shape (M):** this one is the least like the others and should be spec'd before it is built — the honest question is whether output order should be NORMALIZED (making the reorder a non-event) rather than detected, and that is a parser-contract decision, not a heuristic. If detection is chosen instead, it carries the same warn-severity `ParseWarning` code plus §12.4 lockstep triple and warning-card copy row as its siblings.
+
+**Ratchet contract:** SHRINK-ONLY, as above. Decomposition record: `BACKLOG-archive.md` § `BL-MUTATION-HARNESS-OPEN-HOLES`.
+
+### BL-PARSER-FIELD-PROVENANCE-MODEL — per-field provenance/confidence for the P0-2 zero-signal residuals
+
+**Status:** OPEN · **Severity:** medium · **Class:** PARSER ROBUSTNESS / DATA PROVENANCE · **Effort:** L · **Filed:** 2026-08-06 (L-wave, spec §2.1.5)
+
+The 2026-07-07 e2e real-world-variation preparedness audit names a per-field provenance/confidence model as the structural fix for its P0-2 class (confident wrong values rendering as authoritative). It is listed as **§7 item 5, "Medium (structural, from prior audit, still the right long-term move)"** and carried in the §11 shipped-status table as item 4: _"Provenance model (§7 item 5 remainder) — the long-term move for the P0-2 zero-signal residuals; 9+ territory. — ⏳ still the open long-term move."_ This row is that remainder, filed honestly rather than left as a dangling audit reference.
+
+**What already SHIPPED, so this entry is not re-litigated as unstarted.** The audit's §10.5 P0-2 row records the class as **BOUNDED, not closed**, by three layers that all landed: detection (`CREW_COLUMN_POSITIONAL_FALLBACK` #361, then ambiguity-warnings-v1 **#367** — four judgment-call warn codes with `blockRef.field` anchors and the wizard third state), monitoring (#366/#370), and a three-legged single-source correction layer (fix-in-sheet + Re-sync, use-raw reversal #388/#393/#394, role-token mapping #396). The `fast-check` property-fuzz layer (**#379**) is the other half-step toward provenance. The audit's own words: the structural fix is _"partway there."_
+
+**The residual this entry actually covers — the audit's named zero-signal cases, the ones where NO warning fires by construction:**
+
+- a **mis-read date that stays MDY-monotone**, because the DMY heuristic only trips on a strict sequence violation (`lib/parser/blocks/dates.ts:513-534`);
+- a **wrong-but-`explicit` `date_restriction`** — the value is well-formed and marked explicit, so nothing downstream doubts it;
+- **mis-splits that evade the heuristics** entirely.
+
+Each is a value the system is confident about and wrong about, with no signal prompting Doug to look. That is precisely the gap detection cannot close by adding more warn codes: these parses emit none **by definition**.
+
+**Why L.** A provenance model means every field carries where it came from and how confidently — a schema change, a parser-wide threading of provenance through every block reader, and a UI contract for surfacing confidence without drowning the operator in caveats. The audit sizes it "9+ territory". **It is explicitly NOT implemented by the L-wave** (spec §4 limit 5); this row exists so the remainder is schedulable rather than living only inside an audit document.
+
+**Promotion prerequisite:** its own design session. The first question that session must settle is whether provenance is stored (a schema-carried per-field record) or derived (recomputed at read time from the parse), because that choice determines whether re-sync must preserve it — and the use-raw overlay (#388) is the worked precedent for a decision layer that survives a full-replace re-sync.
+
+**Source:** `docs/audits/e2e-real-world-variation-preparedness-2026-07-07.md` §7 item 5, §10.5 (P0-2 row), §11 item 4.
 
 ### BL-LEDGER-GIT-TIMEOUT-CONSTANTS — the git adapter's three spawn timeouts are unassertable through its own surface
 
@@ -652,6 +526,7 @@ Ledgered `accepted-gap`, not `equivalent`, in `tests/mutation/source/registry.ts
 ### BL-EXPORT-BLANK-ROW-SEGMENTATION — blank-row block segmentation fuses/splits sections silently (audit #10)
 
 **Status:** PARTIALLY CLOSED (2026-07-27, `fix/export-blank-row-segmentation` — spec `docs/superpowers/specs/2026-07-27-export-blank-row-segmentation.md`) · **Severity:** medium · **Class:** EXPORT/PARSER ROBUSTNESS · **Effort:** L
+**l-wave-screen 2026-08-06:** PREREQ-trigger — the residuals have no corpus-clean discriminator (the generic orphan-block rule was probed and REFUTED at 30 false positives); the in-body promote trigger is a live mis-grouped show.
 
 **Partial closure (2026-07-27):** two of the three spec'd fix directions shipped. (b) **Header-aware segmentation** — `splitBlocks` now starts a new block at a mid-block row whose first non-blank cell is an uppercase known section header (`isMidBlockSectionStart`, `lib/parser/knownSections.ts`; `CLIENT` excluded on corpus evidence), closing the FUSE case structurally for uppercase-known headers with corpus-verified zero output drift (`tests/drive/round-trip-fixture.test.ts` byte-equality + archived-tab fingerprint golden). (c) **Crew-scoped orphan detection** — a new warn-severity `ORPHANED_CREW_ROWS` ParseWarning (operator card + crew-region deep link) fires when a table block's first row carries a crew-role cell (≥2 distinct Load In / Load Out / Strike / Set tokens on one line) with no section header — the SPLIT case for crew rosters, at 0 corpus false positives and 29/29 simulated-split recall (ratcheted by `tests/parser/orphanedCrewRowsCorpus.test.ts`). **The backlog entry's generic orphan-block rule ("no recognizable header adjacent to a recognized section") was probed and REFUTED: 30 false positives on the live corpus** (GEAR-tab gear lists under room headers, INFO free-text blocks, PULL SHEET title rows) — blocks starting with non-header rows are normal sheet layout. **Residuals (still open):** splits of non-crew sections (hotel/transport/details tails have no corpus-clean discriminator); fuses onto mixed-case or unknown headers; crew rows carrying fewer than two role tokens on one line of one cell (including role cells authored with literal pipes, which the parser's cell split decomposes); and the mutation harness cannot observe the exporter-level fuse fix (it mutates exported markdown, never the grid), so `blank-row:remove` ledger holes remain by construction.
 
@@ -659,17 +534,48 @@ Ledgered `accepted-gap`, not `equivalent`, in `tests/mutation/source/registry.ts
 
 ---
 
-### BL-TRANSPORT-ID-RESOLUTION — id-based transport visibility + no-match admin warning (deferred from Flow 8.4 to 8.3)
+### BL-TRANSPORT-ID-RESOLUTION — the deferred red-first regression pins for `transportTileVisible`
 
-**Status:** PARTIALLY CLOSED (2026-07-09, Flow 8.4 PR #374) · **Severity:** medium · **Class:** CREW VISIBILITY / ENRICH · **Effort:** L
+**Status:** OPEN at residual scope · **Severity:** low · **Class:** TEST COVERAGE · **Effort:** S · **Filed:** 2026-07-09 · **Resized:** 2026-08-06 (L-wave)
 
-**Partial closure (Flow 8.4, PR #374 — `docs/superpowers/specs/2026-07-09-flow8.4-transport-assignee-warning.md`):** the **enrich-time no-match admin warning** shipped. `lib/sync/enrichTransportAssignees.ts` emits one admin-only aggregate data-gap warning (`TRAVEL_TRANSPORT_NAME_UNMATCHED`, `gateExempt: true`) when a transport driver/assignee name references a crew member who would not see their own tile — turning silent invisibility into a staged-review data-quality signal. **Still deferred to 8.3:** id-persistence + id-based visibility matching (a crew `id` does not exist at enrich time — the uuid is DB-assigned at APPLY via `gen_random_uuid()`, `initial_public_schema.sql:32` — so resolve-to-id-and-persist is architecturally infeasible in the enrich pass; 8.3 must move it to an apply-time step). The regression pins below also remain for 8.3, which changes the `transportTileVisible` predicate.
+> **RESIZED 2026-08-06 (L-wave, `feat/l-wave-docs`), decided by probe.** The entry's headline residual
+> — id-based transport visibility — landed as Flow 8.3b (#380). `transportTileVisible` now carries
+> a garble-proof id path: Branch 0 matches `transportationOwnerIds.includes(viewerId)` before any name
+> comparison (`lib/visibility/scopeTiles.ts:189,200,214-215`, re-probed 2026-08-06), and the
+> preparedness audit's shipped-status table records "8.4 transport visibility fully closed".
+>
+> What did NOT land is the deferred REGRESSION PIN SET, and that is the entire remaining content of
+> this row. Probed 2026-08-06: `rg -n 'Bill Werner|William Werner' tests/visibility lib/visibility`
+> returns nothing (exit 1). **The pin-set probe must grep the SPECIFIC named fixtures** — greping the
+> abundant `namesRefer` / `transportationOwnerIds` tokens instead would false-green, since those exist
+> precisely because the id path shipped. Resized L → S accordingly: what is left is one red-first test
+> task against an existing predicate, not a feature.
 
-The Flow-8 audit item 8.4 (`docs/audits/e2e-real-world-variation-preparedness-2026-07-07.md` §Flow 8) asks that a transport name mis-parse cannot hide a driver's own itinerary. `transportTileVisible` (`lib/visibility/scopeTiles.ts:177-202`) matches assigned crew by **fuzzy name** (`namesRefer`, `lib/data/nameMatch.ts`), which closes the common variance (nickname / legal-name / case / trim / prefix) but NOT a **hard** mis-parse (a merged-cell overflow that shifts the surname token, e.g. a driver stored as `"Doug Larson Loadout"` — the adjacent column fused onto the name — vs roster `"Doug Larson"`; verified `namesRefer` returns false because the multi-token rule compares last tokens `"loadout"`≠`"larson"`). In that case the driver silently does not see their own ground-transport block. Flow 8.4 (PR #374, see Partial closure above) now emits an **admin-visible no-match warning** for this case, so it is no longer _silent_ — but the driver still does not see their tile until the operator fixes the name, because id-based visibility matching remains deferred to 8.3.
+**The residual, verbatim from the original deferral — land these RED-FIRST** (they were removed from
+`flow8-self-serve-trio` at plan-review Round-11 because a green-only regression-pin task conflicts with
+plan-wide invariant 1, and they belong red-first in the branch that next touches this predicate):
 
-**Deferred defensive regression pins (moved out of `flow8-self-serve-trio` at plan-review Round-11; land red-first in 8.3):** pin `transportTileVisible`'s _current_ fuzzy tolerance against name-parse-variance regression — driver `"Doug"` vs viewer `"Doug Larson"` → visible (prefix); `"Douglas Larson"` vs `"Doug Larson"` → visible (surname); assigned-names `["Bill Werner"]` vs `"William Werner"` → visible; case/trim `"  doug larson "` → visible; negative controls (`"Jane Smith"` → not visible, empty/`null` → not visible, admin → visible when transportation exists); and the **known-gap fixture** driver `"Doug Larson Loadout"` vs `"Doug Larson"` → **not visible** (verified live: multi-token rule compares last tokens `"loadout"`≠`"larson"`, `nameMatch.ts:50-53`). These were removed from the milestone because a green-only regression-pin task conflicts with plan-wide invariant 1 (non-negotiable red-first per task); they belong red-first in 8.3, which changes this exact predicate.
+Pin `transportTileVisible`'s CURRENT fuzzy-name tolerance against name-parse-variance regression:
 
-**Fix (deferred to the 8.3 venue-timezone / enrich spec, same enrich domain + admin-warning machinery):** at enrich time, resolve free-text `driver_name` / `assigned_names` → `crew_member` ids against the show roster, persist the resolved id set on the transportation legs / driver, match viewer visibility by id (robust to any later render-time name garble), and emit an admin-visible alert when an assigned name resolves to **no** roster member (turns silent invisibility into a data-quality signal — parallels 8.3's ET-default admin warning). Add fixtures with a hard-mis-parsed driver name and assert the driver's own transport becomes visible via id resolution AND that the no-match name raises the admin warning. Interim crew recourse until this lands: the Flow-8.1 picker "Don't see your name?" affordance.
+- driver `"Doug"` vs viewer `"Doug Larson"` → visible (prefix)
+- `"Douglas Larson"` vs `"Doug Larson"` → visible (surname)
+- assigned-names `["Bill Werner"]` vs `"William Werner"` → visible
+- case/trim `"  doug larson "` → visible
+- negative controls: `"Jane Smith"` → not visible; empty / `null` → not visible; admin → visible when transportation exists
+- the **known-gap fixture**: driver `"Doug Larson Loadout"` vs `"Doug Larson"` → **not visible**, verified live (the multi-token rule compares last tokens, `"loadout"` ≠ `"larson"`, `lib/data/nameMatch.ts:50-53`)
+
+**Why the known-gap fixture stays a NEGATIVE assertion, given Branch 0:** Branch 0
+only fires when `transportationOwnerIds` carries the viewer's id. The fuzzy-name branch is still the
+fallback for legs with no resolved owner id, so its tolerance — and its documented hard-mis-parse hole
+— remain live behaviour worth pinning. Pinning the name branch is not redundant with the id branch;
+they are different code paths for different data states.
+
+**Prior work, recorded so no future pass re-derives it:** the enrich-time no-match admin warning
+shipped in Flow 8.4 (PR #374) — `lib/sync/enrichTransportAssignees.ts` emits an admin-only aggregate
+`TRAVEL_TRANSPORT_NAME_UNMATCHED` (`gateExempt: true`) when a transport name references a crew member
+who would not see their own tile. The id-persistence half that PR called "architecturally infeasible
+in the enrich pass" (a crew uuid is DB-assigned at APPLY via `gen_random_uuid()`) was solved at
+apply-time by 8.3b, which is why Branch 0 exists.
 
 ---
 
@@ -699,21 +605,73 @@ ParsePanel was not alone. Shape swept: **a file under `components/` that no file
 
 **The debt is still not silent**, and it gained a second guard. `tests/components/_metaOrphanedComponents.test.ts` walks `components/**` every run and fails on any zero-production-importer file absent from `ORPHAN_ALLOWLIST`; `tests/docs/retiredIdentifierReferences.test.ts` walks every tracked file for references to what this branch retired, keyed by line content, so a stale citation to a deleted component cannot survive either. Emptying the allowlist is no longer this entry's goal; keeping every row's reason true is.
 
-## BL-E2E-LIFECYCLE-SPECS-CI-DARK — admin-lifecycle e2e specs are matched by playwright projects but invoked by no workflow
+## BL-OPS-LOG-OAUTH-EMITS — the `OAUTH_REDIRECT_INVALID` branches emit no durable code
 
-> **UPDATE 2026-07-26 (PR4 of the CI-dark cluster).** `admin-lifecycle-transitions.spec.ts` stays allowlisted, but for a materially different reason than before: its two DETERMINISTIC breaks are fixed (a retired-testid assertion that failed every run, and a compound case the ShareHub backdrop made unreachable) and the pre-hydration swallow is repaired. It went from failing every run to one flaky case, measured 4/5 locally with one real-CI failure on the round-trip. Not wired, per spec §6.1's five-consecutive-greens acceptance and its pre-ratified fallback. Tracked as `BL-E2E-LIFECYCLE-TRANSITIONS-ROUNDTRIP-FLAKE`. The rest of this umbrella is the ~60 app-dependent specs needing a dev server and seeded database, deliberately out of the cluster's ratified scope.
->
-> **UPDATE 2026-07-27 (`fix/lifecycle-transitions-roundtrip-flake`).** The round-trip flake is fixed and `admin-lifecycle-transitions.spec.ts` is WIRED — `lifecycle-layout-e2e.yml` runs it on every `pull_request`, five consecutive green normal-dispatch runs met spec §6.1 / AC-6, and its allowlist row is deleted. `BL-E2E-LIFECYCLE-TRANSITIONS-ROUNDTRIP-FLAKE` graduated to `BACKLOG-archive.md`. This umbrella's remaining scope is unchanged: the ~60 app-dependent specs.
+**Status:** OPEN · **Severity:** low · **Class:** OBSERVABILITY · **Effort:** S · **Filed:** 2026-08-06 (L-wave decomposition of `BL-OPS-LOG`)
 
-**Status:** OPEN · **Severity:** MEDIUM (dark regression coverage) · **Class:** CI wiring — surfaced by the archive-row-menu-idiom spec R11 adversarial round (2026-07-24).
+`OAUTH_REDIRECT_INVALID` is never a persisted `code:` anywhere. It exists only as a `validateNextParam` return discriminant (`lib/auth/validateNextParam.ts:13`) and a §12.4 catalog copy row — so an operator hitting it leaves no durable trace, while its sibling `OAUTH_STATE_INVALID` DOES have adjacent durable emits (`app/auth/callback/route.ts:234,250`). That asymmetry is the whole entry.
 
-**Effort:** L
+**Five emit-less branches across three GET routes** (symbol-anchored 2026-08-06; the parent entry's line anchors had rotted, and the parent named only the first two routes — the third was found by class sweep during the decomposition):
 
-**PARTIAL 2026-07-26 (PR2 of the CI-dark coverage cluster).** The umbrella shrank substantially: 30 allowlist rows citing this item are gone, because `standalone-e2e.yml` now runs the whole standalone config unfiltered on every PR. 60 rows remain, all app-dependent specs that need a dev server and a seeded database — deliberately out of the cluster's ratified scope. `admin-lifecycle-transitions` specifically was PR4's subject and closed on 2026-07-27 (five consecutive greens, see the UPDATE above).
+- `app/auth/callback/route.ts:258` — `signInRedirect(request, "OAUTH_REDIRECT_INVALID", …)`
+- `app/api/auth/google/start/route.ts:40` — same call shape
+- `app/api/auth/picker-bootstrap/route.ts:162,165,176` — `htmlResponse("OAUTH_REDIRECT_INVALID", 403)`, three branches
 
-`tests/e2e/admin-lifecycle-layout.spec.ts` and `tests/e2e/admin-lifecycle-transitions.spec.ts` appear in the `mobile-safari` project `testMatch` (`playwright.config.ts`), but every e2e workflow runs an explicit spec list and none names them — they run nowhere in CI. The archive-row-menu-idiom branch wires the LAYOUT spec (new `lifecycle-layout-e2e.yml`, since it carries that feature's load-bearing assertions); the TRANSITIONS spec remains dark. **Fix (when prioritized):** add `admin-lifecycle-transitions.spec.ts` to the same workflow (or its own) after fixing its local flake class — the 2026-07-24 flake audit (archive-row branch) measured: static source-guard red since 2026-07-20 (fixed on that branch via the ArchiveShowButton transition-opacity carve-out mirroring PublishedToggle's), plus 3 pre-hydration click-swallow failures (hub kebab open x2, published toggle x1) whose failing cases move between runs; the layout spec's toPass hydration-retry is the template. The structural guard for the class (workflow-coverage meta-test with a reasoned allowlist) SHIPPED with the archive-row-menu-idiom branch (spec §6 item 6); un-wiring work here is now just moving this spec off that allowlist by adding it to a workflow. Related owner decision (R18), **corrected 2026-07-26**: the claim that branch protection requires only the `quality` context is STALE — measured, the live required set holds TWELVE contexts. The e2e jobs are advisory not because one context is required, but because none of them is in that set. Promoting e2e jobs into it so a red e2e blocks merge at the GitHub layer remains an owner GitHub-settings action, not repo code; until then enforcement is the pipeline's all-checks-green procedural gate. Measurement: `docs/superpowers/specs/ci/2026-07-26-ci-dark-coverage-design.md` §2.5.
+**Work:** add a durable `code:` emit on each branch, matching the shape the `OAUTH_STATE_INVALID` path already uses. S because the sink, the helper, and the pattern all exist — this is five call sites, not a design.
 
-**New instance observed 2026-07-26 — FIXED 2026-08-03** on `chore/ci-boot-overlap-and-popover-flake`: T-REGROW's two armed measurements no longer take a fixed wait. The real run retries the whole measurement so a transient pre-re-placement state retries while a regression still times out; the ladder sweep settles on observed growth. A structural guard (`tests/cross-cutting/e2e-regrow-settle-contract.test.ts`) anchors a retry at each arming site so the fixed wait cannot creep back. The three fixed waits the class sweep found ELSEWHERE in that file are filed separately as `BL-E2E-LAYOUT-FIXED-WAIT-RESIDUE`. The umbrella below — the ~60 app-dependent specs — is unchanged and stays OPEN. Original text follows, unedited, for provenance. (destruct-thumb-order PR #604): the LAYOUT spec — the one this row records as stabilized by the `toPass` hydration retry — failed once in `lifecycle-layout-e2e` on `mobile-safari`, at the archive-confirm popover assertions (`tests/e2e/admin-lifecycle-layout.spec.ts:411` `scrollIntoView(confirm) must have been called`, and `:538` armed body within the clip rect), 24 passed / 1 failed. Confirmed a flake, not a regression: the failing commit touched only `tests/e2e/pendingDiscardReal.layout.spec.ts`, which that workflow does not run, the two commits before it passed, and a re-run of the identical tree went green. So the hydration retry does NOT cover the popover-placement path — the growth-then-replace measurement takes a fixed `waitForTimeout(300)` rather than retrying to a condition, which is the likely remaining gap. \*\*Fix shape:\*\* replace that fixed wait with a `toPass` block around the armed measurement, same template as the rest of the spec.
+**No registry obligation, and this is stated so implementation does not invent one:** all three routes are **GET** handlers (`:178`, `:36`, `:158`), so none is inside invariant 10's mutating-method scope. The emits are an observability improvement; they create no `AUDITABLE_MUTATIONS` row and no guard obligation. Decomposition record: `BACKLOG-archive.md` § `BL-OPS-LOG`.
+
+## BL-OPS-LOG-ONBOARDING-EMIT — `ONBOARDING_OPERATOR_ERROR` has no producer
+
+**Status:** OPEN · **Severity:** low · **Class:** OBSERVABILITY · **Effort:** S · **Filed:** 2026-08-06 (L-wave decomposition of `BL-OPS-LOG`)
+
+`ONBOARDING_OPERATOR_ERROR` is render-only. `components/admin/OnboardingWizard.tsx:548` calls `messageFor("ONBOARDING_OPERATOR_ERROR")` to display the §12.4 catalog copy to Doug, and **no `log.*` emit exists anywhere for it** (re-verified 2026-08-06: the only non-catalog hits in the tree are that render site and the component's own header comment). So the operator sees the error and the system retains nothing about it.
+
+**Work:** emit a durable `code:` when the wizard enters that state, so a support conversation has a row to look at. S — one emit at one site, against a sink that already exists.
+
+**No registry obligation:** the producer is a render path, not a mutating route or a `"use server"` action, so invariant 10's mutation-surface scope does not reach it. Decomposition record: `BACKLOG-archive.md` § `BL-OPS-LOG`.
+
+## BL-OPS-LOG-DASHBOARD-BANNER — the operator-log sink has no admin-visible reader
+
+**Status:** OPEN · **Severity:** medium · **Class:** OBSERVABILITY / UI · **Effort:** M (Opus/UI, design-gated) · **Filed:** 2026-08-06 (L-wave decomposition of `BL-OPS-LOG`)
+
+The durable sink is built and written (`lib/log/persist.ts:16` → `app_events`), but **its only reader is developer-gated.** Re-verified 2026-08-06: `loadAppEvents` and `loadCronHealth` have exactly ONE UI consumer, `app/admin/dev/telemetry/page.tsx`, which calls `requireDeveloperIdentity()` at `:24`. The `lib/observe/query/*` modules are non-logging copies feeding the `pnpm observe` CLI, not a surface. **No admin-dashboard surface reads `app_events` at all** — the two hits in `app/admin/actions.ts:81,168` are comments about paths that leave no row.
+
+Consequence: Doug must leave the dashboard to see operator telemetry and, as a non-developer, likely cannot reach the page at all. Everything the other two children emit lands somewhere he cannot look.
+
+**Why M and DESIGN-GATED, not S:** this is a new admin surface, not a query change. What belongs on a dashboard banner — which severities, what recency window, what dismissal behavior, whether it is a banner at all rather than a panel or a bell-badge source — is a product decision, and it is Opus/UI work under the invariant-8 dual gate. Do not implement it as "render the telemetry table on the dashboard."
+
+**Possible bundle, with the caveat that decides it:** `BL-ADMIN-PER-SHOW-HISTORY` wants a per-show operator history view, and both surface operator history to an admin — but they read DIFFERENT stores today. This entry's sink is `app_events`; that entry's own body names `sync_history` / `pending_syncs` / `shows` and `shows_internal.parse_warnings`, and sync history persists to `sync_log` (`lib/sync/syncLog.ts:43`). So a bundle is a DESIGN question (should one surface span both stores?), not a shared read path to be reused. Decomposition record: `BACKLOG-archive.md` § `BL-OPS-LOG`.
+
+## BL-E2E-APP-DEPENDENT-SPECS-CI-DARK — 43 app-dependent e2e specs are named by no CI workflow
+
+**Status:** OPEN · **Severity:** MEDIUM (dark regression coverage) · **Class:** CI wiring · **Effort:** L · **Filed:** 2026-08-06 (L-wave, refile of `BL-E2E-LIFECYCLE-SPECS-CI-DARK` at honest scope)
+
+**43 standalone-allowlist e2e specs are named by no CI workflow** — the `UNSEEN` rows of `tests/ci/_metaE2eWorkflowCoverage.test.ts`. They are the residual of the 2026-07-26 CI-dark cluster, which closed everything that did NOT need a running application: `standalone-e2e.yml` now runs the whole standalone config unfiltered on every PR, and that alone retired 30 allowlist rows.
+
+**Census, counted 2026-08-06 rather than estimated** (the "~60" this entry was first filed with was wrong, and the miscount is recorded so the number is not re-inflated):
+
+| Allowlist rows                                                                                         | 66  |
+| ------------------------------------------------------------------------------------------------------ | --- |
+| `UNSEEN` — named by no workflow, **this entry's population**                                           | 43  |
+| `PATH_GATED` — named by a workflow, runs when its filter matches                                       | 13  |
+| `PATH_GATED_BY_EXCLUSION` — named, runs unless the change is prose-only                                | 6   |
+| `LOCAL_ONLY` — local artifact by design                                                                | 1   |
+| custom-reason rows (`admin-lifecycle-transitions`, `attention-modal-gallery`, `section-header-visual`) | 3   |
+
+Path-gated rows are NOT this entry's scope: a workflow does name them, and "not PR-blocking-capable" is a different property from "runs nowhere". Conflating the two is what produced the original overcount.
+
+**The blocker is not uniform, and promoting the cheap ones first is the obvious first batch.** Most of the 43 need a dev server AND a seeded database, which is why the cluster excluded them — but not all do: `sample.spec.ts`, for instance, requests `/` and asserts the title. Sorting the 43 by what they actually require, and wiring the no-seed ones first, is a cheaper opening move than the entry's original all-or-nothing framing implied.
+
+**This entry replaces a row whose heading premise had gone false.** Its predecessor was named for two `admin-lifecycle` specs being invoked by no workflow; both have been wired since 2026-07-27 and run on `mobile-safari` on every `pull_request` (`.github/workflows/lifecycle-layout-e2e.yml:110,130,132`, re-verified 2026-08-06). The full wiring history is preserved in `BACKLOG-archive.md` § `BL-E2E-LIFECYCLE-SPECS-CI-DARK`. Only the app-dependent residual survives here, and the scope has not changed — only the name now matches it.
+
+**Promotion path — the entry's own, and it is incremental by design:** land green batches one at a time rather than attempting all 43. `crew-e2e.yml`'s `CREW_E2E_ONLY` + `pnpm db:seed` pattern is the working template for an app-dependent job, and `lifecycle-layout-e2e.yml` is the worked example of the acceptance bar a batch must clear: **five consecutive green normal-dispatch runs** before a spec is considered wired (spec §6.1 / AC-6). That bar is what took the transitions spec from "one flaky case" to wired, and it is the reason batches must be small.
+
+**Owner action that no branch can close.** Promoting e2e jobs into the branch-protection required set — so a red e2e blocks merge at the GitHub layer — is a GitHub-settings action, not repo code. Measured 2026-07-26: the live required set holds TWELVE contexts, and no e2e job is among them, which is why every e2e job is advisory. Until an owner changes that, enforcement is the pipeline's all-checks-green procedural gate. Measurement: `docs/superpowers/specs/ci/2026-07-26-ci-dark-coverage-design.md` §2.5.
+
+**Structural guard already in place:** the workflow-coverage meta-test with its reasoned allowlist (`tests/ci/_metaE2eWorkflowCoverage.test.ts`) shipped with the archive-row-menu-idiom branch. Wiring work here is moving a spec OFF that allowlist by adding it to a workflow — the guard makes each removal explicit rather than silent.
+
+**Related, filed separately:** `BL-E2E-LAYOUT-FIXED-WAIT-RESIDUE` (three fixed waits the 2026-08-03 class sweep found in the layout spec).
 
 ## BL-FITWITHINCLIP-DOUBLE-MOUNT-MEASURE — the hook measures twice on every mount
 
@@ -781,28 +739,6 @@ since the value of the scale is that every site uses it.
 
 ---
 
-## BL-ATTENTION-PANEL-NAME-LEADING-SECTION — the panel is named for its first section, not its contents
-
-**Effort:** S
-
-Surfaced by the non-degraded impeccable gate rerun on PR #658 (2026-08-02).
-
-`components/admin/showpage/AttentionMenu.tsx` names the panel `"Needs you"` when any needs-you
-item exists and `"Monitoring"` otherwise — the first group actually present. When both groups
-are present the panel therefore announces as "Needs you" while also containing Monitoring rows,
-so its accessible name understates what it holds.
-
-This is deliberate and documented in-code: the name mirrors the visible leading heading, which
-is what a sighted user sees at the top of the panel, and the alternative names ("Needs you and
-monitoring", or a neutral third noun) either read as clutter or drift from the visible text.
-The related genuine defect — the inner scroller calling itself "Show issues", which was wrong
-for a monitoring-only list — is fixed separately.
-
-**Trigger:** a screen-reader pass on the show page that judges the understatement in practice,
-or a redesign that gives the panel a visible title of its own to name it from.
-
----
-
 ## Merged from the plans backlog (2026-08-02)
 
 `docs/superpowers/plans/BACKLOG.md` was a second, disjoint `BL-` registry: 53 entries under
@@ -817,34 +753,6 @@ Promotion path these were filed under, retained: spec at `docs/superpowers/specs
 plan tree at `docs/superpowers/plans/<date>-<name>/`, a milestone number, then list it in
 `docs/superpowers/plans/README.md`. Promotion is gated like any milestone — brainstorming, spec
 self-review, adversarial review, planning, adversarial review.
-
-### BL-OPS-LOG — Structured operator-log sink + producer wiring
-
-**VERIFIED INCOMPLETE 2026-08-03 — 3 of 6 scope clauses unshipped. Do not archive.** Checked clause-by-clause during the merged-backlog sweep; recorded so the next reader does not re-derive it.
-
-- **Built** — the durable sink: `lib/log/persist.ts:16` writes `app_events` (module is `lib/log/`, not the proposed `lib/operatorLog/` — equivalent). Sign-out producer: `app/auth/sign-out/route.ts:108,117`.
-- **MOOT** — the redeem-link producer and its 10 codes: `app/api/auth/redeem-link/route.ts` was dropped at the M11.5 cutover and is now a banned term (`tests/cross-cutting/no-m9-5-surfaces.test.ts:38`). Cannot ship; not a blocker.
-- **REMAINS (1)** — the OAuth callback producer is partial. `OAUTH_STATE_INVALID` has adjacent durable emits (`app/auth/callback/route.ts:234,250`), but the `OAUTH_REDIRECT_INVALID` branch emits nothing (`app/auth/callback/route.ts:265-269`; same gap at `app/api/auth/google/start/route.ts:47-49`). Neither code is ever a persisted `code:` — it exists only as a `validateNextParam` return discriminant and a catalog copy row.
-- **REMAINS (2)** — the `ONBOARDING_OPERATOR_ERROR` producer. Render-only today: `components/admin/OnboardingWizard.tsx:548` displays catalog copy; no `log.*` emit anywhere.
-- **REMAINS (3), the load-bearing one** — the admin-visible banner. The only reader of the sink is `/admin/dev/telemetry` (`app/admin/dev/telemetry/page.tsx:24`), gated by `requireDeveloperIdentity`. That is a developer-gated page, not a dashboard banner: Doug must leave the dashboard and, as a non-developer, likely cannot reach it at all. No admin-dashboard surface reads `app_events` (the two hits in `app/admin/actions.ts:81,168` are comments about paths that leave no row).
-
-**Origin:** Consolidates four DEFERRED entries from the FXAV crew-pages plan that all blocked on the same nonexistent infrastructure: M5-D9 (OAuth callback structured operator-log), M5-D10 (Redeem-link structured operator-log), M5-D11 (Sign-out teardown structured operator-log), M10-D-PHASE1-1 (ONBOARDING_OPERATOR_ERROR durable notification via Sentry + admin-visible banner).
-
-**Effort:** L
-
-**Scope (combined from the four originating entries):**
-
-- A `lib/operatorLog/` module that writes structured operator-facing log entries to a durable sink. Sink design TBD — candidates: Supabase table, Sentry, or hybrid (Sentry for high-signal incidents + a Supabase audit table for everything else).
-- Producer call sites for:
-  - `app/auth/callback/route.ts` — emit `OAUTH_REDIRECT_INVALID` + `OAUTH_STATE_INVALID` alongside the redirect query codes.
-  - `app/api/auth/redeem-link/route.ts` — emit every redeem-link failure code (`CSRF_DENIED`, `CSRF_NONCE_EXPIRED`, `CSRF_KEY_ROTATED`, `LINK_REDEEM_KEY_ROTATED`, `SESSION_NOT_FOUND`, `LINK_NO_CREW_MATCH`, `LINK_VERSION_MISMATCH`, `LINK_REVOKED_FLOOR`, `LINK_REVOKED_SURGICAL`, `ADMIN_SESSION_LOOKUP_FAILED`).
-  - `app/auth/sign-out/route.ts` — emit on `deleteSession()` and Supabase `signOut()` failures.
-  - Onboarding wizard `ONBOARDING_OPERATOR_ERROR` producer (per M10 Phase 1 R1).
-- Admin-visible banner integration so Doug sees the most recent operator-log entries (without having to leave the dashboard).
-
-**Why backlog, not deferred:** The work is real and motivated, but: (a) no spec or plan exists; (b) the sink design needs a brainstorming session (Supabase vs Sentry vs hybrid); (c) no scheduled milestone exists to absorb it; (d) several of the producer surfaces work acceptably today via inline `console.error` or `admin_alerts` UPSERT — operator visibility is degraded, not absent. Picking this up requires first scoping the milestone (spec + plan), not just implementing the producer wiring.
-
-**Promotion prerequisite:** brainstorming session on sink design (Supabase audit table vs Sentry vs hybrid + retention + admin-banner integration shape).
 
 ### BL-PUSH-NOTIFICATIONS — Email-primary operator push surface
 
@@ -870,6 +778,7 @@ Design memo captures six load-bearing principles: push-not-pull, severity tierin
 ### BL-PRIVATE-IMAGE-PIPELINE — Migrate diagrams gallery to `next/image` with auth-preserving pipeline
 
 **Effort:** L (scope floor — design-gated)
+**l-wave-screen 2026-08-06:** PREREQ — scope floor — needs its own private-image-pipeline design session.
 
 **Origin:** DEFERRED entry M7-D3 (Diagrams gallery `<img>` → `next/image`). Re-deferred at M9 C6b 2026-05-13 after an in-cluster attempt failed P0 (auth cookies don't forward through `/_next/image`; private Cache-Control rewritten to public, breaking revocation propagation).
 
@@ -901,6 +810,9 @@ Asset URLs are proxied through `/api/asset/diagram/...` which returns auth-check
 ### BL-ADMIN-PER-SHOW-HISTORY — Sync-health-history + parse-warnings-history sections on per-show panel
 
 **Effort:** L (scope floor — design-gated)
+**l-wave-screen 2026-08-06:** PREREQ — scope floor — a schema/data-model decision, and the store is part of what must be decided. This entry's own body names `sync_history` / `pending_syncs` / `shows` and `shows_internal.parse_warnings`; sync history and warnings persist to `sync_log` (`lib/sync/syncLog.ts:43`), NOT to `app_events`. A possible bundle with BL-OPS-LOG-DASHBOARD-BANNER is worth evaluating because both surface operator history to an admin, but they read DIFFERENT stores today, so the bundle is a design question rather than a shared read path. (Corrected 2026-08-06: an earlier version of this stamp asserted a shared `app_events` read path, which pre-selected a store that does not hold this history.)
+
+**Store correction 2026-08-06 (L-wave, cross-model review R3):** the body below proposes a new table or view and states schema work is mandatory. That is no longer established. `public.sync_log` already carries `show_id`, `drive_file_id`, status/code, warnings, and `occurred_at`, and `querySyncLog` (`lib/observe/query/syncLog.ts:24`) already filters per show/file and orders newest-first — so a per-show history view may need no new schema at all. What remains genuinely open is whether that store's COMPLETENESS, RETENTION, and INDEXING suit an operator-facing history, which is a design question rather than a schema prerequisite. Read the body's schema framing as superseded by this note.
 
 **Origin:** M11-E-D4 (MEDIUM) filed 2026-05-20. M11 `/help/admin/per-show-panel` documents per-spec §9.2 a "sync health" section (last 5 sync attempts) and a dedicated parse-warnings history section. Shipped `app/admin/show/[slug]/page.tsx` renders `PerShowAlertSection` + `ReSyncButton` + `ParsePanel` + `HelpTooltip` only; no historical-aggregate views.
 
@@ -1000,6 +912,7 @@ screen-disposition 2026-08-04: PREREQ-FENCED + ANNOTATED, stays open, NOT claime
 ### BL-NON-CREW-UNDO — Undo for non-crew feed rows (section shrinkage / field degradation / asset drift)
 
 **Effort:** L
+**l-wave-screen 2026-08-06:** PREREQ — waits on the operator explicitly wanting non-crew undo; the capture-widening cost is judged then, not now.
 
 **Filed:** 2026-06-10 from the shipped "sync changes feed + identity-only gate" milestone (PR #19, `docs/superpowers/specs/v1-pre-deployment-amendments/2026-06-08-sync-changes-feed-identity-gate-design.md` §1 non-goals / §7 / finding F6).
 
@@ -1050,23 +963,10 @@ screen-disposition 2026-08-04: PREREQ-FENCED + ANNOTATED, stays open, NOT claime
 
 ---
 
-### BL-ACCENT-BUTTON-ATOM-SWEEP — Migrate remaining raw accent-button compositions to the shared `<AccentButton>` atom
-
-**Filed:** 2026-06-21, during M5-D7 (extract shared `components/shared/AccentButton.tsx`).
-
-**Effort:** L
-
-**Description:** M5-D7 extracted the canonical accent-fill button chrome (`bg-accent` + `text-accent-text` + `hover:bg-accent-hover` + focus-ring + disabled treatment) into one atom and migrated the **8 admin call sites** the deferral named (ResolveAlertButton ×2, PendingPanelRetryButton, ReSyncButton, PublishShowButton, RunFinalCASButton, ResumeFinalizeButton, FinalizeButton, StagedReviewCard). **Census note (2026-08-03):** four of those eight call sites have since been deleted — PublishShowButton at `32fec4fac` (with `/admin/unpublished`), ResumeFinalizeButton at the Step-3 consolidation, and ResolveAlertButton and RunFinalCASButton as zero-production-importer components — and `ReSyncButton` was separately DE-MIGRATED to a ghost trigger by the modal-header reconciliation (§6.7), so the executable `MIGRATED_FILES` census in `tests/styles/accent-button-atom.test.ts` is now three: `PendingPanelRetryButton`, `FinalizeButton`, `StagedReviewCard`. That scan walks the migrated files, not the repo; repo-wide `bg-accent` coverage belongs to `tests/styles/_metaBgAccentInventory.test.ts`. A repo-wide grep at migration time found the pattern still hand-rolled in **~17 other sites** OUT OF M5-D7 SCOPE: `app/admin/error.tsx`, `app/admin/settings/error.tsx`, `app/admin/settings/admins/{error.tsx,AddAdminForm.tsx,RevokeRowButton.tsx ×3}`, `app/admin/show/[slug]/{ShareLinkCopyButton.tsx,ResetPickerEpochButton.tsx,RotateShareTokenButton.tsx ×2}`, `app/show/[slug]/unpublish/ConfirmUnpublishForm.tsx`, `app/show/[slug]/[shareToken]/_SignInOrSkipGate.tsx ×2`, `components/admin/Mi11GateActions.tsx`, `components/admin/wizard/{Step1Share,Step2Verify ×2,Step3Review}.tsx`, `components/admin/settings/AddAdminDisclosure.tsx`, `components/shared/{ReportButton.tsx,ReportModal.tsx ×4}`. (Pill-badge `bg-accent text-accent-text` spans in AdminNav/NotifBell and the active-step indicators in OnboardingWizard/Step3Review/me/page are NOT buttons — they are a different, legitimate use of the token pair and out of scope for this atom.)
-
-**Why backlog, not deferred:** The 4th-variant YAGNI gate justified the atom; migrating the long tail is mechanical but unbounded and touches crew-page + unpublish surfaces (UI gate work — Opus only). No correctness bug; the anti-drift meta-test at `tests/styles/accent-button-atom.test.ts` only pins the 8 MIGRATED files, so the untouched sites are not regressions, just un-DRYed. No concrete trigger.
-
-**Promotion prerequisite / mechanics:** For each site, swap `<button className="…bg-accent…">` for `<AccentButton …variant props…>` (matching size/fontWeight/ringOffset/inline/selfStart/shadow/minWidthTap to the existing classes), preserving every `data-testid` and pending/useFormStatus wiring, then ADD the file to `MIGRATED_FILES` in `tests/styles/accent-button-atom.test.ts` (the documented extension point) so it's pinned against future re-drift. Note several of these (Share/Rotate/AddAdmin/wizard) use a `selected ? accentClass : otherClass` ternary or `cn(...)`/array-join className — those need the atom's `className` escape hatch or a small refactor, not a pure prop swap. Promote when a className-helper standardization pass or a UI-consistency milestone makes the long tail worth closing in one batch.
-
----
-
 ### BL-CREW-SHEET-TEMPLATE-V2 — Standardized downloadable show-spec template to capture redesign-required fields
 
 **Effort:** L (scope floor — design-gated)
+**l-wave-screen 2026-08-06:** PREREQ — scope floor — an owner product decision on whether a standardized template is adopted at all.
 
 **Filed:** 2026-06-15, during the crew-show-page redesign audit (Claude Design handoff bundle `fxav-crew-pages`; design source at `/tmp/design_extract/...` ephemeral, intent recorded in milestone memory). Owner is considering a **downloadable, standardized sheet template** Doug (and future operators) would fill in, so the richer crew-page surfaces have a reliable source instead of depending on organic per-show sheet conventions.
 
@@ -1166,15 +1066,48 @@ The Phase 1 crew-page projection alert (`TILE_PROJECTION_FETCH_FAILED`, §4.13 o
 
 **Promotion prerequisite:** an established `<Suspense>` streaming pattern in the codebase + an AdminNav slot refactor that lets the badge counts arrive as a streamed server child without breaking the client-side pathname-refetch hook.
 
-### BL-RESURRECT-MOBILE-SAFARI-E2E — lift the rest of the mobile-safari Playwright project into CI
+### BL-RESURRECT-MOBILE-SAFARI-E2E — lift the remaining mobile-safari tile/crew specs into CI
 
-**Filed:** 2026-06-23 (discovered building the crew-e2e CI job). NO CI workflow runs the `mobile-safari` Playwright project — every CI playwright run is project-filtered (`dev-gate-e2e.yml`→dev/prod-build; `help-affordances.yml`→help-docs; `screenshots-*.yml`→screenshots). So `tests/e2e/crew-page.spec.ts` + the ~20 M4 tile specs (schedule-tile, transport-tile, status-financials, role-spoof, pack-list, notes-tile, right-now*, layout-dimensions, empty-state*, apply-driven-refresh, redeem-link, leaked-link, auth-chain, …) are committed but **dead-in-CI** (only run via local `pnpm test:e2e`, which cold-builds ~4 webServers — impractical). The new `.github/workflows/crew-e2e.yml` runs ONLY `crew-section-toggle.spec.ts` (the perf gate + 0-network/dimensional proofs) — the `CREW_E2E_ONLY` filter + `db:seed` pattern there is the reusable template for the rest.
+**Filed:** 2026-06-23 (discovered building the crew-e2e CI job). **Effort:** L
 
-**Effort:** L
+> **CORRECTION 2026-08-06 (L-wave, `feat/l-wave-docs`).** The entry's founding premise — "NO CI
+> workflow runs the `mobile-safari` Playwright project" — is **REFUTED**. Three workflows run it
+> today: `lifecycle-layout-e2e.yml` (`:110`, `:130`, `:132`), `crew-e2e.yml` (`:159`, alongside
+> desktop-chromium), and `phantom-gap-e2e.yml` (`:175`). The project is not dark; a **subset of specs
+> inside it** is. The id is KEPT deliberately — it is cross-referenced from the CI-dark cluster specs
+> and the 2026-08-05 sizing sweep, and a rename would cost more than the stale title saved. The body
+> below is rewritten at honest scope; the original claim is preserved in this note so the correction
+> is auditable rather than silent.
 
-**Why backlog, not now:** these specs have been unran in CI for a long time and could surface latent seed/timing/env failures (the crew corpus + the M4 tile fixtures mutate shared rows; `workers:1` already serializes them, but resurrecting ~20 at once is a multi-round debugging slog, not a follow-on edit). Scoping the crew-e2e job to one spec delivers the perf gate now without that risk.
+**Honest residual: the ~20 M4 tile/crew specs that no workflow names.** Every CI Playwright run is
+still an explicit spec list, so a spec matched by the `mobile-safari` project but named in no run
+command executes nowhere. That set is roughly: `crew-page`, `schedule-tile`, `transport-tile`,
+`status-financials`, `role-spoof`, `pack-list`, `notes-tile`, `right-now`, `right-now-transitions`,
+`layout-dimensions`, `empty-state`, `theme-toggle`, and their siblings — the twelve that are
+additionally `describe.skip` are enumerated in `BACKLOG-archive.md` §
+`BL-COVERAGE-CLAIMS-CITE-SKIPPED-SUITES`. **A spec being project-matched is not coverage**, and that
+distinction is the whole content of this row now.
 
-**Promotion prerequisite:** extend `crew-e2e.yml` (or a sibling) to run `--project=mobile-safari` (all specs), triaging each failure (most likely: seed dependencies the corpus no longer satisfies, or specs that assumed a pre-redesign DOM). Land green incrementally (add spec globs as they pass) rather than flipping the whole project on at once.
+**Why it is still L, and still not "now":** these specs have been unrun in CI for a long time and
+will surface latent seed/timing/env failures. The crew corpus and the M4 tile fixtures mutate shared
+rows — `workers: 1` already serializes them, but resurrecting ~20 at once is a multi-round debugging
+slog, not a follow-on edit. Several also predate the crew redesign and assume a pre-redesign DOM.
+
+**Promotion path — incremental, and the bar is already demonstrated.** Extend `crew-e2e.yml` (or a
+sibling) spec by spec, triaging each failure; the `CREW_E2E_ONLY` filter + `pnpm db:seed` pattern
+there is the working template. `lifecycle-layout-e2e.yml` is the worked example of the acceptance bar
+a batch must clear — **five consecutive green normal-dispatch runs** before a spec counts as wired
+(spec §6.1 / AC-6). Land green globs as they pass rather than flipping the project on at once.
+
+**Relationship to `BL-E2E-APP-DEPENDENT-SPECS-CI-DARK` — it is a SUBSET, not a sibling.** Probed
+2026-08-06: all twelve specs listed above are `UNSEEN` rows of the same
+`tests/ci/_metaE2eWorkflowCoverage.test.ts` allowlist that entry's 43-row population is drawn from.
+An earlier draft of this note claimed the two cover different populations and may close
+independently; that was false in the direction that matters, and is corrected here rather than left
+to be re-derived. **Closing the parent closes this one.** This entry survives as a distinct row only
+because it names a coherent, prioritizable BATCH — the mobile-safari tile/crew specs, which share one
+project, one seed, and one template — and the parent's own promotion path is explicitly incremental
+batches. If the parent is worked wholesale, archive this as absorbed.
 
 ## BL-TOGGLE-BANNER-ANCHOR-ROOM-UNMEASURED — one clip-fit anchor still has no real-surface number
 
