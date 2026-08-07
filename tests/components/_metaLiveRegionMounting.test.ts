@@ -135,23 +135,34 @@ const NON_TRANSIENT_GATES: ReadonlyMap<string, string> = new Map([
 /**
  * Files still carrying the defect, each with the shape its repair will use.
  *
- * NOT EMPTY — four rows, each a real site the AST walk found and named with the
- * repair it needs (BL-LIVE-REGION-AST-WALK-RESIDUE). An earlier version of this
- * comment claimed the map was empty and stayed that way after the rows landed,
- * which R2 caught: a comment that describes a data structure is a claim about
- * it, and this one had gone false.
+ * EMPTY as of 2026-08-07 (arc A), and the emptiness is load-bearing rather than
+ * incidental: the four rows the AST walk filed as
+ * BL-LIVE-REGION-AST-WALK-RESIDUE were all resolved BY REPAIR, not by deletion.
+ * Keep this sentence honest — a comment that describes a data structure is a
+ * claim about it, and R2 caught the previous version of this docblock still
+ * saying "empty" after four rows had landed. If you add a row, say four became
+ * five here.
  *
  * The mechanism is the point. A row FAILS the moment its file goes clean, so a
  * row is a claim with an expiry rather than a place to put a defect and forget
  * it. A future author who hits this guard on a new site has two honest exits —
  * mount the region, or announce through the channel — and adding a row here is
  * a third that costs them a name in the ledger.
+ *
+ * DOCUMENTED LIMIT, re-homed here when the entry archived (arc A spec §4 limit
+ * 1) because this file is the owning surface's limits record. THE WALK IS BLIND
+ * TO A CROSS-COMPONENT GATE. A parent rendering `{cond ? <Child/> : null}` where
+ * `Child` owns the region is the same defect and produces no hit, because the
+ * walk stops at the component boundary by construction. The live instance is
+ * the agenda parsing region in `step3ReviewSections.tsx`: its own in-file
+ * `baseline.length === 0` guard was repaired, but the SECTION above it is gated
+ * by `includesAgenda` (`components/admin/review/sectionInclusion.ts`), so that
+ * component's first paint still cannot announce. Catching this class needs
+ * whole-program analysis, which is a different tool and a different change; the
+ * in-component shape — gate and region in one function, which is what every
+ * instance found so far has been — is fully covered.
  */
-const PENDING: ReadonlyMap<string, string> = new Map([
-  // FOUND BY THE AST WALK (whole-diff review R1), not by the regex it replaced —
-  // which is the argument for the rewrite. Each is a region born populated, and
-  // each needs a real repair rather than a mechanical toggle:
-]);
+const PENDING: ReadonlyMap<string, string> = new Map([]);
 
 /**
  * How many conditional live-region sites each registered file is KNOWN to have.

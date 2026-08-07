@@ -1125,27 +1125,6 @@ docblock states the gap rather than papering over it.
 
 ---
 
-## BL-LIVE-REGION-AST-WALK-RESIDUE — four regions the new AST walk found, and one gate shape it still cannot see
-
-**Status:** IN PROGRESS · **Branch:** feat/a11y-privacy-cluster
-
-**Filed:** 2026-08-05 (M-wave W-UI, whole-diff cross-model review R1). **Class:** a11y. **Effort:** S per site. **Severity:** low (each is one silent announcement).
-
-`BL-ANNOUNCE-REGION-UNMOUNT-CLASS` shipped with a line-window regex detector: it looked back six lines from `role="status"` for a `?` or `&&`. Review probed it and it missed same-line `&&`, direct ternaries, and any opening tag more than six lines below its gate — **including a real defect in `app/admin/settings/roles/RoleMappingRow.tsx` that returned no hit at all.** The detector is now a TypeScript AST walk that asks the structural question directly, and it immediately surfaced **eleven** further sites the regex never saw. Six are legitimate surface gates and carry exemption rows with reasons; four are real and are listed as PENDING in `tests/components/_metaLiveRegionMounting.test.ts`:
-
-- `components/admin/dev/MaterializeCard.tsx` — `result === null ? null : <div role="status">`; hoist the region above the result gate.
-- `app/admin/settings/admins/RevokeRowButton.tsx` — the couldn't-confirm warning is inserted with its text after a failed revoke.
-- `components/admin/wizard/step3ReviewSections.tsx` — the `-report-status` span is gated on the send outcome it reports.
-- `components/admin/wizard/Step3ReviewModal.tsx` — the publish-error span is mounted, but its enclosing row is gated.
-
-**A third site joined this list from R3, and it is the clearest statement of why the cross-component case matters.** `components/admin/wizard/step3ReviewSections.tsx`'s agenda-parsing region is born populated and cannot be fixed inside its own component: the §4.6 guard returns null unless `baseline.length > 0`, and a non-empty baseline initialises `state` to `"loading"`, so the first render always carries the parsing text. Deferring it with an effect is what `react-hooks/set-state-in-effect` forbids, correctly. The region has to live ABOVE that guard — in the parent that persists across it — which is the same ownership move the two entries below need. Later transitions (loading → ready, ready → error) still announce correctly; only first paint cannot.
-
-**Documented limit, not a silent one: the walk is blind to a CROSS-COMPONENT gate.** A parent rendering `{cond ? <Child/> : null}` where `Child` owns the region is the same defect and produces no hit, because the walk stops at the component boundary by construction. Catching it needs whole-program analysis, which is a different tool and a different change. The in-component shape — gate and region in one function, which is what every instance found so far has been — is fully covered.
-
-**Deferral exception: (c)** — four independent surface repairs plus a whole-program analysis question, on surfaces this PR does not otherwise touch. The PR closed the class it could close and left the residue enumerated and executable: a PENDING row FAILS the moment its file goes clean, so this list cannot rot into a lie.
-
-**Status:** OPEN.
-
 ## BL-CHANNEL-ANNOUNCER-RESIDUAL-ROLE-STATUS — five visible cards keep a `role="status"` that announces nothing
 
 **Status:** IN PROGRESS · **Branch:** feat/a11y-privacy-cluster

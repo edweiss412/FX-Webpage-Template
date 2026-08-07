@@ -96,6 +96,14 @@ const BACKLOG_GRADUATED = [
     id: "BL-CREW-UNKNOWN-ASTERISK-TRAVEL-LEAK",
     provenance: "feat/a11y-privacy-cluster",
   },
+  // feat/a11y-privacy-cluster (2026-08-07, arc A): the four PENDING live-region
+  // sites the AST walk filed, all closed BY REPAIR rather than by dropping the
+  // rows. The cross-component walk-blindness limit re-homed to the guard file's
+  // own docblock, which is the owning surface's limits record.
+  {
+    id: "BL-LIVE-REGION-AST-WALK-RESIDUE",
+    provenance: "feat/a11y-privacy-cluster",
+  },
   // feat/needs-attention-holds-rollup (2026-08-03): the cross-show open-holds read
   // the entry was blocked on, plus the fourth needs-attention stream it unblocked.
   {
