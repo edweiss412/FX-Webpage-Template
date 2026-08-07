@@ -140,7 +140,7 @@ than reporting anything about the modal.
   `tests/e2e/*.spec.ts` that calls `seedShowWithCrew`: 16 files, and the new case
   was the only instance. `picker-flow.spec.ts` reads 6 seeds / 0
   `deleteSeededShow` calls but is NOT an instance — it accumulates drive file ids
-  and deletes them in an `afterEach` (`:88-92`). No peer was deferred, because
+  and deletes them in an `afterEach` (`tests/e2e/picker-flow.spec.ts:88-92`). No peer was deferred, because
   none was found.
 
 The reviewer explicitly reported no wrong-and-silent Q1 input within the stated
