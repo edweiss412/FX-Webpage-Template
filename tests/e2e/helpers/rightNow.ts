@@ -184,8 +184,9 @@ export type StateDriver = {
   /**
    * If true, this kind cannot be driven via clock + restriction
    * alone — needs `shows.dates` mutation. The parametrized audit
-   * skips pairs where either endpoint has this set; no block drives them (the compound
-   * tests handle them with explicit setup.
+   * skips pairs where either endpoint has this set, and NO block drives
+   * them: the compound audits perform zero `shows.dates` mutations
+   * (probed 2026-08-06), so these endpoints are undriven.
    */
   requiresShowMutation?: boolean;
 };
