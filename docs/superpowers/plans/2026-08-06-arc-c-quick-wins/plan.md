@@ -6,7 +6,7 @@
 
 **Architecture:** `docs/arc-c-spec` (this branch: spec + plan + HANDOFF + claim handoff) merges first; then `feat/backlog-quick-wins` (worktree `../FX-worktrees/backlog-quick-wins`, created off `origin/main` with claims pushed BEFORE this branch merges, per spec §3) implements Q1–Q3 in order.
 
-**Date:** 2026-08-06 · **Spec:** `docs/superpowers/specs/2026-08-06-arc-c-quick-wins.md` · **Status:** DRAFT
+**Date:** 2026-08-06 · **Spec:** `docs/superpowers/specs/2026-08-06-arc-c-quick-wins.md` · **Status:** plan-CONVERGED (codex-guard R1-R4, 2026-08-06/07: BLOCKING 6, BLOCKING 4, BLOCKING 4, NEEDS-ATTENTION 1 MEDIUM — every finding repaired in-branch; converged at the cap with the sole R4 MEDIUM (Status-anchored gate grep) repaired; spec separately APPROVED at its R4)
 
 ## Global constraints
 
