@@ -54,8 +54,15 @@ function expectReportLink(rendered: { html: string; text: string }, expectedHref
   expect(rendered.html, "html body must carry the Report a problem anchor").toContain(
     `<a href="${expectedHref}">${LABEL}</a>`,
   );
-  expect(rendered.text, "text body must carry the Report a problem label").toContain(LABEL);
-  expect(rendered.text, "text body must carry the report URL").toContain(expectedHref);
+  // Label and URL are asserted as ONE bound value, never independently.
+  // Asserting them separately was a real tautology: four shapes (digest,
+  // realtime global/ingestion/batch) already carry "Open the dashboard:
+  // ${origin}/admin" in their plaintext body, so a `toContain(expectedHref)`
+  // row passed on that PRE-EXISTING line even with the report footer reduced to
+  // a bare label. Those four tests stayed green against a broken footer.
+  expect(rendered.text, "text body must carry the labeled report URL as one footer line").toContain(
+    `${LABEL}: ${expectedHref}`,
+  );
 }
 
 const undoShow = (slug: string, title: string) => ({
