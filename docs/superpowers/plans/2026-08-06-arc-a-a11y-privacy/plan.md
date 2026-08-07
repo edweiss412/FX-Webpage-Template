@@ -90,7 +90,9 @@ Per spec §3: the impl worktree + branch + claims land BEFORE this branch's PR m
 
 ## Impeccable gate (this authoring branch)
 
-impeccable-gate: N/A — no UI surface (authoring branch; `feat/a11y-privacy-cluster` carries the dual gate, its filled marker lands in this directory's closeout.md)
+This authoring branch ships no UI surface; `feat/a11y-privacy-cluster` carries the dual gate and its filled marker lands in this directory's closeout.md at arc close (the L-wave precedent).
+
+impeccable-gate: N/A — no UI surface
 
 ## Self-review checklist (run before dispatching the plan review)
 

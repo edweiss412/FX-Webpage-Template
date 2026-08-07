@@ -142,8 +142,6 @@ Register the mutation as an adversary at that point and confirm it reds.
 
 ### SHARELINK-CUE-VISIBILITY-1 — impeccable critique P1 (2026-07-25, share-link-chrome-backlog)
 
-**Status:** IN PROGRESS · **Branch:** docs/arc-a-spec
-
 **Effort:** M
 
 The crew-URL cue can fire above the fold. The URL block sits at the top of the

@@ -1127,8 +1127,6 @@ docblock states the gap rather than papering over it.
 
 ## BL-CREW-UNKNOWN-ASTERISK-TRAVEL-LEAK — four date classes still reach a viewer whose days are unconfirmed
 
-**Status:** IN PROGRESS · **Branch:** docs/arc-a-spec
-
 **Filed:** 2026-08-05 (M-wave W-UI, whole-diff cross-model review R1, probed by rendering the real sections). **Class:** privacy. **Effort:** M. **Severity:** medium — no data loss, but it defeats the point of the `***` marker.
 
 `unknown_asterisk` means the sheet says a crew member works SOME subset of days and does not say which. The agenda, key-times strip, schedule and (as of this wave) the Today Tonight card all withhold dates for such a viewer. **Four classes do not**, confirmed by rendering `TravelSection` and `CrewSection` with an `unknown_asterisk` viewer rather than by reading them:
@@ -1156,8 +1154,6 @@ The census found no further ungated viewer-specific date renderers, so the list 
 
 ## BL-LIVE-REGION-AST-WALK-RESIDUE — four regions the new AST walk found, and one gate shape it still cannot see
 
-**Status:** IN PROGRESS · **Branch:** docs/arc-a-spec
-
 **Filed:** 2026-08-05 (M-wave W-UI, whole-diff cross-model review R1). **Class:** a11y. **Effort:** S per site. **Severity:** low (each is one silent announcement).
 
 `BL-ANNOUNCE-REGION-UNMOUNT-CLASS` shipped with a line-window regex detector: it looked back six lines from `role="status"` for a `?` or `&&`. Review probed it and it missed same-line `&&`, direct ternaries, and any opening tag more than six lines below its gate — **including a real defect in `app/admin/settings/roles/RoleMappingRow.tsx` that returned no hit at all.** The detector is now a TypeScript AST walk that asks the structural question directly, and it immediately surfaced **eleven** further sites the regex never saw. Six are legitimate surface gates and carry exemption rows with reasons; four are real and are listed as PENDING in `tests/components/_metaLiveRegionMounting.test.ts`:
@@ -1176,8 +1172,6 @@ The census found no further ungated viewer-specific date renderers, so the list 
 **Status:** OPEN.
 
 ## BL-CHANNEL-ANNOUNCER-RESIDUAL-ROLE-STATUS — five visible cards keep a `role="status"` that announces nothing
-
-**Status:** IN PROGRESS · **Branch:** docs/arc-a-spec
 
 **Filed:** 2026-08-05 (M-wave W-UI, found by the class sweep that closed `BL-ANNOUNCE-REGION-UNMOUNT-CLASS`). **Class:** correctness (cosmetic / reader-misleading). **Effort:** S per site, M to verify. **Severity:** low.
 
