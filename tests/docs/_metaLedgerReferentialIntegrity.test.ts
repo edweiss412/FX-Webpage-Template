@@ -125,6 +125,12 @@ const KNOWN_DANGLING: Record<string, string> = {
   // not exempted — the stale-row ratchet below is what proves that.
   "BL-RESOLVED":
     "cited in docs/audits/pr-38-217-bug-audit-2026-07-02.md — no entry as of 2026-08-02",
+  // Arc C forward reference: the id the arc's implementation branch FILES as its
+  // Q1 step 3 (docs/superpowers/plans/2026-08-06-arc-c-quick-wins/plan.md; the
+  // spec's class-sweep ruling). Debt the filing commit repays — the stale-row
+  // ratchet forces this row's removal in the same change that creates the entry.
+  "BL-MI11-REMOVAL-FALLBACK-STALE-OVERWRITE":
+    "cited by the arc C spec/plan ahead of its filing on feat/backlog-quick-wins (Q1 step 3)",
   // L-wave forward references (spec 2026-08-06-l-wave-design.md + its plan): ids the
   // wave's W-LDOCS branch FILES as part of its ratified decompositions/filings. Each
   // row is debt that the filing commit repays — the stale-row ratchet forces removal
