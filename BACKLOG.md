@@ -1203,6 +1203,8 @@ Those attributes announce nothing — a live region inserted together with its t
 
 ## BL-CODEX-GUARD-COMMONMARK-PARSE — replace the codex-guard code-block regexes with a real CommonMark parse
 
+**Status:** IN PROGRESS · **Branch:** feat/review-infra-gates
+
 **Status:** OPEN.
 
 **Filed:** 2026-08-05 (`feat/review-round-economy`, wrapper review R4). **Class:** parser correctness. **Effort:** M.
@@ -1223,6 +1225,8 @@ Both are now fixed and both were found the same way — by a reviewer constructi
 ---
 
 ## BL-PLAN-SNIPPET-FENCE-GATE — the plan-fence checker exists as a prototype and gates nothing
+
+**Status:** IN PROGRESS · **Branch:** feat/review-infra-gates
 
 **Status:** OPEN.
 
