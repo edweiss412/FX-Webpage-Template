@@ -908,6 +908,8 @@ screen-disposition 2026-08-04: PREREQ-FENCED + ANNOTATED, stays open, NOT claime
 
 ### BL-CLASSNAME-ARRAY-JOIN-MIGRATION — migrate the 18 array-join classNames so the canonical-class rule can see them
 
+**Status:** IN PROGRESS · **Branch:** refactor/classname-array-join-cn
+
 **Severity:** LOW (lint coverage, no user-visible defect) · **Class:** lint coverage · **Filed:** 2026-08-04 (`chore/sweep-guards-tests`, split out of BL-CANONICAL-CLASS-ARRAY-BLINDSPOT under class-sweep exception (c)) · **Effort:** M · **Reachability:** PROBED 2026-08-04 — 18 files, 33 sites, enumerated in `tests/specLint/canonicalClassArray.test.ts`.
 
 **Description:** `better-tailwindcss/enforce-canonical-classes` cannot traverse `[...].join(" ")`, so Tailwind drift inside those classNames escapes `pnpm lint` and CI. The blind spot is now BOUNDED by a census guard — no NEW array-join className can land — but the 18 existing files remain unreadable to the rule.
