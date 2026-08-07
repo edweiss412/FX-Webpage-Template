@@ -19,13 +19,18 @@ function walk(dir, out = []) {
   return out;
 }
 
-// Fence extraction: CommonMark-lite (top-level ``` fences, 0-3 col indent).
+// Fence extraction: container-aware (R1 F3 upgrade). A fence delimiter may sit
+// inside list/quote containers; we strip a leading container prefix (any mix of
+// `>` markers and list-marker/space indentation) before testing the 0-3 column
+// fence rule, and require the closer to strip the same-or-shallower prefix.
+const CONTAINER_PREFIX = /^(?:\s{0,3}(?:>\s?|[-*+]\s+|\d{1,3}[.)]\s+)|\s{2,})*/;
 function fences(text) {
   const lines = text.split("\n");
   const out = [];
   let open = null;
   for (let i = 0; i < lines.length; i++) {
-    const m = lines[i].match(/^ {0,3}(`{3,}|~{3,})(.*)$/);
+    const stripped = lines[i].replace(CONTAINER_PREFIX, "");
+    const m = stripped.match(/^ {0,3}(`{3,}|~{3,})(.*)$/);
     if (!open) {
       if (m) open = { info: m[2].trim(), start: i + 1, char: m[1][0], len: m[1].length, body: [] };
     } else if (m && m[1][0] === open.char && m[1].length >= open.len && m[2].trim() === "") {
@@ -109,6 +114,5 @@ for (const f of walk(plansDir)) {
 console.log(`corpus: ${fileCount} plan files with fences, ${fenceCount} fences, ${codeFenceCount} module-ish code fences`);
 for (const [rule, hits] of Object.entries(perRule)) {
   console.log(`\n${rule}: ${hits.length} hits`);
-  for (const h of hits.slice(0, 25)) console.log(`  ${h}`);
-  if (hits.length > 25) console.log(`  ... ${hits.length - 25} more`);
+  for (const h of hits) console.log(`  ${h}`);
 }

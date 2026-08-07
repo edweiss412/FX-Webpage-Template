@@ -1,4 +1,4 @@
-corpus: 395 plan files with fences, 5434 fences, 3585 module-ish code fences
+corpus: 396 plan files with fences, 5515 fences, 3631 module-ish code fences
 
 UNIMPORTED_IDENTIFIER: 325 hits
   docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/handoffs/M9.5-plan.md:312 [describe,test,expect]
@@ -26,7 +26,306 @@ UNIMPORTED_IDENTIFIER: 325 hits
   docs/superpowers/plans/2026-07-20-local-suite-wallclock.md:53 [join]
   docs/superpowers/plans/2026-07-20-local-suite-wallclock.md:175 [test]
   docs/superpowers/plans/2026-07-20-local-suite-wallclock.md:344 [describe,it,expect,readFileSync]
-  ... 300 more
+  docs/superpowers/plans/2026-07-20-local-suite-wallclock.md:565 [test]
+  docs/superpowers/plans/2026-07-20-local-suite-wallclock.md:691 [test]
+  docs/superpowers/plans/2026-07-20-share-hub-fidelity-fixes/01-tasks.md:110 [it,expect]
+  docs/superpowers/plans/2026-07-20-show-scoped-alert-copy/00-plan.md:174 [describe,it,expect]
+  docs/superpowers/plans/2026-07-20-show-scoped-alert-copy/00-plan.md:361 [describe,expect]
+  docs/superpowers/plans/2026-07-20-show-scoped-alert-copy/00-plan.md:806 [describe,it,expect]
+  docs/superpowers/plans/2026-07-20-show-scoped-alert-copy/00-plan.md:882 [test]
+  docs/superpowers/plans/2026-07-20-show-scoped-alert-copy/00-plan.md:1000 [test]
+  docs/superpowers/plans/2026-07-20-show-scoped-alert-copy/00-plan.md:1097 [test]
+  docs/superpowers/plans/2026-07-20-warning-card-copy-restore.md:198 [describe,it,expect,render]
+  docs/superpowers/plans/2026-07-20-warning-card-copy-restore.md:256 [readFileSync]
+  docs/superpowers/plans/2026-07-21-attention-needs-attention-split.md:456 [it,expect]
+  docs/superpowers/plans/2026-07-21-attention-scenario-gallery.md:2096 [waitFor]
+  docs/superpowers/plans/2026-07-22-attention-gallery-gap-fill.md:102 [it,expect]
+  docs/superpowers/plans/2026-07-22-attention-gallery-gap-fill.md:374 [it,expect]
+  docs/superpowers/plans/2026-07-22-dev-modal-capture/00-plan.md:517 [test]
+  docs/superpowers/plans/2026-07-22-monitoring-badge-expand.md:38 [it,expect]
+  docs/superpowers/plans/2026-07-22-warning-panel-polish/plan.md:54 [test]
+  docs/superpowers/plans/2026-07-23-crewwarn-instance-discriminator.md:176 [test,expect]
+  docs/superpowers/plans/2026-07-23-published-archived-tab-include.md:39 [test]
+  docs/superpowers/plans/2026-07-23-warning-trim-undefer/plan.md:69 [test,expect]
+  docs/superpowers/plans/2026-07-23-warning-trim-undefer/plan.md:139 [describe,it,expect]
+  docs/superpowers/plans/2026-07-24-gallery-global-scope-exclusion/00-plan.md:145 [it,expect]
+  docs/superpowers/plans/2026-07-24-strip-mobile-stacked-band.md:57 [beforeAll,afterAll]
+  docs/superpowers/plans/2026-07-25-section-header-rebuild-and-phantom-spacers.md:98 [test]
+  docs/superpowers/plans/2026-07-26-ci-dark-coverage-pr1.md:177 [join]
+  docs/superpowers/plans/2026-07-26-ci-dark-coverage-pr1.md:288 [join]
+  docs/superpowers/plans/2026-07-26-ci-dark-coverage-pr1.md:354 [test]
+  docs/superpowers/plans/2026-07-26-ci-dark-coverage-pr1.md:476 [join]
+  docs/superpowers/plans/2026-07-26-ci-dark-coverage-pr1.md:533 [join]
+  docs/superpowers/plans/2026-07-26-ci-dark-descoped-closeout/plan.md:414 [describe,it,expect,readFileSync,join]
+  docs/superpowers/plans/2026-07-26-stripcomments-shared.md:60 [join]
+  docs/superpowers/plans/2026-07-26-stripcomments-shared.md:236 [it,test,join]
+  docs/superpowers/plans/2026-07-26-stripcomments-shared.md:482 [test]
+  docs/superpowers/plans/2026-07-31-judgment-chip-newtab-suffix.md:155 [describe,test,expect,render]
+  docs/superpowers/plans/2026-08-01-focus-ring-a11y-pass.md:59 [join]
+  docs/superpowers/plans/2026-08-01-focus-ring-a11y-pass.md:184 [test]
+  docs/superpowers/plans/2026-08-03-needs-attention-holds-rollup.md:323 [describe,it,expect]
+  docs/superpowers/plans/2026-08-04-guard-premise-reachability.md:63 [describe,it,expect]
+  docs/superpowers/plans/2026-08-04-guard-premise-reachability.md:318 [describe,it,test,expect,readFileSync,join]
+  docs/superpowers/plans/2026-08-04-guard-premise-reachability.md:374 [describe,it,expect]
+  docs/superpowers/plans/2026-08-04-guard-premise-reachability.md:1007 [beforeEach,join]
+  docs/superpowers/plans/2026-08-04-ledger-claim-visibility.md:210 [test]
+  docs/superpowers/plans/2026-08-04-review-round-economy.md:1061 [describe,it,expect]
+  docs/superpowers/plans/2026-08-04-review-round-economy.md:1481 [describe,it,expect,join]
+  docs/superpowers/plans/2026-08-04-review-round-economy.md:2699 [test]
+  docs/superpowers/plans/2026-08-04-review-round-economy.md:3945 [join]
+  docs/superpowers/plans/admin/2026-07-03-developer-tier/01-db-foundation.md:420 [it]
+  docs/superpowers/plans/admin/2026-07-03-developer-tier/04-action-and-catalog.md:18 [test,expect]
+  docs/superpowers/plans/admin/2026-07-07-admin-field-overrides/PLAN.md:133 [test]
+  docs/superpowers/plans/admin/2026-07-15-extend-role-scope-vocab/tasks-05-08.md:156 [describe,test,expect]
+  docs/superpowers/plans/admin/2026-07-16-role-vocab-settings-desktop-grid/PLAN.md:200 [describe,beforeAll,afterAll]
+  docs/superpowers/plans/admin/2026-07-17-destruct1-armed-reflow.md:142 [beforeAll,afterAll]
+  docs/superpowers/plans/admin/2026-07-17-sync-cell-edited-checked/00-plan.md:55 [describe,it,expect]
+  docs/superpowers/plans/alerts/2026-07-03-route-sync-problems-to-needs-attention/plan.md:177 [join]
+  docs/superpowers/plans/alerts/2026-07-03-route-sync-problems-to-needs-attention/plan.md:186 [join]
+  docs/superpowers/plans/alerts/2026-07-04-alert-action-links/plan.md:240 [test]
+  docs/superpowers/plans/alerts/2026-07-04-alert-action-links/plan.md:379 [it]
+  docs/superpowers/plans/alerts/2026-07-04-alert-at-a-glance-identity.md:136 [it,expect]
+  docs/superpowers/plans/alerts/2026-07-16-notify-email-batching.md:39 [describe,test,expect]
+  docs/superpowers/plans/alerts/2026-07-17-condensed-alert-copy.md:216 [join]
+  docs/superpowers/plans/alerts/2026-07-17-condensed-alert-copy.md:527 [describe,it,expect]
+  docs/superpowers/plans/alerts/2026-07-17-condensed-alert-copy.md:617 [join]
+  docs/superpowers/plans/alerts/2026-07-17-condensed-alert-copy.md:1034 [expect]
+  docs/superpowers/plans/alerts/2026-07-24-alert-autoresolve-tile-and-report-family.md:564 [render]
+  docs/superpowers/plans/ci/2026-06-26-ci-speedup-pr-e.md:58 [test]
+  docs/superpowers/plans/ci/2026-06-26-ci-speedup-pr-e.md:145 [join]
+  docs/superpowers/plans/ci/2026-06-26-ci-speedup-pr-e.md:241 [test]
+  docs/superpowers/plans/ci/2026-06-26-ci-unit-suite-matrix-shard.md:48 [test]
+  docs/superpowers/plans/ci/2026-07-06-mutation-harness-sharding/plan.md:440 [describe,it,test,expect]
+  docs/superpowers/plans/ci/2026-07-06-mutation-harness-sharding/plan.md:477 [join]
+  docs/superpowers/plans/ci/2026-07-06-mutation-harness-sharding/plan.md:550 [describe,it,expect]
+  docs/superpowers/plans/ci/2026-07-06-mutation-testing-harness.md:74 [test,join]
+  docs/superpowers/plans/ci/2026-07-06-mutation-testing-harness.md:335 [test]
+  docs/superpowers/plans/ci/2026-07-06-mutation-testing-harness.md:602 [join]
+  docs/superpowers/plans/ci/2026-07-06-mutation-testing-harness.md:777 [join]
+  docs/superpowers/plans/ci/2026-07-06-mutation-testing-harness.md:953 [join]
+  docs/superpowers/plans/ci/2026-07-06-mutation-testing-harness.md:1305 [join]
+  docs/superpowers/plans/ci/2026-07-06-mutation-testing-harness.md:1434 [test,join]
+  docs/superpowers/plans/ci/2026-07-06-mutation-testing-harness.md:1768 [join]
+  docs/superpowers/plans/ci/2026-07-06-mutation-testing-harness.md:1905 [describe,it,expect]
+  docs/superpowers/plans/ci/2026-07-06-mutation-testing-harness.md:2007 [join]
+  docs/superpowers/plans/ci/2026-07-06-mutation-testing-harness.md:2173 [describe,it,expect,join]
+  docs/superpowers/plans/crew/2026-06-15-crew-page-redesign-phase1/00-overview.md:69 [join]
+  docs/superpowers/plans/crew/2026-06-15-crew-page-redesign-phase1/03-sections-budget-gear.md:57 [test,expect]
+  docs/superpowers/plans/crew/2026-06-15-crew-page-redesign-phase1/03-sections-budget-gear.md:141 [test,expect]
+  docs/superpowers/plans/crew/2026-06-15-crew-page-redesign-phase1/03-sections-budget-gear.md:267 [expect,render]
+  docs/superpowers/plans/crew/2026-06-15-crew-page-redesign-phase1/03-sections-budget-gear.md:350 [test,expect,render]
+  docs/superpowers/plans/crew/2026-06-15-crew-page-redesign-phase2/01-parser-types.md:186 [test,join]
+  docs/superpowers/plans/crew/2026-06-15-crew-page-redesign-phase2/01-parser-types.md:285 [test,join]
+  docs/superpowers/plans/crew/2026-06-15-crew-page-redesign-phase2/01-parser-types.md:459 [describe,it,test,expect,join]
+  docs/superpowers/plans/crew/2026-06-15-crew-page-redesign-phase2/01-parser-types.md:630 [describe,it,expect,join]
+  docs/superpowers/plans/crew/2026-06-15-crew-page-redesign-phase2/01-parser-types.md:1091 [describe,it,test,expect,join]
+  docs/superpowers/plans/crew/2026-06-15-crew-page-redesign-phase2/03-schedule-enrichment-closeout.md:420 [render]
+  docs/superpowers/plans/crew/2026-06-15-crew-page-redesign-phase2/03-schedule-enrichment-closeout.md:799 [test,expect]
+  docs/superpowers/plans/crew/2026-06-19-crew-mock-fidelity/plan.md:357 [join]
+  docs/superpowers/plans/crew/2026-06-30-crew-partial-attendance-chip.md:136 [join]
+  docs/superpowers/plans/crew/2026-07-03-per-crew-picker-reset/plan.md:395 [test,expect]
+  docs/superpowers/plans/crew/2026-07-03-per-crew-picker-reset/plan.md:519 [test]
+  docs/superpowers/plans/crew/2026-07-09-flow8-self-serve-trio/plan.md:512 [test,expect]
+  docs/superpowers/plans/crew/2026-07-09-flow8-self-serve-trio/plan.md:668 [test,expect,render]
+  docs/superpowers/plans/crew/2026-07-09-flow8.3b-transport-id-resolution.md:206 [it,expect,join]
+  docs/superpowers/plans/crew/2026-07-09-flow8.3b-transport-id-resolution.md:508 [join]
+  docs/superpowers/plans/crew/2026-07-09-flow8.3b-transport-id-resolution.md:559 [describe,test,expect]
+  docs/superpowers/plans/crew/2026-07-09-flow8.4-transport-assignee-warning.md:331 [describe,it,expect]
+  docs/superpowers/plans/crew/2026-07-09-flow8.4-transport-assignee-warning.md:411 [test,expect]
+  docs/superpowers/plans/crew/2026-07-16-accent-contrast-token-pass.md:377 [test]
+  docs/superpowers/plans/crew/2026-07-16-accent-contrast-token-pass.md:407 [join]
+  docs/superpowers/plans/crew/2026-07-16-accent-contrast-token-pass.md:515 [join]
+  docs/superpowers/plans/crew/2026-07-17-rpc-crew-lifecycle-guard.md:147 [test,expect]
+  docs/superpowers/plans/crew/2026-07-17-rpc-crew-lifecycle-guard.md:527 [join]
+  docs/superpowers/plans/data-quality/2026-07-04-data-quality-badge-shows-table.md:37 [join]
+  docs/superpowers/plans/data-quality/2026-07-04-data-quality-badge-shows-table.md:468 [join]
+  docs/superpowers/plans/data-quality/2026-07-04-data-quality-badge-shows-table.md:511 [join]
+  docs/superpowers/plans/data-quality/2026-07-04-version-detection-confidence-gate.md:62 [describe,it,expect,readFileSync]
+  docs/superpowers/plans/data-quality/2026-07-04-version-detection-confidence-gate.md:349 [describe,it,expect,readFileSync]
+  docs/superpowers/plans/data-quality/2026-07-05-finalize-resume-deadlock.md:171 [it,expect]
+  docs/superpowers/plans/data-quality/2026-07-17-badge-affordance-a11y/plan.md:325 [beforeAll,afterAll]
+  docs/superpowers/plans/data-quality/2026-07-17-use-raw-control-site-a11y-copy/plan.md:433 [render]
+  docs/superpowers/plans/data-quality/2026-07-18-callout-preview-action-cue.md:35 [test]
+  docs/superpowers/plans/observability/2026-06-29-centralized-logging-foundation.md:1201 [expect]
+  docs/superpowers/plans/observability/2026-06-29-observability-timeline-phase2.md:1748 [join]
+  docs/superpowers/plans/observability/2026-06-29-observability-timeline-phase2.md:2145 [render,join]
+  docs/superpowers/plans/observability/2026-06-29-observability-timeline-phase2.md:2836 [describe,beforeEach]
+  docs/superpowers/plans/observability/2026-07-02-cron-empty-id-throw-attribution.md:229 [test,expect]
+  docs/superpowers/plans/observability/2026-07-02-observability-coverage-followup.md:165 [test,expect]
+  docs/superpowers/plans/observability/2026-07-02-observability-coverage-followup.md:195 [join]
+  docs/superpowers/plans/observability/2026-07-02-watch-channel-health.md:718 [join]
+  docs/superpowers/plans/observability/2026-07-03-telemetry-access-layer.md:954 [join]
+  docs/superpowers/plans/observability/2026-07-03-telemetry-access-layer.md:1268 [join]
+  docs/superpowers/plans/observability/2026-07-03-telemetry-access-layer.md:1408 [join]
+  docs/superpowers/plans/observability/2026-07-04-mutation-surface-observability.md:216 [test]
+  docs/superpowers/plans/observability/2026-07-05-wire-silent-channels.md:583 [it,expect]
+  docs/superpowers/plans/observability/2026-07-06-telemetry-console-redesign.md:189 [test]
+  docs/superpowers/plans/observability/2026-07-07-flow6-signal-visibility/plan.md:66 [describe,it,expect]
+  docs/superpowers/plans/observability/2026-07-07-flow6-signal-visibility/plan.md:224 [describe,it,expect]
+  docs/superpowers/plans/observability/2026-07-08-flow6.2-monitor-digest/PLAN.md:449 [join]
+  docs/superpowers/plans/observability/2026-07-08-flow6.2-monitor-digest/PLAN.md:598 [test,expect]
+  docs/superpowers/plans/observability/2026-07-15-observe-cli-telemetry-gaps/plan.md:177 [test]
+  docs/superpowers/plans/observability/2026-07-15-observe-cli-telemetry-gaps/plan.md:920 [it,expect]
+  docs/superpowers/plans/observability/2026-07-16-digest-autofix-per-show-detail/plan.md:40 [describe,test,expect]
+  docs/superpowers/plans/observability/2026-07-16-digest-autofix-per-show-detail/plan.md:655 [describe,test,expect,join]
+  docs/superpowers/plans/parser/2026-06-19-travel-tab-flight/plan.md:320 [test]
+  docs/superpowers/plans/parser/2026-06-26-parse-warning-deeplinks.md:64 [join]
+  docs/superpowers/plans/parser/2026-06-26-parse-warning-deeplinks.md:446 [test]
+  docs/superpowers/plans/parser/2026-06-26-parse-warning-deeplinks.md:659 [it,expect]
+  docs/superpowers/plans/parser/2026-06-27-parser-typo-tolerance-pr-c.md:46 [it,expect,join]
+  docs/superpowers/plans/parser/2026-06-27-parser-typo-tolerance-pr-c.md:171 [it,expect]
+  docs/superpowers/plans/parser/2026-06-27-schedule-strike-loadout-inference.md:156 [describe,expect]
+  docs/superpowers/plans/parser/2026-06-27-schedule-strike-loadout-inference.md:230 [describe,it,expect]
+  docs/superpowers/plans/parser/2026-06-27-schedule-strike-loadout-inference.md:329 [it,expect]
+  docs/superpowers/plans/parser/2026-06-27-schedule-strike-loadout-inference.md:607 [it,expect]
+  docs/superpowers/plans/parser/2026-06-27-schedule-strike-loadout-inference.md:793 [it,expect]
+  docs/superpowers/plans/parser/2026-06-27-set-cell-derived-labels.md:48 [describe,it,expect]
+  docs/superpowers/plans/parser/2026-06-27-set-cell-derived-labels.md:242 [describe,it,expect]
+  docs/superpowers/plans/parser/2026-06-27-stage-word-typo-tolerance.md:480 [it,expect,join]
+  docs/superpowers/plans/parser/2026-06-28-gear-parser-fidelity.md:237 [test]
+  docs/superpowers/plans/parser/2026-06-28-gear-parser-fidelity.md:358 [describe,it,test,expect]
+  docs/superpowers/plans/parser/2026-06-28-gear-parser-fidelity.md:456 [test,join]
+  docs/superpowers/plans/parser/2026-06-28-gear-parser-fidelity.md:509 [test,join]
+  docs/superpowers/plans/parser/2026-06-28-structured-flight-display.md:159 [test,join]
+  docs/superpowers/plans/parser/2026-06-29-parser-info-tab-fidelity.md:50 [join]
+  docs/superpowers/plans/parser/2026-06-29-parser-info-tab-fidelity.md:118 [test,join]
+  docs/superpowers/plans/parser/2026-06-29-parser-info-tab-fidelity.md:201 [describe,it,expect,join]
+  docs/superpowers/plans/parser/2026-06-29-parser-info-tab-fidelity.md:259 [test]
+  docs/superpowers/plans/parser/2026-06-29-parser-info-tab-fidelity.md:340 [describe,it,expect]
+  docs/superpowers/plans/parser/2026-06-29-parser-info-tab-fidelity.md:409 [describe,it,expect,readFileSync]
+  docs/superpowers/plans/parser/2026-07-02-diagrams-embedded-images/PLAN.md:198 [test]
+  docs/superpowers/plans/parser/2026-07-05-form-tab-contact-fallback/00-plan.md:45 [join]
+  docs/superpowers/plans/parser/2026-07-05-form-tab-contact-fallback/00-plan.md:111 [describe,it,expect]
+  docs/superpowers/plans/parser/2026-07-05-parser-anchor-deliteralization/00-plan.md:161 [describe,it,expect]
+  docs/superpowers/plans/parser/2026-07-05-parser-anchor-deliteralization/00-plan.md:214 [describe,it,expect]
+  docs/superpowers/plans/parser/2026-07-05-parser-anchor-deliteralization/00-plan.md:263 [describe,expect]
+  docs/superpowers/plans/parser/2026-07-05-parser-anchor-deliteralization/00-plan.md:418 [it,expect]
+  docs/superpowers/plans/parser/2026-07-05-parser-anchor-deliteralization/00-plan.md:464 [it,expect]
+  docs/superpowers/plans/parser/2026-07-06-known-sections-walker.md:65 [test]
+  docs/superpowers/plans/parser/2026-07-06-known-sections-walker.md:127 [join]
+  docs/superpowers/plans/parser/2026-07-06-known-sections-walker.md:271 [test]
+  docs/superpowers/plans/parser/2026-07-06-known-sections-walker.md:593 [test]
+  docs/superpowers/plans/parser/2026-07-06-known-sections-walker.md:686 [test]
+  docs/superpowers/plans/parser/2026-07-06-known-sections-walker.md:758 [test]
+  docs/superpowers/plans/parser/2026-07-06-known-sections-walker.md:823 [test]
+  docs/superpowers/plans/parser/2026-07-06-known-sections-walker.md:1021 [test]
+  docs/superpowers/plans/parser/2026-07-06-widen-dims-address-date.md:49 [describe,expect]
+  docs/superpowers/plans/parser/2026-07-06-widen-dims-address-date.md:187 [describe,it,expect]
+  docs/superpowers/plans/parser/2026-07-06-widen-dims-address-date.md:272 [describe,it,expect]
+  docs/superpowers/plans/parser/2026-07-06-widen-dims-address-date.md:374 [describe,expect]
+  docs/superpowers/plans/parser/2026-07-06-widen-dims-address-date.md:453 [describe,it,expect]
+  docs/superpowers/plans/parser/2026-07-06-widen-dims-address-date.md:468 [describe,it,expect]
+  docs/superpowers/plans/parser/2026-07-06-widen-dims-address-date.md:542 [describe,expect]
+  docs/superpowers/plans/parser/2026-07-06-widen-dims-address-date.md:615 [describe,it,expect]
+  docs/superpowers/plans/parser/2026-07-07-ambiguity-warnings-v1.md:109 [it,expect]
+  docs/superpowers/plans/parser/2026-07-07-ambiguity-warnings-v1.md:139 [it,expect]
+  docs/superpowers/plans/parser/2026-07-09-parser-property-fuzz.md:416 [join]
+  docs/superpowers/plans/schedule/2026-06-22-per-day-schedule-keytimes.md:149 [join]
+  docs/superpowers/plans/schedule/2026-06-22-per-day-schedule-keytimes.md:258 [test]
+  docs/superpowers/plans/schedule/2026-06-22-per-day-schedule-keytimes.md:405 [describe,it,expect]
+  docs/superpowers/plans/schedule/2026-06-26-agenda-pdf-schedule.md:59 [test,expect]
+  docs/superpowers/plans/schedule/2026-06-26-agenda-pdf-schedule.md:92 [test,expect]
+  docs/superpowers/plans/schedule/2026-06-26-agenda-pdf-schedule.md:135 [test,expect]
+  docs/superpowers/plans/schedule/2026-06-26-agenda-pdf-schedule.md:170 [test,expect]
+  docs/superpowers/plans/schedule/2026-06-26-agenda-pdf-schedule.md:223 [test,expect]
+  docs/superpowers/plans/schedule/2026-06-26-agenda-pdf-schedule.md:250 [test,expect]
+  docs/superpowers/plans/schedule/2026-06-26-agenda-pdf-schedule.md:315 [expect]
+  docs/superpowers/plans/schedule/2026-06-27-agenda-pdf-schedule-merge.md:207 [test,expect]
+  docs/superpowers/plans/schedule/2026-06-29-unified-show-day-timeline.md:683 [test,expect,render]
+  docs/superpowers/plans/schedule/2026-06-29-unified-show-day-timeline.md:926 [test,expect]
+  docs/superpowers/plans/schedule/2026-06-30-dress-anchor-and-per-card-report-fieldref.md:48 [describe,it,expect]
+  docs/superpowers/plans/schedule/2026-07-06-show-start-schedule-label.md:37 [describe,test,expect]
+  docs/superpowers/plans/step3-onboarding/2026-06-11-onboarding-fixups/01-f1-shared-apply-core.md:209 [join]
+  docs/superpowers/plans/step3-onboarding/2026-06-11-onboarding-fixups/03-f3-reapply-page.md:39 [it]
+  docs/superpowers/plans/step3-onboarding/2026-06-11-onboarding-fixups/04-f4-stale-reap.md:194 [readFileSync]
+  docs/superpowers/plans/step3-onboarding/2026-06-11-onboarding-fixups/05-f5-cas-race.md:50 [test,expect]
+  docs/superpowers/plans/step3-onboarding/2026-06-11-onboarding-fixups/05-f5-cas-race.md:191 [expect]
+  docs/superpowers/plans/step3-onboarding/2026-06-23-onboarding-scan-progress-stream.md:1253 [describe,test,expect,render,waitFor]
+  docs/superpowers/plans/step3-onboarding/2026-06-23-onboarding-step3-review-redesign.md:89 [test,expect,afterAll]
+  docs/superpowers/plans/step3-onboarding/2026-07-01-unknownfield-row-anchor/plan.md:147 [it,expect]
+  docs/superpowers/plans/step3-onboarding/2026-07-01-unknownfield-row-anchor/plan.md:306 [test]
+  docs/superpowers/plans/step3-onboarding/2026-07-01-unknownfield-row-anchor/plan.md:466 [it,expect]
+  docs/superpowers/plans/step3-onboarding/2026-07-01-unknownfield-row-anchor/plan.md:646 [describe,it,expect]
+  docs/superpowers/plans/step3-onboarding/2026-07-01-unknownfield-row-anchor/plan.md:827 [it,expect]
+  docs/superpowers/plans/step3-onboarding/2026-07-01-unknownfield-row-anchor/plan.md:917 [it,expect,render]
+  docs/superpowers/plans/step3-onboarding/2026-07-03-step3-modal-followups/plan.md:258 [test]
+  docs/superpowers/plans/step3-onboarding/2026-07-04-step3-review-page-variant-b.md:560 [describe,beforeAll,afterAll]
+  docs/superpowers/plans/step3-onboarding/2026-07-04-step3-review-page-variant-b.md:708 [it,expect,render,readFileSync,waitFor]
+  docs/superpowers/plans/step3-onboarding/2026-07-05-wizard-step3-deeplink-anchors/00-plan.md:46 [describe,test,expect]
+  docs/superpowers/plans/step3-onboarding/2026-07-06-pull-sheet-archived-tab-override.md:504 [it,expect,render]
+  docs/superpowers/plans/step3-onboarding/2026-07-06-pull-sheet-archived-tab-override.md:589 [it,expect]
+  docs/superpowers/plans/step3-onboarding/2026-07-07-flow2-wizard-truth-telling.md:191 [describe,it,expect]
+  docs/superpowers/plans/step3-onboarding/2026-07-07-flow2-wizard-truth-telling.md:355 [describe,it,expect]
+  docs/superpowers/plans/step3-onboarding/2026-07-07-flow2-wizard-truth-telling.md:529 [describe,it,expect]
+  docs/superpowers/plans/step3-onboarding/2026-07-07-flow4-auto-applied-strip-roster-badge/plan.md:138 [it,expect]
+  docs/superpowers/plans/step3-onboarding/2026-07-17-archived-tab-resolve-box-offer.md:467 [it,expect,render]
+  docs/superpowers/plans/step3-onboarding/2026-07-17-autoapplied-field-structured-diff.md:66 [join]
+  docs/superpowers/plans/step3-onboarding/2026-07-17-autoapplied-field-structured-diff.md:220 [join]
+  docs/superpowers/plans/step3-onboarding/2026-07-17-autoapplied-field-structured-diff.md:546 [describe,it,expect,render]
+  docs/superpowers/plans/step3-onboarding/2026-07-17-psat1-durable-override-dto/00-plan.md:720 [test,expect,render]
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/02-catalog-extension.md:82 [test]
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/02-catalog-extension.md:215 [readFileSync,join]
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/02-catalog-extension.md:464 [describe,it,expect,beforeAll,readFileSync,join]
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/02-catalog-extension.md:605 [test]
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/02-catalog-extension.md:792 [test]
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/03-time-utility.md:217 [test]
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/03-time-utility.md:699 [test]
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/04-components.md:546 [test]
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/05-content.md:465 [describe,it,expect,readFileSync]
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/05-content.md:558 [describe,it,test,expect,render,readFileSync]
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/05-content.md:741 [describe,it,expect]
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/05-content.md:812 [render]
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/05-content.md:932 [describe,it,test,expect,join]
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/08-auth-integration.md:88 [test]
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/08-auth-integration.md:191 [describe]
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/08-auth-integration.md:590 [describe]
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation/02-phase0-validation-state.md:74 [join]
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-23-crew-auth-pivot-show-link-picker.md:1113 [test]
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-23-crew-auth-pivot-show-link-picker.md:1848 [test]
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-23-crew-auth-pivot-show-link-picker.md:2056 [test]
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-23-crew-auth-pivot-show-link-picker.md:2129 [test]
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-23-crew-auth-pivot-show-link-picker.md:2741 [join]
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-23-crew-auth-pivot-show-link-picker.md:4032 [test,readFileSync]
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-23-crew-auth-pivot-show-link-picker.md:4294 [test]
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-30-m12.2-admin-redesign/M12.2-phase-a-admin-redesign.md:105 [it,expect]
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-30-m12.2-admin-redesign/M12.2-phase-a-admin-redesign.md:150 [it,expect]
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-30-m12.2-admin-redesign/M12.2-phase-a-admin-redesign.md:187 [it,expect]
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-30-m12.2-admin-redesign/M12.2-phase-a-admin-redesign.md:280 [expect]
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-30-m12.2-admin-redesign/M12.2-phase-a-admin-redesign.md:299 [it]
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-30-m12.2-admin-redesign/M12.2-phase-b1-admin-nav-settings.md:103 [it,expect]
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-30-m12.2-admin-redesign/M12.2-phase-b1-admin-nav-settings.md:252 [it,expect]
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-30-m12.2-admin-redesign/M12.2-phase-b1-admin-nav-settings.md:294 [readFileSync]
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-30-m12.2-admin-redesign/M12.2-phase-b1-admin-nav-settings.md:357 [join]
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-30-m12.2-admin-redesign/M12.2-phase-b1-admin-nav-settings.md:414 [it,expect]
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-30-m12.2-admin-redesign/M12.2-phase-b1-admin-nav-settings.md:600 [it,expect]
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-30-m12.2-admin-redesign/M12.2-phase-b1-admin-nav-settings.md:744 [it,expect]
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-30-m12.2-admin-redesign/M12.2-phase-b1-admin-nav-settings.md:785 [it,expect]
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-30-m12.2-admin-redesign/M12.2-phase-b1-admin-nav-settings.md:847 [it,expect,readFileSync]
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-30-m12.2-admin-redesign/M12.2-phase-b1-admin-nav-settings.md:925 [it,expect]
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-30-m12.2-admin-redesign/M12.2-phase-b1-admin-nav-settings.md:963 [it,expect]
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-30-m12.2-admin-redesign/M12.2-phase-b1-admin-nav-settings.md:1067 [it]
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-30-m12.2-admin-redesign/M12.2-phase-b1-admin-nav-settings.md:1139 [it,expect]
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-30-m12.2-admin-redesign/M12.2-phase-b1-admin-nav-settings.md:1287 [it,expect]
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-30-m12.2-admin-redesign/M12.2-phase-b1-admin-nav-settings.md:1388 [it]
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-30-m12.2-admin-redesign/M12.2-phase-b2-show-lifecycle.md:105 [test]
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-30-m12.2-admin-redesign/M12.2-phase-b2-show-lifecycle.md:570 [describe,it,expect]
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-30-m12.2-admin-redesign/M12.2-phase-b2-show-lifecycle.md:742 [it,expect]
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-30-m12.2-admin-redesign/M12.2-phase-b2-show-lifecycle.md:867 [it,expect]
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-30-m12.2-admin-redesign/M12.2-phase-b2-show-lifecycle.md:911 [it,expect]
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-30-m12.2-admin-redesign/M12.2-recon1-banner-quieting.md:817 [describe,afterAll,beforeEach]
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-06-08-sync-changes-feed-identity-gate/01-tables-and-lockdown.md:725 [test]
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-06-08-sync-changes-feed-identity-gate/01-tables-and-lockdown.md:882 [test]
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-06-08-sync-changes-feed-identity-gate/06-ui-feed-gate-undo.md:38 [describe,it,expect]
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-06-08-sync-changes-feed-identity-gate/06-ui-feed-gate-undo.md:78 [it,expect]
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-06-08-sync-changes-feed-identity-gate/06-ui-feed-gate-undo.md:102 [it,expect]
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-06-08-sync-changes-feed-identity-gate/06-ui-feed-gate-undo.md:162 [it,expect]
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-06-08-sync-changes-feed-identity-gate/06-ui-feed-gate-undo.md:259 [it,expect]
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-06-08-sync-changes-feed-identity-gate/06-ui-feed-gate-undo.md:370 [it,expect]
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-06-08-sync-changes-feed-identity-gate/06-ui-feed-gate-undo.md:413 [it,expect]
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-06-08-sync-changes-feed-identity-gate/06-ui-feed-gate-undo.md:498 [describe]
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-06-11-affordance-matrix-realignment.md:422 [test]
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-06-11-affordance-matrix-realignment.md:569 [test]
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-06-12-m12.13-unpublish-delivery.md:87 [readFileSync]
 
 DUPLICATE_IMPORT: 5 hits
   docs/superpowers/plans/crew/2026-07-09-flow8-self-serve-trio/plan.md:668 {q} (also fence at :621, target tests/show/flow8Repick.test.tsx)
@@ -35,7 +334,8 @@ DUPLICATE_IMPORT: 5 hits
   docs/superpowers/plans/parser/2026-06-28-gear-parser-fidelity.md:358 {gs} (also fence at :237, target tests/parser/gear.test.ts)
   docs/superpowers/plans/parser/2026-06-29-parser-info-tab-fidelity.md:201 {md} (also fence at :50, target tests/parser/dress.test.ts)
 
-MANGLED_TEMPLATE: 14 hits
+MANGLED_TEMPLATE: 17 hits
+  docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/11-cross-cutting.md:155
   docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/11-cross-cutting.md:359
   docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/11-cross-cutting.md:578
   docs/superpowers/plans/2026-07-20-local-suite-wallclock.md:53
@@ -49,9 +349,11 @@ MANGLED_TEMPLATE: 14 hits
   docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/02-catalog-extension.md:311
   docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/04-components.md:381
   docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/04-components.md:546
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-26-pg-cron-pivot/01-pivot-tasks.md:821
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-26-pg-cron-pivot/01-pivot-tasks.md:969
   docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-30-m12.2-admin-redesign/M12.2-phase-b3-email-delivery.md:255
 
-UNCHECKED_INDEX: 145 hits
+UNCHECKED_INDEX: 146 hits
   docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/01-foundation.md:1120 {m[0].match}
   docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/02-schema-rls.md:930 {rows[0].def}
   docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/02-schema-rls.md:930 {rows[0].ref_table}
@@ -77,9 +379,129 @@ UNCHECKED_INDEX: 145 hits
   docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/09-10-admin.md:862 {existing[0].published}
   docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/09-10-admin.md:862 {lockedShow[0].published}
   docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/09-10-admin.md:862 {lockedShow[0].id}
-  ... 120 more
+  docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/09-10-admin.md:862 {lockedShow[0].id}
+  docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/09-10-admin.md:862 {lockedShow[0].id}
+  docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/09-10-admin.md:862 {lockedShow[0].id}
+  docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/09-10-admin.md:862 {lockedShow[0].id}
+  docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/09-10-admin.md:862 {remaining[0].n}
+  docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/09-10-admin.md:862 {unresolvedManifest[0].n}
+  docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/09-10-admin.md:862 {remaining[0].n}
+  docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/09-10-admin.md:862 {unresolvedManifest[0].n}
+  docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/09-10-admin.md:862 {cp[0].status}
+  docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/09-10-admin.md:862 {cp[0].status}
+  docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/09-10-admin.md:862 {remaining[0].n}
+  docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/09-10-admin.md:862 {unresolvedManifest[0].n}
+  docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/09-10-admin.md:862 {unresolvedManifest[0].n}
+  docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/09-10-admin.md:862 {cas[0].watched_folder_id}
+  docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/11-cross-cutting.md:233 {selectedOptions[0].text}
+  docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/11-cross-cutting.md:233 {selectedOptions[0].value}
+  docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/11-cross-cutting.md:578 {withAdmin[0].body}
+  docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/11-cross-cutting.md:578 {withAdmin[0].body}
+  docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/11-cross-cutting.md:578 {candidates[0].occurrence_index}
+  docs/superpowers/plans/2026-07-18-alert-surface-ui.md:123 {m[0].length}
+  docs/superpowers/plans/2026-08-03-lead-capability-prose-settle.md:295 {a[0].localeCompare}
+  docs/superpowers/plans/2026-08-04-ledger-claim-visibility.md:210 {m[0].length}
+  docs/superpowers/plans/admin/2026-07-01-published-toggle/plan.md:52 {rows[0].t}
+  docs/superpowers/plans/admin/2026-07-01-published-toggle/plan.md:52 {alerts[0].n}
+  docs/superpowers/plans/admin/2026-07-01-published-toggle/plan.md:52 {alerts[0].n}
+  docs/superpowers/plans/admin/2026-07-07-admin-field-overrides/PLAN.md:133 {cols[0].is_nullable}
+  docs/superpowers/plans/admin/2026-07-07-admin-field-overrides/PLAN.md:133 {cols[0].column_default}
+  docs/superpowers/plans/admin/2026-07-16-last-checked-at.md:65 {rows[0].data_type}
+  docs/superpowers/plans/admin/2026-07-16-last-checked-at.md:65 {rows[0].is_nullable}
+  docs/superpowers/plans/crew/2026-06-15-crew-page-redesign-phase1/01-parser-context.md:156 {m[0].replace}
+  docs/superpowers/plans/crew/2026-06-15-crew-page-redesign-phase1/03-sections-budget-gear.md:294 {cards[0].getAttribute}
+  docs/superpowers/plans/data-quality/2026-07-05-finalize-resume-deadlock.md:55 {rows[0].displayName}
+  docs/superpowers/plans/data-quality/2026-07-05-finalize-resume-deadlock.md:55 {rows[0].failureCode}
+  docs/superpowers/plans/data-quality/2026-07-05-finalize-resume-deadlock.md:55 {rows[0].reApplyHref}
+  docs/superpowers/plans/data-quality/2026-07-05-finalize-resume-deadlock.md:55 {rows[0].displayName}
+  docs/superpowers/plans/observability/2026-06-29-centralized-logging-foundation.md:391 {calls[0].record}
+  docs/superpowers/plans/observability/2026-06-29-centralized-logging-foundation.md:391 {calls[0].record}
+  docs/superpowers/plans/observability/2026-06-29-centralized-logging-foundation.md:391 {calls[0].record}
+  docs/superpowers/plans/observability/2026-06-29-centralized-logging-foundation.md:391 {calls[1].record}
+  docs/superpowers/plans/observability/2026-06-29-centralized-logging-foundation.md:391 {calls[1].record}
+  docs/superpowers/plans/observability/2026-06-29-centralized-logging-foundation.md:785 {deleted[0].n}
+  docs/superpowers/plans/observability/2026-06-29-observability-timeline-phase2.md:413 {sink[0].level}
+  docs/superpowers/plans/observability/2026-06-29-observability-timeline-phase2.md:413 {sink[0].source}
+  docs/superpowers/plans/observability/2026-06-29-observability-timeline-phase2.md:413 {sink[0].code}
+  docs/superpowers/plans/observability/2026-06-29-observability-timeline-phase2.md:413 {sink[0].requestId}
+  docs/superpowers/plans/observability/2026-06-29-observability-timeline-phase2.md:413 {sink[0].context}
+  docs/superpowers/plans/observability/2026-06-29-observability-timeline-phase2.md:413 {sink[0].context}
+  docs/superpowers/plans/observability/2026-06-29-observability-timeline-phase2.md:413 {sink[0].level}
+  docs/superpowers/plans/observability/2026-06-29-observability-timeline-phase2.md:413 {sink[0].source}
+  docs/superpowers/plans/observability/2026-06-29-observability-timeline-phase2.md:413 {sink[0].code}
+  docs/superpowers/plans/observability/2026-06-29-observability-timeline-phase2.md:413 {sink[0].context}
+  docs/superpowers/plans/observability/2026-06-29-observability-timeline-phase2.md:413 {sink[0].requestId}
+  docs/superpowers/plans/observability/2026-06-29-observability-timeline-phase2.md:611 {summaries[0].source}
+  docs/superpowers/plans/observability/2026-06-29-observability-timeline-phase2.md:611 {summaries[0].context}
+  docs/superpowers/plans/observability/2026-06-29-observability-timeline-phase2.md:788 {summaries[0].source}
+  docs/superpowers/plans/observability/2026-06-29-observability-timeline-phase2.md:1060 {events[99].occurredAt}
+  docs/superpowers/plans/observability/2026-06-29-observability-timeline-phase2.md:1060 {events[99].id}
+  docs/superpowers/plans/observability/2026-06-29-observability-timeline-phase2.md:1060 {ors[0].args}
+  docs/superpowers/plans/observability/2026-06-29-observability-timeline-phase2.md:1060 {events[0].showTitle}
+  docs/superpowers/plans/observability/2026-06-29-observability-timeline-phase2.md:1060 {events[0].showSlug}
+  docs/superpowers/plans/observability/2026-06-29-observability-timeline-phase2.md:2792 {events[1].occurredAt}
+  docs/superpowers/plans/observability/2026-07-03-telemetry-access-layer.md:368 {CRON_JOBS[0].jobName}
+  docs/superpowers/plans/observability/2026-07-05-wire-silent-channels.md:302 {GAP_CLASSES[0].code}
+  docs/superpowers/plans/observability/2026-07-05-wire-silent-channels.md:302 {GAP_CLASSES[1].code}
+  docs/superpowers/plans/observability/2026-07-07-flow6-signal-visibility/plan.md:563 {hits[0].severity}
+  docs/superpowers/plans/observability/2026-07-08-flow6.2-monitor-digest/PLAN.md:398 {calls[0].params}
+  docs/superpowers/plans/observability/2026-07-08-flow6.2-monitor-digest/PLAN.md:398 {calls[0].params}
+  docs/superpowers/plans/observability/2026-07-08-flow6.2-monitor-digest/PLAN.md:449 {calls[0].text}
+  docs/superpowers/plans/observability/2026-07-08-flow6.2-monitor-digest/PLAN.md:449 {calls[0].params}
+  docs/superpowers/plans/observability/2026-07-08-flow6.2-monitor-digest/PLAN.md:766 {drift[0].classes}
+  docs/superpowers/plans/parser/2026-06-27-schedule-strike-loadout-inference.md:66 {entries[0].kind}
+  docs/superpowers/plans/parser/2026-06-27-schedule-strike-loadout-inference.md:66 {entries[0].kind}
+  docs/superpowers/plans/parser/2026-06-27-schedule-strike-loadout-inference.md:184 {m[0].trim}
+  docs/superpowers/plans/parser/2026-06-27-schedule-strike-loadout-inference.md:265 {m[0].length}
+  docs/superpowers/plans/parser/2026-06-27-schedule-strike-loadout-inference.md:329 {e[0].title}
+  docs/superpowers/plans/parser/2026-06-27-schedule-strike-loadout-inference.md:329 {e[0].title}
+  docs/superpowers/plans/parser/2026-07-06-widen-dims-address-date.md:215 {m[0].trim}
+  docs/superpowers/plans/parser/2026-07-06-widen-dims-address-date.md:314 {m[0].trim}
+  docs/superpowers/plans/schedule/2026-06-22-per-day-schedule-keytimes.md:258 {m[0].length}
+  docs/superpowers/plans/schedule/2026-06-22-per-day-schedule-keytimes.md:258 {toks[0].end}
+  docs/superpowers/plans/schedule/2026-06-22-per-day-schedule-keytimes.md:258 {toks[1].start}
+  docs/superpowers/plans/schedule/2026-06-22-per-day-schedule-keytimes.md:258 {toks[1].end}
+  docs/superpowers/plans/schedule/2026-06-22-per-day-schedule-keytimes.md:258 {toks[0].start}
+  docs/superpowers/plans/schedule/2026-06-22-per-day-schedule-keytimes.md:258 {toks[0].start}
+  docs/superpowers/plans/schedule/2026-06-22-per-day-schedule-keytimes.md:258 {toks[0].end}
+  docs/superpowers/plans/schedule/2026-06-22-per-day-schedule-keytimes.md:258 {toks[1].start}
+  docs/superpowers/plans/schedule/2026-06-22-per-day-schedule-keytimes.md:258 {toks[1].end}
+  docs/superpowers/plans/schedule/2026-06-22-per-day-schedule-keytimes.md:1199 {entries[0].start}
+  docs/superpowers/plans/schedule/2026-06-22-per-day-schedule-keytimes.md:1261 {entries[0].start}
+  docs/superpowers/plans/schedule/2026-06-22-per-day-schedule-keytimes.md:1341 {entries[0].start}
+  docs/superpowers/plans/schedule/2026-06-22-per-day-schedule-keytimes.md:1341 {entries[0].start}
+  docs/superpowers/plans/schedule/2026-06-26-agenda-pdf-schedule.md:170 {days[0].sessions}
+  docs/superpowers/plans/schedule/2026-06-26-agenda-pdf-schedule.md:170 {day1[0].time}
+  docs/superpowers/plans/step3-onboarding/2026-06-23-onboarding-step3-review-redesign.md:89 {rows[0].data_type}
+  docs/superpowers/plans/step3-onboarding/2026-06-23-onboarding-step3-review-redesign.md:89 {rows[0].is_nullable}
+  docs/superpowers/plans/step3-onboarding/2026-06-23-onboarding-step3-review-redesign.md:89 {rows[0].column_default}
+  docs/superpowers/plans/step3-onboarding/2026-07-01-unknownfield-row-anchor/plan.md:466 {warnings[0].sourceCell}
+  docs/superpowers/plans/step3-onboarding/2026-07-01-unknownfield-row-anchor/plan.md:466 {warnings[0].sourceCell}
+  docs/superpowers/plans/step3-onboarding/2026-07-01-unknownfield-row-anchor/plan.md:466 {warnings[0].sourceCell}
+  docs/superpowers/plans/step3-onboarding/2026-07-01-unknownfield-row-anchor/plan.md:507 {warnings[0].sourceCell}
+  docs/superpowers/plans/step3-onboarding/2026-07-04-step3-review-page-variant-b.md:155 {connectors[0].className}
+  docs/superpowers/plans/step3-onboarding/2026-07-06-pull-sheet-archived-tab-override.md:306 {archivedPullSheetTabs[0].fingerprint}
+  docs/superpowers/plans/step3-onboarding/2026-07-06-pull-sheet-archived-tab-override.md:306 {archivedPullSheetTabs[0].fingerprint}
+  docs/superpowers/plans/step3-onboarding/2026-07-06-pull-sheet-archived-tab-override.md:306 {archivedPullSheetTabs[0].fingerprint}
+  docs/superpowers/plans/step3-onboarding/2026-07-06-pull-sheet-archived-tab-override.md:306 {archivedPullSheetTabs[0].fingerprint}
+  docs/superpowers/plans/step3-onboarding/2026-07-06-pull-sheet-archived-tab-override.md:306 {archivedPullSheetTabs[0].fingerprint}
+  docs/superpowers/plans/step3-onboarding/2026-07-06-pull-sheet-archived-tab-override.md:306 {archivedPullSheetTabs[0].included}
+  docs/superpowers/plans/step3-onboarding/2026-07-06-pull-sheet-archived-tab-override.md:306 {archivedPullSheetTabs[0].fingerprint}
+  docs/superpowers/plans/step3-onboarding/2026-07-06-pull-sheet-archived-tab-override.md:306 {archivedPullSheetTabs[0].headerPreviews}
+  docs/superpowers/plans/step3-onboarding/2026-07-06-pull-sheet-archived-tab-override.md:306 {archivedPullSheetTabs[0].headerPreviews}
+  docs/superpowers/plans/step3-onboarding/2026-07-07-flow2-wizard-truth-telling.md:355 {groups[0].rows}
+  docs/superpowers/plans/step3-onboarding/2026-07-07-flow2-wizard-truth-telling.md:355 {groups[0].rows}
+  docs/superpowers/plans/step3-onboarding/2026-07-07-flow2-wizard-truth-telling.md:355 {groups[0].rows}
+  docs/superpowers/plans/step3-onboarding/2026-07-16-wizard-blocker-inline-resolution/plan.md:499 {sessRows[0].pending_wizard_session_id}
+  docs/superpowers/plans/step3-onboarding/2026-07-16-wizard-blocker-inline-resolution/plan.md:499 {sessRows[0].pending_wizard_session_id}
+  docs/superpowers/plans/step3-onboarding/2026-07-16-wizard-blocker-inline-resolution/plan.md:499 {showRows[0].id}
+  docs/superpowers/plans/step3-onboarding/2026-07-16-wizard-blocker-inline-resolution/plan.md:760 {shadowRows[0].payload}
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/02-catalog-extension.md:311 {cells[0].match}
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-06-08-sync-changes-feed-identity-gate/01-tables-and-lockdown.md:142 {cols[0].data_type}
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-06-08-sync-changes-feed-identity-gate/01-tables-and-lockdown.md:142 {cols[0].is_nullable}
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-06-08-sync-changes-feed-identity-gate/01-tables-and-lockdown.md:142 {cols[0].column_default}
 
-FENCE_EM_DASH: 1378 hits
+FENCE_EM_DASH: 1399 hits
   docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/00-overview.md:334
   docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/01-foundation.md:123
   docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/01-foundation.md:182
@@ -89,6 +511,7 @@ FENCE_EM_DASH: 1378 hits
   docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/01-foundation.md:1032
   docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/01-foundation.md:1139
   docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/01-foundation.md:1156
+  docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/02-schema-rls.md:71
   docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/02-schema-rls.md:182
   docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/02-schema-rls.md:232
   docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/02-schema-rls.md:706
@@ -104,5 +527,1377 @@ FENCE_EM_DASH: 1378 hits
   docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/06-drive-sync.md:127
   docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/06-drive-sync.md:381
   docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/06-drive-sync.md:497
+  docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/07-asset.md:118
   docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/07-asset.md:196
-  ... 1353 more
+  docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/08-bug-report.md:255
+  docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/08-bug-report.md:487
+  docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/08-bug-report.md:501
+  docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/08-bug-report.md:605
+  docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/08-bug-report.md:1163
+  docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/08-bug-report.md:1324
+  docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/08-bug-report.md:1338
+  docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/09-10-admin.md:35
+  docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/09-10-admin.md:174
+  docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/09-10-admin.md:310
+  docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/09-10-admin.md:332
+  docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/09-10-admin.md:566
+  docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/09-10-admin.md:736
+  docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/09-10-admin.md:862
+  docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/09-10-admin.md:1461
+  docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/11-cross-cutting.md:35
+  docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/11-cross-cutting.md:86
+  docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/11-cross-cutting.md:103
+  docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/11-cross-cutting.md:185
+  docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/11-cross-cutting.md:233
+  docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/11-cross-cutting.md:359
+  docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/11-cross-cutting.md:486
+  docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/11-cross-cutting.md:578
+  docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/11-cross-cutting.md:1510
+  docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/11-cross-cutting.md:1641
+  docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/11-cross-cutting.md:2042
+  docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/11-cross-cutting.md:2070
+  docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/HANDOFF-TEMPLATE.md:11
+  docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/HANDOFF-TEMPLATE.md:214
+  docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/handoffs/M11.5-crew-auth-pivot.md:198
+  docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/handoffs/M11.5-crew-auth-pivot.md:318
+  docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/handoffs/M11.5-crew-auth-pivot.md:549
+  docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/handoffs/M4-tiles.md:237
+  docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/handoffs/M4-tiles.md:258
+  docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/handoffs/M4-tiles.md:273
+  docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/handoffs/M5-auth.md:560
+  docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/handoffs/M6-drive-sync.md:885
+  docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/handoffs/M6-drive-sync.md:896
+  docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/handoffs/M6-drive-sync.md:1205
+  docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/handoffs/M8-bug-report.md:463
+  docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/handoffs/M8-bug-report.md:475
+  docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/handoffs/M9-polish.md:289
+  docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/handoffs/M9.5-plan.md:117
+  docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/handoffs/M9.5-plan.md:145
+  docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/handoffs/M9.5-plan.md:312
+  docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/handoffs/M9.5-plan.md:481
+  docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/handoffs/M9.5-plan.md:638
+  docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/handoffs/M9.5-plan.md:655
+  docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/handoffs/M9.5-plan.md:686
+  docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/handoffs/M9.5-plan.md:729
+  docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/handoffs/M9.5-plan.md:941
+  docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/handoffs/M9.5-plan.md:993
+  docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/handoffs/M9.5-plan.md:1102
+  docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/handoffs/M9.5-plan.md:1130
+  docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/handoffs/M9.5-plan.md:1319
+  docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/handoffs/M9.5-plan.md:1518
+  docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/handoffs/M9.5-plan.md:1608
+  docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/handoffs/M9.5-plan.md:1763
+  docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/handoffs/M9.5-plan.md:2003
+  docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/handoffs/M9.5-plan.md:2118
+  docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/handoffs/M9.5-plan.md:2246
+  docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/handoffs/M9.5-plan.md:2436
+  docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/handoffs/M9.5-plan.md:2543
+  docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/handoffs/M9.5-plan.md:2794
+  docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/handoffs/M9.5-plan.md:2920
+  docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/handoffs/M9.5-plan.md:3094
+  docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/handoffs/X1-catalog-parity.md:167
+  docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/handoffs/X2-no-raw-codes.md:183
+  docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/handoffs/X3-trust-domain.md:211
+  docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/handoffs/X4-no-global-cursor.md:206
+  docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/handoffs/X5-email-canonicalization.md:215
+  docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/handoffs/X6-traceability.md:239
+  docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/notification-design-memo.md:183
+  docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/shape-sessions/2026-05-14-auth-flow-polish.md:84
+  docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/shape-sessions/2026-05-14-crew-page-IA-redesign.md:40
+  docs/superpowers/plans/2026-07-18-admin-show-modal/01-tasks.md:15
+  docs/superpowers/plans/2026-07-18-admin-show-modal/01-tasks.md:84
+  docs/superpowers/plans/2026-07-18-alert-surface-ui.md:114
+  docs/superpowers/plans/2026-07-18-alert-surface-ui.md:205
+  docs/superpowers/plans/2026-07-18-alert-surface-ui.md:359
+  docs/superpowers/plans/2026-07-18-alert-surface-ui.md:372
+  docs/superpowers/plans/2026-07-18-alert-surface-ui.md:462
+  docs/superpowers/plans/2026-07-18-alert-surface-ui.md:551
+  docs/superpowers/plans/2026-07-18-alert-surface-ui.md:581
+  docs/superpowers/plans/2026-07-18-emdash-catalog-sweep.md:52
+  docs/superpowers/plans/2026-07-18-emdash-catalog-sweep.md:68
+  docs/superpowers/plans/2026-07-18-modal-close-exit-anim/01-tasks.md:78
+  docs/superpowers/plans/2026-07-18-modal-close-exit-anim/01-tasks.md:185
+  docs/superpowers/plans/2026-07-18-modal-close-exit-anim/01-tasks.md:221
+  docs/superpowers/plans/2026-07-18-modal-close-exit-anim/01-tasks.md:297
+  docs/superpowers/plans/2026-07-18-modal-close-exit-anim/01-tasks.md:355
+  docs/superpowers/plans/2026-07-18-modal-close-exit-anim/01-tasks.md:370
+  docs/superpowers/plans/2026-07-18-modal-close-exit-anim/01-tasks.md:466
+  docs/superpowers/plans/2026-07-18-modal-close-exit-anim/01-tasks.md:561
+  docs/superpowers/plans/2026-07-18-modal-close-exit-anim/01-tasks.md:665
+  docs/superpowers/plans/2026-07-18-modal-close-exit-anim/01-tasks.md:891
+  docs/superpowers/plans/2026-07-18-modal-close-exit-anim/01-tasks.md:919
+  docs/superpowers/plans/2026-07-18-modal-close-exit-anim/01-tasks.md:999
+  docs/superpowers/plans/2026-07-18-modal-header-reconciliation/01-shell-and-strip.md:22
+  docs/superpowers/plans/2026-07-18-modal-header-reconciliation/01-shell-and-strip.md:146
+  docs/superpowers/plans/2026-07-18-modal-header-reconciliation/02-header.md:116
+  docs/superpowers/plans/2026-07-18-modal-header-reconciliation/03-resync.md:109
+  docs/superpowers/plans/2026-07-19-admin-modal-realtime-refresh.md:70
+  docs/superpowers/plans/2026-07-19-admin-modal-realtime-refresh.md:93
+  docs/superpowers/plans/2026-07-19-admin-modal-realtime-refresh.md:284
+  docs/superpowers/plans/2026-07-19-admin-modal-realtime-refresh.md:310
+  docs/superpowers/plans/2026-07-19-admin-modal-realtime-refresh.md:363
+  docs/superpowers/plans/2026-07-19-admin-modal-realtime-refresh.md:425
+  docs/superpowers/plans/2026-07-19-admin-modal-realtime-refresh.md:486
+  docs/superpowers/plans/2026-07-19-admin-modal-realtime-refresh.md:568
+  docs/superpowers/plans/2026-07-19-admin-modal-realtime-refresh.md:604
+  docs/superpowers/plans/2026-07-19-admin-modal-realtime-refresh.md:655
+  docs/superpowers/plans/2026-07-19-ci-unit-suite-phase2-serial-audit/00-plan.md:49
+  docs/superpowers/plans/2026-07-19-ci-unit-suite-phase2-serial-audit/00-plan.md:107
+  docs/superpowers/plans/2026-07-19-ci-unit-suite-phase2-serial-audit/00-plan.md:153
+  docs/superpowers/plans/2026-07-19-ci-unit-suite-phase2-serial-audit/00-plan.md:179
+  docs/superpowers/plans/2026-07-19-ci-unit-suite-under-5min/00-plan.md:76
+  docs/superpowers/plans/2026-07-19-ci-unit-suite-under-5min/00-plan.md:118
+  docs/superpowers/plans/2026-07-19-ci-unit-suite-under-5min/00-plan.md:238
+  docs/superpowers/plans/2026-07-19-ci-unit-suite-under-5min/00-plan.md:304
+  docs/superpowers/plans/2026-07-19-ci-unit-suite-under-5min/00-plan.md:332
+  docs/superpowers/plans/2026-07-19-ci-unit-suite-under-5min/00-plan.md:395
+  docs/superpowers/plans/2026-07-19-ci-unit-suite-under-5min/00-plan.md:422
+  docs/superpowers/plans/2026-07-19-ci-unit-suite-under-5min/00-plan.md:446
+  docs/superpowers/plans/2026-07-19-codex-guard/00-plan.md:46
+  docs/superpowers/plans/2026-07-19-codex-guard/00-plan.md:161
+  docs/superpowers/plans/2026-07-19-codex-guard/00-plan.md:260
+  docs/superpowers/plans/2026-07-19-codex-guard/00-plan.md:409
+  docs/superpowers/plans/2026-07-19-codex-guard/00-plan.md:483
+  docs/superpowers/plans/2026-07-19-codex-guard/00-plan.md:659
+  docs/superpowers/plans/2026-07-19-codex-guard/00-plan.md:726
+  docs/superpowers/plans/2026-07-19-codex-guard/00-plan.md:851
+  docs/superpowers/plans/2026-07-19-codex-guard/00-plan.md:1081
+  docs/superpowers/plans/2026-07-19-codex-guard/00-plan.md:1558
+  docs/superpowers/plans/2026-07-19-crew-row-controls/plan.md:76
+  docs/superpowers/plans/2026-07-19-crew-row-controls/plan.md:414
+  docs/superpowers/plans/2026-07-19-crew-row-controls/plan.md:738
+  docs/superpowers/plans/2026-07-19-crew-row-controls/plan.md:930
+  docs/superpowers/plans/2026-07-19-crew-row-controls/plan.md:952
+  docs/superpowers/plans/2026-07-19-crew-row-controls/plan.md:1071
+  docs/superpowers/plans/2026-07-19-crew-row-controls/plan.md:1310
+  docs/superpowers/plans/2026-07-19-crew-row-controls/plan.md:1329
+  docs/superpowers/plans/2026-07-19-crew-row-controls/plan.md:1585
+  docs/superpowers/plans/2026-07-19-crew-row-controls/plan.md:1606
+  docs/superpowers/plans/2026-07-19-modal-skeleton-close.md:55
+  docs/superpowers/plans/2026-07-19-modal-skeleton-close.md:74
+  docs/superpowers/plans/2026-07-19-modal-skeleton-close.md:172
+  docs/superpowers/plans/2026-07-19-modal-skeleton-close.md:210
+  docs/superpowers/plans/2026-07-19-modal-skeleton-close.md:388
+  docs/superpowers/plans/2026-07-19-modal-skeleton-close.md:495
+  docs/superpowers/plans/2026-07-19-modal-skeleton-close.md:512
+  docs/superpowers/plans/2026-07-19-published-show-alerts/plan.md:41
+  docs/superpowers/plans/2026-07-19-published-show-alerts/plan.md:210
+  docs/superpowers/plans/2026-07-19-published-show-alerts/plan.md:240
+  docs/superpowers/plans/2026-07-19-published-show-alerts/plan.md:517
+  docs/superpowers/plans/2026-07-19-published-show-alerts/plan.md:556
+  docs/superpowers/plans/2026-07-19-published-show-alerts/plan.md:621
+  docs/superpowers/plans/2026-07-19-published-show-alerts/plan.md:895
+  docs/superpowers/plans/2026-07-19-published-show-alerts/plan.md:948
+  docs/superpowers/plans/2026-07-19-show-modal-prefetch/plan.md:54
+  docs/superpowers/plans/2026-07-19-show-modal-prefetch/plan.md:99
+  docs/superpowers/plans/2026-07-19-show-modal-prefetch/plan.md:144
+  docs/superpowers/plans/2026-07-19-show-modal-prefetch/plan.md:184
+  docs/superpowers/plans/2026-07-19-show-modal-prefetch/plan.md:225
+  docs/superpowers/plans/2026-07-19-show-modal-prefetch/plan.md:461
+  docs/superpowers/plans/2026-07-20-agenda-file-inaccessible-split/00-overview.md:118
+  docs/superpowers/plans/2026-07-20-attention-alert-routing.md:69
+  docs/superpowers/plans/2026-07-20-attention-alert-routing.md:617
+  docs/superpowers/plans/2026-07-20-local-suite-wallclock.md:844
+  docs/superpowers/plans/2026-07-20-share-hub-fidelity-fixes/01-tasks.md:110
+  docs/superpowers/plans/2026-07-20-share-hub-fidelity-fixes/01-tasks.md:201
+  docs/superpowers/plans/2026-07-20-share-hub-fidelity-fixes/01-tasks.md:332
+  docs/superpowers/plans/2026-07-20-share-hub-fidelity-fixes/01-tasks.md:436
+  docs/superpowers/plans/2026-07-20-share-hub-fidelity-fixes/01-tasks.md:488
+  docs/superpowers/plans/2026-07-20-share-hub-fidelity-fixes/01-tasks.md:563
+  docs/superpowers/plans/2026-07-20-warning-card-copy-restore.md:176
+  docs/superpowers/plans/2026-07-21-attention-scenario-gallery-handoff.md:101
+  docs/superpowers/plans/2026-07-21-settings-attention-gallery-link/plan.md:48
+  docs/superpowers/plans/2026-07-21-unread-callout-dedup.md:645
+  docs/superpowers/plans/2026-07-21-unread-callout-dedup.md:678
+  docs/superpowers/plans/2026-07-21-unread-callout-dedup.md:690
+  docs/superpowers/plans/2026-07-22-warning-announcer-copy/plan.md:293
+  docs/superpowers/plans/2026-07-22-warning-panel-polish/plan.md:425
+  docs/superpowers/plans/2026-07-22-warning-panel-polish/plan.md:524
+  docs/superpowers/plans/2026-07-22-warning-panel-polish/plan.md:543
+  docs/superpowers/plans/2026-07-22-warning-panel-polish/plan.md:647
+  docs/superpowers/plans/2026-07-22-warning-panel-polish/plan.md:888
+  docs/superpowers/plans/2026-07-22-warning-panel-polish/plan.md:985
+  docs/superpowers/plans/2026-07-22-warning-panel-polish/plan.md:1013
+  docs/superpowers/plans/2026-07-22-warning-panel-polish/plan.md:1034
+  docs/superpowers/plans/2026-07-22-warning-panel-polish/plan.md:1277
+  docs/superpowers/plans/2026-07-22-warning-panel-polish/plan.md:1300
+  docs/superpowers/plans/2026-07-22-warning-panel-polish/plan.md:1378
+  docs/superpowers/plans/2026-07-23-sharehub-focus-pass.md:85
+  docs/superpowers/plans/2026-07-23-sharehub-focus-pass.md:172
+  docs/superpowers/plans/2026-07-24-dq-singleton-eyebrow-suppress/00-plan.md:400
+  docs/superpowers/plans/2026-07-24-settings-devrow-copy-close/plan.md:332
+  docs/superpowers/plans/2026-07-24-strip-mobile-stacked-band.md:57
+  docs/superpowers/plans/2026-07-24-strip-mobile-stacked-band.md:653
+  docs/superpowers/plans/2026-07-25-secondary-drive-id-nonblank/00-overview.md:46
+  docs/superpowers/plans/2026-07-25-secondary-drive-id-nonblank/00-overview.md:89
+  docs/superpowers/plans/2026-07-25-secondary-drive-id-nonblank/00-overview.md:350
+  docs/superpowers/plans/2026-07-26-section-header-wide-inline.md:76
+  docs/superpowers/plans/2026-07-26-section-header-wide-inline.md:103
+  docs/superpowers/plans/2026-07-26-section-header-wide-inline.md:337
+  docs/superpowers/plans/2026-07-26-section-header-wide-inline.md:398
+  docs/superpowers/plans/2026-07-26-section-header-wide-inline.md:563
+  docs/superpowers/plans/2026-07-26-section-header-wide-inline.md:596
+  docs/superpowers/plans/2026-07-26-sheet-icon-link-affordance-class.md:25
+  docs/superpowers/plans/2026-07-26-stripcomments-shared.md:60
+  docs/superpowers/plans/2026-07-26-stripcomments-shared.md:236
+  docs/superpowers/plans/2026-07-26-stripcomments-shared.md:482
+  docs/superpowers/plans/2026-07-26-stripcomments-shared.md:742
+  docs/superpowers/plans/2026-07-27-duration-tokens-emit-no-css.md:42
+  docs/superpowers/plans/2026-08-01-card-copy-parity-sync-job-name.md:123
+  docs/superpowers/plans/2026-08-01-pg-cron-mechanism-sabotage-probe.md:60
+  docs/superpowers/plans/2026-08-01-pg-cron-mechanism-sabotage-probe.md:249
+  docs/superpowers/plans/2026-08-01-pg-cron-mechanism-sabotage-probe.md:267
+  docs/superpowers/plans/2026-08-02-admin-popover-overlay-cluster.md:50
+  docs/superpowers/plans/2026-08-02-docs-hygiene-citation-rot-financials-vocab.md:137
+  docs/superpowers/plans/2026-08-03-close-v1-override-wont-build.md:118
+  docs/superpowers/plans/2026-08-03-close-v1-override-wont-build.md:169
+  docs/superpowers/plans/2026-08-03-lead-capability-prose-settle.md:62
+  docs/superpowers/plans/2026-08-03-lead-capability-prose-settle.md:448
+  docs/superpowers/plans/2026-08-03-lead-capability-prose-settle.md:543
+  docs/superpowers/plans/2026-08-03-lead-capability-prose-settle.md:571
+  docs/superpowers/plans/2026-08-03-lead-capability-prose-settle.md:669
+  docs/superpowers/plans/2026-08-03-needs-attention-holds-rollup.md:437
+  docs/superpowers/plans/2026-08-03-picker-signin-flow-cluster.md:92
+  docs/superpowers/plans/2026-08-03-scanner-precision-cluster.md:138
+  docs/superpowers/plans/2026-08-04-guard-premise-reachability.md:1371
+  docs/superpowers/plans/2026-08-04-harness-font-fidelity.md:241
+  docs/superpowers/plans/2026-08-04-harness-font-fidelity.md:249
+  docs/superpowers/plans/2026-08-04-review-round-economy.md:2116
+  docs/superpowers/plans/2026-08-04-review-round-economy.md:2265
+  docs/superpowers/plans/2026-08-04-review-round-economy.md:2352
+  docs/superpowers/plans/2026-08-06-l-wave/l3-parallel-db-fallback-probe-2026-08-06.md:12
+  docs/superpowers/plans/2026-08-06-l-wave/l3-parallel-db-fallback-probe-2026-08-06.md:68
+  docs/superpowers/plans/admin/2026-06-22-validation-reset-button.md:49
+  docs/superpowers/plans/admin/2026-06-30-admin-shows-status-column.md:59
+  docs/superpowers/plans/admin/2026-06-30-admin-shows-status-column.md:91
+  docs/superpowers/plans/admin/2026-06-30-admin-shows-status-column.md:182
+  docs/superpowers/plans/admin/2026-06-30-admin-shows-status-column.md:276
+  docs/superpowers/plans/admin/2026-06-30-admin-shows-status-column.md:317
+  docs/superpowers/plans/admin/2026-06-30-admin-shows-status-column.md:362
+  docs/superpowers/plans/admin/2026-06-30-admin-shows-status-column.md:427
+  docs/superpowers/plans/admin/2026-06-30-admin-shows-status-column.md:433
+  docs/superpowers/plans/admin/2026-06-30-admin-shows-status-column.md:506
+  docs/superpowers/plans/admin/2026-06-30-admin-shows-status-column.md:588
+  docs/superpowers/plans/admin/2026-07-01-published-toggle/plan.md:52
+  docs/superpowers/plans/admin/2026-07-01-published-toggle/plan.md:300
+  docs/superpowers/plans/admin/2026-07-01-published-toggle/plan.md:345
+  docs/superpowers/plans/admin/2026-07-01-published-toggle/plan.md:519
+  docs/superpowers/plans/admin/2026-07-01-shows-720-title-floor.md:39
+  docs/superpowers/plans/admin/2026-07-03-developer-tier/01-db-foundation.md:226
+  docs/superpowers/plans/admin/2026-07-03-developer-tier/01-db-foundation.md:420
+  docs/superpowers/plans/admin/2026-07-03-developer-tier/02-auth-primitives.md:187
+  docs/superpowers/plans/admin/2026-07-03-developer-tier/04-action-and-catalog.md:64
+  docs/superpowers/plans/admin/2026-07-03-developer-tier/07-structural-and-e2e.md:44
+  docs/superpowers/plans/admin/2026-07-07-admin-field-overrides/PLAN.md:133
+  docs/superpowers/plans/admin/2026-07-07-admin-field-overrides/PLAN.md:306
+  docs/superpowers/plans/admin/2026-07-07-admin-field-overrides/PLAN.md:559
+  docs/superpowers/plans/admin/2026-07-07-admin-field-overrides/PLAN.md:762
+  docs/superpowers/plans/admin/2026-07-07-flow5-rotate-disclosure-mailto.md:52
+  docs/superpowers/plans/admin/2026-07-07-flow5-rotate-disclosure-mailto.md:271
+  docs/superpowers/plans/admin/2026-07-07-flow5-rotate-disclosure-mailto.md:386
+  docs/superpowers/plans/admin/2026-07-07-flow5-rotate-disclosure-mailto.md:411
+  docs/superpowers/plans/admin/2026-07-07-flow5-rotate-disclosure-mailto.md:561
+  docs/superpowers/plans/admin/2026-07-07-flow5-rotate-disclosure-mailto.md:658
+  docs/superpowers/plans/admin/2026-07-07-flow5-rotate-disclosure-mailto.md:758
+  docs/superpowers/plans/admin/2026-07-07-flow5-rotate-disclosure-mailto.md:897
+  docs/superpowers/plans/admin/2026-07-07-flow5-rotate-disclosure-mailto.md:967
+  docs/superpowers/plans/admin/2026-07-07-flow5-rotate-disclosure-mailto.md:1004
+  docs/superpowers/plans/admin/2026-07-10-remove-admin-field-overrides/01-tasks.md:36
+  docs/superpowers/plans/admin/2026-07-10-remove-admin-field-overrides/01-tasks.md:123
+  docs/superpowers/plans/admin/2026-07-10-share-link-instant-rotate-dedup.md:247
+  docs/superpowers/plans/admin/2026-07-10-share-link-instant-rotate-dedup.md:339
+  docs/superpowers/plans/admin/2026-07-10-share-link-instant-rotate-dedup.md:463
+  docs/superpowers/plans/admin/2026-07-15-extend-role-scope-vocab/tasks-01-04.md:23
+  docs/superpowers/plans/admin/2026-07-15-extend-role-scope-vocab/tasks-01-04.md:78
+  docs/superpowers/plans/admin/2026-07-15-extend-role-scope-vocab/tasks-01-04.md:188
+  docs/superpowers/plans/admin/2026-07-15-extend-role-scope-vocab/tasks-01-04.md:227
+  docs/superpowers/plans/admin/2026-07-15-extend-role-scope-vocab/tasks-01-04.md:257
+  docs/superpowers/plans/admin/2026-07-15-extend-role-scope-vocab/tasks-01-04.md:378
+  docs/superpowers/plans/admin/2026-07-15-extend-role-scope-vocab/tasks-01-04.md:412
+  docs/superpowers/plans/admin/2026-07-15-extend-role-scope-vocab/tasks-05-08.md:29
+  docs/superpowers/plans/admin/2026-07-15-extend-role-scope-vocab/tasks-05-08.md:142
+  docs/superpowers/plans/admin/2026-07-15-extend-role-scope-vocab/tasks-05-08.md:195
+  docs/superpowers/plans/admin/2026-07-15-extend-role-scope-vocab/tasks-05-08.md:281
+  docs/superpowers/plans/admin/2026-07-15-extend-role-scope-vocab/tasks-05-08.md:300
+  docs/superpowers/plans/admin/2026-07-15-extend-role-scope-vocab/tasks-05-08.md:384
+  docs/superpowers/plans/admin/2026-07-15-extend-role-scope-vocab/tasks-09-12.md:144
+  docs/superpowers/plans/admin/2026-07-16-consolidated-admin-show-page/01-phase1-extraction.md:16
+  docs/superpowers/plans/admin/2026-07-16-consolidated-admin-show-page/01-phase1-extraction.md:27
+  docs/superpowers/plans/admin/2026-07-16-consolidated-admin-show-page/01-phase1-extraction.md:105
+  docs/superpowers/plans/admin/2026-07-16-consolidated-admin-show-page/02-phase2-page.md:77
+  docs/superpowers/plans/admin/2026-07-16-destructive-confirm-pass.md:186
+  docs/superpowers/plans/admin/2026-07-16-destructive-confirm-pass.md:247
+  docs/superpowers/plans/admin/2026-07-16-destructive-confirm-pass.md:278
+  docs/superpowers/plans/admin/2026-07-16-destructive-confirm-pass.md:346
+  docs/superpowers/plans/admin/2026-07-16-destructive-confirm-pass.md:469
+  docs/superpowers/plans/admin/2026-07-16-last-checked-at.md:410
+  docs/superpowers/plans/admin/2026-07-16-last-checked-at.md:570
+  docs/superpowers/plans/admin/2026-07-16-role-vocab-mapping-convergence/plan.md:121
+  docs/superpowers/plans/admin/2026-07-16-role-vocab-mapping-convergence/plan.md:223
+  docs/superpowers/plans/admin/2026-07-16-role-vocab-mapping-convergence/plan.md:275
+  docs/superpowers/plans/admin/2026-07-16-role-vocab-mapping-convergence/plan.md:329
+  docs/superpowers/plans/admin/2026-07-16-role-vocab-settings-desktop-grid/PLAN.md:36
+  docs/superpowers/plans/admin/2026-07-16-role-vocab-settings-desktop-grid/PLAN.md:101
+  docs/superpowers/plans/admin/2026-07-16-role-vocab-settings-desktop-grid/PLAN.md:200
+  docs/superpowers/plans/admin/2026-07-16-role-vocab-staging-overlay/00-plan.md:136
+  docs/superpowers/plans/admin/2026-07-16-role-vocab-staging-overlay/00-plan.md:207
+  docs/superpowers/plans/admin/2026-07-17-casp2-finalize-inflow-chip.md:54
+  docs/superpowers/plans/admin/2026-07-17-casp2-finalize-inflow-chip.md:152
+  docs/superpowers/plans/admin/2026-07-17-casp2-finalize-inflow-chip.md:214
+  docs/superpowers/plans/admin/2026-07-17-casp2-finalize-inflow-chip.md:292
+  docs/superpowers/plans/admin/2026-07-17-casp2-inline-toggle-variant.md:52
+  docs/superpowers/plans/admin/2026-07-17-casp2-inline-toggle-variant.md:213
+  docs/superpowers/plans/admin/2026-07-17-casp2-inline-toggle-variant.md:380
+  docs/superpowers/plans/admin/2026-07-17-casp2-strip-polish.md:102
+  docs/superpowers/plans/admin/2026-07-17-casp2-strip-polish.md:144
+  docs/superpowers/plans/admin/2026-07-17-casp2-strip-polish.md:228
+  docs/superpowers/plans/admin/2026-07-17-destruct1-armed-reflow.md:53
+  docs/superpowers/plans/admin/2026-07-17-devtier-toggle-help.md:30
+  docs/superpowers/plans/admin/2026-07-17-devtier-toggle-help.md:55
+  docs/superpowers/plans/admin/2026-07-17-sync-cell-edited-checked/00-plan.md:92
+  docs/superpowers/plans/admin/2026-07-17-sync-cell-edited-checked/00-plan.md:170
+  docs/superpowers/plans/admin/2026-07-17-sync-cell-edited-checked/00-plan.md:206
+  docs/superpowers/plans/admin/2026-07-17-sync-cell-edited-checked/00-plan.md:434
+  docs/superpowers/plans/admin/2026-08-02-step3-live-render-cluster.md:139
+  docs/superpowers/plans/alerts/2026-07-03-admin-alert-auto-resolution/plan.md:53
+  docs/superpowers/plans/alerts/2026-07-03-admin-alert-auto-resolution/plan.md:110
+  docs/superpowers/plans/alerts/2026-07-03-admin-alert-auto-resolution/plan.md:199
+  docs/superpowers/plans/alerts/2026-07-03-admin-alert-auto-resolution/plan.md:356
+  docs/superpowers/plans/alerts/2026-07-04-alert-action-links/plan.md:44
+  docs/superpowers/plans/alerts/2026-07-04-alert-action-links/plan.md:240
+  docs/superpowers/plans/alerts/2026-07-04-alert-action-links/plan.md:379
+  docs/superpowers/plans/alerts/2026-07-04-alert-action-links/plan.md:554
+  docs/superpowers/plans/alerts/2026-07-04-alert-action-links/plan.md:762
+  docs/superpowers/plans/alerts/2026-07-04-alert-action-links/plan.md:924
+  docs/superpowers/plans/alerts/2026-07-04-alert-at-a-glance-identity.md:80
+  docs/superpowers/plans/alerts/2026-07-04-alert-audience-split/plan.md:102
+  docs/superpowers/plans/alerts/2026-07-04-alert-resolve-truthing/plan.md:87
+  docs/superpowers/plans/alerts/2026-07-04-alert-resolve-truthing/plan.md:121
+  docs/superpowers/plans/alerts/2026-07-04-alert-resolve-truthing/plan.md:232
+  docs/superpowers/plans/alerts/2026-07-04-alert-resolve-truthing/plan.md:275
+  docs/superpowers/plans/alerts/2026-07-04-alert-resolve-truthing/plan.md:306
+  docs/superpowers/plans/alerts/2026-07-04-alert-resolve-truthing/plan.md:334
+  docs/superpowers/plans/alerts/2026-07-04-alert-resolve-truthing/plan.md:477
+  docs/superpowers/plans/alerts/2026-07-04-alert-resolve-truthing/plan.md:736
+  docs/superpowers/plans/alerts/2026-07-05-bell-notification-center.md:226
+  docs/superpowers/plans/alerts/2026-07-05-bell-notification-center.md:420
+  docs/superpowers/plans/alerts/2026-07-05-bell-notification-center.md:437
+  docs/superpowers/plans/alerts/2026-07-05-bell-notification-center.md:502
+  docs/superpowers/plans/alerts/2026-07-05-bell-notification-center.md:552
+  docs/superpowers/plans/alerts/2026-07-05-bell-notification-center.md:648
+  docs/superpowers/plans/alerts/2026-07-05-bell-notification-center.md:737
+  docs/superpowers/plans/alerts/2026-07-05-bell-notification-center.md:765
+  docs/superpowers/plans/alerts/2026-07-05-bell-notification-center.md:839
+  docs/superpowers/plans/alerts/2026-07-05-bell-notification-center.md:858
+  docs/superpowers/plans/alerts/2026-07-05-bell-notification-center.md:926
+  docs/superpowers/plans/alerts/2026-07-05-bell-notification-center.md:1048
+  docs/superpowers/plans/alerts/2026-07-05-bell-notification-center.md:1068
+  docs/superpowers/plans/alerts/2026-07-05-bell-notification-center.md:1117
+  docs/superpowers/plans/alerts/2026-07-05-bell-notification-center.md:1144
+  docs/superpowers/plans/alerts/2026-07-05-bell-notification-center.md:1166
+  docs/superpowers/plans/alerts/2026-07-05-bell-notification-center.md:1211
+  docs/superpowers/plans/alerts/2026-07-05-bell-notification-center.md:1232
+  docs/superpowers/plans/alerts/2026-07-05-bell-notification-center.md:1267
+  docs/superpowers/plans/alerts/2026-07-05-bell-notification-center.md:1289
+  docs/superpowers/plans/alerts/2026-07-16-notify-email-batching.md:39
+  docs/superpowers/plans/alerts/2026-07-16-notify-email-batching.md:111
+  docs/superpowers/plans/alerts/2026-07-16-notify-email-batching.md:145
+  docs/superpowers/plans/alerts/2026-07-16-notify-email-batching.md:252
+  docs/superpowers/plans/alerts/2026-07-16-notify-email-batching.md:351
+  docs/superpowers/plans/alerts/2026-07-16-notify-email-batching.md:468
+  docs/superpowers/plans/alerts/2026-07-16-notify-email-batching.md:838
+  docs/superpowers/plans/alerts/2026-07-17-bell-triage-severity-grouping.md:137
+  docs/superpowers/plans/alerts/2026-07-17-condensed-alert-copy.md:39
+  docs/superpowers/plans/alerts/2026-07-17-condensed-alert-copy.md:216
+  docs/superpowers/plans/alerts/2026-07-17-condensed-alert-copy.md:568
+  docs/superpowers/plans/alerts/2026-07-17-condensed-alert-copy.md:745
+  docs/superpowers/plans/alerts/2026-07-17-condensed-alert-copy.md:775
+  docs/superpowers/plans/alerts/2026-07-17-condensed-alert-copy.md:896
+  docs/superpowers/plans/alerts/2026-07-17-condensed-alert-copy.md:954
+  docs/superpowers/plans/alerts/2026-07-17-condensed-alert-copy.md:1059
+  docs/superpowers/plans/alerts/2026-07-17-condensed-alert-copy.md:1075
+  docs/superpowers/plans/ci/2026-06-26-ci-speedup-pr-e.md:39
+  docs/superpowers/plans/ci/2026-06-26-ci-unit-suite-matrix-shard.md:48
+  docs/superpowers/plans/ci/2026-06-26-ci-unit-suite-matrix-shard.md:166
+  docs/superpowers/plans/ci/2026-07-06-mutation-harness-sharding/plan.md:45
+  docs/superpowers/plans/ci/2026-07-06-mutation-harness-sharding/plan.md:120
+  docs/superpowers/plans/ci/2026-07-06-mutation-harness-sharding/plan.md:306
+  docs/superpowers/plans/ci/2026-07-06-mutation-harness-sharding/plan.md:417
+  docs/superpowers/plans/ci/2026-07-06-mutation-harness-sharding/plan.md:440
+  docs/superpowers/plans/ci/2026-07-06-mutation-harness-sharding/plan.md:477
+  docs/superpowers/plans/ci/2026-07-06-mutation-harness-sharding/plan.md:724
+  docs/superpowers/plans/ci/2026-07-06-mutation-harness-sharding/plan.md:859
+  docs/superpowers/plans/ci/2026-07-06-mutation-testing-harness.md:74
+  docs/superpowers/plans/ci/2026-07-06-mutation-testing-harness.md:147
+  docs/superpowers/plans/ci/2026-07-06-mutation-testing-harness.md:263
+  docs/superpowers/plans/ci/2026-07-06-mutation-testing-harness.md:399
+  docs/superpowers/plans/ci/2026-07-06-mutation-testing-harness.md:453
+  docs/superpowers/plans/ci/2026-07-06-mutation-testing-harness.md:602
+  docs/superpowers/plans/ci/2026-07-06-mutation-testing-harness.md:756
+  docs/superpowers/plans/ci/2026-07-06-mutation-testing-harness.md:777
+  docs/superpowers/plans/ci/2026-07-06-mutation-testing-harness.md:953
+  docs/superpowers/plans/ci/2026-07-06-mutation-testing-harness.md:1305
+  docs/superpowers/plans/ci/2026-07-06-mutation-testing-harness.md:1434
+  docs/superpowers/plans/ci/2026-07-06-mutation-testing-harness.md:1680
+  docs/superpowers/plans/ci/2026-07-06-mutation-testing-harness.md:1740
+  docs/superpowers/plans/ci/2026-07-06-mutation-testing-harness.md:1768
+  docs/superpowers/plans/ci/2026-07-06-mutation-testing-harness.md:1905
+  docs/superpowers/plans/ci/2026-07-06-mutation-testing-harness.md:2007
+  docs/superpowers/plans/ci/2026-07-06-mutation-testing-harness.md:2159
+  docs/superpowers/plans/ci/2026-07-06-mutation-testing-harness.md:2173
+  docs/superpowers/plans/ci/2026-07-06-mutation-testing-harness.md:2264
+  docs/superpowers/plans/ci/2026-07-06-mutation-testing-harness.md:2336
+  docs/superpowers/plans/ci/2026-07-06-mutation-testing-harness.md:2380
+  docs/superpowers/plans/ci/2026-07-06-mutation-testing-harness.md:2392
+  docs/superpowers/plans/ci/2026-07-06-mutation-testing-harness.md:2439
+  docs/superpowers/plans/crew/2026-06-15-crew-page-redesign-phase1/00-overview.md:69
+  docs/superpowers/plans/crew/2026-06-15-crew-page-redesign-phase1/01-parser-context.md:38
+  docs/superpowers/plans/crew/2026-06-15-crew-page-redesign-phase1/01-parser-context.md:207
+  docs/superpowers/plans/crew/2026-06-15-crew-page-redesign-phase1/01-parser-context.md:308
+  docs/superpowers/plans/crew/2026-06-15-crew-page-redesign-phase1/01-parser-context.md:404
+  docs/superpowers/plans/crew/2026-06-15-crew-page-redesign-phase1/01-parser-context.md:509
+  docs/superpowers/plans/crew/2026-06-15-crew-page-redesign-phase1/02-shell-nav-alert.md:234
+  docs/superpowers/plans/crew/2026-06-15-crew-page-redesign-phase1/03-sections-budget-gear.md:141
+  docs/superpowers/plans/crew/2026-06-15-crew-page-redesign-phase1/03-sections-budget-gear.md:319
+  docs/superpowers/plans/crew/2026-06-15-crew-page-redesign-phase1/04-layout-migration-closeout.md:195
+  docs/superpowers/plans/crew/2026-06-15-crew-page-redesign-phase2/00-overview.md:32
+  docs/superpowers/plans/crew/2026-06-15-crew-page-redesign-phase2/00-overview.md:54
+  docs/superpowers/plans/crew/2026-06-15-crew-page-redesign-phase2/01-parser-types.md:68
+  docs/superpowers/plans/crew/2026-06-15-crew-page-redesign-phase2/01-parser-types.md:112
+  docs/superpowers/plans/crew/2026-06-15-crew-page-redesign-phase2/01-parser-types.md:146
+  docs/superpowers/plans/crew/2026-06-15-crew-page-redesign-phase2/01-parser-types.md:186
+  docs/superpowers/plans/crew/2026-06-15-crew-page-redesign-phase2/01-parser-types.md:285
+  docs/superpowers/plans/crew/2026-06-15-crew-page-redesign-phase2/01-parser-types.md:459
+  docs/superpowers/plans/crew/2026-06-15-crew-page-redesign-phase2/01-parser-types.md:520
+  docs/superpowers/plans/crew/2026-06-15-crew-page-redesign-phase2/01-parser-types.md:630
+  docs/superpowers/plans/crew/2026-06-15-crew-page-redesign-phase2/01-parser-types.md:690
+  docs/superpowers/plans/crew/2026-06-15-crew-page-redesign-phase2/01-parser-types.md:733
+  docs/superpowers/plans/crew/2026-06-15-crew-page-redesign-phase2/01-parser-types.md:1013
+  docs/superpowers/plans/crew/2026-06-15-crew-page-redesign-phase2/01-parser-types.md:1091
+  docs/superpowers/plans/crew/2026-06-15-crew-page-redesign-phase2/01-parser-types.md:1161
+  docs/superpowers/plans/crew/2026-06-15-crew-page-redesign-phase2/01-parser-types.md:1229
+  docs/superpowers/plans/crew/2026-06-15-crew-page-redesign-phase2/02-migration-projection.md:39
+  docs/superpowers/plans/crew/2026-06-15-crew-page-redesign-phase2/02-migration-projection.md:124
+  docs/superpowers/plans/crew/2026-06-15-crew-page-redesign-phase2/02-migration-projection.md:175
+  docs/superpowers/plans/crew/2026-06-15-crew-page-redesign-phase2/02-migration-projection.md:316
+  docs/superpowers/plans/crew/2026-06-15-crew-page-redesign-phase2/02-migration-projection.md:373
+  docs/superpowers/plans/crew/2026-06-15-crew-page-redesign-phase2/02-migration-projection.md:526
+  docs/superpowers/plans/crew/2026-06-15-crew-page-redesign-phase2/02-migration-projection.md:686
+  docs/superpowers/plans/crew/2026-06-15-crew-page-redesign-phase2/02-migration-projection.md:754
+  docs/superpowers/plans/crew/2026-06-15-crew-page-redesign-phase2/02-migration-projection.md:963
+  docs/superpowers/plans/crew/2026-06-15-crew-page-redesign-phase2/03-schedule-enrichment-closeout.md:63
+  docs/superpowers/plans/crew/2026-06-15-crew-page-redesign-phase2/03-schedule-enrichment-closeout.md:145
+  docs/superpowers/plans/crew/2026-06-15-crew-page-redesign-phase2/03-schedule-enrichment-closeout.md:210
+  docs/superpowers/plans/crew/2026-06-15-crew-page-redesign-phase2/03-schedule-enrichment-closeout.md:420
+  docs/superpowers/plans/crew/2026-06-15-crew-page-redesign-phase2/03-schedule-enrichment-closeout.md:571
+  docs/superpowers/plans/crew/2026-06-15-crew-page-redesign-phase2/03-schedule-enrichment-closeout.md:671
+  docs/superpowers/plans/crew/2026-06-15-crew-page-redesign-phase2/03-schedule-enrichment-closeout.md:712
+  docs/superpowers/plans/crew/2026-06-15-crew-page-redesign-phase2/03-schedule-enrichment-closeout.md:783
+  docs/superpowers/plans/crew/2026-06-15-crew-page-redesign-phase2/03-schedule-enrichment-closeout.md:799
+  docs/superpowers/plans/crew/2026-06-15-crew-page-redesign-phase2/03-schedule-enrichment-closeout.md:834
+  docs/superpowers/plans/crew/2026-06-19-crew-mock-fidelity/plan.md:123
+  docs/superpowers/plans/crew/2026-06-19-crew-mock-fidelity/plan.md:186
+  docs/superpowers/plans/crew/2026-06-19-crew-mock-fidelity/plan.md:312
+  docs/superpowers/plans/crew/2026-06-19-crew-mock-fidelity/plan.md:428
+  docs/superpowers/plans/crew/2026-06-30-crew-partial-attendance-chip.md:136
+  docs/superpowers/plans/crew/2026-06-30-crew-partial-attendance-chip.md:239
+  docs/superpowers/plans/crew/2026-07-03-per-crew-picker-reset/plan.md:102
+  docs/superpowers/plans/crew/2026-07-03-per-crew-picker-reset/plan.md:215
+  docs/superpowers/plans/crew/2026-07-03-per-crew-picker-reset/plan.md:431
+  docs/superpowers/plans/crew/2026-07-03-per-crew-picker-reset/plan.md:519
+  docs/superpowers/plans/crew/2026-07-03-per-crew-picker-reset/plan.md:580
+  docs/superpowers/plans/crew/2026-07-06-venue-card-redesign/00-plan.md:84
+  docs/superpowers/plans/crew/2026-07-06-venue-card-redesign/00-plan.md:188
+  docs/superpowers/plans/crew/2026-07-06-venue-card-redesign/00-plan.md:359
+  docs/superpowers/plans/crew/2026-07-06-venue-card-redesign/00-plan.md:448
+  docs/superpowers/plans/crew/2026-07-06-venue-card-redesign/00-plan.md:516
+  docs/superpowers/plans/crew/2026-07-06-venue-card-redesign/00-plan.md:622
+  docs/superpowers/plans/crew/2026-07-06-venue-card-redesign/00-plan.md:720
+  docs/superpowers/plans/crew/2026-07-06-venue-card-redesign/00-plan.md:955
+  docs/superpowers/plans/crew/2026-07-09-flow8-self-serve-trio/plan.md:65
+  docs/superpowers/plans/crew/2026-07-09-flow8-self-serve-trio/plan.md:104
+  docs/superpowers/plans/crew/2026-07-09-flow8-self-serve-trio/plan.md:228
+  docs/superpowers/plans/crew/2026-07-09-flow8-self-serve-trio/plan.md:445
+  docs/superpowers/plans/crew/2026-07-09-flow8-self-serve-trio/plan.md:512
+  docs/superpowers/plans/crew/2026-07-09-flow8-self-serve-trio/plan.md:562
+  docs/superpowers/plans/crew/2026-07-09-flow8-self-serve-trio/plan.md:668
+  docs/superpowers/plans/crew/2026-07-09-flow8-self-serve-trio/plan.md:881
+  docs/superpowers/plans/crew/2026-07-09-flow8-self-serve-trio/plan.md:977
+  docs/superpowers/plans/crew/2026-07-09-flow8-self-serve-trio/plan.md:1027
+  docs/superpowers/plans/crew/2026-07-09-flow8.3b-transport-id-resolution.md:38
+  docs/superpowers/plans/crew/2026-07-09-flow8.3b-transport-id-resolution.md:117
+  docs/superpowers/plans/crew/2026-07-09-flow8.3b-transport-id-resolution.md:188
+  docs/superpowers/plans/crew/2026-07-09-flow8.3b-transport-id-resolution.md:255
+  docs/superpowers/plans/crew/2026-07-09-flow8.3b-transport-id-resolution.md:356
+  docs/superpowers/plans/crew/2026-07-09-flow8.3b-transport-id-resolution.md:425
+  docs/superpowers/plans/crew/2026-07-09-flow8.3b-transport-id-resolution.md:559
+  docs/superpowers/plans/crew/2026-07-09-flow8.3b-transport-id-resolution.md:597
+  docs/superpowers/plans/crew/2026-07-09-flow8.3b-transport-id-resolution.md:649
+  docs/superpowers/plans/crew/2026-07-09-flow8.4-transport-assignee-warning.md:62
+  docs/superpowers/plans/crew/2026-07-09-flow8.4-transport-assignee-warning.md:207
+  docs/superpowers/plans/crew/2026-07-09-flow8.4-transport-assignee-warning.md:331
+  docs/superpowers/plans/crew/2026-07-09-flow8.4-transport-assignee-warning.md:447
+  docs/superpowers/plans/crew/2026-07-09-flow8.4-transport-assignee-warning.md:495
+  docs/superpowers/plans/crew/2026-07-09-flow8.4-transport-assignee-warning.md:501
+  docs/superpowers/plans/crew/2026-07-09-flow8.4-transport-assignee-warning.md:511
+  docs/superpowers/plans/crew/2026-07-09-flow8.4-transport-assignee-warning.md:603
+  docs/superpowers/plans/crew/2026-07-16-accent-contrast-token-pass.md:139
+  docs/superpowers/plans/crew/2026-07-16-accent-contrast-token-pass.md:298
+  docs/superpowers/plans/crew/2026-07-16-accent-contrast-token-pass.md:377
+  docs/superpowers/plans/crew/2026-07-16-accent-contrast-token-pass.md:407
+  docs/superpowers/plans/crew/2026-07-16-accent-contrast-token-pass.md:515
+  docs/superpowers/plans/crew/2026-07-17-cardreport-tap-targets.md:352
+  docs/superpowers/plans/crew/2026-07-17-cardreport-tap-targets.md:620
+  docs/superpowers/plans/crew/2026-07-17-hero-segment-vibrancy.md:40
+  docs/superpowers/plans/crew/2026-07-17-hero-segment-vibrancy.md:117
+  docs/superpowers/plans/crew/2026-07-17-rpc-crew-lifecycle-guard.md:55
+  docs/superpowers/plans/crew/2026-07-17-rpc-crew-lifecycle-guard.md:130
+  docs/superpowers/plans/crew/2026-07-17-rpc-crew-lifecycle-guard.md:147
+  docs/superpowers/plans/crew/2026-07-17-rpc-crew-lifecycle-guard.md:179
+  docs/superpowers/plans/crew/2026-07-17-rpc-crew-lifecycle-guard.md:270
+  docs/superpowers/plans/crew/2026-07-17-rpc-crew-lifecycle-guard.md:305
+  docs/superpowers/plans/crew/2026-07-17-rpc-crew-lifecycle-guard.md:357
+  docs/superpowers/plans/crew/2026-07-17-rpc-crew-lifecycle-guard.md:391
+  docs/superpowers/plans/crew/2026-07-17-rpc-crew-lifecycle-guard.md:411
+  docs/superpowers/plans/crew/2026-07-17-rpc-crew-lifecycle-guard.md:416
+  docs/superpowers/plans/crew/2026-07-17-rpc-crew-lifecycle-guard.md:485
+  docs/superpowers/plans/crew/2026-07-17-rpc-crew-lifecycle-guard.md:527
+  docs/superpowers/plans/crew/2026-07-17-rpc-crew-lifecycle-guard.md:650
+  docs/superpowers/plans/crew/2026-07-17-venue-card-vcr2-vcr3-fixes.md:80
+  docs/superpowers/plans/crew/2026-07-17-venue-card-vcr2-vcr3-fixes.md:112
+  docs/superpowers/plans/crew/2026-07-17-venue-card-vcr2-vcr3-fixes.md:147
+  docs/superpowers/plans/crew/2026-07-17-venue-card-vcr2-vcr3-fixes.md:303
+  docs/superpowers/plans/crew/2026-07-17-venue-card-vcr2-vcr3-fixes.md:414
+  docs/superpowers/plans/crew/2026-07-17-venue-card-vcr2-vcr3-fixes.md:418
+  docs/superpowers/plans/crew/2026-07-17-venue-degraded-tile-glyph.md:37
+  docs/superpowers/plans/crew/2026-07-17-venue-degraded-tile-glyph.md:92
+  docs/superpowers/plans/data-quality/2026-06-29-finalize-approval-decision-race.md:338
+  docs/superpowers/plans/data-quality/2026-06-29-finalize-approval-decision-race.md:739
+  docs/superpowers/plans/data-quality/2026-06-29-finalize-approval-decision-race.md:770
+  docs/superpowers/plans/data-quality/2026-06-29-finalize-blocker-show-title.md:91
+  docs/superpowers/plans/data-quality/2026-06-29-finalize-blocker-show-title.md:271
+  docs/superpowers/plans/data-quality/2026-06-29-finalize-blocker-show-title.md:320
+  docs/superpowers/plans/data-quality/2026-07-02-dq-report-ignore/PLAN.md:113
+  docs/superpowers/plans/data-quality/2026-07-02-dq-report-ignore/PLAN.md:191
+  docs/superpowers/plans/data-quality/2026-07-02-dq-report-ignore/PLAN.md:323
+  docs/superpowers/plans/data-quality/2026-07-02-dq-report-ignore/PLAN.md:378
+  docs/superpowers/plans/data-quality/2026-07-02-dq-report-ignore/PLAN.md:444
+  docs/superpowers/plans/data-quality/2026-07-02-dq-report-ignore/PLAN.md:1003
+  docs/superpowers/plans/data-quality/2026-07-02-dq-report-ignore/PLAN.md:1321
+  docs/superpowers/plans/data-quality/2026-07-04-data-quality-badge-shows-table.md:191
+  docs/superpowers/plans/data-quality/2026-07-04-data-quality-badge-shows-table.md:269
+  docs/superpowers/plans/data-quality/2026-07-04-data-quality-badge-shows-table.md:392
+  docs/superpowers/plans/data-quality/2026-07-04-data-quality-badge-shows-table.md:511
+  docs/superpowers/plans/data-quality/2026-07-04-data-quality-badge-shows-table.md:568
+  docs/superpowers/plans/data-quality/2026-07-04-data-quality-badge-shows-table.md:686
+  docs/superpowers/plans/data-quality/2026-07-04-resync-quality-gate/00-plan.md:304
+  docs/superpowers/plans/data-quality/2026-07-04-resync-quality-gate/00-plan.md:354
+  docs/superpowers/plans/data-quality/2026-07-04-resync-quality-gate/00-plan.md:405
+  docs/superpowers/plans/data-quality/2026-07-04-resync-quality-gate/00-plan.md:422
+  docs/superpowers/plans/data-quality/2026-07-04-resync-quality-gate/00-plan.md:504
+  docs/superpowers/plans/data-quality/2026-07-04-resync-quality-gate/00-plan.md:536
+  docs/superpowers/plans/data-quality/2026-07-04-resync-quality-gate/00-plan.md:575
+  docs/superpowers/plans/data-quality/2026-07-04-resync-quality-gate/00-plan.md:646
+  docs/superpowers/plans/data-quality/2026-07-04-resync-quality-gate/00-plan.md:818
+  docs/superpowers/plans/data-quality/2026-07-04-resync-quality-gate/00-plan.md:990
+  docs/superpowers/plans/data-quality/2026-07-04-version-detection-confidence-gate.md:187
+  docs/superpowers/plans/data-quality/2026-07-04-version-detection-confidence-gate.md:349
+  docs/superpowers/plans/data-quality/2026-07-04-version-detection-confidence-gate.md:384
+  docs/superpowers/plans/data-quality/2026-07-04-version-detection-confidence-gate.md:489
+  docs/superpowers/plans/data-quality/2026-07-04-version-detection-confidence-gate.md:535
+  docs/superpowers/plans/data-quality/2026-07-04-version-detection-confidence-gate.md:541
+  docs/superpowers/plans/data-quality/2026-07-04-version-detection-confidence-gate.md:547
+  docs/superpowers/plans/data-quality/2026-07-04-version-detection-confidence-gate.md:563
+  docs/superpowers/plans/data-quality/2026-07-04-version-detection-confidence-gate.md:628
+  docs/superpowers/plans/data-quality/2026-07-05-finalize-resume-deadlock.md:247
+  docs/superpowers/plans/data-quality/2026-07-05-finalize-resume-deadlock.md:298
+  docs/superpowers/plans/data-quality/2026-07-05-finalize-resume-deadlock.md:397
+  docs/superpowers/plans/data-quality/2026-07-07-flow4-gate-single-crew-drop/plan.md:45
+  docs/superpowers/plans/data-quality/2026-07-07-flow4-gate-single-crew-drop/plan.md:73
+  docs/superpowers/plans/data-quality/2026-07-07-flow4-gate-single-crew-drop/plan.md:142
+  docs/superpowers/plans/data-quality/2026-07-10-crew-rename-shrink-gate/plan.md:172
+  docs/superpowers/plans/data-quality/2026-07-10-crew-rename-shrink-gate/plan.md:240
+  docs/superpowers/plans/data-quality/2026-07-10-crew-rename-shrink-gate/plan.md:278
+  docs/superpowers/plans/data-quality/2026-07-10-crew-rename-shrink-gate/plan.md:308
+  docs/superpowers/plans/data-quality/2026-07-10-crew-rename-shrink-gate/plan.md:398
+  docs/superpowers/plans/data-quality/2026-07-10-crew-rename-shrink-gate/plan.md:505
+  docs/superpowers/plans/data-quality/2026-07-10-structural-transform-use-raw/01-tasks.md:75
+  docs/superpowers/plans/data-quality/2026-07-10-structural-transform-use-raw/01-tasks.md:194
+  docs/superpowers/plans/data-quality/2026-07-15-feed-disposition-accept/00-overview.md:38
+  docs/superpowers/plans/data-quality/2026-07-15-feed-disposition-accept/00-overview.md:60
+  docs/superpowers/plans/data-quality/2026-07-15-feed-disposition-accept/00-overview.md:107
+  docs/superpowers/plans/data-quality/2026-07-15-feed-disposition-accept/00-overview.md:124
+  docs/superpowers/plans/data-quality/2026-07-15-feed-disposition-accept/00-overview.md:344
+  docs/superpowers/plans/data-quality/2026-07-16-cron-wizard-owned-skip.md:93
+  docs/superpowers/plans/data-quality/2026-07-16-cron-wizard-owned-skip.md:338
+  docs/superpowers/plans/data-quality/2026-07-16-cron-wizard-owned-skip.md:386
+  docs/superpowers/plans/data-quality/2026-07-16-cron-wizard-owned-skip.md:450
+  docs/superpowers/plans/data-quality/2026-07-16-cron-wizard-owned-skip.md:529
+  docs/superpowers/plans/data-quality/2026-07-16-use-raw-bg-apply/plan.md:45
+  docs/superpowers/plans/data-quality/2026-07-16-use-raw-bg-apply/plan.md:81
+  docs/superpowers/plans/data-quality/2026-07-16-use-raw-bg-apply/plan.md:131
+  docs/superpowers/plans/data-quality/2026-07-16-use-raw-bg-apply/plan.md:154
+  docs/superpowers/plans/data-quality/2026-07-16-use-raw-bg-apply/plan.md:220
+  docs/superpowers/plans/data-quality/2026-07-16-use-raw-bg-apply/plan.md:333
+  docs/superpowers/plans/data-quality/2026-07-16-use-raw-wizard-full-list-toggle/plan.md:197
+  docs/superpowers/plans/data-quality/2026-07-16-use-raw-wizard-full-list-toggle/plan.md:219
+  docs/superpowers/plans/data-quality/2026-07-16-use-raw-wizard-full-list-toggle/plan.md:253
+  docs/superpowers/plans/data-quality/2026-07-16-use-raw-wizard-full-list-toggle/plan.md:401
+  docs/superpowers/plans/data-quality/2026-07-16-use-raw-wizard-full-list-toggle/plan.md:456
+  docs/superpowers/plans/data-quality/2026-07-16-use-raw-wizard-full-list-toggle/plan.md:503
+  docs/superpowers/plans/data-quality/2026-07-16-use-raw-wizard-full-list-toggle/plan.md:589
+  docs/superpowers/plans/data-quality/2026-07-17-badge-affordance-a11y/plan.md:54
+  docs/superpowers/plans/data-quality/2026-07-17-badge-affordance-a11y/plan.md:263
+  docs/superpowers/plans/data-quality/2026-07-17-badge-affordance-a11y/plan.md:427
+  docs/superpowers/plans/data-quality/2026-07-17-badge-affordance-a11y/plan.md:453
+  docs/superpowers/plans/data-quality/2026-07-17-dq-group-active-by-code/00-plan.md:52
+  docs/superpowers/plans/data-quality/2026-07-17-dq-group-active-by-code/00-plan.md:104
+  docs/superpowers/plans/data-quality/2026-07-17-dq-group-active-by-code/00-plan.md:173
+  docs/superpowers/plans/data-quality/2026-07-17-dq-group-active-by-code/00-plan.md:495
+  docs/superpowers/plans/data-quality/2026-07-17-dq-group-active-by-code/00-plan.md:708
+  docs/superpowers/plans/data-quality/2026-07-17-dq-group-active-by-code/00-plan.md:734
+  docs/superpowers/plans/data-quality/2026-07-17-dq-group-active-by-code/00-plan.md:832
+  docs/superpowers/plans/data-quality/2026-07-17-dq-group-active-by-code/00-plan.md:878
+  docs/superpowers/plans/data-quality/2026-07-17-use-raw-callout-preview-demotion.md:61
+  docs/superpowers/plans/data-quality/2026-07-17-use-raw-control-site-a11y-copy/plan.md:40
+  docs/superpowers/plans/data-quality/2026-07-17-use-raw-control-site-a11y-copy/plan.md:239
+  docs/superpowers/plans/data-quality/2026-07-17-use-raw-control-site-a11y-copy/plan.md:404
+  docs/superpowers/plans/data-quality/2026-07-17-use-raw-control-site-a11y-copy/plan.md:433
+  docs/superpowers/plans/data-quality/2026-07-18-callout-preview-action-cue.md:35
+  docs/superpowers/plans/data-quality/2026-07-18-callout-preview-action-cue.md:163
+  docs/superpowers/plans/data-quality/2026-07-18-callout-preview-action-cue.md:225
+  docs/superpowers/plans/data-quality/2026-07-18-callout-preview-action-cue.md:327
+  docs/superpowers/plans/data-quality/2026-07-18-callout-preview-action-cue.md:432
+  docs/superpowers/plans/nav-perf/2026-06-22-nav-perf-phase1-data-auth/00-plan.md:136
+  docs/superpowers/plans/nav-perf/2026-06-22-nav-perf-phase1-data-auth/00-plan.md:213
+  docs/superpowers/plans/nav-perf/2026-06-22-nav-perf-phase1-data-auth/00-plan.md:290
+  docs/superpowers/plans/nav-perf/2026-06-23-nav-perf-tag-caching/00-plan.md:55
+  docs/superpowers/plans/nav-perf/2026-06-23-nav-perf-tag-caching/00-plan.md:110
+  docs/superpowers/plans/nav-perf/2026-06-23-nav-perf-tag-caching/01-write-site-registry.md:19
+  docs/superpowers/plans/observability/2026-06-29-centralized-logging-foundation.md:93
+  docs/superpowers/plans/observability/2026-06-29-centralized-logging-foundation.md:725
+  docs/superpowers/plans/observability/2026-06-29-centralized-logging-foundation.md:860
+  docs/superpowers/plans/observability/2026-06-29-centralized-logging-foundation.md:1007
+  docs/superpowers/plans/observability/2026-06-29-centralized-logging-foundation.md:1201
+  docs/superpowers/plans/observability/2026-06-29-centralized-logging-foundation.md:1296
+  docs/superpowers/plans/observability/2026-06-29-observability-timeline-phase2.md:61
+  docs/superpowers/plans/observability/2026-06-29-observability-timeline-phase2.md:117
+  docs/superpowers/plans/observability/2026-06-29-observability-timeline-phase2.md:285
+  docs/superpowers/plans/observability/2026-06-29-observability-timeline-phase2.md:346
+  docs/superpowers/plans/observability/2026-06-29-observability-timeline-phase2.md:413
+  docs/superpowers/plans/observability/2026-06-29-observability-timeline-phase2.md:611
+  docs/superpowers/plans/observability/2026-06-29-observability-timeline-phase2.md:753
+  docs/superpowers/plans/observability/2026-06-29-observability-timeline-phase2.md:952
+  docs/superpowers/plans/observability/2026-06-29-observability-timeline-phase2.md:1060
+  docs/superpowers/plans/observability/2026-06-29-observability-timeline-phase2.md:1173
+  docs/superpowers/plans/observability/2026-06-29-observability-timeline-phase2.md:1269
+  docs/superpowers/plans/observability/2026-06-29-observability-timeline-phase2.md:1496
+  docs/superpowers/plans/observability/2026-06-29-observability-timeline-phase2.md:1779
+  docs/superpowers/plans/observability/2026-06-29-observability-timeline-phase2.md:1931
+  docs/superpowers/plans/observability/2026-06-29-observability-timeline-phase2.md:2054
+  docs/superpowers/plans/observability/2026-06-29-observability-timeline-phase2.md:2357
+  docs/superpowers/plans/observability/2026-06-29-observability-timeline-phase2.md:2571
+  docs/superpowers/plans/observability/2026-06-29-observability-timeline-phase2.md:2675
+  docs/superpowers/plans/observability/2026-06-29-observability-timeline-phase2.md:2748
+  docs/superpowers/plans/observability/2026-06-29-observability-timeline-phase2.md:2836
+  docs/superpowers/plans/observability/2026-06-29-observability-timeline-phase2.md:2935
+  docs/superpowers/plans/observability/2026-06-29-observability-timeline-phase2.md:2994
+  docs/superpowers/plans/observability/2026-06-30-observability-sentry-phase3.md:114
+  docs/superpowers/plans/observability/2026-06-30-observability-sentry-phase3.md:314
+  docs/superpowers/plans/observability/2026-06-30-observability-sentry-phase3.md:391
+  docs/superpowers/plans/observability/2026-06-30-observability-sentry-phase3.md:614
+  docs/superpowers/plans/observability/2026-06-30-observability-sentry-phase3.md:811
+  docs/superpowers/plans/observability/2026-07-02-observability-coverage-carveout.md:40
+  docs/superpowers/plans/observability/2026-07-02-observability-coverage-carveout.md:153
+  docs/superpowers/plans/observability/2026-07-02-observability-coverage-carveout.md:304
+  docs/superpowers/plans/observability/2026-07-02-observability-coverage-followup.md:54
+  docs/superpowers/plans/observability/2026-07-02-observability-coverage-followup.md:99
+  docs/superpowers/plans/observability/2026-07-02-observability-coverage-followup.md:280
+  docs/superpowers/plans/observability/2026-07-02-observability-coverage-followup.md:324
+  docs/superpowers/plans/observability/2026-07-02-observability-coverage-followup.md:389
+  docs/superpowers/plans/observability/2026-07-02-observability-coverage-followup.md:526
+  docs/superpowers/plans/observability/2026-07-02-watch-channel-health.md:131
+  docs/superpowers/plans/observability/2026-07-02-watch-channel-health.md:207
+  docs/superpowers/plans/observability/2026-07-02-watch-channel-health.md:274
+  docs/superpowers/plans/observability/2026-07-02-watch-channel-health.md:510
+  docs/superpowers/plans/observability/2026-07-02-watch-channel-health.md:718
+  docs/superpowers/plans/observability/2026-07-02-watch-channel-health.md:891
+  docs/superpowers/plans/observability/2026-07-02-watch-channel-health.md:963
+  docs/superpowers/plans/observability/2026-07-02-watch-channel-health.md:1004
+  docs/superpowers/plans/observability/2026-07-02-watch-channel-health.md:1175
+  docs/superpowers/plans/observability/2026-07-02-watch-channel-health.md:1196
+  docs/superpowers/plans/observability/2026-07-02-watch-channel-health.md:1331
+  docs/superpowers/plans/observability/2026-07-02-watch-channel-health.md:1374
+  docs/superpowers/plans/observability/2026-07-02-watch-channel-health.md:1398
+  docs/superpowers/plans/observability/2026-07-02-watch-channel-health.md:1442
+  docs/superpowers/plans/observability/2026-07-02-watch-channel-health.md:1477
+  docs/superpowers/plans/observability/2026-07-02-watch-channel-health.md:1554
+  docs/superpowers/plans/observability/2026-07-02-watch-channel-health.md:1586
+  docs/superpowers/plans/observability/2026-07-02-watch-channel-health.md:1602
+  docs/superpowers/plans/observability/2026-07-02-watch-channel-health.md:1652
+  docs/superpowers/plans/observability/2026-07-03-nullcode-forensic-batch2-plan.md:32
+  docs/superpowers/plans/observability/2026-07-03-telemetry-access-layer.md:348
+  docs/superpowers/plans/observability/2026-07-03-telemetry-access-layer.md:414
+  docs/superpowers/plans/observability/2026-07-03-telemetry-access-layer.md:453
+  docs/superpowers/plans/observability/2026-07-03-telemetry-access-layer.md:513
+  docs/superpowers/plans/observability/2026-07-03-telemetry-access-layer.md:610
+  docs/superpowers/plans/observability/2026-07-03-telemetry-access-layer.md:627
+  docs/superpowers/plans/observability/2026-07-03-telemetry-access-layer.md:670
+  docs/superpowers/plans/observability/2026-07-03-telemetry-access-layer.md:707
+  docs/superpowers/plans/observability/2026-07-03-telemetry-access-layer.md:954
+  docs/superpowers/plans/observability/2026-07-03-telemetry-access-layer.md:1610
+  docs/superpowers/plans/observability/2026-07-04-mutation-surface-observability.md:396
+  docs/superpowers/plans/observability/2026-07-04-telemetry-admin-dev-gate/01-partB-db.md:28
+  docs/superpowers/plans/observability/2026-07-04-telemetry-admin-dev-gate/01-partB-db.md:105
+  docs/superpowers/plans/observability/2026-07-04-telemetry-admin-dev-gate/02-partB-app.md:61
+  docs/superpowers/plans/observability/2026-07-05-crew-picker-observability/plan.md:42
+  docs/superpowers/plans/observability/2026-07-05-crew-picker-observability/plan.md:328
+  docs/superpowers/plans/observability/2026-07-05-crew-picker-observability/plan.md:344
+  docs/superpowers/plans/observability/2026-07-05-wire-silent-channels.md:79
+  docs/superpowers/plans/observability/2026-07-05-wire-silent-channels.md:221
+  docs/superpowers/plans/observability/2026-07-05-wire-silent-channels.md:374
+  docs/superpowers/plans/observability/2026-07-05-wire-silent-channels.md:464
+  docs/superpowers/plans/observability/2026-07-05-wire-silent-channels.md:508
+  docs/superpowers/plans/observability/2026-07-05-wire-silent-channels.md:583
+  docs/superpowers/plans/observability/2026-07-05-wire-silent-channels.md:605
+  docs/superpowers/plans/observability/2026-07-05-wire-silent-channels.md:617
+  docs/superpowers/plans/observability/2026-07-05-wire-silent-channels.md:631
+  docs/superpowers/plans/observability/2026-07-05-wire-silent-channels.md:771
+  docs/superpowers/plans/observability/2026-07-05-wire-silent-channels.md:790
+  docs/superpowers/plans/observability/2026-07-05-wire-silent-channels.md:816
+  docs/superpowers/plans/observability/2026-07-05-wire-silent-channels.md:973
+  docs/superpowers/plans/observability/2026-07-06-telemetry-console-redesign.md:73
+  docs/superpowers/plans/observability/2026-07-06-telemetry-console-redesign.md:189
+  docs/superpowers/plans/observability/2026-07-06-telemetry-console-redesign.md:385
+  docs/superpowers/plans/observability/2026-07-06-telemetry-console-redesign.md:518
+  docs/superpowers/plans/observability/2026-07-07-flow6-signal-visibility/plan.md:133
+  docs/superpowers/plans/observability/2026-07-07-flow6-signal-visibility/plan.md:224
+  docs/superpowers/plans/observability/2026-07-07-flow6-signal-visibility/plan.md:413
+  docs/superpowers/plans/observability/2026-07-07-flow6-signal-visibility/plan.md:419
+  docs/superpowers/plans/observability/2026-07-07-flow6-signal-visibility/plan.md:425
+  docs/superpowers/plans/observability/2026-07-07-flow6-signal-visibility/plan.md:517
+  docs/superpowers/plans/observability/2026-07-07-flow6-signal-visibility/plan.md:541
+  docs/superpowers/plans/observability/2026-07-07-flow6-signal-visibility/plan.md:755
+  docs/superpowers/plans/observability/2026-07-08-flow6.2-monitor-digest/PLAN.md:116
+  docs/superpowers/plans/observability/2026-07-08-flow6.2-monitor-digest/PLAN.md:398
+  docs/superpowers/plans/observability/2026-07-08-flow6.2-monitor-digest/PLAN.md:449
+  docs/superpowers/plans/observability/2026-07-08-flow6.2-monitor-digest/PLAN.md:631
+  docs/superpowers/plans/observability/2026-07-08-flow6.2-monitor-digest/PLAN.md:653
+  docs/superpowers/plans/observability/2026-07-08-flow6.2-monitor-digest/PLAN.md:896
+  docs/superpowers/plans/observability/2026-07-08-flow6.2-monitor-digest/PLAN.md:944
+  docs/superpowers/plans/observability/2026-07-09-monitor-new-show-gaps/PLAN.md:168
+  docs/superpowers/plans/observability/2026-07-09-monitor-new-show-gaps/PLAN.md:302
+  docs/superpowers/plans/observability/2026-07-15-observe-cli-telemetry-gaps/plan.md:44
+  docs/superpowers/plans/observability/2026-07-15-observe-cli-telemetry-gaps/plan.md:177
+  docs/superpowers/plans/observability/2026-07-15-observe-cli-telemetry-gaps/plan.md:430
+  docs/superpowers/plans/observability/2026-07-15-observe-cli-telemetry-gaps/plan.md:559
+  docs/superpowers/plans/observability/2026-07-15-observe-cli-telemetry-gaps/plan.md:731
+  docs/superpowers/plans/observability/2026-07-15-observe-cli-telemetry-gaps/plan.md:839
+  docs/superpowers/plans/observability/2026-07-15-observe-cli-telemetry-gaps/plan.md:984
+  docs/superpowers/plans/observability/2026-07-15-observe-cli-telemetry-gaps/plan.md:1160
+  docs/superpowers/plans/observability/2026-07-16-digest-autofix-per-show-detail/plan.md:40
+  docs/superpowers/plans/observability/2026-07-16-digest-autofix-per-show-detail/plan.md:151
+  docs/superpowers/plans/observability/2026-07-16-digest-autofix-per-show-detail/plan.md:227
+  docs/superpowers/plans/observability/2026-07-16-digest-autofix-per-show-detail/plan.md:247
+  docs/superpowers/plans/observability/2026-07-16-digest-autofix-per-show-detail/plan.md:388
+  docs/superpowers/plans/observability/2026-07-16-digest-autofix-per-show-detail/plan.md:451
+  docs/superpowers/plans/observability/2026-07-16-digest-autofix-per-show-detail/plan.md:511
+  docs/superpowers/plans/observability/2026-07-16-digest-autofix-per-show-detail/plan.md:554
+  docs/superpowers/plans/observability/2026-07-16-digest-autofix-per-show-detail/plan.md:679
+  docs/superpowers/plans/observability/2026-07-16-digest-autofix-per-show-detail/plan.md:773
+  docs/superpowers/plans/observability/2026-07-16-digest-autofix-per-show-detail/plan.md:842
+  docs/superpowers/plans/observability/2026-07-16-digest-autofix-per-show-detail/plan.md:870
+  docs/superpowers/plans/parser/2026-06-19-crew-flight-info/plan.md:125
+  docs/superpowers/plans/parser/2026-06-19-crew-flight-info/plan.md:325
+  docs/superpowers/plans/parser/2026-06-19-crew-flight-info/plan.md:431
+  docs/superpowers/plans/parser/2026-06-19-crew-flight-info/plan.md:576
+  docs/superpowers/plans/parser/2026-06-19-crew-flight-info/plan.md:606
+  docs/superpowers/plans/parser/2026-06-19-travel-tab-flight/plan.md:141
+  docs/superpowers/plans/parser/2026-06-19-travel-tab-flight/plan.md:270
+  docs/superpowers/plans/parser/2026-06-21-tile-source-deeplinks.md:301
+  docs/superpowers/plans/parser/2026-06-26-parse-warning-deeplinks.md:187
+  docs/superpowers/plans/parser/2026-06-26-parse-warning-deeplinks.md:255
+  docs/superpowers/plans/parser/2026-06-26-parse-warning-deeplinks.md:446
+  docs/superpowers/plans/parser/2026-06-26-parse-warning-deeplinks.md:897
+  docs/superpowers/plans/parser/2026-06-26-parse-warning-deeplinks.md:1142
+  docs/superpowers/plans/parser/2026-06-26-parse-warning-deeplinks.md:1235
+  docs/superpowers/plans/parser/2026-06-26-parse-warning-deeplinks.md:1457
+  docs/superpowers/plans/parser/2026-06-27-deeplink-parser-fidelity-batch.md:132
+  docs/superpowers/plans/parser/2026-06-27-deeplink-parser-fidelity-batch.md:298
+  docs/superpowers/plans/parser/2026-06-27-deeplink-parser-fidelity-batch.md:364
+  docs/superpowers/plans/parser/2026-06-27-parser-typo-passengers-column.md:130
+  docs/superpowers/plans/parser/2026-06-27-parser-typo-passengers-column.md:259
+  docs/superpowers/plans/parser/2026-06-27-parser-typo-tolerance-pr-a.md:214
+  docs/superpowers/plans/parser/2026-06-27-parser-typo-tolerance-pr-a.md:289
+  docs/superpowers/plans/parser/2026-06-27-parser-typo-tolerance-pr-a.md:305
+  docs/superpowers/plans/parser/2026-06-27-parser-typo-tolerance-pr-b.md:45
+  docs/superpowers/plans/parser/2026-06-27-parser-typo-tolerance-pr-b.md:75
+  docs/superpowers/plans/parser/2026-06-27-parser-typo-tolerance-pr-b.md:125
+  docs/superpowers/plans/parser/2026-06-27-parser-typo-tolerance-pr-b.md:137
+  docs/superpowers/plans/parser/2026-06-27-parser-typo-tolerance-pr-b.md:214
+  docs/superpowers/plans/parser/2026-06-27-parser-typo-tolerance-pr-c.md:102
+  docs/superpowers/plans/parser/2026-06-27-parser-typo-tolerance-pr-c.md:134
+  docs/superpowers/plans/parser/2026-06-27-parser-typo-tolerance-pr-d1.md:55
+  docs/superpowers/plans/parser/2026-06-27-parser-typo-tolerance-pr-d1.md:205
+  docs/superpowers/plans/parser/2026-06-27-parser-typo-tolerance-pr-d1.md:240
+  docs/superpowers/plans/parser/2026-06-27-parser-typo-tolerance-pr-d1.md:249
+  docs/superpowers/plans/parser/2026-06-27-parser-typo-tolerance-pr-d1.md:314
+  docs/superpowers/plans/parser/2026-06-27-parser-typo-tolerance-pr-d1.md:359
+  docs/superpowers/plans/parser/2026-06-27-parser-typo-tolerance-pr-d1.md:388
+  docs/superpowers/plans/parser/2026-06-27-parser-typo-tolerance-pr-d2.md:61
+  docs/superpowers/plans/parser/2026-06-27-parser-typo-tolerance-pr-d2.md:125
+  docs/superpowers/plans/parser/2026-06-27-parser-typo-tolerance-pr-d2.md:206
+  docs/superpowers/plans/parser/2026-06-27-parser-typo-tolerance-pr-d3.md:60
+  docs/superpowers/plans/parser/2026-06-27-parser-typo-tolerance-pr-d3.md:182
+  docs/superpowers/plans/parser/2026-06-27-parser-typo-tolerance-pr-d3.md:222
+  docs/superpowers/plans/parser/2026-06-27-parser-typo-tolerance-pr-d3.md:320
+  docs/superpowers/plans/parser/2026-06-27-parser-typo-tolerance-pr-d4.md:117
+  docs/superpowers/plans/parser/2026-06-27-parser-typo-tolerance-pr-d4.md:174
+  docs/superpowers/plans/parser/2026-06-27-parser-typo-tolerance-pr-d4.md:255
+  docs/superpowers/plans/parser/2026-06-27-parser-typo-tolerance-prd5-diagrams.md:78
+  docs/superpowers/plans/parser/2026-06-27-parser-typo-tolerance-prd5-diagrams.md:95
+  docs/superpowers/plans/parser/2026-06-27-parser-typo-tolerance-prd5-diagrams.md:137
+  docs/superpowers/plans/parser/2026-06-27-parser-typo-tolerance-prd5-diagrams.md:189
+  docs/superpowers/plans/parser/2026-06-27-schedule-strike-loadout-inference.md:66
+  docs/superpowers/plans/parser/2026-06-27-schedule-strike-loadout-inference.md:184
+  docs/superpowers/plans/parser/2026-06-27-schedule-strike-loadout-inference.md:329
+  docs/superpowers/plans/parser/2026-06-27-schedule-strike-loadout-inference.md:412
+  docs/superpowers/plans/parser/2026-06-27-schedule-strike-loadout-inference.md:793
+  docs/superpowers/plans/parser/2026-06-27-set-cell-derived-labels.md:48
+  docs/superpowers/plans/parser/2026-06-27-set-cell-derived-labels.md:78
+  docs/superpowers/plans/parser/2026-06-27-set-cell-derived-labels.md:188
+  docs/superpowers/plans/parser/2026-06-27-set-cell-derived-labels.md:358
+  docs/superpowers/plans/parser/2026-06-27-stage-word-typo-tolerance.md:118
+  docs/superpowers/plans/parser/2026-06-27-stage-word-typo-tolerance.md:208
+  docs/superpowers/plans/parser/2026-06-27-stage-word-typo-tolerance.md:304
+  docs/superpowers/plans/parser/2026-06-27-stage-word-typo-tolerance.md:417
+  docs/superpowers/plans/parser/2026-06-27-stage-word-typo-tolerance.md:425
+  docs/superpowers/plans/parser/2026-06-27-stage-word-typo-tolerance.md:433
+  docs/superpowers/plans/parser/2026-06-27-stage-word-typo-tolerance.md:480
+  docs/superpowers/plans/parser/2026-06-28-gear-parser-fidelity.md:61
+  docs/superpowers/plans/parser/2026-06-28-gear-parser-fidelity.md:133
+  docs/superpowers/plans/parser/2026-06-28-gear-parser-fidelity.md:184
+  docs/superpowers/plans/parser/2026-06-28-gear-parser-fidelity.md:237
+  docs/superpowers/plans/parser/2026-06-28-gear-parser-fidelity.md:358
+  docs/superpowers/plans/parser/2026-06-28-gear-parser-fidelity.md:456
+  docs/superpowers/plans/parser/2026-06-28-gear-parser-fidelity.md:509
+  docs/superpowers/plans/parser/2026-06-28-structured-flight-display.md:52
+  docs/superpowers/plans/parser/2026-06-28-structured-flight-display.md:159
+  docs/superpowers/plans/parser/2026-06-28-structured-flight-display.md:409
+  docs/superpowers/plans/parser/2026-06-28-structured-flight-display.md:498
+  docs/superpowers/plans/parser/2026-06-29-parser-info-tab-fidelity.md:50
+  docs/superpowers/plans/parser/2026-06-29-parser-info-tab-fidelity.md:118
+  docs/superpowers/plans/parser/2026-06-29-parser-info-tab-fidelity.md:201
+  docs/superpowers/plans/parser/2026-06-29-parser-info-tab-fidelity.md:303
+  docs/superpowers/plans/parser/2026-06-29-parser-info-tab-fidelity.md:340
+  docs/superpowers/plans/parser/2026-06-29-parser-info-tab-fidelity.md:409
+  docs/superpowers/plans/parser/2026-06-29-parser-info-tab-fidelity.md:459
+  docs/superpowers/plans/parser/2026-06-30-room-detail-unrendered.md:83
+  docs/superpowers/plans/parser/2026-06-30-room-detail-unrendered.md:139
+  docs/superpowers/plans/parser/2026-06-30-room-detail-unrendered.md:331
+  docs/superpowers/plans/parser/2026-06-30-transport-loadout-contact.md:55
+  docs/superpowers/plans/parser/2026-06-30-transport-loadout-contact.md:119
+  docs/superpowers/plans/parser/2026-06-30-transport-loadout-contact.md:165
+  docs/superpowers/plans/parser/2026-06-30-unknown-label-coverage.md:113
+  docs/superpowers/plans/parser/2026-07-02-diagrams-embedded-images/PLAN.md:89
+  docs/superpowers/plans/parser/2026-07-02-diagrams-embedded-images/PLAN.md:198
+  docs/superpowers/plans/parser/2026-07-05-form-tab-contact-fallback/00-plan.md:160
+  docs/superpowers/plans/parser/2026-07-05-form-tab-contact-fallback/00-plan.md:319
+  docs/superpowers/plans/parser/2026-07-05-form-tab-contact-fallback/00-plan.md:477
+  docs/superpowers/plans/parser/2026-07-05-parser-anchor-deliteralization/00-plan.md:161
+  docs/superpowers/plans/parser/2026-07-05-parser-anchor-deliteralization/00-plan.md:263
+  docs/superpowers/plans/parser/2026-07-06-bo-show-prefixed-breakout-header.md:43
+  docs/superpowers/plans/parser/2026-07-06-bo-show-prefixed-breakout-header.md:115
+  docs/superpowers/plans/parser/2026-07-06-bo-show-prefixed-breakout-header.md:142
+  docs/superpowers/plans/parser/2026-07-06-known-sections-walker.md:184
+  docs/superpowers/plans/parser/2026-07-06-known-sections-walker.md:242
+  docs/superpowers/plans/parser/2026-07-06-known-sections-walker.md:414
+  docs/superpowers/plans/parser/2026-07-06-known-sections-walker.md:729
+  docs/superpowers/plans/parser/2026-07-06-known-sections-walker.md:794
+  docs/superpowers/plans/parser/2026-07-06-known-sections-walker.md:823
+  docs/superpowers/plans/parser/2026-07-06-known-sections-walker.md:860
+  docs/superpowers/plans/parser/2026-07-06-known-sections-walker.md:950
+  docs/superpowers/plans/parser/2026-07-06-known-sections-walker.md:1021
+  docs/superpowers/plans/parser/2026-07-06-known-sections-walker.md:1304
+  docs/superpowers/plans/parser/2026-07-06-mi1-early-return-e2e.md:35
+  docs/superpowers/plans/parser/2026-07-06-parse-sheet-call-site-guard.md:79
+  docs/superpowers/plans/parser/2026-07-06-parse-sheet-call-site-guard.md:217
+  docs/superpowers/plans/parser/2026-07-06-parse-sheet-call-site-guard.md:480
+  docs/superpowers/plans/parser/2026-07-06-widen-dims-address-date.md:91
+  docs/superpowers/plans/parser/2026-07-06-widen-dims-address-date.md:109
+  docs/superpowers/plans/parser/2026-07-06-widen-dims-address-date.md:272
+  docs/superpowers/plans/parser/2026-07-06-widen-dims-address-date.md:314
+  docs/superpowers/plans/parser/2026-07-06-widen-dims-address-date.md:374
+  docs/superpowers/plans/parser/2026-07-06-widen-dims-address-date.md:453
+  docs/superpowers/plans/parser/2026-07-06-widen-dims-address-date.md:468
+  docs/superpowers/plans/parser/2026-07-07-ambiguity-warnings-v1.md:164
+  docs/superpowers/plans/parser/2026-07-07-ambiguity-warnings-v1.md:305
+  docs/superpowers/plans/parser/2026-07-07-ambiguity-warnings-v1.md:356
+  docs/superpowers/plans/parser/2026-07-07-ambiguity-warnings-v1.md:379
+  docs/superpowers/plans/parser/2026-07-07-crew-column-positional-fallback.md:60
+  docs/superpowers/plans/parser/2026-07-07-crew-column-positional-fallback.md:91
+  docs/superpowers/plans/parser/2026-07-07-crew-column-positional-fallback.md:111
+  docs/superpowers/plans/parser/2026-07-07-crew-column-positional-fallback.md:176
+  docs/superpowers/plans/parser/2026-07-07-crew-column-positional-fallback.md:268
+  docs/superpowers/plans/parser/2026-07-09-flow8.3-venue-timezone.md:235
+  docs/superpowers/plans/parser/2026-07-09-flow8.3-venue-timezone.md:344
+  docs/superpowers/plans/parser/2026-07-09-flow8.3-venue-timezone.md:508
+  docs/superpowers/plans/parser/2026-07-09-flow8.3-venue-timezone.md:524
+  docs/superpowers/plans/parser/2026-07-09-parser-property-fuzz.md:75
+  docs/superpowers/plans/parser/2026-07-09-parser-property-fuzz.md:140
+  docs/superpowers/plans/parser/2026-07-09-parser-property-fuzz.md:236
+  docs/superpowers/plans/parser/2026-07-09-parser-property-fuzz.md:416
+  docs/superpowers/plans/parser/2026-07-09-parser-property-fuzz.md:484
+  docs/superpowers/plans/parser/2026-07-15-geocode-cache-legacy-coords.md:55
+  docs/superpowers/plans/parser/2026-07-15-geocode-cache-legacy-coords.md:77
+  docs/superpowers/plans/parser/2026-07-15-geocode-cache-legacy-coords.md:102
+  docs/superpowers/plans/parser/2026-07-15-geocode-cache-legacy-coords.md:289
+  docs/superpowers/plans/parser/2026-07-15-geocode-cache-legacy-coords.md:495
+  docs/superpowers/plans/parser/2026-07-15-geocode-cache-legacy-coords.md:527
+  docs/superpowers/plans/parser/2026-08-02-parser-determinism-pair.md:214
+  docs/superpowers/plans/schedule/2026-06-22-per-day-schedule-keytimes.md:64
+  docs/superpowers/plans/schedule/2026-06-22-per-day-schedule-keytimes.md:86
+  docs/superpowers/plans/schedule/2026-06-22-per-day-schedule-keytimes.md:90
+  docs/superpowers/plans/schedule/2026-06-22-per-day-schedule-keytimes.md:97
+  docs/superpowers/plans/schedule/2026-06-22-per-day-schedule-keytimes.md:149
+  docs/superpowers/plans/schedule/2026-06-22-per-day-schedule-keytimes.md:386
+  docs/superpowers/plans/schedule/2026-06-22-per-day-schedule-keytimes.md:405
+  docs/superpowers/plans/schedule/2026-06-22-per-day-schedule-keytimes.md:426
+  docs/superpowers/plans/schedule/2026-06-22-per-day-schedule-keytimes.md:498
+  docs/superpowers/plans/schedule/2026-06-22-per-day-schedule-keytimes.md:559
+  docs/superpowers/plans/schedule/2026-06-22-per-day-schedule-keytimes.md:604
+  docs/superpowers/plans/schedule/2026-06-22-per-day-schedule-keytimes.md:614
+  docs/superpowers/plans/schedule/2026-06-22-per-day-schedule-keytimes.md:629
+  docs/superpowers/plans/schedule/2026-06-22-per-day-schedule-keytimes.md:673
+  docs/superpowers/plans/schedule/2026-06-22-per-day-schedule-keytimes.md:715
+  docs/superpowers/plans/schedule/2026-06-22-per-day-schedule-keytimes.md:721
+  docs/superpowers/plans/schedule/2026-06-22-per-day-schedule-keytimes.md:788
+  docs/superpowers/plans/schedule/2026-06-22-per-day-schedule-keytimes.md:843
+  docs/superpowers/plans/schedule/2026-06-22-per-day-schedule-keytimes.md:1014
+  docs/superpowers/plans/schedule/2026-06-22-per-day-schedule-keytimes.md:1149
+  docs/superpowers/plans/schedule/2026-06-22-per-day-schedule-keytimes.md:1173
+  docs/superpowers/plans/schedule/2026-06-22-per-day-schedule-keytimes.md:1199
+  docs/superpowers/plans/schedule/2026-06-22-per-day-schedule-keytimes.md:1261
+  docs/superpowers/plans/schedule/2026-06-22-per-day-schedule-keytimes.md:1341
+  docs/superpowers/plans/schedule/2026-06-22-per-day-schedule-keytimes.md:1385
+  docs/superpowers/plans/schedule/2026-06-22-per-day-schedule-keytimes.md:1436
+  docs/superpowers/plans/schedule/2026-06-22-per-day-schedule-keytimes.md:1489
+  docs/superpowers/plans/schedule/2026-06-22-per-day-schedule-keytimes.md:1601
+  docs/superpowers/plans/schedule/2026-06-22-per-day-schedule-keytimes.md:1741
+  docs/superpowers/plans/schedule/2026-06-22-per-day-schedule-keytimes.md:1794
+  docs/superpowers/plans/schedule/2026-06-22-per-day-schedule-keytimes.md:1817
+  docs/superpowers/plans/schedule/2026-06-22-per-day-schedule-keytimes.md:1990
+  docs/superpowers/plans/schedule/2026-06-22-per-day-schedule-keytimes.md:2018
+  docs/superpowers/plans/schedule/2026-06-22-per-day-schedule-keytimes.md:2062
+  docs/superpowers/plans/schedule/2026-06-22-per-day-schedule-keytimes.md:2113
+  docs/superpowers/plans/schedule/2026-06-22-per-day-schedule-keytimes.md:2212
+  docs/superpowers/plans/schedule/2026-06-22-per-day-schedule-keytimes.md:2388
+  docs/superpowers/plans/schedule/2026-06-22-per-day-schedule-keytimes.md:2482
+  docs/superpowers/plans/schedule/2026-06-22-per-day-schedule-keytimes.md:2571
+  docs/superpowers/plans/schedule/2026-06-26-agenda-pdf-schedule.md:147
+  docs/superpowers/plans/schedule/2026-06-29-unified-show-day-timeline.md:94
+  docs/superpowers/plans/schedule/2026-06-29-unified-show-day-timeline.md:125
+  docs/superpowers/plans/schedule/2026-06-29-unified-show-day-timeline.md:144
+  docs/superpowers/plans/schedule/2026-06-29-unified-show-day-timeline.md:324
+  docs/superpowers/plans/schedule/2026-06-29-unified-show-day-timeline.md:343
+  docs/superpowers/plans/schedule/2026-06-29-unified-show-day-timeline.md:457
+  docs/superpowers/plans/schedule/2026-06-29-unified-show-day-timeline.md:481
+  docs/superpowers/plans/schedule/2026-06-29-unified-show-day-timeline.md:578
+  docs/superpowers/plans/schedule/2026-06-29-unified-show-day-timeline.md:657
+  docs/superpowers/plans/schedule/2026-06-29-unified-show-day-timeline.md:883
+  docs/superpowers/plans/schedule/2026-06-29-unified-show-day-timeline.md:910
+  docs/superpowers/plans/schedule/2026-06-29-unified-show-day-timeline.md:926
+  docs/superpowers/plans/schedule/2026-06-29-unified-show-day-timeline.md:946
+  docs/superpowers/plans/schedule/2026-06-29-unified-show-day-timeline.md:967
+  docs/superpowers/plans/schedule/2026-06-30-dress-anchor-and-per-card-report-fieldref.md:232
+  docs/superpowers/plans/schedule/2026-06-30-dress-anchor-and-per-card-report-fieldref.md:481
+  docs/superpowers/plans/schedule/2026-06-30-event-details-unrendered.md:81
+  docs/superpowers/plans/schedule/2026-07-03-agenda-link-not-clickable-plan.md:53
+  docs/superpowers/plans/schedule/2026-07-03-agenda-link-not-clickable-plan.md:57
+  docs/superpowers/plans/schedule/2026-07-03-agenda-link-not-clickable-plan.md:61
+  docs/superpowers/plans/schedule/2026-07-03-stage-filtered-schedule/PLAN.md:304
+  docs/superpowers/plans/schedule/2026-07-03-stage-filtered-schedule/PLAN.md:343
+  docs/superpowers/plans/schedule/2026-07-05-issue-307-schedule-transport-fidelity.md:110
+  docs/superpowers/plans/schedule/2026-07-05-issue-307-schedule-transport-fidelity.md:196
+  docs/superpowers/plans/schedule/2026-07-05-issue-307-schedule-transport-fidelity.md:408
+  docs/superpowers/plans/schedule/2026-07-05-issue-307-schedule-transport-fidelity.md:521
+  docs/superpowers/plans/schedule/2026-07-05-issue-307-schedule-transport-fidelity.md:591
+  docs/superpowers/plans/schedule/2026-07-05-issue-307-schedule-transport-fidelity.md:685
+  docs/superpowers/plans/schedule/2026-07-05-issue-307-schedule-transport-fidelity.md:804
+  docs/superpowers/plans/schedule/2026-07-05-issue-307-schedule-transport-fidelity.md:811
+  docs/superpowers/plans/schedule/2026-07-05-schedule-show-day-labels/00-plan.md:45
+  docs/superpowers/plans/schedule/2026-07-05-schedule-show-day-labels/00-plan.md:113
+  docs/superpowers/plans/schedule/2026-07-05-schedule-show-day-labels/00-plan.md:245
+  docs/superpowers/plans/schedule/2026-07-06-show-start-schedule-label.md:86
+  docs/superpowers/plans/schedule/2026-07-06-show-start-schedule-label.md:137
+  docs/superpowers/plans/schedule/2026-07-06-show-start-schedule-label.md:369
+  docs/superpowers/plans/schedule/2026-08-02-agenda-fold-seeded-e2e-webkit.md:262
+  docs/superpowers/plans/schedule/2026-08-02-agenda-fold-seeded-e2e-webkit.md:442
+  docs/superpowers/plans/schedule/2026-08-02-agenda-fold-seeded-e2e-webkit.md:478
+  docs/superpowers/plans/schedule/2026-08-02-agenda-fold-seeded-e2e-webkit.md:515
+  docs/superpowers/plans/schedule/2026-08-02-agenda-fold-seeded-e2e-webkit.md:611
+  docs/superpowers/plans/schedule/2026-08-02-agenda-fold-seeded-e2e-webkit.md:793
+  docs/superpowers/plans/step3-onboarding/2026-06-11-onboarding-fixups/01-f1-shared-apply-core.md:81
+  docs/superpowers/plans/step3-onboarding/2026-06-11-onboarding-fixups/01-f1-shared-apply-core.md:209
+  docs/superpowers/plans/step3-onboarding/2026-06-11-onboarding-fixups/01-f1-shared-apply-core.md:453
+  docs/superpowers/plans/step3-onboarding/2026-06-11-onboarding-fixups/01-f1-shared-apply-core.md:553
+  docs/superpowers/plans/step3-onboarding/2026-06-11-onboarding-fixups/01-f1-shared-apply-core.md:659
+  docs/superpowers/plans/step3-onboarding/2026-06-11-onboarding-fixups/01-f1-shared-apply-core.md:721
+  docs/superpowers/plans/step3-onboarding/2026-06-11-onboarding-fixups/01-f1-shared-apply-core.md:810
+  docs/superpowers/plans/step3-onboarding/2026-06-11-onboarding-fixups/01-f1-shared-apply-core.md:991
+  docs/superpowers/plans/step3-onboarding/2026-06-11-onboarding-fixups/01-f1-shared-apply-core.md:1055
+  docs/superpowers/plans/step3-onboarding/2026-06-11-onboarding-fixups/01-f1-shared-apply-core.md:1088
+  docs/superpowers/plans/step3-onboarding/2026-06-11-onboarding-fixups/01-f1-shared-apply-core.md:1121
+  docs/superpowers/plans/step3-onboarding/2026-06-11-onboarding-fixups/01-f1-shared-apply-core.md:1215
+  docs/superpowers/plans/step3-onboarding/2026-06-11-onboarding-fixups/01-f1-shared-apply-core.md:1328
+  docs/superpowers/plans/step3-onboarding/2026-06-11-onboarding-fixups/01-f1-shared-apply-core.md:1401
+  docs/superpowers/plans/step3-onboarding/2026-06-11-onboarding-fixups/02-f2-remediation.md:91
+  docs/superpowers/plans/step3-onboarding/2026-06-11-onboarding-fixups/02-f2-remediation.md:230
+  docs/superpowers/plans/step3-onboarding/2026-06-11-onboarding-fixups/02-f2-remediation.md:573
+  docs/superpowers/plans/step3-onboarding/2026-06-11-onboarding-fixups/02-f2-remediation.md:792
+  docs/superpowers/plans/step3-onboarding/2026-06-11-onboarding-fixups/03-f3-reapply-page.md:39
+  docs/superpowers/plans/step3-onboarding/2026-06-11-onboarding-fixups/03-f3-reapply-page.md:211
+  docs/superpowers/plans/step3-onboarding/2026-06-11-onboarding-fixups/03-f3-reapply-page.md:259
+  docs/superpowers/plans/step3-onboarding/2026-06-11-onboarding-fixups/03-f3-reapply-page.md:313
+  docs/superpowers/plans/step3-onboarding/2026-06-11-onboarding-fixups/03-f3-reapply-page.md:345
+  docs/superpowers/plans/step3-onboarding/2026-06-11-onboarding-fixups/04-f4-stale-reap.md:42
+  docs/superpowers/plans/step3-onboarding/2026-06-11-onboarding-fixups/04-f4-stale-reap.md:194
+  docs/superpowers/plans/step3-onboarding/2026-06-11-onboarding-fixups/04-f4-stale-reap.md:483
+  docs/superpowers/plans/step3-onboarding/2026-06-11-onboarding-fixups/04-f4-stale-reap.md:817
+  docs/superpowers/plans/step3-onboarding/2026-06-11-onboarding-fixups/04-f4-stale-reap.md:922
+  docs/superpowers/plans/step3-onboarding/2026-06-11-onboarding-fixups/04-f4-stale-reap.md:962
+  docs/superpowers/plans/step3-onboarding/2026-06-11-onboarding-fixups/04-f4-stale-reap.md:1086
+  docs/superpowers/plans/step3-onboarding/2026-06-11-onboarding-fixups/05-f5-cas-race.md:50
+  docs/superpowers/plans/step3-onboarding/2026-06-11-onboarding-fixups/05-f5-cas-race.md:191
+  docs/superpowers/plans/step3-onboarding/2026-06-11-onboarding-fixups/05-f5-cas-race.md:338
+  docs/superpowers/plans/step3-onboarding/2026-06-11-onboarding-fixups/05-f5-cas-race.md:344
+  docs/superpowers/plans/step3-onboarding/2026-06-11-onboarding-fixups/05-f5-cas-race.md:353
+  docs/superpowers/plans/step3-onboarding/2026-06-11-onboarding-fixups/05-f5-cas-race.md:410
+  docs/superpowers/plans/step3-onboarding/2026-06-11-onboarding-fixups/05-f5-cas-race.md:479
+  docs/superpowers/plans/step3-onboarding/2026-06-11-onboarding-fixups/05-f5-cas-race.md:535
+  docs/superpowers/plans/step3-onboarding/2026-06-11-onboarding-fixups/05-f5-cas-race.md:568
+  docs/superpowers/plans/step3-onboarding/2026-06-11-onboarding-fixups/05-f5-cas-race.md:611
+  docs/superpowers/plans/step3-onboarding/2026-06-11-onboarding-fixups/05-f5-cas-race.md:638
+  docs/superpowers/plans/step3-onboarding/2026-06-23-onboarding-scan-progress-stream.md:60
+  docs/superpowers/plans/step3-onboarding/2026-06-23-onboarding-scan-progress-stream.md:416
+  docs/superpowers/plans/step3-onboarding/2026-06-23-onboarding-scan-progress-stream.md:529
+  docs/superpowers/plans/step3-onboarding/2026-06-23-onboarding-scan-progress-stream.md:610
+  docs/superpowers/plans/step3-onboarding/2026-06-30-review-modal-completeness.md:80
+  docs/superpowers/plans/step3-onboarding/2026-06-30-review-modal-completeness.md:259
+  docs/superpowers/plans/step3-onboarding/2026-06-30-review-modal-completeness.md:333
+  docs/superpowers/plans/step3-onboarding/2026-06-30-step3-publish-streaming-progress.md:120
+  docs/superpowers/plans/step3-onboarding/2026-06-30-step3-publish-streaming-progress.md:296
+  docs/superpowers/plans/step3-onboarding/2026-07-01-step3-persist-source-anchors.md:89
+  docs/superpowers/plans/step3-onboarding/2026-07-01-step3-persist-source-anchors.md:130
+  docs/superpowers/plans/step3-onboarding/2026-07-01-step3-persist-source-anchors.md:149
+  docs/superpowers/plans/step3-onboarding/2026-07-01-step3-persist-source-anchors.md:251
+  docs/superpowers/plans/step3-onboarding/2026-07-01-step3-persist-source-anchors.md:459
+  docs/superpowers/plans/step3-onboarding/2026-07-01-step3-persist-source-anchors.md:501
+  docs/superpowers/plans/step3-onboarding/2026-07-01-unknownfield-row-anchor/plan.md:306
+  docs/superpowers/plans/step3-onboarding/2026-07-01-unknownfield-row-anchor/plan.md:546
+  docs/superpowers/plans/step3-onboarding/2026-07-01-unknownfield-row-anchor/plan.md:703
+  docs/superpowers/plans/step3-onboarding/2026-07-01-unknownfield-row-anchor/plan.md:790
+  docs/superpowers/plans/step3-onboarding/2026-07-02-step3-review-modal-redesign/plan.md:267
+  docs/superpowers/plans/step3-onboarding/2026-07-03-step3-modal-followups/plan.md:158
+  docs/superpowers/plans/step3-onboarding/2026-07-03-step3-modal-followups/plan.md:258
+  docs/superpowers/plans/step3-onboarding/2026-07-03-step3-modal-followups/plan.md:460
+  docs/superpowers/plans/step3-onboarding/2026-07-03-step3-modal-followups/plan.md:497
+  docs/superpowers/plans/step3-onboarding/2026-07-03-step3-modal-followups/plan.md:509
+  docs/superpowers/plans/step3-onboarding/2026-07-03-step3-modal-followups/plan.md:541
+  docs/superpowers/plans/step3-onboarding/2026-07-03-step3-modal-followups/plan.md:561
+  docs/superpowers/plans/step3-onboarding/2026-07-03-step3-modal-followups/plan.md:593
+  docs/superpowers/plans/step3-onboarding/2026-07-03-step3-modal-followups/plan.md:736
+  docs/superpowers/plans/step3-onboarding/2026-07-03-step3-modal-followups/plan.md:949
+  docs/superpowers/plans/step3-onboarding/2026-07-03-step3-modal-followups/plan.md:969
+  docs/superpowers/plans/step3-onboarding/2026-07-03-step3-modal-followups/plan.md:1071
+  docs/superpowers/plans/step3-onboarding/2026-07-03-step3-modal-followups/plan.md:1110
+  docs/superpowers/plans/step3-onboarding/2026-07-03-step3-modal-followups/plan.md:1192
+  docs/superpowers/plans/step3-onboarding/2026-07-03-step3-modal-followups/plan.md:1262
+  docs/superpowers/plans/step3-onboarding/2026-07-04-step3-modal-followups-b2/plan.md:30
+  docs/superpowers/plans/step3-onboarding/2026-07-04-step3-modal-followups-b2/plan.md:94
+  docs/superpowers/plans/step3-onboarding/2026-07-04-step3-modal-followups-b2/plan.md:190
+  docs/superpowers/plans/step3-onboarding/2026-07-04-step3-modal-followups-b2/plan.md:224
+  docs/superpowers/plans/step3-onboarding/2026-07-04-step3-review-page-variant-b.md:205
+  docs/superpowers/plans/step3-onboarding/2026-07-04-step3-review-page-variant-b.md:252
+  docs/superpowers/plans/step3-onboarding/2026-07-04-step3-review-page-variant-b.md:373
+  docs/superpowers/plans/step3-onboarding/2026-07-04-step3-review-page-variant-b.md:481
+  docs/superpowers/plans/step3-onboarding/2026-07-04-step3-review-page-variant-b.md:560
+  docs/superpowers/plans/step3-onboarding/2026-07-04-step3-review-page-variant-b.md:708
+  docs/superpowers/plans/step3-onboarding/2026-07-05-step3-review-consolidation/01-phase1.md:17
+  docs/superpowers/plans/step3-onboarding/2026-07-05-step3-review-consolidation/02-phase2.md:110
+  docs/superpowers/plans/step3-onboarding/2026-07-05-step3-review-consolidation/02-phase2.md:130
+  docs/superpowers/plans/step3-onboarding/2026-07-05-step3-review-consolidation/04-phase4.md:32
+  docs/superpowers/plans/step3-onboarding/2026-07-05-wizard-step3-deeplink-anchors/00-plan.md:46
+  docs/superpowers/plans/step3-onboarding/2026-07-05-wizard-step3-deeplink-anchors/00-plan.md:195
+  docs/superpowers/plans/step3-onboarding/2026-07-05-wizard-step3-deeplink-anchors/00-plan.md:339
+  docs/superpowers/plans/step3-onboarding/2026-07-05-wizard-step3-schedule-bookend-days/00-plan.md:156
+  docs/superpowers/plans/step3-onboarding/2026-07-05-wizard-step3-schedule-bookend-days/00-plan.md:325
+  docs/superpowers/plans/step3-onboarding/2026-07-06-pull-sheet-archived-tab-override.md:122
+  docs/superpowers/plans/step3-onboarding/2026-07-06-pull-sheet-archived-tab-override.md:174
+  docs/superpowers/plans/step3-onboarding/2026-07-06-pull-sheet-archived-tab-override.md:306
+  docs/superpowers/plans/step3-onboarding/2026-07-06-pull-sheet-archived-tab-override.md:504
+  docs/superpowers/plans/step3-onboarding/2026-07-06-pull-sheet-archived-tab-override.md:572
+  docs/superpowers/plans/step3-onboarding/2026-07-06-pull-sheet-archived-tab-override.md:951
+  docs/superpowers/plans/step3-onboarding/2026-07-07-flow1-onboarding-empty-state-alert.md:61
+  docs/superpowers/plans/step3-onboarding/2026-07-07-flow1-onboarding-empty-state-alert.md:178
+  docs/superpowers/plans/step3-onboarding/2026-07-07-flow1-onboarding-empty-state-alert.md:218
+  docs/superpowers/plans/step3-onboarding/2026-07-07-flow1-onboarding-empty-state-alert.md:224
+  docs/superpowers/plans/step3-onboarding/2026-07-07-flow1-onboarding-empty-state-alert.md:232
+  docs/superpowers/plans/step3-onboarding/2026-07-07-flow1-onboarding-empty-state-alert.md:360
+  docs/superpowers/plans/step3-onboarding/2026-07-07-flow1-onboarding-empty-state-alert.md:589
+  docs/superpowers/plans/step3-onboarding/2026-07-07-flow2-wizard-truth-telling.md:191
+  docs/superpowers/plans/step3-onboarding/2026-07-07-flow2-wizard-truth-telling.md:269
+  docs/superpowers/plans/step3-onboarding/2026-07-07-flow2-wizard-truth-telling.md:310
+  docs/superpowers/plans/step3-onboarding/2026-07-07-flow2-wizard-truth-telling.md:449
+  docs/superpowers/plans/step3-onboarding/2026-07-07-flow3-correction-loop-clarity/plan.md:46
+  docs/superpowers/plans/step3-onboarding/2026-07-07-flow3-correction-loop-clarity/plan.md:97
+  docs/superpowers/plans/step3-onboarding/2026-07-07-flow3-correction-loop-clarity/plan.md:266
+  docs/superpowers/plans/step3-onboarding/2026-07-07-flow3-correction-loop-clarity/plan.md:298
+  docs/superpowers/plans/step3-onboarding/2026-07-07-flow3-correction-loop-clarity/plan.md:389
+  docs/superpowers/plans/step3-onboarding/2026-07-07-flow3-correction-loop-clarity/plan.md:503
+  docs/superpowers/plans/step3-onboarding/2026-07-09-step1-share-folder-redesign.md:89
+  docs/superpowers/plans/step3-onboarding/2026-07-09-step1-share-folder-redesign.md:148
+  docs/superpowers/plans/step3-onboarding/2026-07-14-recent-auto-applied-redesign/plan.md:316
+  docs/superpowers/plans/step3-onboarding/2026-07-14-recent-auto-applied-redesign/plan.md:395
+  docs/superpowers/plans/step3-onboarding/2026-07-16-mobile-autoapplied-parity.md:263
+  docs/superpowers/plans/step3-onboarding/2026-07-16-mobile-autoapplied-parity.md:290
+  docs/superpowers/plans/step3-onboarding/2026-07-16-mobile-autoapplied-parity.md:369
+  docs/superpowers/plans/step3-onboarding/2026-07-16-onboarding-sheet-unreadable-hybrid-lifecycle.md:53
+  docs/superpowers/plans/step3-onboarding/2026-07-16-onboarding-sheet-unreadable-hybrid-lifecycle.md:251
+  docs/superpowers/plans/step3-onboarding/2026-07-16-withdraw-rescan-guard.md:48
+  docs/superpowers/plans/step3-onboarding/2026-07-16-withdraw-rescan-guard.md:162
+  docs/superpowers/plans/step3-onboarding/2026-07-16-wizard-blocker-inline-resolution/plan.md:145
+  docs/superpowers/plans/step3-onboarding/2026-07-16-wizard-blocker-inline-resolution/plan.md:266
+  docs/superpowers/plans/step3-onboarding/2026-07-16-wizard-blocker-inline-resolution/plan.md:333
+  docs/superpowers/plans/step3-onboarding/2026-07-16-wizard-blocker-inline-resolution/plan.md:462
+  docs/superpowers/plans/step3-onboarding/2026-07-16-wizard-blocker-inline-resolution/plan.md:499
+  docs/superpowers/plans/step3-onboarding/2026-07-16-wizard-blocker-inline-resolution/plan.md:673
+  docs/superpowers/plans/step3-onboarding/2026-07-16-wizard-blocker-inline-resolution/plan.md:760
+  docs/superpowers/plans/step3-onboarding/2026-07-16-wizard-blocker-inline-resolution/plan.md:958
+  docs/superpowers/plans/step3-onboarding/2026-07-17-archived-tab-resolve-box-offer.md:215
+  docs/superpowers/plans/step3-onboarding/2026-07-17-archived-tab-resolve-box-offer.md:467
+  docs/superpowers/plans/step3-onboarding/2026-07-17-archived-tab-resolve-box-offer.md:640
+  docs/superpowers/plans/step3-onboarding/2026-07-17-autoapplied-field-structured-diff.md:66
+  docs/superpowers/plans/step3-onboarding/2026-07-17-autoapplied-field-structured-diff.md:220
+  docs/superpowers/plans/step3-onboarding/2026-07-17-autoapplied-field-structured-diff.md:404
+  docs/superpowers/plans/step3-onboarding/2026-07-17-autoapplied-field-structured-diff.md:498
+  docs/superpowers/plans/step3-onboarding/2026-07-17-autoapplied-field-structured-diff.md:546
+  docs/superpowers/plans/step3-onboarding/2026-07-17-autoapplied-field-structured-diff.md:665
+  docs/superpowers/plans/step3-onboarding/2026-07-17-autoapplied-field-structured-diff.md:806
+  docs/superpowers/plans/step3-onboarding/2026-07-17-autoapplied-strip-polish.md:221
+  docs/superpowers/plans/step3-onboarding/2026-07-17-autoapplied-strip-polish.md:624
+  docs/superpowers/plans/step3-onboarding/2026-07-17-psat1-durable-override-dto/00-plan.md:71
+  docs/superpowers/plans/step3-onboarding/2026-07-17-psat1-durable-override-dto/00-plan.md:251
+  docs/superpowers/plans/step3-onboarding/2026-07-17-psat1-durable-override-dto/00-plan.md:555
+  docs/superpowers/plans/step3-onboarding/2026-07-17-s3c-review-a11y.md:107
+  docs/superpowers/plans/step3-onboarding/2026-07-17-s3c-review-a11y.md:165
+  docs/superpowers/plans/step3-onboarding/2026-07-17-wizard-blocker-modal.md:26
+  docs/superpowers/plans/step3-onboarding/2026-07-17-wizard-blocker-modal.md:187
+  docs/superpowers/plans/step3-onboarding/2026-07-17-wizard-blocker-modal.md:322
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/00-overview.md:127
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/01-foundation.md:68
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/01-foundation.md:89
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/01-foundation.md:221
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/01-foundation.md:310
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/01-foundation.md:574
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/01-foundation.md:626
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/01-foundation.md:746
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/01-foundation.md:807
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/01-foundation.md:815
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/01-foundation.md:832
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/01-foundation.md:846
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/02-catalog-extension.md:61
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/02-catalog-extension.md:82
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/02-catalog-extension.md:215
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/02-catalog-extension.md:311
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/02-catalog-extension.md:464
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/02-catalog-extension.md:584
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/02-catalog-extension.md:605
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/02-catalog-extension.md:792
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/02-catalog-extension.md:875
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/02-catalog-extension.md:897
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/02-catalog-extension.md:937
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/02-catalog-extension.md:967
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/03-time-utility.md:24
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/03-time-utility.md:217
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/03-time-utility.md:339
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/03-time-utility.md:453
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/03-time-utility.md:535
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/03-time-utility.md:557
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/03-time-utility.md:611
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/03-time-utility.md:650
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/03-time-utility.md:671
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/03-time-utility.md:699
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/04-components.md:24
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/04-components.md:177
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/04-components.md:462
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/04-components.md:546
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/05-content.md:15
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/05-content.md:82
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/05-content.md:132
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/05-content.md:241
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/05-content.md:348
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/05-content.md:932
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/05-content.md:964
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/06-screenshot-harness.md:103
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/06-screenshot-harness.md:198
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/06-screenshot-harness.md:222
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/06-screenshot-harness.md:262
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/06-screenshot-harness.md:334
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/06-screenshot-harness.md:413
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/07-affordance-retrofit.md:55
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/07-affordance-retrofit.md:90
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/07-affordance-retrofit.md:112
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/07-affordance-retrofit.md:250
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/07-affordance-retrofit.md:280
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/07-affordance-retrofit.md:357
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/07-affordance-retrofit.md:414
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/08-auth-integration.md:41
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/08-auth-integration.md:88
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/08-auth-integration.md:191
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/08-auth-integration.md:307
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/08-auth-integration.md:422
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/08-auth-integration.md:470
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/08-auth-integration.md:536
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/08-auth-integration.md:580
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/08-auth-integration.md:644
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/08-auth-integration.md:662
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/08-auth-integration.md:683
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/08-auth-integration.md:736
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/09-close-out.md:74
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/09-close-out.md:170
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/09-close-out.md:192
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/09-close-out.md:198
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/HANDOFF-TEMPLATE.md:79
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/README.md:53
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/handoffs/A-foundation.md:153
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/handoffs/B-catalog-extension.md:150
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/handoffs/C-time-utility.md:220
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/handoffs/D-components.md:148
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/handoffs/E-content.md:151
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation/00-overview.md:44
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation/00-overview.md:74
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation/01-phase0-infra.md:154
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation/01-phase0-infra.md:237
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation/01-phase0-infra.md:368
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation/02-phase0-validation-state.md:74
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation/02-phase0-validation-state.md:345
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation/02-phase0-validation-state.md:490
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation/03-phase0-tooling-reseed.md:74
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation/03-phase0-tooling-reseed.md:131
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation/03-phase0-tooling-reseed.md:153
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation/03-phase0-tooling-reseed.md:197
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation/03-phase0-tooling-reseed.md:529
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation/03-phase0-tooling-reseed.md:686
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation/03-phase0-tooling-reseed.md:814
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation/07-iteration-and-final-sweep.md:90
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation/07-iteration-and-final-sweep.md:159
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-23-crew-auth-pivot-show-link-picker.md:776
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-23-crew-auth-pivot-show-link-picker.md:789
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-23-crew-auth-pivot-show-link-picker.md:1113
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-23-crew-auth-pivot-show-link-picker.md:1583
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-23-crew-auth-pivot-show-link-picker.md:1737
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-23-crew-auth-pivot-show-link-picker.md:1848
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-23-crew-auth-pivot-show-link-picker.md:2129
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-23-crew-auth-pivot-show-link-picker.md:2316
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-23-crew-auth-pivot-show-link-picker.md:2512
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-23-crew-auth-pivot-show-link-picker.md:2679
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-23-crew-auth-pivot-show-link-picker.md:2741
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-23-crew-auth-pivot-show-link-picker.md:3052
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-23-crew-auth-pivot-show-link-picker.md:3111
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-23-crew-auth-pivot-show-link-picker.md:3159
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-23-crew-auth-pivot-show-link-picker.md:3354
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-23-crew-auth-pivot-show-link-picker.md:3396
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-23-crew-auth-pivot-show-link-picker.md:3736
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-23-crew-auth-pivot-show-link-picker.md:3893
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-23-crew-auth-pivot-show-link-picker.md:3941
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-23-crew-auth-pivot-show-link-picker.md:3988
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-23-crew-auth-pivot-show-link-picker.md:4142
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-23-crew-auth-pivot-show-link-picker.md:4294
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-26-pg-cron-pivot/01-pivot-tasks.md:99
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-26-pg-cron-pivot/01-pivot-tasks.md:109
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-26-pg-cron-pivot/01-pivot-tasks.md:134
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-26-pg-cron-pivot/01-pivot-tasks.md:178
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-26-pg-cron-pivot/01-pivot-tasks.md:212
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-26-pg-cron-pivot/01-pivot-tasks.md:546
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-26-pg-cron-pivot/01-pivot-tasks.md:566
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-26-pg-cron-pivot/01-pivot-tasks.md:656
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-26-pg-cron-pivot/01-pivot-tasks.md:821
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-26-pg-cron-pivot/01-pivot-tasks.md:923
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-26-pg-cron-pivot/01-pivot-tasks.md:969
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-30-m12.2-admin-redesign/M12.2-phase-a-admin-redesign.md:323
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-30-m12.2-admin-redesign/M12.2-phase-a-admin-redesign.md:459
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-30-m12.2-admin-redesign/M12.2-phase-b1-admin-nav-settings.md:163
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-30-m12.2-admin-redesign/M12.2-phase-b1-admin-nav-settings.md:209
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-30-m12.2-admin-redesign/M12.2-phase-b1-admin-nav-settings.md:234
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-30-m12.2-admin-redesign/M12.2-phase-b1-admin-nav-settings.md:294
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-30-m12.2-admin-redesign/M12.2-phase-b1-admin-nav-settings.md:357
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-30-m12.2-admin-redesign/M12.2-phase-b1-admin-nav-settings.md:569
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-30-m12.2-admin-redesign/M12.2-phase-b1-admin-nav-settings.md:600
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-30-m12.2-admin-redesign/M12.2-phase-b1-admin-nav-settings.md:696
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-30-m12.2-admin-redesign/M12.2-phase-b1-admin-nav-settings.md:847
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-30-m12.2-admin-redesign/M12.2-phase-b1-admin-nav-settings.md:1191
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-30-m12.2-admin-redesign/M12.2-phase-b1-admin-nav-settings.md:1323
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-30-m12.2-admin-redesign/M12.2-phase-b1-admin-nav-settings.md:1436
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-30-m12.2-admin-redesign/M12.2-phase-b2-show-lifecycle.md:105
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-30-m12.2-admin-redesign/M12.2-phase-b2-show-lifecycle.md:432
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-30-m12.2-admin-redesign/M12.2-phase-b2-show-lifecycle.md:625
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-30-m12.2-admin-redesign/M12.2-phase-b3-email-delivery.md:255
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-30-m12.2-admin-redesign/M12.2-phase-b3-email-delivery.md:347
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-30-m12.2-admin-redesign/M12.2-phase-b3-email-delivery.md:506
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-30-m12.2-admin-redesign/M12.2-phase-b3-email-delivery.md:655
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-30-m12.2-admin-redesign/M12.2-phase-b3-email-delivery.md:681
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-30-m12.2-admin-redesign/M12.2-phase-b3-email-delivery.md:852
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-30-m12.2-admin-redesign/M12.2-phase-b3-email-delivery.md:985
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-30-m12.2-admin-redesign/M12.2-phase-b3-email-delivery.md:1020
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-30-m12.2-admin-redesign/M12.2-phase-b3-email-delivery.md:1071
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-30-m12.2-admin-redesign/M12.2-phase-b3-email-delivery.md:1116
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-30-m12.2-admin-redesign/M12.2-phase-b3-email-delivery.md:1214
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-30-m12.2-admin-redesign/M12.2-recon1-banner-quieting.md:77
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-30-m12.2-admin-redesign/M12.2-recon1-banner-quieting.md:119
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-30-m12.2-admin-redesign/M12.2-recon1-banner-quieting.md:170
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-30-m12.2-admin-redesign/M12.2-recon1-banner-quieting.md:241
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-30-m12.2-admin-redesign/M12.2-recon1-banner-quieting.md:290
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-30-m12.2-admin-redesign/M12.2-recon1-banner-quieting.md:480
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-30-m12.2-admin-redesign/M12.2-recon1-banner-quieting.md:586
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-30-m12.2-admin-redesign/M12.2-recon1-banner-quieting.md:655
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-30-m12.2-admin-redesign/M12.2-recon1-banner-quieting.md:764
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-30-m12.2-admin-redesign/M12.2-recon1-banner-quieting.md:817
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-30-m12.2-admin-redesign/M12.2-recon1-banner-quieting.md:916
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-30-m12.2-admin-redesign/M12.2-recon1-banner-quieting.md:942
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-30-m12.2-admin-redesign/M12.2-recon1-banner-quieting.md:1031
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-30-m12.2-admin-redesign/M12.2-recon1-banner-quieting.md:1069
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-30-m12.2-admin-redesign/M12.2-recon1-banner-quieting.md:1108
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-30-m12.2-admin-redesign/handoffs/M12.2-phase-b2-show-lifecycle.md:154
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-06-08-sync-changes-feed-identity-gate/00-overview.md:31
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-06-08-sync-changes-feed-identity-gate/00-overview.md:61
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-06-08-sync-changes-feed-identity-gate/00-overview.md:84
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-06-08-sync-changes-feed-identity-gate/00-overview.md:115
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-06-08-sync-changes-feed-identity-gate/01-tables-and-lockdown.md:35
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-06-08-sync-changes-feed-identity-gate/01-tables-and-lockdown.md:75
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-06-08-sync-changes-feed-identity-gate/01-tables-and-lockdown.md:92
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-06-08-sync-changes-feed-identity-gate/01-tables-and-lockdown.md:110
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-06-08-sync-changes-feed-identity-gate/01-tables-and-lockdown.md:142
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-06-08-sync-changes-feed-identity-gate/01-tables-and-lockdown.md:404
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-06-08-sync-changes-feed-identity-gate/01-tables-and-lockdown.md:606
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-06-08-sync-changes-feed-identity-gate/01-tables-and-lockdown.md:725
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-06-08-sync-changes-feed-identity-gate/01-tables-and-lockdown.md:882
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-06-08-sync-changes-feed-identity-gate/04-undo-and-tombstone.md:72
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-06-08-sync-changes-feed-identity-gate/05-feed-data-layer.md:58
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-06-08-sync-changes-feed-identity-gate/06-ui-feed-gate-undo.md:38
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-06-08-sync-changes-feed-identity-gate/06-ui-feed-gate-undo.md:162
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-06-08-sync-changes-feed-identity-gate/06-ui-feed-gate-undo.md:259
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-06-08-sync-changes-feed-identity-gate/06-ui-feed-gate-undo.md:413
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-06-10-mobile-needs-attention.md:60
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-06-10-mobile-needs-attention.md:321
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-06-10-root-landing.md:99
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-06-10-root-landing.md:157
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-06-10-root-landing.md:173
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-06-10-root-landing.md:202
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-06-11-affordance-matrix-realignment.md:125
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-06-11-affordance-matrix-realignment.md:226
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-06-11-affordance-matrix-realignment.md:422
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-06-11-affordance-matrix-realignment.md:622
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-06-11-affordance-matrix-realignment.md:686
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-06-12-m12.13-unpublish-delivery.md:87
+  docs/superpowers/plans/v1-pre-deployment-amendments/2026-06-12-m12.13-unpublish-delivery.md:155
