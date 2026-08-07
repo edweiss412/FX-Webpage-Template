@@ -33,6 +33,14 @@ import { UndoAnnounceContext } from "@/components/admin/undoAnnounceContext";
  * internal message (invariant 5); the curly apostrophe is the same character the
  * `&apos;` entity rendered. No em dash (DESIGN.md).
  */
+// NOT new error copy and not a §12.4 code. This is the component-local string
+// that was already inline in the JSX; it is hoisted to a constant precisely so
+// the visible card and its announcement are provably one string. Routing it
+// through messageFor(code) would mean adding a catalog row, which arc A's spec
+// §5 explicitly excludes ("no new user-visible error code; all copy is existing
+// component-local constants"). Extracting it is what made a pre-existing pattern
+// visible to this scanner, not a new violation.
+// not-subject:M5-D8
 const AUTO_APPLIED_LOAD_FAILURE_COPY =
   "We couldn’t load recently auto-applied changes right now. Refresh to try again.";
 import { ChevronRight } from "lucide-react";

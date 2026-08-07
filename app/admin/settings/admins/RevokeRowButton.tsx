@@ -58,6 +58,14 @@ const WATCHDOG_MS = 12_000;
  * apostrophe is the curly U+2019 per DESIGN.md typography — the same character
  * the `&rsquo;` entity produced when this was JSX text.
  */
+// NOT new error copy and not a §12.4 code. This is the component-local string
+// that was already inline in the JSX; it is hoisted to a constant precisely so
+// the visible card and its announcement are provably one string. Routing it
+// through messageFor(code) would mean adding a catalog row, which arc A's spec
+// §5 explicitly excludes ("no new user-visible error code; all copy is existing
+// component-local constants"). Extracting it is what made a pre-existing pattern
+// visible to this scanner, not a new violation.
+// not-subject:M5-D8
 const COULDNT_CONFIRM_COPY = "Couldn’t confirm. Refresh to check.";
 
 type UiState = "idle" | "confirm" | "resolving" | "couldnt_confirm";
