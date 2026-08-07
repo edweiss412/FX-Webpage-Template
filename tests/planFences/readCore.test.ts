@@ -56,6 +56,38 @@ describe("plan-fence read-core (spec §2.1)", () => {
       expect(rulesOf(text)).not.toContain("UNIMPORTED_IDENTIFIER");
     });
 
+    it("does NOT fire on a MEMBER access that happens to share a registry name", () => {
+      // `re.test(x)`, `parts.join("/")`, `Promise.resolve()` are property reads,
+      // not free identifiers. Counting them made `test`/`join`/`resolve` the top
+      // three hits over the real corpus (360/89/96) — a rule that fires that
+      // often on correct plans is one nobody will keep enabled.
+      const text = [
+        "In `lib/a.ts`:",
+        "",
+        "```ts",
+        'import { readFileSync } from "node:fs";',
+        "const ok = /x/.test(readFileSync(p));",
+        'const s = parts.join("/");',
+        "const q = Promise.resolve(1);",
+        "const w = obj.within;",
+        "```",
+      ].join("\n");
+      expect(rulesOf(text)).not.toContain("UNIMPORTED_IDENTIFIER");
+    });
+
+    it("does NOT fire on a property KEY that shares a registry name", () => {
+      const text = [
+        "In `lib/a.ts`:",
+        "",
+        "```ts",
+        'import { readFileSync } from "node:fs";',
+        "const cfg = { test: 1, join: 2 };",
+        "void readFileSync(cfg);",
+        "```",
+      ].join("\n");
+      expect(rulesOf(text)).not.toContain("UNIMPORTED_IDENTIFIER");
+    });
+
     it("does NOT fire on an identifier outside the closed known-API registry", () => {
       // Documented limit 2: the registry is the accept-set; anything else escapes
       // BY DESIGN. Pinned so a later widening is a deliberate, visible edit.
