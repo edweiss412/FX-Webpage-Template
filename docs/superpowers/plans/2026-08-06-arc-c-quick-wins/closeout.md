@@ -231,3 +231,44 @@ rewrite did not trade new coverage for old.
 A third helper added later fails by default rather than inheriting either proof,
 which is the property the single-regex version lacked.
 
+**R5 — NEEDS-ATTENTION, 2 P0s, both accepted, both mutant-backed.** The reviewer
+supplied a surviving mutant for each, which is the standard the round's brief set.
+
+1. **Presence without ORDER.** Moving `setCrewRoleLocked`'s lock statement below
+   `returning id;` left every assertion true while the UPDATE ran before the lock
+   was taken. A lock acquired afterwards protects nothing.
+2. **A case-sensitive discovery filter.** A helper writing uppercase `UPDATE
+   public.crew_members` was never walked, and the `>= 2` floor was already
+   satisfied by the two lowercase ones — so an unlocked, unscoped third helper
+   stayed green.
+
+The second is the more interesting failure, and it is why the repair changes the
+question rather than widening the pattern. A count floor asks "did I find
+enough?" — which the two existing helpers answer on a third helper's behalf.
+Discovery is now RECONCILED: every exported function that mentions
+`crew_members` in any case form must appear in the walked set, so a form this
+walk cannot parse is NAMED rather than skipped. Ordering is asserted by index,
+and every pattern is case-insensitive.
+
+**Full mutant set re-run against the hardened guard:**
+
+| mutant | result |
+| --- | --- |
+| remove `setCrewRoleLocked`'s advisory lock | KILLED |
+| remove `setCrewRoleLocked`'s show scope | KILLED |
+| remove `setDateRestrictionLocked`'s advisory lock | KILLED |
+| move `setCrewRoleLocked`'s lock BELOW its UPDATE (R5a) | KILLED |
+| add an uppercase, unlocked, unscoped third helper (R5b) | KILLED |
+
+Five for five, including both mutants R5 demonstrated surviving.
+
+**On the round count.** The plan capped this stage at 4 and it reached 6. The
+overrun is recorded in `docs/review-rounds/feat/backlog-quick-wins/59cdc8407814.md`
+rather than absorbed silently, and it is worth naming what it cost and bought:
+rounds 3 through 5 were all one guard growing under review, which is this
+corpus's documented ratchet. What kept it from being a pure ratchet is that every
+one of those findings arrived with a mutant that survived the shipped guard, and
+each repair was verified by executing that mutant rather than by argument. The
+stopping rule is stated in the R6 brief in those terms — an empty surviving-mutant
+set over the declared operators, not an empty imagination.
+

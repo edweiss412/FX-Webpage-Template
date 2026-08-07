@@ -208,41 +208,67 @@ describe("e2e suite holds no unlocked PostgREST DML on locked tables (structural
   // WHERE would let a stale/cross-show crew id mutate a row the held lock
   // doesn't cover. Lexical pin; the behavioral proof is the helper's no-row
   // RETURNING guard (cross-show ids throw — verified by live psql smoke).
-  it("EVERY locked crew_members UPDATE holds the show lock and is scoped to it", () => {
-    // Arc C diff review R4, P0. This assertion used to be ONE regex over the
-    // whole file, which the first exported function satisfied on its own — so a
-    // second helper could ship with no advisory lock at all and the guard stayed
-    // green. It now walks each exported function independently, which makes a
-    // THIRD helper fail by default rather than inherit someone else's proof.
+  it("EVERY locked crew_members UPDATE holds the show lock BEFORE it, scoped to it", () => {
+    // Arc C diff review R4 (P0) and R5 (2 P0s). Three separate ways this
+    // assertion previously failed to pin what it claimed, all of them the same
+    // shape — the check passed without the property being true:
+    //
+    //   R4: one regex over the WHOLE file, satisfied by the first exported
+    //       function, so a second helper inherited a proof it never earned.
+    //   R5a: presence without ORDER. Moving a helper's lock statement below
+    //       `returning id;` left every assertion true while the UPDATE ran
+    //       before the lock was taken.
+    //   R5b: a case-sensitive discovery filter. A helper writing uppercase
+    //       `UPDATE public.crew_members` was never walked at all, and the
+    //       `>= 2` floor was already satisfied by the two that were.
+    //
+    // R5b is why discovery is now RECONCILED rather than floored: every
+    // exported function that mentions crew_members at all must end up in the
+    // walked set. A count floor answers "did I find enough?", which is the
+    // wrong question — the right one is "did I find all of them?".
     const src = readFileSync(join(e2eDir, "helpers/lockedCrewRestriction.ts"), "utf8");
-    const bodies = src
+    const exported = src
       .split(/^export async function /m)
       .slice(1)
-      .map((chunk) => ({ name: chunk.slice(0, chunk.indexOf("(")), body: chunk }))
-      .filter((f) => /update public\.crew_members/.test(f.body));
+      .map((chunk) => ({ name: chunk.slice(0, chunk.indexOf("(")), body: chunk }));
 
-    // Premise, stated executably: a walk that finds nothing asserts nothing, and
-    // reads exactly like a walk that found everything in order.
+    const mentionsCrew = exported.filter((f) => /crew_members/i.test(f.body));
+    const bodies = exported.filter((f) => /update\s+public\.crew_members/i.test(f.body));
+
+    // Reconciliation, not a floor: anything that touches the table and is NOT
+    // recognized as an UPDATE is named, so a form this walk cannot parse fails
+    // loudly instead of being skipped.
+    expect(
+      bodies.map((f) => f.name).sort(),
+      "every exported function touching crew_members must be recognized as an UPDATE — an unparsed one is skipped, not safe",
+    ).toEqual(mentionsCrew.map((f) => f.name).sort());
     expect(
       bodies.length,
       "no exported crew_members UPDATE found — the walk parsed nothing, so it proved nothing",
     ).toBeGreaterThanOrEqual(2);
 
     for (const { name, body } of bodies) {
-      const locks = body.match(
-        /pg_advisory_xact_lock\(hashtext\('show:' \|\| \$\{sqlString\(driveFileId\)\}\)\)/g,
-      );
+      const lockRe =
+        /pg_advisory_xact_lock\(hashtext\('show:' \|\| \$\{sqlString\(driveFileId\)\}\)\)/gi;
+      const locks = [...body.matchAll(lockRe)];
       // Exactly one, per invariant 2's single-holder rule: zero is unlocked, and
       // two nested holders on one hashkey deadlock under burst.
-      expect(locks?.length ?? 0, `${name} must take the show advisory lock exactly once`).toBe(1);
+      expect(locks.length, `${name} must take the show advisory lock exactly once`).toBe(1);
+
+      const updateAt = body.search(/update\s+public\.crew_members/i);
+      expect(
+        locks[0]!.index,
+        `${name} must take the lock BEFORE its UPDATE — a lock acquired afterwards protects nothing`,
+      ).toBeLessThan(updateAt);
+
       expect(
         body,
         `${name} must scope its UPDATE to the locked show (an id-only WHERE lets a stale or cross-show crew id mutate a row the held lock does not cover)`,
       ).toMatch(
-        /update public\.crew_members[\s\S]{0,400}?show_id = \(select id from public\.shows where drive_file_id = \$\{sqlString\(driveFileId\)\}\)/,
+        /update\s+public\.crew_members[\s\S]{0,400}?show_id = \(select id from public\.shows where drive_file_id = \$\{sqlString\(driveFileId\)\}\)/i,
       );
       expect(body, `${name} must fail loudly when the UPDATE matches no row`).toMatch(
-        /returning id;[\s\S]*?if \(!stdout\.includes\(crewId\)\)[\s\S]*?throw new Error/,
+        /returning id;[\s\S]*?if \(!stdout\.includes\(crewId\)\)[\s\S]*?throw new Error/i,
       );
     }
   });
