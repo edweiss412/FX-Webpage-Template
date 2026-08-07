@@ -1,6 +1,6 @@
 # Arc C — quick wins (capability-loss false positive, freshness aborted-close e2e)
 
-**Date:** 2026-08-06 · **Authoring branch:** `docs/arc-c-spec` · **Implementation branch:** `feat/backlog-quick-wins` · **Status:** DRAFT
+**Date:** 2026-08-06 · **Authoring branch:** `docs/arc-c-spec` · **Implementation branch:** `feat/backlog-quick-wins` · **Status:** spec-APPROVED (codex-guard R4, 2026-08-06; R1-R3 findings repaired in-branch)
 
 ## §0 Why this arc exists, and its scope
 
