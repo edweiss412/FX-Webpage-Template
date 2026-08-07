@@ -22,10 +22,11 @@ graduation guard, and the planted premise fixtures under
 `tests/docs/fixtures/planFences/` — one plan per rule plus an unclosed fence —
 which make the gate's ability to FAIL executable rather than assumed.
 
-**Baseline: 4044 rows, 4122 occurrences** across 561 plan files (5440 fences, 3587
+**Baseline: 3543 rows, 3621 occurrences** across 561 plan files (down from 4044/4122 before the R1 false-positive repairs) (5440 fences, 3587
 eligible, 1249 attributed, 0 unplaced, 0 waiver errors). FENCE_EM_DASH 2906,
-UNIMPORTED_IDENTIFIER 1027, UNCHECKED_INDEX 145, MANGLED_TEMPLATE 44,
-DUPLICATE_IMPORT 0.
+UNCHECKED_INDEX 145, MANGLED_TEMPLATE 44, DUPLICATE_IMPORT 0; the
+UNIMPORTED_IDENTIFIER share fell furthest as the scan stopped reading comments,
+string literals, destructured bindings and parameters.
 
 Five mutants, all KILLED: a new violation appended to a real plan; a stale
 baseline row; `FROZEN_ROWS` lowered below the live count; a `node:fs` import into
@@ -103,3 +104,46 @@ result.
       conventional commits; both entries archived; `impeccable-gate: N/A` (§12).
       Cross-model diff review APPROVE, real CI green, and main ff'd to `0 0` are
       recorded at merge.
+
+## 15. Cross-model review train
+
+**R1 — BLOCKING, 9 findings, all nine confirmed and repaired.** Whole final diff,
+`--stage diff`. Two changed the gate's shape and are worth reading:
+
+- **Finding 2 — the baseline generator defeated its own ratchet.** It regenerated
+  the rows AND both "frozen" ceilings from the current corpus, so the shrink-only
+  contract was a convention a reviewer had to enforce by reading. The surviving
+  mutant was two commands long: add a violation, rerun the generator, commit —
+  new row and raised ceilings land together, everything green. It now REFUSES to
+  raise either ceiling. **A documented contract that no mechanism enforces is a
+  comment**, and this one had been written down three times.
+- **Finding 9 — identity keyed on the absolute fence line.** Inserting one blank
+  line near the top of a historical plan invalidated every row below it; probed
+  at 44 offenders and 44 stale rows on a single file, with no fence changed. A
+  mass false positive on correct prose is how a gate gets disabled, which is the
+  failure mode this gate's own design notes warned about. Identity is now a
+  content digest.
+
+The other seven: a fence indented under a list marker was silently dropped rather
+than reported (1); `spec-lint: not-ui` suppressed a code rule it never named (3);
+dedent and lazy continuation were conflated so a root fence after `- item`
+stripped nothing (4); CRLF messages never closed a fence (5); type-7 HTML
+rejected `>` inside a quoted attribute (6); the identifier scan read comments and
+string literals and treated destructured bindings and parameters as unbound (7);
+and the six-line attribution bound counted only prose, crossing unbounded blanks
+(8).
+
+Findings 7 and the earlier member-access repair together took the baseline from
+4044 rows to **3543** — a fifth of the original rows were the gate being wrong
+about correct code.
+
+Each parser repair ships with a fixture that FAILS against the pre-repair code,
+verified by reverting each fix in turn: `revert-crlf`, `revert-dedent`,
+`revert-type7`, all KILLED. A fix with no case that would have caught it is a
+claim, not a repair.
+
+**Four local suite failures, all self-inflicted, fixed in the same commit:** a
+literal NUL byte in a map key, an em dash in a user-visible message string, and
+three SHOUTY waiver codes that read as orphan §12.4 producer codes to the catalog
+guard. The full local suite is the only reason those were caught before CI.
+
