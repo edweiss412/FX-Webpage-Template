@@ -16,6 +16,16 @@
  * Single-holder rule: this transaction is the ONLY lock holder on this code
  * path — no JS-side wrapper or RPC wraps the call, so nothing nests.
  *
+ * ONE transaction shape, written once. `runLockedCrewUpdate` below owns the
+ * whole begin/lock/update/returning/commit block; each exported helper
+ * supplies ONLY its SET fragment. That is deliberate and it is the reason the
+ * structural guard can be short: arc C's diff review spent rounds 4, 5 and 6
+ * on three different ways a PER-HELPER copy of that block can be subtly wrong
+ * (lock missing, lock after the update, `commit;` between the two) while a
+ * lexical guard over the source still passed. Each repair recognized one more
+ * paraphrase. There is no fourth paraphrase to find here, because there is no
+ * second copy of the shape to get wrong.
+ *
  * The UPDATE is additionally scoped to the locked show's show_id, so a
  * stale/cross-show crew id can never mutate a row the held lock doesn't
  * cover — the no-row RETURNING guard makes any mismatch THROW instead.
@@ -44,18 +54,28 @@ function sqlString(value: string): string {
   return `'${value.replaceAll("'", "''")}'`;
 }
 
-export async function setDateRestrictionLocked(
-  driveFileId: string,
-  crewId: string,
-  restriction: unknown,
-): Promise<void> {
-  const restrictionSql =
-    restriction == null ? "null" : `${sqlString(JSON.stringify(restriction))}::jsonb`;
+/**
+ * The ONE locked-update transaction. Callers supply a SET fragment; everything
+ * that makes the write safe lives here and nowhere else:
+ *
+ *   begin -> advisory lock on the show -> UPDATE scoped to that same show ->
+ *   returning id -> commit
+ *
+ * The lock is taken BEFORE the update and released only by the commit AFTER it,
+ * so it is held FOR the update rather than merely acquired near it. The
+ * show-scoped WHERE means a stale or cross-show crew id cannot mutate a row the
+ * held lock does not cover, and the no-row RETURNING guard makes any mismatch
+ * throw instead of passing quietly.
+ *
+ * `setClause` is interpolated, so every caller escapes its own value with
+ * `sqlString` (or builds a literal like `null` / a jsonb cast).
+ */
+function runLockedCrewUpdate(driveFileId: string, crewId: string, setClause: string): void {
   const sql = `
     begin;
     select pg_advisory_xact_lock(hashtext('show:' || ${sqlString(driveFileId)}));
     update public.crew_members
-       set date_restriction = ${restrictionSql}
+       set ${setClause}
      where id = ${sqlString(crewId)}::uuid
        and show_id = (select id from public.shows where drive_file_id = ${sqlString(driveFileId)})
     returning id;
@@ -69,7 +89,7 @@ export async function setDateRestrictionLocked(
     });
   } catch (err) {
     throw new Error(
-      `lockedCrewRestriction: update date_restriction failed: ${err instanceof Error ? err.message : String(err)}`,
+      `lockedCrewRestriction: locked crew_members update failed (set ${setClause}): ${err instanceof Error ? err.message : String(err)}`,
     );
   }
   if (!stdout.includes(crewId)) {
@@ -77,6 +97,16 @@ export async function setDateRestrictionLocked(
       `lockedCrewRestriction: update matched no crew row (id=${crewId}, drive_file_id=${driveFileId} — run \`pnpm db:seed\`?)`,
     );
   }
+}
+
+export async function setDateRestrictionLocked(
+  driveFileId: string,
+  crewId: string,
+  restriction: unknown,
+): Promise<void> {
+  const restrictionSql =
+    restriction == null ? "null" : `${sqlString(JSON.stringify(restriction))}::jsonb`;
+  runLockedCrewUpdate(driveFileId, crewId, `date_restriction = ${restrictionSql}`);
 }
 
 /**
@@ -99,30 +129,5 @@ export async function setCrewRoleLocked(
   crewId: string,
   role: string,
 ): Promise<void> {
-  const sql = `
-    begin;
-    select pg_advisory_xact_lock(hashtext('show:' || ${sqlString(driveFileId)}));
-    update public.crew_members
-       set role = ${sqlString(role)}
-     where id = ${sqlString(crewId)}::uuid
-       and show_id = (select id from public.shows where drive_file_id = ${sqlString(driveFileId)})
-    returning id;
-    commit;
-  `;
-  let stdout: string;
-  try {
-    stdout = execFileSync("psql", ["-X", "-v", "ON_ERROR_STOP=1", "-At", databaseUrl], {
-      input: sql,
-      encoding: "utf8",
-    });
-  } catch (err) {
-    throw new Error(
-      `lockedCrewRestriction: update role failed: ${err instanceof Error ? err.message : String(err)}`,
-    );
-  }
-  if (!stdout.includes(crewId)) {
-    throw new Error(
-      `lockedCrewRestriction: role update matched no crew row (id=${crewId}, drive_file_id=${driveFileId})`,
-    );
-  }
+  runLockedCrewUpdate(driveFileId, crewId, `role = ${sqlString(role)}`);
 }

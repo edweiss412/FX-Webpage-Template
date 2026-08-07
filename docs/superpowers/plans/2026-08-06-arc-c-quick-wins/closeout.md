@@ -314,3 +314,27 @@ its 3 failures reproduce with the merge-base helper checked out, so they are
 pre-existing and unrelated (`schedule-tile.spec.ts` is `describe.skip`, not a
 live consumer).
 
+**R7 — NEEDS-ATTENTION, 1 P0, and it was a current-tree failure rather than a
+mutant claim: the collapse was not in the commit at all.** The helper still held
+two UPDATEs and two locks while the guard, in the same commit, demanded one each.
+
+Cause, recorded because the mechanism is general and quiet: during the
+pre-existing-failure investigation the merge-base helper was checked out to
+isolate whether the refactor caused `right-now-transitions`'s failures, and
+restored afterwards with `git checkout HEAD -- <file>`. HEAD was the commit
+BEFORE the collapse, and the collapse was still uncommitted — so the restore
+reverted it. `git checkout HEAD -- <path>` is not an undo for "put back what I
+had"; it is "make this file match the last commit", and those differ by exactly
+the uncommitted work. Nothing warned: the guard had been run before the swap and
+not after, and the mutant runs used their own backup file, so every green in that
+window was earned against a tree that no longer existed.
+
+Restored from that backup and re-verified end to end against the committed tree:
+guard green, all seven mutants KILLED, both realtime e2e cases green.
+
+**Standing on the review train: seven rounds, seven findings, seven accepted,
+zero argued down.** The reviewer's last four were one class — a lexical guard
+that cannot see a runtime property — and the arc's answer was to stop growing the
+recognizer and delete the second copy of the shape. The seventh caught the
+implementer losing that answer to a git command.
+
