@@ -5515,6 +5515,52 @@ Had the five attributes been stripped in the filing PR on the stated premise, fo
 
 **Counts, all MEASURED rather than predicted:** `CHANNEL_ANNOUNCE_CALLS` RoleRecognize 1 to 3 (the plan forecast 2, assuming one shared call for stale and conflict; each got its own branch), RecentAutoApplied 1 to 2, ReSync 1 to 2. All five `REGISTERED_SITES` rows are 0.
 
+## BL-CAPABILITY-LOSS-SURVIVING-ROW-FALSE-POSITIVE — arm (c) reports a capability loss for a row that is still live — ARCHIVED 2026-08-07 (arc C, `feat/backlog-quick-wins`)
+
+**Severity:** LOW-MEDIUM (false operator alert; no data impact) · **Class:** notice fidelity · **Filed:** 2026-08-03 (`fix/apply-undo-audit-fidelity`, spec §9, deferred under class-sweep exception (c)) · **Effort:** S · **Reachability: PROBED 2026-08-04 — REACHABLE on one hold shape of four.**
+
+`capabilityRoleChangesForNotice` arm (c) (`lib/sync/phase2.ts:347-356`) reports a capability loss for any `previousCrewMembers` entry that is absent from `nextByName` and absent from `renamedAway`. `nextByName` is built from `appliedCrewMembers`, which is the post-hold **parse** list (`lib/sync/applyParseResult.ts:189`), while `deleteKeepNames` (`lib/sync/applyParseResult.ts:178`) protects rows from deletion **without** adding them to that list. A row can therefore survive the apply with its capability flags intact and still be reported as a loss.
+
+The rename-linked instances of this shape were fixed in the filing PR via the survival test in its spec §2.1 A3. The non-rename instances are what this row tracks.
+
+**PROBED 2026-08-04**, per hold kind × domain × sub-shape, end-to-end through `runPhase2` (survival read from `crew_members` after the apply; the report read from the real `roleFlagsNotice`, since `capabilityRoleChangesForNotice` is not exported). Probe: `tests/sync/capabilityLossReachability.probe.test.ts`.
+
+| hold kind / domain / sub-shape                           | survived | reported | verdict                       |
+| -------------------------------------------------------- | -------- | -------- | ----------------------------- |
+| `mi11_pending` / `crew_email`                            | yes      | no       | correct                       |
+| `undo_override` / `crew_email`                           | yes      | **yes**  | **FALSE LOSS**                |
+| `undo_override` / `crew_identity` (held-present restore) | yes      | no       | correct                       |
+| `undo_override` / `crew_identity` (tombstone)            | no       | yes      | real loss, correctly reported |
+
+**The premise holds, but for ONE shape, and not for the reason the row assumed.** It is not arm (c)'s absence predicate that is wrong: it is a two-line asymmetry among the four branches that delete-protect a name. Every other branch also puts a row BACK — `mi11_pending`'s genuine-removal fallback retains the held row (`lib/sync/holds/holdAwareApply.ts:322`), and the `crew_identity` restore branch retains it (`lib/sync/holds/holdAwareApply.ts:449`) — and retained rows are merged into `plan.crewMembers` at `lib/sync/holds/holdAwareApply.ts:390`, which is what becomes `appliedCrewMembers`. `applyUndoOverrideToMaps`'s `crew_email` branch (`lib/sync/holds/holdAwareApply.ts:432-439`) adds `protectedNames` and `pinnedIdentity` and returns with no `retainRows.set`. That is precisely "survives the delete, absent from the applied list", so a live LEAD is announced to the operator as having lost LEAD access.
+
+**Re-sized M → S** on the probe: the search space collapsed from "redesign arm (c)'s absence predicate on a path no unit touches" to one branch that is asymmetric with its three siblings.
+
+screen-disposition 2026-08-04: KEEP — probe (`tests/sync/capabilityLossReachability.probe.test.ts`) demonstrates the false loss end-to-end on `undo_override`/`crew_email`; three sibling shapes verified correct in the same run, and all four are pinned at current behaviour.
+
+**Work.** Restore the symmetry at the source rather than loosening arm (c). The tombstone row above is the counterweight and is pinned in the same probe file: it is a REAL loss, and any fix that suppresses arm (c) more aggressively to silence the false positive will silence that one too. All four rows are pinned at current behaviour, so the fix arrives with a failing case waiting for it.
+
+---
+
+**RESOLVED 2026-08-07** (arc C, `feat/backlog-quick-wins`). The symmetry is restored at the source, exactly as the entry's Work section directed — arm (c) is untouched, and the tombstone counterweight still fires.
+
+**The fix retains the LIVE row, not the held snapshot, and that distinction is the whole of it.** Every sibling branch retains via `rowFromHeldValue(held)`, so the obvious symmetry repair was to copy them. That would have traded a false notice for a silent data revert: `held` is captured when the hold OPENS, the retain feeds `plan.crewMembers`, and the snapshot-replace engine upserts every column — so a held snapshot reverts every field edited since. The branch now threads `snapshot.previousCrewMembers` and retains the matching live row; no match means no retain, which is today's behaviour and a documented degrade rather than a silent one.
+
+**The probe gained the oracle that can tell those two apart.** "No false loss" is satisfied by either retain, so the suite could not have caught the wrong one. Each `heldValue` carries `555-OLD` while the live seed now diverges to `555-NEW`, and every row pins `phoneAfter`. That divergence was necessary: the testkit default was ALSO `555-OLD`, so the oracle would have been vacuous — it could not have failed.
+
+**Post-fix probe table:**
+
+| hold kind / domain / sub-shape                           | survived | reported | phoneAfter | verdict                                  |
+| -------------------------------------------------------- | -------- | -------- | ---------- | ---------------------------------------- |
+| `mi11_pending` / `crew_email`                            | yes      | no       | `555-OLD`  | notice correct; row REVERTED (sibling)   |
+| `undo_override` / `crew_email`                           | yes      | **no**   | `555-NEW`  | **FIXED — live row retained**            |
+| `undo_override` / `crew_identity` (held-present restore) | yes      | no       | `555-OLD`  | correct; snapshot is right for a restore |
+| `undo_override` / `crew_identity` (tombstone)            | no       | yes      | n/a        | real loss, correctly reported            |
+
+**The oracle paid for itself immediately: row 1 is a second defect, now visible.** The mi11 genuine-removal fallback retains a frozen snapshot while a live row exists — the same stale-overwrite shape, shipping today, filed as `BL-MI11-REMOVAL-FALLBACK-STALE-OVERWRITE` with that pinned row as its reproduction. It is a ruling question rather than a patch, because the restore branch's identical code is CORRECT there and the rename-fold path deliberately does the opposite.
+
+**RED was the flipped pin, not a new assertion.** The entry shipped its four rows pinned at current behaviour "so the fix arrives with a failing case waiting for it", and that is what happened: flipping the `crew_email` row failed against the unfixed tree while the other three stayed green. All 1290 tests in `tests/sync/` pass after the fix, with no pin of the old notice output needing an update.
+
 ## BL-RESYNC-REGRESSED-JUMP-LINK — the alert's "open the parse panel" pointer is prose, not an affordance — ARCHIVED 2026-08-05 (M-wave W-UI, `feat/m-wave-ui`)
 
 **Severity:** LOW-MEDIUM (discoverability) · **Class:** UX — surfaced by the correction-loop de-duplication (#516, 2026-07-20) · **Effort:** M
