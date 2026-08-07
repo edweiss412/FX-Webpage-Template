@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { describe, expect, test } from "vitest";
 import {
   renderAutoPublishUndo,
@@ -48,9 +49,23 @@ describe("renderAutoPublishUndo (spec §4.3)", () => {
     expect(out.text).toContain(href);
     // The html attribute value is escapeHtml(href): `&` → `&amp;`.
     expect(out.html).toContain(`href="${href.replaceAll("&", "&amp;")}"`);
-    // Exactly one anchor in html, exactly one unpublish URL in text.
-    expect(out.html.match(/<a /g)).toHaveLength(1);
+    // Exactly one PRIMARY action: one unpublish anchor in html, one unpublish
+    // URL in text. This used to count ALL anchors (`/<a /g` === 1), which was a
+    // proxy for "one primary action" that held only while the email carried a
+    // single link. The footer "Report a problem" link (BL-PUSH-NOTIFICATIONS)
+    // makes that proxy wrong without making the intent wrong, so the assertion
+    // now names what it always meant — and the footer is pinned as the ONLY
+    // other anchor, which is stricter than the old count.
+    // Anchors are PARSED, not regex-matched over serialized source: a
+    // commented-out anchor still matches a regex but renders nothing, so a
+    // source scan counts links the recipient never sees.
+    const host = document.createElement("div");
+    host.innerHTML = out.html;
+    const anchors = [...host.querySelectorAll("a")].map((a) => a.getAttribute("href") ?? "");
+    expect(anchors.filter((h) => h.includes("/unpublish?"))).toHaveLength(1);
     expect(out.text.match(/\/unpublish\?/g)).toHaveLength(1);
+    expect(anchors).toHaveLength(2);
+    expect(anchors.filter((h) => h.includes("/admin?show="))).toHaveLength(1);
   });
 
   test("body says when the window closes: absolute ET time AND `about N hours` derived from the fixture gap", () => {

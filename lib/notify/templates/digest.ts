@@ -1,6 +1,7 @@
 import { DIGEST_MAX_SHOWS, DIGEST_MAX_ITEMS_PER_SHOW } from "@/lib/notify/constants";
 import type { MonitorDigestModel } from "@/lib/notify/monitorDigest";
 import { escapeHtml } from "./escapeHtml";
+import { reportLinkHtml, reportLinkText } from "./reportProblem";
 import type { RenderedEmail } from "./realtimeProblem";
 
 /** One show's pre-resolved needs-attention items (copy already resolved upstream, §8). */
@@ -202,7 +203,10 @@ export function renderDigest(input: DigestInput): RenderedEmail {
   // Items arrive pre-resolved from the digest builder (Task 3.8 → resolveIngestionCopy,
   // which already strips unresolved placeholders), so no per-item placeholder guard is
   // run here — and titles/items are HTML-escaped below.
-  const text = `${subject}\n\n${textLines.join("\n")}\n\nOpen the dashboard: ${dashboard}`;
-  const html = `<h2>${escapeHtml(subject)}</h2>${htmlParts.join("")}`;
+  const text =
+    `${subject}\n\n${textLines.join("\n")}\n\nOpen the dashboard: ${dashboard}` +
+    `\n\n${reportLinkText(input.origin)}`;
+  const html =
+    `<h2>${escapeHtml(subject)}</h2>${htmlParts.join("")}` + reportLinkHtml(input.origin);
   return { subject, html, text };
 }
