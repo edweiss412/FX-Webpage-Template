@@ -169,16 +169,37 @@ function TravelRow({
  * row the card would have rendered structurally (content lost) or keep one the
  * card renders raw (a date leaked through the fallback).
  */
-function flightRowFields(seg: FlightSegment): {
+function flightRowFields(
+  seg: FlightSegment,
+  hideDates: boolean,
+): {
   carrier: string | null;
   route: string;
+  conf: string | null;
   showStructured: boolean;
 } {
-  const carrier = seg.flightNo ?? seg.airline;
+  // `flightNo`, `airline` and `conf` are the parser's UNVALIDATED REMAINDER: it
+  // claims the date, route and times, then assigns whatever tokens are left to
+  // these. So an ordinary duplicated-date authoring mistake ("5/13 MAY13 LGA -
+  // ORD", or a leading ISO date) puts a date in them, and it renders outside
+  // `dateLabel` where none of the date gates can see it.
+  //
+  // The rule under suppression is CLOSED, not a recognizer: render only the
+  // fields whose SHAPE cannot express a date — the route (airport codes, three
+  // letters each side of a separator) and the times (`h:mm am/pm`) — and
+  // withhold the remainder. Recognizing dates inside the remainder instead would
+  // mean enumerating spellings, which does not terminate and gets a wider
+  // target every round. `flightNo` is in the withheld set precisely because its
+  // own shape (`^[A-Z]{1,3}\d{1,4}[A-Z]?$`) ACCEPTS "MAY13".
+  //
+  // The cost is the carrier name and confirmation code, for suppressed viewers
+  // only; route and times are what a crew member reads off a phone anyway.
+  const carrier = hideDates ? null : (seg.flightNo ?? seg.airline);
   const route =
     seg.origin && seg.dest ? `${seg.origin} → ${seg.dest}` : (seg.origin ?? seg.dest ?? "");
+  const conf = hideDates ? null : seg.conf;
   const hasContent = Boolean(carrier || route || seg.depTime || seg.arrTime);
-  return { carrier, route, showStructured: seg.structured && hasContent };
+  return { carrier, route, conf, showStructured: seg.structured && hasContent };
 }
 
 /**
@@ -404,7 +425,7 @@ export function TravelSection({
           // produces exactly the no-flight-data render rather than a stranded
           // empty "Your flight" card that would also suppress the empty state.
           const flightSegments = hideDates
-            ? sortedFlightSegments.filter((seg) => flightRowFields(seg).showStructured)
+            ? sortedFlightSegments.filter((seg) => flightRowFields(seg, hideDates).showStructured)
             : sortedFlightSegments;
           const showFlight = flightSegments.length > 0;
           // "Which flight is next" is the same viewer-schedule claim as the date,
@@ -698,7 +719,10 @@ export function TravelSection({
                         // the operator's text is never dropped. The date still drives sort/emphasis.
                         // Single-sourced with the suppression filter above so the two decisions
                         // cannot drift.
-                        const { carrier, route, showStructured } = flightRowFields(seg);
+                        const { carrier, route, conf, showStructured } = flightRowFields(
+                          seg,
+                          hideDates,
+                        );
                         const isNext = i === flightNextIdx;
                         // LEAK SITE 3 (the label half). BOTH arms are suppressed: `dateRaw`
                         // is the raw M/D token and leaks identically to the formatted ISO.
@@ -754,11 +778,11 @@ export function TravelSection({
                                     {seg.depTime} – {seg.arrTime}
                                   </p>
                                 ) : null}
-                                {seg.conf ? (
+                                {conf ? (
                                   <p className="text-xs text-text-faint tabular-nums">
                                     {/* Same transcribe-back class as the itinerary
                                         locator below; only the code gets the slash. */}
-                                    Conf <span className="code-value">{seg.conf}</span>
+                                    Conf <span className="code-value">{conf}</span>
                                   </p>
                                 ) : null}
                               </div>
@@ -773,7 +797,10 @@ export function TravelSection({
                           </div>
                         );
                       })}
-                      {flightItinerary.confirmation ? (
+                      {/* The itinerary-level confirmation is the same unvalidated
+                          remainder as the per-segment one: leading tokens before the
+                          first date. Withheld under suppression for the same reason. */}
+                      {!hideDates && flightItinerary.confirmation ? (
                         <p className="px-1 text-xs text-text-faint tabular-nums">
                           {/* Only the CODE gets the slashed zero, not the label
                               beside it. DESIGN.md §2.4. */}

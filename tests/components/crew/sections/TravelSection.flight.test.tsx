@@ -223,7 +223,7 @@ describe("TravelSection — flight date suppression (unknown_asterisk viewer)", 
     "EWR-FLL UNITED 5/13 - 11:29am - 2:34pm HQQ79F | FLL-EWR JET BLUE 5/15 - 8:59pm - 11:58pm OSUULZ";
   const TWO_LEGS_DATES = { travelIn: "2024-05-13" };
 
-  it("suppresses the structured date, the Today/Next chip, and the next-row highlight; keeps carrier and route", () => {
+  it("suppresses the structured date, the Today/Next chip, and the next-row highlight; keeps route and times", () => {
     const { container, queryByTestId, getByTestId } = render(
       <TravelSection
         {...ledgerProp()}
@@ -248,9 +248,13 @@ describe("TravelSection — flight date suppression (unknown_asterisk viewer)", 
     for (const seg of container.querySelectorAll('[data-testid="travel-flight-seg"]'))
       expect(seg.className).not.toContain("bg-surface-sunken");
     // The itinerary itself still renders — this is a date gate, not a card gate.
-    expect(card).toHaveTextContent("UNITED");
+    // Route and times only: the CARRIER is withheld under suppression because
+    // `airline`/`flightNo` are the parser's unvalidated remainder and can carry
+    // a date (cross-model review R3). Route codes and clock times cannot.
     expect(card).toHaveTextContent("EWR → FLL");
     expect(card).toHaveTextContent("11:29am");
+    expect(card).toHaveTextContent("2:34pm");
+    expect(card.textContent ?? "").not.toContain("UNITED");
   });
 
   it("suppresses the dateRaw fallback arm (ISO inference failed, raw M/D token would render)", () => {
@@ -271,8 +275,11 @@ describe("TravelSection — flight date suppression (unknown_asterisk viewer)", 
     );
     const card = getByTestId("travel-flight");
     expect(card.textContent).not.toContain("13/45");
-    expect(card).toHaveTextContent("AA100");
     expect(card).toHaveTextContent("LGA → ORD");
+    expect(card).toHaveTextContent("7:00am");
+    // The flight number is withheld with the rest of the remainder (R3): its own
+    // shape `^[A-Z]{1,3}\d{1,4}[A-Z]?$` accepts date spellings like "MAY13".
+    expect(card.textContent ?? "").not.toContain("AA100");
   });
 
   it("withholds a raw-fallback flight row entirely, keeping the structured legs", () => {
@@ -297,7 +304,9 @@ describe("TravelSection — flight date suppression (unknown_asterisk viewer)", 
     const card = getByTestId("travel-flight");
     expect(queryAllByTestId("travel-flight-leg")).toHaveLength(0);
     expect(card.textContent).not.toContain("Charter pending");
-    expect(card).toHaveTextContent("UNITED");
+    // The structured leg survives — proven by its shape-closed fields, since the
+    // carrier is withheld under suppression (R3).
+    expect(card).toHaveTextContent("EWR → FLL");
   });
 
   it("an ALL-raw itinerary renders the no-flight-data state, not a stranded empty card", () => {
@@ -324,6 +333,72 @@ describe("TravelSection — flight date suppression (unknown_asterisk viewer)", 
     // with no other term able to mask it. Asserted exactly, so the two
     // section-empty sentences stay mutually exclusive.
     expect(empty!.textContent).toBe("Travel dates are hidden until your days are confirmed.");
+  });
+
+  // Cross-model review R3. `flightNo`, `airline`, per-segment `conf` and the
+  // itinerary-level `confirmation` are the parser's UNVALIDATED REMAINDER: it
+  // assigns whatever tokens are left over after the date, route and times are
+  // claimed. So ordinary duplicated-date authoring puts a date in them, and it
+  // renders outside `dateLabel` where none of the five gated paths sees it.
+  //
+  // The fix is not a date recognizer over those fields — enumerating date
+  // spellings ("MAY13", "05132026", "2026-05-13", …) does not terminate, and a
+  // wider recognizer is a bigger target every round. It is a CLOSED rule:
+  // under suppression render only the fields whose shape cannot express a date
+  // — the route (airport codes) and the times — and withhold the remainder.
+  //
+  // Each fixture below is one of the reviewer's server-render probes.
+  it.each([
+    [
+      "leading ISO date parsed as the itinerary confirmation",
+      "2026-05-13 5/13 AA3002 LGA - ORD 7:23am - 9:15am",
+    ],
+    [
+      "ISO date absorbed into the airline, trailing digits into conf",
+      "EWR-FLL 2026-05-13 UNITED 5/13 - 11:29am - 2:34pm 05132026",
+    ],
+    ["a second date spelling parsed as the flight number", "5/13 MAY13 LGA - ORD 7:23am - 9:15am"],
+  ])("suppresses a date that landed in a remainder field — %s", (_label, flightInfo) => {
+    const { container } = render(
+      <TravelSection
+        {...ledgerProp()}
+        data={restrict(
+          baseData({ viewerFlightInfo: flightInfo, show: { dates: TWO_LEGS_DATES } as never }),
+          UNKNOWN,
+        )}
+        viewer={VIEWER}
+        today={TODAY}
+        showId="s1"
+      />,
+    );
+    // Swept over the WHOLE render, not the flight card alone: the point is that
+    // the date escaped the gated paths, so scoping to where it was expected
+    // would be the tautology.
+    const text = container.textContent ?? "";
+    for (const leak of ["2026-05-13", "5/13", "MAY13", "05132026"])
+      expect(text, `"${leak}" reached an unknown_asterisk viewer`).not.toContain(leak);
+  });
+
+  it("keeps the shape-closed fields — route and times still render under suppression", () => {
+    // The twin that stops the fix from degenerating into "hide the card". Route
+    // codes and clock times cannot express a date, so they survive, and they are
+    // what a crew member actually reads off a phone.
+    const { getByTestId } = render(
+      <TravelSection
+        {...ledgerProp()}
+        data={restrict(
+          baseData({ viewerFlightInfo: TWO_LEGS, show: { dates: TWO_LEGS_DATES } as never }),
+          UNKNOWN,
+        )}
+        viewer={VIEWER}
+        today={TODAY}
+        showId="s1"
+      />,
+    );
+    const card = getByTestId("travel-flight");
+    expect(card).toHaveTextContent("EWR → FLL");
+    expect(card).toHaveTextContent("11:29am");
+    expect(card).toHaveTextContent("2:34pm");
   });
 
   it("an UNDATED raw itinerary does not claim dates were hidden", () => {
