@@ -370,3 +370,30 @@ operator proposal.
 
 Eleven for eleven.
 
+**R9 — BLOCKING, 1 P0, accepted: `abort;`.** PostgreSQL documents ABORT as
+identical to ROLLBACK; the guard did not know the word, so it ended the
+transaction and released the lock with every assertion green.
+
+**Repaired by closing the grammar rather than adding the word.** R8 added
+`commit transaction;` after the bare `commit;` let it through; R9 then added
+`abort;`. One synonym per round is precisely the drip this project charges to the
+author rather than the reviewer, and a third round of it was avoidable by reading
+the documentation instead of the last finding. Every statement PostgreSQL
+documents as ending a transaction block is now enumerated from the grammar:
+
+```
+COMMIT   [WORK | TRANSACTION] [AND [NO] CHAIN]
+END      [WORK | TRANSACTION] [AND [NO] CHAIN]   (synonym for COMMIT)
+ROLLBACK [WORK | TRANSACTION] [AND [NO] CHAIN]
+ABORT    [WORK | TRANSACTION] [AND [NO] CHAIN]   (synonym for ROLLBACK)
+PREPARE TRANSACTION 'gid'
+```
+
+The set is closed because the grammar is documented and finite — which is exactly
+what makes this a terminating question, unlike the structural rounds 4-6.
+
+**Full mutant set, seventeen operators, all KILLED:** the eleven above plus
+`commit and chain;`, `end;`, `end transaction;`, `rollback;`, `abort;`,
+`abort transaction;`, and `prepare transaction 'gid1';` between the lock and the
+UPDATE.
+

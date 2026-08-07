@@ -251,13 +251,23 @@ describe("e2e suite holds no unlocked PostgREST DML on locked tables (structural
     const beginAt = src.search(/\bbegin;/i);
     const lockAt = locks[0]!.index!;
     const updateAt = updates[0]!.index!;
-    // `COMMIT [WORK | TRANSACTION | AND CHAIN]`, `END [TRANSACTION]` and
-    // `ROLLBACK [WORK | TRANSACTION]` are all the same statement to PostgreSQL.
-    // Matching only the bare `commit;` form let `commit transaction;` sit
-    // between the lock and the UPDATE — lock released, UPDATE unlocked, every
-    // assertion still true (arc C diff review R8).
-    const TXN_END = /\b(commit|rollback|end)\b[^;]*;/gi;
-    const commitAt = src.search(/\b(commit|rollback|end)\b[^;]*;/i);
+    // EVERY statement PostgreSQL documents as ending a transaction block, taken
+    // from the grammar rather than from the ones a reviewer happened to name:
+    //
+    //   COMMIT   [WORK | TRANSACTION] [AND [NO] CHAIN]
+    //   END      [WORK | TRANSACTION] [AND [NO] CHAIN]   (synonym for COMMIT)
+    //   ROLLBACK [WORK | TRANSACTION] [AND [NO] CHAIN]
+    //   ABORT    [WORK | TRANSACTION] [AND [NO] CHAIN]   (synonym for ROLLBACK)
+    //   PREPARE TRANSACTION 'gid'
+    //
+    // Enumerated in one go deliberately. R8 added `commit transaction;` after
+    // the bare `commit;` form let it through, and R9 then added `abort;` — one
+    // synonym per round is the drip this project charges to the author, not the
+    // reviewer. The set is closed because the grammar is documented and finite;
+    // any of these between the lock and the UPDATE releases the lock and leaves
+    // the UPDATE running unlocked.
+    const TXN_END = /\b(commit|rollback|end|abort|prepare\s+transaction)\b[^;]*;/gi;
+    const commitAt = src.search(/\b(commit|rollback|end|abort|prepare\s+transaction)\b[^;]*;/i);
     expect(beginAt, "the block must open a transaction").toBeGreaterThanOrEqual(0);
     expect(commitAt, "the block must commit").toBeGreaterThanOrEqual(0);
     expect(beginAt, "begin before the lock").toBeLessThan(lockAt);
@@ -295,7 +305,9 @@ describe("e2e suite holds no unlocked PostgREST DML on locked tables (structural
     for (const { name, body } of touching) {
       expect(body, `${name} must delegate to runLockedCrewUpdate`).toMatch(/runLockedCrewUpdate\(/);
       expect(
-        /\b(begin|commit|rollback|end)\b[^;]*;|pg_advisory_xact_lock|update\s+public\./i.test(body),
+        /\b(begin|start\s+transaction|commit|rollback|end|abort|prepare\s+transaction)\b[^;]*;|pg_advisory_xact_lock|update\s+public\./i.test(
+          body,
+        ),
         `${name} must not write its own SQL — the transaction shape lives in exactly one place`,
       ).toBe(false);
     }
