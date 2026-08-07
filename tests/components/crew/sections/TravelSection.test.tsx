@@ -392,6 +392,17 @@ const CHECK_OUT_ISO = "2026-05-15";
 const UNKNOWN: DateRestriction = { kind: "unknown_asterisk", days: null };
 const CREW: Viewer = { kind: "crew", crewMemberId: "c1" };
 
+/**
+ * The two section-level empty-state sentences, spelled once. Asserted with
+ * `toBe` rather than a substring so the two are mutually exclusive: each of the
+ * three `suppressionEmptiedSection` causes (a dated hotel, a dated leg, a
+ * withheld flight row) is pinned by its OWN single-cause fixture, and a fixture
+ * combining causes would let either production predicate disappear while the
+ * other masked it (cross-model review R1).
+ */
+const SUPPRESSED_EMPTY_COPY = "Travel dates are hidden until your days are confirmed.";
+const NO_DATA_EMPTY_COPY = "No travel details on file yet.";
+
 /** Every spelling a fixture ISO date can reach the DOM as (raw + both render modes). */
 function dateSpellings(iso: string): string[] {
   return [iso, formatIsoDate(iso, "weekday-short"), formatIsoDate(iso, "short")];
@@ -539,7 +550,12 @@ test("unknown_asterisk viewer: a date-only leg is withheld, not rendered blank",
   expect(container.querySelectorAll('[data-testid="travelrow"]')).toHaveLength(0);
   expect(container.querySelector('[data-testid="travel-getting-there"]')).toBeNull();
   // The designed no-data state, identical to a viewer with no travel data at all.
-  expect(container.querySelector('[data-testid="section-empty"]')).toBeTruthy();
+  const empty = container.querySelector('[data-testid="section-empty"]');
+  expect(empty).toBeTruthy();
+  // …and the LEG cause of `suppressionEmptiedSection` is pinned on its own.
+  // Combining causes in one fixture lets either production predicate disappear
+  // while the other masks it (cross-model review R1).
+  expect(empty!.textContent).toBe(SUPPRESSED_EMPTY_COPY);
 });
 
 test("unknown_asterisk viewer: a leg whose only non-date content is assigned names KEEPS its row", () => {
@@ -584,16 +600,20 @@ test.each<[string, string[]]>([
   },
 );
 
-test("unknown_asterisk viewer: an all-suppressed section says dates are HIDDEN, not that travel is unbooked", () => {
+test("unknown_asterisk viewer: a dated HOTEL alone says dates are HIDDEN, not that travel is unbooked", () => {
   // Impeccable critique P1. Suppression made this state reachable: a dates-only
   // reservation used to keep the hotels block alive, so the section-level empty
   // state could not appear for a viewer who HAS travel data. Now it can — and
   // "No travel details on file yet." would be telling a crew member their travel
   // is unbooked when it is booked and merely withheld. That is a trust failure,
   // and the viewer would chase Doug for data that already exists.
+  //
+  // SINGLE-CAUSE by design (cross-model review R1): the hotel term of
+  // `suppressionEmptiedSection` is the only one true here, so deleting it flips
+  // this case to the no-data copy with no other term able to mask it.
   const data = restrict(
     suppressionData({
-      schedule: [{ stage: "", date: LEG_ISO, time: null, assigned_names: [] }],
+      schedule: [],
       hotels: [
         {
           ordinal: 0,
@@ -612,10 +632,9 @@ test("unknown_asterisk viewer: an all-suppressed section says dates are HIDDEN, 
   const { container } = renderTravelAs(data, CREW);
   const empty = container.querySelector('[data-testid="section-empty"]');
   expect(empty).toBeTruthy();
-  expect(empty!.textContent).toMatch(/hidden/i);
-  expect(empty!.textContent).not.toContain("No travel details on file yet.");
-  // The reason is named, not just the absence.
-  expect(empty!.textContent).toMatch(/confirmed/i);
+  // Exact, not a substring: the two sentences must be mutually exclusive, and
+  // the reason must be NAMED rather than the absence merely reported.
+  expect(empty!.textContent).toBe(SUPPRESSED_EMPTY_COPY);
 });
 
 test("unknown_asterisk viewer: a contentless, DATELESS reservation does not claim dates were hidden", () => {
@@ -645,8 +664,7 @@ test("unknown_asterisk viewer: a contentless, DATELESS reservation does not clai
   const { container } = renderTravelAs(data, CREW);
   const empty = container.querySelector('[data-testid="section-empty"]');
   expect(empty).toBeTruthy();
-  expect(empty!.textContent).toContain("No travel details on file yet.");
-  expect(empty!.textContent).not.toMatch(/hidden/i);
+  expect(empty!.textContent).toBe(NO_DATA_EMPTY_COPY);
 });
 
 test("unknown_asterisk viewer with genuinely NO travel data still gets the no-data copy", () => {
@@ -656,7 +674,7 @@ test("unknown_asterisk viewer with genuinely NO travel data still gets the no-da
   const { container } = renderTravelAs(data, CREW);
   const empty = container.querySelector('[data-testid="section-empty"]');
   expect(empty).toBeTruthy();
-  expect(empty!.textContent).toContain("No travel details on file yet.");
+  expect(empty!.textContent).toBe(NO_DATA_EMPTY_COPY);
 });
 
 test("unknown_asterisk viewer: a names-only leg renders no blank primary line", () => {

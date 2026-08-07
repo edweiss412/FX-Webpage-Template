@@ -951,14 +951,31 @@ function renderWithChannel(data: RecentAutoApplied) {
   );
 }
 
-it("(i) mounting with infra_error announces the load-failure copy ONCE", () => {
+/**
+ * How many times `copy` appears in the region. CARDINALITY, not containment
+ * (cross-model review R1): the sink is a `role="log"` that ACCUMULATES, so a
+ * containment assertion is satisfied by the FIRST entry and can distinguish
+ * neither one announcement from two, nor a repeat failure that was silently
+ * dropped from one that was announced. Both directions are defects these cases
+ * exist to catch, so every one of them counts.
+ */
+function announceCount(copy: string): number {
+  const text = screen.getByTestId("admin-undo-status").textContent ?? "";
+  if (copy.length === 0) return 0;
+  return text.split(copy).length - 1;
+}
+
+it("(i) mounting with infra_error announces the load-failure copy EXACTLY ONCE", () => {
   renderWithChannel(ERROR_DATA);
   const cardCopy = screen.getByTestId("auto-applied-error").textContent ?? "";
   expect(cardCopy.length).toBeGreaterThan(0);
-  const region = screen.getByTestId("admin-undo-status");
-  expect(region.textContent ?? "").toContain(cardCopy);
+  // Exactly one: an effect that fired on mount AND on the first committed
+  // render would announce twice, which containment cannot see.
+  expect(announceCount(cardCopy)).toBe(1);
   // The region is the provider's, outside the card that renders the same words.
-  expect(region.contains(screen.getByTestId("auto-applied-error"))).toBe(false);
+  expect(
+    screen.getByTestId("admin-undo-status").contains(screen.getByTestId("auto-applied-error")),
+  ).toBe(false);
 });
 
 it("(ii) re-rendering the SAME error data does not re-announce", () => {
@@ -982,16 +999,15 @@ it("(iii) an ok payload that becomes infra_error announces", () => {
     </AdminAnnounceProvider>,
   );
   const cardCopy = screen.getByTestId("auto-applied-error").textContent ?? "";
-  expect(screen.getByTestId("admin-undo-status").textContent ?? "").toContain(cardCopy);
+  expect(announceCount(cardCopy)).toBe(1);
 });
 
 it("(iv) infra_error → ok → infra_error announces AGAIN (the previously-observed-kind rule)", () => {
   // An announce-once-per-mount implementation fails exactly here: the second
   // failure is a new outcome the operator has not been told about.
   const q = renderWithChannel(ERROR_DATA);
-  const region = () => screen.getByTestId("admin-undo-status");
-  const first = region().textContent ?? "";
-  expect(first.length).toBeGreaterThan(0);
+  const firstCopy = screen.getByTestId("auto-applied-error").textContent ?? "";
+  expect(announceCount(firstCopy)).toBe(1);
 
   q.rerender(
     <AdminAnnounceProvider testId="admin-undo-status" label="Updates">
@@ -1004,7 +1020,11 @@ it("(iv) infra_error → ok → infra_error announces AGAIN (the previously-obse
     </AdminAnnounceProvider>,
   );
   const cardCopy = screen.getByTestId("auto-applied-error").textContent ?? "";
-  expect(region().textContent ?? "").toContain(cardCopy);
+  // TWO, COUNTED. The log accumulates, so the first entry alone satisfies a
+  // containment check — which is exactly the residue an announce-once-per-mount
+  // implementation leaves behind while silently dropping the second failure.
+  // Counting is the only assertion that separates those two worlds.
+  expect(announceCount(cardCopy)).toBe(2);
 });
 
 // ── Mobile auto-applied parity (Task 1): headingLevel prop + FLOW4-7 ──────────

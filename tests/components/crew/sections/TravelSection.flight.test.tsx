@@ -316,7 +316,14 @@ describe("TravelSection — flight date suppression (unknown_asterisk viewer)", 
       />,
     );
     expect(queryByTestId("travel-flight")).toBeNull();
-    expect(queryByTestId("section-empty")).toBeInTheDocument();
+    const empty = queryByTestId("section-empty");
+    expect(empty).toBeInTheDocument();
+    // SINGLE-CAUSE by design (cross-model review R1): no transport and no
+    // hotels in this fixture, so the FLIGHT term of `suppressionEmptiedSection`
+    // is the only one true. Deleting it flips this case to the no-data copy,
+    // with no other term able to mask it. Asserted exactly, so the two
+    // section-empty sentences stay mutually exclusive.
+    expect(empty!.textContent).toBe("Travel dates are hidden until your days are confirmed.");
   });
 
   it("a {kind: none} viewer still sees the date, the chip, the highlight, and the raw row", () => {
