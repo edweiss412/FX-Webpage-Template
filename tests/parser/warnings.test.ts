@@ -95,14 +95,13 @@ describe("emitFieldUnreadable", () => {
     });
     expect(agg.warnings[0]?.rawSnippet).toBe("call me");
     expect(agg.warnings[1]?.rawSnippet).toBe("jordan-at");
-    const EM = String.fromCharCode(0x2014); // the producer's em-dash
     expect(agg.warnings[0]?.message).toBe(
-      `Crew phone for row 4 couldn't be read as a phone number ("call me") ${EM} check the sheet.`,
+      `Crew phone for row 4 couldn't be read as a phone number ("call me"); check the sheet.`,
     );
     expect(agg.warnings[1]?.message).toBe(
       // "a email address" is the LIVE producer grammar (spec §2.1 pins message unchanged);
       // grammar fix is a separate copy change, deliberately not smuggled into this diff.
-      `Crew email for row 4 couldn't be read as a email address ("jordan-at") ${EM} check the sheet.`,
+      `Crew email for row 4 couldn't be read as a email address ("jordan-at"); check the sheet.`,
     );
   });
 });

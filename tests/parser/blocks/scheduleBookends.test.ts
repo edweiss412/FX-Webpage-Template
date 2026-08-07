@@ -80,7 +80,7 @@ describe("deriveScheduleBookends — strike derivation", () => {
     const { runOfShow } = deriveScheduleBookends(undefined, d, null, rooms, "2025");
     const e = runOfShow!["2025-05-14"]!.entries.filter((x) => x.kind === "strike");
     expect(e).toHaveLength(1);
-    expect(e[0]!.title).toBe("Strike — all rooms");
+    expect(e[0]!.title).toBe("Strike: all rooms");
   });
 
   it("partial simultaneous group names rooms; a TBD sibling blocks 'all rooms'", () => {
@@ -92,7 +92,7 @@ describe("deriveScheduleBookends — strike derivation", () => {
     ];
     const { runOfShow } = deriveScheduleBookends(undefined, d, null, rooms, "2025");
     const e = runOfShow!["2025-05-14"]!.entries.find((x) => x.kind === "strike")!;
-    expect(e.title).toBe("Strike — GS, Lasalle"); // sorted; Walton (TBD) blocks "all rooms"
+    expect(e.title).toBe("Strike: GS, Lasalle"); // sorted; Walton (TBD) blocks "all rooms"
   });
 
   it("places strikes on each room's own date (breakouts earlier than GS)", () => {
@@ -116,7 +116,7 @@ describe("deriveScheduleBookends — strike derivation", () => {
     const { runOfShow } = deriveScheduleBookends(undefined, d, null, rooms, "2025");
     const e = runOfShow!["2025-05-14"]!.entries.filter((x) => x.kind === "strike");
     expect(e).toHaveLength(1);
-    expect(e[0]!.title).toBe("Strike — Lasalle"); // GS has no clock → no entry; intent count 2 ≠ group 1
+    expect(e[0]!.title).toBe("Strike: Lasalle"); // GS has no clock → no entry; intent count 2 ≠ group 1
   });
 
   it("off-schedule strike date → warning + entry still present (admin-visible)", () => {
@@ -145,7 +145,7 @@ describe("deriveScheduleBookends — strike derivation", () => {
     const { runOfShow } = deriveScheduleBookends(undefined, d, null, rooms, "2025");
     const e = runOfShow!["2025-05-14"]!.entries.filter((x) => x.kind === "strike");
     expect(e).toHaveLength(1);
-    expect(e[0]!.title).toBe("Strike — Lasalle"); // null-strike room not an intent → group-of-1
+    expect(e[0]!.title).toBe("Strike: Lasalle"); // null-strike room not an intent → group-of-1
   });
 });
 

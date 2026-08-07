@@ -56,7 +56,7 @@ const EM_DASH = "—";
  * text exclusively through §12.4 catalog codes (invariant 5), so their literals
  * are internal by contract — and the catalog itself is a covered surface.
  */
-const COVERED_TS_ROOTS: readonly string[] = ["lib/messages/catalog.ts"];
+const COVERED_TS_ROOTS: readonly string[] = ["lib/messages/catalog.ts", "lib"];
 
 /** Markdown/MDX prose roots. */
 const COVERED_MDX_ROOTS: readonly string[] = ["app/help"];
@@ -70,7 +70,60 @@ const COVERED_MDX_ROOTS: readonly string[] = ["app/help"];
  *
  * Key: repo-relative path, or a `dir/**` prefix for a wholly-internal tree.
  */
-const EXEMPT: Readonly<Record<string, string>> = {};
+const EXEMPT: Readonly<Record<string, string>> = {
+  // ── Developer-gated surfaces: not product copy ──────────────────────────
+  "lib/dev/**":
+    "developer-gated dev tooling; nothing here renders to Doug or to crew (directory-level row is legal for a wholly-internal tree)",
+
+  // ── Generated artifacts: a repair would be undone by the next regen ─────
+  "lib/audit/email-boundaries.generated.ts":
+    "generated artifact — regenerating would resurrect the dash, so the source of truth is the generator, not this file",
+
+  // ── SQL text: never rendered ────────────────────────────────────────────
+  "lib/sync/runScheduledCronSync.ts":
+    "SQL template literals and their inline comments; SQL text is sent to Postgres, never to a person",
+  "lib/sync/runOnboardingScan.ts": "SQL template literal; never rendered",
+  "lib/drive/watch.ts": "SQL template literals; never rendered",
+  "lib/onboarding/sessionLifecycle.ts": "SQL template literal; never rendered",
+  "lib/notify/deliver.ts":
+    "SQL template literal; never rendered (the notify COPY lives in templates/, which is covered)",
+
+  // ── Operator-invisible diagnostics: console/CI only, per invariant 5 ────
+  "lib/sync/applyStaged.ts":
+    "SQL template literal plus log/throw diagnostics; invariant 5 keeps raw operational text out of the UI, so these surface only in consoles and CI",
+  "lib/sync/applyStagedCore.ts": "log/throw diagnostics; surfaced only in consoles and CI",
+  "lib/sync/unpublishBinding.ts": "log/throw diagnostic; surfaced only in consoles and CI",
+  "lib/sync/phase2.ts": "diagnostic string; surfaced only in consoles and CI",
+  "lib/audit/noGlobalCursor.ts": "audit-script diagnostic; CI output, not product copy",
+  "lib/driveIdCoverage/introspect.ts": "introspection diagnostic; CI output, not product copy",
+  "lib/validation/fixtures.ts": "validation-harness diagnostics; CI output, not product copy",
+  "lib/validation/reseedFixtures.ts": "validation-harness diagnostics; CI output, not product copy",
+
+  // ── Developer-facing artifacts that are not UI ──────────────────────────
+  "lib/reports/submit.ts":
+    "GitHub-issue body — a developer-facing artifact, not a surface Doug or crew reads in the app",
+
+  // ── Metadata consumed by tests and the dev gallery, never rendered ──────
+  "lib/visibility/capabilityTransitions.ts":
+    "matrix `reason` metadata; read by tests and the dev gallery, never rendered to a user",
+  "lib/visibility/transportTransitions.ts":
+    "matrix `reason` metadata; read by tests and the dev gallery, never rendered to a user",
+  "lib/time/rightNowTransitions.ts":
+    "matrix `reason` metadata; read by tests and the dev gallery, never rendered to a user",
+  "lib/parser/blocks/crew.ts":
+    "parser decision-note registry string; test-consumed provenance, never rendered",
+  "lib/parser/blocks/rooms.ts":
+    "parser decision-note registry string; test-consumed provenance, never rendered",
+
+  // ── The dash is the VALUE, not prose ────────────────────────────────────
+  "lib/visibility/emptyState.ts":
+    "the standalone U+2014 sentinel glyph — an empty-value placeholder, not prose; the sentinel-hiding contract treats it as a known sentinel",
+  "lib/parser/blocks/ops.ts": "standalone sentinel glyph, not prose",
+  "lib/parser/index.ts":
+    "a REGEX CHARACTER CLASS matching sheet-authored dashes — a load-bearing pattern literal; repairing it would change what the parser recognizes",
+  "lib/specLint/sections.ts":
+    "quotes the canonical spec-heading text it lints for; the heading itself lives in docs/**, which is out of the accept-set by name",
+};
 
 /** Files whose ENTIRE tree is internal; every literal inside is exempt. */
 const exemptPrefixes = () =>
@@ -276,6 +329,25 @@ describe("em-dash copy guard — DESIGN.md §9", () => {
         `covered TS root does not exist: ${root}`,
       ).not.toThrow();
     }
+  });
+
+  it("PREMISE: the lib root is scanned, including template fragments", () => {
+    // A PERMANENT fixture, not a corpus observation. The corpus repairs make
+    // `lib/**` clean, so nothing in the live tree would notice if this root
+    // silently stopped being scanned. Planting the shapes here keeps the root's
+    // coverage provable after the corpus goes quiet.
+    const planted = [
+      `export const copy = "lib plain — dash";`,
+      "export const frag = `${a} lib middle — dash ${b}`;",
+    ];
+    for (const src of planted) {
+      expect(
+        scanTypeScript("lib/premise.ts", src),
+        `the lib root's scanner must see: ${src}`,
+      ).not.toHaveLength(0);
+    }
+    // And the root is actually in the covered list, not merely scannable.
+    expect(COVERED_TS_ROOTS, "lib must be a covered root").toContain("lib");
   });
 
   it("every EXEMPT row still names something that exists", () => {

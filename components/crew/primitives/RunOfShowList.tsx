@@ -41,7 +41,7 @@ export function RunOfShowEntry({ entry }: { entry: AgendaEntry }): JSX.Element {
   // milestones via the §9.3 "muted-title" option — the title itself renders in a
   // muted tone (text-text-subtle vs the agenda row's text-text-strong) with a
   // leading hairline rule, NOT a kind-word badge. A badge would duplicate the
-  // title's own leading word ("STRIKE" badge + "Strike — …" title = a redundant
+  // title's own leading word ("STRIKE" badge + "Strike: …" title = a redundant
   // double-read). Agenda entries (kind absent/"agenda") render unchanged.
   const isSynthetic = entry.kind === "strike" || entry.kind === "loadout";
   const titleTone = isSynthetic ? "text-text-subtle" : "text-text-strong";

@@ -58,7 +58,7 @@ type Row = { start: string; title: string; kind: "agenda" | "strike" | "loadout"
 const ROWS: Row[] = [
   { start: "08:00", title: "Doors / House Open", kind: "agenda" },
   { start: "19:30", title: "Show Start", kind: "agenda" },
-  { start: "23:00", title: "Strike — GS", kind: "strike" },
+  { start: "23:00", title: "Strike: GS", kind: "strike" },
   { start: "23:45", title: "Load Out", kind: "loadout" },
 ];
 

@@ -13,7 +13,7 @@
  *   - count the "+N more agenda items" overflow stub on the AGENDA group only.
  *
  * Anti-tautology: synthetic presence is scoped to the row's data-entry-kind, not
- * the title text ("Strike — GS"/"Load Out") which independently contains those
+ * the title text ("Strike: GS"/"Load Out") which independently contains those
  * words; the muted-tone assertion compares the synthetic title span class against
  * the agenda title span class. Cap counts derive from RUN_OF_SHOW_DISPLAY_CAP,
  * never a hardcoded numeral.
@@ -37,7 +37,7 @@ describe("RunOfShowList — synthetic muted-title marker + cap-exemption (Task 1
   test("strike/loadout entries carry data-entry-kind + a DISTINCT muted title tone (no kind-word badge)", () => {
     const entries: AgendaEntry[] = [
       { start: "9:00", title: "Registration" },
-      { start: "5 PM", title: "Strike — GS", kind: "strike" },
+      { start: "5 PM", title: "Strike: GS", kind: "strike" },
       { start: "6 PM", title: "Load Out", kind: "loadout" },
     ];
     const { container } = render(<RunOfShowList entries={entries} isoDate={ISO} />);
@@ -49,12 +49,12 @@ describe("RunOfShowList — synthetic muted-title marker + cap-exemption (Task 1
     expect(rows[2]!.getAttribute("data-entry-kind")).toBe("loadout");
     expect(container.querySelectorAll("[data-entry-kind]").length).toBe(2);
     // The redundant uppercase kind-word badge is GONE (it duplicated the title's
-    // own leading word, "STRIKE" + "Strike — …").
+    // own leading word, "STRIKE" + "Strike: …").
     expect(container.querySelector('[data-testid="agenda-entry-kind-badge"]')).toBeNull();
     // Synthetic titles render the title text itself and carry the DISTINCT muted
     // tone (text-text-subtle), vs the agenda row's text-text-strong — scoped to
     // each title span so neither assertion is satisfied by the wrong row.
-    const strikeTitle = within(rows[1] as HTMLElement).getByText("Strike — GS");
+    const strikeTitle = within(rows[1] as HTMLElement).getByText("Strike: GS");
     const loadoutTitle = within(rows[2] as HTMLElement).getByText("Load Out");
     const agendaTitle = within(rows[0] as HTMLElement).getByText("Registration");
     expect(strikeTitle.className).toContain("text-text-subtle");

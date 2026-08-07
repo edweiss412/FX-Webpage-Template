@@ -77,18 +77,18 @@ describe("buildFieldChangesRow", () => {
     const entries = row.afterImage.fieldChanges;
     // "toString" must NOT be silently dropped (no Pull sheet entry) — it counts as omitted.
     expect(entries.map((e) => e.label)).toEqual(["COI status", "Other changes"]);
-    expect(entries[1]!.note).toBe("1 other field change on this sync — details unavailable");
+    expect(entries[1]!.note).toBe("1 other field change on this sync; details unavailable");
   });
 
   it("MI-9 → From→To role entry; empty prior → (none); existing-crew LEAD loss", () => {
     const grant = buildFieldChangesRow([mi9("Priya Natarajan", [], ["A1", "LEAD"])])!;
     expect(grant.afterImage.fieldChanges).toEqual([
-      { label: "Role — Priya Natarajan", from: "(none)", to: "A1, LEAD", note: null },
+      { label: "Role: Priya Natarajan", from: "(none)", to: "A1, LEAD", note: null },
     ]);
     const loss = buildFieldChangesRow([mi9("Jordan Lee", ["LEAD", "A1"], ["A1"])])!;
     // flag-join is sorted → "A1, LEAD"
     expect(loss.afterImage.fieldChanges[0]).toEqual({
-      label: "Role — Jordan Lee",
+      label: "Role: Jordan Lee",
       from: "A1, LEAD",
       to: "A1",
       note: null,
@@ -105,7 +105,7 @@ describe("buildFieldChangesRow", () => {
     )!;
     expect(row).not.toBeNull();
     expect(row.afterImage.fieldChanges).toEqual([
-      { label: "Role — Dana Kim", from: "A1", to: "V1", note: null },
+      { label: "Role: Dana Kim", from: "A1", to: "V1", note: null },
     ]);
   });
 
@@ -115,7 +115,7 @@ describe("buildFieldChangesRow", () => {
       [{ crew_name: "Fin Ops", prior_flags: [], new_flags: ["FINANCIALS"] }],
     )!;
     expect(row.afterImage.fieldChanges[0]).toEqual({
-      label: "Role — Fin Ops",
+      label: "Role: Fin Ops",
       from: "(none)",
       to: "FINANCIALS",
       note: null,
@@ -128,8 +128,8 @@ describe("buildFieldChangesRow", () => {
       [{ crew_name: "Scope Person", prior_flags: ["A1"], new_flags: ["V1"] }],
     )!;
     const labels = row.afterImage.fieldChanges.map((e) => e.label);
-    expect(labels).toContain("Role — Lead Person");
-    expect(labels).toContain("Role — Scope Person");
+    expect(labels).toContain("Role: Lead Person");
+    expect(labels).toContain("Role: Scope Person");
   });
 
   it("extraRoleChanges: a malformed extra (non-array flags) is counted omitted, never coerced", () => {
@@ -154,7 +154,7 @@ describe("buildFieldChangesRow", () => {
       "Invoice",
       "COI status",
       "Pull sheet",
-      "Role — Alex",
+      "Role: Alex",
     ]);
   });
 
@@ -167,7 +167,7 @@ describe("buildFieldChangesRow", () => {
       label: "Other changes",
       from: null,
       to: null,
-      note: "1 other field change on this sync — details unavailable",
+      note: "1 other field change on this sync; details unavailable",
     });
     // summary-only digest MUST also see the omission (spec §5, Codex plan-review F3)
     expect(row.summary).toBe("COI status and 1 more field change changed on this sync");
@@ -192,7 +192,7 @@ describe("buildFieldChangesRow", () => {
     const row = buildFieldChangesRow([mi8b("pending", "received"), badCoi, badRole])!;
     const entries = row.afterImage.fieldChanges;
     expect(entries.map((e) => e.label)).toEqual(["COI status", "Other changes"]);
-    expect(entries[1]!.note).toBe("2 other field changes on this sync — details unavailable");
+    expect(entries[1]!.note).toBe("2 other field changes on this sync; details unavailable");
   });
 
   it("all-malformed → structured Unavailable marker row (NOT null after_image)", () => {
@@ -203,10 +203,10 @@ describe("buildFieldChangesRow", () => {
         label: "Unavailable",
         from: null,
         to: null,
-        note: "1 field change on this sync — details unavailable",
+        note: "1 field change on this sync; details unavailable",
       },
     ]);
-    expect(row.summary).toBe("1 field change on this sync — details unavailable");
+    expect(row.summary).toBe("1 field change on this sync; details unavailable");
   });
 
   it("summary names distinct field TYPES incl. single 'Role' for multi-crew; no crew name", () => {
@@ -232,7 +232,7 @@ describe("buildFieldChangesRow", () => {
     const longFlag = "F".repeat(200);
     const row = buildFieldChangesRow([mi9(longName, [], [longFlag])])!;
     const e = row.afterImage.fieldChanges[0]!;
-    expect(e.label.length).toBeLessThanOrEqual(VALUE_CAP); // "Role — <name>" capped
+    expect(e.label.length).toBeLessThanOrEqual(VALUE_CAP); // "Role: <name>" capped
     expect(e.label.endsWith("…")).toBe(true);
     expect(e.to!.length).toBeLessThanOrEqual(VALUE_CAP); // flag-join capped
     expect(e.to!.endsWith("…")).toBe(true);

@@ -79,7 +79,7 @@ export function blockDisappearanceWarnings(
     out.push({
       severity: "warn",
       code: BLOCK_DISAPPEARED,
-      message: `The ${label} section was present last time but is now empty — ${priorCount} ${entryWord} dropped.`,
+      message: `The ${label} section was present last time but is now empty: ${priorCount} ${entryWord} dropped.`,
       blockRef: { kind: item.section },
     });
   }

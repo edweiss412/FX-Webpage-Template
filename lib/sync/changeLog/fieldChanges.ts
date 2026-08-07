@@ -152,7 +152,7 @@ function build(items: TriggeredReviewItem[], extraRoleChanges: ExtraRoleChange[]
       continue;
     }
     entries.push({
-      label: capValue(`Role — ${name}`),
+      label: capValue(`Role: ${name}`),
       from: joinFlags(raw.prior_flags),
       to: joinFlags(raw.new_flags),
       note: null,
@@ -172,7 +172,7 @@ function build(items: TriggeredReviewItem[], extraRoleChanges: ExtraRoleChange[]
       continue;
     }
     entries.push({
-      label: capValue(`Role — ${name}`),
+      label: capValue(`Role: ${name}`),
       from: joinFlags(rc.prior_flags),
       to: joinFlags(rc.new_flags),
       note: null,
@@ -209,13 +209,13 @@ export function buildFieldChangesRow(
         label: "Other changes",
         from: null,
         to: null,
-        note: `${omitted} other field ${omitted === 1 ? "change" : "changes"} on this sync — details unavailable`,
+        note: `${omitted} other field ${omitted === 1 ? "change" : "changes"} on this sync; details unavailable`,
       });
     }
     return { summary: summarize(types, omitted), afterImage: { fieldChanges: entries } };
   }
   // All-malformed → explicit visible Unavailable marker (never null after_image).
-  const note = `${omitted} field ${omitted === 1 ? "change" : "changes"} on this sync — details unavailable`;
+  const note = `${omitted} field ${omitted === 1 ? "change" : "changes"} on this sync; details unavailable`;
   return {
     summary: note,
     afterImage: { fieldChanges: [{ label: "Unavailable", from: null, to: null, note }] },
@@ -279,17 +279,17 @@ export function deriveFieldsDiff(after: Record<string, unknown> | null | undefin
   const fc = after == null ? undefined : (after as { fieldChanges?: unknown }).fieldChanges;
   if (fc == null) return { diff: { kind: "none" }, invalid: false }; // legacy/generic
   if (!Array.isArray(fc)) {
-    return invalidMarker("This change record could not be displayed — review it in the change log");
+    return invalidMarker("This change record could not be displayed; review it in the change log");
   }
   if (fc.length === 0) return { diff: { kind: "none" }, invalid: false };
   if (fc.length > READ_FIELDS_ENTRY_CAP) {
     return invalidMarker(
-      `This change record is too large to display safely (${fc.length} entries) — review it in the change log`,
+      `This change record is too large to display safely (${fc.length} entries); review it in the change log`,
     );
   }
   const kept = fc.filter(isValidEntry).map(boundEntry);
   if (kept.length === 0) {
-    return invalidMarker("This change record could not be displayed — review it in the change log");
+    return invalidMarker("This change record could not be displayed; review it in the change log");
   }
   if (kept.length < fc.length) {
     // A well-formed writer row never has a droppable entry, so a partial drop means

@@ -46,7 +46,7 @@ export function emitEmptySection(agg: ParseAggregator | undefined, section: stri
   agg.warnings.push({
     severity: "warn",
     code: "SECTION_HEADER_NO_FIELDS",
-    message: `Recognized "${section}" section header but parsed zero fields — section dropped.`,
+    message: `Recognized "${section}" section header but parsed zero fields; section dropped.`,
     blockRef: { kind: section },
   });
 }
@@ -90,7 +90,7 @@ export function emitFieldUnreadable(
   agg.warnings.push({
     severity: "warn",
     code: "FIELD_UNREADABLE",
-    message: `Crew ${fieldWord} for row ${params.index + 1} couldn't be read as a ${kind} ("${params.rawSnippet}") — check the sheet.`,
+    message: `Crew ${fieldWord} for row ${params.index + 1} couldn't be read as a ${kind} ("${params.rawSnippet}"); check the sheet.`,
     // Carry the crew member's NAME (the synthesis-stable per-row key the crew-role raw-grid
     // scanner also keys on) so attachSourceCellAnchors resolves a per-ROW source cell.
     // Distinct crew rows → distinct anchors → they survive operatorActionableWarnings dedup
@@ -110,7 +110,7 @@ export function emitUnknownSection(agg: ParseAggregator | undefined, headerText:
   agg.warnings.push({
     severity: "warn",
     code: "UNKNOWN_SECTION_HEADER",
-    message: `Unrecognized section "${headerText}" — its rows were not parsed.`,
+    message: `Unrecognized section "${headerText}"; its rows were not parsed.`,
     blockRef: { kind: "unknown_section" },
     rawSnippet: headerText,
   });
