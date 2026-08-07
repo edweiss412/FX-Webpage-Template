@@ -754,35 +754,6 @@ plan tree at `docs/superpowers/plans/<date>-<name>/`, a milestone number, then l
 `docs/superpowers/plans/README.md`. Promotion is gated like any milestone — brainstorming, spec
 self-review, adversarial review, planning, adversarial review.
 
-### BL-PUSH-NOTIFICATIONS — Email-primary operator push surface
-
-**Status:** IN PROGRESS · **Branch:** feat/l-wave-push
-**VERIFIED INCOMPLETE 2026-08-03 — 5.5 of 6 design principles shipped. Do not archive.** Checked during the merged-backlog sweep; recorded so the next reader does not re-derive it.
-
-- **Built** — push-not-pull (`lib/notify/deliver.ts`, `app/api/cron/notify/route.ts`), severity tiering (`lib/notify/constants.ts:2`), push-debounce (`constants.ts:11`, 1h), coalescing (`constants.ts:15-16`), quiet success (`digest.ts:228` `no_send`). Provider decision settled on Resend (`lib/notify/send.ts:1`); the memo was ratified via `docs/superpowers/specs/v1-pre-deployment-amendments/2026-06-12-m12.13-unpublish-delivery-design.md`.
-- **SHIPPED 2026-08-06 (L-wave `feat/l-wave-push`)** — principle 6's residual. A "Report a problem" footer link now renders in EVERY email-body-producing template, in BOTH channels of `RenderedEmail` (`lib/notify/templates/reportProblem.ts`, wired into all five entry points). Unit-pinned per RENDER SHAPE rather than per file — the five entry points produce SEVEN shapes, because `renderRealtimeProblem` renders three discriminated `kind`s (`tests/notify/reportProblemLink.test.ts`).
-- **UNVERIFIED** — promotion prerequisite (b), "Doug-workflow observation from a live v1 deployment"; no artifact found either way. Not required for the link, and still unverified.
-
-**Origin:** DEFERRED entry M6-D1 (Push notification surface, operator-facing). Filed 2026-05-09 following ratification of plan amendments 7 + 8 on the FXAV crew-pages plan. Design memo lives at `2026-04-30-fxav-crew-pages-v1/notification-design-memo.md`; Doug-validation questions consolidated at `2026-04-30-fxav-crew-pages-v1/doug-validation-questions.md` (§4 channels/timing, §5 feedback/communication).
-
-**Effort:** S
-
-**RESIZED L → S, 2026-08-06 (L-wave, `feat/l-wave-push`), with the staleness repair that justifies it.** Two of the three prerequisites this entry was sized around are REFUTED BY ITS OWN BODY, which had been updated without the size following:
-
-- **(a) "the design memo needs ratification via spec amendment"** — settled. The memo was ratified via `docs/superpowers/specs/v1-pre-deployment-amendments/2026-06-12-m12.13-unpublish-delivery-design.md`, as this entry's own Built line records.
-- **(c) "email-provider integration requires a vendor decision + account setup"** — settled. The provider decision landed on Resend (`lib/notify/send.ts:1`) and delivery is LIVE: deliver, cron, and digest all shipped.
-- **(b) the Doug-workflow observation** remains genuinely unverified — and it gates WIDENING the surface, not the one link.
-
-So the entry was carrying an L for work that was 5.5 of 6 principles complete. The residual was one navigational link across the notify templates, which is what shipped in this commit.
-
-**Scope:** The v1 spec currently has zero push surface. Every staging event (FIRST_SEEN_REVIEW, MI-6..MI-14, MI-1..MI-5b hard fails on existing shows) is functionally invisible to Doug until he visits the dashboard. The MI staging system is calibrated for an operator who isn't watching for it. A push surface — email primary; SMS/webhook optional — would close the loop.
-
-Design memo captures six load-bearing principles: push-not-pull, severity tiering, push-debounce, coalescing, quiet success, two-way feedback. Concrete sketch includes schema additions, route shapes, integration with the existing M8 report pipeline, and action-token signing for one-click acknowledgements.
-
-**Why backlog, not deferred:** Three independent prerequisites: (a) the design memo needs ratification via spec amendment + brainstorming; (b) Doug-validation questions need real answers from Doug's first-show workflow; (c) email-provider integration (Resend / Postmark / SES) requires a vendor decision + account setup + secrets management. Spec amendment + dedicated milestone plan, not a sub-milestone task. The notification-design-memo notes that MI-8/MI-8b modtime-stability debounce (ratified in plan amendment 7) becomes redundant once push-debounce lands — both achieve the same anti-spam UX outcome from different layers, so push-debounce might retire MI-8/MI-8b infrastructure.
-
-**Promotion prerequisite:** Doug-workflow observation from a live v1 deployment (need real data on which staging events Doug actually misses) + email-provider integration decision + spec amendment formalizing the notification design memo.
-
 ### BL-PRIVATE-IMAGE-PIPELINE — Migrate diagrams gallery to `next/image` with auth-preserving pipeline
 
 **Effort:** L (scope floor — design-gated)
