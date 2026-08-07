@@ -111,6 +111,11 @@ export type Extraction = { fences: Fence[]; unplaced: UnplacedFence[] };
  */
 const FENCE_SHAPED = /^[ \t]*(?:`{3,}|~{3,})/;
 
+/** Fence-shaped after container peeling — `>     ```ts` counts (R2 finding 1). */
+function looksLikeFence(line: string): boolean {
+  return FENCE_SHAPED.test(line) || FENCE_SHAPED.test(peelContainers(line).rest);
+}
+
 export function extractFences(path: string, text: string): Extraction {
   const lines = text.replace(/\r\n/g, "\n").split("\n");
   const fences: Fence[] = [];
@@ -153,7 +158,7 @@ export function extractFences(path: string, text: string): Extraction {
         openLine: open.at,
         closeLine: i + 1,
         info,
-        key: digest(`${info}\n${joined}`),
+        key: digest(`${open.d.info}\n${joined}`),
         body,
         bodyLines,
         eligible,
@@ -183,7 +188,7 @@ export function extractFences(path: string, text: string): Extraction {
   // reported by path and line, never dropped. That is what makes the limit a
   // documented demotion instead of a hole.
   lines.forEach((line, i) => {
-    if (placed.has(i + 1) || !FENCE_SHAPED.test(line)) return;
+    if (placed.has(i + 1) || !looksLikeFence(line)) return;
     unplaced.push({
       path,
       line: i + 1,

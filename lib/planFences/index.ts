@@ -112,19 +112,26 @@ function importedBindings(body: string[]): Set<string> {
  * keeps every offset intact for anything measured against the same text.
  */
 function maskNonCode(src: string): string {
-  return src
-    .replace(/\/\*[\s\S]*?\*\//g, (m) => " ".repeat(m.length))
-    .replace(/\/\/[^\n]*/g, (m) => " ".repeat(m.length))
-    .replace(/`(?:\\.|[^`\\])*`/g, (m) => " ".repeat(m.length))
-    .replace(/"(?:\\.|[^"\\])*"/g, (m) => " ".repeat(m.length))
-    .replace(/'(?:\\.|[^'\\])*'/g, (m) => " ".repeat(m.length));
+  return (
+    src
+      .replace(/\/\*[\s\S]*?\*\//g, (m) => " ".repeat(m.length))
+      .replace(/\/\/[^\n]*/g, (m) => " ".repeat(m.length))
+      // Template literals: mask the LITERAL TEXT but keep `${...}` interpolations
+      // live — they are executable code, and blanking them hid real uses
+      // (R2 finding 5).
+      .replace(/`(?:\\.|[^`\\])*`/g, (lit) =>
+        lit.replace(/\$\{(?:[^{}]|\{[^{}]*\})*\}|[^]/g, (piece) =>
+          piece.startsWith("${") ? piece : " ",
+        ),
+      )
+      .replace(/"(?:\\.|[^"\\])*"/g, (m) => " ".repeat(m.length))
+      .replace(/'(?:\\.|[^'\\])*'/g, (m) => " ".repeat(m.length))
+  );
 }
 
 /**
- * Everything the fence binds locally: declarations, destructured names, and
- * function parameters. Method definitions are deliberately NOT recognized — at
- * line start `expect(x);` and a method definition are the same shape, and
- * binding a CALL would silence the rule wherever it matters most. Recognizing only `const`/`let`/`var`/
+ * Everything the fence binds locally: declarations, destructured names, function
+ * parameters, and method definitions. Recognizing only `const`/`let`/`var`/
  * `function`/`class` treated a destructured or parameter binding as a free use
  * and fired the rule on correct code (R1 finding 7).
  */
@@ -137,15 +144,33 @@ function declaredBindings(body: string[]): Set<string> {
   // Parameters: the head of any arrow or function parameter list.
   const PARAMS =
     /(?:function\s*[A-Za-z_$\w]*\s*|\bcatch\s*)\(([^)]*)\)|\(([^)]*)\)\s*=>|\b([A-Za-z_$][\w$]*)\s*=>/g;
-  const names = (chunk: string): void => {
+  // In a PARAMETER list `x: Foo` binds x and mentions the type; in a
+  // DESTRUCTURING pattern `{ a: b }` binds b and mentions the key. Reading both
+  // the same way bound the type and left the parameter free (R2 finding 5).
+  const patternNames = (chunk: string): void => {
     for (const m of chunk.matchAll(/([A-Za-z_$][\w$]*)\s*(?::\s*([A-Za-z_$][\w$]*))?/g)) {
       out.add(m[2] ?? m[1]!);
     }
   };
+  const paramNames = (chunk: string): void => {
+    for (const part of chunk.split(",")) {
+      const m = /^\s*(?:\.\.\.)?\s*(?:\{([^}]*)\}|\[([^\]]*)\]|([A-Za-z_$][\w$]*))/.exec(part);
+      if (!m) continue;
+      if (m[3]) out.add(m[3]);
+      else patternNames(m[1] ?? m[2] ?? "");
+    }
+  };
+  // A method DEFINITION is followed by a body brace; a call is not. That single
+  // character separates `expect(x) {` from `expect(x);`, so definitions can bind
+  // without binding calls — which is what made the earlier blanket exclusion
+  // necessary (R2 finding 5).
+  const METHOD_DEF =
+    /(?:^|[\n;{,])\s*(?:async\s+|static\s+|get\s+|set\s+)*([A-Za-z_$][\w$]*)\s*\([^)]*\)\s*(?::\s*[^{;]+)?\{/g;
   let m: RegExpExecArray | null;
   while ((m = DECL.exec(src)) !== null) out.add(m[1]!);
-  while ((m = DESTRUCTURE.exec(src)) !== null) names(m[1]!);
-  while ((m = PARAMS.exec(src)) !== null) names(m[1] ?? m[2] ?? m[3] ?? "");
+  while ((m = METHOD_DEF.exec(src)) !== null) out.add(m[1]!);
+  while ((m = DESTRUCTURE.exec(src)) !== null) patternNames(m[1]!);
+  while ((m = PARAMS.exec(src)) !== null) paramNames(m[1] ?? m[2] ?? m[3] ?? "");
   return out;
 }
 
@@ -160,6 +185,7 @@ const MANGLED_TOKENS: [RegExp, string][] = [
 function tally(
   list: { rule: RuleName; instance: string }[],
   fence: Fence,
+  fenceKey: string,
   path: string,
 ): Finding[] {
   const counts = new Map<string, { rule: RuleName; instance: string; n: number }>();
@@ -172,7 +198,7 @@ function tally(
   return [...counts.values()].map((c) => ({
     path,
     fenceLine: fence.openLine,
-    fenceKey: fence.key,
+    fenceKey,
     rule: c.rule,
     instance: c.instance,
     count: c.n,
@@ -189,6 +215,23 @@ export function analyzePlan(path: string, text: string): PlanFenceReport {
   }
 
   const eligible = fences.filter((f) => f.eligible);
+
+  // Disambiguate identical fences within one file. A digest alone let a COPY of
+  // an already-baselined fence pass on the original's row — the duplicate was
+  // invisible to both the offender and the stale checks (R2 finding 6). The
+  // ordinal is per (file, digest), so it is stable under prose edits and under
+  // moving the fence, and only a genuine duplicate advances it.
+  const ordinalOf = new Map<Fence, number>();
+  const seenKey = new Map<string, number>();
+  for (const f of fences) {
+    const n = (seenKey.get(f.key) ?? 0) + 1;
+    seenKey.set(f.key, n);
+    ordinalOf.set(f, n);
+  }
+  const keyOf = (f: Fence): string => {
+    const n = ordinalOf.get(f) ?? 1;
+    return n === 1 ? f.key : `${f.key}#${n}`;
+  };
   const attribution = new Map<Fence, string | null>();
   for (const f of eligible) attribution.set(f, attributionOf(lines, f.openLine));
 
@@ -243,7 +286,7 @@ export function analyzePlan(path: string, text: string): PlanFenceReport {
       per.push({ rule: "FENCE_EM_DASH", instance: String(i + 1) });
     });
 
-    raw.push(...tally(per, fence, path));
+    raw.push(...tally(per, fence, keyOf(fence), path));
   }
 
   // ── cross-fence rule ───────────────────────────────────────────────────────
@@ -267,7 +310,7 @@ export function analyzePlan(path: string, text: string): PlanFenceReport {
         raw.push({
           path,
           fenceLine: fence.openLine,
-          fenceKey: fence.key,
+          fenceKey: keyOf(fence),
           rule: "DUPLICATE_IMPORT",
           instance: b,
           count: 1,
@@ -281,7 +324,13 @@ export function analyzePlan(path: string, text: string): PlanFenceReport {
   const findings: Finding[] = [];
   const waived: Finding[] = [];
 
-  type Parsed = { line: number; rule: RuleName | null; reason: string; specLint: boolean };
+  type Parsed = {
+    line: number;
+    rule: RuleName | null;
+    reason: string;
+    specLint: boolean;
+    inert?: boolean;
+  };
   const parsed: Parsed[] = [];
   lines.forEach((raw2, i) => {
     const t = raw2.trim();
@@ -314,6 +363,14 @@ export function analyzePlan(path: string, text: string): PlanFenceReport {
     }
     if (SPEC_LINT_WAIVER.test(t)) {
       parsed.push({ line: i + 1, rule: null, reason: "", specLint: true });
+      return;
+    }
+    // RECOGNIZED but non-suppressing (`not-ui`). It must still be in the set
+    // `waiverTarget` skips, or an `ignore` stacked above one targets the
+    // `not-ui` line instead of the fence and silently waives nothing
+    // (R2 finding 3).
+    if (SPEC_LINT_ANY.test(t)) {
+      parsed.push({ line: i + 1, rule: null, reason: "", specLint: false, inert: true });
     }
   });
 
@@ -350,7 +407,7 @@ export function analyzePlan(path: string, text: string): PlanFenceReport {
   }
 
   for (const w of parsed) {
-    if (w.specLint || w.rule === null || consumed.has(w)) continue;
+    if (w.specLint || w.inert || w.rule === null || consumed.has(w)) continue;
     waiverErrors.push({
       path,
       line: w.line,

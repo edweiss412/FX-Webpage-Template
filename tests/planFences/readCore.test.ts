@@ -374,3 +374,89 @@ describe("plan-fence read-core (spec §2.1)", () => {
     );
   });
 });
+
+/**
+ * Diff review R2 repairs. Each of these fails against the code as it stood after
+ * R1 — a repair with no case that would have caught it is a claim.
+ */
+describe("R2 repairs", () => {
+  it("(1) REPORTS a container-prefixed fence run it cannot place", () => {
+    // `>     ```ts` is fence-shaped only AFTER peeling. Testing the raw line
+    // dropped it silently, which the consequence bound forbids.
+    const text = ["Quoted example:", "", ">     ```ts", ">     const n = 1;"].join("\n");
+    const r = analyzePlan("docs/superpowers/plans/x/plan.md", text);
+    expect(r.unplaced.length).toBeGreaterThan(0);
+  });
+
+  it("(3) a `not-ui` line between an `ignore` waiver and its fence does not break the waiver", () => {
+    const text = [
+      "In `lib/a.ts`:",
+      "",
+      "<!-- spec-lint: ignore — quoting shipped copy -->",
+      "<!-- spec-lint: not-ui — internal note -->",
+      "```ts",
+      'const a = "one — two";',
+      "```",
+    ].join("\n");
+    expect(rulesOf(text)).not.toContain("FENCE_EM_DASH");
+  });
+
+  it("(5) sees executable code inside a template interpolation", () => {
+    const text = [
+      "In `lib/a.ts`:",
+      "",
+      "```ts",
+      'import { readFileSync } from "node:fs";',
+      "const s = `value: ${expect(readFileSync(p))}`;",
+      "```",
+    ].join("\n");
+    expect(hits(text)).toContain("UNIMPORTED_IDENTIFIER:expect");
+  });
+
+  it("(5) binds a TYPED parameter by its name, not its type", () => {
+    const text = [
+      "In `lib/a.ts`:",
+      "",
+      "```ts",
+      'import { readFileSync } from "node:fs";',
+      "const f = (expect: string) => readFileSync(expect);",
+      "```",
+    ].join("\n");
+    expect(rulesOf(text)).not.toContain("UNIMPORTED_IDENTIFIER");
+  });
+
+  it("(5) binds a METHOD DEFINITION without binding a call of the same name", () => {
+    const defines = [
+      "In `lib/a.ts`:",
+      "",
+      "```ts",
+      'import { readFileSync } from "node:fs";',
+      "const o = { expect(v: string) { return readFileSync(v); } };",
+      "```",
+    ].join("\n");
+    expect(rulesOf(defines)).not.toContain("UNIMPORTED_IDENTIFIER");
+
+    const calls = [
+      "In `lib/b.ts`:",
+      "",
+      "```ts",
+      'import { readFileSync } from "node:fs";',
+      "expect(readFileSync(p));",
+      "```",
+    ].join("\n");
+    expect(hits(calls)).toContain("UNIMPORTED_IDENTIFIER:expect");
+  });
+
+  it("(6) gives a DUPLICATED fence its own identity", () => {
+    const fence = ["```ts", "const n = rows[0].name;", "```"];
+    const text = ["In `lib/a.ts`:", "", ...fence, "", "Again in `lib/a.ts`:", "", ...fence].join(
+      "\n",
+    );
+    const keys = analyzePlan("docs/superpowers/plans/x/plan.md", text).findings.map(
+      (f) => f.fenceKey,
+    );
+    // Two identical fences must not share one baseline row, or a COPY of an
+    // already-frozen defect is pardoned by the original's row.
+    expect(new Set(keys).size).toBe(2);
+  });
+});

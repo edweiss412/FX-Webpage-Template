@@ -33,8 +33,21 @@ function markdownFiles(dir: string): string[] {
 }
 
 const priorSrc = existsSync(OUT) ? readFileSync(OUT, "utf8") : "";
-const priorRows = Number(/export const FROZEN_ROWS = (\d+);/.exec(priorSrc)?.[1] ?? Infinity);
-const priorTotal = Number(/export const FROZEN_TOTAL = (\d+);/.exec(priorSrc)?.[1] ?? Infinity);
+const priorRowsRaw = /export const FROZEN_ROWS = (\d+)\s*;/.exec(priorSrc)?.[1];
+const priorTotalRaw = /export const FROZEN_TOTAL = (\d+)\s*;/.exec(priorSrc)?.[1];
+// FAILS CLOSED. Reading an unparseable committed file as "no ceiling" made the
+// refusal below bypassable by reformatting the two constants — a type
+// annotation or a numeric separator was enough (R2 finding 2). A file that
+// exists but cannot be read is an ERROR, never permission.
+if (priorSrc !== "" && (priorRowsRaw === undefined || priorTotalRaw === undefined)) {
+  console.error(
+    `${OUT} exists but its FROZEN_ROWS / FROZEN_TOTAL could not be parsed.\n` +
+      "Refusing to regenerate: an unreadable ceiling is not an absent one.",
+  );
+  process.exit(1);
+}
+const priorRows = priorRowsRaw === undefined ? Infinity : Number(priorRowsRaw);
+const priorTotal = priorTotalRaw === undefined ? Infinity : Number(priorTotalRaw);
 
 const rows: string[] = [];
 let total = 0;

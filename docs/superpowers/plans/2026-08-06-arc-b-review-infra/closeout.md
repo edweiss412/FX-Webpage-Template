@@ -147,3 +147,41 @@ literal NUL byte in a map key, an em dash in a user-visible message string, and
 three SHOUTY waiver codes that read as orphan §12.4 producer codes to the catalog
 guard. The full local suite is the only reason those were caught before CI.
 
+**R2 — BLOCKING, 6 findings, all six confirmed and repaired.** Scoped to R1's
+repairs. Three of the six are the same shape and worth stating together: **a
+repair that closes the reported instance without closing its class.**
+
+- **Finding 1** — R1's fix reported unplaceable fences by testing the RAW line, so
+  a container-prefixed run (`>     ```ts`) still matched nothing and was still
+  dropped silently. It tests the PEELED text now.
+- **Finding 2** — R1's generator refusal parsed the committed ceilings and FAILED
+  OPEN: an unparseable file read as "no ceiling", so reformatting the two
+  constants (a type annotation, a numeric separator) restored the bypass the
+  refusal existed to close. It fails CLOSED now — a file that exists but cannot
+  be read is an error, never permission. Both bypass mutants were re-probed and
+  both are refused, each with its own message.
+- **Finding 3** — `not-ui` stopped suppressing (correct) but was left out of the
+  set waiver TARGETING skips, so an `ignore` stacked above a `not-ui` line
+  targeted that line instead of the fence and silently waived nothing. It is
+  recognized-but-inert now.
+
+The other three: the interrupting set omitted ATX headings and thematic breaks,
+so `- item` / `# heading` / `<x-tag>` kept a stale list frame (4); the identifier
+scan was still unsound in three ways — masking a whole template literal hid
+executable code inside `${...}`, a typed parameter bound its TYPE instead of its
+name, and a method definition named `expect` still false-fired (5); and a
+DUPLICATED fence produced two identical identities so the baseline's single row
+pardoned both (6).
+
+Finding 5's third part retired a trade R1 had made deliberately. The stated reason
+for not binding method definitions was that `expect(x);` and a definition are the
+same shape at line start — true, but they differ by what FOLLOWS the parameter
+list, and a body brace is a clean discriminator. **"I considered it and accepted
+the false positive" is not the same as "it cannot be done", and the reviewer was
+right to refuse the first as an answer to the second.**
+
+Baseline regenerated under the new identity: **3551 rows, 3629 occurrences.**
+
+Six regression cases added, one per finding, each failing against the post-R1
+code.
+

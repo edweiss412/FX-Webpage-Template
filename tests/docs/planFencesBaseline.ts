@@ -724,6 +724,7 @@ export const PLAN_FENCE_BASELINE: readonly string[] = [
   "docs/superpowers/plans/2026-07-19-codex-guard/00-plan.md|8f3de90b|FENCE_EM_DASH|1|1",
   "docs/superpowers/plans/2026-07-19-codex-guard/00-plan.md|935726c7|FENCE_EM_DASH|1|1",
   "docs/superpowers/plans/2026-07-19-codex-guard/00-plan.md|935726c7|FENCE_EM_DASH|2|1",
+  "docs/superpowers/plans/2026-07-19-codex-guard/00-plan.md|935726c7|UNIMPORTED_IDENTIFIER|resolve|1",
   "docs/superpowers/plans/2026-07-19-codex-guard/00-plan.md|bf40a5ae|FENCE_EM_DASH|1|1",
   "docs/superpowers/plans/2026-07-19-codex-guard/00-plan.md|bf40a5ae|FENCE_EM_DASH|2|1",
   "docs/superpowers/plans/2026-07-19-codex-guard/00-plan.md|bf40a5ae|FENCE_EM_DASH|3|1",
@@ -808,6 +809,7 @@ export const PLAN_FENCE_BASELINE: readonly string[] = [
   "docs/superpowers/plans/2026-07-19-show-modal-prefetch/plan.md|96d3afc6|FENCE_EM_DASH|7|1",
   "docs/superpowers/plans/2026-07-19-show-modal-prefetch/plan.md|96d3afc6|FENCE_EM_DASH|8|1",
   "docs/superpowers/plans/2026-07-19-show-modal-prefetch/plan.md|96d3afc6|FENCE_EM_DASH|9|1",
+  "docs/superpowers/plans/2026-07-19-show-modal-prefetch/plan.md|96d3afc6|UNIMPORTED_IDENTIFIER|resolve|1",
   "docs/superpowers/plans/2026-07-19-show-modal-prefetch/plan.md|dedbb6a3|FENCE_EM_DASH|1|1",
   "docs/superpowers/plans/2026-07-19-show-modal-prefetch/plan.md|f7c5ba91|FENCE_EM_DASH|1|1",
   "docs/superpowers/plans/2026-07-20-attention-alert-routing.md|4ff818e8|FENCE_EM_DASH|1|1",
@@ -825,6 +827,7 @@ export const PLAN_FENCE_BASELINE: readonly string[] = [
   "docs/superpowers/plans/2026-07-20-local-suite-wallclock.md|d206ef0d|UNIMPORTED_IDENTIFIER|it|1",
   "docs/superpowers/plans/2026-07-20-local-suite-wallclock.md|d206ef0d|UNIMPORTED_IDENTIFIER|readFileSync|1",
   "docs/superpowers/plans/2026-07-20-local-suite-wallclock.md|d206ef0d|UNIMPORTED_IDENTIFIER|test|1",
+  "docs/superpowers/plans/2026-07-20-local-suite-wallclock.md|f9954920|UNIMPORTED_IDENTIFIER|resolve|1",
   "docs/superpowers/plans/2026-07-20-share-hub-fidelity-fixes/01-tasks.md|06c82fc1|FENCE_EM_DASH|1|1",
   "docs/superpowers/plans/2026-07-20-share-hub-fidelity-fixes/01-tasks.md|06c82fc1|FENCE_EM_DASH|2|1",
   "docs/superpowers/plans/2026-07-20-share-hub-fidelity-fixes/01-tasks.md|06c82fc1|FENCE_EM_DASH|3|1",
@@ -1272,6 +1275,8 @@ export const PLAN_FENCE_BASELINE: readonly string[] = [
   "docs/superpowers/plans/alerts/2026-07-17-condensed-alert-copy.md|e080a1cd|FENCE_EM_DASH|3|1",
   "docs/superpowers/plans/alerts/2026-07-17-condensed-alert-copy.md|e080a1cd|FENCE_EM_DASH|4|1",
   "docs/superpowers/plans/alerts/2026-07-17-condensed-alert-copy.md|f7bbb03b|FENCE_EM_DASH|1|1",
+  "docs/superpowers/plans/alerts/2026-07-24-alert-autoresolve-tile-and-report-family.md|2c4a5912|UNIMPORTED_IDENTIFIER|resolve|1",
+  "docs/superpowers/plans/alerts/2026-07-24-alert-autoresolve-tile-and-report-family.md|90f1a247|UNIMPORTED_IDENTIFIER|resolve|1",
   "docs/superpowers/plans/alerts/2026-07-24-alert-autoresolve-tile-and-report-family.md|98df43fb|UNIMPORTED_IDENTIFIER|it|1",
   "docs/superpowers/plans/alerts/2026-07-24-alert-autoresolve-tile-and-report-family.md|98df43fb|UNIMPORTED_IDENTIFIER|render|1",
   "docs/superpowers/plans/alerts/2026-07-24-alert-autoresolve-tile-and-report-family.md|98df43fb|UNIMPORTED_IDENTIFIER|resolve|1",
@@ -1883,12 +1888,14 @@ export const PLAN_FENCE_BASELINE: readonly string[] = [
   "docs/superpowers/plans/data-quality/2026-07-17-dq-group-active-by-code/00-plan.md|7046a448|FENCE_EM_DASH|1|1",
   "docs/superpowers/plans/data-quality/2026-07-17-dq-group-active-by-code/00-plan.md|798e7f0d|FENCE_EM_DASH|1|1",
   "docs/superpowers/plans/data-quality/2026-07-17-dq-group-active-by-code/00-plan.md|798e7f0d|FENCE_EM_DASH|2|1",
+  "docs/superpowers/plans/data-quality/2026-07-17-dq-group-active-by-code/00-plan.md|798e7f0d|UNIMPORTED_IDENTIFIER|resolve|1",
   "docs/superpowers/plans/data-quality/2026-07-17-dq-group-active-by-code/00-plan.md|a9b0bde4|FENCE_EM_DASH|1|1",
   "docs/superpowers/plans/data-quality/2026-07-17-dq-group-active-by-code/00-plan.md|a9b0bde4|FENCE_EM_DASH|2|1",
   "docs/superpowers/plans/data-quality/2026-07-17-dq-group-active-by-code/00-plan.md|bf105148|FENCE_EM_DASH|1|1",
   "docs/superpowers/plans/data-quality/2026-07-17-dq-group-active-by-code/00-plan.md|cb1ae7c9|FENCE_EM_DASH|1|1",
   "docs/superpowers/plans/data-quality/2026-07-17-dq-group-active-by-code/00-plan.md|cb1ae7c9|FENCE_EM_DASH|2|1",
   "docs/superpowers/plans/data-quality/2026-07-17-dq-group-active-by-code/00-plan.md|cb1ae7c9|FENCE_EM_DASH|3|1",
+  "docs/superpowers/plans/data-quality/2026-07-17-dq-group-active-by-code/00-plan.md|cb1ae7c9|UNIMPORTED_IDENTIFIER|it|1",
   "docs/superpowers/plans/data-quality/2026-07-17-use-raw-callout-preview-demotion.md|0c38c437|FENCE_EM_DASH|1|1",
   "docs/superpowers/plans/data-quality/2026-07-17-use-raw-callout-preview-demotion.md|0c38c437|FENCE_EM_DASH|2|1",
   "docs/superpowers/plans/data-quality/2026-07-17-use-raw-callout-preview-demotion.md|0c38c437|FENCE_EM_DASH|3|1",
@@ -2773,6 +2780,7 @@ export const PLAN_FENCE_BASELINE: readonly string[] = [
   "docs/superpowers/plans/step3-onboarding/2026-06-23-onboarding-scan-progress-stream.md|0439c9f2|UNIMPORTED_IDENTIFIER|render|1",
   "docs/superpowers/plans/step3-onboarding/2026-06-23-onboarding-scan-progress-stream.md|0439c9f2|UNIMPORTED_IDENTIFIER|test|1",
   "docs/superpowers/plans/step3-onboarding/2026-06-23-onboarding-scan-progress-stream.md|174e8224|FENCE_EM_DASH|1|1",
+  "docs/superpowers/plans/step3-onboarding/2026-06-23-onboarding-scan-progress-stream.md|2fd24125|UNIMPORTED_IDENTIFIER|it|1",
   "docs/superpowers/plans/step3-onboarding/2026-06-23-onboarding-scan-progress-stream.md|6d7f8df5|FENCE_EM_DASH|1|1",
   "docs/superpowers/plans/step3-onboarding/2026-06-23-onboarding-scan-progress-stream.md|6d7f8df5|FENCE_EM_DASH|2|1",
   "docs/superpowers/plans/step3-onboarding/2026-06-23-onboarding-scan-progress-stream.md|90f97455|FENCE_EM_DASH|1|1",
@@ -3572,5 +3580,5 @@ export const PLAN_FENCE_BASELINE: readonly string[] = [
 ];
 
 /** Decrease-only. Raising either is a deliberate, reviewed edit. */
-export const FROZEN_ROWS = 3543;
-export const FROZEN_TOTAL = 3621;
+export const FROZEN_ROWS = 3551;
+export const FROZEN_TOTAL = 3629;
