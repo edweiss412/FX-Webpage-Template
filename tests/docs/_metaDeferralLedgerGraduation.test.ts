@@ -93,6 +93,7 @@ const GRADUATED = [
  * that recorded the finding.
  */
 const BACKLOG_GRADUATED = [
+  { id: "BL-CODEX-GUARD-COMMONMARK-PARSE", provenance: "feat/review-infra-gates" },
   { id: "BL-PLAN-SNIPPET-FENCE-GATE", provenance: "feat/review-infra-gates" },
   // feat/backlog-quick-wins (2026-08-07, arc C): the retainRows asymmetry. The
   // fix retains the LIVE row rather than the held snapshot — copying the

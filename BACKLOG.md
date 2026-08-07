@@ -1087,26 +1087,3 @@ docblock states the gap rather than papering over it.
 **Deferral exception: (c)** — a redesign of the guard's oracle spanning the whole crosswalk corpus, on a surface this PR does not otherwise touch. W-UI shipped the half that is closable without it.
 
 **Status:** OPEN.
-
-## BL-CODEX-GUARD-COMMONMARK-PARSE — replace the codex-guard code-block regexes with a real CommonMark parse
-
-**Status:** IN PROGRESS · **Branch:** feat/review-infra-gates
-
-**Status:** OPEN.
-
-**Filed:** 2026-08-05 (`feat/review-round-economy`, wrapper review R4). **Class:** parser correctness. **Effort:** M.
-
-`stripCodeBlocks` in `scripts/codex-guard.mjs` decides which lines of a reviewer's terminal message are CODE — and therefore which `VERDICT:` / `FINDINGS:` lines are the reviewer's own declarations rather than an example they quoted. It is a hand-rolled line scanner over CommonMark's block grammar: fence openers and closers, indented blocks, and a single-column approximation of list containers. Spec §8.3 limit 12 states what it still misses (block quotes are not containers, a dedent re-derives from the root instead of popping a stack, lazy continuation and HTML blocks are unmodelled).
-
-**Why a parser rather than another widening.** Four review rounds on this one recognizer went to widening regexes, one escaping shape at a time — the enumeration does not terminate, which is exactly the round-economy failure this arc exists to measure. The last two rounds:
-
-- **A closing fence indented 4+ columns.** CommonMark says that is content; the closer regex accepted any leading whitespace, so a nested example's fence ended the outer block early and leaked everything after it. Probe: `false approvals=4/4` (both fence characters at 4 and 8 columns).
-- **A fence opener indented 4+ columns.** Opener indentation was capped absolutely at 3 rather than measured relative to the container's content column, so every fence opened inside a nested list item was invisible. Probe: `FALSE_APPROVE=18/18` across three depths x three markers x two fence characters, plus `nested marker-line cases: false APPROVE=2/2`.
-
-Both are now fixed and both were found the same way — by a reviewer constructing one more shape. A parse over a closed grammar terminates where a recognizer over an open class of shapes does not.
-
-**Work.** `tests/docs/_ledgerMdast.ts` already uses mdast/remark in this repo, so the parse itself is a solved problem: walk the AST and blank the source lines of every `code` node. **The obstacle is a decision, not the code.** `scripts/codex-guard.mjs` is deliberately dependency-free plain `.mjs` — it runs as a bare `node` invocation with no build step and no `node_modules` assumption, which is what lets the shim install one-liner in AGENTS.md work from any checkout. Giving it a dependency changes that contract. Options at pickup: accept the dependency and the install story that follows; vendor a minimal block-level parse; or keep the recognizer and accept §8.3 limit 12 permanently.
-
-**Deferral exception: (c)** — a redesign of a surface this PR does not otherwise touch. The PR repaired both named instances plus their whole shape (relative measurement for openers AND closers, every fence character, every marker); what remains is replacing the mechanism, which is a different change to a different contract.
-
----
