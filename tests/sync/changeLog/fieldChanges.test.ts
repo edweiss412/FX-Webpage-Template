@@ -77,7 +77,7 @@ describe("buildFieldChangesRow", () => {
     const entries = row.afterImage.fieldChanges;
     // "toString" must NOT be silently dropped (no Pull sheet entry) — it counts as omitted.
     expect(entries.map((e) => e.label)).toEqual(["COI status", "Other changes"]);
-    expect(entries[1]!.note).toBe("1 other field change on this sync; details unavailable");
+    expect(entries[1]!.note).toBe("1 other field change on this sync: details unavailable");
   });
 
   it("MI-9 → From→To role entry; empty prior → (none); existing-crew LEAD loss", () => {
@@ -167,7 +167,7 @@ describe("buildFieldChangesRow", () => {
       label: "Other changes",
       from: null,
       to: null,
-      note: "1 other field change on this sync; details unavailable",
+      note: "1 other field change on this sync: details unavailable",
     });
     // summary-only digest MUST also see the omission (spec §5, Codex plan-review F3)
     expect(row.summary).toBe("COI status and 1 more field change changed on this sync");
@@ -192,7 +192,7 @@ describe("buildFieldChangesRow", () => {
     const row = buildFieldChangesRow([mi8b("pending", "received"), badCoi, badRole])!;
     const entries = row.afterImage.fieldChanges;
     expect(entries.map((e) => e.label)).toEqual(["COI status", "Other changes"]);
-    expect(entries[1]!.note).toBe("2 other field changes on this sync; details unavailable");
+    expect(entries[1]!.note).toBe("2 other field changes on this sync: details unavailable");
   });
 
   it("all-malformed → structured Unavailable marker row (NOT null after_image)", () => {
@@ -203,10 +203,10 @@ describe("buildFieldChangesRow", () => {
         label: "Unavailable",
         from: null,
         to: null,
-        note: "1 field change on this sync; details unavailable",
+        note: "1 field change on this sync: details unavailable",
       },
     ]);
-    expect(row.summary).toBe("1 field change on this sync; details unavailable");
+    expect(row.summary).toBe("1 field change on this sync: details unavailable");
   });
 
   it("summary names distinct field TYPES incl. single 'Role' for multi-crew; no crew name", () => {

@@ -161,6 +161,14 @@ function isExempt(rel: string): boolean {
 
 export type Hit = { file: string; line: number; text: string; token: string };
 
+/**
+ * Every extension the project actually compiles. `.tsx?` alone silently excluded
+ * `.mts`, `.js`, `.jsx`, `.mjs`, and `.cjs` — and this repo sets `allowJs: true`
+ * and includes `.mts`, so a new rendered `.jsx` page or a `.mts` notify module
+ * was outside the scan while looking covered.
+ */
+const SOURCE_EXT = /\.(m|c)?[jt]sx?$/;
+
 function lineOf(source: string, pos: number): number {
   return source.slice(0, pos).split("\n").length;
 }
@@ -215,7 +223,7 @@ function isSentinel(
   text: string,
   isJsx: boolean,
   node: ts.Node,
-  hit: Set<string>,
+  hit: Map<string, number>,
 ): boolean {
   const bare = isJsx ? text.trim() === EM_DASH : text === EM_DASH;
   if (!bare) return false;
@@ -225,14 +233,18 @@ function isSentinel(
   if (!parent) return false;
   const key = anchorKey(parent);
   if (!anchors.includes(key)) return false;
-  hit.add(key);
+  hit.set(key, (hit.get(key) ?? 0) + 1);
   return true;
 }
+
+/** Anchors consumed by the LAST scanTypeScript call, with counts. AST-derived. */
+export const lastAnchorUse = new Map<string, number>();
 
 export function scanTypeScript(rel: string, source: string): Hit[] {
   const sf = ts.createSourceFile(rel, source, ts.ScriptTarget.Latest, true);
   const hits: Hit[] = [];
-  const anchorsHit = new Set<string>();
+  lastAnchorUse.clear();
+  const anchorsHit = lastAnchorUse;
   const record = (node: ts.Node, text: string, isJsx = false) => {
     if (!text.includes(EM_DASH)) return;
     if (isSentinel(rel, text, isJsx, node, anchorsHit)) return;
@@ -267,24 +279,68 @@ export function scanTypeScript(rel: string, source: string): Hit[] {
  * scanned.
  */
 /**
- * CSS `content:` declarations RENDER TEXT, so they are copy — and they were the
- * one covered surface the scanner could not see (it selected only .ts/.tsx and
- * help markdown). `body::after { content: "—" }` displayed an em dash while the
- * guard stayed green.
+ * ALL non-comment CSS text, not just `content:`.
  *
- * Comments are stripped FIRST, so the same
- * comments-are-not-copy rule the TypeScript scanner gets from parsing applies
- * here too: `app/globals.css` carries 57 em dashes and every one is in a
- * comment, which is exactly the kind of count that inflated this entry's
- * original census.
+ * The first version keyed on a line-local `content:` regex and had SIX
+ * demonstrated escapes — a value on the next line, `var(--sep)` indirection, a
+ * glyph inside what looks like a comment but is a string, `list-style-type`,
+ * `quotes` + `open-quote`, and `@counter-style symbols`. Every one renders.
+ *
+ * Enumerating rendering properties is the same losing game the sentinel rule
+ * played four times, so this does not enumerate: comments are stripped (the same
+ * comments-are-not-copy rule parsing gives the TypeScript scanner) and ANY
+ * remaining em dash is a hit. CSS has no legitimate non-rendered em dash outside
+ * a comment, so the conservative direction is also the correct one — and
+ * `app/globals.css`'s 57 dashes are all in comments, so the corpus is clean
+ * under the strict rule.
  */
+function stripCssComments(source: string): string {
+  let out = "";
+  let i = 0;
+  let quote: string | null = null;
+  while (i < source.length) {
+    const ch = source[i]!;
+    if (quote) {
+      if (ch === "\\") {
+        out += ch + (source[i + 1] ?? "");
+        i += 2;
+        continue;
+      }
+      if (ch === quote) quote = null;
+      out += ch;
+      i += 1;
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      quote = ch;
+      out += ch;
+      i += 1;
+      continue;
+    }
+    if (ch === "/" && source[i + 1] === "*") {
+      const end = source.indexOf("*/", i + 2);
+      const stop = end === -1 ? source.length : end + 2;
+      // Preserve newlines so line numbers stay true.
+      out += source.slice(i, stop).replace(/[^\n]/g, " ");
+      i = stop;
+      continue;
+    }
+    out += ch;
+    i += 1;
+  }
+  return out;
+}
+
 export function scanCss(rel: string, source: string): Hit[] {
-  const stripped = source.replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " "));
+  // STRING-AWARE comment stripping. A regex strip removed `/* — */` even when
+  // it was the VALUE of `content:` — a rendered string that merely looks like a
+  // comment. Walking the text with a two-state lexer (in-string vs not) is the
+  // only way to tell them apart, and getting it wrong deletes real copy from the
+  // scan rather than merely over-reporting.
+  const stripped = stripCssComments(source);
   const hits: Hit[] = [];
   stripped.split("\n").forEach((line, i) => {
-    const m = /content\s*:([^;}]*)/i.exec(line);
-    if (!m) return;
-    if (m[1]!.includes(EM_DASH)) {
+    if (line.includes(EM_DASH)) {
       hits.push({ file: rel, line: i + 1, text: line.trim(), token: EM_DASH });
     }
   });
@@ -292,16 +348,33 @@ export function scanCss(rel: string, source: string): Hit[] {
 }
 
 /** Cells in a pipe row, GFM-style: split on unescaped `|`, drop the outer empties. */
-function cellCount(line: string): number {
-  // `\|` inside a cell is an ESCAPED pipe and does not split a cell. Splitting
-  // on every pipe counted `| A \| B |` as two cells, so a genuinely one-cell
-  // header matched a two-cell delimiter and the block (which GFM renders as a
-  // PARAGRAPH) had its second line elided.
+function splitCells(line: string): string[] {
+  // A pipe is escaped only by an ODD run of backslashes: `\|` escapes, `\\|`
+  // does not. A `(?<!\\)` lookbehind got even runs wrong, so 2, 4 and 6
+  // backslashes each mis-counted the row and let a rendered `--` be elided.
   const trimmed = line
     .trim()
     .replace(/^\|/, "")
     .replace(/\|\s*$/, "");
-  return trimmed.split(/(?<!\\)\|/).length;
+  const cells: string[] = [];
+  let cur = "";
+  let slashes = 0;
+  for (const ch of trimmed) {
+    if (ch === "|" && slashes % 2 === 0) {
+      cells.push(cur);
+      cur = "";
+      slashes = 0;
+      continue;
+    }
+    slashes = ch === "\\" ? slashes + 1 : 0;
+    cur += ch;
+  }
+  cells.push(cur);
+  return cells;
+}
+
+function cellCount(line: string): number {
+  return splitCells(line).length;
 }
 
 export function scanMarkdown(rel: string, source: string): Hit[] {
@@ -322,7 +395,12 @@ export function scanMarkdown(rel: string, source: string): Hit[] {
     // defeated three ways — an invalid backtick info string, a ~~~ line inside a
     // backtick fence, and a ``` line inside a storage fence — each leaving
     // later prose unscanned.
-    const fence = /^\s{0,3}(`{3,}|~{3,})(.*)$/.exec(raw);
+    // Up to three SPACES, per GFM. `\s{0,3}` also matched tabs, and a
+    // tab-indented ``` is not a fence opener — which silently un-scanned every
+    // line after it. Elision is strict on purpose: anything this does not
+    // positively recognize gets SCANNED, so ambiguity produces a surfaced hit
+    // rather than a silent pass.
+    const fence = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(raw);
     if (fence) {
       const marks = fence[1]!;
       const info = fence[2] ?? "";
@@ -362,11 +440,15 @@ export function scanMarkdown(rel: string, source: string): Hit[] {
     // PARAGRAPH — probed against the project's @mdx-js/mdx + remark-gfm
     // pipeline — so eliding on shape alone let `| A | B |` / `| -- |` through as
     // visible text. Column parity is the rule, not a heuristic.
+    // Every delimiter CELL must independently match GFM's grammar
+    // (`:?-+:?`). Shape-matching the whole line accepted `| -- | |` and
+    // `| -- | : |`, which GFM rejects — so the block renders as a paragraph and
+    // its `--` is visible text.
     const isTableDelimiter =
       tableRow === 2 &&
-      /^\s*\|[\s\-:|]*\|?\s*$/.test(raw) &&
+      headerCells > 0 &&
       cellCount(raw) === headerCells &&
-      headerCells > 0;
+      splitCells(raw).every((c) => /^:?-+:?$/.test(c.trim()));
     if (raw.includes(EM_DASH)) {
       hits.push({ file: rel, line: i + 1, text: raw.trim(), token: EM_DASH });
     }
@@ -401,7 +483,7 @@ function liveHits(): Hit[] {
     let files: string[];
     try {
       files = statSync(abs).isDirectory()
-        ? walkFiles(abs, (f) => /\.tsx?$/.test(f) && !/\.d\.ts$/.test(f))
+        ? walkFiles(abs, (f) => SOURCE_EXT.test(f) && !/\.d\.ts$/.test(f))
         : [abs];
     } catch {
       continue;
@@ -631,13 +713,79 @@ describe("em-dash copy guard — DESIGN.md §9", () => {
       expect(() => statSync(abs), `registered sentinel site is gone: ${rel}`).not.toThrow();
       const src = readFileSync(abs, "utf8");
       expect(scanTypeScript(rel, src), `${rel} scans dirty beside its anchors`).toEqual([]);
-      const normalized = src.replace(/\s+/g, " ");
+      // AST CONSUMPTION, not raw `includes`. A source search was spoofable:
+      // demote the real sentinel to "-" and add a COMMENT containing the anchor
+      // text, and the row still looked live while the allowance sat unused.
+      // lastAnchorUse is populated by the scanner itself, so only a literal the
+      // AST actually reached can satisfy it.
+      const used = new Map(lastAnchorUse);
       for (const a of anchors) {
-        expect(
-          normalized.includes(a.replace(/\s+/g, " ")),
-          `registered anchor no longer present in ${rel}: ${a}`,
-        ).toBe(true);
+        expect(used.get(a) ?? 0, `registered anchor is unused in ${rel}: ${a}`).toBe(1);
       }
+      expect(
+        [...used.keys()].filter((k) => !anchors.includes(k)),
+        `${rel} consumed an anchor that is not registered`,
+      ).toEqual([]);
+    }
+  });
+
+  it("PREMISE: every source extension the project compiles is scanned", () => {
+    // `.tsx?` alone silently excluded .mts/.js/.jsx/.mjs/.cjs while looking
+    // covered, and this repo sets allowJs and includes .mts.
+    for (const f of [
+      "lib/notify/x.mts",
+      "components/X.jsx",
+      "app/x/page.jsx",
+      "lib/x.mjs",
+      "lib/x.cjs",
+      "lib/x.js",
+    ]) {
+      expect(SOURCE_EXT.test(f), `covered extension not scanned: ${f}`).toBe(true);
+    }
+    expect(SOURCE_EXT.test("lib/x.d.ts"), ".d.ts is excluded elsewhere but still matches").toBe(
+      true,
+    );
+  });
+
+  it("PREMISE: the CSS scan is total, not a list of rendering properties", () => {
+    // Six forms that a `content:`-local regex missed; every one renders.
+    for (const [name, css] of [
+      ["value on the next line", 'body::after {\n  content:\n    "\u2014";\n}'],
+      ["var() indirection", '.a { --sep: "\u2014"; content: var(--sep); }'],
+      ["comment-looking string", '.a { content: "/* \u2014 */"; }'],
+      ["list-style-type", '.a { list-style-type: "\u2014"; }'],
+      ["quotes + open-quote", '.a { quotes: "\u2014" "\u2014"; content: open-quote; }'],
+      ["@counter-style symbols", '@counter-style x { symbols: "\u2014"; }'],
+    ] as const) {
+      expect(scanCss("app/x.css", css), `CSS escape must be caught: ${name}`).not.toHaveLength(0);
+    }
+  });
+
+  it("PREMISE: markdown elision is STRICT — ambiguity scans rather than passes", () => {
+    // GFM allows up to three SPACES before a fence. A tab is not a space, so a
+    // tab-indented ``` is not an opener; treating it as one un-scanned every
+    // following line.
+    for (const prefix of ["\t", " \t", "  \t"]) {
+      expect(
+        scanMarkdown("x.mdx", `${prefix}~~~\nVisible -- prose\n`),
+        `a tab-indented fence marker is not an opener: ${JSON.stringify(prefix)}`,
+      ).not.toHaveLength(0);
+    }
+
+    // Even backslash runs do NOT escape the pipe, so the columns really match
+    // and these are real tables... but odd runs DO escape, so the columns do not.
+    expect(
+      scanMarkdown("x.mdx", "| A \\\\| B |\n| -- | -- |"),
+      "an EVEN backslash run leaves the pipe active",
+    ).toHaveLength(0);
+
+    // Every delimiter CELL must match GFM's grammar; these do not, so the block
+    // is a paragraph and its `--` is visible.
+    for (const src of ["| A | B |\n| -- | |", "| A | B |\n| -- | : |", "| A | B |\n| | -- |"]) {
+      expect(
+        scanMarkdown("x.mdx", src),
+        `an invalid delimiter cell means this is prose: ${src}`,
+      ).not.toHaveLength(0);
     }
   });
 
