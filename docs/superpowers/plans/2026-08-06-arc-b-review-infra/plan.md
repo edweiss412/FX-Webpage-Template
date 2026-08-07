@@ -78,4 +78,4 @@ impeccable-gate: N/A — no UI surface
 - [ ] Anti-tautology: G1a fixtures assert named findings, not "the function ran"; G1b's planted-tree premise executes unconditionally; G2a fixtures observed against the SHIPPED recognizer before the parser lands; the baseline cannot pardon a NEW hit (only exact `{path, fenceLine, rule}` rows pass).
 - [ ] No snippet pasted — nothing to typecheck; new-file wiring: the meta-test is glob-wired (verified above), the CLI needs only the `package.json` script line.
 - [ ] `pnpm spec:lint docs/superpowers/plans/2026-08-06-arc-b-review-infra/plan.md` 0 hard.
-- [ ] Numeric sweep after every repair round (probe counts 325/5/14/145/1378; corpus 395/5,434/3,585; five rules; six grammar features; two callers).
+- [ ] Numeric sweep after every repair round (probe v2 counts 325/5/17/146/1399; corpus 396/5,515/3,631; five rules; five MUST-core + three MAY-set grammar features; two callers).
