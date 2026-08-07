@@ -50,8 +50,9 @@
  *      • UNREACHABLE / SHOW_MUTATION — `test.skip` with stamped
  *        reason. Unreachable pairs are matrix-declared as never
  *        firing on the natural code path; show.dates mutation pairs
- *        require dedicated setup that only the (skipped) compound
- *        audits below carry.
+ *        require dedicated setup that NO block in this file performs —
+ *        the compound audits below make zero shows.dates mutations
+ *        (probed 2026-08-06), so these pairs are undriven, not deferred.
  *
  *   The matrix is the single dispatch table — every entry maps to
  *   exactly one of these categories via `categorize(entry)`.
@@ -83,8 +84,7 @@ type Category = "TICK_DRIVABLE" | "NAV_DRIVABLE" | "SKIP";
  *
  *   - Unreachable cells → SKIP (matrix-declared no-fire)
  *   - Either endpoint is `unknown` or `dateless` → SKIP (requires
- *     show.dates mutation, carried only by the skipped compound
- *     audits)
+ *     show.dates mutation, which no block in this file performs)
  *   - Both endpoints are time-driven AND adjacent on the show-day
  *     sequence → TICK_DRIVABLE (clock advance alone fires the kind
  *     change in-session)
@@ -92,8 +92,8 @@ type Category = "TICK_DRIVABLE" | "NAV_DRIVABLE" | "SKIP";
  */
 function categorize(entry: TransitionMatrixEntry): Category {
   if (entry.treatment === "unreachable") return "SKIP";
-  // Show-mutation endpoints — carried only by the skipped compound
-  // audits, with explicit dates setup/teardown.
+  // Show-mutation endpoints — no block in this file performs a shows.dates
+  // mutation, so these pairs are undriven rather than deferred elsewhere.
   if (
     STATE_DRIVERS[entry.from]?.requiresShowMutation ||
     STATE_DRIVERS[entry.to]?.requiresShowMutation
@@ -190,7 +190,7 @@ test.describe.skip("RightNow §8.2 — 66-pair pairwise transition audit", () =>
       const reason =
         entry.treatment === "unreachable"
           ? `unreachable per matrix: ${entry.reason ?? "(no reason recorded)"}`
-          : `endpoint requires show.dates mutation; carried only by the skipped compound audits (${entry.from} ↔ ${entry.to})`;
+          : `endpoint requires show.dates mutation, which no block in this file performs (${entry.from} ↔ ${entry.to})`;
       test.skip(title, () => {
         // Document-only body; never executed. The string above is the
         // skip reason captured by the runner.

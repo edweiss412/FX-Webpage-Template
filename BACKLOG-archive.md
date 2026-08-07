@@ -237,8 +237,9 @@ unreadable, which is why this refiles rather than merely updating in place.
   the fixed wait cannot creep back. The three fixed waits the class sweep found elsewhere in that file
   are filed separately as `BL-E2E-LAYOUT-FIXED-WAIT-RESIDUE`.
 
-**The residual, carried to the refile unchanged:** the ~60 app-dependent standalone-allowlist specs
-that need a dev server AND a seeded database — deliberately out of the CI-dark cluster's ratified
+**The residual, carried to the refile:** the app-dependent standalone-allowlist specs that need a dev
+server and (mostly) a seeded database — counted at refile time as **43** `UNSEEN` rows, correcting the
+"~60" this umbrella had long carried — deliberately out of the CI-dark cluster's ratified
 scope, and never part of what the 2026-07-27 wiring closed.
 
 **Owner action, preserved because it is NOT repo work and cannot be closed by a branch** (corrected
@@ -800,7 +801,7 @@ rule (every instance of one shape repaired in the same PR).
 **Ground truth at close (re-verified 2026-08-06):** 12 files under `tests/e2e/` carry a top-level
 `describe.skip`. "Wholly dead" is the wrong word for two of them and is corrected here rather than
 repeated: `crew-page.spec.ts` has two LIVE blocks (§4.9 layout invariants, and the nav/preview-as
-block) alongside five skipped ones, and `right-now-transitions.spec.ts` has a live §5.7
+block) alongside six skipped ones (five `test.describe.skip` plus the multiline `.skip(` chain), and `right-now-transitions.spec.ts` has a live §5.7
 anchor-selection block. Every one of the 12 is CI-DARK — named by no workflow — which is the property
 that actually mattered for this sweep; "skipped" and "dark" are different claims and conflating them
 is what the class sweep kept catching. The 12 are — `crew-page`, `empty-state`, `layout-dimensions`, `notes-tile`,

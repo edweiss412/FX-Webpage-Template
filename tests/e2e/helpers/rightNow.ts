@@ -2,7 +2,7 @@
  * tests/e2e/helpers/rightNow.ts — shared driving infrastructure for the
  * §8.2 RightNow transition audit (M4 Task 4.12 Batch 2).
  *
- * The 66-pair pairwise audit + 6 compound transition tests in
+ * The 66-pair pairwise audit + 7 compound transition tests in
  * `tests/e2e/right-now-transitions.spec.ts` all share the same
  * scaffolding: look up the seeded show, mutate the LEAD viewer's
  * `date_restriction`, pin Playwright's clock controller to a chosen
@@ -23,9 +23,12 @@
  *   `right-now.spec.ts` (Task 4.11 AC-4.3 suite) is written against the
  *   simpler addInitScript shim because it only needs to assert the
  *   initial render. THIS suite needs to assert pre→post transition
- *   behavior in a single session, so we use page.clock. Neither suite
- *   executes: both are `describe.skip` and run in no CI workflow
- *   (BL-E2E-APP-DEPENDENT-SPECS-CI-DARK), so nothing below is exercised.
+ *   behavior in a single session, so we use page.clock. Neither file runs
+ *   in CI — no workflow names either (BL-E2E-APP-DEPENDENT-SPECS-CI-DARK).
+ *   `right-now.spec.ts` is wholly `describe.skip`; in
+ *   `right-now-transitions.spec.ts` the two audit blocks are skipped but the
+ *   §5.7 anchor block is LIVE and does call `driveToState`, so this helper is
+ *   exercised there under a local `pnpm test:e2e`.
  *
  * Seed contract:
  *   • drive_file_id `seed-fixture:2026-04-asset-mgmt-cfo-coo-waldorf`
@@ -171,9 +174,9 @@ export async function setSystemTime(page: Page, isoDate: string): Promise<void> 
  * Some kinds require show.dates mutation (e.g., `dateless` requires
  * stripping every parseable date). Those are listed as `requiresShowMutation: true`
  * and the parametrized audit skips pairs where either endpoint requires
- * dates mutation — they're harder to drive without polluting the
- * shared seed, and are written only in the (skipped) compound-transition
- * audits with explicit setup/teardown. Neither block executes.
+ * dates mutation — they're harder to drive without polluting the shared
+ * seed. No block drives them: the compound audits perform zero shows.dates
+ * mutations (probed 2026-08-06), so these endpoints are simply undriven.
  */
 export type StateDriver = {
   clockDate: string;
@@ -181,7 +184,7 @@ export type StateDriver = {
   /**
    * If true, this kind cannot be driven via clock + restriction
    * alone — needs `shows.dates` mutation. The parametrized audit
-   * skips pairs where either endpoint has this set; the (skipped) compound
+   * skips pairs where either endpoint has this set; no block drives them (the compound
    * tests handle them with explicit setup.
    */
   requiresShowMutation?: boolean;
@@ -238,10 +241,11 @@ export const STATE_DRIVERS: Record<string, StateDriver> = {
     restriction: { kind: "explicit", days: [SEED_DATES.showDay1] },
   },
   // unknown / dateless require show.dates mutation — the parametrized
-  // audit skips pairs touching these endpoints, and the recovery paths
-  // are written only in the (skipped) compound audits, which mutate
-  // dates with explicit setup. Neither runs, so the recovery paths
-  // have no executing coverage.
+  // audit skips pairs touching these endpoints. NOTHING drives them:
+  // probed 2026-08-06, the compound audit block performs ZERO shows.dates
+  // mutations and never calls a driver for these kinds, so the long-standing
+  // claim that the compound tests "cover the recovery paths" was false even
+  // before those blocks were skipped. These endpoints are undriven, full stop.
   unknown: {
     clockDate: SEED_DATES.showDay1,
     restriction: { kind: "none", days: null },
