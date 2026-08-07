@@ -27,7 +27,7 @@ export const TRIGGER_LABEL = "Recognize this role";
 export const triggerAriaLabel = (token: string) => `${TRIGGER_LABEL}: “${token}”`;
 export const PANEL_HEADING = "What should people with this role see?";
 export const SCOPE_LINE =
-  "Applies to anyone whose role says <TOKEN>, this show and every show after.";
+  "Applies to anyone whose role says <TOKEN>, on this show and every show after.";
 export const CHECKBOX_AUDIO = "Audio details";
 export const CHECKBOX_VIDEO = "Video details";
 export const CHECKBOX_LIGHTING = "Lighting details";

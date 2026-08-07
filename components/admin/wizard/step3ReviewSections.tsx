@@ -4128,7 +4128,7 @@ export function ReportIssueSection({ data }: { data: StagedSectionData }) {
               {status.kind === "pending"
                 ? "Sending…"
                 : status.kind === "success"
-                  ? "Sent, thanks. The developer will take a look."
+                  ? "Sent. Thanks, the developer will take a look."
                   : status.kind === "error"
                     ? status.copy
                     : ""}

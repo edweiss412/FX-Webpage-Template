@@ -54,10 +54,10 @@ export const CONFIRM_BUTTON_PENDING_LABEL = "Taking it offline…";
 export const KEEP_LIVE_LINE =
   "Want to keep it live? Doing nothing leaves the show live; just close this page.";
 
-export const SUCCESS_HEADING = "Done, it’s offline";
+export const SUCCESS_HEADING = "Done. It’s offline";
 
 /** Rendered as: <strong>{title}</strong> {SUCCESS_BODY_AFTER_TITLE} */
 export const SUCCESS_BODY_AFTER_TITLE =
-  "is now offline. Crew links are paused; flip Published back on from its page in the admin any time; the same link starts working again.";
+  "is now offline. Crew links are paused. Flip Published back on from its page in the admin any time, and the same link starts working again.";
 
 export const SUCCESS_ADMIN_LINK_LABEL = "Open it in the admin";

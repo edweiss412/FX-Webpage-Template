@@ -209,13 +209,13 @@ export function buildFieldChangesRow(
         label: "Other changes",
         from: null,
         to: null,
-        note: `${omitted} other field ${omitted === 1 ? "change" : "changes"} on this sync; details unavailable`,
+        note: `${omitted} other field ${omitted === 1 ? "change" : "changes"} on this sync: details unavailable`,
       });
     }
     return { summary: summarize(types, omitted), afterImage: { fieldChanges: entries } };
   }
   // All-malformed → explicit visible Unavailable marker (never null after_image).
-  const note = `${omitted} field ${omitted === 1 ? "change" : "changes"} on this sync; details unavailable`;
+  const note = `${omitted} field ${omitted === 1 ? "change" : "changes"} on this sync: details unavailable`;
   return {
     summary: note,
     afterImage: { fieldChanges: [{ label: "Unavailable", from: null, to: null, note }] },

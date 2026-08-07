@@ -156,7 +156,7 @@ export function Gallery({ showId, snapshotRevisionId, items }: GalleryProps) {
                 <div className="flex size-full flex-col items-center justify-center gap-1 text-text-subtle">
                   <ImageOff aria-hidden="true" className="size-5" />
                   <span className="sr-only">
-                    {`${item.alt || `Diagram ${i + 1}`} , image unavailable`}
+                    {`${item.alt || `Diagram ${i + 1}`}, image unavailable`}
                   </span>
                 </div>
               )}

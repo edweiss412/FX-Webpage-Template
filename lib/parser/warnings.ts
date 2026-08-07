@@ -46,7 +46,7 @@ export function emitEmptySection(agg: ParseAggregator | undefined, section: stri
   agg.warnings.push({
     severity: "warn",
     code: "SECTION_HEADER_NO_FIELDS",
-    message: `Recognized "${section}" section header but parsed zero fields; section dropped.`,
+    message: `Recognized "${section}" section header but parsed zero fields, so the section was dropped.`,
     blockRef: { kind: section },
   });
 }
@@ -110,7 +110,7 @@ export function emitUnknownSection(agg: ParseAggregator | undefined, headerText:
   agg.warnings.push({
     severity: "warn",
     code: "UNKNOWN_SECTION_HEADER",
-    message: `Unrecognized section "${headerText}"; its rows were not parsed.`,
+    message: `We didn't recognize the section "${headerText}", so its rows were not parsed.`,
     blockRef: { kind: "unknown_section" },
     rawSnippet: headerText,
   });

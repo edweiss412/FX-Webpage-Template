@@ -56,7 +56,11 @@ const EM_DASH = "—";
  * text exclusively through §12.4 catalog codes (invariant 5), so their literals
  * are internal by contract — and the catalog itself is a covered surface.
  */
-const COVERED_TS_ROOTS: readonly string[] = ["lib/messages/catalog.ts", "lib", "components", "app"];
+// `lib/messages/catalog.ts` is NOT listed separately: it lives under `lib`, so
+// naming it too would scan it twice and report every hit in duplicate. The
+// catalog's coverage is asserted by a premise below rather than by a redundant
+// root entry.
+const COVERED_TS_ROOTS: readonly string[] = ["lib", "components", "app"];
 
 /** Markdown/MDX prose roots. */
 const COVERED_MDX_ROOTS: readonly string[] = ["app/help"];
@@ -168,18 +172,60 @@ function lineOf(source: string, pos: number): number {
  * scan uses — a premise that exercised a different code path would prove
  * nothing about the guard that actually runs.
  */
+/**
+ * Is this literal an empty-value SENTINEL rather than prose?
+ *
+ * A sentinel is the glyph standing in for a missing value ({checkIn ?? "—"}) or
+ * a decorative aria-hidden separator. The spec exempts that class by name at
+ * `lib/visibility/emptyState.ts`; encoding it STRUCTURALLY keeps the exemption
+ * narrow, because a file may hold both a sentinel and real copy and a per-file
+ * row would silently exempt the copy too.
+ *
+ * TWO CONDITIONS, both learned from a real bypass. The first version tested
+ * `text.trim() === EM_DASH`, and the impeccable audit defeated it three ways —
+ * all of them idiomatic authoring, not obfuscation:
+ *
+ *   <span>Notifications{" — "}unseen</span>      renders "Notifications — unseen"
+ *   "Notifications " + "—" + ` ${count} unseen`  renders "Notifications — 3 unseen"
+ *   `Notifications ${"—"} ${count} unseen`       renders "Notifications — 3 unseen"
+ *
+ * So:
+ *   1. WHITESPACE IS NOT TRIMMED for string literals. A padded `" — "` is a
+ *      SEPARATOR glued between text; a bare `"—"` is a value. JsxText is still
+ *      trimmed, because there the surrounding whitespace is JSX formatting the
+ *      renderer collapses, not authored padding.
+ *   2. A literal whose parent BUILDS A STRING — a `+` concatenation, or a span
+ *      of a template expression — is never a sentinel, whatever it contains. It
+ *      is a fragment of a larger sentence by construction.
+ */
+function isSentinel(node: ts.Node, text: string, isJsx: boolean): boolean {
+  const bare = isJsx ? text.trim() === EM_DASH : text === EM_DASH;
+  if (!bare) return false;
+  const parent = node.parent;
+  if (!parent) return true;
+  // Concatenated into a larger string.
+  if (ts.isBinaryExpression(parent) && parent.operatorToken.kind === ts.SyntaxKind.PlusToken) {
+    return false;
+  }
+  // Interpolated into a template: `… ${"—"} …`.
+  if (ts.isTemplateSpan(parent) || ts.isTemplateExpression(parent)) return false;
+  // A JSX child sitting beside other children is a separator, not a lone value.
+  if (ts.isJsxExpression(parent) && parent.parent && "children" in parent.parent) {
+    const siblings = (parent.parent as unknown as { children: readonly ts.Node[] }).children;
+    const meaningful = siblings.filter(
+      (c) => !(ts.isJsxText(c) && c.text.trim().length === 0) && c !== parent,
+    );
+    if (meaningful.length > 0) return false;
+  }
+  return true;
+}
+
 export function scanTypeScript(rel: string, source: string): Hit[] {
   const sf = ts.createSourceFile(rel, source, ts.ScriptTarget.Latest, true);
   const hits: Hit[] = [];
-  const record = (node: ts.Node, text: string) => {
+  const record = (node: ts.Node, text: string, isJsx = false) => {
     if (!text.includes(EM_DASH)) return;
-    // A literal that IS the glyph, alone, is an empty-value SENTINEL, not prose
-    // ({checkIn ?? "—"}, a decorative aria-hidden separator). The spec exempts
-    // this class by name at lib/visibility/emptyState.ts; encoding it
-    // STRUCTURALLY rather than as per-file rows is what keeps the exemption
-    // narrow — a file may hold both a sentinel and real copy, and a per-file row
-    // would silently exempt the copy too.
-    if (text.trim() === EM_DASH) return;
+    if (isSentinel(node, text, isJsx)) return;
     hits.push({
       file: rel,
       line: lineOf(source, node.getStart(sf)),
@@ -197,7 +243,7 @@ export function scanTypeScript(rel: string, source: string): Hit[] {
     ) {
       record(node, (node as ts.LiteralLikeNode).text);
     } else if (ts.isJsxText(node)) {
-      record(node, node.text);
+      record(node, node.text, true);
     }
     ts.forEachChild(node, walk);
   };
@@ -278,7 +324,7 @@ function liveHits(): Hit[] {
 }
 
 describe("em-dash copy guard — DESIGN.md §9", () => {
-  it("no covered surface carries an em dash or a `--` in user-visible copy", () => {
+  it("no covered surface carries an em dash (or, in MDX prose, a `--`)", () => {
     const hits = liveHits();
     const detail = hits
       .map((h) => `  ${h.file}:${h.line}  [${h.token}]  ${h.text.slice(0, 110)}`)
@@ -394,6 +440,39 @@ describe("em-dash copy guard — DESIGN.md §9", () => {
     }
     expect(COVERED_TS_ROOTS, "components must be covered").toContain("components");
     expect(COVERED_TS_ROOTS, "app must be covered").toContain("app");
+  });
+
+  it("PREMISE: the three audit bypasses stay closed", () => {
+    // Regression fixtures for a REAL bypass. The first sentinel rule tested
+    // `text.trim() === EM_DASH` and the impeccable audit defeated it three
+    // ways, each idiomatic authoring rather than obfuscation. Each renders a
+    // visible "Notifications — …" and each must be a hit.
+    const bypasses = [
+      `const C = () => <span>Notifications{" — "}unseen</span>;`,
+      'const s = "Notifications " + "\u2014" + ` ${count} unseen`;',
+      'const s = `Notifications ${"\u2014"} ${count} unseen`;',
+    ];
+    for (const src of bypasses) {
+      expect(
+        scanTypeScript("components/bypass.tsx", src),
+        `this bypass must be caught: ${src}`,
+      ).not.toHaveLength(0);
+    }
+  });
+
+  it("PREMISE: real sentinels are still exempt", () => {
+    // The other half of the same boundary: tightening the rule must not start
+    // flagging the empty-value placeholders it exists to allow.
+    const sentinels = [
+      `const C = () => <p>{checkIn ?? "\u2014"}</p>;`,
+      `const C = () => <span aria-hidden="true">\n  \u2014\n</span>;`,
+    ];
+    for (const src of sentinels) {
+      expect(
+        scanTypeScript("components/sentinel.tsx", src),
+        `this sentinel must stay exempt: ${src}`,
+      ).toHaveLength(0);
+    }
   });
 
   it("PREMISE: a lone glyph is a sentinel, but glyph-plus-prose is not", () => {

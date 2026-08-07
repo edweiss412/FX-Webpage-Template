@@ -1162,7 +1162,7 @@ describe("ReportIssueSection — §D disclosure (collapsed by default; state sur
   // Mirrors reportAttemptStorageKey (step3ReviewSections.tsx) — deliberately
   // restated so a key-format drift fails here.
   const STORAGE_KEY = `fxav-report-attempt-wizard-${WSID}-${DFID}`;
-  const SUCCESS_COPY = "Sent, thanks. The developer will take a look.";
+  const SUCCESS_COPY = "Sent. Thanks, the developer will take a look.";
 
   beforeEach(() => window.sessionStorage.clear());
   afterEach(() => vi.unstubAllGlobals());
