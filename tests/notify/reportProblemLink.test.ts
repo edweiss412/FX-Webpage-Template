@@ -60,7 +60,13 @@ function expectReportLink(rendered: { html: string; text: string }, expectedHref
   // ${origin}/admin" in their plaintext body, so a `toContain(expectedHref)`
   // row passed on that PRE-EXISTING line even with the report footer reduced to
   // a bare label. Those four tests stayed green against a broken footer.
-  expect(rendered.text, "text body must carry the labeled report URL as one footer line").toContain(
+  // EXACT LINE membership, not `toContain`. A substring check has no RIGHT
+  // boundary, so a footer whose URL grew a suffix — `/admin/does-not-exist`,
+  // `?show=<slug>/typo` — still contained the expected prefix and passed while
+  // pointing somewhere broken. The footer occupies its own line in every
+  // template, so exact membership is both available and the honest assertion.
+  const lines = rendered.text.split(/\r?\n/);
+  expect(lines, "text body must carry the labeled report URL as an exact footer line").toContain(
     `${LABEL}: ${expectedHref}`,
   );
 }
