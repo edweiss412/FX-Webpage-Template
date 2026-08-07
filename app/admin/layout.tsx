@@ -89,7 +89,7 @@ export default async function AdminLayout({ children }: { children: ReactNode })
       // scanner does not flag the code string inside a JSX expression.
       const infraMessage = getRequiredDougFacing("ADMIN_ROUTE_LOAD_FAILED");
       return (
-        <AdminAnnounceProvider testId="admin-undo-status" label="Undo updates">
+        <AdminAnnounceProvider testId="admin-undo-status" label="Status updates">
           <div
             data-testid="admin-layout-infra-error"
             className="mx-auto flex min-h-screen max-w-md flex-col items-center justify-center p-page-pad-mobile sm:p-page-pad-desktop text-center"
@@ -156,7 +156,7 @@ export default async function AdminLayout({ children }: { children: ReactNode })
 
   if (inOnboarding) {
     return (
-      <AdminAnnounceProvider testId="admin-undo-status" label="Undo updates">
+      <AdminAnnounceProvider testId="admin-undo-status" label="Status updates">
         <div
           data-testid="admin-layout"
           // §S3C-2: stable hook the Step-3 review modal inerts while open (it
@@ -185,7 +185,7 @@ export default async function AdminLayout({ children }: { children: ReactNode })
     // inside would put the region in the subtree ReviewModalShell sets
     // aria-hidden while a modal is open, silently killing every feed
     // announcement.
-    <AdminAnnounceProvider testId="admin-undo-status" label="Undo updates">
+    <AdminAnnounceProvider testId="admin-undo-status" label="Status updates">
       <div
         data-testid="admin-layout"
         // §S3C-2: stable hook the Step-3 review modal inerts while open (see the

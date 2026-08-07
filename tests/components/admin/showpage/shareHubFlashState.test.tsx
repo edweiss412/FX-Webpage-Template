@@ -381,7 +381,12 @@ describe("teardown", () => {
     const baseline = vi.getTimerCount();
 
     remoteRotate(0);
-    expect(vi.getTimerCount()).toBe(baseline + 1);
+    // TWO, not one, since SHARELINK-CUE-VISIBILITY-1: the cue arms its flash
+    // timer AND schedules the scroll frame. Vitest's fake timers fake
+    // requestAnimationFrame too, so the pending frame counts here. Both have
+    // cleanup, which is what the post-unmount assertion below now proves for
+    // both of them.
+    expect(vi.getTimerCount()).toBe(baseline + 2);
 
     unmount();
 
@@ -532,5 +537,179 @@ describe("ShareHub remote-rotation announcement", () => {
     fireEvent.click(screen.getByTestId("share-hub-primary")); // close
     openPanel();
     expect(region().textContent).toBe("");
+  });
+});
+
+// ── SHARELINK-CUE-VISIBILITY-1: the cue scrolls itself into view ─────────────
+//
+// The URL block sits at the TOP of the popover's scroller and the rotate control
+// is below it, so on a phone the operator has scrolled past the block by the
+// time they confirm — the cue can fire entirely above the fold. The scroll is
+// what makes the cue reachable at all.
+//
+// The compound cases are HERE, in the RED, rather than in a later audit pass:
+// the rAF bookkeeping they pin (cancel-then-reschedule, cleanup-on-unmount) is
+// implementation the GREEN has to carry, so writing them afterwards would be
+// writing tests to match code.
+//
+// ANTI-TAUTOLOGY on the behavior strings: the test sets the media state and
+// hardcodes the expected literal per state. Deriving the expectation from the
+// same map the implementation reads would assert nothing — this is the
+// data-source side of the assertion.
+describe("SHARELINK-CUE-VISIBILITY-1 — the flash edge scrolls the URL row into view", () => {
+  let rafQueue: Array<{ id: number; cb: FrameRequestCallback } | null> = [];
+  let nextRafId = 0;
+  let scrollSpy: ReturnType<typeof vi.fn>;
+
+  /** Hand-driven rAF, so "before the frame fires" is an observable state. */
+  function installRaf() {
+    rafQueue = [];
+    nextRafId = 0;
+    vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) => {
+      const id = ++nextRafId;
+      rafQueue.push({ id, cb });
+      return id;
+    });
+    vi.stubGlobal("cancelAnimationFrame", (id: number) => {
+      const i = rafQueue.findIndex((e) => e !== null && e.id === id);
+      if (i >= 0) rafQueue[i] = null;
+    });
+  }
+
+  function pendingFrames() {
+    return rafQueue.filter((e) => e !== null).length;
+  }
+
+  function flushRaf() {
+    const q = rafQueue;
+    rafQueue = [];
+    act(() => {
+      for (const e of q) e?.cb(0);
+    });
+  }
+
+  function mockReducedMotion(reduce: boolean) {
+    vi.stubGlobal("matchMedia", (query: string) => ({
+      matches: reduce && query.includes("prefers-reduced-motion"),
+      media: query,
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    }));
+  }
+
+  beforeEach(() => {
+    installRaf();
+    mockReducedMotion(false);
+    scrollSpy = vi.fn();
+    // jsdom implements no layout and therefore no scrollIntoView; production
+    // guards on exactly that, so the spy is also what makes the guard passable.
+    Object.defineProperty(Element.prototype, "scrollIntoView", {
+      value: scrollSpy,
+      configurable: true,
+      writable: true,
+    });
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    delete (Element.prototype as unknown as { scrollIntoView?: unknown }).scrollIntoView;
+  });
+
+  /** Every call's target, resolved to its testid. */
+  function scrolledTestIds() {
+    return scrollSpy.mock.instances.map((el) => (el as Element).getAttribute?.("data-testid"));
+  }
+
+  it("fires on the null -> non-null flash edge, targeting the URL ROW", () => {
+    renderHub();
+    openPanel();
+    expect(scrollSpy).not.toHaveBeenCalled();
+    remoteRotate(0);
+    flushRaf();
+    expect(scrolledTestIds()).toEqual(["admin-current-share-link-row"]);
+    expect(scrollSpy.mock.calls[0]?.[0]).toMatchObject({ block: "nearest" });
+  });
+
+  it("fires AGAIN on n -> n+1 (a second rotation inside the same open panel)", () => {
+    // A re-rotation is a new cue and needs a new scroll: the operator may have
+    // scrolled away again between the two.
+    renderHub();
+    openPanel();
+    remoteRotate(0);
+    flushRaf();
+    remoteRotate(1);
+    flushRaf();
+    expect(scrollSpy).toHaveBeenCalledTimes(2);
+    expect(new Set(scrolledTestIds())).toEqual(new Set(["admin-current-share-link-row"]));
+  });
+
+  it("does NOT fire on re-renders that change no token", () => {
+    // The failure mode: an effect keyed on `token` (or on nothing) scrolls the
+    // popover out from under the operator on every busy flip and banner mount.
+    const { rerenderWith } = renderHub();
+    openPanel();
+    rerenderWith({ showTitle: "Renamed Show" });
+    rerenderWith({ finalizeOwned: true });
+    flushRaf();
+    expect(scrollSpy).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [false, "smooth"],
+    [true, "auto"],
+  ])("reduced-motion %s -> behavior %s", (reduce, expected) => {
+    mockReducedMotion(reduce);
+    renderHub();
+    openPanel();
+    remoteRotate(0);
+    flushRaf();
+    expect(scrollSpy.mock.calls[0]?.[0]).toMatchObject({ behavior: expected });
+  });
+
+  it("COMPOUND: a double bump before the frame fires yields exactly ONE scroll", () => {
+    // Two rotations inside one frame must not stack two rAFs racing the same
+    // target; un-cancelled scheduling is the classic version of this bug.
+    renderHub();
+    openPanel();
+    remoteRotate(0);
+    remoteRotate(1);
+    expect(pendingFrames()).toBe(1);
+    flushRaf();
+    expect(scrollSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("COMPOUND: closing the popover before the frame fires yields NO scroll and no throw", () => {
+    // The rAF would otherwise run against a detached node. Production also
+    // guards the node's absence, but the effect cleanup is what stops the frame.
+    renderHub();
+    openPanel();
+    remoteRotate(0);
+    fireEvent.click(screen.getByTestId("share-hub-primary")); // close
+    expect(() => flushRaf()).not.toThrow();
+    expect(scrollSpy).not.toHaveBeenCalled();
+  });
+
+  it("COMPOUND: the flash timer expiring neither cancels a delivered scroll nor re-fires one", () => {
+    // The highlight clears while the glide may still be in flight. Nothing
+    // should observe scroll end, and clearing is not itself a cue.
+    // Fake timers must come FIRST: vitest fakes requestAnimationFrame along
+    // with the clock, so enabling them after the stub would silently replace it
+    // and the hand-driven queue would sit empty.
+    vi.useFakeTimers();
+    installRaf();
+    renderHub();
+    openPanel();
+    remoteRotate(0);
+    flushRaf();
+    expect(scrollSpy).toHaveBeenCalledTimes(1);
+    act(() => {
+      vi.advanceTimersByTime(SHARE_LINK_FLASH_MS + 50);
+    });
+    flushRaf();
+    expect(scrollSpy).toHaveBeenCalledTimes(1);
   });
 });

@@ -136,17 +136,17 @@ describe("useAnnounceLog", () => {
 
 describe("AnnounceLogRegion", () => {
   it("renders role=log, sr-only, and the given label and testId", () => {
-    render(<AnnounceLogRegion entries={[]} label="Undo updates" testId="x-status" />);
+    render(<AnnounceLogRegion entries={[]} label="Status updates" testId="x-status" />);
     const el = screen.getByTestId("x-status");
     expect(el.getAttribute("role")).toBe("log");
     expect(el.className).toBe("sr-only");
-    expect(el.getAttribute("aria-label")).toBe("Undo updates");
+    expect(el.getAttribute("aria-label")).toBe("Status updates");
   });
 
   it("writes NO explicit aria-live, aria-atomic or aria-relevant", () => {
     // Catches: someone "helpfully" adding attributes that fight role=log's
     // implicits (polite, atomic=false, relevant=additions text).
-    render(<AnnounceLogRegion entries={[]} label="Undo updates" testId="x-status" />);
+    render(<AnnounceLogRegion entries={[]} label="Status updates" testId="x-status" />);
     const el = screen.getByTestId("x-status");
     expect(el.getAttribute("aria-live")).toBeNull();
     expect(el.getAttribute("aria-atomic")).toBeNull();
@@ -156,7 +156,7 @@ describe("AnnounceLogRegion", () => {
   it("is mounted and empty before anything is announced", () => {
     // Catches: gating the region on having entries, which re-creates the
     // insertion pitfall the moment the first announcement arrives.
-    render(<AnnounceLogRegion entries={[]} label="Undo updates" testId="x-status" />);
+    render(<AnnounceLogRegion entries={[]} label="Status updates" testId="x-status" />);
     expect(screen.getByTestId("x-status")).toHaveTextContent("");
   });
 
@@ -165,7 +165,7 @@ describe("AnnounceLogRegion", () => {
       { id: 7, text: "seven" },
       { id: 9, text: "nine" },
     ];
-    render(<AnnounceLogRegion entries={entries} label="Undo updates" testId="x-status" />);
+    render(<AnnounceLogRegion entries={entries} label="Status updates" testId="x-status" />);
     const kids = Array.from(screen.getByTestId("x-status").children) as HTMLElement[];
     expect(kids.map((c) => c.getAttribute("data-announce-id"))).toEqual(["7", "9"]);
     expect(kids.map((c) => c.textContent)).toEqual(["seven", "nine"]);

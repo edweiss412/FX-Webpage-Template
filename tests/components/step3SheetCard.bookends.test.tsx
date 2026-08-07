@@ -107,7 +107,7 @@ describe("Step3SheetCard ScheduleBreakdown — SET/strike/load-out (Task 14)", (
       "2026-04-10": {
         entries: [
           { start: "9:00 AM", title: "Registration" },
-          { start: "5:00 PM", title: "Strike — GS", kind: "strike" },
+          { start: "5:00 PM", title: "Strike: GS", kind: "strike" },
           { start: "6:00 PM", title: "Load Out", kind: "loadout" },
         ],
         showStart: null,
@@ -120,10 +120,10 @@ describe("Step3SheetCard ScheduleBreakdown — SET/strike/load-out (Task 14)", (
     expect(region.getByText("Load In")).toBeTruthy();
     // Synthetic titles render the title text itself; the synthetic marker is the
     // title cell's data-entry-kind (NOT a redundant kind-word badge).
-    expect(region.getByText("Strike — GS")).toBeTruthy();
+    expect(region.getByText("Strike: GS")).toBeTruthy();
     expect(region.getByText("Load Out")).toBeTruthy();
     expect(kindCell(el, "strike")?.getAttribute("data-entry-kind")).toBe("strike");
-    expect(kindCell(el, "strike")?.textContent).toBe("Strike — GS");
+    expect(kindCell(el, "strike")?.textContent).toBe("Strike: GS");
     expect(kindCell(el, "loadout")?.getAttribute("data-entry-kind")).toBe("loadout");
     expect(kindCell(el, "loadout")?.textContent).toBe("Load Out");
     // The redundant uppercase kind-word badge is gone; synthetic cells are muted.

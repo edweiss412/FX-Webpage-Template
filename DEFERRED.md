@@ -140,30 +140,39 @@ exempted, and the gap is recorded here where deferrals are actually reviewed.
 passive effects (a custom React scheduler shim, or `scheduler/unstable_mock`).
 Register the mutation as an adversary at that point and confirm it reds.
 
-### SHARELINK-CUE-VISIBILITY-1 — impeccable critique P1 (2026-07-25, share-link-chrome-backlog)
+### SHARELINK-CUE-FOCUS-OBSCURED-1 — the scroll cue may push the focused rotate control out of view (2026-08-07, arc A)
+
+**Effort:** S
+
+**Reachability:** INFERRED, NOT PROBED.
+
+From the impeccable audit of `feat/a11y-privacy-cluster` (P2). The new rotation cue scrolls the crew-URL row into view inside the share hub's `overflow-y-auto` popover. The URL row sits ABOVE the rotate control, so the scroll moves the viewport up and can push the just-activated control — which still holds focus — below the visible band. WCAG 2.2 SC 2.4.11 Focus Not Obscured (Minimum, AA).
+
+**Not fixed, because the obvious repair fights the feature.** The cue exists precisely to move the view off the rotate control and onto the link that changed; scrolling the focused control back into view would undo it. `block: "nearest"` already minimizes the movement, and does nothing at all when the row is already visible. Whether the residual case is a real 2.4.11 failure also turns on a question this arc did not settle: 2.4.11 is written about author-created content covering the focused element (sticky headers, overlays), and an author-initiated scroll within a scroll container is a greyer reading.
+
+**The probe that settles it, and the first scheduled step if this is promoted:** at 390x560, drive the rotate flow in a real browser (the harness exists — `tests/e2e/admin-lifecycle-layout.spec.ts` already seeds a published show and drives arm+confirm), then read `document.activeElement`'s rect against the popover's client rect after the glide settles. If the focused element is fully outside, it is a confirmed failure and the fix is to scroll the active element back into view AFTER the cue rather than instead of it.
+
+**Un-defer trigger:** that probe, or any a11y pass over the share hub.
+
+### TRAVEL-SUPPRESSION-PARTIAL-EXPLANATION-1 — a partly-suppressed Travel section explains nothing (2026-08-07, arc A)
 
 **Effort:** M
 
-The crew-URL cue can fire above the fold. The URL block sits at the top of the
-share hub's scrolling popover and the rotate control is below it, so on a phone
-the operator has scrolled past the block by the time they tap Confirm
-(`admin-lifecycle-layout.spec.ts:393` already measures that popover overflowing
-at 390x560). The critique's proposed fix is the `scrollIntoView` idiom already
-in `components/admin/showpage/ShareHub.tsx:892-907`, fired on the null-to-non-null
-`flash` edge.
+From the impeccable critique of `feat/a11y-privacy-cluster` (invariant-8 dual gate, P1). Arc A withholds dates from an `unknown_asterisk` viewer at three TravelSection sites. When suppression empties the section OUTRIGHT the copy now names the reason ("Travel dates are hidden until your days are confirmed." — fixed in-branch, it was the reachable-false-statement half of the same finding). What is NOT explained is the PARTIAL case: a hotel card that renders its name with no check-in/out, a ground leg with a time and no date, a flight list with no dates and no Today/Next chip. Those read as a data bug, and the crew member's likely response is to report missing data that is not missing.
 
-DEFERRED, with the severity re-read down from P1. The `role="status"` banner
-renders inside the rotate control's own subtree — exactly where the operator
-just tapped and is therefore looking — and its copy already points upward ("The
-updated link is shown above."). So the OUTCOME is communicated on the local
-path whether or not the cue is seen; what is missed is the enhancement, not the
-message. Auto-scrolling a popover during a destructive confirm is also a new
-motion surface needing its own transition inventory and reduced-motion arm,
-which is more than a polish pass should take on unreviewed.
+**Accepted, not fixed — deferral exception (a), a product decision this PR cannot settle.** The question is not whether to explain but WHERE and HOW OFTEN, and it is not TravelSection's alone: three crew sections now treat one product state three different ways. `ScheduleSection` explains it in full (`schedule-unconfirmed`, "Your days haven't been confirmed yet. Check back after the schedule is finalized."), the Today Tonight card drops its date rows silently (shipped M-wave), and Travel now drops content silently. Fixing only Travel would make the inconsistency worse by adding a fourth treatment. A per-section banner also risks saying the same sentence three times on one scroll, which is its own noise problem on a page whose whole brief is answering one question in under five seconds.
 
-Un-defer trigger: an operator reporting they missed a rotation, or the next
-admin mobile pass, which can own the scroll behaviour and its reduced-motion
-handling together.
+**Un-defer trigger:** a crew-page pass that can settle the suppression-explanation pattern across Schedule / Today / Travel together, or the first report of a crew member chasing travel data that was withheld rather than missing.
+
+### TRAVEL-FLIGHT-SUPPRESSED-LEGIBILITY-1 — undated flight segments lose their only delimiter (2026-08-07, arc A)
+
+**Effort:** S
+
+From the same critique (P2). In the unsuppressed render each flight segment leads with a date eyebrow, and the next/today segment additionally carries a sunken tint plus a chip — together the row header, the delimiter, and the emphasis. Under suppression all three are gone by design (the tint is `flightNextIdx`, which is the same viewer-schedule claim rendered as styling), so two segments become near-identical adjacent lines separated by `gap-1.5` with no header. Reachable for any `unknown_asterisk` viewer with two or more structured legs.
+
+**Accepted, not fixed.** The repair is a new visual treatment for a state the arc's ratified spec described as "the date is gone, the rest intact" — a hairline divider or a uniform sunken row under `hideDates` is a design decision, not a defect repair, and inventing it inside the closing diff is exactly the unreviewed visual change the dual gate exists to catch. The information is all still present and correctly ordered; what degrades is scanning speed.
+
+**Un-defer trigger:** the next deliberate visual pass on the Travel flight card, or a crew report of misreading which leg is which on a phone.
 
 ### SHARELINK-CUE-FORCED-COLORS-1 — impeccable audit P3 (2026-07-25, share-link-chrome-backlog)
 
@@ -247,8 +256,8 @@ From the impeccable v3 dual gate on `feat/sync-feed-undo-announce`. The critique
 
 **Effort:** S
 
-`ReviewModalShell` has three render sites, and Step-3 cards hold per-card open state, so two shells can be attached at once and would share the accessible name `"Undo updates in this dialog"`.
+`ReviewModalShell` has three render sites, and Step-3 cards hold per-card open state, so two shells can be attached at once and would share the accessible name `"Status updates in this dialog"` (the label was `"Undo updates in this dialog"` when this was filed; arc A generalized it with the channel's content, which does not change the duplication this entry is about).
 
-**Accepted, not fixed, and deliberately so.** Deriving the label from `testIdBase` was implemented and reverted: it produces names like "Undo updates in the wizard step3 card `<driveFileId>` review dialog", putting internal identifiers into text a screen reader speaks. A leaked drive-file id in an accessible name is a worse outcome for the user than a duplicated label in the rare two-dialog case. The `data-testid` remains derived, so tooling and Playwright stay unambiguous.
+**Accepted, not fixed, and deliberately so.** Deriving the label from `testIdBase` was implemented and reverted: it produces names like "Status updates in the wizard step3 card `<driveFileId>` review dialog", putting internal identifiers into text a screen reader speaks. A leaked drive-file id in an accessible name is a worse outcome for the user than a duplicated label in the rare two-dialog case. The `data-testid` remains derived, so tooling and Playwright stay unambiguous.
 
 **Un-defer trigger:** a human-readable per-dialog name becomes available on the shell (a title prop or similar), or two review dialogs become simultaneously reachable outside Step-3.

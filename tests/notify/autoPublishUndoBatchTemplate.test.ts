@@ -82,7 +82,7 @@ describe("renderAutoPublishUndoBatch (batching spec §2.4)", () => {
     expect(batch.text).toContain(`token=${shows[19]!.token}`);
     expect(batch.text).not.toContain(`token=${shows[20]!.token}`);
     expect(batch.text).toContain(
-      "and 1 more — manage shows from the dashboard: https://fxav.example/admin",
+      "and 1 more. Manage shows from the dashboard: https://fxav.example/admin",
     );
   });
 
@@ -110,7 +110,7 @@ describe("renderAutoPublishUndoBatch (batching spec §2.4)", () => {
     expect(batch.text.split("\n\n")).toHaveLength(htmlParagraphs);
     if (n === 21) {
       const overflowLine =
-        "…and 1 more — manage shows from the dashboard: https://fxav.example/admin";
+        "…and 1 more. Manage shows from the dashboard: https://fxav.example/admin";
       expect(batch.text).toContain(overflowLine);
       expect(batch.html).toContain("and 1 more");
     }

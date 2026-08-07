@@ -496,6 +496,64 @@ export function ShareHub({
     return () => clearTimeout(t);
   }, [flash]);
 
+  // ── SHARELINK-CUE-VISIBILITY-1: bring the cue to the operator ──────────────
+  //
+  // The URL block sits at the TOP of this popover's scroller and the rotate
+  // control is below it, so on a phone the operator has scrolled past the block
+  // by the time they confirm — the highlight fires above the fold and is never
+  // seen. Scrolling the row back into view is what makes the cue reachable at
+  // all, so it runs on EVERY flash edge (null to non-null, and n to n+1: a
+  // re-rotation is a new cue, and they may have scrolled away again).
+  //
+  // Keyed on `flash`, NOT on `token`: `flash` is already the settled answer to
+  // "did a cue just fire", folding in the popover being open and the link being
+  // live. An effect on `token` would also scroll on transitions the cue itself
+  // deliberately ignores.
+  //
+  // The rAF id is RETAINED so the cleanup can cancel it. That cleanup is doing
+  // two jobs: a double bump within one frame collapses to a single scroll
+  // (React runs the previous cleanup before the next effect body, so the pending
+  // frame is cancelled before a new one is scheduled), and closing the popover
+  // or unmounting before the frame fires cancels it outright rather than
+  // running it against a detached node. The `typeof` guard is the same one the
+  // archive-scroll idiom below uses — jsdom implements no layout and no
+  // scrollIntoView, and a throw inside a rAF is an uncaught exception that fails
+  // the run without failing any test.
+  //
+  // Reduced motion gets an INSTANT scroll, not no scroll: the cue's information
+  // ("the link changed, here it is") is the accessibility payload, and skipping
+  // the relocation would withhold it from exactly the users who asked for less
+  // motion. Read at event time via the repo's one-shot `matchMedia` idiom —
+  // `usePrefersReducedMotion` returns null on first render, which is wrong for a
+  // decision made when the event fires. (The flash HIGHLIGHT's separate
+  // no-cue-under-reduced-motion contract is untouched; this is a new surface.)
+  const scrollCueRafRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (flash === null) return;
+    const reduce =
+      typeof window !== "undefined" && typeof window.matchMedia === "function"
+        ? window.matchMedia("(prefers-reduced-motion: reduce)").matches
+        : false;
+    scrollCueRafRef.current = requestAnimationFrame(() => {
+      scrollCueRafRef.current = null;
+      // Scoped to THIS hub's own panel, not a document-wide query: the popover
+      // testid is unique today, so a global lookup works by luck rather than by
+      // construction, and it would silently scroll the wrong hub the moment a
+      // second one mounts.
+      const target = panelRef.current?.querySelector(
+        '[data-testid="admin-current-share-link-row"]',
+      );
+      if (!target || typeof target.scrollIntoView !== "function") return;
+      target.scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "nearest" });
+    });
+    return () => {
+      if (scrollCueRafRef.current !== null) {
+        cancelAnimationFrame(scrollCueRafRef.current);
+        scrollCueRafRef.current = null;
+      }
+    };
+  }, [flash]);
+
   // ── Remote-rotation announcement (spec 2026-08-01-announce-a11y-pass §4.2) ──
   // Mirrors the flash cue's predicate exactly: a SEED-driven token change
   // (remoteTokenChanges bump — a rotation this browser did not apply locally)

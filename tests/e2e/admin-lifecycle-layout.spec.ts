@@ -38,6 +38,7 @@ import { signInAs, signOut } from "./helpers/signInAs";
 import {
   seedArchivedShow,
   seedHeldShow,
+  seedAutoPublishedShowWithUnpublishToken,
   readShow,
   sqlClient,
   type SeededShow,
@@ -82,6 +83,10 @@ async function rect(page: Page, testid: string): Promise<Rect> {
 
 let archived: SeededShow & { slug: string };
 let held: SeededShow & { slug: string };
+// SHARELINK-CUE-VISIBILITY-1 needs its OWN seed: the crew-URL row renders only
+// when `linkActive` (published && !archived && url != null), and neither the
+// archived nor the held fixture satisfies that.
+let published: SeededShow & { slug: string };
 
 async function slugOf(s: SeededShow): Promise<string> {
   const row = await readShow(s.showId);
@@ -94,6 +99,7 @@ test.describe("admin lifecycle layout dimensions (real browser, §3.3)", () => {
     const h = await seedHeldShow();
     archived = { ...a, slug: await slugOf(a) };
     held = { ...h, slug: await slugOf(h) };
+    published = await seedAutoPublishedShowWithUnpublishToken();
   });
 
   test.afterAll(async () => {
@@ -103,7 +109,7 @@ test.describe("admin lifecycle layout dimensions (real browser, §3.3)", () => {
     // admin-lifecycle-transitions.spec.ts in the same single-worker Playwright
     // process; closing it would CONNECTION_ENDED the next spec's seeds. The pool
     // is torn down at process exit.
-    for (const s of [archived, held]) {
+    for (const s of [archived, held, published]) {
       if (!s) continue;
       await sqlClient`delete from public.shows where id = ${s.showId}::uuid`;
     }
@@ -439,6 +445,103 @@ test.describe("admin lifecycle layout dimensions (real browser, §3.3)", () => {
     expect(geom.confirmTop + geom.confirmH).toBeLessThanOrEqual(
       geom.scrollTop + geom.clientHeight + TOL,
     );
+  });
+
+  test("390x560: rotating the share link scrolls the popover back to the URL row (SHARELINK-CUE-VISIBILITY-1)", async ({
+    page,
+  }) => {
+    // The cue's whole problem: the URL block sits at the TOP of the popover's
+    // scroller and the rotate control is below it, so on a phone the operator
+    // has scrolled past the block by the time they confirm — the highlight
+    // fires above the fold and is never seen. The scroll is what makes it
+    // reachable.
+    //
+    // Same bracketed-capture instrumentation as the archive case above, and the
+    // same reason for it: other things scroll this popover (focus moves, the
+    // armed morph), so a raw scrollTop delta attributes nothing.
+    await page.addInitScript(() => {
+      const w = window as unknown as {
+        __siv: Array<{ testid: string | null; opts: unknown }>;
+      };
+      w.__siv = [];
+      const orig = Element.prototype.scrollIntoView;
+      Element.prototype.scrollIntoView = function (this: Element, opts?: unknown) {
+        const r = orig.call(this, opts as ScrollIntoViewOptions);
+        w.__siv.push({ testid: this.getAttribute("data-testid"), opts });
+        return r;
+      };
+    });
+    await page.setViewportSize({ width: 390, height: 560 });
+    await page.goto(`/admin?show=${published.slug}`);
+    const modal = page.locator(LOADED_REVIEW_MODAL);
+    await expect(modal).toBeVisible({ timeout: 30_000 });
+    expect(
+      await page.evaluate(() => Array.isArray((window as never as { __siv: unknown[] }).__siv)),
+    ).toBe(true);
+
+    const popover = modal.getByTestId("share-hub-popover");
+    await expect(async () => {
+      await modal.getByTestId("share-hub-kebab").click();
+      await expect(popover).toBeVisible({ timeout: 1500 });
+    }).toPass({ timeout: 15_000 });
+
+    const urlRow = popover.getByTestId("admin-current-share-link-row");
+    await expect(urlRow).toBeVisible();
+
+    // (1) Put the operator where the bug lives: scrolled down to the rotate
+    // control, with the URL row genuinely out of view. Asserted, not assumed —
+    // if the popover ever stops overflowing at this viewport the case would
+    // otherwise pass while proving nothing.
+    await popover.evaluate((el) => {
+      el.scrollTop = el.scrollHeight;
+    });
+    const premise = await popover.evaluate((el) => {
+      const rowEl = el.querySelector('[data-testid="admin-current-share-link-row"]') as HTMLElement;
+      return {
+        overflows: el.scrollHeight > el.clientHeight,
+        scrollTop: el.scrollTop,
+        rowBottom: rowEl.offsetTop + rowEl.offsetHeight,
+      };
+    });
+    expect(premise.overflows, "the popover must overflow at 390x560").toBe(true);
+    expect(
+      premise.rowBottom,
+      "the URL row must be scrolled OUT of view before the rotation",
+    ).toBeLessThan(premise.scrollTop);
+    const scrolledAway = premise.scrollTop;
+
+    // (2) Arm + confirm the rotation with direct-DOM clicks, so Playwright's
+    // actionability scrolling never enters and cannot be mistaken for the cue.
+    await popover
+      .getByTestId("admin-rotate-share-token-button")
+      .evaluate((el: HTMLElement) => el.click());
+    const confirm = popover.getByTestId("admin-rotate-share-token-confirm-button");
+    await expect(confirm).toBeVisible();
+    await confirm.evaluate((el: HTMLElement) => el.click());
+
+    // (3a) The synchronous, animation-independent half: a call was recorded
+    // against the URL ROW. Presence and target only — folding the scroll
+    // POSITION in here would make the wait condition be the assertion.
+    await expect(async () => {
+      const seen = await page.evaluate(
+        () =>
+          (window as never as { __siv: Array<{ testid: string | null }> }).__siv.filter(
+            (c) => c.testid === "admin-current-share-link-row",
+          ).length,
+      );
+      expect(seen, "the rotation must call scrollIntoView(url row)").toBeGreaterThanOrEqual(1);
+    }).toPass({ timeout: 15_000 });
+
+    // (3b) The effect, POLLED. This spec does not emulate reduced motion, so
+    // production scrolls `behavior: "smooth"` and any value captured
+    // synchronously inside the patched method is the PRE-animation one. The
+    // glide's outcome is only observable afterwards.
+    await expect(async () => {
+      const now = await popover.evaluate((el) => el.scrollTop);
+      expect(now, "the popover must have scrolled back UP toward the URL row").toBeLessThan(
+        scrolledAway,
+      );
+    }).toPass({ timeout: 5_000 });
   });
 
   // ── T-REGROW (spec §2.1.2b) ──────────────────────────────────────────────

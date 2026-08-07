@@ -412,6 +412,36 @@ describe("ReSyncButton", () => {
     );
   });
 
+  test("the SUCCESS summary announces through the channel, and the card carries no dead status role", async () => {
+    // BL-CHANNEL-ANNOUNCER-RESIDUAL-ROLE-STATUS. The file's one announce covers
+    // only the shrink_held pause branch (the case above); the success card was
+    // never wired, and its `role="status"` announced nothing because the card is
+    // inserted together with its summary. So the most common outcome of the most
+    // common admin action was silent for AT.
+    //
+    // ANTI-TAUTOLOGY: the expectation is derived from the SAME fixture result
+    // the component receives — the summary is scraped from the rendered card
+    // rather than duplicated as a literal — and the region asserted on is the
+    // PROVIDER's, outside the card that renders the same words.
+    fetchMock.mockResolvedValue({
+      json: async () => ({ ok: true, result: { outcome: "applied" } }),
+    } as unknown as Response);
+    const { getByTestId, findByTestId } = render(
+      <AdminAnnounceProvider testId="admin-undo-status" label="Updates">
+        <ReSyncButton slug="s" />
+      </AdminAnnounceProvider>,
+    );
+    fireEvent.click(getByTestId("admin-resync-button"));
+    const card = await findByTestId("admin-resync-success");
+    const summary = card.querySelector("p")?.textContent ?? "";
+    expect(summary.length).toBeGreaterThan(0);
+    expect(card.querySelector('p[role="status"]')).toBeNull();
+
+    const region = getByTestId("admin-undo-status");
+    expect(region.contains(card), "the region must be outside the card").toBe(false);
+    await waitFor(() => expect(region.textContent ?? "").toContain(summary));
+  });
+
   test("T-RESYNC-SHRINK: the confirm renders in the OVERLAY, still focuses the safe control, and has NO neutral dismiss", async () => {
     fetchMock.mockResolvedValue(shrinkHeld());
     const { getByTestId, findByTestId, queryByTestId } = render(<ReSyncButton slug="s" />);

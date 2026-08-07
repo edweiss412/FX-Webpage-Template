@@ -522,6 +522,38 @@ export function Step3ReviewModal({
           {/* Footer (spec §9.1): rendered inside the shell's footer wrapper
               (safe-area padding + the load-bearing `relative` for the
               RescanSheetButton overlay result — see ReviewModalShell.tsx). */}
+          {/* BL-LIVE-REGION-AST-WALK-RESIDUE. The note itself was already
+              mounted-and-toggled, but its enclosing ROW was the final else-arm
+              of the chain below, so the REGION still arrived with the arm that
+              carries its text — an announcement nobody hears. Hoisted here it
+              persists across all four arms.
+
+              Its TEXT keeps today's visibility semantics EXACTLY: the copy
+              renders only when the default arm is active AND the publish toggle
+              failed. `publishState` is retained across arm changes with no
+              reset, so a region keyed on `publishState` alone would resurface
+              stale failure copy inside the resolution / dirty-rescan /
+              finalize-demoted arms, describing an action the operator is no
+              longer looking at. Region persistent, text arm-scoped. */}
+          <span
+            data-testid={`wizard-step3-card-${dfid}-review-publish-error`}
+            role="status"
+            // `basis-full` so the error takes its own line above the control
+            // row instead of sitting beside the "All clear to publish" note.
+            // Hoisting made the region the footer's FIRST flex item, and at
+            // >=640px that put the two most contradictory sentences in the modal
+            // adjacent and same-sized (impeccable critique P2). Inert when
+            // hidden: `sr-only` is absolutely positioned, so it is out of flow.
+            className={
+              !resolution && !isDirtyRescan && !isFinalizeDemoted && publishState === "error"
+                ? "min-w-0 basis-full text-sm font-medium text-warning-text"
+                : "sr-only"
+            }
+          >
+            {!resolution && !isDirtyRescan && !isFinalizeDemoted && publishState === "error"
+              ? "Couldn't update the publish selection. Try again."
+              : ""}
+          </span>
           {/* Re-apply resolution footer (spec §4.4): the ONLY resolution path
               for a blocked re-apply row. Approve & apply (primary) + Re-scan +
               Ignore. All three freeze during an active publish run (R8).
@@ -624,23 +656,6 @@ export function Step3ReviewModal({
                 {flaggedCount > 0
                   ? `${flaggedCount} to review · publishing isn't blocked`
                   : "All clear to publish"}
-              </span>
-              {/* §11 T7b: instant — deliberate (error note appears instantly, no animation) */}
-              {/* Mounted unconditionally, text toggled: this note appears only
-                  AFTER a failed publish toggle, which is exactly when insertion
-                  and announcement coincide and the reader hears nothing
-                  (BL-ANNOUNCE-REGION-UNMOUNT-CLASS). */}
-              <span
-                className={
-                  publishState === "error"
-                    ? "min-w-0 text-sm font-medium text-warning-text"
-                    : "sr-only"
-                }
-                role="status"
-              >
-                {publishState === "error"
-                  ? "Couldn't update the publish selection. Try again."
-                  : ""}
               </span>
               <RescanSheetButton
                 driveFileId={dfid}

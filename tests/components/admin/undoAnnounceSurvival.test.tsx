@@ -98,7 +98,7 @@ const stripEmpty = (): Extract<RecentAutoApplied, { kind: "ok" }> => ({
 });
 
 const wrap = (children: React.ReactNode) => (
-  <AdminAnnounceProvider testId="admin-undo-status" label="Undo updates">
+  <AdminAnnounceProvider testId="admin-undo-status" label="Status updates">
     {children}
   </AdminAnnounceProvider>
 );
@@ -210,12 +210,12 @@ it("probe 6: the layout's own branch flips to a DIFFERENT return's provider", as
   // element at the same position, so React reconciles them as the same element
   // type and the region node must survive the swap.
   const branchA = (
-    <AdminAnnounceProvider testId="admin-undo-status" label="Undo updates">
+    <AdminAnnounceProvider testId="admin-undo-status" label="Status updates">
       <div data-testid="admin-layout">{feed([undoableEntry])}</div>
     </AdminAnnounceProvider>
   );
   const branchB = (
-    <AdminAnnounceProvider testId="admin-undo-status" label="Undo updates">
+    <AdminAnnounceProvider testId="admin-undo-status" label="Status updates">
       <div data-testid="admin-layout-infra-error">Admin session unavailable</div>
     </AdminAnnounceProvider>
   );

@@ -185,7 +185,14 @@ export function ReSyncButton({ slug }: ReSyncButtonProps) {
           announce(`Sync paused for a decision. ${result.detail}`);
         } else {
           setHeldShrink(null);
-          setSuccessMessage(summarizeResult(json.result));
+          // BL-CHANNEL-ANNOUNCER-RESIDUAL-ROLE-STATUS. ONE summary string feeds
+          // both the card and the announcement, so the two cannot drift. The
+          // card's own `role="status"` announced nothing — it is inserted
+          // together with this text — which left the most common outcome of the
+          // most common admin action silent for AT.
+          const summary = summarizeResult(json.result);
+          setSuccessMessage(summary);
+          announce(summary);
           router.refresh();
         }
       } else {
@@ -359,7 +366,10 @@ export function ReSyncButton({ slug }: ReSyncButtonProps) {
           data-testid="admin-resync-success"
           className={`${OVERLAY_PANEL} flex items-start gap-2 border-border bg-info-bg text-text-strong`}
         >
-          <p id={successMsgId} role="status" className="min-w-0 grow text-sm">
+          {/* No `role="status"`: this node is inserted with its summary, so the
+              attribute announced nothing. `run()` announces the same string
+              through the channel. The id still names the group. */}
+          <p id={successMsgId} className="min-w-0 grow text-sm">
             {successMessage}
           </p>
           <button

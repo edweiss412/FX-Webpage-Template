@@ -19,15 +19,33 @@
  *   - agenda days (`lib/crew/agendaDisplay.ts`) — gated
  *   - key-times strip (`lib/crew/resolveKeyTimes.ts`) — gated
  *   - schedule day derivation (`components/crew/sections/ScheduleSection.tsx`) — gated
- *   - the Today Tonight card's check-in/check-out rows — gated (this change)
+ *   - the Today Tonight card's check-in/check-out rows — gated
+ *   - TravelSection's ground-transport leg dates — gated (arc A)
+ *   - TravelSection's hotel check-in/check-out rows — gated (arc A)
+ *   - TravelSection's personal flight block — gated (arc A): the structured date,
+ *     its `dateRaw` fallback arm, the Today/Next chip, the upcoming-row highlight
+ *     (the same claim rendered as styling), and raw-fallback rows, which are
+ *     WITHHELD ENTIRELY because `seg.raw` cannot be split into date and non-date
+ *     parts. Every visibility derivation downstream (leg retention, hotels
+ *     presence, `showFlight`, the section empty state) consumes the
+ *     POST-suppression sets, so a suppressed viewer never gets a blank row, an
+ *     empty card, or section chrome wrapping nothing.
  *
- * NOT GATED, and each is a real date reaching a viewer whose days are
- * unconfirmed: TravelSection's ground-transport leg dates, its hotel
- * check-in/check-out rows, and the personal flight line; plus the crew roster's
- * partial-attendance label, which prints a PEER's explicit days. Filed with the
- * rendering probe as `BL-CREW-UNKNOWN-ASTERISK-TRAVEL-LEAK`. They predate this
- * predicate and sit outside the ratified scope of the Today change (spec §1.1),
- * so they are documented rather than silently implied to be handled.
+ * This list is the inventory of record: a NEW date-rendering surface adds itself
+ * here (review-time discipline, not a guard).
+ *
+ * NOT GATED, deliberately:
+ *   - The crew roster's partial-attendance label, which prints a PEER's
+ *     attendance. Owner ruling 2026-08-06 (arc A spec §1.1 item 1, Option A):
+ *     exact days stay visible to every viewer because crew coordination wins
+ *     over the peer's day privacy. Not an oversight and not a leak — the marker's
+ *     semantics are "which days YOU work is unconfirmed", and a peer's days are
+ *     not the viewer's schedule. Re-open trigger: the owner revisits the call.
+ *   - TravelSection's sheet-authored free text — `transportNotes`, `hotelAddress`,
+ *     and the hotel `stayRows` values. These are prose fields, not date fields; a
+ *     date an author types into one is editorial content the operator chose to
+ *     write, not the system asserting the viewer's schedule. Arc A §4 limit 8.
+ *     Re-open trigger: a real leak report through one of these fields.
  *
  * The SHOW's own date is deliberately not on that list. `unknown_asterisk` means
  * "which days you work is unconfirmed", not "the show's dates are secret" — the

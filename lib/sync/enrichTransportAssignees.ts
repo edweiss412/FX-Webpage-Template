@@ -83,7 +83,7 @@ export function enrichTransportAssignees(result: ParseResult): void {
     result.warnings.push({
       severity: "warn",
       code: "TRAVEL_TRANSPORT_NAME_UNMATCHED",
-      message: `Some transport names don't clearly match a crew member — possibly a typo or two names merged into one cell: ${shown}${more}. Check the transport section, or add the person if they're missing.`,
+      message: `Some transport names don't clearly match a crew member (possibly a typo, or two names merged into one cell): ${shown}${more}. Check the transport section, or add the person if they're missing.`,
     });
   } catch {
     // never throw out of enrichment

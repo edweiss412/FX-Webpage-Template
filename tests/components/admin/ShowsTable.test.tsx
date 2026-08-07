@@ -417,7 +417,7 @@ describe("ShowsTable", () => {
       />,
     );
     const held = screen.getByTestId("shows-held-pill-held");
-    expect(held.textContent).toMatch(/Held — not published/);
+    expect(held.textContent).toMatch(/Held, not published/);
     expect(screen.queryByTestId("shows-publishing-held")).toBeNull();
     expect(screen.queryByTestId("shows-live-pill-held")).toBeNull();
   });
@@ -456,7 +456,7 @@ describe("ShowsTable", () => {
     expect(screen.queryByTestId("shows-held-pill-pubd")).toBeNull();
   });
 
-  it("inline Held pill keeps the verbose 'Held — not published' copy (place=inline) — §3.1", () => {
+  it("inline Held pill keeps the verbose 'Held, not published' copy (place=inline) — §3.1", () => {
     render(
       <ShowsTable
         rows={[row({ slug: "h", published: false, isLive: false, finalizeOwned: false })]}
@@ -465,7 +465,7 @@ describe("ShowsTable", () => {
         overflowCount={0}
       />,
     );
-    expect(screen.getByTestId("shows-held-pill-h").textContent).toMatch(/Held — not published/);
+    expect(screen.getByTestId("shows-held-pill-h").textContent).toMatch(/Held, not published/);
   });
 
   it("renders a Status COLUMN pill (place=column) with the compact 'Held' label — §4.1", () => {
@@ -480,7 +480,7 @@ describe("ShowsTable", () => {
     const colPill = screen.getByTestId("shows-statuscol-held-h2");
     expect(colPill.textContent).toBe("Held"); // compact, no "— not published"
     // the inline pill still exists in the DOM (CSS-toggled), with the verbose copy
-    expect(screen.getByTestId("shows-held-pill-h2").textContent).toMatch(/Held — not published/);
+    expect(screen.getByTestId("shows-held-pill-h2").textContent).toMatch(/Held, not published/);
   });
 
   it("inline pill wraps to hide ≥960px and the Status cell hides <960px — §4.1", () => {

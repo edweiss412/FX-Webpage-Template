@@ -40,20 +40,34 @@ const ROOTS = ["components", "app"];
  * A row here is a claim that the file imports `UndoAnnounceContext` and calls
  * `announce`, which the test below verifies rather than trusts.
  *
- * WHAT YOU WILL STILL FIND IN THESE FILES, so the next reader is not misled.
- * Several of them keep a conditionally-inserted `role="status"` on a VISIBLE
- * card — `RoleRecognizeControl.tsx:209` and `:257`, `RecentAutoAppliedStrip.tsx`
- * `:506` and `:686`, `ReSyncButton.tsx:362`. Those attributes announce NOTHING,
- * for the same reason this whole guard exists, and that is not a latent defect
- * here: the channel already announced the message, so nothing is lost. They are
- * misleading rather than broken — an attribute that reads like a live region and
- * is not one.
+ * THE FIVE RESIDUAL `role="status"` ATTRIBUTES ARE GONE (arc A, 2026-08-07,
+ * BL-CHANNEL-ANNOUNCER-RESIDUAL-ROLE-STATUS). They sat on visible cards that are
+ * inserted together with their text, so none of them announced anything —
+ * misleading rather than broken. Stripping them was gated on the per-site
+ * verification the entry demanded, and that verification found the channel did
+ * NOT cover four of the messages:
  *
- * Deliberately NOT stripped in this pass. Removing `role="status"` from a card
- * is only safe once you have verified, per site, that the channel really does
- * carry every message that card shows — the error card at `:686` in particular
- * is not obviously covered — and that is a different question from the mounting
- * class this guard closes. Filed as `BL-CHANNEL-ANNOUNCER-RESIDUAL-ROLE-STATUS`.
+ *   - RoleRecognizeControl's saved card renders THREE state variants and the
+ *     announce always sent the `applied` summary — the wrong convergence claim
+ *     for `revised` and `apply_pending`. One selector now feeds both the card
+ *     and the announce, so they cannot drift apart again.
+ *   - Its stale and conflict branches announced nothing at all; both now do.
+ *   - RecentAutoAppliedStrip's load-failure card announced nothing. This was the
+ *     entry's named suspect and the probe confirmed it. It announces through an
+ *     EFFECT keyed on the previously-observed `data.kind`, because that
+ *     component owns no transition: it receives already-resolved data as a prop.
+ *   - ReSyncButton's success summary announced nothing; it now does.
+ *
+ * ONE SITE WAS STRIPPED WITHOUT WIRING, deliberately: RecentAutoAppliedStrip's
+ * undo-all confirmation prompt. It is an inline PROMPT, not a status transition
+ * — interactive content adjacent to the control the operator just activated,
+ * with focus landing on its own buttons — and announcing a prompt through a
+ * status channel is the wrong semantics. Re-open trigger: a screen-reader user
+ * reporting that the prompt is missed.
+ *
+ * The file-level exemption these rows grant is still only as strong as the
+ * per-message coverage above; `CHANNEL_ANNOUNCE_CALLS` below is the floor that
+ * keeps the count from falling back silently.
  */
 const CHANNEL_ANNOUNCERS: readonly string[] = [
   "components/admin/RescanSheetButton.tsx",
@@ -69,14 +83,34 @@ const CHANNEL_ANNOUNCERS: readonly string[] = [
  * file once it proves one call exists, which is why review found outcomes with
  * no announcement at all inside exempted files. This does not prove per-message
  * coverage — it proves the number cannot fall silently, and forces anyone adding
- * an outcome to look. The remaining gap is recorded on
- * BL-CHANNEL-ANNOUNCER-RESIDUAL-ROLE-STATUS.
+ * an outcome to look.
+ *
+ * The gap this used to point at was closed by the per-site census in arc A (see
+ * the CHANNEL_ANNOUNCERS header above); the floor stays because the census is a
+ * snapshot and a count is not. Per-message coverage is proven where it can only
+ * be proven — in each component's own behavioural cases, which assert the
+ * announcement carries the string the CARD renders.
  */
 const CHANNEL_ANNOUNCE_CALLS: ReadonlyMap<string, number> = new Map([
   ["components/admin/RescanSheetButton.tsx", 2],
-  ["components/admin/RoleRecognizeControl.tsx", 1],
-  ["components/admin/RecentAutoAppliedStrip.tsx", 1],
-  ["components/admin/ReSyncButton.tsx", 1],
+  // 1 -> 3 (arc A). The stale and conflict branches announced nothing at all and
+  // each got its own call, on its own branch beside its own `setPhase`. The plan
+  // predicted 2 by assuming one shared call; these counts are MEASURED, not
+  // predicted, and collapsing two branches into one ternary to hit a forecast
+  // number is the wrong direction. The saved announce also became
+  // variant-correct, which no count can see — that is what the behavioural
+  // cases in RoleRecognizeControl.test.tsx pin.
+  ["components/admin/RoleRecognizeControl.tsx", 3],
+  // 1 -> 2 (arc A): the load-failure card announced nothing. The file's one
+  // prior call is success-shaped and belongs to `GroupSection`, so this was the
+  // entry's named suspect site and the probe confirmed it. The new call is an
+  // EFFECT — this component owns no transition, it receives already-resolved
+  // data as a prop — keyed on the previously-OBSERVED `data.kind`.
+  ["components/admin/RecentAutoAppliedStrip.tsx", 2],
+  // 1 -> 2 (arc A): the file's one prior call covered only the shrink_held pause
+  // branch, so the SUCCESS summary — the most common outcome of the most common
+  // admin action — was silent for AT.
+  ["components/admin/ReSyncButton.tsx", 2],
 ]);
 
 /**
@@ -135,39 +169,34 @@ const NON_TRANSIENT_GATES: ReadonlyMap<string, string> = new Map([
 /**
  * Files still carrying the defect, each with the shape its repair will use.
  *
- * NOT EMPTY — four rows, each a real site the AST walk found and named with the
- * repair it needs (BL-LIVE-REGION-AST-WALK-RESIDUE). An earlier version of this
- * comment claimed the map was empty and stayed that way after the rows landed,
- * which R2 caught: a comment that describes a data structure is a claim about
- * it, and this one had gone false.
+ * EMPTY as of 2026-08-07 (arc A), and the emptiness is load-bearing rather than
+ * incidental: the four rows the AST walk filed as
+ * BL-LIVE-REGION-AST-WALK-RESIDUE were all resolved BY REPAIR, not by deletion.
+ * Keep this sentence honest — a comment that describes a data structure is a
+ * claim about it, and R2 caught the previous version of this docblock still
+ * saying "empty" after four rows had landed. If you add a row, say four became
+ * five here.
  *
  * The mechanism is the point. A row FAILS the moment its file goes clean, so a
  * row is a claim with an expiry rather than a place to put a defect and forget
  * it. A future author who hits this guard on a new site has two honest exits —
  * mount the region, or announce through the channel — and adding a row here is
  * a third that costs them a name in the ledger.
+ *
+ * DOCUMENTED LIMIT, re-homed here when the entry archived (arc A spec §4 limit
+ * 1) because this file is the owning surface's limits record. THE WALK IS BLIND
+ * TO A CROSS-COMPONENT GATE. A parent rendering `{cond ? <Child/> : null}` where
+ * `Child` owns the region is the same defect and produces no hit, because the
+ * walk stops at the component boundary by construction. The live instance is
+ * the agenda parsing region in `step3ReviewSections.tsx`: its own in-file
+ * `baseline.length === 0` guard was repaired, but the SECTION above it is gated
+ * by `includesAgenda` (`components/admin/review/sectionInclusion.ts`), so that
+ * component's first paint still cannot announce. Catching this class needs
+ * whole-program analysis, which is a different tool and a different change; the
+ * in-component shape — gate and region in one function, which is what every
+ * instance found so far has been — is fully covered.
  */
-const PENDING: ReadonlyMap<string, string> = new Map([
-  // FOUND BY THE AST WALK (whole-diff review R1), not by the regex it replaced —
-  // which is the argument for the rewrite. Each is a region born populated, and
-  // each needs a real repair rather than a mechanical toggle:
-  [
-    "components/admin/dev/MaterializeCard.tsx",
-    '1 site — `result === null ? null : <div role="status">`; needs the region hoisted above the result gate',
-  ],
-  [
-    "app/admin/settings/admins/RevokeRowButton.tsx",
-    "1 site — the couldn't-confirm warning is inserted with its text after a failed revoke",
-  ],
-  [
-    "components/admin/wizard/step3ReviewSections.tsx",
-    "1 site — the report-status span (`-report-status`) is gated on the send outcome it reports",
-  ],
-  [
-    "components/admin/wizard/Step3ReviewModal.tsx",
-    "1 site — the publish-error span at :633 is mounted but its enclosing row is gated",
-  ],
-]);
+const PENDING: ReadonlyMap<string, string> = new Map([]);
 
 /**
  * How many conditional live-region sites each registered file is KNOWN to have.
@@ -188,13 +217,39 @@ const PENDING: ReadonlyMap<string, string> = new Map([
  */
 const REGISTERED_SITES: ReadonlyMap<string, number> = new Map([
   ["components/admin/RescanSheetButton.tsx", 0],
-  ["components/admin/RoleRecognizeControl.tsx", 2],
-  ["components/admin/RecentAutoAppliedStrip.tsx", 2],
-  ["components/admin/ReSyncButton.tsx", 1],
-  ["components/admin/dev/MaterializeCard.tsx", 1],
-  ["app/admin/settings/admins/RevokeRowButton.tsx", 1],
-  ["components/admin/wizard/step3ReviewSections.tsx", 1],
-  ["components/admin/wizard/Step3ReviewModal.tsx", 2],
+  // Stripped 2026-08-07 (arc A): 2 -> 0. Both attributes sat on cards inserted
+  // wholesale by a phase flip, so neither ever announced. The channel now
+  // carries the saved state's OWN copy (variant-correct across applied /
+  // revised / apply_pending) and the stale and conflict notices.
+  ["components/admin/RoleRecognizeControl.tsx", 0],
+  // Stripped 2026-08-07 (arc A): 2 -> 0. The error card's attribute came off
+  // once the channel demonstrably carried its copy; the undo-all confirm PROMPT
+  // came off WITHOUT wiring, on purpose — see the no-wire reason in the
+  // CHANNEL_ANNOUNCERS header above.
+  ["components/admin/RecentAutoAppliedStrip.tsx", 0],
+  // Stripped 2026-08-07 (arc A): 1 -> 0, once the channel demonstrably carried
+  // the success summary the card renders (one string feeds both).
+  ["components/admin/ReSyncButton.tsx", 0],
+  // Repaired 2026-08-07 (arc A): the region hoisted above the result gate, the
+  // visual box moved inside it and left result-scoped. No conditional site left.
+  ["components/admin/dev/MaterializeCard.tsx", 0],
+  // Repaired 2026-08-07 (arc A): the couldn't-confirm announcement moved to a
+  // second key-stable persistent region beside the arm-expiry one; the visible
+  // warning line keeps its copy and drops the role it could never honour.
+  ["app/admin/settings/admins/RevokeRowButton.tsx", 0],
+  // Repaired 2026-08-07 (arc A), both dispositions in this file: the
+  // report-status region hoisted above the `expanded` disclosure (which is NOT
+  // an exemptible surface gate — an async send settles while collapsed), and the
+  // agenda parsing region hoisted above the in-file `baseline.length === 0`
+  // guard. The agenda SECTION's cross-component gate remains the documented
+  // walk-blindness limit in this file's header, not a site.
+  ["components/admin/wizard/step3ReviewSections.tsx", 0],
+  // Repaired 2026-08-07 (arc A): the publish-error region hoisted above the
+  // four-arm footer chain, text arm-scoped. 2 -> 1, and the ONE remaining site
+  // is the dev-capture region under `viewerIsDeveloper` — which is why this
+  // file's PENDING row came off by hand rather than by going clean: the stale
+  // -PENDING cross-check does not fire for a file that still has a site.
+  ["components/admin/wizard/Step3ReviewModal.tsx", 1],
 ]);
 
 function walk(dir: string, out: string[] = []): string[] {

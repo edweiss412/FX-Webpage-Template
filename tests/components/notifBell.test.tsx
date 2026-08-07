@@ -85,7 +85,7 @@ describe("NotifBell — aria-label (unseen-count semantics, Finding 2)", () => {
   it("count > 0 → label reads unseen notifications, not 'unresolved alerts'", () => {
     const { getByTestId } = renderBell({ kind: "ok", count: 3 });
     const bell = getByTestId("admin-notif-bell");
-    expect(bell.getAttribute("aria-label")).toBe("Notifications — 3 unseen");
+    expect(bell.getAttribute("aria-label")).toBe("Notifications: 3 unseen");
     expect(bell.getAttribute("aria-label")).not.toContain("unresolved");
   });
 
@@ -138,7 +138,7 @@ describe("NotifBell — panel trigger (spec §7.1/§7.2)", () => {
     const { getByTestId, queryByTestId } = renderBell({ kind: "ok", count: 3 });
     const bell = getByTestId("admin-notif-bell");
     expect(getByTestId("admin-notif-badge").textContent).toBe("3");
-    expect(bell.getAttribute("aria-label")).toBe("Notifications — 3 unseen");
+    expect(bell.getAttribute("aria-label")).toBe("Notifications: 3 unseen");
 
     fireEvent.click(bell);
 

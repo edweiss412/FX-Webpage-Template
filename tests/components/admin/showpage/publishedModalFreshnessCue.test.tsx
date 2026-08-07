@@ -407,7 +407,15 @@ describe("published review modal: freshness cue", () => {
     const roomsChip = document.querySelector(
       '[data-testid$="-review-chip-dot-rooms"]',
     )?.parentElement;
-    const roomsLabel = (roomsChip?.textContent ?? "").split("\u2014")[0]?.trim() ?? "";
+    // Strip the known sr-only STATUS suffix rather than splitting on a
+    // separator character. The separator used to be an em dash, which read as
+    // an unambiguous delimiter; §9 copy now joins with a comma, and a registry
+    // label may itself contain punctuation ("Rooms & scope"), so splitting is
+    // the fragile move in either spelling. The status vocabulary is closed, so
+    // removing it from the end is exact.
+    const roomsLabel = (roomsChip?.textContent ?? "")
+      .replace(/,\s*(needs review|no issues)\s*$/, "")
+      .trim();
     expect(roomsLabel.length, "the rooms rail chip must carry its registry label").toBeGreaterThan(
       0,
     );

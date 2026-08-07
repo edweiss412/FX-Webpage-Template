@@ -319,5 +319,5 @@ test("the dialog undo region is inside the dialog and NOT hidden from assistive 
   // region placed inside one would silently never announce.
   expect(result.hiddenBy, "no ancestor sets aria-hidden or inert").toBe("");
   expect(result.role).toBe("log");
-  expect(result.label).toBe("Undo updates in this dialog");
+  expect(result.label).toBe("Status updates in this dialog");
 });

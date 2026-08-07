@@ -67,21 +67,21 @@ describe("todayShowAnchors (Today filter — §5.4)", () => {
 describe("scheduleEntriesForViewer (load-out transport gate — D12)", () => {
   const entries: AgendaEntry[] = [
     { start: "9 AM", title: "Registration" },
-    { start: "5 PM", title: "Strike — GS", kind: "strike" },
+    { start: "5 PM", title: "Strike: GS", kind: "strike" },
     { start: "6 PM", title: "Load Out", kind: "loadout" },
   ];
 
   it("drops the load-out entry when transport is not visible (strike + agenda stay)", () => {
     expect(
       scheduleEntriesForViewer(entries, { transportVisible: false }).map((e) => e.title),
-    ).toEqual(["Registration", "Strike — GS"]);
+    ).toEqual(["Registration", "Strike: GS"]);
   });
 
   it("keeps the load-out entry when transport is visible", () => {
     expect(scheduleEntriesForViewer(entries, { transportVisible: true })).toHaveLength(3);
     expect(
       scheduleEntriesForViewer(entries, { transportVisible: true }).map((e) => e.title),
-    ).toEqual(["Registration", "Strike — GS", "Load Out"]);
+    ).toEqual(["Registration", "Strike: GS", "Load Out"]);
   });
 
   it("undefined entries → empty array (no throw)", () => {

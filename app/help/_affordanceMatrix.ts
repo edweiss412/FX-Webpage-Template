@@ -207,7 +207,7 @@ export const AFFORDANCE_MATRIX: ReadonlyArray<AffordanceRow> = [
     // Moved from the retired standalone /admin/ignored-sheets page to the
     // dashboard's collapsed "Ignored sheets" disclosure header (always rendered
     // on /admin, so the affordance stays walkable). Testid retained for parity.
-    sourceSurface: "Dashboard — Ignored sheets disclosure header (/admin)",
+    sourceSurface: "Dashboard: Ignored sheets disclosure header (/admin)",
     sourceRoute: "/admin",
     affordance: "? tooltip",
     testid: "help-affordance--ignored-sheets-page--tooltip",
@@ -241,7 +241,7 @@ export const AFFORDANCE_MATRIX: ReadonlyArray<AffordanceRow> = [
     sourceSurface:
       "Per-item help popover on compact alert cards (AttentionBanner, PerShowActionableWarnings)",
     sourceRoute: "/admin?show=rpas-central-2026",
-    affordance: '"?" popover — What does this mean?',
+    affordance: '"?" popover: What does this mean?',
     testidPattern:
       "attention-banner-help-<alertId>-trigger | per-show-actionable-help-<key>-trigger",
     targetPattern: "in-place popover (helpfulContext); optional /help/errors#<code> Learn more",

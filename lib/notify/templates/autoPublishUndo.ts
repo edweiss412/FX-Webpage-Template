@@ -130,7 +130,7 @@ export function renderAutoPublishUndoBatch(input: AutoPublishUndoBatchInput): Re
   });
   const overflowLine =
     overflow > 0
-      ? `…and ${overflow} more — manage shows from the dashboard: ${input.origin}/admin`
+      ? `…and ${overflow} more. Manage shows from the dashboard: ${input.origin}/admin`
       : null;
   const closing = `${WHAT_UNDO_DOES} ${IGNORING}`;
 

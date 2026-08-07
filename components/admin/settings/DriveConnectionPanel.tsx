@@ -96,7 +96,7 @@ function deriveHealthExplainer(health: DriveConnectionHealth): string {
   // folderId (post-GC zero-watch-rows recovery — same remedy: Retry). Points at
   // the Settings "Retry connection" button, not Re-run setup.
   const retryExplainer =
-    "FXAV's link to your Drive folder lapsed, so new edits may not sync instantly. Use Retry connection to reconnect — your existing shows keep all their data and keep syncing on the normal schedule.";
+    "FXAV's link to your Drive folder lapsed, so new edits may not sync instantly. Use Retry connection to reconnect; your existing shows keep all their data and keep syncing on the normal schedule.";
   switch (health.reason) {
     case "not_configured":
       // folderId === null → never configured: onboarding copy. Otherwise the
