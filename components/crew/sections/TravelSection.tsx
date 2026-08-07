@@ -133,9 +133,14 @@ function TravelRow({
         <p className="text-[10.5px] font-bold uppercase leading-none tracking-eyebrow text-text-faint empty:hidden">
           {label}
         </p>
+        {/* `empty:hidden` for the same reason the eyebrow above carries it, and
+            it became reachable with date suppression: a leg whose only content
+            is its date and its assigned names keeps its row by design, but
+            `primary` then resolves to null and an empty <p> is still a flex
+            item spending the stack's gap above a line that paints nothing. */}
         <p
           data-testid="travelrow-primary"
-          className="min-w-0 wrap-break-word text-[15px] font-bold leading-snug text-text-strong"
+          className="min-w-0 wrap-break-word text-[15px] font-bold leading-snug text-text-strong empty:hidden"
         >
           {primary}
         </p>
@@ -409,6 +414,21 @@ export function TravelSection({
             : pickUpcomingIndex(flightSegments, flightTodayIso);
 
           const allHidden = !showFlight && !hasGettingThere && !hasHotels;
+
+          // Did SUPPRESSION empty this section, or was there nothing to show?
+          // The distinction is load-bearing copy, not bookkeeping: this arc is
+          // what made the empty state reachable for a viewer who HAS travel data
+          // (a dates-only reservation used to keep the hotels block alive), and
+          // telling a crew member their travel is not booked when it is booked
+          // and merely withheld is a trust failure — they would chase the admin
+          // for data that already exists. Derived from the UNFILTERED inputs,
+          // because that is the only place the difference survives.
+          const suppressionEmptiedSection =
+            hideDates &&
+            allHidden &&
+            (data.hotelReservations.length > 0 ||
+              (transportation?.schedule.length ?? 0) > 0 ||
+              sortedFlightSegments.length > 0);
 
           // §4.9 mock `split-wide`: at ≥720px the section is two columns — a WIDE
           // LEFT "Getting there" (ground transport / itinerary) and a NARROW RIGHT
@@ -752,7 +772,13 @@ export function TravelSection({
 
               {allHidden && !hotelFetchFailed && !transportFetchFailed ? (
                 <div data-testid="section-empty">
-                  <EmptyState label="No travel details on file yet." />
+                  <EmptyState
+                    label={
+                      suppressionEmptiedSection
+                        ? "Travel dates are hidden until your days are confirmed."
+                        : "No travel details on file yet."
+                    }
+                  />
                 </div>
               ) : null}
 

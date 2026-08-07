@@ -538,9 +538,15 @@ export function Step3ReviewModal({
           <span
             data-testid={`wizard-step3-card-${dfid}-review-publish-error`}
             role="status"
+            // `basis-full` so the error takes its own line above the control
+            // row instead of sitting beside the "All clear to publish" note.
+            // Hoisting made the region the footer's FIRST flex item, and at
+            // >=640px that put the two most contradictory sentences in the modal
+            // adjacent and same-sized (impeccable critique P2). Inert when
+            // hidden: `sr-only` is absolutely positioned, so it is out of flow.
             className={
               !resolution && !isDirtyRescan && !isFinalizeDemoted && publishState === "error"
-                ? "min-w-0 text-sm font-medium text-warning-text"
+                ? "min-w-0 basis-full text-sm font-medium text-warning-text"
                 : "sr-only"
             }
           >

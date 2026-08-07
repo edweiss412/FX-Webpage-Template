@@ -584,6 +584,70 @@ test.each<[string, string[]]>([
   },
 );
 
+test("unknown_asterisk viewer: an all-suppressed section says dates are HIDDEN, not that travel is unbooked", () => {
+  // Impeccable critique P1. Suppression made this state reachable: a dates-only
+  // reservation used to keep the hotels block alive, so the section-level empty
+  // state could not appear for a viewer who HAS travel data. Now it can — and
+  // "No travel details on file yet." would be telling a crew member their travel
+  // is unbooked when it is booked and merely withheld. That is a trust failure,
+  // and the viewer would chase Doug for data that already exists.
+  const data = restrict(
+    suppressionData({
+      schedule: [{ stage: "", date: LEG_ISO, time: null, assigned_names: [] }],
+      hotels: [
+        {
+          ordinal: 0,
+          hotel_name: null,
+          hotel_address: null,
+          names: [],
+          confirmation_no: null,
+          check_in: CHECK_IN_ISO,
+          check_out: CHECK_OUT_ISO,
+          notes: null,
+        },
+      ],
+    }),
+    UNKNOWN,
+  );
+  const { container } = renderTravelAs(data, CREW);
+  const empty = container.querySelector('[data-testid="section-empty"]');
+  expect(empty).toBeTruthy();
+  expect(empty!.textContent).toMatch(/hidden/i);
+  expect(empty!.textContent).not.toContain("No travel details on file yet.");
+  // The reason is named, not just the absence.
+  expect(empty!.textContent).toMatch(/confirmed/i);
+});
+
+test("unknown_asterisk viewer with genuinely NO travel data still gets the no-data copy", () => {
+  // The twin that stops the fix over-reaching: suppression did not cause this
+  // emptiness, so blaming it would be its own false statement.
+  const data = restrict(suppressionData({ schedule: [], hotels: [] }), UNKNOWN);
+  const { container } = renderTravelAs(data, CREW);
+  const empty = container.querySelector('[data-testid="section-empty"]');
+  expect(empty).toBeTruthy();
+  expect(empty!.textContent).toContain("No travel details on file yet.");
+});
+
+test("unknown_asterisk viewer: a names-only leg renders no blank primary line", () => {
+  // Impeccable critique P2. The leg survives by design (operational non-date
+  // content outlives suppression), but with the date gone `primary` resolves to
+  // `leg.time ?? leg.stage` = null, and an empty <p> is still a flex item — it
+  // spends the stack's gap above a line that paints nothing. The eyebrow above
+  // it already carries `empty:hidden` for exactly this reason.
+  const data = restrict(
+    suppressionData({
+      schedule: [{ stage: "", date: LEG_ISO, time: null, assigned_names: ["Jamie Rivera"] }],
+      hotels: [],
+    }),
+    UNKNOWN,
+  );
+  const { container } = renderTravelAs(data, CREW);
+  const primary = container.querySelector('[data-testid="travelrow-primary"]');
+  expect(primary).toBeTruthy();
+  expect(primary!.className).toContain("empty:hidden");
+  expect(primary!.textContent).toBe("");
+});
+
 test("unknown_asterisk viewer: a dates-only hotel reservation is withheld, not an empty card", () => {
   // Nothing else on the reservation renders (no name, no address, no stay rows),
   // so post-suppression it would be an empty bordered block inside a titled
