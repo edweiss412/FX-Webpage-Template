@@ -88,6 +88,14 @@ const GRADUATED = [
  * that recorded the finding.
  */
 const BACKLOG_GRADUATED = [
+  // feat/a11y-privacy-cluster (2026-08-07, arc A): the travel-date privacy leak.
+  // Three of its four sites gated off the shipped `suppressesDates` predicate;
+  // the fourth — a peer's attendance days on the roster — closed by an OWNER
+  // RULING rather than a gate (coordination wins), which is still a graduation.
+  {
+    id: "BL-CREW-UNKNOWN-ASTERISK-TRAVEL-LEAK",
+    provenance: "feat/a11y-privacy-cluster",
+  },
   // feat/needs-attention-holds-rollup (2026-08-03): the cross-show open-holds read
   // the entry was blocked on, plus the fourth needs-attention stream it unblocked.
   {

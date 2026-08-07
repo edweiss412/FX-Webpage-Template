@@ -1125,35 +1125,6 @@ docblock states the gap rather than papering over it.
 
 ---
 
-## BL-CREW-UNKNOWN-ASTERISK-TRAVEL-LEAK — four date classes still reach a viewer whose days are unconfirmed
-
-**Status:** IN PROGRESS · **Branch:** feat/a11y-privacy-cluster
-
-**Filed:** 2026-08-05 (M-wave W-UI, whole-diff cross-model review R1, probed by rendering the real sections). **Class:** privacy. **Effort:** M. **Severity:** medium — no data loss, but it defeats the point of the `***` marker.
-
-`unknown_asterisk` means the sheet says a crew member works SOME subset of days and does not say which. The agenda, key-times strip, schedule and (as of this wave) the Today Tonight card all withhold dates for such a viewer. **Four classes do not**, confirmed by rendering `TravelSection` and `CrewSection` with an `unknown_asterisk` viewer rather than by reading them:
-
-```
-Your flight May 13 JFK → LAX   Getting there Driver Crew One load-in Wed, May 13 8AM · With Crew One
-Hotels Hyatt Check in May 13 Check out May 15
-Show crew  UV Unknown Viewer You Partial (dates TBD)  EP Explicit Peer May 13 & 15 only
-```
-
-- ground-transport leg dates — `components/crew/sections/TravelSection.tsx:439`
-- hotel check-in/check-out — `components/crew/sections/TravelSection.tsx:514`
-- personal flight dates — `components/crew/sections/TravelSection.tsx:603`
-- a PEER's explicit days via the roster attendance label — `components/crew/sections/CrewSection.tsx:191`
-
-**One candidate is REFUTED, recorded so it is not re-raised.** Cross-model R4 added the global header date (`components/layout/Header.tsx:45`, `May 13, 2026`) to this list. It does not belong: that is the SHOW's date, rendered to anyone holding the share link, and `unknown_asterisk` means "which days YOU work is unconfirmed" — not "the show's dates are secret". Suppressing it would remove the one piece of context every viewer needs and would not protect anything, since the date is on the link they used to arrive. The privacy question here is narrower than "any rendered date": it is dates that imply the VIEWER's own schedule. The four sites above are exactly that; the header is not.
-
-The census found no further ungated viewer-specific date renderers, so the list above is believed complete.
-
-**Why not fixed in the wave that found it:** all four predate `lib/crew/dateSuppression.ts` and sit outside the ratified scope of the Today change (spec §1.1 ratified the Tonight/Where rows specifically). The fourth is also not a mechanical gate — `partialAttendanceLabel` prints a peer's days to help crew coordinate, so suppressing it is a product decision about whose privacy wins, exactly the "dedicated crew-privacy review" that `BL-CREW-UNKNOWN-ASTERISK-TODAY-DATES` named as its own promotion prerequisite.
-
-**Deferral exception: (a)** — needs a product decision the closing PR cannot settle. What the PR DID do is stop `lib/crew/dateSuppression.ts` from claiming these were handled: its header now lists gated and ungated surfaces explicitly, so the next reader inherits the truth rather than the summary.
-
-**Status:** OPEN.
-
 ## BL-LIVE-REGION-AST-WALK-RESIDUE — four regions the new AST walk found, and one gate shape it still cannot see
 
 **Status:** IN PROGRESS · **Branch:** feat/a11y-privacy-cluster
