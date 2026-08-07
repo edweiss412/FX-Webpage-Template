@@ -22,7 +22,7 @@ graduation guard, and the planted premise fixtures under
 `tests/docs/fixtures/planFences/` — one plan per rule plus an unclosed fence —
 which make the gate's ability to FAIL executable rather than assumed.
 
-**Baseline: 3543 rows, 3621 occurrences** across 561 plan files (down from 4044/4122 before the R1 false-positive repairs) (5440 fences, 3587
+**Baseline as shipped: 3551 rows, 3629 occurrences** across 561 plan files. It moved twice: 4044/4122 at first generation, 3543/3621 after R1's false-positive repairs, and 3551/3629 once R2 and R3 settled fence identity (5440 fences, 3587
 eligible, 1249 attributed, 0 unplaced, 0 waiver errors). FENCE_EM_DASH 2906,
 UNCHECKED_INDEX 145, MANGLED_TEMPLATE 44, DUPLICATE_IMPORT 0; the
 UNIMPORTED_IDENTIFIER share fell furthest as the scan stopped reading comments,
