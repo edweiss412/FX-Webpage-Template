@@ -219,45 +219,52 @@ export function MaterializeCard(props: MaterializeCardProps) {
         authentic rows alone.
       </p>
 
-      {result === null ? null : (
-        <div
-          data-testid="result"
-          // Matches the convention on every sibling async surface
-          // (RescanSheetButton, FinalizeButton, BlockedRowResolver): without it a
-          // screen-reader user gets no announcement after a real database write.
-          role="status"
-          aria-live="polite"
-          className="mt-4 rounded-md border border-border p-3"
-        >
-          <p data-testid="result-headline" className="text-xs/relaxed text-text-strong">
-            {headlineFor(result)}
-          </p>
-          {result.kind === "ok" ? (
-            <p className="mt-1 text-xs/relaxed text-text-subtle">
-              {result.alerts} alert(s), {result.holds} hold(s), warnings {result.warnings}.
-              {result.skipped.length === 0
-                ? ""
-                : ` Skipped: ${result.skipped.map((s) => `${s.code} (${s.reason})`).join(", ")}.`}
+      {/* BL-LIVE-REGION-AST-WALK-RESIDUE. The region mounts UNCONDITIONALLY so the
+          result's text arrives as a mutation inside a node the screen reader is
+          already watching; a region inserted together with its text is just new
+          DOM and announces nothing, which is exactly the case that matters here —
+          the operator has just triggered a real database write.
+
+          It is deliberately UNSTYLED. The gated node used to own the card's
+          visual box as well, so hoisting it whole would paint an empty bordered
+          card in the idle state. The box moved INSIDE, result-scoped, which keeps
+          the idle render byte-identical while the region persists.
+
+          Matches the convention on every sibling async surface (RescanSheetButton,
+          FinalizeButton, BlockedRowResolver). */}
+      <div role="status" aria-live="polite">
+        {result === null ? null : (
+          <div data-testid="result" className="mt-4 rounded-md border border-border p-3">
+            <p data-testid="result-headline" className="text-xs/relaxed text-text-strong">
+              {headlineFor(result)}
             </p>
-          ) : null}
-          {result.kind === "partial" ? (
-            <p className="mt-1 text-xs/relaxed text-text-subtle">
-              Committed {result.committed.alerts} alert(s) and {result.committed.holds} hold(s)
-              before {result.failedStep} failed: {result.message}
-            </p>
-          ) : null}
-          {result.kind === "refused" ? (
-            <p className="mt-1 font-mono text-xs wrap-break-word text-text-subtle">
-              {result.reason}
-            </p>
-          ) : null}
-          {result.kind === "infra_error" ? (
-            <p className="mt-1 font-mono text-xs wrap-break-word text-text-subtle">
-              {result.message}
-            </p>
-          ) : null}
-        </div>
-      )}
+            {result.kind === "ok" ? (
+              <p className="mt-1 text-xs/relaxed text-text-subtle">
+                {result.alerts} alert(s), {result.holds} hold(s), warnings {result.warnings}.
+                {result.skipped.length === 0
+                  ? ""
+                  : ` Skipped: ${result.skipped.map((s) => `${s.code} (${s.reason})`).join(", ")}.`}
+              </p>
+            ) : null}
+            {result.kind === "partial" ? (
+              <p className="mt-1 text-xs/relaxed text-text-subtle">
+                Committed {result.committed.alerts} alert(s) and {result.committed.holds} hold(s)
+                before {result.failedStep} failed: {result.message}
+              </p>
+            ) : null}
+            {result.kind === "refused" ? (
+              <p className="mt-1 font-mono text-xs wrap-break-word text-text-subtle">
+                {result.reason}
+              </p>
+            ) : null}
+            {result.kind === "infra_error" ? (
+              <p className="mt-1 font-mono text-xs wrap-break-word text-text-subtle">
+                {result.message}
+              </p>
+            ) : null}
+          </div>
+        )}
+      </div>
     </section>
   );
 }

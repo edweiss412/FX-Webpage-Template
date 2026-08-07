@@ -164,7 +164,7 @@ const undoable = (id: string, summary: string) => ({
 
 function renderFeed(entries: ReturnType<typeof undoable>[], undoAction: typeof noop) {
   return render(
-    <AdminAnnounceProvider testId="admin-undo-status" label="Undo updates">
+    <AdminAnnounceProvider testId="admin-undo-status" label="Status updates">
       <ChangesFeed
         entries={entries}
         truncated={false}

@@ -65,6 +65,11 @@ const BACKLOG_OPTS: ExtractOpts = { requirePrefix: "BL-", levels: [2, 3] };
  * invariant reaches only headings that actually carry an id (see DEFERRAL_ID).
  */
 const GRADUATED = [
+  // feat/a11y-privacy-cluster (2026-08-07, arc A): the share-link scroll cue.
+  // Un-deferred by the user into an arc that could own both requirements the
+  // deferral named — a transition inventory for the new motion surface and a
+  // reduced-motion arm — so it graduated by satisfying them, not by waiving them.
+  "SHARELINK-CUE-VISIBILITY-1",
   "SETTINGS-DEVROW-GALLERY-RESIDUE-1",
   // feat/sharehub-archive-copy-reveal (2026-07-24). The first RESOLVED by the
   // popover placement migration; the second archived as REFUTED rather than
@@ -88,6 +93,30 @@ const GRADUATED = [
  * that recorded the finding.
  */
 const BACKLOG_GRADUATED = [
+  // feat/a11y-privacy-cluster (2026-08-07, arc A): the travel-date privacy leak.
+  // Three of its four sites gated off the shipped `suppressesDates` predicate;
+  // the fourth — a peer's attendance days on the roster — closed by an OWNER
+  // RULING rather than a gate (coordination wins), which is still a graduation.
+  {
+    id: "BL-CREW-UNKNOWN-ASTERISK-TRAVEL-LEAK",
+    provenance: "feat/a11y-privacy-cluster",
+  },
+  // feat/a11y-privacy-cluster (2026-08-07, arc A): the four PENDING live-region
+  // sites the AST walk filed, all closed BY REPAIR rather than by dropping the
+  // rows. The cross-component walk-blindness limit re-homed to the guard file's
+  // own docblock, which is the owning surface's limits record.
+  {
+    id: "BL-LIVE-REGION-AST-WALK-RESIDUE",
+    provenance: "feat/a11y-privacy-cluster",
+  },
+  // feat/a11y-privacy-cluster (2026-08-07, arc A): the five dead role="status"
+  // attributes, stripped only after the per-site census the entry demanded —
+  // which found the entry's own "nothing is lost at runtime" premise false at
+  // four of the five sites, and wired those outcomes before stripping.
+  {
+    id: "BL-CHANNEL-ANNOUNCER-RESIDUAL-ROLE-STATUS",
+    provenance: "feat/a11y-privacy-cluster",
+  },
   // feat/needs-attention-holds-rollup (2026-08-03): the cross-show open-holds read
   // the entry was blocked on, plus the fourth needs-attention stream it unblocked.
   {

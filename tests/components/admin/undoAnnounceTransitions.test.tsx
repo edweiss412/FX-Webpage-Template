@@ -104,7 +104,7 @@ describe("transition audit (spec §10.2)", () => {
       .mockResolvedValueOnce({ ok: true })
       .mockResolvedValueOnce({ ok: false, code: "UNDO_SUPERSEDED" });
     render(
-      <AdminAnnounceProvider testId="admin-undo-status" label="Undo updates">
+      <AdminAnnounceProvider testId="admin-undo-status" label="Status updates">
         <UndoChangeButton
           changeLogId="cl-1"
           undoAction={undoAction}
