@@ -102,7 +102,10 @@ const CHANNEL_ANNOUNCE_CALLS: ReadonlyMap<string, number> = new Map([
   // EFFECT — this component owns no transition, it receives already-resolved
   // data as a prop — keyed on the previously-OBSERVED `data.kind`.
   ["components/admin/RecentAutoAppliedStrip.tsx", 2],
-  ["components/admin/ReSyncButton.tsx", 1],
+  // 1 -> 2 (arc A): the file's one prior call covered only the shrink_held pause
+  // branch, so the SUCCESS summary — the most common outcome of the most common
+  // admin action — was silent for AT.
+  ["components/admin/ReSyncButton.tsx", 2],
 ]);
 
 /**
@@ -219,7 +222,9 @@ const REGISTERED_SITES: ReadonlyMap<string, number> = new Map([
   // came off WITHOUT wiring, on purpose — see the no-wire reason in the
   // CHANNEL_ANNOUNCERS header above.
   ["components/admin/RecentAutoAppliedStrip.tsx", 0],
-  ["components/admin/ReSyncButton.tsx", 1],
+  // Stripped 2026-08-07 (arc A): 1 -> 0, once the channel demonstrably carried
+  // the success summary the card renders (one string feeds both).
+  ["components/admin/ReSyncButton.tsx", 0],
   // Repaired 2026-08-07 (arc A): the region hoisted above the result gate, the
   // visual box moved inside it and left result-scoped. No conditional site left.
   ["components/admin/dev/MaterializeCard.tsx", 0],
