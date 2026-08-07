@@ -151,7 +151,7 @@ describe("Dashboard segmented Active/Archived bucket (§3.1)", () => {
     expect(archived.textContent).toContain("0");
   });
 
-  it("Active segment: a clean Held row (requires_resync=false, no checkpoint) shows 'Held — not published', NOT 'Publishing…'", async () => {
+  it("Active segment: a clean Held row (requires_resync=false, no checkpoint) shows 'Held, not published', NOT 'Publishing…'", async () => {
     // REGRESSION: a clean Unarchive catch-up clears requires_resync, so the
     // normal Held state has requires_resync=false. It must STILL be "Held"
     // (it has no active wizard finalize checkpoint → not in finalizeOwnedIds).
@@ -174,7 +174,7 @@ describe("Dashboard segmented Active/Archived bucket (§3.1)", () => {
     };
     await renderDashboard("active");
     const heldPill = screen.getByTestId("shows-held-pill-held");
-    expect(heldPill.textContent).toMatch(/Held — not published/);
+    expect(heldPill.textContent).toMatch(/Held, not published/);
     expect(screen.queryByTestId("shows-publishing-held")).not.toBeInTheDocument();
   });
 

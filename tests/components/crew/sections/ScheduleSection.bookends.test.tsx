@@ -49,7 +49,7 @@ const setEntries: AgendaEntry[] = [
 ];
 const showEntries: AgendaEntry[] = [
   { start: "9:00 AM", title: "Registration" },
-  { start: "5:00 PM", title: "Strike — GS", kind: "strike" },
+  { start: "5:00 PM", title: "Strike: GS", kind: "strike" },
   { start: "6:00 PM", title: "Load Out", kind: "loadout" },
 ];
 
@@ -133,7 +133,7 @@ describe("ScheduleSection — SET synthesis + strike + transport-gated load-out 
     const card = (showCard(container) ?? todayCard(container))!;
     expect(card).not.toBeNull();
     expect(strikeRow(card)).not.toBeNull();
-    expect(within(card).getByText("Strike — GS")).toBeTruthy();
+    expect(within(card).getByText("Strike: GS")).toBeTruthy();
   });
 
   test("unassigned crew viewer is DENIED the load-out but still sees the strike", () => {

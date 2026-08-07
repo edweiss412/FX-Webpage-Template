@@ -100,11 +100,11 @@ export function PublishedToggle({
 
   const subline = finalizeOwned
     ? published
-      ? "Changes are being finalized — the switch unlocks when they commit."
-      : "A publish is finishing — the switch unlocks when it's done."
+      ? "Changes are being finalized; the switch unlocks when they commit."
+      : "A publish is finishing; the switch unlocks when it's done."
     : published
       ? "Crew link is active."
-      : "Crew link is off — nobody can open this show.";
+      : "Crew link is off; nobody can open this show.";
 
   // Shared by both variants — the switch is the form SUBMITTER; refusals render locally WITHOUT
   // router.refresh() (remount would wipe the inline popover / card copy, plan R10). B1 dispatch

@@ -780,7 +780,7 @@ describe("DiagramsBreakdown body (follow-ups spec §B3 + §K8)", () => {
     expect(tiles.length).toBe(DIAGRAM_TILE_CAP);
     expect(
       scoped.getByText(
-        `+${stubs.length - DIAGRAM_TILE_CAP} more — all images are snapshotted when the show publishes.`,
+        `+${stubs.length - DIAGRAM_TILE_CAP} more. All images are snapshotted when the show publishes.`,
       ),
     ).toBeTruthy();
     // Count summary reflects ALL valid stubs (not the capped subset).
@@ -1162,7 +1162,7 @@ describe("ReportIssueSection — §D disclosure (collapsed by default; state sur
   // Mirrors reportAttemptStorageKey (step3ReviewSections.tsx) — deliberately
   // restated so a key-format drift fails here.
   const STORAGE_KEY = `fxav-report-attempt-wizard-${WSID}-${DFID}`;
-  const SUCCESS_COPY = "Sent — thanks. The developer will take a look.";
+  const SUCCESS_COPY = "Sent. Thanks, the developer will take a look.";
 
   beforeEach(() => window.sessionStorage.clear());
   afterEach(() => vi.unstubAllGlobals());

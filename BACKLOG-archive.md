@@ -8,6 +8,95 @@ Same split as [DEFERRED.md](./DEFERRED.md) ↔ [DEFERRED-archive.md](./DEFERRED-
 
 ---
 
+## BL-EM-DASH-POLICY — Resolve the DESIGN.md §9 em-dash ban vs. shipped usage — CLOSED 2026-08-07 (L-wave, `feat/l-wave-emdash`, RESOLUTION 2: ENFORCE)
+
+**Resolution: the user chose ENFORCE — resolution 2, over the entry's own "(recommended)" tag on
+resolution 1.** Ratified 2026-08-05 (L-wave decisions brief; spec §1.1 item 3 / §4.5 item 3). The ban
+stands, the corpus was swept, and a structural guard now prevents its return. `DESIGN.md` §9 names
+that guard as its enforcement.
+
+**What shipped:** `tests/styles/_metaEmDashCopy.test.ts`, plus ~50 repaired user-visible strings
+across `lib/**`, `components/**`, `app/**` (minus `app/api/**`) and the two help MDX files, plus ~80
+test pins moved in the same commits as their strings.
+
+**THE CENSUS IN THIS ENTRY WAS WRONG, and the correction is the most useful thing to carry forward.**
+The body claims "dozens of §12.4 catalog rows contain `—`". Probed at execution: the catalog's copy
+strings carry **ZERO** em dashes. Its nine raw hits are all COMMENTS. A prior copy pass had already
+cleaned it (`SYNC_DELAYED_SEVERE` now reads "…has stalled. Check the dashboard."), and every
+character-level census taken since counted comments as copy. **Consequence: the §12.4 three-way
+lockstep — the single largest cost this entry used to size against — never fired.** No catalog row
+changed, so no spec-prose edit and no `gen:spec-codes` regen was needed.
+
+That is why the guard is STRUCTURAL rather than a grep: it parses TypeScript and keys on NODE KINDS
+(`StringLiteral`, `NoSubstitutionTemplateLiteral`, `TemplateHead`/`Middle`/`Tail`, `JsxText`, JSX
+attribute strings), so comments are out of scope by construction rather than by filtering. The
+template FRAGMENTS are the class that escapes naive scanners: TypeScript's `isStringLiteralLike`
+EXCLUDES them, so a scanner built on that helper silently misses live copy.
+
+**The accept-set, stated so a later widening reads as a decision rather than drift:** `components/**`,
+`app/**` minus `app/api/**`, all of `lib/**`, help MDX, and the catalog. `app/api/**` is out BY
+CONTRACT — route handlers surface user-visible text only through §12.4 catalog codes (invariant 5), so
+their literals are internal, and the catalog is itself covered. Out of scope by name: code comments,
+`docs/**`, spec files, `tests/**`, `scripts/**`, en dashes, homoglyphs, and HTML entities.
+
+**Two structural carve-outs, each chosen over a per-file exemption row that would have been too
+coarse:**
+
+1. **A lone glyph is an empty-value SENTINEL, not prose** (`{checkIn ?? "—"}`, an `aria-hidden`
+   separator). `ShowsTable` and `step3ReviewSections` each hold BOTH a sentinel and real copy, so a
+   per-file row would have silently exempted the copy.
+2. **`--` is fenced to MDX prose**, where fenced code and table DELIMITER rows are elided structurally
+   (table CELL prose stays scanned). `--` is load-bearing syntax elsewhere, so the guard does not
+   claim it there.
+
+**THE BYPASS THAT THE DUAL GATE CAUGHT, recorded because it is the failure this class invites.** The
+sentinel rule first tested `text.trim() === EM_DASH`, which skipped ANY bare-glyph literal regardless
+of its neighbours. The impeccable audit defeated it three ways, every one idiomatic authoring rather
+than obfuscation — `<span>Notifications{" — "}unseen</span>`, `"Notifications " + "—" + …`, and
+`` `Notifications ${"—"} …` `` — each rendering a visible em dash while the guard stayed green. The
+rule now refuses to trim string literals (a padded `" — "` is a separator; a bare `"—"` is a value)
+and refuses sentinel status to any literal whose parent BUILDS A STRING. All three bypasses ship as
+permanent regression premises, alongside two that pin the opposite boundary so the tightening cannot
+start flagging real sentinels.
+
+**Documented limits (spec §4 limit 2), unchanged:** the guard covers exactly its accept-set. Adversarial
+obfuscation — homoglyphs, HTML entities, U+2013 en-dash substitution — is OUT of scope by name, under a
+threat model of accidental authoring by an ordinary contributor. Widening further is a future decision.
+
+**Screenshot baselines: NOT regenerated, and that was measured rather than assumed.** The
+`screenshots-drift` CI job re-captures all 14 help WebPs inside the pinned
+`mcr.microsoft.com/playwright:v1.59.1-jammy` image on a native-amd64 runner and byte-compares against
+the committed baselines. It PASSED on the repaired tree, so no captured surface renders any repaired
+string and every baseline is current. Per the byte-comparison discipline, that verdict had to come
+from CI: an arm64 dev host diverges from the native-x64 runner even on an identical pinned image.
+
+**Re-open trigger:** a decision to widen the accept-set (e.g. to `docs/**` or to en dashes), or
+evidence that the exemption registry has grown into a way of avoiding repairs rather than recording
+genuinely-internal text.
+
+---
+
+**Effort:** M (if lockstep sweep; XS if amend-only — owner picks)
+
+**Filed:** 2026-06-13 from the Doug/crew copy audit. Owner decision (2026-06-13): **defer for future consideration after a full review** — do NOT sweep now.
+
+**The conflict:** `DESIGN.md` §9 (and the global `~/.claude/CLAUDE.md` Copy rule) state "No em dashes. Use commas, colons, semicolons, periods, parentheses. Also not `--`." But shipped copy uses em dashes widely and the rule has never been enforced:
+
+- **§12.4 catalog** (`lib/messages/catalog.ts` + the spec §12.4 prose): dozens of `dougFacing`/`crewFacing`/`helpfulContext`/`longExplanation` rows contain `—` (e.g. `SYNC_DELAYED_SEVERE` "Push or cron is stalled — check the dashboard.").
+- **Help MDX** (`app/help/**`): 25+ instances across multiple pages.
+- **Components**: test-pinned strings include em dashes, e.g. `"Held — not published"` (pinned in `tests/components/admin/ShowsTable.test.tsx`, `tests/app/admin/perShowPage.test.tsx`) and the archive-confirm copy `"Confirm archive — crew links stop working now…"` (pinned in `tests/components/admin/ArchiveShowButton.test.tsx`).
+
+**Two coherent resolutions (pick one during the full review):**
+
+1. **Ratify reality (recommended).** Amend DESIGN.md §9 to permit em dashes in prose copy (optionally keep the ban for headings/eyebrow labels, or drop it entirely). One-line doc change, zero code/test churn. The ban appears inherited from the impeccable skill's defaults rather than chosen for this product; the shipped copy reads well.
+2. **Enforce the ban.** A repo-wide sweep replacing every `—` with commas/periods/parentheses. This touches the §12.4 three-way lockstep across dozens of rows (spec prose + `gen:spec-codes` regen + `catalog.ts`), multiple test pins, help MDX, and possibly screenshot baselines if any captured surface renders a dash. Multi-hour, high-churn, and it relitigates copy that passed many M12 adversarial rounds.
+
+**Why backlog, not deferred:** no spec, no plan, no scheduled milestone, no concrete trigger beyond "if/when the owner runs the full copy-voice review." If resolution (2) is ever chosen it should be its own scoped task (lockstep + test-pin updates + a structural guard, e.g. a meta-test banning `—` in `lib/messages/catalog.ts` and `app/help/**`), authored after the §9 decision is made.
+
+**Promotion prerequisite:** owner decision on resolution (1) vs (2). (1) is a trivial DESIGN.md edit, not really a milestone; (2) needs a scoped task with the lockstep + meta-test.
+
+---
+
 ## BL-PUSH-NOTIFICATIONS — Email-primary operator push surface — CLOSED 2026-08-06 (L-wave, `feat/l-wave-push`, SHIPPED at resized scope)
 
 **Resolution: the residual SHIPPED, and the entry closes at S.** Ratified 2026-08-05 (L-wave spec

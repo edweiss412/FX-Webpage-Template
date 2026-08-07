@@ -25,7 +25,7 @@ describe("parseSheet wires deriveScheduleBookends into runOfShow", () => {
     // Strike (kind:"strike") on the room's own date.
     const strike = ros!["2025-03-26"]!.entries.find((e) => e.kind === "strike");
     expect(strike).toBeDefined();
-    expect(strike!.title).toBe("Strike — General Session");
+    expect(strike!.title).toBe("Strike: General Session");
     expect(strike!.start).toBe("12:00pm");
 
     // Load Out (kind:"loadout") from the transport Pick Up Venue stage.

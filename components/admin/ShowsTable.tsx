@@ -200,19 +200,18 @@ const STATE_LABEL: Record<StatusState, string> = {
   live: "Live",
   published: "Published",
   publishing: "Publishing…",
-  held: "Held", // overridden to the verbose "Held — not published" for place="inline"
+  held: "Held", // overridden to the verbose "Held, not published" for place="inline"
 };
 
 // `place` selects BOTH the Held label compaction AND the testid namespace (§3.1/§4.1):
-// place="inline" → verbose "Held — not published" + shows-{state}-pill;
+// place="inline" → verbose "Held, not published" + shows-{state}-pill;
 // place="column" → compact "Held" + shows-statuscol-{state}. No animation — the dot is
 // static (the pulsing ping animation lives only in StatusIndicator, the Sync cell).
 function StatePill({ row, place }: { row: ActiveShowRow; place: PillPlace }) {
   const state = statusState(row);
   const tone = PILL_TONE[state];
   const testId = `${(place === "column" ? COLUMN_TESTID : INLINE_TESTID)[state]}-${row.slug}`;
-  const label =
-    state === "held" && place === "inline" ? "Held — not published" : STATE_LABEL[state];
+  const label = state === "held" && place === "inline" ? "Held, not published" : STATE_LABEL[state];
   return (
     <span
       data-testid={testId}
@@ -459,7 +458,7 @@ export function ShowsTable({
           data-testid="shows-table-overflow"
           className="rounded-md border border-border bg-surface-sunken p-3 text-sm text-text-subtle"
         >
-          Showing the first {rows.length} of {activeCount} shows — sorting and Find apply to just
+          Showing the first {rows.length} of {activeCount} shows; sorting and Find apply to just
           these {rows.length}, not the full set. Contact the developer if you need the full list.
         </p>
       ) : null}
@@ -484,7 +483,7 @@ export function ShowsTable({
             // searched (adversarial R1, M12.3). Scope the copy honestly so a
             // no-match never reads as "this show does not exist".
             <>
-              No matches for “{query.trim()}” among the {rows.length} shown shows — {overflowCount}{" "}
+              No matches for “{query.trim()}” among the {rows.length} shown shows; {overflowCount}{" "}
               more aren’t loaded here.
             </>
           ) : (

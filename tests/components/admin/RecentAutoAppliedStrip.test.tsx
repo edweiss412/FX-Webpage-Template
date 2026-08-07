@@ -1112,7 +1112,7 @@ it("REDESIGN-3: renders a fields diff with the field name as the heading", () =>
     <RecentAutoAppliedStrip
       data={fieldsData([
         { label: "COI status", from: "(none)", to: "received", note: null },
-        { label: "Role — Jordan A. Lee", from: "A1, LEAD", to: "A1", note: null },
+        { label: "Role: Jordan A. Lee", from: "A1, LEAD", to: "A1", note: null },
         { label: "PO number", from: null, to: null, note: "cleared on this sync" },
       ])}
       actions={noopActions()}
@@ -1120,7 +1120,7 @@ it("REDESIGN-3: renders a fields diff with the field name as the heading", () =>
     />,
   );
   expect(screen.getByText("COI status")).toBeInTheDocument();
-  expect(screen.getByText("Role — Jordan A. Lee")).toBeInTheDocument();
+  expect(screen.getByText("Role: Jordan A. Lee")).toBeInTheDocument();
   expect(screen.getByText("cleared on this sync")).toBeInTheDocument();
   // field label is the heading — carries semibold weight (over the diff values).
   expect(screen.getByText("COI status")).toHaveClass("font-semibold");
@@ -1154,7 +1154,7 @@ it("REDESIGN-3: crew rows STILL render the 'Crew member' label", () => {
 });
 
 it("REDESIGN-3: long values wrap on label/from/to/note (no overflow)", () => {
-  const lname = "Role — " + "N".repeat(110);
+  const lname = "Role: " + "N".repeat(110);
   const lfrom = "F".repeat(120);
   const lto = "T".repeat(120);
   const lnote = "P".repeat(120);
@@ -1175,7 +1175,7 @@ it("REDESIGN-3: long values wrap on label/from/to/note (no overflow)", () => {
 
 it("REDESIGN-3: renders ALL entries — no +N more collapse", () => {
   const entries: FieldChangeEntry[] = Array.from({ length: 14 }, (_, i) => ({
-    label: `Role — Person ${i}`,
+    label: `Role: Person ${i}`,
     from: "A1",
     to: "A1, LEAD",
     note: null,
@@ -1188,7 +1188,7 @@ it("REDESIGN-3: renders ALL entries — no +N more collapse", () => {
     />,
   );
   for (let i = 0; i < 14; i++) {
-    expect(screen.getByText(`Role — Person ${i}`)).toBeInTheDocument();
+    expect(screen.getByText(`Role: Person ${i}`)).toBeInTheDocument();
   }
   expect(screen.queryByText(/\+\d+ more|show more/i)).toBeNull();
 });
@@ -1201,7 +1201,7 @@ it("REDESIGN-3: the Unavailable marker renders as a distinct warning row", () =>
           label: "Unavailable",
           from: null,
           to: null,
-          note: "1 field change on this sync — details unavailable",
+          note: "1 field change on this sync: details unavailable",
         },
       ])}
       actions={noopActions()}
