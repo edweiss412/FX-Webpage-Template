@@ -101,14 +101,7 @@ describe("e2e suite holds no unlocked PostgREST DML on locked tables (structural
     // broadcast stimulus (statement trigger + bump_last_changed_at fence; spec
     // §8.4). Same elevated-seed class as claimStamp/seedShowWithCrew above.
     ["_realtimeDrivabilityProbe.ts", 1],
-    // 1 -> 3 (2026-08-07, arc C Q2): the aborted-close freshness case drives the
-    // SAME service-role crew_members.role UPDATE twice — once to buy the
-    // modal's freshness BASELINE (the first signature a modal sees arms
-    // nothing), once to arm the cue the aborted close must clear. Identical
-    // class to the row above, not new fixture DML: the locked seed cannot
-    // express it, because what is under test is the BROADCAST a live UPDATE
-    // emits, not the resulting rows.
-    ["published-review-modal.realtime.spec.ts", 3],
+    ["published-review-modal.realtime.spec.ts", 1],
     // closeFreshness (2026-07-20): renames the seeded show via a SERVICE-ROLE
     // admin-client shows.title UPDATE while the modal is open, to prove the
     // dashboard reconciles after a prefetched close. Same elevated-seed class

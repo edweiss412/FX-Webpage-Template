@@ -34,6 +34,7 @@ import {
   type SeedCrewMemberInput,
 } from "./helpers/seedShowWithCrew";
 import { admin } from "./helpers/supabaseAdmin";
+import { setCrewRoleLocked } from "./helpers/lockedCrewRestriction";
 import { SECTION_FRESHNESS_FLASH_MS } from "@/components/admin/review/sectionFreshness";
 import { settleDashboardAdminState } from "./helpers/dashboardState";
 import {
@@ -828,21 +829,13 @@ test.describe("published review modal — realtime broadcast refresh (realtime-r
       // would establish the baseline and arm NOTHING, and the abort below would
       // then be aborting over an empty cue set: green against any implementation.
       // This mutation is spent buying the baseline; the next one arms.
-      const { error: baseErr } = await admin
-        .from("crew_members")
-        .update({ role: BASELINE_ROLE })
-        .eq("id", target.id);
-      expect(baseErr, "service-role baseline role UPDATE").toBeNull();
+      await setCrewRoleLocked(seeded.driveFileId, target.id, BASELINE_ROLE);
       await expect(targetRow).toContainText(BASELINE_ROLE, { timeout: CONTENT_SWAP_TIMEOUT_MS });
 
       // Arm a real cue: install the stamper FIRST, then mutate.
       await installFreshnessArmStamp(page);
       const commitAt = Date.now();
-      const { error: mutErr } = await admin
-        .from("crew_members")
-        .update({ role: NEW_ROLE })
-        .eq("id", target.id);
-      expect(mutErr, "service-role role UPDATE").toBeNull();
+      await setCrewRoleLocked(seeded.driveFileId, target.id, NEW_ROLE);
 
       // Phase (i) FIRST, exactly as `runScenario` does: local delivery loss is a
       // measured ~9% of runs, and absorbing it here means a dropped frame reads

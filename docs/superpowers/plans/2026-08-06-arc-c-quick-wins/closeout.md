@@ -156,18 +156,48 @@ token, that the new case creates no `admin_alerts` (those are unique to
 `runScenario`), and that the class-sweep is sound at exactly 16 files with every
 successful seed torn down.
 
-**R3 — the locked-table DML pin.** The full local suite (1823 files) surfaced one
-real failure, in `tests/help/walker-routes.test.ts`: the structural pin freezing
-per-file counts of service-role PostgREST DML under `tests/e2e/` read 3
-locked-table mutations in the realtime spec against a frozen 1. The two new ones
-are the baseline-buying and cue-arming `crew_members.role` UPDATEs, which are the
-same elevated-seed class the file's existing entry already exempts — the locked
-seed cannot express them, because what is under test is the BROADCAST a live
-UPDATE emits, not the resulting rows. Count raised 1 -> 3 with that reason at the
-entry. The pin is two-way (it also fails when a count SHRINKS), so the raise is a
-claim that can go stale loudly rather than silently.
+**R3 — NEEDS-ATTENTION, 1 P0. The reviewer was right and the first repair was
+wrong.** The full local suite (1823 files) surfaced one real failure, in
+`tests/help/walker-routes.test.ts`: the structural pin freezing per-file counts of
+service-role PostgREST DML under `tests/e2e/` read 3 locked-table mutations in the
+realtime spec against a frozen 1. The first repair raised the count to 3, arguing
+the two new `crew_members.role` UPDATEs were the same elevated-seed class the
+file's existing entry already exempts.
 
-The other FAIL lines in that run belong to `pg-cron-coverage`'s mechanism-probe
-guard, which runs a mutant child and asserts it fails; the run summary counted
-one failing file, not three.
+That argument does not survive reading the helper it was arguing around.
+`tests/e2e/helpers/lockedCrewRestriction.ts:22-27` states the contract in its own
+header: "new fixture mutations on locked tables go through THIS file (or a sibling
+following the same pattern), never through the service-role PostgREST client." And
+invariant 2 admits no fixture exception — every `crew_members` mutation runs inside
+`pg_advisory_xact_lock(hashtext('show:' || drive_file_id))`. Raising a guard's
+frozen count to accommodate a write the guard exists to reject is loosening the
+guard, and the reviewer named it P0 on exactly that ground.
 
+Repair: `setCrewRoleLocked` added to that helper, same transaction shape as
+`setDateRestrictionLocked`; both new UPDATEs go through it; the frozen count
+reverted to 1, where it stays green.
+
+**The load-bearing claim was that the broadcast survives the transport change** —
+the AFTER UPDATE statement trigger fires for any SQL UPDATE, not for a particular
+client. That is exactly the kind of claim this arc has already been burned by
+assuming, so it was re-observed rather than argued: with the clear-on-hide branch
+neutered again, the case failed through the locked path
+
+```
+Error: an aborted close must clear armed freshness cues; a survivor resumes its timer on reopen
+Received: 1
+```
+
+and passed with the branch restored, alongside the pre-existing scenario. Phase (i)
+waits for the invalidation frame on the wire, so a stimulus that stopped
+broadcasting would have failed there instead, loudly.
+
+`runScenario`'s own role UPDATE at `tests/e2e/published-review-modal.realtime.spec.ts:496`
+stays on the PostgREST path and stays frozen at 1 — pre-existing 2026-07-19 debt
+that the `EXEMPT_PREEXISTING` entry ratifies, and converting it is a change to a
+surface this arc does not otherwise touch. Named here rather than left implicit,
+because "same defect, different line" is not on its own a reason to defer.
+
+The other FAIL lines in that suite run belong to `pg-cron-coverage`'s
+mechanism-probe guard, which runs a mutant child and asserts it fails; the run
+summary counted one failing file, not three.
