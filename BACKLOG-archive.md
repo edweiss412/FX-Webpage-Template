@@ -8,6 +8,56 @@ Same split as [DEFERRED.md](./DEFERRED.md) ↔ [DEFERRED-archive.md](./DEFERRED-
 
 ---
 
+## BL-FRESHNESS-ABORTED-CLOSE-E2E — the freshness cue's clear-on-hide branch has no behavioural proof — CLOSED 2026-08-07 (`feat/backlog-quick-wins`, arc C Q2)
+
+**Status:** CLOSED · **Filed:** 2026-08-03 (round-3 cross-model review of `feat/modal-freshness-cue`) · **Class:** test coverage · **Effort:** S (one e2e case on an existing spec) · **Severity:** low
+
+`PublishedReviewModal`'s clear-on-hide branch fires when the published review modal is HIDDEN without unmounting — an aborted close, where the shell animates out but the component holding the freshness state stays mounted. Without it a live cue survives the hide and resumes on reopen with whatever was left of its 1600ms timer.
+
+The branch is guarded structurally by `S19` in `tests/components/admin/showpage/publishedModalFreshnessCue.test.tsx`, which asserts the WIRING only. It cannot be driven from jsdom: the close runs through the shell's animated exit, which never completes there, and with `?show` still committed the aborted-close self-heal un-hides during the very render that hid the surface, so no commit observes `closing` as true. Both were verified rather than assumed — a click-driven version of that row sat at "still armed" against a render-phase implementation AND a commit-phase one.
+
+S19's comment used to claim a behavioural twin lived in the realtime e2e. Round-3 review probed for it: no test under `tests/e2e` combines an aborted close with `data-section-freshness-flash`, and the freshness e2e coverage there is geometry and broadcast attribution. The claim has been removed from the comment; this row is the honest replacement.
+
+**What would close it:** one case on `tests/e2e/published-review-modal.realtime.spec.ts` that arms a cue, begins a close, aborts it inside the flash window, and asserts no card carries the attribute on reopen. A real browser can drive the animated exit that jsdom cannot.
+
+screen-disposition 2026-08-04: NOT ATTEMPTED on `chore/sweep-guards-tests`; claim released, entry
+unchanged. Recorded plainly rather than as a fence, because this is not fenced — the work is owed,
+specified, and ready to pick up.
+
+The other five Task 18 items were dispositioned on that branch (three closed, one prereq-fenced, one
+investigation discharged). This one is a single Playwright case that must drive an animated modal
+exit across a realtime-seeded two-context harness, and it cannot be verified without a dev server
+plus browsers; an e2e case pushed without ever being run is worse than no case, since a green CI
+tells you nothing about a test that was never observed failing. The entry's own "What would close
+it" already specifies it exactly — arm a cue, begin a close, abort inside the flash window, assert
+no card carries `data-section-freshness-flash` on reopen, on
+`tests/e2e/published-review-modal.realtime.spec.ts`. Nothing about that needs re-deriving.
+
+**Resolution: the case exists and was observed RED.** `tests/e2e/published-review-modal.realtime.spec.ts`,
+"an ABORTED close clears armed freshness cues" — arms a cue via a realtime role swap, begins the
+close on the scrim, aborts it with a same-row re-click while the close navigation is still pending,
+and asserts page-wide that nothing carries `data-section-freshness-flash` once the shell returns.
+Mutant protocol: the `closing` arm of the clear-on-hide branch commented out yields
+
+    Error: an aborted close must clear armed freshness cues; a survivor resumes its timer on reopen
+    Received: 1
+
+and restoring it yields a pass, alongside the pre-existing scenario in the same file.
+
+**The screen-disposition above was right to refuse it, and for a reason it did not name.** It held
+the case back because an unrun e2e is worse than none. It could not have known that the first two
+runnable versions were ALSO worse than none: both went green while the clear-on-hide branch was
+fully neutered. One copied the reopen spec's 2500ms throttle and reached the reopen 3931ms after
+arming, past the 1600ms timer that clears the cue on its own; the other mutated once, which only
+established the modal's baseline and armed nothing. Each is a false-premise assertion — the
+condition that makes the assertion discriminate was absent where it ran — and neither is visible
+from a green.
+
+**Documented limit, recorded here rather than left to be rediscovered:** the case requires the
+production-build server (CI's `CI=true` webServer). The reopen renders in ~440ms there against
+~1900ms under `next dev`, over the 1600ms budget the observation must fit inside. On a dev server it
+fails its own premise with a message that says so, rather than reporting anything about the modal.
+
 ## BL-EM-DASH-POLICY — Resolve the DESIGN.md §9 em-dash ban vs. shipped usage — CLOSED 2026-08-07 (L-wave, `feat/l-wave-emdash`, RESOLUTION 2: ENFORCE)
 
 **Resolution: the user chose ENFORCE — resolution 2, over the entry's own "(recommended)" tag on
