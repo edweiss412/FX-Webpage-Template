@@ -398,7 +398,7 @@ These are the absolute bans from shared design laws + this project's specific an
 - **No glassmorphism by default.** Backdrop-blur only when purposeful.
 - **No identical card grids** with icon + heading + text repeated. Tiles vary in content shape — schedule has a date list, hotel has a stack of fields, RightNow has dynamic copy.
 - **No modals as a first thought.** Inline / progressive disclosure first.
-- **No em dashes.** Use commas, colons, semicolons, periods, parentheses. Also not `--`.
+- **No em dashes.** Use commas, colons, semicolons, periods, parentheses. Also not `--`. **Enforced** by `tests/styles/_metaEmDashCopy.test.ts`, which parses TypeScript and keys on node kinds (string literals, template fragments, JSX text and attributes) plus help MDX prose, so comments and fenced code are out of scope by construction; anything internal is exempted by name with a reason, and a lone `—` is treated as an empty-value sentinel rather than prose.
 - **No printed-paper / spreadsheet skeuomorph.** No cream backgrounds, no ruled lines, no serif body. The point is to replace the spreadsheet, not echo it.
 - **No "enterprise SaaS dashboard" cliché.** No dense sidebar nav, no chart-grid density.
 - **No consumer-playful.** No bouncy mascots, no rounded-everything, no gradient-on-gradient.
