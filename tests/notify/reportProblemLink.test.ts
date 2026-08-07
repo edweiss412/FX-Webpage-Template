@@ -190,6 +190,47 @@ describe("Report a problem link — every render shape, both body channels", () 
     );
   });
 
+  // The batch renderer takes a GROUP and members of mixed kinds, so "the batch
+  // shape" is not one shape. Production routing at lib/notify/deliver.ts:306-309
+  // sends ingestion candidates to "stuck_files" and everything else to
+  // "sync_problems", so both variants below are real recipient shapes that the
+  // original shape-7 row (all-show sync_problems) never exercised.
+  test('shape 8: renderRealtimeProblemBatch group="stuck_files" (ingestion members)', () => {
+    const members: RealtimeInput[] = [
+      { kind: "ingestion", origin: ORIGIN, driveFileName: "II - One", lastErrorCode: null },
+      { kind: "ingestion", origin: ORIGIN, driveFileName: "II - Two", lastErrorCode: null },
+    ];
+    premise("batch fixture reaches the true multi-member body", members.length, 1);
+    premiseHolds(
+      "this row carries ingestion members",
+      members.every((m) => m.kind === "ingestion"),
+    );
+    expectReportLink(
+      renderRealtimeProblemBatch("stuck_files", ORIGIN, members),
+      dashboardHref(ORIGIN),
+    );
+  });
+
+  test('shape 9: renderRealtimeProblemBatch group="sync_problems" with a GLOBAL member', () => {
+    const members: RealtimeInput[] = [
+      {
+        kind: "show",
+        origin: ORIGIN,
+        slug: SLUG,
+        showTitle: "Waldorf",
+        code: "SYNC_FILE_FAILED",
+        contextSheetName: null,
+      },
+      { kind: "global", origin: ORIGIN },
+    ];
+    premise("batch fixture reaches the true multi-member body", members.length, 1);
+    premiseHolds("this row mixes member kinds", new Set(members.map((m) => m.kind)).size > 1);
+    expectReportLink(
+      renderRealtimeProblemBatch("sync_problems", ORIGIN, members),
+      dashboardHref(ORIGIN),
+    );
+  });
+
   test("the link is on-origin in every shape (no off-origin report target)", () => {
     const rendered = renderRealtimeProblem({ kind: "global", origin: ORIGIN });
     // Parsed anchors, not a regex over source, for the same reason as above.
