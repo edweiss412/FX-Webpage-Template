@@ -51,6 +51,15 @@ import { ARM_EXPIRED_ANNOUNCEMENT, ARM_REVERT_MS } from "@/lib/admin/destructive
 // commit is reconciled by the §6.3 revalidatePath on the user's refresh.
 const WATCHDOG_MS = 12_000;
 
+/**
+ * The couldn't-confirm sentence, single-sourced. The visible line and the
+ * announcement below render the SAME string, so the two cannot drift into
+ * telling a sighted operator and a screen-reader user different things. The
+ * apostrophe is the curly U+2019 per DESIGN.md typography — the same character
+ * the `&rsquo;` entity produced when this was JSX text.
+ */
+const COULDNT_CONFIRM_COPY = "Couldn’t confirm. Refresh to check.";
+
 type UiState = "idle" | "confirm" | "resolving" | "couldnt_confirm";
 
 export function RevokeRowButton({ email, disabled }: { email: string; disabled: boolean }) {
@@ -211,6 +220,26 @@ export function RevokeRowButton({ email, disabled }: { email: string; disabled: 
       {expired ? ARM_EXPIRED_ANNOUNCEMENT : ""}
     </span>
   );
+
+  // BL-LIVE-REGION-AST-WALK-RESIDUE. A SECOND key-stable region, on the same
+  // rule and for the same reason as the arm-expiry one beside it: the
+  // couldn't-confirm warning used to carry `role="status"` on the visible line
+  // inside its own branch, so the region and its text arrived together and
+  // nothing was announced. The region is deliberately kept separate rather than
+  // folded into `arm-expiry-region` — that one's contract is "set ONLY in the
+  // arm timer's callback", and two messages sharing one node would need a
+  // precedence rule nobody has stated.
+  const couldntConfirmRegion = (
+    <span
+      key="couldnt-confirm-region"
+      role="status"
+      aria-live="polite"
+      className="sr-only"
+      data-testid="admin-allowlist-couldnt-confirm-announce"
+    >
+      {effectiveUi === "couldnt_confirm" ? COULDNT_CONFIRM_COPY : ""}
+    </span>
+  );
   let branch: ReactNode;
   if (effectiveUi === "couldnt_confirm") {
     // The revoke neither returned a result nor surfaced a catchable error
@@ -234,12 +263,14 @@ export function RevokeRowButton({ email, disabled }: { email: string; disabled: 
             Revoking…
           </button>
         </div>
+        {/* The VISIBLE line. It carries no `role="status"`: it is inserted with
+            its own text, so the role would read like a live region and announce
+            nothing. `couldntConfirmRegion` above is what announces. */}
         <p
           data-testid="admin-allowlist-couldnt-confirm"
-          role="status"
           className="w-full rounded-sm bg-warning-bg px-2 py-1 text-sm text-warning-text"
         >
-          Couldn&rsquo;t confirm. Refresh to check.{" "}
+          {COULDNT_CONFIRM_COPY}{" "}
           <button
             type="button"
             data-testid="admin-allowlist-couldnt-confirm-refresh"
@@ -398,6 +429,7 @@ export function RevokeRowButton({ email, disabled }: { email: string; disabled: 
     <>
       {branch}
       {liveRegion}
+      {couldntConfirmRegion}
     </>
   );
 }
