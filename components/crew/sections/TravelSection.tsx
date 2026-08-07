@@ -452,7 +452,13 @@ export function TravelSection({
             hideDates &&
             allHidden &&
             (data.hotelReservations.some(
-              (res) => res.check_in !== null || res.check_out !== null,
+              // Through the sentinel predicate like every other read in this
+              // file: a literal `TBD` check-in is not a date, and counting it
+              // as one produces exactly the wrong-reason copy this term exists
+              // to prevent.
+              (res) =>
+                !shouldHideGenericOptional(res.check_in) ||
+                !shouldHideGenericOptional(res.check_out),
             ) ||
               (transportation?.schedule ?? []).some(
                 (leg) => !shouldHideGenericOptional(leg.date),
@@ -764,7 +770,12 @@ export function TravelSection({
                                     ) : null}
                                   </p>
                                 ) : null}
-                                <p className="text-sm/relaxed text-text tabular-nums">
+                                {/* `empty:hidden` for the same reason travelrow-primary
+                                    carries it: with the carrier withheld under
+                                    suppression, a segment whose origin and dest are both
+                                    null paints a childless <p> that still spends the
+                                    stack's gap. */}
+                                <p className="text-sm/relaxed text-text tabular-nums empty:hidden">
                                   {carrier ? (
                                     <span className="font-semibold">{carrier}</span>
                                   ) : null}
@@ -818,7 +829,13 @@ export function TravelSection({
                   <EmptyState
                     label={
                       suppressionEmptiedSection
-                        ? "Travel dates are hidden until your days are confirmed."
+                        ? // Harmonized with its two ratified siblings — RightNowHero's "Your
+                          // days aren't confirmed yet" and ScheduleSection's "Your days
+                          // haven't been confirmed yet. Check back after the schedule is
+                          // finalized." A suppressed viewer meets all three in one scroll,
+                          // and the first draft was the outlier: passive, led with the
+                          // system's action, and offered no next step.
+                          "Your days haven't been confirmed yet, so travel dates are hidden. Check back after the schedule is finalized."
                         : "No travel details on file yet."
                     }
                   />

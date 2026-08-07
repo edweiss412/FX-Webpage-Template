@@ -247,6 +247,47 @@ non-suppressed viewers in order to satisfy a sentence. The exception is narrow
 requires a leg with names and no stage, date or time) and strictly an
 improvement. Amended in spec §2.1 rather than left to read as unqualified.
 
+### 12.5 Gate RE-RUN on the post-review UI delta (R5 P0)
+
+Diff review R5 raised a P0 the arc had genuinely committed: the §12.1/§12.2 gate
+ran at `048c26b30`, and five later commits changed UI. `git diff
+048c26b30..HEAD -- components/** app/**` was 91 lines in ONE file
+(`TravelSection.tsx`), so the shipped surface was not the gated one and AC-A5 was
+false as written. Invariant 8 binds to the affected diff, not to whatever the
+diff was when the gate happened to run.
+
+**Both halves were re-run, scoped to that delta, as isolated sub-agents.** Audit:
+19/20, detector clean (exit 0, ZERO findings on the file), typecheck clean,
+eslint clean, 449 crew tests passing, no em dash in new copy, no arbitrary
+Tailwind values. Critique: not slop, with six findings.
+
+**The re-gate earned its keep on the first finding, which reversed a decision.**
+The audit probed the `CLOCK_TIME_RE` I had added one commit earlier against real
+call-time spellings and found nine LEGITIMATE ones it silently deleted — `1730`,
+`0800`, `noon`, `12 noon`, `6p`, `8.00am`, `8h00`, `8:00 PM PST`, `0700 hrs`.
+Losing a crew member's call time with no signal is strictly worse than the leak
+the validator prevented, and the critique independently showed the companion
+`stage` withhold turned a three-leg day into three identical unlabelled rows. Both
+are reverted and ruled a documented limit (§4 limit 11); the reasoning is in that
+limit and in the R4 commit's reversal.
+
+| # | Finding | Severity | Disposition |
+|---|---|---|---|
+| 1 | `CLOCK_TIME_RE` silently deletes nine legitimate call-time spellings | P1 | **REVERTED** — ruled §4 limit 11 |
+| 2 | Withholding `stage` makes a multi-leg day an unlabelled list | P1 | **REVERTED** — same ruling |
+| 3 | Partial suppression is silent (re-raised from the first critique) | P1 | **ALREADY DEFERRED** — `TRAVEL-SUPPRESSION-PARTIAL-EXPLANATION-1` |
+| 4 | Three spellings of one fact across RightNowHero / Schedule / Travel | P2 | **FIXED** — copy harmonized with its ratified siblings |
+| 5 | Names-only row loses its anchor (icon is the strongest element) | P2 | **NOT FIXED** — moot after the `stage` revert restores the label |
+| 6 | `empty:hidden` sweep missed the flight route line; sentinel predicate bypassed on the hotel cause term | P3 | **FIXED** — both |
+
+**Finding 2's proposed fix was checked and rejected on evidence.** The critique
+suggested gating `stage` on the repo's existing `STAGE_VOCAB` allowlist as a
+closed set. It holds four entries (`LOAD IN`, `SET`, `STRIKE`, `LOAD OUT`) while
+the 2026 template ships eight transport stages (`Pick Up Venue`, `Rental Pickup`,
+`Load at Warehouse`, …), so the allowlist would have deleted most real labels —
+the same silent-deletion failure as the time validator. Recorded because a good
+suggestion that does not survive its own probe is worth writing down once.
+
 ## 14. Acceptance criteria
 
 - **AC-A1 (travel leak):** met. Three sites gated; five flight paths covered

@@ -400,7 +400,8 @@ const CREW: Viewer = { kind: "crew", crewMemberId: "c1" };
  * combining causes would let either production predicate disappear while the
  * other masked it (cross-model review R1).
  */
-const SUPPRESSED_EMPTY_COPY = "Travel dates are hidden until your days are confirmed.";
+const SUPPRESSED_EMPTY_COPY =
+  "Your days haven't been confirmed yet, so travel dates are hidden. Check back after the schedule is finalized.";
 const NO_DATA_EMPTY_COPY = "No travel details on file yet.";
 
 /** Every spelling a fixture ISO date can reach the DOM as (raw + both render modes). */

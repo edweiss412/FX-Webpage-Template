@@ -332,7 +332,9 @@ describe("TravelSection — flight date suppression (unknown_asterisk viewer)", 
     // is the only one true. Deleting it flips this case to the no-data copy,
     // with no other term able to mask it. Asserted exactly, so the two
     // section-empty sentences stay mutually exclusive.
-    expect(empty!.textContent).toBe("Travel dates are hidden until your days are confirmed.");
+    expect(empty!.textContent).toBe(
+      "Your days haven't been confirmed yet, so travel dates are hidden. Check back after the schedule is finalized.",
+    );
   });
 
   // Cross-model review R3. `flightNo`, `airline`, per-segment `conf` and the
