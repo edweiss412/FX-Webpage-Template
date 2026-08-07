@@ -175,49 +175,49 @@ function lineOf(source: string, pos: number): number {
 /**
  * Is this literal an empty-value SENTINEL rather than prose?
  *
- * A sentinel is the glyph standing in for a missing value ({checkIn ?? "—"}) or
- * a decorative aria-hidden separator. The spec exempts that class by name at
- * `lib/visibility/emptyState.ts`; encoding it STRUCTURALLY keeps the exemption
- * narrow, because a file may hold both a sentinel and real copy and a per-file
- * row would silently exempt the copy too.
+ * NARROW BY ENUMERATION, not by inference. Two earlier versions tried to infer
+ * "renders alone" from syntax and were both defeated, because that question is
+ * not decidable from a literal's neighbourhood:
  *
- * TWO CONDITIONS, both learned from a real bypass. The first version tested
- * `text.trim() === EM_DASH`, and the impeccable audit defeated it three ways —
- * all of them idiomatic authoring, not obfuscation:
+ *   v1 `text.trim() === EM_DASH`            beaten by `{" — "}` between siblings
+ *   v2 v1 + "parent must not build a string" beaten by a named constant
+ *                                            (`const SEP = "—"` used in a
+ *                                            template), by `[…,"—",…].join(" ")`,
+ *                                            and by a nested <span>—</span>
  *
- *   <span>Notifications{" — "}unseen</span>      renders "Notifications — unseen"
- *   "Notifications " + "—" + ` ${count} unseen`  renders "Notifications — 3 unseen"
- *   `Notifications ${"—"} ${count} unseen`       renders "Notifications — 3 unseen"
+ * Every one of those is idiomatic composition, i.e. inside the declared threat
+ * model. So the rule now recognizes only the two shapes the corpus actually
+ * uses for a missing value, and everything else is copy:
  *
- * So:
- *   1. WHITESPACE IS NOT TRIMMED for string literals. A padded `" — "` is a
- *      SEPARATOR glued between text; a bare `"—"` is a value. JsxText is still
- *      trimmed, because there the surrounding whitespace is JSX formatting the
- *      renderer collapses, not authored padding.
- *   2. A literal whose parent BUILDS A STRING — a `+` concatenation, or a span
- *      of a template expression — is never a sentinel, whatever it contains. It
- *      is a fragment of a larger sentence by construction.
+ *   1. the RIGHT operand of a `??` / `||` fallback — `{checkIn ?? "—"}`
+ *      (4 sites: ShowsTable start/end, step3 checkIn/checkOut)
+ *   2. JsxText inside an element carrying `aria-hidden` — a decorative glyph
+ *      (2 sites: step3 separator, TelemetryOverviewStrip)
+ *
+ * A new sentinel shape must be added here deliberately, which is the point: an
+ * enumerated allowance cannot be widened by accident, and the v1/v2 bypasses all
+ * fail closed under it.
  */
 function isSentinel(node: ts.Node, text: string, isJsx: boolean): boolean {
   const bare = isJsx ? text.trim() === EM_DASH : text === EM_DASH;
   if (!bare) return false;
   const parent = node.parent;
-  if (!parent) return true;
-  // Concatenated into a larger string.
-  if (ts.isBinaryExpression(parent) && parent.operatorToken.kind === ts.SyntaxKind.PlusToken) {
-    return false;
-  }
-  // Interpolated into a template: `… ${"—"} …`.
-  if (ts.isTemplateSpan(parent) || ts.isTemplateExpression(parent)) return false;
-  // A JSX child sitting beside other children is a separator, not a lone value.
-  if (ts.isJsxExpression(parent) && parent.parent && "children" in parent.parent) {
-    const siblings = (parent.parent as unknown as { children: readonly ts.Node[] }).children;
-    const meaningful = siblings.filter(
-      (c) => !(ts.isJsxText(c) && c.text.trim().length === 0) && c !== parent,
+  if (!parent) return false;
+
+  if (isJsx) {
+    // Shape 2: decorative glyph, hidden from assistive tech.
+    const el = ts.isJsxElement(parent) ? parent.openingElement : undefined;
+    if (!el) return false;
+    return el.attributes.properties.some(
+      (a) => ts.isJsxAttribute(a) && a.name.getText() === "aria-hidden",
     );
-    if (meaningful.length > 0) return false;
   }
-  return true;
+
+  // Shape 1: the fallback side of a nullish/or default.
+  if (!ts.isBinaryExpression(parent)) return false;
+  const op = parent.operatorToken.kind;
+  const isFallback = op === ts.SyntaxKind.QuestionQuestionToken || op === ts.SyntaxKind.BarBarToken;
+  return isFallback && parent.right === node;
 }
 
 export function scanTypeScript(rel: string, source: string): Hit[] {
@@ -259,13 +259,22 @@ export function scanTypeScript(rel: string, source: string): Hit[] {
 export function scanMarkdown(rel: string, source: string): Hit[] {
   const hits: Hit[] = [];
   let fenced = false;
+  // A delimiter row is the SECOND row of a table and nothing else. Matching it
+  // by SHAPE alone elided `| -- |` sitting in a DATA row, which renders as a
+  // visible cell — probed against the project's own @mdx-js/mdx + remark-gfm
+  // pipeline, which compiles it to <td>{"--"}</td>. Tracking position is what
+  // makes the elision structural rather than a shape that real content can wear.
+  let tableRow = 0;
   source.split("\n").forEach((raw, i) => {
     if (/^\s*(```|~~~)/.test(raw)) {
       fenced = !fenced;
+      tableRow = 0;
       return;
     }
     if (fenced) return;
-    const isTableDelimiter = /^\s*\|[\s\-:|]*\|?\s*$/.test(raw);
+    const isPipeRow = /^\s*\|/.test(raw);
+    tableRow = isPipeRow ? tableRow + 1 : 0;
+    const isTableDelimiter = tableRow === 2 && /^\s*\|[\s\-:|]*\|?\s*$/.test(raw);
     if (raw.includes(EM_DASH)) {
       hits.push({ file: rel, line: i + 1, text: raw.trim(), token: EM_DASH });
     }
@@ -383,9 +392,18 @@ describe("em-dash copy guard — DESIGN.md §9", () => {
     const fenced = ["```", "const x = 1; // — and --", "```"].join("\n");
     expect(scanMarkdown("premise.mdx", fenced), "fenced code is elided").toEqual([]);
 
-    // Table DELIMITER rows are elided; table CELL prose is not (asserted above).
-    const delimiter = ["| --- | :--: |", "|---|---|"].join("\n");
-    expect(scanMarkdown("premise.mdx", delimiter), "table delimiter rows are elided").toEqual([]);
+    // A delimiter row is elided only in its real POSITION: row 2 of a table.
+    const realTable = ["| Status | Note |", "| --- | :--: |"].join("\n");
+    expect(scanMarkdown("premise.mdx", realTable), "a real delimiter row is elided").toEqual([]);
+
+    // The same SHAPE in a DATA row is rendered content and must be a hit. This
+    // is the escaping class the cross-model review found: `| -- |` on row 3
+    // compiles to <td>{"--"}</td> under the project's remark-gfm pipeline.
+    const dataRow = ["| Status |", "| --- |", "| -- |"].join("\n");
+    expect(
+      scanMarkdown("premise.mdx", dataRow),
+      "a `--` data cell is NOT a delimiter and must be caught",
+    ).not.toHaveLength(0);
   });
 
   it("PREMISE: the live scan actually reaches its declared roots", () => {
@@ -475,15 +493,44 @@ describe("em-dash copy guard — DESIGN.md §9", () => {
     }
   });
 
-  it("PREMISE: a lone glyph is a sentinel, but glyph-plus-prose is not", () => {
-    // The sentinel carve-out must not become a way to smuggle prose past the
-    // guard. A literal that IS the glyph is skipped; the moment any prose joins
-    // it, it is copy again.
-    expect(scanTypeScript("x.tsx", `const a = "—";`), "a lone glyph is a sentinel").toHaveLength(0);
+  it("PREMISE: the sentinel allowance is exactly two enumerated shapes", () => {
+    // EXEMPT: the two shapes the corpus actually uses for a missing value.
     expect(
-      scanTypeScript("x.tsx", `const a = "— needs review";`),
-      "glyph plus prose is copy, not a sentinel",
+      scanTypeScript("x.tsx", `const C = () => <p>{checkIn ?? "\u2014"}</p>;`),
+      "a ?? fallback glyph is a sentinel",
+    ).toHaveLength(0);
+    expect(
+      scanTypeScript("x.tsx", `const C = () => <span aria-hidden="true">\u2014</span>;`),
+      "an aria-hidden glyph is a sentinel",
+    ).toHaveLength(0);
+
+    // NOT EXEMPT: anything else, including a bare module-level glyph constant.
+    // The earlier rule allowed this, and the review used exactly that to smuggle
+    // a separator into a template.
+    expect(
+      scanTypeScript("x.tsx", `const SEP = "\u2014";`),
+      "a bare glyph constant is NOT a sentinel — it can be composed into copy",
     ).not.toHaveLength(0);
+    expect(
+      scanTypeScript("x.tsx", `const a = "\u2014 needs review";`),
+      "glyph plus prose is copy",
+    ).not.toHaveLength(0);
+  });
+
+  it("PREMISE: the round-1 review's three bypasses stay closed", () => {
+    // Each is idiomatic composition that rendered a visible em dash while the
+    // v2 rule stayed green. Kept as permanent regressions.
+    const bypasses = [
+      'const SEP = "\u2014";\nconst s = `Notifications ${SEP} ${count} unseen`;',
+      'const s = ["Notifications", "\u2014", "unseen"].join(" ");',
+      `const C = () => <span>Notifications <span>\u2014</span> unseen</span>;`,
+    ];
+    for (const src of bypasses) {
+      expect(
+        scanTypeScript("components/bypass2.tsx", src),
+        `this bypass must be caught: ${src}`,
+      ).not.toHaveLength(0);
+    }
   });
 
   it("PREMISE: app/api is out of the set, and the rest of app is not", () => {
