@@ -179,7 +179,7 @@ would pass against `tailwind-merge`.
 
 ## Task 3 — migrate all 36 sites, under the operand-parity check
 
-<!-- task: red=`node scripts/verify-cn-operand-parity.mjs --base $MIGRATION_PARENT` ac=AC-2,AC-3,AC-4 -->
+<!-- task: red=`node scripts/verify-cn-operand-parity.mjs --base $MIGRATION_PARENT && pnpm vitest run tests/components/crew/primitives.test.tsx` ac=AC-2,AC-3,AC-4 -->
 
 RED and GREEN live in **one** task (invariant 1). The parity check is written and observed failing,
 then the migration turns it green, then one commit. Splitting them across tasks would put a
@@ -252,6 +252,11 @@ which fail against the pre-migration component:
   §4, E2 — the token set is what the migration preserves).
 - Render `tone === "show"` and the default tone too, so all three branches are exercised; only `set`
   changes bytes.
+
+The declared command's second half — `pnpm vitest run tests/components/crew/primitives.test.tsx` —
+is what observes these assertions: red against the pre-migration component (the trailing space is
+present), green after the rewrite. Without it in the command, the assertions would be promised
+prose that no run ever checks red-then-green (invariant 1).
 
 **GREEN — apply the spec §5 rewrite to all 36 sites:**
 
@@ -514,8 +519,24 @@ neither default project — probed `{mobile:false, desktop:false}`. Two steps, b
 - **Detach safety:** both targets are static at rest, so no sampler outlives its element. (The
   mid-crossfade sampler that would have needed this guard is descoped — see below.)
 
-**GREEN.** Run the spec in capture mode, commit `tests/e2e/__baselines__/canonical-dimensions.json`,
-and confirm the spec now passes against it.
+**GREEN — under an explicit capture/verify contract, because a baseline the verifier can write is
+an oracle the verifier can bless.** No existing dimension spec in this repo commits a baseline
+file, so the contract is stated here rather than inherited, and it is fail-closed in both
+directions:
+
+- **Verify mode (the default, and the only mode CI ever runs).** Baseline file present → compare
+  every recorded rect within 0.5px. Baseline file MISSING → **hard fail** naming the capture
+  command — never measure-and-write, never skip. A deleted or never-committed oracle is a loud red,
+  not a silent regeneration.
+- **Capture mode (`CAPTURE_CANONICAL_DIMENSIONS=1`, explicit, local-only).** Measure, write the
+  JSON, and then **fail the run anyway** with "baseline captured — re-run without the flag to
+  verify". Failing on capture is what makes self-blessing impossible even if the env var ever
+  leaked into CI: a capture run can never report green, so no pipeline can both regenerate the
+  oracle and pass on it in one execution. The workflow invocation sets no such variable.
+
+So the GREEN sequence is: capture run (writes the JSON, exits red by design) → commit the baseline
+→ verify run passes against it. Task 6, C3, and C4 re-runs are all verify-mode by construction —
+they set no flag, so a missing or stale baseline fails them rather than being papered over.
 
 **Rest-state rects only — the mid-crossfade sampler is DESCOPED, deliberately.** Earlier drafts also
 captured the card's height sampled during the `AnimatePresence` crossfade. Three consecutive plan
@@ -585,10 +606,18 @@ on it.
      18 migrated files; each must still carry the `initial` / `animate` / `exit` props it carried at
      base. The migration touches `className` values only; a changed motion prop means the rewrite
      escaped its scope.
-   - **Token identity, replacing the descoped mid-crossfade sampler (Task 5).** Assert against
-     `app/globals.css` that `--spacing-confirm-box` is exactly `60px` (what `max-w-[60px]` encoded)
-     and that `--spacing-right-now-min-h` is the single token both C5 spellings reference. This is
-     the deterministic form of "the canonicalization changed no value", and it needs no browser.
+   - **Token identity, replacing the descoped mid-crossfade sampler (Task 5).** A NEW tracked test,
+     `tests/specLint/canonicalTokenIdentity.test.ts`, run as
+     `pnpm vitest run tests/specLint/canonicalTokenIdentity.test.ts` in this task's battery: parse
+     `app/globals.css` and assert `--spacing-confirm-box` is exactly `60px` (what `max-w-[60px]`
+     encoded) and that `--spacing-right-now-min-h` is defined once — the single token both C5
+     spellings reference. This is the deterministic form of "the canonicalization changed no
+     value", and it needs no browser. **It is authored green** — both facts are already true at
+     base (spec §2.4 cites `app/globals.css:186` and `app/globals.css:216`) — so it is a pin, not
+     this task's red
+     (`pnpm lint` is); per the writing-plans micro-verification rule, observe its discriminating
+     power once at authoring by locally editing the `60px` value, watching the test fail, and
+     reverting. It joins the C4 step-4.3 allowlist under (a) as a file this arc creates.
    - `tests/crew/transitionAudit.test.ts` passes **unchanged**. An assertion there that moves is a
      signal the migration was not operand-preserving, not a reason to update the audit.
 
@@ -751,7 +780,8 @@ authorized by CI green on the **exact head** being merged.
         consts by the ratified §9.2 limit. The check that sees it is the branch's own declared
         delta, audited against the upstream side the rebase just integrated:
         `git diff origin/main HEAD` must contain ONLY (a) files this arc creates (`lib/ui/cn.ts`,
-        `tests/ui/cn.test.ts`, the parity script, the replacement guard, the Playwright spec and
+        `tests/ui/cn.test.ts`, the parity script, the replacement guard,
+        `tests/specLint/canonicalTokenIdentity.test.ts`, the Playwright spec and
         its baseline JSON, the docs/ledger/corpus edits), (b) the file it deletes
         (`tests/specLint/canonicalClassArray.test.ts`), (c) the existing files it declaredly edits
         outside the 18 — `tests/components/crew/primitives.test.tsx` (Task 3),
@@ -786,10 +816,14 @@ authorized by CI green on the **exact head** being merged.
    unverified step the earlier draft implied: `tests/docs/_metaDeferralLedgerGraduation.test.ts`
    carries a `BACKLOG_GRADUATED` registry covering every graduation since that guard landed, and it
    asserts archive-only placement plus branch provenance per entry. Add
-   `BL-CLASSNAME-ARRAY-JOIN-MIGRATION` with `provenance: "refactor/classname-array-join-cn"`. Red:
-   registered but not yet archived (or archived while still in the live ledger) fails. Green: the
-   entry is in the archive, nowhere else, with its provenance present. Then archive it and remove
-   its `**Status:** IN PROGRESS · **Branch:** …` marker **in that same commit**. Archives
+   `BL-CLASSNAME-ARRAY-JOIN-MIGRATION` with `provenance: "refactor/classname-array-join-cn"`, and
+   **observe both states with the guard's own command,
+   `pnpm vitest run tests/docs/_metaDeferralLedgerGraduation.test.ts`, before committing**: run it
+   with only the registration in the working tree — RED (registered but not yet archived; an
+   archive placed while the entry still sits in the live ledger fails the same way). Then complete
+   the edit — the entry moved to the archive, nowhere else, provenance present, and its
+   `**Status:** IN PROGRESS · **Branch:** …` marker removed — and run it again: GREEN. Both runs
+   happen in the working tree of the ONE graduation commit; the red is never committed. Archives
    categorically reject in-progress entries, and a marker that reaches `main` names a branch the
    merge just deleted — `tests/docs/_metaLedgerInProgress.test.ts` then fails on `main` until someone
    clears it.
