@@ -145,35 +145,15 @@ describe("array-join classNames are a closed set", () => {
     expect(config).toMatch(/"better-tailwindcss\/enforce-canonical-classes":\s*"error"/);
   });
 
-  it("records that NO recognized callee exists to migrate to yet", () => {
-    // The entry's promotion mechanics say "migrate to `cn(...)` (already a
-    // default-detected callee)". That premise is FALSE in this repo, verified
-    // 2026-08-04: there is no `cn` helper anywhere under lib/components/app,
-    // and neither `clsx` nor `class-variance-authority` is a dependency. The
-    // eslint config names them only in a comment describing plugin defaults.
-    //
-    // So the migration is not the mechanical `eslint --fix` the entry promises —
-    // it must first INTRODUCE the helper. Asserted rather than written down, so
-    // the day someone adds `cn` this test fails and points them at the migration
-    // entry, which is exactly when it becomes cheap.
-    const pkg = JSON.parse(readFileSync("package.json", "utf8")) as {
-      dependencies?: Record<string, string>;
-    };
-    const deps = Object.keys(pkg.dependencies ?? {});
-    expect(deps).not.toContain("clsx");
-    expect(deps).not.toContain("class-variance-authority");
-    const helpers = execFileSync("git", ["ls-files", "-z", "lib", "components", "app"], {
-      cwd: ROOT,
-      maxBuffer: 64 * 1024 * 1024,
-    })
-      .toString("utf8")
-      .split("\0")
-      .filter((f) => /\.tsx?$/.test(f))
-      .filter((f) => /export (?:function|const) cn\b/.test(readFileSync(f, "utf8")));
-    expect(
-      helpers,
-      "a `cn` helper now exists — BL-CLASSNAME-ARRAY-JOIN-MIGRATION just became the cheap " +
-        "mechanical fix the entry describes. Do it and delete this census.",
-    ).toEqual([]);
-  });
+  // REMOVED: "records that NO recognized callee exists to migrate to yet".
+  //
+  // That assertion's own failure message said a `cn` helper existing is the signal to do
+  // BL-CLASSNAME-ARRAY-JOIN-MIGRATION and delete this census. `lib/ui/cn.ts` now exists,
+  // so the assertion is satisfied in the only way it ever could be — by the migration it
+  // was pointing at — and keeping it would make this file fail by construction.
+  //
+  // The census itself and the rule-is-on pin stay for now: until the 36 sites are
+  // migrated the census is still true and still the only thing bounding the blind spot.
+  // Both die together with this file once the zero-tolerance replacement lands
+  // (spec §1.1 R4 — replaced, not merely deleted).
 });
