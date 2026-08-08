@@ -36,7 +36,7 @@ Each item is ratified at the cited location. Verify the citation; do not re-deri
 | R2 | **`before:-inset-2` — the hit-expansion recipe DEFERRED.md:43 proposes — is refuted by probe and is NOT the recipe this spec adopts.** Measured: only the top and left extensions take the pointer; the right and bottom edges return the ancestor `<nav>`/wrapper. §7 probe P4 carries the measurement. Re-proposing it requires a probe showing all four edges hit. | §7 probe P4 |
 | R3 | **`step3ReviewSections.tsx` is NOT modified for the heading fix.** Its `Heading = sub ? "h4" : "h3"` (`components/admin/wizard/step3ReviewSections.tsx:897`) reaches the DOM through the `step3Sections` registry, whose heading-producing render call is `components/admin/review/ShowReviewSurface.tsx:1156`, itself mounted by `components/admin/wizard/Step3ReviewModal.tsx:54` and `components/admin/showpage/PublishedReviewModal.tsx:79`. Promoting the two page-level `h3`s in `Step3Review.tsx` to `h2` makes the page outline monotonic without touching the shared component. §2.3. | §2.3 |
 | R4 | **The class sweep was RUN, and it splits into a mechanical half that ships and a judgment half that is filed.** §2.6 carries the corpus baseline: 340 in-scope interactive elements, 139 the recogniser cannot clear, of which **16 are literal-and-genuinely-under-44px**. This branch repairs the **chrome** half — all 7 `<summary>` disclosures and all 7 icon/composite targets (§2.2: three step links, the two HelpSheet buttons, HelpTooltip, and the AdminNav brand link). The remaining 8 are inline text links and text buttons whose exemption status is a per-site product decision (exception (a)), and are filed in §9 with that reason named. **"Same defect, different file" is NOT claimed as a deferral reason anywhere.** | §2.6, §9 |
-| R5 | **`NEWTAB-A11Y-RESIDUE-1(a)` reverses a previously accepted audit fix, deliberately.** `tests/components/admin/wizard/step3ReviewSections.test.tsx:906-917` currently pins that a blank `alt` falls back for BOTH the `<img alt>` and the anchor `aria-label`. The anchor's `aria-label` (`step3ReviewSections.tsx:3706`) now solves the nameless-link risk permanently, so the belt-and-braces `alt` is redundant and produces a double-name. That test is UPDATED, not deleted; §2.4 states the replacement contract. | DEFERRED.md:75-86 |
+| R5 | **`NEWTAB-A11Y-RESIDUE-1(a)` reverses a previously accepted audit fix, deliberately.** `tests/components/admin/wizard/step3ReviewSections.test.tsx:906` currently pins that a blank `alt` falls back for BOTH the `<img alt>` and the anchor `aria-label`. The anchor's `aria-label` (`step3ReviewSections.tsx:3706`) now solves the nameless-link risk permanently, so the belt-and-braces `alt` is redundant and produces a double-name. That test is UPDATED, not deleted; §2.4 states the replacement contract. | DEFERRED.md:75-86 |
 | R6 | **Every repaired control keeps its EXISTING painted box — 28px for the pills, trigger and tooltip, 36px for the HelpSheet close button — and its existing corner radius.** This is an accessibility repair, not a visual redesign; only the hit box grows. "28px everywhere" would be wrong: the close button is `size-9`. Any finding that the UI "looks different" is a defect in the implementation, not an intended change. | §2.2, §6 DI-4, DI-14 |
 | R7 | **Layout geometry is preserved exactly.** The adopted recipe's negative margin cancels the growth, so pill centres are unchanged (probe P6: expanded-row pill centres identical to today's at 320px). This is required, not incidental: connectors measure **0px wide at 320 and 390** (probe P3), so the stepper has zero horizontal slack and any layout growth would overflow. | §7 probe P3/P6, §6 DI-3 |
 | R8 | **`components/admin/nav/AdminNav.tsx:88-114` (the brand link) is in scope even though it does not render on the wizard route.** `app/admin/layout.tsx:169` renders `OnboardingTopBar` on the onboarding branch and `AdminNav` at `app/admin/layout.tsx:204` on every other `/admin/*` route. It is repaired here under R4 (same shape), not because the wizard shows it — and it takes its own recipe, because it is a composite link rather than an icon button (§2.2). | §2.2 |
@@ -281,12 +281,19 @@ screen reader navigating into the link hears the same string twice.
 - **The anchor's `aria-label` logic at `components/admin/wizard/step3ReviewSections.tsx:3706`
   is UNCHANGED**, including its empty-alt
   fallback (`"Staged diagram (opens in a new tab)"`) and its new-tab suffix.
-- **Test contract replacement (R5):** `tests/components/admin/wizard/step3ReviewSections.test.tsx:906-917`
-  currently asserts the fallback reaches BOTH the img alt and the anchor label. Its
-  load-bearing half — *"a persisted empty alt must never yield a nameless link"* — is
-  preserved and must still pass: the anchor's `aria-label` is still asserted non-empty and
-  still carries the fallback + new-tab suffix. Only the `img alt` assertion changes, from
-  `toBe(fallback)` to `toBe("")`. The test name is updated to say why.
+- **Test contract replacement (R5) — THREE tests assert the `img alt`, not one.** All three
+  encode the old belt-and-braces contract and all three change. The anchor half of each is
+  load-bearing and is preserved unchanged in every case; only the `img alt` expectation moves
+  to `""`.
+
+  | Test | Today's `img alt` expectation | Replacement |
+  |---|---|---|
+  | `tests/components/admin/wizard/step3ReviewSections.test.tsx:899` — "alt fallback derives from the stub's sheetTab when alt is absent" | ``toBe(`Diagram from ${stub.sheetTab}`)`` | `toBe("")`. **Add** an assertion that the ANCHOR's `aria-label` is ``` `${fallback} (opens in a new tab)` ``` — otherwise this test no longer checks the fallback at all and becomes a weaker test than it is today |
+  | `tests/components/admin/wizard/step3ReviewSections.test.tsx:906` — the empty / whitespace-only case | `toBe(fallback)` | `toBe("")`. The two existing anchor assertions (`tile.tagName === "A"`, `aria-label` = fallback + suffix) are unchanged — this is the *"a persisted empty alt must never yield a nameless link"* contract and it must still pass |
+  | `tests/components/admin/wizard/step3ReviewSections.test.tsx:919` — "a real alt names both the img and the wrapping anchor" | `toBe("Stage plot")` | `toBe("")`. The anchor assertion (`aria-label` = `"Stage plot (opens in a new tab)"`) is unchanged. **Rename the test** — it no longer names "both", it asserts the anchor names the tile and the img is decorative |
+
+  Each test's name is updated to state the new contract; leaving a name that promises the old
+  one is how the next reader concludes the change was a mistake.
 
 ### 2.5 `NEWTAB-A11Y-RESIDUE-1(b)` — an internal link wears the external glyph
 
@@ -621,18 +628,40 @@ DI-1…DI-15 across 320/390/768/1280 (DI-11/DI-12 additionally at 360 and 440, t
 > (`components/admin/OnboardingWizard.tsx:547`) and `MeShowSections` (`app/me/page.tsx:192`)
 > are unexported, so a live entry cannot import them today. Add `export` to each.
 >
-> This is safe and precedented, not a refactor: **both are synchronous plain-props
-> components** — `OperatorErrorBlock()` takes none, `MeShowSections({ shows, now })` takes
-> two serialisable values — so neither drags an async server boundary into the bundle, which
-> is what makes the alternative (bundling the whole async page with stubs) expensive. The
-> repo already does exactly this and says so: `components/admin/OnboardingWizard.tsx:112-114`
-> carries "Exported for the unit test (onboardingWizardNav.test.tsx)" above `StepIndicator`.
-> Add the same one-line comment above each new export naming this spec.
+> Exporting is precedented — `components/admin/OnboardingWizard.tsx:112-114` carries
+> "Exported for the unit test (onboardingWizardNav.test.tsx)" above `StepIndicator`. Add the
+> same one-line comment above each new export naming this spec.
 >
-> **The two rejected alternatives, so they are not re-proposed:** bundling the async
-> `OnboardingWizard` / `/me` page pulls the server tree and needs the `"use server"` stubbing
-> machinery for two `<summary>` elements; and asserting the class string from source text
-> instead would not prove the 44px result in a browser, which is the whole point of §6.
+> **But exporting alone is NOT sufficient, and the bundle path must be named.** Both
+> containing modules statically import server-side graphs (`app/me/page.tsx:42`,
+> `components/admin/OnboardingWizard.tsx:26`), and those graphs reach Node builtins that a
+> browser bundle cannot resolve. Measured by bundling each named export with the ordinary
+> helper's settings:
+>
+> ```text
+> MeShowSections:      FAIL  Could not resolve "node:async_hooks"  @ lib/log/requestContext.ts
+> OperatorErrorBlock:  FAIL  Could not resolve "node:crypto"       @ lib/parser/useRawContentHash.ts
+> ```
+>
+> `bundleLiveEntry` passes Node builtins as **externals**
+> (`tests/e2e/helpers/liveEntryToolchain.ts:99-101`), which leaves bare `node:*` imports the
+> browser cannot load. The harness that does work stubs them: `_step3ReviewModalBundle.mjs`
+> installs an `emptyNodeBuiltins` resolver that maps every name in `builtinModules` (both
+> `x` and `node:x` forms) to an empty CJS module
+> (`tests/e2e/_step3ReviewModalBundle.mjs:50-70`). That is why the `_pillFocusLiveEntry`
+> precedent bundles at all — `tests/e2e/attention-pill-focus.spec.ts:50` invokes that
+> bundler, not the ordinary helper.
+>
+> **This spec's live entry uses `tests/e2e/_step3ReviewModalBundle.mjs`**, which is already
+> generic (it takes `<entry> <outfile> <tsconfig>` on argv and is not modal-specific). Do NOT
+> add `emptyNodeBuiltins` to the shared `_bundleLiveEntryChild.mjs`: that helper backs many
+> existing standalone specs, and changing its resolution semantics is a redesign of a surface
+> this branch does not otherwise touch.
+>
+> **Rejected alternatives, so they are not re-proposed:** bundling the async
+> `OnboardingWizard` / `/me` page wholesale pulls the server tree for two `<summary>`
+> elements; and asserting the class string from source text would not prove the 44px result
+> in a browser, which is the whole point of §6.
 > The probe in §7 used a transcribed harness because it was measuring *candidate recipes*
 > that did not exist in any component yet. That is the one legitimate use, and it ended
 > when the recipe was chosen.
