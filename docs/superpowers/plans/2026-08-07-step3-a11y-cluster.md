@@ -283,22 +283,31 @@ EXTENDS the same describe to `HelpTooltip` (the seventh) in the commit that repa
 The premise (rendered `<summary>` count == 7) is asserted from THIS task onward; spec
 §6 DI-1's full seven-element claim is green at Task 4 and stays green through close-out.
 
-**RED:** build the new _tapTargetFloorLiveEntry.tsx + the new tap-target-floor.layout.spec.ts per §4
+**This task's TDD runs in TWO explicit stages (R4 F1) — the bundle gate, then the
+dimension gate; neither is guessed:**
+
+**RED-a (bundle gate):** build the new _tapTargetFloorLiveEntry.tsx + the new tap-target-floor.layout.spec.ts per §4
 above, with the premise set, the DI-1 (six Class-A) + DI-2 describes, and the two
 preservation transition assertions from §4.1's placement map (toggle-under-hover
 persistence; `<details>` toggles under `inline-flex`). Add the stem to
 `tests/e2e/standalone.config.ts:86` testMatch, import `test` from
 `./helpers/fontFidelityFixture`, await `document.fonts.ready`, and enroll the stem in
-the `_metaFontWaitCoverage` `CALLERS` registry — all in this commit (§4). Run: premises
-pass (7 summaries mount, unrepaired), DI-1 FAILS (20.3px / 16.8px heights — spec §2.1
-table).
+the `_metaFontWaitCoverage` `CALLERS` registry — all in this commit (§4). Run the spec:
+it fails IN `beforeAll`, at the bundle step —
+`No matching export in "components/admin/OnboardingWizard.tsx" for import
+"OperatorErrorBlock"` — because the symbol is private
+(`components/admin/OnboardingWizard.tsx:547`). That build failure IS the export's
+failing-first consumer (R3 F2).
 
-**GREEN:** first, add `export` + the precedent comment
-(`components/admin/OnboardingWizard.tsx:112-114` pattern) to `OperatorErrorBlock`
-(`components/admin/OnboardingWizard.tsx:547`) — moved here from Task 1 because THIS
-task's RED consumes it: the live-entry bundle cannot build while the symbol is private,
-so the export has a failing-first consumer in the same task (R3 F2). Then apply the
-Class A recipe — add
+**GREEN-a:** add `export` + the precedent comment
+(`components/admin/OnboardingWizard.tsx:112-114` pattern) to `OperatorErrorBlock`.
+
+**RED-b (dimension gate):** re-run the spec. The bundle now builds and the browser
+mounts; premises pass (7 summaries mount, unrepaired); DI-1 FAILS (20.3px / 16.8px
+heights — spec §2.1 table). "Fails on exactly the task's new describes" refers to THIS
+run.
+
+**GREEN-b:** apply the Class A recipe — add
 `inline-flex w-fit min-h-tap-min items-center` to the six class strings:
 `components/admin/HelpAffordance.tsx:95`, `components/admin/OnboardingWizard.tsx:561`,
 `components/messages/ErrorExplainer.tsx:114`,
