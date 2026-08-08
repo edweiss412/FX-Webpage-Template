@@ -33,6 +33,7 @@
 import type { ReactNode } from "react";
 
 import { avatarColor } from "@/lib/crew/avatarColor";
+import { cn } from "@/lib/ui/cn";
 
 type AvatarProps = {
   /**
@@ -74,11 +75,11 @@ export function Avatar({ name }: AvatarProps): ReactNode {
       aria-hidden="true"
       data-testid="avatar"
       style={{ backgroundColor: avatarColor(name ?? "") }}
-      className={[
+      className={cn(
         "inline-flex shrink-0 items-center justify-center",
         "size-10 rounded-pill",
         "text-sm font-semibold text-white",
-      ].join(" ")}
+      )}
     >
       {initials}
     </span>

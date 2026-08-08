@@ -29,6 +29,7 @@ import type { ReactNode } from "react";
 
 import { buildSectionHref } from "@/lib/crew/sectionHref";
 import type { SectionId } from "@/lib/crew/resolveActiveSection";
+import { cn } from "@/lib/ui/cn";
 
 type SectionChipLinkProps = {
   /** Destination sub-nav section. */
@@ -49,7 +50,7 @@ export function SectionChipLink({ section, icon, children }: SectionChipLinkProp
       prefetch={false}
       data-testid="section-chip-link"
       data-section={section}
-      className={[
+      className={cn(
         "inline-flex min-h-tap-min shrink-0 items-center gap-2 rounded-pill",
         "border border-border bg-surface px-3.5 text-xs font-semibold text-text",
         "transition-colors duration-fast hover:border-border-strong",
@@ -57,7 +58,7 @@ export function SectionChipLink({ section, icon, children }: SectionChipLinkProp
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring",
         "focus-visible:ring-offset-2 focus-visible:ring-offset-bg",
         "[&_svg]:size-4 [&_svg]:text-text-subtle hover:[&_svg]:text-accent-on-bg",
-      ].join(" ")}
+      )}
     >
       {icon}
       {children}
