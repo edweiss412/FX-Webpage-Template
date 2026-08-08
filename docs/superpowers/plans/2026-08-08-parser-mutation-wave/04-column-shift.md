@@ -1,0 +1,175 @@
+# Branch 4: feat/mutation-column-shift — LEADING_COLUMN_AUTOCORRECTED
+
+> **For agentic workers:** REQUIRED SUB-SKILL: superpowers:subagent-driven-development or superpowers:executing-plans. Read [00-overview.md](./00-overview.md) first — Stage 0 (worktree, claim `BL-MUTATION-COLUMN-SHIFT`, marker, push) precedes Task 1. Branches 1-3 merged.
+
+**Goal:** When EVERY row a section owns (header AND alignment included) leads with an empty cell, shift the grid one column left before block parsing and emit `LEADING_COLUMN_AUTOCORRECTED` (spec §6); close all 211 holes.
+
+## Acceptance criteria
+
+- **AC-C1:** A section uniformly prefixed with an empty leading column parses IDENTICALLY to its unshifted form plus exactly one `LEADING_COLUMN_AUTOCORRECTED` warning carrying the structured `autocorrect` field (`subject: null`).
+- **AC-C2:** The all-rows trigger only: any populated first cell anywhere in the section (alignment colon-dash alignment counts as populated) suppresses it. Zero warnings on the unmutated corpus; partial-run shapes (East Coast 19-of-23) never fire. No ratio/"most rows" form (spec §6.3).
+- **AC-C3:** The FULL sixth-autocorrect fan-out (spec §6.2 table) + §8 fan-out land in one commit; every consumer named in the overview's plan-time sweep is re-checked; gap-class counts advance benign-warn 7→8, totals 59→60.
+- **AC-C4:** All 211 `column-shift:` rows deleted; full harness green (four buckets empty).
+
+<!-- tasks: depth=3 -->
+
+### Task 1: RED — autocorrect behavior tests
+
+<!-- task: red=`pnpm exec vitest run tests/parser/leadingColumnAutocorrect.test.ts` ac=AC-C1,AC-C2 -->
+
+**Files:**
+- Create: `tests/parser/leadingColumnAutocorrect.test.ts`
+
+- [ ] **Step 1: Write the failing test**
+
+```ts
+// tests/parser/leadingColumnAutocorrect.test.ts
+// Spec §6: uniformly-empty leading column = drag-shift export artifact; the inverse
+// transform is total, so correct + warn. Failure modes caught: data-only trigger
+// (61 corpus false positives, probe §13.C); ratio trigger (East Coast partial runs);
+// missing structured autocorrect field; payload not actually restored.
+import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
+import { parseSheet } from "@/lib/parser";
+import { payloadOf } from "@/tests/parser/mutation/oracle";
+import { premiseHolds } from "@/tests/_shared/premise";
+
+const shifts = (md: string, name: string) =>
+  parseSheet(md, name).warnings.filter((w) => w.code === "LEADING_COLUMN_AUTOCORRECTED");
+
+/** Prefix an empty cell to EVERY row of the section starting at line `start` (columnShift shape, operators.ts:144). */
+function shiftSection(md: string, start: number): string {
+  const lines = md.split("\n");
+  for (let i = start; i < lines.length; i++) {
+    const l = lines[i]!;
+    if (!l.trimStart().startsWith("|")) break;
+    lines[i] = l.replace(/^(\s*)\|/, "$1|  |");
+  }
+  return lines.join("\n");
+}
+
+describe("LEADING_COLUMN_AUTOCORRECTED (spec §6)", () => {
+  const path = "fixtures/shows/exporter-xlsx/east-coast.md";
+  const md = readFileSync(path, "utf8");
+  const firstSection = md.split("\n").findIndex((l) => l.startsWith("|"));
+
+  it("premise: corpus fires zero clean; the mutated section genuinely leads empty on every row", () => {
+    expect(shifts(md, path)).toEqual([]);
+    const mutated = shiftSection(md, firstSection);
+    premiseHolds("section was shifted", mutated !== md);
+  });
+
+  it("corrects: payload equals unshifted baseline, one warning with structured autocorrect", () => {
+    const mutated = shiftSection(md, firstSection);
+    expect(payloadOf(parseSheet(mutated, path))).toEqual(payloadOf(parseSheet(md, path)));
+    const w = shifts(mutated, path);
+    expect(w).toHaveLength(1);
+    expect(w[0]!.autocorrect).toEqual({
+      subject: null,
+      corrections: [{ detected: "empty leading column", corrected: "shifted left" }],
+    });
+  });
+
+  it("partial leading-empty runs never fire (East Coast lines 99+ sit at 19-of-23, probe §13.C)", () => {
+    expect(shifts(md, path)).toEqual([]); // the clean fixture IS the partial-run carrier
+  });
+});
+```
+
+- [ ] **Step 2: FAIL:** `pnpm exec vitest run tests/parser/leadingColumnAutocorrect.test.ts`
+
+### Task 2: Implement (the `normalizeSectionHeaders` pattern)
+
+<!-- task: red=`pnpm exec vitest run tests/parser/leadingColumnAutocorrect.test.ts` ac=AC-C1,AC-C2 -->
+
+**Files:**
+- Create: `lib/parser/leadingColumnNormalize.ts`
+- Modify: `lib/parser/index.ts` — call immediately after the `normalizeSectionHeaders` seam (`index.ts` step 2.5), same rewrite-and-collect shape: `const colNorm = normalizeLeadingColumn(markdown); markdown = colNorm.corrected; agg.warnings.push(...colNorm.warnings);`
+
+**Interfaces:**
+- Produces: `normalizeLeadingColumn(markdown: string): { corrected: string; warnings: ParseWarning[] }` — per section (blank-line separated pipe block): if EVERY row's first cell is empty after trim (an alignment row's first cell is colon-dash text, non-empty, giving the structural guarantee), drop the leading column from every row and emit one warning at section granularity. **Segmentation note (r1 F6):** this detector segments by blank-line pipe blocks, not the harness's `seg()` model that measured the probe base rates - the clean-corpus calibration test is the transfer gate, and any divergence surfaces there as a failing pin, never as silent corruption.
+
+- [ ] **Step 1:** Implement:
+
+```ts
+// lib/parser/leadingColumnNormalize.ts
+// Spec §6: when EVERY row a section owns (header AND colon-dash alignment rows
+// included) leads with an empty cell, the section was drag-shifted on export.
+// The inverse transform is total: drop the leading column, warn once.
+import type { ParseWarning } from "./types";
+
+export function normalizeLeadingColumn(markdown: string): {
+  corrected: string;
+  warnings: ParseWarning[];
+} {
+  const warnings: ParseWarning[] = [];
+  const lines = markdown.split("\n");
+  let start = -1;
+  let sectionIndex = -1;
+
+  const leadsEmpty = (line: string): boolean => {
+    const parts = line.split("|");
+    return parts.length >= 3 && (parts[1] ?? "").trim() === "";
+  };
+
+  const correct = (from: number, to: number): void => {
+    for (let i = from; i < to; i++) {
+      // drop cell 1 (the uniformly-empty leading column) from every row
+      const parts = lines[i]!.split("|");
+      lines[i] = [parts[0], ...parts.slice(2)].join("|");
+    }
+    warnings.push({
+      severity: "warn",
+      code: "LEADING_COLUMN_AUTOCORRECTED",
+      message: "Every row of a section started with an empty column, so we read the section one column to the left.",
+      blockRef: { kind: "section", index: sectionIndex },
+      autocorrect: {
+        subject: null,
+        corrections: [{ detected: "empty leading column", corrected: "shifted left" }],
+      },
+    });
+  };
+
+  for (let i = 0; i <= lines.length; i++) {
+    const isRow = i < lines.length && lines[i]!.trimStart().startsWith("|");
+    if (isRow && start === -1) {
+      start = i;
+      sectionIndex += 1;
+    } else if (!isRow && start !== -1) {
+      const rows = lines.slice(start, i);
+      if (rows.length > 0 && rows.every(leadsEmpty)) correct(start, i);
+      start = -1;
+    }
+  }
+  return { corrected: lines.join("\n"), warnings };
+}
+```
+
+Task 1 green; extend `cleanCorpusCalibration.test.ts` with `LEADING_COLUMN_AUTOCORRECTED: 0` per fixture.
+- [ ] **Step 2: Commit** `feat(parser): autocorrect uniformly-empty leading column, LEADING_COLUMN_AUTOCORRECTED`
+
+### Task 3: Sixth-autocorrect + §8 fan-out (one commit)
+
+<!-- task: red=`pnpm exec vitest run tests/parser/_metaAutocorrectProducers.test.ts tests/parser/dataGaps.test.ts tests/messages/autocorrectGuidance.test.ts tests/parser/dataGapsClassCompleteness.test.ts tests/cross-cutting/codes.test.ts tests/messages/_metaWarningCardCopy.test.ts tests/parser/operatorActionableWarnings.test.ts tests/parser/warningScanScopeAnchor.test.ts` ac=AC-C3 -->
+
+Spec §6.2 table, verbatim surface list (every row one commit):
+
+- [ ] `lib/parser/autocorrectCodes.ts` `AUTOCORRECT_CODES` + comment "All five"→"All six"
+- [ ] `lib/parser/dataGaps.ts:135` `AUTO_FIX_CLASSES` + `{ code: "LEADING_COLUMN_AUTOCORRECTED", label: "corrected leading column" }`; comments at `dataGaps.ts:26`, `dataGaps.ts:131`, `dataGaps.ts:136`, `dataGaps.ts:155`
+- [ ] `lib/parser/types.ts:106` doc "five"→"six"
+- [ ] `tests/parser/_metaAutocorrectProducers.test.ts:65` `toHaveLength(13)`→`14` + `_metaAutocorrectProducers.test.ts:77` multiplicity row
+- [ ] `tests/parser/dataGaps.test.ts:402` + `dataGaps.test.ts:427` sets/counts
+- [ ] `tests/messages/autocorrectGuidance.test.ts:94` + `lib/messages/autocorrectGuidance.ts` row
+- [ ] `tests/parser/dataGapsClassCompleteness.test.ts:40` `BENIGN_WARN_CODES` +1 (7→8; totals 59→60)
+- [ ] §12.4 row + regen + catalog row (`helpHref: "/help/errors#LEADING_COLUMN_AUTOCORRECTED"`; copy per `STAGE_WORD_AUTOCORRECTED` tone: title `Auto-corrected a shifted section`; dougFacing: `Every row of a section in this sheet started with an empty column, so we read the section one column to the left and it parses correctly. If the empty column was intentional, update the sheet.`) + card copy + `OPERATOR_ACTIONABLE_ANCHORED` + `WARNING_CODE_ANCHOR` + help family
+- [ ] Re-check every consumer in the overview's plan-time sweep list (monitorDigest.autofix* ×3, step3Buckets, warningFingerprint, sectionWarningModel.autocorrect, perShowActionableWarnings.autocorrect) for exact-set/length assumptions; update any found; note each in the commit body.
+- [ ] All marker suites green. **Commit** `feat(parser): sixth autocorrect code fan-out for LEADING_COLUMN_AUTOCORRECTED`
+
+### Task 4: Ledger shrink + PR
+
+<!-- task: red=`pnpm exec vitest run tests/parser/mutation/knownHoles.test.ts` ac=AC-C4 -->
+
+- [ ] **Step 1:** `perl -ni -e 'print unless /^column-shift:/' tests/parser/mutation/knownHoles.ts`; `knownHoles.test.ts` green; full harness: four buckets empty (211 expected closures — 193 wrong via restored payload+signal, 18 signal_loss via restored baseline emissions, spec §6.4).
+- [ ] **Step 2:** Full suite + typecheck + lint + format; PR (fan-out, shrink −211, §6.1 live-pipeline note: exporter drops the live shape today, this defends the parser boundary; substitute-review deviation); marker off; merge; `0  0`.
+
+<!-- tasks: end -->
