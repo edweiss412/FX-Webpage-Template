@@ -484,7 +484,7 @@ export function RightNowHero({ context }: RightNowHeroProps) {
         "shadow-tile",
         // Holds card height fixed during the §4.3 crossfade (§4.16 invariant:
         // 176px constant through a state crossfade).
-        "min-h-(--spacing-right-now-min-h)",
+        "min-h-right-now-min-h",
         "flex flex-col",
         surfaceClass,
       )}

@@ -570,7 +570,7 @@ export function TodaySection({
                               </span>
                               <span
                                 className={cn(
-                                  "text-sm leading-snug text-text",
+                                  "text-sm/snug text-text",
                                   truncated ? "group-open:hidden" : "",
                                 )}
                               >
