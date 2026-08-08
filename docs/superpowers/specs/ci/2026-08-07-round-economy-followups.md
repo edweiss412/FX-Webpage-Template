@@ -197,7 +197,7 @@ message" class the economy system itself exists to close.
 6. **Result on the live corpus:** `pnpm review:economy` prints no ADVISORY line, because
    every pre-boundary row belongs to `feat/review-round-economy` whose one recognized
    merge (`cae50beb0`) is pre-adoption by the `<=` carve-out and postdates every such
-   row. This is AC-W2.13 and is verified against the real repo, not only fixtures.
+   row. This is AC-W2.14 and is verified against the real repo, not only fixtures.
 
 ### Spec amendment (same PR)
 
@@ -252,10 +252,15 @@ the fix:
    non-placeable-rows note is ABSENT (pins the note's only-when-any-exist conditional).
    Fails today: the lexical sort selects the first string, `Date.parse` puts it past the
    boundary, and the advisory is silently suppressed (reviewer probe, round 1).
-7. **Non-placeable `startedAt` is signaled.** One row with `startedAt: "not-a-date"` and
-   one with `startedAt: null`, plus one placeable post-boundary row. Expect
-   `boundaryAdvisory === null` (nothing placeable precedes the boundary) AND the notes
-   include the `2 row(s) without a placeable startedAt` count. Fails today: NaN
+7. **Non-placeable `startedAt` is signaled — independent of the advisory's state.** Two
+   scenarios in one case. (i) One row with `startedAt: "not-a-date"` and one with
+   `startedAt: null`, plus one placeable post-boundary row: expect
+   `boundaryAdvisory === null` AND the `2 row(s) without a placeable startedAt` note.
+   (ii) The same two invalid rows plus one UNCOVERED pre-boundary placeable row: expect
+   the advisory FIRES and the note is STILL PRESENT — the note's condition is "any
+   non-placeable rows exist", never "and no advisory fired"; a mutant emitting the note
+   only when `boundaryAdvisory === null` passes (i) alone (plan-review round-3 probe).
+   Fails today: NaN
    comparisons return false and `null` is filtered, both silently.
 8. **The accept-set's four rejection families are each signaled.** Four pre-boundary-
    looking rows — timezone-less `"2026-08-31T23:00:00"` (host-dependent: pre-boundary
@@ -298,10 +303,17 @@ the fix:
     condition and caps on time alone excludes the row and silences the advisory
     (plan-review round-2 probe). Fixture varies ONLY the branch identity against
     case 3's shape.
+13. **Exclude first, select second.** Covered row `startedAt: 2026-08-10` on branch B
+    (pre-adoption merge `mergedAt: 2026-08-15`), plus an UNCOVERED pre-boundary row
+    `startedAt: 2026-08-20` on branch X with no merge. Expect the advisory FIRES naming
+    the 2026-08-20 row. A mutant that selects the global chronological earliest FIRST
+    and then nulls the advisory because that one row is covered returns null here —
+    silent suppression of a legitimate signal (plan-review round-3 probe). No other
+    case combines an earlier covered row with a later uncovered one.
 
 Anti-tautology compliance: each case's fixture varies exactly the field under test
 (baseSha mismatch in 1, absent merge in 2, times in 3/4/6/9/10/11, placeability in 7/8,
-branch identity in 12), case 1's row uses a `baseSha` distinct from the merge's so the
+branch identity in 12, exclusion-selection order in 13), case 1's row uses a `baseSha` distinct from the merge's so the
 test cannot pass via an arcKey join the spec forbids, and case 5 carries its premise
 pair executably. Cases 6/9/10/11 use offset-bearing values whose lexical and
 chronological orders DISAGREE, so a lexical mutant at any comparison site fails its
@@ -328,14 +340,25 @@ by full-line equality, and their results land in the implementation commit.
 4. **`mergedAt` is trusted.** It is produced by `git log --format=%cI` over reachable
    commits (`lib/reviewRounds/mergedArcs.ts`) and is not re-validated; a repo whose git
    emits unparseable committer dates is outside the threat fence.
+5. **The accept-set's exact boundary is pinned only at the four rejection families.**
+   Mutants that drift the boundary WITHIN the consequence bound survive §4's cases by
+   design and are declined, not pinned (plan-review round 3 enumerated four: a widened
+   offset regex admitting parseable `+15:00` — a valid instant that then compares
+   correctly; a fraction cap narrowed to exactly three digits; the `±14:00` endpoint
+   deleted; February hardcoded to 28 days). Each either behaves correctly on a wider
+   set or rejects a valid row INTO the counted note — conservative and signaled, which
+   is this spec's documented-limit form (§7). Pinning the boundary exactly would need a
+   reference-implementation differential, which the informational advisory does not
+   warrant; drift that ever produces a SILENT wrong comparison is what §4 pins, via the
+   finite-parse net and the four families.
 
 ## §6 Acceptance criteria
 
 - AC-W1.1: every P-row lands in its named target file with its filing citation inline;
   no other `docs/agents/` rule is reworded beyond the named integration points.
 - AC-W1.2: `AGENTS.md` class-sweep bullet gains exactly one sentence (P9).
-- AC-W2.1–W2.12: the twelve §4 cases pass, numbered in order (AC-W2.n = §4 case n).
-- AC-W2.13: `pnpm review:economy` on the live repo prints no ADVISORY line and its other
+- AC-W2.1–W2.13: the thirteen §4 cases pass, numbered in order (AC-W2.n = §4 case n).
+- AC-W2.14: `pnpm review:economy` on the live repo prints no ADVISORY line and its other
   sections are byte-identical to before the change (verified by running both and
   diffing).
 - AC-X.1: `pnpm spec:lint` on this spec and the plan is attached to every review

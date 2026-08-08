@@ -43,11 +43,11 @@ Verification: `git diff --stat` shows exactly `docs/agents/writing-plans.md`,
 `docs/agents/spec-self-review.md`, `AGENTS.md`. `pnpm format:check` clean (prettier runs
 on staged md via hook).
 
-## Task 2 — RED: twelve advisory cases in `tests/reviewRounds/report.test.ts` (spec §4)
+## Task 2 — RED: thirteen advisory cases in `tests/reviewRounds/report.test.ts` (spec §4)
 
 Commit: `test(infra): pin the boundary-advisory exclusion rule (RED)`.
 
-Add the twelve §4 cases to the existing advisory describe-block, reusing the file's
+Add the thirteen §4 cases to the existing advisory describe-block, reusing the file's
 `corpus()` / `jrows()` / `opts` helpers and `BOUNDARY` constant (`report.test.ts:289`).
 Each case's comment names the production line that fails it (anti-tautology: concrete
 failure mode stated per test). Spec §4 is normative for every fixture and assertion;
@@ -75,9 +75,11 @@ implementation notes only:
 6. **Chronological, not lexical, earliest.** Use spec §4.6's two offset timestamps
    verbatim; expect the advisory to fire naming the chronologically-earliest row, and
    assert the non-placeable-rows note is ABSENT.
-7. **Non-placeable `startedAt` signaled.** `"not-a-date"` + `null` + one placeable
-   post-boundary row; expect null advisory AND the `2 row(s) without a placeable
-   startedAt` note (spec §3.2 wording).
+7. **Non-placeable `startedAt` signaled — independent of advisory state.** Spec §4.7's
+   TWO scenarios: (i) `"not-a-date"` + `null` + one placeable post-boundary row: null
+   advisory AND the `2 row(s) without a placeable startedAt` note; (ii) same invalid
+   rows + one UNCOVERED pre-boundary row: advisory FIRES and the note is STILL present
+   (kills the mutant emitting the note only when the advisory is null).
 8. **Accept-set rejection families.** Spec §4.8's four rows verbatim — timezone-less
    `"2026-08-31T23:00:00"`, calendar-invalid `"2026-02-30T00:00:00.000Z"`, out-of-range
    offset `"2026-08-31T12:00:00+24:00"`, over-precise `"2026-08-31T12:00:00.0001Z"` —
@@ -98,13 +100,17 @@ implementation notes only:
     (no merge); pre-adoption merge on branch Y with `mergedAt >=` the row's time →
     advisory FIRES. Global-time-cap mutant (branch condition dropped) silences it.
     Fixture varies ONLY branch identity against case 3's shape.
+13. **Exclude first, select second.** Spec §4.13: covered 2026-08-10 row (its branch's
+    pre-adoption merge at 2026-08-15) + uncovered pre-boundary 2026-08-20 row →
+    advisory fires NAMING the 2026-08-20 row. Select-global-earliest-then-null mutant
+    returns null here (silent suppression).
 
 Also update the existing advisory test at `tests/reviewRounds/report.test.ts:554` — update its expected string to the spec §3.4 wording
 (the one intentional existing-test change; every other existing case stays
 byte-identical).
 
 Run `pnpm vitest run tests/reviewRounds/report.test.ts` — cases 1, 3 (inclusive-cap
-companion), 5, 6, 7, 8 and the reworded-string assertion MUST fail before Task 3; cases
+companion), 5, 6, 7, 8, 13 and the reworded-string assertion MUST fail before Task 3; cases
 2/4/9/10/11/12 may pass pre-fix only if the naive implementation happens to satisfy
 them — verify each against the named mutant during Task 3's mutant pass (they pin
 preserved/derived behavior; that is their premise, not a tautology — state it in the
@@ -174,11 +180,19 @@ Logic mutants — one per spec-pinned decision, deferred here from Task 2:
 - time cap `<=` narrowed to `<` → case 3's at-mergedAt companion fails;
 - `<=` at the pre-adoption boundary carve-out flipped to `<` → the existing
   equals-boundary test discriminates;
-- bare-`Date.parse` placement (accept-set bypass) → cases 7 and 8 fail.
+- bare-`Date.parse` placement (accept-set bypass) → cases 7 and 8 fail;
+- select-global-earliest-then-null (filter after selection) → case 13 fails;
+- note conditioned on `boundaryAdvisory === null` → case 7 scenario (ii) fails.
+
+DECLINED mutant class, recorded so review does not re-raise it: accept-set boundary
+drift WITHIN the consequence bound (widened offset regex admitting parseable `+15:00`,
+fraction cap narrowed to exactly 3 digits, `±14:00` endpoint deleted, February
+hardcoded to 28) — each is conservative-and-signaled or benign-widening; spec §5.5 is
+the fence.
 
 If any mutant survives, strengthen the test in the same commit before proceeding.
 
-## Task 4 — 2026-08-04 spec amendment + live verification (spec §3 amendment ¶, AC-W2.13)
+## Task 4 — 2026-08-04 spec amendment + live verification (spec §3 amendment ¶, AC-W2.14)
 
 Commit: `docs(spec): amend review-round-economy §9/§11.3 for the advisory exclusion rule`.
 
@@ -186,9 +200,9 @@ Commit: `docs(spec): amend review-round-economy §9/§11.3 for the advisory excl
   exclusion rule + the §3.4 reworded advisory line, dated note `(Amended 2026-08-07 —
   see 2026-08-07-round-economy-followups.md)`, matching the spec's amendment style.
 - Extend §11.3 item 8 — the "Adoption boundary" test entry, NOT §10 item 8, which is
-  unrelated mutation-enrollment work — with the twelve new case shapes (one line each).
+  unrelated mutation-enrollment work — with the thirteen new case shapes (one line each).
 - Live check: run `pnpm review:economy` at the pre-change commit and at HEAD, diff the
-  outputs — identical except the ADVISORY line is gone (AC-W2.13). Paste both
+  outputs — identical except the ADVISORY line is gone (AC-W2.14). Paste both
   invocations' tail into the commit message or the PR body.
 - `pnpm spec:lint` on the amended 2026-08-04 spec: no new hard findings.
 
