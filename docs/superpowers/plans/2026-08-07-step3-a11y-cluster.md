@@ -424,12 +424,23 @@ Commit: `fix(admin): AdminNav brand link 44px floor — min-h + cancelling mx/px
 
 **RED:** add to `tests/components/admin/wizard/Step3Review.test.tsx` (jsdom — structural,
 not dimensional): render the page fixture (`tests/components/admin/wizard/_step3ReviewFixture.ts`)
-with BOTH promoted sections present; **premise:** both `wizard-step3-heading`-adjacent
-sections render their headings (`premiseHolds` on the two `h2`s being found — spec §8
-premise table row 2); then collect ALL heading tags in document order and assert the
+with BOTH promoted sections present. **Premise — TAG-AGNOSTIC, so it holds on the
+unrepaired build too (R5 F1):** a premise phrased "find two `h2`s" encodes the
+POST-repair state and makes RED die at the premise, misreporting the production defect
+as an invalid environment (`tests/_shared/premise.ts:36` — "not a claim that the code
+under test is wrong"). Instead, `premiseHolds` locates both promoted headings
+structurally, by identity rather than tag: (a) the element with
+`id="wizard-step3-needs-attention-heading"` (`components/admin/wizard/Step3Review.tsx:1407`
+— the id sits on the heading itself and survives the tag change); (b) at least one
+grouped-rows section present (`wizard-step3-ignored` / `wizard-step3-deferred` /
+`wizard-step3-skipped`, rendered at `components/admin/wizard/Step3Review.tsx:1467-1484`)
+with a heading element (`h1`–`h6`) inside it — the `components/admin/wizard/Step3Review.tsx:749` code site renders through all
+three. This is spec §8's "both promoted h2s present" premise expressed in the only form
+that can execute at RED. THEN collect ALL heading tags in document order and assert the
 level sequence never skips (derive: `h1 → h2 → h2` passes; `h1 → h3` fails). Asserting
 "an h2 exists" is forbidden (spec §8 anti-tautology — passes on a page that also skips
-to h4). Fails today: sequence is `h1, h3, h3` (DEFERRED.md:47-52 probe).
+to h4). RED run: premise passes (headings exist, as `h3`), sequence check fails on
+`h1, h3, …` (DEFERRED.md:47-52 probe).
 
 **GREEN:** `components/admin/wizard/Step3Review.tsx:749` `h3` → `h2`;
 `components/admin/wizard/Step3Review.tsx:1406` `h3` → `h2`. Class strings byte-identical
