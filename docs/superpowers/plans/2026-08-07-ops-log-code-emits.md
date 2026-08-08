@@ -143,11 +143,11 @@ Each asserts one record via the whole-record accept-set above (with `source: "ap
 
 <!-- task: red=`pnpm vitest run tests/components/admin/OnboardingWizard.test.tsx` ac=AC-3,AC-5 -->
 
-**RED.** Extend `tests/components/admin/OnboardingWizard.test.tsx`. The three shipped cases at `tests/components/admin/OnboardingWizard.test.tsx:203`, `tests/components/admin/OnboardingWizard.test.tsx:220` and `tests/components/admin/OnboardingWizard.test.tsx:232` already construct the three distinct broken environments (unset, malformed JSON, missing `client_email`) — the cheapest non-vacuous oracle available, because the environments exist and are already known-distinct. Each gains a `setLogSink` capture asserting one record with `code === "ONBOARDING_OPERATOR_ERROR"`, `level === "error"`, and its own `reason`: `env_missing`, `json_malformed`, `client_email_missing` respectively. A **fourth** case is added for `json_not_an_object` (see Part 1).
+**RED.** Extend `tests/components/admin/OnboardingWizard.test.tsx`. The three shipped cases at `tests/components/admin/OnboardingWizard.test.tsx:203`, `tests/components/admin/OnboardingWizard.test.tsx:220` and `tests/components/admin/OnboardingWizard.test.tsx:232` already construct the three distinct broken environments (unset, malformed JSON, missing `client_email`) — the cheapest non-vacuous oracle available, because the environments exist and are already known-distinct. Each gains a `setLogSink` capture asserting one record with `code === "ONBOARDING_OPERATOR_ERROR"`, `level === "error"`, and its own `reason`: `env_missing`, `json_malformed`, `client_email_missing` respectively. **Three** further cases are added for `json_not_an_object`, one per disjunct of its guard (see Part 1) — six operator-error cases in total.
 
 **Their existing render assertions stay byte-identical** — that is the executable form of AC-5 and of the `impeccable-gate: N/A` determination. If a render assertion needs editing, stop: the determination is void.
 
-**Concrete failure mode caught:** the wizard emitting a single undifferentiated code; `reason` wired to a literal instead of the resolver's result; or `json_malformed` claimed for a value that parsed. Four distinct expected values across four environments means a hardcoded `reason` matches at most one case and fails the other three.
+**Concrete failure mode caught:** the wizard emitting a single undifferentiated code; `reason` wired to a literal instead of the resolver's result; or `json_malformed` claimed for a value that parsed. Four distinct expected `reason` values across six environments means a hardcoded `reason` matches at most three cases and fails at least three.
 
 **Implementation, two parts.**
 
@@ -183,7 +183,15 @@ function readServiceAccountEmail(): ServiceAccountResult {
 
 The `catch` stays **parameterless** — binding the error is the first step toward logging it, and §2.2 forbids that. This is behavior-preserving: the ok/not-ok partition over every input is unchanged, only the label is new, so the render assertions in the RED above stay byte-identical. `readServiceAccountEmail` remains synchronous and pure; it is module-private with exactly one caller, so this carries no blast radius (contrast the `next` validator, deliberately untouched per spec §1.1 item 3).
 
-**Two RED cases are added** alongside the three shipped ones, one per disjunct of the new shape check: `GOOGLE_SERVICE_ACCOUNT_JSON = "null"` and `= "[]"`, both asserting `reason === "json_not_an_object"`. The array case is not decoration — `typeof [] === "object"` and `[] !== null`, so without `Array.isArray` in the guard an array silently routes to `client_email_missing`, asserting that an object was supplied and merely lacked a field. Testing only `null` would leave that disjunct unproven, which is exactly how the defect reached round 3.
+**THREE RED cases are added** alongside the three shipped ones — **one per disjunct** of the new shape check, which is the whole point and was under-delivered twice before this round. `GOOGLE_SERVICE_ACCOUNT_JSON` set to `"null"`, `"[]"`, and `"123"`, all asserting `reason === "json_not_an_object"`. Each maps to exactly one disjunct, so deleting any single disjunct turns exactly one case red:
+
+| Input | Disjunct it exercises | Reason without that disjunct |
+| --- | --- | --- |
+| `"null"` | `parsed === null` | `TypeError` on the property read → mislabelled `json_malformed` |
+| `"[]"` | `Array.isArray(parsed)` | `client_email_missing` |
+| `"123"` | `typeof parsed !== "object"` | `client_email_missing` |
+
+The array and primitive cases are not decoration: `typeof [] === "object"` and `[] !== null`, so an array escapes a `typeof`/`null` test, while a number escapes the `null`/`Array.isArray` pair. Either escape produces a record asserting that an object was supplied and merely lacked `client_email` — silently wrong under the consequence bound. Two successive rounds each caught one uncovered disjunct here; the table exists so the third cannot recur.
 
 *Part 2 — one emit* in the async component body, guarded by `!service.ok`, before the return:
 
@@ -209,23 +217,19 @@ if (!service.ok) {
 
 **This task has no natural RED, and that is stated rather than glossed.** Before Task 3 the captured record array is empty, so every negative assertion passes vacuously; after Task 3 the shipped emit is already safe, so they pass legitimately. Claiming a RED on either basis would be exactly the tautology this project's rules exist to stop. Task 4 is a **regression guard**, and its RED is obtained by mutation.
 
-**Assertions — an ACCEPT-SET, not a denylist.** The R2 review refuted the earlier denylist shape with three live leak channels it would have passed: a parse message relocated into `record.message`, one stored under a different context key, and a PARTIAL fragment of the raw value. Enumerating forbidden forms cannot close that — a denylist accepts whatever it did not model, which is exactly what `docs/agents/spec-self-review.md` warns about. So each captured record is asserted by shape:
+**Assertions — the shared whole-record accept-set, with nothing added or subtracted here.** Task 4 asserts the record with the SAME nine-field `toEqual` defined under Task 1 (`level`, `source`, `message`, `code`, `requestId`, `showId`, `driveFileId`, `actorHash`, `context`), instantiated with `level: "error"`, `source: "admin.onboardingWizard"`, `code: "ONBOARDING_OPERATOR_ERROR"`, `context: { reason: <the case's reason> }`, and the exact onboarding message literal. **This task deliberately does not restate the assertion list.** An earlier draft enumerated a shorter one here, and that copy silently contradicted the shared contract and reintroduced the very R3 defect — a fragment in `source` passed every locally-listed guard. One definition, referenced; never a second copy to drift.
 
-1. `Object.keys(record.context)` deep-equals `["reason"]` — **the load-bearing assertion.** Nothing beyond `reason` may appear at all, so no leak channel exists to enumerate.
-2. `record.context.reason` is one of the four `ServiceAccountFailureReason` values.
-3. `record.message` equals the exact expected literal.
-4. Backstop only: `JSON.stringify(records)` contains neither the sentinel nor `private_key`.
-
-Assertions 1-3 are what enforce AC-4; assertion 4 catches a leak arriving through some channel the record shape does not describe.
+`JSON.stringify(records)` containing neither the sentinel nor `private_key` is retained as a backstop for a leak arriving through a channel the record shape does not describe.
 
 **Two cases**, both with `GOOGLE_SERVICE_ACCOUNT_JSON` carrying a sentinel that could only have come from the env var (e.g. `"SENTINEL-PRIVATE-KEY-DO-NOT-LOG"`): one well-formed but missing `client_email`, one malformed so the parse-error path is exercised.
 
-**Observed-RED protocol (this is the task's actual red step).** After Task 3 is green, run **two** mutants in the working tree — one per leak channel — observing each FAIL and reverting it before the next:
+**Observed-RED protocol (this is the task's actual red step).** After Task 3 is green, run **three** mutants in the working tree — **one per leak-channel family**, matching the three families the persisted row actually has — observing each FAIL and reverting it before the next:
 
-- **(a) reserved channel:** add `error` (the caught `JSON.parse` error) to the wizard emit. Fails assertion 1.
-- **(b) message channel:** interpolate a fragment of the raw env value into the emit's message string. Fails assertion 3 — and this is the mutant the earlier denylist draft would have passed, so running only (a) leaves the accept-set's central claim unproven.
+- **(a) context channel:** add `error` (the caught `JSON.parse` error) to the wizard emit. The `context` key set no longer matches.
+- **(b) message channel:** interpolate a fragment of the raw env value into the emit's message string. The message literal no longer matches. This is the mutant the R2 denylist draft would have passed.
+- **(c) promoted-field channel:** derive `source` from a fragment of the raw env value. This is the mutant that defeated the R3 context-only accept-set and is durable — `buildRecord` promotes `source` onto the record and `persistAppEvent` writes it as its own column — so omitting it would leave the widening this round exists to prove entirely unexercised.
 
-Neither mutant is committed. The commit message and PR body record both observations with their output. A green claimed without them is not evidence the guard works.
+Each family must be represented, because each failed a previous guard shape. No mutant is committed. The commit message and PR body record all three observations with their output. A green claimed without them is not evidence the guard works.
 
 **Premise (mandatory).** The assertions rest on two conditions, both stated via `premise`/`premiseHolds` from `tests/_shared/premise.ts` immediately above the negative assertion:
 
