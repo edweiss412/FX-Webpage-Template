@@ -88,7 +88,20 @@ export function AdminNav({
         <Link
           href="/admin"
           data-testid="admin-nav-brand"
-          className="flex items-center gap-2 rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+          /* spec 2026-08-07-step3-a11y-cluster §2.2: a COMPOSITE link, so it
+             takes its own recipe rather than the generic icon-button one.
+             `size-tap-min` would clamp the whole block to a 44px square and
+             crush the wordmark; wrapping only the <Image> would leave the
+             link's own box under the floor. `min-h-tap-min` fixes the vertical
+             axis, which fails at every width. `-mx-2 px-2` fixes the horizontal
+             axis in the icon-only state below 360px (28 + 8 + 8 = 44) and
+             simply extends the target above it — the negative margin keeps the
+             layout footprint unchanged, which matters because the 320px topbar
+             budget documented below is already tight. No inner span and no
+             hover rewiring: no visual class moves, the link has no `hover:`
+             variant, and its focus ring already sits on the element that
+             becomes the 44px target. */
+          className="-mx-2 flex min-h-tap-min items-center gap-2 rounded-sm px-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
         >
           <Image
             src="/brand/fxav-icon.png"

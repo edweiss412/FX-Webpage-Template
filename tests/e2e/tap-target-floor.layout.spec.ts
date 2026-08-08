@@ -254,6 +254,71 @@ async function settledColor(page: Page, selector: string): Promise<string> {
 }
 
 /**
+ * DI-11/DI-12 add the two `AdminNav` wordmark breakpoints to the standard four:
+ * "FXAV" appears at `min-[360px]:inline` and the "Admin" pill at
+ * `min-[440px]:inline-block` (components/admin/nav/AdminNav.tsx:88-114).
+ */
+const BRAND_VIEWPORTS = [320, 360, 390, 440, 768, 1280] as const;
+
+/** `-mx-2` / `px-2` resolve to 8px on the 4px spacing scale. */
+const BRAND_INSET = 8;
+
+test.describe("DI-11/DI-12 — the AdminNav brand link clears the floor and spends no width", () => {
+  for (const width of BRAND_VIEWPORTS) {
+    test(`@${width}px: link clears ${TAP_MIN}px and its padding is cancelled by its margin`, async ({
+      page,
+    }) => {
+      await boot(page, width);
+
+      const brand = '[data-mount="admin-nav"] [data-testid="admin-nav-brand"]';
+      const measured = await page.locator(brand).evaluate((el) => {
+        const cs = getComputedStyle(el);
+        const r = el.getBoundingClientRect();
+        const wordmark = Array.from(el.querySelectorAll("span")).find(
+          (s) => s.textContent?.trim() === "FXAV",
+        );
+        return {
+          w: r.width,
+          h: r.height,
+          marginLeft: parseFloat(cs.marginLeft),
+          marginRight: parseFloat(cs.marginRight),
+          paddingLeft: parseFloat(cs.paddingLeft),
+          paddingRight: parseFloat(cs.paddingRight),
+          wordmarkFound: wordmark !== undefined,
+          wordmarkShown: wordmark ? getComputedStyle(wordmark).display !== "none" : null,
+        };
+      });
+
+      // Premise: the breakpoint state under test actually applied. Without it,
+      // a stylesheet that dropped `min-[360px]:inline` would silently collapse
+      // all six cases onto the icon-only geometry and every one would pass.
+      premiseHolds("the brand link renders its FXAV wordmark span", measured.wordmarkFound);
+      premiseHolds(
+        `at ${width}px the wordmark is ${width >= 360 ? "shown" : "hidden"} (measured ${measured.wordmarkShown})`,
+        measured.wordmarkShown === width >= 360,
+      );
+
+      // DI-11. The vertical axis fails at every width today; the horizontal
+      // axis fails only in the icon-only state below 360px, where the link is
+      // 28px wide and 28 + 8 + 8 = 44.
+      expect(measured.h, "brand link height").toBeGreaterThanOrEqual(TAP_MIN - EPS);
+      expect(measured.w, "brand link width").toBeGreaterThanOrEqual(TAP_MIN - EPS);
+
+      // DI-12 — the cancellation formula, computed from the repaired element
+      // alone. No baseline: production exposes only the repaired component, and
+      // a hand-written "before" variant is exactly the transcribed markup this
+      // spec disqualifies (spec §8). The topbar's 320px width budget is already
+      // documented as tight — four irreducible 44px controls in the action
+      // cluster (AdminNav.tsx:95-109) — so the link's footprint must not grow.
+      expect(measured.marginLeft, "brand link left margin").toBeCloseTo(-BRAND_INSET, 1);
+      expect(measured.marginRight, "brand link right margin").toBeCloseTo(-BRAND_INSET, 1);
+      expect(measured.paddingLeft, "brand link left padding").toBeCloseTo(BRAND_INSET, 1);
+      expect(measured.paddingRight, "brand link right padding").toBeCloseTo(BRAND_INSET, 1);
+    });
+  }
+});
+
+/**
  * The Class-B icon targets that are NOT step pills. Each names the target's
  * testid, its inner visual's testid, the visual's preserved size, and every
  * computed property its hover state changes.
