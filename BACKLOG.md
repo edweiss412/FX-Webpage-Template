@@ -8,6 +8,22 @@ Last reconciled: 2026-08-04 — `feat/harness-font-fidelity` (PR #705) graduated
 
 ---
 
+## BL-TAP-TARGET-INLINE-TEXT-CONTROLS — eight inline text controls sit under the 44px floor pending a per-site prose-vs-chrome call
+
+**Filed:** 2026-08-07 (`fix/step3-a11y-cluster`, spec §9.1). **Class:** accessibility (tap-target floor). **Effort:** S-M (the judgment, then a mechanical repair for whatever it classifies as chrome). **Class-sweep exception:** (a) — needs a product decision the filing branch cannot settle. **Reachability:** PROBED — every site and its computed height is in the spec's §2.6 corpus baseline (`docs/superpowers/specs/2026-08-07-step3-a11y-cluster.md`).
+
+The `fix/step3-a11y-cluster` corpus pass (AST walk, 340 in-scope interactive elements) found 16 literal-className elements genuinely under the 44px floor. Eight were repaired on that branch (chrome: disclosures, icon buttons, pills, the brand link). These are the other eight — all inline text links or text buttons sitting inside sentences: "Refresh" in a banner (`app/admin/settings/admins/RevokeRowButton.tsx:283`), "Change" (`components/admin/RoleRecognizeControl.tsx:268`), "Start fresh" (`components/shared/ReportModal.tsx:526`), a "show more" toggle (`components/admin/wizard/step3ReviewSections.tsx:2585`), a sheet-title deep link (`components/admin/wizard/Step3SheetCard.tsx:149`), `tel:` and `mailto:` links (`components/admin/wizard/step3ReviewSections.tsx:1405`, `components/admin/wizard/step3ReviewSections.tsx:1414`), and a dev-page debug button (`app/admin/dev/page.tsx:334`).
+
+`PRODUCT.md:59` grants an explicit WCAG 2.5.5 exception to "links rendered inline within prose body text". Whether each of these eight is inline prose (exempt) or chrome (repair) is a per-site product judgment, not a mechanical class edit — several sit in sentence flow where a 44px box would visibly break the line. **First scheduled step:** make that call per site, then repair whatever it classifies as chrome using the recipes the spec ships.
+
+## BL-TAP-TARGET-STRUCTURAL-GUARD — repo-wide tap-target guard blocked on the non-literal-className policy
+
+**Filed:** 2026-08-07 (`fix/step3-a11y-cluster`, spec §5 + §9.1). **Class:** structural defense (fail-by-default coverage for NEW small targets). **Effort:** M-L. **Class-sweep exception:** (c) — spans surfaces the filing PR does not otherwise touch. **Reachability:** PROBED — the full detector procedure and its output are in the spec's §2.6 (`docs/superpowers/specs/2026-08-07-step3-a11y-cluster.md`).
+
+The mandated pre-draft detector pass ran a TypeScript-AST walk over every `.tsx` under `app/**` and `components/**`: **340** in-scope interactive elements, **139** the recogniser cannot clear, of which **94 carry a non-literal `className`** (template literal, ternary, named constant, `.join()`, or no `className` prop at all with the floor living in a child component's base string). A guard honouring the consequence bound — every element checked or reported by name, never silently passed — must report all 94 as UNCLASSIFIED, so it cannot go green until they are dispositioned. Shipping it weakened (passing constructs it cannot read) would have missed `components/admin/HelpSheet.tsx:139`, a real 36px defect the corpus pass caught.
+
+**First scheduled step is the policy decision, not the recogniser:** resolve named class constants, require literal classNames on interactive elements, or accept a standing UNCLASSIFIED census. The recogniser cannot be finished before that call. Until then, the filing branch's defence is its real-browser assertions pinning the thirteen repaired sites (regression coverage, not discovery coverage — spec §4 documents the limit).
+
 ## BL-MI11-REMOVAL-FALLBACK-STALE-OVERWRITE — the mi11 genuine-removal fallback retains a frozen snapshot over a live row
 
 **Filed:** 2026-08-07 (arc C Q1 class-sweep, `feat/backlog-quick-wins`). **Class:** correctness (silent data revert). **Effort:** S. **Severity:** low-medium — no loss of the row, but live edits are silently reverted.

@@ -1,0 +1,1016 @@
+/**
+ * tests/e2e/tap-target-floor.layout.spec.ts
+ * (spec 2026-08-07-step3-a11y-cluster §6 dimensional invariants, §8 test plan)
+ *
+ * Real-browser assertions for the 44×44 tap-target floor repairs. jsdom
+ * computes no layout, so every claim in spec §6 requires a real engine.
+ *
+ * LIVE ENTRY, NOT TRANSCRIBED MARKUP (spec §8, AC-3b). The subject of this
+ * spec is whether particular class strings sit on particular elements, so a
+ * harness carrying its own copy of those strings would pass with the corrected
+ * copy while production stayed unrepaired. tests/e2e/_tapTargetFloorLiveEntry.tsx
+ * imports the REAL components; this file bundles it out-of-process through the
+ * UNMODIFIED tests/e2e/_step3ReviewModalBundle.mjs.
+ *
+ * `test` is bound from ./helpers/fontFidelityFixture, never @playwright/test:
+ * tests/e2e/_metaFontFidelityWiring.test.ts:27 walks every spec containing
+ * `compileEntryCss` and fails-by-default on the wrong binding, and this file's
+ * stem is enrolled in the CALLERS registry at
+ * tests/e2e/_metaFontWaitCoverage.test.ts:30.
+ *
+ * Run:
+ *   node_modules/.bin/playwright test --config tests/e2e/standalone.config.ts \
+ *     tap-target-floor
+ */
+import { test, expect } from "./helpers/fontFidelityFixture";
+import type { Page } from "@playwright/test";
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, writeFileSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import { createServer, type Server } from "node:http";
+import { compileEntryCss } from "./helpers/liveEntryToolchain";
+import { premise, premiseHolds } from "../_shared/premise";
+
+const REPO_ROOT = resolve(__dirname, "..", "..");
+
+/** The project floor: DESIGN.md:216 `--spacing-tap-min: 44px`. */
+const TAP_MIN = 44;
+
+/**
+ * The painted pill, unchanged by this repair (`size-7`). Spec §1.1 R6: every
+ * repaired control keeps its EXISTING box — "28px everywhere" would be wrong,
+ * since the HelpSheet close button is `size-9`.
+ */
+const VISUAL_PILL = 28;
+
+/** Sub-pixel tolerance for every geometry comparison in this file. */
+const EPS = 0.5;
+
+/** spec §8: DI-1…DI-15 are asserted across these four widths. */
+const VIEWPORTS = [320, 390, 768, 1280] as const;
+
+/**
+ * The SIX Class-A disclosures (spec §2.1). HelpTooltip is the seventh
+ * <summary> but takes the Class B recipe instead (spec §2.2 precedence), so it
+ * is scoped out of DI-2 by construction — DI-10 pins its width at exactly 44,
+ * a stronger claim than narrower-than-container.
+ */
+const CLASS_A_MOUNTS = [
+  "help-affordance",
+  "operator-error",
+  "error-explainer",
+  "administrators",
+  "me-show-sections",
+  "run-of-show",
+] as const;
+
+/**
+ * All SEVEN repaired disclosures — DI-1's full scope (spec §6). HelpTooltip is
+ * the seventh; it is a <summary> that is also a 28x28 pill, so both recipes
+ * name it and Class B wins (spec §2.2 precedence): Class A's
+ * `inline-flex w-fit min-h-tap-min items-center` would leave it 44 tall and
+ * still 28 wide.
+ */
+const ALL_SUMMARY_MOUNTS = [...CLASS_A_MOUNTS, "help-tooltip"] as const;
+
+/** Every mounted <summary>, Class A plus the Class B tooltip trigger. */
+const SUMMARY_MOUNT_COUNT = ALL_SUMMARY_MOUNTS.length;
+
+/** The HelpSheet close button's painted box — `size-9`, NOT 28 (spec R6). */
+const VISUAL_CLOSE = 36;
+
+let server: Server;
+let baseUrl: string;
+let workDir: string;
+
+test.beforeAll(async () => {
+  workDir = mkdtempSync(join(tmpdir(), "tap-target-floor-"));
+
+  writeFileSync(
+    join(workDir, "live.html"),
+    `<!doctype html>
+<html data-theme="light">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="stylesheet" href="out.css"></head>
+<body class="bg-bg"><div id="root"></div><script src="bundle.js"></script></body></html>`,
+  );
+
+  // The entry's import graph reaches "use server" action modules and node
+  // builtins that Next elides from client bundles; this bundler replicates
+  // that elision. It is used UNMODIFIED (spec §8, ratified) — teaching the
+  // shared `_bundleLiveEntryChild.mjs` the same trick would redesign a surface
+  // this branch does not otherwise touch.
+  execFileSync(
+    process.execPath,
+    [
+      join(REPO_ROOT, "tests", "e2e", "_step3ReviewModalBundle.mjs"),
+      join(REPO_ROOT, "tests", "e2e", "_tapTargetFloorLiveEntry.tsx"),
+      join(workDir, "bundle.js"),
+      join(REPO_ROOT, "tsconfig.json"),
+    ],
+    { cwd: REPO_ROOT, stdio: "pipe", timeout: 180_000 },
+  );
+
+  // EVERY directory the entry's import graph paints from needs an @source line.
+  // A missing one silently drops the repaired utilities from the stylesheet and
+  // every invariant fails with a misleading rect rather than a missing class.
+  // `components/layout` is not decorative: AdminNav always renders ThemeToggle
+  // from there (components/admin/nav/AdminNav.tsx:38).
+  const entryCss = join(workDir, "entry.css");
+  const globals = readFileSync(join(REPO_ROOT, "app", "globals.css"), "utf8");
+  writeFileSync(
+    entryCss,
+    [
+      `@source "${join(REPO_ROOT, "components", "admin")}";`,
+      `@source "${join(REPO_ROOT, "components", "messages")}";`,
+      `@source "${join(REPO_ROOT, "components", "crew", "primitives")}";`,
+      `@source "${join(REPO_ROOT, "components", "layout")}";`,
+      `@source "${join(REPO_ROOT, "app", "me")}";`,
+      `@source "${join(REPO_ROOT, "tests", "e2e", "_tapTargetFloorLiveEntry.tsx")}";`,
+      globals,
+    ].join("\n"),
+  );
+  compileEntryCss({ entryCss, outFile: join(workDir, "out.css") });
+
+  server = createServer((req, res) => {
+    const url = (req.url ?? "/").split("?")[0] ?? "/";
+    const file = url === "/" || url === "" ? "live.html" : url.replace(/^\//, "");
+    try {
+      const body = readFileSync(join(workDir, file));
+      res.setHeader(
+        "content-type",
+        file.endsWith(".css") ? "text/css" : file.endsWith(".js") ? "text/javascript" : "text/html",
+      );
+      res.end(body);
+    } catch {
+      res.statusCode = 404;
+      res.end("not found");
+    }
+  });
+  await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+  const addr = server.address();
+  baseUrl = `http://127.0.0.1:${typeof addr === "object" && addr ? addr.port : 0}/`;
+});
+
+test.afterAll(async () => {
+  await new Promise<void>((r) => server.close(() => r()));
+});
+
+/**
+ * Navigate, wait for the React commit, then settle fonts BEFORE the first
+ * measurement. Never networkidle: the harness serves three static files, so
+ * networkidle says nothing about whether React has rendered.
+ */
+async function boot(page: Page, width: number): Promise<void> {
+  await page.setViewportSize({ width, height: 900 });
+  await page.goto(baseUrl);
+  await page.waitForSelector('body[data-harness-ready="true"]');
+  await page.evaluate(() => document.fonts.ready);
+}
+
+/** The <summary> owned by one mounted surface. */
+function summaryIn(page: Page, mount: string) {
+  return page.locator(`[data-mount="${mount}"] summary`);
+}
+
+/**
+ * The premise every DI-1/DI-2 case shares: all seven repaired disclosures
+ * actually mounted. Five of the seven are conditional on fixture state (spec
+ * §3), and a dropped condition renders no <summary> at all — under which
+ * "every summary clears the floor" is trivially true. Stated as an exact count,
+ * not "> 0": one rendered fixture satisfies "> 0" while six stay dark.
+ */
+async function premiseSevenSummaries(page: Page): Promise<void> {
+  const count = await page.locator("summary").count();
+  premiseHolds(
+    `all ${SUMMARY_MOUNT_COUNT} repaired disclosures mounted (got ${count})`,
+    count === SUMMARY_MOUNT_COUNT,
+  );
+}
+
+/** The three step-pill targets, in document order. */
+const PILL_NUMBERS = [1, 2, 3] as const;
+
+/**
+ * The step-pill fixture is `step=2, maxReachedStep=3`, so pill 3 is a
+ * FORWARD-VISITED <Link> — the only state that carries a hover colour
+ * (`group-hover:text-text-strong`, components/admin/OnboardingWizard.tsx:157).
+ * Active and done pills have none, so on the ordinary Step-3 state band-hover
+ * and centre-hover are trivially equal even with the rewiring entirely absent
+ * (spec §6.1). DI-9 samples this pill and nothing else.
+ */
+const FORWARD_VISITED_PILL = 3;
+
+function pillTarget(page: Page, n: number) {
+  return page.locator(`[data-mount="step-indicator"] [data-testid="wizard-step-indicator-${n}"]`);
+}
+
+function pillVisual(page: Page, n: number) {
+  return page.locator(
+    `[data-mount="step-indicator"] [data-testid="wizard-step-indicator-${n}-visual"]`,
+  );
+}
+
+/** Every pill target is present. With fewer than two, "no two overlap" is free. */
+async function premiseThreePills(page: Page): Promise<void> {
+  const count = await page
+    .locator(
+      '[data-mount="step-indicator"] [data-testid^="wizard-step-indicator-"]:not([data-testid$="-visual"])',
+    )
+    .count();
+  premiseHolds(
+    `exactly ${PILL_NUMBERS.length} pill targets rendered (got ${count})`,
+    count === PILL_NUMBERS.length,
+  );
+}
+
+type Rect = { x: number; y: number; w: number; h: number };
+
+async function rectOf(page: Page, selector: string): Promise<Rect> {
+  return page.locator(selector).evaluate((el) => {
+    const r = el.getBoundingClientRect();
+    return { x: r.x, y: r.y, w: r.width, h: r.height };
+  });
+}
+
+/**
+ * The element's `color` AFTER its own colour transition has run to completion.
+ *
+ * Reading getComputedStyle the instant a hover lands returns the transition's
+ * START value, so a naive read reports "hover changed nothing" on a build where
+ * hover works perfectly — a false failure that a magic sleep would paper over
+ * unreliably. The wait is DERIVED from the element's own declared
+ * `transition-duration` (these pills carry `duration-fast`, 120ms,
+ * app/globals.css:240), so it stays correct if that token is retimed and it
+ * collapses to a single frame under prefers-reduced-motion, which zeroes it.
+ */
+async function settledColor(page: Page, selector: string): Promise<string> {
+  const durationMs = await page.locator(selector).evaluate((el) => {
+    const first = getComputedStyle(el).transitionDuration.split(",")[0]?.trim() ?? "0s";
+    return first.endsWith("ms") ? parseFloat(first) : parseFloat(first) * 1000;
+  });
+  await page.waitForTimeout((Number.isFinite(durationMs) ? durationMs : 0) + 60);
+  return page.locator(selector).evaluate((el) => getComputedStyle(el).color);
+}
+
+/**
+ * DI-11/DI-12 add the two `AdminNav` wordmark breakpoints to the standard four:
+ * "FXAV" appears at `min-[360px]:inline` and the "Admin" pill at
+ * `min-[440px]:inline-block` (components/admin/nav/AdminNav.tsx:88-114).
+ */
+const BRAND_VIEWPORTS = [320, 360, 390, 440, 768, 1280] as const;
+
+/** `-mx-2` / `px-2` resolve to 8px on the 4px spacing scale. */
+const BRAND_INSET = 8;
+
+test.describe("DI-11/DI-12 — the AdminNav brand link clears the floor and spends no width", () => {
+  for (const width of BRAND_VIEWPORTS) {
+    test(`@${width}px: link clears ${TAP_MIN}px and its padding is cancelled by its margin`, async ({
+      page,
+    }) => {
+      await boot(page, width);
+
+      const brand = '[data-mount="admin-nav"] [data-testid="admin-nav-brand"]';
+      const measured = await page.locator(brand).evaluate((el) => {
+        const cs = getComputedStyle(el);
+        const r = el.getBoundingClientRect();
+        const wordmark = Array.from(el.querySelectorAll("span")).find(
+          (s) => s.textContent?.trim() === "FXAV",
+        );
+        return {
+          w: r.width,
+          h: r.height,
+          marginLeft: parseFloat(cs.marginLeft),
+          marginRight: parseFloat(cs.marginRight),
+          paddingLeft: parseFloat(cs.paddingLeft),
+          paddingRight: parseFloat(cs.paddingRight),
+          wordmarkFound: wordmark !== undefined,
+          wordmarkShown: wordmark ? getComputedStyle(wordmark).display !== "none" : null,
+        };
+      });
+
+      // Premise: the breakpoint state under test actually applied. Without it,
+      // a stylesheet that dropped `min-[360px]:inline` would silently collapse
+      // all six cases onto the icon-only geometry and every one would pass.
+      premiseHolds("the brand link renders its FXAV wordmark span", measured.wordmarkFound);
+      premiseHolds(
+        `at ${width}px the wordmark is ${width >= 360 ? "shown" : "hidden"} (measured ${measured.wordmarkShown})`,
+        measured.wordmarkShown === width >= 360,
+      );
+
+      // DI-11. The vertical axis fails at every width today; the horizontal
+      // axis fails only in the icon-only state below 360px, where the link is
+      // 28px wide and 28 + 8 + 8 = 44.
+      expect(measured.h, "brand link height").toBeGreaterThanOrEqual(TAP_MIN - EPS);
+      expect(measured.w, "brand link width").toBeGreaterThanOrEqual(TAP_MIN - EPS);
+
+      // DI-12 — the cancellation formula, computed from the repaired element
+      // alone. No baseline: production exposes only the repaired component, and
+      // a hand-written "before" variant is exactly the transcribed markup this
+      // spec disqualifies (spec §8). The topbar's 320px width budget is already
+      // documented as tight — four irreducible 44px controls in the action
+      // cluster (AdminNav.tsx:95-109) — so the link's footprint must not grow.
+      expect(measured.marginLeft, "brand link left margin").toBeCloseTo(-BRAND_INSET, 1);
+      expect(measured.marginRight, "brand link right margin").toBeCloseTo(-BRAND_INSET, 1);
+      expect(measured.paddingLeft, "brand link left padding").toBeCloseTo(BRAND_INSET, 1);
+      expect(measured.paddingRight, "brand link right padding").toBeCloseTo(BRAND_INSET, 1);
+
+      // AC-2 names the brand link as one of the SEVEN targets whose four edge
+      // midpoints must hit it — the same claim DI-6/DI-8/DI-10/DI-15 make for
+      // the others. It is the one target whose grown box reaches INTO a live
+      // row rather than into empty chrome: `-mx-2` pulls its layout footprint
+      // back, so the extra 8px per side overhangs the `gap-3` (12px) toward the
+      // action cluster, which holds four irreducible 44px controls
+      // (components/admin/nav/AdminNav.tsx:95-109). If that overhang ever
+      // exceeded the gap, the brand link would start eating taps aimed at the
+      // first action control, and nothing else in this file would notice.
+      const hits = await page.locator(brand).evaluate((el) => {
+        const r = el.getBoundingClientRect();
+        const cx = r.left + r.width / 2;
+        const cy = r.top + r.height / 2;
+        const points: Array<[string, number, number]> = [
+          ["left", r.left + 1, cy],
+          ["right", r.right - 1, cy],
+          ["top", cx, r.top + 1],
+          ["bottom", cx, r.bottom - 1],
+        ];
+        // Every OTHER interactive element in the topbar, so the overlap check
+        // is against what actually sits beside it rather than a hardcoded gap.
+        const others = Array.from(
+          document.querySelectorAll<HTMLElement>(
+            '[data-mount="admin-nav"] a, [data-mount="admin-nav"] button',
+          ),
+        ).filter((n) => n !== el && !el.contains(n) && !n.contains(el));
+        const overlaps = others
+          .map((n) => n.getBoundingClientRect())
+          .filter((o) => o.width > 0 && o.height > 0)
+          .filter((o) => o.left < r.right - 0.5 && o.right > r.left + 0.5)
+          .filter((o) => o.top < r.bottom - 0.5 && o.bottom > r.top + 0.5).length;
+        return {
+          edges: points.map(([edge, x, y]) => {
+            const hit = document.elementFromPoint(x, y);
+            return { edge, ownsHit: hit !== null && (hit === el || el.contains(hit)) };
+          }),
+          overlaps,
+          siblingCount: others.length,
+        };
+      });
+      premise("other interactive topbar elements exist to overlap", hits.siblingCount, 0);
+      expect(hits.edges, "brand link edge hit map").toHaveLength(4);
+      for (const { edge, ownsHit } of hits.edges) {
+        expect(ownsHit, `brand link ${edge} midpoint resolved outside the target`).toBe(true);
+      }
+      expect(hits.overlaps, "brand link box overlaps another interactive control").toBe(0);
+    });
+  }
+});
+
+/**
+ * The Class-B icon targets that are NOT step pills. Each names the target's
+ * testid, its inner visual's testid, the visual's preserved size, and every
+ * computed property its hover state changes.
+ *
+ * The property list is enumerated PER SITE rather than left to this file
+ * (spec §6): the HelpSheet trigger, its close button and HelpTooltip all change
+ * BOTH foreground and background on hover, so a test sampling only `color`
+ * would pass on a build where `group-hover:bg-*` was dropped and
+ * `group-hover:text-*` kept.
+ */
+const CLASS_B_TARGETS = [
+  {
+    id: "DI-8",
+    label: "HelpSheet trigger",
+    mount: "help-sheet",
+    target: "help-sheet-trigger",
+    visual: "help-sheet-trigger-visual",
+    visualSize: VISUAL_PILL,
+    hoverProps: ["color", "backgroundColor"],
+    openSheetFirst: false,
+  },
+  {
+    id: "DI-10",
+    label: "HelpTooltip trigger",
+    mount: "help-tooltip",
+    target: "help-tooltip-trigger",
+    visual: "help-tooltip-trigger-visual",
+    visualSize: VISUAL_PILL,
+    hoverProps: ["color", "backgroundColor"],
+    openSheetFirst: false,
+  },
+  {
+    id: "DI-15",
+    label: "HelpSheet close button",
+    mount: null,
+    target: "help-sheet-close",
+    visual: "help-sheet-close-visual",
+    visualSize: VISUAL_CLOSE,
+    hoverProps: ["color", "backgroundColor"],
+    openSheetFirst: true,
+  },
+] as const;
+
+function scoped(mount: string | null, testId: string): string {
+  const self = `[data-testid="${testId}"]`;
+  return mount === null ? self : `[data-mount="${mount}"] ${self}`;
+}
+
+/**
+ * Open the HelpSheet by a REAL click and wait for its portal dialog.
+ *
+ * The close button lives in a portal on <body>, mounted only while open, so
+ * DI-15 has to open the sheet before it can measure anything. Every handle is
+ * re-queried AFTER the click rather than held across it (detach-safety): the
+ * pre-click DOM does not contain this element at all.
+ */
+async function openHelpSheet(page: Page): Promise<void> {
+  await page.locator('[data-mount="help-sheet"] [data-testid="help-sheet-trigger"]').click();
+  await page.waitForSelector('[data-testid="help-sheet-body"]');
+  // The sheet RISES into place (`animate-[sheet-rise_220ms_...]`,
+  // components/admin/HelpSheet.tsx:133) and the scrim fades. Measuring on the
+  // frame the dialog first exists reads a mid-flight transform: at 390x900 that
+  // put the close button's left edge at y=916, sixteen pixels BELOW the fold,
+  // where elementFromPoint returns null. Waiting on the element's own
+  // animations is exact and self-derived — no sleep to retune when the 220ms is
+  // retuned, and it resolves immediately under prefers-reduced-motion, where
+  // `motion-reduce:animate-none` means there is nothing to await.
+  await page
+    .locator('[data-testid="help-sheet-overlay"]')
+    .evaluate(async (el) =>
+      Promise.all(
+        el.getAnimations({ subtree: true }).map((a) => a.finished.catch(() => undefined)),
+      ).then(() => undefined),
+    );
+}
+
+/**
+ * Focus `selector` in a way that actually matches `:focus-visible`.
+ *
+ * Chromium gates `:focus-visible` on input modality: after a real mouse click —
+ * which DI-15 requires, since the sheet has to be opened by one — a subsequent
+ * programmatic `.focus()` is treated as mouse focus and paints NO ring. A test
+ * that measured that would report "the focus ring is missing" on a build whose
+ * ring is perfect. Shift+Tab then Tab re-enters the same element under keyboard
+ * modality; inside the sheet, focus is trapped, so the round trip stays put.
+ */
+async function focusWithKeyboard(page: Page, selector: string): Promise<void> {
+  await page.locator(selector).evaluate((el) => (el as HTMLElement).focus());
+  if (await page.locator(selector).evaluate((el) => el.matches(":focus-visible"))) return;
+  await page.keyboard.press("Shift+Tab");
+  await page.keyboard.press("Tab");
+}
+
+/** The computed values of several properties at once. */
+async function computedProps(
+  page: Page,
+  selector: string,
+  props: readonly string[],
+): Promise<Record<string, string>> {
+  return page.locator(selector).evaluate((el, names) => {
+    const cs = getComputedStyle(el);
+    const out: Record<string, string> = {};
+    for (const name of names) out[name] = cs[name as keyof CSSStyleDeclaration] as string;
+    return out;
+  }, props);
+}
+
+/** Wait out the element's own colour transition, then read the properties. */
+async function settledProps(
+  page: Page,
+  selector: string,
+  props: readonly string[],
+): Promise<Record<string, string>> {
+  const durationMs = await page.locator(selector).evaluate((el) => {
+    const first = getComputedStyle(el).transitionDuration.split(",")[0]?.trim() ?? "0s";
+    return first.endsWith("ms") ? parseFloat(first) : parseFloat(first) * 1000;
+  });
+  await page.waitForTimeout((Number.isFinite(durationMs) ? durationMs : 0) + 60);
+  return computedProps(page, selector, props);
+}
+
+for (const spec of CLASS_B_TARGETS) {
+  test.describe(`${spec.id} — ${spec.label}`, () => {
+    for (const width of VIEWPORTS) {
+      test(`@${width}px: target clears ${TAP_MIN}px, visual stays ${spec.visualSize}px, every edge hits`, async ({
+        page,
+      }) => {
+        await boot(page, width);
+        if (spec.openSheetFirst) await openHelpSheet(page);
+
+        const targetSel = scoped(spec.mount, spec.target);
+        const visualSel = scoped(spec.mount, spec.visual);
+
+        const target = await rectOf(page, targetSel);
+        expect(target.w, `${spec.label} target width`).toBeGreaterThanOrEqual(TAP_MIN - EPS);
+        expect(target.h, `${spec.label} target height`).toBeGreaterThanOrEqual(TAP_MIN - EPS);
+
+        // Asserted on a DIFFERENT element from the target, or the pair is
+        // self-satisfying (spec §8). R6: the painted box is preserved at its
+        // OWN existing size — 28 for the trigger and tooltip, 36 here for the
+        // close button, which is why this is a per-target field.
+        const visual = await rectOf(page, visualSel);
+        expect(visual.w, `${spec.label} visual width`).toBeCloseTo(spec.visualSize, 1);
+        expect(visual.h, `${spec.label} visual height`).toBeCloseTo(spec.visualSize, 1);
+
+        // Corners excluded deliberately (spec §6, probe P4). Edge midpoints of
+        // the element's OWN rect are meaningful here only because the previous
+        // two assertions have already pinned that rect at the 44px floor.
+        const hits = await page.locator(targetSel).evaluate((el) => {
+          const r = el.getBoundingClientRect();
+          const cx = r.left + r.width / 2;
+          const cy = r.top + r.height / 2;
+          const points: Array<[string, number, number]> = [
+            ["left", r.left + 1, cy],
+            ["right", r.right - 1, cy],
+            ["top", cx, r.top + 1],
+            ["bottom", cx, r.bottom - 1],
+          ];
+          return points.map(([edge, x, y]) => {
+            const hit = document.elementFromPoint(x, y);
+            const describe = (node: Element | null) =>
+              node === null
+                ? "nothing"
+                : `${node.tagName.toLowerCase()}${node.getAttribute("data-testid") ? `[${node.getAttribute("data-testid")}]` : ""}.${node.className?.toString().slice(0, 60)}`;
+            return {
+              edge,
+              ownsHit: hit !== null && (hit === el || el.contains(hit)),
+              // Named, not just booleaned: "the right edge hit the <nav>" is
+              // the finding probe P4 turned on, and a bare false hides it.
+              // The point and the viewport ride along because a null hit means
+              // "outside the viewport", which is a harness fault rather than a
+              // component one and reads identically otherwise.
+              hitDescription: `${describe(hit)} at (${Math.round(x)},${Math.round(y)}) in ${window.innerWidth}x${window.innerHeight}`,
+            };
+          });
+        });
+        expect(hits, `${spec.label} edge hit map`).toHaveLength(4);
+        for (const { edge, ownsHit, hitDescription } of hits) {
+          expect(
+            ownsHit,
+            `${spec.label} ${edge} midpoint resolved to ${hitDescription}, not the target`,
+          ).toBe(true);
+        }
+      });
+    }
+
+    test(`hover over the expansion band matches hover over the painted box`, async ({ page }) => {
+      await boot(page, 390);
+      if (spec.openSheetFirst) await openHelpSheet(page);
+
+      const targetSel = scoped(spec.mount, spec.target);
+      const visualSel = scoped(spec.mount, spec.visual);
+
+      const resting = await settledProps(page, visualSel, spec.hoverProps);
+      await page.locator(visualSel).hover();
+      const centre = await settledProps(page, visualSel, spec.hoverProps);
+
+      // Per-property premise. Without it, a property this control does NOT
+      // change on hover would compare two identical values and pass whether or
+      // not the rewiring landed.
+      for (const prop of spec.hoverProps) {
+        premiseHolds(
+          `${spec.label} changes ${prop} on hover (resting ${resting[prop]}, hovered ${centre[prop]})`,
+          resting[prop] !== centre[prop],
+        );
+      }
+
+      const targetRect = await rectOf(page, targetSel);
+      const visualRect = await rectOf(page, visualSel);
+      premise(
+        `${spec.label} expansion band is wide enough to sample`,
+        visualRect.x - targetRect.x,
+        1,
+      );
+      const bandX = (targetRect.x + visualRect.x) / 2;
+      const bandY = targetRect.y + targetRect.h / 2;
+
+      // Leave the control entirely first, so the band read cannot inherit the
+      // centre hover it is being compared against.
+      await page.mouse.move(0, 0);
+      await settledProps(page, visualSel, spec.hoverProps);
+      await page.mouse.move(bandX, bandY);
+      const band = await settledProps(page, visualSel, spec.hoverProps);
+
+      for (const prop of spec.hoverProps) {
+        expect(band[prop], `${spec.label}: band hover produced no ${prop} change`).toBe(
+          centre[prop],
+        );
+      }
+      await expect(page.locator(targetSel)).toHaveClass(/(^|\s)group(\s|$)/);
+    });
+
+    test(`focus rings the target, and the radius is non-zero and shared`, async ({ page }) => {
+      await boot(page, 390);
+      if (spec.openSheetFirst) await openHelpSheet(page);
+
+      const targetSel = scoped(spec.mount, spec.target);
+
+      // DI-14 is read UNFOCUSED for the reason recorded on the step pills:
+      // app/globals.css:762-766 is an UNLAYERED
+      // `:focus-visible { border-radius: var(--radius-sm) }`, which beats every
+      // utility layer, so a focused element computes 6px whether or not it
+      // carries its radius class. Unfocused is where the class governs.
+      const radii = await page.locator(targetSel).evaluate((el, visualId) => {
+        const span = el.querySelector<HTMLElement>(`[data-testid="${visualId}"]`);
+        return {
+          target: getComputedStyle(el).borderTopLeftRadius,
+          visual: span ? getComputedStyle(span).borderTopLeftRadius : null,
+        };
+      }, spec.visual);
+      premiseHolds(`${spec.label} rendered its inner visual span`, radii.visual !== null);
+      expect(parseFloat(radii.target), `${spec.label} target radius`).toBeGreaterThan(0);
+      expect(radii.target, `${spec.label} radius diverged from its visual`).toBe(radii.visual);
+
+      await focusWithKeyboard(page, targetSel);
+      const state = await page.locator(targetSel).evaluate((el, visualId) => {
+        const span = el.querySelector<HTMLElement>(`[data-testid="${visualId}"]`);
+        const cs = getComputedStyle(el);
+        const r = el.getBoundingClientRect();
+        return {
+          isActive: document.activeElement === el,
+          isFocusVisible: el.matches(":focus-visible"),
+          targetRing: cs.outlineStyle !== "none" || cs.boxShadow !== "none",
+          spanRing: span
+            ? getComputedStyle(span).outlineStyle !== "none" ||
+              getComputedStyle(span).boxShadow !== "none"
+            : null,
+          w: r.width,
+          h: r.height,
+        };
+      }, spec.visual);
+
+      premiseHolds(`${spec.label} is document.activeElement`, state.isActive);
+      // The ring is `focus-visible:`-gated, so keyboard modality is part of the
+      // environment the assertion needs, not part of the claim.
+      premiseHolds(`${spec.label} matches :focus-visible`, state.isFocusVisible);
+      expect(state.targetRing, `${spec.label} focus ring is not on the target`).toBe(true);
+      expect(state.spanRing, `${spec.label} inner visual grew a ring of its own`).toBe(false);
+      expect(state.w, `${spec.label} ringed rect width`).toBeGreaterThanOrEqual(TAP_MIN - EPS);
+      expect(state.h, `${spec.label} ringed rect height`).toBeGreaterThanOrEqual(TAP_MIN - EPS);
+    });
+  });
+}
+
+test.describe("DI-3/DI-4/DI-5 — the step pills grow their target without moving their layout", () => {
+  for (const width of VIEWPORTS) {
+    test(`@${width}px: target is 44x44, visual stays 28x28, margin box stays 28x28`, async ({
+      page,
+    }) => {
+      await boot(page, width);
+      await premiseThreePills(page);
+
+      let previousRight: number | null = null;
+      for (const n of PILL_NUMBERS) {
+        const measured = await pillTarget(page, n).evaluate((el) => {
+          const r = el.getBoundingClientRect();
+          const cs = getComputedStyle(el);
+          return {
+            x: r.x,
+            w: r.width,
+            h: r.height,
+            marginLeft: parseFloat(cs.marginLeft),
+            marginRight: parseFloat(cs.marginRight),
+            marginTop: parseFloat(cs.marginTop),
+            marginBottom: parseFloat(cs.marginBottom),
+          };
+        });
+
+        // DI-3: exactly 44x44, not merely "at least".
+        expect(measured.w, `pill ${n} target width`).toBeCloseTo(TAP_MIN, 1);
+        expect(measured.h, `pill ${n} target height`).toBeCloseTo(TAP_MIN, 1);
+
+        // DI-4: the painted pill is untouched (R6 — this is an a11y repair, not
+        // a redesign). Asserted on a DIFFERENT element from DI-3, or the pair is
+        // self-satisfying (spec §8).
+        const visual = await pillVisual(page, n).evaluate((el) => {
+          const r = el.getBoundingClientRect();
+          return { w: r.width, h: r.height };
+        });
+        expect(visual.w, `pill ${n} visual width`).toBeCloseTo(VISUAL_PILL, 1);
+        expect(visual.h, `pill ${n} visual height`).toBeCloseTo(VISUAL_PILL, 1);
+
+        // DI-5 (PRESERVATION, spec §8 — passes before AND after by design; do
+        // not "strengthen" it into discriminating form). The margin box is what
+        // the stepper's layout actually spends, and at 320px the connectors are
+        // 0px wide (probe P3) so there is no slack to absorb a change.
+        expect(
+          measured.w + measured.marginLeft + measured.marginRight,
+          `pill ${n} horizontal margin box`,
+        ).toBeCloseTo(VISUAL_PILL, 1);
+        expect(
+          measured.h + measured.marginTop + measured.marginBottom,
+          `pill ${n} vertical margin box`,
+        ).toBeCloseTo(VISUAL_PILL, 1);
+
+        // DI-3, second half: adjacent 44px boxes touch at 320/390 (gap 0.0,
+        // probe P6) and must never overlap — at gap 0 every pixel has exactly
+        // one owner, so no pill can steal a neighbour's tap.
+        if (previousRight !== null) {
+          expect(measured.x, `pill ${n} overlaps its left neighbour`).toBeGreaterThanOrEqual(
+            previousRight - EPS,
+          );
+        }
+        previousRight = measured.x + measured.w;
+      }
+    });
+  }
+});
+
+test.describe("DI-6 — every pill edge midpoint hits that pill, not a sibling", () => {
+  for (const width of VIEWPORTS) {
+    test(`@${width}px: four edge midpoints per pill resolve to their own target`, async ({
+      page,
+    }) => {
+      await boot(page, width);
+      await premiseThreePills(page);
+
+      for (const n of PILL_NUMBERS) {
+        const selector = `[data-mount="step-indicator"] [data-testid="wizard-step-indicator-${n}"]`;
+        // Corners are deliberately excluded (spec §6): probe P4 measured them
+        // unreliable across recipes, so asserting them buys flake, not power.
+        //
+        // The sampled box is the 44px FLOOR box centred on the pill, DERIVED
+        // from the pill's own centre — deliberately not the element's own rect.
+        // Sampling the element's rect would be vacuous on an unrepaired build:
+        // a 28px box's own edges trivially hit the 28px element, so the test
+        // would pass green against the very defect it exists to catch. This is
+        // also the exact geometry probe P4 used to REFUTE `before:-inset-2`,
+        // whose 44px box took the pointer on only two of four edges.
+        const hits = await page.locator(selector).evaluate((el, floor) => {
+          const r = el.getBoundingClientRect();
+          const cx = r.left + r.width / 2;
+          const cy = r.top + r.height / 2;
+          const half = floor / 2;
+          const points: Array<[string, number, number]> = [
+            ["left", cx - half + 1, cy],
+            ["right", cx + half - 1, cy],
+            ["top", cx, cy - half + 1],
+            ["bottom", cx, cy + half - 1],
+          ];
+          return points.map(([edge, x, y]) => {
+            const hit = document.elementFromPoint(x, y);
+            return { edge, ownsHit: hit !== null && (hit === el || el.contains(hit)) };
+          });
+        }, TAP_MIN);
+        expect(hits, `pill ${n} edge hit map`).toHaveLength(4);
+        for (const { edge, ownsHit } of hits) {
+          expect(ownsHit, `pill ${n} ${edge} midpoint resolved outside the target`).toBe(true);
+        }
+      }
+    });
+  }
+});
+
+test.describe("DI-9 — hover feedback covers the whole target, not just the painted pill", () => {
+  test("band-hover matches centre-hover on the forward-visited pill", async ({ page }) => {
+    await boot(page, 390);
+    await premiseThreePills(page);
+
+    const target = pillTarget(page, FORWARD_VISITED_PILL);
+    const visual = pillVisual(page, FORWARD_VISITED_PILL);
+    const visualSelector = `[data-mount="step-indicator"] [data-testid="wizard-step-indicator-${FORWARD_VISITED_PILL}-visual"]`;
+
+    const resting = await settledColor(page, visualSelector);
+
+    // Hover the painted pill's centre.
+    await visual.hover();
+    const centre = await settledColor(page, visualSelector);
+
+    // The premise DI-9 cannot do without: this pill must actually CHANGE colour
+    // on hover. Comparing band-hover to resting instead would pass on a build
+    // where hover is broken everywhere, and comparing band to centre on a pill
+    // with no hover colour compares two identical values (spec §6.1).
+    premiseHolds(
+      `the sampled pill changes colour on hover (resting ${resting}, hovered ${centre})`,
+      centre !== resting,
+    );
+
+    // A point provably inside the 44px target and outside the 28px visual —
+    // DERIVED from the measured rects, never a hardcoded offset (spec §8).
+    const targetRect = await rectOf(
+      page,
+      `[data-mount="step-indicator"] [data-testid="wizard-step-indicator-${FORWARD_VISITED_PILL}"]`,
+    );
+    const visualRect = await rectOf(
+      page,
+      `[data-mount="step-indicator"] [data-testid="wizard-step-indicator-${FORWARD_VISITED_PILL}-visual"]`,
+    );
+    const bandX = (targetRect.x + visualRect.x) / 2;
+    const bandY = targetRect.y + targetRect.h / 2;
+    premise("the expansion band is wide enough to sample", visualRect.x - targetRect.x, 1);
+
+    // Leave the element entirely first, so the band read cannot inherit the
+    // centre hover it is being compared against.
+    await page.mouse.move(0, 0);
+    await settledColor(page, visualSelector);
+    await page.mouse.move(bandX, bandY);
+    const band = await settledColor(page, visualSelector);
+
+    expect(band, "hovering the expansion band produced no hover colour").toBe(centre);
+
+    // §4.1: the crossfade wiring survived the class move. With the pointer
+    // parked in the band, the property that transitions must still be on the
+    // element that now paints it.
+    const transition = await visual.evaluate((el) => getComputedStyle(el).transitionProperty);
+    expect(transition, "the visual span lost its colour transition").toContain("color");
+
+    // The target itself must be the `group` ancestor the rewritten utilities
+    // resolve against; without it `group-hover:*` never matches and hover
+    // feedback disappears rather than degrading.
+    await expect(target).toHaveClass(/(^|\s)group(\s|$)/);
+  });
+});
+
+test.describe("DI-13/DI-14 — focus outlines the target, at the target's own radius", () => {
+  for (const n of PILL_NUMBERS) {
+    test(`pill ${n}: the ring is on the 44px target and the radius is non-zero and shared`, async ({
+      page,
+    }) => {
+      await boot(page, 390);
+      await premiseThreePills(page);
+
+      const selector = `[data-mount="step-indicator"] [data-testid="wizard-step-indicator-${n}"]`;
+
+      // DI-14 is read UNFOCUSED, and that is a strengthening rather than a
+      // relaxation. MEASURED on this build: app/globals.css:762-766 declares an
+      // UNLAYERED `:focus-visible { border-radius: var(--radius-sm) }`, and
+      // unlayered CSS beats every Tailwind utility layer — so a focused pill
+      // computes 6px whether or not it carries `rounded-pill`. A focused-state
+      // radius comparison is therefore BLIND to the class it claims to pin: it
+      // reads 6px on the repaired build and 6px on a build that dropped the
+      // radius from the target entirely. The unfocused read is where
+      // `rounded-pill` actually governs, so it is where the claim can fail.
+      const resting = await page.locator(selector).evaluate((el) => {
+        const span = el.querySelector<HTMLElement>('[data-testid$="-visual"]');
+        return {
+          targetRadius: getComputedStyle(el).borderTopLeftRadius,
+          spanRadius: span ? getComputedStyle(span).borderTopLeftRadius : null,
+        };
+      });
+      premiseHolds(`pill ${n} rendered its inner visual span`, resting.spanRadius !== null);
+
+      // BOTH halves are required: equality alone is satisfied by 0px === 0px,
+      // which is exactly the regression of dropping the radius from both.
+      expect(parseFloat(resting.targetRadius), `pill ${n} target radius`).toBeGreaterThan(0);
+      expect(resting.targetRadius, `pill ${n} radius diverged from its visual`).toBe(
+        resting.spanRadius,
+      );
+
+      // DI-13 — the ring, which only exists in the focused state.
+      await page.locator(selector).evaluate((el) => (el as HTMLElement).focus());
+      const state = await page.locator(selector).evaluate((el) => {
+        const span = el.querySelector<HTMLElement>('[data-testid$="-visual"]');
+        const cs = getComputedStyle(el);
+        const r = el.getBoundingClientRect();
+        return {
+          isActive: document.activeElement === el,
+          // A ring is `outline` or `box-shadow`; neither affects the border
+          // box, so geometry alone cannot see it (spec §6, DI-13). Asserting
+          // only the rect would pass with no ring at all.
+          targetRing: cs.outlineStyle !== "none" || cs.boxShadow !== "none",
+          spanRing: span
+            ? getComputedStyle(span).outlineStyle !== "none" ||
+              getComputedStyle(span).boxShadow !== "none"
+            : null,
+          w: r.width,
+          h: r.height,
+        };
+      });
+
+      // Premise: an unfocused element has no ring, so every claim below would
+      // be about the wrong state.
+      premiseHolds(`pill ${n} is document.activeElement`, state.isActive);
+
+      expect(state.targetRing, `pill ${n} focus ring is not on the target`).toBe(true);
+      expect(state.spanRing, `pill ${n} inner visual grew a ring of its own`).toBe(false);
+      expect(state.w, `pill ${n} ringed rect width`).toBeCloseTo(TAP_MIN, 1);
+      expect(state.h, `pill ${n} ringed rect height`).toBeCloseTo(TAP_MIN, 1);
+    });
+  }
+});
+
+test.describe("DI-1 — every repaired <summary> clears the 44px floor on both axes", () => {
+  for (const width of VIEWPORTS) {
+    test(`@${width}px: each Class-A summary measures at least ${TAP_MIN}x${TAP_MIN}`, async ({
+      page,
+    }) => {
+      await boot(page, width);
+      await premiseSevenSummaries(page);
+
+      // Iterate and assert EACH element's own rect. "No element is under 44px"
+      // is forbidden by spec §8: it passes on an empty set, and it lets one
+      // compliant sibling mask a failing one.
+      for (const mount of ALL_SUMMARY_MOUNTS) {
+        const box = await summaryIn(page, mount).evaluate((el) => {
+          const r = el.getBoundingClientRect();
+          return { w: r.width, h: r.height };
+        });
+        expect(box.h, `${mount} summary height`).toBeGreaterThanOrEqual(TAP_MIN - EPS);
+        expect(box.w, `${mount} summary width`).toBeGreaterThanOrEqual(TAP_MIN - EPS);
+      }
+    });
+  }
+});
+
+test.describe("DI-2 — the six Class-A summaries stay narrower than their container", () => {
+  for (const width of VIEWPORTS) {
+    test(`@${width}px: no Class-A summary becomes a full-width band`, async ({ page }) => {
+      await boot(page, width);
+      await premiseSevenSummaries(page);
+
+      for (const mount of CLASS_A_MOUNTS) {
+        // The container is the mount's own block box — the width a full-width
+        // invisible band WOULD occupy. Deliberately not the <summary>'s
+        // <details> parent: RunOfShowList's <details> is itself a
+        // shrink-to-fit flex item, so it tracks the summary's width on an
+        // unrepaired build too and the comparison would prove nothing there.
+        const measured = await page
+          .locator(`[data-mount="${mount}"]`)
+          .evaluate((container: HTMLElement) => {
+            const summary = container.querySelector("summary");
+            return {
+              summary: summary ? summary.getBoundingClientRect().width : null,
+              container: container.getBoundingClientRect().width,
+            };
+          });
+        premiseHolds(`${mount} rendered a <summary>`, measured.summary !== null);
+        premise(`${mount} container has width`, measured.container, 0);
+        expect(measured.summary!, `${mount} summary width vs container`).toBeLessThan(
+          measured.container - EPS,
+        );
+      }
+    });
+  }
+});
+
+/**
+ * Spec §6.1 behaviour-unchanged assertions. These are NOT additions to
+ * AC-3b's exemption list — that list scopes the DI set only (DI-5, DI-7,
+ * complete). §6.1's charter ("no transition is added, removed, or retimed") is
+ * what these pin, in the task that creates their subject.
+ */
+test.describe("§6.1 disclosure behaviour survives the Class-A repair", () => {
+  test("a <summary> toggled while hovered keeps its hover underline and is not remounted", async ({
+    page,
+  }) => {
+    await boot(page, 390);
+    const summary = summaryIn(page, "help-affordance");
+    const details = page.locator('[data-mount="help-affordance"] details');
+
+    await summary.hover();
+    const hoveredDecoration = await summary.evaluate(
+      (el) => getComputedStyle(el).textDecorationLine,
+    );
+    // The premise is the hover state itself: this component's `hover:underline`
+    // must actually be applied, or "the underline persisted" is vacuous.
+    premiseHolds(
+      `hover applies an underline before the toggle (got "${hoveredDecoration}")`,
+      hoveredDecoration.includes("underline"),
+    );
+    expect(await details.evaluate((el) => (el as HTMLDetailsElement).open)).toBe(false);
+
+    // Stamp the live node. If the toggle remounted the <summary>, the stamp is
+    // gone — which is the failure mode a key change or an element swap would
+    // introduce, and the reason "the underline is still there" alone is not
+    // enough.
+    await summary.evaluate((el) => {
+      (el as HTMLElement & { __stamp?: string }).__stamp = "pre-toggle";
+    });
+
+    await summary.click();
+
+    const after = await summary.evaluate((el) => ({
+      decoration: getComputedStyle(el).textDecorationLine,
+      stamp: (el as HTMLElement & { __stamp?: string }).__stamp ?? null,
+    }));
+    expect(await details.evaluate((el) => (el as HTMLDetailsElement).open)).toBe(true);
+    expect(after.stamp, "the summary was remounted by the toggle").toBe("pre-toggle");
+    expect(after.decoration, "the hover underline flickered off across the toggle").toContain(
+      "underline",
+    );
+  });
+
+  test("<details> still toggles when its <summary> is display: inline-flex", async ({ page }) => {
+    await boot(page, 390);
+
+    for (const mount of CLASS_A_MOUNTS) {
+      const summary = summaryIn(page, mount);
+      const display = await summary.evaluate((el) => getComputedStyle(el).display);
+      // Changing a <summary>'s display was the standing risk of the Class-A
+      // recipe (spec §2.1, probe P2). The premise is that the recipe actually
+      // landed on this element; without it the toggle assertion below is just
+      // re-testing native <details> on an unrepaired build.
+      premiseHolds(`${mount} summary is inline-flex (got "${display}")`, display === "inline-flex");
+
+      const details = summary.locator("xpath=..");
+      expect(
+        await details.evaluate((el) => (el as HTMLDetailsElement).open),
+        `${mount} started open`,
+      ).toBe(false);
+      await summary.click();
+      expect(
+        await details.evaluate((el) => (el as HTMLDetailsElement).open),
+        `${mount} did not toggle open under inline-flex`,
+      ).toBe(true);
+    }
+  });
+});

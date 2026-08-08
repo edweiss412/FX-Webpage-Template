@@ -3698,9 +3698,14 @@ export function DiagramTile({
     );
   }
   return (
-    /* aria-label mirrors the img alt (impeccable audit P2): the anchor's
-       accessible name must never be empty even if the alt computation ever
-       regresses to "" (nameless-link guard, WCAG 2.4.4/4.1.2). */
+    /* The anchor is the tile's SOLE accessible name (spec
+       2026-08-07-step3-a11y-cluster §2.4, closing NEWTAB-A11Y-RESIDUE-1(a)).
+       Its aria-label — including the empty-alt fallback below — is the
+       nameless-link guard (WCAG 2.4.4/4.1.2) and is unchanged. The inner <img>
+       used to repeat the same string as its alt, so a screen reader navigating
+       into the link heard the name twice; it is now decorative. That reverses
+       an earlier belt-and-braces audit fix deliberately: the fallback here
+       makes the duplicate redundant rather than defensive. */
     <a
       href={src}
       target="_blank"
@@ -3716,7 +3721,7 @@ export function DiagramTile({
           documented revert as components/diagrams/Gallery.tsx). */}
       <img
         src={src}
-        alt={alt}
+        alt=""
         loading="lazy"
         decoding="async"
         onError={() => setFailed(true)}
