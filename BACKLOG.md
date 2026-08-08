@@ -964,7 +964,9 @@ So this is not a `shadow-*` carve-out: **every `@theme` token defined through a 
 | `const classes = "… min-h-(--spacing-tap-min)"`      | **yes** — `^classes$` variable selector                           |
 | `const SIZE = { sm: "… min-h-(--spacing-tap-min)" }` | **no**                                                            |
 
-**Surviving dark sites after the cn migration:** `DeveloperToggleButton.tsx` `TRACK_BASE:78` / `THUMB_BASE:80` / `TAP_TARGET:83`; `AccentButton.tsx` `SIZE_CLASS:83` / `WEIGHT_CLASS:91` / `RING_OFFSET_CLASS:96` / `BASE_CLASS:104`; `OnboardingWizard.tsx` `base:126` / `focusRing:128`.
+**Surviving dark sites after the cn migration** (line numbers are the SHIPPED post-migration ones — each file gained a `cn` import, so they sit one line below spec §9.2's pre-migration citations): `DeveloperToggleButton.tsx` `TRACK_BASE:79` / `THUMB_BASE:81` / `TAP_TARGET:84`; `AccentButton.tsx` `SIZE_CLASS:84` / `WEIGHT_CLASS:92` / `RING_OFFSET_CLASS:97` / `BASE_CLASS:105`; `OnboardingWizard.tsx` `base:127` / `focusRing:129`.
+
+**Worked example, surfaced by this arc's own impeccable critique (P2):** `THUMB_BASE:81` still reads `"inline-block h-5 w-5 rounded-full …"` while the three structurally identical sibling switches — `PublishedToggle`, `AutoPublishToggle`, `NotifyToggle` — were canonicalized to `size-5` in the same diff. Zero visual delta (`size-5` IS `h-5 w-5`), but it is precisely the drift the cn migration exists to make lint-visible, and it stayed invisible because `THUMB_BASE` is a bare const rather than an inline argument. The rule never saw it, before or after. That asymmetry is the clearest available evidence for why this entry is worth scheduling.
 
 **This is a DIFFERENT mechanism from the array-join blind spot** and was never covered by the census guard, so the cn migration neither worsens it nor is responsible for it. `tests/specLint/canonicalClassCallee.test.ts` records deliberately that its recognizer does not decide these either — its subject is the join, and the join alone.
 
