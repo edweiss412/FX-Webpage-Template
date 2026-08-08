@@ -115,7 +115,17 @@ expect(rec).toEqual({
 });
 ```
 
-`toEqual` against a complete literal is the accept-set: any field added, renamed, or populated with derived text fails. Per-site variation is only in `source`, `message`, `context.reason`, and `requestId` — `null` for the two `auth.*` routes (documented limit §5.3) and the derived request id for the three picker-bootstrap sites, which run inside `runWithRequestContext`.
+**Cardinality is part of the accept-set, not a separate concern, and every case asserts it.** Before the deep-equal, each case filters the captured records to the arc's code and asserts `toHaveLength(1)`:
+
+```ts
+const rec = seen.filter((r) => r.code === "OAUTH_REDIRECT_INVALID");
+expect(rec).toHaveLength(1);
+expect(rec[0]!).toEqual({ /* the nine fields */ });
+```
+
+A `toEqual` on a SELECTED record constrains that record and says nothing about how many were emitted, so a duplicate emit on any branch satisfies it — AC-1 and AC-3 both say "exactly one record" and, before this, only Task 1 actually checked. Stated here once so no task can be the one that omits it.
+
+`toEqual` against a complete literal is the rest of the accept-set: any field added, renamed, or populated with derived text fails. Per-site variation is only in `source`, `message`, `context.reason`, and `requestId` — `null` for the two `auth.*` routes (documented limit §5.3) and the derived request id for the three picker-bootstrap sites, which run inside `runWithRequestContext`.
 
 **`requestId` must be pinned to a FIXED literal, never derived from the captured record and never `expect.any(String)`.** `deriveRequestId` returns `headers.get("x-vercel-id") ?? crypto.randomUUID()` (`lib/log/requestContext.ts:25`), so its natural value is nondeterministic — and an oracle read back from the record, or a bare type matcher, would admit a mutant assigning `requestId: rawNext` and leak the rejected input through a promoted column. Every picker-bootstrap case therefore sets a fixed `x-vercel-id` header on the request (e.g. `"test-req-1"`) and asserts that exact string. This is the one field in the nine whose expected value is not already a constant, which is why it is called out rather than left to the implementer. **Every emit case in every task uses this shape — Tasks 1, 2, 3 and 4, with no exception.** The onboarding cases instantiate it with `level: "error"`, `source: "admin.onboardingWizard"`, the onboarding code and message, and `context: { reason: <the case's reason> }`. R7 found the earlier draft applied the accept-set only in Tasks 1, 2 and 4, leaving Task 3's `env_missing` and `json_not_an_object` cases asserting just `code`/`level`/`reason` — so a branch-specific widening that attached the parsed primitive on those paths passed every promised assertion and could persist secret material. The accept-set is universal precisely so no branch can be the one that was forgotten. Content checks (no sentinel, no `private_key`, no raw `next`) are retained as a backstop against a leak arriving through some channel the record shape does not describe.
 
@@ -123,11 +133,12 @@ expect(rec).toEqual({
 
 <!-- task: red=`pnpm vitest run tests/auth/oauthRedirectInvalidTelemetry.test.ts` ac=AC-1,AC-2,AC-4 -->
 
-**RED.** Four cases in the same suite, each forced down its own branch of `app/api/auth/picker-bootstrap/route.ts`:
+**RED.** Five cases in the same suite, each forced down its own branch of `app/api/auth/picker-bootstrap/route.ts`. Site 3 gets **two** — one absent `next`, one present-and-rejected — for the reason given below the table:
 
 | Case | Input that reaches it | Asserted `reason` |
 | --- | --- | --- |
-| `app/api/auth/picker-bootstrap/route.ts:162` | a `next` `validateNextParamDetailed` rejects — **or an absent `next`**, since this site carries no `rawNext !== null` guard | `bootstrap_next_rejected` |
+| `app/api/auth/picker-bootstrap/route.ts:162` (a) | an absent `next` — reaches this site because it carries no `rawNext !== null` guard, unlike sites 1-2 | `bootstrap_next_rejected` |
+| `app/api/auth/picker-bootstrap/route.ts:162` (b) | a **present** `next` that `validateNextParamDetailed` rejects (e.g. a cross-origin URL) | `bootstrap_next_rejected` |
 | `app/api/auth/picker-bootstrap/route.ts:165` | a `next` that validates but `parseNextPath` cannot split into slug + share token | `bootstrap_unparsable_next` |
 | `app/api/auth/picker-bootstrap/route.ts:176` (a) | a well-formed tokenized `next` whose `t` intent fails `verifyPickerIntent` — absent, malformed, bad signature, or **expired** | `bootstrap_intent_unverified` |
 | `app/api/auth/picker-bootstrap/route.ts:176` (b) | a well-formed tokenized `next` with a VERIFIED intent naming a different slug or share token | `bootstrap_intent_target_mismatch` |
@@ -136,7 +147,9 @@ Each asserts one record via the whole-record accept-set above (with `source: "ap
 
 **Concrete failure mode caught:** all four branches collapsed onto one emit, or a single emit hoisted above the branches — which would make `reason` a constant and the whole discrimination in spec §1.1 item 2 a fiction. Because each case asserts a *different* `reason`, a hoisted constant can match at most one case and **fails the other three**. Stated precisely: no single hoist fails all four, but the suite rejects every possible hoist, which is the property that matters. That is the specific reason these are four separate cases and not one parameterized case over a shared expectation.
 
-**Case (b) is the one worth getting right.** It needs a VERIFIED intent that names a different target, so it must sign a real intent with the route's signing key rather than passing a bogus `t`. If it instead passes an unverifiable token it silently becomes a duplicate of case (a) and the `bootstrap_intent_target_mismatch` branch ships untested. The implementer asserts, via `premise`, that `verifyPickerIntent` returns non-null for the token the case constructs — that premise is what separates (b) from (a).
+**Site 3 needs both fixtures, and an absent-only fixture is vacuous for AC-4.** Both inputs reach the same branch and emit the same `reason`, so a single case looks sufficient — but only the present-value fixture can catch a conditional leak. A mutant attaching `rejectedNext` **only when the raw param is non-null** emits a clean record for an absent `next` and a leaking one for every real rejected value; against an absent-only fixture the accept-set passes and the leak ships. The present-value case is what makes AC-4 real at this site.
+
+**Case 5b is the one worth getting right.** It needs a VERIFIED intent that names a different target, so it must sign a real intent with the route's signing key rather than passing a bogus `t`. If it instead passes an unverifiable token it silently becomes a duplicate of case 5a and the `bootstrap_intent_target_mismatch` branch ships untested. The implementer asserts, via `premise`, that `verifyPickerIntent` returns non-null for the token the case constructs — that premise is what separates (b) from (a).
 
 **Premise (anti-tautology).** Case `app/api/auth/picker-bootstrap/route.ts:165` is the other fragile one: it needs a `next` that **passes** `validateNextParamDetailed` and **fails** `parseNextPath`. If no such value exists the case silently drifts into re-testing `app/api/auth/picker-bootstrap/route.ts:162`. The implementer states that premise executably with `premise`/`premiseHolds` from `tests/_shared/premise.ts` — assert `validateNextParamDetailed(value).ok === true` immediately above the case's action, so a value that stops satisfying it fails by name instead of passing at the wrong branch. Both this premise and case (b)'s are asserted at case top level, never inside a `.each` callback.
 
@@ -243,7 +256,7 @@ After Task 3 is green, run each in the working tree, observing it FAIL and rever
 **Premise (mandatory).** The assertions rest on two conditions, both stated via `premise`/`premiseHolds` from `tests/_shared/premise.ts` immediately above the negative assertion:
 
 - `process.env.GOOGLE_SERVICE_ACCOUNT_JSON` contains the sentinel, **and**
-- `records.length > 0`.
+- the captured records filtered to `ONBOARDING_OPERATOR_ERROR` number **exactly one** (not merely "more than zero" — the shared accept-set's cardinality rule applies here too).
 
 The second is the one that matters: without it, a case whose env setup or sink capture silently failed passes by finding nothing in an empty array — the exact "expected value read from the same degenerate source as the actual" shape the anti-tautology rule names. Both execute unconditionally at case top level, never inside a callback whose iteration count could be zero.
 
