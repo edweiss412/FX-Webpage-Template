@@ -255,14 +255,21 @@ just a marker asserting one. The honest red is the census guard's own death ratt
    Implement spec §7.1's accept-set instead: report **every array join whose separator is a
    non-empty whitespace string literal at any quote style, anywhere in any UI source file**
    (`.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, `.cjs`), with no positional anchor. Carry the two legitimate
-   data joins as a **named exemption list with a reason each** —
-   `components/admin/wizard/step3ReviewSections.tsx` and
-   `components/admin/review/sectionFreshness.ts` — the first joins `[leg.date, leg.time]`, the
-   second `[row.date, row.time]`; they are NOT the same expression, so an exemption keyed on operand
-   text must carry both spellings or key on the file instead. **Exempt by file plus a recorded
-   reason, and assert the exemption list is exhausted** — every exempt file must still contain a
-   matching site, so a file whose data join is later deleted or migrated drops out of the list
-   instead of silently pre-authorizing a future class join in that file.
+   data joins as an exemption list — `components/admin/wizard/step3ReviewSections.tsx` (joins
+   `[leg.date, leg.time]`) and `components/admin/review/sectionFreshness.ts` (joins
+   `[row.date, row.time]`). They are NOT the same expression, so the list carries both spellings.
+
+   **Exempt per SITE, never per file, and assert set EQUALITY.** A file-wide exemption is a hole: an
+   ordinary contributor can add an array-join className to an exempted file, ESLint stays blind, and
+   the exemption suppresses the guard — silently, which breaches the consequence bound. An
+   exhaustiveness check ("the file still contains a match") does not close it either, because it
+   cannot tell the legitimate join from an added one.
+
+   So each exemption row records a file **and the exact operand signature of the site it excuses**,
+   and the assertion is that the file's set of whitespace-join sites **equals** exactly its recorded
+   set — not "contains", not "is non-empty". Consequences, both wanted: a NEW join in an exempted
+   file fails (set is larger), and a REMOVED one fails too (set is smaller), so a stale row cannot
+   sit there pre-authorizing a future class join in that file.
 
    Calibration is already probed (spec §7.1): the recognizer yields 38 whitespace-join sites at base
    — 36 classNames + the 2 exemptions — and after Task 3 must report **zero**.
@@ -271,12 +278,27 @@ just a marker asserting one. The honest red is the census guard's own death ratt
    scanner reports. So: run the scanner against an **inline fixture string** containing a known
    array-join className and assert it **is** found, immediately above the assertion that the real
    tree yields none. Unconditional, not inside a `.each` callback.
-   **The fixture carries all seven escape shapes from spec §7.1** — ternary-at-className, template
-   interpolation, backtick separator, single-quote separator, call-argument position, via-variable
-   const, and the `.jsx` extension — plus the three negatives that must NOT hit (`.join(", ")`,
-   `.join("")`, `cn(...)`). A fixture exercising only `.join(" ")` in the `className={[` position
-   would let the recognizer silently regress to the census scanner's shape while its premise check
-   still passed: the vacuous premise reintroduced one level up.
+   **The fixture must exercise the WHOLE accept-set spec §7.1 promises, not a sample of it.** A
+   premise fixture proves only what it varies, and the post-migration tree is clean, so anything the
+   fixture leaves constant is unpinned in both places at once. Three dimensions, varied
+   independently:
+
+   - **Shape** — all seven escapes from spec §7.1: ternary-at-className, template interpolation,
+     backtick separator, single-quote separator, call-argument position, via-variable const, and the
+     direct form.
+   - **Separator** — not just one ASCII space. Include `"  "` (double space) and `"\t"`, because the
+     accept-set says *non-empty whitespace* and a scanner hard-coded to a single space would satisfy
+     a single-space-only fixture while missing both. Probed: neither form draws an ESLint finding, so
+     the rule does not backstop them, and accidental double spacing is ordinary authoring.
+   - **Location** — both UI roots (`app/` and `components/`) and all six extensions (`.ts`, `.tsx`,
+     `.js`, `.jsx`, `.mjs`, `.cjs`). A fixture living only at one root under one extension would let
+     a scanner that walks only that root, or only that extension, pass.
+
+   Plus the three negatives that must NOT hit: `.join(", ")`, `.join("")`, and `cn(...)`.
+
+   The failure this prevents is specific: with a one-root, one-extension, one-separator fixture, at
+   least two broken scanners pass both the fixture and the clean tree — one that walks only
+   `components/**/*.jsx`, and one that accepts only a single-space separator.
 3. **Rule-is-on pin.** `eslint.config.mjs` still sets
    `"better-tailwindcss/enforce-canonical-classes": "error"`. A guard that outlives its rule pins
    nothing.
@@ -543,10 +565,17 @@ authorized by CI green on the **exact head** being merged.
    clears it.
 5. Push it and wait for CI green **on that commit**, not on an earlier one, and not local-only
    (local-passes-CI-fails is its own bug class).
-6. **If that run fails, restore the marker as part of the repair.** Do not leave the branch live
-   without its claim while fixing: that is precisely the undeclared-work collision invariant 12
-   exists to prevent, and it would happen silently. Repair with the marker back on, return to step 2,
-   and re-author the graduation commit when green.
+6. **If that run fails, REVERT the whole graduation commit — do not re-add the marker on its own.**
+   Restoring only the marker would stamp `**Status:** IN PROGRESS` onto an entry that now lives in
+   the archive, and archives categorically reject in-progress entries: the "recovery" is itself
+   invalid and `tests/docs/_metaLedgerInProgress.test.ts` fails on it. The correct recovery restores
+   the complete pre-graduation state — the entry back in the live ledger, carrying its marker, and
+   nothing in the archive — which `git revert <graduation-sha>` does in one step. Then repair with
+   the claim genuinely live, return to step 2, and re-author graduation when green.
+
+   The distinction is not pedantic: leaving the branch live without its claim is the undeclared-work
+   collision invariant 12 exists to prevent, and an archived-but-marked entry is a second, louder
+   failure layered on top of it.
 7. `gh pr merge --merge`, then fast-forward local `main` and verify
    `git rev-list --left-right --count main...origin/main` reports `0  0`.
 
