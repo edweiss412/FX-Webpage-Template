@@ -476,13 +476,28 @@ neither default project — probed `{mobile:false, desktop:false}`. Two steps, b
   dimension spec — follow its boot, gate, and assertion shape rather than inventing a second pattern.
 - **Reachability — both targets need setup, and neither is reachable by navigation alone.** This is
   the step most likely to be skipped, because "go to /admin" reads as sufficient and is not:
-  - **C1 (`OnboardingWizard`).** After `pnpm db:seed`, `app_settings.watched_folder_id` is non-null
-    and `/admin` renders the dashboard, so the step-indicator connector is simply absent. The wizard
-    is the FIRST-VISIT surface: `tests/e2e/onboarding-wizard-step1.spec.ts:28-39` reaches it with
-    `await signOut(page)` in `beforeEach`, then `page.goto("/admin")`, asserting
-    `[data-testid=onboarding-wizard]` is visible. Copy that contract exactly, and assert the
-    connector's own testid is present before measuring — a measurement on an absent element is the
-    failure this bullet exists to prevent.
+  - **C1 (`OnboardingWizard`).** Reachability needs BOTH an auth step and a database state
+    contract, and neither alone is enough:
+    - *Auth.* The precedent (`tests/e2e/onboarding-wizard-step1.spec.ts:29-35`) does `signOut(page)`
+      in `beforeEach` **and then `signInAs(page, ADMIN_FIXTURE)` in the test body** before
+      `page.goto("/admin")` — `signOut` alone lands on the unauthenticated surface, not the wizard.
+      Copy both calls.
+    - *State.* The wizard renders only when `app_settings.watched_folder_id` is null (precedence 2,
+      `app/admin/page.tsx:237`) or a wizard session is pending (precedence 1,
+      `app/admin/page.tsx:176`); the seeded DB has the folder SET and no pending session
+      (`supabase/seed.ts:509`, `supabase/seed.ts:517`), so on the seeded stack `/admin` renders the
+      dashboard and the connector is simply absent — for this spec AND for the workflow run. The
+      repo already has the state-contract pattern to copy, in the OPPOSITE direction:
+      `settleDashboardAdminState()` (`tests/e2e/helpers/dashboardState.ts:36`) captures the prior
+      `app_settings` row, writes the target state, and returns a restore callback for `afterAll`
+      (single-worker suite; invariant-9 destructure-and-throw on every call). Write its inverse in
+      the same helper file: capture the row, null out `watched_folder_id` + its three companion
+      fields, the four `pending_folder_*` fields, and both `pending_wizard_session_*` fields (all
+      ten are already enumerated in that file's `FIELDS` list), restore in `afterAll`. With the row
+      nulled and the admin signed in, `/admin` takes precedence 2 and mounts the wizard.
+    - Then assert `[data-testid=wizard-step-connector]`
+      (`components/admin/OnboardingWizard.tsx:197`) is present before measuring — a measurement on
+      an absent element is the failure this bullet exists to prevent.
   - **C5 (`RightNowHero`).** It lives on the seeded crew route, which needs four things, all shown in
     `tests/e2e/crew-layout-dimensions.spec.ts` `beforeEach`: `lookupSeededShow()` for the slug,
     `lookupShareToken(showId)`, `signOut` then `signInAs(ADMIN_FIXTURE)`, and a server-clock pin via
@@ -678,14 +693,20 @@ authorized by CI green on the **exact head** being merged.
 3. Confirm the branch is otherwise merge-ready: C1–C3 complete, review APPROVE, CI green.
 4. **Final rebase — mandatory, and it invalidates the one-shot proofs, so they re-run here.** Spec
    §12 Concurrency requires a rebase over `origin/main` before implementation (P1) **and again before
-   merge**; this step is the second one. `git fetch origin && git rebase origin/main`.
-   - **Fast path:** if `git rev-list --count HEAD..origin/main` is `0`, the rebase is a no-op —
-     nothing was rewritten, nothing is invalidated, continue to step 5.
-   - Otherwise the rebase rewrote every branch commit, **including the migration commit and its
-     parent**. The tracked gates (the zero-tolerance recognizer, the `cn` unit test, the `DayCard`
-     test, the dimension spec) re-run in CI on the rebased head automatically; the one-shot proofs do
-     NOT, and a head whose proofs cover a superseded history is exactly the silent-drift window the
-     parity script exists to close. So, in order:
+   merge**; this step is the second one.
+   - **The no-op check runs BEFORE the rebase, or it measures nothing.** `git fetch origin`, then
+     `git rev-list --count HEAD..origin/main` **first**: after any successful rebase `origin/main`
+     is an ancestor of `HEAD`, so that count is `0` unconditionally — a check placed after the
+     rebase would take the fast path precisely when every commit was just rewritten. So: if the
+     PRE-rebase count is `0`, `origin/main` is already an ancestor, the rebase is a guaranteed no-op
+     — skip it, nothing is invalidated, continue to step 5. Any other count means the rebase will
+     rewrite every branch commit; run `git rebase origin/main` and then the full re-verification
+     below.
+   - After a real rebase, **the migration commit and its parent are rewritten**. The tracked gates
+     (the zero-tolerance recognizer, the `cn` unit test, the `DayCard` test, the dimension spec)
+     re-run in CI on the rebased head automatically; the one-shot proofs do NOT, and a head whose
+     proofs cover a superseded history is exactly the silent-drift window the parity script exists
+     to close. So, in order:
      1. **Re-run P1 steps 2–3 in full** — the separator-agnostic inventory sweep and every half of
         the operand audit (falsy literals, the seven identifiers, the three-kind enumeration). The
         equivalence premise is base-specific (spec §4.1), and a newly integrated upstream edit can
@@ -694,18 +715,36 @@ authorized by CI green on the **exact head** being merged.
         `refactor(ui): migrate array-join classNames` subject, then
         `MIGRATION_PARENT=$(git rev-parse <rebased-migration-sha>~1)` and
         `node scripts/verify-cn-operand-parity.mjs --base $MIGRATION_PARENT` with the C1–C6 deltas
-        allowed. Replace the PR-body parity transcript with this output. This is the check that
-        catches conflict-resolution drift: an operand changed while resolving a rebase conflict in
-        one of the 18 files passes every tracked test and only this comparison sees it.
-     3. **A stop is a stop.** A parity-premise failure (site count moved off 36), an operand outside
-        the three kinds, or a dimension-spec failure on the rebased head all mean upstream moved the
-        measured base — stop and re-derive spec §2.2/§4.1 (and for a dimension failure, the §9.4
-        targets) exactly as P1 step 4 prescribes. Recapturing a baseline or widening an allowance to
-        get past this step is the forbidden move.
-     4. Push with `--force-with-lease` and drive CI green on the rebased head.
-   - If `origin/main` moves again before the merge completes, repeat this step: the invariant is
-     that the head being merged descends from current `origin/main` with its one-shot proofs
-     re-established against the history actually being merged.
+        allowed. Replace the PR-body parity transcript with this output. This catches drift in the
+        MIGRATED expressions: an operand changed while resolving a rebase conflict passes every
+        tracked test and only this comparison sees it.
+     3. **Declared-delta diff audit — parity's blind side.** Parity compares operand lists and the
+        truthiness audit checks definitions only for non-emptiness, so a conflict resolution that
+        rewrites the CONTENT of a class-bearing definition — `TRACK_BASE` gaining or losing a token
+        while staying non-empty, say — passes both, and the eslint rule is blind to arbitrary-named
+        consts by the ratified §9.2 limit. The check that sees it is the branch's own declared
+        delta, audited against the upstream side the rebase just integrated:
+        `git diff origin/main HEAD` must contain ONLY (a) files this arc creates (`lib/ui/cn.ts`,
+        the new tests, the parity script, the baseline JSON, the docs/ledger edits), and (b) inside
+        the 18 migrated files, hunks that are the `cn` import line, a spec §5 rewrite, or a §6
+        C1–C6 token change. In particular the seven §4.1 identifier DEFINITIONS must be
+        byte-identical to `origin/main` — this arc never edits them, so any difference is
+        conflict-resolution damage, not work. Any hunk outside the declared classes: stop.
+     4. **A stop is a stop.** A parity-premise failure (site count moved off 36), an operand outside
+        the three kinds, an undeclared diff hunk, or a dimension-spec failure on the rebased head
+        all mean the measured base moved or the resolution went wrong — stop and re-derive spec
+        §2.2/§4.1 (and for a dimension failure, the §9.4 targets) exactly as P1 step 4 prescribes.
+        Recapturing a baseline or widening an allowance to get past this step is the forbidden move.
+     5. **If any conflict resolution touched a file under `app/` or `components/`**, the C3
+        re-certification rule applies to it exactly as to a repair commit: re-run both impeccable
+        commands and the Task 5 dimension spec before merge, and record the re-run in §12.
+     6. Push with `--force-with-lease` and drive CI green on the rebased head.
+   - If `origin/main` moves again before the merge completes, this step repeats — but **never with
+     the graduation commit in place**: re-entry from a post-graduation state goes through step 7's
+     revert FIRST (restoring the live ledger entry and its marker), THEN the repeat. The invariant
+     is that the head being merged descends from current `origin/main` with its one-shot proofs
+     re-established against the history actually being merged, and that the branch never carries an
+     archived, unclaimed entry while work on it is still possible.
 5. **Only now author the graduation commit.** It has an executable red and green, so it is not the
    unverified step the earlier draft implied: `tests/docs/_metaDeferralLedgerGraduation.test.ts`
    carries a `BACKLOG_GRADUATED` registry covering every graduation since that guard landed, and it
@@ -719,13 +758,22 @@ authorized by CI green on the **exact head** being merged.
    clears it.
 6. Push it and wait for CI green **on that commit**, not on an earlier one, and not local-only
    (local-passes-CI-fails is its own bug class).
-7. **If that run fails, REVERT the whole graduation commit — do not re-add the marker on its own.**
-   Restoring only the marker would stamp `**Status:** IN PROGRESS` onto an entry that now lives in
-   the archive, and archives categorically reject in-progress entries: the "recovery" is itself
-   invalid and `tests/docs/_metaLedgerInProgress.test.ts` fails on it. The correct recovery restores
-   the complete pre-graduation state — the entry back in the live ledger, carrying its marker, and
-   nothing in the archive — which `git revert <graduation-sha>` does in one step. Then repair with
-   the claim genuinely live, return to step 2, and re-author graduation when green.
+7. **ANY post-graduation event that requires further branch work REVERTS the whole graduation
+   commit first — never the marker alone, and never work-then-revert.** The events, enumerated: the
+   step-6 CI run fails; `origin/main` moves and step 4 must repeat; that repeat's rebase conflicts
+   or its re-verification stops. In every case the FIRST action — before the rebase, before any
+   repair commit — is `git revert <graduation-sha>`, which restores the complete pre-graduation
+   state in one step: the entry back in the live ledger, carrying its marker, nothing in the
+   archive. Only then does the actual work happen (return to step 2, or repeat step 4), with the
+   claim genuinely live, and graduation is re-authored fresh as the new last commit once the branch
+   is again merge-ready.
+
+   Why not narrower recoveries: restoring only the marker would stamp `**Status:** IN PROGRESS`
+   onto an entry that now lives in the archive, and archives categorically reject in-progress
+   entries — `tests/docs/_metaLedgerInProgress.test.ts` fails on it. Working first and reverting
+   later leaves the branch active with its entry archived and unclaimed — the undeclared-work
+   collision invariant 12 exists to prevent — and any commit landed in that window makes the
+   graduation commit no longer the PR's last, breaching the same invariant from the other side.
 
    The distinction is not pedantic: leaving the branch live without its claim is the undeclared-work
    collision invariant 12 exists to prevent, and an archived-but-marked entry is a second, louder
