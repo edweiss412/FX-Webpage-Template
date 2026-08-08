@@ -25,7 +25,7 @@ run at close-out step C2, dispositions in §12.`
 | AC-8 | Full suite green; `pnpm typecheck` clean. |
 | AC-9 | Invariant 8 dual-gate run; P0/P1 fixed or deferred; dispositions recorded. |
 | AC-10 | Ledger entry archived, marker removed in the PR's last commit; two new entries filed. |
-| AC-11 | C1/C5 match a baseline captured BEFORE canonicalization, within 0.5px, via Playwright; `tests/crew/transitionAudit.test.ts` unchanged and green. |
+| AC-11 | C1/C5 rest-state rects match a baseline captured BEFORE canonicalization, within 0.5px, via Playwright (mobile-safari); the two `@theme` token values are asserted deterministically; `tests/crew/transitionAudit.test.ts` unchanged and green. |
 
 ---
 
@@ -34,14 +34,17 @@ run at close-out step C2, dispositions in §12.`
 - **Creates** `tests/specLint/canonicalClassCallee.test.ts` (zero-tolerance recognizer + premise
   fixture + eslint-coverage premise pair).
 - **Deletes** `tests/specLint/canonicalClassArray.test.ts` (census guard).
-- **Extends** `tests/ci/_metaE2eWorkflowCoverage.test.ts` — adds a `PATH_GATED` row for
-  `tests/e2e/canonical-layout-dimensions.spec.ts` to `LOCAL_ONLY_ALLOWLIST`. **Not optional:** that
-  meta-test requires every Playwright spec to be PR-covered or reason-allowlisted, and because
-  `admin-layout-e2e.yml` carries a `pull_request.paths` filter, a spec wired only into that
-  workflow's command and path list counts as path-gated and needs the row. Omitting it leaves the
-  full Vitest suite red — a third, unintended red that would contradict the greenness table above.
-  `tests/e2e/admin-layout-dimensions.spec.ts`, `tests/e2e/admin-nav-layout-dimensions.spec.ts`, and
-  `tests/e2e/bell-panel-layout.spec.ts` are the precedent rows to copy.
+- **Extends** `tests/docs/_metaDeferralLedgerGraduation.test.ts` — adds
+  `BL-CLASSNAME-ARRAY-JOIN-MIGRATION` to its `BACKLOG_GRADUATED` registry, with `provenance` set to
+  this branch name. That guard covers every graduation since it landed and asserts archive-only
+  placement plus branch provenance, so the registration is what gives C4 an entry-specific red
+  (unregistered → the graduation is unverified) and green (registered → archive placement and
+  provenance both proven).
+- **Touches but does NOT extend** `tests/ci/_metaE2eWorkflowCoverage.test.ts`. The new Playwright
+  spec is wired into `lifecycle-layout-e2e.yml`, which fires on UNFILTERED `pull_request:`, so the
+  spec is PR-COVERED and needs no `LOCAL_ONLY_ALLOWLIST` row. Adding one would fail that test's
+  shadowing assertion. Declared explicitly because "no row needed" and "row forgotten" look identical
+  in a diff.
 - **Not applicable, declared:** `tests/auth/_metaInfraContract.test.ts` (no Supabase call added),
   `tests/auth/advisoryLockRpcDeadlock.test.ts` (no `pg_advisory*` path),
   `tests/log/_metaMutationSurfaceObservability.test.ts` (no mutating route or server action added),
@@ -99,6 +102,15 @@ mechanical diff reviewable: that stage 1 changes no class token at all.
      `pillState`, `TRACK_BASE`, `THUMB_BASE`, `surfaceClass`, `CHIP_CLASS`) must still be truthy at
      every definition. A rebase making any one falsy creates a second E2 site that the site count,
      the operand-parity script, the `cn` unit test, and the `DayCard` test would ALL pass over.
+   - *Every operand must still fall in one of those two CATEGORIES.* Checking the known literals and
+     the seven known names is not the same as proving no operand of a third kind appeared. The
+     concrete case: an upstream edit to `active && "bg-accent"` introduces a `false` operand — it is
+     neither a `""`/`null`/`undefined` literal nor one of the seven names, so both checks above pass,
+     while `["a", false, "b"].join(" ")` is `"a false b"` and `cn("a", false, "b")` is `"a b"`. That
+     is a rendering change, not a whitespace one, and parity, the helper tests, and the `DayCard` test
+     all stay green through it. So enumerate **every** operand at the 30 unfiltered sites and assert
+     each is a non-empty string literal or one of the seven proven-truthy identifiers. Anything else
+     — a `&&`, a new identifier, a call — stops the run until spec §4.1 is re-derived.
 4. If either half moved, **stop and amend the spec** before implementing. §2.2's table, §4.1's audit,
    and §6's delta table are all keyed to the measured base.
 
@@ -148,7 +160,7 @@ would pass against `tailwind-merge`.
 
 ## Task 3 — migrate all 36 sites, under the operand-parity check
 
-<!-- task: red=`node scripts/verify-cn-operand-parity.mjs --base 61281c23e` ac=AC-2,AC-3,AC-4 -->
+<!-- task: red=`node scripts/verify-cn-operand-parity.mjs --base $MIGRATION_PARENT` ac=AC-2,AC-3,AC-4 -->
 
 RED and GREEN live in **one** task (invariant 1). The parity check is written and observed failing,
 then the migration turns it green, then one commit. Splitting them across tasks would put a
@@ -183,7 +195,9 @@ Design, per `docs/agents/writing-plans.md`:
     with every check green.
 
   So: capture `git rev-parse HEAD` **once, after the P1 rebase and before the first migration edit**,
-  record the value in the task log and the PR body, and pass that literal to both invocations. Once
+  export it as `MIGRATION_PARENT`, record the literal value in the task log and the PR body, and pass
+  that same value to both invocations. `$MIGRATION_PARENT` appears in the declared commands above and
+  in Task 6 precisely so no fixed SHA can be baked in and go stale at the next rebase. Once
   the migration commit exists the same anchor is `<migration-sha>~1`, which is stable under later
   rebases of earlier commits. It is a local history read, never a CI-time lookup, which is why this
   is a script (spec §4.3).
@@ -304,9 +318,10 @@ just a marker asserting one. The honest red is the census guard's own death ratt
    — 36 classNames + the 2 exemptions — and after Task 3 must report **zero**.
 2. **The recognizer's premise, stated executably.** A zero-tolerance guard cannot prove its scanner
    works by finding a non-empty set — "found nothing" is both the passing state and what a broken
-   scanner reports. So: run the scanner against an **inline fixture string** containing a known
-   array-join className and assert it **is** found, immediately above the assertion that the real
-   tree yields none. Unconditional, not inside a `.each` callback.
+   scanner reports. So: run the scanner against a fixture holding known array-join classNames and assert they **are**
+   found, immediately above the assertion that the real tree yields none. Unconditional, not inside a
+   `.each` callback. (The fixture is an on-disk tree, not a source string — see the discovery-layer
+   requirement below, which supersedes any inline-string reading of this sentence.)
    **The fixture must exercise the WHOLE accept-set spec §7.1 promises, not a sample of it.** A
    premise fixture proves only what it varies, and the post-migration tree is clean, so anything the
    fixture leaves constant is unpinned in both places at once. Three dimensions, varied
@@ -377,7 +392,7 @@ className lands dark — the exact regression the census existed to stop (spec �
 
 ## Task 5 — the dimension harness, and the baseline captured BEFORE canonicalization
 
-<!-- task: red=`pnpm exec playwright test --project=desktop-chromium tests/e2e/canonical-layout-dimensions.spec.ts` ac=AC-11 -->
+<!-- task: red=`pnpm exec playwright test --project=mobile-safari tests/e2e/canonical-class-dimensions.spec.ts` ac=AC-11 -->
 
 The two sizing canonicalizations (C1, C5) must be shown not to move geometry, and that is only
 provable against a baseline captured **before** the fix lands. A post-hoc one-sided bound does not
@@ -388,7 +403,7 @@ that must not disturb them comes second.
 The tree at this point is migrated but **not** canonicalized. Stage 1 changed no class token
 (spec §4), so geometry here is identical to base — which is what makes this a valid baseline.
 
-**RED.** Write `tests/e2e/canonical-layout-dimensions.spec.ts`, asserting each target's
+**RED.** Write `tests/e2e/canonical-class-dimensions.spec.ts`, asserting each target's
 `getBoundingClientRect()` equals the value recorded in
 `tests/e2e/__baselines__/canonical-dimensions.json`. It fails: the baseline file does not exist yet.
 
@@ -403,38 +418,26 @@ allow-list** `testMatch` regexes per project, and its own comment warns that "a 
 regex runs NOWHERE and silently proves nothing." A name like `canonicalDimensions.spec.ts` matches
 neither default project — probed `{mobile:false, desktop:false}`. Two steps, both required:
 
-1. Name the file `canonical-layout-dimensions.spec.ts` **and** add an explicit alternative to the
-   `mobile-safari` project's `testMatch` in `playwright.config.ts` (per the project choice above). Do not rely on it incidentally
-   matching the existing `layout-dimensions` alternative as a substring — implicit matching is
-   exactly the silence the config comment warns about.
-2. **Wire it into CI — the invocation AND the path filter.** Add the spec to a **mobile-safari**
-   invocation. `admin-layout-e2e.yml` is desktop-chromium, so it is the wrong host;
-   `lifecycle-layout-e2e.yml` already invokes `--project=mobile-safari` and is the closer fit. `pnpm test` is Vitest only and will never execute a Playwright spec, so without this AC-11
-   stays dark in real CI however well the spec is written.
+1. **The name must not substring-match an existing alternative.** `layout-dimensions` appears in
+   BOTH projects' `testMatch` (`playwright.config.ts:65` and `:79`), so a name like
+   `canonical-layout-dimensions.spec.ts` would silently match both — and mobile-only execution, which
+   the reachability contract requires, could not then be established by adding an alternative. Name it
+   `canonical-class-dimensions.spec.ts`, which matches neither, and add an explicit alternative to the
+   **`mobile-safari`** project only. Implicit substring matching is exactly the silence the config's
+   own comment warns about.
+2. **Wire it into CI — invocation only, and deliberately NO path filter.** Add the spec to
+   `lifecycle-layout-e2e.yml`'s `--project=mobile-safari` invocation. `admin-layout-e2e.yml` is
+   desktop-chromium and is the wrong host. `pnpm test` is Vitest only and will never execute a
+   Playwright spec, so without this AC-11 stays dark in real CI however well the spec is written.
 
-   **Adding the invocation alone is not enough.** That workflow fires on an explicit `paths:`
-   allow-list, and none of this gate's inputs is on it. This PR would run it only incidentally,
-   because it edits the workflow file itself; a later ordinary edit to a guarded component would not.
-   Add **all five** direct inputs to that workflow's `paths:`:
-
-   ```yaml
-   - "tests/e2e/canonical-layout-dimensions.spec.ts"
-   - "tests/e2e/__baselines__/canonical-dimensions.json"
-   - "components/admin/OnboardingWizard.tsx"     # C1 target
-   - "components/crew/RightNowHero.tsx"          # C5 target
-   - "app/globals.css"                           # the tokens both assertions resolve through
-   ```
-
-   The workflow's own header documents this exact failure class — "a spec in a project no workflow
-   runs is a spec that silently rots" — and a spec whose triggers omit its subject rots the same way,
-   just more quietly, because the job exists and simply never fires.
-
-3. **Register the spec in the e2e coverage meta-test.** Add a `PATH_GATED` row for
-   `tests/e2e/canonical-layout-dimensions.spec.ts` to `LOCAL_ONLY_ALLOWLIST` in
-   `tests/ci/_metaE2eWorkflowCoverage.test.ts`. That test asserts every e2e spec is either PR-covered
-   or reason-allowlisted, and a `pull_request.paths`-filtered workflow counts as path-gated, so
-   without the row the full Vitest suite goes red the moment the spec lands. Copy the shape of the
-   existing `admin-layout-dimensions.spec.ts` row.
+   **Do not add a `paths:` filter to that workflow, and do not add an allowlist row.** Its header
+   records that it deliberately carries none: "four spec-review rounds proved any enumerated filter
+   re-opens the dark-path hole." Because it fires on unfiltered `pull_request:`, a spec named in its
+   invocation is PR-COVERED, which is the strongest state available and needs no
+   `LOCAL_ONLY_ALLOWLIST` entry. Adding one would in fact FAIL
+   `tests/ci/_metaE2eWorkflowCoverage.test.ts`'s shadowing assertion ("allowlisted specs that ARE
+   covered - remove the row"), and adding the filter would fail its lifecycle-coverage assertion.
+   Both halves of the tempting design are red; the unfiltered invocation is the green one.
 
 **Harness readiness** (`docs/agents/writing-plans.md` e2e checklist):
 
@@ -469,40 +472,36 @@ neither default project — probed `{mobile:false, desktop:false}`. Two steps, b
   `initial={{opacity:0,y:4}}`, so reading immediately catches the subtree at its pre-commit frame
   with height 0 — and an equal-height assertion then passes tautologically, 0 == 0. Settle the
   section-enter crossfade and wait for a real laid-out height before any rest-state read.
-- **Detach safety:** both rest-state targets are static. The crossfade measurement in Task 5 samples
-  a live element and must guard against auto-wait hanging on an unmounted node.
+- **Detach safety:** both targets are static at rest, so no sampler outlives its element. (The
+  mid-crossfade sampler that would have needed this guard is descoped — see below.)
 
 **GREEN.** Run the spec in capture mode, commit `tests/e2e/__baselines__/canonical-dimensions.json`,
 and confirm the spec now passes against it.
 
-**Capture the mid-crossfade height too, not only the rest-state rects.** Spec §9.5 and Task 6 both
-rest on the claim that C5 cannot move the `RightNowHero` card's height, and the card's own ratified
-invariant is that it holds 176px *through* a state crossfade (`app/globals.css:205-209`). A
-rest-state-only baseline cannot support that claim: rest rects can stay equal while only the
-mid-transition height moves, and every other check would still pass —
-`tests/crew/transitionAudit.test.ts` is structural and measures no geometry, and the existing
-compound-transition suites are `test.describe.skip`.
+**Rest-state rects only — the mid-crossfade sampler is DESCOPED, deliberately.** Earlier drafts also
+captured the card's height sampled during the `AnimatePresence` crossfade. Three consecutive plan
+review rounds landed on that sampler (reachability, then a settled-frame premise, then the premise
+for the premise), and none of them was about the canonicalization: they were about driving
+framer-motion deterministically. Per the three-round cap in `docs/agents/spec-self-review.md`, a
+vector that survives three rounds gets a probe, a descope, or an UNRATIFIED mark rather than another
+prose patch. This is the descope, and it is safe for a specific reason:
 
-**Drive the crossfade the way the existing suite does, and prove the sample was in flight.**
-`tests/e2e/right-now-transitions.spec.ts` already owns this machinery and its header documents the
-contract: the hero is a client island whose `selectRightNowState` re-derives on every 60-second tick,
-`page.clock.install` advances time deterministically, and its TICK_DRIVABLE category already asserts
-that for a `crossfade-body` treatment the card height stays within 0.5px of the pre-transition
-height. Reuse that pattern — install the clock, render at the FROM state, advance to a TO state whose
-matrix treatment is `crossfade-body`, run timers — rather than inventing a second sampler. (That file
-is CI-dark and partly skipped, which is why this arc measures the geometry in its own PR-covered
-spec instead of relying on it.)
+**C5 changes no value, by construction.** `min-h-(--spacing-right-now-min-h)` and
+`min-h-right-now-min-h` are two spellings that resolve to the SAME `@theme` token
+(`app/globals.css:216`). There is no arithmetic between them and nothing for a transition to expose:
+if the token resolved differently the rest-state assertion would already fail. The mid-crossfade
+sample was testing framer-motion's behavior, which this arc does not touch and which
+`tests/e2e/right-now-transitions.spec.ts` already owns.
 
-**The in-flight premise is executable, and `data-treatment` cannot be it.** That attribute is sticky
-after the transition completes, so asserting it would pass on a settled frame — and a settled sample
-records a rest height, after which Task 6 repeats the same settled read and matches within 0.5px
-while a real mid-transition regression goes undetected. That is the precise failure this baseline
-exists to close, so the premise must witness motion: assert the crossfading element's **computed
-`opacity` is strictly between 0 and 1** at sample time (`premiseHolds`, immediately above the
-capture), so a sample that lands on a settled frame fails loudly instead of silently recording the
-wrong number. Record the sampled height only once that premise holds.
+**What replaces it is stronger for the risk that actually exists** — that a canonical utility resolves
+to a different value than the form it replaced. That is a token question, not a timing question, so it
+is answered deterministically in Task 6 by a unit assertion on `app/globals.css`:
 
-**Failure mode caught:** a dimension gate that never executes — the config's own documented failure —
+- C1: `--spacing-confirm-box` is exactly `60px`, the bracket literal `max-w-[60px]` encoded.
+- C5: `--spacing-right-now-min-h` exists and is the token BOTH spellings reference, so the
+  substitution is an identity.
+
+No browser, no clock, no flake, and it fails on the one thing that could actually break.**Failure mode caught:** a dimension gate that never executes — the config's own documented failure —
 and a baseline captured after the change it is supposed to measure.
 
 **Commit:** `test(ui): capture the pre-canonicalization dimension baseline`
@@ -533,9 +532,10 @@ on it.
 
 1. **Geometry.** Re-run Task 5's spec. Every recorded box matches the committed baseline within
    **0.5px** — equality against a real prior measurement, not a bound against a token.
-2. **Operands.** Re-run `node scripts/verify-cn-operand-parity.mjs --base 61281c23e`. It must pass
-   with the C1–C6 deltas allowed and no others. Note the explicit `--base`: re-resolving `HEAD` here
-   would compare the migrated tree against itself.
+2. **Operands.** Re-run `node scripts/verify-cn-operand-parity.mjs --base $MIGRATION_PARENT`, passing
+   the SAME value Task 3 recorded. It must pass with the C1–C6 deltas allowed and no others. Note the
+   explicit `--base`: re-resolving `HEAD` here would compare the migrated tree against itself, and
+   the pre-rebase branch base is the other wrong answer (Task 3 brackets both).
 3. **Transitions.** Spec §9.5 declares no transition is added, removed, or altered — checked, not
    trusted, because `components/crew/RightNowHero.tsx` is both a migrated file (3 sites) and the
    repo's most transition-dense surface, driving an `AnimatePresence` crossfade over the very card
@@ -544,12 +544,10 @@ on it.
      18 migrated files; each must still carry the `initial` / `animate` / `exit` props it carried at
      base. The migration touches `className` values only; a changed motion prop means the rewrite
      escaped its scope.
-   - **Compound case:** re-drive the crossfade exactly as Task 5 did (same clock schedule, same
-     FROM/TO states), re-assert the same strictly-between-0-and-1 opacity premise, and compare the
-     height to the mid-crossfade value in Task 5's baseline within the same 0.5px tolerance. Rest
-     equality is not sufficient: a min-height change surfaces only mid-transition, and rest rects
-     stay equal through it. The opacity premise is what stops this from degenerating into a second
-     settled-frame read that trivially matches the first.
+   - **Token identity, replacing the descoped mid-crossfade sampler (Task 5).** Assert against
+     `app/globals.css` that `--spacing-confirm-box` is exactly `60px` (what `max-w-[60px]` encoded)
+     and that `--spacing-right-now-min-h` is the single token both C5 spellings reference. This is
+     the deterministic form of "the canonicalization changed no value", and it needs no browser.
    - `tests/crew/transitionAudit.test.ts` passes **unchanged**. An assertion there that moves is a
      signal the migration was not operand-preserving, not a reason to update the audit.
 
@@ -568,8 +566,10 @@ only while a transition is in flight.
 
 Invariant 1 governs **implementation** tasks: failing test → implementation → passing test → commit.
 Tasks 2–6 above are those, and each carries a `red=` command that genuinely fails before its change.
-The steps below are procedural — a docs filing, two gate runs, a review loop, a merge — and none has
-a meaningful failing-first state. Declaring a `red=` for them would mean pointing a marker at a
+The steps below are procedural — a docs filing, two gate runs, a review loop, a merge. Most have no
+meaningful failing-first state; **C4 is the exception and does carry one**, through the
+`BACKLOG_GRADUATED` registry (see its step 4), so its verification is executable even though its
+sequencing is procedural. Declaring a `red=` for them would mean pointing a marker at a
 command already green, which is a false TDD claim, so they sit outside the declared task region
 rather than pretending. Each still names how it is verified.
 
@@ -650,7 +650,13 @@ authorized by CI green on the **exact head** being merged.
 2. Drive CI to green with the marker still in place, repairing and re-pushing as needed. This is
    where repair commits belong — while the branch is still declaring its claim.
 3. Confirm the branch is otherwise merge-ready: C1–C3 complete, review APPROVE, CI green.
-4. **Only now author the graduation commit:** archive `BL-CLASSNAME-ARRAY-JOIN-MIGRATION` and remove
+4. **Only now author the graduation commit.** It has an executable red and green, so it is not the
+   unverified step the earlier draft implied: `tests/docs/_metaDeferralLedgerGraduation.test.ts`
+   carries a `BACKLOG_GRADUATED` registry covering every graduation since that guard landed, and it
+   asserts archive-only placement plus branch provenance per entry. Add
+   `BL-CLASSNAME-ARRAY-JOIN-MIGRATION` with `provenance: "refactor/classname-array-join-cn"`. Red:
+   registered but not yet archived (or archived while still in the live ledger) fails. Green: the
+   entry is in the archive, nowhere else, with its provenance present. Then archive it and remove
    its `**Status:** IN PROGRESS · **Branch:** …` marker **in that same commit**. Archives
    categorically reject in-progress entries, and a marker that reaches `main` names a branch the
    merge just deleted — `tests/docs/_metaLedgerInProgress.test.ts` then fails on `main` until someone
