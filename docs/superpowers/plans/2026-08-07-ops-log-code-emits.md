@@ -99,10 +99,12 @@ try {
 
 Two review rounds each broke a narrower guard, so this is scoped to **exactly the nine fields `persistAppEvent` writes** (`lib/log/persist.ts:16`): `level`, `source`, `message`, `code`, `requestId`, `showId`, `driveFileId`, `actorHash`, `context`. R2 broke a denylist with a parse message moved into `message`; R3 broke a context-only accept-set by placing a fragment in `source`, which `buildRecord` promotes out of `context` onto the record and which persists as its own column. A guard narrower than the persisted row leaves a channel, every time.
 
-Each case asserts the captured record against an exact expected object:
+Each case makes ONE assertion pair — the cardinality filter, then the exact nine-field object — and this is the only form; there is no second snippet to reconcile:
 
 ```ts
-expect(rec).toEqual({
+const matched = seen.filter((r) => r.code === "OAUTH_REDIRECT_INVALID");
+expect(matched).toHaveLength(1);
+expect(matched[0]!).toEqual({
   level: "warn",
   source: "auth.callback",
   message: "next param rejected; redirecting with OAUTH_REDIRECT_INVALID",
@@ -115,21 +117,13 @@ expect(rec).toEqual({
 });
 ```
 
-**Cardinality is part of the accept-set, not a separate concern, and every case asserts it.** Before the deep-equal, each case filters the captured records to the arc's code and asserts `toHaveLength(1)`:
-
-```ts
-const rec = seen.filter((r) => r.code === "OAUTH_REDIRECT_INVALID");
-expect(rec).toHaveLength(1);
-expect(rec[0]!).toEqual({ /* the nine fields */ });
-```
-
-A `toEqual` on a SELECTED record constrains that record and says nothing about how many were emitted, so a duplicate emit on any branch satisfies it — AC-1 and AC-3 both say "exactly one record" and, before this, only Task 1 actually checked. Stated here once so no task can be the one that omits it.
+**Cardinality is part of the accept-set, not a separate concern.** A `toEqual` on a SELECTED record constrains that record and says nothing about how many were emitted, so a duplicate emit on any branch would satisfy it — AC-1 and AC-3 both say "exactly one record". The `toHaveLength(1)` line is therefore not optional decoration on the deep-equal; it is half the assertion.
 
 `toEqual` against a complete literal is the rest of the accept-set: any field added, renamed, or populated with derived text fails. Per-site variation is only in `source`, `message`, `context.reason`, and `requestId` — `null` for the two `auth.*` routes (documented limit §5.3) and the derived request id for the three picker-bootstrap sites, which run inside `runWithRequestContext`.
 
 **`requestId` must be pinned to a FIXED literal, never derived from the captured record and never `expect.any(String)`.** `deriveRequestId` returns `headers.get("x-vercel-id") ?? crypto.randomUUID()` (`lib/log/requestContext.ts:25`), so its natural value is nondeterministic — and an oracle read back from the record, or a bare type matcher, would admit a mutant assigning `requestId: rawNext` and leak the rejected input through a promoted column. Every picker-bootstrap case therefore sets a fixed `x-vercel-id` header on the request (e.g. `"test-req-1"`) and asserts that exact string. This is the one field in the nine whose expected value is not already a constant, which is why it is called out rather than left to the implementer. **Every emit case in every task uses this shape — Tasks 1, 2, 3 and 4, with no exception.** The onboarding cases instantiate it with `level: "error"`, `source: "admin.onboardingWizard"`, the onboarding code and message, and `context: { reason: <the case's reason> }`. R7 found the earlier draft applied the accept-set only in Tasks 1, 2 and 4, leaving Task 3's `env_missing` and `json_not_an_object` cases asserting just `code`/`level`/`reason` — so a branch-specific widening that attached the parsed primitive on those paths passed every promised assertion and could persist secret material. The accept-set is universal precisely so no branch can be the one that was forgotten. Content checks (no sentinel, no `private_key`, no raw `next`) are retained as a backstop against a leak arriving through some channel the record shape does not describe.
 
-## Task 2 — sites 3-5: the three picker-bootstrap branches
+## Task 2 — sites 3-5: the picker-bootstrap branches
 
 <!-- task: red=`pnpm vitest run tests/auth/oauthRedirectInvalidTelemetry.test.ts` ac=AC-1,AC-2,AC-4 -->
 
@@ -143,9 +137,9 @@ A `toEqual` on a SELECTED record constrains that record and says nothing about h
 | `app/api/auth/picker-bootstrap/route.ts:176` (a) | a well-formed tokenized `next` whose `t` intent fails `verifyPickerIntent` — absent, malformed, bad signature, or **expired** | `bootstrap_intent_unverified` |
 | `app/api/auth/picker-bootstrap/route.ts:176` (b) | a well-formed tokenized `next` with a VERIFIED intent naming a different slug or share token | `bootstrap_intent_target_mismatch` |
 
-Each asserts one record via the whole-record accept-set above (with `source: "api.auth.pickerBootstrap"` and its own `context.reason`), **and** `res.status === 403`, **and** that the response body still contains the cataloged `OAUTH_REDIRECT_INVALID` copy — `messageFor("OAUTH_REDIRECT_INVALID").crewFacing ?? .dougFacing`, the string `htmlResponse` renders into the interstitial (`app/api/auth/picker-bootstrap/route.ts:35`). Status alone does not pin the refusal: R3 showed that swapping any of these branches to a different 403 body would leave a status-only assertion green, violating AC-2.
+Each asserts the whole-record accept-set above (cardinality filter plus the nine-field object) (with `source: "api.auth.pickerBootstrap"` and its own `context.reason`), **and** `res.status === 403`, **and** that the response body still contains the cataloged `OAUTH_REDIRECT_INVALID` copy — `messageFor("OAUTH_REDIRECT_INVALID").crewFacing ?? .dougFacing`, the string `htmlResponse` renders into the interstitial (`app/api/auth/picker-bootstrap/route.ts:35`). Status alone does not pin the refusal: R3 showed that swapping any of these branches to a different 403 body would leave a status-only assertion green, violating AC-2.
 
-**Concrete failure mode caught:** all four branches collapsed onto one emit, or a single emit hoisted above the branches — which would make `reason` a constant and the whole discrimination in spec §1.1 item 2 a fiction. Because each case asserts a *different* `reason`, a hoisted constant can match at most one case and **fails the other three**. Stated precisely: no single hoist fails all four, but the suite rejects every possible hoist, which is the property that matters. That is the specific reason these are four separate cases and not one parameterized case over a shared expectation.
+**Concrete failure mode caught:** the four branches collapsed onto one emit, or a single emit hoisted above them — which would make `reason` a constant and the whole discrimination in spec §1.1 item 2 a fiction. **Five cases over four distinct `reason` values** (sites 3a and 3b deliberately share `bootstrap_next_rejected`, since they are one branch reached two ways). A hoisted constant matches at most the cases expecting that value — two if it happens to be `bootstrap_next_rejected`, otherwise one — and fails the rest. No single hoist fails every case, but the suite rejects every possible hoist, which is the property that matters. That is why these are separate cases rather than one parameterized case over a shared expectation.
 
 **Site 3 needs both fixtures, and an absent-only fixture is vacuous for AC-4.** Both inputs reach the same branch and emit the same `reason`, so a single case looks sufficient — but only the present-value fixture can catch a conditional leak. A mutant attaching `rejectedNext` **only when the raw param is non-null** emits a clean record for an absent `next` and a leaking one for every real rejected value; against an absent-only fixture the accept-set passes and the leak ships. The present-value case is what makes AC-4 real at this site.
 
