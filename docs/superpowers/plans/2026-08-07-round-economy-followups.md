@@ -56,7 +56,7 @@ implementation notes only:
 1. **Split-arc segment exclusion.** Corpus path baseSha and the merge fixture's
    `baseSha` MUST differ (pins the no-arcKey-join requirement); `mergedAt: BOUNDARY`.
    Expect `boundaryAdvisory === null`.
-2. **Unexplained row fires** with the two-cause wording (spec §3.4).
+2. **Unexplained row fires** with the spec §3.4 advisory wording.
 3. **Post-merge reuse fires** — row after the branch's pre-adoption merge, before
    boundary. Time-cap premise stated executably.
 4. **Post-adoption merge does not launder** — merge `mergedAt` > BOUNDARY, row predates
@@ -78,8 +78,12 @@ implementation notes only:
    plus one placeable row → null advisory + `4 row(s) without a placeable startedAt`
    note. Pins the full accept-set of spec §3.2 (regex offset bounds, ms cap,
    calendar validity, finite-parse net).
-9. **Latest pre-adoption merge caps.** Two pre-adoption merges of one branch (B−3d,
-   B−1d), row at B−2d → null advisory. Oldest-only mutant fires.
+9. **Latest pre-adoption merge caps — selected chronologically.** Spec §4.9's fixture
+   VERBATIM: merges `"2026-08-31T20:30:00-02:00"` (chrono 22:30Z, lexically smaller)
+   and `"2026-09-01T00:00:00+02:00"` (chrono 22:00Z, lexically larger), row
+   `"2026-08-31T22:15:00Z"` → null advisory. BOTH named mutants fire: oldest-only
+   selection AND lexical-max selection (which picks the lexically-larger 22:00Z merge
+   and strands the 22:15Z row outside the cap).
 10. **Pre-adoption classification chronological.** Spec §4.10's offset mergedAt
     verbatim → null advisory; lexical mutant at `mergedAt <= boundary` fires.
 11. **Time cap chronological.** Spec §4.11's values verbatim → null advisory; lexical
@@ -101,9 +105,15 @@ Commit: `fix(infra): boundary advisory excludes the adoption arc's own pre-merge
 
 In `buildReport`:
 
-- **Parse once, compare chronologically at every site (spec §3.1).** Replace the
-  lexical `.sort()[0]` selection: all comparisons (earliest selection, boundary check,
-  `mergedAt <= boundary` classification, `startedAt <= mergedAt` cap) use parsed values.
+- **Parse once, compare chronologically at every site — through ONE helper (spec
+  §3.1).** Replace the lexical `.sort()[0]` selection. STRUCTURAL REQUIREMENT, not just
+  behavioral: implement a single parse-and-compare helper and route ALL timestamp
+  comparisons through it — earliest selection, boundary check,
+  `mergedAt <= boundary` classification, `startedAt <= mergedAt` cap, AND the
+  latest-merge max selection. NO direct string comparison of timestamps anywhere in the
+  advisory block (spec §3.1: "a later-added site cannot be lexical by default").
+  Separate ad-hoc `Date.parse` calls at each site satisfy the test cases but violate
+  the spec.
 - **Accept-set placement (spec §3.2).** A `startedAt` is placeable iff (a) it matches
   the §3.2 structural regex VERBATIM (explicit offset, bounded offset range, fractional
   seconds capped at 3 digits), (b) its date/time fields are calendar-valid, (c) its
@@ -115,7 +125,8 @@ In `buildReport`:
   several pre-adoption merges of one branch use the latest — spec §3.3).
 - `earliest` = chronological min over non-excluded, parseable rows (branch + time rule,
   spec §3.3).
-- New advisory string per spec §3.4 (two-cause wording, no verdict).
+- New advisory string per spec §3.4 VERBATIM (observation + open causes, no verdict,
+  no claim that the arc lacks a pre-adoption merge — case 3 reaches this line with one).
 - When `merges.shallow`: `boundaryAdvisory = null`; extend the existing shallow note with
   "; the boundary advisory is withheld for the same reason" (spec §3.5).
 - `boundary === null` path unchanged.
@@ -123,24 +134,44 @@ In `buildReport`:
 `pnpm vitest run tests/reviewRounds/report.test.ts` fully green.
 
 **Post-green mutants (spec §4 closing paragraph; P1 applied to this branch's own work —
-record each result in the commit message):**
-(a) advisory string emptied → which assertion fails;
-(b) advisory string + appended suffix → which assertion fails;
-(c) exclusion comparison flipped to `<` vs `<=` at the mergedAt cap → which case fails;
-(d) discriminating param: exclusion keyed on arcKey instead of branch+time → case 1 fails.
+record each result, mutant → failing case, in the commit message):**
+
+String-presence families — ALL FOUR of P1's (a)-(d), applied to BOTH the advisory-line
+assertion AND the non-placeable-note assertions:
+
+- (a) empty value: advisory string emptied; note string emptied;
+- (b) content + suffix: advisory string with an appended suffix; note with a suffix;
+- (c) present but not live: advisory/note text emitted into a different report section
+  (or behind a false condition) so the string exists but not where asserted;
+- (d) discriminating parameter: the note's count `N` hardcoded vs derived; the
+  advisory's interpolated row timestamp swapped for another row's.
+
+Logic mutants — one per spec-pinned decision, deferred here from Task 2:
+
+- exclusion keyed on `arcKey(branch, baseSha)` instead of branch + time → case 1 fails;
+- oldest-only merge selection → case 9 fails;
+- lexical-max merge selection → case 9 fails;
+- lexical `mergedAt <= boundary` classification → case 10 fails;
+- lexical `startedAt <= mergedAt` cap → case 11 fails;
+- lexical earliest selection → case 6 fails;
+- `<` vs `<=` flips at the boundary carve-out and the time cap → the existing
+  equals-boundary test and case 3 discriminate;
+- bare-`Date.parse` placement (accept-set bypass) → cases 7 and 8 fail.
+
 If any mutant survives, strengthen the test in the same commit before proceeding.
 
-## Task 4 — 2026-08-04 spec amendment + live verification (spec §3 amendment ¶, AC-W2.5)
+## Task 4 — 2026-08-04 spec amendment + live verification (spec §3 amendment ¶, AC-W2.12)
 
-Commit: `docs(spec): amend review-round-economy §9/§10 for the advisory exclusion rule`.
+Commit: `docs(spec): amend review-round-economy §9/§11.3 for the advisory exclusion rule`.
 
 - Amend the §9 advisory paragraph (ends "cannot be checked against anything") with the
-  exclusion rule + two-cause wording, dated note `(Amended 2026-08-07 — see
-  2026-08-07-round-economy-followups.md)`, matching the spec's amendment style.
-- Extend §10 item 8 with the five new test shapes (one line each).
+  exclusion rule + the §3.4 reworded advisory line, dated note `(Amended 2026-08-07 —
+  see 2026-08-07-round-economy-followups.md)`, matching the spec's amendment style.
+- Extend §11.3 item 8 — the "Adoption boundary" test entry, NOT §10 item 8, which is
+  unrelated mutation-enrollment work — with the eleven new case shapes (one line each).
 - Live check: run `pnpm review:economy` at the pre-change commit and at HEAD, diff the
-  outputs — identical except the ADVISORY line is gone (AC-W2.8). Paste both invocations'
-  tail into the commit message or the PR body.
+  outputs — identical except the ADVISORY line is gone (AC-W2.12). Paste both
+  invocations' tail into the commit message or the PR body.
 - `pnpm spec:lint` on the amended 2026-08-04 spec: no new hard findings.
 
 ## Task 5 — gates, review, ship
@@ -150,8 +181,12 @@ Commit: `docs(spec): amend review-round-economy §9/§10 for the advisory exclus
   green (corpus untouched by hand; new rows only from this arc's own dispatches).
 - Whole-diff cross-model review via codex-guard (`--stage diff`, fresh out-dir per
   round, worktree frozen during each dispatch, brief carries the spec §7 bounds +
-  REVIEWER ONLY + VERDICT/FINDINGS contract). Class-sweep every finding before repair;
-  structural defense in the FIRST repair commit where the class is nameable.
+  REVIEWER ONLY + VERDICT/FINDINGS contract). **AC-X.1 lives here:** every review
+  dispatch (diff rounds included) attaches `pnpm spec:lint` output for BOTH
+  `docs/superpowers/specs/ci/2026-08-07-round-economy-followups.md` AND this plan —
+  via `codex-guard --lint-doc` or a pasted transcript in the brief, findings never
+  abridged silently. Class-sweep every finding before repair; structural defense in
+  the FIRST repair commit where the class is nameable.
 - Commit this arc's corpus rows + any owed filing under
   `docs/review-rounds/feat/round-economy-followups/`.
 - Push → PR (body: spec link, AC checklist, the before/after report diff, docs-only
