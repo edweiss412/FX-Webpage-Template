@@ -17,7 +17,7 @@ run at close-out step C2, dispositions in §12.`
 |---|---|
 | AC-1 | `lib/ui/cn.ts` exports `cn` + `ClassValue`; unit test covers every row of spec §3.2. |
 | AC-2 | All 36 sites call `cn`; recognizer reports zero across every UI source extension (`.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, `.cjs`), any whitespace separator, any syntactic position. |
-| AC-3 | `scripts/verify-cn-operand-parity.mjs` reports parity for all 36 sites; output in the PR body. One-shot, not a tracked test. |
+| AC-3 | `scripts/verify-cn-operand-parity.mjs` reports parity for all 36 sites; output in the PR body. One-shot, not a tracked test — so C4 step 4 re-runs it against a re-resolved anchor after the final rebase. |
 | AC-4 | `DayCard` `tone === "set"` dot: unchanged `classList`, no trailing space. |
 | AC-5 | `pnpm lint` clean; fixes applied are exactly C1–C6, no undeclared rewrite. |
 | AC-6 | Census guard deleted; zero-tolerance guard replaces it with its premise fixture. |
@@ -102,20 +102,39 @@ mechanical diff reviewable: that stage 1 changes no class token at all.
      `pillState`, `TRACK_BASE`, `THUMB_BASE`, `surfaceClass`, `CHIP_CLASS`) must still be truthy at
      every definition. A rebase making any one falsy creates a second E2 site that the site count,
      the operand-parity script, the `cn` unit test, and the `DayCard` test would ALL pass over.
-   - *Every operand must still fall in one of those two CATEGORIES.* Checking the known literals and
-     the seven known names is not the same as proving no operand of a third kind appeared. The
+   - *Every operand must still fall in a PROVEN-TRUTHY category.* Checking the known literals and
+     the seven known names is not the same as proving no operand of an unvetted kind appeared. The
      concrete case: an upstream edit to `active && "bg-accent"` introduces a `false` operand — it is
      neither a `""`/`null`/`undefined` literal nor one of the seven names, so both checks above pass,
      while `["a", false, "b"].join(" ")` is `"a false b"` and `cn("a", false, "b")` is `"a b"`. That
      is a rendering change, not a whitespace one, and parity, the helper tests, and the `DayCard` test
-     all stay green through it. So enumerate **every** operand at the 30 unfiltered sites and assert
-     each is a non-empty string literal or one of the seven proven-truthy identifiers. Anything else
-     — a `&&`, a new identifier, a call — stops the run until spec §4.1 is re-derived.
+     all stay green through it. So enumerate **every** top-level operand at the 30 unfiltered sites
+     and assert each is one of the three kinds the base is measured to contain:
+     1. a non-empty string literal;
+     2. one of the seven proven-truthy identifiers from spec §4.1's table;
+     3. a conditional (ternary) expression — possibly nested — **every** result branch of which is a
+        non-empty string literal, with exactly one sanctioned exception:
+        `components/crew/primitives/DayCard.tsx:98`, whose `tone === "set"` branch is `""` — the
+        sole E2 site (spec §4.1), already pinned by its own render test.
+
+     Kind 3 is not an allowance added for convenience; it is the measured base. An AST probe of the
+     30 unfiltered sites finds **18 top-level conditional operands at 18 sites**
+     (`_PickerInterstitial:174`; `OnboardingWizard:182,200`; `PublishedToggle:298,307`;
+     `AutoPublishToggle:130,137`; `DeveloperToggleButton:91,96`; `NotifyToggle:138,145`;
+     `Step3SheetCard:577`; `Section:175`; `RightNowHero:557,586`; `DayCard:70,77,98`), every branch
+     a non-empty string literal except the one `""` above. An audit that admitted only kinds 1 and 2
+     would stop on the untouched base itself. Anything outside the three kinds — a `&&`, a new
+     identifier, a call, a ternary with a falsy-capable branch anywhere but `DayCard.tsx:98` — stops
+     the run until spec §4.1 is re-derived.
 4. If either half moved, **stop and amend the spec** before implementing. §2.2's table, §4.1's audit,
    and §6's delta table are all keyed to the measured base.
 
 **Verified by:** the two sweeps above plus the existing census guard, all green.
 **Commit:** none (rebase only), unless the audit moved — then the spec amendment is its own commit.
+
+This preflight is written once, here, and runs **twice**: before the first edit, and again at C4
+step 4 after the mandatory final rebase (spec §12 Concurrency requires both rebases; the one-shot
+proofs are only as fresh as the history they ran against).
 
 
 <!-- tasks: depth=2 -->
@@ -197,10 +216,15 @@ Design, per `docs/agents/writing-plans.md`:
   So: capture `git rev-parse HEAD` **once, after the P1 rebase and before the first migration edit**,
   export it as `MIGRATION_PARENT`, record the literal value in the task log and the PR body, and pass
   that same value to both invocations. `$MIGRATION_PARENT` appears in the declared commands above and
-  in Task 6 precisely so no fixed SHA can be baked in and go stale at the next rebase. Once
-  the migration commit exists the same anchor is `<migration-sha>~1`, which is stable under later
-  rebases of earlier commits. It is a local history read, never a CI-time lookup, which is why this
-  is a script (spec §4.3).
+  in Task 6 precisely so no fixed SHA can be baked in and go stale at the next rebase.
+
+  **The recorded literal is valid only for the history it was captured in.** Once the migration
+  commit exists, the anchor is definitionally `<migration-sha>~1` — but any LATER rebase (and C4
+  step 4's final pre-merge rebase is mandatory, spec §12 Concurrency) rewrites the migration commit
+  **and its parent**, so the recorded value stops naming the parent of the commit being merged. After
+  every such rebase the anchor is re-resolved as the REWRITTEN migration commit's `~1` and the parity
+  check re-run — C4 step 4 owns that re-run and says how. It is a local history read, never a
+  CI-time lookup, which is why this is a script (spec §4.3).
 - Extract each array-join's operand list by bracket-matching backward from the join, tolerating an
   intervening `.filter(Boolean)`; extract the corresponding `cn(...)` argument list from the working
   tree; assert the same operand sequence, comparing after stripping comments and insignificant
@@ -419,7 +443,7 @@ regex runs NOWHERE and silently proves nothing." A name like `canonicalDimension
 neither default project — probed `{mobile:false, desktop:false}`. Two steps, both required:
 
 1. **The name must not substring-match an existing alternative.** `layout-dimensions` appears in
-   BOTH projects' `testMatch` (`playwright.config.ts:65` and `:79`), so a name like
+   BOTH projects' `testMatch` (`playwright.config.ts:65` and `playwright.config.ts:79`), so a name like
    `canonical-layout-dimensions.spec.ts` would silently match both — and mobile-only execution, which
    the reachability contract requires, could not then be established by adding an alternative. Name it
    `canonical-class-dimensions.spec.ts`, which matches neither, and add an explicit alternative to the
@@ -535,7 +559,9 @@ on it.
 2. **Operands.** Re-run `node scripts/verify-cn-operand-parity.mjs --base $MIGRATION_PARENT`, passing
    the SAME value Task 3 recorded. It must pass with the C1–C6 deltas allowed and no others. Note the
    explicit `--base`: re-resolving `HEAD` here would compare the migrated tree against itself, and
-   the pre-rebase branch base is the other wrong answer (Task 3 brackets both).
+   the pre-rebase branch base is the other wrong answer (Task 3 brackets both). Reusing Task 3's
+   literal is correct HERE because no rebase occurs between Task 3 and this task; after C4 step 4's
+   final rebase that stops being true, and that step re-resolves the anchor before re-running.
 3. **Transitions.** Spec §9.5 declares no transition is added, removed, or altered — checked, not
    trusted, because `components/crew/RightNowHero.tsx` is both a migrated file (3 sites) and the
    repo's most transition-dense surface, driving an `AnimatePresence` crossfade over the very card
@@ -650,7 +676,37 @@ authorized by CI green on the **exact head** being merged.
 2. Drive CI to green with the marker still in place, repairing and re-pushing as needed. This is
    where repair commits belong — while the branch is still declaring its claim.
 3. Confirm the branch is otherwise merge-ready: C1–C3 complete, review APPROVE, CI green.
-4. **Only now author the graduation commit.** It has an executable red and green, so it is not the
+4. **Final rebase — mandatory, and it invalidates the one-shot proofs, so they re-run here.** Spec
+   §12 Concurrency requires a rebase over `origin/main` before implementation (P1) **and again before
+   merge**; this step is the second one. `git fetch origin && git rebase origin/main`.
+   - **Fast path:** if `git rev-list --count HEAD..origin/main` is `0`, the rebase is a no-op —
+     nothing was rewritten, nothing is invalidated, continue to step 5.
+   - Otherwise the rebase rewrote every branch commit, **including the migration commit and its
+     parent**. The tracked gates (the zero-tolerance recognizer, the `cn` unit test, the `DayCard`
+     test, the dimension spec) re-run in CI on the rebased head automatically; the one-shot proofs do
+     NOT, and a head whose proofs cover a superseded history is exactly the silent-drift window the
+     parity script exists to close. So, in order:
+     1. **Re-run P1 steps 2–3 in full** — the separator-agnostic inventory sweep and every half of
+        the operand audit (falsy literals, the seven identifiers, the three-kind enumeration). The
+        equivalence premise is base-specific (spec §4.1), and a newly integrated upstream edit can
+        break it without moving a single count.
+     2. **Re-resolve the anchor and re-run parity.** Locate the rewritten migration commit by its
+        `refactor(ui): migrate array-join classNames` subject, then
+        `MIGRATION_PARENT=$(git rev-parse <rebased-migration-sha>~1)` and
+        `node scripts/verify-cn-operand-parity.mjs --base $MIGRATION_PARENT` with the C1–C6 deltas
+        allowed. Replace the PR-body parity transcript with this output. This is the check that
+        catches conflict-resolution drift: an operand changed while resolving a rebase conflict in
+        one of the 18 files passes every tracked test and only this comparison sees it.
+     3. **A stop is a stop.** A parity-premise failure (site count moved off 36), an operand outside
+        the three kinds, or a dimension-spec failure on the rebased head all mean upstream moved the
+        measured base — stop and re-derive spec §2.2/§4.1 (and for a dimension failure, the §9.4
+        targets) exactly as P1 step 4 prescribes. Recapturing a baseline or widening an allowance to
+        get past this step is the forbidden move.
+     4. Push with `--force-with-lease` and drive CI green on the rebased head.
+   - If `origin/main` moves again before the merge completes, repeat this step: the invariant is
+     that the head being merged descends from current `origin/main` with its one-shot proofs
+     re-established against the history actually being merged.
+5. **Only now author the graduation commit.** It has an executable red and green, so it is not the
    unverified step the earlier draft implied: `tests/docs/_metaDeferralLedgerGraduation.test.ts`
    carries a `BACKLOG_GRADUATED` registry covering every graduation since that guard landed, and it
    asserts archive-only placement plus branch provenance per entry. Add
@@ -661,9 +717,9 @@ authorized by CI green on the **exact head** being merged.
    categorically reject in-progress entries, and a marker that reaches `main` names a branch the
    merge just deleted — `tests/docs/_metaLedgerInProgress.test.ts` then fails on `main` until someone
    clears it.
-5. Push it and wait for CI green **on that commit**, not on an earlier one, and not local-only
+6. Push it and wait for CI green **on that commit**, not on an earlier one, and not local-only
    (local-passes-CI-fails is its own bug class).
-6. **If that run fails, REVERT the whole graduation commit — do not re-add the marker on its own.**
+7. **If that run fails, REVERT the whole graduation commit — do not re-add the marker on its own.**
    Restoring only the marker would stamp `**Status:** IN PROGRESS` onto an entry that now lives in
    the archive, and archives categorically reject in-progress entries: the "recovery" is itself
    invalid and `tests/docs/_metaLedgerInProgress.test.ts` fails on it. The correct recovery restores
@@ -674,7 +730,7 @@ authorized by CI green on the **exact head** being merged.
    The distinction is not pedantic: leaving the branch live without its claim is the undeclared-work
    collision invariant 12 exists to prevent, and an archived-but-marked entry is a second, louder
    failure layered on top of it.
-7. `gh pr merge --merge`, then fast-forward local `main` and verify
+8. `gh pr merge --merge`, then fast-forward local `main` and verify
    `git rev-list --left-right --count main...origin/main` reports `0  0`.
 
 The rule in one line: **the marker comes off only when the next action is the merge itself.**
