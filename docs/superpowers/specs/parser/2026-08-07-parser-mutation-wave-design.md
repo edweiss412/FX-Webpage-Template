@@ -51,9 +51,9 @@ Ledger-claim flow (invariant 12): this spec branch holds all five `IN PROGRESS` 
 
 ### 2.2 Harness verification per branch
 
-The harness is nightly + `workflow_dispatch` + path-filtered `pull_request` (`.github/workflows/mutation-harness.yml:15-24`); the `pull_request` trigger runs the workflow as it exists on the PR head, so every implementation branch (all touch `lib/parser/**`) gets a real harness run on its own PR without waiting for the nightly. Run command: `VITEST_INCLUDE_MUTATION_HARNESS=1 pnpm exec vitest run --project mutation` (8 shards, ~60-75 min in CI). Locally, a class-scoped iteration loop uses the shard runner (`tests/parser/mutation/runShard.ts`) — the plan pins the exact invocation.
+The harness is nightly + `workflow_dispatch` + path-filtered `pull_request` (`.github/workflows/mutation-harness.yml:15-33`). The path filter does NOT include `lib/parser/**` — it fires on `tests/parser/mutation/**` (r1 review correction) — but every implementation branch edits `tests/parser/mutation/knownHoles.ts` for its ledger shrink, so each PR fires the workflow anyway, running it as it exists on the PR head. Run command: `VITEST_INCLUDE_MUTATION_HARNESS=1 pnpm exec vitest run --project mutation` (8 shards, ~60-75 min in CI). Locally, a class-scoped iteration loop uses the shard runner (`tests/parser/mutation/runShard.ts`) — the plan pins the exact invocation.
 
-Merge gate per branch: harness green (no `newAlarms`, no `staleRows`) with that class's CLOSED rows deleted from `RAW_HOLES` (section-reorder: 10 of 82 — §7.4), plus the standard merge-blocking suite.
+Close-out gate per branch (PROCEDURAL — the harness workflow is deliberately not a branch-protection required check, `mutation-harness.yml:10` and `mutation-harness.yml:20-21`; the wave enforces this gate by verifying the PR-head run before merging): harness green (no `newAlarms`, no `staleRows` — drift-partition expectations in §9) with that class's CLOSED rows deleted from `RAW_HOLES` (section-reorder: 10 of 82 — §7.4), plus the standard merge-blocking suite.
 
 ### 2.3 What "hardened" means (oracle terms)
 
@@ -70,7 +70,7 @@ A hole closes when its mutant's verdict (`tests/parser/mutation/oracle.ts` `verd
 
 ### 3.1 Mechanism — where the holes actually are (ledger probe §13.3)
 
-`unicodeInject` (`operators.ts:85`) inserts a ZWNJ (U+200C) mid-scalar into DATA-ROW cells only (`eachDataCell`, `operators.ts:50` — header rows are skipped; the ledger contains **zero section-label holes**). `clean()` (`_helpers.ts:45`) already strips the class `[​-‍﻿]`, so no hole survives from a missing strip: every one of the 827 survives because the corrupted decision happens UPSTREAM of `clean()` — at a tokenizer, matcher, or key comparison that never routes through it. There is no single tokenizer boundary: cells are produced four ways (`splitRow` ×32 sites, `parseTableRows` ×10, hand-rolled `.split("|")` ×18 — including `pull-sheet.ts:110`, which owns 71% of this class — and raw-line label regexes ×10 that never tokenize into cells at all, including the `AGENDA LINK` match at `lib/parser/index.ts:359`). Per-tokenizer patching cannot close the class; the census is in the committed ledger probe §3.3.
+`unicodeInject` (`operators.ts:85`) inserts a ZWNJ (U+200C) mid-scalar into DATA-ROW cells only (`eachDataCell`, `operators.ts:50` — header rows are skipped; the ledger contains **zero section-label holes**). `clean()` (`_helpers.ts:45`) already strips the class `[​-‍﻿]`, so no hole survives from a missing strip: every one of the 827 survives because the corrupted decision happens UPSTREAM of `clean()` — at a tokenizer, matcher, or key comparison that never routes through it. There is no single tokenizer boundary: cells are produced four ways (`splitRow` ×32 sites, `parseTableRows` ×10, hand-rolled `.split("|")` ×18 — among them the pull-sheet tokenizer path at `pull-sheet.ts:110`, whose `pull_sheet` effective DOMAIN owns 71% of this class (589/827, §13.4) — and raw-line label regexes ×10 that never tokenize into cells at all, including the `AGENDA LINK` match at `lib/parser/index.ts:360`). Per-tokenizer patching cannot close the class; the census is in the committed ledger probe §3.3.
 
 **Fix: strip `[​-‍﻿]` from the whole document once, at `parseSheet` entry (`lib/parser/index.ts:553`), BEFORE `classifyVersion` (`lib/parser/index.ts:557`) and before the `normalizeSectionHeaders` seam (`lib/parser/index.ts:596`).** Every tokenizer family, label regex, and version-marker read consumes the stripped string. Placing it ahead of `classifyVersion` (rather than at the `lib/parser/index.ts:596` seam the probe first identified) also covers the version-marker label reads (`schema.ts:68`, `schema.ts:127`), which run before the seam and would otherwise be a documented limit with a live population (195 of the 827 target cell index 0). `clean()` keeps its strip — idempotent, belt-and-suspenders.
 
@@ -79,7 +79,7 @@ No new warning code: the class closes by correction (verdict `ABSORBED` — stri
 ### 3.2 Stated behavior deltas (deliberate, not silent)
 
 1. **`rawSnippet` / `sourceCell` / `resolution.contentHash` values render post-strip text.** The use-raw contentHash contract pins the PRE-strip cell (`lib/parser/warnings.ts:493-501`); on sheets that carry zero-width characters today (the fintech paste-damage shape, corpus probe §13.D — 18 chars in 1 of 17 fixtures), pinned use-raw decisions re-key ONCE on next parse. Bounded to ZW-carrying sheets, one-time, and the invalidation-on-text-change contract is preserved in spirit: our reading of the text changed.
-2. **Line offsets** derived from `markdown.slice(0, offset)` (`rooms.ts:542`, `crew.ts:140`, `crew.ts:220`) shift consistently — the strip is applied before every consumer, so there is no mixed-offset state.
+2. **Line-number derivation** from `markdown.slice(0, offset)` — one site repo-wide, `rooms.ts:542` (r1 review narrowed the earlier three-site claim; `crew.ts`'s slices are forward-`slice(headerOffset)` reads, not line-number math) — shifts consistently: the strip is applied before every consumer, so there is no mixed-offset state.
 
 ### 3.3 First task = closure probe
 
@@ -114,7 +114,7 @@ The discriminator is unambiguous (probe §13.A: all 24 corpus occurrences are br
 
 **Live-show consequence, stated for the record:** shows carrying `#REF!` at sync time (live-verified on Consultants, 2026-08-07 — a dated snapshot, not an invariant; the artifact appears when a referenced range is deleted and vanishes on repair, probe §13.E) will fire this warning on their next sync — intended behavior, not a regression. The warning is warn-severity and does not block sync or publish.
 
-**Harness-side companion (`feat/mutation-ref-sub`):** extend `RISK_CRITICAL` (`tests/parser/mutation/classify.ts:26`) with `agenda` and `pull_sheet` — the two largest effective domains in the wave, currently absent from the coverage floor entirely (ledger probe §13.4) — updating the per-domain floor numbers and `applicabilityAudit.ts` expectations in the same commit. Small registry change, probe-justified; without it the harness's own floors never require its two biggest surfaces to have applicable sites.
+**Harness-side companion (`feat/mutation-ref-sub`):** extend `RISK_CRITICAL` (`tests/parser/mutation/classify.ts:25-33`) with `pull_sheet` — `agenda` is ALREADY a member (r1 review correction; the earlier "both absent" claim was wrong), so `pull_sheet` is the one top-2 effective domain the coverage floor never requires — updating the per-domain floor numbers and `applicabilityAudit.ts` expectations in the same commit. Small registry change, probe-justified.
 
 ### 4.3 Signal-loss subset
 
@@ -174,18 +174,21 @@ Correction (not detection-only) is right here because the repair is unambiguous 
 
 ### 6.2 Sixth autocorrect code — closed-set fan-out
 
-`AUTOCORRECT_CODES` is a closed five-member registry (`lib/parser/autocorrectCodes.ts:19-25`) with structural pins. Adding the sixth member touches, in one commit:
+`AUTOCORRECT_CODES` is a closed five-member registry (`lib/parser/autocorrectCodes.ts:19-25`) with structural pins across SEVERAL registries, not one (r1 review enumerated the full set). Adding the sixth member touches, in one commit:
 
-| Surface                                                             | Change                                                    |
-| ------------------------------------------------------------------- | --------------------------------------------------------- |
-| `lib/parser/autocorrectCodes.ts` `AUTOCORRECT_CODES`                 | add row (comment says "All five" → "All six")              |
-| `lib/parser/types.ts:106` autocorrect field doc                      | "the five `*_AUTOCORRECTED` codes" → six                  |
-| `tests/parser/_metaAutocorrectProducers.test.ts`                     | register the new producer                                 |
-| `tests/parser/dataGaps.test.ts:402` ("counts only the five…")        | update count + fixture                                    |
-| `lib/messages/autocorrectGuidance.ts`                                | guidance row (not crew-scoped: `subject: null`)           |
-| §12.4 + catalog + card copy                                          | per the §8 matrix                                         |
+| Surface                                                                          | Change                                                            |
+| --------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| `lib/parser/autocorrectCodes.ts` `AUTOCORRECT_CODES`                               | add row (comment "All five" → "All six")                           |
+| `lib/parser/dataGaps.ts:135` `AUTO_FIX_CLASSES` (+ `AutoFixCode` type flows)       | **DECISION: joins** — label "corrected leading column"; the doc comments at `dataGaps.ts:26`, `dataGaps.ts:131`, `dataGaps.ts:136`, `dataGaps.ts:155` saying "five" update too. Without this row `summarizeAutoFixes` silently under-counts the new code. |
+| `lib/parser/types.ts:106` autocorrect field doc                                    | "the five `*_AUTOCORRECTED` codes" → six                           |
+| `tests/parser/_metaAutocorrectProducers.test.ts:65` (`toHaveLength(13)`) + `_metaAutocorrectProducers.test.ts:77`   | length + multiplicity table gain the new producer                  |
+| `tests/parser/dataGaps.test.ts:402` ("counts only the five…") + `dataGaps.test.ts:427` exact-set    | count + `toEqual` set + fixture                                    |
+| `tests/messages/autocorrectGuidance.test.ts:94`                                    | guidance coverage assertion                                        |
+| `lib/messages/autocorrectGuidance.ts`                                              | guidance row (not crew-scoped: `subject: null`)                    |
+| `tests/parser/dataGapsClassCompleteness.test.ts` `BENIGN_WARN_CODES` (`dataGapsClassCompleteness.test.ts:40`)       | **DECISION: joins benign-warn bucket** (where all five autocorrects sit), size 7 → 8 |
+| §12.4 + catalog + card copy                                                        | per the §8 matrix                                                  |
 
-The plan's class-sweep step greps `_AUTOCORRECTED` across `lib/ tests/ docs/` for any additional five-member assumption before the branch opens.
+The plan's class-sweep step re-greps `_AUTOCORRECTED|AUTOCORRECT_CODES|AUTO_FIX` across `lib/ tests/ docs/` for any REMAINING five-member assumption before the branch opens — the table above is the r1-swept set, not a substitute for the re-grep.
 
 ### 6.3 Calibration
 
@@ -205,7 +208,7 @@ A legitimately indented section must not fire. The trigger requires ALL rows the
 | ------ | ---: | --------- | ----------- |
 | Payload array-reorder (`wrong`) | 58 | arrays preserve source order; swap faithfully reorders them. Zero of these touch a VENUE block. | ratify (resolved scope #3) |
 | Pure signal-array reorder (`signal_loss`) | 14 | signal-key MULTISET byte-identical (e.g. `120 → 120`); only entry order moved. Alarms solely because the oracle's signal comparison is index-keyed. | ratify — signal-channel twin of the payload contract |
-| REAL signal loss (`signal_loss`) | 10 | one root cause, below. Losses up to catastrophic: `warnings 109 → 2`, `raw_unrecognized 107 → 0`. | HARDEN |
+| REAL signal loss (`signal_loss`) | 10 | one root cause, below. Losses up to catastrophic: `warnings 120 → 2`, `raw_unrecognized 118 → 0`. | HARDEN |
 
 ### 7.2 The one bug — `parseVenue`'s positional unknown-field scope
 
@@ -240,9 +243,11 @@ Every NEW warn-severity `ParseWarning` code in this wave (`REF_ERROR_LITERAL`, `
 | `lib/messages/catalog.ts` row (all prose fields, `helpHref`)                      | same (4-field deep-equal)                                      |
 | `tests/messages/warningCardCopyRegistry.ts` `WARNING_CARD_COPY_CODES` + copy      | `tests/messages/_metaWarningCardCopy.test.ts:46`               |
 | `lib/parser/dataGaps.ts` `OPERATOR_ACTIONABLE_ANCHORED` membership (`dataGaps.ts:403`)       | `tests/parser/operatorActionableWarnings.test.ts`              |
-| Help page anchor (`/help/errors#<CODE>`)                                          | help-content gates                                             |
+| Gap-class bucket per code (`GAP_CLASSES` / benign buckets)                        | `tests/parser/dataGapsClassCompleteness.test.ts:229-236` fails on ANY unclassified persisted code; its Layer-1 counts (`dataGapsClassCompleteness.test.ts:205-209`, 37/7/2/11/57) bump to 39/8/2/11/60 |
+| `tests/parser/_warningCodeAnchor.ts:31` `WARNING_CODE_ANCHOR` registry            | `tests/parser/warningScanScopeAnchor.test.ts:52` — BOTH-direction `toEqual`, so every new code must be added |
+| Help page family row (`app/help/errors/_families.ts:16` → `/help/errors#<CODE>`)  | help-content gates                                             |
 
-Membership decisions, fixed here so the plan doesn't re-derive: all three named codes join `OPERATOR_ACTIONABLE_ANCHORED` (each is operator-actionable — fix the sheet — and carries a `blockRef` anchor). `LEADING_COLUMN_AUTOCORRECTED` additionally joins the §6.2 autocorrect registry. Copy authoring follows the `2026-07-20-warning-card-copy-restore` spec §4.2 (a new warn-severity `ParseWarning` code gets a `WARNING_CARD_COPY_CODES` row + copy).
+Membership decisions, fixed here so the plan doesn't re-derive: all three named codes join `OPERATOR_ACTIONABLE_ANCHORED` (each is operator-actionable — fix the sheet — and carries a `blockRef` anchor). Gap-class buckets: `REF_ERROR_LITERAL` and `ROW_CELLS_FUSED` join `GAP_CLASSES` (genuine sheet-data-quality gaps — they feed `summarizeDataGaps` and the regression gate; `DATA_GAP_CODES` 37 → 39); `LEADING_COLUMN_AUTOCORRECTED` joins the benign-warn bucket + `AUTO_FIX_CLASSES` per §6.2 (positive "we fixed it" semantics — deliberately NOT a data gap, matching its five siblings). Copy authoring follows the `2026-07-20-warning-card-copy-restore` spec §4.2 (a new warn-severity `ParseWarning` code gets a `WARNING_CARD_COPY_CODES` row + copy).
 
 Doug-facing copy tone follows the `STAGE_WORD_AUTOCORRECTED` template (`lib/messages/catalog.ts:1382-1397`): what we read, what we did, what to do if intentional. No raw error codes in UI copy (plan-wide invariant 5); no em-dashes in user-visible copy (pre-code mechanical gate).
 
@@ -250,7 +255,7 @@ Doug-facing copy tone follows the `STAGE_WORD_AUTOCORRECTED` template (`lib/mess
 
 1. Implement the class's detector/correction (TDD: the failing test is a targeted mutant through the real parse, asserting the new verdict).
 2. Delete the class's CLOSED rows from `RAW_HOLES` (`knownHoles.ts`) — identified by `finding` id via `OPERATOR_FINDING_MAP`.
-3. Run the harness (PR-triggered + `workflow_dispatch` for close-out): green = no `staleRows` (all deleted rows actually closed) and no `newAlarms` (nothing regressed).
+3. Run the harness (PR-triggered + `workflow_dispatch` for close-out): green = no `staleRows` (all deleted rows actually closed) and no `newAlarms` (nothing regressed). **Drift-partition expectation, stated up front:** `reconcileLedger` (`knownHoles.ts:29-45`) partitions both sides by coarse (siteId, kind) — a row whose FINGERPRINT moves lands in `driftedAlarms`/`driftedStale` (benign, tolerated), not `newAlarms`/`staleRows`. Branches whose detector also fires on the clean corpus (ref-sub: 24 baseline warnings) may shift fingerprints of OTHER classes' rows, since `fingerprint` diffs baseline↔mutant (`oracle.ts:108-111`) and uniform both-sides additions largely cancel; the plan RECORDS the observed partition per branch (expected: `fixedHoles` = the closed class, `driftedAlarms` small or zero, `newHoles` = ∅ HARD) rather than assuming all-quiet. Benign drift is deferrable per the mutation-ledger discipline; a non-empty `newHoles` is never deferrable.
 4. Residue rows (holes deliberately not closed) STAY in `RAW_HOLES` untouched; their count and reason land in §11 and on the backlog row at close (the row closes when its class's reachable set is closed and its residue is documented — the safe-reach bar, resolved scope #2).
 5. For section-reorder only: rows split by disposition — the 10 venue-hardening rows delete as `staleRows`; the 72 ratified rows STAY as documented-class rows under the `OPERATOR_FINDING_MAP` re-map (§7.4), landing in the same commit; `knownHoles.test.ts` keeps every remaining row resolvable.
 
@@ -337,7 +342,7 @@ The 24 `signal_loss` rows split **14 pure signal-array reorders / 10 real losses
 
 ### 13.3 Unicode dissection (ledger probe §3)
 
-Zero section-label holes exist (the operator provably never targets header rows), refuting the tokenizer-hypothesis' `sectionHeaderNormalize` half. Four cell-production families (`splitRow` ×32, `parseTableRows` ×10, hand-rolled splits ×18, raw-line regexes ×10); `pull-sheet.ts:110` alone owns 71% of the class (589/827 pull_sheet surface holes), and `index.ts:359` never tokenizes into cells. The single closing edit is the whole-document strip (§3.1), placed BEFORE `classifyVersion` to cover the `schema.ts:68` / `schema.ts:127` label reads (195 holes target cell index 0). Zero target cells contain a backslash escape — the escaped-pipe edge has no population.
+Zero section-label holes exist (the operator provably never targets header rows), refuting the tokenizer-hypothesis' `sectionHeaderNormalize` half. Four cell-production families (`splitRow` ×32, `parseTableRows` ×10, hand-rolled splits ×18, raw-line regexes ×10); the `pull_sheet` effective domain — served by the hand-rolled pull-sheet tokenizer path (`pull-sheet.ts:110`) — owns 71% of the class (589/827), and the `AGENDA LINK` matcher at `lib/parser/index.ts:360` never tokenizes into cells. The single closing edit is the whole-document strip (§3.1), placed BEFORE `classifyVersion` to cover the `schema.ts:68` / `schema.ts:127` label reads (195 holes target cell index 0). Zero target cells contain a backslash escape — the escaped-pipe edge has no population.
 
 ### 13.4 Effective-domain anchor matrix (ledger probe §4)
 
@@ -359,7 +364,7 @@ Strict `classifySection` files the majority of every class under `other` (exact-
 | documents        | 80      | 23          | 17           | 0       | 120   |
 | dress + contacts | 14      | 14          | 9            | 0       | 37    |
 
-`agenda` and `pull_sheet` — the top two — appear nowhere in the strict table and are absent from `RISK_CRITICAL` (`classify.ts:26`); §4.2 adopts the registry extension. The ledger `note` field is templated (122 distinct strings across 7,842 rows) and carries no taxonomy — `blockRef` coverage cannot be derived from it.
+`agenda` and `pull_sheet` — the top two — appear nowhere in the strict table; `pull_sheet` is additionally absent from `RISK_CRITICAL` (`classify.ts:25-33` — `agenda` IS a member), and §4.2 adopts the `pull_sheet` registry extension. The ledger `note` field is templated (122 distinct strings across 7,842 rows) and carries no taxonomy — `blockRef` coverage cannot be derived from it.
 
 ### 13.5 What `signal_loss` actually means (ledger probe §5 — live parser over 395 of 398 rows, zero ledger drift)
 
