@@ -184,7 +184,7 @@ Under `forced-colors` the cue is invisible: UAs drop `box-shadow` and force
 rather than local — the repo has zero `forced-colors` handling anywhere — and
 the local rotate path still carries its `role="status"` banner.
 
-Un-defer trigger: a repo-wide forced-colors pass, which should set the pattern
+**Un-defer trigger:** a repo-wide forced-colors pass, which should set the pattern
 once rather than have this one surface invent it.
 
 ### SHARELINK-CONSTANTS-INVENTORY-1 — impeccable critique P2 (2026-07-25, share-link-chrome-backlog)
