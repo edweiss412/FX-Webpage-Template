@@ -249,7 +249,7 @@ The second is the one that matters: without it, a case whose env setup or sink c
 
 ## Task 5 — the fail-open contract at every emit site
 
-<!-- task: red=`pnpm vitest run tests/auth/oauthRedirectInvalidTelemetry.test.ts` ac=AC-7 -->
+<!-- task: red=`pnpm vitest run tests/auth/oauthRedirectInvalidTelemetry.test.ts tests/components/admin/OnboardingWizard.test.tsx` ac=AC-7 -->
 
 **RED.** Every emit in this arc is `try`/`catch`-wrapped so a telemetry fault can never escape over the caller (invariant 9; spec limit §5.5) — and R7 found **nothing tested that**. Removing the wrapper from all six sites left every other assertion in this plan green, while a rejecting sink would replace the refusal with an unhandled rejection: the 302 never happens, the 403 never happens, the wizard never renders. The wrappers are load-bearing, not decorative, so they get a test.
 
@@ -263,7 +263,21 @@ log.setLogSink(() => {
 
 and then asserting the refusal is completely unaffected — for the OAuth sites the same status, `Location` and (site 1) PKCE `Set-Cookie` assertions Tasks 1-2 make; for the onboarding site that `render()` still produces `wizard-operator-error`.
 
-**Premise (mandatory — this test is vacuous without it).** With no emit at all, a throwing sink is never invoked and the route works fine, so the case would pass against a tree that has no telemetry whatsoever. Each case therefore records whether the sink was entered and states via `premise`/`premiseHolds` that it **was**, immediately above the refusal assertion. That premise is what makes the case red before the emit exists and red again if the emit is later removed — without it this is the "absent event satisfies the comparison" shape the anti-tautology rule names.
+**Premise (mandatory, and it must be CODE-SPECIFIC — a generic "sink was entered" flag is vacuous at site 1).** With no emit at all, a throwing sink is never invoked and the route works fine, so an unguarded case would pass against a tree carrying no telemetry whatsoever. But a generic entered-flag does not fix that at every site: `app/auth/callback/route.ts:255` calls `stampOauthClaim` — which emits `OAUTH_SIGN_IN_SUCCEEDED` (`app/auth/callback/route.ts:112`) — **before** the redirect-invalid branch at `app/auth/callback/route.ts:257`, so the flag is already true whether or not the new emit exists. A class sweep found site 1 is the only one with a preceding emit, but the premise is written code-specifically at all six sites regardless, since a generic form is one refactor away from being vacuous anywhere.
+
+The sink therefore records each record BEFORE throwing:
+
+```ts
+const seen: LogRecord[] = [];
+log.setLogSink((record) => {
+  seen.push(record);
+  throw new Error("sink-down");
+});
+```
+
+and each case states via `premise`/`premiseHolds`, immediately above the refusal assertion, that `seen` contains a record with **this site's** `code` AND `context.reason` — not merely that `seen` is non-empty.
+
+**Observed-RED protocol (Task 5's actual red step).** By the time this task runs, Tasks 1-3 have already installed all six wrappers, so these cases start green — the same honest problem Task 4 has, and it is declared rather than glossed. The RED is obtained per site: remove that site's `try`/`catch` (leaving the bare `await log.warn(...)` / `await log.error(...)`), run the case, **observe it FAIL** with the refusal replaced by an unhandled rejection, restore the wrapper, observe it pass. Six sites, six observations, none committed; the commit message and PR body record them.
 
 **Concrete failure mode caught:** an emit written without its `try`/`catch`, or a later refactor that removes one. Against a rejecting sink that turns a user's refusal into a 500 — converting a handled, cataloged failure into an unhandled one on a public auth endpoint, which is strictly worse than the missing telemetry this arc set out to fix.
 
