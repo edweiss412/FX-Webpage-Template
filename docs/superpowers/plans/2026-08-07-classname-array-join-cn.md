@@ -34,7 +34,14 @@ run at close-out step C2, dispositions in §12.`
 - **Creates** `tests/specLint/canonicalClassCallee.test.ts` (zero-tolerance recognizer + premise
   fixture + eslint-coverage premise pair).
 - **Deletes** `tests/specLint/canonicalClassArray.test.ts` (census guard).
-- **Extends** none.
+- **Extends** `tests/ci/_metaE2eWorkflowCoverage.test.ts` — adds a `PATH_GATED` row for
+  `tests/e2e/canonical-layout-dimensions.spec.ts` to `LOCAL_ONLY_ALLOWLIST`. **Not optional:** that
+  meta-test requires every Playwright spec to be PR-covered or reason-allowlisted, and because
+  `admin-layout-e2e.yml` carries a `pull_request.paths` filter, a spec wired only into that
+  workflow's command and path list counts as path-gated and needs the row. Omitting it leaves the
+  full Vitest suite red — a third, unintended red that would contradict the greenness table above.
+  `tests/e2e/admin-layout-dimensions.spec.ts`, `tests/e2e/admin-nav-layout-dimensions.spec.ts`, and
+  `tests/e2e/bell-panel-layout.spec.ts` are the precedent rows to copy.
 - **Not applicable, declared:** `tests/auth/_metaInfraContract.test.ts` (no Supabase call added),
   `tests/auth/advisoryLockRpcDeadlock.test.ts` (no `pg_advisory*` path),
   `tests/log/_metaMutationSurfaceObservability.test.ts` (no mutating route or server action added),
@@ -224,21 +231,31 @@ The `DayCard` assertions catch the single site where operands are preserved but 
 
 ## Task 4 — replace the census guard, which Task 3 has just turned red
 
-<!-- task: red=`pnpm vitest run tests/specLint/` ac=AC-6,AC-7 -->
+<!-- task: red=`pnpm vitest run tests/specLint/ && pnpm vitest run tests/specLint/canonicalClassCallee.test.ts` ac=AC-6,AC-7 -->
 
 **RED — and the red is real, which is why this task sits here.** Task 3 migrated all 36 sites, so
 the OLD census guard is now failing: its third assertion ("names no file that no longer has one — the
 census shrinks, never rots") finds all 18 census rows pointing at files that no longer array-join a
 className. Run it and see it fail. That failure is what this task resolves.
 
-**The declared command is the directory, `pnpm vitest run tests/specLint/`, and that is deliberate.**
-Naming the census file directly would give a red that can never go green: this task's GREEN deletes
-that file, and `vitest run` on a path with no test files exits 1 with `No test files found` — the
-command would fail before and after, for two different reasons, which is a false TDD signal rather
-than a strict one. The directory command is red now (the census guard fails inside it), green after
-(the census guard is gone and the replacement passes inside it), and it also actually executes the
-replacement guard, which a census-file-only command never would. The directory holds fifteen other
-spec-lint tests, so it can never degrade to the empty-path case.
+**The declared command is a conjunction, and each half is load-bearing:**
+
+```
+pnpm vitest run tests/specLint/ && pnpm vitest run tests/specLint/canonicalClassCallee.test.ts
+```
+
+- The **directory** half fails now, because the obsolete census guard fails inside it. Naming the
+  census file directly instead would give a red that can never go green — this task's GREEN deletes
+  that file, and `vitest run` on a path with no test files exits 1 with `No test files found`, so the
+  command would fail before and after for two different reasons. The directory holds fifteen other
+  spec-lint tests, so it can never degrade to that empty-path case.
+- The **file** half is what makes the command prove the replacement. Without it, deleting the census
+  alone turns the directory green even if `canonicalClassCallee.test.ts` is never written: the
+  command would attest to a removal and say nothing about AC-6 or AC-7. With it, success requires the
+  replacement to exist *and* pass its own assertions.
+
+Together: red now (census fails), still red after a census-only deletion (replacement missing), green
+only when the census is gone and the replacement is present and passing.
 
 This ordering matters. Writing the replacement guard first would produce a test that passes the
 moment it is authored correctly — the tree is already clean — and deleting the old file could not
@@ -385,6 +402,13 @@ neither default project — probed `{mobile:false, desktop:false}`. Two steps, b
    The workflow's own header documents this exact failure class — "a spec in a project no workflow
    runs is a spec that silently rots" — and a spec whose triggers omit its subject rots the same way,
    just more quietly, because the job exists and simply never fires.
+
+3. **Register the spec in the e2e coverage meta-test.** Add a `PATH_GATED` row for
+   `tests/e2e/canonical-layout-dimensions.spec.ts` to `LOCAL_ONLY_ALLOWLIST` in
+   `tests/ci/_metaE2eWorkflowCoverage.test.ts`. That test asserts every e2e spec is either PR-covered
+   or reason-allowlisted, and a `pull_request.paths`-filtered workflow counts as path-gated, so
+   without the row the full Vitest suite goes red the moment the spec lands. Copy the shape of the
+   existing `admin-layout-dimensions.spec.ts` row.
 
 **Harness readiness** (`docs/agents/writing-plans.md` e2e checklist):
 
