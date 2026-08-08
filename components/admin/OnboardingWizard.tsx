@@ -544,7 +544,13 @@ async function Step3Container({
   );
 }
 
-function OperatorErrorBlock() {
+// Exported for the tap-target live entry (_tapTargetFloorLiveEntry.tsx) — spec
+// 2026-08-07-step3-a11y-cluster §8 requires the REAL component, because this
+// block's <summary> is one of the seven the §2.1 floor repair covers and a
+// transcribed copy would pass with the corrected class string while production
+// stayed unrepaired. Same seam as StepIndicator above; render behavior is
+// unchanged by the export.
+export function OperatorErrorBlock() {
   const entry = messageFor("ONBOARDING_OPERATOR_ERROR");
   return (
     <section
@@ -558,7 +564,9 @@ function OperatorErrorBlock() {
       <p className="max-w-prose text-base">{entry.dougFacing}</p>
       {entry.helpfulContext ? (
         <details className="text-sm">
-          <summary className="cursor-pointer font-medium">What does this mean?</summary>
+          <summary className="inline-flex w-fit min-h-tap-min cursor-pointer items-center font-medium">
+            What does this mean?
+          </summary>
           <p className="mt-2 max-w-prose">{entry.helpfulContext}</p>
         </details>
       ) : null}

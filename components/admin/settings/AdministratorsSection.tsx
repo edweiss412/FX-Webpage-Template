@@ -128,7 +128,7 @@ export function AdministratorsSection({
           data-testid="admin-revoked-list"
           className="rounded-md border border-border bg-surface-sunken"
         >
-          <summary className="cursor-pointer p-3 text-xs font-semibold uppercase tracking-wide text-text-subtle">
+          <summary className="inline-flex w-fit min-h-tap-min cursor-pointer items-center p-3 text-xs font-semibold uppercase tracking-wide text-text-subtle">
             Revoked ({revoked.length})
           </summary>
           <ul className="flex flex-col gap-2 px-3 pb-3">

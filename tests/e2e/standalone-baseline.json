@@ -555,6 +555,18 @@
     "tests/e2e/step3-schedule-bookend-layout.spec.ts": [
       "[\"standalone-chromium\",\"standalone-chromium\",\"d6c191e6087654331355-396e484ae818b0c733d6\",[\"step3-schedule-bookend-layout.spec.ts\",\"ScheduleDayRow: synthetic muted title keeps the 2-track grid aligned (spec §13)\"]]"
     ],
+    "tests/e2e/tap-target-floor.layout.spec.ts": [
+      "[\"standalone-chromium\",\"standalone-chromium\",\"cd5a198f70313d74f244-11e380a360c5f4692967\",[\"tap-target-floor.layout.spec.ts\",\"DI-1 — every repaired <summary> clears the 44px floor on both axes\",\"@390px: each Class-A summary measures at least 44x44\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"cd5a198f70313d74f244-2dd96569c991105e19a1\",[\"tap-target-floor.layout.spec.ts\",\"DI-1 — every repaired <summary> clears the 44px floor on both axes\",\"@320px: each Class-A summary measures at least 44x44\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"cd5a198f70313d74f244-5a82691b35adf40c89bf\",[\"tap-target-floor.layout.spec.ts\",\"DI-2 — the six Class-A summaries stay narrower than their container\",\"@1280px: no Class-A summary becomes a full-width band\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"cd5a198f70313d74f244-a7ee044e5e144c13ed94\",[\"tap-target-floor.layout.spec.ts\",\"DI-2 — the six Class-A summaries stay narrower than their container\",\"@768px: no Class-A summary becomes a full-width band\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"cd5a198f70313d74f244-b08ba42d8f8a723fbb4e\",[\"tap-target-floor.layout.spec.ts\",\"DI-1 — every repaired <summary> clears the 44px floor on both axes\",\"@1280px: each Class-A summary measures at least 44x44\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"cd5a198f70313d74f244-b1e483b98580beb954ef\",[\"tap-target-floor.layout.spec.ts\",\"DI-2 — the six Class-A summaries stay narrower than their container\",\"@320px: no Class-A summary becomes a full-width band\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"cd5a198f70313d74f244-c8eb20c38bacd2640645\",[\"tap-target-floor.layout.spec.ts\",\"§6.1 disclosure behaviour survives the Class-A repair\",\"<details> still toggles when its <summary> is display: inline-flex\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"cd5a198f70313d74f244-daeca3dcd131eb922243\",[\"tap-target-floor.layout.spec.ts\",\"DI-1 — every repaired <summary> clears the 44px floor on both axes\",\"@768px: each Class-A summary measures at least 44x44\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"cd5a198f70313d74f244-dcf26af4f7ccb1bfaeaf\",[\"tap-target-floor.layout.spec.ts\",\"DI-2 — the six Class-A summaries stay narrower than their container\",\"@390px: no Class-A summary becomes a full-width band\"]]",
+      "[\"standalone-chromium\",\"standalone-chromium\",\"cd5a198f70313d74f244-f1ea3ca90579b1ea19e7\",[\"tap-target-floor.layout.spec.ts\",\"§6.1 disclosure behaviour survives the Class-A repair\",\"a <summary> toggled while hovered keeps its hover underline and is not remounted\"]]"
+    ],
     "tests/e2e/toggle-edge-layout.spec.ts": [
       "[\"standalone-chromium\",\"standalone-chromium\",\"435958e6bf16d314628f-280e120bb4cfca31201b\",[\"toggle-edge-layout.spec.ts\",\"accent-edge boundary — computed style + §9.1 geometry\",\"ON toggle border is the accent-edge token and geometry invariants hold\"]]"
     ],
@@ -564,5 +576,5 @@
       "[\"standalone-chromium\",\"standalone-chromium\",\"a2b6e93af0c9aab00ac1-e226ed179b8245e9207f\",[\"wizard-blocker-modal.layout.spec.ts\",\"finalize blocker modal — real-browser layout (spec §8)\",\"panel is viewport-pinned and capped at 85vh; it paints above an app-root z-50 dialog\"]]"
     ]
   },
-  "totalTests": 489
+  "totalTests": 499
 }

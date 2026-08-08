@@ -120,7 +120,7 @@ export function MeShowSections({ shows, now }: { shows: readonly CrewShowSummary
         <details data-testid="me-past" className="group">
           <summary
             data-testid="me-past-summary"
-            className="cursor-pointer list-none text-xs font-semibold uppercase tracking-eyebrow text-text-subtle hover:text-text"
+            className="inline-flex w-fit min-h-tap-min cursor-pointer list-none items-center text-xs font-semibold uppercase tracking-eyebrow text-text-subtle hover:text-text"
           >
             Past ({past.length}){" "}
             <span
