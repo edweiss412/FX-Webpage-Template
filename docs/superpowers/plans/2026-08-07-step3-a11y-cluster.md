@@ -9,8 +9,11 @@ impeccable-gate: critique=PENDING audit=PENDING p0=- p1=- dispositions=pending
 (The marker above follows the `2026-08-03-nojs-loading-shell-notice.md` lifecycle: PENDING
 while the arc is live, replaced with real counts in the close-out commit after both gate
 halves run. Until that commit, `tests/docs/_metaInvariant8Closeout.test.ts` reports the
-PENDING line as malformed — expected mid-arc state, resolved at Task 10, and the final
-pre-push full suite runs after it is resolved.)
+PENDING line as malformed — expected mid-arc state, resolved at Task 10 step 2.
+**Interim "full suite green" checkpoints (Tasks 1–9) therefore mean: green except
+EXACTLY that one declared failure** — one test, this file's marker line, nothing else;
+any other red is a real defect. Task 10 step 3's battery runs AFTER the marker fill and
+tolerates nothing (R3 F1).)
 
 ---
 
@@ -83,7 +86,7 @@ pre-push full suite runs after it is resolved.)
 | `tests/components/onboardingWizardNav.test.tsx:274` — `active.className` contains `bg-accent` | **Updates in Task 3**: visual classes move to the inner span; assertion re-targets `wizard-step-indicator-3-visual`. |
 | `tests/components/onboardingWizardNav.test.tsx:146-153, 280-286` — tagName `A`, `aria-current`, `aria-disabled`, href on `wizard-step-indicator-N` | **Unchanged** — the testid stays on the target element (anchor/span), which keeps every reachability assertion byte-identical. |
 | `tests/components/onboardingWizardNav.test.tsx:276` — `done1.querySelector("svg")` | **Unchanged** — `querySelector` descends into the new inner span. |
-| `tests/components/admin/wizard/step3ReviewSections.test.tsx:899, 906, 919` | **Rewritten in Task 7** exactly per spec §2.4's three-row table (img `alt` → `""`; anchor assertions preserved; test renamed at :919). |
+| `tests/components/admin/wizard/step3ReviewSections.test.tsx:899, 906, 919` | **Rewritten in Task 7** exactly per spec §2.4's three-row table (img `alt` → `""`; anchor assertions preserved; **all THREE test names updated** to state the new contract — spec §2.4: "Each test's name is updated"; R3 F3). |
 | `tests/components/admin/bellPanelHelpLink.test.tsx` | **Extended in Task 8** — glyph-absence + link-present premise on both rendering branches. No existing assertion pins the `↗`. |
 | `tests/e2e/me-page.spec.ts` | **Must stay green untouched** after Task 1 — the extraction is a pure relocation; this spec is the regression net for `/me` rendering. |
 | `tests/e2e/step3-review-page.layout.spec.ts:203-216` | **Re-run as DI-7** (preservation invariant; spec §8 exempts it from discriminating-form). Not edited. |
@@ -124,7 +127,7 @@ entry **tests/e2e/_tapTargetFloorLiveEntry.tsx**, modeled on
   `locator.evaluate` on elements that exist for the page's whole life; the DI-15 test
   re-queries after the open-click rather than holding a pre-click handle.
 - **Mounts (spec §8, all states from §3):** `HelpAffordance` (code with non-null
-  `helpfulContext`); `OperatorErrorBlock` (exported in Task 1) with `helpfulContext`
+  `helpfulContext`); `OperatorErrorBlock` (exported in Task 2 — its RED is this harness bundle failing on the unexported symbol) with `helpfulContext`
   present; `ErrorExplainer` (known code, helpful context enabled);
   `AdministratorsSection` (≥1 revoked admin); `MeShowSections` (from
   **app/me/meShowSections.tsx**, ≥1 past show, title > 80 chars is NOT needed here — the
@@ -203,7 +206,7 @@ nothing — stated so a reviewer does not ask for six vacuous tests.
 
 <!-- tasks: depth=2 -->
 
-## Task 1 — Extraction seam + exports (spec §8, ratified R10; probe P7)
+## Task 1 — Extraction seam (spec §8, ratified R10; probe P7)
 
 <!-- task: red=`pnpm vitest run tests/components/meShowSections.test.tsx` ac=AC-3b -->
 
@@ -225,9 +228,7 @@ and proves the module's import graph is jsdom-loadable (no server reach).
    the precedent comment naming the spec (`components/admin/OnboardingWizard.tsx:112-114`
    pattern). The other six stay private to the new module.
 2. `app/me/page.tsx` imports `MeShowSections` back; `MePage` and all server logic stay.
-3. Add `export` + precedent comment to `OperatorErrorBlock`
-   (`components/admin/OnboardingWizard.tsx:547`).
-4. **Move the path-keyed style-registry row (R1 F4):** `chipToneClass` owns the
+3. **Move the path-keyed style-registry row (R1 F4):** `chipToneClass` owns the
    `bg-accent text-accent-text` occurrence registered at
    `tests/styles/_metaBgAccentInventory.test.ts:86` as
    `L("app/me/page.tsx", 0, ...)` — the extraction relocates it, and the guard reports
@@ -240,7 +241,7 @@ and proves the module's import graph is jsdom-loadable (no server reach).
    the diagram anchor's aria-label logic is unchanged.)
 
 **Verify:** new test green; `pnpm exec tsc --noEmit`;
-`pnpm vitest run tests/styles/_metaBgAccentInventory.test.ts`; full vitest suite green
+`pnpm vitest run tests/styles/_metaBgAccentInventory.test.ts`; full vitest suite green per the header rule (sole tolerated red: the declared invariant-8 marker failure)
 (`tests/e2e/me-page.spec.ts` runs env-bound in CI and is the /me regression net — do not
 edit it). Zero behavior change is the contract: `git diff` on `app/me/page.tsx` shows
 only deletions of the moved functions plus one import.
@@ -292,7 +293,12 @@ the `_metaFontWaitCoverage` `CALLERS` registry — all in this commit (§4). Run
 pass (7 summaries mount, unrepaired), DI-1 FAILS (20.3px / 16.8px heights — spec §2.1
 table).
 
-**GREEN:** apply the Class A recipe — add
+**GREEN:** first, add `export` + the precedent comment
+(`components/admin/OnboardingWizard.tsx:112-114` pattern) to `OperatorErrorBlock`
+(`components/admin/OnboardingWizard.tsx:547`) — moved here from Task 1 because THIS
+task's RED consumes it: the live-entry bundle cannot build while the symbol is private,
+so the export has a failing-first consumer in the same task (R3 F2). Then apply the
+Class A recipe — add
 `inline-flex w-fit min-h-tap-min items-center` to the six class strings:
 `components/admin/HelpAffordance.tsx:95`, `components/admin/OnboardingWizard.tsx:561`,
 `components/messages/ErrorExplainer.tsx:114`,
@@ -431,8 +437,13 @@ Commit: `fix(admin): promote Step3Review page section headings h3 -> h2 (no visu
 `tests/components/admin/wizard/step3ReviewSections.test.tsx:899` (img alt → `""`, ADD
 anchor `aria-label` fallback assertion), `step3ReviewSections.test.tsx:906` (img alt → `""`, both existing anchor
 assertions unchanged — the "never a nameless link" contract), `step3ReviewSections.test.tsx:919` (img alt → `""`,
-anchor assertion unchanged, test RENAMED to state the anchor-names-the-tile contract).
-All three fail against the unrepaired component (img still carries the alt).
+anchor assertion unchanged). **ALL THREE test names are updated to state the new
+contract** — spec §2.4: "Each test's name is updated to state the new contract; leaving
+a name that promises the old one is how the next reader concludes the change was a
+mistake." The :899 name stops describing an img-alt fallback, the :906 name stops
+promising "BOTH the img alt and the anchor aria-label", and :919 states the
+anchor-names-the-tile contract (R3 F3). All three fail against the unrepaired component
+(img still carries the alt).
 
 **GREEN:** `components/admin/wizard/step3ReviewSections.tsx:3704-3724` — inner `<img>`
 becomes `alt=""`; the anchor's `aria-label` logic at `components/admin/wizard/step3ReviewSections.tsx:3706` is UNCHANGED including the
@@ -485,17 +496,23 @@ Commit: `docs(plan): ledger dispositions — archive NEWTAB-A11Y-RESIDUE-1, stri
 
 <!-- task: red=`pnpm exec playwright test --config tests/e2e/standalone.config.ts tap-target-floor` ac=AC-8 -->
 
-1. **Full verification battery** (pre-push gates, all mandatory): full vitest suite;
-   `pnpm exec tsc --noEmit` (vitest strips types; playwright tsconfig too); `pnpm exec
-   eslint .`; `pnpm exec prettier --check .`; the full standalone spec at every viewport
-   (the red= command above — green here, all DIs); `pnpm vitest run tests/docs/` (ledger
-   + corpus + invariant-8 after the marker fill below).
-2. **Spec §11 mechanical checklist** re-verified on the diff (no em-dash copy, literal
+**Gates task — verify-after shape, like Task 9 (R3 F2):** no failing-first state exists;
+the red= command above is the close-out battery's standalone-suite leg (green here, all
+DIs — it went green at Task 5 and staying green is what this task verifies), not a RED
+expectation. **Ordered so every gate runs against a fully-valid tree (R3 F1):**
+
+1. **Spec §11 mechanical checklist** re-verified on the diff (no em-dash copy, literal
    apostrophes, canonical type classes carried verbatim, no new color token).
-3. **Impeccable dual gate** (invariant 8): `/impeccable critique` then
+2. **Impeccable dual gate** (invariant 8): `/impeccable critique` then
    `/impeccable audit` on the affected diff, canonical v3 setup gates. P0/P1 fixed or
    deferred via `DEFERRED.md` entries; findings + dispositions recorded in §12 below;
-   **replace this plan's PENDING marker line with real counts** in the same commit.
+   **replace this plan's PENDING marker line with real counts** in the same commit —
+   from this commit on, NO tolerated red remains anywhere.
+3. **Full verification battery** (pre-push gates, all mandatory, AFTER the marker fill
+   so everything is green with zero exemptions): full vitest suite (including
+   `tests/docs/` — ledger + corpus + invariant-8, now valid); `pnpm exec tsc --noEmit`
+   (vitest strips types; playwright tsconfig too); `pnpm exec eslint .`; `pnpm exec
+   prettier --check .`; the full standalone spec at every viewport.
 4. Whole-diff cross-model review (codex-guard, `--stage diff`) to APPROVE — dispatched by
    the implementation session per its brief; class-sweep every finding shape before
    resubmitting.
