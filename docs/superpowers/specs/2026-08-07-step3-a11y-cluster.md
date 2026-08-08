@@ -41,6 +41,7 @@ Each item is ratified at the cited location. Verify the citation; do not re-deri
 | R7 | **Layout geometry is preserved exactly.** The adopted recipe's negative margin cancels the growth, so pill centres are unchanged (probe P6: expanded-row pill centres identical to today's at 320px). This is required, not incidental: connectors measure **0px wide at 320 and 390** (probe P3), so the stepper has zero horizontal slack and any layout growth would overflow. | §7 probe P3/P6, §6 DI-3 |
 | R8 | **`components/admin/nav/AdminNav.tsx:88-114` (the brand link) is in scope even though it does not render on the wizard route.** `app/admin/layout.tsx:169` renders `OnboardingTopBar` on the onboarding branch and `AdminNav` at `app/admin/layout.tsx:204` on every other `/admin/*` route. It is repaired here under R4 (same shape), not because the wizard shows it — and it takes its own recipe, because it is a composite link rather than an icon button (§2.2). | §2.2 |
 | R9 | **All measurements in this document are written `width × height`.** The ledger's own `274.0x20.3` (DEFERRED.md:30) is quoted verbatim in that same order. A reviewer reading `288 × 20.3` as height-first is reading it wrong; the failing axis throughout §2.1 is the SECOND number. | §2.1, §7 |
+| R10 | **`MeShowSections`' live-entry seam is EXTRACTION to a new file, app/me/meShowSections.tsx — not `export` from `app/me/page.tsx`, and not a functional `AsyncLocalStorage` stub in the bundler.** The export seam is refuted by probe (module-scope `new AsyncLocalStorage()` at `lib/log/requestContext.ts:15` dies under the empty-builtin stub before mount); the stub seam is fenced as a redesign of a shared harness this branch does not otherwise touch. Re-proposing either requires a probe showing the full `app/me/page.tsx` server graph mounting in a browser bundle. | §8, §7 probe P7 |
 
 ---
 
@@ -76,9 +77,11 @@ for the fixtures §8 must use:**
   plain `<span>` and **no `<summary>` at all**, so a short-title fixture cannot exercise this
   repair. **The fixture must use a title longer than 80 characters.**
 
-**Recipe (all seven):** add `inline-flex w-fit min-h-tap-min items-center` to the existing
-class string, mirroring the sibling `Learn more →` link at `HelpAffordance.tsx:111`, which
-already ships exactly `inline-flex w-fit min-h-tap-min items-center`.
+**Recipe (six of the seven — `HelpTooltip` is dual-class and takes the Class B recipe
+INSTEAD, per §2.2's precedence rule):** add `inline-flex w-fit min-h-tap-min items-center`
+to the existing class string, mirroring the sibling `Learn more →` link at
+`HelpAffordance.tsx:111`, which already ships exactly
+`inline-flex w-fit min-h-tap-min items-center`.
 
 Probe P2 confirms both halves of the risk this carries:
 - Result is **144.8 × 44** — clears the floor on both axes.
@@ -496,8 +499,8 @@ so each of these requires a real-browser `getBoundingClientRect()` assertion (§
 
 | ID | Invariant | Guaranteed by |
 |---|---|---|
-| **DI-1** | Every repaired `<summary>` measures **height ≥ 44px** and **width ≥ 44px**. | `inline-flex w-fit min-h-tap-min items-center` |
-| **DI-2** | Each repaired `<summary>` is **narrower than its container** (`w-fit` held) — it must not become a full-width invisible band. | `w-fit` on the summary |
+| **DI-1** | Every repaired `<summary>` (all seven) measures **height ≥ 44px** and **width ≥ 44px**. | Class A recipe (`inline-flex w-fit min-h-tap-min items-center`) on six; `size-tap-min` via the Class B recipe on `HelpTooltip` (§2.2 precedence) |
+| **DI-2** | Each of the **six Class-A** repaired `<summary>`s is **narrower than its container** (`w-fit` held) — it must not become a full-width invisible band. **`HelpTooltip`'s `<summary>` is exempt by construction, not unasserted:** its Class B box is fixed at exactly 44×44 (`size-tap-min`), which cannot be a full-width band, and DI-10 pins that width exactly — a stronger claim than narrower-than-container. Its real outer `<details>` is `inline-block` (`components/admin/HelpTooltip.tsx:53-60`), so "narrower than its container" would be false there by shrink-wrap, which is why the scope is stated per class rather than per summary. | `w-fit` on the six Class A summaries |
 | **DI-3** | The three step pills' boxes each measure **exactly 44×44** (±0.5px), and **adjacent boxes never overlap** (inter-box gap ≥ 0) at 320/390/768/1280. | `-m-2 … size-tap-min` on the anchor |
 | **DI-4** | The **visual** pill (inner `<span>`) still measures **28×28** (±0.5px) — the repair is invisible (R6). The close button's visual is 36×36 and is covered by DI-15, not here. | inner span keeps `size-7` |
 | **DI-5** | Each pill's **margin box is 28×28** — `rect.width + marginLeft + marginRight === 28` and the same vertically (±0.5px) — so the repair consumes no layout, at 320px where connectors are 0px wide and there is no slack (R7). | `-m-2` cancels the `size-tap-min` growth |
@@ -593,6 +596,7 @@ reproduced by the committed assertions in §8.
 | **P4** | Does `before:-inset-2` produce a working 44px target? | **NO.** Box is 44×44 but only top + left take the pointer; right → `NAV`, bottom → outer wrapper. **Recipe refuted (R2)** |
 | **P5** | Does `-m-2 box-content p-2` work? | All four edges hit, but box is **46×46** and layout grows **+2px per pill** (the 1px border falls outside the content box) |
 | **P6** | Does `-m-2 … size-tap-min` + inner span work? | **44×44 exactly**; all four edge midpoints → the pill; neighbours' edges → their own pill; inter-box gap **0.0** @320/390, 97.0 / 55.4 @768; **pill centres identical to today** |
+| **P7** | Does the `MeShowSections` extraction seam (§8) bundle and render through the **unmodified** `_step3ReviewModalBundle.mjs`? | **YES.** The seven functions relocated verbatim with the §8 import block, bundled and rendered: **0 errors**, `me-past-summary` present carrying today's exact §2.1 class string, past-list row rendered. (Run 2026-08-07 during the spec-R7 repair, via esbuild + jsdom rather than the Playwright harness — the question is bundle viability, not layout) |
 
 ---
 
@@ -633,20 +637,66 @@ DI-1…DI-15 across 320/390/768/1280 (DI-11/DI-12 additionally at 360 and 440, t
 > revoked admin; `app/me`'s past-shows block with at least one past show; `RunOfShowList`
 > with a title of **more than 80 characters**; `HelpTooltip` mounted directly.
 >
-> **Two of the seven are private and MUST be exported — the spec chooses this, rather than
-> leaving the implementer three options with different blast radii.** `OperatorErrorBlock`
-> (`components/admin/OnboardingWizard.tsx:547`) and `MeShowSections` (`app/me/page.tsx:192`)
-> are unexported, so a live entry cannot import them today. Add `export` to each.
+> **Two of the seven are private today; each takes its OWN seam, chosen here rather than
+> left to the implementer — and the two seams are deliberately different.**
 >
-> Exporting is precedented — `components/admin/OnboardingWizard.tsx:112-114` carries
-> "Exported for the unit test (onboardingWizardNav.test.tsx)" above `StepIndicator`. Add the
-> same one-line comment above each new export naming this spec.
+> **`OperatorErrorBlock` (`components/admin/OnboardingWizard.tsx:547`): add `export`.**
+> Precedented — `components/admin/OnboardingWizard.tsx:112-114` carries "Exported for the
+> unit test (onboardingWizardNav.test.tsx)" above `StepIndicator`; add the same one-line
+> comment above the new export naming this spec. **Probed working:** bundled through the
+> named bundler below and rendered, it mounts and renders its `<summary>`
+> (`status PASS, errors [], summaryCount 1` — spec-R7 review probe).
 >
-> **But exporting alone is NOT sufficient, and the bundle path must be named.** Both
-> containing modules statically import server-side graphs (`app/me/page.tsx:42`,
-> `components/admin/OnboardingWizard.tsx:26`), and those graphs reach Node builtins that a
-> browser bundle cannot resolve. Measured by bundling each named export with the ordinary
-> helper's settings:
+> **`MeShowSections` (`app/me/page.tsx:192`): `export` is REFUTED — extract instead.** The
+> containing module poisons the bundle at module scope: `app/me/page.tsx:46` imports
+> `validateGoogleIdentity`, whose module (`lib/auth/validateGoogleIdentity.ts:4`) imports
+> `@/lib/log`, whose graph constructs `new AsyncLocalStorage()` at module scope
+> (import at `lib/log/requestContext.ts:2`, construction at `lib/log/requestContext.ts:15`). The named bundler maps every Node builtin to an empty
+> CJS module (`tests/e2e/_step3ReviewModalBundle.mjs:58-69`) on the stated premise that the
+> stubbed bindings are "never called on the harness render path" — a module-scope
+> **constructor call** violates that premise before React mounts anything. Probed (spec-R7
+> review probe): the bundle **builds** and then dies with
+> `TypeError: import_node_async_hooks.AsyncLocalStorage is not a constructor`,
+> `summaryCount 0`. So exporting from `app/me/page.tsx` can never work with this bundler.
+>
+> **The seam: extract the render half of `app/me/page.tsx` to a new module,
+> app/me/meShowSections.tsx, verbatim.** It holds `MeShowSections` (exported, with the
+> precedent comment) and its private collaborators, moved unchanged: `formatShowDate`
+> (`app/me/page.tsx:67`), `MeShowSections` (`app/me/page.tsx:192`), `UndatedShowRow`
+> (`app/me/page.tsx:289`), `NextUpCard` (`app/me/page.tsx:323`), `ShowListRow`
+> (`app/me/page.tsx:367`), `chipToneClass` (`app/me/page.tsx:412`), `pickVenueLabel`
+> (`app/me/page.tsx:430`). Its import block is exactly: `next/link`,
+> `@/lib/me/partitionMeShows` (`partitionMeShows`, `resolveDisplayDate`, type
+> `PartitionedMeShow`), `@/lib/time/relative` (`relativeDayChip`), and
+> `type CrewShowSummary` from `@/lib/data/listShowsForCrew` — every one browser-safe: the
+> two type imports erase at compile, `lib/time/relative.ts` imports nothing, and
+> `lib/me/partitionMeShows.ts:26` carries only the type import. `app/me/page.tsx` imports
+> `MeShowSections` back and keeps `MePage` and every line of server logic; **this is a pure
+> relocation with zero behavior change**, and the §2.1 site cited today at
+> `app/me/page.tsx:239` moves verbatim with it and is repaired in the new module. The live
+> entry imports **app/me/meShowSections.tsx** (new file) — NEVER `app/me/page.tsx`.
+>
+> **Probe P7 proves the extraction seam end-to-end** (§7): the verbatim-relocated module,
+> bundled with the UNMODIFIED `_step3ReviewModalBundle.mjs`, renders in jsdom with zero
+> errors — `me-past-summary` present, carrying today's exact §2.1 class string.
+>
+> **Rejected alternative, so it is not re-proposed: teaching `emptyNodeBuiltins` a
+> functional `AsyncLocalStorage` stub.** That changes the shared bundler's semantics for the
+> two existing specs that invoke it, and it keeps `next/headers`' server-request internals,
+> `@supabase/ssr`, and the rest of the page's server graph live inside a browser bundle
+> behind ever-deeper stubs — an unprobed, unbounded surface. Same fence as the
+> `_bundleLiveEntryChild.mjs` prohibition below: a redesign of a surface this branch does
+> not otherwise touch. The class is closed by sweep, not hope: the only non-elided path
+> from any §8-mounted component into `lib/log/requestContext.ts` is `app/me/page.tsx`
+> itself (the `app/admin/settings/admins/actions.ts` / `developerActions.ts` reach sits
+> behind `"use server"` directive prologues the `useServerDirectivePlugin` elides), so the
+> extraction removes the last one.
+>
+> **Why the ordinary helper is out for BOTH private components, and the bundle path must be
+> named.** Both containing modules statically import server-side graphs
+> (`app/me/page.tsx:42`, `components/admin/OnboardingWizard.tsx:26`), and those graphs reach
+> Node builtins that a browser bundle cannot resolve. Measured by bundling each named export
+> with the ordinary helper's settings:
 >
 > ```text
 > MeShowSections:      FAIL  Could not resolve "node:async_hooks"  @ lib/log/requestContext.ts
@@ -658,7 +708,7 @@ DI-1…DI-15 across 320/390/768/1280 (DI-11/DI-12 additionally at 360 and 440, t
 > browser cannot load. The harness that does work stubs them: `_step3ReviewModalBundle.mjs`
 > installs an `emptyNodeBuiltins` resolver that maps every name in `builtinModules` (both
 > `x` and `node:x` forms) to an empty CJS module
-> (`tests/e2e/_step3ReviewModalBundle.mjs:50-70`). That is why the `_pillFocusLiveEntry`
+> (`tests/e2e/_step3ReviewModalBundle.mjs:58-69`). That is why the `_pillFocusLiveEntry`
 > precedent bundles at all — `tests/e2e/attention-pill-focus.spec.ts:50` invokes that
 > bundler, not the ordinary helper.
 >
@@ -737,7 +787,7 @@ DI-1…DI-15 across 320/390/768/1280 (DI-11/DI-12 additionally at 360 and 440, t
 
   | Assertion | Vacuous when | Premise |
   |---|---|---|
-  | DI-1, DI-2 | The conditional disclosure never rendered, so there is no `<summary>` to measure and a "no element is under 44px" phrasing passes trivially | The rendered `<summary>` count **equals 7**, the number of repaired disclosures mounted — not merely "> 0", which one rendered fixture satisfies |
+  | DI-1, DI-2 | The conditional disclosure never rendered, so there is no `<summary>` to measure and a "no element is under 44px" phrasing passes trivially | The rendered `<summary>` count **equals 7**, the number of repaired disclosures mounted — not merely "> 0", which one rendered fixture satisfies. DI-1 then asserts all seven; DI-2 asserts the **six Class-A** summaries only (`HelpTooltip` excluded per §6 — its width is pinned at exactly 44 by DI-10) |
   | Heading no-skip | Both promoted sections are conditional (`components/admin/wizard/Step3Review.tsx:745`, `components/admin/wizard/Step3Review.tsx:1397`); with neither rendered the page is just an `h1`, and "no level is skipped" is trivially true | **Both** promoted `h2`s are present in the fixture, asserted before the sequence check |
   | DI-3 | Fewer than two pills render, so "no two overlap" is trivially true | Exactly three pill targets are present |
   | DI-7 | The viewport is not actually 320px | Measured `window.innerWidth === 320` |
@@ -793,9 +843,10 @@ finished before it. **Reachability: PROBED.**
 
 ## 10. Acceptance criteria
 
-- **AC-1** **All seven** sites in §2.1 render a `<summary>` measuring ≥44px on both axes,
-  each narrower than its container, each mounted in the state that makes it exist (DI-1,
-  DI-2, §3).
+- **AC-1** **All seven** sites in §2.1 render a `<summary>` measuring ≥44px on both axes
+  (DI-1), the **six Class-A** summaries each narrower than their container (DI-2 —
+  `HelpTooltip` is instead pinned at exactly 44×44 by DI-10), each mounted in the state that
+  makes it exist (§3).
 - **AC-2** **All seven** targets in §2.2 — the three step pills, both `HelpSheet` buttons,
   `HelpTooltip`, and the `AdminNav` brand link — expose a ≥44×44 target whose four edge
   midpoints hit it, with **each control's OWN painted box preserved at its existing size**
