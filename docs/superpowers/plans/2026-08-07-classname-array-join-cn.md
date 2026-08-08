@@ -7,7 +7,7 @@ references below are to it).
 **Implementer:** Opus / Claude Code (UI surface — routing hard rule).
 
 `impeccable-gate: required — UI surface (18 files under components/ and app/); critique + audit both
-run at Task 9, dispositions in §12.`
+run at Task 8, dispositions in §12.`
 
 ---
 
@@ -16,16 +16,16 @@ run at Task 9, dispositions in §12.`
 | id | Criterion |
 |---|---|
 | AC-1 | `lib/ui/cn.ts` exports `cn` + `ClassValue`; unit test covers every row of spec §3.2. |
-| AC-2 | All 36 sites call `cn`; zero array-join classNames remain under `components/`/`app/` at ANY separator spelling. |
+| AC-2 | All 36 sites call `cn`; recognizer reports zero across every UI source extension (`.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, `.cjs`), any whitespace separator, any syntactic position. |
 | AC-3 | `scripts/verify-cn-operand-parity.mjs` reports parity for all 36 sites; output in the PR body. One-shot, not a tracked test. |
 | AC-4 | `DayCard` `tone === "set"` dot: unchanged `classList`, no trailing space. |
 | AC-5 | `pnpm lint` clean; fixes applied are exactly C1–C6, no undeclared rewrite. |
 | AC-6 | Census guard deleted; zero-tolerance guard replaces it with its premise fixture. |
-| AC-7 | Premise pair passes: drift in `cn(...)` reported at literal AND ternary args; same drift in an array join not reported, at all three separator spellings. |
+| AC-7 | Premise pair passes: drift in `cn(...)` reported at literal AND ternary args; same drift in an array join not reported — all three separator spellings, in BOTH the inline and via-variable shape. Recognizer fixture catches all seven escape shapes. |
 | AC-8 | Full suite green; `pnpm typecheck` clean. |
 | AC-9 | Invariant 8 dual-gate run; P0/P1 fixed or deferred; dispositions recorded. |
 | AC-10 | Ledger entry archived, marker removed in the PR's last commit; two new entries filed. |
-| AC-11 | C1/C5 verified in a real browser within 0.5px; `tests/crew/transitionAudit.test.ts` unchanged and green. |
+| AC-11 | C1/C5 match a baseline captured BEFORE canonicalization, within 0.5px, via Playwright; `tests/crew/transitionAudit.test.ts` unchanged and green. |
 
 ---
 
@@ -45,13 +45,13 @@ new test file needs no `testMatch` or workflow path-filter wiring. No new CI job
 
 ---
 
-## Commit-greenness note (read before Task 4)
+## Commit-greenness note (read before Task 3)
 
 Spec §4 requires stage 1 (migration) and stage 2 (canonicalization) to land as **separate commits**
 so a reviewer can diff them apart. The consequence is deliberate and stated here so it is not
-discovered as a finding: **the Task 4 commit has 10 known `pnpm lint` errors** — the violations the
-migration makes visible for the first time (spec §2.4). They are fixed in Task 5, and the branch is
-green from Task 5 onward. CI gates the PR's final state, not each intermediate commit. The Task 4
+discovered as a finding: **the Task 3 commit has 10 known `pnpm lint` errors** — the violations the
+migration makes visible for the first time (spec §2.4). They are fixed in Task 4, and the branch is
+green from Task 4 onward. CI gates the PR's final state, not each intermediate commit. The Task 3
 commit message must say this explicitly.
 
 Merging the two tasks to keep every commit green would destroy the property that makes a 36-site
@@ -70,7 +70,7 @@ mechanical diff reviewable: that stage 1 changes no class token at all.
 
 1. `git -C <worktree> fetch origin && git -C <worktree> rebase origin/main`.
 2. Re-run the inventory probe **separator-agnostically** (spec §2.2 — a sweep keyed on the literal
-   `.join(" ")` cannot see the escape spellings Task 7 closes) and confirm 36 sites across the 18
+   `.join(" ")` cannot see the escape spellings Task 6 closes) and confirm 36 sites across the 18
    files:
    ```
    git ls-files -z components app | tr '\0' '\n' | grep -E '\.tsx?$' \
@@ -117,7 +117,7 @@ Fails: the module does not exist.
 ("records that NO recognized callee exists to migrate to yet") asserts no `cn` helper exists
 anywhere. Landing `cn` makes it fail by construction; its own failure message says a `cn` helper
 existing is the signal to do this migration. Delete **only that `it(...)` block** in this commit. The
-census itself and the rule-is-on pin stay until Task 7 — the census is still true and still load-bearing
+census itself and the rule-is-on pin stay until Task 6 — the census is still true and still load-bearing
 until the migration lands.
 
 **Failure mode caught:** a `cn` that trims, dedupes, or merges would silently change ~36 rendered
@@ -126,71 +126,60 @@ would pass against `tailwind-merge`.
 
 **Commit:** `feat(ui): add a local cn class-name helper`
 
-## Task 3 — the operand-parity verification script (one-shot, NOT a tracked test)
+## Task 3 — migrate all 36 sites, under the operand-parity check
 
 <!-- task: red=`node scripts/verify-cn-operand-parity.mjs` ac=AC-3 -->
 
-Write `scripts/verify-cn-operand-parity.mjs`. It proves the migration is a pure syntactic rewrite,
-and it is the load-bearing anti-tautology mechanism for the migration itself.
+RED and GREEN live in **one** task (invariant 1). The parity check is written and observed failing,
+then the migration turns it green, then one commit. Splitting them across tasks would put a
+deliberately-red commit on the branch.
+
+**RED — write `scripts/verify-cn-operand-parity.mjs` and watch it fail.**
+
+It proves the migration is a pure syntactic rewrite, and it is the load-bearing anti-tautology
+mechanism for the migration.
 
 **It is a script, not a vitest file, and that is load-bearing** (spec §4.3). As a tracked test it
 would (a) be unable to resolve its own baseline — the unit workflow checks out at depth 1 and fetches
-only pinned history (`.github/workflows/unit-suite.yml:110-120`) — and (b) permanently freeze the
-class lists of all 18 files against a closed migration's C1–C6 allowlist. Do not add it to
+only one pinned object (`.github/workflows/unit-suite.yml:110`) — and (b) permanently freeze the
+class lists of all 18 files against a closed migration's C1–C6 allowlist. Do not put it under
 `tests/`, and do not wire it into any workflow.
 
 Design, per `docs/agents/writing-plans.md`:
 
-- **Expected values come from the pre-migration source, never from a literal in the test.** Read each
-  of the 18 files at the base commit via `git show <BASE_SHA>:<path>` (resolve `<BASE_SHA>` as
-  `git merge-base origin/main HEAD`, recorded once). Extract each array-join's operand list by
-  bracket-matching backward from `.join(" ")`, tolerating an intervening `.filter(Boolean)`.
-- Extract the corresponding `cn(...)` argument list from the **working tree** file.
-- Assert per site: same operand count, and same operand text after normalizing insignificant
-  whitespace and stripping comments.
-- **Declared-delta allowance.** Class tokens rewritten in Task 5 are permitted only where the spec §6
-  table declares them (C1–C6), expressed as an explicit `EXPECTED_TOKEN_DELTAS` map. **An undeclared
-  token change fails.** This is what keeps the test meaningful after canonicalization instead of
-  being loosened into uselessness.
-- **State the premise executably.** `tests/_shared/premise.ts:26` exports
-  `premise(description: string, actual: number, mustExceed: number)`, and
-  `tests/_shared/premise.ts:36` exports `premiseHolds(description: string, condition: boolean)`.
-  Immediately above the parity assertion:
-  ```ts
-  premiseHolds("base-commit extraction found all 36 array-join sites", baseSites.length === 36);
+- **Expected values come from the pre-migration source, never from a literal.** Read each of the 18
+  files at the pre-migration commit via `git show <sha>:<path>`, resolving `<sha>` once from
+  `git rev-parse HEAD` taken **before** the migration edits (it is a local, unpushed-history-safe
+  read, not a CI-time lookup — which is exactly why this is a script).
+- Extract each array-join's operand list by bracket-matching backward from the join, tolerating an
+  intervening `.filter(Boolean)`; extract the corresponding `cn(...)` argument list from the working
+  tree; assert the same operand sequence, comparing after stripping comments and insignificant
+  whitespace.
+- **Declared-delta allowance.** Class tokens rewritten in Task 4 are permitted only where spec §6
+  declares them (C1–C6), as an explicit `EXPECTED_TOKEN_DELTAS` map. An undeclared token change
+  fails. (On the Task 3 run nothing has been canonicalized yet, so the map is inert here; it earns
+  its keep when the script is re-run at the end of Task 4.)
+- **State the premise executably.** Immediately above the parity assertion, and unconditionally —
+  never inside a `.each` callback, whose case count can be zero:
+  ```js
+  assert(baseSites.length === 36, "premise: base-commit extraction found all 36 array-join sites");
   ```
   Without it, an extractor that silently found zero sites would report "all sites match" while
-  comparing nothing — exactly the degenerate pass this rule exists to stop. The premise executes
-  **unconditionally**, not inside a `.each` callback, whose case count can be zero.
+  comparing nothing.
 
-Fails now: zero `cn(...)` classNames exist in the working tree, so every site mismatches. That
-failing run is the RED; Task 4 turns it green.
+Run it: it fails on all 36 sites, because no `cn(...)` className exists yet.
 
-**Failure mode caught:** a migration that drops, reorders, or rewrites an operand — the one way a
-mechanical 36-site diff can change rendering while looking correct in review.
+Also add, in this task, the `DayCard` E2 assertions to `tests/components/crew/primitives.test.tsx`,
+which fail against the pre-migration component:
 
-**Lifecycle, stated so it is not rediscovered:** run in Task 4, output pasted into the PR body, and
-the script retained in `scripts/` as unwired tooling (it documents how the migration was verified).
-It is never added to the suite, so it can never go stale against future class edits.
+- Render `DayCard` with `tone === "set"`; assert the dot's `className` has **no trailing space**
+  (`expect(cls).toBe(cls.trimEnd())`).
+- Assert its `classList` token set is unchanged versus the other tone branches' shared tokens (spec
+  §4, E2 — the token set is what the migration preserves).
+- Render `tone === "show"` and the default tone too, so all three branches are exercised; only `set`
+  changes bytes.
 
-**Commit:** `chore(ui): add the one-shot cn operand-parity verification script`
-
-## Task 4 — migrate all 36 sites
-
-<!-- task: red=`pnpm vitest run tests/specLint/cnOperandParity.test.ts tests/components/crew/primitives.test.tsx` ac=AC-2 -->
-
-**RED (added first, in this task).** `node scripts/verify-cn-operand-parity.mjs` from Task 3 fails
-on all 36 sites. Additionally extend `tests/components/crew/primitives.test.tsx` with the
-`DayCard` E2 assertions from spec §4, which fail against the pre-migration component:
-
-- Render `DayCard` with `tone === "set"`. Assert the dot element's `className` has **no trailing
-  space** (`expect(cls).toBe(cls.trimEnd())`).
-- Assert its `classList` contents are unchanged versus the other tone branches' shared tokens —
-  i.e. the token *set* is what the migration preserves, per spec §4 E2.
-- Also render `tone === "show"` and the default tone so all three branches are exercised; only the
-  `set` branch changes bytes.
-
-**GREEN.** Apply the spec §5 rewrite to all 36 sites:
+**GREEN — apply the spec §5 rewrite to all 36 sites:**
 
 ```
 className={[A, B, C].join(" ")}                →  className={cn(A, B, C)}
@@ -205,24 +194,40 @@ Operands, order, and interleaved comments preserved verbatim. Add
 Do **not** touch `components/admin/wizard/step3ReviewSections.tsx` or
 `components/admin/review/sectionFreshness.ts` — data joins (spec §2.2).
 
-**Do not run `eslint --fix` in this task.** That is Task 5, and conflating them defeats the staging.
+**Do not run `eslint --fix` in this task.** That is Task 4, and conflating them defeats the staging.
 
-`pnpm lint` is expected to report exactly the 10 errors of spec §2.4 at the end of this task. Say so
-in the commit message (see the commit-greenness note above).
+`pnpm lint` is expected to report exactly the 10 errors of spec §2.4 at the end of this task — see
+the commit-greenness note above, and say so in the commit message.
 
-**Failure mode caught:** the differential from Task 3 catches operand drift; the `DayCard`
-assertions catch the single site where operands are preserved but bytes still move.
+**Failure mode caught:** the parity script catches a migration that drops, reorders, or rewrites an
+operand — the one way a mechanical 36-site diff changes rendering while looking correct in review.
+The `DayCard` assertions catch the single site where operands are preserved but bytes still move.
 
 **Commit:** `refactor(ui): migrate array-join classNames to the cn callee`
 
-## Task 5 — canonicalize what the rule can now see
+## Task 4 — canonicalize, under a captured dimensional baseline
 
 <!-- task: red=`pnpm lint` ac=AC-5 -->
 
-**RED.** `pnpm lint` reports the 10 errors across 6 files enumerated in spec §2.4.
+The two sizing canonicalizations (C1, C5) must be shown not to move geometry. That requires a
+**baseline captured before the fix is applied** — a post-hoc "width ≤ token" assertion would pass on
+a box that changed from 45px to 55px, and "height ≥ token" would pass on 200px→176px. So capture and
+compare are two halves of this one task, in that order.
 
-**GREEN.** Run `eslint --fix` scoped to the 18 files. Then verify the applied fixes are **exactly**
-C1–C6 from spec §6:
+**Step 1 — capture the baseline (tree is migrated, NOT yet canonicalized).**
+
+Stage 1 changed no class token (spec §4), so the geometry here is identical to base. Run the
+dimension spec in capture mode and commit
+`tests/e2e/__baselines__/canonical-dimensions.json`, recording `getBoundingClientRect()` for:
+
+- the step-indicator connector rule, `components/admin/OnboardingWizard.tsx:200-203`
+  (`h-px max-w-[60px] flex-1 rounded-full`) — the C1 target;
+- the `RightNowHero` card, `components/crew/RightNowHero.tsx:481` — the C5 target.
+
+**Step 2 — RED.** `pnpm lint` reports the 10 errors across 6 files of spec §2.4.
+
+**Step 3 — GREEN.** Run `eslint --fix` scoped to the 18 files, then verify the applied fixes are
+**exactly** C1–C6 from spec §6:
 
 | # | File | Before → After |
 |---|---|---|
@@ -233,97 +238,92 @@ C1–C6 from spec §6:
 | C5 | `components/crew/RightNowHero.tsx` | `min-h-(--spacing-right-now-min-h)` → `min-h-right-now-min-h` |
 | C6 | `components/crew/sections/TodaySection.tsx` | `text-sm leading-snug` → `text-sm/snug` |
 
-**A rewrite not in this table is a finding, not a fix.** Stop and report rather than accepting it —
-an undeclared rewrite means the spec's §2.4 measurement no longer describes the tree, and the
-equivalence argument in §4/§6 rests on that measurement.
+**A rewrite not in this table is a finding, not a fix.** Stop and report — an undeclared rewrite
+means spec §2.4's measurement no longer describes the tree, and the §4/§6 equivalence argument rests
+on it.
 
-`git diff` for this commit must touch only class-token text; if it touches an operand, Task 3's
-differential will fail, which is the intended cross-check.
+**Step 4 — assert geometry is unchanged.** Re-run the dimension spec against the captured baseline:
+every recorded box matches within **0.5px**. This is an equality check against a real prior
+measurement, not a one-sided bound against a token.
 
-**Failure mode caught:** `eslint --fix` making a change the spec did not predict and nobody reads,
-because the diff is filed mentally under "lint autofix."
+Re-run `node scripts/verify-cn-operand-parity.mjs`; it must now pass with the C1–C6 deltas allowed
+and no others.
+
+**Failure mode caught:** a canonicalization whose token does not resolve to the value it replaced,
+moving layout by a few pixels that no unit test and no reviewer would see.
 
 **Commit:** `fix(ui): canonicalize the classes the cn migration made visible`
 
-## Task 6 — real-browser dimension check for the two sizing canonicalizations
+## Task 5 — dimension harness readiness and the transition audit
 
-<!-- task: red=`pnpm vitest run tests/e2e/classnameCanonicalDimensions.spec.ts` ac=AC-11 -->
+<!-- task: red=`pnpm exec playwright test tests/e2e/canonicalDimensions.spec.ts` ac=AC-11 -->
 
-C1 and C5 are the only deltas that change a **sizing** utility rather than a shorthand identity, so
-they are measured rather than argued (spec §9.4). jsdom does not compute layout; this must run in a
-real browser.
-
-**RED then GREEN.** Assert with `getBoundingClientRect()`, within 0.5px:
-
-- **C1** — the step-indicator connector rule in `components/admin/OnboardingWizard.tsx:200-203`
-  (`h-px max-w-[60px] flex-1 rounded-full`, now `max-w-confirm-box`) has `width` ≤ 60px and its
-  measured box matches the pre-canonicalization capture.
-- **C5** — the `RightNowHero` card (`components/crew/RightNowHero.tsx:481`) has `height` ≥ 176px.
-  This one is already a ratified invariant (`app/globals.css:205-209`: the card holds 176px constant
-  through the §4.3 crossfade), which is why C5 is verified rather than assumed.
-
-**Derive the expected values from the tokens, not from literals** — read `--spacing-confirm-box` and
-`--spacing-right-now-min-h` off the computed style and compare against the measured box. A hardcoded
-60/176 would still pass if the token were redefined, which is the tautology this avoids.
+The Task 4 measurements run in a real browser — jsdom does not compute layout — so the spec they use
+is a **Playwright** spec driven by `pnpm exec playwright test`, never through vitest.
 
 **Harness readiness** (`docs/agents/writing-plans.md` e2e checklist):
 
-- **Boot:** the repo's existing Playwright e2e setup and its production-build server; do not
-  introduce a new server mechanism for two assertions. `tests/e2e/admin-layout-dimensions.spec.ts`
-  is an existing `getBoundingClientRect()` dimension spec in this repo — follow its boot, gate, and
-  assertion shape rather than inventing a second pattern.
-- **Readiness gate:** await the surface's established hydration gate before the first measurement —
-  never `networkidle` alone. A `getBoundingClientRect()` taken pre-hydration reads a pre-layout box
-  and produces a confident wrong number.
-- **Detach safety:** both targets are static on their page; no sampler outlives its element. If a
-  measurement is moved inside a transition, it must guard against auto-wait hanging on an unmounted
-  node.
+- **Boot:** the repo's existing Playwright setup and its production-build server.
+  `tests/e2e/admin-layout-dimensions.spec.ts` is an existing `getBoundingClientRect()` dimension spec
+  here — follow its boot, gate, and assertion shape rather than inventing a second pattern.
+- **Readiness gate:** await the surface's established hydration gate before the first measurement,
+  never `networkidle` alone. A rect read pre-hydration is a confident wrong number.
+- **Detach safety:** both targets are static on their page, so no sampler outlives its element. The
+  crossfade measurement below samples a live element — it must guard against auto-wait hanging on an
+  unmounted node.
 
-**Transition audit, same task.** Spec §9.5 declares that no transition is added, removed, or altered.
-That declaration is checked rather than trusted, because `components/crew/RightNowHero.tsx` is both a
-migrated file (3 sites) and the repo's most transition-dense surface — it drives an `AnimatePresence`
-crossfade over the card whose 176px height C5 touches.
+**Transition audit.** Spec §9.5 declares that no transition is added, removed, or altered; that is
+checked, not trusted, because `components/crew/RightNowHero.tsx` is both a migrated file (3 sites)
+and the repo's most transition-dense surface — it drives an `AnimatePresence` crossfade over the very
+card whose height C5 touches.
 
-- Enumerate every `AnimatePresence`, `motion.*`, ternary render, and conditional block in the 18
-  migrated files, and confirm each still carries the same `initial` / `animate` / `exit` props it
-  carried at the base commit. The migration touches `className` values only; a changed motion prop
-  means the rewrite escaped its scope.
-- Confirm the compound case the crossfade creates: the `RightNowHero` card holds its height through
-  a state crossfade (`app/globals.css:205-209`), so measure C5's 176px **during** the crossfade, not
-  only at rest. A canonicalization that changed the min-height would show up only mid-transition.
+- Enumerate every `AnimatePresence`, `motion.*`, ternary render, and conditional block across the 18
+  migrated files, and confirm each still carries the `initial` / `animate` / `exit` props it carried
+  at base. The migration touches `className` values only; a changed motion prop means the rewrite
+  escaped its scope.
+- **Compound case:** measure the C5 card's height **during** the crossfade, not only at rest. The
+  176px constant is a ratified invariant (`app/globals.css:205-209`), and a min-height change would
+  show up only mid-transition.
 - `tests/crew/transitionAudit.test.ts` passes **unchanged**. An assertion there that moves is a
   signal the migration was not operand-preserving, not a reason to update the audit.
 
-**Failure mode caught:** a token whose value does not match the bracket literal it replaced, changing
-layout by a few pixels that no unit test and no reviewer would see — and, for the crossfade, a
-height change visible only while a transition is in flight.
+**Failure mode caught:** a geometry or motion regression visible only while a transition is in
+flight, which a rest-state-only check reports as green.
 
-**Commit:** `test(ui): pin the two sizing canonicalizations in a real browser`
+**Commit:** `test(ui): pin the canonicalized dimensions and the transition audit`
 
-## Task 7 — replace the census guard
+## Task 6 — replace the census guard
 
 <!-- task: red=`pnpm vitest run tests/specLint/canonicalClassCallee.test.ts` ac=AC-6 -->
 
 **RED.** Write `tests/specLint/canonicalClassCallee.test.ts` (spec §7):
 
-1. **Zero-tolerance recognizer, keyed on the call and not on its separator argument.** Reuse the
-   census guard's two-shape scanner with the census replaced by the empty set — but **widen it off
-   the literal `.join(" ")`** it matches today (`tests/specLint/canonicalClassArray.test.ts:95`).
-   Probed (spec §7.1): a className built with `` .join(` `) `` or `.join(' ')` is invisible to both
-   the old scanner and the eslint rule, and Prettier preserves all three spellings. Match **any**
-   `.join(` in a className position or in a class-string const, whatever its separator — every array
-   join is opaque to the rule, so the separator is irrelevant. State the accept-set positively (plain
-   string literal, non-joining template literal, or a recognized callee); a denylist of separator
-   spellings would accept whatever it failed to model. Strictly stronger than the census it replaces.
+1. **Zero-tolerance recognizer, keyed on the join's separator and position-free.** Do **not** reuse
+   the census scanner's shape. It carries three independent escapes, all probed silent in spec §7.1:
+   it anchors on the literal `className={[` / `const x = [`, it matches the separator `.join(" ")`
+   exactly, and it scans only `/\.tsx?$/`.
+
+   Implement spec §7.1's accept-set instead: report **every array join whose separator is a
+   non-empty whitespace string literal at any quote style, anywhere in any UI source file**
+   (`.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, `.cjs`), with no positional anchor. Carry the two legitimate
+   data joins as a **named exemption list with a reason each** —
+   `components/admin/wizard/step3ReviewSections.tsx` and
+   `components/admin/review/sectionFreshness.ts`, both `[row.date, row.time]` — so a new whitespace
+   join fails by default rather than being silently absorbed by a heuristic.
+
+   Calibration is already probed (spec §7.1): the recognizer yields 38 whitespace-join sites at base
+   — 36 classNames + the 2 exemptions — and after Task 3 must report **zero**.
 2. **The recognizer's premise, stated executably.** A zero-tolerance guard cannot prove its scanner
    works by finding a non-empty set — "found nothing" is both the passing state and what a broken
    scanner reports. So: run the scanner against an **inline fixture string** containing a known
    array-join className and assert it **is** found, immediately above the assertion that the real
    tree yields none. Unconditional, not inside a `.each` callback.
-   **The fixture carries all three separator spellings in both shapes** (inline and via-variable).
-   A fixture exercising only `.join(" ")` would let the widened recognizer silently regress to the
-   old spelling dependency while its premise check still passed — the vacuous premise reintroduced
-   one level up.
+   **The fixture carries all seven escape shapes from spec §7.1** — ternary-at-className, template
+   interpolation, backtick separator, single-quote separator, call-argument position, via-variable
+   const, and the `.jsx` extension — plus the three negatives that must NOT hit (`.join(", ")`,
+   `.join("")`, `cn(...)`). A fixture exercising only `.join(" ")` in the `className={[` position
+   would let the recognizer silently regress to the census scanner's shape while its premise check
+   still passed: the vacuous premise reintroduced one level up.
 3. **Rule-is-on pin.** `eslint.config.mjs` still sets
    `"better-tailwindcss/enforce-canonical-classes": "error"`. A guard that outlives its rule pins
    nothing.
@@ -347,14 +347,15 @@ className lands dark — the exact regression the census existed to stop (spec �
 
 **Commit:** `test(lint): replace the array-join census with a zero-tolerance callee guard`
 
-## Task 8 — file the two out-of-scope entries
+## Task 7 — file the two out-of-scope entries
 
 <!-- task: red=`pnpm vitest run tests/docs` ac=AC-10 -->
 
 Both carry probe evidence, so both clear the ledger filing bar without an
 `**Reachability:** INFERRED, NOT PROBED` field (spec §11).
 
-- **`BL-SHADOW-TILE-ARROW-SYNTAX`** — 23 `shadow-(--shadow-tile)` sites tree-wide, probed unreported
+- **`BL-SHADOW-TILE-ARROW-SYNTAX`** — 21 `shadow-(--shadow-tile)` class-string sites tree-wide (24
+  textual matches across 18 files, 3 of them in doc comments), probed unreported
   by the rule. Include the spec §9.1 mechanism table: the rule canonicalizes tokens whose `@theme`
   value is a literal and skips those defined through a `var()` indirection, so **every** `-runtime`
   indirection token in this project is invisible to it — not just shadows. The entry also owns
@@ -372,7 +373,7 @@ graduation edit for it.
 
 **Commit:** `docs(plan): file the two lint-coverage residuals this arc leaves open`
 
-## Task 9 — invariant 8 dual gate
+## Task 8 — invariant 8 dual gate
 
 <!-- task: red=`pnpm lint` ac=AC-9 -->
 
@@ -394,7 +395,7 @@ canonicalizations are semantics-preserving. A P0/P1 here most likely means a can
 
 **Commit:** `fix(ui): impeccable dual-gate dispositions` (only if findings require changes)
 
-## Task 10 — whole-diff cross-model review
+## Task 9 — whole-diff cross-model review
 
 <!-- task: red=`pnpm test` ac=AC-8 -->
 
@@ -402,7 +403,7 @@ Full suite + `pnpm typecheck` green first. Then dispatch a whole-diff Codex revi
 `scripts/codex-guard.mjs` with `--stage diff`, iterating to APPROVE.
 
 The brief carries: REVIEWER ONLY, fresh-eyes posture, `VERDICT:` + `FINDINGS:` instructions, the
-consequence bound and threat-model fence (the guard surface in Task 7 makes this mandatory), and the
+consequence bound and threat-model fence (the guard surface in Task 6 makes this mandatory), and the
 do-not-relitigate list from spec §1.1 — **including the ratified local-`cn` decision**, which is the
 single most likely thing for a fresh reviewer to reopen.
 
@@ -412,7 +413,7 @@ replacement) with the file list inlined in each brief, rather than attempting wh
 
 **Commit:** per round, if repairs are needed.
 
-## Task 11 — CI, merge, ledger graduation
+## Task 10 — CI, merge, ledger graduation
 
 <!-- task: red=`pnpm ledger:claims --check BL-CLASSNAME-ARRAY-JOIN-MIGRATION` ac=AC-10 -->
 
