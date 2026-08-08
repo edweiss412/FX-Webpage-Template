@@ -67,20 +67,25 @@ rule stays traceable to its evidence.
 | # | Target | Action | Substance | Source filing |
 | --- | --- | --- | --- | --- |
 | P1 | `docs/agents/writing-plans.md`, anti-tautology bullet | new sub-bullet | **Four pre-dispatch mutants for string-presence guards.** Before dispatching review of any test asserting "this string appears in this output," run: (a) empty value, (b) expected content plus a suffix, (c) content present but not live (commented out, escaped, in an attribute), (d) each discriminating parameter of the function under test. Record each result in the commit. Four rounds on `feat/l-wave-push` were all test-side escapes these four mutants find in minutes. | `docs/review-rounds/feat/l-wave-push/a0e41551c059.md` |
-| P2 | `docs/agents/writing-plans.md`, new bullet (handoff/closeout text shapes) | new bullet | **Three one-line lint shapes over HANDOFF/plan text**, each caught only by review at least twice across the arc-A/B/C batch: (i) *review covers what merges* — the diff the final review round examined must be the diff that merges (final-diff ordering); (ii) *handoff gate checks read anchored state from origin*, never from bounded log output (`git log -N` can truncate past the fact being asserted); (iii) *gate-grep precision* — a handoff's "grep proves the gate ran" command must match only the gate's own output shape. | `docs/review-rounds/docs/arc-c-spec/a0e41551c059.md` (plan §), `docs/review-rounds/docs/arc-b-spec/a0e41551c059.md` (plan §) |
-| P3 | `docs/agents/writing-plans.md`, anti-tautology bullet | new sub-bullet | **RED validity.** For every planned RED step, name the production line whose absence/defect makes it fail. A RED whose failure derives from a test-local fixture is invalid by construction. Companion check from arc C: run the guard-premise check (`tests/_shared/premise.ts` posture) against the DRAFTED test design before dispatch, not after implementation. | `docs/review-rounds/docs/arc-a-spec/a0e41551c059.md` (plan §), `docs/review-rounds/docs/arc-c-spec/a0e41551c059.md` (spec §) |
+| P2 | `docs/agents/writing-plans.md`, new bullet (handoff/closeout text shapes) | new bullet | **Three one-line lint shapes over HANDOFF/plan text**, all caught only by review across the arc-A/B/C batch — final-diff ordering in two arcs independently, the other two once each (gate-grep precision is arc B's second distinct HANDOFF-text defect class instance): (i) *review covers what merges* — the diff the final review round examined must be the diff that merges (final-diff ordering); (ii) *handoff gate checks read anchored state from origin*, never from bounded log output (`git log -N` can truncate past the fact being asserted); (iii) *gate-grep precision* — a handoff's "grep proves the gate ran" command must match only the gate's own output shape. | `docs/review-rounds/docs/arc-c-spec/a0e41551c059.md` (plan §), `docs/review-rounds/docs/arc-b-spec/a0e41551c059.md` (plan §) |
+| P3 | `docs/agents/writing-plans.md`, anti-tautology bullet | new sub-bullet | **RED validity.** For every planned RED step, name the production line whose absence/defect makes it fail. A RED whose failure derives from a test-local fixture is invalid by construction. | `docs/review-rounds/docs/arc-a-spec/a0e41551c059.md` (plan §) |
 | P4 | `docs/agents/writing-plans.md`, "Reconciliation/closeout sweeps" bullet | extend | **Registry count reconciliation.** When a plan adds/removes rows in a registry-bearing meta-suite, the plan body includes the mechanical diff of the registry arrays against the tasks' stated additions/removals — same authored-AND-run posture as the sweep rule this extends. | `docs/review-rounds/docs/arc-a-spec/a0e41551c059.md` (plan §) |
 | P5 | `docs/agents/spec-self-review.md`, live-code-citation bullet | extend | **Render-path enumeration.** For every component the spec claims emits (or must not emit) a protected data class, enumerate every render path of that component that can emit it — not only the cited lines. The arc-A citation pass read the named sites and missed a raw fallback path; the filing estimates this one step would have cut R1 from 9 findings to ~3. | `docs/review-rounds/docs/arc-a-spec/a0e41551c059.md` (spec §) |
 | P6 | `docs/agents/spec-self-review.md`, probe-before-argue bullet | extend | **Probe scripts get their own mini-review.** A probe script whose output feeds a spec's calibration table is itself a spec input: review it (iteration bounds, truncation, declared-vs-imported counts) before quoting its output as fact. Arc B shipped a declared-vs-imported iteration bug and a truncation in a probe the spec then cited. | `docs/review-rounds/docs/arc-b-spec/a0e41551c059.md` (spec §) |
-| P7 | `docs/agents/writing-plans.md`, new bullet (repair economy for recognizer/guard surfaces) | new bullet | **Repair economy.** Condensed from the two arcs that measured it: (1) a recognizer bounded by a NUMBER (cap, position, backreference) will be found by the next reviewer — derive the bound from the input instead; (2) a key that can ALIAS is not a clock — recency wants a monotonic ordinal, not a session/attempt id; (3) a per-site sweep of a value-domain defect does not converge; derive the site list from the artifact (fixture, registry, filesystem walk) so new sites are covered by default; (4) when 3-4 consecutive rounds land on ONE function, stop repairing — the mechanism is answering the wrong question; delete or derive it (the codex-guard emphasis parser: deleted, −71 lines, all shapes unreachable); (5) a scanner's claims are planted as executable self-test shapes (positive AND negative) in the same commit as any widening — widenings without self-tests are the rounds that came back. | `docs/review-rounds/feat/review-round-economy/48b280b949cc.md`, `docs/review-rounds/feat/m-wave-ui/fc4902004b78.md` |
+| P7 | `docs/agents/writing-plans.md`, new bullet (repair economy for recognizer/guard surfaces) | new bullet | **Repair economy.** Condensed from the two arcs that measured it, as the function-grain companion to the existing same-vector-recurrence and structural-defense-calibration bullets (it must cross-reference both, not restate them): (1) a recognizer bounded by a NUMBER (cap, position, backreference) will be found by the next reviewer — derive the bound from the input instead; (2) a key that can ALIAS is not a clock — recency wants a monotonic ordinal, not a session/attempt id; (3) when consecutive rounds keep landing on ONE FUNCTION (the filing measured four), the mechanism is answering the wrong question — the comprehensive re-analysis the same-vector rule already mandates should ask "what question does this function need to answer?" and prefer deleting or deriving the mechanism over widening it (the codex-guard emphasis parser: deleted, −71 lines, all four rounds' shapes unreachable); (4) a scanner's claims are planted as executable self-test shapes (positive AND negative) in the same commit as any widening — widenings without self-tests are the rounds that came back. Site-list derivation is NOT restated here — it lands once, in the class-sweep bullet (P9). | `docs/review-rounds/feat/review-round-economy/48b280b949cc.md`, `docs/review-rounds/feat/m-wave-ui/fc4902004b78.md` |
 | P8 | `docs/agents/writing-plans.md`, "Fix-round regression budget" bullet | extend | **The repair's own tidy-up is a defect site.** Two of m-wave's sharpest findings were in repairs, not originals (`empty:hidden` re-hid a region the fix exposed; a channel migration left the old speaker in place, duplicating speech). The next-round re-grep this bullet already mandates must cover the repair commit's incidental edits, not only the patched class. | `docs/review-rounds/feat/m-wave-ui/fc4902004b78.md` |
-| P9 | `AGENTS.md`, "Class-sweep before patching" bullet | extend, one sentence | **Sweep to a derivation, not a longer list.** A sweep verified by enumeration re-opens the moment someone adds a site; the sweep's output is a derived cover (registry asserted against the scanner, field list derived from the fixture, filesystem walk), which is what "class-sweep" means in practice. The filing measured the enumerated form failing three consecutive rounds on the arc that cites the rule. | `docs/review-rounds/feat/review-round-economy/48b280b949cc.md` (rule 3) |
+| P9 | `AGENTS.md`, "Class-sweep before patching" bullet | extend, one sentence | **Sweep to a derivation, not a longer list.** A sweep verified by enumeration re-opens the moment someone adds a site; the sweep's output is a derived cover (registry asserted against the scanner, field list derived from the fixture, filesystem walk), which is what "class-sweep" means in practice. The filing measured the enumerated form failing three consecutive rounds on the arc that cites the rule. This is the ONLY place the derivation lesson lands (P7 cross-references it). | `docs/review-rounds/feat/review-round-economy/48b280b949cc.md` (rule 3) |
+| P10 | `docs/agents/writing-plans.md`, guard-premise sub-bullet of the anti-tautology rule | extend | **A premise that validates something ADJACENT to the case is not a premise.** The condition must be proven on the case's OWN inputs: m-wave's freshness probe suite asserted "a venue edit paints" and then ran six cases whose own mutations were never checked — a mis-pathed pair produced identical renders reported as PASS. Each case must prove its own inputs differ in the adapted data. | `docs/review-rounds/feat/m-wave-ui/fc4902004b78.md` (rule 2) |
 
 **Explicitly not promoted** (each with reason, so review does not re-nominate):
 
 - Arc B spec filing (a) — AC/limits-ledger drift: filing itself says "the misses were
   non-compliance, not rule gaps"; the numeric/self-consistency sweeps already mandate the
   check. No text change.
+- Arc C spec filing — run the guard-premise check against the DRAFTED test design
+  pre-dispatch: the filing itself says the rule "is already codified in writing-plans —
+  the miss was not running that check"; promoting it would violate §1.1.5
+  (non-compliance, not a rule gap).
 - l-wave-spec filing (a)/(b) — stale-count drift (rule exists, compliance failure) and
   the em-dash census (mechanized by the shipped W-EMDASH guard itself).
 - l-wave-spec plan filing — sweep↔disposition `spec:lint` arm: declined per §1.1.3.
@@ -115,28 +120,47 @@ message" class the economy system itself exists to close.
 
 ### Repaired behavior
 
-1. **Exclusion rule.** A row is EXCLUDED from the advisory's `earliest` computation when
+1. **Chronological comparison, never lexical.** The current code selects `earliest` by
+   LEXICAL sort of `startedAt` strings and only then parses the selected value. The row
+   schema (`lib/reviewRounds/row.ts`, `startedAt` field) accepts `null` or any string,
+   and valid ISO-8601 timestamps with non-Z offsets order differently lexically than
+   chronologically — so a genuinely pre-boundary row can lose the lexical sort to a
+   chronologically-later string and silently suppress the advisory. Repaired: every
+   `startedAt` is parsed ONCE via `Date.parse`; all comparisons in this section
+   (earliest selection, boundary comparison, the exclusion rule's time cap) operate on
+   the parsed values.
+2. **Unparseable timestamps are signaled, never silently dropped.** Rows whose
+   `startedAt` is `null` or fails `Date.parse` (NaN) cannot be placed relative to the
+   boundary. They are excluded from the advisory computation AND counted in a note
+   whenever any exist: `N row(s) without a parseable startedAt are invisible to the
+   boundary advisory.` (Today `null` is silently filtered and NaN silently compares
+   false — both violate the consequence bound.) `mergedAt` needs no such guard: it comes
+   from `git log --format=%cI` (`lib/reviewRounds/mergedArcs.ts`), which cannot emit an
+   unparseable date for a reachable commit — recorded as §5 limit 4, not guarded.
+3. **Exclusion rule.** A row is EXCLUDED from the advisory's `earliest` computation when
    a recognized merge exists with the same `branch` and `mergedAt <= boundary`
    (pre-adoption under the existing `<=` carve-out) and the row's
-   `startedAt <= that merge's mergedAt`. Join is on **branch + time**, deliberately NOT
-   on `arcKey(branch, baseSha)`: `mergedArcs` derives `baseSha` as the merge-base of the
-   merge's two parents (`lib/reviewRounds/mergedArcs.ts`, `merge-base` call), so a
-   split arc's earlier segments (the live case: `20fccb1f3331` vs recognized
-   `48b280b949cc`) can never match an exact key. Time cap included so post-merge rows on
-   a reused branch name still count (§5 limit 1 covers the residual looseness).
-2. **Advisory text drops the verdict.** When it still fires, the line reads:
+   `startedAt <= that merge's mergedAt` (parsed values, per 1). Join is on
+   **branch + time**, deliberately NOT on `arcKey(branch, baseSha)`: `mergedArcs`
+   derives `baseSha` as the merge-base of the merge's two parents
+   (`lib/reviewRounds/mergedArcs.ts`, `merge-base` call), so a split arc's earlier
+   segments (the live case: `20fccb1f3331` vs recognized `48b280b949cc`) can never match
+   an exact key. Time cap included so post-merge rows on a reused branch name still
+   count (§5 limit 1 covers the residual looseness). Several pre-adoption merges of one
+   branch use the latest `mergedAt`.
+4. **Advisory text drops the verdict.** When it still fires, the line reads:
    `ADVISORY: the earliest recorded row (…) from an arc with no pre-adoption merge precedes the declared adoption boundary (…) — the boundary or the row's arc attribution is wrong.`
    The report states the observation and the two possible causes; it no longer asserts
    which.
-3. **Shallow clone / merge-scan refusal withholds the advisory.** The exclusion needs the
+5. **Shallow clone / merge-scan refusal withholds the advisory.** The exclusion needs the
    merge classification; under `merges.shallow` the advisory is `null` and the existing
    shallow-refusal note covers it (extend that note with "; the boundary advisory is
    withheld for the same reason"). A `boundary === null` (not-yet-adopted) run already
    prints its own note and produces no advisory — unchanged.
-4. **Result on the live corpus:** `pnpm review:economy` prints no ADVISORY line, because
+6. **Result on the live corpus:** `pnpm review:economy` prints no ADVISORY line, because
    every pre-boundary row belongs to `feat/review-round-economy` whose one recognized
    merge (`cae50beb0`) is pre-adoption by the `<=` carve-out and postdates every such
-   row. This is AC-W2.5 and is verified against the real repo, not only fixtures.
+   row. This is AC-W2.8 and is verified against the real repo, not only fixtures.
 
 ### Spec amendment (same PR)
 
@@ -164,14 +188,33 @@ the fix:
 4. **Post-adoption merge does not launder.** Row predating BOUNDARY on branch C whose
    only recognized merge has `mergedAt > BOUNDARY`. Expect advisory fires — only
    pre-adoption merges explain pre-boundary rows.
-5. **Shallow withholds.** `merges.shallow` fixture: `boundaryAdvisory === null` and the
-   refusal note names the advisory.
+5. **Shallow withholds an advisory that WOULD fire.** The corpus contains a pre-boundary
+   row on a branch with no recognized merge — the premise pair: the same corpus run
+   non-shallow asserts `boundaryAdvisory !== null` first, so the case cannot pass on an
+   empty-corpus trivial null (the existing shallow fixture at
+   `tests/reviewRounds/report.test.ts:627` has no rows, and `boundaryAdvisory` is
+   already null there without any withholding logic). Then the shallow run over the same
+   corpus asserts `boundaryAdvisory === null` AND the refusal note names the advisory
+   withholding.
+6. **Chronological, not lexical, earliest.** Two rows on a no-merge branch:
+   `2026-08-31T23:30:00-02:00` (chronologically 2026-09-01T01:30Z, POST-boundary
+   lexically-smallest) and `2026-09-01T01:00:00+02:00` (chronologically
+   2026-08-31T23:00Z, PRE-boundary lexically-larger), with `BOUNDARY =
+   2026-09-01T00:00:00.000Z`. Expect advisory fires naming the second row. Fails today:
+   the lexical sort selects the first string, `Date.parse` puts it past the boundary,
+   and the advisory is silently suppressed (reviewer probe, round 1).
+7. **Unparseable `startedAt` is signaled.** One row with `startedAt: "not-a-date"` and
+   one with `startedAt: null`, plus one parseable post-boundary row. Expect
+   `boundaryAdvisory === null` (nothing parseable precedes the boundary) AND the notes
+   include the `2 row(s) without a parseable startedAt` count. Fails today: NaN
+   comparisons return false and `null` is filtered, both silently.
 
 Anti-tautology compliance: each case's fixture varies exactly the field under test
-(baseSha mismatch in 1, absent merge in 2, times in 3/4), and case 1's row uses a
-`baseSha` distinct from the merge's so the test cannot pass via an arcKey join the spec
-forbids. Per P1 (this spec eats its own cooking), the four string-presence mutants apply
-to the advisory-wording assertion and their results land in the implementation commit.
+(baseSha mismatch in 1, absent merge in 2, times in 3/4/6, parseability in 7), case 1's
+row uses a `baseSha` distinct from the merge's so the test cannot pass via an arcKey
+join the spec forbids, and case 5 carries its premise pair executably. Per P1 (this spec
+eats its own cooking), the four string-presence mutants apply to the advisory-wording
+and notes assertions and their results land in the implementation commit.
 
 ## §5 Documented limits
 
@@ -187,15 +230,19 @@ to the advisory-wording assertion and their results land in the implementation c
 3. **The advisory still cannot verify the constant.** It cross-checks the boundary
    against the corpus and the merge scan; agreement is not proof. Unchanged from the
    2026-08-04 spec's posture.
+4. **`mergedAt` is trusted.** It is produced by `git log --format=%cI` over reachable
+   commits (`lib/reviewRounds/mergedArcs.ts`) and is not re-validated; a repo whose git
+   emits unparseable committer dates is outside the threat fence.
 
 ## §6 Acceptance criteria
 
 - AC-W1.1: every P-row lands in its named target file with its filing citation inline;
   no other `docs/agents/` rule is reworded beyond the named integration points.
 - AC-W1.2: `AGENTS.md` class-sweep bullet gains exactly one sentence (P9).
-- AC-W2.1–W2.5: the five §4 cases pass; AC-W2.5 = `pnpm review:economy` on the live repo
-  prints no ADVISORY line and its other sections are byte-identical to before the change
-  except the advisory (verified by running both and diffing).
+- AC-W2.1–W2.7: the seven §4 cases pass, numbered in order (AC-W2.n = §4 case n).
+- AC-W2.8: `pnpm review:economy` on the live repo prints no ADVISORY line and its other
+  sections are byte-identical to before the change (verified by running both and
+  diffing).
 - AC-X.1: `pnpm spec:lint` on this spec and the plan is attached to every review
   dispatch; the 2026-08-04 spec amendment carries its dated note.
 - AC-X.2: full pre-push gates (`pnpm test`, typecheck both configs, eslint,
