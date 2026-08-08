@@ -252,9 +252,14 @@ what makes "did this change rendering?" unanswerable.
 ### 4.1 The all-truthy claim, verified mechanically
 
 The claim "every operand at the other 29 unfiltered sites is truthy" is the one place stage 1 could
-silently change output, so it is established by a scan rather than by reading. Extracting every
-array expression and grepping the unfiltered ones for a `""` / `null` / `undefined` operand returns
-exactly one hit:
+silently change output, so it is established by a scan rather than by reading.
+
+**Two operand kinds have to be checked, not one.** A literal scan alone is not a proof: an operand
+can also be an identifier whose value is falsy, and that would be an E2 site the literal scan never
+sees.
+
+*Literal operands.* Extracting every array expression and grepping the unfiltered ones for a `""` /
+`null` / `undefined` operand returns exactly one hit:
 
 ```
 components/crew/primitives/DayCard.tsx:98
@@ -263,6 +268,27 @@ components/crew/primitives/DayCard.tsx:98
 
 (The only other hit in the whole scan is `GearSection.tsx:303`, which is a `.filter(Boolean)` site
 and therefore already E1.)
+
+*Identifier operands.* The unfiltered sites pass exactly seven identifiers rather than literals, and
+each is checked at its definition:
+
+| Identifier | Defined at | Always truthy because |
+|---|---|---|
+| `base` | `components/admin/OnboardingWizard.tsx:126` | non-empty string literal |
+| `focusRing` | `components/admin/OnboardingWizard.tsx:128` | non-empty string literal |
+| `pillState` | `components/admin/OnboardingWizard.tsx:152` | 4-branch conditional, every branch a non-empty literal |
+| `TRACK_BASE` | `components/admin/settings/DeveloperToggleButton.tsx:78` | non-empty string literal |
+| `THUMB_BASE` | `components/admin/settings/DeveloperToggleButton.tsx:80` | non-empty string literal |
+| `surfaceClass` | `components/crew/RightNowHero.tsx:435` | ternary, both branches non-empty literals |
+| `CHIP_CLASS` | `components/crew/primitives/PersonRow.tsx:83` | array join of non-empty literals |
+
+So there is exactly one E2 site at this base, across both operand kinds.
+
+**This claim is base-specific, and the plan re-establishes it rather than inheriting it.** A rebase
+that made any of the seven falsy would leave the site count, the operand-parity check, the `cn` unit
+test, and the `DayCard` test all passing while output bytes changed — precisely the composition gap
+§4.2 otherwise rules out. The rebase task therefore re-runs **both** halves of this audit, not the
+site count alone.
 
 ### 4.2 How the claim is verified
 
@@ -398,12 +424,21 @@ Two survive, because their premise outlives the migration:
   silent and unsignaled, so under this spec's consequence bound they are gaps the replacement must
   close rather than documented limits.
 
-  **The accept-set, stated positively** (a denylist of spellings or positions accepts whatever it
-  failed to model): a className expression is accepted when it is a plain string literal, a template
-  literal containing no array join, or a call to a plugin-recognized callee (`cn(...)`). **Everything
-  else is reported.** Mechanically: report *every* array join whose separator is a non-empty
-  whitespace string literal at any quote style, anywhere in any UI source file — `.ts`, `.tsx`,
-  `.js`, `.jsx`, `.mjs`, `.cjs` — position-free, so no syntactic context can hide one.
+  **The accept-set, stated positively, and scoped to what this guard decides** (a denylist of
+  spellings or positions accepts whatever it failed to model). The guard's subject is **array-join
+  class expressions**, not className expressions in general. Within that subject the accept-set is:
+  a class expression built as a plain string literal, as a template literal containing no array
+  join, or as a call to a plugin-recognized callee (`cn(...)`) is accepted; **every array join whose
+  separator is a non-empty whitespace string literal is reported**, at any quote style, anywhere in
+  any UI source file (`.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, `.cjs`), position-free, so no syntactic
+  context can hide one.
+
+  **What this guard deliberately does NOT decide.** A className that is a bare identifier or an
+  object lookup (`className={TRACK_BASE}`, `className={SIZE_CLASS[size]}`) is neither accepted nor
+  reported by it — those are R6's separate blind spot, with a different mechanism and its own
+  backlog entry (§9.2). Saying "everything that is not a literal, template, or callee is reported"
+  would contradict R6 and over-promise what the recognizer can see; the guard's scope is the join,
+  and the join alone.
 
   **Why the separator is the right key.** It is what distinguishes a class list from data: a
   className join is whitespace-separated, and every data join in this tree uses a non-whitespace
