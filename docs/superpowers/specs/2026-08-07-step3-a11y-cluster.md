@@ -113,9 +113,15 @@ Sites already compliant, listed so a reviewer does not re-flag them:
 **Recipe, empirically selected (probe P4/P5/P6):**
 
 ```
-target (a / button / summary):  -m-2 flex size-tap-min shrink-0 items-center justify-center
-inner <span> (new):             <today's `base` string, verbatim, unchanged>
+target (a / button / summary):  -m-2 <flex|inline-flex> size-tap-min shrink-0
+                                items-center justify-center
+inner <span> (new):             the visual classes, per the ownership table below
 ```
+
+`<flex|inline-flex>` is whichever the element carries today: `flex` for the three step pills
+(`components/admin/OnboardingWizard.tsx:127`), `inline-flex` for the two HelpSheet buttons
+and HelpTooltip. Substituting one for the other changes how the element sits in its parent's
+layout, which R7 forbids.
 
 `size-tap-min` resolves through Tailwind v4's `--spacing-*` namespace from
 `--spacing-tap-min: 44px` (`app/globals.css:179`) and is already used elsewhere in the repo.
@@ -133,16 +139,26 @@ contradicting DI-13, and leaving the expansion band without a pointer cursor.
 
 Split every fused string by destination:
 
+The table is **exhaustive over the four fused strings** — every class present on
+`components/admin/HelpSheet.tsx:75`, `components/admin/HelpSheet.tsx:145`,
+`components/admin/HelpTooltip.tsx:60` and `components/admin/OnboardingWizard.tsx:127` has a
+row. The last row is the residual rule, so a class the implementer finds unlisted still has
+a defined destination rather than a judgment call.
+
 | Class | Destination | Why |
 |---|---|---|
 | The size utility — `size-7` on the trigger/pills/tooltip, **`size-9` on the HelpSheet close button** | **inner span** | This is the painted visual, whatever its value. It is NOT always 28px (R6 is scoped accordingly) |
 | `bg-*`, `text-*`, `font-*`, `align-middle`, `transition-colors duration-fast` | **inner span** | These paint the visual |
+| `list-none` (HelpTooltip's `<summary>`) | **target element** | It suppresses the disclosure marker on the `<summary>` itself; on a child `<span>` it does nothing |
 | The radius — `rounded-pill`, or **`rounded-sm` on the close button** | **BOTH** | The span needs it for the visual; **the target needs it too, or its focus ring turns square.** The ring follows the focused element's own radius, and today radius and ring sit on the same element |
 | `focus-visible:*` (ring, offset, outline) | **target element** | Only the focusable element can match `focus-visible` (DI-13) |
 | `cursor-pointer` | **target element** | The cursor must change across the whole 44px band |
 | `hover:*` | **inner span, rewritten `group-hover:*`** | See the hover rewiring below |
-| `inline-flex`, `shrink-0` | **both** | The target needs them to lay out its child; the span needs them to centre its glyph |
+| `items-center`, `justify-center` | **BOTH** | The target centres the span inside 44px; the span centres its glyph inside 28px (or 36px). Omitting either leaves a glyph off-centre |
+| `shrink-0` | **BOTH** | The target must not shrink in its flex row; the span must not shrink inside the target |
+| The display utility — `flex` (pills) or `inline-flex` (the other three) | **BOTH, each keeping its own** | The target keeps the display the original element had, so its participation in the parent's layout is unchanged; the span takes the same value so its own centring works. **`flex` for the pills, `inline-flex` for the HelpSheet pair and HelpTooltip** — the generic recipe line above writes `flex` because it is written for the pills |
 | `-m-1` on the close button | **dropped** | It expands nothing today (no matching padding) and the target's own `-m-2` replaces its layout role. Keeping both would double-offset |
+| **Anything not listed above** | **inner span** | Residual rule. Every remaining class on these four strings is presentational; if an implementer finds one whose behaviour depends on being on the interactive element, that is a spec gap to raise, not to decide |
 
 **`HelpTooltip` appears in BOTH Class A and Class B; Class B wins.** It is a `<summary>` that
 is also a 28×28 pill, so both recipes name it. Applying Class A's
@@ -476,7 +492,7 @@ so each of these requires a real-browser `getBoundingClientRect()` assertion (§
 | **DI-11** | `AdminNav`'s brand link (`components/admin/nav/AdminNav.tsx:88`) measures **≥44px on both axes at 320px** (icon-only) and **≥44px tall at 360/440/1280** (wordmark states). | `min-h-tap-min -mx-2 px-2` |
 | **DI-12** | `AdminNav`'s brand link's **horizontal margin box equals its border box minus the added padding** — `marginLeft === -8 && marginRight === -8 && paddingLeft === 8 && paddingRight === 8` — so its layout footprint is unchanged at 320/360/440 and the documented-tight narrow-phone width budget is untouched. The topbar row's height is unchanged, since sibling controls already set it to ≥44px. | `-mx-2` cancelling `px-2` |
 | **DI-13** | **Focus-visible feedback covers the whole target, not the visual box:** with the target focused, the element carrying a non-`none` computed `outline`/`box-shadow` ring IS the 44px target, and its rect is the 44px rect (±0.5px). The inner visual span carries no ring. | ring stays on the anchor/button (§2.2) |
-| **DI-14** | **The focused target's computed `border-radius` equals its inner span's** — so the ring keeps the shape it has today (pill for the pills/trigger/tooltip, `rounded-sm` for the close button) rather than turning square. | radius on BOTH (§2.2) |
+| **DI-14** | The focused target's computed `border-radius` **is non-zero AND equals its inner span's** — so the ring keeps the shape it has today rather than turning square. Both halves are required: equality alone is satisfied by `0px === 0px`, which is exactly the regression of dropping the radius from both elements. For the pills, trigger and tooltip the value is the pill radius (half the box or greater); for the close button it is the `rounded-sm` token. | radius on BOTH (§2.2) |
 | **DI-15** | The **HelpSheet close button** measures ≥44×44 with its four edge midpoints returning it, its visual span stays **36×36** (`size-9`, not 28), and DI-9's hover parity holds for both `color` and `background-color`. Asserted with the sheet OPEN. | same recipe |
 
 **DI-9's "every property"** is enumerated per site, not left to the test author:
@@ -600,6 +616,23 @@ DI-1…DI-15 across 320/390/768/1280 (DI-11/DI-12 additionally at 360 and 440, t
 > revoked admin; `app/me`'s past-shows block with at least one past show; `RunOfShowList`
 > with a title of **more than 80 characters**; `HelpTooltip` mounted directly.
 >
+> **Two of the seven are private and MUST be exported — the spec chooses this, rather than
+> leaving the implementer three options with different blast radii.** `OperatorErrorBlock`
+> (`components/admin/OnboardingWizard.tsx:547`) and `MeShowSections` (`app/me/page.tsx:192`)
+> are unexported, so a live entry cannot import them today. Add `export` to each.
+>
+> This is safe and precedented, not a refactor: **both are synchronous plain-props
+> components** — `OperatorErrorBlock()` takes none, `MeShowSections({ shows, now })` takes
+> two serialisable values — so neither drags an async server boundary into the bundle, which
+> is what makes the alternative (bundling the whole async page with stubs) expensive. The
+> repo already does exactly this and says so: `components/admin/OnboardingWizard.tsx:112-114`
+> carries "Exported for the unit test (onboardingWizardNav.test.tsx)" above `StepIndicator`.
+> Add the same one-line comment above each new export naming this spec.
+>
+> **The two rejected alternatives, so they are not re-proposed:** bundling the async
+> `OnboardingWizard` / `/me` page pulls the server tree and needs the `"use server"` stubbing
+> machinery for two `<summary>` elements; and asserting the class string from source text
+> instead would not prove the 44px result in a browser, which is the whole point of §6.
 > The probe in §7 used a transcribed harness because it was measuring *candidate recipes*
 > that did not exist in any component yet. That is the one legitimate use, and it ended
 > when the recipe was chosen.
@@ -706,12 +739,14 @@ finished before it. **Reachability: PROBED.**
 - **AC-1** **All seven** sites in §2.1 render a `<summary>` measuring ≥44px on both axes,
   each narrower than its container, each mounted in the state that makes it exist (DI-1,
   DI-2, §3).
-- **AC-2** **Every** site in §2.2 — the three step pills, `HelpSheet`, `HelpTooltip`, and
-  the `AdminNav` brand link — exposes a ≥44×44 target whose four edge midpoints hit it, with
-  its 28px visual preserved and no overlap between adjacent targets (DI-3, DI-4, DI-6, DI-8,
-  DI-10, DI-11).
-- **AC-2b** Hover feedback covers the **whole** 44px target, not just the 28px visual (DI-9,
-  DI-10), and focus feedback outlines the target rather than the visual (DI-13) — the
+- **AC-2** **All seven** targets in §2.2 — the three step pills, both `HelpSheet` buttons,
+  `HelpTooltip`, and the `AdminNav` brand link — expose a ≥44×44 target whose four edge
+  midpoints hit it, with **each control's OWN painted box preserved at its existing size**
+  (28px for the pills, trigger and tooltip; **36px for the HelpSheet close button**) and its
+  existing corner radius, and with no overlap between adjacent targets (DI-3, DI-4, DI-6,
+  DI-8, DI-10, DI-11, DI-14, DI-15).
+- **AC-2b** Hover feedback covers the **whole** 44px target, not just the painted box (DI-9,
+  DI-10, DI-15), and focus feedback outlines the target rather than the visual (DI-13) — the
   expansion band is never tappable-but-visually-dead.
 - **AC-2c** `AdminNav`'s brand-link repair consumes no horizontal budget at 320px, asserted
   as the margin/padding cancellation in DI-12. The topbar row height is **not** separately
