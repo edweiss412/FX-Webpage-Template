@@ -30,6 +30,7 @@ import {
 import { EVENT_DETAIL_GROUPS, nightsBetween } from "@/components/admin/wizard/step3ReviewSections";
 import { EVENT_DETAILS_LABELS } from "@/lib/crew/eventDetailsSpecs";
 import { withReducedMotion } from "../../../helpers/reducedMotion";
+import { premise, premiseHolds } from "../../../_shared/premise";
 
 const refreshMock = vi.fn();
 vi.mock("next/navigation", () => ({
@@ -737,6 +738,95 @@ describe("Step3Review — set-aside sections (ignored / deferred / skipped, out 
     expect(queryByTestId("wizard-step3-ignored")).not.toBeNull();
     expect(queryByTestId("wizard-step3-deferred")).toBeNull();
     expect(queryByTestId("wizard-step3-skipped")).toBeNull();
+  });
+});
+
+/**
+ * spec 2026-08-07-step3-a11y-cluster §2.3 / AC-4 (WCAG 1.3.1).
+ *
+ * The page rendered `h1, h3, h3` with no `h2` anywhere. Both promoted headings
+ * are top-level page sections directly under the h1, each already the
+ * aria-labelledby target of its own <section>, so promoting them makes the
+ * outline monotonic without touching the SHARED step3ReviewSections component
+ * (ratified R3): that component's h3/h4 pair renders inside the review modal and
+ * the show-review surface, each of which opens its own outline context below a
+ * dialog heading.
+ */
+describe("Step3Review — heading outline (spec §2.3, AC-4)", () => {
+  const pr = { show: { title: "Show" } } as unknown as ParseResult;
+  const blocking: Step3Row = {
+    driveFileId: "hf-outline-1",
+    driveFileName: "Broken.gsheet",
+    status: "hard_failed",
+    pendingIngestionId: "pi-outline-1",
+    errorCode: "MI_PARSE_FAILED",
+  };
+  const ignored: Step3Row = {
+    driveFileId: "ig-outline-1",
+    driveFileName: "Ignored.gsheet",
+    status: "permanent_ignore",
+  };
+  const clean: Step3Row = {
+    driveFileId: "clean-outline-1",
+    driveFileName: "Clean.gsheet",
+    status: "staged",
+    parseResult: pr,
+  };
+
+  test("the rendered heading sequence skips no level, in document order", () => {
+    const { container, getByTestId } = render(
+      <Step3Review wizardSessionId={WIZARD_SESSION_ID} rows={[clean, blocking, ignored]} />,
+    );
+
+    // PREMISE, deliberately TAG-AGNOSTIC. Phrasing it as "find two h2s" would
+    // encode the POST-repair state, so RED would die at the premise and
+    // misreport a real production defect as an invalid environment. Both
+    // promoted headings are located by IDENTITY instead: the needs-attention
+    // heading by the id that sits on the heading element itself and survives
+    // the tag change, and the grouped-rows section by being a set-aside section
+    // that contains a heading element of some level.
+    const needsAttention = container.querySelector("#wizard-step3-needs-attention-heading");
+    premiseHolds(
+      "the needs-attention section rendered its heading",
+      needsAttention !== null && /^H[1-6]$/.test(needsAttention.tagName),
+    );
+    const groupedSection = getByTestId("wizard-step3-ignored");
+    premiseHolds(
+      "a grouped-rows set-aside section rendered a heading",
+      groupedSection.querySelector("h1, h2, h3, h4, h5, h6") !== null,
+    );
+
+    // DERIVE the sequence and assert no gap. Asserting "an h2 exists" is
+    // forbidden (spec §8): it passes on a page that also skips to h4.
+    const levels = Array.from(container.querySelectorAll("h1, h2, h3, h4, h5, h6")).map((el) =>
+      Number(el.tagName.slice(1)),
+    );
+    premise("the page rendered headings to sequence", levels.length, 1);
+
+    const skips: string[] = [];
+    for (let i = 1; i < levels.length; i += 1) {
+      if (levels[i]! > levels[i - 1]! + 1) skips.push(`h${levels[i - 1]} -> h${levels[i]}`);
+    }
+    expect(skips, `heading sequence was ${levels.map((l) => `h${l}`).join(", ")}`).toEqual([]);
+  });
+
+  test("the promoted headings keep their type classes, so only the tag changed", () => {
+    const { container } = render(
+      <Step3Review wizardSessionId={WIZARD_SESSION_ID} rows={[clean, blocking, ignored]} />,
+    );
+
+    // spec §2.3's font-size guard: a visual diff here is a defect, not an
+    // intended change. Pinning the exact classes is what makes "the tag changed,
+    // the rendered type scale did not" checkable rather than asserted in prose.
+    const needsAttention = container.querySelector("#wizard-step3-needs-attention-heading");
+    premiseHolds("the needs-attention heading rendered", needsAttention !== null);
+    expect(needsAttention!.className).toBe("text-base font-semibold text-text-strong");
+
+    const grouped = document
+      .querySelector('[data-testid="wizard-step3-ignored"]')
+      ?.querySelector("h1, h2, h3, h4, h5, h6");
+    premiseHolds("the grouped-rows heading rendered", grouped != null);
+    expect(grouped!.className).toBe("text-sm font-semibold text-text-subtle");
   });
 });
 
