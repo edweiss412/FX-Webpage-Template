@@ -24,6 +24,7 @@ import { startOverServerAction } from "@/lib/onboarding/serverActions";
 import { MESSAGE_CATALOG } from "@/lib/messages/catalog";
 import { resetLogSink, setLogSink } from "@/lib/log";
 import type { LogRecord } from "@/lib/log/types";
+import { premiseHolds } from "@/tests/_shared/premise";
 
 // Step2Verify (rendered when ?step=2) uses useRouter() to call
 // router.refresh() on the admin-log-only "superseded" outcome. jsdom
@@ -360,6 +361,84 @@ describe("OnboardingWizard", () => {
       expect(queryByTestId("wizard-operator-error")).toBeTruthy();
       expect(queryByTestId("wizard-start-over-button")).toBeTruthy();
       expectExactlyOneOperatorErrorRecord(reason);
+    });
+  }
+
+  /**
+   * The secrets guard (AC-4). GOOGLE_SERVICE_ACCOUNT_JSON holds a service-account
+   * PRIVATE KEY, so the emit carries the reason enum and nothing else derived
+   * from it — not the raw value or any part of it, not the parsed object or any
+   * field of it, and not the JSON.parse error, whose V8 message embeds a snippet
+   * of the offending input.
+   *
+   * This is a REGRESSION guard with no natural RED, and that is stated rather
+   * than glossed: before the emit landed the record array was empty so every
+   * negative assertion passed vacuously, and after it landed the shipped emit is
+   * already safe so they pass legitimately. Its RED was obtained by MUTATION —
+   * four mutants across the persisted row's three leak-channel families, each
+   * observed failing in the working tree and reverted, none committed. See the
+   * commit message for the four observations and the fixture-contrast run.
+   */
+  const SENTINEL = "SENTINEL-PRIVATE-KEY-DO-NOT-LOG";
+
+  const SECRET_BEARING_CASES: ReadonlyArray<{ label: string; raw: string; reason: string }> = [
+    {
+      // The obvious fixture — omit client_email entirely — is VACUOUS for the
+      // parsed-field channel: a mutant like `clientEmail: parsed.client_email`
+      // sets undefined, the logger drops undefined keys, the context key set
+      // stays ["reason"], and the accept-set passes while the mutant is
+      // indistinguishable from safe code. The field must be PRESENT and
+      // secret-bearing for the guard to have any power over it, and a
+      // non-string value is what routes it to client_email_missing while
+      // keeping it present.
+      label: "well-formed with a PRESENT, non-string, secret-bearing client_email",
+      raw: JSON.stringify({ client_email: { secret: SENTINEL }, private_key: "x" }),
+      reason: "client_email_missing",
+    },
+    {
+      // Exercises the parse-error path, where the V8 message is the leak vector.
+      label: "malformed and secret-bearing",
+      raw: `{"private_key": "${SENTINEL}"`,
+      reason: "json_malformed",
+    },
+  ];
+
+  for (const { label, raw, reason } of SECRET_BEARING_CASES) {
+    test(`no service-account material reaches the sink — ${label}`, async () => {
+      process.env.GOOGLE_SERVICE_ACCOUNT_JSON = raw;
+      const { queryByTestId } = render(
+        await OnboardingWizard({ settings: FRESH_SETTINGS, searchParams: {} }),
+      );
+      expect(queryByTestId("wizard-operator-error")).toBeTruthy();
+
+      // The whole-record accept-set is the guard: any field added, renamed, or
+      // populated with derived text fails it — in context, in message, and in
+      // every promoted column.
+      expectExactlyOneOperatorErrorRecord(reason);
+
+      const matched = captured.filter((r) => r.code === "ONBOARDING_OPERATOR_ERROR");
+
+      // PREMISE 1: the sentinel is in the environment the component reads —
+      // otherwise the content backstop below has nothing to find and would pass
+      // against a leaking implementation.
+      premiseHolds(
+        "the sentinel is present in GOOGLE_SERVICE_ACCOUNT_JSON, so a leak would be observable in the captured records",
+        (process.env.GOOGLE_SERVICE_ACCOUNT_JSON ?? "").includes(SENTINEL),
+      );
+      // PREMISE 2: exactly one record was captured. This is the one that
+      // matters: without it, a case whose env setup or sink capture silently
+      // failed passes by finding nothing in an EMPTY array — the "expected value
+      // read from the same degenerate source as the actual" shape.
+      premiseHolds(
+        "exactly one ONBOARDING_OPERATOR_ERROR record was captured, so the content backstop below is searching a non-empty record",
+        matched.length === 1,
+      );
+
+      // Backstop only, for a leak arriving through a channel the record shape
+      // does not describe.
+      const serialized = JSON.stringify(matched);
+      expect(serialized).not.toContain(SENTINEL);
+      expect(serialized).not.toContain("private_key");
     });
   }
 });
