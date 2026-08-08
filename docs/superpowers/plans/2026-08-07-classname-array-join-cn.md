@@ -169,12 +169,24 @@ Design, per `docs/agents/writing-plans.md`:
 
 - **Expected values come from the pre-migration source, never from a literal.** Read each of the 18
   files at the pre-migration commit via `git show <sha>:<path>`.
-  **The SHA is an explicit required argument, never a re-resolution of `HEAD`.** The script takes
-  `--base <sha>`, and both invocations (the RED here, and the re-run in Task 6) pass the
-  same **branch-base** SHA, `61281c23e`. Re-resolving `HEAD` at the second invocation would read the
-  already-migrated tree, find zero array joins, and pass vacuously — the exact degenerate success the
-  premise below exists to catch. It is a local history read, never a CI-time lookup, which is why
-  this is a script (spec §4.3).
+  **The SHA is an explicit required argument, and it is the migration commit's PARENT — not the
+  original branch base.** Two failure modes bracket the correct value:
+
+  - Re-resolving `HEAD` at the second invocation reads the already-migrated tree, finds zero array
+    joins, and passes vacuously.
+  - Hard-coding the pre-rebase branch base (`61281c23e`) is wrong once P1 has rebased, which it
+    always will have: P1 exists *because* `fix/step3-a11y-cluster` is editing
+    `components/admin/wizard/Step3SheetCard.tsx` concurrently. If upstream changed an operand from A
+    to B and the migration accidentally restored A, a comparison against the stale base would see
+    A → A and pass, while stage 1 had in fact changed output relative to its real parent. The `cn`
+    unit test and the `DayCard` test do not cover that site, so §4.2's composed proof would be broken
+    with every check green.
+
+  So: capture `git rev-parse HEAD` **once, after the P1 rebase and before the first migration edit**,
+  record the value in the task log and the PR body, and pass that literal to both invocations. Once
+  the migration commit exists the same anchor is `<migration-sha>~1`, which is stable under later
+  rebases of earlier commits. It is a local history read, never a CI-time lookup, which is why this
+  is a script (spec §4.3).
 - Extract each array-join's operand list by bracket-matching backward from the join, tolerating an
   intervening `.filter(Boolean)`; extract the corresponding `cn(...)` argument list from the working
   tree; assert the same operand sequence, comparing after stripping comments and insignificant
@@ -316,6 +328,20 @@ just a marker asserting one. The honest red is the census guard's own death ratt
    The failure this prevents is specific: with a one-root, one-extension, one-separator fixture, at
    least two broken scanners pass both the fixture and the clean tree — one that walks only
    `components/**/*.jsx`, and one that accepts only a single-space separator.
+
+   **An inline string cannot pin the file-discovery layer, so the fixture is a real directory tree.**
+   This is the sharper half of the same problem: a string fixture proves the *recognizer* parses, and
+   proves nothing about the *walker* that decides which files reach it. After Task 3 the only live
+   whitespace-join sites in the tree are the two exemptions, both under `components/` in `.ts`/`.tsx`
+   — so a walker restricted to `components/**/*.{ts,tsx}` would satisfy the exemption assertions, the
+   inline premise, the clean-tree assertion, and the ESLint control pair, while an ordinary
+   `app/**/*.jsx` array join stayed silent forever.
+
+   Therefore: write the scanner as a function **parameterized by its roots**, and have the premise
+   point it at a temporary on-disk fixture tree holding one planted array-join className at **each**
+   of the twelve root × extension combinations (`app/` and `components/` × the six extensions).
+   Assert it finds all twelve. The production call then passes the real roots. A walker that drops a
+   root or an extension fails the premise on the combination it drops, by name.
 3. **Rule-is-on pin.** `eslint.config.mjs` still sets
    `"better-tailwindcss/enforce-canonical-classes": "error"`. A guard that outlives its rule pins
    nothing.
@@ -378,18 +404,18 @@ regex runs NOWHERE and silently proves nothing." A name like `canonicalDimension
 neither default project — probed `{mobile:false, desktop:false}`. Two steps, both required:
 
 1. Name the file `canonical-layout-dimensions.spec.ts` **and** add an explicit alternative to the
-   `desktop-chromium` project's `testMatch` in `playwright.config.ts`. Do not rely on it incidentally
+   `mobile-safari` project's `testMatch` in `playwright.config.ts` (per the project choice above). Do not rely on it incidentally
    matching the existing `layout-dimensions` alternative as a substring — implicit matching is
    exactly the silence the config comment warns about.
-2. **Wire it into CI — the invocation AND the path filter.** Add the spec to the
-   `admin-layout-e2e.yml` desktop-chromium invocation, which already runs this repo's dimension
-   specs. `pnpm test` is Vitest only and will never execute a Playwright spec, so without this AC-11
+2. **Wire it into CI — the invocation AND the path filter.** Add the spec to a **mobile-safari**
+   invocation. `admin-layout-e2e.yml` is desktop-chromium, so it is the wrong host;
+   `lifecycle-layout-e2e.yml` already invokes `--project=mobile-safari` and is the closer fit. `pnpm test` is Vitest only and will never execute a Playwright spec, so without this AC-11
    stays dark in real CI however well the spec is written.
 
    **Adding the invocation alone is not enough.** That workflow fires on an explicit `paths:`
    allow-list, and none of this gate's inputs is on it. This PR would run it only incidentally,
    because it edits the workflow file itself; a later ordinary edit to a guarded component would not.
-   Add **all five** direct inputs:
+   Add **all five** direct inputs to that workflow's `paths:`:
 
    ```yaml
    - "tests/e2e/canonical-layout-dimensions.spec.ts"
@@ -412,11 +438,37 @@ neither default project — probed `{mobile:false, desktop:false}`. Two steps, b
 
 **Harness readiness** (`docs/agents/writing-plans.md` e2e checklist):
 
+- **Project: `mobile-safari`, not `desktop-chromium`.** Both targets' precedents live there —
+  `tests/e2e/onboarding-wizard-step1.spec.ts` is mobile-safari, and
+  `tests/e2e/crew-layout-dimensions.spec.ts` gates itself to mobile-safari explicitly
+  (`if (testInfo.project.name !== "mobile-safari") return;`, a single-writer constraint). Wire the
+  workflow invocation to a mobile-safari job accordingly; `admin-layout-e2e.yml` is desktop-chromium,
+  so it is the wrong host for this spec.
 - **Boot:** the repo's existing Playwright setup and its production-build server.
-  `tests/e2e/admin-layout-dimensions.spec.ts` is an existing `getBoundingClientRect()` dimension spec
-  here — follow its boot, gate, and assertion shape rather than inventing a second pattern.
+  `tests/e2e/crew-layout-dimensions.spec.ts` is the closest existing `getBoundingClientRect()`
+  dimension spec — follow its boot, gate, and assertion shape rather than inventing a second pattern.
+- **Reachability — both targets need setup, and neither is reachable by navigation alone.** This is
+  the step most likely to be skipped, because "go to /admin" reads as sufficient and is not:
+  - **C1 (`OnboardingWizard`).** After `pnpm db:seed`, `app_settings.watched_folder_id` is non-null
+    and `/admin` renders the dashboard, so the step-indicator connector is simply absent. The wizard
+    is the FIRST-VISIT surface: `tests/e2e/onboarding-wizard-step1.spec.ts:28-39` reaches it with
+    `await signOut(page)` in `beforeEach`, then `page.goto("/admin")`, asserting
+    `[data-testid=onboarding-wizard]` is visible. Copy that contract exactly, and assert the
+    connector's own testid is present before measuring — a measurement on an absent element is the
+    failure this bullet exists to prevent.
+  - **C5 (`RightNowHero`).** It lives on the seeded crew route, which needs four things, all shown in
+    `tests/e2e/crew-layout-dimensions.spec.ts` `beforeEach`: `lookupSeededShow()` for the slug,
+    `lookupShareToken(showId)`, `signOut` then `signInAs(ADMIN_FIXTURE)`, and a server-clock pin via
+    the `X-Screenshot-Frozen-Now: SHOW_DAY_1_INSTANT` + `Authorization: Bearer TEST_AUTH_SECRET`
+    headers (the section reads the server-supplied `today`, not a browser clock). Then
+    `/show/<slug>/<shareToken>?s=today`. Reuse that helper rather than re-deriving it.
 - **Readiness gate:** await the surface's established hydration gate before the first measurement,
   never `networkidle` alone. A rect read pre-hydration is a confident wrong number.
+  `crew-layout-dimensions.spec.ts`'s `gotoSection` helper documents the specific trap on this route
+  and is the pattern to copy: `CrewSectionTransition` wraps the body in a framer `motion.div` with
+  `initial={{opacity:0,y:4}}`, so reading immediately catches the subtree at its pre-commit frame
+  with height 0 — and an equal-height assertion then passes tautologically, 0 == 0. Settle the
+  section-enter crossfade and wait for a real laid-out height before any rest-state read.
 - **Detach safety:** both rest-state targets are static. The crossfade measurement in Task 5 samples
   a live element and must guard against auto-wait hanging on an unmounted node.
 
@@ -427,12 +479,28 @@ and confirm the spec now passes against it.
 rest on the claim that C5 cannot move the `RightNowHero` card's height, and the card's own ratified
 invariant is that it holds 176px *through* a state crossfade (`app/globals.css:205-209`). A
 rest-state-only baseline cannot support that claim: rest rects can stay equal while only the
-mid-transition height moves, and every other check in the plan would still pass —
+mid-transition height moves, and every other check would still pass —
 `tests/crew/transitionAudit.test.ts` is structural and measures no geometry, and the existing
-compound-transition suites are skipped. So the baseline records, alongside the two rest rects, the
-card's height sampled **during** the crossfade, driving the state change and sampling before it
-settles. That sampled value is the comparator Task 6 needs; without it, the mid-crossfade assertion
-there has nothing to compare against and proves nothing.
+compound-transition suites are `test.describe.skip`.
+
+**Drive the crossfade the way the existing suite does, and prove the sample was in flight.**
+`tests/e2e/right-now-transitions.spec.ts` already owns this machinery and its header documents the
+contract: the hero is a client island whose `selectRightNowState` re-derives on every 60-second tick,
+`page.clock.install` advances time deterministically, and its TICK_DRIVABLE category already asserts
+that for a `crossfade-body` treatment the card height stays within 0.5px of the pre-transition
+height. Reuse that pattern — install the clock, render at the FROM state, advance to a TO state whose
+matrix treatment is `crossfade-body`, run timers — rather than inventing a second sampler. (That file
+is CI-dark and partly skipped, which is why this arc measures the geometry in its own PR-covered
+spec instead of relying on it.)
+
+**The in-flight premise is executable, and `data-treatment` cannot be it.** That attribute is sticky
+after the transition completes, so asserting it would pass on a settled frame — and a settled sample
+records a rest height, after which Task 6 repeats the same settled read and matches within 0.5px
+while a real mid-transition regression goes undetected. That is the precise failure this baseline
+exists to close, so the premise must witness motion: assert the crossfading element's **computed
+`opacity` is strictly between 0 and 1** at sample time (`premiseHolds`, immediately above the
+capture), so a sample that lands on a settled frame fails loudly instead of silently recording the
+wrong number. Record the sampled height only once that premise holds.
 
 **Failure mode caught:** a dimension gate that never executes — the config's own documented failure —
 and a baseline captured after the change it is supposed to measure.
@@ -476,12 +544,12 @@ on it.
      18 migrated files; each must still carry the `initial` / `animate` / `exit` props it carried at
      base. The migration touches `className` values only; a changed motion prop means the rewrite
      escaped its scope.
-   - **Compound case:** re-measure the C5 card's height **during** the crossfade and compare it to
-     the mid-crossfade value captured in Task 5's baseline, within the same 0.5px tolerance. Rest
+   - **Compound case:** re-drive the crossfade exactly as Task 5 did (same clock schedule, same
+     FROM/TO states), re-assert the same strictly-between-0-and-1 opacity premise, and compare the
+     height to the mid-crossfade value in Task 5's baseline within the same 0.5px tolerance. Rest
      equality is not sufficient: a min-height change surfaces only mid-transition, and rest rects
-     would stay equal through it. This is why Task 5 captures a mid-crossfade sample and not just the
-     two rest rects — an assertion here with no pre-change comparator would restate the invariant
-     rather than test it.
+     stay equal through it. The opacity premise is what stops this from degenerating into a second
+     settled-frame read that trivially matches the first.
    - `tests/crew/transitionAudit.test.ts` passes **unchanged**. An assertion there that moves is a
      signal the migration was not operand-preserving, not a reason to update the audit.
 
