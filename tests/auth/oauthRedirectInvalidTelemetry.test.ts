@@ -321,6 +321,40 @@ describe("OAUTH_REDIRECT_INVALID durable telemetry", () => {
       });
     });
 
+    test("site 1 — callback with NO code takes the OAUTH_STATE_INVALID branch and emits nothing", async () => {
+      // The nearest-neighbour refusal on the same route. It is a DIFFERENT
+      // cataloged failure, so an emit that widened or hoisted into it would file
+      // it as a rejected `next` — a wrong durable label on a real failure, which
+      // no other case here can see.
+      await withCapture(async (sink) => {
+        const { GET } = await import("@/app/auth/callback/route");
+        const res = await GET(new NextRequest(`${ORIGIN}/auth/callback?next=%2Fme`));
+
+        expect(res.status).toBe(302);
+        expect(res.headers.get("location")).toBe(
+          "/auth/sign-in?code=OAUTH_STATE_INVALID&next=%2Fme",
+        );
+
+        expectWholeSink(sink, []);
+      });
+    });
+
+    test("site 2 — google-start with an ABSENT next emits nothing", async () => {
+      // The other side of site 2's `rawNext !== null` guard, which spec §2.1
+      // calls out as the difference between this site and picker site 3: an
+      // absent `next` must NOT be reported as a rejected one. Dropping that
+      // conjunct is invisible to every refusal case.
+      await withCapture(async (sink) => {
+        const { GET } = await import("@/app/api/auth/google/start/route");
+        const res = await GET(new NextRequest(`${ORIGIN}/api/auth/google/start`));
+
+        expect(res.status).toBe(302);
+        expect(res.headers.get("location")).toBe("https://accounts.google.test/o/oauth2/auth");
+
+        expectWholeSink(sink, []);
+      });
+    });
+
     test("site 2 — google-start with a VALID next emits nothing", async () => {
       await withCapture(async (sink) => {
         const { GET } = await import("@/app/api/auth/google/start/route");
