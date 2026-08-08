@@ -35,7 +35,7 @@ Each item is ratified at the cited location. Verify the citation; do not re-deri
 | R1 | **Two of the ledger entry's own citations are wrong and are corrected here, not preserved.** `STEP3-GALLERY-TAP-TARGETS-1(a)` (DEFERRED.md:28-36) places the "What does this mean?" `<summary>` in `step3ReviewSections.tsx` and claims its parent is `min-h-12`. Neither holds. §2.1 carries the corrected anchors with probe evidence. The 20.3px measurement itself is reproduced exactly and is not in dispute. | §2.1, §7 probe P1 |
 | R2 | **`before:-inset-2` — the hit-expansion recipe DEFERRED.md:43 proposes — is refuted by probe and is NOT the recipe this spec adopts.** Measured: only the top and left extensions take the pointer; the right and bottom edges return the ancestor `<nav>`/wrapper. §7 probe P4 carries the measurement. Re-proposing it requires a probe showing all four edges hit. | §7 probe P4 |
 | R3 | **`step3ReviewSections.tsx` is NOT modified for the heading fix.** Its `Heading = sub ? "h4" : "h3"` (`components/admin/wizard/step3ReviewSections.tsx:897`) reaches the DOM through the `step3Sections` registry, whose heading-producing render call is `components/admin/review/ShowReviewSurface.tsx:1156`, itself mounted by `components/admin/wizard/Step3ReviewModal.tsx:54` and `components/admin/showpage/PublishedReviewModal.tsx:79`. Promoting the two page-level `h3`s in `Step3Review.tsx` to `h2` makes the page outline monotonic without touching the shared component. §2.3. | §2.3 |
-| R4 | **The tap-target repair covers every instance of the shape repo-wide, not only the four the ledger names.** Class sweep (§2.1, §2.2) found 7 failing `<summary>` elements and 4 failing small interactive targets. Per the AGENTS.md class-sweep disposition rule the default is repair-all-in-branch; none of exceptions (a)/(b)/(c) applies, since every repair is the same mechanical class change. **No tap-target peers are deferred.** | AGENTS.md "Class-sweep before patching adversarial findings" |
+| R4 | **The class sweep was RUN, and it splits into a mechanical half that ships and a judgment half that is filed.** §2.6 carries the corpus baseline: 340 in-scope interactive elements, 139 the recogniser cannot clear, of which **16 are literal-and-genuinely-under-44px**. This branch repairs the **chrome** half — all 7 `<summary>` disclosures and all 6 icon/composite targets (§2.1, §2.2). The remaining 8 are inline text links and text buttons whose exemption status is a per-site product decision (exception (a)), and are filed in §9 with that reason named. **"Same defect, different file" is NOT claimed as a deferral reason anywhere.** | §2.6, §9 |
 | R5 | **`NEWTAB-A11Y-RESIDUE-1(a)` reverses a previously accepted audit fix, deliberately.** `tests/components/admin/wizard/step3ReviewSections.test.tsx:906-917` currently pins that a blank `alt` falls back for BOTH the `<img alt>` and the anchor `aria-label`. The anchor's `aria-label` (`step3ReviewSections.tsx:3706`) now solves the nameless-link risk permanently, so the belt-and-braces `alt` is redundant and produces a double-name. That test is UPDATED, not deleted; §2.4 states the replacement contract. | DEFERRED.md:75-86 |
 | R6 | **The `size-7` visual dimension is preserved everywhere.** This is an accessibility repair, not a visual redesign. Every pill, trigger, and glyph keeps its 28px painted box; only the hit box grows. Any finding that the UI "looks different" is a defect in the implementation, not an intended change. | §2.2, §6 DI-4 |
 | R7 | **Layout geometry is preserved exactly.** The adopted recipe's negative margin cancels the growth, so pill centres are unchanged (probe P6: expanded-row pill centres identical to today's at 320px). This is required, not incidental: connectors measure **0px wide at 320 and 390** (probe P3), so the stepper has zero horizontal slack and any layout growth would overflow. | §7 probe P3/P6, §6 DI-3 |
@@ -58,9 +58,23 @@ reproducing DEFERRED.md:30's "274.0x20.3" to the pixel on the vertical axis.
 | `components/admin/OnboardingWizard.tsx:561` | `cursor-pointer font-medium` | 20.3px | `/admin` wizard error state |
 | `components/messages/ErrorExplainer.tsx:114` | `cursor-pointer list-none` | 20.3px | `/auth/sign-in`, admin error toasts |
 | `components/admin/HelpTooltip.tsx:57` | `inline-flex size-7 …` | 28px (also Class B) | `/admin` show detail, `/admin/settings` |
-| `components/admin/settings/AdministratorsSection.tsx:131` | `cursor-pointer p-3 text-xs font-semibold …` | 16.8 + 12 + 12 = **40.8px** | `/admin/settings/admins` |
+| `components/admin/settings/AdministratorsSection.tsx:131` | `cursor-pointer p-3 text-xs font-semibold …` | 16.8 + 12 + 12 = **40.8px** — a 3.2px near-miss, sized by padding rather than by a small utility | `/admin/settings/admins` |
 | `app/me/page.tsx:239` | `cursor-pointer list-none text-xs font-semibold uppercase …` | 16.8px | `/me` |
-| `components/crew/primitives/RunOfShowList.tsx:82` | `cursor-pointer list-none text-sm font-medium …` | 20.3px | crew show page |
+| `components/crew/primitives/RunOfShowList.tsx:82` | template literal: `` `cursor-pointer list-none text-sm font-medium ${titleTone} …` `` | 20.3px | crew show page |
+
+**Two of the seven are not literal-small-utility sites, which matters for §2.6's baseline and
+for the fixtures §8 must use:**
+
+- `AdministratorsSection.tsx:131` is sized by `p-3`, not by a size utility. Its repair still
+  adds `min-h-tap-min`; `p-3` stays (it is the disclosure's own padding, not a tap fix).
+- `RunOfShowList.tsx:82` has a **non-literal (template) className**, and — load-bearing for
+  the test fixture — **its `<summary>` renders only when the title exceeds 80 characters.**
+  `lib/crew/agendaDisplay.ts:25` defines `TITLE_TRUNCATE_AT = 80`;
+  `components/crew/primitives/RunOfShowList.tsx:31` computes
+  `const isLong = title.length > TITLE_TRUNCATE_AT;` and `components/crew/primitives/RunOfShowList.tsx:79-89` renders
+  `{isLong ? (<details><summary …>) : (<span …>{title}</span>)}`. A short title yields a
+  plain `<span>` and **no `<summary>` at all**, so a short-title fixture cannot exercise this
+  repair. **The fixture must use a title longer than 80 characters.**
 
 **Recipe (all seven):** add `inline-flex w-fit min-h-tap-min items-center` to the existing
 class string, mirroring the sibling `Learn more →` link at `HelpAffordance.tsx:111`, which
@@ -91,8 +105,9 @@ Sites already compliant, listed so a reviewer does not re-flag them:
 | Site | Element | Today | Fix |
 |---|---|---|---|
 | `components/admin/OnboardingWizard.tsx:127` **(the ledger's P2)** | `<Link>` × 3 (`base` const) | `flex size-7 …` 28×28 | Anchor becomes the target; visual pill moves to an inner `<span>` |
-| `components/admin/HelpSheet.tsx:75` **(the ledger's P2)** | `<button>` | `inline-flex size-7 …` 28×28 | Same recipe |
-| `components/admin/HelpTooltip.tsx:60` | `<summary>` | `inline-flex size-7 …` 28×28 | Same recipe (also Class A) |
+| `components/admin/HelpSheet.tsx:68` **(the ledger's P2)** | `<button>` | `inline-flex size-7 …` 28×28 | Same recipe |
+| `components/admin/HelpSheet.tsx:139` | `<button aria-label="Close help">` | `-m-1 inline-flex size-9 …` **36×36** | Same recipe. **Its `-m-1` has no matching padding**, so it expands nothing today — the negative margin is pure layout offset |
+| `components/admin/HelpTooltip.tsx:57` | `<summary>` | `inline-flex size-7 …` 28×28 | Same recipe (also Class A — see precedence below) |
 | `components/admin/nav/AdminNav.tsx:88-114` brand `<Link href="/admin">` | `<Link>` | 28px tall; 28px wide only below 360px | **Different recipe — see below.** Not the generic one |
 
 **Recipe, empirically selected (probe P4/P5/P6):**
@@ -104,6 +119,32 @@ inner <span> (new):             <today's `base` string, verbatim, unchanged>
 
 `size-tap-min` resolves through Tailwind v4's `--spacing-*` namespace from
 `--spacing-tap-min: 44px` (`app/globals.css:179`) and is already used elsewhere in the repo.
+
+**Class ownership when the string splits — stated per class, because "move `base` verbatim"
+is wrong for two of the four.** `StepIndicator` is the easy case: its visual `base` and its
+`focusRing` are already separate constants (`components/admin/OnboardingWizard.tsx:126-129`)
+applied together at `components/admin/OnboardingWizard.tsx:167`, so `base` moves to the span and `focusRing` stays on the anchor
+with no untangling. `HelpSheet` and `HelpTooltip` are NOT: each has one fused string
+carrying visual, cursor, and focus classes together
+(`components/admin/HelpSheet.tsx:68-78`, `components/admin/HelpTooltip.tsx:57-63`). Moving it
+verbatim would put `cursor-pointer` and every `focus-visible:*` class on a **non-focusable
+inner span**, which can never match the `focus-visible` pseudo-class — silently deleting the focus ring and
+contradicting DI-13, and leaving the expansion band without a pointer cursor.
+
+Split every fused string by destination:
+
+| Class | Destination | Why |
+|---|---|---|
+| `size-7`, `rounded-pill`, `bg-*`, `text-*`, `font-*`, `align-middle`, `transition-colors duration-fast` | **inner span** | These paint the 28px visual |
+| `focus-visible:*` (ring, offset, outline) | **target element** | Only the focusable element can match `focus-visible` (DI-13) |
+| `cursor-pointer` | **target element** | The cursor must change across the whole 44px band |
+| `hover:*` | **inner span, rewritten `group-hover:*`** | See the hover rewiring below |
+| `inline-flex`, `shrink-0` | **both** | The target needs them to lay out its child; the span needs them to centre its glyph |
+
+**`HelpTooltip` appears in BOTH Class A and Class B; Class B wins.** It is a `<summary>` that
+is also a 28×28 pill, so both recipes name it. Applying Class A's
+`inline-flex w-fit min-h-tap-min items-center` would give it a 44px-tall but still 28px-wide
+box. **Apply the Class B recipe only** — it satisfies both axes and preserves the pill.
 
 **`AdminNav`'s brand link takes a DIFFERENT recipe, because it is a composite.** The generic
 recipe fixes the target at `size-tap-min` — a 44px **square**. The brand link is not an icon
@@ -240,6 +281,67 @@ only one that lies.
 
 ---
 
+### 2.6 Corpus baseline — the class sweep, run rather than described
+
+Run 2026-08-07 against `origin/main` @ `61281c23e`, before this section was drafted, per the
+mandated detector pass (`docs/agents/spec-self-review.md:23`) and the class-sweep rule's
+requirement of an explicit procedure with its current output.
+
+**Procedure.** A TypeScript compiler AST walk over every `.tsx` under `app/**` and
+`components/**` (`ts.createSourceFile(..., ScriptKind.TSX)`, visiting `JsxOpeningElement` and
+`JsxSelfClosingElement`), not a regex — a regex over JSX matches example markup inside `//`
+and `/* */` comments and nested JSX in prop values, both of which occur in this repo.
+In scope: `<button>`, `<a>`, `<Link>`, `<summary>`, `<input type="checkbox|radio">`, or any
+tag with `role="button"` or `onClick`. Satisfying the floor: `min-h-tap-min` /
+`size-tap-min` / `min-w-tap-min`; any `size-`/`h-`/`w-`/`min-h-`/`min-w-` at ≥ 11 on the 4px
+scale; an arbitrary value ≥ 44px; a negative-margin plus matching-padding pair;
+`before:absolute` with a negative inset; or `sr-only` (the real target is a parent label).
+
+| Result | Count |
+|---|---|
+| In-scope interactive elements | **340** |
+| Not cleared by the recogniser | **139** |
+| — (A) literal className, genuinely under 44px | **16** |
+| — (B) inline prose link (`PRODUCT.md:59` WCAG 2.5.5 exception) | 5 |
+| — (C) small control whose real target is a parent label | 7 |
+| — (D) sized by padding only | 4 |
+| — (E) **non-literal className — UNCLASSIFIABLE** | **94** |
+| — (F) full-bleed or ancestor-filled (`inset-0` scrims, `size-full`) | 13 |
+
+**Bucket (E) is why the guard is filed rather than shipped (§5).** Bucket (D)'s arithmetic:
+`app/admin/dev/page.tsx:151` and `app/admin/dev/page.tsx:165` reach 32.8px (`py-1` + `text-base` 24.8px);
+`components/admin/settings/AdministratorsSection.tsx:131` reaches 40.8px;
+`app/me/page.tsx:332` reaches ≥48px and passes.
+
+**Disposition of bucket (A)'s 16 — every one accounted for, none left implicit:**
+
+| Site | Disposition |
+|---|---|
+| `app/me/page.tsx:239` | **Repaired** (§2.1) |
+| `components/messages/ErrorExplainer.tsx:114` | **Repaired** (§2.1) |
+| `components/admin/HelpAffordance.tsx:95` | **Repaired** (§2.1) |
+| `components/admin/OnboardingWizard.tsx:561` | **Repaired** (§2.1) |
+| `components/admin/HelpTooltip.tsx:57` | **Repaired** (§2.2, Class B wins) |
+| `components/admin/HelpSheet.tsx:68` | **Repaired** (§2.2) |
+| `components/admin/HelpSheet.tsx:139` | **Repaired** (§2.2) — found ONLY by this pass |
+| `components/admin/nav/AdminNav.tsx:88` | **Repaired** (§2.2) |
+| `app/admin/dev/page.tsx:334` | **Filed** — `BL-TAP-TARGET-INLINE-TEXT-CONTROLS` |
+| `app/admin/settings/admins/RevokeRowButton.tsx:283` | **Filed** — same |
+| `components/admin/RoleRecognizeControl.tsx:268` | **Filed** — same |
+| `components/admin/wizard/Step3SheetCard.tsx:149` | **Filed** — same |
+| `components/admin/wizard/step3ReviewSections.tsx:1405` (`tel:`) | **Filed** — same |
+| `components/admin/wizard/step3ReviewSections.tsx:1414` (`mailto:`) | **Filed** — same |
+| `components/admin/wizard/step3ReviewSections.tsx:2585` | **Filed** — same |
+| `components/shared/ReportModal.tsx:526` | **Filed** — same |
+
+Note that `components/admin/settings/AdministratorsSection.tsx:131` and
+`components/crew/primitives/RunOfShowList.tsx:82` are repaired by §2.1 but are **not** bucket
+(A) members — the first sorts to (D) and the second to (E). The seven repaired disclosures
+are therefore not a subset of any single bucket, which is itself the reason the sweep had to
+be run rather than reasoned about.
+
+---
+
 ## 3. Guard conditions
 
 Every changed surface receives partial or absent data in some state; each is specified.
@@ -253,11 +355,12 @@ Every changed surface receives partial or absent data in some state; each is spe
 | `StepIndicator` `step` === n | `aria-current="step"`, label `Step {n}, current step` (`components/admin/OnboardingWizard.tsx:166`) | Target grown; `aria-current` unchanged. |
 | `Step3Review` grouped section `rows.length === 0` | `return null` (`components/admin/wizard/Step3Review.tsx:745`) | Section, including its promoted `h2`, does not render. **The outline must stay monotonic when a section is absent** — with both promoted headings at the same level, any subset of them still yields `h1` followed only by `h2`s. |
 | `BellPanel` entry `isHealth` true/false | Href differs (`components/admin/BellPanel.tsx:324`) | Glyph removed on both branches. |
-| `OnboardingWizard` error disclosure `entry.helpfulContext` absent | The `<details>` at `components/admin/OnboardingWizard.tsx:559-564` renders with an empty `<p>` body | The `<summary>` still renders and still needs the floor. The repair is on the `<summary>`, so an empty body cannot regress it. |
+| `OnboardingWizard` error disclosure `entry.helpfulContext` absent | **No `<details>` renders at all** — the whole disclosure is conditional (`components/admin/OnboardingWizard.tsx:559-564`) | Nothing. There is no `<summary>` to measure, so DI-1 has no subject and needs the §8 premise. |
 | `ErrorExplainer` unknown code / disabled helpful context | Guarded at `components/messages/ErrorExplainer.tsx:79-96`; `<details>` block at `components/messages/ErrorExplainer.tsx:112-119` does not render | Nothing. The repaired `<summary>` is inside that block. |
-| `AdministratorsSection` zero revoked admins | Disclosure at `components/admin/settings/AdministratorsSection.tsx:126-145` | If the section renders with an empty list, the `<summary>` still renders and still meets the floor. If it does not render, DI-1 has no subject — hence the §8 premise. |
-| `app/me/page.tsx` zero past shows | Disclosure at `app/me/page.tsx:237-257` | Same shape as the row above: heading-only disclosure, floor still applies; premise required. |
-| `RunOfShowList` title at / below / above the 80-char truncation boundary | `components/crew/primitives/RunOfShowList.tsx:27-34`, `components/crew/primitives/RunOfShowList.tsx:80-91` | A short title yields a one-line `<summary>`, which is the 20.3px case the floor repair targets. A long title already wraps past 44px, so **the short-title case is the only one with discriminating power** and the fixture must use it. |
+| `AdministratorsSection` zero revoked admins | **No disclosure renders** (`components/admin/settings/AdministratorsSection.tsx:126-145`) | Nothing. The fixture must seed at least one revoked admin or DI-1 is vacuous here. |
+| `app/me/page.tsx` zero past shows | **No disclosure renders** (`app/me/page.tsx:237-257`) | Nothing. The fixture must seed at least one past show. |
+| `RunOfShowList` title ≤ 80 chars | **No `<summary>` renders** — a plain `<span>` does. `components/crew/primitives/RunOfShowList.tsx:31` computes `isLong = title.length > TITLE_TRUNCATE_AT` (80, `lib/crew/agendaDisplay.ts:25`); `components/crew/primitives/RunOfShowList.tsx:79-89` branches on it | Nothing to repair or measure. |
+| `RunOfShowList` title > 80 chars | The `<details>`/`<summary>` branch renders (`components/crew/primitives/RunOfShowList.tsx:80-91`) | The 20.3px `<summary>` this spec repairs. **This is the ONLY case with discriminating power, so the fixture title must exceed 80 characters.** |
 | `Step3Review` needs-attention section with zero blocking rows | `components/admin/wizard/Step3Review.tsx:1397-1406` | Section and its promoted `h2` do not render. Outline stays monotonic (both promoted headings are the same level). |
 | `HelpSheet` / `HelpTooltip` `label` empty | Feeds the trigger's accessible name directly (`components/admin/HelpSheet.tsx:62-75`, `components/admin/HelpTooltip.tsx:51-60`) | **Out of scope and unchanged** — this spec touches neither component's naming. Recorded so the geometry repair is not read as licence to alter the name. |
 
@@ -287,47 +390,54 @@ Each has a conservative worst case with a visible signal, not silent breakage.
 
 ---
 
-## 5. Structural defense
+## 5. Structural defense — DESCOPED, with the measurement that descopes it
 
-Per the structural-defense calibration rule, the class is nameable now, so the guard ships in
-this branch rather than after a recurrence.
+A repo-wide structural guard was specified here in draft 1. **It is not shipping in this
+branch, and the reason is the corpus baseline in §2.6, not a preference.**
 
-**New meta-test:** **tests/styles/_metaTapTargetFloor.test.ts** (NEW)
+The mandated pre-draft detector pass (`docs/agents/spec-self-review.md:23`) was run against
+the full corpus. It found **94 of 340 in-scope elements carry a non-literal `className`** — a
+template literal, a ternary, a named constant, a `.join()`, or (for four `AccentButton` call
+sites) no `className` prop at all, the floor living in the child component's own base string.
+A guard honouring the consequence bound must report every one of those as UNCLASSIFIED rather
+than pass it silently. So the guard cannot go green until someone dispositions 94 elements
+across surfaces this branch does not otherwise touch — which is class-sweep exception (c),
+"the repair is a redesign of a surface the PR does not otherwise touch, or spans enough sites
+to blow the review scope."
 
-- **Discovery is filesystem-walked** over `app/**` and `components/**`, so a NEW file is
-  covered by default rather than silently exempt.
-- **Accept-set, keyed on structure not spelling:** an element is IN SCOPE when it is an
-  interactive tag (`<button>`, `<a>`, `<Link>`, `<summary>`, `<input type=checkbox|radio>`)
-  or carries `role="button"`/`onClick`. An in-scope element SATISFIES the contract when it
-  carries any of `min-h-tap-min`, `size-tap-min`, `min-w-tap-min`, a negative-margin
-  expansion pair (`-m*-N` with matching `p*-N` or `size-tap-min`), or a
-  `before:absolute` + negative-inset run. Everything outside the accept-set is **reported by
-  name**, never skipped silently.
-- **Exemption:** an inline `// tap-target-exempt: <reason>` comment on the line above, or a
-  row in a small registry for the inline-prose-link exception (`PRODUCT.md:59`). A file with
-  neither fails.
-- **Vacuity gate:** the test asserts it found more than 50 in-scope elements, so a discovery
-  regression that silently matches nothing fails loudly rather than passing green.
+Shipping it anyway would mean one of two bad outcomes, both worse than filing it: a guard
+weakened until it passes (which stops honouring the bound, and would have missed
+`HelpSheet.tsx:139` — a real defect found only because the corpus pass ran), or 94 exemption
+comments written in a branch whose subject is thirteen class strings.
+
+**Filed as `BL-TAP-TARGET-STRUCTURAL-GUARD`** (§9), carrying the probe evidence the filing
+bar requires: the exact command, the 340/139/94 counts, and the six-bucket disposition table.
+The first scheduled step is named in the entry — decide the non-literal-className policy —
+because that decision, not the recogniser, is what actually gates the guard.
+
+**What this branch ships instead, so the class is not left undefended:** the repairs
+themselves plus the §8 real-browser assertions on the real components. Those pin the thirteen
+repaired sites against regression. They do not fail-by-default for a NEW small target, and
+this spec does not claim otherwise — that is precisely what the filed guard is for.
 
 ### Consequence bound and threat-model fence
 
-Stated here because §5's guard is a detector and the review of it converges against these,
-not against an enumeration of inputs.
+Retained because §2.6's recogniser is a detector, and because the filed guard inherits these
+as its acceptance posture.
 
-- **Consequence bound.** Every element the walker parses is either checked against the accept
-  set or **reported by name**; nothing is silently passed. A construct the parser cannot
-  classify (a computed className, a `cn()` call it cannot resolve) is reported as
-  `UNCLASSIFIED` and fails the test until a human either fixes it or exempts it by name.
-  Conservative-report-plus-visible-signal is a **documented limit, not a finding**.
+- **Consequence bound.** Every element the recogniser parses is correct or signaled, never
+  silently wrong: it is either checked against the accept-set or reported by name. A
+  construct it cannot classify is reported as UNCLASSIFIED, never passed. A worst case of
+  conservative-report-plus-surfaced-signal is a **DOCUMENTED LIMIT, not a finding**. The
+  criterion is closable: done when every parse outcome is one of correct, or reported.
 - **Threat-model fence.** The guard defends against **accidental authoring mistakes by an
   ordinary contributor** — a new button written with `size-7`, a new `<summary>` with no
-  height. **Adversarial obfuscation is explicitly out of scope**: a contributor determined to
-  hide a small target from a regex can, and that files to documented limits rather than
-  motivating a wider recognizer. A wider recognizer is a bigger target for the next round.
+  height. **Adversarial obfuscation is explicitly out of scope** and files to documented
+  limits rather than motivating a wider recogniser, which would only be a bigger target.
 
 ### Meta-test inventory
 
-- **CREATES:** **tests/styles/_metaTapTargetFloor.test.ts** (NEW) (above).
+- **CREATES:** none. The guard that would have gone here is filed (above).
 - **EXTENDS:** none.
 - **N/A, with reason:** no Supabase call boundary (`tests/auth/_metaInfraContract.test.ts`) —
   this diff touches no Supabase client call. No advisory-lock topology
@@ -348,15 +458,28 @@ so each of these requires a real-browser `getBoundingClientRect()` assertion (§
 | **DI-2** | Each repaired `<summary>` is **narrower than its container** (`w-fit` held) — it must not become a full-width invisible band. | `w-fit` on the summary |
 | **DI-3** | The three step pills' boxes each measure **exactly 44×44** (±0.5px), and **adjacent boxes never overlap** (inter-box gap ≥ 0) at 320/390/768/1280. | `-m-2 … size-tap-min` on the anchor |
 | **DI-4** | The **visual** pill (inner `<span>`) still measures **28×28** (±0.5px) — the repair is invisible (R6). | inner span keeps `size-7` |
-| **DI-5** | Pill **centres are unchanged** from the pre-change layout at 320px, where connectors are 0px wide and there is no slack (R7). | `-m-2` cancels the padding growth |
+| **DI-5** | Each pill's **margin box is 28×28** — `rect.width + marginLeft + marginRight === 28` and the same vertically (±0.5px) — so the repair consumes no layout, at 320px where connectors are 0px wide and there is no slack (R7). | `-m-2` cancels the `size-tap-min` growth |
 | **DI-6** | Each pill's **four edge midpoints** return that pill from `document.elementFromPoint`, never a sibling or an ancestor. | the recipe (probe P6) |
 | **DI-7** | The stepper **does not overflow at 320px** — `nav.scrollWidth ≤ container.clientWidth + 0.5`. Already pinned as DI-1 of `tests/e2e/step3-review-page.layout.spec.ts`; it must still hold after the change. | existing spec, re-run |
 | **DI-8** | `HelpSheet`'s trigger (`components/admin/HelpSheet.tsx:75`) measures **≥44×44**, its four edge midpoints return the trigger, and its visual pill stays 28×28. | same recipe |
-| **DI-9** | Hovering a point **inside the expansion band but outside the visual pill** produces the same computed colour as hovering the pill's centre — **and that centre-hover colour differs from the resting colour**, so the comparison has discriminating power. | `group` on the anchor + `group-hover:` on the span (§2.2) |
+| **DI-9** | Hovering a point **inside the expansion band but outside the visual pill** produces the same computed values as hovering the pill's centre, **for EVERY property the element's hover state changes** — and each of those differs from its resting value, so the comparison has discriminating power. | `group` on the anchor + `group-hover:` on the span (§2.2) |
 | **DI-10** | `HelpTooltip`'s `<summary>` trigger (`components/admin/HelpTooltip.tsx:60`) measures **≥44×44**, its four edge midpoints return the trigger, and its visual pill stays 28×28. Its hover band satisfies DI-9's parity. | same recipe |
 | **DI-11** | `AdminNav`'s brand link (`components/admin/nav/AdminNav.tsx:88`) measures **≥44px on both axes at 320px** (icon-only) and **≥44px tall at 360/440/1280** (wordmark states). | `min-h-tap-min -mx-2 px-2` |
-| **DI-12** | `AdminNav`'s brand link's **layout footprint and the topbar row height are unchanged** at 320/360/440 — the 44px growth must not consume the documented-tight narrow-phone width budget. | `-mx-2` cancelling `px-2` |
-| **DI-13** | **Focus-visible feedback covers the whole target, not the visual box:** for every repaired target, the focus ring's rect matches the 44px target's rect (±0.5px), not the 28px visual. | ring stays on the anchor/button (§2.2) |
+| **DI-12** | `AdminNav`'s brand link's **horizontal margin box equals its border box minus the added padding** — `marginLeft === -8 && marginRight === -8 && paddingLeft === 8 && paddingRight === 8` — so its layout footprint is unchanged at 320/360/440 and the documented-tight narrow-phone width budget is untouched. The topbar row's height is unchanged, since sibling controls already set it to ≥44px. | `-mx-2` cancelling `px-2` |
+| **DI-13** | **Focus-visible feedback covers the whole target, not the visual box:** with the target focused, the element carrying a non-`none` computed `outline`/`box-shadow` ring IS the 44px target, and its rect is the 44px rect (±0.5px). The inner 28px span carries no ring. | ring stays on the anchor/button (§2.2) |
+
+**DI-9's "every property"** is enumerated per site, not left to the test author:
+`components/admin/HelpSheet.tsx:68` and `components/admin/HelpTooltip.tsx:57` change **both**
+foreground and background on hover (`hover:bg-surface hover:text-text-strong`), so a test
+sampling only `color` would pass on a build where `group-hover:bg-*` was dropped and
+`group-hover:text-*` kept. Both `color` and `background-color` are asserted for those two.
+The step pill changes `color` only (`components/admin/OnboardingWizard.tsx:157`).
+
+**DI-13 is measured from computed style, not geometry.** `getBoundingClientRect()` cannot see
+a ring — a focus ring is `outline` or `box-shadow`, neither of which affects the border box.
+The assertion reads `getComputedStyle(el).outlineStyle` / `boxShadow` on both the target and
+the inner span and requires the ring on the former and absent on the latter, THEN compares
+the target's rect to 44px. Asserting only the rect would pass with no ring at all.
 
 **Corner hit-testing is deliberately excluded from DI-6.** Probe P4 measured that box
 *corners* are unreliable across recipes while edge midpoints are stable. Asserting corners
@@ -374,24 +497,26 @@ states are expressed in — which is exactly where a state can silently stop tra
 |---|---|
 | collapsed ↔ expanded | **Instant — no animation needed.** Native `<details>` toggling, untimed today and untimed after. Probe P2 confirms the toggle still fires under `display: inline-flex`. |
 
-**Step pill, 4 states → 6 pairs.** All six are colour-only crossfades via the existing
-`transition-colors duration-fast` (`components/admin/OnboardingWizard.tsx:127`), which moves
-to the inner span with the rest of the visual string. **No pair animates geometry** — the
-44×44 anchor and the 28×28 span are both static in every state.
+**Step pill, 4 states → 6 pairs, each with exactly ONE treatment.** The split is structural,
+not stylistic: the unreached state renders a `<span>`, the other three render a `<Link>`
+(`components/admin/OnboardingWizard.tsx:161-179`). Any pair crossing that boundary swaps the
+element, so React remounts and no transition can run — regardless of what
+`transition-colors` says. The three pairs that stay within `<Link>` do crossfade.
+**No pair animates geometry** — the 44×44 target and the 28×28 span are static in every
+state.
 
-| Pair | Treatment |
-|---|---|
-| unreached ↔ visited | `transition-colors duration-fast` (border, bg, text) |
-| unreached ↔ done | `transition-colors duration-fast` |
-| unreached ↔ active | `transition-colors duration-fast` |
-| visited ↔ done | `transition-colors duration-fast` |
-| visited ↔ active | `transition-colors duration-fast` |
-| done ↔ active | `transition-colors duration-fast` |
+| Pair | Crosses the span/Link boundary? | Treatment |
+|---|---|---|
+| unreached ↔ visited | yes (`<span>` → `<Link>`) | **Instant — remount, no animation possible** |
+| unreached ↔ done | yes | **Instant — remount** |
+| unreached ↔ active | yes | **Instant — remount** |
+| visited ↔ done | no (both `<Link>`) | `transition-colors duration-fast` (border, bg, text) |
+| visited ↔ active | no | `transition-colors duration-fast` |
+| done ↔ active | no | `transition-colors duration-fast` |
 
-Note that unreached is a `<span>` and the other three are `<Link>`
-(`components/admin/OnboardingWizard.tsx:161-179`), so any pair crossing that boundary is a
-remount, not a transition — the colour change is instant there regardless of the class. That
-is today's behaviour and is unchanged.
+This is today's behaviour, unchanged. It is spelled out because `transition-colors` moving to
+the inner span makes it tempting to assert all six crossfade, and three of them provably
+cannot.
 
 **Compound transitions** (state A changes while state B is non-default), the class the
 plain pair table cannot catch:
@@ -452,6 +577,15 @@ DI-1…DI-13 across 320/390/768/1280 (DI-11/DI-12 additionally at 360 and 440, t
 > `HelpTooltip`, and the `AdminNav` brand block, and exposes the props each invariant needs
 > (including DI-9's `step=2, maxReachedStep=3` forward-visited state).
 >
+> **The entry must mount ALL SEVEN repaired disclosures, not just the two admin ones** —
+> otherwise DI-1/DI-2 and AC-1 pass while five production class strings stay unrepaired,
+> which is the same defect one level down. Each needs the state that makes its `<summary>`
+> exist at all (§3): `HelpAffordance` with a code whose `helpfulContext` is non-null;
+> `OnboardingWizard`'s operator-error panel with `helpfulContext` present; `ErrorExplainer`
+> with a known code and helpful context enabled; `AdministratorsSection` with at least one
+> revoked admin; `app/me`'s past-shows block with at least one past show; `RunOfShowList`
+> with a title of **more than 80 characters**; `HelpTooltip` mounted directly.
+>
 > The probe in §7 used a transcribed harness because it was measuring *candidate recipes*
 > that did not exist in any component yet. That is the one legitimate use, and it ended
 > when the recipe was chosen.
@@ -490,7 +624,8 @@ DI-1…DI-13 across 320/390/768/1280 (DI-11/DI-12 additionally at 360 and 440, t
 
   | Assertion | Vacuous when | Premise |
   |---|---|---|
-  | DI-1, DI-2 | The conditional disclosure never rendered, so there is no `<summary>` to measure and a "no element is under 44px" phrasing passes trivially | The expected `<summary>` count is > 0 **and equals the number of fixtures mounted** |
+  | DI-1, DI-2 | The conditional disclosure never rendered, so there is no `<summary>` to measure and a "no element is under 44px" phrasing passes trivially | The rendered `<summary>` count **equals 7**, the number of repaired disclosures mounted — not merely "> 0", which one rendered fixture satisfies |
+  | Heading no-skip | Both promoted sections are conditional (`components/admin/wizard/Step3Review.tsx:745`, `components/admin/wizard/Step3Review.tsx:1397`); with neither rendered the page is just an `h1`, and "no level is skipped" is trivially true | **Both** promoted `h2`s are present in the fixture, asserted before the sequence check |
   | DI-3 | Fewer than two pills render, so "no two overlap" is trivially true | Exactly three pill targets are present |
   | DI-7 | The viewport is not actually 320px | Measured `window.innerWidth === 320` |
   | DI-9 | The sampled pill has no hover colour (active/done), so band-hover == centre-hover with the rewiring absent | Centre-hover colour ≠ resting colour on the sampled pill |
@@ -515,12 +650,39 @@ DI-1…DI-13 across 320/390/768/1280 (DI-11/DI-12 additionally at 360 and 440, t
   revert from `next/image`. Unchanged.
 - **`NEWTAB-A11Y-RESIDUE-1` IS fully closed** by §2.4 + §2.5 and is archived by this branch.
 
+### 9.1 Filed, each with its class-sweep exception named
+
+Per the disposition rule, "same defect, different file" is never a sufficient reason. Each
+entry below names exception (a), (b), or (c), and carries the probe evidence from §2.6.
+
+**`BL-TAP-TARGET-INLINE-TEXT-CONTROLS` — exception (a), needs a product decision.** The eight
+bucket-(A) sites this branch does not repair (§2.6) are all inline text links or text buttons
+sitting inside sentences: "Refresh" in a banner (`RevokeRowButton.tsx:283`), "Change"
+(`RoleRecognizeControl.tsx:268`), "Start fresh" (`ReportModal.tsx:526`), a "show more" toggle
+(`step3ReviewSections.tsx:2585`), a sheet-title deep link (`Step3SheetCard.tsx:149`), `tel:`
+and `mailto:` links (`step3ReviewSections.tsx:1405`, `step3ReviewSections.tsx:1414`), and a dev-page debug button
+(`app/admin/dev/page.tsx:334`). `PRODUCT.md:59` grants an explicit WCAG 2.5.5 exception to
+"links rendered inline within prose body text", and whether each of these is inline prose or
+chrome is a **per-site product judgment**, not a mechanical class edit — several sit in
+sentence flow where a 44px box would visibly break the line. That judgment is the deferred
+work; the first scheduled step is to make it, per site, then repair whatever it classifies as
+chrome. **Reachability: PROBED** — every site and its computed height is in §2.6.
+
+**`BL-TAP-TARGET-STRUCTURAL-GUARD` — exception (c), spans surfaces this PR does not touch.**
+The repo-wide guard, descoped per §5. Evidence: the §2.6 procedure and its 340 / 139 / 94
+counts. The blocker is not the recogniser but the **94 non-literal classNames**, which a
+bound-honouring guard must report as UNCLASSIFIED. The first scheduled step is therefore the
+policy decision — resolve named class constants, require literal classNames on interactive
+elements, or accept a standing UNCLASSIFIED census — because the recogniser cannot be
+finished before it. **Reachability: PROBED.**
+
 ---
 
 ## 10. Acceptance criteria
 
-- **AC-1** Every site in §2.1 renders a `<summary>` measuring ≥44px on both axes, and each
-  remains narrower than its container (DI-1, DI-2).
+- **AC-1** **All seven** sites in §2.1 render a `<summary>` measuring ≥44px on both axes,
+  each narrower than its container, each mounted in the state that makes it exist (DI-1,
+  DI-2, §3).
 - **AC-2** **Every** site in §2.2 — the three step pills, `HelpSheet`, `HelpTooltip`, and
   the `AdminNav` brand link — exposes a ≥44×44 target whose four edge midpoints hit it, with
   its 28px visual preserved and no overlap between adjacent targets (DI-3, DI-4, DI-6, DI-8,
@@ -538,8 +700,9 @@ DI-1…DI-13 across 320/390/768/1280 (DI-11/DI-12 additionally at 360 and 440, t
 - **AC-5** The diagram tile exposes exactly one accessible name; a blank `alt` still yields a
   named link.
 - **AC-6** No internal link renders `↗`.
-- **AC-7** **tests/styles/_metaTapTargetFloor.test.ts** (NEW) passes, reports >50 in-scope elements,
-  and fails when a `size-7` interactive element is added without an exemption.
+- **AC-7** Both ledger entries in §9.1 are filed with their exception named and the §2.6
+  evidence attached. **No structural guard ships in this branch** (§5); an implementation
+  that adds one has exceeded the spec.
 - **AC-8** `/impeccable critique` and `/impeccable audit` pass on the diff; P0/P1 findings
   fixed or deferred with a `DEFERRED.md` entry (invariant 8).
 
