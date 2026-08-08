@@ -48,13 +48,19 @@ new test file needs no `testMatch` or workflow path-filter wiring. No new CI job
 ## Commit-greenness note (read before Task 3)
 
 Spec §4 requires stage 1 (migration) and stage 2 (canonicalization) to land as **separate commits**
-so a reviewer can diff them apart. The consequence is deliberate and stated here so it is not
-discovered as a finding: **the Task 3 commit has 10 known `pnpm lint` errors** — the violations the
-migration makes visible for the first time (spec §2.4). They are fixed in Task 4, and the branch is
-green from Task 4 onward. CI gates the PR's final state, not each intermediate commit. The Task 3
-commit message must say this explicitly.
+so a reviewer can diff them apart. Two consequences follow, both deliberate, both stated here so
+neither is discovered as a finding. **The Task 3 commit leaves two things red:**
 
-Merging the two tasks to keep every commit green would destroy the property that makes a 36-site
+| Red after Task 3 | Why | Resolved by |
+|---|---|---|
+| `pnpm lint` — 10 errors | the violations the migration makes visible for the first time (spec §2.4) | Task 6 |
+| `tests/specLint/canonicalClassArray.test.ts` | the census now names 18 files that no longer array-join a className, so its shrink-never-rot assertion fails | Task 4 |
+
+Both are intended, and the second is load-bearing rather than incidental: it is Task 4's genuine RED
+(see that task). The branch is fully green after Task 6. CI gates the PR's final state, not each
+intermediate commit, and the Task 3 commit message says all of this explicitly.
+
+Merging the tasks to keep every commit green would destroy the property that makes a 36-site
 mechanical diff reviewable: that stage 1 changes no class token at all.
 
 ---
@@ -68,7 +74,7 @@ mechanical diff reviewable: that stage 1 changes no class token at all.
 
 1. `git -C <worktree> fetch origin && git -C <worktree> rebase origin/main`.
 2. **Re-run the inventory sweep separator-agnostically** (spec §2.2 — a sweep keyed on the literal
-   `.join(" ")` cannot see the escape spellings Task 6 closes):
+   `.join(" ")` cannot see the escape spellings Task 4 closes):
    ```
    git ls-files -z components app | tr '\0' '\n' | grep -E '\.tsx?$' \
      | xargs grep -ohE '\.join\([^)]*\)' | sort | uniq -c | sort -rn
@@ -157,7 +163,7 @@ Design, per `docs/agents/writing-plans.md`:
 - **Expected values come from the pre-migration source, never from a literal.** Read each of the 18
   files at the pre-migration commit via `git show <sha>:<path>`.
   **The SHA is an explicit required argument, never a re-resolution of `HEAD`.** The script takes
-  `--base <sha>`, and both invocations (the RED here, and the re-run in Task 5) pass the
+  `--base <sha>`, and both invocations (the RED here, and the re-run in Task 6) pass the
   same **branch-base** SHA, `61281c23e`. Re-resolving `HEAD` at the second invocation would read the
   already-migrated tree, find zero array joins, and pass vacuously — the exact degenerate success the
   premise below exists to catch. It is a local history read, never a CI-time lookup, which is why
@@ -166,10 +172,10 @@ Design, per `docs/agents/writing-plans.md`:
   intervening `.filter(Boolean)`; extract the corresponding `cn(...)` argument list from the working
   tree; assert the same operand sequence, comparing after stripping comments and insignificant
   whitespace.
-- **Declared-delta allowance.** Class tokens rewritten in Task 4 are permitted only where spec §6
+- **Declared-delta allowance.** Class tokens rewritten in Task 6 are permitted only where spec §6
   declares them (C1–C6), as an explicit `EXPECTED_TOKEN_DELTAS` map. An undeclared token change
   fails. (On the Task 3 run nothing has been canonicalized yet, so the map is inert here; it earns
-  its keep when the script is re-run at the end of Task 4.)
+  its keep when the script is re-run in Task 6.)
 - **State the premise executably.** Immediately above the parity assertion, and unconditionally —
   never inside a `.each` callback, whose case count can be zero:
   ```js
@@ -216,116 +222,21 @@ The `DayCard` assertions catch the single site where operands are preserved but 
 
 **Commit:** `refactor(ui): migrate array-join classNames to the cn callee`
 
-## Task 4 — the dimension harness, and the baseline captured BEFORE canonicalization
+## Task 4 — replace the census guard, which Task 3 has just turned red
 
-<!-- task: red=`pnpm exec playwright test --project=desktop-chromium tests/e2e/canonical-layout-dimensions.spec.ts` ac=AC-11 -->
+<!-- task: red=`pnpm vitest run tests/specLint/canonicalClassArray.test.ts` ac=AC-6,AC-7 -->
 
-The two sizing canonicalizations (C1, C5) must be shown not to move geometry, and that is only
-provable against a baseline captured **before** the fix lands. A post-hoc one-sided bound does not
-prove it: "width ≤ token" passes on a box that went 45px → 55px, and "height ≥ token" passes on
-200px → 176px. So the harness and the capture come first, as their own task, and the canonicalization
-that must not disturb them comes second.
+**RED — and the red is real, which is why this task sits here.** Task 3 migrated all 36 sites, so
+the OLD census guard is now failing: its third assertion ("names no file that no longer has one — the
+census shrinks, never rots") finds all 18 census rows pointing at files that no longer array-join a
+className. Run it and see it fail. That failure is what this task resolves.
 
-The tree at this point is migrated but **not** canonicalized. Stage 1 changed no class token
-(spec §4), so geometry here is identical to base — which is what makes this a valid baseline.
+This ordering matters. Writing the replacement guard first would produce a test that passes the
+moment it is authored correctly — the tree is already clean — and deleting the old file could not
+turn it green, because the two are different files. There would be no red-to-green causality at all,
+just a marker asserting one. The honest red is the census guard's own death rattle.
 
-**RED.** Write `tests/e2e/canonical-layout-dimensions.spec.ts`, asserting each target's
-`getBoundingClientRect()` equals the value recorded in
-`tests/e2e/__baselines__/canonical-dimensions.json`. It fails: the baseline file does not exist yet.
-
-Targets:
-
-- the step-indicator connector rule, `components/admin/OnboardingWizard.tsx:200-203`
-  (`h-px max-w-[60px] flex-1 rounded-full`) — the C1 target;
-- the `RightNowHero` card, `components/crew/RightNowHero.tsx:481` — the C5 target.
-
-**The spec must actually run, which is not automatic here.** `playwright.config.ts` uses **explicit
-allow-list** `testMatch` regexes per project, and its own comment warns that "a spec absent from this
-regex runs NOWHERE and silently proves nothing." A name like `canonicalDimensions.spec.ts` matches
-neither default project — probed `{mobile:false, desktop:false}`. Two steps, both required:
-
-1. Name the file `canonical-layout-dimensions.spec.ts` **and** add an explicit alternative to the
-   `desktop-chromium` project's `testMatch` in `playwright.config.ts`. Do not rely on it incidentally
-   matching the existing `layout-dimensions` alternative as a substring — implicit matching is
-   exactly the silence the config comment warns about.
-2. **Wire it into CI.** Add it to the `admin-layout-e2e.yml` desktop-chromium invocation, which
-   already runs this repo's dimension specs. `pnpm test` is Vitest only and will never execute a
-   Playwright spec, so without this step AC-11 stays dark in real CI no matter how the spec is
-   written.
-
-**Harness readiness** (`docs/agents/writing-plans.md` e2e checklist):
-
-- **Boot:** the repo's existing Playwright setup and its production-build server.
-  `tests/e2e/admin-layout-dimensions.spec.ts` is an existing `getBoundingClientRect()` dimension spec
-  here — follow its boot, gate, and assertion shape rather than inventing a second pattern.
-- **Readiness gate:** await the surface's established hydration gate before the first measurement,
-  never `networkidle` alone. A rect read pre-hydration is a confident wrong number.
-- **Detach safety:** both rest-state targets are static. The crossfade measurement in Task 5 samples
-  a live element and must guard against auto-wait hanging on an unmounted node.
-
-**GREEN.** Run the spec in capture mode, commit `tests/e2e/__baselines__/canonical-dimensions.json`,
-and confirm the spec now passes against it.
-
-**Failure mode caught:** a dimension gate that never executes — the config's own documented failure —
-and a baseline captured after the change it is supposed to measure.
-
-**Commit:** `test(ui): capture the pre-canonicalization dimension baseline`
-
-## Task 5 — canonicalize, and hold the baseline and the transitions
-
-<!-- task: red=`pnpm lint` ac=AC-5 -->
-
-**RED.** `pnpm lint` reports the 10 errors across 6 files of spec §2.4.
-
-**GREEN.** Run `eslint --fix` scoped to the 18 files, then verify the applied fixes are **exactly**
-C1–C6 from spec §6:
-
-| # | File | Before → After |
-|---|---|---|
-| C1 | `components/admin/OnboardingWizard.tsx` | `max-w-[60px]` → `max-w-confirm-box` |
-| C2 | `components/admin/PublishedToggle.tsx` | `h-5 w-5` → `size-5` |
-| C3 | `components/admin/settings/AutoPublishToggle.tsx` | `h-5 w-5` → `size-5` |
-| C4 | `components/admin/settings/NotifyToggle.tsx` | `h-5 w-5` → `size-5` |
-| C5 | `components/crew/RightNowHero.tsx` | `min-h-(--spacing-right-now-min-h)` → `min-h-right-now-min-h` |
-| C6 | `components/crew/sections/TodaySection.tsx` | `text-sm leading-snug` → `text-sm/snug` |
-
-**A rewrite not in this table is a finding, not a fix.** Stop and report — an undeclared rewrite
-means spec §2.4's measurement no longer describes the tree, and the §4/§6 equivalence argument rests
-on it.
-
-**Then hold the three things this change could disturb:**
-
-1. **Geometry.** Re-run Task 4's spec. Every recorded box matches the committed baseline within
-   **0.5px** — equality against a real prior measurement, not a bound against a token.
-2. **Operands.** Re-run `node scripts/verify-cn-operand-parity.mjs --base 61281c23e`. It must pass
-   with the C1–C6 deltas allowed and no others. Note the explicit `--base`: re-resolving `HEAD` here
-   would compare the migrated tree against itself.
-3. **Transitions.** Spec §9.5 declares no transition is added, removed, or altered — checked, not
-   trusted, because `components/crew/RightNowHero.tsx` is both a migrated file (3 sites) and the
-   repo's most transition-dense surface, driving an `AnimatePresence` crossfade over the very card
-   whose height C5 touches.
-   - Enumerate every `AnimatePresence`, `motion.*`, ternary render, and conditional block across the
-     18 migrated files; each must still carry the `initial` / `animate` / `exit` props it carried at
-     base. The migration touches `className` values only; a changed motion prop means the rewrite
-     escaped its scope.
-   - **Compound case:** measure the C5 card's height **during** the crossfade, not only at rest. The
-     176px constant is a ratified invariant (`app/globals.css:205-209`), and a min-height change
-     would surface only mid-transition.
-   - `tests/crew/transitionAudit.test.ts` passes **unchanged**. An assertion there that moves is a
-     signal the migration was not operand-preserving, not a reason to update the audit.
-
-**Failure mode caught:** a canonicalization whose token does not resolve to the value it replaced,
-moving layout by a few pixels that no unit test and no reviewer would see — including a move visible
-only while a transition is in flight.
-
-**Commit:** `fix(ui): canonicalize the classes the cn migration made visible`
-
-
-## Task 6 — replace the census guard
-
-<!-- task: red=`pnpm vitest run tests/specLint/canonicalClassCallee.test.ts` ac=AC-6,AC-7 -->
-
-**RED.** Write `tests/specLint/canonicalClassCallee.test.ts` (spec §7):
+**GREEN, part 1.** Write `tests/specLint/canonicalClassCallee.test.ts` (spec §7):
 
 1. **Zero-tolerance recognizer, keyed on the join's separator and position-free.** Do **not** reuse
    the census scanner's shape. It carries three independent escapes, all probed silent in spec §7.1:
@@ -375,12 +286,138 @@ only while a transition is in flight.
    permanently documents, executably, why the migration was necessary once the array-join sites are
    gone.
 
-**GREEN.** Delete `tests/specLint/canonicalClassArray.test.ts`.
+**GREEN, part 2.** Delete `tests/specLint/canonicalClassArray.test.ts`. The red command now passes
+by the file's removal, and the replacement carries its surviving obligations forward.
+
+Both halves land in one commit: a commit that deleted the census without its replacement would leave
+the tree momentarily unguarded against the regression spec §1.1 R4 exists to prevent.
 
 **Failure mode caught:** deleting the census and leaving nothing behind, so a new array-join
 className lands dark — the exact regression the census existed to stop (spec §1.1 R4).
 
 **Commit:** `test(lint): replace the array-join census with a zero-tolerance callee guard`
+
+## Task 5 — the dimension harness, and the baseline captured BEFORE canonicalization
+
+<!-- task: red=`pnpm exec playwright test --project=desktop-chromium tests/e2e/canonical-layout-dimensions.spec.ts` ac=AC-11 -->
+
+The two sizing canonicalizations (C1, C5) must be shown not to move geometry, and that is only
+provable against a baseline captured **before** the fix lands. A post-hoc one-sided bound does not
+prove it: "width ≤ token" passes on a box that went 45px → 55px, and "height ≥ token" passes on
+200px → 176px. So the harness and the capture come first, as their own task, and the canonicalization
+that must not disturb them comes second.
+
+The tree at this point is migrated but **not** canonicalized. Stage 1 changed no class token
+(spec §4), so geometry here is identical to base — which is what makes this a valid baseline.
+
+**RED.** Write `tests/e2e/canonical-layout-dimensions.spec.ts`, asserting each target's
+`getBoundingClientRect()` equals the value recorded in
+`tests/e2e/__baselines__/canonical-dimensions.json`. It fails: the baseline file does not exist yet.
+
+Targets:
+
+- the step-indicator connector rule, `components/admin/OnboardingWizard.tsx:200-203`
+  (`h-px max-w-[60px] flex-1 rounded-full`) — the C1 target;
+- the `RightNowHero` card, `components/crew/RightNowHero.tsx:481` — the C5 target.
+
+**The spec must actually run, which is not automatic here.** `playwright.config.ts` uses **explicit
+allow-list** `testMatch` regexes per project, and its own comment warns that "a spec absent from this
+regex runs NOWHERE and silently proves nothing." A name like `canonicalDimensions.spec.ts` matches
+neither default project — probed `{mobile:false, desktop:false}`. Two steps, both required:
+
+1. Name the file `canonical-layout-dimensions.spec.ts` **and** add an explicit alternative to the
+   `desktop-chromium` project's `testMatch` in `playwright.config.ts`. Do not rely on it incidentally
+   matching the existing `layout-dimensions` alternative as a substring — implicit matching is
+   exactly the silence the config comment warns about.
+2. **Wire it into CI — the invocation AND the path filter.** Add the spec to the
+   `admin-layout-e2e.yml` desktop-chromium invocation, which already runs this repo's dimension
+   specs. `pnpm test` is Vitest only and will never execute a Playwright spec, so without this AC-11
+   stays dark in real CI however well the spec is written.
+
+   **Adding the invocation alone is not enough.** That workflow fires on an explicit `paths:`
+   allow-list, and none of this gate's inputs is on it. This PR would run it only incidentally,
+   because it edits the workflow file itself; a later ordinary edit to a guarded component would not.
+   Add **all five** direct inputs:
+
+   ```yaml
+   - "tests/e2e/canonical-layout-dimensions.spec.ts"
+   - "tests/e2e/__baselines__/canonical-dimensions.json"
+   - "components/admin/OnboardingWizard.tsx"     # C1 target
+   - "components/crew/RightNowHero.tsx"          # C5 target
+   - "app/globals.css"                           # the tokens both assertions resolve through
+   ```
+
+   The workflow's own header documents this exact failure class — "a spec in a project no workflow
+   runs is a spec that silently rots" — and a spec whose triggers omit its subject rots the same way,
+   just more quietly, because the job exists and simply never fires.
+
+**Harness readiness** (`docs/agents/writing-plans.md` e2e checklist):
+
+- **Boot:** the repo's existing Playwright setup and its production-build server.
+  `tests/e2e/admin-layout-dimensions.spec.ts` is an existing `getBoundingClientRect()` dimension spec
+  here — follow its boot, gate, and assertion shape rather than inventing a second pattern.
+- **Readiness gate:** await the surface's established hydration gate before the first measurement,
+  never `networkidle` alone. A rect read pre-hydration is a confident wrong number.
+- **Detach safety:** both rest-state targets are static. The crossfade measurement in Task 5 samples
+  a live element and must guard against auto-wait hanging on an unmounted node.
+
+**GREEN.** Run the spec in capture mode, commit `tests/e2e/__baselines__/canonical-dimensions.json`,
+and confirm the spec now passes against it.
+
+**Failure mode caught:** a dimension gate that never executes — the config's own documented failure —
+and a baseline captured after the change it is supposed to measure.
+
+**Commit:** `test(ui): capture the pre-canonicalization dimension baseline`
+
+## Task 6 — canonicalize, and hold the baseline and the transitions
+
+<!-- task: red=`pnpm lint` ac=AC-5 -->
+
+**RED.** `pnpm lint` reports the 10 errors across 6 files of spec §2.4.
+
+**GREEN.** Run `eslint --fix` scoped to the 18 files, then verify the applied fixes are **exactly**
+C1–C6 from spec §6:
+
+| # | File | Before → After |
+|---|---|---|
+| C1 | `components/admin/OnboardingWizard.tsx` | `max-w-[60px]` → `max-w-confirm-box` |
+| C2 | `components/admin/PublishedToggle.tsx` | `h-5 w-5` → `size-5` |
+| C3 | `components/admin/settings/AutoPublishToggle.tsx` | `h-5 w-5` → `size-5` |
+| C4 | `components/admin/settings/NotifyToggle.tsx` | `h-5 w-5` → `size-5` |
+| C5 | `components/crew/RightNowHero.tsx` | `min-h-(--spacing-right-now-min-h)` → `min-h-right-now-min-h` |
+| C6 | `components/crew/sections/TodaySection.tsx` | `text-sm leading-snug` → `text-sm/snug` |
+
+**A rewrite not in this table is a finding, not a fix.** Stop and report — an undeclared rewrite
+means spec §2.4's measurement no longer describes the tree, and the §4/§6 equivalence argument rests
+on it.
+
+**Then hold the three things this change could disturb:**
+
+1. **Geometry.** Re-run Task 5's spec. Every recorded box matches the committed baseline within
+   **0.5px** — equality against a real prior measurement, not a bound against a token.
+2. **Operands.** Re-run `node scripts/verify-cn-operand-parity.mjs --base 61281c23e`. It must pass
+   with the C1–C6 deltas allowed and no others. Note the explicit `--base`: re-resolving `HEAD` here
+   would compare the migrated tree against itself.
+3. **Transitions.** Spec §9.5 declares no transition is added, removed, or altered — checked, not
+   trusted, because `components/crew/RightNowHero.tsx` is both a migrated file (3 sites) and the
+   repo's most transition-dense surface, driving an `AnimatePresence` crossfade over the very card
+   whose height C5 touches.
+   - Enumerate every `AnimatePresence`, `motion.*`, ternary render, and conditional block across the
+     18 migrated files; each must still carry the `initial` / `animate` / `exit` props it carried at
+     base. The migration touches `className` values only; a changed motion prop means the rewrite
+     escaped its scope.
+   - **Compound case:** measure the C5 card's height **during** the crossfade, not only at rest. The
+     176px constant is a ratified invariant (`app/globals.css:205-209`), and a min-height change
+     would surface only mid-transition.
+   - `tests/crew/transitionAudit.test.ts` passes **unchanged**. An assertion there that moves is a
+     signal the migration was not operand-preserving, not a reason to update the audit.
+
+**Failure mode caught:** a canonicalization whose token does not resolve to the value it replaced,
+moving layout by a few pixels that no unit test and no reviewer would see — including a move visible
+only while a transition is in flight.
+
+**Commit:** `fix(ui): canonicalize the classes the cn migration made visible`
+
 
 <!-- tasks: end -->
 
@@ -444,7 +481,7 @@ Full suite + `pnpm typecheck` green first. Then dispatch Codex review through
 `scripts/codex-guard.mjs` with `--stage diff`, iterating to APPROVE.
 
 The brief carries: REVIEWER ONLY, fresh-eyes posture, `VERDICT:` + `FINDINGS:` instructions, the
-consequence bound and threat-model fence (the guard surface in Task 6 makes this mandatory), and the
+consequence bound and threat-model fence (the guard surface in Task 4 makes this mandatory), and the
 do-not-relitigate list from spec §1.1 — **including the ratified local-`cn` decision**, the single
 most likely thing for a fresh reviewer to reopen.
 
@@ -454,7 +491,7 @@ replacement) with the file list inlined in each brief, rather than attempting wh
 
 **Re-certification rule — the gate certifies the FINAL diff, not an intermediate one.** If any repair
 commit in this step (or in C2) touches a file under `app/` or `components/`, then before merge:
-re-run **both** impeccable commands on the updated diff, and re-run the dimension spec from Task 4
+re-run **both** impeccable commands on the updated diff, and re-run the dimension spec from Task 5
 against its committed baseline. A UI edit landing after the gate would otherwise ship uncertified,
 which is invariant 8 satisfied on paper and not in fact. Record the re-run in §12.
 
@@ -464,17 +501,29 @@ which is invariant 8 satisfied on paper and not in fact. Record the re-run in §
 
 Ordering matters here: the graduation commit must be **in** the PR and must itself be CI-green.
 
-1. Push; open the PR.
-2. **Author the last commit now, before the final CI wait:** archive
-   `BL-CLASSNAME-ARRAY-JOIN-MIGRATION` and remove its
-   `**Status:** IN PROGRESS · **Branch:** …` marker **in that same commit**. Archives categorically
-   reject in-progress entries, and a marker that reaches `main` names a branch the merge has just
-   deleted — `tests/docs/_metaLedgerInProgress.test.ts` then fails on `main` until someone clears it.
-3. Push that commit, then wait for **real CI green on the final head** — not on an earlier one, and
-   not local-only (local-passes-CI-fails is its own bug class). Any push after a green run restarts
-   this step; the run that authorizes the merge must be the run for the commit being merged.
-4. `gh pr merge --merge`, then fast-forward local `main` and verify
+Two requirements pull against each other and the ordering below is what satisfies both: invariant 12
+wants the in-progress marker to survive until the PR's **last** commit, and the merge must be
+authorized by CI green on the **exact head** being merged.
+
+1. Push; open the PR. **The marker stays on** through everything below until step 4.
+2. Drive CI to green with the marker still in place, repairing and re-pushing as needed. This is
+   where repair commits belong — while the branch is still declaring its claim.
+3. Confirm the branch is otherwise merge-ready: C1–C3 complete, review APPROVE, CI green.
+4. **Only now author the graduation commit:** archive `BL-CLASSNAME-ARRAY-JOIN-MIGRATION` and remove
+   its `**Status:** IN PROGRESS · **Branch:** …` marker **in that same commit**. Archives
+   categorically reject in-progress entries, and a marker that reaches `main` names a branch the
+   merge just deleted — `tests/docs/_metaLedgerInProgress.test.ts` then fails on `main` until someone
+   clears it.
+5. Push it and wait for CI green **on that commit**, not on an earlier one, and not local-only
+   (local-passes-CI-fails is its own bug class).
+6. **If that run fails, restore the marker as part of the repair.** Do not leave the branch live
+   without its claim while fixing: that is precisely the undeclared-work collision invariant 12
+   exists to prevent, and it would happen silently. Repair with the marker back on, return to step 2,
+   and re-author the graduation commit when green.
+7. `gh pr merge --merge`, then fast-forward local `main` and verify
    `git rev-list --left-right --count main...origin/main` reports `0  0`.
+
+The rule in one line: **the marker comes off only when the next action is the merge itself.**
 
 **Commit:** `docs(plan): graduate BL-CLASSNAME-ARRAY-JOIN-MIGRATION`
 
