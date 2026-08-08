@@ -54,7 +54,14 @@ run at close-out step C2, dispositions in §12.`
   binds by discipline: every one of the five destructures `{ data, error }` (or checks `.error`
   explicitly and is written destructured in the replica), distinguishes returned from thrown
   errors, and throws with context — the pattern `tests/e2e/helpers/dashboardState.ts` already
-  documents in its own invariant-9 header. Production surfaces: none touched, no registry change.
+  documents in its own invariant-9 header. **Each of the five call sites carries the inline
+  waiver invariant 9 requires where no registry row exists:**
+  `// not-subject-to-meta: e2e test scaffolding — a returned error is converted to an immediate
+  throw that aborts the spec, so there is no infra-vs-benign ambiguity left to type; the thrown
+  message carries the query context and the db:seed remedy.` The typed-infra-result half of the
+  invariant discriminates infra faults from benign outcomes on surfaces that continue past them;
+  a test helper that fail-fast-aborts has no continuing path, which is what the waiver reason
+  states. Production surfaces: none touched, no registry change.
 - **Not applicable, declared:** `tests/auth/_metaInfraContract.test.ts` (no PRODUCTION Supabase
   call added — the five test-scaffolding sites above are outside its walk, stated there),
   `tests/auth/advisoryLockRpcDeadlock.test.ts` (no `pg_advisory*` path),
@@ -118,8 +125,19 @@ mechanical diff reviewable: that stage 1 changes no class token at all.
    with the same backward bracket-matching the parity script uses; after Task 3 it accepts the
    `cn(...)` argument-list form at the same sites), classifies every top-level operand of every
    unfiltered site into the three kinds below, checks the seven identifier definitions for
-   non-empty truthiness at their definition sites, and exits 0 printing a per-kind tally — or
-   exits 1 naming every operand outside the kinds and every identifier definition that moved.
+   non-empty truthiness at their definition sites, verifies each of the seven names has exactly
+   one binding in its file (the shadowing stop in kind 2 below), and exits 0 printing a per-kind
+   tally — or exits 1 naming every operand outside the kinds, every identifier definition that
+   moved, and every shadowed name.
+
+   **The script proves it can fail before it is trusted green (invariant 1).** It is a tracked
+   executable, so authoring it green-only would be the TDD bypass the census replacement was
+   denied. At authoring, run it against a planted on-disk fixture tree (the Task 4 premise
+   pattern) holding: an out-of-kind operand (`active && "bg-accent"`), a ternary with a falsy
+   branch at a non-sanctioned site, and a shadowed identifier — assert exit 1 naming all three;
+   then against a fixture holding only in-kind operands plus the `DayCard` sanctioned branch —
+   assert exit 0. Record both runs in the task log. The premise fixture ships inside the script's
+   own `--self-test` mode so the C4 re-run can re-prove discrimination with one flag.
    Expected tally at the current base: 30 unfiltered sites; 18 conditional operands at 18 sites;
    exactly one falsy-capable branch (`components/crew/primitives/DayCard.tsx:98`); every remaining
    operand a non-empty string literal or one of the seven identifiers. Record the actual tally in
@@ -139,7 +157,15 @@ mechanical diff reviewable: that stage 1 changes no class token at all.
      all stay green through it. So enumerate **every** top-level operand at the 30 unfiltered sites
      and assert each is one of the three kinds the base is measured to contain:
      1. a non-empty string literal;
-     2. one of the seven proven-truthy identifiers from spec §4.1's table;
+     2. one of the seven proven-truthy identifiers from spec §4.1's table — **accepted only when
+        the name has exactly ONE binding in the file.** Name-matching alone is not
+        binding-awareness: a nested `const base = ""` shadows the truthy outer `base`, the operand
+        spelling and the checked outer definition both stay unchanged, and `join` emits `"a  b"`
+        where `cn` emits `"a b"` — silent wrongness with every other proof green. So the script
+        counts binding positions (declarations, function params, destructuring) for each of the
+        seven names per file; more than one binding for a name used as an operand is a STOP. A
+        legitimate second binding in an unrelated scope also stops — a false stop, conservative
+        and signaled, resolved by re-deriving spec §4.1;
      3. a conditional (ternary) expression — possibly nested — **every** result branch of which is a
         non-empty string literal, with exactly one sanctioned exception:
         `components/crew/primitives/DayCard.tsx:98`, whose `tone === "set"` branch is `""` — the
@@ -780,7 +806,8 @@ silently: dispatch scoped reviews per surface (helper + tests; the 18 migrated c
 replacement) with the file list inlined in each brief, rather than attempting whole-diff first.
 
 **Re-certification rule — the gate certifies the FINAL diff, not an intermediate one.** If any repair
-commit in this step (or in C2) touches a file under `app/` or `components/`, then before merge:
+commit anywhere in C2–C4 (including C4 step-2 CI repairs) touches a file under `app/` or
+`components/`, then before merge:
 re-run **both** impeccable commands on the updated diff, and re-run the dimension spec from Task 5
 against its committed baseline. A UI edit landing after the gate would otherwise ship uncertified,
 which is invariant 8 satisfied on paper and not in fact. Record the re-run in §12.
@@ -805,17 +832,26 @@ touch the branch, with stated effects:
   those record paths — must be untouched by such a commit, and that confinement is **checked at
   authoring, not assumed** (step 4.3 runs only on a real rebase and diffs against `origin/main`,
   so it cannot be the enforcement here): before each record commit, `git diff --cached --name-only`
-  must list ONLY paths under `docs/review-rounds/` and/or this plan file — and when the plan file
-  is listed, `git diff --cached -- docs/superpowers/plans/2026-08-07-classname-array-join-cn.md`
-  must show hunks confined to the §12 dispositions table. Any other staged path: unstage it — that
-  change is content and goes through the content-changing branch below. Record the check's output
-  in the task log.
+  must list ONLY paths under `docs/review-rounds/refactor/classname-array-join-cn/` (this branch's
+  own corpus directory, not the tree-wide prefix) and/or this plan file — and the full
+  `git diff --cached` is READ, not just its file list: corpus hunks must be the appended round row
+  and the filing update for that round; plan-file hunks must be confined to the §12 dispositions
+  table. Any other staged path or out-of-scope hunk: unstage it — that change is content and goes
+  through the content-changing branch below. Record the check's output in the task log.
 - **Content-changing:** any repair commit (C4 step 2, or post-graduation work via step 7), and any
   rebase whose conflicts required hand resolution. The reviewed subject no longer exists, and a
   merge on the old approval would ship a diff no fresh eyes ever saw. The approval is VOID: return
   here, dispatch a delta round whose brief inlines the incremental change plus the surfaces it
   touches, per the split-review discipline — iterate to APPROVE, and record the new
   `REVIEWED_HEAD`. C4's graduation commit may only be authored under a live approval.
+
+  **A content-changing commit also re-arms the one-shot proofs, rebase or no rebase.** If the
+  repair touched any of the 18 migrated files or either arc script, re-run
+  `node scripts/verify-cn-operand-parity.mjs --base $MIGRATION_PARENT` (the anchor is unchanged —
+  no history was rewritten) and `node scripts/audit-cn-operand-kinds.mjs`, and replace the PR-body
+  transcripts, BEFORE dispatching the delta round — C4's no-op fast path checks only whether
+  `origin/main` moved and would otherwise let a post-Task-6 repair merge with transcripts
+  describing the pre-repair tree.
 
 (The graduation commit itself — the archive move plus marker removal that `BACKLOG_GRADUATED`'s
 red/green already pins, C4 step 5 — is likewise exempt from voiding, because its content is fully
@@ -839,7 +875,8 @@ authorized by CI green on the **exact head** being merged.
    step 3, return through C3's delta round and record the new `REVIEWED_HEAD`.
 3. Confirm the branch is otherwise merge-ready: C1–C3 complete, **review APPROVE live — its
    recorded `REVIEWED_HEAD` reviewed the branch content being merged, with no content-changing
-   event after it** — and CI green.
+   event after it** — CI green, and **the PR-body parity/audit transcripts produced after the last
+   commit that touched any of the 18 migrated files or either arc script** (C3's re-arm rule).
 4. **Final rebase — mandatory, and it invalidates the one-shot proofs, so they re-run here.** Spec
    §12 Concurrency requires a rebase over `origin/main` before implementation (P1) **and again before
    merge**; this step is the second one.
@@ -922,13 +959,17 @@ authorized by CI green on the **exact head** being merged.
    `**Status:** IN PROGRESS · **Branch:** …` marker removed — and run it again: GREEN. Both runs
    happen in the working tree of the ONE graduation commit; the red is never committed.
 
-   **The exemption's confinement is checked the same way as a record commit's** — the graduation
-   test proves archive placement and provenance, not commit exclusivity, so before committing,
-   `git diff --cached --name-only` must list ONLY: `BACKLOG.md`, `BACKLOG-archive.md`,
-   `tests/docs/_metaDeferralLedgerGraduation.test.ts` (the registry row), and paths under
-   `docs/review-rounds/` (the filing's close-out update). Any other staged path is unreviewed
-   content riding an exempt commit — unstage it and route it through C3's content-changing branch.
-   Record the check's output in the task log. Archives
+   **The exemption's confinement is checked at HUNK level, not path level** — the graduation test
+   proves archive placement and provenance, not commit exclusivity, and a filename check would let
+   an unrelated edit ride inside a permitted file (worst in the registry test, which is executable
+   code). So before committing, `git diff --cached --name-only` must list ONLY: `BACKLOG.md`,
+   `BACKLOG-archive.md`, `tests/docs/_metaDeferralLedgerGraduation.test.ts`, and paths under
+   `docs/review-rounds/refactor/classname-array-join-cn/` — and the full `git diff --cached` is
+   READ hunk by hunk: the registry test's diff is exactly the one added `BACKLOG_GRADUATED` row;
+   the ledger diffs are exactly this entry's removal (live) and addition (archive) with its marker
+   dropped; the corpus diff is exactly the filing's close-out update. Any other staged path or any
+   out-of-scope hunk is unreviewed content riding an exempt commit — unstage it and route it
+   through C3's content-changing branch. Record the check's output in the task log. Archives
    categorically reject in-progress entries, and a marker that reaches `main` names a branch the
    merge just deleted — `tests/docs/_metaLedgerInProgress.test.ts` then fails on `main` until someone
    clears it.
@@ -940,7 +981,11 @@ authorized by CI green on the **exact head** being merged.
    or its re-verification stops. In every case the FIRST action — before the rebase, before any
    repair commit — is `git revert <graduation-sha>`, which restores the complete pre-graduation
    state in one step: the entry back in the live ledger, carrying its marker, nothing in the
-   archive. Only then does the actual work happen (return to step 2, or repeat step 4), with the
+   archive. The revert commit is the exempt commit's exact inverse and carries the same hunk-level
+   confinement check (its diff must be precisely the graduation commit's reversal — verify with
+   the same staged read before committing it); it does not void a live approval, for the same
+   fully-specified reason the graduation commit does not. Only then does the actual work happen
+   (return to step 2, or repeat step 4), with the
    claim genuinely live — and with the C3 approval re-earned wherever that work was
    content-changing, per step 2's rule — and graduation is re-authored fresh as the new last commit
    once the branch is again merge-ready (step 3's definition, live approval included).
