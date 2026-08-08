@@ -1,6 +1,6 @@
 # Parser mutation-hardening wave — five BL-MUTATION-\* classes
 
-**Date:** 2026-08-07 · **Branch (spec+plan):** `docs/parser-mutation-wave` · **Status:** DRAFT
+**Date:** 2026-08-07 · **Branch (spec+plan):** `docs/parser-mutation-wave` · **Status:** APPROVED (substitute adversarial review 2026-08-08, 3 rounds 8→1→0; codex quota-dead, documented ladder)
 **Backlog rows:** `BL-MUTATION-UNICODE` · `BL-MUTATION-REF-SUB` · `BL-MUTATION-MERGED-CELL` · `BL-MUTATION-COLUMN-SHIFT` · `BL-MUTATION-SECTION-ORDER` (all `BACKLOG.md`, marked IN PROGRESS on this branch)
 **Decomposition parent:** `BACKLOG-archive.md` § `BL-MUTATION-HARNESS-OPEN-HOLES` (ratified 2026-08-05, L-wave spec §1.1 item 10 / §2.1.4)
 
