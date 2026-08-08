@@ -226,3 +226,48 @@ Commit: `docs(spec): amend review-round-economy §9/§11.3 for the advisory excl
   green → `gh pr merge --merge` → fast-forward main checkout, verify
   `git rev-list --left-right --count main...origin/main` = `0  0` → clear pane/agent
   labels.
+
+## Review record — the whole-diff round, and what replaced it
+
+| Round | Verdict | Findings | Notes |
+| --- | --- | --- | --- |
+| Spec R1–R5 | **APPROVE** at R5 | — | Authoring session; filing at `docs/review-rounds/feat/round-economy-followups/22795d2b56c5.md` §spec |
+| Plan R1–R4 | **APPROVE** at R4 | — | Same corpus, §plan filing |
+| Whole-diff R1 | **NOT RUN** | — | Two dispatches, six `codex exec` attempts, every one `ERROR: You've hit your usage limit … try again at Aug 11th, 2026 6:21 PM`. Both recorded `status: no_verdict`, `failureReason: attempts_exhausted`, so neither counts as a round (`diff 0/2`) |
+
+Per the `AGENTS.md` codex-guard result contract a `no_verdict` is an **infrastructure
+fault, not a findings-free review**, and the ratified response is the skip/self-review
+ladder: after ~2 failed attempts on one artifact, declare Codex unavailable for the
+session, substitute a rigorous probe-backed self-adversarial pass, and lean on real CI as
+the hard arbiter. This branch never received a cross-model whole-diff APPROVE, and no
+such approval is claimed.
+
+**What the self-review ran, with probes rather than reading.** Two of the probes were
+themselves defective on first run and are recorded that way, because a probe whose
+fixture cannot express the difference reports "no difference" and looks like evidence:
+
+- **Advisory string vs spec §3.4 — first probe MISREPORTED a mismatch.** It regex-matched
+  the *first* backticked `ADVISORY:` line in the spec, which is §3's quotation of the OLD
+  message. Re-probed by enumerating every occurrence and selecting the one carrying the
+  new clause: implementation, test literal, and spec §3.4 are byte-identical.
+- **"No `arcKey` join in the advisory block" — first probe MISREPORTED drift.** The raw
+  substring test hit the comment that says `never on arcKey(branch, baseSha)`. Re-probed
+  with comments stripped: **0** `arcKey` calls and **0** direct string comparisons of
+  timestamps in the block, which is spec §3.1's structural requirement.
+- **Accept-set regex**: identical accept language to spec §3.2 on twelve probe strings
+  (the implementation differs only by capture groups).
+- **AC-W2.14**: pre-change script vs HEAD over the live repo — the ONLY difference is the
+  removed ADVISORY line and its blank separator; every other section byte-identical.
+- **Ten W1 promotions**: each present in its named target file with its filing citation on
+  the same bullet; the docs diff modifies exactly six bullets, every one a named
+  integration point, and adds four; `AGENTS.md` gains exactly one sentence (AC-W1.2);
+  nothing from spec §2's "Explicitly not promoted" list leaked in.
+- **Guard-premise sweep — one real finding, class-swept.** Four null-asserting cases
+  (1, 9, 10, 11) proved their discriminating power only in the mutant pass. Repaired for
+  the whole class in one commit: `premiseFiresWithoutMerges` on all four, plus case 8's
+  own parse-reachability premise. Verified the premise REDS by moving case 1's row past
+  the boundary.
+- **Mutants**: 25 mutants, 0 survivors, re-run against the strengthened suite.
+
+Real CI is the remaining arbiter, and it is the one gate this substitution does not
+weaken.
