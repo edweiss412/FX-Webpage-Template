@@ -166,6 +166,11 @@ $ npx eslint <probe with .join(` `) and .join(' ') classNames>   # §7.1 escape 
 → 0 problems — neither the rule NOR the census scanner sees these spellings
 $ npx prettier --parser typescript <same>
 → all three spellings preserved; Prettier does not normalize them to one
+
+$ node <§7.1 recognizer prototype>              # calibration against the live tree
+→ ALL whitespace-join sites: 38 · EXEMPT (named data joins): 2 · REPORTED: 36 across 18 files
+$ node <same, against the seven escape shapes + three negatives>
+→ HIT on all 7 escapes; miss on .join(", "), .join(""), and cn(...)
 ```
 
 ---
@@ -367,30 +372,57 @@ helper now existing is the signal to do the migration and delete the census.
 
 Two survive, because their premise outlives the migration:
 
-- **Zero-tolerance recognizer, keyed on structure rather than on one spelling.** The same two-shape
-  scanner, with the census replaced by the empty set: *no* array-join className may exist anywhere
-  under `components/` or `app/`. Strictly stronger than the census it replaces; deleting it instead
-  would re-admit exactly the regression the census was built to stop (R4).
+- **Zero-tolerance recognizer, keyed on the join's separator and not on its syntactic position.**
+  The census is replaced by the empty set: no className array join may exist under `components/` or
+  `app/`. Strictly stronger than the census it replaces; deleting it instead would re-admit exactly
+  the regression the census was built to stop (R4).
 
-  **It must not inherit the census guard's separator dependency.** The census scanner matches the
-  literal text `.join(" ")` (`tests/specLint/canonicalClassArray.test.ts:95`). Probed: a className
-  built with `` .join(` `) `` or `.join(' ')` is invisible to *both* the scanner and the eslint rule
-  — the rule reports nothing at all — and Prettier preserves all three spellings rather than
-  normalizing them to one. That is silent, unsignaled drift, so under this spec's consequence bound
-  it is a gap the replacement must close, not a documented limit.
+  **It must not inherit the census guard's three structural dependencies.** That scanner anchors on
+  the literal text `className={[` or `const/let x = [`, matches the separator `.join(" ")` exactly,
+  and scans only `/\.tsx?$/` (`tests/specLint/canonicalClassArray.test.ts:68`,
+  `tests/specLint/canonicalClassArray.test.ts:95`). Each is an escape. All seven below were probed
+  silent — invisible to the scanner **and** reporting zero eslint problems — with Prettier
+  preserving every spelling rather than normalizing to one:
 
-  **The accept-set, stated positively** (a denylist of separator spellings would accept whatever it
+  | Escape | Why the census scanner misses it |
+  |---|---|
+  | `className={flag ? [...].join(" ") : "p-2"}` | the array is not immediately after `className={` |
+  | `` className={`p-2 ${[...].join(" ")}`} `` | the array sits inside a template interpolation |
+  | `` [...].join(` `) `` | separator is a template literal, not `" "` |
+  | `[...].join(' ')` | separator is single-quoted |
+  | `foo({ className: [...].join(" ") })` | the array is a call argument, not a JSX attribute |
+  | a `const` holding a join, under a name the heuristic misses | covered today only by a Tailwind-shaped-literal test |
+  | the direct form in a `.jsx` file | excluded by the `/\.tsx?$/` glob |
+
+  These are ordinary authoring, not obfuscation, so they sit inside the threat-model fence; they are
+  silent and unsignaled, so under this spec's consequence bound they are gaps the replacement must
+  close rather than documented limits.
+
+  **The accept-set, stated positively** (a denylist of spellings or positions accepts whatever it
   failed to model): a className expression is accepted when it is a plain string literal, a template
-  literal containing no array join, or a call to a plugin-recognized callee (`cn(...)`). **Any
-  className expression containing a `.join(` call is reported, whatever its separator argument** —
-  the separator is irrelevant, because *every* array join is opaque to the rule. Keying on the call
-  rather than on its argument is what makes the recognizer closed over spellings nobody enumerated.
+  literal containing no array join, or a call to a plugin-recognized callee (`cn(...)`). **Everything
+  else is reported.** Mechanically: report *every* array join whose separator is a non-empty
+  whitespace string literal at any quote style, anywhere in any UI source file — `.ts`, `.tsx`,
+  `.js`, `.jsx`, `.mjs`, `.cjs` — position-free, so no syntactic context can hide one.
 
-  **This is future coverage, not a missed migration.** A separator-agnostic sweep of every tracked
-  `.tsx?` under `components/` and `app/` confirms the current tree uses a double-quoted separator at
-  every one of its 38 `.join(" ")` sites (36 classNames + the 2 data joins), and contains **no**
-  backtick-space or single-quote-space join at all. So §2.2's inventory of 36 is complete as
-  measured; the widening protects the tree going forward.
+  **Why the separator is the right key.** It is what distinguishes a class list from data: a
+  className join is whitespace-separated, and every data join in this tree uses a non-whitespace
+  separator. Keying on the separator rather than on a class-shaped-literal heuristic also keeps
+  arrays of pure identifiers in scope — `[base, focusRing, pillState]`
+  (`components/admin/OnboardingWizard.tsx:167`) contains no string literal at all and would escape
+  any literal-shape test.
+
+  **Calibrated against the live tree, not asserted.** The recognizer yields **38** whitespace-join
+  sites: the **36** classNames of §2.2, plus exactly **2** data joins that legitimately
+  whitespace-join values — `components/admin/wizard/step3ReviewSections.tsx:1353` and
+  `components/admin/review/sectionFreshness.ts:537`, both `[row.date, row.time]`. Those two are
+  carried as a **named exemption list with a stated reason each**, not silently dropped by a
+  heuristic, so a new whitespace join fails by default and must justify itself. Probed: all seven
+  escape shapes above are caught, and `.join(", ")`, `.join("")`, and `cn(...)` are correctly not.
+
+  **This is future coverage, not a missed migration.** §2.2's separator-agnostic sweep confirms the
+  tree contains no whitespace-join spelling other than `.join(" ")`, so the inventory of 36 is
+  complete as measured; the widening protects the tree going forward.
 - **Rule-is-on pin.** `eslint.config.mjs` must still set
   `"better-tailwindcss/enforce-canonical-classes": "error"`. A guard that outlives its rule pins
   nothing.
@@ -550,8 +582,9 @@ not a reason to update the audit.
 
 - **AC-1** `lib/ui/cn.ts` exports `cn` and `ClassValue` with §3.1's signature, and a unit test covers
   every row of the §3.2 table including the empty and all-falsy cases.
-- **AC-2** All 36 sites in §2.2 call `cn`. Zero array-join classNames remain under `components/` or
-  `app/` **at any separator spelling** (§7.1) — the two data joins in §2.2 are untouched.
+- **AC-2** All 36 sites in §2.2 call `cn`. The §7.1 recognizer reports zero sites across every UI
+  source extension (`.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, `.cjs`), at any whitespace separator spelling
+  and in any syntactic position — the two named data-join exemptions are untouched.
 - **AC-3** `scripts/verify-cn-operand-parity.mjs` reports operand parity for all 36 sites against the
   pre-migration commit, with stage-2 token rewrites permitted only where §6 declares them, and its
   output is recorded in the PR body. It is a one-shot check, not a tracked test (§4.3).
@@ -563,7 +596,9 @@ not a reason to update the audit.
   premise fixture (§7.1) and the rule-is-on pin.
 - **AC-7** The premise pair in §7.2 passes: seeded drift inside `cn(...)` is reported at both a
   literal and a ternary argument; the same drift inside an array join is not — checked at all three
-  separator spellings, in both the inline and via-variable shape.
+  separator spellings, in both the inline and via-variable shape. Separately, the recognizer's own
+  fixture asserts it catches all seven §7.1 escape shapes and does not catch `.join(", ")`,
+  `.join("")`, or `cn(...)`.
 - **AC-8** Full test suite green; `pnpm typecheck` clean.
 - **AC-9** Invariant 8: `/impeccable critique` and `/impeccable audit` both run on the diff, P0/P1
   findings fixed or deferred via `DEFERRED.md`, dispositions recorded, and the plan carries an
