@@ -55,6 +55,7 @@ import { transitionTreatment, type TransitionTreatment } from "@/lib/time/rightN
 import { todayShowAnchors } from "@/lib/crew/agendaDisplay";
 import { formatIsoDate } from "@/lib/format/date";
 import type { RightNowContext } from "@/components/right-now/buildRightNowContext";
+import { cn } from "@/lib/ui/cn";
 
 /**
  * Format a relative-time phrase (no em dashes per DESIGN.md §9). Mirrors
@@ -478,7 +479,7 @@ export function RightNowHero({ context }: RightNowHeroProps) {
             : "unknown"
       }
       aria-label="Right now"
-      className={[
+      className={cn(
         "w-full rounded-md border border-border p-6",
         "shadow-tile",
         // Holds card height fixed during the §4.3 crossfade (§4.16 invariant:
@@ -486,7 +487,7 @@ export function RightNowHero({ context }: RightNowHeroProps) {
         "min-h-(--spacing-right-now-min-h)",
         "flex flex-col",
         surfaceClass,
-      ].join(" ")}
+      )}
     >
       {/* Eyebrow — live-dot renders only for "now" states (§4.3 "+dot"). The
           dot is the single accent surface (DESIGN.md §1, orange ≤10%). */}
@@ -554,14 +555,14 @@ export function RightNowHero({ context }: RightNowHeroProps) {
                     data-segment={i}
                     data-segment-active={active ? "true" : "false"}
                     aria-hidden="true"
-                    className={[
+                    className={cn(
                       "h-1.5 flex-1 rounded-pill",
                       // Load-bearing graphical indicator (role="img" show-day
                       // progress): vibrant bg-accent fill; the border-accent-edge
                       // stroke is the 3:1 WCAG 1.4.11 boundary vs the surface
                       // (DESIGN.md §1.2; spec ACCENT-PASS-1 2026-07-17).
                       active ? "border border-accent-edge bg-accent" : "bg-border",
-                    ].join(" ")}
+                    )}
                   />
                 );
               })}
@@ -583,10 +584,10 @@ export function RightNowHero({ context }: RightNowHeroProps) {
                     {stat.label}
                   </dt>
                   <dd
-                    className={[
+                    className={cn(
                       "text-sm font-semibold tabular-nums",
                       stat.accent ? "text-accent-on-bg" : "text-text-strong",
-                    ].join(" ")}
+                    )}
                   >
                     {stat.value}
                   </dd>
