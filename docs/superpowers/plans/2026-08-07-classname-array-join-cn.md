@@ -6,8 +6,10 @@ references below are to it).
 **Branch:** `refactor/classname-array-join-cn` · **Base:** `61281c23e`
 **Implementer:** Opus / Claude Code (UI surface — routing hard rule).
 
-`impeccable-gate: required — UI surface (18 files under components/ and app/); critique + audit both
-run at close-out step C2, dispositions in §12.`
+UI surface — 18 files under `components/` and `app/`, so invariant 8 applies: run `/impeccable critique`
+then `/impeccable audit` at close-out step C2, dispositions in §12. The machine-checkable marker is in
+§12, written after the gate actually RAN (its grammar records an outcome, so it cannot be authored in
+advance).
 
 ---
 
@@ -1049,8 +1051,45 @@ changes bytes without first identifying which of the two stages (spec §1.1 R3, 
 
 ## 12. Invariant-8 dual-gate findings and dispositions
 
-_Filled at C2, and re-confirmed at C3 if any repair commit touched a UI file._
+impeccable-gate: critique=RAN audit=RAN p0=0 p1=0 dispositions=none
 
-| Finding | Tier | Disposition |
-|---|---|---|
-| _pending_ | | |
+Run 2026-08-08 at close-out C2, against the UI diff (18 files under `components/` and `app/`) vs
+`51839637b51a26ab2edb57ef690174c422fa4c19`. Both halves ran with the canonical v3 setup gates:
+`context.mjs` context load over PRODUCT.md + DESIGN.md, then the **product** register reference
+(`reference/product.md`) — app UI / admin + crew tool, design SERVES the product.
+
+**Neither half is degraded.** `critique` ran as two isolated parallel sub-agents (Assessment A design
+review, Assessment B detector + evidence), which its reference makes mandatory whenever a sub-agent
+tool is exposed; no `⚠️ DEGRADED` banner is owed. Assessment B's browser-visualization step is
+recorded as SKIPPED with cause (no dev server; this is a production-build app whose e2e harness owns
+the server lifecycle) — the reference treats a skipped **detector** as a failed run, and the detector
+DID run.
+
+**Scores.** critique 30/40 (Good). audit 20/20 (Excellent) — accessibility 4, performance 4, theming
+4, responsive 4, anti-patterns 4. Anti-patterns verdict: PASS, no tells introduced.
+
+**Pre-code mechanical checklist** (run before the gate, as a discovery mechanism rather than relying
+on the gate as one): 0 em-dashes and 0 apostrophe literals in added UI lines; no user-visible copy
+added (the `You` / `Lead` / `Primary` chip text is unchanged — Prettier reflow only); no tap-target
+class altered; no new or repurposed color token and **no new `@theme` block, so no new contrast pin is
+owed** — stated rather than skipped silently.
+
+| Finding | Tier | Origin | Disposition |
+|---|---|---|---|
+| Detector (`detect.mjs`) over the 18 changed files: exit 0, **0 findings**. Full-tree run finds 23 elsewhere, none inside the diff. | — | — | Nothing to disposition. |
+| `THUMB_BASE` (`components/admin/settings/DeveloperToggleButton.tsx:81`) still reads `h-5 w-5` while its three structurally identical sibling switches were canonicalized to `size-5` in this same diff. | P2 | pre-existing | **Already filed** as `BL-CLASS-CONST-LINT-BLINDSPOT` (C1), which now carries this as its worked example. Not a gate blocker (P2), and not a class-sweep miss: `THUMB_BASE` is a bare `const` string, which the rule cannot traverse before OR after this migration — a different mechanism, fenced by spec §1.1 R6. |
+| `DayCard` tone dot loses a trailing space in its class string when `tone === "set"`. | P3 | **caused by this diff** | **Intended and pinned.** Spec §4's sole E2 site; `classList` is unchanged (the DOM never had an empty token) and `tests/components/crew/primitives.test.tsx` asserts both the absent trailing space and the token set. Independently rediscovered by both gate halves, which is the outcome a correctly-scoped gate should produce. |
+| No accessibility improvements, only preservation — pre-existing gaps in touched files persist. | P3 | pre-existing | Accepted. This arc is a lint-visibility refactor with a deliberately narrow blast radius; widening it would breach spec §9.4/§9.5 (no dimensional invariant and no transition may change). |
+
+**P0 = 0, P1 = 0**, so nothing is owed a fix or a `DEFERRED.md` entry under invariant 8's disposition
+rule — which is why the marker reads `dispositions=none` rather than `recorded`. The guard
+cross-checks the two fields (`p0 + p1 > 0` requires `recorded`; zero requires `none`), so a marker
+claiming recorded dispositions with nothing to disposition is rejected as malformed. The P2/P3 rows
+below are recorded here because they are worth knowing, not because the gate owes them a disposition. The plan predicted a low yield and predicted that a P0/P1 here would most likely mean a
+canonicalization was NOT equivalent; the audit instead verified all six equivalences directly against
+`app/globals.css` (`--spacing-confirm-box: 60px`, `--spacing-right-now-min-h: 176px`) and Tailwind's
+own `size-*` / `text-*/leading-*` semantics, by CLI compilation rather than inference.
+
+**Re-certification (C3 rule).** If any repair commit in C2–C4 touches a file under `app/` or
+`components/`, both commands re-run on the updated diff and the Task 5 dimension spec re-runs against
+its committed baseline, with the re-run recorded here.
