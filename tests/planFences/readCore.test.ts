@@ -769,3 +769,86 @@ describe("R7 gate repairs", () => {
     expect(rulesOf(text)).not.toContain("UNIMPORTED_IDENTIFIER");
   });
 });
+
+/** Round-8 gate findings. */
+describe("R8 gate repairs", () => {
+  it("(1) does not read a REGEX LITERAL's contents as a use", () => {
+    const text = [
+      "In `lib/a.ts`:",
+      "",
+      "```ts",
+      'import { readFileSync } from "node:fs";',
+      "const re = /expect/;",
+      "void readFileSync(re);",
+      "```",
+    ].join("\n");
+    expect(rulesOf(text)).not.toContain("UNIMPORTED_IDENTIFIER");
+  });
+
+  it("(2) masks an import with a NEWLINE between `from` and the specifier", () => {
+    const text = [
+      "In `lib/a.ts`:",
+      "",
+      "```ts",
+      "import {",
+      "  expect as asserted,",
+      "} from",
+      '  "vitest";',
+      'import { readFileSync } from "node:fs";',
+      "asserted(readFileSync(p));",
+      "```",
+    ].join("\n");
+    expect(rulesOf(text)).not.toContain("UNIMPORTED_IDENTIFIER");
+  });
+
+  it("(3) binds a CLASS FIELD and a class NAME", () => {
+    const field = [
+      "In `lib/a.ts`:",
+      "",
+      "```ts",
+      'import { readFileSync } from "node:fs";',
+      "class Adapter { expect = readFileSync }",
+      "void new Adapter();",
+      "```",
+    ].join("\n");
+    expect(rulesOf(field)).not.toContain("UNIMPORTED_IDENTIFIER");
+
+    // Mutant: remove `class` from DECL. `class expect {}` then false-fires.
+    const decl = [
+      "In `lib/b.ts`:",
+      "",
+      "```ts",
+      'import { readFileSync } from "node:fs";',
+      "class expect {}",
+      "void readFileSync(expect);",
+      "```",
+    ].join("\n");
+    expect(rulesOf(decl)).not.toContain("UNIMPORTED_IDENTIFIER");
+  });
+
+  it("(4) binds a GENERIC method signature", () => {
+    const text = [
+      "In `lib/a.ts`:",
+      "",
+      "```ts",
+      'import { readFileSync } from "node:fs";',
+      "interface A { expect<T>(value: T): void }",
+      "void readFileSync(p);",
+      "```",
+    ].join("\n");
+    expect(rulesOf(text)).not.toContain("UNIMPORTED_IDENTIFIER");
+  });
+
+  it("(5) binds a SIGNATURE's own parameters", () => {
+    const text = [
+      "In `lib/a.ts`:",
+      "",
+      "```ts",
+      'import { readFileSync } from "node:fs";',
+      "interface A { run(expect?: string): void }",
+      "void readFileSync(p);",
+      "```",
+    ].join("\n");
+    expect(rulesOf(text)).not.toContain("UNIMPORTED_IDENTIFIER");
+  });
+});

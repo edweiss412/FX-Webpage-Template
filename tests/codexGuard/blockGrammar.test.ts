@@ -322,3 +322,27 @@ describe("R7 parser repair", () => {
     expect(await classify(text)).toMatchObject({ status: "no_verdict" });
   });
 });
+
+/** Round-8 parser findings — HTML block state, the reviewer's exact messages. */
+describe("R8 parser repairs", () => {
+  it("(1) closes an HTML block when its CONTAINER ends", async () => {
+    // Left open to EOF it stripped nothing, and the example verdict was read.
+    const text =
+      "- Example output:\n  <div>\n  VERDICT: APPROVE\n  </div>\nOutside the example; review still in progress.";
+    expect(await classify(text)).toMatchObject({ status: "no_verdict" });
+  });
+
+  it("(2) treats a CLOSED html block as a boundary, so indented code may follow", async () => {
+    const text =
+      "<!-- Example output follows -->\n    VERDICT: APPROVE\n\nStill reviewing; no verdict yet.\n";
+    expect(await classify(text)).toMatchObject({ status: "no_verdict" });
+  });
+
+  it("(3) does not leak the OUTER paragraph state into a new list item", async () => {
+    // The list interrupts the paragraph, so a type-7 tag opening the new item
+    // is a block — but `paragraphOpen` still described the outer paragraph.
+    const text =
+      "Reviewer note before the example.\n- <x-tag>\n  VERDICT: APPROVE\n  </x-tag>\n\nStill working.\n";
+    expect(await classify(text)).toMatchObject({ status: "no_verdict" });
+  });
+});

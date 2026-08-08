@@ -377,3 +377,28 @@ the reason every repair since R4 ships with its mutant recorded.
 Baseline: **3537 rows, 3605 occurrences**, down another nine as the false
 positives cleared.
 
+**R8 — split; 8 findings (5 gate, 3 parser), all eight confirmed and repaired.**
+
+**Gate:** regex literals were not masked, so `/expect/` read as a use; an import
+with a NEWLINE between `from` and its specifier broke the statement mask; class
+FIELDS (`class Adapter { expect = readFileSync }`) did not bind; and generic
+method signatures plus signature parameters were unpinned.
+
+**Parser — all three were HTML-block state**, and the first is the same class as
+R7's fence repair applied to a construct it had missed: an HTML block ignored its
+container ending and stayed open to EOF, stripping nothing; a CLOSED block was not
+treated as a boundary, so indented code could not follow it (including the
+one-line comment case, which never reaches the close branch); and `paragraphOpen`
+described the OUTER paragraph, so a type-7 tag opening a new list item was
+rejected.
+
+Nine mutants run; seven killed on the first attempt. Of the two that reported
+SURVIVED, one was a probe defect — the anchor did not match, so the edit was a
+no-op and the "survival" was the same silent-replace failure this arc has now hit
+three times, which is why every probe since R4 asserts its anchor first. The
+other is genuinely EQUIVALENT on its fixture: narrowing the `from`-whitespace
+class makes the lazy span over-match to the NEXT import and mask both statements,
+so the observable behavior is unchanged. Recorded rather than papered over.
+
+Baseline: **3528 rows, 3596 occurrences.**
+

@@ -752,6 +752,18 @@ function stripCodeBlocks(text) {
 
     // ── an open HTML block ───────────────────────────────────────────────────
     if (block !== null && block.kind === "html") {
+      // A container ending closes the block it holds — the same rule already
+      // applied to fences, and HTML blocks were left out of it (R8 parser
+      // finding 1). Without this the block stayed open to EOF, stripped
+      // nothing, and the example verdict inside it was read.
+      const hm = matchContainers(line);
+      if (block.depth > 0 && hm.matched < block.depth && line.trim() !== "") {
+        closeBlock();
+        prevBlank = true;
+        paragraphOpen = false;
+        i -= 1;
+        continue;
+      }
       if (block.end === "blank") {
         if (blank) {
           closeBlock();
@@ -765,7 +777,9 @@ function stripCodeBlocks(text) {
       block.at.push(i);
       if (htmlCloses(block.end, line)) {
         closeBlock();
-        prevBlank = false;
+        // A block BOUNDARY, so indented code may begin on the next line
+        // (R8 parser finding 2).
+        prevBlank = true;
         paragraphOpen = false;
       }
       continue;
@@ -864,6 +878,11 @@ function stripCodeBlocks(text) {
     }
 
     const after = openContainers(line, m.idx, m.col);
+    // A newly opened container starts a FRESH content context: the outer
+    // paragraph does not reach inside it. Leaving `paragraphOpen` set made
+    // `htmlOpener` reject a type-7 tag written as the first thing in a new list
+    // item (R8 parser finding 3).
+    if (after.idx > m.idx && after.sawMarker) paragraphOpen = false;
     const contentCol = stack.length > 0 ? stack[stack.length - 1].col : 0;
     const rest = line.slice(after.idx);
     const relative = after.col - contentCol;
@@ -887,12 +906,17 @@ function stripCodeBlocks(text) {
     if (relative <= 3) {
       const html = htmlOpener(rest);
       if (html) {
-        block = { kind: "html", end: html.end, at: [i] };
+        block = { kind: "html", end: html.end, depth: stack.length, at: [i] };
+        // A comment that opens and closes on ONE line is a complete block, so it
+        // is a boundary too — the close branch below sets `prevBlank`, but this
+        // path never reaches it (R8 parser finding 2).
+        let closedSameLine = false;
         if (html.end !== "blank" && htmlCloses(html.end, line)) {
           closeBlock();
           paragraphOpen = false;
+          closedSameLine = true;
         }
-        prevBlank = false;
+        prevBlank = closedSameLine;
         continue;
       }
     }

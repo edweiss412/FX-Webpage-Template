@@ -126,6 +126,15 @@ function importedBindings(body: string[]): Set<string> {
  *
  * Replacing rather than deleting keeps every offset intact.
  */
+/** A `/` starts a regex only where a VALUE may begin; otherwise it is division. */
+function isRegexPosition(before: string): boolean {
+  const t = before.replace(/\s+$/, "");
+  if (t === "") return true;
+  const last = t[t.length - 1]!;
+  if ("([{,;:=!&|?+-*%~^<>".includes(last)) return true;
+  return /\b(?:return|typeof|instanceof|in|of|new|delete|void|case|do|else|yield|await)$/.test(t);
+}
+
 function maskNonCode(src: string): string {
   const out: string[] = [];
   let i = 0;
@@ -164,6 +173,23 @@ function maskNonCode(src: string): string {
         else blank();
       }
       if (i < src.length) keep();
+      continue;
+    }
+    if (c === "/" && isRegexPosition(out.join(""))) {
+      // A regex LITERAL is not code that uses its contents: `/expect/` is a
+      // pattern, and reading it as a call fired on valid code (R8 gate
+      // finding 1). Position matters — `a / b` is division.
+      keep();
+      while (i < src.length && src[i] !== "/") {
+        if (src[i] === "\\") blank(2);
+        else if (src[i] === "[") {
+          blank();
+          while (i < src.length && src[i] !== "]") blank(src[i] === "\\" ? 2 : 1);
+        } else if (src[i] === "\n") break;
+        else blank();
+      }
+      if (i < src.length && src[i] === "/") keep();
+      while (i < src.length && /[a-z]/.test(src[i] ?? "")) keep();
       continue;
     }
     if (c === "`") {
@@ -262,6 +288,11 @@ function declaredBindings(body: string[]): Set<string> {
     /(?:^|[\n;{,])\s*(?:(?:public|private|protected|readonly|override|abstract|async|static|get|set)\s+)*([A-Za-z_$][\w$]*)\s*(?:<[^<>]*>)?\s*\(([^)]*)\)\s*(?::\s*[^{;]+)?\{/g;
   let m: RegExpExecArray | null;
   while ((m = DECL.exec(src)) !== null) out.add(m[1]!);
+  // A CLASS FIELD binds its name: `class Adapter { expect = readFileSync }` is
+  // valid and was reading as a free use (R8 gate finding 3).
+  const FIELD =
+    /(?:^|[\n;{])\s*(?:(?:public|private|protected|readonly|static|override|declare|abstract)\s+)*([A-Za-z_$][\w$]*)\s*(?:\?)?\s*(?::[^=;\n]+)?\s*=/g;
+  while ((m = FIELD.exec(src)) !== null) out.add(m[1]!);
   // A SIGNATURE has no body — `interface A { expect(v: string): void }` — so the
   // body-brace discriminator cannot see it. Requiring a return-type annotation
   // keeps this from matching a bare call (R7 gate finding 3).
@@ -361,7 +392,7 @@ export function analyzePlan(path: string, text: string): PlanFenceReport {
           // earlier `(?:;|$)` alternative was useless under /m — `$` matches an
           // end of LINE, so the lazy span always stopped at the first one and
           // masked only the opening line.
-          .replace(/^[ \t]*import\b(?:[\s\S]*?from[ \t]*)?['"][^'"]*['"];?/gm, (m) =>
+          .replace(/^[ \t]*import\b(?:[\s\S]*?from\s*)?['"][^'"]*['"];?/gm, (m) =>
             m.replace(/[^\n]/g, " "),
           ),
       );

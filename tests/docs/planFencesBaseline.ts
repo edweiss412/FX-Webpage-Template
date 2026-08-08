@@ -684,7 +684,6 @@ export const PLAN_FENCE_BASELINE: readonly string[] = [
   "docs/superpowers/plans/2026-07-19-admin-modal-realtime-refresh.md|608bbfb1|FENCE_EM_DASH|8|1",
   "docs/superpowers/plans/2026-07-19-admin-modal-realtime-refresh.md|608bbfb1|FENCE_EM_DASH|9|1",
   "docs/superpowers/plans/2026-07-19-admin-modal-realtime-refresh.md|8dd86d66|FENCE_EM_DASH|1|1",
-  "docs/superpowers/plans/2026-07-19-admin-modal-realtime-refresh.md|8dd86d66|UNIMPORTED_IDENTIFIER|test|1",
   "docs/superpowers/plans/2026-07-19-admin-modal-realtime-refresh.md|d43cbb37|FENCE_EM_DASH|1|1",
   "docs/superpowers/plans/2026-07-19-admin-modal-realtime-refresh.md|d43cbb37|FENCE_EM_DASH|2|1",
   "docs/superpowers/plans/2026-07-19-admin-modal-realtime-refresh.md|d43cbb37|FENCE_EM_DASH|3|1",
@@ -814,13 +813,10 @@ export const PLAN_FENCE_BASELINE: readonly string[] = [
   "docs/superpowers/plans/2026-07-20-attention-alert-routing.md|b1b8ea42|UNIMPORTED_IDENTIFIER|it|1",
   "docs/superpowers/plans/2026-07-20-local-suite-wallclock.md|0abe2a7c|MANGLED_TEMPLATE|\\${|1",
   "docs/superpowers/plans/2026-07-20-local-suite-wallclock.md|0abe2a7c|MANGLED_TEMPLATE|\\`|5",
-  "docs/superpowers/plans/2026-07-20-local-suite-wallclock.md|0abe2a7c|UNIMPORTED_IDENTIFIER|join|1",
-  "docs/superpowers/plans/2026-07-20-local-suite-wallclock.md|d125cd41|UNIMPORTED_IDENTIFIER|resolve|1",
   "docs/superpowers/plans/2026-07-20-local-suite-wallclock.md|d206ef0d|UNIMPORTED_IDENTIFIER|describe|1",
   "docs/superpowers/plans/2026-07-20-local-suite-wallclock.md|d206ef0d|UNIMPORTED_IDENTIFIER|expect|1",
   "docs/superpowers/plans/2026-07-20-local-suite-wallclock.md|d206ef0d|UNIMPORTED_IDENTIFIER|it|1",
   "docs/superpowers/plans/2026-07-20-local-suite-wallclock.md|d206ef0d|UNIMPORTED_IDENTIFIER|readFileSync|1",
-  "docs/superpowers/plans/2026-07-20-local-suite-wallclock.md|d206ef0d|UNIMPORTED_IDENTIFIER|test|1",
   "docs/superpowers/plans/2026-07-20-local-suite-wallclock.md|f9954920|UNIMPORTED_IDENTIFIER|resolve|1",
   "docs/superpowers/plans/2026-07-20-share-hub-fidelity-fixes/01-tasks.md|06c82fc1|FENCE_EM_DASH|1|1",
   "docs/superpowers/plans/2026-07-20-share-hub-fidelity-fixes/01-tasks.md|06c82fc1|FENCE_EM_DASH|2|1",
@@ -858,7 +854,6 @@ export const PLAN_FENCE_BASELINE: readonly string[] = [
   "docs/superpowers/plans/2026-07-21-attention-scenario-gallery-handoff.md|97c8ace8|FENCE_EM_DASH|2|1",
   "docs/superpowers/plans/2026-07-21-settings-attention-gallery-link/plan.md|a417d1dc|FENCE_EM_DASH|1|1",
   "docs/superpowers/plans/2026-07-21-settings-attention-gallery-link/plan.md|a417d1dc|FENCE_EM_DASH|2|1",
-  "docs/superpowers/plans/2026-07-21-unread-callout-dedup.md|e277ee7a|UNIMPORTED_IDENTIFIER|test|1",
   "docs/superpowers/plans/2026-07-22-attention-gallery-gap-fill.md|6e17a8f5|UNIMPORTED_IDENTIFIER|expect|1",
   "docs/superpowers/plans/2026-07-22-attention-gallery-gap-fill.md|6e17a8f5|UNIMPORTED_IDENTIFIER|it|1",
   "docs/superpowers/plans/2026-07-22-attention-gallery-gap-fill.md|cf26aa7b|UNIMPORTED_IDENTIFIER|expect|1",
@@ -1274,7 +1269,6 @@ export const PLAN_FENCE_BASELINE: readonly string[] = [
   "docs/superpowers/plans/ci/2026-06-26-ci-speedup-pr-e.md|41dc1c8b|MANGLED_TEMPLATE|\\`|2",
   "docs/superpowers/plans/ci/2026-06-26-ci-unit-suite-matrix-shard.md|66fff372|FENCE_EM_DASH|1|1",
   "docs/superpowers/plans/ci/2026-06-26-ci-unit-suite-matrix-shard.md|66fff372|FENCE_EM_DASH|2|1",
-  "docs/superpowers/plans/ci/2026-06-26-ci-unit-suite-matrix-shard.md|66fff372|UNIMPORTED_IDENTIFIER|test|1",
   "docs/superpowers/plans/ci/2026-07-06-mutation-harness-sharding/plan.md|1beef4f5|FENCE_EM_DASH|1|1",
   "docs/superpowers/plans/ci/2026-07-06-mutation-harness-sharding/plan.md|1beef4f5|UNIMPORTED_IDENTIFIER|describe|1",
   "docs/superpowers/plans/ci/2026-07-06-mutation-harness-sharding/plan.md|1beef4f5|UNIMPORTED_IDENTIFIER|expect|1",
@@ -1383,7 +1377,6 @@ export const PLAN_FENCE_BASELINE: readonly string[] = [
   "docs/superpowers/plans/ci/2026-07-06-mutation-testing-harness.md|d779b875|FENCE_EM_DASH|5|1",
   "docs/superpowers/plans/ci/2026-07-06-mutation-testing-harness.md|d779b875|FENCE_EM_DASH|6|1",
   "docs/superpowers/plans/ci/2026-07-06-mutation-testing-harness.md|d779b875|FENCE_EM_DASH|7|1",
-  "docs/superpowers/plans/ci/2026-07-06-mutation-testing-harness.md|d779b875|UNIMPORTED_IDENTIFIER|test|1",
   "docs/superpowers/plans/ci/2026-07-06-mutation-testing-harness.md|dfff8153|FENCE_EM_DASH|1|1",
   "docs/superpowers/plans/ci/2026-07-06-mutation-testing-harness.md|e4f2317b|FENCE_EM_DASH|1|1",
   "docs/superpowers/plans/ci/2026-07-06-mutation-testing-harness.md|e4f2317b|FENCE_EM_DASH|2|1",
@@ -1802,7 +1795,6 @@ export const PLAN_FENCE_BASELINE: readonly string[] = [
   "docs/superpowers/plans/data-quality/2026-07-05-finalize-resume-deadlock.md|1b8d6670|FENCE_EM_DASH|2|1",
   "docs/superpowers/plans/data-quality/2026-07-05-finalize-resume-deadlock.md|444d0e79|UNIMPORTED_IDENTIFIER|expect|1",
   "docs/superpowers/plans/data-quality/2026-07-05-finalize-resume-deadlock.md|444d0e79|UNIMPORTED_IDENTIFIER|it|1",
-  "docs/superpowers/plans/data-quality/2026-07-05-finalize-resume-deadlock.md|444d0e79|UNIMPORTED_IDENTIFIER|resolve|1",
   "docs/superpowers/plans/data-quality/2026-07-05-finalize-resume-deadlock.md|71c489df|FENCE_EM_DASH|1|1",
   "docs/superpowers/plans/data-quality/2026-07-07-flow4-gate-single-crew-drop/plan.md|60cf25ad|FENCE_EM_DASH|1|1",
   "docs/superpowers/plans/data-quality/2026-07-07-flow4-gate-single-crew-drop/plan.md|79dc4e74|FENCE_EM_DASH|1|1",
@@ -3172,7 +3164,6 @@ export const PLAN_FENCE_BASELINE: readonly string[] = [
   "docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/03-time-utility.md|786e4c66|FENCE_EM_DASH|7|1",
   "docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/03-time-utility.md|786e4c66|FENCE_EM_DASH|8|1",
   "docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/03-time-utility.md|786e4c66|FENCE_EM_DASH|9|1",
-  "docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/03-time-utility.md|786e4c66|UNIMPORTED_IDENTIFIER|render|1",
   "docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/03-time-utility.md|81558d5f|FENCE_EM_DASH|1|1",
   "docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/03-time-utility.md|81558d5f|FENCE_EM_DASH|2|1",
   "docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/03-time-utility.md|e48f92f6|FENCE_EM_DASH|1|1",
@@ -3566,5 +3557,5 @@ export const PLAN_FENCE_BASELINE: readonly string[] = [
 ];
 
 /** Decrease-only. Raising either is a deliberate, reviewed edit. */
-export const FROZEN_ROWS = 3537;
-export const FROZEN_TOTAL = 3605;
+export const FROZEN_ROWS = 3528;
+export const FROZEN_TOTAL = 3596;
