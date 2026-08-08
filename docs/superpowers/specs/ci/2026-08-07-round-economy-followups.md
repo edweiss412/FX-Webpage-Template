@@ -133,23 +133,36 @@ message" class the economy system itself exists to close.
 2. **`startedAt` is placeable only inside an explicit accept-set; everything else is
    signaled.** The row schema (`lib/reviewRounds/row.ts`, `startedAt` field) accepts
    `null` or any string, and bare `Date.parse` is NOT a sufficient placement test:
-   a timezone-less string parses host-dependently (probe: `2026-09-01T00:00:00` is the
-   boundary instant under `TZ=UTC` and four hours later under `TZ=America/New_York` —
-   the same accepted row silently flips the advisory by environment), and an invalid
-   calendar date is silently normalized (`2026-02-30T00:00:00.000Z` parses to Mar 2).
-   Repaired with an accept-set keyed on structure: a `startedAt` is PLACEABLE iff it
-   matches `^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$` — the
-   explicit offset makes `Date.parse` environment-independent — AND its date/time
-   fields are calendar-valid (month 01-12, day within that month including leap years,
-   hour ≤ 23, minute/second ≤ 59). Everything else — `null`, timezone-less, calendar-
-   invalid, arbitrary strings — is excluded from the advisory computation AND counted in
-   a note whenever any exist: `N row(s) without a parseable startedAt are invisible to
-   the boundary advisory.` The live corpus is 100% inside the accept-set (the wrapper
-   writes `toISOString()`; swept 89/89 canonical at `c284aa32b`). `mergedAt` needs no
-   accept-set: it comes from `git log --format=%cI`
-   (`lib/reviewRounds/mergedArcs.ts`), which always carries an explicit offset for a
-   reachable commit — recorded as §5 limit 4, not guarded — but its comparisons are
-   still chronological per 1.
+   a timezone-less string parses host-dependently (probe: `2026-08-31T23:00:00` against
+   the boundary `2026-09-01T00:00:00.000Z` parses PRE-boundary under `TZ=UTC` and
+   POST-boundary under `TZ=America/New_York`, where local 23:00 EDT is 03:00Z the next
+   day — the same accepted row silently flips the advisory by environment), and an
+   invalid calendar date is silently normalized (`2026-02-30T00:00:00.000Z` parses to
+   Mar 2). Repaired with an accept-set keyed on structure: a `startedAt` is PLACEABLE
+   iff ALL THREE hold:
+   (a) it matches
+   `^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,3})?(Z|[+-](?:0\d|1[0-3]):[0-5]\d|[+-]14:00)$`
+   — explicit offset (environment-independence), offset hour/minute bounded to the real
+   range (an unbounded `[+-]\d{2}:\d{2}` admits `+24:00`/`+00:60`, which `Date.parse`
+   maps to NaN AFTER the structural test has said "placeable" — every comparison then
+   returns false with no note, silent invisibility), and fractional seconds capped at
+   milliseconds (ECMAScript compares at millisecond precision, so `.0001` past a
+   `.000` merge parses EQUAL and a chronologically-later row silently slips inside the
+   exclusion cap);
+   (b) its date/time fields are calendar-valid (month 01-12, day within that month
+   including leap years, hour ≤ 23, minute/second ≤ 59);
+   (c) `Date.parse` of it is finite — a safety net making "placeable implies
+   comparable" true BY CONSTRUCTION rather than by enumerating parser quirks: any
+   residual string the parser cannot place falls to the note, never into a comparison.
+   Everything else — `null`, timezone-less, calendar-invalid, out-of-range offsets,
+   over-precise fractions, arbitrary strings — is excluded from the advisory
+   computation AND counted in a note whenever any exist: `N row(s) without a placeable
+   startedAt are invisible to the boundary advisory.` The live corpus is 100% inside
+   the accept-set (the wrapper writes `toISOString()`; swept 89/89 canonical at
+   `c284aa32b`, reproduced by review round 2). `mergedAt` needs no accept-set: it comes
+   from `git log --format=%cI` (`lib/reviewRounds/mergedArcs.ts`), which always carries
+   an explicit offset for a reachable commit — recorded as §5 limit 4, not guarded —
+   but its comparisons are still chronological per 1.
 3. **Exclusion rule.** A row is EXCLUDED from the advisory's `earliest` computation when
    a recognized merge exists with the same `branch` and `mergedAt <= boundary`
    (pre-adoption under the existing `<=` carve-out) and the row's
@@ -214,20 +227,24 @@ the fix:
    lexically-smallest) and `2026-09-01T01:00:00+02:00` (chronologically
    2026-08-31T23:00Z, PRE-boundary lexically-larger), with `BOUNDARY =
    2026-09-01T00:00:00.000Z`. Expect advisory fires naming the second row, AND the
-   unparseable-rows note is ABSENT (pins the note's only-when-any-exist conditional).
+   non-placeable-rows note is ABSENT (pins the note's only-when-any-exist conditional).
    Fails today: the lexical sort selects the first string, `Date.parse` puts it past the
    boundary, and the advisory is silently suppressed (reviewer probe, round 1).
 7. **Non-placeable `startedAt` is signaled.** One row with `startedAt: "not-a-date"` and
    one with `startedAt: null`, plus one placeable post-boundary row. Expect
    `boundaryAdvisory === null` (nothing placeable precedes the boundary) AND the notes
-   include the `2 row(s) without a parseable startedAt` count. Fails today: NaN
+   include the `2 row(s) without a placeable startedAt` count. Fails today: NaN
    comparisons return false and `null` is filtered, both silently.
-8. **Ambiguous and calendar-invalid timestamps fall outside the accept-set.** One row
-   with timezone-less `startedAt: "2026-08-31T12:00:00"` and one with
-   `startedAt: "2026-02-30T00:00:00.000Z"`, plus one placeable post-boundary row.
-   Expect `boundaryAdvisory === null` and the `2 row(s)` note. Fails under a bare
-   `Date.parse` accept-test: the first is host-dependently placeable (fires or not by
-   `TZ`), the second silently normalizes to March 2 (reviewer probe, round 2).
+8. **The accept-set's four rejection families are each signaled.** Four pre-boundary-
+   looking rows — timezone-less `"2026-08-31T23:00:00"` (host-dependent: pre-boundary
+   under `TZ=UTC`, post-boundary under `TZ=America/New_York`), calendar-invalid
+   `"2026-02-30T00:00:00.000Z"` (silently normalizes to Mar 2), out-of-range offset
+   `"2026-08-31T12:00:00+24:00"` (structurally plausible, `Date.parse` NaN), and
+   over-precise `"2026-08-31T12:00:00.0001Z"` (sub-millisecond digits silently
+   discarded) — plus one placeable post-boundary row. Expect `boundaryAdvisory === null`
+   and the `4 row(s) without a placeable startedAt` note. Fails under a bare
+   `Date.parse` accept-test on the first two (reviewer probes, rounds 2-3) and under
+   the round-2 unbounded regex on the last two (reviewer probes, round 3).
 9. **Latest pre-adoption merge caps a multi-merge branch.** Branch B with TWO recognized
    pre-adoption merges (`mergedAt` = BOUNDARY minus 3 days and BOUNDARY minus 1 day);
    one row between them (`startedAt` = BOUNDARY minus 2 days). Expect
