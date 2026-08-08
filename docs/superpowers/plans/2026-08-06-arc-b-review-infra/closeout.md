@@ -272,7 +272,7 @@ Round-economy filing at
 **R5 — SPLIT into two tight-scope reviews; 10 findings, all ten confirmed and
 repaired.** The whole-diff form exceeded the wrapper's 1380s attempt cap, and a
 retry with a longer cap was REJECTED by flag validation — a rejection the
-implementer did not notice for 45 minutes because it polled `result.json` instead
+implementer did not notice for 45 minutes because it polled the dispatch result file instead
 of reading the wrapper log the dispatch had already written. Splitting per surface
 is the documented remedy and both halves returned in minutes.
 
