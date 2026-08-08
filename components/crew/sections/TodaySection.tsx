@@ -66,6 +66,7 @@ import { todayIsoInShowTimezone } from "@/lib/visibility/packList";
 import { transportTileVisible } from "@/lib/visibility/scopeTiles";
 import { type TileRenderLedger } from "@/lib/crew/tileRenderLedger";
 import { suppressesDates } from "@/lib/crew/dateSuppression";
+import { cn } from "@/lib/ui/cn";
 
 // Ported from NotesTile.tsx (:57-58) — the 5-source aggregation caps.
 const TRUNCATE_AT = 280;
@@ -568,12 +569,10 @@ export function TodaySection({
                                 {entry.label}
                               </span>
                               <span
-                                className={[
+                                className={cn(
                                   "text-sm leading-snug text-text",
                                   truncated ? "group-open:hidden" : "",
-                                ]
-                                  .filter(Boolean)
-                                  .join(" ")}
+                                )}
                               >
                                 {display}
                               </span>
@@ -642,7 +641,7 @@ export function TodaySection({
                   <KeyTimesStrip anchors={anchors} />
                   <div
                     data-testid="today-mode-a-grid"
-                    className={[
+                    className={cn(
                       "grid grid-cols-1 gap-4 min-[720px]:items-start",
                       // Only split into the 1.6/1 two-track grid when there IS a
                       // right side (quick-cards). With no quick cards, keep the
@@ -650,9 +649,7 @@ export function TodaySection({
                       // strands a dead ~38% empty right track. Mirrors how Mode B
                       // keys its identical split on `hasRight` (audit idx68/#48).
                       quickCardsStack != null ? "min-[720px]:grid-cols-[1.6fr_1fr]" : "",
-                    ]
-                      .filter(Boolean)
-                      .join(" ")}
+                    )}
                   >
                     <div
                       data-testid="today-run-of-show"
