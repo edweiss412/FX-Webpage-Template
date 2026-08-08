@@ -199,7 +199,17 @@ and those variants would then fire only when the pointer is over the **28px span
 the 44px anchor. The 8px expansion band would be tappable but visually dead — a target that
 responds to a tap it gave no feedback for, which is worse than the small target it replaced.
 
-- The anchor carries `group` and keeps the existing focus ring
+- **`group` goes on the TARGET element, all four of them** — the step-pill anchor, the
+  HelpSheet trigger button (`components/admin/HelpSheet.tsx:68`), the HelpSheet close button
+  (`components/admin/HelpSheet.tsx:139`), and the HelpTooltip `<summary>`
+  (`components/admin/HelpTooltip.tsx:57`). Tailwind generates
+  `group-hover:*` as `:is(:where(.group):hover *)`, so an ancestor carrying `.group` is
+  mandatory; without it the rewritten utilities never match and hover feedback disappears
+  entirely rather than degrading.
+- **Do NOT put `group` on HelpTooltip's outer `<details>`.** It is an ancestor, so the
+  selector would match — but then hovering anywhere in the *disclosed content* would light up
+  the trigger. The `<summary>` is the target and the target is where `group` belongs.
+- The step-pill anchor also keeps the existing focus ring
   (`components/admin/OnboardingWizard.tsx:128-129`), so the ring outlines the real target.
 - Every `hover:` variant on the moved class string becomes `group-hover:` on the inner span.
   Concretely, `hover:text-text-strong` in the visited `pillState`
@@ -652,6 +662,14 @@ DI-1…DI-15 across 320/390/768/1280 (DI-11/DI-12 additionally at 360 and 440, t
 > precedent bundles at all — `tests/e2e/attention-pill-focus.spec.ts:50` invokes that
 > bundler, not the ordinary helper.
 >
+> **`AdminNav` needs a routing context or it throws.** It calls `usePathname()`
+> (`components/admin/nav/AdminNav.tsx:70`); mounted bare, the harness fails with
+> `Cannot read properties of null (reading 'startsWith')`. Wrap it in
+> `PathnameContext.Provider value="/admin"` — the seam an existing harness already documents
+> and uses (`tests/e2e/_pusherRowsHarness.tsx:17-21`, `tests/e2e/_pusherRowsHarness.tsx:58-63`).
+> `"/admin"` is the right value: it is the route whose brand link DI-11/DI-12 measure. Do not
+> reach for `AppRouterContext` — `usePathname` is the only router hook on this path.
+>
 > **This spec's live entry uses `tests/e2e/_step3ReviewModalBundle.mjs`**, which is already
 > generic (it takes `<entry> <outfile> <tsconfig>` on argv and is not modal-specific). Do NOT
 > add `emptyNodeBuiltins` to the shared `_bundleLiveEntryChild.mjs`: that helper backs many
@@ -690,6 +708,16 @@ DI-1…DI-15 across 320/390/768/1280 (DI-11/DI-12 additionally at 360 and 440, t
   not a container that also contains compliant siblings. DI-4 (visual still 28) and DI-3
   (target now 44) must be asserted on **different elements** — anchor vs inner span — or the
   pair is self-satisfying.
+- **DI-5 and DI-7 are PRESERVATION invariants, not discriminating ones — and they are the
+  only two.** Both pass on an unfixed build, deliberately: DI-5's formula evaluates to
+  `28 + 0 + 0 = 28` today, because the pill is `size-7` with no margin utility
+  (`components/admin/OnboardingWizard.tsx:126-129`, applied at
+  `components/admin/OnboardingWizard.tsx:167`), and DI-7 is the pre-existing no-overflow
+  assertion at `tests/e2e/step3-review-page.layout.spec.ts:203-216`. That is the point: they
+  pin that the repair did **not** change layout, so a version that failed before the change
+  would be asserting the wrong thing. Do not "strengthen" them into discriminating form.
+  Every other invariant, DI-1 through DI-4 and DI-6 through DI-15, must fail on an unfixed
+  build.
 - **DI-5 and DI-12 take NO baseline.** An earlier draft asked for a pre-change variant
   rendered alongside the repaired one; that is incompatible with the real-components rule
   above, because production exposes only the repaired component and a hand-written "before"
@@ -786,8 +814,10 @@ finished before it. **Reachability: PROBED.**
   (DI-5, DI-7). Stated as a margin-box invariant rather than "centres identical" because no
   pre-change baseline is available to compare centres against (§8).
 - **AC-3b** Every real-browser assertion runs against the **real components** via a
-  live-entry harness, not transcribed markup (§8) — so none of DI-1…DI-15 can pass on a
-  build where the production repair was not applied.
+  live-entry harness, not transcribed markup (§8) — so no *discriminating* invariant can pass
+  on a build where the production repair was not applied. **DI-5 and DI-7 are exempt by
+  design and are the complete set of exemptions**: they are layout-PRESERVATION invariants,
+  so passing before the change is what they mean (§8).
 - **AC-4** The Step-3 page's heading sequence skips no level, asserted from document order.
 - **AC-5** The diagram tile exposes exactly one accessible name; a blank `alt` still yields a
   named link.
