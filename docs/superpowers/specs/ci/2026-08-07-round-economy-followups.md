@@ -1,0 +1,212 @@
+# Round-economy followups: filing promotions + boundary-advisory repair
+
+**Date:** 2026-08-07. **Branch:** `feat/round-economy-followups`. **Status:** draft.
+
+Two work items surfaced by the first full `pnpm review:economy` run over the live corpus
+(13 arcs, 15/17 trigger rate). Both are followups to shipped arcs; neither closes a
+`BL-`/`DEF-` ledger entry (`pnpm ledger:claims` run at Stage 0: the only live claims are
+`BL-CODEX-GUARD-COMMONMARK-PARSE` and `BL-PLAN-SNIPPET-FENCE-GATE`, both held by
+`feat/review-infra-gates`, neither in scope here).
+
+- **W1 — promote filing-nominated checklist rows into `docs/agents/`.** Six merged-arc
+  filings under `docs/review-rounds/` nominate durable rules ("worth a docs/agents
+  checklist row") that exist nowhere outside the filing that named them.
+- **W2 — repair the adoption-boundary advisory in `scripts/review-economy.ts`.** It
+  currently prints `so the boundary is wrong` on every live run, and the boundary is not
+  wrong — the corpus rows that trigger it were legitimately written on the adoption arc's
+  own branch before its merge.
+
+## §1 Scope
+
+In scope: edits to `docs/agents/writing-plans.md`, `docs/agents/spec-self-review.md`, one
+sentence in `AGENTS.md` (class-sweep bullet), the advisory computation in
+`scripts/review-economy.ts`, its tests in `tests/reviewRounds/report.test.ts`, and the
+matching amendment to `docs/superpowers/specs/ci/2026-08-04-review-round-economy.md`
+(§9 advisory paragraph + §10 test list). Plus the `docs/superpowers/specs/ci/README.md`
+index row for this spec.
+
+Out of scope: any change to silent-arc classification, `preAdoptionMergeCount`, the
+filing threshold, `mergedArcs` recognition, or the corpus row schema.
+
+### §1.1 Resolved scope — do not relitigate
+
+1. **The adoption boundary stays DECLARED, not corpus-derived.** Ratified in
+   `docs/superpowers/specs/ci/2026-08-04-review-round-economy.md` §9 ("The boundary is a
+   DECLARED constant") with both silent-wrongness modes of a derived boundary pinned by
+   tests (`tests/reviewRounds/report.test.ts`, the two cases under the comment "pass
+   TRIVIALLY under a boundary derived from the corpus"). W2 changes which rows the
+   ADVISORY consults, never how the boundary is obtained (`adoptionBoundary` in
+   `lib/reviewRounds/constants.ts` is untouched).
+2. **The advisory stays informational.** The report "gates nothing, exit 0 always except
+   on its own usage error" (`scripts/review-economy.ts`, CLI section comment). W2 does not
+   add an exit code, a CI gate, or a threshold.
+3. **The `spec:lint` sweep↔disposition set-difference arm is deliberately NOT filed.**
+   Its own filing (`docs/review-rounds/docs/l-wave-spec/a8b3a4128a10.md`, plan section)
+   declines it pending a second instance per the ledger filing bar. Nominating it here
+   would override that recorded decision; this spec records the decline instead.
+4. **`BL-CODEX-GUARD-COMMONMARK-PARSE` is untouched** — claimed by the live branch
+   `feat/review-infra-gates` (invariant 12 claim check, Stage 0).
+5. **Rule-count discipline.** `docs/agents/spec-self-review.md` (accept-set bullet)
+   records the measured failure mode of this corpus: rules exist and go unapplied, so
+   "adding a 123rd rule … buys nothing." W1 therefore extends EXISTING bullets wherever
+   one already owns the shape, and adds a new bullet only where no bullet does. Each
+   promotion below names its integration point; reviewers should challenge a promotion
+   that could have been a clause on an existing rule, not the decision to keep the count
+   low.
+6. **Filings are the evidence base, not re-derived.** Each promotion cites its filing
+   under `docs/review-rounds/`. The filings' own probe evidence (mutant tables, round
+   tables) is not re-verified here; a filing committed with a merged arc is the record.
+
+## §2 W1 — promotions into `docs/agents/`
+
+Every row below is a nomination made explicitly by a committed filing. Wording lands as a
+clause or bullet in the named target; exact prose is the implementer's (subject to the
+integration-point constraint), but each MUST cite its source filing path inline so the
+rule stays traceable to its evidence.
+
+| # | Target | Action | Substance | Source filing |
+| --- | --- | --- | --- | --- |
+| P1 | `docs/agents/writing-plans.md`, anti-tautology bullet | new sub-bullet | **Four pre-dispatch mutants for string-presence guards.** Before dispatching review of any test asserting "this string appears in this output," run: (a) empty value, (b) expected content plus a suffix, (c) content present but not live (commented out, escaped, in an attribute), (d) each discriminating parameter of the function under test. Record each result in the commit. Four rounds on `feat/l-wave-push` were all test-side escapes these four mutants find in minutes. | `docs/review-rounds/feat/l-wave-push/a0e41551c059.md` |
+| P2 | `docs/agents/writing-plans.md`, new bullet (handoff/closeout text shapes) | new bullet | **Three one-line lint shapes over HANDOFF/plan text**, each caught only by review at least twice across the arc-A/B/C batch: (i) *review covers what merges* — the diff the final review round examined must be the diff that merges (final-diff ordering); (ii) *handoff gate checks read anchored state from origin*, never from bounded log output (`git log -N` can truncate past the fact being asserted); (iii) *gate-grep precision* — a handoff's "grep proves the gate ran" command must match only the gate's own output shape. | `docs/review-rounds/docs/arc-c-spec/a0e41551c059.md` (plan §), `docs/review-rounds/docs/arc-b-spec/a0e41551c059.md` (plan §) |
+| P3 | `docs/agents/writing-plans.md`, anti-tautology bullet | new sub-bullet | **RED validity.** For every planned RED step, name the production line whose absence/defect makes it fail. A RED whose failure derives from a test-local fixture is invalid by construction. Companion check from arc C: run the guard-premise check (`tests/_shared/premise.ts` posture) against the DRAFTED test design before dispatch, not after implementation. | `docs/review-rounds/docs/arc-a-spec/a0e41551c059.md` (plan §), `docs/review-rounds/docs/arc-c-spec/a0e41551c059.md` (spec §) |
+| P4 | `docs/agents/writing-plans.md`, "Reconciliation/closeout sweeps" bullet | extend | **Registry count reconciliation.** When a plan adds/removes rows in a registry-bearing meta-suite, the plan body includes the mechanical diff of the registry arrays against the tasks' stated additions/removals — same authored-AND-run posture as the sweep rule this extends. | `docs/review-rounds/docs/arc-a-spec/a0e41551c059.md` (plan §) |
+| P5 | `docs/agents/spec-self-review.md`, live-code-citation bullet | extend | **Render-path enumeration.** For every component the spec claims emits (or must not emit) a protected data class, enumerate every render path of that component that can emit it — not only the cited lines. The arc-A citation pass read the named sites and missed a raw fallback path; the filing estimates this one step would have cut R1 from 9 findings to ~3. | `docs/review-rounds/docs/arc-a-spec/a0e41551c059.md` (spec §) |
+| P6 | `docs/agents/spec-self-review.md`, probe-before-argue bullet | extend | **Probe scripts get their own mini-review.** A probe script whose output feeds a spec's calibration table is itself a spec input: review it (iteration bounds, truncation, declared-vs-imported counts) before quoting its output as fact. Arc B shipped a declared-vs-imported iteration bug and a truncation in a probe the spec then cited. | `docs/review-rounds/docs/arc-b-spec/a0e41551c059.md` (spec §) |
+| P7 | `docs/agents/writing-plans.md`, new bullet (repair economy for recognizer/guard surfaces) | new bullet | **Repair economy.** Condensed from the two arcs that measured it: (1) a recognizer bounded by a NUMBER (cap, position, backreference) will be found by the next reviewer — derive the bound from the input instead; (2) a key that can ALIAS is not a clock — recency wants a monotonic ordinal, not a session/attempt id; (3) a per-site sweep of a value-domain defect does not converge; derive the site list from the artifact (fixture, registry, filesystem walk) so new sites are covered by default; (4) when 3-4 consecutive rounds land on ONE function, stop repairing — the mechanism is answering the wrong question; delete or derive it (the codex-guard emphasis parser: deleted, −71 lines, all shapes unreachable); (5) a scanner's claims are planted as executable self-test shapes (positive AND negative) in the same commit as any widening — widenings without self-tests are the rounds that came back. | `docs/review-rounds/feat/review-round-economy/48b280b949cc.md`, `docs/review-rounds/feat/m-wave-ui/fc4902004b78.md` |
+| P8 | `docs/agents/writing-plans.md`, "Fix-round regression budget" bullet | extend | **The repair's own tidy-up is a defect site.** Two of m-wave's sharpest findings were in repairs, not originals (`empty:hidden` re-hid a region the fix exposed; a channel migration left the old speaker in place, duplicating speech). The next-round re-grep this bullet already mandates must cover the repair commit's incidental edits, not only the patched class. | `docs/review-rounds/feat/m-wave-ui/fc4902004b78.md` |
+| P9 | `AGENTS.md`, "Class-sweep before patching" bullet | extend, one sentence | **Sweep to a derivation, not a longer list.** A sweep verified by enumeration re-opens the moment someone adds a site; the sweep's output is a derived cover (registry asserted against the scanner, field list derived from the fixture, filesystem walk), which is what "class-sweep" means in practice. The filing measured the enumerated form failing three consecutive rounds on the arc that cites the rule. | `docs/review-rounds/feat/review-round-economy/48b280b949cc.md` (rule 3) |
+
+**Explicitly not promoted** (each with reason, so review does not re-nominate):
+
+- Arc B spec filing (a) — AC/limits-ledger drift: filing itself says "the misses were
+  non-compliance, not rule gaps"; the numeric/self-consistency sweeps already mandate the
+  check. No text change.
+- l-wave-spec filing (a)/(b) — stale-count drift (rule exists, compliance failure) and
+  the em-dash census (mechanized by the shipped W-EMDASH guard itself).
+- l-wave-spec plan filing — sweep↔disposition `spec:lint` arm: declined per §1.1.3.
+- `feat/review-round-economy` rules 1-2 already produced code-side fixes on main
+  (`scripts/codex-guard.mjs` intraword rule; ordinal clock); P7 carries their durable
+  statement.
+
+## §3 W2 — boundary-advisory repair
+
+### Current behavior (cited)
+
+`scripts/review-economy.ts` (near the return of `buildReport`): `earliest` is the minimum
+`startedAt` over ALL corpus rows; when `earliest < boundary` the report prints
+
+> `ADVISORY: the earliest recorded row (…) precedes the declared adoption boundary (…), so the boundary is wrong.`
+
+`adoptionBoundary` (`lib/reviewRounds/constants.ts`, function `adoptionBoundary`) resolves
+to the committer date of the first-parent merge that added `lib/reviewRounds/constants.ts`
+to `main` — measured live: `cae50beb0` (PR #711), `2026-08-05T08:44:18-05:00`.
+
+### Why it misfires
+
+The wrapper started writing rows on the adoption BRANCH hours before that branch merged:
+earliest live row `2026-08-05T05:37:09.244Z` belongs to arc
+(`feat/review-round-economy`, `20fccb1f3331`). The 2026-08-04 spec's §9 advisory
+rationale ("a corpus whose earliest row precedes ADOPTION_BOUNDARY means the constant is
+wrong") did not model the adoption arc's own pre-merge rows — the same arc §12 of that
+spec declares pre-adoption by construction. The contract cannot oblige rows written
+before it went live, and those rows cannot indict the constant. The current message
+states a falsehood on every run, which is the "known-wrong number in an operator-facing
+message" class the economy system itself exists to close.
+
+### Repaired behavior
+
+1. **Exclusion rule.** A row is EXCLUDED from the advisory's `earliest` computation when
+   a recognized merge exists with the same `branch` and `mergedAt <= boundary`
+   (pre-adoption under the existing `<=` carve-out) and the row's
+   `startedAt <= that merge's mergedAt`. Join is on **branch + time**, deliberately NOT
+   on `arcKey(branch, baseSha)`: `mergedArcs` derives `baseSha` as the merge-base of the
+   merge's two parents (`lib/reviewRounds/mergedArcs.ts`, `merge-base` call), so a
+   split arc's earlier segments (the live case: `20fccb1f3331` vs recognized
+   `48b280b949cc`) can never match an exact key. Time cap included so post-merge rows on
+   a reused branch name still count (§5 limit 1 covers the residual looseness).
+2. **Advisory text drops the verdict.** When it still fires, the line reads:
+   `ADVISORY: the earliest recorded row (…) from an arc with no pre-adoption merge precedes the declared adoption boundary (…) — the boundary or the row's arc attribution is wrong.`
+   The report states the observation and the two possible causes; it no longer asserts
+   which.
+3. **Shallow clone / merge-scan refusal withholds the advisory.** The exclusion needs the
+   merge classification; under `merges.shallow` the advisory is `null` and the existing
+   shallow-refusal note covers it (extend that note with "; the boundary advisory is
+   withheld for the same reason"). A `boundary === null` (not-yet-adopted) run already
+   prints its own note and produces no advisory — unchanged.
+4. **Result on the live corpus:** `pnpm review:economy` prints no ADVISORY line, because
+   every pre-boundary row belongs to `feat/review-round-economy` whose one recognized
+   merge (`cae50beb0`) is pre-adoption by the `<=` carve-out and postdates every such
+   row. This is AC-W2.5 and is verified against the real repo, not only fixtures.
+
+### Spec amendment (same PR)
+
+`docs/superpowers/specs/ci/2026-08-04-review-round-economy.md`: amend the §9 advisory
+paragraph (the one ending "cannot be checked against anything") to state the exclusion
+rule and the two-cause wording, and add the new test shapes to the §10 list (item 8).
+Mark the amendment inline with a dated note, matching that spec's existing amendment
+style. `docs/superpowers/specs/ci/README.md` gains this spec's index row.
+
+## §4 Test plan (RED shapes, `tests/reviewRounds/report.test.ts`)
+
+Existing advisory/boundary tests stay green except the reworded-message assertion, which
+updates with the wording. New cases, each naming the production line that fails it before
+the fix:
+
+1. **Split-arc segment exclusion (the live defect).** Corpus row with
+   `startedAt < BOUNDARY` on branch B; recognized merge for B with a DIFFERENT `baseSha`
+   and `mergedAt = BOUNDARY`. Expect `boundaryAdvisory === null`. Fails today because
+   `earliest` consults all rows.
+2. **Advisory preserved for a truly unexplained row.** Row predating BOUNDARY on a branch
+   with NO recognized merge. Expect advisory fires with the two-cause wording.
+3. **Post-merge reuse still counts.** Row predating BOUNDARY on branch B,
+   `startedAt > mergedAt` of B's pre-adoption merge. Expect advisory fires (the time cap
+   is load-bearing; this is its premise stated executably).
+4. **Post-adoption merge does not launder.** Row predating BOUNDARY on branch C whose
+   only recognized merge has `mergedAt > BOUNDARY`. Expect advisory fires — only
+   pre-adoption merges explain pre-boundary rows.
+5. **Shallow withholds.** `merges.shallow` fixture: `boundaryAdvisory === null` and the
+   refusal note names the advisory.
+
+Anti-tautology compliance: each case's fixture varies exactly the field under test
+(baseSha mismatch in 1, absent merge in 2, times in 3/4), and case 1's row uses a
+`baseSha` distinct from the merge's so the test cannot pass via an arcKey join the spec
+forbids. Per P1 (this spec eats its own cooking), the four string-presence mutants apply
+to the advisory-wording assertion and their results land in the implementation commit.
+
+## §5 Documented limits
+
+1. **Branch-name reuse can launder a pre-boundary row.** A row from an OLDER arc reusing
+   branch B, written before B's pre-adoption merge, is excluded even though it belongs to
+   a different arc. Advisory-grade acceptable: the advisory is informational (§1.1.2),
+   the corpus join for counting stays on `(branch, baseSha)`, and the failure direction
+   is a suppressed advisory line, never a wrong count. Surfaced here rather than guarded.
+2. **Unrecognized merges cannot explain rows.** A pre-boundary row whose arc merged under
+   an unrecognized subject fires the advisory; the unrecognized-merge list is printed
+   beside it, which is the §8.2-honest shape (observation plus the reason it may be
+   incomplete).
+3. **The advisory still cannot verify the constant.** It cross-checks the boundary
+   against the corpus and the merge scan; agreement is not proof. Unchanged from the
+   2026-08-04 spec's posture.
+
+## §6 Acceptance criteria
+
+- AC-W1.1: every P-row lands in its named target file with its filing citation inline;
+  no other `docs/agents/` rule is reworded beyond the named integration points.
+- AC-W1.2: `AGENTS.md` class-sweep bullet gains exactly one sentence (P9).
+- AC-W2.1–W2.5: the five §4 cases pass; AC-W2.5 = `pnpm review:economy` on the live repo
+  prints no ADVISORY line and its other sections are byte-identical to before the change
+  except the advisory (verified by running both and diffing).
+- AC-X.1: `pnpm spec:lint` on this spec and the plan is attached to every review
+  dispatch; the 2026-08-04 spec amendment carries its dated note.
+- AC-X.2: full pre-push gates (`pnpm test`, typecheck both configs, eslint,
+  `format:check`) green in the worktree.
+
+## §7 Review-brief bounds (for the dispatches on this spec/plan/diff)
+
+Consequence bound: every corpus/merge input either computes the advisory correctly or
+withholds it with a printed reason — a suppressed advisory plus the unrecognized-merge
+list is a DOCUMENTED LIMIT (§5), not a finding. Threat model: accidental authoring
+mistakes by ordinary contributors and ordinary repo states (shallow clones, split arcs,
+reused branch names); adversarial corpus construction is out of scope and files to
+limits. Findings about current behavior are settled by probe (run the report / the test),
+per the round-economy admissibility contract.
