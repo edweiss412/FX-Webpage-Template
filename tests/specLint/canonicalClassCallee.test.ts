@@ -140,12 +140,14 @@ function recognizeJoins(relPath: string, source: string): JoinSite[] {
   const found: JoinSite[] = [];
 
   const visit = (node: ts.Node): void => {
+    const separatorArg =
+      ts.isCallExpression(node) && node.arguments.length === 1 ? node.arguments[0] : undefined;
     if (
       ts.isCallExpression(node) &&
       ts.isPropertyAccessExpression(node.expression) &&
       node.expression.name.text === "join" &&
-      node.arguments.length === 1 &&
-      isWhitespaceSeparator(node.arguments[0])
+      separatorArg !== undefined &&
+      isWhitespaceSeparator(separatorArg)
     ) {
       let receiver: ts.Expression = node.expression.expression;
       if (
@@ -160,7 +162,7 @@ function recognizeJoins(relPath: string, source: string): JoinSite[] {
           file: relPath,
           line: sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1,
           signature: receiver.elements.map((e) => normalize(e.getText(sourceFile))).join(", "),
-          separator: JSON.stringify((node.arguments[0] as ts.StringLiteral).text),
+          separator: JSON.stringify((separatorArg as ts.StringLiteral).text),
         });
       }
     }
@@ -304,7 +306,9 @@ function buildPremiseFixture(): {
   // separator spelling across them so a single-space-only scanner fails on the
   // combination it drops, by name.
   COMBINATIONS.forEach(({ root, ext }, index) => {
-    const separator = SEPARATOR_SPELLINGS[index % SEPARATOR_SPELLINGS.length].literal;
+    const spelling = SEPARATOR_SPELLINGS[index % SEPARATOR_SPELLINGS.length];
+    if (spelling === undefined) throw new Error("unreachable: SEPARATOR_SPELLINGS is non-empty");
+    const separator = spelling.literal;
     const rel = path.join(root, "nested", `Combo${index}${ext}`);
     const abs = path.join(dir, rel);
     fs.mkdirSync(path.dirname(abs), { recursive: true });
@@ -425,7 +429,7 @@ describe("no className array joins survive (zero-tolerance, spec §7.1)", () => 
         "an exempted file's whitespace-join sites must EQUAL its recorded set. Larger means a new " +
           "join landed in a file whose exemption would have suppressed the guard; smaller means a " +
           "stale row is sitting there pre-authorizing a future class join in this file.",
-      ).toEqual([...EXEMPT_SITES[file]].sort());
+      ).toEqual([...(EXEMPT_SITES[file] ?? [])].sort());
     },
   );
 
@@ -530,9 +534,12 @@ describe("the premise the census deletion rests on (spec §7.2)", () => {
     const eslint = new ESLint({ cwd: ROOT });
     // `lintText` needs no file on disk, so nothing is written into the repo that a
     // concurrent scan — including this file's own tracked-tree assertion — could see.
-    const [result] = await eslint.lintText(source, {
+    const results = await eslint.lintText(source, {
       filePath: path.join(ROOT, "components", "__cn_coverage_probe__.tsx"),
     });
+    const result = results[0];
+    expect(result, "ESLint.lintText returned no result for the probe source").toBeDefined();
+    if (result === undefined) return;
 
     const reportedLines = new Set(
       result.messages.filter((m) => m.ruleId === CANONICAL_RULE).map((m) => m.line),
