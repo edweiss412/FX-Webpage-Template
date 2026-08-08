@@ -4,16 +4,15 @@
 **Branch:** `fix/step3-a11y-cluster`
 **Closes:** `NEWTAB-A11Y-RESIDUE-1` (fully — archived); `STEP3-GALLERY-TAP-TARGETS-1` items (a)(b)(c) (struck; (d) stays deferred)
 
-impeccable-gate: critique=PENDING audit=PENDING p0=- p1=- dispositions=pending
+impeccable-gate: critique=RAN-DEGRADED audit=RAN-DEGRADED p0=0 p1=1 dispositions=recorded
 
-(The marker above follows the `2026-08-03-nojs-loading-shell-notice.md` lifecycle: PENDING
-while the arc is live, replaced with real counts in the close-out commit after both gate
-halves run. Until that commit, `tests/docs/_metaInvariant8Closeout.test.ts` reports the
-PENDING line as malformed — expected mid-arc state, resolved at Task 10 step 2.
-**Interim "full suite green" checkpoints (Tasks 1–9) therefore mean: green except
-EXACTLY that one declared failure** — one test, this file's marker line, nothing else;
-any other red is a real defect. Task 10 step 3's battery runs AFTER the marker fill and
-tolerates nothing (R3 F1).)
+(The marker followed the `2026-08-03-nojs-loading-shell-notice.md` lifecycle: PENDING
+while the arc was live, replaced with real counts in the close-out commit after both gate
+halves ran. While it read PENDING, `tests/docs/_metaInvariant8Closeout.test.ts` reported it
+as malformed — the expected mid-arc state, resolved at Task 10 step 2. **Interim "full
+suite green" checkpoints (Tasks 1–9) therefore meant: green except EXACTLY that one
+declared failure** — one test, this file's marker line, nothing else; any other red was a
+real defect. Task 10 step 3's battery runs AFTER this fill and tolerates nothing (R3 F1).)
 
 ---
 
@@ -545,5 +544,92 @@ expectation. **Ordered so every gate runs against a fully-valid tree (R3 F1):**
 
 ## 12. Impeccable gate findings + dispositions
 
-(Filled at Task 10. The marker at the top of this file is updated from PENDING to real
-counts in the same commit.)
+Run 2026-08-08 on the whole diff against merge-base `61281c23e8ce`, scoped to the thirteen
+invariant-8 UI-surface files. Canonical v3 setup gates ran first: `context.mjs` loaded
+`PRODUCT.md` + `DESIGN.md`, and the **product** register was read (this is admin/app UI —
+design serves the product), plus `reference/critique.md` and `reference/audit.md`.
+
+### 12.0 Provenance — ⚠️ DEGRADED, declared rather than silent
+
+`reference/critique.md` requires Assessments A (design review) and B (detector evidence) to
+run as two isolated sub-agents. **They were dispatched and did not return**, through two
+status requests and ~18 minutes of waiting; a third agent dispatched for the audit half did
+not return either. The gate was therefore completed **single-context**, which the reference
+permits only with a declared banner. This is that banner. It is recorded here rather than
+in chat because the disposition record is what a later reviewer reads.
+
+What the degradation costs and does not cost: the detector half is deterministic and was
+run directly with the same command and scope, so Assessment B lost nothing but isolation.
+The design-review half lost its independence from the detector output, which is a real
+weakening — the reference isolates them precisely so detector findings do not anchor
+judgment. Mitigation actually applied: the review was driven from executable checks
+(measured geometry, a mutation, class-delta greps) rather than from impression, so its two
+findings are reproducible rather than asserted.
+
+### 12.1 Detector (Assessment B, run directly)
+
+```
+node <impeccable>/scripts/detect.mjs --json <13 UI files>
+```
+
+Two findings, both `broken-image`, both in `components/admin/wizard/step3ReviewSections.tsx`.
+NEW-vs-PRE-EXISTING was established by re-running the detector against the same file at the
+merge base, which returns exactly one.
+
+| Rule | Location | New? | Disposition |
+| --- | --- | --- | --- |
+| `broken-image` | `step3ReviewSections.tsx:3673` | PRE-EXISTING (present at merge base) | **False positive.** The line is a CODE COMMENT containing the literal `<img>` while documenting the deliberate `next/image` revert. Already ratified: `DEFERRED.md:61-65`, spec §9. |
+| `broken-image` | `step3ReviewSections.tsx:3704` | **NEW** | **False positive, and the rule is misreporting its own subject.** Its description is about a missing/empty/placeholder `src`; this `<img>` has `src={src}`, a required runtime prop. What changed on this line is `alt={alt}` → `alt=""`, which is the standards-correct marking for a DECORATIVE image whose accessible name is carried by its wrapping link (spec §2.4, AC-5). Same class as the eight hits already ratified at `DEFERRED.md:61-65`. **Not suppressed** — classified here, so a later reader sees the reasoning instead of an ignore rule. |
+
+The same rule fires on three test files for the same reason (they assert `alt=""` in string
+literals). Same classification.
+
+### 12.2 Findings, with disposition
+
+**[P1] AC-2's edge-midpoint claim had no coverage for the `AdminNav` brand link — FIXED in
+branch (`9607ed11f`).** AC-2 names seven targets that must expose a ≥44×44 box "whose four
+edge midpoints hit it". Six had it (DI-6, DI-8, DI-10, DI-15); the brand link had only
+DI-11's size check and DI-12's cancellation formula, so nothing proved its grown box takes
+the pointer. It is also the only repaired target whose growth reaches into a live row rather
+than empty chrome: `-mx-2` pulls the footprint back, so 8px per side overhangs the topbar's
+`gap-3` (12px) toward four irreducible 44px action controls. Fixed by measuring the four
+edge midpoints and counting overlaps against every other interactive element in the mounted
+topbar, derived from the live DOM. **Negative-regression verified twice**, because the
+obvious mutant did not isolate the new assertion: `-mx-4 px-4` fails on DI-12's margin check
+first and proves nothing about overlap, while `gap-3 → gap-0` (mx/px untouched) fails at
+320px with "brand link right midpoint resolved outside the target" and passes at the other
+five widths where `ml-auto` still leaves slack.
+
+**[P0] none.**
+
+**[P2 → DOCUMENTED LIMIT, not filed] The `AdministratorsSection` revoked disclosure's
+clickable row narrows from full-width to content-width.** `w-fit` is what stops a repaired
+`<summary>` becoming a full-width invisible 44px band that swallows pointer events aimed at
+neighbouring content (spec §2.1, probe P2), and the spec ratifies it for all six Class-A
+sites. At `AdministratorsSection.tsx:131` the summary is a bordered card's header with no
+neighbouring content to protect, so `w-fit` costs hit area there without buying anything —
+the row goes from card-width to roughly 124px wide. It stays a real change worth naming.
+It is recorded as a limit rather than filed because the worst case is conservative and
+surfaced: the target still clears the floor on BOTH axes (44px tall, ~124px wide — the
+actual contract), the height went UP from 40.8px, and the change is pinned by DI-1/DI-2 at
+four viewports. Per the ledger filing bar, an accepted outcome whose alternative is worse is
+a limits record, not schedulable work. Deviating per-site would also exceed the ratified
+recipe (spec §1.1 R6/§2.1).
+
+### 12.3 Audit dimensions
+
+| # | Dimension | Score | Key finding |
+| --- | --- | --- | --- |
+| 1 | Accessibility | 4 | The diff's entire subject. Thirteen targets raised to the floor with painted boxes preserved, a skipped heading level closed, a double accessible name reduced to one, a lying new-tab glyph removed. Pinned by 46 real-browser cases at 320/360/390/440/768/1280. |
+| 2 | Performance | 4 | No animation added, removed or retimed (spec §6.1). The HelpSheet portal's scrim and rise are byte-identical — `git diff` matches no animate/scrim/sheet-rise/backdrop line. No new render work: every change is a class string or one wrapper `<span>`. |
+| 3 | Theming | 4 | Zero hard-coded colors added — `grep -E "#[0-9a-f]{3,8}\|rgba?\(\|hsla?\(\|oklch\("` over added lines in the UI files returns nothing. Every color-bearing class removed has a matching one added: `hover:bg-surface` ×2 → `group-hover:bg-surface` ×2, `hover:bg-surface-sunken` ×1 → `group-hover:` ×1, `hover:text-text-strong` ×4 → `group-hover:` ×4. Both themes are unaffected because no token changed. |
+| 4 | Responsive | 4 | The floor is met on both axes at every asserted width, DI-7's 320px no-overflow pin still holds, and DI-5/DI-12 pin that neither repair spends layout — which matters because the connectors measure 0px wide at 320/390 (probe P3). |
+| 5 | Anti-patterns | 4 | No new visual language at all: no side-stripe border, no gradient text, no glassmorphism, no card grid, no eyebrow, no numbered scaffold. R6 makes "looks different" a defect, and the diff adds no painted surface. |
+| **Total** | | **20/20** | Excellent. The score is high because the diff is deliberately narrow: it changes hit boxes, one tag pair, one `alt`, and one glyph, and asserts the result in a real browser. |
+
+### 12.4 Not re-raised, verified against their ratification
+
+The repo-wide structural tap-target guard (descoped with its measurement, spec §5, filed as
+`BL-TAP-TARGET-STRUCTURAL-GUARD`); the eight further inline text controls (filed as
+`BL-TAP-TARGET-INLINE-TEXT-CONTROLS` pending a per-site prose-vs-chrome product call); and
+spec §4's four documented limits. Each was checked against its citation, not re-derived.
