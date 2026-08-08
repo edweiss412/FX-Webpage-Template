@@ -86,10 +86,17 @@ under `CENSUS_DIRECT`, so the census *covers* the file while the tally missed th
 | `app/show/[slug]/[shareToken]/_PickerInterstitial.tsx` | 1 | 174 | no |
 | **Total** | **36** | | 6 filtered / 30 unfiltered |
 
-**The 18 files are the complete set.** A tree-wide sweep of every tracked `.tsx?` under `components/`
-and `app/` finds exactly two other `.join(" ")` occurrences, and both are data joins, correctly
-outside the census: `components/admin/wizard/step3ReviewSections.tsx:1353` and
+**The 18 files are the complete set, and the sweep proving it is separator-agnostic.** Sweeping every
+tracked `.tsx?` under `components/` and `app/` for `.join(` at *any* separator yields 38 occurrences
+of `.join(" ")` and no other whitespace separator anywhere — no `.join(' ')`, no `` .join(` `) ``.
+Of the 38, 36 are the classNames tabulated above and 2 are data joins, correctly outside the census:
+`components/admin/wizard/step3ReviewSections.tsx:1353` and
 `components/admin/review/sectionFreshness.ts:537`, each `[row.date, row.time].filter(...).join(" ")`.
+Every remaining `.join(...)` in the tree uses a non-whitespace separator (`", "`, `""`, `"; "`,
+`"="`, `" | "`, `" · "`, `" / "`, `"\u0000"`, `"."`) and joins data, not classes.
+
+The separator-agnostic form matters beyond bookkeeping: a sweep keyed on the literal `.join(" ")`
+would have reported the same 36 while being unable to see the escape §7.1 closes.
 
 ### 2.3 What the plugin does and does not traverse — probed
 
@@ -148,6 +155,17 @@ $ npx eslint components/__probe__/CnProbe.tsx        # shape matrix, §2.3
 
 $ node /tmp/codemod.mjs <18 files> && npx eslint <18 files>
 → 36 sites migrated; 10 errors / 6 files (§2.4); tree reverted via git stash -u && git stash drop
+
+$ git ls-files -z components app | tr '\0' '\n' | grep -E '\.tsx?$' \
+    | xargs grep -ohE '\.join\([^)]*\)' | sort | uniq -c | sort -rn
+→ 38 .join(" ") · 16 .join(" · ") · 12 .join(", ") · 7 .join(",") · 4 .join("")
+  · 3 .join("=") · 2 .join("; ") · 2 .join(" / ") · 1 .join("\u0000") · 1 .join(". ")
+  · 1 .join(" | ")                      # no backtick/single-quote separator anywhere
+
+$ npx eslint <probe with .join(` `) and .join(' ') classNames>   # §7.1 escape probe
+→ 0 problems — neither the rule NOR the census scanner sees these spellings
+$ npx prettier --parser typescript <same>
+→ all three spellings preserved; Prettier does not normalize them to one
 ```
 
 ---
@@ -241,25 +259,50 @@ components/crew/primitives/DayCard.tsx:98
 (The only other hit in the whole scan is `GearSection.tsx:303`, which is a `.filter(Boolean)` site
 and therefore already E1.)
 
-### 4.2 How the tests pin it
+### 4.2 How the claim is verified
 
-Three mechanisms compose. None of them is a hardcoded expected string.
+Three mechanisms compose. None of them is a hardcoded expected string. **Two are permanent tracked
+tests; one is a one-shot migration-time check, and the split is deliberate** — see §4.3.
 
-1. **`cn` semantics** — a unit test walking the whole §3.2 table, including the empty and all-falsy
-   cases. This establishes `cn ≡ filter(Boolean).join(" ")`.
-2. **Operand preservation** — a differential test that reads each of the 18 files at the **base
-   commit** via `git show <BASE_SHA>:<path>`, extracts each array-join's operand list, extracts the
-   corresponding `cn(...)` argument list from the working tree, and asserts the two are the same
-   sequence of operands. Expected values come from the pre-migration source, never from a literal in
-   the test. Class tokens rewritten in stage 2 are permitted only where §6's table declares them —
-   an undeclared token change fails.
-3. **The one behavioral delta** — a render test on `DayCard` asserting the `tone === "set"` dot has
-   the identical `classList` before and after, and that its `className` string carries no trailing
-   space. This is the single site where (1) and (2) hold but bytes still move, so it gets its own
-   executable check rather than a prose note.
+1. **`cn` semantics** — *permanent test.* A unit test walking the whole §3.2 table, including the
+   empty and all-falsy cases. Establishes `cn ≡ filter(Boolean).join(" ")`.
+2. **Operand preservation** — *one-shot verification script, NOT a tracked test* (§4.3).
+   `scripts/verify-cn-operand-parity.mjs` reads each of the 18 files at the pre-migration commit via
+   `git show <sha>:<path>`, extracts each array-join's operand list, extracts the corresponding
+   `cn(...)` argument list from the working tree, and asserts the two are the same operand sequence.
+   Expected values come from the pre-migration source, never from a literal. Class tokens rewritten
+   in stage 2 are permitted only where §6's table declares them; an undeclared token change fails.
+3. **The one behavioral delta** — *permanent test.* A render test on `DayCard` asserting the
+   `tone === "set"` dot's `classList` is unchanged and its `className` carries no trailing space.
+   The single site where (1) and (2) hold but bytes still move, so it gets its own executable check
+   rather than a prose note.
 
 Composition: operands preserved (2) + `cn ≡ filter.join` (1) ⇒ output identical wherever no operand
 is falsy; §4.1 enumerates the sole falsy-capable operand; (3) pins that site directly.
+
+### 4.3 Why operand preservation is one-shot and not a tracked test
+
+The obvious design — commit mechanism 2 as a vitest file — is wrong in two independent ways, and
+both were probed rather than reasoned about:
+
+- **It cannot resolve its own baseline in CI.** The unit workflow checks out at depth 1 and fetches
+  only pinned history (`.github/workflows/unit-suite.yml:110`), so `git show <base-sha>:<path>` has
+  no such object. A tracked test would fail, or worse, silently degrade to a vacuous pass on the
+  error path.
+- **It would freeze all 18 files forever.** Its declared-delta allowlist is C1–C6 — the tokens *this
+  migration* rewrites. Retained, it rejects every legitimate future class change in those files
+  unless someone amends a closed migration spec's table. That is a permanent tax for a one-time
+  guarantee.
+
+The guarantee it provides is inherently one-time: it compares two versions of the tree across a
+single migration. So it ships as `scripts/verify-cn-operand-parity.mjs`, is run during the migration
+task with its output recorded in the PR body, and is **not** added to the suite. It is deleted in the
+same PR, or retained only as an unwired script — the plan states which.
+
+**What is permanently guaranteed after this arc, and by what:** the `cn` unit test pins the helper's
+semantics; the zero-tolerance guard (§7.1) pins that no array-join className returns; the eslint rule
+itself pins canonical classes inside every `cn(...)` from here on; the `DayCard` render test pins the
+one behavioral delta. None of those depends on git history, and none freezes a file's class list.
 
 ---
 
@@ -324,10 +367,30 @@ helper now existing is the signal to do the migration and delete the census.
 
 Two survive, because their premise outlives the migration:
 
-- **Zero-tolerance recognizer.** The same two-shape scanner, with the census replaced by the empty
-  set: *no* array-join className may exist anywhere under `components/` or `app/`. This is strictly
-  stronger than the census it replaces. Deleting it instead would re-admit exactly the regression the
-  census was built to stop (R4).
+- **Zero-tolerance recognizer, keyed on structure rather than on one spelling.** The same two-shape
+  scanner, with the census replaced by the empty set: *no* array-join className may exist anywhere
+  under `components/` or `app/`. Strictly stronger than the census it replaces; deleting it instead
+  would re-admit exactly the regression the census was built to stop (R4).
+
+  **It must not inherit the census guard's separator dependency.** The census scanner matches the
+  literal text `.join(" ")` (`tests/specLint/canonicalClassArray.test.ts:95`). Probed: a className
+  built with `` .join(` `) `` or `.join(' ')` is invisible to *both* the scanner and the eslint rule
+  — the rule reports nothing at all — and Prettier preserves all three spellings rather than
+  normalizing them to one. That is silent, unsignaled drift, so under this spec's consequence bound
+  it is a gap the replacement must close, not a documented limit.
+
+  **The accept-set, stated positively** (a denylist of separator spellings would accept whatever it
+  failed to model): a className expression is accepted when it is a plain string literal, a template
+  literal containing no array join, or a call to a plugin-recognized callee (`cn(...)`). **Any
+  className expression containing a `.join(` call is reported, whatever its separator argument** —
+  the separator is irrelevant, because *every* array join is opaque to the rule. Keying on the call
+  rather than on its argument is what makes the recognizer closed over spellings nobody enumerated.
+
+  **This is future coverage, not a missed migration.** A separator-agnostic sweep of every tracked
+  `.tsx?` under `components/` and `app/` confirms the current tree uses a double-quoted separator at
+  every one of its 38 `.join(" ")` sites (36 classNames + the 2 data joins), and contains **no**
+  backtick-space or single-quote-space join at all. So §2.2's inventory of 36 is complete as
+  measured; the widening protects the tree going forward.
 - **Rule-is-on pin.** `eslint.config.mjs` must still set
   `"better-tailwindcss/enforce-canonical-classes": "error"`. A guard that outlives its rule pins
   nothing.
@@ -340,6 +403,11 @@ asserts it is found, immediately above the assertion that the real tree yields n
 `docs/agents/writing-plans.md`, the premise executes unconditionally relative to what it guards —
 not inside a `.each` callback.
 
+**The premise fixture carries all three separator spellings**, in both the inline and the
+via-variable shape. A fixture exercising only `.join(" ")` would let the widened recognizer regress
+back to the census guard's spelling dependency while its premise check still passed — which is
+precisely the vacuous-premise failure the rule exists to prevent, reintroduced one level up.
+
 ### 7.2 The premise the deletion rests on, stated executably
 
 The census guard's whole justification was "the rule cannot see these." Deleting it asserts "the rule
@@ -349,9 +417,13 @@ can see these now." That assertion is not left in prose — it is a test:
   (`min-h-(--spacing-tap-min)`), including one plain-literal argument and one ternary argument. Run
   ESLint programmatically against the repo config. Assert the rule **reports** it, at both argument
   positions.
-- **Negative control.** The same seeded violation inside a `[...].join(" ")` in the same temp file
-  must **not** be reported. Without this, a rule that reported everything (or a harness linting the
-  wrong file) would satisfy the positive check vacuously.
+- **Negative control.** The same seeded violation inside an array join in the same temp file must
+  **not** be reported. Without this, a rule that reported everything (or a harness linting the wrong
+  file) would satisfy the positive check vacuously.
+- **Separator coverage.** The negative control is written at all three spellings — `.join(" ")`,
+  `.join(' ')`, and `` .join(` `) `` — because all three were probed dark (§7.1). This is what pins
+  that the eslint rule's blindness is a property of the *join*, not of one way of writing its
+  argument, and it is the executable counterpart to the recognizer's accept-set.
 
 The negative control is what makes the pair discriminating. It also permanently documents *why* the
 migration was necessary, in executable form, after the array-join sites are gone.
@@ -478,10 +550,11 @@ not a reason to update the audit.
 
 - **AC-1** `lib/ui/cn.ts` exports `cn` and `ClassValue` with §3.1's signature, and a unit test covers
   every row of the §3.2 table including the empty and all-falsy cases.
-- **AC-2** All 36 sites in §2.2 call `cn`. Zero `[...].join(" ")` classNames remain under
-  `components/` or `app/` (the two data joins in §2.2 are untouched).
-- **AC-3** The operand-preservation differential (§4.2 mechanism 2) passes against the base commit,
-  with stage-2 token rewrites permitted only where §6 declares them.
+- **AC-2** All 36 sites in §2.2 call `cn`. Zero array-join classNames remain under `components/` or
+  `app/` **at any separator spelling** (§7.1) — the two data joins in §2.2 are untouched.
+- **AC-3** `scripts/verify-cn-operand-parity.mjs` reports operand parity for all 36 sites against the
+  pre-migration commit, with stage-2 token rewrites permitted only where §6 declares them, and its
+  output is recorded in the PR body. It is a one-shot check, not a tracked test (§4.3).
 - **AC-4** `DayCard`'s `tone === "set"` dot has an unchanged `classList` and a `className` with no
   trailing space (§4.2 mechanism 3).
 - **AC-5** `pnpm lint` is clean, and the fixes applied are exactly C1–C6. No undeclared rewrite.
@@ -489,7 +562,8 @@ not a reason to update the audit.
   `tests/specLint/canonicalClassCallee.test.ts` enforces the zero-tolerance recognizer with its
   premise fixture (§7.1) and the rule-is-on pin.
 - **AC-7** The premise pair in §7.2 passes: seeded drift inside `cn(...)` is reported at both a
-  literal and a ternary argument; the same drift inside `[...].join(" ")` is not.
+  literal and a ternary argument; the same drift inside an array join is not — checked at all three
+  separator spellings, in both the inline and via-variable shape.
 - **AC-8** Full test suite green; `pnpm typecheck` clean.
 - **AC-9** Invariant 8: `/impeccable critique` and `/impeccable audit` both run on the diff, P0/P1
   findings fixed or deferred via `DEFERRED.md`, dispositions recorded, and the plan carries an
