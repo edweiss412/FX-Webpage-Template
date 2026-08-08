@@ -139,6 +139,14 @@ proofs are only as fresh as the history they ran against).
 
 <!-- tasks: depth=2 -->
 
+**Conjoined `red=` markers and short-circuit.** A `red=` command of the form `A && B`
+short-circuits: while `A` fails, `B` never runs. So wherever a task's RED claims more than one
+failing half (Tasks 2 and 3), the RED observation runs each conjunct **separately** and records
+each failing on its own; the conjoined command is the GREEN criterion — it passes only when every
+half passes. Task 4's conjunction is deliberately different: its second half is an existence check
+that can only go green after the replacement lands, so its RED is the first half alone (the task
+says so in place).
+
 ## Task 2 — the `cn` helper
 
 <!-- task: red=`pnpm vitest run tests/ui/cn.test.ts && pnpm typecheck` ac=AC-1 -->
@@ -160,7 +168,10 @@ proofs are only as fresh as the history they ran against).
   fails only `tsc`. That is why this task's red command is the Vitest run **and** `pnpm typecheck`:
   a type contract asserted but never typechecked is a comment with extra syntax.
 
-Fails: the module does not exist.
+Fails: the module does not exist. Both halves are red for that same reason and are observed
+**separately** (the conjoined-marker rule above): the Vitest run fails on the unresolvable import,
+and `pnpm typecheck`, run on its own, fails on the same unresolved module — the conjunction would
+otherwise short-circuit before the second half ever ran.
 
 **GREEN.** Create `lib/ui/cn.ts` exactly as spec §3.1.
 
@@ -254,9 +265,12 @@ which fail against the pre-migration component:
   changes bytes.
 
 The declared command's second half — `pnpm vitest run tests/components/crew/primitives.test.tsx` —
-is what observes these assertions: red against the pre-migration component (the trailing space is
-present), green after the rewrite. Without it in the command, the assertions would be promised
-prose that no run ever checks red-then-green (invariant 1).
+is what binds these assertions to the task: red against the pre-migration component (the trailing
+space is present), green after the rewrite. Per the conjoined-marker rule at the top of the task
+region, the RED observation runs it **on its own** — inside the conjunction the parity script's
+expected failure would short-circuit before the DayCard suite ever ran, and the red would be
+asserted, not observed. Without it in the command at all, the assertions would be promised prose
+that no run ever checks red-then-green (invariant 1).
 
 **GREEN — apply the spec §5 rewrite to all 36 sites:**
 
