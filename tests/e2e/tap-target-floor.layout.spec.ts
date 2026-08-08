@@ -314,6 +314,53 @@ test.describe("DI-11/DI-12 — the AdminNav brand link clears the floor and spen
       expect(measured.marginRight, "brand link right margin").toBeCloseTo(-BRAND_INSET, 1);
       expect(measured.paddingLeft, "brand link left padding").toBeCloseTo(BRAND_INSET, 1);
       expect(measured.paddingRight, "brand link right padding").toBeCloseTo(BRAND_INSET, 1);
+
+      // AC-2 names the brand link as one of the SEVEN targets whose four edge
+      // midpoints must hit it — the same claim DI-6/DI-8/DI-10/DI-15 make for
+      // the others. It is the one target whose grown box reaches INTO a live
+      // row rather than into empty chrome: `-mx-2` pulls its layout footprint
+      // back, so the extra 8px per side overhangs the `gap-3` (12px) toward the
+      // action cluster, which holds four irreducible 44px controls
+      // (components/admin/nav/AdminNav.tsx:95-109). If that overhang ever
+      // exceeded the gap, the brand link would start eating taps aimed at the
+      // first action control, and nothing else in this file would notice.
+      const hits = await page.locator(brand).evaluate((el) => {
+        const r = el.getBoundingClientRect();
+        const cx = r.left + r.width / 2;
+        const cy = r.top + r.height / 2;
+        const points: Array<[string, number, number]> = [
+          ["left", r.left + 1, cy],
+          ["right", r.right - 1, cy],
+          ["top", cx, r.top + 1],
+          ["bottom", cx, r.bottom - 1],
+        ];
+        // Every OTHER interactive element in the topbar, so the overlap check
+        // is against what actually sits beside it rather than a hardcoded gap.
+        const others = Array.from(
+          document.querySelectorAll<HTMLElement>(
+            '[data-mount="admin-nav"] a, [data-mount="admin-nav"] button',
+          ),
+        ).filter((n) => n !== el && !el.contains(n) && !n.contains(el));
+        const overlaps = others
+          .map((n) => n.getBoundingClientRect())
+          .filter((o) => o.width > 0 && o.height > 0)
+          .filter((o) => o.left < r.right - 0.5 && o.right > r.left + 0.5)
+          .filter((o) => o.top < r.bottom - 0.5 && o.bottom > r.top + 0.5).length;
+        return {
+          edges: points.map(([edge, x, y]) => {
+            const hit = document.elementFromPoint(x, y);
+            return { edge, ownsHit: hit !== null && (hit === el || el.contains(hit)) };
+          }),
+          overlaps,
+          siblingCount: others.length,
+        };
+      });
+      premise("other interactive topbar elements exist to overlap", hits.siblingCount, 0);
+      expect(hits.edges, "brand link edge hit map").toHaveLength(4);
+      for (const { edge, ownsHit } of hits.edges) {
+        expect(ownsHit, `brand link ${edge} midpoint resolved outside the target`).toBe(true);
+      }
+      expect(hits.overlaps, "brand link box overlaps another interactive control").toBe(0);
     });
   }
 });
