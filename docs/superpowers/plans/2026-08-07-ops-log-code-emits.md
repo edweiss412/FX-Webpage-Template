@@ -166,11 +166,11 @@ Each asserts the whole-record accept-set above (cardinality filter plus the nine
 
 <!-- task: red=`pnpm vitest run tests/components/admin/OnboardingWizard.test.tsx` ac=AC-3,AC-5 -->
 
-**RED.** Extend `tests/components/admin/OnboardingWizard.test.tsx`. The three shipped cases at `tests/components/admin/OnboardingWizard.test.tsx:203`, `tests/components/admin/OnboardingWizard.test.tsx:220` and `tests/components/admin/OnboardingWizard.test.tsx:232` already construct the three distinct broken environments (unset, malformed JSON, missing `client_email`) — the cheapest non-vacuous oracle available, because the environments exist and are already known-distinct. Each gains a `setLogSink` capture asserting the record with the **whole-record accept-set** (see the shared shape under Task 1), instantiated with `level: "error"`, `source: "admin.onboardingWizard"`, `code: "ONBOARDING_OPERATOR_ERROR"`, `requestId: null` (the wizard runs outside `runWithRequestContext`, so the ALS fallback yields null), and its own `reason`: `env_missing`, `json_malformed`, `client_email_missing` respectively. Asserting only `code`/`level`/`reason` here was the R7 defect — it left two branches able to leak. **Three** further cases are added for `json_not_an_object`, one per disjunct of its guard (see Part 1) — six operator-error cases in total.
+**RED.** Extend `tests/components/admin/OnboardingWizard.test.tsx`. The three shipped cases at `tests/components/admin/OnboardingWizard.test.tsx:203`, `tests/components/admin/OnboardingWizard.test.tsx:220` and `tests/components/admin/OnboardingWizard.test.tsx:232` already construct the three distinct broken environments (unset, malformed JSON, missing `client_email`) — the cheapest non-vacuous oracle available, because the environments exist and are already known-distinct. Each gains a `setLogSink` capture asserting the record with the **whole-record accept-set** (see the shared shape under Task 1), instantiated with `level: "error"`, `source: "admin.onboardingWizard"`, `code: "ONBOARDING_OPERATOR_ERROR"`, `requestId: null` (the wizard runs outside `runWithRequestContext`, so the ALS fallback yields null), and its own `reason`: `env_missing`, `json_malformed`, `client_email_missing` respectively. Asserting only `code`/`level`/`reason` here was the R7 defect — it left two branches able to leak. **Five** further cases are added (see the table in Part 1) — eight operator-error cases in total, one per guard condition in the resolver.
 
 **Their existing render assertions stay byte-identical** — that is the executable form of AC-5 and of the `impeccable-gate: N/A` determination. If a render assertion needs editing, stop: the determination is void.
 
-**Concrete failure mode caught:** the wizard emitting a single undifferentiated code; `reason` wired to a literal instead of the resolver's result; or `json_malformed` claimed for a value that parsed. Four distinct expected `reason` values across six environments means a hardcoded `reason` matches at most three cases and fails at least three.
+**Concrete failure mode caught:** the wizard emitting a single undifferentiated code; `reason` wired to a literal instead of the resolver's result; or `json_malformed` claimed for a value that parsed. Four distinct expected `reason` values across eight environments means a hardcoded `reason` matches at most three cases and fails at least five.
 
 **Implementation, two parts.**
 
@@ -206,15 +206,20 @@ function readServiceAccountEmail(): ServiceAccountResult {
 
 The `catch` stays **parameterless** — binding the error is the first step toward logging it, and §2.2 forbids that. This is behavior-preserving: the ok/not-ok partition over every input is unchanged, only the label is new, so the render assertions in the RED above stay byte-identical. `readServiceAccountEmail` remains synchronous and pure; it is module-private with exactly one caller, so this carries no blast radius (contrast the `next` validator, deliberately untouched per spec §1.1 item 3).
 
-**THREE RED cases are added** alongside the three shipped ones — **one per disjunct** of the new shape check, which is the whole point and was under-delivered twice before this round. `GOOGLE_SERVICE_ACCOUNT_JSON` set to `"null"`, `"[]"`, and `"123"`, all asserting `reason === "json_not_an_object"`. Each maps to exactly one disjunct, so deleting any single disjunct turns exactly one case red:
+**The resolver's case table — one input per guard condition, not merely per disjunct.** Plan-R4 found the disjunct table too narrow: it covered the shape check's three arms but left the `!raw` guard and the `email.length > 0` guard untested, so two ordinary mistakes survived every fixture. The table below covers **every condition in the function**, and each row names the input that turns exactly that condition red. Eight cases: the three already shipped, plus five added.
 
-| Input | Disjunct it exercises | Reason without that disjunct |
-| --- | --- | --- |
-| `"null"` | `parsed === null` | **uncaught** `TypeError` on the property read — the narrowed `try` no longer covers it, so the component throws rather than rendering. Still red, but by exception, not by a wrong label |
-| `"[]"` | `Array.isArray(parsed)` | `client_email_missing` |
-| `"123"` | `typeof parsed !== "object"` | `client_email_missing` |
+| Input (`GOOGLE_SERVICE_ACCOUNT_JSON`) | Expected `reason` | Guard condition it pins | If that condition is broken |
+| --- | --- | --- | --- |
+| unset | `env_missing` | `!raw` (nullish arm) | — (shipped case) |
+| `""` | `env_missing` | `!raw` (**empty-string** arm) | a `raw == null` guard sends `""` to `JSON.parse`, which throws → mislabelled `json_malformed` |
+| `{not-valid-json` | `json_malformed` | the `try` around `JSON.parse` | — (shipped case) |
+| `null` | `json_not_an_object` | `parsed === null` | uncaught `TypeError` on the property read — the narrowed `try` no longer covers it, so the component throws rather than rendering. Still red, but by exception |
+| `[]` | `json_not_an_object` | `Array.isArray(parsed)` | `client_email_missing` — `typeof [] === "object"` and `[] !== null`, so an array escapes a `typeof`/`null` test |
+| `123` | `json_not_an_object` | `typeof parsed !== "object"` | `client_email_missing` |
+| `{"private_key":"x"}` | `client_email_missing` | `typeof email === "string"` | — (shipped case) |
+| `{"client_email":""}` | `client_email_missing` | `email.length > 0` | **`ok`** — the wizard renders normally with an empty service-account email, suppressing BOTH the operator-error render and its telemetry. Violates AC-3 and AC-5, and is the worst outcome in this table |
 
-The array and primitive cases are not decoration: `typeof [] === "object"` and `[] !== null`, so an array escapes a `typeof`/`null` test, while a number escapes the `null`/`Array.isArray` pair. Either escape produces a record asserting that an object was supplied and merely lacked `client_email` — silently wrong under the consequence bound. Two successive rounds each caught one uncovered disjunct here; the table exists so the third cannot recur.
+The last row is worth its own note: every other broken condition produces a wrong *label*, but that one produces no operator error at all — a silent success on a misconfigured deploy. It is exactly the case a "we already test client_email_missing" reading would skip.
 
 *Part 2 — one emit* in the async component body, guarded by `!service.ok`, before the return:
 
