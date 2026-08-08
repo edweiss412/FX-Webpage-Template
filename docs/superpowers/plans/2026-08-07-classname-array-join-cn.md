@@ -7,7 +7,7 @@ references below are to it).
 **Implementer:** Opus / Claude Code (UI surface — routing hard rule).
 
 `impeccable-gate: required — UI surface (18 files under components/ and app/); critique + audit both
-run at Task 8, dispositions in §12.`
+run at close-out step C2, dispositions in §12.`
 
 ---
 
@@ -130,7 +130,7 @@ Fails: the module does not exist.
 ("records that NO recognized callee exists to migrate to yet") asserts no `cn` helper exists
 anywhere. Landing `cn` makes it fail by construction; its own failure message says a `cn` helper
 existing is the signal to do this migration. Delete **only that `it(...)` block** in this commit. The
-census itself and the rule-is-on pin stay until Task 6 — the census is still true and still load-bearing
+census itself and the rule-is-on pin stay until Task 4 — the census is still true and still load-bearing
 until the migration lands.
 
 **Failure mode caught:** a `cn` that trims, dedupes, or merges would silently change ~36 rendered
@@ -211,7 +211,7 @@ Operands, order, and interleaved comments preserved verbatim. Add
 Do **not** touch `components/admin/wizard/step3ReviewSections.tsx` or
 `components/admin/review/sectionFreshness.ts` — data joins (spec §2.2).
 
-**Do not run `eslint --fix` in this task.** That is Task 4, and conflating them defeats the staging.
+**Do not run `eslint --fix` in this task.** That is Task 6, and conflating them defeats the staging.
 
 `pnpm lint` is expected to report exactly the 10 errors of spec §2.4 at the end of this task — see
 the commit-greenness note above, and say so in the commit message.
@@ -224,12 +224,21 @@ The `DayCard` assertions catch the single site where operands are preserved but 
 
 ## Task 4 — replace the census guard, which Task 3 has just turned red
 
-<!-- task: red=`pnpm vitest run tests/specLint/canonicalClassArray.test.ts` ac=AC-6,AC-7 -->
+<!-- task: red=`pnpm vitest run tests/specLint/` ac=AC-6,AC-7 -->
 
 **RED — and the red is real, which is why this task sits here.** Task 3 migrated all 36 sites, so
 the OLD census guard is now failing: its third assertion ("names no file that no longer has one — the
 census shrinks, never rots") finds all 18 census rows pointing at files that no longer array-join a
 className. Run it and see it fail. That failure is what this task resolves.
+
+**The declared command is the directory, `pnpm vitest run tests/specLint/`, and that is deliberate.**
+Naming the census file directly would give a red that can never go green: this task's GREEN deletes
+that file, and `vitest run` on a path with no test files exits 1 with `No test files found` — the
+command would fail before and after, for two different reasons, which is a false TDD signal rather
+than a strict one. The directory command is red now (the census guard fails inside it), green after
+(the census guard is gone and the replacement passes inside it), and it also actually executes the
+replacement guard, which a census-file-only command never would. The directory holds fifteen other
+spec-lint tests, so it can never degrade to the empty-path case.
 
 This ordering matters. Writing the replacement guard first would produce a test that passes the
 moment it is authored correctly — the tree is already clean — and deleting the old file could not
@@ -248,8 +257,12 @@ just a marker asserting one. The honest red is the census guard's own death ratt
    (`.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, `.cjs`), with no positional anchor. Carry the two legitimate
    data joins as a **named exemption list with a reason each** —
    `components/admin/wizard/step3ReviewSections.tsx` and
-   `components/admin/review/sectionFreshness.ts`, both `[row.date, row.time]` — so a new whitespace
-   join fails by default rather than being silently absorbed by a heuristic.
+   `components/admin/review/sectionFreshness.ts` — the first joins `[leg.date, leg.time]`, the
+   second `[row.date, row.time]`; they are NOT the same expression, so an exemption keyed on operand
+   text must carry both spellings or key on the file instead. **Exempt by file plus a recorded
+   reason, and assert the exemption list is exhausted** — every exempt file must still contain a
+   matching site, so a file whose data join is later deleted or migrated drops out of the list
+   instead of silently pre-authorizing a future class join in that file.
 
    Calibration is already probed (spec §7.1): the recognizer yields 38 whitespace-join sites at base
    — 36 classNames + the 2 exemptions — and after Task 3 must report **zero**.
@@ -364,6 +377,17 @@ neither default project — probed `{mobile:false, desktop:false}`. Two steps, b
 **GREEN.** Run the spec in capture mode, commit `tests/e2e/__baselines__/canonical-dimensions.json`,
 and confirm the spec now passes against it.
 
+**Capture the mid-crossfade height too, not only the rest-state rects.** Spec §9.5 and Task 6 both
+rest on the claim that C5 cannot move the `RightNowHero` card's height, and the card's own ratified
+invariant is that it holds 176px *through* a state crossfade (`app/globals.css:205-209`). A
+rest-state-only baseline cannot support that claim: rest rects can stay equal while only the
+mid-transition height moves, and every other check in the plan would still pass —
+`tests/crew/transitionAudit.test.ts` is structural and measures no geometry, and the existing
+compound-transition suites are skipped. So the baseline records, alongside the two rest rects, the
+card's height sampled **during** the crossfade, driving the state change and sampling before it
+settles. That sampled value is the comparator Task 6 needs; without it, the mid-crossfade assertion
+there has nothing to compare against and proves nothing.
+
 **Failure mode caught:** a dimension gate that never executes — the config's own documented failure —
 and a baseline captured after the change it is supposed to measure.
 
@@ -406,9 +430,12 @@ on it.
      18 migrated files; each must still carry the `initial` / `animate` / `exit` props it carried at
      base. The migration touches `className` values only; a changed motion prop means the rewrite
      escaped its scope.
-   - **Compound case:** measure the C5 card's height **during** the crossfade, not only at rest. The
-     176px constant is a ratified invariant (`app/globals.css:205-209`), and a min-height change
-     would surface only mid-transition.
+   - **Compound case:** re-measure the C5 card's height **during** the crossfade and compare it to
+     the mid-crossfade value captured in Task 5's baseline, within the same 0.5px tolerance. Rest
+     equality is not sufficient: a min-height change surfaces only mid-transition, and rest rects
+     would stay equal through it. This is why Task 5 captures a mid-crossfade sample and not just the
+     two rest rects — an assertion here with no pre-change comparator would restate the invariant
+     rather than test it.
    - `tests/crew/transitionAudit.test.ts` passes **unchanged**. An assertion there that moves is a
      signal the migration was not operand-preserving, not a reason to update the audit.
 
@@ -426,7 +453,7 @@ only while a transition is in flight.
 # Close-out sequence (procedural — deliberately outside the TDD task region)
 
 Invariant 1 governs **implementation** tasks: failing test → implementation → passing test → commit.
-Tasks 1–5 above are those, and each carries a `red=` command that genuinely fails before its change.
+Tasks 2–6 above are those, and each carries a `red=` command that genuinely fails before its change.
 The steps below are procedural — a docs filing, two gate runs, a review loop, a merge — and none has
 a meaningful failing-first state. Declaring a `red=` for them would mean pointing a marker at a
 command already green, which is a false TDD claim, so they sit outside the declared task region
