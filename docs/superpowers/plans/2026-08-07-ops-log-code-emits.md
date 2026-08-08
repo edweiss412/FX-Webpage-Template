@@ -53,9 +53,9 @@ impeccable-gate: N/A — no UI surface
 ## Acceptance criteria
 
 - **AC-1** — Each of the five OAuth branches emits exactly one record with `level: "warn"`, `code: "OAUTH_REDIRECT_INVALID"`, and its own distinct `reason`. Six values across five sites, because site 5 splits on whether the intent verified: `callback_invalid_explicit_next`, `start_invalid_explicit_next`, `bootstrap_next_rejected`, `bootstrap_unparsable_next`, `bootstrap_intent_unverified`, `bootstrap_intent_target_mismatch`.
-- **AC-2** — No emit changes the shipped refusal. Status codes, redirect targets, PKCE cookie clearing, and control flow are unchanged at every site.
+- **AC-2** — No emit changes the shipped refusal. Status codes, redirect targets, PKCE cookie clearing, and the cataloged response body are unchanged at every site. **Each element is asserted by the task that could break it** — R3 found the earlier draft mapped AC-2 to tasks that stayed green through a PKCE-clearing removal (Task 1 checked only status and location) and through a swapped 403 body (Task 2 checked only status).
 - **AC-3** — The onboarding operator-error path emits exactly one record with `level: "error"`, `code: "ONBOARDING_OPERATOR_ERROR"`, and `reason` ∈ {`env_missing`, `json_malformed`, `json_not_an_object`, `client_email_missing`} matching the actual cause. `json_malformed` is asserted ONLY where `JSON.parse` genuinely threw.
-- **AC-4** — No emit carries service-account key material, the `JSON.parse` error, or the raw rejected `next` value. Enforced by **accept-set**: a record's context keys are exactly `["reason"]` and its message is a fixed literal, so nothing derived from either secret can appear under any field. A denylist ("no `error` key, no sentinel") is insufficient and was the R2 defect — a parse message relocated to `record.message`, or a partial key fragment, defeats it.
+- **AC-4** — No emit carries service-account key material, the `JSON.parse` error, or the raw rejected `next` value. Enforced by a **whole-record accept-set** over exactly the nine fields the sink persists (see the shared shape under Task 1). Narrower guards failed twice: a denylist ("no `error` key, no sentinel") was defeated in R2 by a parse message relocated to `message` and by a partial key fragment; a context-only accept-set was defeated in R3 by a fragment in `source`, which is promoted out of `context` into its own `app_events` column.
 - **AC-5** — `OnboardingWizard`'s rendered output is unchanged; the three shipped render assertions pass unmodified.
 - **AC-6** — Both ledger entries archive with provenance, and the `IN PROGRESS` markers come off in the PR's last commit. Verified by inspection of the final diff, not by a test — see the close-out step for why no executable gate discriminates it.
 
@@ -67,8 +67,10 @@ impeccable-gate: N/A — no UI surface
 
 **RED.** Create a new node-environment suite at tests/auth/oauthRedirectInvalidTelemetry.test.ts, structured on the shipped harness at `tests/auth/callback-oauth-telemetry.test.ts:34` — `vi.resetModules()`, `setLogSink` capturing `LogRecord[]`, dynamic `import` of the route, `resetLogSink()` in a `finally`. Two cases:
 
-1. Drive `app/auth/callback/route.ts`'s `GET` with a valid `code` and an **explicitly invalid** `next` (so `hasInvalidExplicitNext` is true at `app/auth/callback/route.ts:181`). Assert exactly one record with `code === "OAUTH_REDIRECT_INVALID"`, `level === "warn"`, `context.reason === "callback_invalid_explicit_next"`, **and** that the response is still a 302 to the sign-in path — AC-2 asserted in the same case as AC-1, so an emit that accidentally changes the redirect fails here rather than in review.
-2. Drive `app/api/auth/google/start/route.ts`'s `GET` with an invalid `next`. Same assertions with `reason === "start_invalid_explicit_next"`. Both cases also assert **structurally** that the record carries no `error` key and that `JSON.stringify(record)` does not contain the rejected `next` value (AC-4).
+1. Drive `app/auth/callback/route.ts`'s `GET` with a valid `code` and an **explicitly invalid** `next` (so `hasInvalidExplicitNext` is true at `app/auth/callback/route.ts:181`). Assert exactly one record with `code === "OAUTH_REDIRECT_INVALID"`, `level === "warn"`, `context.reason === "callback_invalid_explicit_next"`, **and** the full AC-2 refusal shape — a 302, the unchanged sign-in `Location`, **and** that `clearPkceVerifierCookies` still ran: the response carries a `Set-Cookie` with `Max-Age=0` for each `sb-*-auth-token-code-verifier` cookie on the request (`app/auth/callback/route.ts:61`). Asserting AC-2 in the same case as AC-1 means an emit that disturbs the refusal fails here rather than in review.
+
+**Premise for the PKCE assertion (mandatory — it is vacuous without one).** `clearPkceVerifierCookies` iterates the REQUEST's cookies and appends nothing when none match, so a case whose request carries no code-verifier cookie asserts over an empty set and passes even if the call were deleted outright. The case therefore sets at least one `sb-<ref>-auth-token-code-verifier` cookie on the request and states via `premise`/`premiseHolds` that the request carries it, immediately above the `Set-Cookie` assertion. This is the "absent event encoded as a value that satisfies the comparison" shape from the anti-tautology rule, and it is the reason removing the PKCE call went undetected in the R3 draft.
+2. Drive `app/api/auth/google/start/route.ts`'s `GET` with an invalid `next`. Same assertions with `reason === "start_invalid_explicit_next"`. Both cases also assert the **whole-record accept-set** (AC-4) — see the shared shape below.
 
 **Concrete failure mode caught:** an emit added to one branch and forgotten on its sibling — the exact drip this arc exists to end. Both cases fail today with **zero** captured records, which is the executable RED; the implementer records that observed-failing run.
 
@@ -92,6 +94,28 @@ try {
 
 **Do NOT** pass the rejected `next` value, or any value derived from it, in any field (AC-4; spec §2.1 and documented limit §5.2).
 
+### The whole-record accept-set (shared by Tasks 1, 2 and 4)
+
+Two review rounds each broke a narrower guard, so this is scoped to **exactly the nine fields `persistAppEvent` writes** (`lib/log/persist.ts:16`): `level`, `source`, `message`, `code`, `requestId`, `showId`, `driveFileId`, `actorHash`, `context`. R2 broke a denylist with a parse message moved into `message`; R3 broke a context-only accept-set by placing a fragment in `source`, which `buildRecord` promotes out of `context` onto the record and which persists as its own column. A guard narrower than the persisted row leaves a channel, every time.
+
+Each case asserts the captured record against an exact expected object:
+
+```ts
+expect(rec).toEqual({
+  level: "warn",
+  source: "auth.callback",
+  message: "next param rejected; redirecting with OAUTH_REDIRECT_INVALID",
+  code: "OAUTH_REDIRECT_INVALID",
+  requestId: null,
+  showId: null,
+  driveFileId: null,
+  actorHash: null,
+  context: { reason: "callback_invalid_explicit_next" },
+});
+```
+
+`toEqual` against a complete literal is the accept-set: any field added, renamed, or populated with derived text fails. Per-site variation is only in `source`, `message`, `context.reason`, and `requestId` — `null` for the two `auth.*` routes (documented limit §5.3) and the derived request id for the three picker-bootstrap sites, which run inside `runWithRequestContext`. Task 4 uses the same shape with `level: "error"`, `source: "admin.onboardingWizard"`, and the onboarding code and message. Content checks (no sentinel, no `private_key`, no raw `next`) are retained as a backstop against a leak arriving through some channel the record shape does not describe.
+
 ## Task 2 — sites 3-5: the three picker-bootstrap branches
 
 <!-- task: red=`pnpm vitest run tests/auth/oauthRedirectInvalidTelemetry.test.ts` ac=AC-1,AC-2,AC-4 -->
@@ -105,7 +129,7 @@ try {
 | `app/api/auth/picker-bootstrap/route.ts:176` (a) | a well-formed tokenized `next` whose `t` intent fails `verifyPickerIntent` — absent, malformed, bad signature, or **expired** | `bootstrap_intent_unverified` |
 | `app/api/auth/picker-bootstrap/route.ts:176` (b) | a well-formed tokenized `next` with a VERIFIED intent naming a different slug or share token | `bootstrap_intent_target_mismatch` |
 
-Each asserts one record, `level === "warn"`, `code === "OAUTH_REDIRECT_INVALID"`, its own `reason`, **and** `res.status === 403`, plus the same structural no-`error`/no-raw-`next` assertions as Task 1.
+Each asserts one record via the whole-record accept-set above (with `source: "api.auth.pickerBootstrap"` and its own `context.reason`), **and** `res.status === 403`, **and** that the response body still contains the cataloged `OAUTH_REDIRECT_INVALID` copy — `messageFor("OAUTH_REDIRECT_INVALID").crewFacing ?? .dougFacing`, the string `htmlResponse` renders into the interstitial (`app/api/auth/picker-bootstrap/route.ts:35`). Status alone does not pin the refusal: R3 showed that swapping any of these branches to a different 403 body would leave a status-only assertion green, violating AC-2.
 
 **Concrete failure mode caught:** all four branches collapsed onto one emit, or a single emit hoisted above the branches — which would make `reason` a constant and the whole discrimination in spec §1.1 item 2 a fiction. Because each case asserts a *different* `reason`, a hoisted constant can match at most one case and **fails the other three**. Stated precisely: no single hoist fails all four, but the suite rejects every possible hoist, which is the property that matters. That is the specific reason these are four separate cases and not one parameterized case over a shared expectation.
 
@@ -148,7 +172,7 @@ function readServiceAccountEmail(): ServiceAccountResult {
   } catch {
     return { ok: false, reason: "json_malformed" };
   }
-  if (typeof parsed !== "object" || parsed === null) {
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
     return { ok: false, reason: "json_not_an_object" };
   }
   const email = (parsed as { client_email?: unknown }).client_email;
@@ -159,7 +183,7 @@ function readServiceAccountEmail(): ServiceAccountResult {
 
 The `catch` stays **parameterless** — binding the error is the first step toward logging it, and §2.2 forbids that. This is behavior-preserving: the ok/not-ok partition over every input is unchanged, only the label is new, so the render assertions in the RED above stay byte-identical. `readServiceAccountEmail` remains synchronous and pure; it is module-private with exactly one caller, so this carries no blast radius (contrast the `next` validator, deliberately untouched per spec §1.1 item 3).
 
-**A fourth RED case is added** alongside the three shipped ones: `GOOGLE_SERVICE_ACCOUNT_JSON = "null"`, asserting `reason === "json_not_an_object"`. Without it the branch the restructure exists to create ships untested, and the `null`-vs-malformed distinction — the whole point of finding 1 — is unproven.
+**Two RED cases are added** alongside the three shipped ones, one per disjunct of the new shape check: `GOOGLE_SERVICE_ACCOUNT_JSON = "null"` and `= "[]"`, both asserting `reason === "json_not_an_object"`. The array case is not decoration — `typeof [] === "object"` and `[] !== null`, so without `Array.isArray` in the guard an array silently routes to `client_email_missing`, asserting that an object was supplied and merely lacked a field. Testing only `null` would leave that disjunct unproven, which is exactly how the defect reached round 3.
 
 *Part 2 — one emit* in the async component body, guarded by `!service.ok`, before the return:
 
