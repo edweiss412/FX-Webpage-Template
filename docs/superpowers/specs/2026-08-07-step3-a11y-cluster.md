@@ -35,9 +35,9 @@ Each item is ratified at the cited location. Verify the citation; do not re-deri
 | R1 | **Two of the ledger entry's own citations are wrong and are corrected here, not preserved.** `STEP3-GALLERY-TAP-TARGETS-1(a)` (DEFERRED.md:28-36) places the "What does this mean?" `<summary>` in `step3ReviewSections.tsx` and claims its parent is `min-h-12`. Neither holds. §2.1 carries the corrected anchors with probe evidence. The 20.3px measurement itself is reproduced exactly and is not in dispute. | §2.1, §7 probe P1 |
 | R2 | **`before:-inset-2` — the hit-expansion recipe DEFERRED.md:43 proposes — is refuted by probe and is NOT the recipe this spec adopts.** Measured: only the top and left extensions take the pointer; the right and bottom edges return the ancestor `<nav>`/wrapper. §7 probe P4 carries the measurement. Re-proposing it requires a probe showing all four edges hit. | §7 probe P4 |
 | R3 | **`step3ReviewSections.tsx` is NOT modified for the heading fix.** Its `Heading = sub ? "h4" : "h3"` (`components/admin/wizard/step3ReviewSections.tsx:897`) reaches the DOM through the `step3Sections` registry, whose heading-producing render call is `components/admin/review/ShowReviewSurface.tsx:1156`, itself mounted by `components/admin/wizard/Step3ReviewModal.tsx:54` and `components/admin/showpage/PublishedReviewModal.tsx:79`. Promoting the two page-level `h3`s in `Step3Review.tsx` to `h2` makes the page outline monotonic without touching the shared component. §2.3. | §2.3 |
-| R4 | **The class sweep was RUN, and it splits into a mechanical half that ships and a judgment half that is filed.** §2.6 carries the corpus baseline: 340 in-scope interactive elements, 139 the recogniser cannot clear, of which **16 are literal-and-genuinely-under-44px**. This branch repairs the **chrome** half — all 7 `<summary>` disclosures and all 6 icon/composite targets (§2.1, §2.2). The remaining 8 are inline text links and text buttons whose exemption status is a per-site product decision (exception (a)), and are filed in §9 with that reason named. **"Same defect, different file" is NOT claimed as a deferral reason anywhere.** | §2.6, §9 |
+| R4 | **The class sweep was RUN, and it splits into a mechanical half that ships and a judgment half that is filed.** §2.6 carries the corpus baseline: 340 in-scope interactive elements, 139 the recogniser cannot clear, of which **16 are literal-and-genuinely-under-44px**. This branch repairs the **chrome** half — all 7 `<summary>` disclosures and all 7 icon/composite targets (§2.2: three step links, the two HelpSheet buttons, HelpTooltip, and the AdminNav brand link). The remaining 8 are inline text links and text buttons whose exemption status is a per-site product decision (exception (a)), and are filed in §9 with that reason named. **"Same defect, different file" is NOT claimed as a deferral reason anywhere.** | §2.6, §9 |
 | R5 | **`NEWTAB-A11Y-RESIDUE-1(a)` reverses a previously accepted audit fix, deliberately.** `tests/components/admin/wizard/step3ReviewSections.test.tsx:906-917` currently pins that a blank `alt` falls back for BOTH the `<img alt>` and the anchor `aria-label`. The anchor's `aria-label` (`step3ReviewSections.tsx:3706`) now solves the nameless-link risk permanently, so the belt-and-braces `alt` is redundant and produces a double-name. That test is UPDATED, not deleted; §2.4 states the replacement contract. | DEFERRED.md:75-86 |
-| R6 | **The `size-7` visual dimension is preserved everywhere.** This is an accessibility repair, not a visual redesign. Every pill, trigger, and glyph keeps its 28px painted box; only the hit box grows. Any finding that the UI "looks different" is a defect in the implementation, not an intended change. | §2.2, §6 DI-4 |
+| R6 | **Every repaired control keeps its EXISTING painted box — 28px for the pills, trigger and tooltip, 36px for the HelpSheet close button — and its existing corner radius.** This is an accessibility repair, not a visual redesign; only the hit box grows. "28px everywhere" would be wrong: the close button is `size-9`. Any finding that the UI "looks different" is a defect in the implementation, not an intended change. | §2.2, §6 DI-4, DI-14 |
 | R7 | **Layout geometry is preserved exactly.** The adopted recipe's negative margin cancels the growth, so pill centres are unchanged (probe P6: expanded-row pill centres identical to today's at 320px). This is required, not incidental: connectors measure **0px wide at 320 and 390** (probe P3), so the stepper has zero horizontal slack and any layout growth would overflow. | §7 probe P3/P6, §6 DI-3 |
 | R8 | **`components/admin/nav/AdminNav.tsx:88-114` (the brand link) is in scope even though it does not render on the wizard route.** `app/admin/layout.tsx:169` renders `OnboardingTopBar` on the onboarding branch and `AdminNav` at `app/admin/layout.tsx:204` on every other `/admin/*` route. It is repaired here under R4 (same shape), not because the wizard shows it — and it takes its own recipe, because it is a composite link rather than an icon button (§2.2). | §2.2 |
 | R9 | **All measurements in this document are written `width × height`.** The ledger's own `274.0x20.3` (DEFERRED.md:30) is quoted verbatim in that same order. A reviewer reading `288 × 20.3` as height-first is reading it wrong; the failing axis throughout §2.1 is the SECOND number. | §2.1, §7 |
@@ -135,11 +135,14 @@ Split every fused string by destination:
 
 | Class | Destination | Why |
 |---|---|---|
-| `size-7`, `rounded-pill`, `bg-*`, `text-*`, `font-*`, `align-middle`, `transition-colors duration-fast` | **inner span** | These paint the 28px visual |
+| The size utility — `size-7` on the trigger/pills/tooltip, **`size-9` on the HelpSheet close button** | **inner span** | This is the painted visual, whatever its value. It is NOT always 28px (R6 is scoped accordingly) |
+| `bg-*`, `text-*`, `font-*`, `align-middle`, `transition-colors duration-fast` | **inner span** | These paint the visual |
+| The radius — `rounded-pill`, or **`rounded-sm` on the close button** | **BOTH** | The span needs it for the visual; **the target needs it too, or its focus ring turns square.** The ring follows the focused element's own radius, and today radius and ring sit on the same element |
 | `focus-visible:*` (ring, offset, outline) | **target element** | Only the focusable element can match `focus-visible` (DI-13) |
 | `cursor-pointer` | **target element** | The cursor must change across the whole 44px band |
 | `hover:*` | **inner span, rewritten `group-hover:*`** | See the hover rewiring below |
 | `inline-flex`, `shrink-0` | **both** | The target needs them to lay out its child; the span needs them to centre its glyph |
+| `-m-1` on the close button | **dropped** | It expands nothing today (no matching padding) and the target's own `-m-2` replaces its layout role. Keeping both would double-offset |
 
 **`HelpTooltip` appears in BOTH Class A and Class B; Class B wins.** It is a `<summary>` that
 is also a 28×28 pill, so both recipes name it. Applying Class A's
@@ -354,7 +357,9 @@ Every changed surface receives partial or absent data in some state; each is spe
 | `StepIndicator` `maxReachedStep` < n | Pill is a non-interactive `<span aria-disabled="true">` (`components/admin/OnboardingWizard.tsx:172`) | No target grown — nothing to grow (§2.2). |
 | `StepIndicator` `step` === n | `aria-current="step"`, label `Step {n}, current step` (`components/admin/OnboardingWizard.tsx:166`) | Target grown; `aria-current` unchanged. |
 | `Step3Review` grouped section `rows.length === 0` | `return null` (`components/admin/wizard/Step3Review.tsx:745`) | Section, including its promoted `h2`, does not render. **The outline must stay monotonic when a section is absent** — with both promoted headings at the same level, any subset of them still yields `h1` followed only by `h2`s. |
-| `BellPanel` entry `isHealth` true/false | Href differs (`components/admin/BellPanel.tsx:324`) | Glyph removed on both branches. |
+| `BellPanel` entry is health | The telemetry link renders with the `#health` href (`components/admin/BellPanel.tsx:318-326`) | Glyph removed. |
+| `BellPanel` entry is non-health, **is the watch code, and `viewerIsDeveloper` is true** | The link renders with the unfiltered href. The gate is `entry.isHealth \|\| (isWatch && viewerIsDeveloper)` (`components/admin/BellPanel.tsx:318`), where `isWatch = entry.code === WATCH_CODE` (`components/admin/BellPanel.tsx:289`) | Glyph removed. **This is the only non-health state that renders the link**, so it is the fixture the non-health assertion must use. |
+| `BellPanel` entry is non-health and **not** (watch AND developer) | **No telemetry link renders at all** | Nothing. A "no `↗` present" assertion on this state is vacuous — it passes on an unrepaired build — hence the §8 premise. |
 | `OnboardingWizard` error disclosure `entry.helpfulContext` absent | **No `<details>` renders at all** — the whole disclosure is conditional (`components/admin/OnboardingWizard.tsx:559-564`) | Nothing. There is no `<summary>` to measure, so DI-1 has no subject and needs the §8 premise. |
 | `ErrorExplainer` unknown code / disabled helpful context | Guarded at `components/messages/ErrorExplainer.tsx:79-96`; `<details>` block at `components/messages/ErrorExplainer.tsx:112-119` does not render | Nothing. The repaired `<summary>` is inside that block. |
 | `AdministratorsSection` zero revoked admins | **No disclosure renders** (`components/admin/settings/AdministratorsSection.tsx:126-145`) | Nothing. The fixture must seed at least one revoked admin or DI-1 is vacuous here. |
@@ -383,10 +388,14 @@ Each has a conservative worst case with a visible signal, not silent breakage.
 3. **`AdministratorsSection.tsx:131` was 40.8px — a 3.2px miss.** Recorded because it is the
    one site the eye would pass: it is not obviously tiny, and only the arithmetic
    (16.8 + 12 + 12) shows it under the floor.
-4. **The guard in §5 checks classes, not rendered pixels.** A site can satisfy the class
-   contract and still be under 44px if an ancestor clips or transforms it. The real-browser
-   assertions in §6 are what close that gap, and they cover the wizard surfaces only; other
-   routes rest on the class contract alone.
+4. **Nothing fails by default for a NEW small target.** §5 ships no guard, and AC-7 forbids
+   one. The defence this branch actually ships is the §8 real-browser assertions on the real
+   components, which pin the thirteen repaired sites — every one of them, including the
+   non-wizard `/me`, `/admin/settings/admins`, `/auth/sign-in` and crew `RunOfShowList`
+   disclosures, since §8 requires all seven to be mounted. That is regression coverage, not
+   discovery coverage: a contributor adding a `size-7` button tomorrow is caught by nothing
+   here. `BL-TAP-TARGET-STRUCTURAL-GUARD` (§9.1) is exactly that gap, filed with its
+   evidence and its blocker named.
 
 ---
 
@@ -457,7 +466,7 @@ so each of these requires a real-browser `getBoundingClientRect()` assertion (§
 | **DI-1** | Every repaired `<summary>` measures **height ≥ 44px** and **width ≥ 44px**. | `inline-flex w-fit min-h-tap-min items-center` |
 | **DI-2** | Each repaired `<summary>` is **narrower than its container** (`w-fit` held) — it must not become a full-width invisible band. | `w-fit` on the summary |
 | **DI-3** | The three step pills' boxes each measure **exactly 44×44** (±0.5px), and **adjacent boxes never overlap** (inter-box gap ≥ 0) at 320/390/768/1280. | `-m-2 … size-tap-min` on the anchor |
-| **DI-4** | The **visual** pill (inner `<span>`) still measures **28×28** (±0.5px) — the repair is invisible (R6). | inner span keeps `size-7` |
+| **DI-4** | The **visual** pill (inner `<span>`) still measures **28×28** (±0.5px) — the repair is invisible (R6). The close button's visual is 36×36 and is covered by DI-15, not here. | inner span keeps `size-7` |
 | **DI-5** | Each pill's **margin box is 28×28** — `rect.width + marginLeft + marginRight === 28` and the same vertically (±0.5px) — so the repair consumes no layout, at 320px where connectors are 0px wide and there is no slack (R7). | `-m-2` cancels the `size-tap-min` growth |
 | **DI-6** | Each pill's **four edge midpoints** return that pill from `document.elementFromPoint`, never a sibling or an ancestor. | the recipe (probe P6) |
 | **DI-7** | The stepper **does not overflow at 320px** — `nav.scrollWidth ≤ container.clientWidth + 0.5`. Already pinned as DI-1 of `tests/e2e/step3-review-page.layout.spec.ts`; it must still hold after the change. | existing spec, re-run |
@@ -466,7 +475,9 @@ so each of these requires a real-browser `getBoundingClientRect()` assertion (§
 | **DI-10** | `HelpTooltip`'s `<summary>` trigger (`components/admin/HelpTooltip.tsx:60`) measures **≥44×44**, its four edge midpoints return the trigger, and its visual pill stays 28×28. Its hover band satisfies DI-9's parity. | same recipe |
 | **DI-11** | `AdminNav`'s brand link (`components/admin/nav/AdminNav.tsx:88`) measures **≥44px on both axes at 320px** (icon-only) and **≥44px tall at 360/440/1280** (wordmark states). | `min-h-tap-min -mx-2 px-2` |
 | **DI-12** | `AdminNav`'s brand link's **horizontal margin box equals its border box minus the added padding** — `marginLeft === -8 && marginRight === -8 && paddingLeft === 8 && paddingRight === 8` — so its layout footprint is unchanged at 320/360/440 and the documented-tight narrow-phone width budget is untouched. The topbar row's height is unchanged, since sibling controls already set it to ≥44px. | `-mx-2` cancelling `px-2` |
-| **DI-13** | **Focus-visible feedback covers the whole target, not the visual box:** with the target focused, the element carrying a non-`none` computed `outline`/`box-shadow` ring IS the 44px target, and its rect is the 44px rect (±0.5px). The inner 28px span carries no ring. | ring stays on the anchor/button (§2.2) |
+| **DI-13** | **Focus-visible feedback covers the whole target, not the visual box:** with the target focused, the element carrying a non-`none` computed `outline`/`box-shadow` ring IS the 44px target, and its rect is the 44px rect (±0.5px). The inner visual span carries no ring. | ring stays on the anchor/button (§2.2) |
+| **DI-14** | **The focused target's computed `border-radius` equals its inner span's** — so the ring keeps the shape it has today (pill for the pills/trigger/tooltip, `rounded-sm` for the close button) rather than turning square. | radius on BOTH (§2.2) |
+| **DI-15** | The **HelpSheet close button** measures ≥44×44 with its four edge midpoints returning it, its visual span stays **36×36** (`size-9`, not 28), and DI-9's hover parity holds for both `color` and `background-color`. Asserted with the sheet OPEN. | same recipe |
 
 **DI-9's "every property"** is enumerated per site, not left to the test author:
 `components/admin/HelpSheet.tsx:68` and `components/admin/HelpTooltip.tsx:57` change **both**
@@ -502,8 +513,11 @@ not stylistic: the unreached state renders a `<span>`, the other three render a 
 (`components/admin/OnboardingWizard.tsx:161-179`). Any pair crossing that boundary swaps the
 element, so React remounts and no transition can run — regardless of what
 `transition-colors` says. The three pairs that stay within `<Link>` do crossfade.
-**No pair animates geometry** — the 44×44 target and the 28×28 span are static in every
-state.
+**No pair animates geometry.** In the three `<Link>` states the 44×44 target and its 28×28
+span are both static. The unreached state has **neither** — it stays the untouched
+non-interactive `<span>` carrying `base` directly at 28×28
+(`components/admin/OnboardingWizard.tsx:171-178`), because it is not a pointer target and
+§2.2 excludes it. An implementation that grows a 44px target there has exceeded the spec.
 
 | Pair | Crosses the span/Link boundary? | Treatment |
 |---|---|---|
@@ -555,7 +569,7 @@ Every task is TDD: failing test → minimal implementation → passing test → 
 
 **Real-browser (Playwright, standalone config).** jsdom computes no layout and cannot
 satisfy §6. New spec **tests/e2e/tap-target-floor.layout.spec.ts** (NEW), asserting
-DI-1…DI-13 across 320/390/768/1280 (DI-11/DI-12 additionally at 360 and 440, the
+DI-1…DI-15 across 320/390/768/1280 (DI-11/DI-12 additionally at 360 and 440, the
 `AdminNav` wordmark breakpoints).
 
 > **The harness MUST mount the REAL components. A transcribed-markup harness is
@@ -598,7 +612,11 @@ DI-1…DI-13 across 320/390/768/1280 (DI-11/DI-12 additionally at 360 and 440, t
 **Unit (vitest + jsdom)** — for contracts that are structural, not dimensional:
 - The diagram `<img>` renders `alt=""` while the anchor `aria-label` keeps the fallback and
   the new-tab suffix (§2.4), including the empty-alt and whitespace-only-alt cases.
-- `BellPanel` renders no `↗` on either the health and non-health branch (§2.5).
+- `BellPanel` renders no `↗` on **both** branches that render the link — the health entry,
+  and the non-health entry that is the watch code **with `viewerIsDeveloper` true** (§2.5,
+  §3). **Premise:** each fixture asserts the telemetry link is present before asserting the
+  glyph is absent. Without it the non-health case renders no link at all and passes on an
+  unrepaired build.
 - The Step-3 page renders `h1` then only `h2`s — asserted by **collecting the rendered
   heading tags in document order** and checking the level sequence never skips, not by
   asserting one tag name.
@@ -610,9 +628,14 @@ DI-1…DI-13 across 320/390/768/1280 (DI-11/DI-12 additionally at 360 and 440, t
   not a container that also contains compliant siblings. DI-4 (visual still 28) and DI-3
   (target now 44) must be asserted on **different elements** — anchor vs inner span — or the
   pair is self-satisfying.
-- DI-5 requires a **pre-change baseline** captured in the same spec run (both variants
-  rendered on one page, as the probe did), never a hardcoded pixel constant. A hardcoded
-  centre would encode today's font metrics and rot at the next type change.
+- **DI-5 and DI-12 take NO baseline.** An earlier draft asked for a pre-change variant
+  rendered alongside the repaired one; that is incompatible with the real-components rule
+  above, because production exposes only the repaired component and a hand-written "before"
+  variant is exactly the transcribed markup this spec disqualifies. Both are therefore
+  **margin-box invariants** computed from the repaired element alone: DI-5 asserts
+  `rect.width + marginLeft + marginRight === 28`, DI-12 asserts the padding and negative
+  margin cancel. Neither needs a baseline and neither hardcodes a centre, so neither rots at
+  the next type change.
 - DI-9 must sample a point **provably outside the visual pill** — derived from the span's
   measured rect, not a hardcoded offset — and compare the computed colour against the
   pill-centre hover. Comparing the band's hover colour to the *resting* colour would pass on
@@ -690,11 +713,16 @@ finished before it. **Reachability: PROBED.**
 - **AC-2b** Hover feedback covers the **whole** 44px target, not just the 28px visual (DI-9,
   DI-10), and focus feedback outlines the target rather than the visual (DI-13) — the
   expansion band is never tappable-but-visually-dead.
-- **AC-2c** `AdminNav`'s brand-link repair consumes no horizontal budget at 320px and does
-  not change the topbar row height (DI-12).
-- **AC-3** Stepper layout is unchanged: pill centres identical, no 320px overflow (DI-5, DI-7).
+- **AC-2c** `AdminNav`'s brand-link repair consumes no horizontal budget at 320px, asserted
+  as the margin/padding cancellation in DI-12. The topbar row height is **not** separately
+  asserted: sibling controls already fix it at ≥44px, so the brand link cannot raise it, and
+  an assertion there would pin a value this change does not influence.
+- **AC-3** Stepper layout is unchanged: each pill's **margin box is still 28×28**, so it
+  consumes exactly the layout it did before, and the stepper does not overflow at 320px
+  (DI-5, DI-7). Stated as a margin-box invariant rather than "centres identical" because no
+  pre-change baseline is available to compare centres against (§8).
 - **AC-3b** Every real-browser assertion runs against the **real components** via a
-  live-entry harness, not transcribed markup (§8) — so none of DI-1…DI-13 can pass on a
+  live-entry harness, not transcribed markup (§8) — so none of DI-1…DI-15 can pass on a
   build where the production repair was not applied.
 - **AC-4** The Step-3 page's heading sequence skips no level, asserted from document order.
 - **AC-5** The diagram tile exposes exactly one accessible name; a blank `alt` still yields a
