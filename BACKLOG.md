@@ -576,32 +576,6 @@ ParsePanel was not alone. Shape swept: **a file under `components/` that no file
 
 **The debt is still not silent**, and it gained a second guard. `tests/components/_metaOrphanedComponents.test.ts` walks `components/**` every run and fails on any zero-production-importer file absent from `ORPHAN_ALLOWLIST`; `tests/docs/retiredIdentifierReferences.test.ts` walks every tracked file for references to what this branch retired, keyed by line content, so a stale citation to a deleted component cannot survive either. Emptying the allowlist is no longer this entry's goal; keeping every row's reason true is.
 
-## BL-OPS-LOG-OAUTH-EMITS — the `OAUTH_REDIRECT_INVALID` branches emit no durable code
-
-**Status:** OPEN · **Severity:** low · **Class:** OBSERVABILITY · **Effort:** S · **Filed:** 2026-08-06 (L-wave decomposition of `BL-OPS-LOG`)
-
-`OAUTH_REDIRECT_INVALID` is never a persisted `code:` anywhere. It exists only as a `validateNextParam` return discriminant (`lib/auth/validateNextParam.ts:13`) and a §12.4 catalog copy row — so an operator hitting it leaves no durable trace, while its sibling `OAUTH_STATE_INVALID` DOES have adjacent durable emits (`app/auth/callback/route.ts:234,250`). That asymmetry is the whole entry.
-
-**Five emit-less branches across three GET routes** (symbol-anchored 2026-08-06; the parent entry's line anchors had rotted, and the parent named only the first two routes — the third was found by class sweep during the decomposition):
-
-- `app/auth/callback/route.ts:258` — `signInRedirect(request, "OAUTH_REDIRECT_INVALID", …)`
-- `app/api/auth/google/start/route.ts:40` — same call shape
-- `app/api/auth/picker-bootstrap/route.ts:162,165,176` — `htmlResponse("OAUTH_REDIRECT_INVALID", 403)`, three branches
-
-**Work:** add a durable `code:` emit on each branch, matching the shape the `OAUTH_STATE_INVALID` path already uses. S because the sink, the helper, and the pattern all exist — this is five call sites, not a design.
-
-**No registry obligation, and this is stated so implementation does not invent one:** all three routes are **GET** handlers (`:178`, `:36`, `:158`), so none is inside invariant 10's mutating-method scope. The emits are an observability improvement; they create no `AUDITABLE_MUTATIONS` row and no guard obligation. Decomposition record: `BACKLOG-archive.md` § `BL-OPS-LOG`.
-
-## BL-OPS-LOG-ONBOARDING-EMIT — `ONBOARDING_OPERATOR_ERROR` has no producer
-
-**Status:** OPEN · **Severity:** low · **Class:** OBSERVABILITY · **Effort:** S · **Filed:** 2026-08-06 (L-wave decomposition of `BL-OPS-LOG`)
-
-`ONBOARDING_OPERATOR_ERROR` is render-only. `components/admin/OnboardingWizard.tsx:548` calls `messageFor("ONBOARDING_OPERATOR_ERROR")` to display the §12.4 catalog copy to Doug, and **no `log.*` emit exists anywhere for it** (re-verified 2026-08-06: the only non-catalog hits in the tree are that render site and the component's own header comment). So the operator sees the error and the system retains nothing about it.
-
-**Work:** emit a durable `code:` when the wizard enters that state, so a support conversation has a row to look at. S — one emit at one site, against a sink that already exists.
-
-**No registry obligation:** the producer is a render path, not a mutating route or a `"use server"` action, so invariant 10's mutation-surface scope does not reach it. Decomposition record: `BACKLOG-archive.md` § `BL-OPS-LOG`.
-
 ## BL-OPS-LOG-DASHBOARD-BANNER — the operator-log sink has no admin-visible reader
 
 **Status:** OPEN · **Severity:** medium · **Class:** OBSERVABILITY / UI · **Effort:** M (Opus/UI, design-gated) · **Filed:** 2026-08-06 (L-wave decomposition of `BL-OPS-LOG`)

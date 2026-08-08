@@ -108,10 +108,12 @@ export const EXTERNAL_REDIRECT_ALLOWLIST: Readonly<
   // under cover of the row.
   //
   // Moved 72 → 64 when this route's hand-built failure document was replaced by
-  // `interstitialDocument` (BL-AUTH-INTERSTITIAL-FONT). The call itself is
-  // untouched — which is exactly what the pinned `argument` re-proves, so the
-  // re-key is a line correction and not a widening.
-  "app/api/auth/google/start/route.ts:64": {
+  // `interstitialDocument` (BL-AUTH-INTERSTITIAL-FONT), then 64 → 77 when the
+  // route gained the Cluster E OAUTH_REDIRECT_INVALID emit and its `log` import.
+  // The call itself is untouched in both moves — which is exactly what the
+  // pinned `argument` re-proves, so each re-key is a line correction and not a
+  // widening.
+  "app/api/auth/google/start/route.ts:77": {
     reason: "Supabase-issued Google OAuth URL",
     argument: "data.url",
   },
