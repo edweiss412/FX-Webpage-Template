@@ -197,7 +197,7 @@ message" class the economy system itself exists to close.
 6. **Result on the live corpus:** `pnpm review:economy` prints no ADVISORY line, because
    every pre-boundary row belongs to `feat/review-round-economy` whose one recognized
    merge (`cae50beb0`) is pre-adoption by the `<=` carve-out and postdates every such
-   row. This is AC-W2.12 and is verified against the real repo, not only fixtures.
+   row. This is AC-W2.13 and is verified against the real repo, not only fixtures.
 
 ### Spec amendment (same PR)
 
@@ -218,11 +218,19 @@ the fix:
    `startedAt < BOUNDARY` on branch B; recognized merge for B with a DIFFERENT `baseSha`
    and `mergedAt = BOUNDARY`. Expect `boundaryAdvisory === null`. Fails today because
    `earliest` consults all rows.
-2. **Advisory preserved for a truly unexplained row.** Row predating BOUNDARY on a branch
-   with NO recognized merge. Expect advisory fires with the §3.4 wording.
-3. **Post-merge reuse still counts.** Row predating BOUNDARY on branch B,
-   `startedAt > mergedAt` of B's pre-adoption merge. Expect advisory fires (the time cap
-   is load-bearing; this is its premise stated executably).
+2. **Advisory preserved for a truly unexplained row — and "precedes" means STRICTLY.**
+   Row predating BOUNDARY on a branch with NO recognized merge. Expect advisory fires
+   with the §3.4 wording. Companion assertion in the same case: a second run whose only
+   unexplained row sits EXACTLY at BOUNDARY yields `boundaryAdvisory === null` — a
+   `<= boundary` mutant fires and prints "precedes" about an equal timestamp
+   (plan-review round-2 probe).
+3. **Post-merge reuse still counts — and the cap boundary is INCLUSIVE.** Row predating
+   BOUNDARY on branch B, `startedAt > mergedAt` of B's pre-adoption merge. Expect
+   advisory fires (the time cap is load-bearing; this is its premise stated
+   executably). Companion assertion: a row with `startedAt` EXACTLY equal to that
+   `mergedAt` is excluded (`boundaryAdvisory === null`) — a `<`-cap mutant strands the
+   equal row and fires; without this fixture both `<` and `<=` evaluate false on the
+   `>`-row and the mutant survives (plan-review round-2 probe).
 4. **Post-adoption merge does not launder.** Row predating BOUNDARY on branch C whose
    only recognized merge has `mergedAt > BOUNDARY`. Expect advisory fires — only
    pre-adoption merges explain pre-boundary rows.
@@ -232,7 +240,9 @@ the fix:
    empty-corpus trivial null (the existing shallow fixture at
    `tests/reviewRounds/report.test.ts:627` has no rows, and `boundaryAdvisory` is
    already null there without any withholding logic). Then the shallow run over the same
-   corpus asserts `boundaryAdvisory === null` AND the refusal note names the advisory
+   corpus asserts `boundaryAdvisory === null` AND asserts the refusal note by FULL-LINE
+   equality (never a substring match — a `toMatch` on a fragment survives P1's suffix
+   mutant; plan-review round-2 probe) where the line names the advisory
    withholding.
 6. **Chronological, not lexical, earliest.** Two rows on a no-merge branch:
    `2026-08-31T23:30:00-02:00` (chronologically 2026-09-01T01:30Z, POST-boundary
@@ -281,15 +291,25 @@ the fix:
     (chronologically BEFORE the merge; lexically GREATER than its string). Expect
     `boundaryAdvisory === null` (row inside the cap). A lexical mutant at
     `startedAt <= mergedAt` places the row outside the cap and fires the advisory.
+12. **The exclusion is same-branch, never a global time cap.** Pre-boundary row on
+    branch X with NO recognized merge; a pre-adoption merge on a DIFFERENT branch Y
+    with `mergedAt >= the row's startedAt`. Expect advisory FIRES — only a same-branch
+    pre-adoption merge covers a row (spec §3.3). A mutant that drops the branch
+    condition and caps on time alone excludes the row and silences the advisory
+    (plan-review round-2 probe). Fixture varies ONLY the branch identity against
+    case 3's shape.
 
 Anti-tautology compliance: each case's fixture varies exactly the field under test
-(baseSha mismatch in 1, absent merge in 2, times in 3/4/6/9/10/11, placeability in 7/8),
-case 1's row uses a `baseSha` distinct from the merge's so the test cannot pass via an
-arcKey join the spec forbids, and case 5 carries its premise pair executably. Cases
-6/10/11 use offset-bearing values whose lexical and chronological orders DISAGREE, so a
-lexical mutant at any of the three comparison sites fails its case. Per P1 (this spec
-eats its own cooking), the four string-presence mutants apply to the advisory-wording
-and notes assertions and their results land in the implementation commit.
+(baseSha mismatch in 1, absent merge in 2, times in 3/4/6/9/10/11, placeability in 7/8,
+branch identity in 12), case 1's row uses a `baseSha` distinct from the merge's so the
+test cannot pass via an arcKey join the spec forbids, and case 5 carries its premise
+pair executably. Cases 6/9/10/11 use offset-bearing values whose lexical and
+chronological orders DISAGREE, so a lexical mutant at any comparison site fails its
+case; the equality companions in cases 2 and 3 discriminate `<` from `<=` at both
+boundary sites. Per P1 (this spec eats its own cooking), the four string-presence
+mutants apply to EVERY string this feature emits — the advisory line, the
+non-placeable-rows note, and the shallow-refusal note extension — with note assertions
+by full-line equality, and their results land in the implementation commit.
 
 ## §5 Documented limits
 
@@ -314,8 +334,8 @@ and notes assertions and their results land in the implementation commit.
 - AC-W1.1: every P-row lands in its named target file with its filing citation inline;
   no other `docs/agents/` rule is reworded beyond the named integration points.
 - AC-W1.2: `AGENTS.md` class-sweep bullet gains exactly one sentence (P9).
-- AC-W2.1–W2.11: the eleven §4 cases pass, numbered in order (AC-W2.n = §4 case n).
-- AC-W2.12: `pnpm review:economy` on the live repo prints no ADVISORY line and its other
+- AC-W2.1–W2.12: the twelve §4 cases pass, numbered in order (AC-W2.n = §4 case n).
+- AC-W2.13: `pnpm review:economy` on the live repo prints no ADVISORY line and its other
   sections are byte-identical to before the change (verified by running both and
   diffing).
 - AC-X.1: `pnpm spec:lint` on this spec and the plan is attached to every review

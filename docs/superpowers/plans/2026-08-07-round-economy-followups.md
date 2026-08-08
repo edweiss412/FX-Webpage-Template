@@ -43,11 +43,11 @@ Verification: `git diff --stat` shows exactly `docs/agents/writing-plans.md`,
 `docs/agents/spec-self-review.md`, `AGENTS.md`. `pnpm format:check` clean (prettier runs
 on staged md via hook).
 
-## Task 2 — RED: eleven advisory cases in `tests/reviewRounds/report.test.ts` (spec §4)
+## Task 2 — RED: twelve advisory cases in `tests/reviewRounds/report.test.ts` (spec §4)
 
 Commit: `test(infra): pin the boundary-advisory exclusion rule (RED)`.
 
-Add the eleven §4 cases to the existing advisory describe-block, reusing the file's
+Add the twelve §4 cases to the existing advisory describe-block, reusing the file's
 `corpus()` / `jrows()` / `opts` helpers and `BOUNDARY` constant (`report.test.ts:289`).
 Each case's comment names the production line that fails it (anti-tautology: concrete
 failure mode stated per test). Spec §4 is normative for every fixture and assertion;
@@ -56,16 +56,22 @@ implementation notes only:
 1. **Split-arc segment exclusion.** Corpus path baseSha and the merge fixture's
    `baseSha` MUST differ (pins the no-arcKey-join requirement); `mergedAt: BOUNDARY`.
    Expect `boundaryAdvisory === null`.
-2. **Unexplained row fires** with the spec §3.4 advisory wording.
-3. **Post-merge reuse fires** — row after the branch's pre-adoption merge, before
-   boundary. Time-cap premise stated executably.
+2. **Unexplained row fires — strictly-precedes companion.** Advisory fires with the
+   spec §3.4 wording; companion run with the only unexplained row EXACTLY at BOUNDARY
+   asserts `boundaryAdvisory === null` (kills the `<= boundary` mutant that would print
+   "precedes" about an equal timestamp — spec §4.2).
+3. **Post-merge reuse fires — inclusive-cap companion.** Row after the branch's
+   pre-adoption merge fires; companion row EXACTLY at that `mergedAt` is excluded
+   (null) — kills the `<`-cap mutant both of case 3's original comparisons miss
+   (spec §4.3). Time-cap premise stated executably.
 4. **Post-adoption merge does not launder** — merge `mergedAt` > BOUNDARY, row predates
    BOUNDARY, advisory fires.
 5. **Shallow withholds an advisory that WOULD fire.** Premise pair per spec §4.5: same
    corpus (with a pre-boundary no-merge row) asserted non-null under a non-shallow run
-   FIRST, then null + refusal-note mention under the shallow run (extend the synthesized
-   shallow-clone pattern at `report.test.ts:627` — its current corpus is EMPTY, which is
-   exactly the trivial-null the premise pair exists to block).
+   FIRST, then null under the shallow run, with the refusal note asserted by FULL-LINE
+   equality — never a substring `toMatch`, which survives P1's suffix mutant (extend the
+   synthesized shallow-clone pattern at `report.test.ts:627` — its current corpus is
+   EMPTY, which is exactly the trivial-null the premise pair exists to block).
 6. **Chronological, not lexical, earliest.** Use spec §4.6's two offset timestamps
    verbatim; expect the advisory to fire naming the chronologically-earliest row, and
    assert the non-placeable-rows note is ABSENT.
@@ -88,16 +94,21 @@ implementation notes only:
     verbatim → null advisory; lexical mutant at `mergedAt <= boundary` fires.
 11. **Time cap chronological.** Spec §4.11's values verbatim → null advisory; lexical
     mutant at `startedAt <= mergedAt` fires.
+12. **Same-branch exclusion, never global.** Spec §4.12: pre-boundary row on branch X
+    (no merge); pre-adoption merge on branch Y with `mergedAt >=` the row's time →
+    advisory FIRES. Global-time-cap mutant (branch condition dropped) silences it.
+    Fixture varies ONLY branch identity against case 3's shape.
 
 Also update the existing advisory test at `tests/reviewRounds/report.test.ts:554` — update its expected string to the spec §3.4 wording
 (the one intentional existing-test change; every other existing case stays
 byte-identical).
 
-Run `pnpm vitest run tests/reviewRounds/report.test.ts` — cases 1, 5, 6, 7, 8 and the
-reworded-string assertion MUST fail before Task 3; cases 2/3/4/9/10/11 may pass pre-fix
-only if the naive implementation happens to satisfy them — verify each against the named
-mutant during Task 3's mutant pass (they pin preserved/derived behavior; that is their
-premise, not a tautology — state it in the comment).
+Run `pnpm vitest run tests/reviewRounds/report.test.ts` — cases 1, 3 (inclusive-cap
+companion), 5, 6, 7, 8 and the reworded-string assertion MUST fail before Task 3; cases
+2/4/9/10/11/12 may pass pre-fix only if the naive implementation happens to satisfy
+them — verify each against the named mutant during Task 3's mutant pass (they pin
+preserved/derived behavior; that is their premise, not a tautology — state it in the
+comment).
 
 ## Task 3 — GREEN: exclusion rule + wording + shallow withhold in `scripts/review-economy.ts` (spec §3)
 
@@ -136,31 +147,38 @@ In `buildReport`:
 **Post-green mutants (spec §4 closing paragraph; P1 applied to this branch's own work —
 record each result, mutant → failing case, in the commit message):**
 
-String-presence families — ALL FOUR of P1's (a)-(d), applied to BOTH the advisory-line
-assertion AND the non-placeable-note assertions:
+String-presence families — ALL FOUR of P1's (a)-(d), applied to EVERY string this
+feature emits: the advisory line, the non-placeable-rows note, AND the shallow-refusal
+note extension (spec §4 closing paragraph):
 
-- (a) empty value: advisory string emptied; note string emptied;
-- (b) content + suffix: advisory string with an appended suffix; note with a suffix;
-- (c) present but not live: advisory/note text emitted into a different report section
-  (or behind a false condition) so the string exists but not where asserted;
+- (a) empty value: each of the three strings emptied in turn;
+- (b) content + suffix: each of the three strings with an appended suffix (case 5's
+  full-line equality is what kills the shallow-note suffix mutant);
+- (c) present but not live: each string emitted into a different report section (or
+  behind a false condition) so it exists but not where asserted;
 - (d) discriminating parameter: the note's count `N` hardcoded vs derived; the
-  advisory's interpolated row timestamp swapped for another row's.
+  advisory's interpolated row timestamp swapped for another row's; the shallow note
+  emitted without its advisory-withholding clause.
 
 Logic mutants — one per spec-pinned decision, deferred here from Task 2:
 
 - exclusion keyed on `arcKey(branch, baseSha)` instead of branch + time → case 1 fails;
+- branch condition dropped (global time cap) → case 12 fails;
 - oldest-only merge selection → case 9 fails;
 - lexical-max merge selection → case 9 fails;
 - lexical `mergedAt <= boundary` classification → case 10 fails;
 - lexical `startedAt <= mergedAt` cap → case 11 fails;
 - lexical earliest selection → case 6 fails;
-- `<` vs `<=` flips at the boundary carve-out and the time cap → the existing
-  equals-boundary test and case 3 discriminate;
+- advisory condition `< boundary` widened to `<=` → case 2's at-boundary companion
+  fails;
+- time cap `<=` narrowed to `<` → case 3's at-mergedAt companion fails;
+- `<=` at the pre-adoption boundary carve-out flipped to `<` → the existing
+  equals-boundary test discriminates;
 - bare-`Date.parse` placement (accept-set bypass) → cases 7 and 8 fail.
 
 If any mutant survives, strengthen the test in the same commit before proceeding.
 
-## Task 4 — 2026-08-04 spec amendment + live verification (spec §3 amendment ¶, AC-W2.12)
+## Task 4 — 2026-08-04 spec amendment + live verification (spec §3 amendment ¶, AC-W2.13)
 
 Commit: `docs(spec): amend review-round-economy §9/§11.3 for the advisory exclusion rule`.
 
@@ -168,9 +186,9 @@ Commit: `docs(spec): amend review-round-economy §9/§11.3 for the advisory excl
   exclusion rule + the §3.4 reworded advisory line, dated note `(Amended 2026-08-07 —
   see 2026-08-07-round-economy-followups.md)`, matching the spec's amendment style.
 - Extend §11.3 item 8 — the "Adoption boundary" test entry, NOT §10 item 8, which is
-  unrelated mutation-enrollment work — with the eleven new case shapes (one line each).
+  unrelated mutation-enrollment work — with the twelve new case shapes (one line each).
 - Live check: run `pnpm review:economy` at the pre-change commit and at HEAD, diff the
-  outputs — identical except the ADVISORY line is gone (AC-W2.12). Paste both
+  outputs — identical except the ADVISORY line is gone (AC-W2.13). Paste both
   invocations' tail into the commit message or the PR body.
 - `pnpm spec:lint` on the amended 2026-08-04 spec: no new hard findings.
 
