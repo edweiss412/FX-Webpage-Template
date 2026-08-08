@@ -3,7 +3,7 @@
 Spec: `docs/superpowers/specs/2026-08-07-ops-log-code-emits.md`
 Branch: `feat/ops-log-code-emits`
 
-Six emit-less failure sites gain a `code:`-carrying `log.*` call. Five tasks, each red → implementation → green → commit per invariant 1. No UI, no migration, no advisory lock, no new error code.
+Six emit-less failure sites gain a `code:`-carrying `log.*` call. **Four** TDD tasks, each red → implementation → green → commit per invariant 1, plus a close-out ledger step that is deliberately NOT a task (it is bookkeeping with no executable RED; see Close-out). No UI, no migration, no advisory lock, no new error code.
 
 ## Pre-draft verification (run, not described)
 
@@ -54,10 +54,10 @@ impeccable-gate: N/A — no UI surface
 
 - **AC-1** — Each of the five OAuth branches emits exactly one record with `level: "warn"`, `code: "OAUTH_REDIRECT_INVALID"`, and its own distinct `reason`. Six values across five sites, because site 5 splits on whether the intent verified: `callback_invalid_explicit_next`, `start_invalid_explicit_next`, `bootstrap_next_rejected`, `bootstrap_unparsable_next`, `bootstrap_intent_unverified`, `bootstrap_intent_target_mismatch`.
 - **AC-2** — No emit changes the shipped refusal. Status codes, redirect targets, PKCE cookie clearing, and control flow are unchanged at every site.
-- **AC-3** — The onboarding operator-error path emits exactly one record with `level: "error"`, `code: "ONBOARDING_OPERATOR_ERROR"`, and `reason` ∈ {`env_missing`, `json_malformed`, `client_email_missing`} matching the actual cause.
-- **AC-4** — No emit carries service-account key material, the `JSON.parse` error, or the raw rejected `next` value. Enforced **structurally** — no record carries an `error` key at all — because a parse-error message leaks input text while containing neither the sentinel nor `private_key`, so content matching alone does not catch it.
+- **AC-3** — The onboarding operator-error path emits exactly one record with `level: "error"`, `code: "ONBOARDING_OPERATOR_ERROR"`, and `reason` ∈ {`env_missing`, `json_malformed`, `json_not_an_object`, `client_email_missing`} matching the actual cause. `json_malformed` is asserted ONLY where `JSON.parse` genuinely threw.
+- **AC-4** — No emit carries service-account key material, the `JSON.parse` error, or the raw rejected `next` value. Enforced by **accept-set**: a record's context keys are exactly `["reason"]` and its message is a fixed literal, so nothing derived from either secret can appear under any field. A denylist ("no `error` key, no sentinel") is insufficient and was the R2 defect — a parse message relocated to `record.message`, or a partial key fragment, defeats it.
 - **AC-5** — `OnboardingWizard`'s rendered output is unchanged; the three shipped render assertions pass unmodified.
-- **AC-6** — Both ledger entries archive with provenance, and the `IN PROGRESS` markers come off in the PR's last commit.
+- **AC-6** — Both ledger entries archive with provenance, and the `IN PROGRESS` markers come off in the PR's last commit. Verified by inspection of the final diff, not by a test — see the close-out step for why no executable gate discriminates it.
 
 <!-- tasks: depth=2 -->
 
@@ -96,7 +96,7 @@ try {
 
 <!-- task: red=`pnpm vitest run tests/auth/oauthRedirectInvalidTelemetry.test.ts` ac=AC-1,AC-2,AC-4 -->
 
-**RED.** Three cases in the same suite, each forced down its own branch of `app/api/auth/picker-bootstrap/route.ts`:
+**RED.** Four cases in the same suite, each forced down its own branch of `app/api/auth/picker-bootstrap/route.ts`:
 
 | Case | Input that reaches it | Asserted `reason` |
 | --- | --- | --- |
@@ -119,22 +119,47 @@ Each asserts one record, `level === "warn"`, `code === "OAUTH_REDIRECT_INVALID"`
 
 <!-- task: red=`pnpm vitest run tests/components/admin/OnboardingWizard.test.tsx` ac=AC-3,AC-5 -->
 
-**RED.** Extend `tests/components/admin/OnboardingWizard.test.tsx`. The three shipped cases at `tests/components/admin/OnboardingWizard.test.tsx:203`, `tests/components/admin/OnboardingWizard.test.tsx:220` and `tests/components/admin/OnboardingWizard.test.tsx:232` already construct the three distinct broken environments (unset, malformed JSON, missing `client_email`) — the cheapest non-vacuous oracle available, because the environments exist and are already known-distinct. Each gains a `setLogSink` capture asserting one record with `code === "ONBOARDING_OPERATOR_ERROR"`, `level === "error"`, and its own `reason`: `env_missing`, `json_malformed`, `client_email_missing` respectively.
+**RED.** Extend `tests/components/admin/OnboardingWizard.test.tsx`. The three shipped cases at `tests/components/admin/OnboardingWizard.test.tsx:203`, `tests/components/admin/OnboardingWizard.test.tsx:220` and `tests/components/admin/OnboardingWizard.test.tsx:232` already construct the three distinct broken environments (unset, malformed JSON, missing `client_email`) — the cheapest non-vacuous oracle available, because the environments exist and are already known-distinct. Each gains a `setLogSink` capture asserting one record with `code === "ONBOARDING_OPERATOR_ERROR"`, `level === "error"`, and its own `reason`: `env_missing`, `json_malformed`, `client_email_missing` respectively. A **fourth** case is added for `json_not_an_object` (see Part 1).
 
 **Their existing render assertions stay byte-identical** — that is the executable form of AC-5 and of the `impeccable-gate: N/A` determination. If a render assertion needs editing, stop: the determination is void.
 
-**Concrete failure mode caught:** the wizard emitting a single undifferentiated code, or `reason` wired to a literal instead of the resolver's result. Three distinct expected values across three environments means a hardcoded `reason` fails twice.
+**Concrete failure mode caught:** the wizard emitting a single undifferentiated code; `reason` wired to a literal instead of the resolver's result; or `json_malformed` claimed for a value that parsed. Four distinct expected values across four environments means a hardcoded `reason` matches at most one case and fails the other three.
 
 **Implementation, two parts.**
 
-*Part 1 — widen the result type* in `components/admin/OnboardingWizard.tsx`:
+*Part 1 — widen the result type AND narrow the `try`.* The shipped `try` at `components/admin/OnboardingWizard.tsx:77` wraps both the `JSON.parse` and the later `parsed.client_email` access, so `GOOGLE_SERVICE_ACCOUNT_JSON=null` parses successfully, throws a `TypeError` on the property read, and lands in the `catch`. Labelling that `json_malformed` would assert a parse failure that did not happen — probed, spec §2.2. The restructure:
 
 ```ts
-type ServiceAccountFailureReason = "env_missing" | "json_malformed" | "client_email_missing";
-type ServiceAccountResult = { ok: true; email: string } | { ok: false; reason: ServiceAccountFailureReason };
+type ServiceAccountFailureReason =
+  | "env_missing"
+  | "json_malformed"
+  | "json_not_an_object"
+  | "client_email_missing";
+type ServiceAccountResult =
+  | { ok: true; email: string }
+  | { ok: false; reason: ServiceAccountFailureReason };
+
+function readServiceAccountEmail(): ServiceAccountResult {
+  const raw = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
+  if (!raw) return { ok: false, reason: "env_missing" };
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return { ok: false, reason: "json_malformed" };
+  }
+  if (typeof parsed !== "object" || parsed === null) {
+    return { ok: false, reason: "json_not_an_object" };
+  }
+  const email = (parsed as { client_email?: unknown }).client_email;
+  if (typeof email === "string" && email.length > 0) return { ok: true, email };
+  return { ok: false, reason: "client_email_missing" };
+}
 ```
 
-and name the reason at each of the three `return { ok: false }` sites (`components/admin/OnboardingWizard.tsx:75` → `env_missing`, `components/admin/OnboardingWizard.tsx:80` → `client_email_missing`, `components/admin/OnboardingWizard.tsx:82` catch → `json_malformed`). `readServiceAccountEmail` stays **synchronous and pure** — it gains a discriminator, not an emit. It is module-private with exactly one caller, so this widening carries no blast radius (contrast the validator, deliberately untouched per spec §1.1 item 3).
+The `catch` stays **parameterless** — binding the error is the first step toward logging it, and §2.2 forbids that. This is behavior-preserving: the ok/not-ok partition over every input is unchanged, only the label is new, so the render assertions in the RED above stay byte-identical. `readServiceAccountEmail` remains synchronous and pure; it is module-private with exactly one caller, so this carries no blast radius (contrast the `next` validator, deliberately untouched per spec §1.1 item 3).
+
+**A fourth RED case is added** alongside the three shipped ones: `GOOGLE_SERVICE_ACCOUNT_JSON = "null"`, asserting `reason === "json_not_an_object"`. Without it the branch the restructure exists to create ships untested, and the `null`-vs-malformed distinction — the whole point of finding 1 — is unproven.
 
 *Part 2 — one emit* in the async component body, guarded by `!service.ok`, before the return:
 
@@ -160,14 +185,23 @@ if (!service.ok) {
 
 **This task has no natural RED, and that is stated rather than glossed.** Before Task 3 the captured record array is empty, so every negative assertion passes vacuously; after Task 3 the shipped emit is already safe, so they pass legitimately. Claiming a RED on either basis would be exactly the tautology this project's rules exist to stop. Task 4 is a **regression guard**, and its RED is obtained by mutation.
 
-**Assertions — structural first, content second.** For each case, every captured record must satisfy:
+**Assertions — an ACCEPT-SET, not a denylist.** The R2 review refuted the earlier denylist shape with three live leak channels it would have passed: a parse message relocated into `record.message`, one stored under a different context key, and a PARTIAL fragment of the raw value. Enumerating forbidden forms cannot close that — a denylist accepts whatever it did not model, which is exactly what `docs/agents/spec-self-review.md` warns about. So each captured record is asserted by shape:
 
-1. `record.context.error === undefined` — **the load-bearing assertion.** The §2.2 prohibition is specifically on attaching the `JSON.parse` error, and a V8 parse message such as `Expected double-quoted property name in JSON at position 38` contains neither a sentinel nor `private_key`. Content matching alone would let the exact forbidden regression ship green. `serializeError` persists `name`, `message` and `stack`, so the only safe rule is that no `error` key exists at all.
-2. `JSON.stringify(records)` contains neither the sentinel nor the substring `private_key` — the backstop for a leak arriving by some other field.
+1. `Object.keys(record.context)` deep-equals `["reason"]` — **the load-bearing assertion.** Nothing beyond `reason` may appear at all, so no leak channel exists to enumerate.
+2. `record.context.reason` is one of the four `ServiceAccountFailureReason` values.
+3. `record.message` equals the exact expected literal.
+4. Backstop only: `JSON.stringify(records)` contains neither the sentinel nor `private_key`.
+
+Assertions 1-3 are what enforce AC-4; assertion 4 catches a leak arriving through some channel the record shape does not describe.
 
 **Two cases**, both with `GOOGLE_SERVICE_ACCOUNT_JSON` carrying a sentinel that could only have come from the env var (e.g. `"SENTINEL-PRIVATE-KEY-DO-NOT-LOG"`): one well-formed but missing `client_email`, one malformed so the parse-error path is exercised.
 
-**Observed-RED protocol (this is the task's actual red step).** After Task 3 is green: temporarily add `error` — the caught `JSON.parse` error — to the wizard emit in the working tree; run this suite; **observe it FAIL** on assertion 1; revert the mutant; observe it pass. The mutant is never committed. The commit message and PR body record both observations with their output. A green claimed without that observation is not evidence the guard works.
+**Observed-RED protocol (this is the task's actual red step).** After Task 3 is green, run **two** mutants in the working tree — one per leak channel — observing each FAIL and reverting it before the next:
+
+- **(a) reserved channel:** add `error` (the caught `JSON.parse` error) to the wizard emit. Fails assertion 1.
+- **(b) message channel:** interpolate a fragment of the raw env value into the emit's message string. Fails assertion 3 — and this is the mutant the earlier denylist draft would have passed, so running only (a) leaves the accept-set's central claim unproven.
+
+Neither mutant is committed. The commit message and PR body record both observations with their output. A green claimed without them is not evidence the guard works.
 
 **Premise (mandatory).** The assertions rest on two conditions, both stated via `premise`/`premiseHolds` from `tests/_shared/premise.ts` immediately above the negative assertion:
 
@@ -176,22 +210,22 @@ if (!service.ok) {
 
 The second is the one that matters: without it, a case whose env setup or sink capture silently failed passes by finding nothing in an empty array — the exact "expected value read from the same degenerate source as the actual" shape the anti-tautology rule names. Both execute unconditionally at case top level, never inside a callback whose iteration count could be zero.
 
-## Task 5 — archive the ledger entries and clear the markers
-
-<!-- task: red=`pnpm vitest run tests/docs/_metaLedgerInProgress.test.ts` ac=AC-6 -->
-
-**This is the PR's last commit.** Move both `BL-OPS-LOG-OAUTH-EMITS` and `BL-OPS-LOG-ONBOARDING-EMIT` from `BACKLOG.md` to `BACKLOG-archive.md` with full provenance, preserving the L-wave decomposition record each entry carries and adding what shipped. The `**Status:** IN PROGRESS · **Branch:** feat/ops-log-code-emits` field comes off **in this same commit** — archives categorically reject in-progress entries, so the marker cannot ride along, and a marker that reaches `main` names a branch the merge just deleted and fails the origin-existence rule there (invariant 12).
-
-**RED.** `tests/docs/_metaLedgerInProgress.test.ts` is the executable gate and it has already demonstrated it discriminates on this branch: it failed before the markers were pushed (branch absent from origin) and passed after. Task 5's green is that suite plus `pnpm vitest run tests/docs` for the archive-shape guards.
-
-**Archive body records**, so a later reader does not re-derive them: the persisted-code fork and why the forensic-code precedent did not generalize (spec §1.1 item 2), and that the validator's internal opacity was deliberately left in place (documented limit §5.1).
-
 <!-- tasks: end -->
+
+## Close-out step — archive the ledger entries and clear the markers
+
+**Deliberately not a task, because it has no executable RED — and the R2 review was right to reject the one previously claimed.** `tests/docs/_metaLedgerInProgress.test.ts` passes today and would keep passing if this step were skipped entirely: it checks that an in-progress marker names a live origin branch, and that branch exists throughout. A no-op therefore satisfies any red/green sequence built on it, which is a tautology, not a gate. Calling this a TDD task would have made the plan's own invariant-1 claim false.
+
+What it does, in the **PR's last commit**: move both `BL-OPS-LOG-OAUTH-EMITS` and `BL-OPS-LOG-ONBOARDING-EMIT` from `BACKLOG.md` to `BACKLOG-archive.md` with full provenance, preserving each entry's L-wave decomposition record and adding what shipped. The `**Status:** IN PROGRESS · **Branch:** feat/ops-log-code-emits` field comes off in that same commit — archives categorically reject in-progress entries, so the marker cannot ride along, and a marker reaching `main` names a branch the merge just deleted and fails the origin-existence rule there (invariant 12).
+
+**Verification is by inspection plus the docs suite staying green** (`pnpm vitest run tests/docs`), which is a regression check, not a RED. The reviewer of the final diff confirms AC-6 by reading it.
+
+**Archive body records**, so a later reader does not re-derive them: the persisted-code fork and why the forensic-code precedent did not generalize (spec §1.1 item 2); the deliberate opacity left in the `next` validator (limit §5.1) and in `verifyPickerIntent` (limit §5.6); and that the resolver's `try` was narrowed so `json_malformed` never labels a value that parsed.
 
 ## Close-out
 
 1. `pnpm typecheck` and `pnpm lint` clean.
-2. Full local suite green; at minimum the four touched/created suites plus `tests/docs`.
+2. Full local suite green; at minimum the TWO test files this arc touches or creates (the new OAuth suite and `tests/components/admin/OnboardingWizard.test.tsx`) plus `tests/docs`.
 3. `pnpm spec:lint` clean on both the spec and this plan.
 4. Whole-diff cross-model review to APPROVE.
 5. Real CI green — not just local — then `gh pr merge --merge`, then verify `git rev-list --left-right --count main...origin/main` is `0  0`.
