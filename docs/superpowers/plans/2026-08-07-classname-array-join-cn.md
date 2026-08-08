@@ -450,11 +450,21 @@ The tree at this point is migrated but **not** canonicalized. Stage 1 changed no
 `getBoundingClientRect()` equals the value recorded in
 `tests/e2e/__baselines__/canonical-dimensions.json`. It fails: the baseline file does not exist yet.
 
-Targets:
+Targets, with cardinality stated because the baseline schema depends on it:
 
 - the step-indicator connector rule, `components/admin/OnboardingWizard.tsx:200-203`
-  (`h-px max-w-[60px] flex-1 rounded-full`) — the C1 target;
-- the `RightNowHero` card, `components/crew/RightNowHero.tsx:481` — the C5 target.
+  (`h-px max-w-[60px] flex-1 rounded-full`) — the C1 target. **There are TWO of these, not one:**
+  the connector renders after each of steps 1 and 2 (`n < 3`,
+  `components/admin/OnboardingWizard.tsx:196`), so `[data-testid=wizard-step-connector]` matches
+  two elements. Assert the count is exactly 2, then measure BOTH with `.nth(0)` / `.nth(1)` — a
+  singular locator would either fail strict-mode or silently verify one connector and leave the
+  other's geometry unproven, and both carry the C1 class string.
+- the `RightNowHero` card, `components/crew/RightNowHero.tsx:481` — the C5 target; a single
+  element on the seeded crew route.
+
+The baseline JSON is keyed accordingly — `wizard-step-connector-0`, `wizard-step-connector-1`,
+`right-now-hero-card` — one rect per key, and the verify pass fails on a missing key, an extra
+key, or a count mismatch, not only on a moved rect.
 
 **The spec must actually run, which is not automatic here.** `playwright.config.ts` uses **explicit
 allow-list** `testMatch` regexes per project, and its own comment warns that "a spec absent from this
@@ -514,15 +524,30 @@ neither default project — probed `{mobile:false, desktop:false}`. Two steps, b
       fields, the four `pending_folder_*` fields, and both `pending_wizard_session_*` fields (all
       ten are already enumerated in that file's `FIELDS` list), restore in `afterAll`. With the row
       nulled and the admin signed in, `/admin` takes precedence 2 and mounts the wizard.
-    - Then assert `[data-testid=wizard-step-connector]`
-      (`components/admin/OnboardingWizard.tsx:197`) is present before measuring — a measurement on
-      an absent element is the failure this bullet exists to prevent.
+    - Then assert `[data-testid=wizard-step-connector]` resolves to exactly TWO elements
+      (`components/admin/OnboardingWizard.tsx:196`) before measuring both — a measurement on an
+      absent element is the failure this bullet exists to prevent, and a singular assumption is the
+      strict-mode failure the Targets section above pins.
   - **C5 (`RightNowHero`).** It lives on the seeded crew route, which needs four things, all shown in
     `tests/e2e/crew-layout-dimensions.spec.ts` `beforeEach`: `lookupSeededShow()` for the slug,
     `lookupShareToken(showId)`, `signOut` then `signInAs(ADMIN_FIXTURE)`, and a server-clock pin via
     the `X-Screenshot-Frozen-Now: SHOW_DAY_1_INSTANT` + `Authorization: Bearer TEST_AUTH_SECRET`
     headers (the section reads the server-supplied `today`, not a browser clock). Then
-    `/show/<slug>/<shareToken>?s=today`. Reuse that helper rather than re-deriving it.
+    `/show/<slug>/<shareToken>?s=today`.
+
+    **Those helpers are MODULE-PRIVATE, so "reuse" means replicate, not import.** `lookupSeededShow`
+    (`tests/e2e/crew-layout-dimensions.spec.ts:173`), `lookupShareToken`
+    (`tests/e2e/crew-layout-dimensions.spec.ts:187`), the `SHOW_DAY_1_INSTANT` constant
+    (`tests/e2e/crew-layout-dimensions.spec.ts:75`), and the `gotoSection` readiness helper
+    (`tests/e2e/crew-layout-dimensions.spec.ts:319`, which additionally closes over suite-local
+    `slug`/`shareToken`) are not exported. Do NOT edit
+    `crew-layout-dimensions.spec.ts` to export them — that file is outside this arc's declared
+    delta (C4 step 4.3) and carries its own single-writer constraints. Instead the new spec carries
+    local equivalents modeled line-for-line on the cited bodies, parameterized where the originals
+    close over suite state. The exported helpers (`signInAs`, `signOut` from
+    `tests/e2e/helpers/signInAs.ts`, `TEST_AUTH_SECRET` from `tests/e2e/helpers/testAuthConfig.ts`,
+    the new `dashboardState.ts` inverse) are imported normally — the replicate rule covers only the
+    private four.
 - **Readiness gate:** await the surface's established hydration gate before the first measurement,
   never `networkidle` alone. A rect read pre-hydration is a confident wrong number.
   `crew-layout-dimensions.spec.ts`'s `gotoSection` helper documents the specific trap on this route
@@ -722,25 +747,34 @@ which is invariant 8 satisfied on paper and not in fact. Record the re-run in §
 
 **The APPROVE binds to the reviewed head, and content-changing paths invalidate it.** On APPROVE,
 record `REVIEWED_HEAD=$(git rev-parse HEAD)` in the task log. The approval's subject is the
-branch-authored delta as reviewed at that commit. Afterwards, exactly two kinds of events can touch
-the branch, with opposite effects:
+branch-authored delta as reviewed at that commit. Afterwards, exactly three kinds of events can
+touch the branch, with stated effects:
 
 - **Delta-preserving:** a rebase (C4 step 4) that completes without conflicts and passes the
   step-4.3 declared-delta audit with zero undeclared hunks. The branch's own patches applied
   verbatim onto newer upstream; the reviewed subject is intact, and CI plus the tracked gates cover
   the upstream-interaction risk exactly as they do for every arc. The approval STANDS.
+- **Process-record commits — delta-preserving by definition, and structurally unavoidable.** The
+  APPROVE dispatch itself appends a corpus row under `docs/review-rounds/` (codex-guard writes it
+  at dispatch time), and the round-economy filing must track the count — so the very act of earning
+  the approval creates an uncommitted change, and requiring a fresh review of the record of a
+  review would regress forever. Therefore a commit whose diff is confined to `docs/review-rounds/**`
+  and/or this plan's §12 dispositions table records the process and leaves the approval STANDING:
+  commit the approving round's row (and filing update) as `docs(plan): record review round <n>`
+  immediately after the APPROVE, before proceeding. The reviewed subject — everything outside
+  those record paths — must be untouched by such a commit; a record commit that touches anything
+  else is a content-changing commit misfiled, and step 4.3's audit would name it.
 - **Content-changing:** any repair commit (C4 step 2, or post-graduation work via step 7), and any
   rebase whose conflicts required hand resolution. The reviewed subject no longer exists, and a
   merge on the old approval would ship a diff no fresh eyes ever saw. The approval is VOID: return
-  here, dispatch a delta round whose brief inlines `git diff <REVIEWED_HEAD's subject>..HEAD` —
-  the incremental change plus the surfaces it touches, per the split-review discipline — iterate to
-  APPROVE, and record the new `REVIEWED_HEAD`. C4's graduation commit may only be authored under a
-  live approval.
+  here, dispatch a delta round whose brief inlines the incremental change plus the surfaces it
+  touches, per the split-review discipline — iterate to APPROVE, and record the new
+  `REVIEWED_HEAD`. C4's graduation commit may only be authored under a live approval.
 
 (The graduation commit itself — the archive move plus marker removal that `BACKLOG_GRADUATED`'s
-red/green already pins, C4 step 5 — is the one commit exempt from voiding, precisely because its
-content is fully specified by an executable contract and it must be the PR's last commit. Anything
-beyond that specified content in it is a step-4.3-style stop.)
+red/green already pins, C4 step 5 — is likewise exempt from voiding, because its content is fully
+specified by an executable contract and it must be the PR's last commit. Anything beyond that
+specified content in it is a step-4.3-style stop.)
 
 **Commit:** per round, if repairs are needed.
 
