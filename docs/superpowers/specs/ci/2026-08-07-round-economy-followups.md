@@ -22,7 +22,7 @@ In scope: edits to `docs/agents/writing-plans.md`, `docs/agents/spec-self-review
 sentence in `AGENTS.md` (class-sweep bullet), the advisory computation in
 `scripts/review-economy.ts`, its tests in `tests/reviewRounds/report.test.ts`, and the
 matching amendment to `docs/superpowers/specs/ci/2026-08-04-review-round-economy.md`
-(§9 advisory paragraph + §10 test list). Plus the `docs/superpowers/specs/ci/README.md`
+(§9 advisory paragraph + §11.3 test list). Plus the `docs/superpowers/specs/ci/README.md`
 index row for this spec.
 
 Out of scope: any change to silent-arc classification, `preAdoptionMergeCount`, the
@@ -120,23 +120,36 @@ message" class the economy system itself exists to close.
 
 ### Repaired behavior
 
-1. **Chronological comparison, never lexical.** The current code selects `earliest` by
-   LEXICAL sort of `startedAt` strings and only then parses the selected value. The row
-   schema (`lib/reviewRounds/row.ts`, `startedAt` field) accepts `null` or any string,
-   and valid ISO-8601 timestamps with non-Z offsets order differently lexically than
-   chronologically — so a genuinely pre-boundary row can lose the lexical sort to a
-   chronologically-later string and silently suppress the advisory. Repaired: every
-   `startedAt` is parsed ONCE via `Date.parse`; all comparisons in this section
-   (earliest selection, boundary comparison, the exclusion rule's time cap) operate on
-   the parsed values.
-2. **Unparseable timestamps are signaled, never silently dropped.** Rows whose
-   `startedAt` is `null` or fails `Date.parse` (NaN) cannot be placed relative to the
-   boundary. They are excluded from the advisory computation AND counted in a note
-   whenever any exist: `N row(s) without a parseable startedAt are invisible to the
-   boundary advisory.` (Today `null` is silently filtered and NaN silently compares
-   false — both violate the consequence bound.) `mergedAt` needs no such guard: it comes
-   from `git log --format=%cI` (`lib/reviewRounds/mergedArcs.ts`), which cannot emit an
-   unparseable date for a reachable commit — recorded as §5 limit 4, not guarded.
+1. **Chronological comparison, never lexical — at EVERY comparison site.** The current
+   code selects `earliest` by LEXICAL sort of `startedAt` strings and only then parses
+   the selected value. Valid ISO-8601 timestamps with non-Z offsets order differently
+   lexically than chronologically — so a genuinely pre-boundary row can lose the lexical
+   sort to a chronologically-later string and silently suppress the advisory. Repaired:
+   all comparisons in this section — earliest selection, row-vs-boundary, the exclusion
+   rule's `mergedAt <= boundary` classification, and its `startedAt <= mergedAt` time
+   cap — operate on parsed values (each string parsed once). The two merge-side sites
+   are each pinned by their own §4 case, since a lexical mutant at either silently
+   changes the advisory only under offset-bearing values.
+2. **`startedAt` is placeable only inside an explicit accept-set; everything else is
+   signaled.** The row schema (`lib/reviewRounds/row.ts`, `startedAt` field) accepts
+   `null` or any string, and bare `Date.parse` is NOT a sufficient placement test:
+   a timezone-less string parses host-dependently (probe: `2026-09-01T00:00:00` is the
+   boundary instant under `TZ=UTC` and four hours later under `TZ=America/New_York` —
+   the same accepted row silently flips the advisory by environment), and an invalid
+   calendar date is silently normalized (`2026-02-30T00:00:00.000Z` parses to Mar 2).
+   Repaired with an accept-set keyed on structure: a `startedAt` is PLACEABLE iff it
+   matches `^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$` — the
+   explicit offset makes `Date.parse` environment-independent — AND its date/time
+   fields are calendar-valid (month 01-12, day within that month including leap years,
+   hour ≤ 23, minute/second ≤ 59). Everything else — `null`, timezone-less, calendar-
+   invalid, arbitrary strings — is excluded from the advisory computation AND counted in
+   a note whenever any exist: `N row(s) without a parseable startedAt are invisible to
+   the boundary advisory.` The live corpus is 100% inside the accept-set (the wrapper
+   writes `toISOString()`; swept 89/89 canonical at `c284aa32b`). `mergedAt` needs no
+   accept-set: it comes from `git log --format=%cI`
+   (`lib/reviewRounds/mergedArcs.ts`), which always carries an explicit offset for a
+   reachable commit — recorded as §5 limit 4, not guarded — but its comparisons are
+   still chronological per 1.
 3. **Exclusion rule.** A row is EXCLUDED from the advisory's `earliest` computation when
    a recognized merge exists with the same `branch` and `mergedAt <= boundary`
    (pre-adoption under the existing `<=` carve-out) and the row's
@@ -160,13 +173,13 @@ message" class the economy system itself exists to close.
 6. **Result on the live corpus:** `pnpm review:economy` prints no ADVISORY line, because
    every pre-boundary row belongs to `feat/review-round-economy` whose one recognized
    merge (`cae50beb0`) is pre-adoption by the `<=` carve-out and postdates every such
-   row. This is AC-W2.8 and is verified against the real repo, not only fixtures.
+   row. This is AC-W2.12 and is verified against the real repo, not only fixtures.
 
 ### Spec amendment (same PR)
 
 `docs/superpowers/specs/ci/2026-08-04-review-round-economy.md`: amend the §9 advisory
 paragraph (the one ending "cannot be checked against anything") to state the exclusion
-rule and the two-cause wording, and add the new test shapes to the §10 list (item 8).
+rule and the two-cause wording, and add the new test shapes to the §11.3 list (item 8).
 Mark the amendment inline with a dated note, matching that spec's existing amendment
 style. `docs/superpowers/specs/ci/README.md` gains this spec's index row.
 
@@ -200,19 +213,46 @@ the fix:
    `2026-08-31T23:30:00-02:00` (chronologically 2026-09-01T01:30Z, POST-boundary
    lexically-smallest) and `2026-09-01T01:00:00+02:00` (chronologically
    2026-08-31T23:00Z, PRE-boundary lexically-larger), with `BOUNDARY =
-   2026-09-01T00:00:00.000Z`. Expect advisory fires naming the second row. Fails today:
-   the lexical sort selects the first string, `Date.parse` puts it past the boundary,
-   and the advisory is silently suppressed (reviewer probe, round 1).
-7. **Unparseable `startedAt` is signaled.** One row with `startedAt: "not-a-date"` and
-   one with `startedAt: null`, plus one parseable post-boundary row. Expect
-   `boundaryAdvisory === null` (nothing parseable precedes the boundary) AND the notes
+   2026-09-01T00:00:00.000Z`. Expect advisory fires naming the second row, AND the
+   unparseable-rows note is ABSENT (pins the note's only-when-any-exist conditional).
+   Fails today: the lexical sort selects the first string, `Date.parse` puts it past the
+   boundary, and the advisory is silently suppressed (reviewer probe, round 1).
+7. **Non-placeable `startedAt` is signaled.** One row with `startedAt: "not-a-date"` and
+   one with `startedAt: null`, plus one placeable post-boundary row. Expect
+   `boundaryAdvisory === null` (nothing placeable precedes the boundary) AND the notes
    include the `2 row(s) without a parseable startedAt` count. Fails today: NaN
    comparisons return false and `null` is filtered, both silently.
+8. **Ambiguous and calendar-invalid timestamps fall outside the accept-set.** One row
+   with timezone-less `startedAt: "2026-08-31T12:00:00"` and one with
+   `startedAt: "2026-02-30T00:00:00.000Z"`, plus one placeable post-boundary row.
+   Expect `boundaryAdvisory === null` and the `2 row(s)` note. Fails under a bare
+   `Date.parse` accept-test: the first is host-dependently placeable (fires or not by
+   `TZ`), the second silently normalizes to March 2 (reviewer probe, round 2).
+9. **Latest pre-adoption merge caps a multi-merge branch.** Branch B with TWO recognized
+   pre-adoption merges (`mergedAt` = BOUNDARY minus 3 days and BOUNDARY minus 1 day);
+   one row between them (`startedAt` = BOUNDARY minus 2 days). Expect
+   `boundaryAdvisory === null` — the LATEST merge caps the exclusion. An oldest-only
+   mutant fires the advisory (reviewer probe, round 2; the live history holds four
+   reused-branch instances, e.g. `feat/attention-alert-routing` ×3).
+10. **Pre-adoption classification is chronological.** Merge with
+    `mergedAt: "2026-09-01T01:00:00+02:00"` (chronologically 2026-08-31T23:00Z, PRE-
+    boundary; lexically GREATER than the boundary string) and a same-branch row at
+    `startedAt: "2026-08-31T22:00:00Z"`. Expect `boundaryAdvisory === null` (merge
+    classifies pre-adoption, row excluded). A lexical mutant at `mergedAt <= boundary`
+    classifies the merge post-adoption and fires the advisory.
+11. **The time cap is chronological.** Merge with
+    `mergedAt: "2026-08-31T20:00:00-02:00"` (chronologically 2026-08-31T22:00Z, pre-
+    boundary) and a same-branch row at `startedAt: "2026-08-31T21:00:00Z"`
+    (chronologically BEFORE the merge; lexically GREATER than its string). Expect
+    `boundaryAdvisory === null` (row inside the cap). A lexical mutant at
+    `startedAt <= mergedAt` places the row outside the cap and fires the advisory.
 
 Anti-tautology compliance: each case's fixture varies exactly the field under test
-(baseSha mismatch in 1, absent merge in 2, times in 3/4/6, parseability in 7), case 1's
-row uses a `baseSha` distinct from the merge's so the test cannot pass via an arcKey
-join the spec forbids, and case 5 carries its premise pair executably. Per P1 (this spec
+(baseSha mismatch in 1, absent merge in 2, times in 3/4/6/9/10/11, placeability in 7/8),
+case 1's row uses a `baseSha` distinct from the merge's so the test cannot pass via an
+arcKey join the spec forbids, and case 5 carries its premise pair executably. Cases
+6/10/11 use offset-bearing values whose lexical and chronological orders DISAGREE, so a
+lexical mutant at any of the three comparison sites fails its case. Per P1 (this spec
 eats its own cooking), the four string-presence mutants apply to the advisory-wording
 and notes assertions and their results land in the implementation commit.
 
@@ -239,8 +279,8 @@ and notes assertions and their results land in the implementation commit.
 - AC-W1.1: every P-row lands in its named target file with its filing citation inline;
   no other `docs/agents/` rule is reworded beyond the named integration points.
 - AC-W1.2: `AGENTS.md` class-sweep bullet gains exactly one sentence (P9).
-- AC-W2.1–W2.7: the seven §4 cases pass, numbered in order (AC-W2.n = §4 case n).
-- AC-W2.8: `pnpm review:economy` on the live repo prints no ADVISORY line and its other
+- AC-W2.1–W2.11: the eleven §4 cases pass, numbered in order (AC-W2.n = §4 case n).
+- AC-W2.12: `pnpm review:economy` on the live repo prints no ADVISORY line and its other
   sections are byte-identical to before the change (verified by running both and
   diffing).
 - AC-X.1: `pnpm spec:lint` on this spec and the plan is attached to every review
