@@ -421,7 +421,7 @@ Deleting one interior pipe — which is exactly how a merged cell exports to mar
 
 ### BL-MUTATION-UNICODE — an injected zero-width character is silently retained
 
-**Status:** OPEN (2026-08-06, L-wave decomposition of `BL-MUTATION-HARNESS-OPEN-HOLES`; wave spec+plan ratified 2026-08-08 — see docs/superpowers/specs/parser/2026-08-07-parser-mutation-wave-design.md) · **Severity:** medium · **Class:** PARSER ROBUSTNESS · **Effort:** M
+**Status:** IN PROGRESS (2026-08-06, L-wave decomposition of `BL-MUTATION-HARNESS-OPEN-HOLES`; wave spec+plan ratified 2026-08-08 — see docs/superpowers/specs/parser/2026-08-07-parser-mutation-wave-design.md) · **Severity:** medium · **Class:** PARSER ROBUSTNESS · **Effort:** M · **Branch:** feat/mutation-unicode
 
 A zero-width non-joiner (U+200C) injected into a cell value survives the parse intact — the live fintech ZWNJ shape. Invisible-character class, and the reason it matters is that it defeats EQUALITY: a name carrying a zero-width character does not match the same name without one, so identity linking, crew matching, and every string comparison silently miss while the rendered page looks correct.
 
