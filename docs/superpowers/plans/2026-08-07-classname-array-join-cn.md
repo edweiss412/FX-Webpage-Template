@@ -118,8 +118,15 @@ mechanical diff reviewable: that stage 1 changes no class token at all.
    parity check is a script. Command, both here and at C4 step 4.1:
 
    ```
-   node scripts/audit-cn-operand-kinds.mjs
+   node scripts/audit-cn-operand-kinds.mjs --self-test && node scripts/audit-cn-operand-kinds.mjs
    ```
+
+   (Self-test first, then the live run, EVERY time the audit is invoked — P1, C3's re-arm, C4
+   step 4.1. The script is otherwise unwired, so without the leading self-test a repair that broke
+   its rejection logic would pass silently against a clean corpus. Both halves are expected green
+   at every invocation site, so the `&&` here is a verification conjunction, not a RED
+   observation — the conjoined-marker rule is about observing failure, and nothing here is
+   supposed to fail.)
 
    The script walks the §2.2 site inventory (before Task 3: array-join operand lists, extracted
    with the same backward bracket-matching the parity script uses; after Task 3 it accepts the
@@ -133,11 +140,24 @@ mechanical diff reviewable: that stage 1 changes no class token at all.
    **The script proves it can fail before it is trusted green (invariant 1).** It is a tracked
    executable, so authoring it green-only would be the TDD bypass the census replacement was
    denied. At authoring, run it against a planted on-disk fixture tree (the Task 4 premise
-   pattern) holding: an out-of-kind operand (`active && "bg-accent"`), a ternary with a falsy
-   branch at a non-sanctioned site, and a shadowed identifier — assert exit 1 naming all three;
-   then against a fixture holding only in-kind operands plus the `DayCard` sanctioned branch —
-   assert exit 0. Record both runs in the task log. The premise fixture ships inside the script's
-   own `--self-test` mode so the C4 re-run can re-prove discrimination with one flag.
+   pattern) covering **every rejection path the script implements — one mutant per path, and one
+   accept-side control**:
+
+   1. an out-of-kind operand (`active && "bg-accent"`);
+   2. a ternary operand with a falsy branch at a non-sanctioned site;
+   3. a shadowed identifier (truthy outer binding, second falsy inner binding);
+   4. **a sole-bound identifier whose own DEFINITION is falsy** — both variants: a plain
+      `const base = ""` as the only binding, and a conditional initializer with one falsy branch.
+      This is the path a name-allowlisting binding-counter would silently skip: it passes the
+      one-binding rule and the operand-kind rule while `["a", base, "b"].join(" ")` emits
+      `"a  b"` against `cn`'s `"a b"`.
+
+   Assert exit 1 naming all of them. Then run against a clean fixture — in-kind operands, the
+   seven-identifier pattern with truthy definitions including one truthy conditional initializer
+   (the `pillState` shape), and the `DayCard` sanctioned branch — assert exit 0. Record both runs
+   in the task log. The fixtures ship inside the script's own `--self-test` mode, and **every
+   invocation site runs `--self-test` before the live audit** (the command block above), so no
+   later repair can hollow out a rejection path while the clean corpus stays green.
    Expected tally at the current base: 30 unfiltered sites; 18 conditional operands at 18 sites;
    exactly one falsy-capable branch (`components/crew/primitives/DayCard.tsx:98`); every remaining
    operand a non-empty string literal or one of the seven identifiers. Record the actual tally in
@@ -848,8 +868,11 @@ touch the branch, with stated effects:
   **A content-changing commit also re-arms the one-shot proofs, rebase or no rebase.** If the
   repair touched any of the 18 migrated files or either arc script, re-run
   `node scripts/verify-cn-operand-parity.mjs --base $MIGRATION_PARENT` (the anchor is unchanged —
-  no history was rewritten) and `node scripts/audit-cn-operand-kinds.mjs`, and replace the PR-body
-  transcripts, BEFORE dispatching the delta round — C4's no-op fast path checks only whether
+  no history was rewritten) and
+  `node scripts/audit-cn-operand-kinds.mjs --self-test && node scripts/audit-cn-operand-kinds.mjs`
+  (self-test first — a repair that touched the SCRIPT is exactly the case where its rejection
+  paths must be re-proven), and replace the PR-body transcripts, BEFORE dispatching the delta
+  round — C4's no-op fast path checks only whether
   `origin/main` moved and would otherwise let a post-Task-6 repair merge with transcripts
   describing the pre-repair tree.
 
@@ -894,11 +917,13 @@ authorized by CI green on the **exact head** being merged.
      proofs cover a superseded history is exactly the silent-drift window the parity script exists
      to close. So, in order:
      1. **Re-run P1 steps 2–3 in full** — the separator-agnostic inventory sweep and
-        `node scripts/audit-cn-operand-kinds.mjs` (P1's exact command; it covers the falsy
-        literals, the seven identifier definitions, and the three-kind enumeration, and exits 1
-        naming any operand or definition that moved). The equivalence premise is base-specific
-        (spec §4.1), and a newly integrated upstream edit can break it without moving a single
-        count. Record both outputs in the task log.
+        `node scripts/audit-cn-operand-kinds.mjs --self-test && node scripts/audit-cn-operand-kinds.mjs`
+        (P1's exact command, self-test included: it re-proves the rejection paths against the
+        planted mutants before trusting the live run; the audit covers the falsy literals, the
+        seven identifier definitions, the one-binding rule, and the three-kind enumeration, and
+        exits 1 naming anything that moved). The equivalence premise is base-specific (spec §4.1),
+        and a newly integrated upstream edit can break it without moving a single count. Record
+        both outputs in the task log.
      2. **Re-resolve the anchor and re-run parity.** Locate the rewritten migration commit by its
         `refactor(ui): migrate array-join classNames` subject, then
         `MIGRATION_PARENT=$(git rev-parse <rebased-migration-sha>~1)` and
