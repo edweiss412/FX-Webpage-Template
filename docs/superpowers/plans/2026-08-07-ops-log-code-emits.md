@@ -52,10 +52,10 @@ impeccable-gate: N/A — no UI surface
 
 ## Acceptance criteria
 
-- **AC-1** — Each of the five OAuth branches emits exactly one record with `level: "warn"`, `code: "OAUTH_REDIRECT_INVALID"`, and its own distinct `reason` (`callback_invalid_explicit_next`, `start_invalid_next`, `bootstrap_invalid_next`, `bootstrap_unparsable_next`, `bootstrap_intent_mismatch`).
+- **AC-1** — Each of the five OAuth branches emits exactly one record with `level: "warn"`, `code: "OAUTH_REDIRECT_INVALID"`, and its own distinct `reason`. Six values across five sites, because site 5 splits on whether the intent verified: `callback_invalid_explicit_next`, `start_invalid_explicit_next`, `bootstrap_next_rejected`, `bootstrap_unparsable_next`, `bootstrap_intent_unverified`, `bootstrap_intent_target_mismatch`.
 - **AC-2** — No emit changes the shipped refusal. Status codes, redirect targets, PKCE cookie clearing, and control flow are unchanged at every site.
 - **AC-3** — The onboarding operator-error path emits exactly one record with `level: "error"`, `code: "ONBOARDING_OPERATOR_ERROR"`, and `reason` ∈ {`env_missing`, `json_malformed`, `client_email_missing`} matching the actual cause.
-- **AC-4** — No emit carries service-account key material, the `JSON.parse` error, or the raw rejected `next` value.
+- **AC-4** — No emit carries service-account key material, the `JSON.parse` error, or the raw rejected `next` value. Enforced **structurally** — no record carries an `error` key at all — because a parse-error message leaks input text while containing neither the sentinel nor `private_key`, so content matching alone does not catch it.
 - **AC-5** — `OnboardingWizard`'s rendered output is unchanged; the three shipped render assertions pass unmodified.
 - **AC-6** — Both ledger entries archive with provenance, and the `IN PROGRESS` markers come off in the PR's last commit.
 
@@ -68,7 +68,7 @@ impeccable-gate: N/A — no UI surface
 **RED.** Create a new node-environment suite at tests/auth/oauthRedirectInvalidTelemetry.test.ts, structured on the shipped harness at `tests/auth/callback-oauth-telemetry.test.ts:34` — `vi.resetModules()`, `setLogSink` capturing `LogRecord[]`, dynamic `import` of the route, `resetLogSink()` in a `finally`. Two cases:
 
 1. Drive `app/auth/callback/route.ts`'s `GET` with a valid `code` and an **explicitly invalid** `next` (so `hasInvalidExplicitNext` is true at `app/auth/callback/route.ts:181`). Assert exactly one record with `code === "OAUTH_REDIRECT_INVALID"`, `level === "warn"`, `context.reason === "callback_invalid_explicit_next"`, **and** that the response is still a 302 to the sign-in path — AC-2 asserted in the same case as AC-1, so an emit that accidentally changes the redirect fails here rather than in review.
-2. Drive `app/api/auth/google/start/route.ts`'s `GET` with an invalid `next`. Same assertions with `reason === "start_invalid_next"`.
+2. Drive `app/api/auth/google/start/route.ts`'s `GET` with an invalid `next`. Same assertions with `reason === "start_invalid_explicit_next"`. Both cases also assert **structurally** that the record carries no `error` key and that `JSON.stringify(record)` does not contain the rejected `next` value (AC-4).
 
 **Concrete failure mode caught:** an emit added to one branch and forgotten on its sibling — the exact drip this arc exists to end. Both cases fail today with **zero** captured records, which is the executable RED; the implementer records that observed-failing run.
 
@@ -100,15 +100,18 @@ try {
 
 | Case | Input that reaches it | Asserted `reason` |
 | --- | --- | --- |
-| `app/api/auth/picker-bootstrap/route.ts:162` | a `next` `validateNextParamDetailed` rejects | `bootstrap_invalid_next` |
+| `app/api/auth/picker-bootstrap/route.ts:162` | a `next` `validateNextParamDetailed` rejects — **or an absent `next`**, since this site carries no `rawNext !== null` guard | `bootstrap_next_rejected` |
 | `app/api/auth/picker-bootstrap/route.ts:165` | a `next` that validates but `parseNextPath` cannot split into slug + share token | `bootstrap_unparsable_next` |
-| `app/api/auth/picker-bootstrap/route.ts:176` | a well-formed tokenized `next` with an absent or mismatched signed `t` intent | `bootstrap_intent_mismatch` |
+| `app/api/auth/picker-bootstrap/route.ts:176` (a) | a well-formed tokenized `next` whose `t` intent fails `verifyPickerIntent` — absent, malformed, bad signature, or **expired** | `bootstrap_intent_unverified` |
+| `app/api/auth/picker-bootstrap/route.ts:176` (b) | a well-formed tokenized `next` with a VERIFIED intent naming a different slug or share token | `bootstrap_intent_target_mismatch` |
 
-Each asserts one record, `level === "warn"`, `code === "OAUTH_REDIRECT_INVALID"`, its own `reason`, **and** `res.status === 403`.
+Each asserts one record, `level === "warn"`, `code === "OAUTH_REDIRECT_INVALID"`, its own `reason`, **and** `res.status === 403`, plus the same structural no-`error`/no-raw-`next` assertions as Task 1.
 
-**Concrete failure mode caught:** all three branches collapsed onto one emit, or a single emit hoisted above the branches — which would make `reason` a constant and the whole discrimination in spec §1.1 item 2 a fiction. Because each case asserts a *different* `reason`, a hoisted shared emit fails three ways rather than passing silently. That is the specific reason these are three cases and not one parameterized case over a shared expectation.
+**Concrete failure mode caught:** all four branches collapsed onto one emit, or a single emit hoisted above the branches — which would make `reason` a constant and the whole discrimination in spec §1.1 item 2 a fiction. Because each case asserts a *different* `reason`, a hoisted constant can match at most one case and **fails the other three**. Stated precisely: no single hoist fails all four, but the suite rejects every possible hoist, which is the property that matters. That is the specific reason these are four separate cases and not one parameterized case over a shared expectation.
 
-**Premise (anti-tautology).** Case `app/api/auth/picker-bootstrap/route.ts:165` is the fragile one: it needs a `next` that **passes** `validateNextParamDetailed` and **fails** `parseNextPath`. If no such value exists the case would silently drift into re-testing `app/api/auth/picker-bootstrap/route.ts:162`. The implementer states that premise executably with `premise`/`premiseHolds` from `tests/_shared/premise.ts` — assert `validateNextParamDetailed(value).ok === true` immediately above the case's action, so a value that stops satisfying it fails by name instead of passing at the wrong branch. The premise is asserted at case top level, never inside a `.each` callback.
+**Case (b) is the one worth getting right.** It needs a VERIFIED intent that names a different target, so it must sign a real intent with the route's signing key rather than passing a bogus `t`. If it instead passes an unverifiable token it silently becomes a duplicate of case (a) and the `bootstrap_intent_target_mismatch` branch ships untested. The implementer asserts, via `premise`, that `verifyPickerIntent` returns non-null for the token the case constructs — that premise is what separates (b) from (a).
+
+**Premise (anti-tautology).** Case `app/api/auth/picker-bootstrap/route.ts:165` is the other fragile one: it needs a `next` that **passes** `validateNextParamDetailed` and **fails** `parseNextPath`. If no such value exists the case silently drifts into re-testing `app/api/auth/picker-bootstrap/route.ts:162`. The implementer states that premise executably with `premise`/`premiseHolds` from `tests/_shared/premise.ts` — assert `validateNextParamDetailed(value).ok === true` immediately above the case's action, so a value that stops satisfying it fails by name instead of passing at the wrong branch. Both this premise and case (b)'s are asserted at case top level, never inside a `.each` callback.
 
 **Implementation.** Same shape as Task 1, `source: "api.auth.pickerBootstrap"`, at all three sites. The route already wraps its handler in `runWithRequestContext` (`app/api/auth/picker-bootstrap/route.ts:159`), so these three records carry a real `requestId` — unlike Task 1's two, per documented limit §5.3. Do not add the wrapper to the other two routes; that is out of scope.
 
@@ -151,23 +154,27 @@ if (!service.ok) {
 
 `reason` is read from `service.reason` — never re-derived, so the emit cannot disagree with the branch that produced it. `components/admin/OnboardingWizard.tsx` gains `import { log } from "@/lib/log";`.
 
-## Task 4 — the secrets negative guard
+## Task 4 — the secrets guard, proven by mutation
 
 <!-- task: red=`pnpm vitest run tests/components/admin/OnboardingWizard.test.tsx` ac=AC-4 -->
 
-**RED.** Two cases in the same file, both asserting that nothing derived from `GOOGLE_SERVICE_ACCOUNT_JSON` reaches a record:
+**This task has no natural RED, and that is stated rather than glossed.** Before Task 3 the captured record array is empty, so every negative assertion passes vacuously; after Task 3 the shipped emit is already safe, so they pass legitimately. Claiming a RED on either basis would be exactly the tautology this project's rules exist to stop. Task 4 is a **regression guard**, and its RED is obtained by mutation.
 
-1. Set the env var to well-formed JSON with **no** `client_email` and a sentinel private key (a value that could only have come from the env var, e.g. `"SENTINEL-PRIVATE-KEY-DO-NOT-LOG"`). Render, capture, assert `JSON.stringify(records)` contains neither the sentinel nor the substring `private_key`.
-2. Set it to a **malformed** value embedding the same sentinel, so the `JSON.parse`-message path is covered — V8's parse errors quote offending input, and this is the case that catches someone "improving" the emit by attaching `error`.
+**Assertions — structural first, content second.** For each case, every captured record must satisfy:
 
-**Concrete failure mode caught:** regression of the spec §2.2 secrets contract — most plausibly a future contributor adding `error` to the emit for debuggability, which would pipe a message containing input text into `app_events`.
+1. `record.context.error === undefined` — **the load-bearing assertion.** The §2.2 prohibition is specifically on attaching the `JSON.parse` error, and a V8 parse message such as `Expected double-quoted property name in JSON at position 38` contains neither a sentinel nor `private_key`. Content matching alone would let the exact forbidden regression ship green. `serializeError` persists `name`, `message` and `stack`, so the only safe rule is that no `error` key exists at all.
+2. `JSON.stringify(records)` contains neither the sentinel nor the substring `private_key` — the backstop for a leak arriving by some other field.
 
-**Premise (mandatory, and the reason this task is separate).** The assertion's discriminating power rests entirely on the sentinel being present in the environment the component actually reads, and on at least one record having been captured. Without that, a case whose env setup silently failed passes by finding nothing in an empty array — the exact "expected value read from the same degenerate source as the actual" shape the anti-tautology rule names. So each case asserts, via `premise`/`premiseHolds` from `tests/_shared/premise.ts` and immediately above the negative assertion:
+**Two cases**, both with `GOOGLE_SERVICE_ACCOUNT_JSON` carrying a sentinel that could only have come from the env var (e.g. `"SENTINEL-PRIVATE-KEY-DO-NOT-LOG"`): one well-formed but missing `client_email`, one malformed so the parse-error path is exercised.
+
+**Observed-RED protocol (this is the task's actual red step).** After Task 3 is green: temporarily add `error` — the caught `JSON.parse` error — to the wizard emit in the working tree; run this suite; **observe it FAIL** on assertion 1; revert the mutant; observe it pass. The mutant is never committed. The commit message and PR body record both observations with their output. A green claimed without that observation is not evidence the guard works.
+
+**Premise (mandatory).** The assertions rest on two conditions, both stated via `premise`/`premiseHolds` from `tests/_shared/premise.ts` immediately above the negative assertion:
 
 - `process.env.GOOGLE_SERVICE_ACCOUNT_JSON` contains the sentinel, **and**
 - `records.length > 0`.
 
-Both premises execute unconditionally at case top level, never inside a callback whose iteration count could be zero.
+The second is the one that matters: without it, a case whose env setup or sink capture silently failed passes by finding nothing in an empty array — the exact "expected value read from the same degenerate source as the actual" shape the anti-tautology rule names. Both execute unconditionally at case top level, never inside a callback whose iteration count could be zero.
 
 ## Task 5 — archive the ledger entries and clear the markers
 
