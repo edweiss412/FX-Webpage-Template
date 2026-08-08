@@ -262,6 +262,15 @@ function declaredBindings(body: string[]): Set<string> {
     /(?:^|[\n;{,])\s*(?:(?:public|private|protected|readonly|override|abstract|async|static|get|set)\s+)*([A-Za-z_$][\w$]*)\s*(?:<[^<>]*>)?\s*\(([^)]*)\)\s*(?::\s*[^{;]+)?\{/g;
   let m: RegExpExecArray | null;
   while ((m = DECL.exec(src)) !== null) out.add(m[1]!);
+  // A SIGNATURE has no body — `interface A { expect(v: string): void }` — so the
+  // body-brace discriminator cannot see it. Requiring a return-type annotation
+  // keeps this from matching a bare call (R7 gate finding 3).
+  const METHOD_SIG =
+    /(?:^|[\n;{,])\s*(?:readonly\s+)?([A-Za-z_$][\w$]*)\s*(?:<[^<>]*>)?\s*\(([^)]*)\)\s*:\s*[^;{\n]+[;\n]/g;
+  while ((m = METHOD_SIG.exec(src)) !== null) {
+    out.add(m[1]!);
+    paramNames(m[2] ?? "");
+  }
   while ((m = METHOD_DEF.exec(src)) !== null) {
     out.add(m[1]!);
     paramNames(m[2] ?? "");
@@ -343,9 +352,18 @@ export function analyzePlan(path: string, text: string): PlanFenceReport {
       // expect(x);` is valid, and dropping the line took the call with it
       // (R6 gate finding 1).
       const uses = maskNonCode(
+        // Whole STATEMENT, across lines. Masking line by line left the body of a
+        // multiline `import {\n expect as asserted\n}` looking like free uses
+        // (R7 gate finding 2).
         fence.body
-          .map((l) => l.replace(/^[ \t]*import\s[^;\n]*(?:;|$)/, (m) => " ".repeat(m.length)))
-          .join("\n"),
+          .join("\n")
+          // Runs to the module specifier, so a multiline clause is covered. The
+          // earlier `(?:;|$)` alternative was useless under /m — `$` matches an
+          // end of LINE, so the lazy span always stopped at the first one and
+          // masked only the opening line.
+          .replace(/^[ \t]*import\b(?:[\s\S]*?from[ \t]*)?['"][^'"]*['"];?/gm, (m) =>
+            m.replace(/[^\n]/g, " "),
+          ),
       );
       // A FREE identifier only. `re.test(x)`, `parts.join("/")` and
       // `Promise.resolve()` are property reads whose names merely collide with
@@ -370,9 +388,15 @@ export function analyzePlan(path: string, text: string): PlanFenceReport {
       while (re.exec(src) !== null) per.push({ rule: "MANGLED_TEMPLATE", instance: token });
     }
 
+    // Masked, not raw: `"rows[0].name"` inside a string and `// rows[0].name`
+    // in a comment are inert text, and firing on them is a false positive on
+    // valid code (R7 gate finding 1). FENCE_EM_DASH and MANGLED_TEMPLATE keep
+    // scanning RAW on purpose — an em-dash inside a string literal IS the
+    // violation those rules are about.
+    const codeOnly = maskNonCode(src);
     UNCHECKED_INDEX.lastIndex = 0;
     let ix: RegExpExecArray | null;
-    while ((ix = UNCHECKED_INDEX.exec(src)) !== null) {
+    while ((ix = UNCHECKED_INDEX.exec(codeOnly)) !== null) {
       per.push({ rule: "UNCHECKED_INDEX", instance: ix[0]! });
     }
 

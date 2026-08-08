@@ -727,7 +727,12 @@ function stripCodeBlocks(text) {
         block.at.pop();
         closeBlock();
         prevBlank = false;
-        paragraphOpen = true;
+        paragraphOpen = false;
+        // Do NOT consume the line. It ended the container, but it may also OPEN
+        // something — a root fence written right after a dedent was missed
+        // entirely, and its example verdict stayed live (R7 parser finding 1).
+        // Re-processing it costs one iteration and closes that whole class.
+        i -= 1;
         continue;
       }
       const close = FENCE_CLOSE.exec(rest);

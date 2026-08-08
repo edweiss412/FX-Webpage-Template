@@ -719,3 +719,53 @@ describe("R6 gate repairs", () => {
     expect(hits(text)).toContain("UNCHECKED_INDEX:rows[0].name");
   });
 });
+
+/** Round-7 gate findings — three false positives on valid code, now pinned. */
+describe("R7 gate repairs", () => {
+  it("(1) does not fire UNCHECKED_INDEX on inert text", () => {
+    // `"rows[0].name"` in a string and `// rows[0].name` in a comment are not
+    // accesses. Scanning raw text fired on both — a false positive on valid code.
+    const text = [
+      "In `lib/a.ts`:",
+      "",
+      "```ts",
+      'const label = "rows[0].name";',
+      "// rows[0].name is the shape we mean",
+      "const safe = rows[0]!.name;",
+      "```",
+    ].join("\n");
+    expect(rulesOf(text)).not.toContain("UNCHECKED_INDEX");
+  });
+
+  it("(2) resolves an alias in a MULTILINE import", () => {
+    const text = [
+      "In `lib/a.ts`:",
+      "",
+      "```ts",
+      // The SOURCE name must be the registry name and the BOUND name must not:
+      // otherwise `expect` is bound either way and the fixture discriminates
+      // nothing — the first version of this case did exactly that and the
+      // per-line-masking mutant survived it.
+      "import {",
+      "  expect as asserted,",
+      '} from "vitest";',
+      'import { readFileSync } from "node:fs";',
+      "asserted(readFileSync(p));",
+      "```",
+    ].join("\n");
+    expect(rulesOf(text)).not.toContain("UNIMPORTED_IDENTIFIER");
+  });
+
+  it("(3) binds a method SIGNATURE that has no body", () => {
+    const text = [
+      "In `lib/a.ts`:",
+      "",
+      "```ts",
+      'import { readFileSync } from "node:fs";',
+      "interface Adapter { expect(value: string): void }",
+      "void readFileSync(p);",
+      "```",
+    ].join("\n");
+    expect(rulesOf(text)).not.toContain("UNIMPORTED_IDENTIFIER");
+  });
+});

@@ -133,7 +133,6 @@ export const PLAN_FENCE_BASELINE: readonly string[] = [
   "docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/02-schema-rls.md|9eef951c|UNCHECKED_INDEX|rows[0].on_update|1",
   "docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/02-schema-rls.md|9eef951c|UNCHECKED_INDEX|rows[0].ref_column|1",
   "docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/02-schema-rls.md|9eef951c|UNCHECKED_INDEX|rows[0].ref_table|1",
-  "docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/02-schema-rls.md|9eef951c|UNCHECKED_INDEX|rows[0].was_update|2",
   "docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/02-schema-rls.md|f0693e94|FENCE_EM_DASH|10|1",
   "docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/02-schema-rls.md|f0693e94|FENCE_EM_DASH|11|1",
   "docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/02-schema-rls.md|f0693e94|FENCE_EM_DASH|12|1",
@@ -295,15 +294,13 @@ export const PLAN_FENCE_BASELINE: readonly string[] = [
   "docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/09-10-admin.md|809c8cc5|FENCE_EM_DASH|7|1",
   "docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/09-10-admin.md|809c8cc5|FENCE_EM_DASH|8|1",
   "docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/09-10-admin.md|809c8cc5|FENCE_EM_DASH|9|1",
-  "docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/09-10-admin.md|809c8cc5|UNCHECKED_INDEX|cas[0].watched_folder_id|1",
   "docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/09-10-admin.md|809c8cc5|UNCHECKED_INDEX|checkpoint[0].status|2",
-  "docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/09-10-admin.md|809c8cc5|UNCHECKED_INDEX|cp[0].status|2",
   "docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/09-10-admin.md|809c8cc5|UNCHECKED_INDEX|existing[0].id|1",
   "docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/09-10-admin.md|809c8cc5|UNCHECKED_INDEX|existing[0].published|1",
-  "docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/09-10-admin.md|809c8cc5|UNCHECKED_INDEX|lockedShow[0].id|5",
+  "docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/09-10-admin.md|809c8cc5|UNCHECKED_INDEX|lockedShow[0].id|2",
   "docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/09-10-admin.md|809c8cc5|UNCHECKED_INDEX|lockedShow[0].published|1",
-  "docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/09-10-admin.md|809c8cc5|UNCHECKED_INDEX|remaining[0].n|3",
-  "docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/09-10-admin.md|809c8cc5|UNCHECKED_INDEX|unresolvedManifest[0].n|4",
+  "docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/09-10-admin.md|809c8cc5|UNCHECKED_INDEX|remaining[0].n|2",
+  "docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/09-10-admin.md|809c8cc5|UNCHECKED_INDEX|unresolvedManifest[0].n|2",
   "docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/09-10-admin.md|9576fca8|FENCE_EM_DASH|1|1",
   "docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/09-10-admin.md|d09733f9|FENCE_EM_DASH|1|1",
   "docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/09-10-admin.md|d09733f9|FENCE_EM_DASH|2|1",
@@ -341,8 +338,6 @@ export const PLAN_FENCE_BASELINE: readonly string[] = [
   "docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/11-cross-cutting.md|19bc9a84|FENCE_EM_DASH|4|1",
   "docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/11-cross-cutting.md|19bc9a84|FENCE_EM_DASH|5|1",
   "docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/11-cross-cutting.md|19bc9a84|FENCE_EM_DASH|6|1",
-  "docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/11-cross-cutting.md|19bc9a84|UNCHECKED_INDEX|selectedOptions[0].text|1",
-  "docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/11-cross-cutting.md|19bc9a84|UNCHECKED_INDEX|selectedOptions[0].value|1",
   "docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/11-cross-cutting.md|36077121|FENCE_EM_DASH|100|1",
   "docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/11-cross-cutting.md|36077121|FENCE_EM_DASH|101|1",
   "docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/11-cross-cutting.md|36077121|FENCE_EM_DASH|102|1",
@@ -457,7 +452,6 @@ export const PLAN_FENCE_BASELINE: readonly string[] = [
   "docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/11-cross-cutting.md|36077121|FENCE_EM_DASH|9|1",
   "docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/11-cross-cutting.md|36077121|MANGLED_TEMPLATE|\\`|8",
   "docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/11-cross-cutting.md|36077121|UNCHECKED_INDEX|candidates[0].occurrence_index|1",
-  "docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/11-cross-cutting.md|36077121|UNCHECKED_INDEX|withAdmin[0].body|2",
   "docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/11-cross-cutting.md|62dc12ec|FENCE_EM_DASH|1|1",
   "docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/11-cross-cutting.md|62dc12ec|FENCE_EM_DASH|2|1",
   "docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/11-cross-cutting.md|62dc12ec|FENCE_EM_DASH|3|1",
@@ -2488,7 +2482,6 @@ export const PLAN_FENCE_BASELINE: readonly string[] = [
   "docs/superpowers/plans/schedule/2026-06-22-per-day-schedule-keytimes.md|22481c9f|UNIMPORTED_IDENTIFIER|it|1",
   "docs/superpowers/plans/schedule/2026-06-22-per-day-schedule-keytimes.md|2b70bf98|FENCE_EM_DASH|1|1",
   "docs/superpowers/plans/schedule/2026-06-22-per-day-schedule-keytimes.md|2e592cd5|FENCE_EM_DASH|1|1",
-  "docs/superpowers/plans/schedule/2026-06-22-per-day-schedule-keytimes.md|2e592cd5|UNCHECKED_INDEX|entries[0].start|2",
   "docs/superpowers/plans/schedule/2026-06-22-per-day-schedule-keytimes.md|3844947a|FENCE_EM_DASH|1|1",
   "docs/superpowers/plans/schedule/2026-06-22-per-day-schedule-keytimes.md|3b12d362|FENCE_EM_DASH|1|1",
   "docs/superpowers/plans/schedule/2026-06-22-per-day-schedule-keytimes.md|3b12d362|UNIMPORTED_IDENTIFIER|describe|1",
@@ -2513,7 +2506,6 @@ export const PLAN_FENCE_BASELINE: readonly string[] = [
   "docs/superpowers/plans/schedule/2026-06-22-per-day-schedule-keytimes.md|842436fb|FENCE_EM_DASH|1|1",
   "docs/superpowers/plans/schedule/2026-06-22-per-day-schedule-keytimes.md|8c2e4553|FENCE_EM_DASH|1|1",
   "docs/superpowers/plans/schedule/2026-06-22-per-day-schedule-keytimes.md|8c2e4553|FENCE_EM_DASH|2|1",
-  "docs/superpowers/plans/schedule/2026-06-22-per-day-schedule-keytimes.md|8c2e4553|UNCHECKED_INDEX|entries[0].start|1",
   "docs/superpowers/plans/schedule/2026-06-22-per-day-schedule-keytimes.md|8dba8a64|FENCE_EM_DASH|1|1",
   "docs/superpowers/plans/schedule/2026-06-22-per-day-schedule-keytimes.md|8dba8a64|FENCE_EM_DASH|2|1",
   "docs/superpowers/plans/schedule/2026-06-22-per-day-schedule-keytimes.md|8e58663e|FENCE_EM_DASH|1|1",
@@ -2553,7 +2545,6 @@ export const PLAN_FENCE_BASELINE: readonly string[] = [
   "docs/superpowers/plans/schedule/2026-06-22-per-day-schedule-keytimes.md|d658c1d9|FENCE_EM_DASH|2|1",
   "docs/superpowers/plans/schedule/2026-06-22-per-day-schedule-keytimes.md|d6bce121|FENCE_EM_DASH|1|1",
   "docs/superpowers/plans/schedule/2026-06-22-per-day-schedule-keytimes.md|e423cfa8|FENCE_EM_DASH|1|1",
-  "docs/superpowers/plans/schedule/2026-06-22-per-day-schedule-keytimes.md|e423cfa8|UNCHECKED_INDEX|entries[0].start|1",
   "docs/superpowers/plans/schedule/2026-06-22-per-day-schedule-keytimes.md|ec91c8a1|FENCE_EM_DASH|1|1",
   "docs/superpowers/plans/schedule/2026-06-22-per-day-schedule-keytimes.md|ecfabeb4|FENCE_EM_DASH|1|1",
   "docs/superpowers/plans/schedule/2026-06-22-per-day-schedule-keytimes.md|f0600091|FENCE_EM_DASH|1|1",
@@ -3575,5 +3566,5 @@ export const PLAN_FENCE_BASELINE: readonly string[] = [
 ];
 
 /** Decrease-only. Raising either is a deliberate, reviewed edit. */
-export const FROZEN_ROWS = 3546;
-export const FROZEN_TOTAL = 3624;
+export const FROZEN_ROWS = 3537;
+export const FROZEN_TOTAL = 3605;

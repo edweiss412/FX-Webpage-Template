@@ -345,3 +345,35 @@ structural answer — enroll both surfaces in the source-mutation registry, so "
 guard does not pin what it claims" becomes a computed score over a declared
 operator set instead of a reviewer's enumeration.
 
+**R7 — split; 7 findings (5 gate, 2 parser), all seven confirmed and repaired.**
+The curve bent: 14 findings to 7.
+
+**Three were false positives on VALID code** — the failure mode that gets a gate
+switched off rather than fixed. `UNCHECKED_INDEX` scanned raw text, so
+`"rows[0].name"` in a string and `// rows[0].name` in a comment both fired; a
+multiline aliased import left its source name looking free, because imports were
+masked line by line; and an interface method SIGNATURE has no body, so the
+body-brace discriminator could not see it. FENCE_EM_DASH and MANGLED_TEMPLATE
+still scan RAW on purpose — an em-dash inside a string literal IS the violation
+those rules are about.
+
+**Two were unpinned generator properties**: the identity FIELD (swapping
+`fenceKey` for `fenceLine` left every assertion green while making regenerated
+rows unmatchable), and recursive traversal (every earlier fixture used a single
+directory, so a walk that returned early on the first subdirectory passed).
+
+**One was a parser miss introduced by R6's own repair**: closing a fence when its
+container ends CONSUMED the dedented line, so a root fence opening on that line
+was never seen. It re-processes the line now.
+
+**Two of this round's own new pins survived their mutants** and had to be repaired
+before the repairs could be trusted: the multiline-import fixture bound `expect`
+either way, so it discriminated nothing; and the whole-statement mask's
+`(?:;|$)` alternative is useless under `/m`, because `$` matches an end of LINE
+and the lazy span always stopped at the first one. Both were caught by RUNNING
+the mutant, not by reading the code — which is the arc's most repeated lesson and
+the reason every repair since R4 ships with its mutant recorded.
+
+Baseline: **3537 rows, 3605 occurrences**, down another nine as the false
+positives cleared.
+

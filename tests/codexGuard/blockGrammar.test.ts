@@ -311,3 +311,14 @@ describe("R6 parser repairs", () => {
     });
   });
 });
+
+/** Round-7 parser finding. */
+describe("R7 parser repair", () => {
+  it("re-processes the line that ended a container, so a root fence on it still opens", async () => {
+    // Closing the list-contained fence CONSUMED this line, so the root fence it
+    // opens was never seen and the example verdict stayed live.
+    const text =
+      "- First example:\n  ```text\n  sample\n\n```text\nVERDICT: APPROVE\n```\n\nStill working.\n";
+    expect(await classify(text)).toMatchObject({ status: "no_verdict" });
+  });
+});

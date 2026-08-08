@@ -236,3 +236,52 @@ describe("the generator records real occurrence counts", () => {
     }
   });
 });
+
+/**
+ * R7 gate findings 4 and 5 — the generator's IDENTITY field and its RECURSIVE
+ * traversal. Both were unpinned: every previous fixture used one directory and
+ * one fence, so `f.fenceLine` for `f.fenceKey` and a non-recursive walk each
+ * left the suite green while silently breaking regeneration.
+ */
+describe("the generator writes content identity and walks the whole tree", () => {
+  it("emits the analyzer's CONTENT key and finds plans in NESTED directories", () => {
+    const dir = mkdtempSync(join(tmpdir(), "planfences-walk-"));
+    try {
+      const root = join(dir, "docs/superpowers/plans");
+      const nested = join(root, "outer/inner");
+      mkdirSync(nested, { recursive: true });
+      // One plan at the top level, one two directories down. A walk that returns
+      // early on the first subdirectory finds only one of them.
+      writeFileSync(
+        join(root, "top.md"),
+        ["In `lib/a.ts`:", "", "```ts", "const n = rows[0].name;", "```", ""].join("\n"),
+      );
+      writeFileSync(
+        join(nested, "deep.md"),
+        ["In `lib/b.ts`:", "", "```ts", "const m = cols[0].label;", "```", ""].join("\n"),
+      );
+      const out = join(dir, "baseline.ts");
+      const res = spawnSync("pnpm", ["tsx", "scripts/gen-plan-fences-baseline.ts"], {
+        cwd: process.cwd(),
+        encoding: "utf8",
+        env: { ...process.env, PLAN_FENCES_OUT: out, PLAN_FENCES_ROOT: root },
+      });
+      expect(res.status, `generator failed: ${res.stderr}`).toBe(0);
+      const written = readFileSync(out, "utf8");
+
+      expect(written, "the nested plan must be walked").toContain("deep.md");
+      expect(written, "the top-level plan must be walked").toContain("top.md");
+      expect(written).toMatch(/export const FROZEN_ROWS = 2;/);
+
+      // The identity field must be the CONTENT key, not the line number. Both
+      // fences open on line 3, so a fenceLine serialization writes `|3|` — and
+      // the analyzer would never match it.
+      expect(written, "rows must carry the content digest, not the fence line").not.toMatch(
+        /top\.md\|3\|/,
+      );
+      expect(written).toMatch(/top\.md\|[0-9a-f]{8}\|UNCHECKED_INDEX/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
