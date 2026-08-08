@@ -412,7 +412,7 @@ function composePrompt(cfg) {
 // ---------------------------------------------------------------------------
 
 /** A CommonMark list marker and the whitespace that opens its content. */
-const MARKER_HEAD = /^([-*+]|\d{1,9}[.)])([ \t]+)/;
+const MARKER_HEAD = /^([-*+]|\d{1,9}[.)])([ \t]+|$)/;
 /** A fence, once the container prefix has been peeled off the line. */
 const FENCE_OPEN = /^(`{3,}|~{3,})(.*)$/;
 /** A closing fence: its own leading whitespace, then nothing but the run. */
@@ -535,69 +535,422 @@ function scanContainers(line, entering) {
  *   — or on a list-marker line, where the marker plays the part of the blank.
  */
 function stripCodeBlocks(text) {
-  const lines = text.split("\n");
+  // Normalize CRLF first. Splitting on "\n" alone leaves a trailing "\r" that
+  // FENCE_CLOSE rejects, so every fenced block in a CRLF message stayed open and
+  // its example stayed live (diff review R1 finding 5). Callers only regex-match
+  // lines, so returning normalized text costs nothing.
+  const lines = text.replace(/\r\n/g, "\n").split("\n");
   const out = lines.slice();
-  // The lines of the block currently open. They are blanked only if the block
-  // closes; abandoning the list is how "open at EOF strips nothing" is spelled.
-  // `col` is the container content column the block was opened at, and every
-  // indentation test against it is relative to that origin.
-  let block = null; // { kind: "fence" | "indented", char, len, col, at: number[] }
-  let prevBlank = true; // start of document opens a block just like a blank line does
-  let listCol = 0; // content column of the innermost list item believed open
+
+  // The container stack. Each frame owns the column its CONTENT starts at, and
+  // every indentation test below is taken from the innermost frame's column
+  // rather than from the left margin. A stack is what retires the single-column
+  // approximation: a dedent POPS to the frame that still matches instead of
+  // re-deriving from the root, and a block quote is a frame like any other.
+  let stack = [];
+  // The open leaf block, if any. `at` collects its lines so they can be blanked
+  // when — and only when — the block states where it ends.
+  let block = null;
+  let prevBlank = true;
+  let paragraphOpen = false;
+
   const closeBlock = () => {
     for (const i of block.at) out[i] = "";
     block = null;
   };
+
+  /**
+   * Walk `line` against the open containers.
+   *
+   * Returns the offset and column where content begins, how many frames the line
+   * actually matched, and whether it opened new ones. A line that matches fewer
+   * frames than are open is either a dedent (pop) or a LAZY continuation — the
+   * caller decides, because only it knows whether a paragraph is open.
+   */
+  const matchContainers = (line) => {
+    let idx = 0;
+    let col = 0;
+    let matched = 0;
+    for (const frame of stack) {
+      let j = idx;
+      let c = col;
+      while (j < line.length && (line[j] === " " || line[j] === "\t") && c < frame.col) {
+        c = advance(line[j], c);
+        j += 1;
+      }
+      if (frame.kind === "quote") {
+        // Up to three spaces, then `>`, then an optional single space.
+        if (c - col <= 3 && line[j] === ">") {
+          j += 1;
+          c += 1;
+          if (line[j] === " ") {
+            j += 1;
+            c += 1;
+          }
+          idx = j;
+          col = c;
+          matched += 1;
+          continue;
+        }
+        break;
+      }
+      // A list frame is matched by indentation alone once its marker line is past.
+      if (c >= frame.col) {
+        idx = j;
+        col = c;
+        matched += 1;
+        continue;
+      }
+      break;
+    }
+    return { idx, col, matched };
+  };
+
+  /** New containers this line opens, appended to the stack. */
+  const openContainers = (line, idx, col) => {
+    let i = idx;
+    let c = col;
+    let sawMarker = false;
+    for (;;) {
+      let j = i;
+      let cc = c;
+      while (j < line.length && (line[j] === " " || line[j] === "\t") && cc - c < 4) {
+        cc = advance(line[j], cc);
+        j += 1;
+      }
+      if (cc - c > 3) break;
+      if (line[j] === ">") {
+        j += 1;
+        cc += 1;
+        if (line[j] === " ") {
+          j += 1;
+          cc += 1;
+        }
+        stack.push({ kind: "quote", col: cc });
+        i = j;
+        c = cc;
+        continue;
+      }
+      const marker = MARKER_HEAD.exec(line.slice(j));
+      if (marker) {
+        const markerEnd = cc + marker[1].length;
+        const afterWs = advance(marker[2], markerEnd);
+        // CommonMark 5.2: FIVE or more columns of whitespace after a marker is
+        // indented code INSIDE the item, whose content column is then the marker
+        // plus one — the rule that makes `-     VERDICT: …` a code block rather
+        // than item text. Taking the column after ALL the whitespace instead
+        // made every one of the 15 marker-line shapes read as prose.
+        stack.push({ kind: "list", col: afterWs - markerEnd >= 5 ? markerEnd + 1 : afterWs });
+        i = j + marker[1].length + marker[2].length;
+        c = afterWs;
+        sawMarker = true;
+        continue;
+      }
+      break;
+    }
+    // Consume the leading whitespace that remains once no further container
+    // opens, so the returned column is where CONTENT begins. Without this the
+    // caller measures indentation from before the spaces and every root-level
+    // indented code block reads as relative 0 — caught by the G2a pins.
+    let j = i;
+    let cc = c;
+    while (j < line.length && (line[j] === " " || line[j] === "\t")) {
+      cc = advance(line[j], cc);
+      j += 1;
+    }
+    return { idx: j, col: cc, sawMarker };
+  };
+
+  // HTML block openers, CommonMark 4.6. Types 1-5 end on their own condition;
+  // types 6 and 7 end at a blank line. Covering these is what closes the arc's
+  // only MEASURED live miss: `<pre>` and `<div>` content was read as prose, so a
+  // VERDICT line inside one was taken as the reviewer's own.
+  const HTML_TYPE_1 = /^<(pre|script|style|textarea)(\s|>|$)/i;
+  const HTML_TYPE_1_END = /<\/(pre|script|style|textarea)>/i;
+  const HTML_TYPE_2 = /^<!--/;
+  const HTML_TYPE_3 = /^<\?/;
+  const HTML_TYPE_4 = /^<![A-Za-z]/;
+  const HTML_TYPE_5 = /^<!\[CDATA\[/;
+  const HTML_BLOCK_NAMES =
+    "address|article|aside|base|basefont|blockquote|body|caption|center|col|colgroup|dd|details|dialog|dir|div|dl|dt|fieldset|figcaption|figure|footer|form|frame|frameset|h1|h2|h3|h4|h5|h6|head|header|hr|html|iframe|legend|li|link|main|menu|menuitem|nav|noframes|ol|optgroup|option|p|param|search|section|source|summary|table|tbody|td|tfoot|th|thead|title|tr|track|ul";
+  const HTML_TYPE_6 = new RegExp(`^</?(?:${HTML_BLOCK_NAMES})(?:\\s|/?>|$)`, "i");
+  // Attribute VALUES may contain `>` when quoted, so `[^<>]*` was too strict and
+  // under-classified valid type-7 blocks (diff review R1 finding 6). This matches
+  // an attribute list of quoted values, unquoted values, and bare names.
+  const HTML_ATTR = /(?:\s+[A-Za-z_:][A-Za-z0-9_.:-]*(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s"'=<>`]+))?)*/
+    .source;
+  const HTML_TYPE_7 = new RegExp(`^</?[A-Za-z][A-Za-z0-9-]*${HTML_ATTR}\\s*/?>\\s*$`);
+
+  const htmlOpener = (rest) => {
+    if (HTML_TYPE_1.test(rest)) return { end: "tag" };
+    if (HTML_TYPE_2.test(rest)) return { end: "comment" };
+    if (HTML_TYPE_3.test(rest)) return { end: "pi" };
+    if (HTML_TYPE_4.test(rest)) return { end: "decl" };
+    if (HTML_TYPE_5.test(rest)) return { end: "cdata" };
+    if (HTML_TYPE_6.test(rest)) return { end: "blank" };
+    // Type 7 may not interrupt a paragraph.
+    if (!paragraphOpen && HTML_TYPE_7.test(rest)) return { end: "blank" };
+    return null;
+  };
+
+  const htmlCloses = (kind, rest) =>
+    kind === "tag"
+      ? HTML_TYPE_1_END.test(rest)
+      : kind === "comment"
+        ? rest.includes("-->")
+        : kind === "pi"
+          ? rest.includes("?>")
+          : kind === "decl"
+            ? rest.includes(">")
+            : kind === "cdata"
+              ? rest.includes("]]>")
+              : false;
+
   for (let i = 0; i < lines.length; i += 1) {
     const line = lines[i];
+    // Container-relative: `>` alone is a BLANK line inside its quote. Testing
+    // the raw line left the quote frame and the paragraph open, so the root
+    // indented block after it was read as prose (R5 parser finding 2).
+    const blank = line.trim() === "" || /^[ \t]*(?:>[ \t]*)+$/.test(line);
+
+    // ── an open FENCE swallows everything until its own closer ───────────────
     if (block !== null && block.kind === "fence") {
-      block.at.push(i); // the closing fence line belongs to the block
-      const close = FENCE_CLOSE.exec(line);
+      block.at.push(i);
+      const m = matchContainers(line);
+      const rest = line.slice(m.idx);
+      // A container ending CLOSES the block it holds. Waiting only for an
+      // explicit closer meant a list dedent left the fence open to EOF, where
+      // the admit rule then read the example (R6 parser finding 4). This is a
+      // real close, so the block's lines are blanked — the tail is not
+      // discarded, because the line that ended the container is not part of it.
+      if (block.depth > 0 && m.matched < block.depth && line.trim() !== "") {
+        block.at.pop();
+        closeBlock();
+        prevBlank = false;
+        paragraphOpen = false;
+        // Do NOT consume the line. It ended the container, but it may also OPEN
+        // something — a root fence written right after a dedent was missed
+        // entirely, and its example verdict stayed live (R7 parser finding 1).
+        // Re-processing it costs one iteration and closes that whole class.
+        i -= 1;
+        continue;
+      }
+      const close = FENCE_CLOSE.exec(rest);
       if (
+        m.matched >= block.depth &&
         close !== null &&
         close[2][0] === block.char &&
         close[2].length >= block.len &&
-        advance(close[1], 0) <= block.col + 3
+        advance(close[1], m.col) - m.col <= 3
       ) {
         closeBlock();
-        prevBlank = true; // a block boundary — what follows may open another
+        prevBlank = true;
+        paragraphOpen = false;
       }
       continue;
     }
-    const blank = line.trim() === "";
+
+    // ── an open HTML block ───────────────────────────────────────────────────
+    if (block !== null && block.kind === "html") {
+      // A container ending closes the block it holds — the same rule already
+      // applied to fences, and HTML blocks were left out of it (R8 parser
+      // finding 1). Without this the block stayed open to EOF, stripped
+      // nothing, and the example verdict inside it was read.
+      const hm = matchContainers(line);
+      if (block.depth > 0 && hm.matched < block.depth && line.trim() !== "") {
+        closeBlock();
+        prevBlank = true;
+        paragraphOpen = false;
+        i -= 1;
+        continue;
+      }
+      if (block.end === "blank") {
+        if (blank) {
+          closeBlock();
+          prevBlank = true;
+          paragraphOpen = false;
+          continue;
+        }
+        block.at.push(i);
+        continue;
+      }
+      block.at.push(i);
+      if (htmlCloses(block.end, line)) {
+        closeBlock();
+        // A block BOUNDARY, so indented code may begin on the next line
+        // (R8 parser finding 2).
+        prevBlank = true;
+        paragraphOpen = false;
+      }
+      continue;
+    }
+
+    const m = matchContainers(line);
+
+    // ── an open INDENTED block ───────────────────────────────────────────────
     if (block !== null) {
-      // Indented: a blank line does not end it, any other line back inside the
-      // content column does — and that terminating line is NOT part of the
-      // block, so it falls through to the openers below (it may open a fence).
-      if (blank || indentColumns(line) >= block.col + 4) {
+      const contentCol = stack.length > 0 ? stack[stack.length - 1].col : 0;
+      // Measure where CONTENT starts, not where container matching stopped.
+      // `matchContainers` never advances past an empty stack, so reading its
+      // column here made every root-level indented block end after one line —
+      // its first line blanked, its second read as prose. Caught by the shipped
+      // 4-space and tab fixtures.
+      let wj = m.idx;
+      let wc = m.col;
+      while (wj < line.length && (line[wj] === " " || line[wj] === "\t")) {
+        wc = advance(line[wj], wc);
+        wj += 1;
+      }
+      if (blank || (m.matched === stack.length && wc >= contentCol + 4)) {
         block.at.push(i);
         prevBlank = blank;
         continue;
       }
       closeBlock();
     }
+
     if (blank) {
+      // Pop to what this line actually matched. A bare `>` after a list item is
+      // blank INSIDE its quote, but it is not inside the list — returning here
+      // without popping left the stale list frame, and the root indented block
+      // after it stayed live (R6 parser finding 3).
+      if (m.matched < stack.length) stack = stack.slice(0, m.matched);
       prevBlank = true;
+      paragraphOpen = false;
+      // A blank line closes any container whose content has ended; the next
+      // non-blank line re-derives what is still open.
       continue;
     }
-    const { base, col, idx, sawMarker } = scanContainers(line, listCol);
-    listCol = base;
-    const relative = col - base;
-    const open = relative <= 3 ? FENCE_OPEN.exec(line.slice(idx)) : null;
+
+    // A line matching fewer frames than are open either DEDENTS or continues a
+    // paragraph lazily. Only the second must not pop — the paragraph is still
+    // inside its container, so popping would measure the next fence from the
+    // wrong origin.
+    //
+    // Refusing to pop whenever a paragraph was open conflated the two: a root
+    // fence written directly after `- item`, with no blank line, kept the stale
+    // list frame, so its root closer could not match the stored depth and the
+    // closed fence stripped nothing (diff review R1 finding 4). Lazy
+    // continuation is by definition a PARAGRAPH line; a line that starts an
+    // interrupting block is a dedent no matter what preceded it.
+    if (m.matched < stack.length) {
+      const tail = line.slice(m.idx).replace(/^[ \t]*/, "");
+      // Everything CommonMark lets interrupt a paragraph. ATX headings and
+      // thematic breaks were missing, so `- item` / `# heading` / `<x-tag>` kept
+      // a stale list frame and left the example verdict live (R2 finding 4).
+      const interrupts =
+        FENCE_OPEN.test(tail) ||
+        // Only an ordered list starting at 1 may interrupt a paragraph
+        // (CommonMark 5.2). `2.` mid-paragraph is ordinary text, and reading it
+        // as a marker built a stale frame (R6 parser finding 2).
+        (MARKER_HEAD.test(tail) && !/^\d/.test(tail)) ||
+        /^1[.)][ \t]/.test(tail) ||
+        tail.startsWith(">") ||
+        /^#{1,6}(?:\s|$)/.test(tail) ||
+        /^(?:\*[ \t]*){3,}$|^(?:-[ \t]*){3,}$|^(?:_[ \t]*){3,}$/.test(tail) ||
+        htmlOpener(tail) !== null;
+      if (interrupts || !paragraphOpen) stack = stack.slice(0, m.matched);
+    }
+
+    // THEMATIC BREAK FIRST. `- - -` is a break, not three nested list markers,
+    // and letting `openContainers` peel it built a bogus container stack that
+    // mismeasured everything after it (R5 parser finding 1).
+    // Measure the leading run in COLUMNS, not characters: a tab is four, so a
+    // tab-indented line is indented CODE and never a thematic break
+    // (R6 parser finding 5).
+    const preIndent = /^[ \t]*/.exec(line.slice(m.idx))[0];
+    const preRest =
+      advance(preIndent, m.col) - m.col > 3 ? "\u0000" : line.slice(m.idx + preIndent.length);
+    // An EMPTY list item — a bare marker with nothing after it — ends the list
+    // rather than opening a frame. Pushing one made it swallow the indentation
+    // of everything that followed (R5 parser finding 5).
+    if (/^(?:[-*+]|\d{1,9}[.)])[ \t]*$/.test(preRest)) {
+      stack = stack.slice(0, m.matched);
+      prevBlank = true;
+      paragraphOpen = false;
+      continue;
+    }
+    if (/^(?:\*[ \t]*){3,}$|^(?:-[ \t]*){3,}$|^(?:_[ \t]*){3,}$/.test(preRest)) {
+      if (m.matched < stack.length) stack = stack.slice(0, m.matched);
+      prevBlank = false;
+      paragraphOpen = false;
+      continue;
+    }
+
+    const after = openContainers(line, m.idx, m.col);
+    // A newly opened container starts a FRESH content context: the outer
+    // paragraph does not reach inside it. Leaving `paragraphOpen` set made
+    // `htmlOpener` reject a type-7 tag written as the first thing in a new list
+    // item (R8 parser finding 3).
+    if (after.idx > m.idx && after.sawMarker) paragraphOpen = false;
+    const contentCol = stack.length > 0 ? stack[stack.length - 1].col : 0;
+    const rest = line.slice(after.idx);
+    const relative = after.col - contentCol;
+
+    const open = relative <= 3 ? FENCE_OPEN.exec(rest) : null;
     // A BACKTICK fence's info string may not contain a backtick (CommonMark
     // 4.5) — the rule that keeps an inline `code span` from opening a block.
     if (open && !(open[1][0] === "`" && open[2].includes("`"))) {
-      block = { kind: "fence", char: open[1][0], len: open[1].length, col: base, at: [i] };
+      block = {
+        kind: "fence",
+        char: open[1][0],
+        len: open[1].length,
+        depth: stack.length,
+        at: [i],
+      };
       prevBlank = false;
+      paragraphOpen = false;
       continue;
     }
-    if (relative >= 4 && (prevBlank || sawMarker)) {
-      block = { kind: "indented", col: base, at: [i] };
+
+    if (relative <= 3) {
+      const html = htmlOpener(rest);
+      if (html) {
+        block = { kind: "html", end: html.end, depth: stack.length, at: [i] };
+        // A comment that opens and closes on ONE line is a complete block, so it
+        // is a boundary too — the close branch below sets `prevBlank`, but this
+        // path never reaches it (R8 parser finding 2).
+        let closedSameLine = false;
+        if (html.end !== "blank" && htmlCloses(html.end, line)) {
+          closeBlock();
+          paragraphOpen = false;
+          closedSameLine = true;
+        }
+        prevBlank = closedSameLine;
+        continue;
+      }
+    }
+
+    // Indented code may not interrupt a paragraph, so it starts only after a
+    // blank line — or on a list-marker line, where the marker plays that part.
+    if (relative >= 4 && (prevBlank || after.sawMarker)) {
+      block = { kind: "indented", at: [i] };
       prevBlank = false;
+      paragraphOpen = false;
       continue;
     }
+
+    // An ATX heading or a thematic break is a LEAF block, not a paragraph: it
+    // ends any paragraph it follows. Leaving `paragraphOpen` true after one kept
+    // type-7 HTML from opening on the next line — which is why widening the
+    // interrupting set alone did not fix R2 finding 4, and why the fixture that
+    // proves it had to be written before the repair was believed.
+    if (
+      /^#{1,6}(?:\s|$)/.test(rest) ||
+      /^(?:\*[ \t]*){3,}$|^(?:-[ \t]*){3,}$|^(?:_[ \t]*){3,}$/.test(rest)
+    ) {
+      // A leaf block ends the paragraph, and indented code MAY begin directly
+      // after one — so it behaves like a blank line here, not like prose
+      // (R6 parser finding 1).
+      prevBlank = true;
+      paragraphOpen = false;
+      continue;
+    }
+
     prevBlank = false;
+    paragraphOpen = true;
   }
+
   // EOF with a block still open: the document never said where it ends, so
   // nothing is blanked. See the asymmetry above.
   return out.join("\n");

@@ -58,6 +58,172 @@ production-build server (CI's `CI=true` webServer). The reopen renders in ~440ms
 ~1900ms under `next dev`, over the 1600ms budget the observation must fit inside. On a dev server it
 fails its own premise with a message that says so, rather than reporting anything about the modal.
 
+## BL-PLAN-SNIPPET-FENCE-GATE — the plan-fence checker exists as a prototype and gates nothing — CLOSED 2026-08-07 (`feat/review-infra-gates`, arc B G1)
+
+**Status:** OPEN.
+
+**Filed:** 2026-08-05 (`feat/review-round-economy`, plan rounds 1-2). **Class:** review-round economy / docs tooling. **Effort:** M.
+
+Plan review rounds 1 and 2 each spent findings on TypeScript snippets pasted into a plan that the repo's strict tsconfig would reject — one instance per round, which is precisely the drip-feed the class-sweep rule names and this arc exists to measure. The response was a mechanical checker, `check-plan-snippets.mjs`, which extracts every fence from a plan and reports five decidable shapes:
+
+- `UNIMPORTED_IDENTIFIER` — a fence that reads as a whole module calls a well-known Node/vitest API it never imports or declares. The class that actually bit.
+- `DUPLICATE_IMPORT` — the same binding imported twice across fences that append to one file.
+- `MANGLED_TEMPLATE` — a template literal broken by markdown escaping.
+- `UNCHECKED_INDEX` — an index access that `noUncheckedIndexedAccess` rejects.
+- `FENCE_EM_DASH` — the em-dash ban reaching into fence content, honoring the same `spec-lint: ignore` waiver the real linter uses (`lib/specLint/parse.ts:35`).
+
+It works — 64 fenced blocks, 0 problems against this arc's own plan — and it is **a throwaway in a session scratchpad**, so it gates nothing, no CI job runs it, and the next plan that pastes a broken fence discovers it the same way: in a review round.
+
+**Reachability is not in question:** the two findings that motivated it were real review rounds already spent, and nothing about the next plan is different.
+
+**Work.** Promote it to `scripts/` with a meta-test walking `docs/superpowers/plans/**` from disk (so a new plan is covered by default rather than silently exempt), decide the fence-to-file attribution rule properly — the prototype infers it from the nearest non-blank prose line above the fence, which is a heuristic that will need its own accept-set — and settle whether a violation blocks or advises. Full `tsc` over a fence is NOT the alternative and was already rejected: fences are excerpts that reference helpers defined in neighbouring fences, so they do not typecheck as modules. That is why the checker tests specific decidable shapes instead.
+
+**Deferral exception: (c)** — a new gate over `docs/superpowers/plans/**`, a surface this PR does not otherwise touch. The PR's own plan is clean under the checker; what remains is standing up a gate, its meta-test, its waiver story, and its CI wiring, which is a different change to a different contract than the corpus this PR ships.
+
+**Prototype location is ephemeral** (a session scratchpad, not tracked), so the rule list above is the durable artifact — treat the script as a sketch to rebuild from, not as an input that will still be there.
+
+---
+
+**Resolution: the gate is live and blocking.** Shipped on `feat/review-infra-gates`
+as the three-part spec-lint idiom this repo already trusts — a pure read-core at
+`lib/planFences/**` (no I/O, pinned structurally), a CLI frontend at
+`pnpm plan:fences`, and the gate itself at
+`tests/docs/_metaPlanSnippetFences.test.ts`, which walks the plans tree FROM DISK
+so a new plan is covered by default rather than silently exempt. Blocking by
+construction rather than configuration: `tests/docs/**` is in the `parallel`
+project run by `unit-suite.yml`'s required shards, which also makes the filename
+load-bearing.
+
+**Shipped accept-sets**, each pinned in its rule header with boundary negatives in
+`tests/planFences/readCore.test.ts`:
+
+- **Fence eligibility** — info string in {ts, tsx, typescript, js, jsx, mjs} or
+  bare, AND a body matching `/[;{}=]|=>/` OR a line-anchored import/export
+  statement. The union arm has zero corpus instances, so it carries a planted case.
+- **Attribution** — scan upward at most 6 lines, skipping blanks and waivers; the
+  first prose line is accepted only if it carries EXACTLY ONE backticked token with
+  a `.ts`/`.tsx`/`.mjs`/`.js` extension. Unattributed fences are still checked by
+  every per-fence rule, exempt only from the cross-fence `DUPLICATE_IMPORT`.
+- **UNIMPORTED_IDENTIFIER** — a FREE identifier from the closed known-API registry
+  that a module-shaped fence neither imports nor declares.
+- **DUPLICATE_IMPORT** — the same IMPORTED binding across two fences attributed to
+  one file. Local `const` bindings are not import identities.
+- **MANGLED_TEMPLATE** — an escaped backtick and an escaped `${`, distinct identities.
+- **UNCHECKED_INDEX** — `identifier[integer].member` with neither `!` nor `?.`.
+- **FENCE_EM_DASH** — the canonical em-dash class INCLUDING encoded spellings,
+  scoped to code fences, reusing `lib/specLint`'s class rather than re-declaring it.
+
+**Baseline: 4044 rows, 4122 total occurrences**, over 561 plan files (5440 fences,
+3587 eligible, 1249 attributed, 0 unplaced, 0 waiver errors). By rule —
+FENCE_EM_DASH 2906, UNIMPORTED_IDENTIFIER 1027, UNCHECKED_INDEX 145,
+MANGLED_TEMPLATE 44, **DUPLICATE_IMPORT 0**. That last confirms the spec's read of
+the calibration probe: its 5 DUPLICATE_IMPORT rows were artifacts of iterating
+declared bindings rather than imports, and the true corpus count is zero. Two
+decrease-only ceilings ride beside the rows (`FROZEN_ROWS`, `FROZEN_TOTAL`),
+because a row count cannot see a count bump on an existing row and a total cannot
+see a row split.
+
+**The corpus run found a false-positive class the probe's numbers had hidden.**
+`re.test(x)`, `parts.join("/")` and `Promise.resolve()` are property reads whose
+names merely collide with the registry, and `{ test: 1 }` is a property key —
+counting them made test/resolve/join the top three hits at 360/96/89 of 1353. The
+scan takes free identifiers now and the count fell to 1027. A rule that fires that
+often on correct plans is one nobody keeps enabled. The remaining vitest-global
+hits are genuine: `vitest.config.ts` sets `globals: false`, so a fence calling
+`it(` without importing it does not compile.
+
+**Ratchet proved by mutation, not by reading** — three mutants, all KILLED: a new
+violation appended to a real plan, a stale row for a hit that no longer exists, and
+`FROZEN_ROWS` lowered below the live count. Two more killed at G1c: a `node:fs`
+import into the read-core, and a rule silenced in the core.
+
+**Probe cross-reference.** Calibration of record is
+`docs/superpowers/plans/2026-08-06-arc-b-review-infra/fence-gate-probe.mjs` with its
+committed 2026-08-06 output. The gate's numbers differ from it in the five ways the
+spec predicted, each pinned by a divergence-discriminating planted case, plus the
+member-access class above, which the probe shared and nobody had noticed.
+
+## BL-CODEX-GUARD-COMMONMARK-PARSE — replace the codex-guard code-block regexes with a real CommonMark parse — CLOSED 2026-08-07 (`feat/review-infra-gates`, arc B G2)
+
+**Status:** OPEN.
+
+**Filed:** 2026-08-05 (`feat/review-round-economy`, wrapper review R4). **Class:** parser correctness. **Effort:** M.
+
+`stripCodeBlocks` in `scripts/codex-guard.mjs` decides which lines of a reviewer's terminal message are CODE — and therefore which `VERDICT:` / `FINDINGS:` lines are the reviewer's own declarations rather than an example they quoted. It is a hand-rolled line scanner over CommonMark's block grammar: fence openers and closers, indented blocks, and a single-column approximation of list containers. Spec §8.3 limit 12 states what it still misses (block quotes are not containers, a dedent re-derives from the root instead of popping a stack, lazy continuation and HTML blocks are unmodelled).
+
+**Why a parser rather than another widening.** Four review rounds on this one recognizer went to widening regexes, one escaping shape at a time — the enumeration does not terminate, which is exactly the round-economy failure this arc exists to measure. The last two rounds:
+
+- **A closing fence indented 4+ columns.** CommonMark says that is content; the closer regex accepted any leading whitespace, so a nested example's fence ended the outer block early and leaked everything after it. Probe: `false approvals=4/4` (both fence characters at 4 and 8 columns).
+- **A fence opener indented 4+ columns.** Opener indentation was capped absolutely at 3 rather than measured relative to the container's content column, so every fence opened inside a nested list item was invisible. Probe: `FALSE_APPROVE=18/18` across three depths x three markers x two fence characters, plus `nested marker-line cases: false APPROVE=2/2`.
+
+Both are now fixed and both were found the same way — by a reviewer constructing one more shape. A parse over a closed grammar terminates where a recognizer over an open class of shapes does not.
+
+**Work.** `tests/docs/_ledgerMdast.ts` already uses mdast/remark in this repo, so the parse itself is a solved problem: walk the AST and blank the source lines of every `code` node. **The obstacle is a decision, not the code.** `scripts/codex-guard.mjs` is deliberately dependency-free plain `.mjs` — it runs as a bare `node` invocation with no build step and no `node_modules` assumption, which is what lets the shim install one-liner in AGENTS.md work from any checkout. Giving it a dependency changes that contract. Options at pickup: accept the dependency and the install story that follows; vendor a minimal block-level parse; or keep the recognizer and accept §8.3 limit 12 permanently.
+
+**Deferral exception: (c)** — a redesign of a surface this PR does not otherwise touch. The PR repaired both named instances plus their whole shape (relative measurement for openers AND closers, every fence character, every marker); what remains is replacing the mechanism, which is a different change to a different contract.
+
+---
+
+**Resolution: the recognizer is retired.** `stripCodeBlocks` in
+`scripts/codex-guard.mjs` is now a block-level CommonMark pass, vendored INLINE
+per the ratified dependency decision — the script still imports nothing but four
+node builtins and its sibling `scripts/reviewRoundEmit.mjs`, and that surface is
+now pinned EXACTLY by `tests/codexGuard/importSurface.test.ts` rather than by a
+no-node_modules check. The distinction matters: a second relative sibling would
+satisfy "no dependencies" while violating precisely what was decided. Four
+mutants kill that pin — a node_modules import, a relative sibling, a `require()`,
+and a dynamic `import()`.
+
+**What the parse adds:** a container STACK (block quotes and list items as
+frames, dedents that POP rather than re-derive from the root, lazy continuation
+that does not pop), and HTML blocks (CommonMark types 1-7). Fenced and indented
+code keep their shipped contracts, including the relative-indent measurement and
+CommonMark 5.2's marker-plus-one rule.
+
+**THE MEASUREMENT IS THE PART WORTH KEEPING, because it contradicts this entry's
+own premise.** Before writing any parser, thirteen fixtures — one per grammar
+feature named in limit 12 — were run against the SHIPPED recognizer. Eleven
+already classified correctly. The genuine live misses were HTML blocks, and only
+HTML blocks: a `VERDICT:` line inside `<pre>` or `<div>` was read as the
+reviewer's own.
+
+**And three of those eleven passed for the WRONG MECHANISM.** A second probe ran
+`> VERDICT: APPROVE` with no code construct anywhere: also `no_verdict`. The
+marker test is line-anchored, so a `>` prefix defeats it BEFORE the code decider
+is consulted, and a quoted line can never carry a readable verdict. The
+block-quote container gap was therefore UNOBSERVABLE through this oracle in the
+hide direction — banking those three as container coverage would have been a
+guard whose premise is false where it runs. They are pinned as what they are
+(prefix behavior) in `tests/codexGuard/blockGrammar.test.ts`.
+
+Three defects surfaced while the parser was written, each caught by the shipped
+suite and each a silent regression if it had landed: unconsumed leading
+whitespace made every root-level indented block invisible; the continuation test
+read the column where container matching stopped rather than where content
+starts, ending a block after one line with its first line blanked and its second
+read as prose; and list frames ignored CommonMark 5.2, which made all 15
+marker-line shapes read as prose.
+
+**Limit 12 is rewritten to the residue** at
+`docs/superpowers/specs/ci/2026-08-04-review-round-economy.md` §8.3, in this same
+PR, with every remaining claim carrying its probe.
+
+**Citation repair, recorded so nobody re-derives it.** This entry cited "Spec
+§8.3 limit 12" with no path. The limit lives at
+`docs/superpowers/specs/ci/2026-08-04-review-round-economy.md` §8.3 — NOT in
+`docs/superpowers/specs/2026-07-19-codex-guard.md`, which has no §8.3 at all.
+The entry's four-item paraphrase of "what the approximation misses" also omitted
+two of the six the limit actually enumerated (link reference definitions and
+setext headings).
+
+**Fixture inventory** (`tests/codexGuard/blockGrammar.test.ts`, 17 cases):
+fenced at root; fence opened past column 3 in a nested list item (the 18/18
+shape); closer indented 4+ as content (the 4/4 shape); indented code at root,
+after a link reference definition, and after a setext heading; dedent out of a
+nested item; lazy continuation under a list item; three block-quote prefix pins;
+open-at-EOF admit; and five HTML-block cases including a tag mid-paragraph that
+must NOT open a block.
+
 ## BL-EM-DASH-POLICY — Resolve the DESIGN.md §9 em-dash ban vs. shipped usage — CLOSED 2026-08-07 (L-wave, `feat/l-wave-emdash`, RESOLUTION 2: ENFORCE)
 
 **Resolution: the user chose ENFORCE — resolution 2, over the entry's own "(recommended)" tag on

@@ -61,6 +61,20 @@ export type StandingRow = { file: string; family: string; marker: string; reason
  *  still fails. This list is EXACTLY the plan-time simulation's offender set. */
 export const STANDING_ALLOWLIST: StandingRow[] = [
   {
+    file: "tests/planFences/readCore.test.ts",
+    family: "two-char-literal",
+    marker: "//",
+    reason:
+      "NOT comment handling. The `//` is FIXTURE DATA: the plan-fence read-core " +
+      "must not fire UNCHECKED_INDEX on an index expression that appears inside a " +
+      "comment, so the case feeds it a fence body containing the literal line " +
+      "`// rows[0].name is the shape we mean`. Removing the marker would remove the " +
+      "very input under test. The comment stripping this file exercises lives in " +
+      "lib/planFences, which does its own single-pass masking of comments, strings " +
+      "and template interpolations together — a chain of separate passes is " +
+      "order-dependent and was wrong three different ways (arc B diff review R6).",
+  },
+  {
     file: "tests/styles/fontFeatureAvailability.test.ts",
     family: "startswith-filter",
     marker: "--",

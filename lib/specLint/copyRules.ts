@@ -1,5 +1,6 @@
 import type { DocModel } from "./parse";
 import type { Finding } from "./types";
+import { EM_DASH_CLASS } from "./emDash";
 
 const JS_FAMILY = new Set([
   "ts",
@@ -12,9 +13,6 @@ const JS_FAMILY = new Set([
   "cjs",
   "json",
 ]);
-// Raw U+2014 plus every non-raw spelling (spec §6): &mdash;, decimal NCR, hex NCR
-// (case-insensitive x), —, \u{2014}.
-const EM_DASH_CLASS = /—|&mdash;|&#8212;|&#[xX]2014;|\\u2014|\\u\{2014\}/g;
 
 function emDashFindings(text: string, docLine: number, columnOffset: number): Finding[] {
   const out: Finding[] = [];
