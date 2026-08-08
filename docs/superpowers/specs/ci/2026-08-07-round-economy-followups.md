@@ -125,11 +125,16 @@ message" class the economy system itself exists to close.
    the selected value. Valid ISO-8601 timestamps with non-Z offsets order differently
    lexically than chronologically — so a genuinely pre-boundary row can lose the lexical
    sort to a chronologically-later string and silently suppress the advisory. Repaired:
-   all comparisons in this section — earliest selection, row-vs-boundary, the exclusion
-   rule's `mergedAt <= boundary` classification, and its `startedAt <= mergedAt` time
-   cap — operate on parsed values (each string parsed once). The two merge-side sites
-   are each pinned by their own §4 case, since a lexical mutant at either silently
-   changes the advisory only under offset-bearing values.
+   every timestamp comparison in this feature — the earliest selection and its boundary
+   comparison (§4 case 6), the exclusion rule's `mergedAt <= boundary` classification
+   (§4 case 10), its `startedAt <= mergedAt` time cap (§4 case 11), and the
+   latest-merge selection inside the exclusion map (§4 case 9) — operates on parsed
+   values. Structurally, not per-site: the implementation routes ALL timestamp
+   comparisons through ONE parse-and-compare helper and performs NO direct string
+   comparison of timestamps anywhere in the advisory block, so a later-added site
+   cannot be lexical by default. Each existing site is still pinned by its own §4 case
+   with offset-bearing values whose lexical and chronological orders disagree, because
+   a lexical mutant at any of them silently changes the advisory only under offsets.
 2. **`startedAt` is placeable only inside an explicit accept-set; everything else is
    signaled.** The row schema (`lib/reviewRounds/row.ts`, `startedAt` field) accepts
    `null` or any string, and bare `Date.parse` is NOT a sufficient placement test:
@@ -173,11 +178,17 @@ message" class the economy system itself exists to close.
    segments (the live case: `20fccb1f3331` vs recognized `48b280b949cc`) can never match
    an exact key. Time cap included so post-merge rows on a reused branch name still
    count (§5 limit 1 covers the residual looseness). Several pre-adoption merges of one
-   branch use the latest `mergedAt`.
-4. **Advisory text drops the verdict.** When it still fires, the line reads:
-   `ADVISORY: the earliest recorded row (…) from an arc with no pre-adoption merge precedes the declared adoption boundary (…) — the boundary or the row's arc attribution is wrong.`
-   The report states the observation and the two possible causes; it no longer asserts
-   which.
+   branch use the chronologically-latest `mergedAt` (a selection site under §3.1's one-
+   comparator rule; §4 case 9 pins it).
+4. **Advisory text drops the verdict — and characterizes nothing it cannot know.** When
+   it still fires, the line reads:
+   `ADVISORY: the earliest recorded row (…) precedes the declared adoption boundary (…) and no same-branch pre-adoption merge covers it — the boundary, the row's arc attribution, or the row's own timing is in question.`
+   The report states the observation (row precedes boundary; the exclusion rule did not
+   cover it) and leaves the cause open. It does NOT claim the row's arc has no
+   pre-adoption merge: §4 case 3 fires this advisory for a row whose arc HAS one — the
+   row merely falls outside its time cap — so any "from an arc with no pre-adoption
+   merge" phrasing would print a falsehood in exactly the case that keeps the reused-
+   branch signal alive (round-4 finding).
 5. **Shallow clone / merge-scan refusal withholds the advisory.** The exclusion needs the
    merge classification; under `merges.shallow` the advisory is `null` and the existing
    shallow-refusal note covers it (extend that note with "; the boundary advisory is
@@ -192,7 +203,8 @@ message" class the economy system itself exists to close.
 
 `docs/superpowers/specs/ci/2026-08-04-review-round-economy.md`: amend the §9 advisory
 paragraph (the one ending "cannot be checked against anything") to state the exclusion
-rule and the two-cause wording, and add the new test shapes to the §11.3 list (item 8).
+rule and the reworded advisory line (§3.4), and add the new test shapes to the §11.3
+list (item 8).
 Mark the amendment inline with a dated note, matching that spec's existing amendment
 style. `docs/superpowers/specs/ci/README.md` gains this spec's index row.
 
@@ -207,7 +219,7 @@ the fix:
    and `mergedAt = BOUNDARY`. Expect `boundaryAdvisory === null`. Fails today because
    `earliest` consults all rows.
 2. **Advisory preserved for a truly unexplained row.** Row predating BOUNDARY on a branch
-   with NO recognized merge. Expect advisory fires with the two-cause wording.
+   with NO recognized merge. Expect advisory fires with the §3.4 wording.
 3. **Post-merge reuse still counts.** Row predating BOUNDARY on branch B,
    `startedAt > mergedAt` of B's pre-adoption merge. Expect advisory fires (the time cap
    is load-bearing; this is its premise stated executably).
@@ -245,12 +257,18 @@ the fix:
    and the `4 row(s) without a placeable startedAt` note. Fails under a bare
    `Date.parse` accept-test on the first two (reviewer probes, rounds 2-3) and under
    the round-2 unbounded regex on the last two (reviewer probes, round 3).
-9. **Latest pre-adoption merge caps a multi-merge branch.** Branch B with TWO recognized
-   pre-adoption merges (`mergedAt` = BOUNDARY minus 3 days and BOUNDARY minus 1 day);
-   one row between them (`startedAt` = BOUNDARY minus 2 days). Expect
-   `boundaryAdvisory === null` — the LATEST merge caps the exclusion. An oldest-only
-   mutant fires the advisory (reviewer probe, round 2; the live history holds four
-   reused-branch instances, e.g. `feat/attention-alert-routing` ×3).
+9. **Latest pre-adoption merge caps a multi-merge branch — selected chronologically.**
+   Branch B with TWO recognized pre-adoption merges:
+   `mergedAt: "2026-08-31T20:30:00-02:00"` (chronologically 22:30Z, lexically SMALLER)
+   and `mergedAt: "2026-09-01T00:00:00+02:00"` (chronologically 22:00Z, lexically
+   larger); one row between them chronologically (`startedAt: "2026-08-31T22:15:00Z"`).
+   Expect `boundaryAdvisory === null` — the chronologically-LATEST merge (22:30Z) caps
+   the exclusion. Two mutants fire the advisory: oldest-only selection (reviewer probe,
+   round 2; the live history holds four reused-branch instances, e.g.
+   `feat/attention-alert-routing` ×3) and lexical-max selection, which picks the
+   lexically-larger string whose instant is 22:00Z and leaves the 22:15Z row outside
+   the cap (reviewer probe, round 4). Both merge strings lexically precede the boundary
+   string, so this case isolates the SELECTION site — case 10 owns classification.
 10. **Pre-adoption classification is chronological.** Merge with
     `mergedAt: "2026-09-01T01:00:00+02:00"` (chronologically 2026-08-31T23:00Z, PRE-
     boundary; lexically GREATER than the boundary string) and a same-branch row at
