@@ -2,7 +2,13 @@
 
 **Date:** 2026-08-07
 **Branch:** `fix/step3-a11y-cluster`
-**Ledger entries closed:** `STEP3-GALLERY-TAP-TARGETS-1` (DEFERRED.md:11), `NEWTAB-A11Y-RESIDUE-1` (DEFERRED.md:67)
+**Ledger disposition:**
+- `NEWTAB-A11Y-RESIDUE-1` (DEFERRED.md:67) — **fully resolved; moved to `DEFERRED-archive.md`**
+  by this branch. Both its items ship (§2.4, §2.5).
+- `STEP3-GALLERY-TAP-TARGETS-1` (DEFERRED.md:11) — **partially resolved; STAYS in
+  `DEFERRED.md`**. Items (a), (b), (c) ship here and are struck from the entry body with a
+  pointer to this spec; item (d) is untouched and keeps its own un-defer trigger (§9). The
+  entry is NOT archived, because the ledger front matter defines the archive as where an item goes  *when it ships*, and (d) has not.
 **Surface:** UI (invariant 8 applies — impeccable dual gate at close-out)
 
 ---
@@ -28,12 +34,13 @@ Each item is ratified at the cited location. Verify the citation; do not re-deri
 |---|---|---|
 | R1 | **Two of the ledger entry's own citations are wrong and are corrected here, not preserved.** `STEP3-GALLERY-TAP-TARGETS-1(a)` (DEFERRED.md:28-36) places the "What does this mean?" `<summary>` in `step3ReviewSections.tsx` and claims its parent is `min-h-12`. Neither holds. §2.1 carries the corrected anchors with probe evidence. The 20.3px measurement itself is reproduced exactly and is not in dispute. | §2.1, §7 probe P1 |
 | R2 | **`before:-inset-2` — the hit-expansion recipe DEFERRED.md:43 proposes — is refuted by probe and is NOT the recipe this spec adopts.** Measured: only the top and left extensions take the pointer; the right and bottom edges return the ancestor `<nav>`/wrapper. §7 probe P4 carries the measurement. Re-proposing it requires a probe showing all four edges hit. | §7 probe P4 |
-| R3 | **`step3ReviewSections.tsx` is NOT modified for the heading fix.** Its `Heading = sub ? "h4" : "h3"` (`components/admin/wizard/step3ReviewSections.tsx:897`) is consumed by five surfaces (`Step3ReviewModal.tsx:54`, `Step3SheetCard.tsx:55`, `ShowReviewSurface.tsx:56`, `PublishedReviewModal.tsx:79`, `sectionFreshness.ts:88`). Promoting the two page-level `h3`s in `Step3Review.tsx` to `h2` makes the page outline monotonic without touching the shared component. §2.3. | §2.3 |
+| R3 | **`step3ReviewSections.tsx` is NOT modified for the heading fix.** Its `Heading = sub ? "h4" : "h3"` (`components/admin/wizard/step3ReviewSections.tsx:897`) reaches the DOM through the `step3Sections` registry, whose heading-producing render call is `components/admin/review/ShowReviewSurface.tsx:1156`, itself mounted by `components/admin/wizard/Step3ReviewModal.tsx:54` and `components/admin/showpage/PublishedReviewModal.tsx:79`. Promoting the two page-level `h3`s in `Step3Review.tsx` to `h2` makes the page outline monotonic without touching the shared component. §2.3. | §2.3 |
 | R4 | **The tap-target repair covers every instance of the shape repo-wide, not only the four the ledger names.** Class sweep (§2.1, §2.2) found 7 failing `<summary>` elements and 4 failing small interactive targets. Per the AGENTS.md class-sweep disposition rule the default is repair-all-in-branch; none of exceptions (a)/(b)/(c) applies, since every repair is the same mechanical class change. **No tap-target peers are deferred.** | AGENTS.md "Class-sweep before patching adversarial findings" |
 | R5 | **`NEWTAB-A11Y-RESIDUE-1(a)` reverses a previously accepted audit fix, deliberately.** `tests/components/admin/wizard/step3ReviewSections.test.tsx:906-917` currently pins that a blank `alt` falls back for BOTH the `<img alt>` and the anchor `aria-label`. The anchor's `aria-label` (`step3ReviewSections.tsx:3706`) now solves the nameless-link risk permanently, so the belt-and-braces `alt` is redundant and produces a double-name. That test is UPDATED, not deleted; §2.4 states the replacement contract. | DEFERRED.md:75-86 |
 | R6 | **The `size-7` visual dimension is preserved everywhere.** This is an accessibility repair, not a visual redesign. Every pill, trigger, and glyph keeps its 28px painted box; only the hit box grows. Any finding that the UI "looks different" is a defect in the implementation, not an intended change. | §2.2, §6 DI-4 |
 | R7 | **Layout geometry is preserved exactly.** The adopted recipe's negative margin cancels the growth, so pill centres are unchanged (probe P6: expanded-row pill centres identical to today's at 320px). This is required, not incidental: connectors measure **0px wide at 320 and 390** (probe P3), so the stepper has zero horizontal slack and any layout growth would overflow. | §7 probe P3/P6, §6 DI-3 |
-| R8 | **`components/admin/nav/AdminNav.tsx:99` is in scope even though it does not render on the wizard route.** `app/admin/layout.tsx:169` renders `OnboardingTopBar` on the onboarding branch and `AdminNav` at `app/admin/layout.tsx:204` on every other `/admin/*` route. It is repaired here under R4 (same shape), not because the wizard shows it. | §2.2 |
+| R8 | **`components/admin/nav/AdminNav.tsx:88-114` (the brand link) is in scope even though it does not render on the wizard route.** `app/admin/layout.tsx:169` renders `OnboardingTopBar` on the onboarding branch and `AdminNav` at `app/admin/layout.tsx:204` on every other `/admin/*` route. It is repaired here under R4 (same shape), not because the wizard shows it — and it takes its own recipe, because it is a composite link rather than an icon button (§2.2). | §2.2 |
+| R9 | **All measurements in this document are written `width × height`.** The ledger's own `274.0x20.3` (DEFERRED.md:30) is quoted verbatim in that same order. A reviewer reading `288 × 20.3` as height-first is reading it wrong; the failing axis throughout §2.1 is the SECOND number. | §2.1, §7 |
 
 ---
 
@@ -42,7 +49,7 @@ Each item is ratified at the cited location. Verify the citation; do not re-deri
 ### 2.1 Class A — `<summary>` elements below the floor
 
 `text-sm` resolves to 14px/1.45 → **20.3px** line box; `text-xs` to 12px/1.4 → 16.8px. Probe
-P1 measured the canonical instance at **20.3 × 288** (320px) and **20.3 × 358** (390px),
+P1 measured the canonical instance at **288 × 20.3** (320px) and **358 × 20.3** (390px),
 reproducing DEFERRED.md:30's "274.0x20.3" to the pixel on the vertical axis.
 
 | Site | Today | Measured / computed height | Route |
@@ -86,7 +93,7 @@ Sites already compliant, listed so a reviewer does not re-flag them:
 | `components/admin/OnboardingWizard.tsx:127` **(the ledger's P2)** | `<Link>` × 3 (`base` const) | `flex size-7 …` 28×28 | Anchor becomes the target; visual pill moves to an inner `<span>` |
 | `components/admin/HelpSheet.tsx:75` **(the ledger's P2)** | `<button>` | `inline-flex size-7 …` 28×28 | Same recipe |
 | `components/admin/HelpTooltip.tsx:60` | `<summary>` | `inline-flex size-7 …` 28×28 | Same recipe (also Class A) |
-| `components/admin/nav/AdminNav.tsx:99` parent `<Link href="/admin">` | `<Link>` | ~28px box | Same recipe |
+| `components/admin/nav/AdminNav.tsx:88-114` brand `<Link href="/admin">` | `<Link>` | 28px tall; 28px wide only below 360px | **Different recipe — see below.** Not the generic one |
 
 **Recipe, empirically selected (probe P4/P5/P6):**
 
@@ -97,6 +104,34 @@ inner <span> (new):             <today's `base` string, verbatim, unchanged>
 
 `size-tap-min` resolves through Tailwind v4's `--spacing-*` namespace from
 `--spacing-tap-min: 44px` (`app/globals.css:179`) and is already used elsewhere in the repo.
+
+**`AdminNav`'s brand link takes a DIFFERENT recipe, because it is a composite.** The generic
+recipe fixes the target at `size-tap-min` — a 44px **square**. The brand link is not an icon
+button: it is `flex items-center gap-2` wrapping a 28px `<Image>` plus two responsive text
+spans, "FXAV" at `min-[360px]:inline` and an "Admin" pill at `min-[440px]:inline-block`
+(`components/admin/nav/AdminNav.tsx:88-114`). Applying `size-tap-min` literally would clamp
+the whole composite to 44px wide and crush the wordmark; wrapping only the `<Image>` would
+leave the link's own box under the floor. Neither is the generic recipe, so it is stated
+here rather than left to the implementer:
+
+```
+brand <Link>:  min-h-tap-min -mx-2 px-2   (added to the existing class string)
+```
+
+- `min-h-tap-min` fixes the vertical axis, which fails at every width.
+- `-mx-2 px-2` fixes the horizontal axis in the **icon-only state below 360px**, where the
+  link is 28px wide; 28 + 8 + 8 = 44. At ≥360px the wordmark already carries the width past
+  the floor and the padding simply extends the target.
+- The negative margin is required for the same reason as everywhere else: the 320px topbar
+  budget is already tight — `components/admin/nav/AdminNav.tsx:95-109` documents four
+  irreducible 44px controls in the action cluster, with the brand block yielding
+  progressively to keep the bar inside the viewport. `-mx-2` keeps the link's layout
+  footprint unchanged so that budget is untouched.
+- **No inner span, and therefore no hover rewiring**, since no visual class moves. The link
+  has no `hover:` variant today (`components/admin/nav/AdminNav.tsx:91`); its focus ring is
+  already on the element that becomes the 44px target.
+- The row is already ≥44px tall from those sibling controls, so raising the link to 44px
+  changes no row geometry (DI-12).
 
 **Hover and focus MUST be rewired to the anchor — this is not optional polish.** Moving the
 visual classes to an inner `<span>` moves their `hover:` and `focus-visible:` variants too,
@@ -152,10 +187,21 @@ Both promoted headings are top-level page sections directly under the `h1`, each
 `components/admin/wizard/Step3Review.tsx:1400`). Result: `h1, h2, h2` — monotonic, no skip.
 
 **Why the shared component is untouched (R3).** The `h3`/`h4` pair in
-`step3ReviewSections.tsx:897` renders inside the review modal and the show-review surface,
-each of which opens its own outline context below a dialog heading — not directly under this
-page's `h1`. Promoting the page's two `h3`s is sufficient and leaves all five consumers of
-the shared component byte-identical. The in-repo precedent for the alternative (threading a
+`components/admin/wizard/step3ReviewSections.tsx:897` renders inside the review modal and the
+show-review surface, each of which opens its own outline context below a dialog heading — not
+directly under this page's `h1`. Promoting the page's two `h3`s is sufficient and leaves every
+consumer of the shared component byte-identical.
+
+**Precise blast radius, since "five consumers" overstates it.** Of the five files importing
+from `step3ReviewSections`, only three are on the heading path, and none renders a heading
+inline on the Step-3 page: `components/admin/review/ShowReviewSurface.tsx:1156` is the
+heading-producing render call, reached from `components/admin/wizard/Step3ReviewModal.tsx:54`
+and `components/admin/showpage/PublishedReviewModal.tsx:79`. The other two import helpers and
+constants only, not the registry renderer:
+`components/admin/wizard/Step3SheetCard.tsx:55` and
+`components/admin/review/sectionFreshness.ts:88`. **Even if a section heading did render
+inline on the page, `h1 → h2 → h3` is still monotonic** — the promotion cannot introduce a
+skip on any mount path, which is why the fix is safe without auditing every consumer. The in-repo precedent for the alternative (threading a
 `headingLevel` prop per call site) is `RecentAutoAppliedStrip.tsx:691` +
 `app/admin/needs-attention/page.tsx:109` — it is the right tool when a component genuinely
 renders at two levels, and this one does not.
@@ -207,6 +253,13 @@ Every changed surface receives partial or absent data in some state; each is spe
 | `StepIndicator` `step` === n | `aria-current="step"`, label `Step {n}, current step` (`components/admin/OnboardingWizard.tsx:166`) | Target grown; `aria-current` unchanged. |
 | `Step3Review` grouped section `rows.length === 0` | `return null` (`components/admin/wizard/Step3Review.tsx:745`) | Section, including its promoted `h2`, does not render. **The outline must stay monotonic when a section is absent** — with both promoted headings at the same level, any subset of them still yields `h1` followed only by `h2`s. |
 | `BellPanel` entry `isHealth` true/false | Href differs (`components/admin/BellPanel.tsx:324`) | Glyph removed on both branches. |
+| `OnboardingWizard` error disclosure `entry.helpfulContext` absent | The `<details>` at `components/admin/OnboardingWizard.tsx:559-564` renders with an empty `<p>` body | The `<summary>` still renders and still needs the floor. The repair is on the `<summary>`, so an empty body cannot regress it. |
+| `ErrorExplainer` unknown code / disabled helpful context | Guarded at `components/messages/ErrorExplainer.tsx:79-96`; `<details>` block at `components/messages/ErrorExplainer.tsx:112-119` does not render | Nothing. The repaired `<summary>` is inside that block. |
+| `AdministratorsSection` zero revoked admins | Disclosure at `components/admin/settings/AdministratorsSection.tsx:126-145` | If the section renders with an empty list, the `<summary>` still renders and still meets the floor. If it does not render, DI-1 has no subject — hence the §8 premise. |
+| `app/me/page.tsx` zero past shows | Disclosure at `app/me/page.tsx:237-257` | Same shape as the row above: heading-only disclosure, floor still applies; premise required. |
+| `RunOfShowList` title at / below / above the 80-char truncation boundary | `components/crew/primitives/RunOfShowList.tsx:27-34`, `components/crew/primitives/RunOfShowList.tsx:80-91` | A short title yields a one-line `<summary>`, which is the 20.3px case the floor repair targets. A long title already wraps past 44px, so **the short-title case is the only one with discriminating power** and the fixture must use it. |
+| `Step3Review` needs-attention section with zero blocking rows | `components/admin/wizard/Step3Review.tsx:1397-1406` | Section and its promoted `h2` do not render. Outline stays monotonic (both promoted headings are the same level). |
+| `HelpSheet` / `HelpTooltip` `label` empty | Feeds the trigger's accessible name directly (`components/admin/HelpSheet.tsx:62-75`, `components/admin/HelpTooltip.tsx:51-60`) | **Out of scope and unchanged** — this spec touches neither component's naming. Recorded so the geometry repair is not read as licence to alter the name. |
 
 ---
 
@@ -298,8 +351,12 @@ so each of these requires a real-browser `getBoundingClientRect()` assertion (§
 | **DI-5** | Pill **centres are unchanged** from the pre-change layout at 320px, where connectors are 0px wide and there is no slack (R7). | `-m-2` cancels the padding growth |
 | **DI-6** | Each pill's **four edge midpoints** return that pill from `document.elementFromPoint`, never a sibling or an ancestor. | the recipe (probe P6) |
 | **DI-7** | The stepper **does not overflow at 320px** — `nav.scrollWidth ≤ container.clientWidth + 0.5`. Already pinned as DI-1 of `tests/e2e/step3-review-page.layout.spec.ts`; it must still hold after the change. | existing spec, re-run |
-| **DI-8** | `HelpSheet`'s trigger measures **≥44×44** while its visual pill stays 28×28. | same recipe |
-| **DI-9** | Hovering a point **inside the expansion band but outside the visual pill** produces the same computed colour as hovering the pill's centre. | `group` on the anchor + `group-hover:` on the span (§2.2) |
+| **DI-8** | `HelpSheet`'s trigger (`components/admin/HelpSheet.tsx:75`) measures **≥44×44**, its four edge midpoints return the trigger, and its visual pill stays 28×28. | same recipe |
+| **DI-9** | Hovering a point **inside the expansion band but outside the visual pill** produces the same computed colour as hovering the pill's centre — **and that centre-hover colour differs from the resting colour**, so the comparison has discriminating power. | `group` on the anchor + `group-hover:` on the span (§2.2) |
+| **DI-10** | `HelpTooltip`'s `<summary>` trigger (`components/admin/HelpTooltip.tsx:60`) measures **≥44×44**, its four edge midpoints return the trigger, and its visual pill stays 28×28. Its hover band satisfies DI-9's parity. | same recipe |
+| **DI-11** | `AdminNav`'s brand link (`components/admin/nav/AdminNav.tsx:88`) measures **≥44px on both axes at 320px** (icon-only) and **≥44px tall at 360/440/1280** (wordmark states). | `min-h-tap-min -mx-2 px-2` |
+| **DI-12** | `AdminNav`'s brand link's **layout footprint and the topbar row height are unchanged** at 320/360/440 — the 44px growth must not consume the documented-tight narrow-phone width budget. | `-mx-2` cancelling `px-2` |
+| **DI-13** | **Focus-visible feedback covers the whole target, not the visual box:** for every repaired target, the focus ring's rect matches the 44px target's rect (±0.5px), not the 28px visual. | ring stays on the anchor/button (§2.2) |
 
 **Corner hit-testing is deliberately excluded from DI-6.** Probe P4 measured that box
 *corners* are unreliable across recipes while edge midpoints are stable. Asserting corners
@@ -343,7 +400,7 @@ plain pair table cannot catch:
 |---|---|
 | Pill colour transitions **while hovered** | The colour target is the `group-hover:` value; the crossfade runs to it. Requires the §2.2 rewiring — without `group-hover:`, hover over the expansion band applies no hover colour at all and the compound never occurs where the user expects it. |
 | Pill colour transitions **while focus-visible** | Ring is on the anchor and does not transition; the span's colour crossfade runs underneath it. Ring geometry must not shift when the colour changes. |
-| Hover **enters over the 8px expansion band** (not the visual pill) | Must produce the identical hover colour as entering over the pill itself. This is the assertion that proves the rewiring landed. |
+| Hover **enters over the 8px expansion band** (not the visual pill) | Must produce the identical hover colour as entering over the pill itself. This is the assertion that proves the rewiring landed — **and it only discriminates on a pill that HAS a hover colour.** Only the visited-not-done pill carries one (`group-hover:text-text-strong`, `components/admin/OnboardingWizard.tsx:157`); active and done pills have none (`components/admin/OnboardingWizard.tsx:152-156`). On the ordinary Step-3 state every pill is active or done, so band-hover and centre-hover are trivially equal even with the rewiring entirely absent. **DI-9 therefore requires a forward-visited fixture** — `step=2, maxReachedStep=3`, which makes pill 3 a visited "Go to step 3" `<Link>` — and asserts centre-hover ≠ resting before comparing band-hover to centre-hover. |
 | `<summary>` toggled **while hovered** | Instant open/close; the hover underline (`hover:underline`, `components/admin/HelpAffordance.tsx:97`) persists across the toggle and must not flicker, since the element is not remounted. |
 
 ---
@@ -358,7 +415,7 @@ reproduced by the committed assertions in §8.
 
 | ID | Question | Result |
 |---|---|---|
-| **P1** | Height of the `HelpAffordance` `<summary>` today | **20.3 × 288** @320, **20.3 × 358** @390 — reproduces DEFERRED.md:30's 20.3px and confirms the defect at the corrected anchor (R1) |
+| **P1** | Height of the `HelpAffordance` `<summary>` today | **288 × 20.3** @320, **358 × 20.3** @390 — reproduces DEFERRED.md:30's 20.3px and confirms the defect at the corrected anchor (R1) |
 | **P2** | Does `inline-flex w-fit min-h-tap-min items-center` fix it without breaking `<details>`? | **144.8 × 44**; toggle probed `open false -> true` at all four viewports |
 | **P3** | Stepper slack at mobile | Connectors measure **width 0.0** at 320 and 390 — zero horizontal slack (R7) |
 | **P4** | Does `before:-inset-2` produce a working 44px target? | **NO.** Box is 44×44 but only top + left take the pointer; right → `NAV`, bottom → outer wrapper. **Recipe refuted (R2)** |
@@ -372,8 +429,32 @@ reproduced by the committed assertions in §8.
 Every task is TDD: failing test → minimal implementation → passing test → commit.
 
 **Real-browser (Playwright, standalone config).** jsdom computes no layout and cannot
-satisfy §6. New spec **tests/e2e/tap-target-floor.layout.spec.ts** (NEW), asserting DI-1…DI-8 across
-320/390/768/1280.
+satisfy §6. New spec **tests/e2e/tap-target-floor.layout.spec.ts** (NEW), asserting
+DI-1…DI-13 across 320/390/768/1280 (DI-11/DI-12 additionally at 360 and 440, the
+`AdminNav` wordmark breakpoints).
+
+> **The harness MUST mount the REAL components. A transcribed-markup harness is
+> disqualified for this spec.** The nearest precedent,
+> `tests/e2e/step3-review-page.layout.spec.ts:9-18`, deliberately transcribes class strings
+> into static HTML and keeps them in sync by hand. That is sound for pinning a *layout
+> shape*, but it is **fatal here**: this spec's entire subject is whether particular class
+> strings are present on particular elements, so a harness holding its own copy of those
+> strings would pass with the corrected copy while the production components stayed
+> unrepaired — the exact unfixed-build case the anti-tautology rules exist to reject.
+>
+> Use the **live-entry** pattern instead, which is already established in this repo for
+> exactly this reason: an **_<name>LiveEntry.tsx** module imports the real component, is
+> bundled out-of-process with pinned esbuild, and is served to the page — see
+> `tests/e2e/_pillFocusLiveEntry.tsx:1-20` and the config's own note that
+> `step3-review-modal.layout` runs "on the REAL component tree"
+> (`tests/e2e/standalone.config.ts:17`). The entry imports `StepIndicator`
+> (`components/admin/OnboardingWizard.tsx:117`), `HelpAffordance`, `HelpSheet`,
+> `HelpTooltip`, and the `AdminNav` brand block, and exposes the props each invariant needs
+> (including DI-9's `step=2, maxReachedStep=3` forward-visited state).
+>
+> The probe in §7 used a transcribed harness because it was measuring *candidate recipes*
+> that did not exist in any component yet. That is the one legitimate use, and it ended
+> when the recipe was chosen.
 
 > **Wiring, not optional:** `tests/e2e/standalone.config.ts:86` `testMatch` is an explicit
 > allow-list — "a new standalone spec is NOT discovered until its name is added here. A spec
@@ -402,11 +483,19 @@ satisfy §6. New spec **tests/e2e/tap-target-floor.layout.spec.ts** (NEW), asser
   measured rect, not a hardcoded offset — and compare the computed colour against the
   pill-centre hover. Comparing the band's hover colour to the *resting* colour would pass on
   a build where hover is broken everywhere.
-- **Premise (`tests/_shared/premise.ts`):** DI-3's non-overlap assertion is vacuous if fewer
-  than two pills render, and DI-7 is vacuous if the viewport is not actually 320px. Each
-  states its premise executably, immediately above the assertion, and **unconditionally
-  relative to what it guards** — never inside a `.each` callback whose case count could be
-  zero.
+- **Premise (`tests/_shared/premise.ts`), one per vacuity mode — not only the two obvious
+  ones.** Each is stated executably, immediately above the assertion it guards, and
+  **unconditionally relative to that assertion** — never inside a `.each` callback, whose
+  case count can be zero.
+
+  | Assertion | Vacuous when | Premise |
+  |---|---|---|
+  | DI-1, DI-2 | The conditional disclosure never rendered, so there is no `<summary>` to measure and a "no element is under 44px" phrasing passes trivially | The expected `<summary>` count is > 0 **and equals the number of fixtures mounted** |
+  | DI-3 | Fewer than two pills render, so "no two overlap" is trivially true | Exactly three pill targets are present |
+  | DI-7 | The viewport is not actually 320px | Measured `window.innerWidth === 320` |
+  | DI-9 | The sampled pill has no hover colour (active/done), so band-hover == centre-hover with the rewiring absent | Centre-hover colour ≠ resting colour on the sampled pill |
+  | DI-11, DI-12 | The wordmark state under test did not apply | The "FXAV" span's measured visibility matches the viewport's expected breakpoint state |
+  | DI-13 | No element has focus, so the ring rect is empty | `document.activeElement` is the target under test |
 
 ---
 
@@ -432,11 +521,19 @@ satisfy §6. New spec **tests/e2e/tap-target-floor.layout.spec.ts** (NEW), asser
 
 - **AC-1** Every site in §2.1 renders a `<summary>` measuring ≥44px on both axes, and each
   remains narrower than its container (DI-1, DI-2).
-- **AC-2** Every site in §2.2 exposes a ≥44×44 target whose four edge midpoints hit it, with
-  the 28px visual preserved and no overlap between adjacent targets (DI-3, DI-4, DI-6, DI-8).
-- **AC-2b** Hover and focus feedback covers the **whole** 44px target, not just the 28px
-  visual (DI-9) — the expansion band is never tappable-but-visually-dead.
+- **AC-2** **Every** site in §2.2 — the three step pills, `HelpSheet`, `HelpTooltip`, and
+  the `AdminNav` brand link — exposes a ≥44×44 target whose four edge midpoints hit it, with
+  its 28px visual preserved and no overlap between adjacent targets (DI-3, DI-4, DI-6, DI-8,
+  DI-10, DI-11).
+- **AC-2b** Hover feedback covers the **whole** 44px target, not just the 28px visual (DI-9,
+  DI-10), and focus feedback outlines the target rather than the visual (DI-13) — the
+  expansion band is never tappable-but-visually-dead.
+- **AC-2c** `AdminNav`'s brand-link repair consumes no horizontal budget at 320px and does
+  not change the topbar row height (DI-12).
 - **AC-3** Stepper layout is unchanged: pill centres identical, no 320px overflow (DI-5, DI-7).
+- **AC-3b** Every real-browser assertion runs against the **real components** via a
+  live-entry harness, not transcribed markup (§8) — so none of DI-1…DI-13 can pass on a
+  build where the production repair was not applied.
 - **AC-4** The Step-3 page's heading sequence skips no level, asserted from document order.
 - **AC-5** The diagram tile exposes exactly one accessible name; a blank `alt` still yields a
   named link.
