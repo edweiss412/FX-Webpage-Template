@@ -37,6 +37,13 @@ const REPO_ROOT = resolve(__dirname, "..", "..");
 /** The project floor: DESIGN.md:216 `--spacing-tap-min: 44px`. */
 const TAP_MIN = 44;
 
+/**
+ * The painted pill, unchanged by this repair (`size-7`). Spec §1.1 R6: every
+ * repaired control keeps its EXISTING box — "28px everywhere" would be wrong,
+ * since the HelpSheet close button is `size-9`.
+ */
+const VISUAL_PILL = 28;
+
 /** Sub-pixel tolerance for every geometry comparison in this file. */
 const EPS = 0.5;
 
@@ -168,6 +175,309 @@ async function premiseSevenSummaries(page: Page): Promise<void> {
     count === SUMMARY_MOUNT_COUNT,
   );
 }
+
+/** The three step-pill targets, in document order. */
+const PILL_NUMBERS = [1, 2, 3] as const;
+
+/**
+ * The step-pill fixture is `step=2, maxReachedStep=3`, so pill 3 is a
+ * FORWARD-VISITED <Link> — the only state that carries a hover colour
+ * (`group-hover:text-text-strong`, components/admin/OnboardingWizard.tsx:157).
+ * Active and done pills have none, so on the ordinary Step-3 state band-hover
+ * and centre-hover are trivially equal even with the rewiring entirely absent
+ * (spec §6.1). DI-9 samples this pill and nothing else.
+ */
+const FORWARD_VISITED_PILL = 3;
+
+function pillTarget(page: Page, n: number) {
+  return page.locator(`[data-mount="step-indicator"] [data-testid="wizard-step-indicator-${n}"]`);
+}
+
+function pillVisual(page: Page, n: number) {
+  return page.locator(
+    `[data-mount="step-indicator"] [data-testid="wizard-step-indicator-${n}-visual"]`,
+  );
+}
+
+/** Every pill target is present. With fewer than two, "no two overlap" is free. */
+async function premiseThreePills(page: Page): Promise<void> {
+  const count = await page
+    .locator(
+      '[data-mount="step-indicator"] [data-testid^="wizard-step-indicator-"]:not([data-testid$="-visual"])',
+    )
+    .count();
+  premiseHolds(
+    `exactly ${PILL_NUMBERS.length} pill targets rendered (got ${count})`,
+    count === PILL_NUMBERS.length,
+  );
+}
+
+type Rect = { x: number; y: number; w: number; h: number };
+
+async function rectOf(page: Page, selector: string): Promise<Rect> {
+  return page.locator(selector).evaluate((el) => {
+    const r = el.getBoundingClientRect();
+    return { x: r.x, y: r.y, w: r.width, h: r.height };
+  });
+}
+
+/**
+ * The element's `color` AFTER its own colour transition has run to completion.
+ *
+ * Reading getComputedStyle the instant a hover lands returns the transition's
+ * START value, so a naive read reports "hover changed nothing" on a build where
+ * hover works perfectly — a false failure that a magic sleep would paper over
+ * unreliably. The wait is DERIVED from the element's own declared
+ * `transition-duration` (these pills carry `duration-fast`, 120ms,
+ * app/globals.css:240), so it stays correct if that token is retimed and it
+ * collapses to a single frame under prefers-reduced-motion, which zeroes it.
+ */
+async function settledColor(page: Page, selector: string): Promise<string> {
+  const durationMs = await page.locator(selector).evaluate((el) => {
+    const first = getComputedStyle(el).transitionDuration.split(",")[0]?.trim() ?? "0s";
+    return first.endsWith("ms") ? parseFloat(first) : parseFloat(first) * 1000;
+  });
+  await page.waitForTimeout((Number.isFinite(durationMs) ? durationMs : 0) + 60);
+  return page.locator(selector).evaluate((el) => getComputedStyle(el).color);
+}
+
+test.describe("DI-3/DI-4/DI-5 — the step pills grow their target without moving their layout", () => {
+  for (const width of VIEWPORTS) {
+    test(`@${width}px: target is 44x44, visual stays 28x28, margin box stays 28x28`, async ({
+      page,
+    }) => {
+      await boot(page, width);
+      await premiseThreePills(page);
+
+      let previousRight: number | null = null;
+      for (const n of PILL_NUMBERS) {
+        const measured = await pillTarget(page, n).evaluate((el) => {
+          const r = el.getBoundingClientRect();
+          const cs = getComputedStyle(el);
+          return {
+            x: r.x,
+            w: r.width,
+            h: r.height,
+            marginLeft: parseFloat(cs.marginLeft),
+            marginRight: parseFloat(cs.marginRight),
+            marginTop: parseFloat(cs.marginTop),
+            marginBottom: parseFloat(cs.marginBottom),
+          };
+        });
+
+        // DI-3: exactly 44x44, not merely "at least".
+        expect(measured.w, `pill ${n} target width`).toBeCloseTo(TAP_MIN, 1);
+        expect(measured.h, `pill ${n} target height`).toBeCloseTo(TAP_MIN, 1);
+
+        // DI-4: the painted pill is untouched (R6 — this is an a11y repair, not
+        // a redesign). Asserted on a DIFFERENT element from DI-3, or the pair is
+        // self-satisfying (spec §8).
+        const visual = await pillVisual(page, n).evaluate((el) => {
+          const r = el.getBoundingClientRect();
+          return { w: r.width, h: r.height };
+        });
+        expect(visual.w, `pill ${n} visual width`).toBeCloseTo(VISUAL_PILL, 1);
+        expect(visual.h, `pill ${n} visual height`).toBeCloseTo(VISUAL_PILL, 1);
+
+        // DI-5 (PRESERVATION, spec §8 — passes before AND after by design; do
+        // not "strengthen" it into discriminating form). The margin box is what
+        // the stepper's layout actually spends, and at 320px the connectors are
+        // 0px wide (probe P3) so there is no slack to absorb a change.
+        expect(
+          measured.w + measured.marginLeft + measured.marginRight,
+          `pill ${n} horizontal margin box`,
+        ).toBeCloseTo(VISUAL_PILL, 1);
+        expect(
+          measured.h + measured.marginTop + measured.marginBottom,
+          `pill ${n} vertical margin box`,
+        ).toBeCloseTo(VISUAL_PILL, 1);
+
+        // DI-3, second half: adjacent 44px boxes touch at 320/390 (gap 0.0,
+        // probe P6) and must never overlap — at gap 0 every pixel has exactly
+        // one owner, so no pill can steal a neighbour's tap.
+        if (previousRight !== null) {
+          expect(measured.x, `pill ${n} overlaps its left neighbour`).toBeGreaterThanOrEqual(
+            previousRight - EPS,
+          );
+        }
+        previousRight = measured.x + measured.w;
+      }
+    });
+  }
+});
+
+test.describe("DI-6 — every pill edge midpoint hits that pill, not a sibling", () => {
+  for (const width of VIEWPORTS) {
+    test(`@${width}px: four edge midpoints per pill resolve to their own target`, async ({
+      page,
+    }) => {
+      await boot(page, width);
+      await premiseThreePills(page);
+
+      for (const n of PILL_NUMBERS) {
+        const selector = `[data-mount="step-indicator"] [data-testid="wizard-step-indicator-${n}"]`;
+        // Corners are deliberately excluded (spec §6): probe P4 measured them
+        // unreliable across recipes, so asserting them buys flake, not power.
+        //
+        // The sampled box is the 44px FLOOR box centred on the pill, DERIVED
+        // from the pill's own centre — deliberately not the element's own rect.
+        // Sampling the element's rect would be vacuous on an unrepaired build:
+        // a 28px box's own edges trivially hit the 28px element, so the test
+        // would pass green against the very defect it exists to catch. This is
+        // also the exact geometry probe P4 used to REFUTE `before:-inset-2`,
+        // whose 44px box took the pointer on only two of four edges.
+        const hits = await page.locator(selector).evaluate((el, floor) => {
+          const r = el.getBoundingClientRect();
+          const cx = r.left + r.width / 2;
+          const cy = r.top + r.height / 2;
+          const half = floor / 2;
+          const points: Array<[string, number, number]> = [
+            ["left", cx - half + 1, cy],
+            ["right", cx + half - 1, cy],
+            ["top", cx, cy - half + 1],
+            ["bottom", cx, cy + half - 1],
+          ];
+          return points.map(([edge, x, y]) => {
+            const hit = document.elementFromPoint(x, y);
+            return { edge, ownsHit: hit !== null && (hit === el || el.contains(hit)) };
+          });
+        }, TAP_MIN);
+        expect(hits, `pill ${n} edge hit map`).toHaveLength(4);
+        for (const { edge, ownsHit } of hits) {
+          expect(ownsHit, `pill ${n} ${edge} midpoint resolved outside the target`).toBe(true);
+        }
+      }
+    });
+  }
+});
+
+test.describe("DI-9 — hover feedback covers the whole target, not just the painted pill", () => {
+  test("band-hover matches centre-hover on the forward-visited pill", async ({ page }) => {
+    await boot(page, 390);
+    await premiseThreePills(page);
+
+    const target = pillTarget(page, FORWARD_VISITED_PILL);
+    const visual = pillVisual(page, FORWARD_VISITED_PILL);
+    const visualSelector = `[data-mount="step-indicator"] [data-testid="wizard-step-indicator-${FORWARD_VISITED_PILL}-visual"]`;
+
+    const resting = await settledColor(page, visualSelector);
+
+    // Hover the painted pill's centre.
+    await visual.hover();
+    const centre = await settledColor(page, visualSelector);
+
+    // The premise DI-9 cannot do without: this pill must actually CHANGE colour
+    // on hover. Comparing band-hover to resting instead would pass on a build
+    // where hover is broken everywhere, and comparing band to centre on a pill
+    // with no hover colour compares two identical values (spec §6.1).
+    premiseHolds(
+      `the sampled pill changes colour on hover (resting ${resting}, hovered ${centre})`,
+      centre !== resting,
+    );
+
+    // A point provably inside the 44px target and outside the 28px visual —
+    // DERIVED from the measured rects, never a hardcoded offset (spec §8).
+    const targetRect = await rectOf(
+      page,
+      `[data-mount="step-indicator"] [data-testid="wizard-step-indicator-${FORWARD_VISITED_PILL}"]`,
+    );
+    const visualRect = await rectOf(
+      page,
+      `[data-mount="step-indicator"] [data-testid="wizard-step-indicator-${FORWARD_VISITED_PILL}-visual"]`,
+    );
+    const bandX = (targetRect.x + visualRect.x) / 2;
+    const bandY = targetRect.y + targetRect.h / 2;
+    premise("the expansion band is wide enough to sample", visualRect.x - targetRect.x, 1);
+
+    // Leave the element entirely first, so the band read cannot inherit the
+    // centre hover it is being compared against.
+    await page.mouse.move(0, 0);
+    await settledColor(page, visualSelector);
+    await page.mouse.move(bandX, bandY);
+    const band = await settledColor(page, visualSelector);
+
+    expect(band, "hovering the expansion band produced no hover colour").toBe(centre);
+
+    // §4.1: the crossfade wiring survived the class move. With the pointer
+    // parked in the band, the property that transitions must still be on the
+    // element that now paints it.
+    const transition = await visual.evaluate((el) => getComputedStyle(el).transitionProperty);
+    expect(transition, "the visual span lost its colour transition").toContain("color");
+
+    // The target itself must be the `group` ancestor the rewritten utilities
+    // resolve against; without it `group-hover:*` never matches and hover
+    // feedback disappears rather than degrading.
+    await expect(target).toHaveClass(/(^|\s)group(\s|$)/);
+  });
+});
+
+test.describe("DI-13/DI-14 — focus outlines the target, at the target's own radius", () => {
+  for (const n of PILL_NUMBERS) {
+    test(`pill ${n}: the ring is on the 44px target and the radius is non-zero and shared`, async ({
+      page,
+    }) => {
+      await boot(page, 390);
+      await premiseThreePills(page);
+
+      const selector = `[data-mount="step-indicator"] [data-testid="wizard-step-indicator-${n}"]`;
+
+      // DI-14 is read UNFOCUSED, and that is a strengthening rather than a
+      // relaxation. MEASURED on this build: app/globals.css:762-766 declares an
+      // UNLAYERED `:focus-visible { border-radius: var(--radius-sm) }`, and
+      // unlayered CSS beats every Tailwind utility layer — so a focused pill
+      // computes 6px whether or not it carries `rounded-pill`. A focused-state
+      // radius comparison is therefore BLIND to the class it claims to pin: it
+      // reads 6px on the repaired build and 6px on a build that dropped the
+      // radius from the target entirely. The unfocused read is where
+      // `rounded-pill` actually governs, so it is where the claim can fail.
+      const resting = await page.locator(selector).evaluate((el) => {
+        const span = el.querySelector<HTMLElement>('[data-testid$="-visual"]');
+        return {
+          targetRadius: getComputedStyle(el).borderTopLeftRadius,
+          spanRadius: span ? getComputedStyle(span).borderTopLeftRadius : null,
+        };
+      });
+      premiseHolds(`pill ${n} rendered its inner visual span`, resting.spanRadius !== null);
+
+      // BOTH halves are required: equality alone is satisfied by 0px === 0px,
+      // which is exactly the regression of dropping the radius from both.
+      expect(parseFloat(resting.targetRadius), `pill ${n} target radius`).toBeGreaterThan(0);
+      expect(resting.targetRadius, `pill ${n} radius diverged from its visual`).toBe(
+        resting.spanRadius,
+      );
+
+      // DI-13 — the ring, which only exists in the focused state.
+      await page.locator(selector).evaluate((el) => (el as HTMLElement).focus());
+      const state = await page.locator(selector).evaluate((el) => {
+        const span = el.querySelector<HTMLElement>('[data-testid$="-visual"]');
+        const cs = getComputedStyle(el);
+        const r = el.getBoundingClientRect();
+        return {
+          isActive: document.activeElement === el,
+          // A ring is `outline` or `box-shadow`; neither affects the border
+          // box, so geometry alone cannot see it (spec §6, DI-13). Asserting
+          // only the rect would pass with no ring at all.
+          targetRing: cs.outlineStyle !== "none" || cs.boxShadow !== "none",
+          spanRing: span
+            ? getComputedStyle(span).outlineStyle !== "none" ||
+              getComputedStyle(span).boxShadow !== "none"
+            : null,
+          w: r.width,
+          h: r.height,
+        };
+      });
+
+      // Premise: an unfocused element has no ring, so every claim below would
+      // be about the wrong state.
+      premiseHolds(`pill ${n} is document.activeElement`, state.isActive);
+
+      expect(state.targetRing, `pill ${n} focus ring is not on the target`).toBe(true);
+      expect(state.spanRing, `pill ${n} inner visual grew a ring of its own`).toBe(false);
+      expect(state.w, `pill ${n} ringed rect width`).toBeCloseTo(TAP_MIN, 1);
+      expect(state.h, `pill ${n} ringed rect height`).toBeCloseTo(TAP_MIN, 1);
+    });
+  }
+});
 
 test.describe("DI-1 — every repaired <summary> clears the 44px floor on both axes", () => {
   for (const width of VIEWPORTS) {

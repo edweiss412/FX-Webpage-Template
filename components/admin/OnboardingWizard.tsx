@@ -127,6 +127,25 @@ export function StepIndicator({
     "flex size-7 shrink-0 items-center justify-center rounded-pill border text-xs font-semibold tabular-nums transition-colors duration-fast";
   const focusRing =
     "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg";
+  // The 44px TAP TARGET a reachable pill exposes (spec 2026-08-07-step3-a11y-cluster
+  // §2.2). The painted 28px pill moves to an inner <span> and this anchor becomes
+  // the hit box; `-m-2` cancels the growth exactly, so the pill's margin box stays
+  // 28×28 and the stepper's layout is untouched — required, not incidental, because
+  // the connectors measure 0px wide at 320 and 390 (probe P3) and there is no slack.
+  //
+  // `group` is mandatory, not stylistic: the visual span's hover utilities are
+  // rewritten `group-hover:*`, which Tailwind emits as `:is(:where(.group):hover *)`.
+  // Without an ancestor carrying `.group` they never match and hover feedback
+  // disappears entirely rather than degrading — an 8px band that is tappable but
+  // visually dead is worse than the small target it replaced.
+  //
+  // `rounded-pill` sits on BOTH: the span needs it to paint, and the target needs
+  // it or its focus ring turns square (the ring follows the focused element's own
+  // radius). `cursor-pointer` is on the target so the cursor changes across the
+  // whole band. The focus ring stays on the anchor — a non-focusable inner span
+  // can never match `focus-visible`.
+  const tapTarget =
+    "group -m-2 flex size-tap-min shrink-0 cursor-pointer items-center justify-center rounded-pill";
   return (
     <nav
       aria-label="Onboarding progress"
@@ -154,7 +173,9 @@ export function StepIndicator({
           : isDone
             ? "border-border-strong bg-surface text-text-subtle"
             : isVisited
-              ? "border-transparent bg-surface-sunken text-text-subtle hover:text-text-strong"
+              ? // `group-hover:`, not `hover:` — the visual span is no longer the
+                // element the pointer is over across the 8px expansion band.
+                "border-transparent bg-surface-sunken text-text-subtle group-hover:text-text-strong"
               : "border-transparent bg-surface-sunken text-text-faint";
         // The check replaces the number on done pills; label sits beside the pill.
         const glyph = isDone ? <Check aria-hidden="true" className="size-3.5" /> : n;
@@ -164,9 +185,14 @@ export function StepIndicator({
             data-testid={`wizard-step-indicator-${n}`}
             aria-current={isActive ? "step" : undefined}
             aria-label={isActive ? `Step ${n}, current step` : navLabel}
-            className={[base, focusRing, pillState].join(" ")}
+            className={[tapTarget, focusRing].join(" ")}
           >
-            {glyph}
+            <span
+              data-testid={`wizard-step-indicator-${n}-visual`}
+              className={[base, pillState].join(" ")}
+            >
+              {glyph}
+            </span>
           </Link>
         ) : (
           <span

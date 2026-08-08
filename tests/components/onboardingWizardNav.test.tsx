@@ -270,7 +270,13 @@ describe("StepIndicator redesign — labels + connectors + done-check (Task 2)",
 
   test("done steps (n < step) render a check, active step uses accent", () => {
     render(<StepIndicator step={3} maxReachedStep={3} />);
-    const active = screen.getByTestId("wizard-step-indicator-3");
+    // The accent now paints the INNER visual span, not the anchor: spec
+    // 2026-08-07-step3-a11y-cluster §2.2 splits the pill so the anchor is a bare
+    // 44px hit box and the 28px painted circle is its child. Every other
+    // assertion in this file still targets `wizard-step-indicator-N`, which
+    // stayed on the anchor — reachability, aria-current, aria-disabled and href
+    // are unchanged by the split.
+    const active = screen.getByTestId("wizard-step-indicator-3-visual");
     expect(active.className).toContain("bg-accent");
     const done1 = screen.getByTestId("wizard-step-indicator-1");
     expect(done1.querySelector("svg")).not.toBeNull();
