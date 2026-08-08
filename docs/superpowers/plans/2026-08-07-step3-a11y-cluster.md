@@ -64,7 +64,9 @@ pre-push full suite runs after it is resolved.)
   — no `pg_advisory*` in scope. No mutation surface
   (`tests/log/_metaMutationSurfaceObservability.test.ts`) — no route handler or
   `"use server"` action added or modified; every change is presentational.
-- **Affected but not extended:** `tests/docs/_metaLedgerInProgress.test.ts`,
+- **Affected but not extended:** `tests/ci/_metaSpecRegistration.test.ts` +
+  `tests/e2e/standalone-baseline.json` (identity-multiset baseline regenerated in each
+  of Tasks 2–5 — R2 F1, mechanics in Task 2), `tests/docs/_metaLedgerInProgress.test.ts`,
   `tests/docs/_metaLedgerReferentialIntegrity.test.ts` (Task 9 edits must keep them
   green; the referential-integrity suite was RED on this branch until the two
   `BL-TAP-TARGET-*` rows — cited by the committed spec — were filed in `BACKLOG.md` in
@@ -87,6 +89,7 @@ pre-push full suite runs after it is resolved.)
 | `tests/e2e/step3-review-page.layout.spec.ts:203-216` | **Re-run as DI-7** (preservation invariant; spec §8 exempts it from discriminating-form). Not edited. |
 | `tests/styles/_metaBgAccentInventory.test.ts:86` — `L("app/me/page.tsx", 0, "bg-accent text-accent-text")` | **Row moves in Task 1** to **app/me/meShowSections.tsx** (the extraction relocates `chipToneClass`'s occurrence; the guard reports both the unregistered new occurrence and the stale row). |
 | `tests/e2e/_metaFontFidelityWiring.test.ts` (filesystem-walked) + `tests/e2e/_metaFontWaitCoverage.test.ts:30` (`CALLERS`) | **Fail-by-default / enrolled in Task 2** — the new spec imports `test` from `./helpers/fontFidelityFixture` (never `@playwright/test`), awaits `document.fonts.ready` between navigation and measurement, and adds its stem to `CALLERS`. |
+| `tests/ci/_metaSpecRegistration.test.ts:82` + `tests/e2e/standalone-baseline.json` (comparator `scripts/check-standalone-baseline.mjs:180`) | **Regenerated in EACH of Tasks 2–5** (`node scripts/check-standalone-baseline.mjs --write`, JSON committed with the growth commit) — the baseline pins per-file test-identity multisets exactly, so every commit that adds describes fails it until regenerated (R2 F1). |
 | `tests/components/admin/HelpSheet.test.tsx`, `tests/components/admin/PreviewBannerHelpAffordance.test.tsx`, `tests/components/ErrorExplainer.test.tsx`, `tests/app/admin/admins-page-developer.test.tsx`, `tests/app/admin/settings-developer-visibility.test.tsx`, crew `ScheduleSection.*.test.tsx` | **Expected unchanged** (class-string additions don't alter structure/naming). Task-level rule: if any needs editing beyond a class-string literal, STOP and check the spec's R6 "looks different = defect" fence before touching it. |
 
 ## 4. Harness architecture (one section, referenced by Tasks 1–5)
@@ -263,6 +266,15 @@ no `--grep` selection, so nothing a task adds can be silently skipped. The RED r
 (before the task's production edit) fails on exactly the task's new describes; the
 committed state is the whole file green. No commit ever carries a red or
 expected-failing assertion.
+
+**Baseline regeneration rides every growth commit (R2 F1):** the committed
+`tests/e2e/standalone-baseline.json` pins the standalone suite's per-file test-identity
+multisets exactly — new files AND changed identity sets both fail the comparator
+(`scripts/check-standalone-baseline.mjs:180`, run by
+`tests/ci/_metaSpecRegistration.test.ts:82` and by the standalone CI workflow). Each of
+Tasks 2–5 changes the new spec's identities, so EACH of those commits regenerates the
+baseline (`node scripts/check-standalone-baseline.mjs --write`) and commits the JSON,
+then verifies with `pnpm vitest run tests/ci/_metaSpecRegistration.test.ts`.
 
 **DI-1's seven-summary scope lands in two steps, stated so neither looks like a
 weakening:** this task's DI-1 describe iterates the six Class-A summaries; Task 4
