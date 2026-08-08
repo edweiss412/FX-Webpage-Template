@@ -68,7 +68,7 @@ impeccable-gate: N/A — no UI surface
 
 **RED.** Create a new node-environment suite at tests/auth/oauthRedirectInvalidTelemetry.test.ts, structured on the shipped harness at `tests/auth/callback-oauth-telemetry.test.ts:34` — `vi.resetModules()`, `setLogSink` capturing `LogRecord[]`, dynamic `import` of the route, `resetLogSink()` in a `finally`. Two cases:
 
-1. Drive `app/auth/callback/route.ts`'s `GET` with a valid `code` and an **explicitly invalid** `next` (so `hasInvalidExplicitNext` is true at `app/auth/callback/route.ts:181`). Assert exactly one record with `code === "OAUTH_REDIRECT_INVALID"`, `level === "warn"`, `context.reason === "callback_invalid_explicit_next"`, **and** the full AC-2 refusal shape — a 302, the unchanged sign-in `Location`, **and** that `clearPkceVerifierCookies` still ran: the response carries a `Set-Cookie` with `Max-Age=0` for each `sb-*-auth-token-code-verifier` cookie on the request (`app/auth/callback/route.ts:61`). Asserting AC-2 in the same case as AC-1 means an emit that disturbs the refusal fails here rather than in review.
+1. Drive `app/auth/callback/route.ts`'s `GET` with a valid `code` and an **explicitly invalid** `next` (so `hasInvalidExplicitNext` is true at `app/auth/callback/route.ts:181`). Assert exactly one record with `code === "OAUTH_REDIRECT_INVALID"`, `level === "warn"`, `context.reason === "callback_invalid_explicit_next"`, **and** the shared unchanged-refusal surface for its site (see the table below) — for site 1 that includes the PKCE `Set-Cookie` proving `clearPkceVerifierCookies` still ran (`app/auth/callback/route.ts:61`). Asserting AC-2 in the same case as AC-1 means an emit that disturbs the refusal fails here rather than in review.
 
 **Premise for the PKCE assertion (mandatory — it is vacuous without one).** `clearPkceVerifierCookies` iterates the REQUEST's cookies and appends nothing when none match, so a case whose request carries no code-verifier cookie asserts over an empty set and passes even if the call were deleted outright. The case therefore sets at least one `sb-<ref>-auth-token-code-verifier` cookie on the request and states via `premise`/`premiseHolds` that the request carries it, immediately above the `Set-Cookie` assertion. This is the "absent event encoded as a value that satisfies the comparison" shape from the anti-tautology rule, and it is the reason removing the PKCE call went undetected in the R3 draft.
 2. Drive `app/api/auth/google/start/route.ts`'s `GET` with an invalid `next`. Same assertions with `reason === "start_invalid_explicit_next"`. Both cases also assert the **whole-record accept-set** (AC-4) — see the shared shape below.
@@ -117,6 +117,19 @@ expect(matched[0]!).toEqual({
 });
 ```
 
+### The unchanged-refusal assertion (shared by Tasks 1, 2, 3 and 5)
+
+AC-2 and AC-5 say the shipped refusal is untouched. Like the accept-set, that surface gets **one definition**, so no task can assert a weaker version of it — which is exactly what plan-R3 found in Task 5, whose picker cases checked status and `Location` while Task 2's checked the cataloged body too. Per site, "unchanged refusal" means:
+
+| Site | The full refusal surface |
+| --- | --- |
+| 1 (callback) | `status === 302`; the exact sign-in `Location`; a `Set-Cookie` with `Max-Age=0` for every `sb-*-auth-token-code-verifier` on the request (premise: the request carries one) |
+| 2 (google-start) | `status === 302`; the exact sign-in `Location` |
+| 3, 4, 5a, 5b (picker-bootstrap) | `status === 403`; **no** `Location` header; the body contains the cataloged `OAUTH_REDIRECT_INVALID` copy (`messageFor(...).crewFacing ?? .dougFacing`) |
+| 6 (onboarding wizard) | `wizard-operator-error` renders, **and** the wizard shell around it is intact — the same `queryByTestId` expectations the shipped cases already make, including the Start Over affordance's presence or absence for the settings under test (`tests/components/admin/OnboardingWizard.test.tsx:186` shows shell and block are independent properties) |
+
+The picker body assertion is load-bearing rather than belt-and-braces: `htmlResponse` renders a DIFFERENT cataloged string per code, so a branch that swapped to another 403 interstitial would pass a status-only check while changing what the user reads. Same for the wizard: returning only `OperatorErrorBlock` keeps `wizard-operator-error` present while dropping the shell.
+
 **Cardinality is part of the accept-set, not a separate concern.** A `toEqual` on a SELECTED record constrains that record and says nothing about how many were emitted, so a duplicate emit on any branch would satisfy it — AC-1 and AC-3 both say "exactly one record". The `toHaveLength(1)` line is therefore not optional decoration on the deep-equal; it is half the assertion.
 
 `toEqual` against a complete literal is the rest of the accept-set: any field added, renamed, or populated with derived text fails. Per-site variation is only in `source`, `message`, `context.reason`, and `requestId` — `null` for the two `auth.*` routes (documented limit §5.3) and the derived request id for the three picker-bootstrap sites, which run inside `runWithRequestContext`.
@@ -137,7 +150,7 @@ expect(matched[0]!).toEqual({
 | `app/api/auth/picker-bootstrap/route.ts:176` (a) | a well-formed tokenized `next` whose `t` intent fails `verifyPickerIntent` — absent, malformed, bad signature, or **expired** | `bootstrap_intent_unverified` |
 | `app/api/auth/picker-bootstrap/route.ts:176` (b) | a well-formed tokenized `next` with a VERIFIED intent naming a different slug or share token | `bootstrap_intent_target_mismatch` |
 
-Each asserts the whole-record accept-set above (cardinality filter plus the nine-field object) (with `source: "api.auth.pickerBootstrap"` and its own `context.reason`), **and** `res.status === 403`, **and** that the response body still contains the cataloged `OAUTH_REDIRECT_INVALID` copy — `messageFor("OAUTH_REDIRECT_INVALID").crewFacing ?? .dougFacing`, the string `htmlResponse` renders into the interstitial (`app/api/auth/picker-bootstrap/route.ts:35`). Status alone does not pin the refusal: R3 showed that swapping any of these branches to a different 403 body would leave a status-only assertion green, violating AC-2.
+Each asserts the whole-record accept-set above (cardinality filter plus the nine-field object) (with `source: "api.auth.pickerBootstrap"` and its own `context.reason`), **and** the shared unchanged-refusal surface for a picker site: `res.status === 403`, no `Location`, and the cataloged `OAUTH_REDIRECT_INVALID` copy in the body (`app/api/auth/picker-bootstrap/route.ts:35`). Status alone does not pin the refusal — swapping any of these branches to a different 403 interstitial would leave a status-only assertion green while changing what the user reads.
 
 **Concrete failure mode caught:** the four branches collapsed onto one emit, or a single emit hoisted above them — which would make `reason` a constant and the whole discrimination in spec §1.1 item 2 a fiction. **Five cases over four distinct `reason` values** (sites 3a and 3b deliberately share `bootstrap_next_rejected`, since they are one branch reached two ways). A hoisted constant matches at most the cases expecting that value — two if it happens to be `bootstrap_next_rejected`, otherwise one — and fails the rest. No single hoist fails every case, but the suite rejects every possible hoist, which is the property that matters. That is why these are separate cases rather than one parameterized case over a shared expectation.
 
@@ -268,7 +281,7 @@ log.setLogSink(() => {
 });
 ```
 
-and then asserting the refusal is completely unaffected — for the OAuth sites the same status, `Location` and (site 1) PKCE `Set-Cookie` assertions Tasks 1-2 make; for the onboarding site that `render()` still produces `wizard-operator-error`.
+and then asserting **the shared unchanged-refusal surface for that site, in full** — the table above, not a subset of it. Plan-R3 found this task asserting a weaker version than Tasks 1-3 (status and `Location` but not the cataloged body at the picker sites; the error block but not the wizard shell), which let a `catch` that returned a different 403 interstitial, or only `OperatorErrorBlock`, pass while changing what the user sees. Referencing the one definition is what prevents that recurring.
 
 **Premise (mandatory, and it must be CODE-SPECIFIC — a generic "sink was entered" flag is vacuous at site 1).** With no emit at all, a throwing sink is never invoked and the route works fine, so an unguarded case would pass against a tree carrying no telemetry whatsoever. But a generic entered-flag does not fix that at every site: `app/auth/callback/route.ts:255` calls `stampOauthClaim` — which emits `OAUTH_SIGN_IN_SUCCEEDED` (`app/auth/callback/route.ts:112`) — **before** the redirect-invalid branch at `app/auth/callback/route.ts:257`, so the flag is already true whether or not the new emit exists. A class sweep found site 1 is the only one with a preceding emit, but the premise is written code-specifically at all six sites regardless, since a generic form is one refactor away from being vacuous anywhere.
 
