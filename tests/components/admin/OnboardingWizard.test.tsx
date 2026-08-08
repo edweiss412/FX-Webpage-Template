@@ -22,6 +22,8 @@ import type { AppSettingsRow } from "@/lib/onboarding/sessionLifecycle";
 import { OnboardingWizard } from "@/components/admin/OnboardingWizard";
 import { startOverServerAction } from "@/lib/onboarding/serverActions";
 import { MESSAGE_CATALOG } from "@/lib/messages/catalog";
+import { resetLogSink, setLogSink } from "@/lib/log";
+import type { LogRecord } from "@/lib/log/types";
 
 // Step2Verify (rendered when ?step=2) uses useRouter() to call
 // router.refresh() on the admin-log-only "superseded" outcome. jsdom
@@ -58,14 +60,60 @@ const WIZARD_IN_FLIGHT_SETTINGS: AppSettingsRow = {
 };
 
 let savedEnv: string | undefined;
+let captured: LogRecord[];
+
+const OPERATOR_ERROR_MESSAGE = "service-account credentials unusable; onboarding wizard blocked";
+
+/**
+ * The whole-record accept-set (AC-4), scoped to exactly the nine fields
+ * `persistAppEvent` writes (lib/log/persist.ts:16) — NOT a shorter local list.
+ * Two review rounds each broke a narrower guard: a denylist fell to a parse
+ * message relocated into `message`, and a context-only accept-set fell to a
+ * fragment placed in `source`, which buildRecord promotes out of context onto
+ * the record and which persists as its own app_events column. A guard narrower
+ * than the persisted row leaves a channel, every time.
+ *
+ * `requestId` is null rather than a matcher: the wizard runs outside
+ * runWithRequestContext, so buildRecord's ALS fallback yields null. Every field
+ * here is a fixed literal by design — an oracle read back from the record would
+ * admit a mutant that assigned derived text to it.
+ */
+function expectedOperatorErrorRecord(reason: string): Record<string, unknown> {
+  return {
+    level: "error",
+    source: "admin.onboardingWizard",
+    message: OPERATOR_ERROR_MESSAGE,
+    code: "ONBOARDING_OPERATOR_ERROR",
+    requestId: null,
+    showId: null,
+    driveFileId: null,
+    actorHash: null,
+    context: { reason },
+  };
+}
+
+/**
+ * Cardinality is half the assertion: a `toEqual` on a SELECTED record says
+ * nothing about how many were emitted, while AC-3 says "exactly one record".
+ */
+function expectExactlyOneOperatorErrorRecord(reason: string): void {
+  const matched = captured.filter((r) => r.code === "ONBOARDING_OPERATOR_ERROR");
+  expect(matched).toHaveLength(1);
+  expect(matched[0]!).toEqual(expectedOperatorErrorRecord(reason));
+}
 
 beforeEach(() => {
   savedEnv = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
   process.env.GOOGLE_SERVICE_ACCOUNT_JSON = SERVICE_ACCOUNT_JSON;
+  captured = [];
+  setLogSink((record) => {
+    captured.push(record);
+  });
 });
 
 afterEach(() => {
   cleanup();
+  resetLogSink();
   if (savedEnv === undefined) {
     delete process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
   } else {
@@ -215,6 +263,7 @@ describe("OnboardingWizard", () => {
     // Start Over still reachable so the operator has a recovery path
     // even when the env is broken.
     expect(queryByTestId("wizard-start-over-button")).toBeTruthy();
+    expectExactlyOneOperatorErrorRecord("env_missing");
   });
 
   test("when GOOGLE_SERVICE_ACCOUNT_JSON is malformed JSON, renders the same operator-error copy", async () => {
@@ -226,6 +275,7 @@ describe("OnboardingWizard", () => {
     expect(queryByTestId("wizard-operator-error")).toBeTruthy();
     const body = container.textContent ?? "";
     expect(body).toContain(MESSAGE_CATALOG.ONBOARDING_OPERATOR_ERROR.dougFacing!);
+    expectExactlyOneOperatorErrorRecord("json_malformed");
   });
 
   test("when client_email is missing from the service-account JSON, renders the operator-error copy", async () => {
@@ -235,5 +285,81 @@ describe("OnboardingWizard", () => {
     );
     expect(queryByTestId("wizard-step1")).toBeNull();
     expect(queryByTestId("wizard-operator-error")).toBeTruthy();
+    expectExactlyOneOperatorErrorRecord("client_email_missing");
   });
+
+  /**
+   * One case per GUARD CONDITION in readServiceAccountEmail, not merely one per
+   * disjunct of the shape check. The three cases above already build three of
+   * the eight environments; these five turn the remaining conditions red.
+   *
+   * Four distinct expected `reason` values across eight environments means a
+   * hardcoded `reason` matches at most three cases and fails at least five.
+   */
+  const RESOLVER_CASES: ReadonlyArray<{
+    label: string;
+    raw: string;
+    reason: string;
+    guard: string;
+  }> = [
+    {
+      label: "an EMPTY-STRING env value",
+      raw: "",
+      reason: "env_missing",
+      // A `raw == null` guard would send "" to JSON.parse, which throws — and
+      // the failure would be mislabelled json_malformed.
+      guard: "!raw (empty-string arm)",
+    },
+    {
+      label: "the JSON literal null",
+      raw: "null",
+      reason: "json_not_an_object",
+      // The shipped resolver's try wraps the property read too, so this parses
+      // successfully and then throws a TypeError into the catch. Labelling that
+      // json_malformed would assert a parse failure that did not happen.
+      guard: "parsed === null",
+    },
+    {
+      label: "a JSON array",
+      raw: "[]",
+      reason: "json_not_an_object",
+      // typeof [] === "object" and [] !== null, so an array escapes a
+      // typeof/null test and would land on client_email_missing — asserting an
+      // object was supplied and merely lacked a field.
+      guard: "Array.isArray(parsed)",
+    },
+    {
+      label: "a JSON number",
+      raw: "123",
+      reason: "json_not_an_object",
+      guard: 'typeof parsed !== "object"',
+    },
+    {
+      label: "an EMPTY client_email",
+      raw: JSON.stringify({ client_email: "" }),
+      reason: "client_email_missing",
+      // The worst row in the table: break this condition and the wizard renders
+      // NORMALLY with an empty service-account email, suppressing both the
+      // operator-error surface and its telemetry. Every other broken condition
+      // merely produces a wrong label; this one produces a silent success on a
+      // misconfigured deploy.
+      guard: "email.length > 0",
+    },
+  ];
+
+  for (const { label, raw, reason, guard } of RESOLVER_CASES) {
+    test(`when GOOGLE_SERVICE_ACCOUNT_JSON is ${label}, renders the operator error and emits ${reason} (guard: ${guard})`, async () => {
+      process.env.GOOGLE_SERVICE_ACCOUNT_JSON = raw;
+      const { queryByTestId } = render(
+        await OnboardingWizard({ settings: FRESH_SETTINGS, searchParams: {} }),
+      );
+      // The refusal surface: the error block AND the shell around it. Returning
+      // only OperatorErrorBlock would keep wizard-operator-error present while
+      // dropping the shell.
+      expect(queryByTestId("wizard-step1")).toBeNull();
+      expect(queryByTestId("wizard-operator-error")).toBeTruthy();
+      expect(queryByTestId("wizard-start-over-button")).toBeTruthy();
+      expectExactlyOneOperatorErrorRecord(reason);
+    });
+  }
 });

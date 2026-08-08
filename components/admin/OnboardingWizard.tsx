@@ -28,6 +28,7 @@ import Link from "next/link";
 import { Check } from "lucide-react";
 import type { AppSettingsRow } from "@/lib/onboarding/sessionLifecycle";
 import { startOverServerAction } from "@/lib/onboarding/serverActions";
+import { log } from "@/lib/log";
 import { messageFor } from "@/lib/messages/lookup";
 import { Step1Share } from "@/components/admin/wizard/Step1Share";
 import { Step2Verify } from "@/components/admin/wizard/Step2Verify";
@@ -68,20 +69,57 @@ type OnboardingWizardProps = {
   isStale?: boolean;
 };
 
-type ServiceAccountResult = { ok: true; email: string } | { ok: false };
+type ServiceAccountFailureReason =
+  | "env_missing"
+  | "json_malformed"
+  | "json_not_an_object"
+  | "client_email_missing";
 
+type ServiceAccountResult =
+  | { ok: true; email: string }
+  | { ok: false; reason: ServiceAccountFailureReason };
+
+/**
+ * Behavior-preserving restructure (Cluster E): the ok/not-ok partition over
+ * every input is unchanged, only the label is new. Rendered output is identical.
+ *
+ * The `try` is NARROWED to the parse alone. The shipped version wrapped the
+ * `client_email` property read too, so `GOOGLE_SERVICE_ACCOUNT_JSON=null` parsed
+ * SUCCESSFULLY, threw a TypeError on the read, and landed in the catch —
+ * labelling that `json_malformed` would assert a parse failure that demonstrably
+ * did not happen. `null` is the only value that reaches the shipped catch with
+ * the parse having succeeded; numbers, strings and arrays all yield `undefined`
+ * on the read without throwing.
+ *
+ * The shape check rejects arrays EXPLICITLY: `typeof [] === "object"` and
+ * `[] !== null`, so a typeof/null test alone would route `[]` to
+ * `client_email_missing` and assert an object was supplied that merely lacked
+ * a field.
+ *
+ * The catch stays PARAMETERLESS. Binding the error is the first step toward
+ * logging it, and the V8 parse message embeds a snippet of the offending input —
+ * which here is a service-account private key (spec §2.2 secrets contract).
+ *
+ * Stays synchronous and pure: it gains a discriminator, not an emit.
+ */
 function readServiceAccountEmail(): ServiceAccountResult {
   const raw = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
-  if (!raw) return { ok: false };
+  if (!raw) return { ok: false, reason: "env_missing" };
+
+  let parsed: unknown;
   try {
-    const parsed = JSON.parse(raw) as { client_email?: unknown };
-    if (typeof parsed.client_email === "string" && parsed.client_email.length > 0) {
-      return { ok: true, email: parsed.client_email };
-    }
-    return { ok: false };
+    parsed = JSON.parse(raw);
   } catch {
-    return { ok: false };
+    return { ok: false, reason: "json_malformed" };
   }
+
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    return { ok: false, reason: "json_not_an_object" };
+  }
+
+  const email = (parsed as { client_email?: unknown }).client_email;
+  if (typeof email === "string" && email.length > 0) return { ok: true, email };
+  return { ok: false, reason: "client_email_missing" };
 }
 
 function pickStep(hint: string | undefined): 1 | 2 | 3 {
@@ -575,6 +613,27 @@ export async function OnboardingWizard({
 }: OnboardingWizardProps) {
   const service = readServiceAccountEmail();
   const step = pickStep(searchParams.step);
+
+  if (!service.ok) {
+    // Cluster E: ONBOARDING_OPERATOR_ERROR was render-only — the operator saw
+    // "Setup is paused" and the system recorded nothing, so a support
+    // conversation about stuck setup had no row to look at.
+    //
+    // `reason` is READ from service.reason, never re-derived, so the emit cannot
+    // disagree with the branch that produced it. Nothing else derived from
+    // GOOGLE_SERVICE_ACCOUNT_JSON is carried: it holds a service-account private
+    // key (spec §2.2). Fail-open at the callsite — a telemetry fault must never
+    // replace the operator-error render with an unhandled rejection.
+    try {
+      await log.error("service-account credentials unusable; onboarding wizard blocked", {
+        source: "admin.onboardingWizard",
+        code: "ONBOARDING_OPERATOR_ERROR",
+        reason: service.reason,
+      });
+    } catch {
+      /* best-effort */
+    }
+  }
 
   // Pre-onboarding only. Per spec §9.0:
   //   "After onboarding succeeds the [pre-onboarding 'Start over']
