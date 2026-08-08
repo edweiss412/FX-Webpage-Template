@@ -148,6 +148,25 @@ describe("OnboardingWizard", () => {
     );
   });
 
+  /**
+   * SUCCESS PATH — the half every operator-error case is structurally blind to.
+   *
+   * All eight failure cases drive a BROKEN environment, so all of them stay
+   * green against an emit whose `!service.ok` guard was widened or hoisted: the
+   * record still appears, with the right `reason`, on the branch they exercise.
+   * The consequence is a durable FALSE operator-error row on every healthy admin
+   * page load — an operator paged to investigate credentials that are fine,
+   * which is worse than the silence this arc set out to fix.
+   */
+  test("a HEALTHY service account renders Step 1 and emits nothing at all", async () => {
+    // beforeEach installs the valid SERVICE_ACCOUNT_JSON.
+    const { getByTestId } = render(
+      await OnboardingWizard({ settings: FRESH_SETTINGS, searchParams: {} }),
+    );
+    expect(getByTestId("wizard-step1")).toBeTruthy();
+    expect(captured).toEqual([]);
+  });
+
   test("renders the Start Over form bound to startOverServerAction", async () => {
     const { getByTestId } = render(
       await OnboardingWizard({ settings: FRESH_SETTINGS, searchParams: {} }),

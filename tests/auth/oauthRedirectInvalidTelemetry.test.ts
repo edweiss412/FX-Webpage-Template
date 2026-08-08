@@ -293,6 +293,78 @@ describe("OAUTH_REDIRECT_INVALID durable telemetry", () => {
     });
   });
 
+  /**
+   * SUCCESS PATHS — the other half of "exactly one record", and the half every
+   * failure case is structurally blind to.
+   *
+   * Each case above drives a REFUSAL, so all of them stay green against an emit
+   * HOISTED above its guard: the record still appears, with the right `reason`,
+   * on the branch they exercise. The consequence is a durable FALSE failure row
+   * for healthy traffic — every successful sign-in filed as a rejected `next`,
+   * which is worse than the silence this arc set out to fix, because an operator
+   * would act on it.
+   *
+   * Each case asserts the whole sink on a request that passes its site's guard.
+   */
+  describe("success paths emit nothing about a rejected next", () => {
+    test("site 1 — callback with a VALID next emits only the shipped sign-in record", async () => {
+      await withCapture(async (sink) => {
+        const { GET } = await import("@/app/auth/callback/route");
+        const res = await GET(new NextRequest(`${ORIGIN}/auth/callback?code=abc&next=%2Fme`));
+
+        expect(res.status).toBe(302);
+        expect(res.headers.get("location")).toBe("/me");
+
+        // stampOauthClaim's record and NOTHING else — in particular no
+        // OAUTH_REDIRECT_INVALID, which a hoisted emit would add here.
+        expectWholeSink(sink, [SIGN_IN_SUCCEEDED_RECORD]);
+      });
+    });
+
+    test("site 2 — google-start with a VALID next emits nothing", async () => {
+      await withCapture(async (sink) => {
+        const { GET } = await import("@/app/api/auth/google/start/route");
+        const res = await GET(new NextRequest(`${ORIGIN}/api/auth/google/start?next=%2Fme`));
+
+        expect(res.status).toBe(302);
+        expect(res.headers.get("location")).toBe("https://accounts.google.test/o/oauth2/auth");
+
+        expectWholeSink(sink, []);
+      });
+    });
+
+    test("sites 3-5 — a request PAST all three picker guards emits nothing", async () => {
+      await withCapture(async (sink) => {
+        const { GET } = await import("@/app/api/auth/picker-bootstrap/route");
+        const intentToken = signPickerIntent(
+          { slug: SLUG, shareToken: SHARE_TOKEN, exp: Math.floor(Date.now() / 1000) + 3600 },
+          PICKER_SIGNING_KEY,
+        );
+        // Resolve the show to nothing, so the handler stops at the NEXT guard
+        // after the three under test. That is the cheapest request that is
+        // provably past all three without standing up the whole claim flow.
+        state.serviceRpc.mockResolvedValue({ data: null, error: null });
+
+        const res = await GET(
+          pickerRequest(
+            `?next=${encodeURIComponent(TOKENIZED_NEXT)}&t=${encodeURIComponent(intentToken)}`,
+          ),
+        );
+
+        // Still a 403, but a DIFFERENT cataloged one — which is the positive
+        // proof that all three OAUTH_REDIRECT_INVALID guards were passed rather
+        // than the request having died at one of them.
+        expect(res.status).toBe(403);
+        const invalidShareTokenEntry = messageFor("PICKER_INVALID_SHARE_TOKEN");
+        expect(await res.text()).toContain(
+          invalidShareTokenEntry.crewFacing ?? invalidShareTokenEntry.dougFacing ?? "",
+        );
+
+        expectWholeSink(sink, []);
+      });
+    });
+  });
+
   // Sites 3-5. Unlike sites 1-2 these run inside runWithRequestContext
   // (app/api/auth/picker-bootstrap/route.ts:159), so each record carries the
   // pinned requestId rather than null.
