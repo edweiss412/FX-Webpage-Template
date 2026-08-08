@@ -925,15 +925,21 @@ describe("no absolute self-redirect under the walked roots", () => {
   });
 
   it("an allow-listed line stops being exempt if its argument changes", () => {
-    // Compilable module whose call sits exactly on the allowlisted line (72),
-    // with an argument the row was NOT granted for.
-    const padding = Array.from({ length: 67 }, (_, n) => `// pad ${n}`).join("\n");
+    // Compilable module whose call sits exactly on the allowlisted line, with an
+    // argument the row was NOT granted for.
+    //
+    // The padding is load-bearing and had ROTTED: it still put the call on 72,
+    // the row's pre-BL-AUTH-INTERSTITIAL-FONT line, while the row had moved to
+    // 64. A call on a NON-allowlisted line is unallowed for the trivial reason,
+    // so the assertion below passed while proving nothing about the argument
+    // pin. Re-anchored to 77 along with the row.
+    const padding = Array.from({ length: 72 }, (_, n) => `// pad ${n}`).join("\n");
     const source = `${PRE}declare const p2: string;\n${padding}\nexport function GET() { return NextResponse.redirect(new URL(p2, request.url), { status: 302 }); }`;
     const findings = auditSource("app/api/auth/google/start/route.ts", source);
     const flagged = findings.filter((f) => f.kind === "call");
     expect(flagged).toHaveLength(1);
     // Padding honesty: the call must actually sit on the allowlisted line.
-    expect(flagged[0]!.line).toBe(72);
+    expect(flagged[0]!.line).toBe(77);
     expect(unallowedRedirects("app/api/auth/google/start/route.ts", findings)).toHaveLength(1);
   });
 
