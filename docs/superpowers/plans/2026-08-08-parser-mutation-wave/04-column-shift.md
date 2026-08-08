@@ -87,7 +87,7 @@ describe("LEADING_COLUMN_AUTOCORRECTED (spec §6)", () => {
 - Modify: `lib/parser/index.ts` — call immediately after the `normalizeSectionHeaders` seam (`index.ts` step 2.5), same rewrite-and-collect shape: `const colNorm = normalizeLeadingColumn(markdown); markdown = colNorm.corrected; agg.warnings.push(...colNorm.warnings);`
 
 **Interfaces:**
-- Produces: `normalizeLeadingColumn(markdown: string): { corrected: string; warnings: ParseWarning[] }` — per section (blank-line separated pipe block): if EVERY row's first cell is empty after trim (an alignment row's first cell is colon-dash text, non-empty, giving the structural guarantee), drop the leading column from every row and emit one warning at section granularity.
+- Produces: `normalizeLeadingColumn(markdown: string): { corrected: string; warnings: ParseWarning[] }` — per section (blank-line separated pipe block): if EVERY row's first cell is empty after trim (an alignment row's first cell is colon-dash text, non-empty, giving the structural guarantee), drop the leading column from every row and emit one warning at section granularity. **Segmentation note (r1 F6):** this detector segments by blank-line pipe blocks, not the harness's `seg()` model that measured the probe base rates - the clean-corpus calibration test is the transfer gate, and any divergence surfaces there as a failing pin, never as silent corruption.
 
 - [ ] **Step 1:** Implement:
 

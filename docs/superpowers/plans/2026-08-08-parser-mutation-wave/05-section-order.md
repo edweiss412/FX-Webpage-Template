@@ -30,7 +30,7 @@
 // corpus. Multiset of signal keys per fixture, snapshot-pinned. Failure mode caught:
 // the refactor silently widening or narrowing the unknown-field coverage window.
 import { describe, it, expect } from "vitest";
-import { readFileSync, readdirSync } from "node:fs";
+import { readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { parseSheet } from "@/lib/parser";
 import { signalKeys } from "@/tests/parser/mutation/oracle";
 
@@ -40,18 +40,33 @@ const multiset = (md: string, name: string): string =>
     .map(([k, n]) => `${k}x${n}`)
     .join("\n");
 
+// r1 F8: an EXPLICIT committed baseline, not toMatchSnapshot() - a missing snapshot
+// (or any -u run) silently re-pins, which is the exact failure mode this gate exists
+// to prevent. Regenerate deliberately: UPDATE_VENUE_PARITY_BASELINE=1 vitest run <this file>.
+const BASELINE = "tests/parser/__fixtures__/venueSignalParity.baseline.json";
+
 describe("venue signal parity (spec §7.2a)", () => {
+  const actual: Record<string, string> = {};
   for (const dir of ["fixtures/shows/exporter-xlsx", "fixtures/shows/raw"]) {
     for (const f of readdirSync(dir).filter((x) => x.endsWith(".md"))) {
-      it(`${dir}/${f} emission multiset is pinned`, () => {
-        expect(multiset(readFileSync(`${dir}/${f}`, "utf8"), f)).toMatchSnapshot();
-      });
+      actual[`${dir}/${f}`] = multiset(readFileSync(`${dir}/${f}`, "utf8"), f);
     }
   }
+  if (process.env["UPDATE_VENUE_PARITY_BASELINE"]) {
+    writeFileSync(BASELINE, JSON.stringify(actual, null, 2));
+  }
+
+  it("baseline file exists and covers every fixture, and every multiset matches it", () => {
+    const pinned = JSON.parse(readFileSync(BASELINE, "utf8")) as Record<string, string>;
+    expect(Object.keys(pinned).sort()).toEqual(Object.keys(actual).sort());
+    for (const [path, m] of Object.entries(actual)) {
+      expect(m, path).toBe(pinned[path]);
+    }
+  });
 });
 ```
 
-- [ ] **Step 2:** Commit the snapshots: `test(parser): pin per-fixture signal multisets before venue-scope hoist`
+- [ ] **Step 2:** Generate the baseline (`UPDATE_VENUE_PARITY_BASELINE=1 pnpm exec vitest run tests/parser/venueSignalParity.test.ts`), verify the test is GREEN without the env var, and commit BOTH files: `test(parser): pin per-fixture signal multisets before venue-scope hoist`
 
 ### Task 2: RED — swap-invariance test (the 10 real losses)
 
@@ -139,9 +154,9 @@ Implementation notes for the engineer (the parity snapshots arbitrate every choi
 perl -ni -e 'print unless /^section-reorder:(2025-03-dci-rpas-central:B1[459]|2025-04-asset-mgmt-cfo-coo:B1[45]|2025-06-ria-investment-forum:B[3478]|2025-10-consultants-roundtable:B22):/' tests/parser/mutation/knownHoles.ts
 ```
 
-- [ ] **Step 2:** Re-map `OPERATOR_FINDING_MAP["section-reorder"]` (`knownHoles.ts:88`) from `"BL-MUTATION-SECTION-ORDER"` to the documented ref `"BACKLOG-archive.md § BL-MUTATION-SECTION-ORDER (source order ratified 2026-08-07, spec §7)"` — match the exact accepted shape in `knownHoles.test.ts` (it accepts audit refs or resolvable BL ids; if the string form needs to stay a BL id, point it at the ARCHIVED row — the archive move happens in this same PR's backlog close). Update the suite's comment naming the five standalone entries.
+- [ ] **Step 2 (PINNED — r1 F4):** `OPERATOR_FINDING_MAP["section-reorder"]` KEEPS the exact string `"BL-MUTATION-SECTION-ORDER"` — no map value change. `knownHoles.test.ts:153` validates SHAPE only (audit #N or BL- id), and the umbrella precedent (its comment at `knownHoles.test.ts:135-138`) is that an ARCHIVED row keeps its id resolvable — this PR's backlog close moves the row to `BACKLOG-archive.md` carrying the §7 ratification + 72-row documented-limit note, exactly like `BL-MUTATION-HARNESS-OPEN-HOLES` before it. Update the map's inline comment from "parser order-sensitivity" to "documented: source order ratified (spec 2026-08-07 §7; archived row)" and the suite's comment to name the archive location.
 - [ ] **Step 3:** Full harness: four buckets empty (72 section-reorder rows remain, documented; 10 gone). `knownHoles.test.ts` green.
 - [ ] **Step 4:** Backlog: close `BL-MUTATION-SECTION-ORDER` (archive move carrying the §7 ratification + 72-row documented-limit note), remove the IN PROGRESS marker in the PR's last commit.
-- [ ] **Step 5:** Full suite + typecheck + lint + format; PR (parity evidence, 10-row shrink, re-map, substitute-review deviation); merge; `0  0`. Wave complete: verify AC-W1 (1,076 rows remain: 7,842 − 6,766).
+- [ ] **Step 5:** Full suite + typecheck + lint + format; PR (parity evidence, 10-row shrink, re-map, substitute-review deviation); merge; `0  0`. Wave complete: verify AC-W1 (1,076 rows PLUS the branch-3 merged-cell residue remain; with the probe-predicted 7 that is 1,083 - the branch-3 PR records the authoritative number).
 
 <!-- tasks: end -->

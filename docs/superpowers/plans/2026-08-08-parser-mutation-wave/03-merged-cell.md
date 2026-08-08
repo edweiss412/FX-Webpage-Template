@@ -36,20 +36,31 @@ import { premiseHolds } from "@/tests/_shared/premise";
 const fused = (md: string, name: string) =>
   parseSheet(md, name).warnings.filter((w) => w.code === "ROW_CELLS_FUSED");
 
-/** Delete the first interior pipe of the first data row with >= 3 cells (mergeRawCells shape, operators.ts:100). */
-function fuseFirstEligibleRow(md: string): { mutated: string; line: number } {
+/** Fuse a data row inside a section with >= 3 SAME-WIDTH data rows (>= 3 cells), so the
+ *  modal is well-defined and the discriminator CAN fire (r1 F1: the first eligible row
+ *  by line order is the one-data-row TITLE section, where flush() bails at data<3). */
+function fuseEligibleRow(md: string): { mutated: string; line: number } {
   const lines = md.split("\n");
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i]!;
-    if (!line.startsWith("|") || /^\|\s*:?-+/.test(line)) continue;
-    const cells = line.split("|"); // ["", c1, c2, ..., ""]
-    if (cells.length - 2 >= 3) {
-      // drop the pipe between c1 and c2: fuse cells 1 and 2
-      lines[i] = ["", cells[1]! + " " + cells[2]!, ...cells.slice(3)].join("|");
-      return { mutated: lines.join("\n"), line: i };
+  const isRow = (l: string) => l.trimStart().startsWith("|");
+  const isAlign = (l: string) => /^\s*\|\s*:?-+/.test(l);
+  let start = -1;
+  for (let i = 0; i <= lines.length; i++) {
+    const row = i < lines.length && isRow(lines[i]!);
+    if (row && start === -1) start = i;
+    if (!row && start !== -1) {
+      const dataIdx = [];
+      for (let j = start; j < i; j++) if (!isAlign(lines[j]!)) dataIdx.push(j);
+      const widths = dataIdx.map((j) => lines[j]!.split("|").length);
+      if (dataIdx.length >= 3 && widths[0]! - 2 >= 3 && widths.every((w) => w === widths[0])) {
+        const t = dataIdx[1]!; // fuse the MIDDLE data row, keep the modal anchored by its siblings
+        const cells = lines[t]!.split("|");
+        lines[t] = ["", cells[1]! + " " + cells[2]!, ...cells.slice(3)].join("|");
+        return { mutated: lines.join("\n"), line: t };
+      }
+      start = -1;
     }
   }
-  throw new Error("no eligible row - premise violated");
+  throw new Error("no eligible section - premise violated");
 }
 
 describe("ROW_CELLS_FUSED (spec §5)", () => {
@@ -57,12 +68,12 @@ describe("ROW_CELLS_FUSED (spec §5)", () => {
   const md = readFileSync(path, "utf8");
 
   it("premise: the fixture has a >=3-cell data row and fires zero fused warnings clean", () => {
-    premiseHolds("fusable row exists", fuseFirstEligibleRow(md).mutated !== md);
+    premiseHolds("fusable >=3-same-width-data-row section exists", fuseEligibleRow(md).mutated !== md);
     expect(fused(md, path)).toEqual([]);
   });
 
   it("a deleted interior pipe fires exactly one warning, and payload is untouched by the detector", () => {
-    const { mutated } = fuseFirstEligibleRow(md);
+    const { mutated } = fuseEligibleRow(md);
     const w = fused(mutated, path);
     expect(w).toHaveLength(1);
     expect(w[0]!.severity).toBe("warn");
@@ -98,7 +109,7 @@ describe("ROW_CELLS_FUSED (spec §5)", () => {
 - Modify: `lib/parser/index.ts` (call next to `detectRefErrorLiterals`)
 
 **Interfaces:**
-- Produces: `detectFusedRows(markdown: string): ParseWarning[]` — per blank-line-separated section: modal cell count over DATA rows (colon-dash alignment rows skipped); any data row at exactly `modal - 1` warns. Sections with < 3 data rows or without a well-defined modal (tie) are skipped (spec §5.3 residue).
+- Produces: `detectFusedRows(markdown: string): ParseWarning[]` — per blank-line-separated section: modal cell count over DATA rows (colon-dash alignment rows skipped); any data row at exactly `modal - 1` warns. Sections with < 3 data rows or without a well-defined modal (tie) are skipped (spec §5.3 residue). **Segmentation note (r1 F6):** this detector segments by blank-line pipe blocks, not the harness's `seg()` model that measured the probe base rates - the clean-corpus calibration test is the transfer gate, and any divergence surfaces there as a failing pin, never as silent corruption.
 
 - [ ] **Step 1:** Implement:
 

@@ -8,7 +8,7 @@
 
 - **AC-R1:** A cell rewritten to `#REF!` in any corpus fixture yields exactly one `REF_ERROR_LITERAL` warning for that cell (deduped per section/row/cell), `severity: "warn"`, `rawSnippet` = the cell text, `blockRef.kind` set; parse payload unchanged vs the mutant-without-detector.
 - **AC-R2:** The ESCAPED corpus form is detected: the 24 committed `\#REF\!` occurrences produce EXACTLY 24 warnings on the unmutated corpus, pinned per fixture (consultants 6, fintech 5, fixed-income 5, rpas 5, 2025-10-consultants-roundtable 3 — probe §13.A).
-- **AC-R3:** Full §8 fan-out lands in one commit and all its gates pass (`x1-catalog-parity`, card copy, actionable, gap-class 37→39 with total 57→59 at this branch, `WARNING_CODE_ANCHOR`, help family).
+- **AC-R3:** Full §8 fan-out lands in one commit and all its gates pass (`x1-catalog-parity`, card copy, actionable, gap-class 37→38 with total 57→58 at this branch, `WARNING_CODE_ANCHOR`, help family).
 - **AC-R4:** `refSub`'s skip guard compares post-`clean()` (spec §4.4); `applicabilityAudit` + coverage floors green after the guard fix and after `RISK_CRITICAL` gains `pull_sheet`.
 - **AC-R5:** All 3,314 `ref-sub:` rows deleted; full harness green (four buckets empty; any cross-class fingerprint drift regenerated in-branch per spec §9).
 
@@ -75,10 +75,11 @@ describe("REF_ERROR_LITERAL (spec §4)", () => {
     }
   });
 
-  it("composite cells warn once per cell, not per derived field (dedup)", () => {
-    // the corpus's own fused shape: `\#REF\!/NAME` prefix cells (probe §13.A)
-    const md = readFileSync("fixtures/shows/raw/2025-10-consultants-roundtable.md", "utf8");
-    expect(refWarnings(md, "roundtable.md")).toHaveLength(3); // 3 cells, 3 warnings - not more
+  it("a cell containing #REF! twice warns ONCE (per-cell dedup, isolated)", () => {
+    // r1 F5: isolate dedup on a synthetic cell with TWO occurrences in one cell -
+    // the per-fixture pins above cannot distinguish per-cell from per-occurrence.
+    const md = "| CLIENT | x |\n| range | #REF! - #REF! |";
+    expect(refWarnings(md, "synthetic.md")).toHaveLength(1);
   });
 
   it("does not hard-fail: hardErrors unchanged by detection", () => {
