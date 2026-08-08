@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
+import { premiseHolds } from "../_shared/premise";
 import { ROUND_THRESHOLD } from "../../lib/reviewRounds/constants";
 import { mergedArcs } from "../../lib/reviewRounds/mergedArcs";
 import { buildReport, main, render } from "../../scripts/review-economy";
@@ -584,6 +585,20 @@ describe("report aggregation (spec §9)", () => {
     mergedAt,
   });
 
+  /**
+   * The premise every null-asserting exclusion case rests on: the SAME corpus,
+   * with the merge set emptied, must FIRE. Without it, a case asserting
+   * `boundaryAdvisory === null` passes on any corpus that never had a
+   * pre-boundary row at all — the whole exclusion rule could be deleted and the
+   * case would stay green. Stated on each case's OWN inputs (the same `root`,
+   * varying only the merges), never on an adjacent fixture.
+   */
+  const premiseFiresWithoutMerges = (root: string): void =>
+    premiseHolds(
+      "this corpus fires the advisory once its merges are removed, so the null asserted below is the exclusion rule's doing",
+      buildReport(root, { ...opts, mergedArcs: [] }).boundaryAdvisory !== null,
+    );
+
   it("prints an advisory mismatch when the earliest corpus row precedes the boundary", () => {
     const root = corpus(mkdtempSync(join(tmpdir(), "rep-mismatch-")), [
       {
@@ -618,6 +633,7 @@ describe("report aggregation (spec §9)", () => {
         }),
       },
     ]);
+    premiseFiresWithoutMerges(root);
     const report = buildReport(root, {
       ...opts,
       // Same branch, DIFFERENT baseSha, mergedAt at the boundary itself (the
@@ -864,6 +880,20 @@ describe("report aggregation (spec §9)", () => {
         ),
       },
     ]);
+    // PREMISE, on this case's own inputs: the calendar-invalid and
+    // sub-millisecond rows really do PARSE, and land pre-boundary — so a bare
+    // `Date.parse` placement would have COMPARED them and suppressed the note,
+    // which is exactly what this case discriminates. (The timezone-less row is
+    // deliberately excluded from the premise: its parse is host-dependent,
+    // which is its own defect. The `+24:00` row parses NaN, which is the
+    // structural test's job, not the parser's.)
+    premiseHolds(
+      "the calendar-invalid and sub-millisecond rows parse to finite pre-boundary instants, so a naive placement would have compared rather than counted them",
+      [REJECTED[1], REJECTED[3]].every((s) => {
+        const t = Date.parse(s as string);
+        return Number.isFinite(t) && t < Date.parse(BOUNDARY);
+      }),
+    );
     const report = buildReport(root, { ...opts, mergedArcs: [] });
     expect(report.boundaryAdvisory).toBeNull();
     // Count DERIVED from the fixture, so a hardcoded N (P1 mutant (d)) fails.
@@ -889,6 +919,7 @@ describe("report aggregation (spec §9)", () => {
         }),
       },
     ]);
+    premiseFiresWithoutMerges(root);
     const report = buildReport(root, {
       ...opts,
       mergedArcs: [
@@ -918,6 +949,7 @@ describe("report aggregation (spec §9)", () => {
         }),
       },
     ]);
+    premiseFiresWithoutMerges(root);
     const report = buildReport(root, {
       ...opts,
       mergedArcs: [merge("feat/classify", "2026-09-01T01:00:00+02:00")],
@@ -941,6 +973,7 @@ describe("report aggregation (spec §9)", () => {
         }),
       },
     ]);
+    premiseFiresWithoutMerges(root);
     const report = buildReport(root, {
       ...opts,
       // Chronologically 2026-08-31T22:00Z: pre-adoption, and after the row.
