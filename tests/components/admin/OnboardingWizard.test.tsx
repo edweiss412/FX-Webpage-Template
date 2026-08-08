@@ -94,13 +94,21 @@ function expectedOperatorErrorRecord(reason: string): Record<string, unknown> {
 }
 
 /**
- * Cardinality is half the assertion: a `toEqual` on a SELECTED record says
- * nothing about how many were emitted, while AC-3 says "exactly one record".
+ * The accept-set spans the ENTIRE captured sink — NOT the records filtered to
+ * ONBOARDING_OPERATOR_ERROR.
+ *
+ * Filtering first was a real hole, found by whole-diff review and demonstrated
+ * with a passing mutant run: the wizard could emit its correct record and then a
+ * SECOND durable record under a different code carrying the whole
+ * GOOGLE_SERVICE_ACCOUNT_JSON — a service-account private key — and every
+ * assertion here stayed green, cardinality, deep-equal and the secrets backstop
+ * alike, because all three looked only at the filtered subset.
+ *
+ * Asserting the whole sink also subsumes cardinality: a duplicate emit, a
+ * missing one, and a reordering all fail the same comparison.
  */
-function expectExactlyOneOperatorErrorRecord(reason: string): void {
-  const matched = captured.filter((r) => r.code === "ONBOARDING_OPERATOR_ERROR");
-  expect(matched).toHaveLength(1);
-  expect(matched[0]!).toEqual(expectedOperatorErrorRecord(reason));
+function expectWholeSinkIsOperatorError(reason: string): void {
+  expect(captured).toEqual([expectedOperatorErrorRecord(reason)]);
 }
 
 beforeEach(() => {
@@ -264,7 +272,7 @@ describe("OnboardingWizard", () => {
     // Start Over still reachable so the operator has a recovery path
     // even when the env is broken.
     expect(queryByTestId("wizard-start-over-button")).toBeTruthy();
-    expectExactlyOneOperatorErrorRecord("env_missing");
+    expectWholeSinkIsOperatorError("env_missing");
   });
 
   test("when GOOGLE_SERVICE_ACCOUNT_JSON is malformed JSON, renders the same operator-error copy", async () => {
@@ -276,7 +284,7 @@ describe("OnboardingWizard", () => {
     expect(queryByTestId("wizard-operator-error")).toBeTruthy();
     const body = container.textContent ?? "";
     expect(body).toContain(MESSAGE_CATALOG.ONBOARDING_OPERATOR_ERROR.dougFacing!);
-    expectExactlyOneOperatorErrorRecord("json_malformed");
+    expectWholeSinkIsOperatorError("json_malformed");
   });
 
   test("when client_email is missing from the service-account JSON, renders the operator-error copy", async () => {
@@ -286,7 +294,7 @@ describe("OnboardingWizard", () => {
     );
     expect(queryByTestId("wizard-step1")).toBeNull();
     expect(queryByTestId("wizard-operator-error")).toBeTruthy();
-    expectExactlyOneOperatorErrorRecord("client_email_missing");
+    expectWholeSinkIsOperatorError("client_email_missing");
   });
 
   /**
@@ -360,7 +368,7 @@ describe("OnboardingWizard", () => {
       expect(queryByTestId("wizard-step1")).toBeNull();
       expect(queryByTestId("wizard-operator-error")).toBeTruthy();
       expect(queryByTestId("wizard-start-over-button")).toBeTruthy();
-      expectExactlyOneOperatorErrorRecord(reason);
+      expectWholeSinkIsOperatorError(reason);
     });
   }
 
@@ -414,9 +422,7 @@ describe("OnboardingWizard", () => {
       // The whole-record accept-set is the guard: any field added, renamed, or
       // populated with derived text fails it — in context, in message, and in
       // every promoted column.
-      expectExactlyOneOperatorErrorRecord(reason);
-
-      const matched = captured.filter((r) => r.code === "ONBOARDING_OPERATOR_ERROR");
+      expectWholeSinkIsOperatorError(reason);
 
       // PREMISE 1: the sentinel is in the environment the component reads —
       // otherwise the content backstop below has nothing to find and would pass
@@ -425,18 +431,20 @@ describe("OnboardingWizard", () => {
         "the sentinel is present in GOOGLE_SERVICE_ACCOUNT_JSON, so a leak would be observable in the captured records",
         (process.env.GOOGLE_SERVICE_ACCOUNT_JSON ?? "").includes(SENTINEL),
       );
-      // PREMISE 2: exactly one record was captured. This is the one that
+      // PREMISE 2: exactly one record was captured — counted over the WHOLE
+      // sink, not a code-filtered subset, so a leaking sibling emit under
+      // another code cannot hide behind the filter. This is the premise that
       // matters: without it, a case whose env setup or sink capture silently
       // failed passes by finding nothing in an EMPTY array — the "expected value
       // read from the same degenerate source as the actual" shape.
       premiseHolds(
-        "exactly one ONBOARDING_OPERATOR_ERROR record was captured, so the content backstop below is searching a non-empty record",
-        matched.length === 1,
+        "exactly one record was captured in total, so the content backstop below is searching a non-empty sink",
+        captured.length === 1,
       );
 
       // Backstop only, for a leak arriving through a channel the record shape
-      // does not describe.
-      const serialized = JSON.stringify(matched);
+      // does not describe. Serializes the WHOLE sink for the same reason.
+      const serialized = JSON.stringify(captured);
       expect(serialized).not.toContain(SENTINEL);
       expect(serialized).not.toContain("private_key");
     });

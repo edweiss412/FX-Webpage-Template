@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import { signPickerIntent, verifyPickerIntent } from "@/lib/auth/picker/intentToken";
 import { validateNextParamDetailed } from "@/lib/auth/validateNextParam";
+import { hashForLog } from "@/lib/email/hashForLog";
 import type { LogRecord } from "@/lib/log/types";
 import { messageFor } from "@/lib/messages/lookup";
 import { premiseHolds } from "@/tests/_shared/premise";
@@ -105,17 +106,45 @@ function expectedRedirectInvalidRecord(input: {
 }
 
 /**
- * Cardinality is HALF the assertion, not decoration on it: a `toEqual` against a
- * SELECTED record says nothing about how many were emitted, so a duplicate emit
- * on any branch would satisfy it while AC-1 says "exactly one record".
+ * `stampOauthClaim` emits this BEFORE site 1's redirect-invalid branch
+ * (app/auth/callback/route.ts). It is shipped behavior, so it is pinned as part
+ * of site 1's expected sink rather than filtered away — filtering is exactly the
+ * hole this helper exists to close.
  */
-function expectExactlyOneRedirectInvalidRecord(
+const SIGN_IN_SUCCEEDED_RECORD: Record<string, unknown> = {
+  level: "info",
+  source: "auth.callback",
+  message: "OAUTH_SIGN_IN_SUCCEEDED",
+  code: "OAUTH_SIGN_IN_SUCCEEDED",
+  requestId: null,
+  showId: null,
+  driveFileId: null,
+  actorHash: hashForLog("crew@fxav.test"),
+  context: {},
+};
+
+/**
+ * The accept-set spans the ENTIRE captured sink, in order — NOT the records
+ * filtered to the code under test.
+ *
+ * Filtering first was a real hole, found by whole-diff review and demonstrated
+ * with a passing mutant run: a handler could emit its correct record and then a
+ * SECOND durable record under a different code carrying the raw rejected `next`
+ * or the whole service-account JSON, and every assertion here stayed green —
+ * cardinality, deep-equal, and the secrets backstop alike, since all three
+ * looked only at the filtered subset. That is not a hypothetical shape on this
+ * route: the adjacent shipped emits deliberately persist FORENSIC codes distinct
+ * from the user-facing one, so "add a sibling emit under a new code" is the most
+ * likely next edit anyone makes in this file.
+ *
+ * Asserting the whole sink also subsumes cardinality: a duplicate emit, a
+ * missing one, and a reordering all fail the same comparison.
+ */
+function expectWholeSink(
   sink: LogRecord[],
-  expected: Record<string, unknown>,
+  expected: ReadonlyArray<Record<string, unknown>>,
 ): void {
-  const matched = sink.filter((r) => r.code === "OAUTH_REDIRECT_INVALID");
-  expect(matched).toHaveLength(1);
-  expect(matched[0]!).toEqual(expected);
+  expect(sink).toEqual(expected);
 }
 
 /**
@@ -227,8 +256,8 @@ describe("OAUTH_REDIRECT_INVALID durable telemetry", () => {
       expect(res.headers.get("location")).toBe(SIGN_IN_LOCATION);
       expect(res.headers.getSetCookie()).toContain(CLEARED_PKCE_COOKIE);
 
-      expectExactlyOneRedirectInvalidRecord(
-        sink,
+      expectWholeSink(sink, [
+        SIGN_IN_SUCCEEDED_RECORD,
         expectedRedirectInvalidRecord({
           source: "auth.callback",
           message: REDIRECT_MESSAGE,
@@ -237,7 +266,7 @@ describe("OAUTH_REDIRECT_INVALID durable telemetry", () => {
           // buildRecord's ALS fallback yields null (documented limit §5.3).
           requestId: null,
         }),
-      );
+      ]);
     });
   });
 
@@ -253,15 +282,14 @@ describe("OAUTH_REDIRECT_INVALID durable telemetry", () => {
       expect(res.status).toBe(302);
       expect(res.headers.get("location")).toBe(SIGN_IN_LOCATION);
 
-      expectExactlyOneRedirectInvalidRecord(
-        sink,
+      expectWholeSink(sink, [
         expectedRedirectInvalidRecord({
           source: "api.auth.googleStart",
           message: REDIRECT_MESSAGE,
           reason: "start_invalid_explicit_next",
           requestId: null,
         }),
-      );
+      ]);
     });
   });
 
@@ -285,15 +313,14 @@ describe("OAUTH_REDIRECT_INVALID durable telemetry", () => {
 
       await expectPickerRefusal(res);
 
-      expectExactlyOneRedirectInvalidRecord(
-        sink,
+      expectWholeSink(sink, [
         expectedRedirectInvalidRecord({
           source: "api.auth.pickerBootstrap",
           message: BOOTSTRAP_MESSAGE,
           reason: "bootstrap_next_rejected",
           requestId: FIXED_REQUEST_ID,
         }),
-      );
+      ]);
     });
   });
 
@@ -308,15 +335,14 @@ describe("OAUTH_REDIRECT_INVALID durable telemetry", () => {
 
       await expectPickerRefusal(res);
 
-      expectExactlyOneRedirectInvalidRecord(
-        sink,
+      expectWholeSink(sink, [
         expectedRedirectInvalidRecord({
           source: "api.auth.pickerBootstrap",
           message: BOOTSTRAP_MESSAGE,
           reason: "bootstrap_next_rejected",
           requestId: FIXED_REQUEST_ID,
         }),
-      );
+      ]);
     });
   });
 
@@ -336,15 +362,14 @@ describe("OAUTH_REDIRECT_INVALID durable telemetry", () => {
 
       await expectPickerRefusal(res);
 
-      expectExactlyOneRedirectInvalidRecord(
-        sink,
+      expectWholeSink(sink, [
         expectedRedirectInvalidRecord({
           source: "api.auth.pickerBootstrap",
           message: BOOTSTRAP_MESSAGE,
           reason: "bootstrap_unparsable_next",
           requestId: FIXED_REQUEST_ID,
         }),
-      );
+      ]);
     });
   });
 
@@ -357,15 +382,14 @@ describe("OAUTH_REDIRECT_INVALID durable telemetry", () => {
 
       await expectPickerRefusal(res);
 
-      expectExactlyOneRedirectInvalidRecord(
-        sink,
+      expectWholeSink(sink, [
         expectedRedirectInvalidRecord({
           source: "api.auth.pickerBootstrap",
           message: BOOTSTRAP_MESSAGE,
           reason: "bootstrap_intent_unverified",
           requestId: FIXED_REQUEST_ID,
         }),
-      );
+      ]);
     });
   });
 
@@ -400,15 +424,14 @@ describe("OAUTH_REDIRECT_INVALID durable telemetry", () => {
 
       await expectPickerRefusal(res);
 
-      expectExactlyOneRedirectInvalidRecord(
-        sink,
+      expectWholeSink(sink, [
         expectedRedirectInvalidRecord({
           source: "api.auth.pickerBootstrap",
           message: BOOTSTRAP_MESSAGE,
           reason: "bootstrap_intent_target_mismatch",
           requestId: FIXED_REQUEST_ID,
         }),
-      );
+      ]);
     });
   });
 
@@ -441,6 +464,18 @@ describe("OAUTH_REDIRECT_INVALID durable telemetry", () => {
 
         premiseThisSiteEmitted(seen, "OAUTH_REDIRECT_INVALID", "callback_invalid_explicit_next");
 
+        // Same whole-sink accept-set as the capture cases: a `catch` that
+        // introduced a leaking sibling emit would otherwise ship unseen.
+        expectWholeSink(seen, [
+          SIGN_IN_SUCCEEDED_RECORD,
+          expectedRedirectInvalidRecord({
+            source: "auth.callback",
+            message: REDIRECT_MESSAGE,
+            reason: "callback_invalid_explicit_next",
+            requestId: null,
+          }),
+        ]);
+
         expect(res.status).toBe(302);
         expect(res.headers.get("location")).toBe(SIGN_IN_LOCATION);
         expect(res.headers.getSetCookie()).toContain(CLEARED_PKCE_COOKIE);
@@ -458,6 +493,17 @@ describe("OAUTH_REDIRECT_INVALID durable telemetry", () => {
 
         premiseThisSiteEmitted(seen, "OAUTH_REDIRECT_INVALID", "start_invalid_explicit_next");
 
+        // Same whole-sink accept-set as the capture cases: a `catch` that
+        // introduced a leaking sibling emit would otherwise ship unseen.
+        expectWholeSink(seen, [
+          expectedRedirectInvalidRecord({
+            source: "api.auth.googleStart",
+            message: REDIRECT_MESSAGE,
+            reason: "start_invalid_explicit_next",
+            requestId: null,
+          }),
+        ]);
+
         expect(res.status).toBe(302);
         expect(res.headers.get("location")).toBe(SIGN_IN_LOCATION);
       });
@@ -470,6 +516,17 @@ describe("OAUTH_REDIRECT_INVALID durable telemetry", () => {
 
         premiseThisSiteEmitted(seen, "OAUTH_REDIRECT_INVALID", "bootstrap_next_rejected");
 
+        // Same whole-sink accept-set as the capture cases: a `catch` that
+        // introduced a leaking sibling emit would otherwise ship unseen.
+        expectWholeSink(seen, [
+          expectedRedirectInvalidRecord({
+            source: "api.auth.pickerBootstrap",
+            message: BOOTSTRAP_MESSAGE,
+            reason: "bootstrap_next_rejected",
+            requestId: FIXED_REQUEST_ID,
+          }),
+        ]);
+
         await expectPickerRefusal(res);
       });
     });
@@ -481,6 +538,17 @@ describe("OAUTH_REDIRECT_INVALID durable telemetry", () => {
 
         premiseThisSiteEmitted(seen, "OAUTH_REDIRECT_INVALID", "bootstrap_unparsable_next");
 
+        // Same whole-sink accept-set as the capture cases: a `catch` that
+        // introduced a leaking sibling emit would otherwise ship unseen.
+        expectWholeSink(seen, [
+          expectedRedirectInvalidRecord({
+            source: "api.auth.pickerBootstrap",
+            message: BOOTSTRAP_MESSAGE,
+            reason: "bootstrap_unparsable_next",
+            requestId: FIXED_REQUEST_ID,
+          }),
+        ]);
+
         await expectPickerRefusal(res);
       });
     });
@@ -491,6 +559,17 @@ describe("OAUTH_REDIRECT_INVALID durable telemetry", () => {
         const res = await GET(pickerRequest(`?next=${encodeURIComponent(TOKENIZED_NEXT)}`));
 
         premiseThisSiteEmitted(seen, "OAUTH_REDIRECT_INVALID", "bootstrap_intent_unverified");
+
+        // Same whole-sink accept-set as the capture cases: a `catch` that
+        // introduced a leaking sibling emit would otherwise ship unseen.
+        expectWholeSink(seen, [
+          expectedRedirectInvalidRecord({
+            source: "api.auth.pickerBootstrap",
+            message: BOOTSTRAP_MESSAGE,
+            reason: "bootstrap_intent_unverified",
+            requestId: FIXED_REQUEST_ID,
+          }),
+        ]);
 
         await expectPickerRefusal(res);
       });
