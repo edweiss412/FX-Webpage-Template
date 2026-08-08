@@ -148,6 +148,42 @@ async function withCapture<T>(run: (sink: LogRecord[]) => Promise<T>): Promise<T
   }
 }
 
+/**
+ * AC-7: the sink RECORDS before it throws. Recording is not convenience — it is
+ * what makes the premise possible. With no emit at all a throwing sink is never
+ * invoked and the route works fine, so an unguarded case would pass against a
+ * tree carrying no telemetry whatsoever.
+ */
+async function withThrowingSink<T>(run: (seen: LogRecord[]) => Promise<T>): Promise<T> {
+  vi.resetModules();
+  const seen: LogRecord[] = [];
+  const log = await import("@/lib/log");
+  log.setLogSink((record) => {
+    seen.push(record);
+    throw new Error("sink-down");
+  });
+  try {
+    return await run(seen);
+  } finally {
+    log.resetLogSink();
+  }
+}
+
+/**
+ * A generic "the sink was entered" flag is VACUOUS at site 1: stampOauthClaim
+ * emits OAUTH_SIGN_IN_SUCCEEDED before the redirect-invalid branch, so the flag
+ * is already true whether or not the new emit exists. A class sweep found site 1
+ * is the only site with a preceding emit, but the premise is written
+ * code-specifically at every site anyway — a generic form is one refactor away
+ * from being vacuous anywhere.
+ */
+function premiseThisSiteEmitted(seen: LogRecord[], code: string, reason: string): void {
+  premiseHolds(
+    `the throwing sink saw THIS site's record (code ${code}, reason ${reason}), so the refusal assertion below is observing a wrapper that actually ran`,
+    seen.some((r) => r.code === code && r.context.reason === reason),
+  );
+}
+
 describe("OAUTH_REDIRECT_INVALID durable telemetry", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -373,6 +409,91 @@ describe("OAUTH_REDIRECT_INVALID durable telemetry", () => {
           requestId: FIXED_REQUEST_ID,
         }),
       );
+    });
+  });
+
+  /**
+   * AC-7 — the fail-open contract. Every emit in this arc is try/catch-wrapped so
+   * a telemetry fault can never escape over the caller (invariant 9, spec limit
+   * §5.5), and nothing above tests that: removing the wrapper from all six sites
+   * leaves every other assertion in this file green.
+   *
+   * The wrappers are load-bearing, not decorative. Against a rejecting sink an
+   * unwrapped emit replaces the refusal with an unhandled rejection — the 302
+   * never happens, the 403 never happens — converting a handled, cataloged
+   * failure into an unhandled one on a public auth endpoint. That is strictly
+   * worse than the missing telemetry this arc set out to fix.
+   *
+   * These cases start GREEN, since the wrappers land with the emits. Their RED is
+   * obtained per site by removing that site's try/catch and observing the refusal
+   * collapse; see the commit message for the six observations.
+   */
+  describe("fail-open: a throwing sink never replaces the refusal", () => {
+    test("site 1 — callback still redirects and still clears the PKCE cookie", async () => {
+      await withThrowingSink(async (seen) => {
+        const { GET } = await import("@/app/auth/callback/route");
+        const request = new NextRequest(
+          `${ORIGIN}/auth/callback?code=abc&next=${encodeURIComponent(REJECTED_NEXT)}`,
+          { headers: { cookie: `${PKCE_COOKIE}=verifier-value` } },
+        );
+
+        const res = await GET(request);
+
+        premiseThisSiteEmitted(seen, "OAUTH_REDIRECT_INVALID", "callback_invalid_explicit_next");
+
+        expect(res.status).toBe(302);
+        expect(res.headers.get("location")).toBe(SIGN_IN_LOCATION);
+        expect(res.headers.getSetCookie()).toContain(CLEARED_PKCE_COOKIE);
+      });
+    });
+
+    test("site 2 — google-start still redirects", async () => {
+      await withThrowingSink(async (seen) => {
+        const { GET } = await import("@/app/api/auth/google/start/route");
+        const res = await GET(
+          new NextRequest(
+            `${ORIGIN}/api/auth/google/start?next=${encodeURIComponent(REJECTED_NEXT)}`,
+          ),
+        );
+
+        premiseThisSiteEmitted(seen, "OAUTH_REDIRECT_INVALID", "start_invalid_explicit_next");
+
+        expect(res.status).toBe(302);
+        expect(res.headers.get("location")).toBe(SIGN_IN_LOCATION);
+      });
+    });
+
+    test("site 3 — picker-bootstrap still returns the cataloged 403", async () => {
+      await withThrowingSink(async (seen) => {
+        const { GET } = await import("@/app/api/auth/picker-bootstrap/route");
+        const res = await GET(pickerRequest(`?next=${encodeURIComponent(REJECTED_NEXT)}`));
+
+        premiseThisSiteEmitted(seen, "OAUTH_REDIRECT_INVALID", "bootstrap_next_rejected");
+
+        await expectPickerRefusal(res);
+      });
+    });
+
+    test("site 4 — picker-bootstrap still returns the cataloged 403", async () => {
+      await withThrowingSink(async (seen) => {
+        const { GET } = await import("@/app/api/auth/picker-bootstrap/route");
+        const res = await GET(pickerRequest("?next=%2Fadmin"));
+
+        premiseThisSiteEmitted(seen, "OAUTH_REDIRECT_INVALID", "bootstrap_unparsable_next");
+
+        await expectPickerRefusal(res);
+      });
+    });
+
+    test("site 5 — picker-bootstrap still returns the cataloged 403", async () => {
+      await withThrowingSink(async (seen) => {
+        const { GET } = await import("@/app/api/auth/picker-bootstrap/route");
+        const res = await GET(pickerRequest(`?next=${encodeURIComponent(TOKENIZED_NEXT)}`));
+
+        premiseThisSiteEmitted(seen, "OAUTH_REDIRECT_INVALID", "bootstrap_intent_unverified");
+
+        await expectPickerRefusal(res);
+      });
     });
   });
 });

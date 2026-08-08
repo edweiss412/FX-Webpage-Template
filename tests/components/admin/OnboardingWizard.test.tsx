@@ -441,4 +441,46 @@ describe("OnboardingWizard", () => {
       expect(serialized).not.toContain("private_key");
     });
   }
+
+  /**
+   * AC-7 — site 6 of the fail-open contract (the other five are in
+   * tests/auth/oauthRedirectInvalidTelemetry.test.ts). The emit is try/catch
+   * wrapped so a telemetry fault can never escape over the caller (invariant 9,
+   * spec limit §5.5). Unwrapped, a rejecting sink would make the wizard throw
+   * instead of rendering — the operator loses the cataloged "Setup is paused"
+   * card and their Start Over recovery path, which is strictly worse than the
+   * missing telemetry this arc set out to fix.
+   *
+   * Starts GREEN; its RED was obtained by removing the wrapper and observing the
+   * render collapse into an unhandled rejection. See the commit message.
+   */
+  test("fail-open: a throwing sink never replaces the operator-error render", async () => {
+    delete process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
+    // The sink RECORDS before it throws — that is what makes the premise
+    // possible. With no emit at all a throwing sink is never invoked and the
+    // wizard renders fine, so an unguarded case would pass against a tree
+    // carrying no telemetry whatsoever.
+    const seen: LogRecord[] = [];
+    setLogSink((record) => {
+      seen.push(record);
+      throw new Error("sink-down");
+    });
+
+    const { queryByTestId } = render(
+      await OnboardingWizard({ settings: FRESH_SETTINGS, searchParams: {} }),
+    );
+
+    // Code-specific, not a generic entered-flag: names THIS site's code and reason.
+    premiseHolds(
+      "the throwing sink saw THIS site's record (ONBOARDING_OPERATOR_ERROR / env_missing), so the render assertions below are observing a wrapper that actually ran",
+      seen.some(
+        (r) => r.code === "ONBOARDING_OPERATOR_ERROR" && r.context.reason === "env_missing",
+      ),
+    );
+
+    // The FULL refusal surface: the error block AND the shell around it.
+    expect(queryByTestId("wizard-operator-error")).toBeTruthy();
+    expect(queryByTestId("wizard-step1")).toBeNull();
+    expect(queryByTestId("wizard-start-over-button")).toBeTruthy();
+  });
 });
