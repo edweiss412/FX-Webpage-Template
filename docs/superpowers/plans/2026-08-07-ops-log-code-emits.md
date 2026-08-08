@@ -90,7 +90,7 @@ try {
 }
 ```
 
-`source` is `"auth.callback"` for site 1 and `"api.auth.googleStart"` for site 2. **Site 2 also adds `import { log } from "@/lib/log";`** — the only import change in the arc. Nothing else at either site moves: the `signInRedirect` call, its arguments, and `clearPkceVerifierCookies` (site 1) stay exactly as they are.
+`source` is `"auth.callback"` for site 1 and `"api.auth.googleStart"` for site 2. **Site 2 also adds `import { log } from "@/lib/log";`** — one of the arc's two import additions, the other being the same import in `components/admin/OnboardingWizard.tsx` (Task 3). Nothing else at either site moves: the `signInRedirect` call, its arguments, and `clearPkceVerifierCookies` (site 1) stay exactly as they are.
 
 **Do NOT** pass the rejected `next` value, or any value derived from it, in any field (AC-4; spec §2.1 and documented limit §5.2).
 
@@ -187,7 +187,7 @@ The `catch` stays **parameterless** — binding the error is the first step towa
 
 | Input | Disjunct it exercises | Reason without that disjunct |
 | --- | --- | --- |
-| `"null"` | `parsed === null` | `TypeError` on the property read → mislabelled `json_malformed` |
+| `"null"` | `parsed === null` | **uncaught** `TypeError` on the property read — the narrowed `try` no longer covers it, so the component throws rather than rendering. Still red, but by exception, not by a wrong label |
 | `"[]"` | `Array.isArray(parsed)` | `client_email_missing` |
 | `"123"` | `typeof parsed !== "object"` | `client_email_missing` |
 
@@ -221,15 +221,19 @@ if (!service.ok) {
 
 `JSON.stringify(records)` containing neither the sentinel nor `private_key` is retained as a backstop for a leak arriving through a channel the record shape does not describe.
 
-**Two cases**, both with `GOOGLE_SERVICE_ACCOUNT_JSON` carrying a sentinel that could only have come from the env var (e.g. `"SENTINEL-PRIVATE-KEY-DO-NOT-LOG"`): one well-formed but missing `client_email`, one malformed so the parse-error path is exercised.
+**Two cases**, both with `GOOGLE_SERVICE_ACCOUNT_JSON` carrying a sentinel that could only have come from the env var (e.g. `"SENTINEL-PRIVATE-KEY-DO-NOT-LOG"`):
 
-**Observed-RED protocol (this is the task's actual red step).** After Task 3 is green, run **three** mutants in the working tree — **one per leak-channel family**, matching the three families the persisted row actually has — observing each FAIL and reverting it before the next:
+1. **Well-formed, reaching `client_email_missing` via a NON-STRING `client_email` that carries the sentinel** — e.g. `{"client_email": {"secret": "<sentinel>"}, "private_key": "x"}`. The obvious fixture (omit `client_email` entirely) is **vacuous for the parsed-field channel** and was the R5 defect: a mutant like `clientEmail: parsed.client_email` sets `undefined`, the logger drops undefined keys, the context key set stays `["reason"]`, and the accept-set passes while the mutant is indistinguishable from safe code. The field must be PRESENT and secret-bearing for the guard to have any power over it, and a non-string value is what routes it to `client_email_missing` while keeping it present.
+2. **Malformed**, so the parse-error path is exercised: a syntactically invalid value embedding the same sentinel.
+
+**Observed-RED protocol (this is the task's actual red step).** After Task 3 is green, run **four** mutants in the working tree — **one per leak-channel family** — observing each FAIL and reverting it before the next:
 
 - **(a) context channel:** add `error` (the caught `JSON.parse` error) to the wizard emit. The `context` key set no longer matches.
 - **(b) message channel:** interpolate a fragment of the raw env value into the emit's message string. The message literal no longer matches. This is the mutant the R2 denylist draft would have passed.
-- **(c) promoted-field channel:** derive `source` from a fragment of the raw env value. This is the mutant that defeated the R3 context-only accept-set and is durable — `buildRecord` promotes `source` onto the record and `persistAppEvent` writes it as its own column — so omitting it would leave the widening this round exists to prove entirely unexercised.
+- **(c) promoted-field channel:** derive `source` from a fragment of the raw env value. This is the mutant that defeated the R3 context-only accept-set and is durable — `buildRecord` promotes `source` onto the record and `persistAppEvent` writes it as its own column — so omitting it would leave that widening entirely unexercised.
+- **(d) parsed-field channel:** add `clientEmail: parsed.client_email` to the emit. Against case 1's fixture the field is present and secret-bearing, so the context key set gains a key and the accept-set fails. **Run this mutant against the OLD omit-`client_email` fixture too and observe it PASS** — that contrast is what proves the fixture change in case 1 was load-bearing rather than cosmetic, and it is the whole content of the R5 finding.
 
-Each family must be represented, because each failed a previous guard shape. No mutant is committed. The commit message and PR body record all three observations with their output. A green claimed without them is not evidence the guard works.
+Each family must be represented, because each defeated a previous guard shape or fixture. No mutant is committed. The commit message and PR body record all four observations with their output, including (d)'s old-fixture contrast run. A green claimed without them is not evidence the guard works.
 
 **Premise (mandatory).** The assertions rest on two conditions, both stated via `premise`/`premiseHolds` from `tests/_shared/premise.ts` immediately above the negative assertion:
 
