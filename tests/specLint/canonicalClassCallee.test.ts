@@ -51,6 +51,8 @@ import { ESLint } from "eslint";
 import ts from "typescript";
 import { afterAll, describe, expect, it } from "vitest";
 
+import { stripCommentsSafely } from "../_shared/stripComments";
+
 const ROOT = process.cwd();
 
 /** Every extension the eslint rule itself covers (`eslint.config.mjs`). */
@@ -114,12 +116,19 @@ function isWhitespaceSeparator(node: ts.Node): boolean {
   return isStringLiteralNode(node) && node.text.length > 0 && /^\s+$/.test(node.text);
 }
 
+/**
+ * Collapse an operand's source text to a stable signature.
+ *
+ * Comment handling is NOT done here — `stripCommentsSafely` (the single-source module;
+ * `tests/cross-cutting/_metaStripCommentsSingleSource.test.ts` forbids local copies) blanks
+ * comments to spaces BEFORE the parse in `recognizeJoins`, preserving length and offsets so
+ * reported line numbers still point at the real file. A local `/\/\*[\s\S]*?\*\//` here would
+ * be a second, weaker implementation of that: it cannot tell a comment from the same
+ * characters inside a string literal or a regex, which is exactly why the shared module
+ * parses instead of pattern-matching.
+ */
 function normalize(text: string): string {
-  return text
-    .replace(/\/\*[\s\S]*?\*\//g, " ")
-    .replace(/(^|[^:])\/\/[^\n]*/g, "$1 ")
-    .replace(/\s+/g, " ")
-    .trim();
+  return text.replace(/\s+/g, " ").trim();
 }
 
 /**
@@ -130,12 +139,17 @@ function normalize(text: string): string {
  * way the bare JSX-attribute form is.
  */
 function recognizeJoins(relPath: string, source: string): JoinSite[] {
+  const kind = scriptKindFor(relPath);
+  // Blank comments to spaces BEFORE parsing, via the single-source module. It preserves
+  // length and offsets, so reported line numbers still point at the real file, and operand
+  // signatures come out comment-free without a local regex that cannot tell a comment from
+  // the same characters inside a string literal.
   const sourceFile = ts.createSourceFile(
     relPath,
-    source,
+    stripCommentsSafely(source, kind),
     ts.ScriptTarget.Latest,
-    /* setParentNodes */ true,
-    scriptKindFor(relPath),
+    true,
+    kind,
   );
   const found: JoinSite[] = [];
 
