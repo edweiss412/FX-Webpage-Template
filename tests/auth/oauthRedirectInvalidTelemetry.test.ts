@@ -659,7 +659,7 @@ describe("OAUTH_REDIRECT_INVALID durable telemetry", () => {
       });
     });
 
-    test("site 5 — picker-bootstrap still returns the cataloged 403", async () => {
+    test("site 5a — picker-bootstrap still returns the cataloged 403", async () => {
       await withThrowingSink(async (seen) => {
         const { GET } = await import("@/app/api/auth/picker-bootstrap/route");
         const res = await GET(pickerRequest(`?next=${encodeURIComponent(TOKENIZED_NEXT)}`));
@@ -673,6 +673,52 @@ describe("OAUTH_REDIRECT_INVALID durable telemetry", () => {
             source: "api.auth.pickerBootstrap",
             message: BOOTSTRAP_MESSAGE,
             reason: "bootstrap_intent_unverified",
+            requestId: FIXED_REQUEST_ID,
+          }),
+        ]);
+
+        await expectPickerRefusal(res);
+      });
+    });
+
+    /**
+     * Site 5 is ONE emit statement but TWO runtime paths, because its `reason` is
+     * a ternary. "One case per emit site" therefore under-counts here: a
+     * fail-open regression scoped to the target-mismatch arm — a `catch (error)
+     * { if (intent) throw error; }` — leaves the 5a case above completely green,
+     * since 5a's fixture never produces an `intent`. The two arms share a
+     * wrapper, not a code path through it.
+     */
+    test("site 5b — a VERIFIED, mismatched intent still returns the cataloged 403", async () => {
+      await withThrowingSink(async (seen) => {
+        const { GET } = await import("@/app/api/auth/picker-bootstrap/route");
+        const intentToken = signPickerIntent(
+          {
+            slug: "west-coast",
+            shareToken: SHARE_TOKEN,
+            exp: Math.floor(Date.now() / 1000) + 3600,
+          },
+          PICKER_SIGNING_KEY,
+        );
+
+        premiseHolds(
+          "the constructed intent token VERIFIES, so this case exercises the target-mismatch arm rather than collapsing into 5a",
+          verifyPickerIntent(intentToken, PICKER_SIGNING_KEY) !== null,
+        );
+
+        const res = await GET(
+          pickerRequest(
+            `?next=${encodeURIComponent(TOKENIZED_NEXT)}&t=${encodeURIComponent(intentToken)}`,
+          ),
+        );
+
+        premiseThisSiteEmitted(seen, "OAUTH_REDIRECT_INVALID", "bootstrap_intent_target_mismatch");
+
+        expectWholeSink(seen, [
+          expectedRedirectInvalidRecord({
+            source: "api.auth.pickerBootstrap",
+            message: BOOTSTRAP_MESSAGE,
+            reason: "bootstrap_intent_target_mismatch",
             requestId: FIXED_REQUEST_ID,
           }),
         ]);
