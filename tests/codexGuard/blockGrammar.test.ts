@@ -233,3 +233,44 @@ describe("paragraph interrupters pop a stale container (R2 finding 4)", () => {
     expect(await classify(text)).toMatchObject({ status: "no_verdict" });
   });
 });
+
+/**
+ * Round-5 parser findings. Every one is a message an ordinary reviewer could
+ * write, and every one leaked an EXAMPLE verdict — the expensive direction.
+ */
+describe("R5 parser repairs", () => {
+  it("(1) reads `- - -` as a thematic break, not three nested list markers", async () => {
+    // Peeling it as markers built a bogus container stack that mismeasured
+    // everything after it.
+    expect(
+      await classify("- note\n- - -\n\n    VERDICT: APPROVE\n\nStill working.\n"),
+    ).toMatchObject({ status: "no_verdict" });
+  });
+
+  it("(2) treats a bare `>` as a BLANK line inside its quote", async () => {
+    expect(
+      await classify("> Reviewer note.\n>\n    VERDICT: APPROVE\n\nStill working.\n"),
+    ).toMatchObject({ status: "no_verdict" });
+  });
+
+  it("(3) knows `search` is a type-6 html block name", async () => {
+    const text =
+      "Reviewer note before the example.\n<search>\nVERDICT: APPROVE\n</search>\n\nStill working.\n";
+    expect(await classify(text)).toMatchObject({ status: "no_verdict" });
+  });
+
+  it("(4) measures closer indentation from the container's content column", async () => {
+    // Two spaces then a TAB: from the list content column that tab contributes
+    // only two columns, so it validly closes the fence. Measuring from column
+    // zero rejected it, and the open-at-EOF admit path then read the example.
+    expect(await classify("- ```\n  VERDICT: APPROVE\n  \t```\n\nStill working.\n")).toMatchObject({
+      status: "no_verdict",
+    });
+  });
+
+  it("(5) recognizes a bare `-` as an EMPTY list item that ends the list", async () => {
+    expect(await classify("- note\n-\n\n    VERDICT: APPROVE\n\nStill working.\n")).toMatchObject({
+      status: "no_verdict",
+    });
+  });
+});

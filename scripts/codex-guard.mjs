@@ -412,7 +412,7 @@ function composePrompt(cfg) {
 // ---------------------------------------------------------------------------
 
 /** A CommonMark list marker and the whitespace that opens its content. */
-const MARKER_HEAD = /^([-*+]|\d{1,9}[.)])([ \t]+)/;
+const MARKER_HEAD = /^([-*+]|\d{1,9}[.)])([ \t]+|$)/;
 /** A fence, once the container prefix has been peeled off the line. */
 const FENCE_OPEN = /^(`{3,}|~{3,})(.*)$/;
 /** A closing fence: its own leading whitespace, then nothing but the run. */
@@ -672,7 +672,7 @@ function stripCodeBlocks(text) {
   const HTML_TYPE_4 = /^<![A-Za-z]/;
   const HTML_TYPE_5 = /^<!\[CDATA\[/;
   const HTML_BLOCK_NAMES =
-    "address|article|aside|base|basefont|blockquote|body|caption|center|col|colgroup|dd|details|dialog|dir|div|dl|dt|fieldset|figcaption|figure|footer|form|frame|frameset|h1|h2|h3|h4|h5|h6|head|header|hr|html|iframe|legend|li|link|main|menu|menuitem|nav|noframes|ol|optgroup|option|p|param|section|source|summary|table|tbody|td|tfoot|th|thead|title|tr|track|ul";
+    "address|article|aside|base|basefont|blockquote|body|caption|center|col|colgroup|dd|details|dialog|dir|div|dl|dt|fieldset|figcaption|figure|footer|form|frame|frameset|h1|h2|h3|h4|h5|h6|head|header|hr|html|iframe|legend|li|link|main|menu|menuitem|nav|noframes|ol|optgroup|option|p|param|search|section|source|summary|table|tbody|td|tfoot|th|thead|title|tr|track|ul";
   const HTML_TYPE_6 = new RegExp(`^</?(?:${HTML_BLOCK_NAMES})(?:\\s|/?>|$)`, "i");
   // Attribute VALUES may contain `>` when quoted, so `[^<>]*` was too strict and
   // under-classified valid type-7 blocks (diff review R1 finding 6). This matches
@@ -708,7 +708,10 @@ function stripCodeBlocks(text) {
 
   for (let i = 0; i < lines.length; i += 1) {
     const line = lines[i];
-    const blank = line.trim() === "";
+    // Container-relative: `>` alone is a BLANK line inside its quote. Testing
+    // the raw line left the quote frame and the paragraph open, so the root
+    // indented block after it was read as prose (R5 parser finding 2).
+    const blank = line.trim() === "" || /^[ \t]*(?:>[ \t]*)+$/.test(line);
 
     // ── an open FENCE swallows everything until its own closer ───────────────
     if (block !== null && block.kind === "fence") {
@@ -721,7 +724,7 @@ function stripCodeBlocks(text) {
         close !== null &&
         close[2][0] === block.char &&
         close[2].length >= block.len &&
-        advance(close[1], 0) <= 3
+        advance(close[1], m.col) - m.col <= 3
       ) {
         closeBlock();
         prevBlank = true;
@@ -807,6 +810,26 @@ function stripCodeBlocks(text) {
         /^(?:\*[ \t]*){3,}$|^(?:-[ \t]*){3,}$|^(?:_[ \t]*){3,}$/.test(tail) ||
         htmlOpener(tail) !== null;
       if (interrupts || !paragraphOpen) stack = stack.slice(0, m.matched);
+    }
+
+    // THEMATIC BREAK FIRST. `- - -` is a break, not three nested list markers,
+    // and letting `openContainers` peel it built a bogus container stack that
+    // mismeasured everything after it (R5 parser finding 1).
+    const preRest = line.slice(m.idx).replace(/^[ \t]{0,3}/, "");
+    // An EMPTY list item — a bare marker with nothing after it — ends the list
+    // rather than opening a frame. Pushing one made it swallow the indentation
+    // of everything that followed (R5 parser finding 5).
+    if (/^(?:[-*+]|\d{1,9}[.)])[ \t]*$/.test(preRest)) {
+      stack = stack.slice(0, m.matched);
+      prevBlank = true;
+      paragraphOpen = false;
+      continue;
+    }
+    if (/^(?:\*[ \t]*){3,}$|^(?:-[ \t]*){3,}$|^(?:_[ \t]*){3,}$/.test(preRest)) {
+      if (m.matched < stack.length) stack = stack.slice(0, m.matched);
+      prevBlank = false;
+      paragraphOpen = false;
+      continue;
     }
 
     const after = openContainers(line, m.idx, m.col);

@@ -104,3 +104,44 @@ describe("the generator ENFORCES the decision (R4 finding 3)", () => {
     }
   });
 });
+
+/**
+ * The SUCCESS path. R5 finding 5: deleting `writeFileSync` left every suite
+ * green — the refusal case exits before that line, and the meta-test reads the
+ * committed baseline rather than a generated one. A generator that prints
+ * "wrote ..." without writing is the worst possible failure for a file whose
+ * whole job is to be trustworthy.
+ */
+describe("the generator WRITES on a permitted run", () => {
+  it("produces a baseline whose rows and ceilings match the corpus it scanned", () => {
+    const dir = mkdtempSync(join(tmpdir(), "planfences-ok-"));
+    try {
+      const plans = join(dir, "docs/superpowers/plans/x");
+      mkdirSync(plans, { recursive: true });
+      writeFileSync(
+        join(plans, "plan.md"),
+        ["In `lib/a.ts`:", "", "```ts", "const n = rows[0].name;", "```", ""].join("\n"),
+      );
+      const out = join(dir, "baseline.ts");
+
+      const res = spawnSync("pnpm", ["tsx", "scripts/gen-plan-fences-baseline.ts"], {
+        cwd: process.cwd(),
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          PLAN_FENCES_OUT: out,
+          PLAN_FENCES_ROOT: join(dir, "docs/superpowers/plans"),
+        },
+      });
+
+      expect(res.status, `generator failed: ${res.stderr}`).toBe(0);
+      const written = readFileSync(out, "utf8");
+      // The claim is not "a file exists" — it is that the file HOLDS the finding.
+      expect(written).toContain("UNCHECKED_INDEX");
+      expect(written).toMatch(/export const FROZEN_ROWS = 1;/);
+      expect(written).toMatch(/export const FROZEN_TOTAL = 1;/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});

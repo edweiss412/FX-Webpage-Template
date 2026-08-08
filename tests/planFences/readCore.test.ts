@@ -545,3 +545,83 @@ describe("R4 repairs", () => {
     expect(rulesOf(text)).not.toContain("UNIMPORTED_IDENTIFIER");
   });
 });
+
+/**
+ * Round-5 gate findings — every one was "correct but UNPINNED": behavior with no
+ * case that would notice its removal. The reviewer supplied a surviving mutant
+ * for each; these are those mutants, turned into assertions.
+ */
+describe("R5 gate pins", () => {
+  it("a STANDALONE `not-ui` suppresses nothing", () => {
+    // Mutant: widen the suppressing regex back to `(?:ignore|not-ui)`. The old
+    // case could not catch it because its `not-ui` line sat behind an `ignore`.
+    const text = [
+      "In `lib/a.ts`:",
+      "",
+      "<!-- spec-lint: not-ui — internal note -->",
+      "```ts",
+      'const a = "one — two";',
+      "```",
+    ].join("\n");
+    expect(rulesOf(text)).toContain("FENCE_EM_DASH");
+  });
+
+  it("binds DEFAULT and NAMESPACE imports", () => {
+    // Mutant: delete the `ns` and `dflt` extraction blocks. A valid default
+    // import then false-fires.
+    const dflt = [
+      "In `lib/a.ts`:",
+      "",
+      "```ts",
+      'import expect from "./expect";',
+      'import { readFileSync } from "node:fs";',
+      "expect(readFileSync(p));",
+      "```",
+    ].join("\n");
+    expect(rulesOf(dflt)).not.toContain("UNIMPORTED_IDENTIFIER");
+
+    const ns = [
+      "In `lib/b.ts`:",
+      "",
+      "```ts",
+      'import * as expect from "./expect";',
+      'import { readFileSync } from "node:fs";',
+      "expect.thing(readFileSync(p));",
+      "```",
+    ].join("\n");
+    expect(rulesOf(ns)).not.toContain("UNIMPORTED_IDENTIFIER");
+  });
+
+  it("binds an UNPARENTHESIZED arrow parameter", () => {
+    // Mutant: drop the final arm of PARAMS. `expect => …` then false-fires.
+    const text = [
+      "In `lib/a.ts`:",
+      "",
+      "```ts",
+      'import { readFileSync } from "node:fs";',
+      "const f = expect => readFileSync(expect);",
+      "```",
+    ].join("\n");
+    expect(rulesOf(text)).not.toContain("UNIMPORTED_IDENTIFIER");
+  });
+
+  it("attributes at SIX lines above and not at seven", () => {
+    // Mutant: `scanned < 6` -> `scanned < 7`. The bound is part of the settled
+    // accept-set, so both sides of it are asserted.
+    const build = (gap: number): string =>
+      [
+        "In `lib/a.ts`:",
+        ...Array.from({ length: gap }, () => ""),
+        "```ts",
+        "const x = 1;",
+        "```",
+      ].join("\n");
+    // 4 blanks: the prose is the 5th line scanned, inside the bound.
+    expect(analyzePlan("docs/superpowers/plans/x/plan.md", build(4)).attributedFences).toBe(1);
+    // 6 blanks: the prose would be the 7th line scanned — exactly one past the
+    // bound, which is the only gap that DISCRIMINATES. A larger gap is
+    // unattributed under both `< 6` and `< 7`, so it proves nothing; the first
+    // version of this case used 7 and the loosening mutant survived it.
+    expect(analyzePlan("docs/superpowers/plans/x/plan.md", build(6)).attributedFences).toBe(0);
+  });
+});

@@ -269,3 +269,39 @@ Round-economy filing at
 `docs/review-rounds/feat/review-infra-gates/61281c23e8ce.md`: four rounds, 26 findings,
 26 accepted, 0 refuted.
 
+**R5 — SPLIT into two tight-scope reviews; 10 findings, all ten confirmed and
+repaired.** The whole-diff form exceeded the wrapper's 1380s attempt cap, and a
+retry with a longer cap was REJECTED by flag validation — a rejection the
+implementer did not notice for 45 minutes because it polled `result.json` instead
+of reading the wrapper log the dispatch had already written. Splitting per surface
+is the documented remedy and both halves returned in minutes.
+
+**Gate (5 findings) — every one was UNPINNED behavior**, correct code with no case
+that would notice its removal: a standalone `not-ui` suppressing nothing (the
+existing case had one behind an `ignore`, so it could not discriminate); default
+and namespace import bindings; unparenthesized arrow parameters; the six-line
+attribution bound; and the generator's SUCCESS path, where deleting
+`writeFileSync` left every suite green because the refusal case exits before that
+line and the meta-test reads the committed baseline.
+
+**Parser (5 findings) — every one a live misclassification** with an exact
+reviewer message, and every one leaking an EXAMPLE verdict, the expensive
+direction: `- - -` peeled as three nested list markers instead of a thematic
+break; a bare `>` not counting as a blank line inside its quote; `search` missing
+from the CommonMark 0.31.2 type-6 set; fence-closer indentation measured from
+column zero so a tab got the wrong width after a list container; and a bare `-`
+not recognized as an empty item that ends its list.
+
+**One of the new pins then survived its own mutant.** The attribution-bound case
+used a seven-line gap — unattributed under both the correct bound and the loosened
+one, so it discriminated nothing. Only a gap of exactly six does. **A boundary test
+that does not sit ON the boundary is not a boundary test**, and only running the
+mutant showed it.
+
+Full mutant sweep after the repairs, ten operators, all KILLED: widen `not-ui` to
+suppressing; delete namespace and default binding; drop the unparenthesized-arrow
+arm; loosen the attribution bound to 7; delete the generator's write; and the five
+parser messages above.
+
+Baseline unchanged at 3551 rows / 3629 occurrences.
+
