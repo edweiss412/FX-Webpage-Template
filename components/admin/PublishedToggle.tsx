@@ -306,7 +306,7 @@ function SwitchButton({
       <span
         aria-hidden="true"
         className={cn(
-          "inline-block h-5 w-5 rounded-full bg-bg shadow-tile transition-transform duration-fast",
+          "inline-block size-5 rounded-full bg-bg shadow-tile transition-transform duration-fast",
           on ? "translate-x-6" : "translate-x-1",
         )}
       />

@@ -199,7 +199,7 @@ export function StepIndicator({
                 data-testid="wizard-step-connector"
                 aria-hidden="true"
                 className={cn(
-                  "h-px max-w-[60px] flex-1 rounded-full",
+                  "h-px max-w-confirm-box flex-1 rounded-full",
                   isDone ? "bg-border-strong" : "bg-border",
                 )}
               />
