@@ -486,6 +486,14 @@ describe("OnboardingWizard", () => {
       ),
     );
 
+    // The premise above is a `.some(...)` and therefore CANNOT reject an extra
+    // record — that is what a premise is for. The whole-sink accept-set is what
+    // rejects one, and this case needs it for the same reason the five OAuth
+    // fail-open cases do: a `catch` block that introduced a leaking sibling emit
+    // under another code would otherwise satisfy every premise and every render
+    // assertion here and ship unseen.
+    expect(seen).toEqual([expectedOperatorErrorRecord("env_missing")]);
+
     // The FULL refusal surface: the error block AND the shell around it.
     expect(queryByTestId("wizard-operator-error")).toBeTruthy();
     expect(queryByTestId("wizard-step1")).toBeNull();
