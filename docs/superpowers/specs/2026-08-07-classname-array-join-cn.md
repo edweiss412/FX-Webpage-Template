@@ -91,7 +91,11 @@ tracked `.tsx?` under `components/` and `app/` for `.join(` at *any* separator y
 of `.join(" ")` and no other whitespace separator anywhere — no `.join(' ')`, no `` .join(` `) ``.
 Of the 38, 36 are the classNames tabulated above and 2 are data joins, correctly outside the census:
 `components/admin/wizard/step3ReviewSections.tsx:1353` and
-`components/admin/review/sectionFreshness.ts:537`, each `[row.date, row.time].filter(...).join(" ")`.
+`components/admin/review/sectionFreshness.ts:537`. They are NOT the same expression: the first is
+`[leg.date, leg.time].filter(...).join(" ")` and the second is
+`[row.date, row.time].filter(...).join(" ")`. The distinction matters downstream — an exemption
+written against the wrong operand text would reject legitimate code, and one broadened to cover both
+by loosening the operand match would silently admit a future class join.
 Every remaining `.join(...)` in the tree uses a non-whitespace separator (`", "`, `""`, `"; "`,
 `"="`, `" | "`, `" · "`, `" / "`, `"\u0000"`, `"."`) and joins data, not classes.
 
@@ -450,7 +454,8 @@ Two survive, because their premise outlives the migration:
   **Calibrated against the live tree, not asserted.** The recognizer yields **38** whitespace-join
   sites: the **36** classNames of §2.2, plus exactly **2** data joins that legitimately
   whitespace-join values — `components/admin/wizard/step3ReviewSections.tsx:1353` and
-  `components/admin/review/sectionFreshness.ts:537`, both `[row.date, row.time]`. Those two are
+  `components/admin/review/sectionFreshness.ts:537` — `[leg.date, leg.time]` and
+  `[row.date, row.time]` respectively, not the same expression. Those two are
   carried as a **named exemption list with a stated reason each**, not silently dropped by a
   heuristic, so a new whitespace join fails by default and must justify itself. Probed: all seven
   escape shapes above are caught, and `.join(", ")`, `.join("")`, and `cn(...)` are correctly not.
