@@ -30,7 +30,7 @@ Out of scope: `BL-SERVER-ACTION-ORIGIN-GATE` (parked for a dedicated auth pass, 
 4. **Warn, never hard-fail, for every detector in this wave.** A live show carries `#REF!` at the time of writing (Consultants, live-verified 2026-08-07, probe §13.E; corpus base rate in §13.A). A hard-fail would block live syncs on shows that currently serve crew pages. Severity `"warn"` per `ParseWarning.severity` (`lib/parser/types.ts:68`), parse output preserved.
 5. **Zero-width strip is ratified policy, not an open question** — `BL-MUTATION-UNICODE` entry, corrected 2026-08-06 after cross-model probe: `clean()` already strips `[​-‍﻿]` at the shared cell boundary (`lib/parser/blocks/_helpers.ts` `clean`, `_helpers.ts:45-53`) and `tests/parser/blocks/transport.test.ts:409-417` pins the live fintech ZWNJ shape. This wave extends WHERE the strip applies, not WHETHER stripping is right.
 6. **Effort M per class, decided once at decomposition** — `BACKLOG-archive.md` § `BL-MUTATION-HARNESS-OPEN-HOLES` ("Why every child is M"). Do not re-size.
-7. **The ledger is SHRINK-ONLY** — ratchet contract restated on every backlog row. Hardening converts holes to `staleRows` and the harness fails until rows are removed; a new hole fails as `newAlarms` (`reconcileLedger`, `tests/parser/mutation/knownHoles.ts:43`).
+7. **The ledger is SHRINK-ONLY** — ratchet contract restated on every backlog row. Hardening surfaces holes as `fixedHoles` (the classified bucket under the `staleRows` union) and the harness fails until the rows are removed; a new hole fails as `newHoles` (under `newAlarms`) (`reconcileLedger`, `tests/parser/mutation/knownHoles.ts:43`).
 8. **No UI surface in this wave.** New warning codes flow through existing card components (`components/admin/PerShowActionableWarnings.tsx` via `lib/admin/step3SectionStatus.ts` → `lib/admin/sectionWarningModel.ts` → `lib/admin/routedWarnings.ts`); copy rows are catalog data, not components. Plans carry `impeccable-gate: N/A — no UI surface`.
 
 ---
@@ -53,7 +53,7 @@ Ledger-claim flow (invariant 12): this spec branch holds all five `IN PROGRESS` 
 
 The harness is nightly + `workflow_dispatch` + path-filtered `pull_request` (`.github/workflows/mutation-harness.yml:15-33`). The path filter does NOT include `lib/parser/**` — it fires on `tests/parser/mutation/**` (r1 review correction) — but every implementation branch edits `tests/parser/mutation/knownHoles.ts` for its ledger shrink, so each PR fires the workflow anyway, running it as it exists on the PR head. Run command: `VITEST_INCLUDE_MUTATION_HARNESS=1 pnpm exec vitest run --project mutation` (8 shards, ~60-75 min in CI). Locally, a class-scoped iteration loop uses the shard runner (`tests/parser/mutation/runShard.ts`) — the plan pins the exact invocation.
 
-Close-out gate per branch (PROCEDURAL — the harness workflow is deliberately not a branch-protection required check, `mutation-harness.yml:10` and `mutation-harness.yml:20-21`; the wave enforces this gate by verifying the PR-head run before merging): harness green (no `newAlarms`, no `staleRows` — drift-partition expectations in §9) with that class's CLOSED rows deleted from `RAW_HOLES` (section-reorder: 10 of 82 — §7.4), plus the standard merge-blocking suite.
+Close-out gate per branch (PROCEDURAL — the harness workflow is deliberately not a branch-protection required check, `mutation-harness.yml:10` and `mutation-harness.yml:20-21`; the wave enforces this gate by verifying the PR-head run before merging): harness green — all four reconciliation buckets empty (`newHoles` / `fixedHoles` / `driftedAlarms` / `driftedStale`, per-branch expectations in §9) — with that class's CLOSED rows deleted from `RAW_HOLES` (section-reorder: 10 of 82 — §7.4), plus the standard merge-blocking suite.
 
 ### 2.3 What "hardened" means (oracle terms)
 
@@ -83,7 +83,7 @@ No new warning code: the class closes by correction (verdict `ABSORBED` — stri
 
 ### 3.3 First task = closure probe
 
-The branch's first task applies the strip and runs the unicode shard slice, expecting all 827 rows to convert to `staleRows` (delete from `RAW_HOLES`). Any residue contradicts the ledger probe's census and blocks the branch until explained — either a fifth cell-production path (extend the strip's reach) or a genuine documented limit filed in §11 with its count.
+The branch's first task applies the strip and runs the unicode shard slice, expecting all 827 rows to surface as `fixedHoles` and be deleted from `RAW_HOLES`. Any residue contradicts the ledger probe's census and blocks the branch until explained — either a fifth cell-production path (extend the strip's reach) or a genuine documented limit filed in §11 with its count.
 
 ### 3.4 Structural guard
 
@@ -224,7 +224,7 @@ The 14 alarm only because the oracle's signal comparison is index-keyed — but 
 
 ### 7.4 The 72 ratified rows (58 payload-reorder + 14 signal-reorder) — reclassification mechanics
 
-They move to the documented-limit register (§11), and `OPERATOR_FINDING_MAP["section-reorder"]` (`knownHoles.ts:88`) re-maps from `BL-MUTATION-SECTION-ORDER` to the documented-finding form (audit #5/#10 pattern; `knownHoles.test.ts` accepts audit refs or resolvable `BL-` ids — the plan pins the exact ref string, landing in the same commit as the backlog row's closure). The 72 rows STAY in `RAW_HOLES` as documented-class rows (the audit-#5/#10 precedent — documented classes keep their rows); only the 10 venue-hardening rows delete as `staleRows`. Probe precondition SATISFIED: §13.2 confirms zero of the 58 `wrong` rows touch a VENUE block and zero lose signals, and the 14 have byte-identical signal multisets.
+They move to the documented-limit register (§11), and `OPERATOR_FINDING_MAP["section-reorder"]` (`knownHoles.ts:88`) re-maps from `BL-MUTATION-SECTION-ORDER` to the documented-finding form (audit #5/#10 pattern; `knownHoles.test.ts` accepts audit refs or resolvable `BL-` ids — the plan pins the exact ref string, landing in the same commit as the backlog row's closure). The 72 rows STAY in `RAW_HOLES` as documented-class rows (the audit-#5/#10 precedent — documented classes keep their rows); only the 10 venue-hardening rows surface as `fixedHoles` and are deleted. Probe precondition SATISFIED: §13.2 confirms zero of the 58 `wrong` rows touch a VENUE block and zero lose signals, and the 14 have byte-identical signal multisets.
 
 ### 7.5 What does NOT happen
 
@@ -255,9 +255,12 @@ Doug-facing copy tone follows the `STAGE_WORD_AUTOCORRECTED` template (`lib/mess
 
 1. Implement the class's detector/correction (TDD: the failing test is a targeted mutant through the real parse, asserting the new verdict).
 2. Delete the class's CLOSED rows from `RAW_HOLES` (`knownHoles.ts`) — identified by `finding` id via `OPERATOR_FINDING_MAP`.
-3. Run the harness (PR-triggered + `workflow_dispatch` for close-out): green = no `staleRows` (all deleted rows actually closed) and no `newAlarms` (nothing regressed). **Drift-partition expectation, stated up front:** `reconcileLedger` (`knownHoles.ts:29-45`) partitions both sides by coarse (siteId, kind) — a row whose FINGERPRINT moves lands in `driftedAlarms`/`driftedStale` (benign, tolerated), not `newAlarms`/`staleRows`. Branches whose detector also fires on the clean corpus (ref-sub: 24 baseline warnings) may shift fingerprints of OTHER classes' rows, since `fingerprint` diffs baseline↔mutant (`oracle.ts:108-111`) and uniform both-sides additions largely cancel; the plan RECORDS the observed partition per branch (expected: `fixedHoles` = the closed class, `driftedAlarms` small or zero, `newHoles` = ∅ HARD) rather than assuming all-quiet. Benign drift is deferrable per the mutation-ledger discipline; a non-empty `newHoles` is never deferrable.
+3. Run the harness (PR-triggered + `workflow_dispatch` for close-out). **Green = all FOUR classified reconciliation buckets empty** — `newHoles`, `fixedHoles`, `driftedAlarms`, `driftedStale` — which is what the shards actually assert (`tests/parser/mutationHarness.shard0.test.ts:49-68`; `newAlarms`/`staleRows` are the UNIONS of those buckets, `knownHoles.ts:22-24`, not siblings of them). Per-branch expectations after the class's closed rows are deleted:
+   - `newHoles` = ∅ — HARD, never deferrable (a parser change stopped catching mutants).
+   - `fixedHoles` = ∅ — the deletion took the closed rows out; a residual entry is a row the deletion missed, or an unplanned closure to investigate.
+   - `driftedAlarms` / `driftedStale` = ∅ — a detector that also fires on the clean corpus (ref-sub: 24 baseline warnings) may move OTHER classes' fingerprints; `fingerprint` diffs baseline↔mutant (`oracle.ts:108-111`) so uniform both-side additions largely cancel, but any drift that DOES surface turns the run RED and is dispositioned by regenerating the drifted rows' fingerprints in the same branch (benign iff the output change was intentional — here it is, the new warning is the point), recorded in the plan. Drift is never silently tolerated; the shard fails until the ledger is regenerated.
 4. Residue rows (holes deliberately not closed) STAY in `RAW_HOLES` untouched; their count and reason land in §11 and on the backlog row at close (the row closes when its class's reachable set is closed and its residue is documented — the safe-reach bar, resolved scope #2).
-5. For section-reorder only: rows split by disposition — the 10 venue-hardening rows delete as `staleRows`; the 72 ratified rows STAY as documented-class rows under the `OPERATOR_FINDING_MAP` re-map (§7.4), landing in the same commit; `knownHoles.test.ts` keeps every remaining row resolvable.
+5. For section-reorder only: rows split by disposition — the 10 venue-hardening rows surface as `fixedHoles` and are deleted; the 72 ratified rows STAY as documented-class rows under the `OPERATOR_FINDING_MAP` re-map (§7.4), landing in the same commit; `knownHoles.test.ts` keeps every remaining row resolvable.
 
 ## 10. Testing
 
@@ -290,7 +293,7 @@ None — no component states or visual transitions in this wave (resolved scope 
 
 ## 12. Review convergence criterion + threat-model fence
 
-**Consequence bound:** every mutated input in the five classes is parsed correctly or signaled, never silently wrong; a conservative demote plus a surfaced warning is a DOCUMENTED LIMIT, not a finding. The acceptance evidence is machine-computed: the harness verdict distribution over each class's mutant set, plus the shrink-only ledger reconciliation (`newAlarms = ∅`, `staleRows = ∅` after row deletion). A "the discriminator does not pin what it claims" finding is admissible only with a surviving mutant demonstrating it — an operator and a site from the declared operator set (`operators.ts` OPERATORS map, `operators.ts:267-273`).
+**Consequence bound:** every mutated input in the five classes is parsed correctly or signaled, never silently wrong; a conservative demote plus a surfaced warning is a DOCUMENTED LIMIT, not a finding. The acceptance evidence is machine-computed: the harness verdict distribution over each class's mutant set, plus the shrink-only ledger reconciliation (all four classified buckets `= ∅` after row deletion, §9). A "the discriminator does not pin what it claims" finding is admissible only with a surviving mutant demonstrating it — an operator and a site from the declared operator set (`operators.ts` OPERATORS map, `operators.ts:267-273`).
 
 **Threat-model fence:** the adversary is accidental — sheet-author slips and exporter artifacts (merge, broken reference, drag-shift, invisible characters, block reorder). Adversarial obfuscation (crafted inputs designed to evade a discriminator) is OUT of scope and files to §11. Enumeration over the open input space does not terminate and is not the convergence criterion; the closed mutant set is.
 
