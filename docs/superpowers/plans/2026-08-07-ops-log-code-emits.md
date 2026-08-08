@@ -3,7 +3,7 @@
 Spec: `docs/superpowers/specs/2026-08-07-ops-log-code-emits.md`
 Branch: `feat/ops-log-code-emits`
 
-Six emit-less failure sites gain a `code:`-carrying `log.*` call. **Four** TDD tasks, each red → implementation → green → commit per invariant 1, plus a close-out ledger step that is deliberately NOT a task (it is bookkeeping with no executable RED; see Close-out). No UI, no migration, no advisory lock, no new error code.
+Six emit-less failure sites gain a `code:`-carrying `log.*` call. **Five** TDD tasks, each red → implementation → green → commit per invariant 1, plus a close-out ledger step that is deliberately NOT a task (it is bookkeeping with no executable RED; see Close-out). No UI, no migration, no advisory lock, no new error code.
 
 ## Pre-draft verification (run, not described)
 
@@ -40,7 +40,7 @@ Every claim this plan names was grep-verified against the branch's merge base (`
 
 - **CREATES:** none.
 - **EXTENDS:** none.
-- **Justification** (an explicit declaration, not an omission): the candidate registries do not reach these surfaces. `tests/log/_metaMutationSurfaceObservability.test.ts` is scoped to mutating methods and admin routes and all six sites are GET/render (spec §1.1 item 1); `tests/auth/_metaInfraContract.test.ts` covers Supabase call boundaries and this arc adds no Supabase call; `tests/auth/advisoryLockRpcDeadlock.test.ts` covers lock topology and this arc takes no lock; `tests/messages/_metaAdminAlertCatalog.test.ts` covers `admin_alerts` upserts, which this arc does not perform. The behavioral tests in Tasks 1-4 are the whole defense, which is why they are written per-branch rather than per-file.
+- **Justification** (an explicit declaration, not an omission): the candidate registries do not reach these surfaces. `tests/log/_metaMutationSurfaceObservability.test.ts` is scoped to mutating methods and admin routes and all six sites are GET/render (spec §1.1 item 1); `tests/auth/_metaInfraContract.test.ts` covers Supabase call boundaries and this arc adds no Supabase call; `tests/auth/advisoryLockRpcDeadlock.test.ts` covers lock topology and this arc takes no lock; `tests/messages/_metaAdminAlertCatalog.test.ts` covers `admin_alerts` upserts, which this arc does not perform. The behavioral tests in Tasks 1-5 are the whole defense, which is why they are written per-branch rather than per-file.
 - **Advisory-lock topology:** N/A — no `pg_advisory*` path, no DB write, no `shows`/`crew_members` mutation. No commit boundary exists at any site, so invariant 2's post-commit-emit placement rule is satisfied vacuously.
 - **Layout-dimensions task:** N/A — no fixed-dimension parent, no rendered element added or changed.
 - **Transition-audit task:** N/A — no `AnimatePresence`, no ternary render change, no visual state added.
@@ -57,6 +57,7 @@ impeccable-gate: N/A — no UI surface
 - **AC-3** — The onboarding operator-error path emits exactly one record with `level: "error"`, `code: "ONBOARDING_OPERATOR_ERROR"`, and `reason` ∈ {`env_missing`, `json_malformed`, `json_not_an_object`, `client_email_missing`} matching the actual cause. `json_malformed` is asserted ONLY where `JSON.parse` genuinely threw.
 - **AC-4** — No emit carries service-account key material, the `JSON.parse` error, or the raw rejected `next` value. Enforced by a **whole-record accept-set** over exactly the nine fields the sink persists (see the shared shape under Task 1). Narrower guards failed twice: a denylist ("no `error` key, no sentinel") was defeated in R2 by a parse message relocated to `message` and by a partial key fragment; a context-only accept-set was defeated in R3 by a fragment in `source`, which is promoted out of `context` into its own `app_events` column.
 - **AC-5** — `OnboardingWizard`'s rendered output is unchanged; the three shipped render assertions pass unmodified.
+- **AC-7** — Every emit is wrapped so a telemetry fault cannot escape over the caller: against a sink that throws, all six sites still produce their unchanged refusal (invariant 9, spec limit §5.5).
 - **AC-6** — Both ledger entries archive with provenance, and the `IN PROGRESS` markers come off in the PR's last commit. Verified by inspection of the final diff, not by a test — see the close-out step for why no executable gate discriminates it.
 
 <!-- tasks: depth=2 -->
@@ -94,7 +95,7 @@ try {
 
 **Do NOT** pass the rejected `next` value, or any value derived from it, in any field (AC-4; spec §2.1 and documented limit §5.2).
 
-### The whole-record accept-set (shared by Tasks 1, 2 and 4)
+### The whole-record accept-set (shared by EVERY emit case in the arc)
 
 Two review rounds each broke a narrower guard, so this is scoped to **exactly the nine fields `persistAppEvent` writes** (`lib/log/persist.ts:16`): `level`, `source`, `message`, `code`, `requestId`, `showId`, `driveFileId`, `actorHash`, `context`. R2 broke a denylist with a parse message moved into `message`; R3 broke a context-only accept-set by placing a fragment in `source`, which `buildRecord` promotes out of `context` onto the record and which persists as its own column. A guard narrower than the persisted row leaves a channel, every time.
 
@@ -116,7 +117,7 @@ expect(rec).toEqual({
 
 `toEqual` against a complete literal is the accept-set: any field added, renamed, or populated with derived text fails. Per-site variation is only in `source`, `message`, `context.reason`, and `requestId` — `null` for the two `auth.*` routes (documented limit §5.3) and the derived request id for the three picker-bootstrap sites, which run inside `runWithRequestContext`.
 
-**`requestId` must be pinned to a FIXED literal, never derived from the captured record and never `expect.any(String)`.** `deriveRequestId` returns `headers.get("x-vercel-id") ?? crypto.randomUUID()` (`lib/log/requestContext.ts:25`), so its natural value is nondeterministic — and an oracle read back from the record, or a bare type matcher, would admit a mutant assigning `requestId: rawNext` and leak the rejected input through a promoted column. Every picker-bootstrap case therefore sets a fixed `x-vercel-id` header on the request (e.g. `"test-req-1"`) and asserts that exact string. This is the one field in the nine whose expected value is not already a constant, which is why it is called out rather than left to the implementer. Task 4 uses the same shape with `level: "error"`, `source: "admin.onboardingWizard"`, and the onboarding code and message. Content checks (no sentinel, no `private_key`, no raw `next`) are retained as a backstop against a leak arriving through some channel the record shape does not describe.
+**`requestId` must be pinned to a FIXED literal, never derived from the captured record and never `expect.any(String)`.** `deriveRequestId` returns `headers.get("x-vercel-id") ?? crypto.randomUUID()` (`lib/log/requestContext.ts:25`), so its natural value is nondeterministic — and an oracle read back from the record, or a bare type matcher, would admit a mutant assigning `requestId: rawNext` and leak the rejected input through a promoted column. Every picker-bootstrap case therefore sets a fixed `x-vercel-id` header on the request (e.g. `"test-req-1"`) and asserts that exact string. This is the one field in the nine whose expected value is not already a constant, which is why it is called out rather than left to the implementer. **Every emit case in every task uses this shape — Tasks 1, 2, 3 and 4, with no exception.** The onboarding cases instantiate it with `level: "error"`, `source: "admin.onboardingWizard"`, the onboarding code and message, and `context: { reason: <the case's reason> }`. R7 found the earlier draft applied the accept-set only in Tasks 1, 2 and 4, leaving Task 3's `env_missing` and `json_not_an_object` cases asserting just `code`/`level`/`reason` — so a branch-specific widening that attached the parsed primitive on those paths passed every promised assertion and could persist secret material. The accept-set is universal precisely so no branch can be the one that was forgotten. Content checks (no sentinel, no `private_key`, no raw `next`) are retained as a backstop against a leak arriving through some channel the record shape does not describe.
 
 ## Task 2 — sites 3-5: the three picker-bootstrap branches
 
@@ -145,7 +146,7 @@ Each asserts one record via the whole-record accept-set above (with `source: "ap
 
 <!-- task: red=`pnpm vitest run tests/components/admin/OnboardingWizard.test.tsx` ac=AC-3,AC-5 -->
 
-**RED.** Extend `tests/components/admin/OnboardingWizard.test.tsx`. The three shipped cases at `tests/components/admin/OnboardingWizard.test.tsx:203`, `tests/components/admin/OnboardingWizard.test.tsx:220` and `tests/components/admin/OnboardingWizard.test.tsx:232` already construct the three distinct broken environments (unset, malformed JSON, missing `client_email`) — the cheapest non-vacuous oracle available, because the environments exist and are already known-distinct. Each gains a `setLogSink` capture asserting one record with `code === "ONBOARDING_OPERATOR_ERROR"`, `level === "error"`, and its own `reason`: `env_missing`, `json_malformed`, `client_email_missing` respectively. **Three** further cases are added for `json_not_an_object`, one per disjunct of its guard (see Part 1) — six operator-error cases in total.
+**RED.** Extend `tests/components/admin/OnboardingWizard.test.tsx`. The three shipped cases at `tests/components/admin/OnboardingWizard.test.tsx:203`, `tests/components/admin/OnboardingWizard.test.tsx:220` and `tests/components/admin/OnboardingWizard.test.tsx:232` already construct the three distinct broken environments (unset, malformed JSON, missing `client_email`) — the cheapest non-vacuous oracle available, because the environments exist and are already known-distinct. Each gains a `setLogSink` capture asserting the record with the **whole-record accept-set** (see the shared shape under Task 1), instantiated with `level: "error"`, `source: "admin.onboardingWizard"`, `code: "ONBOARDING_OPERATOR_ERROR"`, `requestId: null` (the wizard runs outside `runWithRequestContext`, so the ALS fallback yields null), and its own `reason`: `env_missing`, `json_malformed`, `client_email_missing` respectively. Asserting only `code`/`level`/`reason` here was the R7 defect — it left two branches able to leak. **Three** further cases are added for `json_not_an_object`, one per disjunct of its guard (see Part 1) — six operator-error cases in total.
 
 **Their existing render assertions stay byte-identical** — that is the executable form of AC-5 and of the `impeccable-gate: N/A` determination. If a render assertion needs editing, stop: the determination is void.
 
@@ -245,6 +246,26 @@ After Task 3 is green, run each in the working tree, observing it FAIL and rever
 - `records.length > 0`.
 
 The second is the one that matters: without it, a case whose env setup or sink capture silently failed passes by finding nothing in an empty array — the exact "expected value read from the same degenerate source as the actual" shape the anti-tautology rule names. Both execute unconditionally at case top level, never inside a callback whose iteration count could be zero.
+
+## Task 5 — the fail-open contract at every emit site
+
+<!-- task: red=`pnpm vitest run tests/auth/oauthRedirectInvalidTelemetry.test.ts` ac=AC-7 -->
+
+**RED.** Every emit in this arc is `try`/`catch`-wrapped so a telemetry fault can never escape over the caller (invariant 9; spec limit §5.5) — and R7 found **nothing tested that**. Removing the wrapper from all six sites left every other assertion in this plan green, while a rejecting sink would replace the refusal with an unhandled rejection: the 302 never happens, the 403 never happens, the wizard never renders. The wrappers are load-bearing, not decorative, so they get a test.
+
+One case per emit site (six), each installing a sink that **throws**:
+
+```ts
+log.setLogSink(() => {
+  throw new Error("sink-down");
+});
+```
+
+and then asserting the refusal is completely unaffected — for the OAuth sites the same status, `Location` and (site 1) PKCE `Set-Cookie` assertions Tasks 1-2 make; for the onboarding site that `render()` still produces `wizard-operator-error`.
+
+**Premise (mandatory — this test is vacuous without it).** With no emit at all, a throwing sink is never invoked and the route works fine, so the case would pass against a tree that has no telemetry whatsoever. Each case therefore records whether the sink was entered and states via `premise`/`premiseHolds` that it **was**, immediately above the refusal assertion. That premise is what makes the case red before the emit exists and red again if the emit is later removed — without it this is the "absent event satisfies the comparison" shape the anti-tautology rule names.
+
+**Concrete failure mode caught:** an emit written without its `try`/`catch`, or a later refactor that removes one. Against a rejecting sink that turns a user's refusal into a 500 — converting a handled, cataloged failure into an unhandled one on a public auth endpoint, which is strictly worse than the missing telemetry this arc set out to fix.
 
 <!-- tasks: end -->
 
