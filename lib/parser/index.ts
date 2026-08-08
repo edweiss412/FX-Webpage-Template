@@ -551,6 +551,12 @@ export function buildThrownParsedSheet(message: string): ParsedSheet {
 }
 
 export function parseSheet(markdown: string, filename?: string): ParsedSheet {
+  // Spec 2026-08-07-parser-mutation-wave §3.1: strip zero-width characters from the
+  // whole document before ANY read - including classifyVersion's label reads
+  // (schema.ts:68,127), which run before the normalizeSectionHeaders seam. Same
+  // character class clean() strips at the cell boundary (blocks/_helpers.ts:49);
+  // clean() keeps its strip, because cell values are also assembled outside this entry.
+  markdown = markdown.replace(/[\u200B-\u200D\uFEFF]/g, "");
   const hardErrors: ParseError[] = [];
 
   // Step 1: Detect version with confidence scoring. Hard-error gate per spec §6.8.
