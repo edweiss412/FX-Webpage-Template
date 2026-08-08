@@ -72,9 +72,23 @@ export function HelpSheet({ label, children, testId = "help-sheet" }: HelpSheetP
         aria-haspopup="dialog"
         aria-expanded={open}
         onClick={() => setOpen(true)}
-        className="inline-flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-pill bg-surface-sunken align-middle text-sm font-semibold text-text-subtle transition-colors duration-fast hover:bg-surface hover:text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+        /* spec 2026-08-07-step3-a11y-cluster §2.2: the button is the 44px TAP
+           TARGET and paints nothing; the 28px pill moved to the span below.
+           `-m-2` cancels the growth so the trigger's layout footprint is
+           unchanged. The fused string is split by DESTINATION rather than moved
+           verbatim: `cursor-pointer` and every `focus-visible:*` stay here,
+           because a non-focusable inner span can never match `focus-visible`
+           and the cursor must change across the whole band. `rounded-pill` is
+           on BOTH — the span to paint, this element so its ring keeps the
+           shape. `group` is what the span's `group-hover:*` resolve against. */
+        className="group -m-2 inline-flex size-tap-min shrink-0 cursor-pointer items-center justify-center rounded-pill focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
       >
-        <span aria-hidden="true">?</span>
+        <span
+          data-testid={`${testId}-trigger-visual`}
+          className="inline-flex size-7 shrink-0 items-center justify-center rounded-pill bg-surface-sunken align-middle text-sm font-semibold text-text-subtle transition-colors duration-fast group-hover:bg-surface group-hover:text-text-strong"
+        >
+          <span aria-hidden="true">?</span>
+        </span>
       </button>
       {mounted && open
         ? createPortal(
@@ -142,9 +156,24 @@ function HelpSheetOverlay({
             data-testid={`${testId}-close`}
             onClick={onClose}
             aria-label="Close help"
-            className="-m-1 inline-flex size-9 shrink-0 items-center justify-center rounded-sm text-text-subtle transition-colors duration-fast hover:bg-surface-sunken hover:text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+            /* Same split as the trigger, with the differences spec §2.2's
+               ownership table names: the painted box is `size-9` (36px, NOT 28
+               — R6 preserves each control's OWN size), the radius is
+               `rounded-sm` on both, and the old `-m-1` is DROPPED rather than
+               kept. It expanded nothing (no matching padding); it was pure
+               layout offset, and the target's `-m-2` now plays that role.
+               Keeping both would double-offset the header row.
+               No `cursor-pointer`: this string never carried one, and the
+               ownership table dispositions the classes that are present rather
+               than licensing new ones. */
+            className="group -m-2 inline-flex size-tap-min shrink-0 items-center justify-center rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
           >
-            <X aria-hidden="true" className="size-5" />
+            <span
+              data-testid={`${testId}-close-visual`}
+              className="inline-flex size-9 shrink-0 items-center justify-center rounded-sm text-text-subtle transition-colors duration-fast group-hover:bg-surface-sunken group-hover:text-text-strong"
+            >
+              <X aria-hidden="true" className="size-5" />
+            </span>
           </button>
         </header>
         <div className="flex-1 overflow-y-auto p-tile-pad text-sm/relaxed text-text-subtle [&_a]:text-accent-on-bg [&_a]:underline [&_a]:underline-offset-2">

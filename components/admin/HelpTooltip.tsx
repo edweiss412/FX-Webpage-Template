@@ -57,9 +57,22 @@ export function HelpTooltip({ label, children, testId = "help-tooltip" }: HelpTo
       <summary
         data-testid={`${testId}-trigger`}
         aria-label={label}
-        className="inline-flex size-7 cursor-pointer list-none items-center justify-center rounded-pill bg-surface-sunken text-sm font-semibold text-text-subtle transition-colors duration-fast hover:bg-surface hover:text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface-raised"
+        /* spec 2026-08-07-step3-a11y-cluster §2.2: this <summary> is BOTH a
+           Class-A disclosure and a Class-B 28px pill, and Class B wins —
+           Class A's recipe would leave it 44 tall and still 28 wide.
+           `list-none` stays on the <summary> itself (on a child <span> it does
+           nothing — it suppresses the disclosure marker). `group` is on the
+           <summary>, NOT the outer <details>: <details> is an ancestor too, so
+           the selector would match, and then hovering anywhere in the DISCLOSED
+           CONTENT would light up the trigger. */
+        className="group -m-2 inline-flex size-tap-min shrink-0 cursor-pointer list-none items-center justify-center rounded-pill focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface-raised"
       >
-        <span aria-hidden="true">?</span>
+        <span
+          data-testid={`${testId}-trigger-visual`}
+          className="inline-flex size-7 shrink-0 items-center justify-center rounded-pill bg-surface-sunken text-sm font-semibold text-text-subtle transition-colors duration-fast group-hover:bg-surface group-hover:text-text-strong"
+        >
+          <span aria-hidden="true">?</span>
+        </span>
       </summary>
       <div
         data-testid={`${testId}-body`}
