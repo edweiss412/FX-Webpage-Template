@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { interstitialDocument } from "@/lib/auth/interstitialDocument";
 import { validateNextParamDetailed } from "@/lib/auth/validateNextParam";
 import { hostRelativeRedirect } from "@/lib/http/hostRelativeRedirect";
+import { log } from "@/lib/log";
 import { messageFor } from "@/lib/messages/lookup";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
@@ -37,6 +38,18 @@ export async function GET(request: NextRequest): Promise<Response> {
   const rawNext = request.nextUrl.searchParams.get("next");
   const nextOutcome = validateNextParamDetailed(rawNext);
   if (!nextOutcome.ok && rawNext !== null) {
+    // Cluster E: sibling of the callback route's branch — the same refusal, the
+    // same silence. `reason` names the branch; the rejected `next` is never
+    // carried (spec §2.1, documented limit §5.2). Fail-open at the callsite.
+    try {
+      await log.warn("next param rejected; redirecting with OAUTH_REDIRECT_INVALID", {
+        source: "api.auth.googleStart",
+        code: "OAUTH_REDIRECT_INVALID",
+        reason: "start_invalid_explicit_next",
+      });
+    } catch {
+      /* best-effort */
+    }
     return signInRedirect(request, "OAUTH_REDIRECT_INVALID", nextOutcome.path);
   }
 
