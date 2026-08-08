@@ -677,6 +677,28 @@ re-run **both** impeccable commands on the updated diff, and re-run the dimensio
 against its committed baseline. A UI edit landing after the gate would otherwise ship uncertified,
 which is invariant 8 satisfied on paper and not in fact. Record the re-run in §12.
 
+**The APPROVE binds to the reviewed head, and content-changing paths invalidate it.** On APPROVE,
+record `REVIEWED_HEAD=$(git rev-parse HEAD)` in the task log. The approval's subject is the
+branch-authored delta as reviewed at that commit. Afterwards, exactly two kinds of events can touch
+the branch, with opposite effects:
+
+- **Delta-preserving:** a rebase (C4 step 4) that completes without conflicts and passes the
+  step-4.3 declared-delta audit with zero undeclared hunks. The branch's own patches applied
+  verbatim onto newer upstream; the reviewed subject is intact, and CI plus the tracked gates cover
+  the upstream-interaction risk exactly as they do for every arc. The approval STANDS.
+- **Content-changing:** any repair commit (C4 step 2, or post-graduation work via step 7), and any
+  rebase whose conflicts required hand resolution. The reviewed subject no longer exists, and a
+  merge on the old approval would ship a diff no fresh eyes ever saw. The approval is VOID: return
+  here, dispatch a delta round whose brief inlines `git diff <REVIEWED_HEAD's subject>..HEAD` —
+  the incremental change plus the surfaces it touches, per the split-review discipline — iterate to
+  APPROVE, and record the new `REVIEWED_HEAD`. C4's graduation commit may only be authored under a
+  live approval.
+
+(The graduation commit itself — the archive move plus marker removal that `BACKLOG_GRADUATED`'s
+red/green already pins, C4 step 5 — is the one commit exempt from voiding, precisely because its
+content is fully specified by an executable contract and it must be the PR's last commit. Anything
+beyond that specified content in it is a step-4.3-style stop.)
+
 **Commit:** per round, if repairs are needed.
 
 ## C4 — CI, merge, ledger graduation
@@ -689,8 +711,12 @@ authorized by CI green on the **exact head** being merged.
 
 1. Push; open the PR. **The marker stays on** through everything below until step 4.
 2. Drive CI to green with the marker still in place, repairing and re-pushing as needed. This is
-   where repair commits belong — while the branch is still declaring its claim.
-3. Confirm the branch is otherwise merge-ready: C1–C3 complete, review APPROVE, CI green.
+   where repair commits belong — while the branch is still declaring its claim. **Every repair
+   commit voids the C3 approval** (it is content-changing by definition); before proceeding past
+   step 3, return through C3's delta round and record the new `REVIEWED_HEAD`.
+3. Confirm the branch is otherwise merge-ready: C1–C3 complete, **review APPROVE live — its
+   recorded `REVIEWED_HEAD` reviewed the branch content being merged, with no content-changing
+   event after it** — and CI green.
 4. **Final rebase — mandatory, and it invalidates the one-shot proofs, so they re-run here.** Spec
    §12 Concurrency requires a rebase over `origin/main` before implementation (P1) **and again before
    merge**; this step is the second one.
@@ -725,19 +751,30 @@ authorized by CI green on the **exact head** being merged.
         consts by the ratified §9.2 limit. The check that sees it is the branch's own declared
         delta, audited against the upstream side the rebase just integrated:
         `git diff origin/main HEAD` must contain ONLY (a) files this arc creates (`lib/ui/cn.ts`,
-        the new tests, the parity script, the baseline JSON, the docs/ledger edits), and (b) inside
-        the 18 migrated files, hunks that are the `cn` import line, a spec §5 rewrite, or a §6
-        C1–C6 token change. In particular the seven §4.1 identifier DEFINITIONS must be
-        byte-identical to `origin/main` — this arc never edits them, so any difference is
-        conflict-resolution damage, not work. Any hunk outside the declared classes: stop.
+        `tests/ui/cn.test.ts`, the parity script, the replacement guard, the Playwright spec and
+        its baseline JSON, the docs/ledger/corpus edits), (b) the file it deletes
+        (`tests/specLint/canonicalClassArray.test.ts`), (c) the existing files it declaredly edits
+        outside the 18 — `tests/components/crew/primitives.test.tsx` (Task 3),
+        `tests/e2e/helpers/dashboardState.ts` (Task 5), `playwright.config.ts` (Task 5),
+        `.github/workflows/lifecycle-layout-e2e.yml` (Task 5),
+        `tests/docs/_metaDeferralLedgerGraduation.test.ts` (C4 step 5), `BACKLOG.md` and its
+        archive (C1, C4 step 5) — and (d) inside the 18 migrated files, hunks that are the `cn`
+        import line, a spec §5 rewrite, or a §6 C1–C6 token change. In particular the seven §4.1
+        identifier DEFINITIONS must be byte-identical to `origin/main` — this arc never edits them,
+        so any difference is conflict-resolution damage, not work. Any hunk outside the declared
+        classes: stop.
      4. **A stop is a stop.** A parity-premise failure (site count moved off 36), an operand outside
         the three kinds, an undeclared diff hunk, or a dimension-spec failure on the rebased head
         all mean the measured base moved or the resolution went wrong — stop and re-derive spec
         §2.2/§4.1 (and for a dimension failure, the §9.4 targets) exactly as P1 step 4 prescribes.
         Recapturing a baseline or widening an allowance to get past this step is the forbidden move.
-     5. **If any conflict resolution touched a file under `app/` or `components/`**, the C3
-        re-certification rule applies to it exactly as to a repair commit: re-run both impeccable
-        commands and the Task 5 dimension spec before merge, and record the re-run in §12.
+     5. **A conflicted rebase is content-changing: the C3 approval is VOID.** Return through C3's
+        delta round (brief inlining the resolution diff and its surfaces) to a fresh APPROVE and a
+        new `REVIEWED_HEAD` before the graduation commit. If any resolution touched a file under
+        `app/` or `components/`, the invariant-8 re-certification also applies: re-run both
+        impeccable commands and the Task 5 dimension spec before merge, and record the re-run in
+        §12. A conflict-FREE rebase that passes the 4.3 audit with zero undeclared hunks is
+        delta-preserving and the approval stands (C3's binding rule states why).
      6. Push with `--force-with-lease` and drive CI green on the rebased head.
    - If `origin/main` moves again before the merge completes, this step repeats — but **never with
      the graduation commit in place**: re-entry from a post-graduation state goes through step 7's
@@ -765,8 +802,9 @@ authorized by CI green on the **exact head** being merged.
    repair commit — is `git revert <graduation-sha>`, which restores the complete pre-graduation
    state in one step: the entry back in the live ledger, carrying its marker, nothing in the
    archive. Only then does the actual work happen (return to step 2, or repeat step 4), with the
-   claim genuinely live, and graduation is re-authored fresh as the new last commit once the branch
-   is again merge-ready.
+   claim genuinely live — and with the C3 approval re-earned wherever that work was
+   content-changing, per step 2's rule — and graduation is re-authored fresh as the new last commit
+   once the branch is again merge-ready (step 3's definition, live approval included).
 
    Why not narrower recoveries: restoring only the marker would stamp `**Status:** IN PROGRESS`
    onto an entry that now lives in the archive, and archives categorically reject in-progress
