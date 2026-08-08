@@ -79,12 +79,12 @@ describe("ROW_CELLS_FUSED (spec §5)", () => {
     expect(w[0]!.severity).toBe("warn");
     expect(w[0]!.rawSnippet).toBeTruthy();
     expect(w[0]!.blockRef?.kind).toBeTruthy();
-    // detection, not correction: same payload as the mutant parsed WITHOUT this branch
-    // (assert shape: the fused row's absorption is unchanged - payload keys equal the
-    // mutant baseline captured before this branch; executable proxy: warning count is
-    // the ONLY warnings-array delta between mutant and clean parse)
-    const cleanW = parseSheet(md, path).warnings.length;
-    expect(parseSheet(mutated, path).warnings.length).toBe(cleanW + 1);
+    // detection, not correction (spec §5.1): the fusion still absorbs into payload,
+    // and the detector adds exactly one ROW_CELLS_FUSED. The delta is scoped to the
+    // code under test (r2 F9): fusing a row can legitimately co-change OTHER warnings
+    // (e.g. an UNKNOWN_FIELD on the now-unrecognized fused label), so total warning
+    // count is not a stable proxy.
+    expect(fused(md, path)).toHaveLength(0); // clean baseline emits none
     expect(payloadOf(parseSheet(mutated, path))).not.toEqual(payloadOf(parseSheet(md, path))); // fusion still absorbs - spec §5.1
   });
 
