@@ -397,7 +397,7 @@ The cron sync path also synthesizes workbooks (`lib/sync/runScheduledCronSync.ts
 
 ### BL-MUTATION-REF-SUB — an exported `#REF!` is absorbed into the parse with no signal
 
-**Status:** OPEN (2026-08-06, L-wave decomposition of `BL-MUTATION-HARNESS-OPEN-HOLES`) · **Severity:** medium · **Class:** PARSER ROBUSTNESS · **Effort:** M
+**Status:** IN PROGRESS · **Branch:** docs/parser-mutation-wave · **Severity:** medium · **Class:** PARSER ROBUSTNESS · **Effort:** M
 
 A body cell rewritten to the literal `#REF!` — a real broken-reference export artifact, **present in 3 of the 7 live shows** — parses as an ordinary value. Value-corruption class: the operator sees a crew page with `#REF!` where a name or time belongs, and nothing upstream said so.
 
@@ -409,7 +409,7 @@ A body cell rewritten to the literal `#REF!` — a real broken-reference export 
 
 ### BL-MUTATION-MERGED-CELL — a merged cell exports as a deleted pipe and silently fuses two cells
 
-**Status:** OPEN (2026-08-06, L-wave decomposition of `BL-MUTATION-HARNESS-OPEN-HOLES`) · **Severity:** medium · **Class:** PARSER ROBUSTNESS · **Effort:** M
+**Status:** IN PROGRESS · **Branch:** docs/parser-mutation-wave · **Severity:** medium · **Class:** PARSER ROBUSTNESS · **Effort:** M
 
 Deleting one interior pipe — which is exactly how a merged cell exports to markdown — fuses two adjacent cells with no signal. Cell-fusion class: two columns become one value, and every downstream column index shifts within that row.
 
@@ -421,7 +421,7 @@ Deleting one interior pipe — which is exactly how a merged cell exports to mar
 
 ### BL-MUTATION-UNICODE — an injected zero-width character is silently retained
 
-**Status:** OPEN (2026-08-06, L-wave decomposition of `BL-MUTATION-HARNESS-OPEN-HOLES`) · **Severity:** medium · **Class:** PARSER ROBUSTNESS · **Effort:** M
+**Status:** IN PROGRESS · **Branch:** docs/parser-mutation-wave · **Severity:** medium · **Class:** PARSER ROBUSTNESS · **Effort:** M
 
 A zero-width non-joiner (U+200C) injected into a cell value survives the parse intact — the live fintech ZWNJ shape. Invisible-character class, and the reason it matters is that it defeats EQUALITY: a name carrying a zero-width character does not match the same name without one, so identity linking, crew matching, and every string comparison silently miss while the rendered page looks correct.
 
@@ -435,7 +435,7 @@ A zero-width non-joiner (U+200C) injected into a cell value survives the parse i
 
 ### BL-MUTATION-COLUMN-SHIFT — a spurious leading empty column shifts a section's row grid with no signal
 
-**Status:** OPEN (2026-08-06, L-wave decomposition of `BL-MUTATION-HARNESS-OPEN-HOLES`) · **Severity:** medium · **Class:** PARSER ROBUSTNESS · **Effort:** M
+**Status:** IN PROGRESS · **Branch:** docs/parser-mutation-wave · **Severity:** medium · **Class:** PARSER ROBUSTNESS · **Effort:** M
 
 A spurious leading empty column shifts every cell in a section's row grid one position right, and the parse absorbs it — the East Coast column-shifted outlier, i.e. a shape observed in a LIVE show, not a synthetic one. Layout-shift class: every field in the section reads its neighbour's value, which is the most damaging silent outcome in this set because each individual value still looks well-formed.
 
@@ -447,7 +447,7 @@ A spurious leading empty column shifts every cell in a section's row grid one po
 
 ### BL-MUTATION-SECTION-ORDER — reordering two adjacent blocks silently reorders parser output
 
-**Status:** OPEN (2026-08-06, L-wave decomposition of `BL-MUTATION-HARNESS-OPEN-HOLES`) · **Severity:** medium · **Class:** PARSER ROBUSTNESS · **Effort:** M
+**Status:** IN PROGRESS · **Branch:** docs/parser-mutation-wave · **Severity:** medium · **Class:** PARSER ROBUSTNESS · **Effort:** M
 
 Reordering two adjacent top-level blocks silently reorders the parser's output arrays, because the parser preserves source order. **Order-sensitivity was DISCOVERED by the harness on 2026-07-06** and section-reorder was reclassified cosmetic → corrupting as a result — this class exists because the harness found something no one had posited, which is the strongest evidence in the set that the remaining classes are worth detecting.
 
