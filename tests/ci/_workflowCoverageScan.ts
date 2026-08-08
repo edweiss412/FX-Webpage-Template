@@ -724,50 +724,111 @@ export const ENV_KEY_ALLOWLIST: EnvKeyAllowlist = {
   SUPABASE_URL: {
     values: [
       { text: "${{ secrets.SUPABASE_URL }}", governs: [] },
-      { text: "http://127.0.0.1:54321", governs: ["tests/e2e/admin-lifecycle-layout.spec.ts"] },
+      {
+        text: "http://127.0.0.1:54321",
+        governs: [
+          "tests/e2e/admin-lifecycle-layout.spec.ts",
+          "tests/e2e/canonical-class-dimensions.spec.ts",
+        ],
+      },
     ],
     reason: "Supabase endpoint read by app/test code",
   },
   NEXT_PUBLIC_SUPABASE_URL: {
     values: [
-      { text: "http://127.0.0.1:54321", governs: ["tests/e2e/admin-lifecycle-layout.spec.ts"] },
+      {
+        text: "http://127.0.0.1:54321",
+        governs: [
+          "tests/e2e/admin-lifecycle-layout.spec.ts",
+          "tests/e2e/canonical-class-dimensions.spec.ts",
+        ],
+      },
     ],
     reason: "Supabase endpoint read by app code",
   },
   SUPABASE_SECRET_KEY: {
     values: [
       { text: "${{ secrets.SUPABASE_SECRET_KEY }}", governs: [] },
-      { text: DEMO_SERVICE_JWT, governs: ["tests/e2e/admin-lifecycle-layout.spec.ts"] },
+      {
+        text: DEMO_SERVICE_JWT,
+        governs: [
+          "tests/e2e/admin-lifecycle-layout.spec.ts",
+          "tests/e2e/canonical-class-dimensions.spec.ts",
+        ],
+      },
     ],
     reason: "Supabase credential read by app/test code",
   },
   SUPABASE_ANON_KEY: {
-    values: [{ text: DEMO_ANON_JWT, governs: ["tests/e2e/admin-lifecycle-layout.spec.ts"] }],
+    values: [
+      {
+        text: DEMO_ANON_JWT,
+        governs: [
+          "tests/e2e/admin-lifecycle-layout.spec.ts",
+          "tests/e2e/canonical-class-dimensions.spec.ts",
+        ],
+      },
+    ],
     reason: "Supabase credential read by app/test code",
   },
   SUPABASE_SERVICE_ROLE_KEY: {
-    values: [{ text: DEMO_SERVICE_JWT, governs: ["tests/e2e/admin-lifecycle-layout.spec.ts"] }],
+    values: [
+      {
+        text: DEMO_SERVICE_JWT,
+        governs: [
+          "tests/e2e/admin-lifecycle-layout.spec.ts",
+          "tests/e2e/canonical-class-dimensions.spec.ts",
+        ],
+      },
+    ],
     reason: "Supabase credential read by app/test code",
   },
   NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: {
-    values: [{ text: DEMO_ANON_JWT, governs: ["tests/e2e/admin-lifecycle-layout.spec.ts"] }],
+    values: [
+      {
+        text: DEMO_ANON_JWT,
+        governs: [
+          "tests/e2e/admin-lifecycle-layout.spec.ts",
+          "tests/e2e/canonical-class-dimensions.spec.ts",
+        ],
+      },
+    ],
     reason: "Supabase credential read by app code",
   },
   NEXT_PUBLIC_SUPABASE_ANON_KEY: {
-    values: [{ text: DEMO_ANON_JWT, governs: ["tests/e2e/admin-lifecycle-layout.spec.ts"] }],
+    values: [
+      {
+        text: DEMO_ANON_JWT,
+        governs: [
+          "tests/e2e/admin-lifecycle-layout.spec.ts",
+          "tests/e2e/canonical-class-dimensions.spec.ts",
+        ],
+      },
+    ],
     reason: "Supabase credential read by app code",
   },
   SUPABASE_JWT_SECRET: {
     values: [
       {
         text: "super-secret-jwt-token-with-at-least-32-characters-long",
-        governs: ["tests/e2e/admin-lifecycle-layout.spec.ts"],
+        governs: [
+          "tests/e2e/admin-lifecycle-layout.spec.ts",
+          "tests/e2e/canonical-class-dimensions.spec.ts",
+        ],
       },
     ],
     reason: "local-stack JWT secret read by test bridge code",
   },
   SUPABASE_REALTIME_ISS: {
-    values: [{ text: "supabase-demo", governs: ["tests/e2e/admin-lifecycle-layout.spec.ts"] }],
+    values: [
+      {
+        text: "supabase-demo",
+        governs: [
+          "tests/e2e/admin-lifecycle-layout.spec.ts",
+          "tests/e2e/canonical-class-dimensions.spec.ts",
+        ],
+      },
+    ],
     reason: "realtime issuer read by test bridge code",
   },
   SUPABASE_TEST_REST_URL: {
@@ -794,20 +855,34 @@ export const ENV_KEY_ALLOWLIST: EnvKeyAllowlist = {
     values: [
       {
         text: "fxav-r41-test-pepper-32-chars-min-deterministic",
-        governs: ["tests/e2e/admin-lifecycle-layout.spec.ts"],
+        governs: [
+          "tests/e2e/admin-lifecycle-layout.spec.ts",
+          "tests/e2e/canonical-class-dimensions.spec.ts",
+        ],
       },
     ],
     reason: "log-hash pepper read by app code",
   },
   ENABLE_TEST_AUTH: {
-    values: [{ text: "true", governs: ["tests/e2e/admin-lifecycle-layout.spec.ts"] }],
+    values: [
+      {
+        text: "true",
+        governs: [
+          "tests/e2e/admin-lifecycle-layout.spec.ts",
+          "tests/e2e/canonical-class-dimensions.spec.ts",
+        ],
+      },
+    ],
     reason: "test-auth toggle read by app code",
   },
   TEST_AUTH_SECRET: {
     values: [
       {
         text: "fxav-m3-test-auth-2026-DO-NOT-SHIP",
-        governs: ["tests/e2e/admin-lifecycle-layout.spec.ts"],
+        governs: [
+          "tests/e2e/admin-lifecycle-layout.spec.ts",
+          "tests/e2e/canonical-class-dimensions.spec.ts",
+        ],
       },
       { text: "test-secret-fixture", governs: [] },
     ],
@@ -817,7 +892,10 @@ export const ENV_KEY_ALLOWLIST: EnvKeyAllowlist = {
     values: [
       {
         text: "redeem-link-test-secret-32-bytes-min",
-        governs: ["tests/e2e/admin-lifecycle-layout.spec.ts"],
+        governs: [
+          "tests/e2e/admin-lifecycle-layout.spec.ts",
+          "tests/e2e/canonical-class-dimensions.spec.ts",
+        ],
       },
     ],
     reason: "JWT secret read by app code",
@@ -826,7 +904,10 @@ export const ENV_KEY_ALLOWLIST: EnvKeyAllowlist = {
     values: [
       {
         text: "7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f",
-        governs: ["tests/e2e/admin-lifecycle-layout.spec.ts"],
+        governs: [
+          "tests/e2e/admin-lifecycle-layout.spec.ts",
+          "tests/e2e/canonical-class-dimensions.spec.ts",
+        ],
       },
     ],
     reason: "cookie-signing key read by app code",
@@ -835,13 +916,24 @@ export const ENV_KEY_ALLOWLIST: EnvKeyAllowlist = {
     values: [
       {
         text: '{"client_email":"walker-fixture@seed-mode.iam.gserviceaccount.com"}',
-        governs: ["tests/e2e/admin-lifecycle-layout.spec.ts"],
+        governs: [
+          "tests/e2e/admin-lifecycle-layout.spec.ts",
+          "tests/e2e/canonical-class-dimensions.spec.ts",
+        ],
       },
     ],
     reason: "service-account JSON read by sync code",
   },
   BASELINE_SERVER_ONLY: {
-    values: [{ text: "1", governs: ["tests/e2e/admin-lifecycle-layout.spec.ts"] }],
+    values: [
+      {
+        text: "1",
+        governs: [
+          "tests/e2e/admin-lifecycle-layout.spec.ts",
+          "tests/e2e/canonical-class-dimensions.spec.ts",
+        ],
+      },
+    ],
     reason: "capture-mode flag read by screenshot scripts",
   },
   VITEST_EXCLUDE_ENV_BOUND: {
