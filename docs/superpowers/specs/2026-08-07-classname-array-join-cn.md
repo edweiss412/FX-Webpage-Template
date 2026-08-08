@@ -35,7 +35,7 @@ Each row is ratified. A reviewer may verify the citation; re-opening the decisio
 | R2 | `cn` filters falsy and joins with a single space. It does **not** merge, dedupe, resolve Tailwind conflicts, trim interior whitespace, or accept nested arrays/objects. §3.2 is the complete semantics. | R1 corollary; §3.2. |
 | R3 | The equivalence claim is **staged**: stage 1 (migration) preserves emitted strings modulo one enumerated whitespace normalization; stage 2 (`eslint --fix`) *deliberately* changes emitted tokens at the 6 enumerated sites in §6. A reviewer objecting that "the migration changes bytes" must first check which stage. | §4, §6. |
 | R4 | The census guard is **replaced, not merely deleted**. Its file is deleted; its recognizer survives as a zero-tolerance guard (§7.1). Deleting the recognizer outright would re-admit new array-join classNames — the exact regression the census exists to stop. This is fenced in **both** directions: do not argue for keeping the 18-file census (its premise dies with the migration), and do not argue for deleting the recognizer (its premise outlives the migration). | §7. |
-| R5 | `shadow-(--shadow-tile)` → `shadow-tile` is **out of scope**, and `app/globals.css:288` is factually wrong to claim the plugin enforces it. 23 sites tree-wide, probed unreported (§9.1). Class-sweep exception (c). Filed as a backlog entry. | §9.1, §11. |
+| R5 | `shadow-(--shadow-tile)` → `shadow-tile` is **out of scope**, and `app/globals.css:288` is factually wrong to claim the plugin enforces it. 21 class-string sites tree-wide, probed unreported (§9.1). Class-sweep exception (c). Filed as a backlog entry. | §9.1, §11. |
 | R6 | String consts holding class literals under arbitrary names (`TRACK_BASE`, `BASE_CLASS`, `SIZE_CLASS[...]`) remain unlinted after this arc. That is a **different** blind spot with a different mechanism, never covered by the census guard, and out of scope. Documented limit + backlog entry, not a finding against this arc. | §9.2, §11. |
 | R7 | The backlog entry's "33 sites" is **stale**; the probed count is **36** across the same 18 files (§2.2). The entry is corrected, not the count. | §2.2. |
 
@@ -392,7 +392,7 @@ left implicit.
 `app/globals.css:285-289` instructs components to prefer canonical `shadow-tile` over the
 `shadow-(--shadow-tile)` arrow form and states *"(eslint-plugin-better-tailwindcss enforces this)."*
 **Probed false.** A plain-string className carrying `shadow-(--shadow-tile)` — the shape the rule
-reads best — is reported clean, and 23 sites live in the tree today under a passing `pnpm lint`.
+reads best — is reported clean, and 21 class-string sites live in the tree today under a passing `pnpm lint` (24 textual matches across 18 files, 3 of them in doc comments).
 
 **The mechanism is the token's value, not its namespace,** which matters because it predicts which
 *other* tokens are dark. The rule canonicalizes a token whose `@theme` value is a literal and skips
@@ -411,7 +411,7 @@ So this is not a `shadow-*` carve-out: every `@theme` token defined through a `-
 — the pattern this project uses for all light/dark-spanning tokens — is invisible to the rule.
 
 Consequence is a documented inconsistency, not a defect: both forms resolve to the same token, so
-nothing renders differently. Out of scope under class-sweep exception (c) — 23 sites, most in files
+nothing renders differently. Out of scope under class-sweep exception (c) — 21 sites, most in files
 this arc does not otherwise touch. Filed (§11); the false claim in the globals.css comment is
 corrected as part of that entry, not this one.
 
@@ -507,7 +507,7 @@ not a reason to update the audit.
 
 | Item | Disposition | Exception |
 |---|---|---|
-| `shadow-(--shadow-tile)` → `shadow-tile`, 23 sites, plus correcting the false enforcement claim at `app/globals.css:288` | File `BL-SHADOW-TILE-ARROW-SYNTAX` | (c) — spans files this arc does not touch |
+| `shadow-(--shadow-tile)` → `shadow-tile`, 21 sites, plus correcting the false enforcement claim at `app/globals.css:288` | File `BL-SHADOW-TILE-ARROW-SYNTAX` | (c) — spans files this arc does not touch |
 | Class strings in arbitrary-named consts / object values (§9.2) | File `BL-CLASS-CONST-LINT-BLINDSPOT`, with the §2.3 probe table as its evidence | (c) — a different mechanism needing its own recognizer decision |
 | Adopting `clsx` / `tailwind-merge` | Rejected, R1 | ratified |
 | Extending `cn` to nested arrays / objects | Rejected, R2 | ratified |
