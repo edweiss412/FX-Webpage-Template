@@ -45,7 +45,18 @@ run at close-out step C2, dispositions in §12.`
   spec is PR-COVERED and needs no `LOCAL_ONLY_ALLOWLIST` row. Adding one would fail that test's
   shadowing assertion. Declared explicitly because "no row needed" and "row forgotten" look identical
   in a diff.
-- **Not applicable, declared:** `tests/auth/_metaInfraContract.test.ts` (no Supabase call added),
+- **Supabase call sites — added in TEST SCAFFOLDING only, and declared as such (invariant 9).**
+  Task 5 adds five: three in the `dashboardState.ts` inverse (select / update / restore-update) and
+  two in the replicated `lookupSeededShow` / `lookupShareToken` helpers. All live under `tests/e2e/`,
+  which no registry-style meta-test walks — `tests/auth/_metaInfraContract.test.ts` owns
+  `lib/auth` + `app/auth` + `app/api/auth` + `app/api/show` only (its `AUTH_DOMAIN_ROOTS`), and
+  sibling registries own `lib/*` domains — so no registry row exists to add. The contract still
+  binds by discipline: every one of the five destructures `{ data, error }` (or checks `.error`
+  explicitly and is written destructured in the replica), distinguishes returned from thrown
+  errors, and throws with context — the pattern `tests/e2e/helpers/dashboardState.ts` already
+  documents in its own invariant-9 header. Production surfaces: none touched, no registry change.
+- **Not applicable, declared:** `tests/auth/_metaInfraContract.test.ts` (no PRODUCTION Supabase
+  call added — the five test-scaffolding sites above are outside its walk, stated there),
   `tests/auth/advisoryLockRpcDeadlock.test.ts` (no `pg_advisory*` path),
   `tests/log/_metaMutationSurfaceObservability.test.ts` (no mutating route or server action added),
   `tests/messages/_metaAdminAlertCatalog.test.ts` (no alert code added).
@@ -94,8 +105,25 @@ mechanical diff reviewable: that stage 1 changes no class token at all.
    `components/admin/review/sectionFreshness.ts` (do not migrate those two). A whitespace-separated
    join at any other spelling means a new dark site landed — it is in scope and changes the §2.2
    count.
-3. **Re-run the falsy audit — BOTH halves, not the site count.** The count is not the premise; the
-   premise is spec §4.1's E1/E2 partition, and a rebase can break it without moving a single count:
+3. **Re-run the falsy audit — BOTH halves, not the site count — and it runs as ONE exact command.**
+   Write `scripts/audit-cn-operand-kinds.mjs` here in P1 and commit it (its own commit, below), so
+   the audit is reproducibly executable rather than a described procedure — the same reason the
+   parity check is a script. Command, both here and at C4 step 4.1:
+
+   ```
+   node scripts/audit-cn-operand-kinds.mjs
+   ```
+
+   The script walks the §2.2 site inventory (before Task 3: array-join operand lists, extracted
+   with the same backward bracket-matching the parity script uses; after Task 3 it accepts the
+   `cn(...)` argument-list form at the same sites), classifies every top-level operand of every
+   unfiltered site into the three kinds below, checks the seven identifier definitions for
+   non-empty truthiness at their definition sites, and exits 0 printing a per-kind tally — or
+   exits 1 naming every operand outside the kinds and every identifier definition that moved.
+   Expected tally at the current base: 30 unfiltered sites; 18 conditional operands at 18 sites;
+   exactly one falsy-capable branch (`components/crew/primitives/DayCard.tsx:98`); every remaining
+   operand a non-empty string literal or one of the seven identifiers. Record the actual tally in
+   the task log both times it runs. The audit's substance, per half:
    - *Literal operands:* the unfiltered sites must still yield exactly one `""`/`null`/`undefined`
      hit, `components/crew/primitives/DayCard.tsx:98`.
    - *Identifier operands:* the seven identifiers in spec §4.1's table (`base`, `focusRing`,
@@ -129,8 +157,15 @@ mechanical diff reviewable: that stage 1 changes no class token at all.
 4. If either half moved, **stop and amend the spec** before implementing. §2.2's table, §4.1's audit,
    and §6's delta table are all keyed to the measured base.
 
-**Verified by:** the two sweeps above plus the existing census guard, all green.
-**Commit:** none (rebase only), unless the audit moved — then the spec amendment is its own commit.
+**Verified by:** the step-2 sweep, `node scripts/audit-cn-operand-kinds.mjs` exiting 0 with the
+expected tally, and the existing census guard, all green.
+**Commit:** `chore(lint): add the operand-kind audit script` (the script plus nothing else). The
+rebase itself commits nothing; if the audit moved, the spec amendment is its own additional commit.
+
+**Both arc scripts are RETAINED, unwired** — `scripts/verify-cn-operand-parity.mjs` and
+`scripts/audit-cn-operand-kinds.mjs` stay in the tree after merge, wired into no workflow and no
+test suite (spec §4.3 requires the plan to state which of delete/retain applies; retention is
+forced anyway, because C4 step 4 re-runs both after the final rebase).
 
 This preflight is written once, here, and runs **twice**: before the first edit, and again at C4
 step 4 after the mandatory final rebase (spec §12 Concurrency requires both rebases; the one-shot
@@ -543,8 +578,13 @@ neither default project — probed `{mobile:false, desktop:false}`. Two steps, b
     `slug`/`shareToken`) are not exported. Do NOT edit
     `crew-layout-dimensions.spec.ts` to export them — that file is outside this arc's declared
     delta (C4 step 4.3) and carries its own single-writer constraints. Instead the new spec carries
-    local equivalents modeled line-for-line on the cited bodies, parameterized where the originals
-    close over suite state. The exported helpers (`signInAs`, `signOut` from
+    local equivalents modeled on the cited bodies — replicating their BEHAVIOR (query, guards,
+    error message shape), parameterized where the originals close over suite state — **with each
+    Supabase call written in invariant-9 form**: destructure `{ data, error }`, distinguish the
+    returned-error path from a thrown one, throw with context. The originals check a result object
+    (`showRes.error || !showRes.data`), which is functionally equivalent but not the destructured
+    form; the replicas conform to the contract rather than copying the style (see the meta-test
+    inventory's Supabase declaration). The exported helpers (`signInAs`, `signOut` from
     `tests/e2e/helpers/signInAs.ts`, `TEST_AUTH_SECRET` from `tests/e2e/helpers/testAuthConfig.ts`,
     the new `dashboardState.ts` inverse) are imported normally — the replicate rule covers only the
     private four.
@@ -762,8 +802,14 @@ touch the branch, with stated effects:
   and/or this plan's §12 dispositions table records the process and leaves the approval STANDING:
   commit the approving round's row (and filing update) as `docs(plan): record review round <n>`
   immediately after the APPROVE, before proceeding. The reviewed subject — everything outside
-  those record paths — must be untouched by such a commit; a record commit that touches anything
-  else is a content-changing commit misfiled, and step 4.3's audit would name it.
+  those record paths — must be untouched by such a commit, and that confinement is **checked at
+  authoring, not assumed** (step 4.3 runs only on a real rebase and diffs against `origin/main`,
+  so it cannot be the enforcement here): before each record commit, `git diff --cached --name-only`
+  must list ONLY paths under `docs/review-rounds/` and/or this plan file — and when the plan file
+  is listed, `git diff --cached -- docs/superpowers/plans/2026-08-07-classname-array-join-cn.md`
+  must show hunks confined to the §12 dispositions table. Any other staged path: unstage it — that
+  change is content and goes through the content-changing branch below. Record the check's output
+  in the task log.
 - **Content-changing:** any repair commit (C4 step 2, or post-graduation work via step 7), and any
   rebase whose conflicts required hand resolution. The reviewed subject no longer exists, and a
   merge on the old approval would ship a diff no fresh eyes ever saw. The approval is VOID: return
@@ -810,10 +856,12 @@ authorized by CI green on the **exact head** being merged.
      re-run in CI on the rebased head automatically; the one-shot proofs do NOT, and a head whose
      proofs cover a superseded history is exactly the silent-drift window the parity script exists
      to close. So, in order:
-     1. **Re-run P1 steps 2–3 in full** — the separator-agnostic inventory sweep and every half of
-        the operand audit (falsy literals, the seven identifiers, the three-kind enumeration). The
-        equivalence premise is base-specific (spec §4.1), and a newly integrated upstream edit can
-        break it without moving a single count.
+     1. **Re-run P1 steps 2–3 in full** — the separator-agnostic inventory sweep and
+        `node scripts/audit-cn-operand-kinds.mjs` (P1's exact command; it covers the falsy
+        literals, the seven identifier definitions, and the three-kind enumeration, and exits 1
+        naming any operand or definition that moved). The equivalence premise is base-specific
+        (spec §4.1), and a newly integrated upstream edit can break it without moving a single
+        count. Record both outputs in the task log.
      2. **Re-resolve the anchor and re-run parity.** Locate the rewritten migration commit by its
         `refactor(ui): migrate array-join classNames` subject, then
         `MIGRATION_PARENT=$(git rev-parse <rebased-migration-sha>~1)` and
@@ -828,7 +876,8 @@ authorized by CI green on the **exact head** being merged.
         consts by the ratified §9.2 limit. The check that sees it is the branch's own declared
         delta, audited against the upstream side the rebase just integrated:
         `git diff origin/main HEAD` must contain ONLY (a) files this arc creates (`lib/ui/cn.ts`,
-        `tests/ui/cn.test.ts`, the parity script, the replacement guard,
+        `tests/ui/cn.test.ts`, the parity script, `scripts/audit-cn-operand-kinds.mjs`, the
+        replacement guard,
         `tests/specLint/canonicalTokenIdentity.test.ts`, the Playwright spec and
         its baseline JSON, the docs/ledger/corpus edits), (b) the file it deletes
         (`tests/specLint/canonicalClassArray.test.ts`), (c) the existing files it declaredly edits
@@ -871,7 +920,15 @@ authorized by CI green on the **exact head** being merged.
    archive placed while the entry still sits in the live ledger fails the same way). Then complete
    the edit — the entry moved to the archive, nowhere else, provenance present, and its
    `**Status:** IN PROGRESS · **Branch:** …` marker removed — and run it again: GREEN. Both runs
-   happen in the working tree of the ONE graduation commit; the red is never committed. Archives
+   happen in the working tree of the ONE graduation commit; the red is never committed.
+
+   **The exemption's confinement is checked the same way as a record commit's** — the graduation
+   test proves archive placement and provenance, not commit exclusivity, so before committing,
+   `git diff --cached --name-only` must list ONLY: `BACKLOG.md`, `BACKLOG-archive.md`,
+   `tests/docs/_metaDeferralLedgerGraduation.test.ts` (the registry row), and paths under
+   `docs/review-rounds/` (the filing's close-out update). Any other staged path is unreviewed
+   content riding an exempt commit — unstage it and route it through C3's content-changing branch.
+   Record the check's output in the task log. Archives
    categorically reject in-progress entries, and a marker that reaches `main` names a branch the
    merge just deleted — `tests/docs/_metaLedgerInProgress.test.ts` then fails on `main` until someone
    clears it.
