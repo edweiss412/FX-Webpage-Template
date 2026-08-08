@@ -112,56 +112,111 @@ function importedBindings(body: string[]): Set<string> {
  * keeps every offset intact for anything measured against the same text.
  */
 /**
- * Mask a template literal's TEXT while leaving `${...}` interpolations live, at
- * ANY nesting depth. A regex counts one brace level, so
- * `${expect({ a: { b: 1 } })}` was masked wholesale — hiding executable code
- * rather than string text, a false NEGATIVE the single-level fixture could not
- * see (R3 finding 4). Brace counting is the only correct answer.
+ * Blank out comments and string content in ONE pass, leaving executable code —
+ * including template interpolations at any depth — intact.
+ *
+ * Written as a single tokenizer rather than a chain of `.replace()` passes,
+ * because passes are order-dependent and every ordering is wrong somewhere. The
+ * chain this replaces had three separate defects, each found by a different
+ * probe (R6 gate findings 2 and 3): comments were masked BEFORE strings, so the
+ * `//` in `"https://example.com"` blanked the rest of the line; interpolation
+ * braces were counted without recognizing strings, so the `}` in
+ * `` `${"}" + expect(x)}` `` ended the interpolation early; and template text
+ * was handled by a regex that could not nest.
+ *
+ * Replacing rather than deleting keeps every offset intact.
  */
-function maskTemplateText(lit: string): string {
-  let out = "";
-  let i = 0;
-  while (i < lit.length) {
-    if (lit[i] === "\\") {
-      out += "  ";
-      i += 2;
-      continue;
-    }
-    if (lit[i] === "$" && lit[i + 1] === "{") {
-      let depth = 0;
-      const start = i;
-      while (i < lit.length) {
-        if (lit[i] === "{") depth += 1;
-        else if (lit[i] === "}") {
-          depth -= 1;
-          if (depth === 0) {
-            i += 1;
-            break;
-          }
-        }
-        i += 1;
-      }
-      out += lit.slice(start, i);
-      continue;
-    }
-    out += " ";
-    i += 1;
-  }
-  return out;
-}
-
 function maskNonCode(src: string): string {
-  return (
-    src
-      .replace(/\/\*[\s\S]*?\*\//g, (m) => " ".repeat(m.length))
-      .replace(/\/\/[^\n]*/g, (m) => " ".repeat(m.length))
-      // Template literals: mask the LITERAL TEXT but keep `${...}` interpolations
-      // live — they are executable code, and blanking them hid real uses
-      // (R2 finding 5).
-      .replace(/`(?:\\.|[^`\\])*`/g, maskTemplateText)
-      .replace(/"(?:\\.|[^"\\])*"/g, (m) => " ".repeat(m.length))
-      .replace(/'(?:\\.|[^'\\])*'/g, (m) => " ".repeat(m.length))
-  );
+  const out: string[] = [];
+  let i = 0;
+  // Depth of `${...}` interpolations we are currently inside, so a `}` closing
+  // one is not mistaken for a plain brace and vice versa.
+  const templateStack: number[] = [];
+
+  const keep = (n = 1): void => {
+    out.push(src.slice(i, i + n));
+    i += n;
+  };
+  const blank = (n = 1): void => {
+    out.push(" ".repeat(n));
+    i += n;
+  };
+
+  while (i < src.length) {
+    const c = src[i]!;
+    const next = src[i + 1];
+
+    if (c === "/" && next === "/") {
+      const end = src.indexOf("\n", i);
+      blank((end === -1 ? src.length : end) - i);
+      continue;
+    }
+    if (c === "/" && next === "*") {
+      const end = src.indexOf("*/", i + 2);
+      blank((end === -1 ? src.length : end + 2) - i);
+      continue;
+    }
+    if (c === '"' || c === "'") {
+      keep(); // the quote itself is not code, but keeping it preserves nothing harmful
+      while (i < src.length && src[i] !== c) {
+        if (src[i] === "\\") blank(2);
+        else if (src[i] === "\n") keep();
+        else blank();
+      }
+      if (i < src.length) keep();
+      continue;
+    }
+    if (c === "`") {
+      keep();
+      templateStack.push(0);
+      while (i < src.length && templateStack.length > 0) {
+        if (src[i] === "\\") {
+          blank(2);
+          continue;
+        }
+        if (src[i] === "`") {
+          keep();
+          templateStack.pop();
+          continue;
+        }
+        if (src[i] === "$" && src[i + 1] === "{") {
+          // Interpolation: executable. Hand control back to the main loop by
+          // recursing over the balanced span, so strings inside it are handled
+          // by the same rules rather than by brace counting alone.
+          let depth = 0;
+          const start = i;
+          let j = i;
+          while (j < src.length) {
+            const d = src[j]!;
+            if (d === '"' || d === "'" || d === "`") {
+              const q = d;
+              j += 1;
+              while (j < src.length && src[j] !== q) j += src[j] === "\\" ? 2 : 1;
+              j += 1;
+              continue;
+            }
+            if (d === "{") depth += 1;
+            else if (d === "}") {
+              depth -= 1;
+              if (depth === 0) {
+                j += 1;
+                break;
+              }
+            }
+            j += 1;
+          }
+          out.push(maskNonCode(src.slice(start + 2, Math.max(start + 2, j - 1))));
+          i = j;
+          continue;
+        }
+        if (src[i] === "\n") keep();
+        else blank();
+      }
+      continue;
+    }
+    keep();
+  }
+  return out.join("");
 }
 
 /**
@@ -284,7 +339,14 @@ export function analyzePlan(path: string, text: string): PlanFenceReport {
       // as a use makes every aliased import flag its own source name, which is a
       // false positive on correct code and the fastest way to get a gate turned
       // off rather than fixed.
-      const uses = maskNonCode(fence.body.filter((l) => !/^[ \t]*import\s/.test(l)).join("\n"));
+      // Strip the import STATEMENT, not the whole line: `import { x } from "y";
+      // expect(x);` is valid, and dropping the line took the call with it
+      // (R6 gate finding 1).
+      const uses = maskNonCode(
+        fence.body
+          .map((l) => l.replace(/^[ \t]*import\s[^;\n]*(?:;|$)/, (m) => " ".repeat(m.length)))
+          .join("\n"),
+      );
       // A FREE identifier only. `re.test(x)`, `parts.join("/")` and
       // `Promise.resolve()` are property reads whose names merely collide with
       // the registry, and `{ test: 1 }` is a property key. Counting those made

@@ -305,3 +305,43 @@ parser messages above.
 
 Baseline unchanged at 3551 rows / 3629 occurrences.
 
+**R6 — split again; 14 findings (9 gate, 5 parser), all fourteen confirmed and
+repaired.** The split form worked, so it was kept.
+
+**Three were real MISSES, and all three shared one root cause:** the identifier
+scan masked comments and strings as a CHAIN of independent `.replace()` passes,
+and every ordering of such a chain is wrong somewhere. Comments were masked
+BEFORE strings, so the `//` inside `"https://example.com"` blanked the rest of
+the line; interpolation braces were counted without recognizing strings, so the
+`}` in `` `${"}" + expect(x)}` `` ended the interpolation early; and code
+following an import on the SAME line was dropped along with the line. Replaced
+with a single tokenizer that handles comments, strings, templates and
+interpolations together — the passes are gone, not reordered.
+
+**Six were UNPINNED behavior**: named-import alias resolution (the old case used
+`rfs`, outside the registry, so it could not discriminate), destructuring-alias
+resolution, the first-ambiguous-line attribution rule, the export arm of the
+eligibility predicate, and the generator's row and total MULTIPLICITY — both
+generator fixtures held a single occurrence, so serializing `|1` or summing
+`+= 1` left everything green. A fixture with a repeated identity is the only
+thing that separates those.
+
+**Five were parser edge cases**, each with an exact reviewer message and each
+leaking an EXAMPLE verdict: indented code directly after an ATX heading; `2.`
+interrupting a paragraph when only `1.` may (CommonMark 5.2); a bare `>` not
+popping a stale list frame; an open fence ignoring the end of its container; and
+a TAB-indented `***` read as a thematic break because the check counted
+characters rather than columns.
+
+Baseline: **3546 rows, 3624 occurrences** — five fewer than before, the residue of
+the masking repair no longer mis-reading strings.
+
+**On six rounds and fifty findings.** That is not convergence by any reading, and
+the honest diagnosis is not that the goalposts moved: every finding arrived with a
+mutant or an exact message, and every one was accepted. It is that two new
+recognizers were built from scratch in a single arc, and a recognizer's defect
+surface is only visible from outside it. The round-economy filing records the
+structural answer — enroll both surfaces in the source-mutation registry, so "the
+guard does not pin what it claims" becomes a computed score over a declared
+operator set instead of a reviewer's enumeration.
+

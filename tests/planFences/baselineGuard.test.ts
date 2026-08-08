@@ -145,3 +145,94 @@ describe("the generator WRITES on a permitted run", () => {
     }
   });
 });
+
+/**
+ * Row and total MULTIPLICITY. R6 gate findings 8 and 9: both generator fixtures
+ * held a single occurrence, so serializing `|1` instead of the real count, or
+ * summing `+= 1` instead of `+= f.count`, left every suite green. A fixture with
+ * a repeated occurrence is the only thing that can tell those apart.
+ */
+describe("the generator records real occurrence counts", () => {
+  it("writes the fence's actual count in the row AND in FROZEN_TOTAL", () => {
+    const dir = mkdtempSync(join(tmpdir(), "planfences-count-"));
+    try {
+      const plans = join(dir, "docs/superpowers/plans/x");
+      mkdirSync(plans, { recursive: true });
+      // THREE em-dashes in one fence: one row, count 3.
+      writeFileSync(
+        join(plans, "plan.md"),
+        [
+          "In `lib/a.ts`:",
+          "",
+          "```ts",
+          'const a = "one — two";',
+          'const b = "three — four";',
+          'const c = "five — six";',
+          "```",
+          "",
+        ].join("\n"),
+      );
+      const out = join(dir, "baseline.ts");
+      const res = spawnSync("pnpm", ["tsx", "scripts/gen-plan-fences-baseline.ts"], {
+        cwd: process.cwd(),
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          PLAN_FENCES_OUT: out,
+          PLAN_FENCES_ROOT: join(dir, "docs/superpowers/plans"),
+        },
+      });
+      expect(res.status, `generator failed: ${res.stderr}`).toBe(0);
+      const written = readFileSync(out, "utf8");
+      // Three DISTINCT em-dash identities (ordinal 1, 2, 3), each count 1 —
+      // so rows 3 and total 3, and a `|1` serialization cannot be told from the
+      // truth by row count alone. The assertion that discriminates is the TOTAL
+      // against a rule whose instances repeat.
+      expect(written).toMatch(/export const FROZEN_ROWS = 3;/);
+      expect(written).toMatch(/export const FROZEN_TOTAL = 3;/);
+      expect(written).toContain("FENCE_EM_DASH|3|1");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("sums a REPEATED identity's occurrences rather than counting rows", () => {
+    const dir = mkdtempSync(join(tmpdir(), "planfences-sum-"));
+    try {
+      const plans = join(dir, "docs/superpowers/plans/x");
+      mkdirSync(plans, { recursive: true });
+      // The SAME unchecked index twice in one fence: one identity, count 2.
+      writeFileSync(
+        join(plans, "plan.md"),
+        [
+          "In `lib/a.ts`:",
+          "",
+          "```ts",
+          "const n = rows[0].name;",
+          "const m = rows[0].name;",
+          "```",
+          "",
+        ].join("\n"),
+      );
+      const out = join(dir, "baseline.ts");
+      const res = spawnSync("pnpm", ["tsx", "scripts/gen-plan-fences-baseline.ts"], {
+        cwd: process.cwd(),
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          PLAN_FENCES_OUT: out,
+          PLAN_FENCES_ROOT: join(dir, "docs/superpowers/plans"),
+        },
+      });
+      expect(res.status, `generator failed: ${res.stderr}`).toBe(0);
+      const written = readFileSync(out, "utf8");
+      // ONE row, count TWO. `|1` fails the row assertion; `total += 1` fails the
+      // total assertion. Neither mutant survives.
+      expect(written).toMatch(/UNCHECKED_INDEX\|rows\[0\]\.name\|2/);
+      expect(written).toMatch(/export const FROZEN_ROWS = 1;/);
+      expect(written).toMatch(/export const FROZEN_TOTAL = 2;/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});

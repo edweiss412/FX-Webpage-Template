@@ -718,6 +718,18 @@ function stripCodeBlocks(text) {
       block.at.push(i);
       const m = matchContainers(line);
       const rest = line.slice(m.idx);
+      // A container ending CLOSES the block it holds. Waiting only for an
+      // explicit closer meant a list dedent left the fence open to EOF, where
+      // the admit rule then read the example (R6 parser finding 4). This is a
+      // real close, so the block's lines are blanked — the tail is not
+      // discarded, because the line that ended the container is not part of it.
+      if (block.depth > 0 && m.matched < block.depth && line.trim() !== "") {
+        block.at.pop();
+        closeBlock();
+        prevBlank = false;
+        paragraphOpen = true;
+        continue;
+      }
       const close = FENCE_CLOSE.exec(rest);
       if (
         m.matched >= block.depth &&
@@ -779,6 +791,11 @@ function stripCodeBlocks(text) {
     }
 
     if (blank) {
+      // Pop to what this line actually matched. A bare `>` after a list item is
+      // blank INSIDE its quote, but it is not inside the list — returning here
+      // without popping left the stale list frame, and the root indented block
+      // after it stayed live (R6 parser finding 3).
+      if (m.matched < stack.length) stack = stack.slice(0, m.matched);
       prevBlank = true;
       paragraphOpen = false;
       // A blank line closes any container whose content has ended; the next
@@ -804,7 +821,11 @@ function stripCodeBlocks(text) {
       // a stale list frame and left the example verdict live (R2 finding 4).
       const interrupts =
         FENCE_OPEN.test(tail) ||
-        MARKER_HEAD.test(tail) ||
+        // Only an ordered list starting at 1 may interrupt a paragraph
+        // (CommonMark 5.2). `2.` mid-paragraph is ordinary text, and reading it
+        // as a marker built a stale frame (R6 parser finding 2).
+        (MARKER_HEAD.test(tail) && !/^\d/.test(tail)) ||
+        /^1[.)][ \t]/.test(tail) ||
         tail.startsWith(">") ||
         /^#{1,6}(?:\s|$)/.test(tail) ||
         /^(?:\*[ \t]*){3,}$|^(?:-[ \t]*){3,}$|^(?:_[ \t]*){3,}$/.test(tail) ||
@@ -815,7 +836,12 @@ function stripCodeBlocks(text) {
     // THEMATIC BREAK FIRST. `- - -` is a break, not three nested list markers,
     // and letting `openContainers` peel it built a bogus container stack that
     // mismeasured everything after it (R5 parser finding 1).
-    const preRest = line.slice(m.idx).replace(/^[ \t]{0,3}/, "");
+    // Measure the leading run in COLUMNS, not characters: a tab is four, so a
+    // tab-indented line is indented CODE and never a thematic break
+    // (R6 parser finding 5).
+    const preIndent = /^[ \t]*/.exec(line.slice(m.idx))[0];
+    const preRest =
+      advance(preIndent, m.col) - m.col > 3 ? "\u0000" : line.slice(m.idx + preIndent.length);
     // An EMPTY list item — a bare marker with nothing after it — ends the list
     // rather than opening a frame. Pushing one made it swallow the indentation
     // of everything that followed (R5 parser finding 5).
@@ -884,7 +910,10 @@ function stripCodeBlocks(text) {
       /^#{1,6}(?:\s|$)/.test(rest) ||
       /^(?:\*[ \t]*){3,}$|^(?:-[ \t]*){3,}$|^(?:_[ \t]*){3,}$/.test(rest)
     ) {
-      prevBlank = false;
+      // A leaf block ends the paragraph, and indented code MAY begin directly
+      // after one — so it behaves like a blank line here, not like prose
+      // (R6 parser finding 1).
+      prevBlank = true;
       paragraphOpen = false;
       continue;
     }

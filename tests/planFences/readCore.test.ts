@@ -625,3 +625,97 @@ describe("R5 gate pins", () => {
     expect(analyzePlan("docs/superpowers/plans/x/plan.md", build(6)).attributedFences).toBe(0);
   });
 });
+
+/** Round-6 gate findings — three real misses plus six unpinned properties. */
+describe("R6 gate repairs", () => {
+  it("(1) sees code that follows an import on the SAME line", () => {
+    const text = [
+      "In `lib/a.ts`:",
+      "",
+      "```ts",
+      'import { readFileSync } from "node:fs"; expect(readFileSync(p));',
+      "```",
+    ].join("\n");
+    expect(hits(text)).toContain("UNIMPORTED_IDENTIFIER:expect");
+  });
+
+  it("(2) does not read `//` inside a string as a comment", () => {
+    // Masking comments BEFORE strings blanked the rest of the line from the
+    // `//` in a URL, hiding the call after it.
+    const text = [
+      "In `lib/a.ts`:",
+      "",
+      "```ts",
+      'import { readFileSync } from "node:fs";',
+      'const url = "https://example.com"; expect(readFileSync(url));',
+      "```",
+    ].join("\n");
+    expect(hits(text)).toContain("UNIMPORTED_IDENTIFIER:expect");
+  });
+
+  it("(3) does not let a `}` inside a string end an interpolation early", () => {
+    const text = [
+      "In `lib/a.ts`:",
+      "",
+      "```ts",
+      'import { readFileSync } from "node:fs";',
+      'const s = `x ${"}" + expect(readFileSync(p))}`;',
+      "```",
+    ].join("\n");
+    expect(hits(text)).toContain("UNIMPORTED_IDENTIFIER:expect");
+  });
+
+  it("(4) resolves a named-import ALIAS to the bound name", () => {
+    // Mutant: always add the source name. The old alias case used `rfs`, which
+    // is outside the registry, so it could not discriminate.
+    const text = [
+      "In `lib/a.ts`:",
+      "",
+      "```ts",
+      'import { helper as expect } from "./h";',
+      'import { readFileSync } from "node:fs";',
+      "expect(readFileSync(p));",
+      "```",
+    ].join("\n");
+    expect(rulesOf(text)).not.toContain("UNIMPORTED_IDENTIFIER");
+  });
+
+  it("(5) resolves a DESTRUCTURING alias to the bound name", () => {
+    const text = [
+      "In `lib/a.ts`:",
+      "",
+      "```ts",
+      'import { readFileSync } from "node:fs";',
+      "const { helper: expect } = obj;",
+      "expect(readFileSync(p));",
+      "```",
+    ].join("\n");
+    expect(rulesOf(text)).not.toContain("UNIMPORTED_IDENTIFIER");
+  });
+
+  it("(6) stops attribution at the FIRST prose line, even when ambiguous", () => {
+    // Mutant: `continue` past an ambiguous line to search older prose. A fence
+    // below it would then inherit an older path and false-fire DUPLICATE_IMPORT.
+    const text = [
+      "In `lib/a.ts`:",
+      "",
+      "```ts",
+      'import { expect } from "vitest";',
+      "const x = 1;",
+      "```",
+      "",
+      "Mentions `lib/a.ts` and `lib/b.ts`:",
+      "",
+      "```ts",
+      'import { expect } from "vitest";',
+      "const y = 2;",
+      "```",
+    ].join("\n");
+    expect(rulesOf(text)).not.toContain("DUPLICATE_IMPORT");
+  });
+
+  it("(7) treats an EXPORT-only fence as eligible, not just an import-only one", () => {
+    const text = ["In `lib/a.ts`:", "", "```ts", "export default rows[0].name", "```"].join("\n");
+    expect(hits(text)).toContain("UNCHECKED_INDEX:rows[0].name");
+  });
+});

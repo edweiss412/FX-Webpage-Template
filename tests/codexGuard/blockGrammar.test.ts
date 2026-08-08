@@ -274,3 +274,40 @@ describe("R5 parser repairs", () => {
     });
   });
 });
+
+/** Round-6 parser findings — the reviewer's exact messages, verbatim. */
+describe("R6 parser repairs", () => {
+  it("(1) hides indented code that begins directly after an ATX heading", async () => {
+    expect(
+      await classify("# Example verdict\n    VERDICT: APPROVE\n\nStill working.\n"),
+    ).toMatchObject({ status: "no_verdict" });
+  });
+
+  it("(2) does not let `2.` interrupt a paragraph", async () => {
+    // Only an ordered list starting at 1 may interrupt (CommonMark 5.2); `2.`
+    // mid-paragraph is text, and reading it as a marker built a stale frame.
+    const text = "Reviewer context\n2. Second finding\n\n    VERDICT: APPROVE\n\nStill working.\n";
+    expect(await classify(text)).toMatchObject({ status: "no_verdict" });
+  });
+
+  it("(3) pops a stale list frame on a bare `>` blank line", async () => {
+    expect(
+      await classify("- Finding one\n>\n    VERDICT: APPROVE\n\nStill working.\n"),
+    ).toMatchObject({ status: "no_verdict" });
+  });
+
+  it("(4) closes an open fence when its CONTAINER ends", async () => {
+    // A list dedent ends the block, so this is not the exempt open-at-EOF case;
+    // waiting only for an explicit closer left the example live.
+    expect(await classify("- ```\n  VERDICT: APPROVE\nOutside the example.\n")).toMatchObject({
+      status: "no_verdict",
+    });
+  });
+
+  it("(5) reads a TAB-indented `***` as code, not a thematic break", async () => {
+    // The break preprocessor counted characters, so one tab read as one column.
+    expect(await classify("\t***\n    VERDICT: APPROVE\n\nStill working.\n")).toMatchObject({
+      status: "no_verdict",
+    });
+  });
+});
