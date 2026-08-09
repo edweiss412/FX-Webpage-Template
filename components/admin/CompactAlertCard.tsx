@@ -56,15 +56,15 @@ const TONE_SKIN: Record<CompactAlertTone, string> = {
 };
 
 const TONE_DIVIDER: Record<CompactAlertTone, string> = {
-  warning: "border-warning-text/20",
-  muted: "border-border",
-  neutral: "border-border",
+  warning: cn("border-warning-text/20"),
+  muted: cn("border-border"),
+  neutral: cn("border-border"),
 };
 
 const TONE_DASHED_DIVIDER: Record<CompactAlertTone, string> = {
-  warning: "border-warning-text/25",
-  muted: "border-border",
-  neutral: "border-border",
+  warning: cn("border-warning-text/25"),
+  muted: cn("border-border"),
+  neutral: cn("border-border"),
 };
 
 const STRIPE_CLASS: Record<CompactAlertStripe, string> = {

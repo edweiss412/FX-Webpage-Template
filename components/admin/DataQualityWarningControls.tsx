@@ -23,8 +23,8 @@ const NEUTRAL_BTN = cn(
 // Ring-offset color must match the CARD background the button sits on: warning-bg for
 // active cards, surface-sunken for the muted Ignored (N) cards (impeccable audit P2).
 const RING_OFFSET: Record<"active" | "ignored", string> = {
-  active: "focus-visible:ring-offset-warning-bg",
-  ignored: "focus-visible:ring-offset-surface-sunken",
+  active: cn("focus-visible:ring-offset-warning-bg"),
+  ignored: cn("focus-visible:ring-offset-surface-sunken"),
 };
 
 export function DataQualityWarningControls({

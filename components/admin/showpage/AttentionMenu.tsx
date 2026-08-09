@@ -33,6 +33,7 @@ import { useFitWithinClip } from "@/components/admin/useFitWithinClip";
 import type { AttentionItem } from "@/lib/admin/attentionItems";
 import { autoResolveNote, NEEDS_LOOK_CODES, type NeedsLookCode } from "@/lib/adminAlerts/audience";
 import { NEEDS_LOOK_HINTS } from "@/lib/admin/needsLookHints";
+import { cn } from "@/lib/ui/cn";
 
 export type AttentionMenuProps = {
   items: AttentionItem[];
@@ -43,8 +44,8 @@ export type AttentionMenuProps = {
 };
 
 const TONE_DOT: Record<AttentionItem["tone"], { dot: string; srText: string }> = {
-  critical: { dot: "bg-status-degraded", srText: "urgent: " },
-  notice: { dot: "bg-status-review", srText: "needs review: " },
+  critical: { dot: cn("bg-status-degraded"), srText: "urgent: " },
+  notice: { dot: cn("bg-status-review"), srText: "needs review: " },
 };
 
 export function AttentionMenu({ items, open, onClose, onNavigate, pillRef }: AttentionMenuProps) {

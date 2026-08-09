@@ -56,9 +56,9 @@ type Tier = "subtle" | "subtle-dot" | "yellow" | "red";
 // warning tone with `font-medium`. If a future DESIGN.md amendment adds a
 // danger/critical token, swap `red` to that token.
 const TIER_CLASS: Record<Tier, string> = {
-  subtle: "text-text-subtle",
-  "subtle-dot": "text-text-subtle",
-  yellow: "text-warning-text",
+  subtle: cn("text-text-subtle"),
+  "subtle-dot": cn("text-text-subtle"),
+  yellow: cn("text-warning-text"),
   red: cn("text-warning-text font-medium"),
 };
 

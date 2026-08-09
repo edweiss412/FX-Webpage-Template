@@ -168,18 +168,26 @@ function statusState(row: ActiveShowRow): StatusState {
 // `held` deliberately uses the neutral `status-idle` tone (§3). Color is never the sole
 // carrier — every pill pairs its dot with a text label (DESIGN color-blind floor).
 const PILL_TONE: Record<StatusState, { border: string; text: string; dot: string }> = {
-  live: { border: "border-status-live", text: "text-status-live-text", dot: "bg-status-live" },
+  live: {
+    border: cn("border-status-live"),
+    text: cn("text-status-live-text"),
+    dot: cn("bg-status-live"),
+  },
   published: {
-    border: "border-status-positive",
-    text: "text-status-positive-text",
-    dot: "bg-status-positive",
+    border: cn("border-status-positive"),
+    text: cn("text-status-positive-text"),
+    dot: cn("bg-status-positive"),
   },
   publishing: {
-    border: "border-status-warn",
-    text: "text-status-warn-text",
-    dot: "bg-status-warn",
+    border: cn("border-status-warn"),
+    text: cn("text-status-warn-text"),
+    dot: cn("bg-status-warn"),
   },
-  held: { border: "border-status-idle", text: "text-status-idle-text", dot: "bg-status-idle" },
+  held: {
+    border: cn("border-status-idle"),
+    text: cn("text-status-idle-text"),
+    dot: cn("bg-status-idle"),
+  },
 };
 
 // Per-place testid namespace (§4.1): the INLINE pill keeps the EXISTING testids every

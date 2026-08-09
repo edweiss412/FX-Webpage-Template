@@ -43,10 +43,10 @@ const TAP_TARGET = cn(
 // scan emits each utility into the built CSS.
 type Kind = HealthStatus["kind"];
 const DOT_BG: Record<Kind, string> = {
-  degraded: "bg-status-degraded",
-  notice: "bg-status-warn",
-  ok: "bg-status-positive",
-  infra_error: "bg-status-idle",
+  degraded: cn("bg-status-degraded"),
+  notice: cn("bg-status-warn"),
+  ok: cn("bg-status-positive"),
+  infra_error: cn("bg-status-idle"),
 };
 const LABEL: Record<Kind, string> = {
   degraded: "System health: needs attention",

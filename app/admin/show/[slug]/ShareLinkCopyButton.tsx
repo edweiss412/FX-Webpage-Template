@@ -149,7 +149,7 @@ export function ShareLinkCopyButton({
     accent: cn(
       "inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm bg-accent px-3 py-1.5 text-sm font-semibold text-accent-text transition-colors duration-fast hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring",
     ),
-    // Neutral bordered arm (§6.4). `min-w-[8.5rem]` reserves the WIDER of
+    // Neutral bordered arm (§6.4). `min-w-34` (34 x 0.25rem = 8.5rem) reserves the WIDER of
     // "Copy crew link" / "Copied" so the idle→copied swap cannot shift the
     // button's left edge — it sits at the strip row's `ml-auto` end, where a
     // width change would visibly jump. Same discipline as the Re-sync trigger.

@@ -78,35 +78,35 @@ export type RecentAutoAppliedStripActions = {
 const KIND_PILL: Record<string, { label: string; cls: string; dot: string }> = {
   crew_added: {
     label: "Added",
-    cls: "border-status-positive/40 bg-status-positive/12 text-status-positive-text",
-    dot: "bg-status-positive",
+    cls: cn("border-status-positive/40 bg-status-positive/12 text-status-positive-text"),
+    dot: cn("bg-status-positive"),
   },
   crew_renamed: {
     label: "Renamed",
-    cls: "border-status-review/40 bg-status-review/12 text-status-review-text",
-    dot: "bg-status-review",
+    cls: cn("border-status-review/40 bg-status-review/12 text-status-review-text"),
+    dot: cn("bg-status-review"),
   },
   crew_removed: {
     label: "Removed",
-    cls: "border-status-warn/40 bg-status-warn/12 text-status-warn-text",
-    dot: "bg-status-warn",
+    cls: cn("border-status-warn/40 bg-status-warn/12 text-status-warn-text"),
+    dot: cn("bg-status-warn"),
   },
   field_changed: {
     label: "Field",
-    cls: "border-border bg-surface-sunken text-status-idle-text",
-    dot: "bg-status-idle",
+    cls: cn("border-border bg-surface-sunken text-status-idle-text"),
+    dot: cn("bg-status-idle"),
   },
   crew_email_changed: {
     label: "Email",
-    cls: "border-border bg-surface-sunken text-status-idle-text",
-    dot: "bg-status-idle",
+    cls: cn("border-border bg-surface-sunken text-status-idle-text"),
+    dot: cn("bg-status-idle"),
   },
 };
 // Unknown kinds fall back to a neutral "Change" pill rather than leaking the raw enum.
 const FALLBACK_PILL = {
   label: "Change",
   cls: cn("border-border bg-surface-sunken text-status-idle-text"),
-  dot: "bg-status-idle",
+  dot: cn("bg-status-idle"),
 };
 
 function KindPill({ changeKind }: { changeKind: string }) {

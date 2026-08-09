@@ -36,6 +36,7 @@ import {
   type ReportAutocapture,
   type ReportSurface,
 } from "@/components/shared/ReportModal";
+import { cn } from "@/lib/ui/cn";
 
 export type ReportButtonProps = {
   surface: ReportSurface;
@@ -73,10 +74,10 @@ const DEFAULT_VARIANT: Record<ReportSurface, "text" | "accent"> = {
 
 // Full literal class strings so Tailwind v4 JIT resolves each (no dynamic interpolation).
 const RING_OFFSET_CLASS: Record<RingOffset, string> = {
-  bg: "focus-visible:ring-offset-bg",
-  surface: "focus-visible:ring-offset-surface",
-  "warning-bg": "focus-visible:ring-offset-warning-bg",
-  "surface-sunken": "focus-visible:ring-offset-surface-sunken",
+  bg: cn("focus-visible:ring-offset-bg"),
+  surface: cn("focus-visible:ring-offset-surface"),
+  "warning-bg": cn("focus-visible:ring-offset-warning-bg"),
+  "surface-sunken": cn("focus-visible:ring-offset-surface-sunken"),
 };
 
 export function ReportButton(props: ReportButtonProps) {

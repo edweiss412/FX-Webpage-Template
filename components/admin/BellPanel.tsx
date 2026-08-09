@@ -148,18 +148,23 @@ function contextParams(context: Record<string, unknown> | null): MessageParams |
 // the §9 scoped side-stripe exception). `label` is the glyph's `title` tooltip.
 const TONE: Record<RowTone, { rail: string; glyph: string; icon: LucideIcon; label: string }> = {
   critical: {
-    rail: "bg-status-degraded",
-    glyph: "text-status-degraded",
+    rail: cn("bg-status-degraded"),
+    glyph: cn("text-status-degraded"),
     icon: CircleAlert,
     label: "Critical",
   },
   notice: {
-    rail: "bg-status-warn",
-    glyph: "text-status-warn",
+    rail: cn("bg-status-warn"),
+    glyph: cn("text-status-warn"),
     icon: TriangleAlert,
     label: "Warning",
   },
-  info: { rail: "bg-accent-on-bg", glyph: "text-accent-on-bg", icon: Info, label: "Notice" },
+  info: {
+    rail: cn("bg-accent-on-bg"),
+    glyph: cn("text-accent-on-bg"),
+    icon: Info,
+    label: "Notice",
+  },
 };
 
 // The resolve route the entry posts to: show-scoped when the row carries a
