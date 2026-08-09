@@ -19,6 +19,8 @@
 //
 // Tokens only (no inline hex/px). The middot " · " is U+00B7 (NOT an em dash).
 
+import { ChevronRight } from "lucide-react";
+
 import type { AdminEmailRow } from "@/lib/data/adminEmails";
 import type { EmbeddedAdminEmailsResult } from "@/lib/admin/embeddedAdminEmails";
 import { getRequiredDougFacing } from "@/lib/messages/lookup";
@@ -124,12 +126,33 @@ export function AdministratorsSection({
       </div>
 
       {revoked.length > 0 && (
+        // `group` drives the caret below, which replaces the NATIVE disclosure
+        // marker that `inline-flex` removes: a summary is `display: list-item`
+        // by default and the 44px floor repair overrides that. Without a
+        // replacement this list silently loses its open/closed cue. Same
+        // treatment as app/me/meShowSections.tsx's past-shows disclosure.
         <details
           data-testid="admin-revoked-list"
-          className="rounded-md border border-border bg-surface-sunken"
+          className="group rounded-md border border-border bg-surface-sunken"
         >
-          <summary className="cursor-pointer p-3 text-xs font-semibold uppercase tracking-wide text-text-subtle">
-            Revoked ({revoked.length})
+          {/* `flex w-full`, NOT the Class-A recipe's `inline-flex w-fit`. This
+              <summary> is a bordered card's OWN header with nothing beside it,
+              so `w-fit` bought nothing and cost ~200px of hit area: the row
+              still read as a full-width affordance while only the text toggled,
+              which is a smaller target than before the repair. `w-fit` exists to
+              stop a repaired <summary> becoming a full-width invisible band that
+              swallows pointer events aimed at NEIGHBOURING content — a premise
+              this site does not have. DI-2 exempts it for that stated reason,
+              the same by-construction shape spec §6 already uses for
+              HelpTooltip. Found by the non-degraded invariant-8 re-run
+              (2026-08-09), raised independently by both reviewers, and
+              user-ratified against a visual comparison. */}
+          <summary className="flex min-h-tap-min w-full cursor-pointer list-none items-center p-3 text-xs font-semibold uppercase tracking-wide text-text-subtle">
+            Revoked ({revoked.length}){" "}
+            <ChevronRight
+              aria-hidden="true"
+              className="ml-1 inline-block size-4 shrink-0 transition-transform duration-normal group-open:rotate-90"
+            />
           </summary>
           <ul className="flex flex-col gap-2 px-3 pb-3">
             {revoked.map((row) => (

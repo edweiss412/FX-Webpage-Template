@@ -46,6 +46,7 @@
  * re-drift.
  */
 import type { ButtonHTMLAttributes, Ref } from "react";
+import { cn } from "@/lib/ui/cn";
 
 export type AccentButtonSize = "sm" | "md" | "lg";
 export type AccentButtonWeight = "medium" | "semibold";
@@ -118,7 +119,7 @@ export function AccentButton({
   ref,
   ...rest
 }: AccentButtonProps) {
-  const classes = [
+  const classes = cn(
     inline ? "inline-flex items-center justify-center" : null,
     selfStart ? "self-start" : null,
     BASE_CLASS,
@@ -129,9 +130,7 @@ export function AccentButton({
     ringOffset ? RING_OFFSET_CLASS[ringOffset] : null,
     // Escape hatch LAST so per-site overrides win cascade order.
     className ?? null,
-  ]
-    .filter(Boolean)
-    .join(" ");
+  );
 
   return (
     // type defaults to "button" so the atom never accidentally submits a

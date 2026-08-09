@@ -83,7 +83,10 @@ const REGISTRY: Row[] = [
   L("app/admin/settings/roles/RoleMappingRow.tsx", 0),
   L("app/admin/show/[slug]/ShareLinkCopyButton.tsx", 0),
   L("app/global-error.tsx", 0),
-  L("app/me/page.tsx", 0, "bg-accent text-accent-text"), // tone-pill helper (labeled pill)
+  // Relocated from app/me/page.tsx by the 2026-08-07 Step-3 a11y cluster
+  // (spec §8, R10): chipToneClass moved verbatim into the extracted render
+  // module. Same single occurrence, new path — this registry is path-keyed.
+  L("app/me/meShowSections.tsx", 0, "bg-accent text-accent-text"), // tone-pill helper (labeled pill)
   L("app/show/[slug]/[shareToken]/_PickerInterstitial.tsx", 0, "bg-accent text-accent-text"), // "Lead" chip
   L("app/show/[slug]/[shareToken]/_SignInOrSkipGate.tsx", 0),
   L("app/show/[slug]/[shareToken]/_SignInOrSkipGate.tsx", 1),

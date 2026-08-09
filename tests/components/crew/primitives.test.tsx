@@ -170,6 +170,90 @@ describe("<DayCard> — horizontal date badge", () => {
     expect(tout.getByTestId("day-card-phase-dot").getAttribute("data-tone")).toBe("travel");
   });
 
+  // ── The cn migration's single behavioral delta (spec §4, E2) ───────────────────────
+  //
+  // The tone dot is the ONE site in the 36 where the migration preserves every operand and
+  // the emitted bytes still move. Its `set` branch is an empty-string ternary result, so
+  // `[..., ""].join(" ")` emitted a TRAILING SEPARATOR — `"size-1.75 shrink-0 rounded-full "`
+  // — while `cn(..., "")` drops the falsy operand and emits no trailing space.
+  //
+  // The token set is unchanged, which is why nothing renders differently; `classList` is
+  // identical before and after because the DOM never had an empty token. So `classList`
+  // alone cannot see this delta, and the raw `className` string is what pins it. Both are
+  // asserted: the string for the byte change, the token set for the claim that nothing
+  // else moved.
+  //
+  // The expected token set is DERIVED from the other two tone branches rather than
+  // hardcoded — a hardcoded list would keep passing if the shared base classes changed on
+  // every branch at once, which is exactly the drift this is meant to catch.
+  describe("tone dot — the cn migration's one byte-level delta (spec §4, E2)", () => {
+    function dotFor(phase: "Show" | "Set" | "Travel In") {
+      const { getByTestId } = render(<DayCard day="2026-06-14" phase={phase} today={false} />);
+      const dot = getByTestId("day-card-phase-dot");
+      const result = {
+        className: dot.className,
+        tokens: [...dot.classList].sort(),
+        tone: dot.getAttribute("data-tone"),
+      };
+      cleanup();
+      return result;
+    }
+
+    test('tone="set" dot className carries no trailing space', () => {
+      const set = dotFor("Set");
+      expect(set.tone).toBe("set");
+      expect(set.className).toBe(set.className.trimEnd());
+      // Stronger than trimEnd alone: no double separator anywhere either, which is the
+      // other shape a dropped-vs-rendered falsy operand takes.
+      expect(set.className).not.toMatch(/\s{2,}/);
+    });
+
+    test('tone="set" dot carries exactly the tokens shared by the other tone branches', () => {
+      const show = dotFor("Show");
+      const travel = dotFor("Travel In");
+      const set = dotFor("Set");
+
+      const shared = show.tokens.filter((t) => travel.tokens.includes(t)).sort();
+      expect(shared.length).toBeGreaterThan(0); // premise: the branches DO share a base
+      expect(set.tokens).toEqual(shared);
+
+      // The derivation above proves the SET RELATIONSHIP between branches, but it is blind
+      // to drift that moves every branch at once: change the base from `size-1.75` to
+      // `size-2` on all three and each assertion still passes while the dot's rendered size
+      // changes. So the shared base is ALSO pinned literally. Both halves are wanted — the
+      // derivation catches one branch drifting, the literal catches all of them drifting
+      // together.
+      expect(
+        shared,
+        "the tone dot's shared base classes changed. This arc is operand-preserving, so a " +
+          "change here means the rewrite escaped its scope (or a real design change landed " +
+          "and this pin needs updating deliberately).",
+      ).toEqual(["rounded-full", "shrink-0", "size-1.75"]);
+
+      // And the two non-empty branches each add exactly their own background token, so the
+      // `set` branch's emptiness is a real absence rather than a scan that found nothing.
+      expect(show.tokens.filter((t) => !shared.includes(t))).toEqual(["bg-accent"]);
+      expect(travel.tokens.filter((t) => !shared.includes(t))).toEqual(["bg-border-strong"]);
+    });
+
+    test("all three tone branches render, and only `set` differs in bytes", () => {
+      const show = dotFor("Show");
+      const travel = dotFor("Travel In");
+      const set = dotFor("Set");
+
+      expect([show.tone, travel.tone, set.tone]).toEqual(["show", "travel", "set"]);
+      // Compare the className BYTES, not just the token sets: `set` is exactly the shared
+      // base, and the other two are the base plus their own background token.
+      expect(set.className).toBe("size-1.75 shrink-0 rounded-full");
+      expect(show.className).toBe("size-1.75 shrink-0 rounded-full bg-accent");
+      expect(travel.className).toBe("size-1.75 shrink-0 rounded-full bg-border-strong");
+      for (const branch of [show, travel]) {
+        expect(branch.className).toBe(branch.className.trimEnd());
+        expect(branch.className).not.toMatch(/\s{2,}/);
+      }
+    });
+  });
+
   test("the phase text renders next to the tone dot", () => {
     const { getByTestId } = render(<DayCard {...base} today={false} />);
     expect(getByTestId("day-card").textContent).toContain("Set");

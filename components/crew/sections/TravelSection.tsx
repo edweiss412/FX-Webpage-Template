@@ -65,6 +65,7 @@ import {
 import { todayIsoInShowTimezone } from "@/lib/visibility/packList";
 import { transportTileVisible } from "@/lib/visibility/scopeTiles";
 import { type TileRenderLedger } from "@/lib/crew/tileRenderLedger";
+import { cn } from "@/lib/ui/cn";
 
 type TravelSectionProps = {
   data: ShowForViewer;
@@ -634,12 +635,10 @@ export function TravelSection({
                     return (
                       <div
                         key={res.ordinal}
-                        className={[
+                        className={cn(
                           "flex flex-col gap-3",
                           idx > 0 ? "border-t border-border pt-4" : "",
-                        ]
-                          .filter(Boolean)
-                          .join(" ")}
+                        )}
                       >
                         {res.hotel_name ? (
                           <p

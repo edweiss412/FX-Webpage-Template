@@ -88,7 +88,30 @@ export function AdminNav({
         <Link
           href="/admin"
           data-testid="admin-nav-brand"
-          className="flex items-center gap-2 rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+          /* The link's ONLY always-rendered child is the decorative icon
+             (`alt="" aria-hidden`), and both text spans are `display: none`
+             below 360px — so on a narrow phone this link had NO accessible name
+             at all (WCAG 2.4.4 / 4.1.2). Pre-existing, surfaced by the a11y
+             review of this element, and fixed here rather than deferred: a link
+             this branch is repairing INTO a 44px target must be nameable when a
+             screen-reader user reaches it. The label matches the visible
+             wordmark at wide widths, so it never contradicts what is on screen
+             (WCAG 2.5.3), and it survives every breakpoint. */
+          aria-label="FXAV Admin"
+          /* spec 2026-08-07-step3-a11y-cluster §2.2: a COMPOSITE link, so it
+             takes its own recipe rather than the generic icon-button one.
+             `size-tap-min` would clamp the whole block to a 44px square and
+             crush the wordmark; wrapping only the <Image> would leave the
+             link's own box under the floor. `min-h-tap-min` fixes the vertical
+             axis, which fails at every width. `-mx-2 px-2` fixes the horizontal
+             axis in the icon-only state below 360px (28 + 8 + 8 = 44) and
+             simply extends the target above it — the negative margin keeps the
+             layout footprint unchanged, which matters because the 320px topbar
+             budget documented below is already tight. No inner span and no
+             hover rewiring: no visual class moves, the link has no `hover:`
+             variant, and its focus ring already sits on the element that
+             becomes the 44px target. */
+          className="-mx-2 flex min-h-tap-min items-center gap-2 rounded-sm px-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
         >
           <Image
             src="/brand/fxav-icon.png"

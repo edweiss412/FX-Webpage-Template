@@ -73,6 +73,7 @@ import {
 } from "@/lib/visibility/scopeTiles";
 import type { RoleFlag } from "@/lib/parser/types";
 import { type TileRenderLedger } from "@/lib/crew/tileRenderLedger";
+import { cn } from "@/lib/ui/cn";
 
 type GearSectionProps = {
   data: ShowForViewer;
@@ -300,7 +301,7 @@ export function GearSection({
                       data-testid={`gear-scope-${d.id}`}
                       data-card-id={`gear-scope-${d.id}`}
                       {...(d.emphasized ? { "data-emphasis": "you" } : {})}
-                      className={[
+                      className={cn(
                         // Grid item (cell stretches to row height via grid's default
                         // align-items:stretch); `flex flex-col` lets the inner
                         // SectionCard (`h-full`) fill the stretched cell so same-row
@@ -313,9 +314,7 @@ export function GearSection({
                         // this 1px accent edge together carry the emphasis (still
                         // not color-only), within the ≤10% accent-coverage rule.
                         d.emphasized ? "rounded-md border-l border-l-accent-on-bg" : "",
-                      ]
-                        .filter(Boolean)
-                        .join(" ")}
+                      )}
                     >
                       <SectionCard
                         icon={d.icon}
@@ -379,13 +378,13 @@ export function GearSection({
                         >
                           <details className="group">
                             <summary
-                              className={[
+                              className={cn(
                                 "flex min-h-tap-min cursor-pointer list-none",
                                 "items-center justify-between gap-3",
                                 "px-3 py-2 text-sm font-semibold text-text-strong",
                                 "rounded-sm",
                                 "[&::-webkit-details-marker]:hidden",
-                              ].join(" ")}
+                              )}
                             >
                               <span className="flex flex-1 items-baseline gap-2 truncate">
                                 <span

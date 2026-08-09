@@ -80,7 +80,7 @@ export function RunOfShowEntry({ entry }: { entry: AgendaEntry }): JSX.Element {
           {isLong ? (
             <details data-testid="agenda-title-truncated" className="min-w-0">
               <summary
-                className={`cursor-pointer list-none text-sm font-medium ${titleTone} [&::-webkit-details-marker]:hidden`}
+                className={`inline-flex w-fit min-h-tap-min cursor-pointer list-none items-center text-sm font-medium ${titleTone} [&::-webkit-details-marker]:hidden`}
               >
                 {`${title.slice(0, TITLE_TRUNCATE_AT)}…`}
               </summary>

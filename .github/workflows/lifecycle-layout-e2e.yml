@@ -132,6 +132,17 @@ jobs:
             pnpm exec playwright test --project=mobile-safari tests/e2e/admin-lifecycle-transitions.spec.ts \
               -g "Published toggle round-trip" --repeat-each="$REPEATS" --retries=0 --trace=on
           fi
+      # AC-11 of the cn-migration arc: the two sizing canonicalizations (C1 max-w-[60px]
+      # -> max-w-confirm-box, C5 min-h-(--spacing-right-now-min-h) -> min-h-right-now-min-h)
+      # must not move geometry, verified against a baseline captured BEFORE the fix landed.
+      # This workflow is the right host: mobile-safari (both targets' precedents live
+      # there; admin-layout-e2e.yml is desktop-chromium), and it fires on UNFILTERED
+      # pull_request:, so a spec named here is PR-COVERED and needs no LOCAL_ONLY_ALLOWLIST
+      # row — adding one would fail tests/ci/_metaE2eWorkflowCoverage.test.ts's shadowing
+      # assertion. Deliberately sets NO CAPTURE_CANONICAL_DIMENSIONS: capture mode fails by
+      # design, so CI can never regenerate the oracle it verifies against.
+      - name: Run canonical-class dimension e2e (mobile-safari, :3000 only)
+        run: pnpm exec playwright test --project=mobile-safari tests/e2e/canonical-class-dimensions.spec.ts
       - name: Upload Playwright traces/report (diagnosis artifact)
         # Dispatch runs are measurement runs — keep traces from GREEN samples
         # too (a wedge that self-recovers inside the budget is still evidence).

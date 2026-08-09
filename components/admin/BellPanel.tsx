@@ -325,7 +325,14 @@ export function BellActionRow({
           data-testid={`bell-telemetry-${entry.alertId}`}
           className={LINK_CTA}
         >
-          View in telemetry <span aria-hidden="true">↗</span>
+          {/* No new-tab glyph: both destinations are INTERNAL routes and this
+              anchor carries no `target`. After the new-tab sweep `↗` means
+              "opens a new tab" everywhere else in the codebase, so this was the
+              one place it lied — and because there is no `target`, the new-tab
+              structural guard never saw it (spec
+              2026-08-07-step3-a11y-cluster §2.5, closing
+              NEWTAB-A11Y-RESIDUE-1(b)). */}
+          View in telemetry
         </a>
       ) : null}
       {!entry.isHealth && entry.actions.length > 0
