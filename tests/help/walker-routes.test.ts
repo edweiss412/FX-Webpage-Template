@@ -54,7 +54,12 @@ describe("e2e suite holds no unlocked PostgREST DML on locked tables (structural
   // (tests/e2e/helpers/lockedCrewRestriction.ts). Concrete failure modes
   // caught: the pre-Task-11 firstSeenStagedId delete/insert on
   // pending_syncs; the pre-M12.12-DEF-2 rightNow.ts date_restriction
-  // toggle; the schedule-tile copy of that toggle (Codex R2 HIGH).
+  // toggle; and a copy of that toggle in the former schedule-tile.spec.ts
+  // (Codex R2 HIGH). That last spec was deleted 2026-08-09 as superseded —
+  // it was 100% describe.skip against the retired ?crew= viewer mock and a
+  // route that 404s (spec docs/superpowers/specs/ci/
+  // 2026-08-09-resurrect-mobile-safari-e2e-design.md §2.3). The failure mode
+  // it demonstrated is historical; the guard below still pins the class.
   // Invariant 2's dropped M9.5 auth table is deliberately omitted from the
   // regex: the M11.5 G3 cutover removed it (tests/db/cutover-drop-m9-5
   // pins the absence), a write would fail at the catalog, and the
@@ -82,8 +87,9 @@ describe("e2e suite holds no unlocked PostgREST DML on locked tables (structural
   //   - count DROPS → fail with "shrink the entry" (cleanup must lower the
   //     pin in the same commit — the shrink-only signal);
   //   - non-exempt file with ANY hit → fails the main assertion as before.
-  // rightNow.ts and schedule-tile.spec.ts are deliberately NOT exempt:
-  // their date_restriction mutations go through the locked psql helper.
+  // rightNow.ts is deliberately NOT exempt: its date_restriction mutations
+  // go through the locked psql helper. (schedule-tile.spec.ts held the same
+  // property and was deleted 2026-08-09 as superseded — see the header note.)
   const EXEMPT_PREEXISTING = new Map<string, number>([
     ["admin-nav-layout-dimensions.spec.ts", 2],
     ["admin-parse-panel.spec.ts", 2],
@@ -123,14 +129,9 @@ describe("e2e suite holds no unlocked PostgREST DML on locked tables (structural
     // writes with seeded-slug + signInAs flows that perform NO unlocked PostgREST
     // DML, so the count dropped to 0 and the (now-stale) exemption is removed.
     ["empty-state-reachability.spec.ts", 7],
-    ["empty-state.spec.ts", 2],
     ["me-page.spec.ts", 8],
     ["needs-attention-page.spec.ts", 2],
-    ["notes-tile.spec.ts", 5],
-    ["pack-list.spec.ts", 9],
-    ["right-now.spec.ts", 1],
     ["sign-in-page.spec.ts", 5],
-    ["transport-tile.spec.ts", 2],
   ]);
 
   const e2eDir = join(process.cwd(), "tests/e2e");

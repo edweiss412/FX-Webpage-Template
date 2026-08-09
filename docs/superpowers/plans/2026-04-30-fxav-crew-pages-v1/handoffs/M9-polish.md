@@ -1,5 +1,15 @@
 # Handoff — M9: Stale-data UX, error states, polish (AC-9.1..AC-9.3) + deferral basket
 
+> **Deleted-spec note (2026-08-09).** This document names one or more of the nine `tests/e2e/`
+> specs deleted by `BL-RESURRECT-MOBILE-SAFARI-E2E` — schedule-tile, transport-tile,
+> status-financials, role-spoof, pack-list, notes-tile, right-now, layout-dimensions,
+> empty-state. They were 100% `test.describe.skip` against the retired `?crew=` viewer mock AND
+> the slug-only `/show/[slug]` route, which has no `page.tsx`, so every navigation in them 404'd.
+> Any command here that runs one will fail, and any claim that one provides coverage is stale.
+> Per-file coverage accounting:
+> `docs/superpowers/specs/ci/2026-08-09-resurrect-mobile-safari-e2e-design.md` §2.3. This
+> document is otherwise left as the historical record it is.
+
 **Status: COMPLETED 2026-05-17.** 12/12 routed clusters converged through per-cluster adversarial review; whole-milestone review converged at R18 APPROVE; impeccable dual-gate cleared on every UI surface (C9 + C4 + error.tsx + /admin landing); 4 mid-loop residuals resolved post-review (M2-D2 RLS probe, M9-D-C9-1 impeccable gate, M9-D-C4-1 useFormStatus, M9-D-9.3-1 AC-9.2 e2e fixture migration). 2 standing residuals with explicit re-open triggers: **M7-D3** (private-image-pipeline brainstorm needed) and **M9-D-C6c-1** (declined with evidence-tied trigger — re-open when FXAV crew identifies pinch-discovery friction). See §"Final M9 close-out actions" below for the full closure trail.
 
 **Handed off:** 2026-05-12 by Eric Weiss
@@ -1007,7 +1017,7 @@ After C9.0 + C9.1 + C9.2 + C9.3 commit, run `/impeccable critique` + `/impeccabl
 
 ### Task 9.3 — Empty-state reachability baselines (SHIPPED)
 
-- **Commit `f4797cc`** — `tests/e2e/empty-state-reachability.spec.ts` with 4 scenarios per §8.3 category (required-field-missing, optional-field-missing, whole-tile-missing, stale-sync). Each scenario combines a DOM contract assertion (anti-tautology) with a `toHaveScreenshot` baseline. Spec is `test.describe.skip()` pending the auth-fixture migration tracked in `tests/e2e/empty-state.spec.ts:83-87`; baseline-generation command documented in JSDoc.
+- **Commit `f4797cc`** — `tests/e2e/empty-state-reachability.spec.ts` with 4 scenarios per §8.3 category (required-field-missing, optional-field-missing, whole-tile-missing, stale-sync). Each scenario combines a DOM contract assertion (anti-tautology) with a `toHaveScreenshot` baseline. Spec is `test.describe.skip()` pending the auth-fixture migration that was tracked in `tests/e2e/empty-state.spec.ts` (deleted 2026-08-09 as superseded; the migration landed for this spec in M9-D-9.3-1, which is RESOLVED — see DEFERRED.md); baseline-generation command documented in JSDoc.
 
 ## §12 — C9 close-out impeccable findings + dispositions
 

@@ -1,5 +1,15 @@
 # Handoff — M6: Drive sync (cron + push) + admin parse panel
 
+> **Deleted-spec note (2026-08-09).** This document names one or more of the nine `tests/e2e/`
+> specs deleted by `BL-RESURRECT-MOBILE-SAFARI-E2E` — schedule-tile, transport-tile,
+> status-financials, role-spoof, pack-list, notes-tile, right-now, layout-dimensions,
+> empty-state. They were 100% `test.describe.skip` against the retired `?crew=` viewer mock AND
+> the slug-only `/show/[slug]` route, which has no `page.tsx`, so every navigation in them 404'd.
+> Any command here that runs one will fail, and any claim that one provides coverage is stale.
+> Per-file coverage accounting:
+> `docs/superpowers/specs/ci/2026-08-09-resurrect-mobile-safari-e2e-design.md` §2.3. This
+> document is otherwise left as the historical record it is.
+
 **Handed off:** 2026-05-08 by Eric Weiss
 **Implementer:** **split-mode (manual / Level 1)** — backend = **GPT-5.5 / Codex CLI**, UI = **Opus 4.7 / Claude Code**, two concurrent terminals coordinating through this doc. Per `ROUTING.md` M6 row + UI hard rule. Backend goes first because the §A engine pins every type and route signature §B's parse-panel UI consumes.
 **Adversarial reviewer:** Opus 4.7 / Claude Code (per ROUTING.md M6 row — backend is the larger surface, so the cross-model partner is Opus).

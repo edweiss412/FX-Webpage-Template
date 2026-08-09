@@ -36,6 +36,24 @@ export const REQUIRED = {
   // added by BL-INTER-NUMERAL-DISAMBIGUATION. All ten, or the oracle is dark on
   // whichever tree stopped binding or whichever feature stopped rendering.
   "font-binding.spec.ts": 10,
+  // ── wired 2026-08-09 by BL-RESURRECT-MOBILE-SAFARI-E2E ──────────────────────
+  // Every count below is derived from an ACTUAL run's report (the same shape this
+  // script reads: unique spec ids with a passing result, summed over the projects
+  // the spec is wired for), NOT from arithmetic — same rule as the census above.
+  //
+  // 15 = the §4.9 layout invariants + the Task-3 nav/preview/footer cases, under
+  // mobile-safari ALONE. crew-page is deliberately absent from the
+  // desktop-chromium testMatch: its cases used to early-return off
+  // testInfo.project.name, so a desktop execution was a passing no-op this oracle
+  // would have counted. Those gates are gone and the project set is now honest.
+  // The 4 statically-skipped §4.10 transition-audit cases are excluded by
+  // construction (they never produce a passing result) and are registered by
+  // exact title in the wiring guard's EXPECTED_SKIPS.
+  "crew-page.spec.ts": 15,
+  // 8 = 4 cases x BOTH projects. theme-toggle carries no project gate — every
+  // case asserts behavior identical under mobile-safari and desktop-chromium, and
+  // both were run separately to prove it before this row was written.
+  "theme-toggle.spec.ts": 8,
   // The census, across mobile-safari + desktop-chromium. The checker enforces
   // `executed >= min`, so THE NUMBER IS THE GUARD: a row of 1 would let every
   // case but one skip while CI stayed green, which is exactly what the registry
