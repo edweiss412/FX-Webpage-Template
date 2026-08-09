@@ -473,8 +473,9 @@ Two survive, because their premise outlives the migration:
   (`components/admin/OnboardingWizard.tsx:167`) contains no string literal at all and would escape
   any literal-shape test.
 
-  **Calibrated against the live tree, not asserted.** The recognizer yields **38** whitespace-join
-  sites: the **36** classNames of §2.2, plus exactly **2** data joins that legitimately
+  **Calibrated against the live tree, not asserted.** The recognizer yields **39** whitespace-join
+  sites at the re-derived base (**38** at spec time, §2.2): the **37** classNames of §2.2, plus
+  exactly **2** data joins that legitimately
   whitespace-join values — `components/admin/wizard/step3ReviewSections.tsx:1353` and
   `components/admin/review/sectionFreshness.ts:537` — `[leg.date, leg.time]` and
   `[row.date, row.time]` respectively, not the same expression. Those two are
@@ -483,7 +484,7 @@ Two survive, because their premise outlives the migration:
   escape shapes above are caught, and `.join(", ")`, `.join("")`, and `cn(...)` are correctly not.
 
   **This is future coverage, not a missed migration.** §2.2's separator-agnostic sweep confirms the
-  tree contains no whitespace-join spelling other than `.join(" ")`, so the inventory of 36 is
+  tree contains no whitespace-join spelling other than `.join(" ")`, so the inventory of §2.2 is
   complete as measured; the widening protects the tree going forward.
 - **Rule-is-on pin.** `eslint.config.mjs` must still set
   `"better-tailwindcss/enforce-canonical-classes": "error"`. A guard that outlives its rule pins

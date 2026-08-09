@@ -10,7 +10,7 @@
  * in order, survives `[A, B, C].join(" ")` → `cn(A, B, C)`. Composed with the `cn` unit
  * test (`cn ≡ filter(Boolean).join(" ")`) and the operand-kind audit (every operand at an
  * unfiltered site is truthy), that gives "same operands ⇒ same emitted string" — which is
- * the only way a 36-site mechanical diff can be reviewed at all. It is the anti-tautology
+ * the only way a mechanical diff of this size can be reviewed at all. It is the anti-tautology
  * mechanism for the migration: it catches a rewrite that drops, reorders, or edits an
  * operand, which is the one failure mode that looks correct in review.
  *
@@ -169,7 +169,7 @@ function identifierInitializer(sourceFile, name) {
 /**
  * Render an initializer FORM-INDEPENDENTLY when it is itself a class-list expression.
  *
- * Some of the eight identifiers (`CHIP_CLASS`) are themselves among the 36 migrated sites,
+ * Some of the eight identifiers (`CHIP_CLASS`) are themselves among the migrated sites,
  * so their initializer legitimately changes shape — `[...].join(" ")` at the base, `cn(...)`
  * at the head. Comparing raw renderings flagged that as drift. Comparing the OPERAND LIST
  * compares what the initializer emits, which is the claim, and still catches a changed
