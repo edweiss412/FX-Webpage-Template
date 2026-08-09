@@ -809,6 +809,8 @@ Both surfaces need a schema decision (new table vs derived view vs append-only c
 
 ### BL-HELP-NON-SHOW-REPORT-SURFACE — Non-show-scoped recurrence-report surface for `/help/errors`
 
+**Status:** IN PROGRESS · **Branch:** feat/help-report-surface
+
 **Origin:** M11-I-D-1 (MEDIUM) filed 2026-05-22 during Phase I Codex R1 adversarial review.
 
 **Effort:** L
