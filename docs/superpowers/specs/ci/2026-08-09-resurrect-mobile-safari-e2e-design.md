@@ -58,20 +58,34 @@ The ledger entry names ~12 spec files matched by the `mobile-safari` `testMatch`
 `UNSEEN` rows of `tests/ci/_metaE2eWorkflowCoverage.test.ts`.
 
 - **`tests/e2e/crew-page.spec.ts` — live.** Two live describes ("crew redesign layout invariants
-  (§4.9 / test 12)" and "crew redesign nav addressability + preview-as + footer report"), 18
-  live-authored test declarations (15 executed in the §2.2 run; the delta is runtime-conditional
-  skips — §1.1.7's derivation rule governs, not either snapshot), current
-  `/show/[slug]/[shareToken]` route, Waldorf seed
+  (§4.9 / test 12)" and "crew redesign nav addressability + preview-as + footer report"): 15 live
+  test declarations (10 layout + 5 nav; all 15 executed in the §2.2 run — 12 passed, 3 failed;
+  spec review R2 corrected an earlier 18-declaration miscount), current
+  `/show/[slug]/[shareToken]` route resolved via `signInAs(page, ADMIN_FIXTURE)` (the admin arm
+  of `resolveShowPageAccess` renders the CrewShell), Waldorf seed
   (`seed-fixture:2026-04-asset-mgmt-cfo-coo-waldorf`), same harness pattern as the already-wired
-  `crew-section-toggle.spec.ts`. Plus five `test.describe.skip` blocks (pre-redesign tiles,
-  lines ≥1416) in the same class as the dead files.
+  `crew-section-toggle.spec.ts`. Three of the layout tests carry runtime-conditional
+  `test.skip(...)` guards (gear-grid ≥2 cards, key-times-strip presence) that did not fire on the
+  seed. Plus SIX statically-skipped blocks in two distinct classes:
+  - **Five pre-redesign tile blocks** (`test.describe.skip`, lines ≥1416) — same class as the
+    dead files; deleted (§3.1).
+  - **One §4.10 transition-audit block** (`test.describe .skip`, line-wrapped, ~:892, 4 tests) —
+    a DIFFERENT class: skipped for a documented webkit technique limit (frozen-clock +
+    controlled-rAF stalls the very AnimatePresence transition under test; the block's own header
+    documents it and cites its live coverage — `tests/components/crew/transitionAudit.test.tsx`
+    structural audit, the §4.9 layout tests, the Task-3 nav tests). KEPT as-is; recorded as a
+    documented limit (§6), excluded from `REQUIRED` derivation by its static-skip status.
 - **Ten spec files 100% `test.describe.skip`** (each a spec file under `tests/e2e/`, named by its
   basename here and throughout): schedule-tile,
   transport-tile, status-financials, role-spoof, pack-list, notes-tile, right-now,
   layout-dimensions, empty-state, theme-toggle. All ten carry the same verbatim TODO ("migrate off
   ?crew=/?as=admin mock to signInAs… retired in Task 5.7 follow-up") and all navigate the
-  404-ing slug-only route. Eight of ten additionally need a *specific non-LEAD crew identity*,
-  which `signInAs` cannot reproduce without per-test crew rows — the actual cost the TODO names.
+  404-ing slug-only route. Three of the ten exercise specific non-LEAD identities
+  (transport-tile, status-financials, role-spoof); the other seven navigate as an explicit LEAD
+  crew id (spec review R2 corrected an "eight of ten non-LEAD" mischaracterization). The shared
+  cost is per-test SPECIFIC crew identity — the retired `?crew=` mock's whole function —
+  which `signInAs` cannot reproduce for ANY particular crew row (LEAD or not) without per-test
+  crew rows whose email matches a fixture: the actual cost the TODO names.
 - **`tests/e2e/right-now-transitions.spec.ts` — mixed.** Two skipped blocks (66-pair matrix audit,
   compound audits) plus one live block ("RightNow per-day Show anchor selection (§5.7)", 3 tests)
   that also navigates the dead slug-only route, so it 404s despite not being skipped.
@@ -139,14 +153,21 @@ of the mobile-safari project (crew-page.spec + the M4 tile specs) is still dead-
 this arc that sentence is false.
 
 Delete the five pre-redesign `test.describe.skip` blocks inside `crew-page.spec.ts` (same class as
-the dead files; the redesign-cleanup meta-test pins their subject components deleted).
+the dead files; the redesign-cleanup meta-test pins their subject components deleted). The §4.10
+transition-audit block (~:892) is NOT in that class and is KEPT untouched (§2.1, §6.4) — post-task
+verification counts skip forms with a pattern that matches the line-wrapped `describe␤.skip` form
+too, expecting exactly one surviving skipped block in the file.
 
 ### 3.2 Rewrite `theme-toggle.spec.ts` live
 
-Replace the file's dead content with a live describe against the seeded shareToken route (same
-`lookupSeededShow`/share-token helpers as `crew-page.spec.ts`). Tests, all identity-agnostic
-(no per-identity fixture needed — the toggle renders in the crew Footer for every viewer, reached
-via `_CrewShell`):
+Replace the file's dead content with a live describe against the seeded shareToken route, using
+`crew-page.spec.ts`'s exact resolution recipe: `lookupSeededShow` + share-token helper +
+`signInAs(page, ADMIN_FIXTURE)`. The recipe matters (spec review R2 F2): an unauthenticated
+share-token request renders `SignInOrSkipGate`/`PickerInterstitial`, not the CrewShell, and the
+theme toggle exists ONLY in the CrewShell's Footer (`components/layout/Footer.tsx`, rendered via
+`_CrewShell`). Every test awaits the crew-shell testid visible before touching the toggle. The
+CONTRACT is identity-agnostic (any resolved viewer gets the Footer toggle) — the RESOLUTION is
+not, and the recipe is part of the test. Tests:
 
 1. **Persistence + no-FOUC, both directions.** Light→dark: tap toggle → `<html data-theme>` flips
    AND `localStorage["fxav-theme"]` holds the new value → `page.reload()` → the theme survives.
@@ -225,14 +246,31 @@ of 1, per the registry's own R12 rationale in `scripts/check-crew-e2e-executed.m
 - Delete the two `test.describe.skip` blocks (66-pair + compound audits). The matrix's structural
   invariants stay pinned by `tests/time/rightNowTransitions.test.ts`; the 12-state copy map by
   `rightNowHero.test.tsx`. The rendered-treatment loss is a documented limit (§6).
-- Migrate the live §5.7 block (3 tests, day-anchor selection — a per-show concern, not
-  per-identity) from the dead `/show/[slug]?crew=` URL to the seeded shareToken route, and wire
-  the file. Same project-honesty rule as §3.1/§3.2: if the migrated tests execute only under one
-  project, the file is wired for that project alone and removed from the other `testMatch` regex;
-  its allowlist row is then RECLASSIFIED to `PATH_GATED_BY_EXCLUSION` per §3.1. **Timebox:** if
-  migration surfaces a harness dependency beyond the URL swap (e.g. picker-gate interaction that
-  `?gate=skip` does not clear), defer via a `BL-` row naming exception (c) with the probe output;
-  the file then keeps its `UNSEEN` row and its live block stays local-only.
+- Migrate the live §5.7 block (3 tests) from the dead `/show/[slug]?crew=` URL to the seeded
+  shareToken route, and wire the file. **The migration is NOT a bare URL swap** (spec review R2
+  F2). Per-case contract:
+  - **Each case names its viewer contract, and state entry is ASSERTED.** The block's
+    `driveToState` helper verifies only HTTP 200 today (`tests/e2e/helpers/rightNow.ts`, the
+    navigate-and-check-200 step); the migrated helper must also assert the RENDERED RightNow
+    state matches the requested kind (the hero's state/treatment attribute), so a viewer whose
+    resolution ignores the fixture's restriction fails loud instead of passing on coincident
+    anchor text.
+  - **The clock-driven cases** (midnight rollover; non-show-now → show-day) enter their states
+    via `page.clock` against `run_of_show` — genuinely per-show; the admin-resolution recipe
+    (§3.2) is expected to work.
+  - **The recovery case enters `viewer_off_day` by mutating the VIEWER's restriction** — a
+    viewer-scoped state an admin viewer never enters (admin ignores restrictions). Migrating it
+    honestly needs a restricted crew viewer through real resolution: per-test crew rows, the
+    same cost the dead suites' TODO names. If that exceeds the timebox, THE CASE defers via a
+    `BL-` row (exception (a)/(c), probe attached) with a registered static skip carrying the
+    `BL-` ref — and the file wires only if its `REQUIRED` row and skip registration stay honest;
+    otherwise the whole-file valve below fires.
+
+  Same project-honesty rule as §3.1/§3.2: wire only under projects where the tests genuinely
+  execute; reclassify the allowlist row per §3.1 when wired. **Whole-file valve:** if migration
+  beyond the above surfaces further harness dependencies, defer via a `BL-` row naming exception
+  (c) with the probe output; the file then keeps its `UNSEEN` row and its live block stays
+  local-only.
 
 ### 3.6 Ledger + docs
 
@@ -291,10 +329,18 @@ For each §2.2 failure, in the worktree, before wiring:
    guard's design (source-scan), stated here so nobody reads the deletion as having removed a
    runtime defense that existed. It did not exist: the dead suite asserted against a route that
    404s.
-3. **Eight identity-dependent behaviors keep unit/component coverage only** (§2.3 SUPERSEDED
+3. **The superseded suites' behaviors keep unit/component coverage only** (§2.3 SUPERSEDED
    rows). The e2e layer proves the section components mount in a real browser via the wired
-   `crew-page`/`crew-section-toggle`/`stage-restricted` specs; per-identity e2e variants (specific
-   non-LEAD viewers) remain unbuilt, same as before this arc.
+   `crew-page`/`crew-section-toggle`/`stage-restricted` specs; per-identity e2e variants
+   (rendering as a SPECIFIC crew row — LEAD or non-LEAD; §2.1's corrected census) remain unbuilt,
+   same as before this arc. `stage-restricted-crew-schedule.spec.ts` is the one wired precedent
+   for a specific restricted-crew viewer (picker-cookie path).
+4. **The crew-page §4.10 transition-audit block stays statically skipped** (webkit frozen-clock
+   technique limit; the block's header documents the mechanism and its three live coverage
+   surfaces). Its 4 tests are excluded from the `REQUIRED` derivation by static-skip status —
+   recorded here so the wiring cannot be read as having revived them.
+5. **The recovery/`viewer_off_day` §5.7 case may defer** per §3.5's case valve; if it does, its
+   `BL-` row + registered skip are the surfaced record.
 
 ## 7. Out of scope
 
