@@ -398,7 +398,7 @@ The cron sync path also synthesizes workbooks (`lib/sync/runScheduledCronSync.ts
 
 ### BL-MUTATION-REF-SUB — an exported `#REF!` is absorbed into the parse with no signal
 
-**Status:** OPEN (2026-08-06, L-wave decomposition of `BL-MUTATION-HARNESS-OPEN-HOLES`; wave spec+plan ratified 2026-08-08 — see docs/superpowers/specs/parser/2026-08-07-parser-mutation-wave-design.md) · **Severity:** medium · **Class:** PARSER ROBUSTNESS · **Effort:** M
+**Status:** IN PROGRESS (2026-08-06, L-wave decomposition of `BL-MUTATION-HARNESS-OPEN-HOLES`; wave spec+plan ratified 2026-08-08 — see docs/superpowers/specs/parser/2026-08-07-parser-mutation-wave-design.md) · **Severity:** medium · **Class:** PARSER ROBUSTNESS · **Effort:** M · **Branch:** feat/mutation-ref-sub
 
 A body cell rewritten to the literal `#REF!` — a real broken-reference export artifact, **present in 3 of the 7 live shows** — parses as an ordinary value. Value-corruption class: the operator sees a crew page with `#REF!` where a name or time belongs, and nothing upstream said so.
 
