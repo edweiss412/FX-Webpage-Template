@@ -498,7 +498,8 @@ This is the SAME consequence the wave exists to remove — invisible characters 
 
 ### BL-MUTATION-LEDGERGIT-SITE-DRIFT — the `ledgerGit` source-mutation gate is red on main: relocated sites, an uncovered new constant, and a CI-only survivor pair
 
-**Status:** OPEN (2026-08-08, surfaced by the parser mutation-hardening wave; PRE-EXISTING on `main`, not introduced by that wave) · **Severity:** medium · **Class:** CI / GUARD SURFACE · **Effort:** M
+**Status:** IN PROGRESS · **Branch:** fix/mutation-ledgergit-site-drift · **Severity:** medium · **Class:** CI / GUARD SURFACE · **Effort:** M
+(Filed 2026-08-08, surfaced by the parser mutation-hardening wave; PRE-EXISTING on `main`, not introduced by that wave.)
 
 `tests/mutation/guardSurfaces.gate.test.ts` fails for the `ledgerGit` surface (`tests/mutation/source/registry.ts:355`, source `scripts/lib/ledger-git.ts`). Three distinct causes, only the first of which is bookkeeping:
 
