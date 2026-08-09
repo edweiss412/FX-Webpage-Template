@@ -643,35 +643,25 @@ Consequence: Doug must leave the dashboard to see operator telemetry and, as a n
 
 **Possible bundle, with the caveat that decides it:** `BL-ADMIN-PER-SHOW-HISTORY` wants a per-show operator history view, and both surface operator history to an admin — but they read DIFFERENT stores today. This entry's sink is `app_events`; that entry's own body names `sync_history` / `pending_syncs` / `shows` and `shows_internal.parse_warnings`, and sync history persists to `sync_log` (`lib/sync/syncLog.ts:43`). So a bundle is a DESIGN question (should one surface span both stores?), not a shared read path to be reused. Decomposition record: `BACKLOG-archive.md` § `BL-OPS-LOG`.
 
-## BL-E2E-APP-DEPENDENT-SPECS-CI-DARK — 32 app-dependent e2e specs are named by no CI workflow
+## BL-E2E-APP-DEPENDENT-SPECS-CI-DARK — 43 app-dependent e2e specs are named by no CI workflow
 
 **Status:** OPEN · **Severity:** MEDIUM (dark regression coverage) · **Class:** CI wiring · **Effort:** L · **Filed:** 2026-08-06 (L-wave, refile of `BL-E2E-LIFECYCLE-SPECS-CI-DARK` at honest scope)
 
-**32 standalone-allowlist e2e specs are named by no CI workflow** — the `UNSEEN` rows of `tests/ci/_metaE2eWorkflowCoverage.test.ts`. They are the residual of the 2026-07-26 CI-dark cluster, which closed everything that did NOT need a running application: `standalone-e2e.yml` now runs the whole standalone config unfiltered on every PR, and that alone retired 30 allowlist rows.
+**43 standalone-allowlist e2e specs are named by no CI workflow** — the `UNSEEN` rows of `tests/ci/_metaE2eWorkflowCoverage.test.ts`. They are the residual of the 2026-07-26 CI-dark cluster, which closed everything that did NOT need a running application: `standalone-e2e.yml` now runs the whole standalone config unfiltered on every PR, and that alone retired 30 allowlist rows.
 
-**Census, RESTATED 2026-08-09 by counting the allowlist rather than by arithmetic** (the "~60" this
-entry was first filed with was wrong, and the miscount is recorded so the number is not re-inflated;
-the 2026-08-06 counts are kept alongside so the delta is auditable):
+**Census, counted 2026-08-06 rather than estimated** (the "~60" this entry was first filed with was wrong, and the miscount is recorded so the number is not re-inflated):
 
-| Allowlist rows                                                          | 2026-08-06 | 2026-08-09 |
-| ----------------------------------------------------------------------- | ---------- | ---------- |
-| `UNSEEN` — named by no workflow, **this entry's population**            | 43         | **32**     |
-| `PATH_GATED` — named by a workflow, runs when its filter matches        | 13         | 13         |
-| `PATH_GATED_BY_EXCLUSION` — named, runs unless the change is prose-only | 6          | 8          |
-| `LOCAL_ONLY` — local artifact by design                                 | 1          | 1          |
-| **Total rows**                                                          | 66         | **54**     |
-
-The 11-row drop in `UNSEEN` and the 12-row drop in the total are `BL-RESURRECT-MOBILE-SAFARI-E2E`
-(archived 2026-08-09): NINE rows removed with their deleted spec files, and TWO reclassified
-`UNSEEN` → `PATH_GATED_BY_EXCLUSION` as `crew-e2e.yml` grew crew-page and theme-toggle.
-`right-now-transitions` stays `UNSEEN` — its whole-file valve fired, so it is named by no workflow
-and is statically skipped (`BL-RIGHTNOW-SECTION57-FIXTURE-INERT`). Recounted from
-`tests/ci/_metaE2eWorkflowCoverage.test.ts`, which is disk-walked, so these numbers are checkable
-rather than asserted.
+| Allowlist rows                                                                                         | 66  |
+| ------------------------------------------------------------------------------------------------------ | --- |
+| `UNSEEN` — named by no workflow, **this entry's population**                                           | 43  |
+| `PATH_GATED` — named by a workflow, runs when its filter matches                                       | 13  |
+| `PATH_GATED_BY_EXCLUSION` — named, runs unless the change is prose-only                                | 6   |
+| `LOCAL_ONLY` — local artifact by design                                                                | 1   |
+| custom-reason rows (`admin-lifecycle-transitions`, `attention-modal-gallery`, `section-header-visual`) | 3   |
 
 Path-gated rows are NOT this entry's scope: a workflow does name them, and "not PR-blocking-capable" is a different property from "runs nowhere". Conflating the two is what produced the original overcount.
 
-**The blocker is not uniform, and promoting the cheap ones first is the obvious first batch.** Most of the 32 need a dev server AND a seeded database, which is why the cluster excluded them — but not all do: `sample.spec.ts`, for instance, requests `/` and asserts the title. Sorting the 32 by what they actually require, and wiring the no-seed ones first, is a cheaper opening move than the entry's original all-or-nothing framing implied.
+**The blocker is not uniform, and promoting the cheap ones first is the obvious first batch.** Most of the 43 need a dev server AND a seeded database, which is why the cluster excluded them — but not all do: `sample.spec.ts`, for instance, requests `/` and asserts the title. Sorting the 43 by what they actually require, and wiring the no-seed ones first, is a cheaper opening move than the entry's original all-or-nothing framing implied.
 
 **This entry replaces a row whose heading premise had gone false.** Its predecessor was named for two `admin-lifecycle` specs being invoked by no workflow; both have been wired since 2026-07-27 and run on `mobile-safari` on every `pull_request` (`.github/workflows/lifecycle-layout-e2e.yml:110,130,132`, re-verified 2026-08-06). The full wiring history is preserved in `BACKLOG-archive.md` § `BL-E2E-LIFECYCLE-SPECS-CI-DARK`. Only the app-dependent residual survives here, and the scope has not changed — only the name now matches it.
 
@@ -1256,6 +1246,50 @@ included. The two rows are one piece of work: find the hero's real anchor source
 and the recovery case's restricted-viewer harness together.
 
 ---
+
+### BL-RESURRECT-MOBILE-SAFARI-E2E — lift the remaining mobile-safari tile/crew specs into CI
+
+**Filed:** 2026-06-23 (discovered building the crew-e2e CI job). **Effort:** L
+**Status:** IN PROGRESS · **Branch:** test/resurrect-mobile-safari-e2e
+
+> **CORRECTION 2026-08-06 (L-wave, `feat/l-wave-docs`).** The entry's founding premise — "NO CI
+> workflow runs the `mobile-safari` Playwright project" — is **REFUTED**. Three workflows run it
+> today: `lifecycle-layout-e2e.yml` (`:110`, `:130`, `:132`), `crew-e2e.yml` (`:159`, alongside
+> desktop-chromium), and `phantom-gap-e2e.yml` (`:175`). The project is not dark; a **subset of specs
+> inside it** is. The id is KEPT deliberately — it is cross-referenced from the CI-dark cluster specs
+> and the 2026-08-05 sizing sweep, and a rename would cost more than the stale title saved. The body
+> below is rewritten at honest scope; the original claim is preserved in this note so the correction
+> is auditable rather than silent.
+
+**Honest residual: the ~20 M4 tile/crew specs that no workflow names.** Every CI Playwright run is
+still an explicit spec list, so a spec matched by the `mobile-safari` project but named in no run
+command executes nowhere. That set is roughly: `crew-page`, `schedule-tile`, `transport-tile`,
+`status-financials`, `role-spoof`, `pack-list`, `notes-tile`, `right-now`, `right-now-transitions`,
+`layout-dimensions`, `empty-state`, `theme-toggle`, and their siblings — the twelve that are
+additionally `describe.skip` are enumerated in `BACKLOG-archive.md` §
+`BL-COVERAGE-CLAIMS-CITE-SKIPPED-SUITES`. **A spec being project-matched is not coverage**, and that
+distinction is the whole content of this row now.
+
+**Why it is still L, and still not "now":** these specs have been unrun in CI for a long time and
+will surface latent seed/timing/env failures. The crew corpus and the M4 tile fixtures mutate shared
+rows — `workers: 1` already serializes them, but resurrecting ~20 at once is a multi-round debugging
+slog, not a follow-on edit. Several also predate the crew redesign and assume a pre-redesign DOM.
+
+**Promotion path — incremental, and the bar is already demonstrated.** Extend `crew-e2e.yml` (or a
+sibling) spec by spec, triaging each failure; the `CREW_E2E_ONLY` filter + `pnpm db:seed` pattern
+there is the working template. `lifecycle-layout-e2e.yml` is the worked example of the acceptance bar
+a batch must clear — **five consecutive green normal-dispatch runs** before a spec counts as wired
+(spec §6.1 / AC-6). Land green globs as they pass rather than flipping the project on at once.
+
+**Relationship to `BL-E2E-APP-DEPENDENT-SPECS-CI-DARK` — it is a SUBSET, not a sibling.** Probed
+2026-08-06: all twelve specs listed above are `UNSEEN` rows of the same
+`tests/ci/_metaE2eWorkflowCoverage.test.ts` allowlist that entry's 43-row population is drawn from.
+An earlier draft of this note claimed the two cover different populations and may close
+independently; that was false in the direction that matters, and is corrected here rather than left
+to be re-derived. **Closing the parent closes this one.** This entry survives as a distinct row only
+because it names a coherent, prioritizable BATCH — the mobile-safari tile/crew specs, which share one
+project, one seed, and one template — and the parent's own promotion path is explicitly incremental
+batches. If the parent is worked wholesale, archive this as absorbed.
 
 ## BL-TOGGLE-BANNER-ANCHOR-ROOM-UNMEASURED — one clip-fit anchor still has no real-surface number
 
