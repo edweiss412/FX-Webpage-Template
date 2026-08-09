@@ -99,7 +99,12 @@ const EXPECTED_TOKEN_DELTAS = [
     before: "h-5 w-5",
     after: "size-5",
   },
-  { id: "C4", file: "components/admin/settings/NotifyToggle.tsx", before: "h-5 w-5", after: "size-5" },
+  {
+    id: "C4",
+    file: "components/admin/settings/NotifyToggle.tsx",
+    before: "h-5 w-5",
+    after: "size-5",
+  },
   {
     id: "C5",
     file: "components/crew/RightNowHero.tsx",
@@ -146,7 +151,9 @@ function main(argv) {
       base = args[i].slice("--base=".length);
     } else {
       console.error(`unknown argument: ${args[i]}`);
-      console.error("usage: node scripts/verify-cn-operand-parity.mjs --base <migration-parent-sha>");
+      console.error(
+        "usage: node scripts/verify-cn-operand-parity.mjs --base <migration-parent-sha>",
+      );
       return 2;
     }
   }
