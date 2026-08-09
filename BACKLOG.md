@@ -10,7 +10,7 @@ Last reconciled: 2026-08-04 — `feat/harness-font-fidelity` (PR #705) graduated
 
 ## BL-TAP-TARGET-NEIGHBOUR-OVERLAP-COVERAGE — three 44px targets ship an unasserted expansion band
 
-**Filed:** 2026-08-09 (`docs/step3-a11y-impeccable-regate`, non-degraded invariant-8 re-run). **Class:** guard coverage. **Effort:** S-M — the blocker is harness shape, not assertion difficulty. **Class-sweep exception:** (c) — closing it means changing how the live entry mounts, which is a redesign of the harness this PR does not otherwise touch. **Reachability: PROBED — no live defect.**
+**Status:** IN PROGRESS · **Branch:** docs/quick-wins-2-specs · **Filed:** 2026-08-09 (`docs/step3-a11y-impeccable-regate`, non-degraded invariant-8 re-run). **Class:** guard coverage. **Effort:** S-M — the blocker is harness shape, not assertion difficulty. **Class-sweep exception:** (c) — closing it means changing how the live entry mounts, which is a redesign of the harness this PR does not otherwise touch. **Reachability: PROBED — no live defect.**
 
 `tests/e2e/tap-target-floor.layout.spec.ts` asserts neighbour non-overlap for exactly two of the seven repaired targets: the three step pills (DI-3, against each other) and the `AdminNav` brand link (against every interactive element in its own topbar). It cannot assert it for the other three, and the reason is structural: `tests/e2e/_tapTargetFloorLiveEntry.tsx` mounts each component in its own isolated `<div data-mount>`, so the neighbours those controls actually have in production are not in the tree.
 
@@ -43,7 +43,7 @@ U+25B8 ▸    4           U+2194 ↔    4     U+2264 ≤    4     U+21D2 ⇒    
 
 ## BL-TAP-TARGET-SPEC-MUTATION-ENROLMENT — enrol the tap-target-floor spec in the source-mutation registry
 
-**Filed:** 2026-08-09 (`fix/step3-a11y-cluster`, diff-review round economy). **Class:** review-round economy (a convergence criterion that is machine-computed rather than argued). **Effort:** S — one registry row plus an operator pass. **Class-sweep exception:** (c) — the registry and its runner are a surface this PR does not otherwise touch, and enrolling mid-review would have changed the artifact under review. **Reachability: PROBED.**
+**Status:** IN PROGRESS · **Branch:** docs/quick-wins-2-specs · **Filed:** 2026-08-09 (`fix/step3-a11y-cluster`, diff-review round economy). **Class:** review-round economy (a convergence criterion that is machine-computed rather than argued). **Effort:** S — one registry row plus an operator pass. **Class-sweep exception:** (c) — the registry and its runner are a surface this PR does not otherwise touch, and enrolling mid-review would have changed the artifact under review. **Reachability: PROBED.**
 
 `tests/e2e/tap-target-floor.layout.spec.ts` is a guard suite, and its nine diff-review rounds produced **20 declared findings, of which 15 were the same shape**: "the guard does not pin what it claims", each arriving with an exact production edit the committed suite failed to catch. Every one was reproduced locally as an isolating mutant and reverted, so the operator set is already written down — in the commit messages of `893793235`, `95e9eb4a7`, `06cc09ed1`, `fc628f3e9`, `cc9fcfe4d`, `e88e7e0f6`, `0bce8e51c` and `50f2478e1`. It is simply not machine-run.
 
@@ -549,7 +549,7 @@ Ledgered `accepted-gap`, not `equivalent`, in `tests/mutation/source/registry.ts
 
 ### BL-TRANSPORT-ID-RESOLUTION — the deferred red-first regression pins for `transportTileVisible`
 
-**Status:** OPEN at residual scope · **Severity:** low · **Class:** TEST COVERAGE · **Effort:** S · **Filed:** 2026-07-09 · **Resized:** 2026-08-06 (L-wave)
+**Status:** IN PROGRESS · **Branch:** docs/quick-wins-2-specs · **Severity:** low · **Class:** TEST COVERAGE · **Effort:** S · **Filed:** 2026-07-09 · **Resized:** 2026-08-06 (L-wave)
 
 > **RESIZED 2026-08-06 (L-wave, `feat/l-wave-docs`), decided by probe.** The entry's headline residual
 > — id-based transport visibility — landed as Flow 8.3b (#380). `transportTileVisible` now carries
@@ -910,7 +910,7 @@ screen-disposition 2026-08-04: PREREQ-FENCED + ANNOTATED, stays open, NOT claime
 
 ### BL-SHADOW-TILE-ARROW-SYNTAX — `shadow-(--shadow-tile)` is not canonicalized, and globals.css claims it is
 
-**Severity:** LOW (documented inconsistency, nothing renders differently) · **Class:** lint coverage · **Filed:** 2026-08-07 (`refactor/classname-array-join-cn`, spec §9.1 / R5, class-sweep exception (c)) · **Effort:** S · **Reachability:** PROBED 2026-08-07 — 24 textual matches across 18 files (21 class-string sites; 3 are doc comments), all live under a passing `pnpm lint`.
+**Status:** IN PROGRESS · **Branch:** docs/quick-wins-2-specs · **Severity:** LOW (documented inconsistency, nothing renders differently) · **Class:** lint coverage · **Filed:** 2026-08-07 (`refactor/classname-array-join-cn`, spec §9.1 / R5, class-sweep exception (c)) · **Effort:** S · **Reachability:** PROBED 2026-08-07 — 24 textual matches across 18 files (21 class-string sites; 3 are doc comments), all live under a passing `pnpm lint`.
 
 **Description:** `app/globals.css:285-289` instructs components to prefer the canonical `shadow-tile` over the `shadow-(--shadow-tile)` arrow form and states _"(eslint-plugin-better-tailwindcss enforces this)."_ **Probed false.** A plain-string className carrying `shadow-(--shadow-tile)` — the shape the rule reads best — is reported clean. This entry owns both the sweep and correcting that false claim in the comment.
 
@@ -933,7 +933,7 @@ So this is not a `shadow-*` carve-out: **every `@theme` token defined through a 
 
 ### BL-CLASS-CONST-LINT-BLINDSPOT — class strings in arbitrary-named consts and object values stay unlinted
 
-**Severity:** LOW (lint coverage, no user-visible defect) · **Class:** lint coverage · **Filed:** 2026-08-07 (`refactor/classname-array-join-cn`, spec §9.2 / R6, class-sweep exception (c)) · **Effort:** S-M · **Reachability:** PROBED 2026-08-07 — shape matrix run against the real config (spec §2.3).
+**Status:** IN PROGRESS · **Branch:** docs/quick-wins-2-specs · **Severity:** LOW (lint coverage, no user-visible defect) · **Class:** lint coverage · **Filed:** 2026-08-07 (`refactor/classname-array-join-cn`, spec §9.2 / R6, class-sweep exception (c)) · **Effort:** S-M · **Reachability:** PROBED 2026-08-07 — shape matrix run against the real config (spec §2.3).
 
 **Description:** `better-tailwindcss/enforce-canonical-classes` traverses string literals, recognized callees, and the `^classes$` variable selector. It does NOT traverse a class string bound to an arbitrarily-named const, an object value, or an identifier passed INTO a recognized callee. Probe table:
 
@@ -962,7 +962,7 @@ So this is not a `shadow-*` carve-out: **every `@theme` token defined through a 
 
 ### BL-ESLINT-CONFIG-ARRAY-JOIN-COMMENT-STALE — the eslint config's array-join comment outlived the sites it describes
 
-**Severity:** LOW (stale comment, no behavior) · **Class:** docs accuracy · **Filed:** 2026-08-07 (`refactor/classname-array-join-cn`) · **Effort:** XS · **Reachability:** PROBED 2026-08-07 — read at `eslint.config.mjs:64-70` on the post-migration tree.
+**Status:** IN PROGRESS · **Branch:** docs/quick-wins-2-specs · **Severity:** LOW (stale comment, no behavior) · **Class:** docs accuracy · **Filed:** 2026-08-07 (`refactor/classname-array-join-cn`) · **Effort:** XS · **Reachability:** PROBED 2026-08-07 — read at `eslint.config.mjs:64-70` on the post-migration tree.
 
 **Description:** The comment above `"better-tailwindcss/enforce-canonical-classes"` says array-style patterns like `className={[...].filter(Boolean).join(" ")}` "are NOT covered by the plugin's default selectors — those are linted **by hand** on initial canonicalization." Its first clause is still true (the plugin genuinely cannot traverse an array join); its second is not. After `refactor/classname-array-join-cn` there are no array-join classNames left to lint by hand, and `tests/specLint/canonicalClassCallee.test.ts` reports any new one as a hard failure rather than leaving it to a manual pass.
 
@@ -974,7 +974,7 @@ So this is not a `shadow-*` carve-out: **every `@theme` token defined through a 
 
 ### BL-WIZARD-CONNECTOR-MAXW-INERT — the wizard step connector renders 0-width, so its `max-w` is a dead constraint
 
-**Severity:** LOW (cosmetic; an intended hairline separator never renders) · **Class:** UI correctness · **Filed:** 2026-08-07 (`refactor/classname-array-join-cn`) · **Effort:** S · **Reachability:** PROBED 2026-08-08 — measured `getBoundingClientRect()` in mobile-safari at 390px AND at 900px: both connectors are `0 × 1` at both widths.
+**Status:** IN PROGRESS · **Branch:** docs/quick-wins-2-specs · **Severity:** LOW (cosmetic; an intended hairline separator never renders) · **Class:** UI correctness · **Filed:** 2026-08-07 (`refactor/classname-array-join-cn`) · **Effort:** S · **Reachability:** PROBED 2026-08-08 — measured `getBoundingClientRect()` in mobile-safari at 390px AND at 900px: both connectors are `0 × 1` at both widths.
 
 **Description:** `components/admin/OnboardingWizard.tsx` renders a step-indicator connector after steps 1 and 2 as `<span className={cn("h-px max-w-confirm-box flex-1 rounded-full", …)} />` — evidently intended as a hairline rule between the step pills. It never renders: measured 0px wide at every viewport.
 
@@ -1087,7 +1087,7 @@ So this is not a `shadow-*` carve-out: **every `@theme` token defined through a 
 
 ### BL-LOCKED-FIXTURE-HELPER-TARGETS-REMOTE-DB — a local e2e run can send fixture writes to the validation project
 
-**Status:** OPEN · **Severity:** MEDIUM (local-only, but the write lands in the SHARED validation project, and the symptom names the wrong cause) · **Class:** test-harness / env-resolution defect · **Filed:** 2026-08-09 (surfaced wiring right-now-transitions into the crew-e2e multi-spec invocation) · **Effort:** S
+**Status:** IN PROGRESS · **Branch:** docs/quick-wins-2-specs · **Severity:** MEDIUM (local-only, but the write lands in the SHARED validation project, and the symptom names the wrong cause) · **Class:** test-harness / env-resolution defect · **Filed:** 2026-08-09 (surfaced wiring right-now-transitions into the crew-e2e multi-spec invocation) · **Effort:** S
 
 **Probed, not theorized.** `tests/e2e/helpers/lockedCrewRestriction.ts` resolves its psql target
 ONCE, at module load:
@@ -1177,7 +1177,7 @@ which should localise it.
 
 ### BL-CREW-FOOTER-OBSCURED-BY-FIXED-BOTTOM-BAR — the mobile bottom tab-bar covers the crew footer
 
-**Status:** OPEN · **Severity:** MEDIUM (real, reachable on every crew page at mobile widths; the obscured controls are the theme toggle and the report button) · **Class:** product layout defect · **Filed:** 2026-08-09 (surfaced rewriting `theme-toggle.spec.ts`, `BL-RESURRECT-MOBILE-SAFARI-E2E`) · **Effort:** S
+**Status:** IN PROGRESS · **Branch:** docs/quick-wins-2-specs · **Severity:** MEDIUM (real, reachable on every crew page at mobile widths; the obscured controls are the theme toggle and the report button) · **Class:** product layout defect · **Filed:** 2026-08-09 (surfaced rewriting `theme-toggle.spec.ts`, `BL-RESURRECT-MOBILE-SAFARI-E2E`) · **Effort:** S
 
 **Probed, not theorized** (seeded crew route, mobile-safari, 390x844, scrolled fully to the bottom):
 
@@ -1211,7 +1211,7 @@ where the bar does not render (`min-[720px]:hidden`), and still asserts the 44px
 
 ### BL-CREW-FOOTER-NOT-ANCHORED-SHORT-CONTENT — `mt-auto` on the crew footer is inert, so a short page leaves it mid-viewport
 
-**Status:** OPEN · **Severity:** LOW (no seeded show currently renders a short enough page; reachable when one does) · **Class:** product layout defect · **Filed:** 2026-08-09 (`BL-RESURRECT-MOBILE-SAFARI-E2E` Task 7 probe) · **Effort:** S
+**Status:** IN PROGRESS · **Branch:** docs/quick-wins-2-specs · **Severity:** LOW (no seeded show currently renders a short enough page; reachable when one does) · **Class:** product layout defect · **Filed:** 2026-08-09 (`BL-RESURRECT-MOBILE-SAFARI-E2E` Task 7 probe) · **Effort:** S
 
 **Probed, not theorized** (seeded crew route, mobile-safari, 390x844):
 
