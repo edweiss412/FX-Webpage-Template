@@ -37,6 +37,7 @@ import {
   setDeveloperAction,
   type SetDeveloperActionResult,
 } from "@/app/admin/settings/admins/developerActions";
+import { cn } from "@/lib/ui/cn";
 
 export type DeveloperToggleButtonProps = {
   /** Row email; the subject of the promote/demote. Omitted on the locked variant. */
@@ -88,12 +89,12 @@ function SwitchTrack({ on }: { on: boolean }) {
   return (
     <span
       aria-hidden="true"
-      className={[
+      className={cn(
         TRACK_BASE,
         on ? "border-accent-edge bg-accent" : "border-border-strong bg-surface-sunken",
-      ].join(" ")}
+      )}
     >
-      <span className={[THUMB_BASE, on ? "translate-x-6" : "translate-x-1"].join(" ")} />
+      <span className={cn(THUMB_BASE, on ? "translate-x-6" : "translate-x-1")} />
     </span>
   );
 }

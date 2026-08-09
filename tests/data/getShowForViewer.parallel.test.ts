@@ -74,7 +74,8 @@ function makeDeferredClient(opts: {
   }
 
   // The columns selected let us distinguish two shows_internal reads:
-  // run_of_show (unconditional) vs financials (lead-gated).
+  // run_of_show vs financials — BOTH unconditional since the 2026-08-07
+  // amendment; only the returned financials VALUE is entitlement-gated.
   let lastSelectCols = "";
   const client = {
     from(table: string) {
@@ -215,7 +216,8 @@ describe("getShowForViewer — parallel independent reads (A1)", () => {
       deferredTables,
       deferredRpcs,
       seed: {
-        // crew identity lookup (immediate): LEAD so financials joins the wave too
+        // crew identity lookup (immediate). Flags do not decide wave membership:
+        // financials joins the wave for every viewer (2026-08-07 amendment).
         crew_members: { data: null, error: null }, // overwritten per-call below
         shows: { data: showRow(), error: null },
         hotel_reservations: { data: [], error: null },
@@ -229,8 +231,9 @@ describe("getShowForViewer — parallel independent reads (A1)", () => {
     });
 
     // The admin viewer issues NO crew-identity lookup, so the SINGLE crew_members
-    // read is the roster (deferred). isLead=true for admin → financials joins the
-    // wave. No from() override needed for this arm.
+    // read is the roster (deferred). Financials joins the wave for EVERY viewer
+    // (2026-08-07 amendment); the non-LEAD twin below pins that independently.
+    // No from() override needed for this arm.
     supabaseState.client = harness.client;
 
     const p = getShowForViewer("show-1", { kind: "admin" });
@@ -255,7 +258,7 @@ describe("getShowForViewer — parallel independent reads (A1)", () => {
       "transportation",
       "contacts",
       "shows_internal:run_of_show",
-      "shows_internal:financials", // admin → isLead → financials read issues
+      "shows_internal:financials", // unconditional — issues for every viewer
       "crew_members", // roster
     ]) {
       expect(harness.started).toContain(key);

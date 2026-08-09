@@ -45,6 +45,7 @@ import { CalendarDays } from "lucide-react";
 import { Avatar } from "@/components/atoms/Avatar";
 import { digitsOnly } from "@/lib/format/phone";
 import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
+import { cn } from "@/lib/ui/cn";
 
 type Person = {
   /** Display name. Absent/blank → the row falls back to `fallbackLabel`. */
@@ -80,13 +81,13 @@ type PersonRowProps = {
  * its intrinsic width past the card's right edge; in normal-width contexts the
  * chip is wider than its content so the truncate is a no-op.
  */
-const CHIP_CLASS = [
+const CHIP_CLASS = cn(
   // `inline-block` (not `inline-flex`) so `truncate` actually clips the label:
   // text-overflow:ellipsis applies to block/inline-block boxes, not to a flex
   // container's flowed text. `max-w-full` bounds it to the column.
   "inline-block max-w-full truncate rounded-sm px-1.5 py-0.5 align-middle",
   "text-xs font-semibold uppercase tracking-eyebrow",
-].join(" ");
+);
 
 /**
  * Partial-attendance chip — MIXED-case (NOT the eyebrow uppercase): it carries a
@@ -96,11 +97,11 @@ const CHIP_CLASS = [
  * truncates in a narrow column, and distinguishes it from the status chips.
  * `inline-flex` here (the inner label span owns the `truncate`).
  */
-const PARTIAL_CHIP_CLASS = [
+const PARTIAL_CHIP_CLASS = cn(
   "inline-flex max-w-full items-center gap-1 rounded-sm px-1.5 py-0.5 align-middle",
   "text-xs font-medium",
   "bg-surface-sunken text-text-subtle",
-].join(" ");
+);
 
 /**
  * Shared action-anchor styling — the mock `.cbtn`: an icon-only 44px-square
@@ -114,12 +115,12 @@ const PARTIAL_CHIP_CLASS = [
  * lives in `aria-label`. Hover deepens border + sunken fill and warms the glyph
  * to the accent, matching the mock's contact-button affordance.
  */
-const ACTION_CLASS = [
+const ACTION_CLASS = cn(
   "inline-flex size-tap-min min-h-tap-min shrink-0 items-center justify-center",
   "rounded-[11px] border border-border bg-surface text-text-subtle",
   "transition-colors duration-fast",
   "hover:border-border-strong hover:bg-surface-sunken hover:text-accent-on-bg",
-].join(" ");
+);
 
 export function PersonRow({ person }: PersonRowProps) {
   const { role, fallbackLabel, you, lead, primary, partial } = person;
@@ -170,17 +171,13 @@ export function PersonRow({ person }: PersonRowProps) {
               {heading}
             </p>
             {you ? (
-              <span className={[CHIP_CLASS, "bg-stale-tint text-accent-on-bg"].join(" ")}>You</span>
+              <span className={cn(CHIP_CLASS, "bg-stale-tint text-accent-on-bg")}>You</span>
             ) : null}
             {lead ? (
-              <span className={[CHIP_CLASS, "bg-surface-sunken text-text-subtle"].join(" ")}>
-                Lead
-              </span>
+              <span className={cn(CHIP_CLASS, "bg-surface-sunken text-text-subtle")}>Lead</span>
             ) : null}
             {primary ? (
-              <span className={[CHIP_CLASS, "bg-surface-sunken text-text-subtle"].join(" ")}>
-                Primary
-              </span>
+              <span className={cn(CHIP_CLASS, "bg-surface-sunken text-text-subtle")}>Primary</span>
             ) : null}
             {partial ? (
               <span data-partial="true" title={partial} className={PARTIAL_CHIP_CLASS}>

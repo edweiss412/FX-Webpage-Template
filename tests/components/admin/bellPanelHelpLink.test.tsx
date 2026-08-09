@@ -19,6 +19,7 @@ import { cleanup, render, within } from "@testing-library/react";
 import { BellPanel } from "@/components/admin/BellPanel";
 import type { BellEntry } from "@/lib/admin/bellFeed";
 import { MESSAGE_CATALOG, type MessageCode } from "@/lib/messages/catalog";
+import { premiseHolds } from "../../_shared/premise";
 
 // The retry Server Action is an RPC reference at runtime — stub it so importing
 // BellPanel does not drag `app/admin/actions` (server-only) into jsdom.
@@ -120,5 +121,83 @@ describe("BellPanel — Learn more help link (impeccable P1)", () => {
     const link = within(row).getByTestId("bell-help-h-3");
     expect(link.getAttribute("href")).toBe("/help/admin/parse-warnings#PARSE_ERROR_LAST_GOOD");
     expect(link.textContent).toBe("Learn more");
+  });
+});
+
+/**
+ * spec 2026-08-07-step3-a11y-cluster §2.5 / AC-6, closing
+ * NEWTAB-A11Y-RESIDUE-1(b).
+ *
+ * `↗` means "opens a new tab" everywhere else in the codebase after the new-tab
+ * sweep, so an internal route wearing it lies to the reader. Both telemetry
+ * destinations — /admin/dev/telemetry#health and /admin/dev/telemetry — are
+ * internal, and the link carries no `target`, which is exactly why the new-tab
+ * structural guard never saw it (DEFERRED.md:91-92).
+ */
+describe("BellPanel — the telemetry link is internal and wears no new-tab glyph (§2.5)", () => {
+  /** components/admin/BellPanel.tsx:101 — the code the watch arm gates on. */
+  const WATCH_CODE: MessageCode = "WATCH_CHANNEL_ORPHANED";
+
+  /**
+   * BOTH branches that render the link, per spec §3's guard table. The gate is
+   * `entry.isHealth || (isWatch && viewerIsDeveloper)`, so the non-health arm
+   * needs the watch code AND a developer viewer — it is the ONLY non-health
+   * state that renders the link at all.
+   */
+  const BRANCHES = [
+    {
+      label: "health entry",
+      alertId: "g-health",
+      entry: { isHealth: true, code: HELP_CODE },
+      viewerIsDeveloper: false,
+      href: "/admin/dev/telemetry#health",
+    },
+    {
+      label: "non-health watch entry seen by a developer",
+      alertId: "g-watch",
+      entry: { isHealth: false, code: WATCH_CODE },
+      viewerIsDeveloper: true,
+      href: "/admin/dev/telemetry",
+    },
+  ] as const;
+
+  for (const branch of BRANCHES) {
+    it(`${branch.label}: renders the telemetry link with no ↗`, async () => {
+      const entry = makeEntry({ alertId: branch.alertId, ...branch.entry });
+      routeFetch([entry]);
+      const { getByTestId } = render(
+        <BellPanel
+          viewerIsDeveloper={branch.viewerIsDeveloper}
+          onClose={vi.fn()}
+          onOpened={vi.fn()}
+        />,
+      );
+      const row = await within(getByTestId("bell-panel")).findByTestId(
+        `bell-entry-${branch.alertId}`,
+      );
+
+      // PREMISE: the link exists in this fixture. Without it the non-health
+      // case renders NO link at all (spec §3), and "no ↗ is present" would be
+      // vacuously true — it would pass on an unrepaired build.
+      const link = within(row).queryByTestId(`bell-telemetry-${branch.alertId}`);
+      premiseHolds(`${branch.label} renders the telemetry link`, link !== null);
+
+      expect(link!.getAttribute("href")).toBe(branch.href);
+      expect(link!.textContent).not.toContain("↗");
+      // Destination and text are unchanged by the repair; only the glyph goes.
+      expect(link!.textContent?.trim()).toBe("View in telemetry");
+    });
+  }
+
+  it("the non-health branch is genuinely gated, so the premise above is not free", async () => {
+    // A non-watch, non-health entry renders no telemetry link — which is what
+    // makes the premise in the loop a real constraint rather than decoration.
+    const entry = makeEntry({ alertId: "g-none", isHealth: false, code: HELP_CODE });
+    routeFetch([entry]);
+    const { getByTestId } = render(
+      <BellPanel viewerIsDeveloper={true} onClose={vi.fn()} onOpened={vi.fn()} />,
+    );
+    const row = await within(getByTestId("bell-panel")).findByTestId("bell-entry-g-none");
+    expect(within(row).queryByTestId("bell-telemetry-g-none")).toBeNull();
   });
 });

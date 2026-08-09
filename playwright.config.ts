@@ -61,8 +61,12 @@ export default defineConfig({
       // DOES store it, which is why the suite lives there. (Chromium has the
       // mirror-image limit — its CDP rejects addCookies for a `__Host-` cookie —
       // so that suite stages state by driving the picker instead of injecting.)
+      // `canonical-class-dimensions` is mobile-safari ONLY (AC-11): both its targets'
+      // precedents live here, and it is deliberately NOT named `canonical-layout-dimensions`
+      // — that would substring-match the `layout-dimensions` alternative in BOTH projects
+      // and silently run where it was never meant to.
       testMatch:
-        /(font-rendering-census|sample|crew-page|crew-section-toggle|schedule-tile|transport-tile|status-financials|role-spoof|pack-list|notes-tile|right-now|right-now-transitions|report-modal|layout-dimensions|theme-toggle|empty-state|empty-state-reachability|apply-driven-refresh|redeem-link|leaked-link|auth-chain|admin-banner|admin-banner-layout|alert-identity-banner-layout|alert-banner-autoresolve-layout|admin-layout|admin-lifecycle-layout|admin-changes-feed-layout|admin-lifecycle-transitions|admin-parse-panel|sign-in-page|bootstrap|me-page|onboarding-wizard-step1|admin-phase2-surfaces|no-raw-codes|help-pages|notify-toggles|needs-attention-page|root-landing)\.spec\.ts/,
+        /(font-rendering-census|sample|crew-page|crew-section-toggle|schedule-tile|transport-tile|status-financials|role-spoof|pack-list|notes-tile|right-now|right-now-transitions|report-modal|layout-dimensions|canonical-class-dimensions|theme-toggle|empty-state|empty-state-reachability|apply-driven-refresh|redeem-link|leaked-link|auth-chain|admin-banner|admin-banner-layout|alert-identity-banner-layout|alert-banner-autoresolve-layout|admin-layout|admin-lifecycle-layout|admin-changes-feed-layout|admin-lifecycle-transitions|admin-parse-panel|sign-in-page|bootstrap|me-page|onboarding-wizard-step1|admin-phase2-surfaces|no-raw-codes|help-pages|notify-toggles|needs-attention-page|root-landing)\.spec\.ts/,
       use: {
         ...devices["iPhone 14"],
         viewport: { width: 390, height: 844 },

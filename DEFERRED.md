@@ -10,7 +10,7 @@ Last reconciled: 2026-07-24 — swept every merged PR body (#445–#570) for def
 
 ### STEP3-GALLERY-TAP-TARGETS-1 — sub-44px chrome + a skipped heading level on `/admin?step=3` (2026-08-02)
 
-**Effort:** M
+**Effort:** M (remaining: item (d) only)
 
 Surfaced by the invariant-8 dual gate on branch `test/step3-live-render-cluster`, run against the
 six-variant seeded Step-3 gallery — the first time all six card states rendered together. Findings
@@ -24,6 +24,28 @@ string literal respelled from a raw NUL byte to its escape, runtime-identical). 
 rather than fixed here because fixing them would put unreviewed visual change into a
 test-and-docs branch.
 
+**Partially resolved 2026-08-08 by `fix/step3-a11y-cluster`** — spec
+`docs/superpowers/specs/2026-08-07-step3-a11y-cluster.md`, plan
+`docs/superpowers/plans/2026-08-07-step3-a11y-cluster.md`. Items **(a)**, **(b)** and **(c)** ship
+there and are struck below. **(d) stays deferred with its own un-defer trigger, so this entry is
+NOT archived** — the archive is where an item goes when it ships, and (d) has not.
+
+Two of this entry's own citations were wrong and are CORRECTED in the spec rather than preserved
+(spec §1.1 R1): (a)'s `<summary>` is in `components/admin/HelpAffordance.tsx:95`, not
+`step3ReviewSections.tsx`, and its parent is not `min-h-12`. The 20.3px measurement itself
+reproduced exactly and was never in dispute. (b)'s proposed `before:-inset-2` recipe is REFUTED by
+probe (spec §1.1 R2, §7 probe P4): the box measures 44x44 but only its top and left edges take the
+pointer — the right edge returns the `<nav>` and the bottom returns the outer wrapper. What shipped
+instead is `-m-2 … size-tap-min` plus an inner visual span, measured at 44x44 with all four edge
+midpoints hitting and pill centres identical to before.
+
+**~~(a) [P1] The "What does this mean?" `<summary>` is 20.3px tall.~~ ✅ SHIPPED 2026-08-08.** Not
+one site but SEVEN — the corpus pass found every `<summary>` in the repo under the floor, and all
+seven are repaired (spec §2.1): `HelpAffordance.tsx:95`, `OnboardingWizard.tsx` (operator error),
+`ErrorExplainer.tsx:114`, `AdministratorsSection.tsx:131` (40.8px, a near-miss sized by `p-3`),
+`app/me/meShowSections.tsx`, `RunOfShowList.tsx:82`, and `HelpTooltip.tsx:57` (which takes the
+Class B recipe instead, since it is also a 28px pill). Original text below for provenance.
+
 **(a) [P1] The "What does this mean?" `<summary>` is 20.3px tall.** On the hard-failed card's
 help disclosure (`components/admin/wizard/step3ReviewSections.tsx`, the HelpAffordance block).
 Measured live at 390px: own box 274.0x20.3, no `<label>` wrapper, no positioned `::before`/`::after`
@@ -34,6 +56,12 @@ prioritized:** give the `<summary>` the height its parent already reserves (`min
 `flex h-full items-center`) so the whole 48px band toggles it. **Un-defer trigger:** the next
 milestone that touches `step3ReviewSections.tsx` chrome, or any a11y sweep of the wizard.
 
+**~~(b) [P2] Four 28x28 chrome targets.~~ ✅ SHIPPED 2026-08-08.** Seven targets, not four: the
+three step pills, the HelpSheet trigger, its close button (36x36 — found ONLY by the corpus pass),
+HelpTooltip, and the `AdminNav` brand link. Each keeps its OWN painted box and radius; only the hit
+box grows. The proposed `before:-inset-*` idiom is refuted above. Original text below for
+provenance.
+
 **(b) [P2] Four 28x28 chrome targets.** The three step-indicator pills ("Go back to step 1",
 "Go back to step 2", "Step 3, current step") and the page-header help trigger ("Help: Review and
 publish your sheets") are all `size-7` (28x28) with no hit expansion — verified by
@@ -42,6 +70,12 @@ These CLEAR WCAG 2.5.8 (AA, 24px) but fail the project's own 44px floor and WCAG
 **Fix when prioritized:** the `before:absolute before:-inset-*` hit-expansion idiom, which keeps
 the 28px visual pill while giving it a 44px target. **Un-defer trigger:** same as (a), or the
 first report of a mis-tap on the step rail from a phone.
+
+**~~(c) [P2] Heading levels skip h1 → h3; the page renders no `<h2>` at all.~~ ✅ SHIPPED
+2026-08-08.** Both page-level `h3`s in `Step3Review.tsx` are promoted to `h2` (spec §2.3); the
+SHARED `step3ReviewSections.tsx:897` heading is deliberately untouched, because it renders inside
+the review modal and the show-review surface, each below its own dialog heading. Class strings are
+byte-identical, so the tag changed and the type scale did not. Original text below for provenance.
 
 **(c) [P2] Heading levels skip h1 → h3; the page renders no `<h2>` at all.** Probed live: the
 heading sequence is `1,3,3` at every viewport (320/390/768/1280) and `document.querySelectorAll("h2")`
@@ -62,33 +96,6 @@ the Step-3 row, where they should be resolved together rather than piecemeal.
 are false positives: raw `<img>` with a required runtime `src` prop and an `onError` placeholder,
 a documented deliberate revert from `next/image` (which drops cookies), mirroring
 `components/diagrams/Gallery.tsx:130-144`.
-
-### NEWTAB-A11Y-RESIDUE-1 — two P3s from the new-tab announcement dual gate (2026-07-25)
-
-**Effort:** M
-
-Both surfaced by the invariant-8 gate on `fix/newtab-announcement-family`, both
-deliberately left out of that diff.
-
-**(a) Diagram link exposes its name twice.** `components/admin/wizard/step3ReviewSections.tsx`
-gives the wrapping `<a>` an `aria-label` built from `alt` AND leaves the inner
-`<img alt={alt}>`, so a screen reader navigating into the link can hear the same
-string from both nodes. The clean fix is `alt=""` on the img (decorative, since
-the anchor is labelled). NOT taken here because it would reverse a previously
-accepted audit fix: `tests/components/admin/wizard/step3ReviewSections.test.tsx`
-explicitly pins that a blank `alt` falls back for BOTH the img and the anchor
-label ("a persisted empty alt must never yield a nameless link", impeccable audit
-P2). The anchor's `aria-label` now solves the nameless-link risk permanently, so
-the old belt-and-braces is redundant — but flipping it is a separate, reviewed
-decision, not a mid-sweep edit. Un-defer trigger: any further a11y pass on the
-Step-3 diagram tiles.
-
-**(b) An internal link wears the external glyph.** `components/admin/BellPanel.tsx`
-renders "View in telemetry ↗" for `/admin/dev/telemetry#health`, an internal
-route. After this sweep, `↗` means "opens a new tab" everywhere else in the
-codebase, so this is now the only one that lies. Out of family (no `target`, so
-the new structural guard does not see it). Un-defer trigger: next BellPanel copy
-or affordance change.
 
 ### VOICEOVER-ANNOUNCER-SPOTCHECK — owner action (2026-07-22)
 

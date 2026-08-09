@@ -661,6 +661,24 @@ earlier on this same branch.
 
 ---
 
+## BL-MUTATION-UNICODE — an injected zero-width character is silently retained — CLOSED 2026-08-08 (`feat/mutation-unicode`, PR #736, wave branch 1/5)
+
+**Status:** CLOSED · **Filed:** 2026-08-06 (L-wave decomposition of `BL-MUTATION-HARNESS-OPEN-HOLES`) · **Class:** PARSER ROBUSTNESS · **Effort:** M · **Severity:** medium
+
+A zero-width non-joiner (U+200C) injected into a cell value survived the parse intact. The class matters because invisible characters defeat EQUALITY: a name carrying one does not match the same name without one, so identity linking, crew matching, and every string comparison silently miss while the rendered page looks correct.
+
+**Resolution: the whole class closed, zero residue.** `parseSheet` now strips `[\u200B-\u200D\uFEFF]` from the entire document as its FIRST statement, before any read — including `classifyVersion`'s label reads, which run before the `normalizeSectionHeaders` seam (`lib/parser/index.ts:559`, spec §3.1). `clean()` keeps its own cell-boundary strip, because cell values are also assembled outside that entry.
+
+The row was filed with a ledgered blast radius of **827 holes** (827 `wrong` / 0 `signal_loss`) and all 827 closed: `RAW_HOLES` went 7,842 → 7,015, and the PR-head `mutation-harness` run reported **all four reconciliation buckets empty across all 8 shards** — 7,015 collected alarms against 7,015 ledger rows, `newHoles` = `fixedHoles` = 0.
+
+**The shape prediction in the original entry was right.** It said a new warn code would be warranted "only for a residue that cannot be stripped safely; if the whole 827 closes by routing through the existing boundary, no catalog row and no §12.4 lockstep is needed — which would make this smaller than M". That is what happened: no `ParseWarning` code, no catalog row, no lockstep. The M sizing was conservative.
+
+**Guard:** `tests/parser/payloadZeroWidth.test.ts` (spec §3.4). Its discriminating arm is the SEEDED one — the un-mutated corpus does not leak zero-width text into payload even without the strip, since every payload path already routes through `clean()`, so a clean-corpus assertion alone would be vacuous. That vacuity was caught in adversarial review and repaired; the guard now carries an executable reachability premise, and removing the strip fails two arms.
+
+**Documented limits (not residue).** The character class is `clean()`'s ratified one, so it omits U+2060 and U+00AD and splits emoji ZWJ sequences. Behavior deltas per spec §3.2: `contentHash` re-keys once on sheets carrying zero-width characters, and `rawSnippet` / `sourceCell` render post-strip text.
+
+---
+
 ## BL-MUTATION-HARNESS-OPEN-HOLES — parser silent-fragility classes pinned by the mutation harness — CLOSED 2026-08-06 (L-wave, `feat/l-wave-docs`, DECOMPOSED)
 
 **Resolution: DECOMPOSED into five standalone entries, one per operator class.** Ratified 2026-08-05
@@ -5919,3 +5937,62 @@ The restructure is behavior-preserving: the ok/not-ok partition over every input
 **Un-archive triggers:** (a) any future `[wedge-recovery]` line (ANY tier, including the plain-escalation line) in a lifecycle-layout-e2e TRACE ARTIFACT — which exists for a FAILED run or any `workflow_dispatch` run; (b) an admin report of a stuck Published switch. On either, this entry returns to BACKLOG.md as **Status:** OPEN (park posture re-evaluated against whatever canary is then vendored) and its `BACKLOG_GRADUATED` row is removed in the same commit.
 
 **Documented limit — the passive sensor is partial (whole-diff review r2, spec §8).** `lifecycle-layout-e2e` uploads traces `if: failure() || github.event_name == 'workflow_dispatch'`, and the ordinary `pull_request` path runs one repeat at `trace: "on-first-retry"`. So a wedge that exhausts the reload tier and fails the job, or one seen in a dispatch run, IS observable — but two shapes are not, both silently: **a wedge that self-recovers inside an otherwise-green PR run uploads no trace and prints no marker** (the run log carries none either — the 7/10 baseline run's own log has zero `[wedge-recovery]` lines in 3578 lines), and **a wedge that exhausts the reload tier on one attempt and then passes on a Playwright retry** (`retries: 2` under CI, playwright.config.ts:42) leaves the job green, so the failure-gated upload never runs and the marker dies with the attempt. Detecting a low residual RATE therefore needs a periodic `transitions_repeats` dispatch, not passive PR traffic, and silence is not by itself evidence of continued absence. Widening the upload condition is a workflow edit fenced out of the closing branch; it is the natural first step if this entry is ever un-archived. The measurement also certifies the reproduction environment, not real Safari — every observation, baseline and post-bump, is Playwright WebKit (`mobile-safari`) on ubuntu CI runners — and 20 samples bound the detectable rate: 0/20 is consistent with a true per-sample rate up to ≈13.9% (exact one-sided 95% upper bound).
+
+---
+
+### BL-CLASSNAME-ARRAY-JOIN-MIGRATION — migrate the array-join classNames so the canonical-class rule can see them — RESOLVED 2026-08-09 (`refactor/classname-array-join-cn`, PR #734)
+
+**Resolution (2026-08-09, `refactor/classname-array-join-cn`, PR #734).** Done as the entry
+describes, and the payoff was measured rather than assumed: once the rule could see inside, it
+reported **10 canonical violations across 6 files** that `pnpm lint` had been passing over. Those
+are fixed.
+
+**What shipped.** A local `cn` at `lib/ui/cn.ts` (`parts.filter(Boolean).join(" ")`) — the callee
+`eslint-plugin-better-tailwindcss` already recognizes by default, so no config change and no new
+dependency; `clsx` and `tailwind-merge` were both considered and rejected, the latter because its
+conflict-resolution semantics would have rewritten what existing class strings render. All 37 sites
+across the same 18 files migrated (36 at spec time; the final rebase integrated a fifth site in
+`OnboardingWizard.tsx` from `fix/step3-a11y-cluster`). Migration and canonicalization landed as
+SEPARATE commits, so a reviewer can diff them apart.
+
+**The equivalence claim, and why it needed proving.** `join` renders falsy operands; `cn` drops
+them, so `["a", false, "b"].join(" ")` is `"a false b"` where `cn` gives `"a b"`. The migration is
+therefore only safe if every operand at every unfiltered site is truthy — a property of the BASE, not
+of the rewrite. Three mechanisms compose, none using a hardcoded expected string: a `cn` unit test
+walking the full semantics table (including the negative-space rows that stop a future swap to
+`tailwind-merge`), a one-shot operand-parity script reading expected values from the pre-migration
+source via `git show`, and a render test pinning the single site where operands are preserved and
+bytes still move (`DayCard`'s `tone === "set"` dot loses a trailing separator; token set unchanged).
+
+**The census guard was REPLACED, not deleted** (spec §1.1 R4). `tests/specLint/canonicalClassArray.test.ts`
+bounded the blind spot by enumerating 18 files; `tests/specLint/canonicalClassCallee.test.ts` closes
+it by reporting EVERY whitespace-separated array join, at any quote style, anywhere in any UI source
+file, position-free — with the two legitimate data joins exempted by a key of
+`<file> :: <enclosing function> :: <chain> :: <operands>`.
+
+**Residual limits, all filed rather than left implicit:** `BL-SHADOW-TILE-ARROW-SYNTAX` (every
+`@theme` token defined through a `-runtime` indirection is invisible to the rule — not a `shadow-*`
+carve-out), `BL-CLASS-CONST-LINT-BLINDSPOT` (class strings in arbitrary-named consts stay dark; a
+different mechanism this arc neither worsens nor owns), `BL-ESLINT-CONFIG-ARRAY-JOIN-COMMENT-STALE`,
+and `BL-WIZARD-CONNECTOR-MAXW-INERT` (the wizard step connector measures 0×1 at every viewport, so
+its `max-w` is a dead constraint — independently corroborated by `fix/step3-a11y-cluster`'s own
+probe).
+
+**Review record:** 7 spec rounds, 13 plan rounds, and 20 diff-stage dispatches across two bases,
+with all three review surfaces approved. The round-economy filings at
+`docs/review-rounds/refactor/classname-array-join-cn/` carry the analysis, including the finding
+that an equivalence proof converges on a machine-computed mutation score rather than a review loop.
+
+**Severity:** LOW (lint coverage, no user-visible defect) · **Class:** lint coverage · **Filed:** 2026-08-04 (`chore/sweep-guards-tests`, split out of BL-CANONICAL-CLASS-ARRAY-BLINDSPOT under class-sweep exception (c)) · **Effort:** M · **Reachability:** PROBED 2026-08-04 — 18 files, 33 sites, enumerated in `tests/specLint/canonicalClassArray.test.ts`.
+
+**Description:** `better-tailwindcss/enforce-canonical-classes` cannot traverse `[...].join(" ")`, so Tailwind drift inside those classNames escapes `pnpm lint` and CI. The blind spot is now BOUNDED by a census guard — no NEW array-join className can land — but the 18 existing files remain unreadable to the rule.
+
+**Two shapes,** both covered by the census: inline `className={[...].join(" ")}` (15 files) and joined-into-a-local-then-used-as-className (3 files: `_PickerInterstitial.tsx`, `Section.tsx`, `AccentButton.tsx`).
+
+**The parent entry's prescribed fix does not apply as written.** It says "migrate to `cn(...)` (already a default-detected callee)". Probed 2026-08-04: **there is no `cn` helper anywhere** under `lib/`, `components/` or `app/`, and neither `clsx` nor `class-variance-authority` is a dependency — the eslint config names them only in a comment describing plugin defaults. So this is not the mechanical `eslint --fix` the parent promises: it must first INTRODUCE a recognized callee, which is a dependency-or-helper decision in its own right. `tests/specLint/canonicalClassArray.test.ts` asserts the absence, so the day a `cn` lands this becomes cheap and the test says so.
+
+**Why not done on `chore/sweep-guards-tests`:** class-sweep exception (c). The repair spans 20 files under `components/` and `app/`, which would make that branch an invariant-8 UI surface; the plan scopes the dual gate to the UI branch and marks the guards branch `impeccable-gate: N/A — no UI surface`. Doing it there would either violate the plan's scoping or drag a 20-file UI refactor through a guards review.
+
+**Work:** decide the callee (add a small local `cn`, or take `clsx`), migrate the 33 sites, run `eslint --fix`, delete the census guard and its entry. Lands on a UI branch under the dual gate.
+
+---

@@ -1,3 +1,37 @@
+### NEWTAB-A11Y-RESIDUE-1 — two P3s from the new-tab announcement dual gate — CLOSED 2026-08-08 (`fix/step3-a11y-cluster`, both items SHIPPED)
+
+**Resolution: FULLY resolved, both items.** Spec
+`docs/superpowers/specs/2026-08-07-step3-a11y-cluster.md` §2.4 + §2.5, plan
+`docs/superpowers/plans/2026-08-07-step3-a11y-cluster.md` Tasks 7 and 8. Filed 2026-07-25; both
+surfaced by the invariant-8 gate on `fix/newtab-announcement-family` and both deliberately left out
+of that diff.
+
+**(a) Diagram link exposed its name twice — SHIPPED.** The wrapping `<a>` in
+`components/admin/wizard/step3ReviewSections.tsx` carried an `aria-label` built from `alt` while the
+inner `<img alt={alt}>` repeated it, so a screen reader navigating into the link heard the same
+string from both nodes. The img is now `alt=""` (decorative); the anchor's `aria-label` logic,
+including its empty-alt fallback and its new-tab suffix, is unchanged.
+
+The deferral's stated blocker was that this REVERSES a previously accepted audit fix — three tests
+pinned that a blank `alt` falls back for BOTH nodes ("a persisted empty alt must never yield a
+nameless link", impeccable audit P2). That reversal was made deliberately and under review (spec
+§1.1 R5): the anchor's own fallback solves the nameless-link risk permanently, which makes the
+duplicate redundant rather than defensive. All three tests were updated, not deleted; the anchor
+half of each is preserved byte-identical, the `:899` case GAINED an anchor assertion so it does not
+become weaker than the test it replaces, and every test name was rewritten to state the new
+contract. Both directions are fenced in the component comment so neither is relitigated.
+
+**(b) An internal link wore the external glyph — SHIPPED.** `components/admin/BellPanel.tsx`
+rendered "View in telemetry ↗" for `/admin/dev/telemetry#health` and `/admin/dev/telemetry`, both
+internal routes. The glyph span is dropped; text and destination are unchanged. As the deferral
+noted, the link carries no `target`, which is exactly why the new-tab structural guard never saw it
+— so the closing test covers BOTH branches that render the link (health, and the watch code with
+`viewerIsDeveloper` true, the only non-health state that renders it), each with a premise that the
+link is present before asserting the glyph is absent. A class sweep of `↗` across `app/` and
+`components/` found no other internal link wearing it.
+
+---
+
 ### UNDO-FAILURE-REANNOUNCE-1 — [P1] a repeated identical failure does not re-announce — CLOSED 2026-08-06 (L-wave, `feat/l-wave-docs`, DEMOTED: ratified documented limit)
 
 **Resolution: DEMOTED and archived. This was RATIFIED as a documented limit by its own owning spec

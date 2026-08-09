@@ -25,7 +25,7 @@
  */
 import { Fragment } from "react";
 import Link from "next/link";
-import { Check } from "lucide-react";
+import { Check, ChevronRight } from "lucide-react";
 import type { AppSettingsRow } from "@/lib/onboarding/sessionLifecycle";
 import { startOverServerAction } from "@/lib/onboarding/serverActions";
 import { log } from "@/lib/log";
@@ -45,6 +45,7 @@ import {
   type PendingSyncRowForBuild,
   type ShowCandidate,
 } from "@/lib/admin/assembleStep3Row";
+import { cn } from "@/lib/ui/cn";
 
 type OnboardingWizardProps = {
   settings: AppSettingsRow;
@@ -165,6 +166,25 @@ export function StepIndicator({
     "flex size-7 shrink-0 items-center justify-center rounded-pill border text-xs font-semibold tabular-nums transition-colors duration-fast";
   const focusRing =
     "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg";
+  // The 44px TAP TARGET a reachable pill exposes (spec 2026-08-07-step3-a11y-cluster
+  // §2.2). The painted 28px pill moves to an inner <span> and this anchor becomes
+  // the hit box; `-m-2` cancels the growth exactly, so the pill's margin box stays
+  // 28×28 and the stepper's layout is untouched — required, not incidental, because
+  // the connectors measure 0px wide at 320 and 390 (probe P3) and there is no slack.
+  //
+  // `group` is mandatory, not stylistic: the visual span's hover utilities are
+  // rewritten `group-hover:*`, which Tailwind emits as `:is(:where(.group):hover *)`.
+  // Without an ancestor carrying `.group` they never match and hover feedback
+  // disappears entirely rather than degrading — an 8px band that is tappable but
+  // visually dead is worse than the small target it replaced.
+  //
+  // `rounded-pill` sits on BOTH: the span needs it to paint, and the target needs
+  // it or its focus ring turns square (the ring follows the focused element's own
+  // radius). `cursor-pointer` is on the target so the cursor changes across the
+  // whole band. The focus ring stays on the anchor — a non-focusable inner span
+  // can never match `focus-visible`.
+  const tapTarget =
+    "group -m-2 flex size-tap-min shrink-0 cursor-pointer items-center justify-center rounded-pill";
   return (
     <nav
       aria-label="Onboarding progress"
@@ -192,7 +212,9 @@ export function StepIndicator({
           : isDone
             ? "border-border-strong bg-surface text-text-subtle"
             : isVisited
-              ? "border-transparent bg-surface-sunken text-text-subtle hover:text-text-strong"
+              ? // `group-hover:`, not `hover:` — the visual span is no longer the
+                // element the pointer is over across the 8px expansion band.
+                "border-transparent bg-surface-sunken text-text-subtle group-hover:text-text-strong"
               : "border-transparent bg-surface-sunken text-text-faint";
         // The check replaces the number on done pills; label sits beside the pill.
         const glyph = isDone ? <Check aria-hidden="true" className="size-3.5" /> : n;
@@ -202,25 +224,27 @@ export function StepIndicator({
             data-testid={`wizard-step-indicator-${n}`}
             aria-current={isActive ? "step" : undefined}
             aria-label={isActive ? `Step ${n}, current step` : navLabel}
-            className={[base, focusRing, pillState].join(" ")}
+            className={cn(tapTarget, focusRing)}
           >
-            {glyph}
+            <span data-testid={`wizard-step-indicator-${n}-visual`} className={cn(base, pillState)}>
+              {glyph}
+            </span>
           </Link>
         ) : (
           <span
             data-testid={`wizard-step-indicator-${n}`}
             aria-disabled="true"
-            className={[base, pillState].join(" ")}
+            className={cn(base, pillState)}
           >
             {glyph}
           </span>
         );
         const label = (
           <span
-            className={[
+            className={cn(
               "text-xs font-medium whitespace-nowrap sm:text-sm",
               isActive ? "font-semibold text-text-strong" : "hidden text-text-subtle sm:inline",
-            ].join(" ")}
+            )}
           >
             {STEP_LABELS[n - 1]}
           </span>
@@ -235,10 +259,10 @@ export function StepIndicator({
               <span
                 data-testid="wizard-step-connector"
                 aria-hidden="true"
-                className={[
-                  "h-px max-w-[60px] flex-1 rounded-full",
+                className={cn(
+                  "h-px max-w-confirm-box flex-1 rounded-full",
                   isDone ? "bg-border-strong" : "bg-border",
-                ].join(" ")}
+                )}
               />
             ) : null}
           </Fragment>
@@ -582,7 +606,13 @@ async function Step3Container({
   );
 }
 
-function OperatorErrorBlock() {
+// Exported for the tap-target live entry (_tapTargetFloorLiveEntry.tsx) — spec
+// 2026-08-07-step3-a11y-cluster §8 requires the REAL component, because this
+// block's <summary> is one of the seven the §2.1 floor repair covers and a
+// transcribed copy would pass with the corrected class string while production
+// stayed unrepaired. Same seam as StepIndicator above; render behavior is
+// unchanged by the export.
+export function OperatorErrorBlock() {
   const entry = messageFor("ONBOARDING_OPERATOR_ERROR");
   return (
     <section
@@ -595,8 +625,21 @@ function OperatorErrorBlock() {
       </h2>
       <p className="max-w-prose text-base">{entry.dougFacing}</p>
       {entry.helpfulContext ? (
-        <details className="text-sm">
-          <summary className="cursor-pointer font-medium">What does this mean?</summary>
+        // `group` + the caret span below replace the NATIVE disclosure marker,
+        // which `inline-flex` removes: a summary is `display: list-item` by
+        // default and the 44px floor repair overrides that. Four of the six
+        // repaired disclosures already suppressed the marker deliberately; this
+        // one and the revoked-admins list did not, so without a replacement they
+        // silently lose their open/closed cue. Same treatment as
+        // app/me/meShowSections.tsx's past-shows disclosure.
+        <details className="group text-sm">
+          <summary className="inline-flex w-fit min-h-tap-min cursor-pointer list-none items-center font-medium">
+            What does this mean?{" "}
+            <ChevronRight
+              aria-hidden="true"
+              className="ml-1 inline-block size-4 shrink-0 transition-transform duration-normal group-open:rotate-90"
+            />
+          </summary>
           <p className="mt-2 max-w-prose">{entry.helpfulContext}</p>
         </details>
       ) : null}

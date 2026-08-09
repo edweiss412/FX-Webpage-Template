@@ -34,6 +34,7 @@
 import type { ReactNode } from "react";
 import { dayBadgeParts } from "@/lib/format/date";
 import type { SchedulePhase } from "@/lib/crew/agendaDisplay";
+import { cn } from "@/lib/ui/cn";
 
 type DayCardProps = {
   /** ISO date (YYYY-MM-DD). Rendered as the stacked weekday + day-num badge. */
@@ -67,17 +68,17 @@ export function DayCard({ day, phase, today, meta, label }: DayCardProps) {
       // The pinned-today hook is present ONLY when `today` is true so the
       // attribute selector reads cleanly downstream.
       {...(today ? { "data-today": "true" } : {})}
-      className={[
+      className={cn(
         "flex items-center gap-4 rounded-md border p-3",
         today ? "border-accent bg-stale-tint" : "border-border bg-surface",
-      ].join(" ")}
+      )}
     >
       <div data-testid="day-card-date" className="flex w-12.5 shrink-0 flex-col items-center">
         <span
-          className={[
+          className={cn(
             "text-[11px] font-bold uppercase leading-none tracking-eyebrow",
             today ? "text-accent-on-bg" : "text-text-faint",
-          ].join(" ")}
+          )}
         >
           {dow}
         </span>
@@ -95,10 +96,10 @@ export function DayCard({ day, phase, today, meta, label }: DayCardProps) {
             data-testid="day-card-phase-dot"
             data-tone={tone}
             aria-hidden="true"
-            className={[
+            className={cn(
               "size-1.75 shrink-0 rounded-full",
               tone === "show" ? "bg-accent" : tone === "set" ? "" : "bg-border-strong",
-            ].join(" ")}
+            )}
             // set tone is the mock's gold — no @theme token, so inline.
             style={tone === "set" ? { backgroundColor: "#caa53a" } : undefined}
           />
