@@ -970,6 +970,104 @@ The Phase 1 crew-page projection alert (`TILE_PROJECTION_FETCH_FAILED`, §4.13 o
 
 **Promotion prerequisite:** an established `<Suspense>` streaming pattern in the codebase + an AdminNav slot refactor that lets the badge counts arrive as a streamed server child without breaking the client-side pathname-refetch hook.
 
+### BL-CREW-FOOTER-OBSCURED-BY-FIXED-BOTTOM-BAR — the mobile bottom tab-bar covers the crew footer
+
+**Status:** OPEN · **Severity:** MEDIUM (real, reachable on every crew page at mobile widths; the obscured controls are the theme toggle and the report button) · **Class:** product layout defect · **Filed:** 2026-08-09 (surfaced rewriting `theme-toggle.spec.ts`, `BL-RESURRECT-MOBILE-SAFARI-E2E`) · **Effort:** S
+
+**Probed, not theorized** (seeded crew route, mobile-safari, 390x844, scrolled fully to the bottom):
+
+```
+toggle  top 775.6  bottom 819.6  (44x44)
+bar     top 790.7  bottom 844    (height 53.3)   overlaps: true
+footer  top 637.0  bottom 843.6
+document.elementFromPoint(toggle centre) -> the BAR's <svg>
+getComputedStyle(document.body).paddingBottom -> "0px"
+```
+
+The crew sub-nav's fixed bottom bar (`min-[720px]:hidden fixed inset-x-0 bottom-0 z-10`,
+`components/crew/CrewSubNav.tsx:155`) sits over the last ~53px of the footer, and nothing pads the
+page to clear it. The toggle's centre point belongs to the nav bar, so Playwright refuses the click
+with "intercepts pointer events" — and a real thumb lands on the nav tab, not the toggle. Only a
+~15px sliver of the toggle is reachable.
+
+**Why it was invisible until now:** every spec that touched the footer at mobile width was
+`test.describe.skip` against a 404ing route. `crew-page.spec.ts`'s inv8 asserts that the last SECTION
+block clears the fixed bar; the FOOTER is outside `page-container` and no invariant covered it.
+
+**Not fixed in-arc** — exception (a): how the footer should clear the mobile bar (page padding vs
+moving the toggle into the sub-nav vs hiding the footer chrome behind the bar) is a design call this
+arc does not settle. `tests/e2e/theme-toggle.spec.ts` therefore drives its interaction cases at 760px,
+where the bar does not render (`min-[720px]:hidden`), and still asserts the 44px tap floor at 390px.
+
+**Probably one fix with [[BL-CREW-FOOTER-NOT-ANCHORED-SHORT-CONTENT]]:** both symptoms point at
+`crew-shell` being a plain block that breaks the `page-shell` flex chain the footer is written for.
+
+---
+
+### BL-CREW-FOOTER-NOT-ANCHORED-SHORT-CONTENT — `mt-auto` on the crew footer is inert, so a short page leaves it mid-viewport
+
+**Status:** OPEN · **Severity:** LOW (no seeded show currently renders a short enough page; reachable when one does) · **Class:** product layout defect · **Filed:** 2026-08-09 (`BL-RESURRECT-MOBILE-SAFARI-E2E` Task 7 probe) · **Effort:** S
+
+**Probed, not theorized** (seeded crew route, mobile-safari, 390x844):
+
+```
+topology  page-shell (display:flex, flex-direction:column)
+            > crew-shell (display:block)          <- breaks the flex chain
+              > page-footer (class mt-auto)
+getComputedStyle(page-footer).marginTop -> "0px"   <- mt-auto resolves to ZERO
+
+every seeded section is taller than the viewport, so the case never occurs on this seed:
+  today 1985 · venue 1539 · travel 1459 · gear 1391 · crew 1329 · schedule 1083   (viewport 844)
+
+constructed short case (section body collapsed; docH 844 == viewport):
+  footer top 135.9  bottom 342.5   gapBelowFooter 501.5px
+```
+
+`mt-auto` only pushes an element when its PARENT is a flex container. The footer's parent is
+`crew-shell`, a plain block, so the declaration does nothing and the footer sits in natural flow. On a
+page shorter than the viewport it floats mid-screen with dead space beneath it.
+
+**Consequence today is nil and the signal is surfaced, not silent** — no seeded show is short enough
+to hit it, which is exactly why the residue test the spec proposed (§3.3.2) was NOT landed: it would
+have been red on arrival against the current tree. Filed under exception (a) rather than fixed: making
+`crew-shell` participate in the flex chain is a layout change to a shipped surface, and it would
+trigger the invariant-8 impeccable dual gate.
+
+**Probably one fix with [[BL-CREW-FOOTER-OBSCURED-BY-FIXED-BOTTOM-BAR]]** — same broken flex chain.
+
+---
+
+### BL-RIGHTNOW-RECOVERY-CASE-NEEDS-RESTRICTED-VIEWER — the §5.7 recovery case cannot be driven by an admin viewer
+
+**Status:** OPEN · **Severity:** LOW (one e2e case statically skipped; the behavior keeps unit coverage) · **Class:** test-harness gap · **Filed:** 2026-08-09 (`BL-RESURRECT-MOBILE-SAFARI-E2E` Task 6 CASE valve, spec §3.5) · **Effort:** M
+
+**Probed, not theorized.** `tests/e2e/right-now-transitions.spec.ts`'s recovery case enters
+`viewer_off_day` by mutating the VIEWER's `date_restriction`. Admin resolution ignores
+`crew_members.date_restriction` by design, so an admin viewer never enters that state. With the
+rendered-state assertion this arc added to `driveToState`, the attempt now fails loudly instead of
+passing on coincident anchor text:
+
+```
+Error: RightNow hero must render state kind "viewer_off_day"
+Expected: "viewer_off_day"
+Received: "show_day_n"          (transiently "post_show" during hydration)
+```
+
+Under the previous helper — which checked only HTTP 200 — this case would have "entered" a state it
+was never in and asserted against whatever rendered.
+
+**What it needs:** a restricted crew viewer through REAL resolution — a per-test `crew_members` row
+plus an email-matched test-auth session, the pattern
+`tests/e2e/stage-restricted-crew-schedule.spec.ts` uses (its header explains why an email-matched
+Google session, not a picker cookie: WebKit will not store the `__Host-` Secure picker cookie over
+plain http, and this file runs under mobile-safari). That is a new harness, not a URL swap.
+
+**Meanwhile** the case is STATICALLY skipped — visible in the wiring guard's `EXPECTED_SKIPS`
+inventory and excluded from the executed-count registry, so it is surfaced rather than silently
+absent. The other two §5.7 cases are clock-driven and per-show; they migrated and are wired.
+
+---
+
 ### BL-RESURRECT-MOBILE-SAFARI-E2E — lift the remaining mobile-safari tile/crew specs into CI
 
 **Filed:** 2026-06-23 (discovered building the crew-e2e CI job). **Effort:** L
