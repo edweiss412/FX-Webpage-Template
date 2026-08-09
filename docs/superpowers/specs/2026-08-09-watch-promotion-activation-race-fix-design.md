@@ -30,13 +30,13 @@ The audit found **zero peer races** anywhere else in code or ledger, and establi
 
 ## 2. Probe evidence (draft-time, per the empirical-spike rule)
 
-Probe: `docs/superpowers/specs/probes/2026-08-09-watch-race-forshare-probe.mjs`, run 2026-08-09 against the local stack (loopback-guarded; dedicated probe tables mirroring the two-column shape — row-lock semantics are table-independent). Statement timeout 5s per connection, 60s hard kill, PASS/FAIL asserted per schedule, exit 1 on any FAIL. Output:
+Probe: `docs/superpowers/specs/probes/2026-08-09-watch-race-forshare-probe.mjs`, run 2026-08-09 against the local stack (loopback-guarded; dedicated probe tables mirroring the two-column shape — row-lock semantics are table-independent). Statement timeout 5s per connection, 60s hard kill, PASS/FAIL asserted per schedule, exit 1 on any FAIL. S2/S4 use phase acknowledgements plus positive still-pending checks — a schedule passes only if the contended interleaving provably occurred. Output (rerun after the R1 probe repairs):
 
 ```
 PASS  S1 current shape reproduces race: expected 1 stale active row; got 1
-PASS  S2 promo-first: FOR SHARE blocks then sees B, aborts: expected blocked >=700ms, folderSeen=B, activated=false, 0 stale; got blocked 704ms, folderSeen=B, activated=false, 0 stale
+PASS  S2 promo-first: FOR SHARE blocks then sees B, aborts: expected blocked while lock held (pending), folderSeen=B, activated=false, 0 stale; got whileHeld=pending, folderSeen=B, activated=false, 0 stale
 PASS  S3 sub-first: promotion supersede catches committed row: expected activated=true then 0 stale; got activated=true, 0 stale
-PASS  S4 overlap: promotion waits (no deadlock), supersedes after: expected folderSeen=A, 0 stale, both txs complete; got folderSeen=A, 0 stale
+PASS  S4 overlap: promotion waits (no deadlock), supersedes after: expected share held first, promotion blocked (pending), folderSeen=A, 0 stale, both txs complete; got promoWhileHeld=pending, folderSeen=A, 0 stale
 PASS  S5 fast path: no promotion, FOR SHARE is immediate: expected folderSeen=A, activated=true, 4ms
 summary: 5/5 schedules PASS
 ```
@@ -44,7 +44,7 @@ summary: 5/5 schedules PASS
 What each schedule proves:
 
 - **S1** — the race is real on the current statement shape (not hypothetical).
-- **S2** — the load-bearing claim: a `for share` that blocks on promotion's uncommitted `app_settings` UPDATE re-evaluates against the NEWEST committed row version on wake (READ COMMITTED locking-clause re-check), returning the promoted folder, so the guard sees the truth and aborts. This is the exact semantics three prior review rounds' subquery attempts lacked.
+- **S2** — the load-bearing claim: a `for share` that blocks on promotion's uncommitted `app_settings` UPDATE (lock provably held via the post-UPDATE acknowledgement; subscriber provably blocked via the still-pending check) re-evaluates against the NEWEST committed row version on wake (READ COMMITTED locking-clause re-check), returning the promoted folder, so the guard sees the truth and aborts. This is the exact semantics three prior review rounds' subquery attempts lacked.
 - **S3/S4** — both orders of the residual interleavings leave zero stale rows; promotion's existing in-tx supersede is the partner for the subscriber-first order. No deadlock: both transactions acquire the settings row before touching channel rows (§3.4).
 - **S5** — the uncontended cost is one indexed single-row select (4ms measured).
 
