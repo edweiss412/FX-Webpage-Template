@@ -81,7 +81,7 @@ const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..
 
 /** The 18 className files and their site counts (spec §2.2). */
 const SITE_FILES = [
-  ["components/admin/OnboardingWizard.tsx", 4],
+  ["components/admin/OnboardingWizard.tsx", 5],
   ["components/admin/PublishedToggle.tsx", 2],
   ["components/admin/settings/AutoPublishToggle.tsx", 2],
   ["components/admin/settings/DeveloperToggleButton.tsx", 2],
@@ -121,6 +121,11 @@ const FILTERED_SITES = {
 const IDENTIFIER_TABLE = [
   { name: "base", file: "components/admin/OnboardingWizard.tsx" },
   { name: "focusRing", file: "components/admin/OnboardingWizard.tsx" },
+  // Added by the 2026-08-09 final rebase: `fix/step3-a11y-cluster` split the step pill into a
+  // 44px tap-target anchor plus an inner painted span, introducing this identifier and a
+  // fifth site in this file. Non-empty string literal, so proven truthy by the same rule as
+  // `base` and `focusRing`.
+  { name: "tapTarget", file: "components/admin/OnboardingWizard.tsx" },
   { name: "pillState", file: "components/admin/OnboardingWizard.tsx" },
   { name: "TRACK_BASE", file: "components/admin/settings/DeveloperToggleButton.tsx" },
   { name: "THUMB_BASE", file: "components/admin/settings/DeveloperToggleButton.tsx" },
@@ -143,9 +148,9 @@ const SANCTIONED_FALSY_SITE_INDEX = 2;
 
 /** Reconciliation targets for the live tree (spec §2.2, §4.1, plan P1 step 3). */
 const EXPECTED = {
-  totalSites: 36,
+  totalSites: 37,
   filteredSites: 6,
-  unfilteredSites: 30,
+  unfilteredSites: 31,
   conditionalOperands: 18,
   conditionalSites: 18,
   sanctionedFalsyBranches: 1,

@@ -1049,6 +1049,21 @@ Two vectors are most likely to burn rounds here, both pre-empted in the spec rat
 discovery: relitigating the local-`cn` decision (spec §1.1 R1, fenced) and arguing the migration
 changes bytes without first identifying which of the two stages (spec §1.1 R3, §4, §6).
 
+## 11.1 Base re-derivation at the C4 final rebase (2026-08-09)
+
+The mandatory final rebase over `origin/main` CONFLICTED on
+`components/admin/OnboardingWizard.tsx`: `fix/step3-a11y-cluster` had restructured the step pill
+into a 44px tap-target anchor plus an inner painted span. The resolution applied spec §5's transform
+to UPSTREAM's structure rather than taking either side, and the operand-kind audit then stopped on
+the result naming every movement — site count 4→5 in that file, an unknown identifier `tapTarget`,
+total 36→37, unfiltered 30→31. Spec §2.2 and §4.1 are amended accordingly (`tapTarget` is a
+non-empty string literal, proven truthy by the same rule as `base` and `focusRing`), and the two
+arc scripts' declared inventories with them.
+
+Two consequences follow, both handled: parity re-ran against the re-resolved anchor and reports
+37/37 with exactly C1–C6; and **a conflicted rebase is content-changing, so the C3 approval is
+VOID** and a delta round is owed before the graduation commit (C3's binding rule).
+
 ## 12. Invariant-8 dual-gate findings and dispositions
 
 impeccable-gate: critique=RAN audit=RAN p0=0 p1=0 dispositions=none

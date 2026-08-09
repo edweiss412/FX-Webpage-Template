@@ -66,7 +66,7 @@ under `CENSUS_DIRECT`, so the census *covers* the file while the tally missed th
 
 | File | Sites | Lines | `.filter(Boolean)` |
 |---|---|---|---|
-| `components/admin/OnboardingWizard.tsx` | 4 | 167, 175, 182, 200 | no |
+| `components/admin/OnboardingWizard.tsx` | 5 | 227, 229, 237, 244, 262 | no |
 | `components/admin/PublishedToggle.tsx` | 2 | 298, 307 | no |
 | `components/admin/settings/AutoPublishToggle.tsx` | 2 | 130, 137 | no |
 | `components/admin/settings/DeveloperToggleButton.tsx` | 2 | 91, 96 | no |
@@ -84,7 +84,7 @@ under `CENSUS_DIRECT`, so the census *covers* the file while the tally missed th
 | `components/crew/sections/TravelSection.tsx` | 1 | 637 | **yes** |
 | `components/shared/AccentButton.tsx` | 1 | 121 | **yes** |
 | `app/show/[slug]/[shareToken]/_PickerInterstitial.tsx` | 1 | 174 | no |
-| **Total** | **36** | | 6 filtered / 30 unfiltered |
+| **Total** | **37** | | 6 filtered / 31 unfiltered |
 
 **The 18 files are the complete set, and the sweep proving it is separator-agnostic.** Sweeping every
 tracked `.tsx?` under `components/` and `app/` for `.join(` at *any* separator yields 38 occurrences
@@ -273,7 +273,7 @@ components/crew/primitives/DayCard.tsx:98
 (The only other hit in the whole scan is `GearSection.tsx:303`, which is a `.filter(Boolean)` site
 and therefore already E1.)
 
-*Identifier operands.* The unfiltered sites pass exactly seven identifiers rather than literals, and
+*Identifier operands.* The unfiltered sites pass exactly eight identifiers rather than literals, and
 each is checked at its definition:
 
 | Identifier | Defined at | Always truthy because |
@@ -283,10 +283,23 @@ each is checked at its definition:
 | `pillState` | `components/admin/OnboardingWizard.tsx:152` | 4-branch conditional, every branch a non-empty literal |
 | `TRACK_BASE` | `components/admin/settings/DeveloperToggleButton.tsx:78` | non-empty string literal |
 | `THUMB_BASE` | `components/admin/settings/DeveloperToggleButton.tsx:80` | non-empty string literal |
+| `tapTarget` | `components/admin/OnboardingWizard.tsx:186` | non-empty string literal |
 | `surfaceClass` | `components/crew/RightNowHero.tsx:435` | ternary, both branches non-empty literals |
 | `CHIP_CLASS` | `components/crew/primitives/PersonRow.tsx:83` | array join of non-empty literals |
 
 So there is exactly one E2 site at this base, across both operand kinds.
+
+**AMENDED 2026-08-09 BY THE C4 FINAL REBASE, which is the mechanism working as designed.**
+`fix/step3-a11y-cluster` landed on `main` while this arc was in review and restructured the step
+pill into a 44px tap-target anchor plus an inner painted span (its own comment cites the connectors
+measuring 0px at 320 and 390 — an independent corroboration of `BL-WIZARD-CONNECTOR-MAXW-INERT`).
+That added a FIFTH site in `OnboardingWizard.tsx` and an eighth proven-truthy identifier,
+`tapTarget`. The rebase conflicted on exactly that hunk; the resolution applied §5's transform to
+UPSTREAM's structure rather than taking either side, and `scripts/audit-cn-operand-kinds.mjs`
+STOPPED on the untouched result naming all four movements (site count 4→5, unknown identifier
+`tapTarget`, total 36→37, unfiltered 30→31). The tables above are the re-derivation P1 step 4
+prescribes. Totals elsewhere in this document that read "36" describe the pre-rebase measurement and
+are left as the historical record of what was measured when.
 
 **This claim is base-specific, and the plan re-establishes it rather than inheriting it.** A rebase
 that made any of the seven falsy would leave the site count, the operand-parity check, the `cn` unit

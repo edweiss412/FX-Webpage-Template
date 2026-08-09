@@ -56,7 +56,7 @@ const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..
 
 /** The 18 className files and their site counts (spec §2.2). */
 const SITE_FILES = [
-  ["components/admin/OnboardingWizard.tsx", 4],
+  ["components/admin/OnboardingWizard.tsx", 5],
   ["components/admin/PublishedToggle.tsx", 2],
   ["components/admin/settings/AutoPublishToggle.tsx", 2],
   ["components/admin/settings/DeveloperToggleButton.tsx", 2],
@@ -76,7 +76,7 @@ const SITE_FILES = [
   ["app/show/[slug]/[shareToken]/_PickerInterstitial.tsx", 1],
 ];
 
-const EXPECTED_SITE_TOTAL = 36;
+const EXPECTED_SITE_TOTAL = 37;
 
 /**
  * The 6 `.filter(Boolean)` sites (spec §2.2), by 0-based index in source order per file.
