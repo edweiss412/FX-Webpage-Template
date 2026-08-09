@@ -73,8 +73,11 @@ The ledger entry names ~12 spec files matched by the `mobile-safari` `testMatch`
     a DIFFERENT class: skipped for a documented webkit technique limit (frozen-clock +
     controlled-rAF stalls the very AnimatePresence transition under test; the block's own header
     documents it and cites its live coverage — `tests/components/crew/transitionAudit.test.tsx`
-    structural audit, the §4.9 layout tests, the Task-3 nav tests). KEPT as-is; recorded as a
-    documented limit (§6), excluded from `REQUIRED` derivation by its static-skip status.
+    structural audit, the §4.9 layout tests, the Task-3 nav tests). KEPT — not deleted, not
+    re-enabled; recorded as a documented limit (§6), excluded from `REQUIRED` derivation by its
+    static-skip status. Its five project-gate lines are removed with the rest (§3.1's vestigial
+    sweep) — a runtime no-op inside a statically-skipped block; the block's tests, titles, and
+    header survive verbatim.
 - **Ten spec files 100% `test.describe.skip`** (each a spec file under `tests/e2e/`, named by its
   basename here and throughout): schedule-tile,
   transport-tile, status-financials, role-spoof, pack-list, notes-tile, right-now,
@@ -140,6 +143,15 @@ parity test would both credit as executed coverage. The `font-rendering-census` 
 precedent does NOT apply — that suite runs real assertions under both projects; crew-page does
 not. Its `REQUIRED` count is therefore the mobile-safari resolution alone.
 
+**Vestigial project-gate sweep — prerequisite of enrollment** (spec review R4 F1): once
+crew-page leaves the desktop-chromium regex, its 22 `testInfo.project.name` early-return sites
+(17 in live tests, 5 in the kept §4.10 block) are runtime no-ops — and
+`expectWired`'s `expectNoProjectGate` scans the WHOLE FILE and rejects any `project`/`testInfo`
+identifier, so enrollment is impossible while they remain. Remove all 22 in the same commit as
+the regex change. Verification that the sweep changed nothing real: executed count unchanged
+(the same 15 tests run under mobile-safari) and skip inventory unchanged (the §4.10 block's four
+titles still statically skipped).
+
 **Enroll every newly wired spec in `expectWired`** (spec review R3 F1):
 `tests/cross-cutting/picker-flow-e2e-ci-wiring.test.ts` gets one `expectWired` invocation per
 wired file (crew-page, theme-toggle, right-now-transitions-if-wired) — that helper, not
@@ -162,7 +174,8 @@ this arc that sentence is false.
 
 Delete the five pre-redesign `test.describe.skip` blocks inside `crew-page.spec.ts` (same class as
 the dead files; the redesign-cleanup meta-test pins their subject components deleted). The §4.10
-transition-audit block (~:892) is NOT in that class and is KEPT untouched (§2.1, §6.4) — post-task
+transition-audit block (~:892) is NOT in that class and is KEPT — not deleted, not re-enabled;
+only its five vestigial project-gate lines go, in §3.1's sweep (§2.1, §6.4) — post-task
 verification counts skip forms with a pattern that matches the line-wrapped `describe␤.skip` form
 too, expecting exactly one surviving skipped block in the file.
 
