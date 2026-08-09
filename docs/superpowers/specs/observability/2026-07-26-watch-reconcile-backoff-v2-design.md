@@ -447,7 +447,7 @@ The 21 test classes of the deferred design §6 carry forward as the normative in
 
 - `drive_watch_channels` PostgREST grants (`BL-ADMIN-POSTGREST-DML-LOCKDOWN`).
 - Credential-fetch bound (`BL-DRIVE-CREDENTIAL-FETCH-UNBOUNDED`, §1.1a-12).
-- Promotion/activation race (`BL-WATCH-PROMOTION-ACTIVATION-RACE`) — lock-topology change, own design.
+- Promotion/activation race (`BL-WATCH-PROMOTION-ACTIVATION-RACE`) — lock-topology change, own design (closed 2026-08-09 by `docs/superpowers/specs/2026-08-09-watch-promotion-activation-race-fix-design.md`).
 - State-row cleanup for abandoned folders (one stale row per switch; bounded, harmless).
 - Live-ticking countdown on the Doug line.
 - Per-show watch alerts; alert stays global.

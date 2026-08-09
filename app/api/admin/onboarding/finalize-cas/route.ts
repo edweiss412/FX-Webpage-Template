@@ -856,10 +856,14 @@ async function promoteSettings(
     // `pending` rows go to `orphaned`, not `superseded`: they were never
     // activated, which is precisely what `orphaned` already means on this table.
     //
-    // NOTE: this closes the window where the row exists when promotion runs. A
-    // subscriber that inserts AFTER promotion commits is not covered — closing
-    // that needs serialization this surface deliberately does not have, and is
-    // filed as BL-WATCH-PROMOTION-ACTIVATION-RACE.
+    // This closes the window where the row exists when promotion runs. The
+    // other half — a subscriber that inserts AFTER promotion commits — is
+    // closed too, as of 2026-08-09, but on the OTHER side: `activatePending`
+    // (lib/drive/watch.ts) reads this same settings row `for share` inside its
+    // activation transaction and aborts when the configured folder no longer
+    // names the folder it is activating. Both transactions take the settings
+    // row before any channel row, so the acquisition order is one-directional.
+    // Design: docs/superpowers/specs/2026-08-09-watch-promotion-activation-race-fix-design.md
     await tx.query(
       `
         update public.drive_watch_channels

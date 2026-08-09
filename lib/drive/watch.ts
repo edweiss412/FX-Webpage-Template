@@ -46,6 +46,32 @@ export class DriveWatchInfraError extends Error {
   }
 }
 
+/**
+ * `activatePending`'s two failure modes, kept structurally distinct so neither
+ * can be silently read as the other (invariant 9): an infra/zero-row outcome
+ * (`promoted === 0` with `abortedFolderMismatch: false`) versus the deliberate
+ * cancel the §3.1 activation guard raises when the configured folder changed
+ * mid-flight.
+ * Spec: docs/superpowers/specs/2026-08-09-watch-promotion-activation-race-fix-design.md §3.1
+ */
+export type ActivatePendingResult =
+  | { promoted: number; abortedFolderMismatch: false }
+  | { promoted: 0; abortedFolderMismatch: true; configuredFolderId: string | null };
+
+/**
+ * The configured watched folder changed between the subscriber's folder read
+ * and its activation, so the activation was ABORTED — not a Drive failure and
+ * not an infra fault. Carries the folder that is configured now.
+ */
+export class WatchFolderChangedDuringActivationError extends Error {
+  readonly kind = "watch_folder_changed_during_activation";
+
+  constructor(readonly configuredFolderId: string | null) {
+    super("watch activation aborted: configured folder changed");
+    this.name = "WatchFolderChangedDuringActivationError";
+  }
+}
+
 export type WatchChannelRow = {
   id: string;
   status: WatchChannelStatus;
@@ -62,17 +88,22 @@ export type WatchTx = {
   insertPending(row: { id: string; watchedFolderId: string; webhookSecret: string }): Promise<void>;
   /**
    * Promote the pending row, superseding any prior active row for the folder.
-   * Returns the number of PENDING rows it actually promoted — the canonical
+   * Reports the number of PENDING rows it actually promoted — the canonical
    * spec has required a zero-row rollback since v1
    * (docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:1318) and nothing
    * checked it, so activation reported success while the row stayed put.
+   *
+   * ALSO enforces the §3.1 activation guard: the configured watched folder is
+   * read (and share-locked) inside this same transaction, and activation aborts
+   * when it no longer names the folder being activated. That comparison is part
+   * of this method's CONTRACT, so every test port models it at its own level.
    */
   activatePending(row: {
     id: string;
     watchedFolderId: string;
     resourceId: string;
     expiresAt: string;
-  }): Promise<number>;
+  }): Promise<ActivatePendingResult>;
   /**
    * Orphan a still-`pending` row, recording the Drive `resourceId` when the
    * caller knows it. Without that id GC's `channels.stop` exits early on the
@@ -145,6 +176,14 @@ export type SubscribeAttempt = { consecutiveFailures: number; nextAttemptAt: str
 
 export type SubscribeResult =
   | { outcome: "active"; channelId: string; attempt: SubscribeAttempt }
+  /**
+   * The configured folder changed mid-activation (spec §3.1). A deliberate
+   * CANCEL, not a failure: it deliberately carries no `errorClass`, no
+   * `errorMessage` and no `attempt`, so every consumer must branch on it
+   * explicitly before it can read any of those — which is what makes the §3.2
+   * consumer enumeration machine-checked rather than remembered.
+   */
+  | { outcome: "folder_changed"; channelId: string; configuredFolderId: string | null }
   | {
       outcome: "orphaned";
       channelId: string;
@@ -255,7 +294,26 @@ class PostgresWatchTx implements WatchTx {
     watchedFolderId: string;
     resourceId: string;
     expiresAt: string;
-  }): Promise<number> {
+  }): Promise<ActivatePendingResult> {
+    // LOCK ORDER (spec §3.4): the app_settings row is acquired BEFORE any
+    // drive_watch_channels row, matching promotion's acquisition order
+    // (finalize-cas takes app_settings for update at preflight): one direction
+    // of acquisition, no deadlock cycle. Keep this select the FIRST statement.
+    //
+    // `for share` and not `for update` (spec §3.3): concurrent subscribers for
+    // the same folder may hold it together — only promotion's row-exclusive
+    // UPDATE conflicts. A share lock taken while promotion holds the row blocks,
+    // then re-reads the NEWEST committed version on wake (READ COMMITTED
+    // locking-clause re-check), which is what makes the guard see the truth.
+    const settings = await this.rows<{ watched_folder_id: string | null }>(
+      `select watched_folder_id from public.app_settings where id = 'default' for share`,
+      [],
+    );
+    const configured = settings[0]?.watched_folder_id ?? null;
+    if (settings.length > 0 && configured !== null && configured !== row.watchedFolderId) {
+      return { promoted: 0, abortedFolderMismatch: true, configuredFolderId: configured };
+    }
+
     await this.rows(
       `
         update public.drive_watch_channels
@@ -280,7 +338,7 @@ class PostgresWatchTx implements WatchTx {
       `,
       [row.id, row.resourceId, row.expiresAt],
     );
-    return promoted.length;
+    return { promoted: promoted.length, abortedFolderMismatch: false };
   }
 
   async markOrphaned(id: string, resourceId?: string | null) {
@@ -776,8 +834,11 @@ async function activateWithTx(
   tx: WatchTx,
   folderId: string,
   watch: { id: string; resourceId: string; expiration: string },
-): Promise<SubscribeResult> {
-  const promoted = await callWatchTx("drive_watch_channels.activate_pending", () =>
+  // Narrower than `SubscribeResult` on purpose: this helper either returns the
+  // ACTIVE member or throws, and the caller spreads `attempt` onto the result —
+  // which the `folder_changed` member deliberately does not carry.
+): Promise<{ outcome: "active"; channelId: string; attempt: SubscribeAttempt }> {
+  const result = await callWatchTx("drive_watch_channels.activate_pending", () =>
     tx.activatePending({
       id: watch.id,
       watchedFolderId: folderId,
@@ -785,7 +846,13 @@ async function activateWithTx(
       expiresAt: watch.expiration,
     }),
   );
-  if (promoted === 0) {
+  if (result.abortedFolderMismatch) {
+    // The §3.1 guard saw a different configured folder. Distinct from the
+    // zero-row case below: nothing is wrong with the infrastructure, and the
+    // caller's dedicated branch must not classify this as a Drive error.
+    throw new WatchFolderChangedDuringActivationError(result.configuredFolderId);
+  }
+  if (result.promoted === 0) {
     // The pending row was not there to promote — most often because a folder
     // promotion orphaned it (§3.2.4). Throwing routes into the caller's
     // existing activate_failed_after_watch_created path, which orphans the
@@ -1007,6 +1074,49 @@ export async function subscribeToWatchedFolder(
     }
     return activated;
   } catch (err) {
+    // FIRST branch, before anything classifies the error (spec §3.1): the
+    // configured folder changed between this subscriber's folder read and its
+    // activation, so the activation was ABORTED. That is a deliberate cancel,
+    // not a Drive failure and not an infra fault:
+    //  - no attempt is recorded even when `recordAttempt` is set — a folder
+    //    change is not a folder failure, and the write would pollute the OLD
+    //    folder's durable backoff state;
+    //  - `classifyWatchError` is never reached, whose unknown-error fallback
+    //    would label this `"drive_api"`.
+    // The Drive channel WAS created, so it is still orphaned with its
+    // `resourceId`: GC must be able to stop it at Drive.
+    if (err instanceof WatchFolderChangedDuringActivationError) {
+      await runTx((tx) =>
+        markWatchOrphanedWithTx(
+          tx,
+          channelId,
+          {
+            watched_folder_id: folderId,
+            channel_id: watch.id,
+            requested_channel_id: channelId,
+            resource_id: watch.resourceId,
+            expiration: watch.expiration,
+            reason: "folder_changed_during_activation",
+            configured_folder_id: err.configuredFolderId,
+          },
+          watch.resourceId,
+        ),
+      );
+      // The single emit site for this outcome, so no consumer needs one of its
+      // own. Folder ids and the channel id only — never the webhook secret.
+      await log.warn("drive watch activation aborted: folder changed", {
+        source: "drive.watch",
+        code: "DRIVE_WATCH_ACTIVATION_FOLDER_CHANGED",
+        watchedFolderId: folderId,
+        configuredFolderId: err.configuredFolderId,
+        channelId: watch.id,
+      });
+      return {
+        outcome: "folder_changed",
+        channelId: watch.id,
+        configuredFolderId: err.configuredFolderId,
+      };
+    }
     const errorClass = classifyWatchError(err);
     const errorMessage = redactWatchError(String((err as { message?: unknown })?.message ?? err), {
       webhookSecret,
@@ -1151,9 +1261,11 @@ export async function refreshWatchSubscriptions(deps: RefreshDeps = {}): Promise
   }
 
   if ("kind" in folderRead && folderRead.kind === "infra_error") {
-    // FAIL CLOSED: renew nothing. Fail-open is what unbounded the promotion-race
-    // residual, and the lease already absorbs a transient read failure (a
-    // channel is due ~6h before expiry against the 15-minute cron).
+    // FAIL CLOSED: renew nothing. Fail-open is what unbounded the promotion
+    // race (closed 2026-08-09 by the activation guard in `activatePending`);
+    // the posture it justified remains correct, and the lease already absorbs a
+    // transient read failure (a channel is due ~6h before expiry against the
+    // 15-minute cron).
     void log.warn("refresh-watch configured-folder read failed", {
       source: "drive.watch",
       code: "DRIVE_WATCH_FOLDER_READ_FAILED",
@@ -1217,6 +1329,13 @@ export async function refreshWatchSubscriptions(deps: RefreshDeps = {}): Promise
       const result = await subscribe(row.watchedFolderId);
       if (result.outcome === "active") {
         refreshed.push(row.watchedFolderId);
+        continue;
+      }
+      if (result.outcome === "folder_changed") {
+        // A deliberate cancel, not a renewal failure (spec §3.2): no warn, and
+        // the folder enters NONE of the three buckets. The §3.1 abort branch
+        // already emitted DRIVE_WATCH_ACTIVATION_FOLDER_CHANGED, which is the
+        // record; a second emit here would double-count one event.
         continue;
       }
       // Renewal-specific forensic warn (origin/main 51429aa1) — fires for BOTH
@@ -1407,6 +1526,11 @@ export type ReconcileOutcome =
   // In-memory cycle outcome ONLY - never persisted; the state table's
   // last_attempt_outcome is deliberately narrower (backoff spec §3.2).
   | "backoff_waiting"
+  // Same in-memory-only carve-out as `backoff_waiting`: the configured folder
+  // changed mid-cycle (spec §3.2). No existing member fits — `healthy`,
+  // `recovered` and `vacuous` would all be semantically false — and the cron
+  // route reports it additively.
+  | "folder_changed"
   | "vacuous"
   | "infra_error";
 export type ReconcileResult = {
@@ -1604,33 +1728,45 @@ export async function reconcileWatchChannels(
           deps.subscribeToWatchedFolder ??
           ((folderId: string) => subscribeToWatchedFolder(folderId, { recordAttempt: true }))
         )(folder.folderId);
-        // §3.3a observer: a RETURNED result with attempt === null means the
-        // state write failed (this caller always opts in). A thrown flow has no
-        // result; the swallow-site warn is its record.
-        if (result.attempt === null) {
-          faults.push("state_write");
+        if (result.outcome === "folder_changed") {
+          // FIRST, before the attempt check and before the alert resolves
+          // (spec §3.2). The abort branch records no attempt BY DESIGN, so the
+          // `attempt === null` arm below would read a deliberate cancel as a
+          // state-write fault. The ladder fields keep whatever this cycle's
+          // gate read supplied — this branch writes neither — and the
+          // escalation condition list below does not name `folder_changed`, so
+          // the cycle is structurally non-escalating. The next cycle reads the
+          // NEW folder and proceeds normally.
+          outcome = "folder_changed";
         } else {
-          nextAttemptAt = result.attempt.nextAttemptAt;
-          consecutiveFailures = result.attempt.consecutiveFailures;
-        }
-        if (result.outcome === "active") {
-          // The channel IS healthy the moment subscribe returns active — set
-          // recovered BEFORE attempting resolve, so a resolve-write fault can
-          // never route a recovered channel into the escalation branch
-          // (plan-R2 finding 1: false Sentry/email on a healthy watch).
-          outcome = "recovered";
-          try {
-            await resolve({ showId: null, code: "WATCH_CHANNEL_ORPHANED" });
-            await runTx((tx) =>
-              callWatchTx("admin_alerts.resolve_webhook_token_invalid", () =>
-                tx.resolveStaleWebhookTokenInvalid(folder.folderId, now().toISOString()),
-              ),
-            );
-          } catch {
-            faults.push("alert_resolve_write");
+          // §3.3a observer: a RETURNED result with attempt === null means the
+          // state write failed (this caller always opts in). A thrown flow has
+          // no result; the swallow-site warn is its record.
+          if (result.attempt === null) {
+            faults.push("state_write");
+          } else {
+            nextAttemptAt = result.attempt.nextAttemptAt;
+            consecutiveFailures = result.attempt.consecutiveFailures;
           }
-        } else if (result.reason === "activate_failed_after_watch_created") {
-          faults.push("activate_write"); // DB fault in an orphaned costume (spec §3.1.2)
+          if (result.outcome === "active") {
+            // The channel IS healthy the moment subscribe returns active — set
+            // recovered BEFORE attempting resolve, so a resolve-write fault can
+            // never route a recovered channel into the escalation branch
+            // (plan-R2 finding 1: false Sentry/email on a healthy watch).
+            outcome = "recovered";
+            try {
+              await resolve({ showId: null, code: "WATCH_CHANNEL_ORPHANED" });
+              await runTx((tx) =>
+                callWatchTx("admin_alerts.resolve_webhook_token_invalid", () =>
+                  tx.resolveStaleWebhookTokenInvalid(folder.folderId, now().toISOString()),
+                ),
+              );
+            } catch {
+              faults.push("alert_resolve_write");
+            }
+          } else if (result.reason === "activate_failed_after_watch_created") {
+            faults.push("activate_write"); // DB fault in an orphaned costume (spec §3.1.2)
+          }
         }
       } catch {
         faults.push("subscribe_infra");
