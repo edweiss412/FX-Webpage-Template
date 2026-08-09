@@ -665,9 +665,9 @@ Consequence: Doug must leave the dashboard to see operator telemetry and, as a n
 
 **Possible bundle, with the caveat that decides it:** `BL-ADMIN-PER-SHOW-HISTORY` wants a per-show operator history view, and both surface operator history to an admin — but they read DIFFERENT stores today. This entry's sink is `app_events`; that entry's own body names `sync_history` / `pending_syncs` / `shows` and `shows_internal.parse_warnings`, and sync history persists to `sync_log` (`lib/sync/syncLog.ts:43`). So a bundle is a DESIGN question (should one surface span both stores?), not a shared read path to be reused. Decomposition record: `BACKLOG-archive.md` § `BL-OPS-LOG`.
 
-## BL-E2E-APP-DEPENDENT-SPECS-CI-DARK — 32 app-dependent e2e specs are named by no CI workflow
+## BL-E2E-APP-DEPENDENT-SPECS-CI-DARK — 24 app-dependent e2e specs are named by no CI workflow
 
-**Status:** IN PROGRESS · **Branch:** ci/app-e2e-batch1 · **Severity:** MEDIUM (dark regression coverage) · **Class:** CI wiring · **Effort:** L · **Filed:** 2026-08-06 (L-wave, refile of `BL-E2E-LIFECYCLE-SPECS-CI-DARK` at honest scope)
+**Status:** OPEN · **Severity:** MEDIUM (dark regression coverage) · **Class:** CI wiring · **Effort:** L · **Filed:** 2026-08-06 (L-wave, refile of `BL-E2E-LIFECYCLE-SPECS-CI-DARK` at honest scope)
 
 **32 standalone-allowlist e2e specs are named by no CI workflow** — the `UNSEEN` rows of `tests/ci/_metaE2eWorkflowCoverage.test.ts`. They are the residual of the 2026-07-26 CI-dark cluster, which closed everything that did NOT need a running application: `standalone-e2e.yml` now runs the whole standalone config unfiltered on every PR, and that alone retired 30 allowlist rows.
 
@@ -677,12 +677,12 @@ the 2026-08-06 counts are kept alongside so the delta is auditable):
 
 | Allowlist rows                                                          | 2026-08-06 | 2026-08-09 |
 | ----------------------------------------------------------------------- | ---------- | ---------- |
-| `UNSEEN` — named by no workflow, **this entry's population**            | 43         | **32**     |
+| `UNSEEN` — named by no workflow, **this entry's population**            | 43         | **24**     |
 | `PATH_GATED` — named by a workflow, runs when its filter matches        | 13         | 13         |
 | `PATH_GATED_BY_EXCLUSION` — named, runs unless the change is prose-only | 6          | 8          |
 | `LOCAL_ONLY` — local artifact by design                                 | 1          | 1          |
 | custom-reason rows                                                      | 3          | 3          |
-| **Total rows**                                                          | 66         | **57**     |
+| **Total rows**                                                          | 66         | **49**     |
 
 The 11-row drop in `UNSEEN` and the 9-row drop in the total are `BL-RESURRECT-MOBILE-SAFARI-E2E`
 (archived 2026-08-09): NINE rows removed with their deleted spec files, and TWO reclassified
@@ -706,9 +706,39 @@ Path-gated rows are NOT this entry's scope: a workflow does name them, and "not 
 
 **Owner action that no branch can close.** Promoting e2e jobs into the branch-protection required set — so a red e2e blocks merge at the GitHub layer — is a GitHub-settings action, not repo code. Measured 2026-07-26: the live required set holds TWELVE contexts, and no e2e job is among them, which is why every e2e job is advisory. Until an owner changes that, enforcement is the pipeline's all-checks-green procedural gate. Measurement: `docs/superpowers/specs/ci/2026-07-26-ci-dark-coverage-design.md` §2.5.
 
+**Batch 1 landed 2026-08-09 — EIGHT specs wired, census 32 → 24** (PR #753, `.github/workflows/app-e2e.yml`, an always-on bare-`pull_request` job running both projects with `--retries=0` behind a per-spec executed-count oracle, `scripts/check-app-e2e-executed.mjs`). Wired: `sample`, `root-landing`, `admin-layout`, `admin-phase2-surfaces`, `notify-toggles`, `me-page`, `report-modal`, `admin-changes-feed-layout`. Their `UNSEEN` rows are deleted, which is what moves both the population and the total by eight. Spec: `docs/superpowers/specs/ci/2026-08-09-app-e2e-batch1-design.md`.
+
+Five of the nine specced members were RED when first run — the spec had verified them by full-file read, and a read is not a run. Four were repaired in-branch as test-only staleness (a Next 16 streamed `redirect()` answering 200 where two specs asserted a 3xx first hop; a `/show/<slug>` href predating the M11.5 picker pivot; a Phase-2 dev-link guard whose telemetry exemption matched the raw href and so failed on its own sanctioned link once that link grew a `#health` fragment). Recorded here because the same read-not-run gap will otherwise be repeated by batch 2: **derive a batch's membership from a real run, not from reading the files.**
+
+**Ninth member deferred, not wired — `help-pages.spec.ts`.** It stays `UNSEEN` with its allowlist row intact. Its blocker is an APP defect, not a wiring gap: `/help/tour` throws a React hydration mismatch (13 page errors) under `pnpm dev` and the production build alike. The fix lands in `app/help/tour/page.mdx`, a UI surface under invariant 8, so repairing it drags the impeccable dual gate into what is otherwise a CI-wiring arc — its own arc, filed as `BL-HELP-TOUR-HYDRATION-MISMATCH`. The spec's route-coverage guard WAS repaired in that PR (it now derives from the `_nav.ts` export and covers `/help/admin/settings`), so promoting it later costs one allowlist-row deletion.
+
+**`onboarding-wizard-step1.spec.ts` is excluded from every batch until a seed-state redesign, and the reason is recorded so batch 2 does not re-derive it:** it asserts `[data-testid=onboarding-wizard]` on `/admin`, but `supabase/seed.ts` sets `app_settings.watched_folder_id` and `app/admin/page.tsx` then renders the dashboard — a deterministic failure on any seeded DB, and a required state mutually exclusive with `admin-changes-feed-layout.spec.ts`'s.
+
 **Structural guard already in place:** the workflow-coverage meta-test with its reasoned allowlist (`tests/ci/_metaE2eWorkflowCoverage.test.ts`) shipped with the archive-row-menu-idiom branch. Wiring work here is moving a spec OFF that allowlist by adding it to a workflow — the guard makes each removal explicit rather than silent.
 
 **Related, filed separately:** `BL-E2E-LAYOUT-FIXED-WAIT-RESIDUE` (three fixed waits the 2026-08-03 class sweep found in the layout spec).
+
+## BL-HELP-TOUR-HYDRATION-MISMATCH — /help/tour throws a React hydration mismatch on every visit
+
+**Status:** OPEN · **Severity:** MEDIUM (a real user-visible page re-renders client-side after a failed hydration) · **Class:** app defect (UI surface) · **Effort:** S · **Filed:** 2026-08-09
+
+`/help/tour` emits a React hydration mismatch — "the server rendered HTML didn't match the client" — plus twelve further page errors, on every admin visit. Probed 2026-08-09 under BOTH server postures this repo runs, so it is not a dev-only artifact:
+
+```
+BASELINE_SERVER_ONLY=1 pnpm exec playwright test tests/e2e/help-pages.spec.ts --project=mobile-safari
+  ✘ /help/tour → 200, H1 "Tour", sidebar mounted, no console errors
+    Error: /help/tour: page errors observed
+    - Array []
+    + Array [ "Hydration failed because the server rendered HTML didn't match the client…" ] (13 entries)
+```
+
+Same failure against `pnpm build && pnpm start`. Every other one of the fourteen `/help/*` routes passes the identical assertions, so the defect is local to this page, not to the help layout.
+
+**Likely cause, not yet confirmed:** `app/help/tour/page.mdx` interleaves raw JSX blocks with markdown — several `<a>` elements begin at column 0 inside a `<div>` block, which MDX can wrap in a `<p>`, and a block element inside a paragraph is invalid nesting, one of the named causes in React's own mismatch message. Confirm before fixing.
+
+**Why it is filed rather than repaired in the arc that found it.** `BL-E2E-APP-DEPENDENT-SPECS-CI-DARK` batch 1 (PR #753) is a CI-wiring arc carrying `impeccable-gate: N/A — no UI surface`. The fix lands under `app/`, which is a UI surface under AGENTS.md invariant 8 and therefore owes the impeccable critique + audit dual gate — a different arc with a different gate, which is exception (c) of the class-sweep disposition rule (the repair is a change to a surface the PR does not otherwise touch). That arc dropped `help-pages.spec.ts` from its batch under AC-4 rather than wire a permanently-red job.
+
+**Closing this unblocks a one-line follow-up:** delete the `help-pages.spec.ts` row from `LOCAL_ONLY_ALLOWLIST` and add the spec to `.github/workflows/app-e2e.yml`'s run step. Its route-coverage guard is already repaired (derives from `app/help/_nav.ts`, covers all fourteen NAV routes including `/help/admin/settings`), so no other work is owed.
 
 ## BL-FITWITHINCLIP-DOUBLE-MOUNT-MEASURE — the hook measures twice on every mount
 
