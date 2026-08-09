@@ -115,7 +115,7 @@ let server: Server;
 let baseUrl: string;
 let workDir: string;
 
-test.beforeAll(async () => {
+test.beforeAll(async ({ browser }) => {
   workDir = mkdtempSync(join(tmpdir(), "tap-target-floor-"));
 
   writeFileSync(
@@ -181,6 +181,20 @@ test.beforeAll(async () => {
   await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
   const addr = server.address();
   baseUrl = `http://127.0.0.1:${typeof addr === "object" && addr ? addr.port : 0}/`;
+
+  // Prove the harness mounts ONCE, here, rather than 35 times in 35 tests.
+  // If the bundle builds but the page throws, every test would otherwise spend
+  // its own readiness timeout re-discovering the same fact — and on CI that
+  // pushed the job past its 20-minute cap, so it was CANCELLED before Playwright
+  // printed a single error body. Two runs were spent learning nothing because of
+  // it. A beforeAll failure reports once, with the diagnostics boot() collects,
+  // and skips the file instead of burning the budget.
+  const probe = await browser.newPage();
+  try {
+    await boot(probe, 390);
+  } finally {
+    await probe.close();
+  }
 });
 
 test.afterAll(async () => {
@@ -213,7 +227,7 @@ async function boot(page: Page, width: number): Promise<void> {
   await page.setViewportSize({ width, height: 900 });
   await page.goto(baseUrl);
   try {
-    await page.waitForSelector('body[data-harness-ready="true"]', { timeout: 20_000 });
+    await page.waitForSelector('body[data-harness-ready="true"]', { timeout: 15_000 });
   } catch {
     const diag = await page
       .evaluate(() => ({
