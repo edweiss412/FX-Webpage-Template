@@ -103,9 +103,16 @@ function unconditionalClassLiterals(
       if (ts.isStringLiteral(init) || ts.isNoSubstitutionTemplateLiteral(init)) {
         literals.push(init.text);
       } else if (ts.isCallExpression(init)) {
-        for (const arg of init.arguments) {
-          if (ts.isStringLiteral(arg) || ts.isNoSubstitutionTemplateLiteral(arg)) {
-            literals.push(arg.text);
+        // ONLY the sanctioned `cn` callee. Treating every call's literal arguments as applied
+        // let a type-correct helper that discards an argument — `pickSecond("max-w-confirm-box",
+        // "max-w-16")` — satisfy both assertions while rendering `max-w-16`. `cn` is the one
+        // callee whose semantics this arc pins (it concatenates every truthy argument), so it
+        // is the one callee whose arguments are known to reach the class attribute.
+        if (ts.isIdentifier(init.expression) && init.expression.text === "cn") {
+          for (const arg of init.arguments) {
+            if (ts.isStringLiteral(arg) || ts.isNoSubstitutionTemplateLiteral(arg)) {
+              literals.push(arg.text);
+            }
           }
         }
       }
@@ -124,9 +131,8 @@ function classTextOfElement(source: string, relPath: string, testId: string): st
     true,
     relPath.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
   );
-  let found: string | null = null;
+  const matches: string[] = [];
   const visit = (node: ts.Node): void => {
-    if (found !== null) return;
     if (ts.isJsxOpeningLikeElement(node)) {
       const attrs = node.attributes.properties.filter(ts.isJsxAttribute);
       const marks = attrs.some(
@@ -139,14 +145,17 @@ function classTextOfElement(source: string, relPath: string, testId: string): st
       );
       if (marks) {
         const className = attrs.find((a) => ts.isIdentifier(a.name) && a.name.text === "className");
-        found = className?.initializer ? className.initializer.getText(sourceFile) : "";
-        return;
+        matches.push(className?.initializer ? className.initializer.getText(sourceFile) : "");
       }
     }
     ts.forEachChild(node, visit);
   };
   visit(sourceFile);
-  return found;
+  // EXACTLY ONE source element may carry the id. Taking the first let a dead earlier element
+  // keep the canonical utility while the rendered one changed — and C1's rect keys are the
+  // accepted zero-width tripwire, so nothing else would have seen it.
+  if (matches.length !== 1) return null;
+  return matches[0] ?? null;
 }
 
 /**
