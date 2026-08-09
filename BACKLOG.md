@@ -665,29 +665,44 @@ Consequence: Doug must leave the dashboard to see operator telemetry and, as a n
 
 **Possible bundle, with the caveat that decides it:** `BL-ADMIN-PER-SHOW-HISTORY` wants a per-show operator history view, and both surface operator history to an admin — but they read DIFFERENT stores today. This entry's sink is `app_events`; that entry's own body names `sync_history` / `pending_syncs` / `shows` and `shows_internal.parse_warnings`, and sync history persists to `sync_log` (`lib/sync/syncLog.ts:43`). So a bundle is a DESIGN question (should one surface span both stores?), not a shared read path to be reused. Decomposition record: `BACKLOG-archive.md` § `BL-OPS-LOG`.
 
-## BL-E2E-APP-DEPENDENT-SPECS-CI-DARK — 43 app-dependent e2e specs are named by no CI workflow
+## BL-E2E-APP-DEPENDENT-SPECS-CI-DARK — 32 app-dependent e2e specs are named by no CI workflow
 
 **Status:** OPEN · **Severity:** MEDIUM (dark regression coverage) · **Class:** CI wiring · **Effort:** L · **Filed:** 2026-08-06 (L-wave, refile of `BL-E2E-LIFECYCLE-SPECS-CI-DARK` at honest scope)
 
-**43 standalone-allowlist e2e specs are named by no CI workflow** — the `UNSEEN` rows of `tests/ci/_metaE2eWorkflowCoverage.test.ts`. They are the residual of the 2026-07-26 CI-dark cluster, which closed everything that did NOT need a running application: `standalone-e2e.yml` now runs the whole standalone config unfiltered on every PR, and that alone retired 30 allowlist rows.
+**32 standalone-allowlist e2e specs are named by no CI workflow** — the `UNSEEN` rows of `tests/ci/_metaE2eWorkflowCoverage.test.ts`. They are the residual of the 2026-07-26 CI-dark cluster, which closed everything that did NOT need a running application: `standalone-e2e.yml` now runs the whole standalone config unfiltered on every PR, and that alone retired 30 allowlist rows.
 
-**Census, counted 2026-08-06 rather than estimated** (the "~60" this entry was first filed with was wrong, and the miscount is recorded so the number is not re-inflated):
+**Census, RESTATED 2026-08-09 by counting the allowlist rather than by arithmetic** (the "~60" this
+entry was first filed with was wrong, and the miscount is recorded so the number is not re-inflated;
+the 2026-08-06 counts are kept alongside so the delta is auditable):
 
-| Allowlist rows                                                                                         | 66  |
-| ------------------------------------------------------------------------------------------------------ | --- |
-| `UNSEEN` — named by no workflow, **this entry's population**                                           | 43  |
-| `PATH_GATED` — named by a workflow, runs when its filter matches                                       | 13  |
-| `PATH_GATED_BY_EXCLUSION` — named, runs unless the change is prose-only                                | 6   |
-| `LOCAL_ONLY` — local artifact by design                                                                | 1   |
-| custom-reason rows (`admin-lifecycle-transitions`, `attention-modal-gallery`, `section-header-visual`) | 3   |
+| Allowlist rows                                                          | 2026-08-06 | 2026-08-09 |
+| ----------------------------------------------------------------------- | ---------- | ---------- |
+| `UNSEEN` — named by no workflow, **this entry's population**            | 43         | **32**     |
+| `PATH_GATED` — named by a workflow, runs when its filter matches        | 13         | 13         |
+| `PATH_GATED_BY_EXCLUSION` — named, runs unless the change is prose-only | 6          | 8          |
+| `LOCAL_ONLY` — local artifact by design                                 | 1          | 1          |
+| custom-reason rows                                                      | 3          | 3          |
+| **Total rows**                                                          | 66         | **57**     |
+
+The 11-row drop in `UNSEEN` and the 9-row drop in the total are `BL-RESURRECT-MOBILE-SAFARI-E2E`
+(archived 2026-08-09): NINE rows removed with their deleted spec files, and TWO reclassified
+`UNSEEN` → `PATH_GATED_BY_EXCLUSION` as `crew-e2e.yml` grew crew-page and theme-toggle.
+`right-now-transitions` stays `UNSEEN` — its whole-file valve fired, so it is named by no workflow
+and is statically skipped (`BL-RIGHTNOW-SECTION57-FIXTURE-INERT`). Only the NINE deletions move the
+TOTAL (66 → 57); the two reclassifications move a row between buckets and cannot change it. A first
+draft of this table said 54 by counting only rows whose value is a bare constant, which silently
+dropped the three custom-reason rows — recorded because an uncounted bucket is exactly how the
+original "~60" overcount happened. Recounted from
+`tests/ci/_metaE2eWorkflowCoverage.test.ts`, which is disk-walked, so these numbers are checkable
+rather than asserted.
 
 Path-gated rows are NOT this entry's scope: a workflow does name them, and "not PR-blocking-capable" is a different property from "runs nowhere". Conflating the two is what produced the original overcount.
 
-**The blocker is not uniform, and promoting the cheap ones first is the obvious first batch.** Most of the 43 need a dev server AND a seeded database, which is why the cluster excluded them — but not all do: `sample.spec.ts`, for instance, requests `/` and asserts the title. Sorting the 43 by what they actually require, and wiring the no-seed ones first, is a cheaper opening move than the entry's original all-or-nothing framing implied.
+**The blocker is not uniform, and promoting the cheap ones first is the obvious first batch.** Most of the 32 need a dev server AND a seeded database, which is why the cluster excluded them — but not all do: `sample.spec.ts`, for instance, requests `/` and asserts the title. Sorting the 32 by what they actually require, and wiring the no-seed ones first, is a cheaper opening move than the entry's original all-or-nothing framing implied.
 
 **This entry replaces a row whose heading premise had gone false.** Its predecessor was named for two `admin-lifecycle` specs being invoked by no workflow; both have been wired since 2026-07-27 and run on `mobile-safari` on every `pull_request` (`.github/workflows/lifecycle-layout-e2e.yml:110,130,132`, re-verified 2026-08-06). The full wiring history is preserved in `BACKLOG-archive.md` § `BL-E2E-LIFECYCLE-SPECS-CI-DARK`. Only the app-dependent residual survives here, and the scope has not changed — only the name now matches it.
 
-**Promotion path — the entry's own, and it is incremental by design:** land green batches one at a time rather than attempting all 43. `crew-e2e.yml`'s `CREW_E2E_ONLY` + `pnpm db:seed` pattern is the working template for an app-dependent job, and `lifecycle-layout-e2e.yml` is the worked example of the acceptance bar a batch must clear: **five consecutive green normal-dispatch runs** before a spec is considered wired (spec §6.1 / AC-6). That bar is what took the transitions spec from "one flaky case" to wired, and it is the reason batches must be small.
+**Promotion path — the entry's own, and it is incremental by design:** land green batches one at a time rather than attempting all 32. `crew-e2e.yml`'s `CREW_E2E_ONLY` + `pnpm db:seed` pattern is the working template for an app-dependent job, and `lifecycle-layout-e2e.yml` is the worked example of the acceptance bar a batch must clear: **five consecutive green normal-dispatch runs** before a spec is considered wired (spec §6.1 / AC-6). That bar is what took the transitions spec from "one flaky case" to wired, and it is the reason batches must be small.
 
 **Owner action that no branch can close.** Promoting e2e jobs into the branch-protection required set — so a red e2e blocks merge at the GitHub layer — is a GitHub-settings action, not repo code. Measured 2026-07-26: the live required set holds TWELVE contexts, and no e2e job is among them, which is why every e2e job is advisory. Until an owner changes that, enforcement is the pipeline's all-checks-green procedural gate. Measurement: `docs/superpowers/specs/ci/2026-07-26-ci-dark-coverage-design.md` §2.5.
 
@@ -1105,48 +1120,233 @@ So this is not a `shadow-*` carve-out: **every `@theme` token defined through a 
 
 **Promotion prerequisite:** an established `<Suspense>` streaming pattern in the codebase + an AdminNav slot refactor that lets the badge counts arrive as a streamed server child without breaking the client-side pathname-refetch hook.
 
-### BL-RESURRECT-MOBILE-SAFARI-E2E — lift the remaining mobile-safari tile/crew specs into CI
+### BL-LOCKED-FIXTURE-HELPER-TARGETS-REMOTE-DB — a local e2e run can send fixture writes to the validation project
 
-**Filed:** 2026-06-23 (discovered building the crew-e2e CI job). **Effort:** L
+**Status:** OPEN · **Severity:** MEDIUM (local-only, but the write lands in the SHARED validation project, and the symptom names the wrong cause) · **Class:** test-harness / env-resolution defect · **Filed:** 2026-08-09 (surfaced wiring right-now-transitions into the crew-e2e multi-spec invocation) · **Effort:** S
 
-> **CORRECTION 2026-08-06 (L-wave, `feat/l-wave-docs`).** The entry's founding premise — "NO CI
-> workflow runs the `mobile-safari` Playwright project" — is **REFUTED**. Three workflows run it
-> today: `lifecycle-layout-e2e.yml` (`:110`, `:130`, `:132`), `crew-e2e.yml` (`:159`, alongside
-> desktop-chromium), and `phantom-gap-e2e.yml` (`:175`). The project is not dark; a **subset of specs
-> inside it** is. The id is KEPT deliberately — it is cross-referenced from the CI-dark cluster specs
-> and the 2026-08-05 sizing sweep, and a rename would cost more than the stale title saved. The body
-> below is rewritten at honest scope; the original claim is preserved in this note so the correction
-> is auditable rather than silent.
+**Probed, not theorized.** `tests/e2e/helpers/lockedCrewRestriction.ts` resolves its psql target
+ONCE, at module load:
 
-**Honest residual: the ~20 M4 tile/crew specs that no workflow names.** Every CI Playwright run is
-still an explicit spec list, so a spec matched by the `mobile-safari` project but named in no run
-command executes nowhere. That set is roughly: `crew-page`, `schedule-tile`, `transport-tile`,
-`status-financials`, `role-spoof`, `pack-list`, `notes-tile`, `right-now`, `right-now-transitions`,
-`layout-dimensions`, `empty-state`, `theme-toggle`, and their siblings — the twelve that are
-additionally `describe.skip` are enumerated in `BACKLOG-archive.md` §
-`BL-COVERAGE-CLAIMS-CITE-SKIPPED-SUITES`. **A spec being project-matched is not coverage**, and that
-distinction is the whole content of this row now.
+```
+const databaseUrl =
+  process.env.TEST_DATABASE_URL ?? process.env.DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+```
 
-**Why it is still L, and still not "now":** these specs have been unrun in CI for a long time and
-will surface latent seed/timing/env failures. The crew corpus and the M4 tile fixtures mutate shared
-rows — `workers: 1` already serializes them, but resurrecting ~20 at once is a multi-round debugging
-slog, not a follow-on edit. Several also predate the crew redesign and assume a pre-redesign DOM.
+`.env.local:50` sets `TEST_DATABASE_URL` to the persistent VALIDATION project
+(`postgresql://postgres.vzakgrxqwcalbmagufjh:***@aws-1-us-east-2.pooler.supabase.com:5432/postgres`)
+— `pnpm preflight` already warns about it: "TEST_DATABASE_URL is NON-LOOPBACK … 'local' runs that
+read it will target remote". Meanwhile the PostgREST `admin` client the same suites use reads
+`SUPABASE_URL` (`127.0.0.1:54321`). So the crew id is resolved against the LOCAL database and the
+UPDATE is sent to the REMOTE one.
 
-**Promotion path — incremental, and the bar is already demonstrated.** Extend `crew-e2e.yml` (or a
-sibling) spec by spec, triaging each failure; the `CREW_E2E_ONLY` filter + `pnpm db:seed` pattern
-there is the working template. `lifecycle-layout-e2e.yml` is the worked example of the acceptance bar
-a batch must clear — **five consecutive green normal-dispatch runs** before a spec counts as wired
-(spec §6.1 / AC-6). Land green globs as they pass rather than flipping the project on at once.
+**Observed symptom** (crew-e2e's multi-spec invocation, both projects):
 
-**Relationship to `BL-E2E-APP-DEPENDENT-SPECS-CI-DARK` — it is a SUBSET, not a sibling.** Probed
-2026-08-06: all twelve specs listed above are `UNSEEN` rows of the same
-`tests/ci/_metaE2eWorkflowCoverage.test.ts` allowlist that entry's 43-row population is drawn from.
-An earlier draft of this note claimed the two cover different populations and may close
-independently; that was false in the direction that matters, and is corrected here rather than left
-to be re-derived. **Closing the parent closes this one.** This entry survives as a distinct row only
-because it names a coherent, prioritizable BATCH — the mobile-safari tile/crew specs, which share one
-project, one seed, and one template — and the parent's own promotion path is explicitly incremental
-batches. If the parent is worked wholesale, archive this as absorbed.
+```
+Error: lockedCrewRestriction: update matched no crew row
+  (id=4e6aced2-bb47-4601-aad8-bf74d589cbba,
+   drive_file_id=seed-fixture:2026-04-asset-mgmt-cfo-coo-waldorf — run `pnpm db:seed`?)
+```
+
+The row exists locally the whole time (verified by psql before and after), and `pnpm db:seed` — which
+the message tells you to run — does not help, because it seeds the wrong database relative to the
+write.
+
+**Why it is order-dependent, and why that is the nastiest part.** `databaseUrl` is captured at module
+load, so whether the remote value is visible depends on whether something has already loaded
+`.env.local` into `process.env` by then — i.e. on Playwright's import order, i.e. on HOW MANY SPEC
+FILES the invocation names. `right-now-transitions.spec.ts` alone passes; the same file inside the
+multi-spec command fails. That reads as "the new wiring broke it" and is not.
+
+**CI is unaffected** and this is not a merge blocker: `.env.local` is gitignored and absent on the
+runner, `crew-e2e.yml` sets no `TEST_DATABASE_URL`, so the helper falls back to the loopback default.
+
+**Fix shape (not applied here — out of this arc's scope):** resolve the target at CALL time, and
+refuse a non-loopback target unless something explicitly opts in. The fixture helper writes SEED data;
+silently pointing it at the shared validation project is the dangerous direction, and a loud refusal
+costs nothing. The same module-load capture pattern should be swept for across `tests/e2e/helpers/`.
+
+---
+
+### BL-FONT-CENSUS-ORACLE-FLAKE-BLOCKS-CREW-E2E — the font oracle intermittently cannot read the document, failing crew-e2e on any branch
+
+**Status:** OPEN · **Severity:** MEDIUM (a green crew-e2e is not reproducible on demand, so any gate that needs consecutive green runs is blocked by chance) · **Class:** CI flake, pre-existing · **Filed:** 2026-08-09 (measured while earning the `BL-RESURRECT-MOBILE-SAFARI-E2E` five-green bar) · **Effort:** M
+
+**Not caused by the branch that measured it** — the same test fails the same way on an unrelated
+branch in the same window:
+
+```
+test/resurrect-mobile-safari-e2e   run 31310546822   1 failed, 2 flaky, 140 passed
+  ✘ [desktop-chromium] font-rendering-census.spec.ts:259
+    › every mono manifest entry still matches something on its route
+
+refactor/classname-array-join-cn   run 31310136900   1 failed, 1 flaky, 118 passed
+  ✘ [desktop-chromium] font-rendering-census.spec.ts:259
+    › every mono manifest entry still matches something on its route
+```
+
+Both fail inside the auto-fixture with the same message, on both the pre- and post-navigate sample:
+
+```
+Error: font oracle: the registered-face query failed on a document the element walk could read
+       (via pre-navigate). The guard cannot judge a document it cannot read, and passing on one
+       would make every other test's green meaningless.
+  at enforce (tests/e2e/helpers/fontFidelityFixture.ts:400:11)
+```
+
+`font-rendering-census.spec.ts:157` (`/admin/onboarding @ mobile renders the expected families`)
+flakes in the same runs, sometimes recovering on retry and sometimes not. Other branches DO go green
+in the same window (`chore/next-1630-wedge-remeasure`, `fix/step3-a11y-cluster`), so this is
+intermittent rather than a hard break.
+
+**Why it matters beyond one arc:** the guard is written to fail loud rather than pass on a document
+it cannot read, which is the right posture — but it means a transient read failure is indistinguishable
+from a real font regression, and it takes the whole job down with it. Any acceptance bar of the form
+"N consecutive green crew-e2e runs" is then a coin flip rather than a measurement.
+
+**First step if picked up:** determine WHY the registered-face query fails on a document the element
+walk could already read — a closed/navigating page during the fixture's sample, or a document whose
+`document.fonts` is not yet queryable. The message already distinguishes pre- from post-navigate,
+which should localise it.
+
+---
+
+### BL-CREW-FOOTER-OBSCURED-BY-FIXED-BOTTOM-BAR — the mobile bottom tab-bar covers the crew footer
+
+**Status:** OPEN · **Severity:** MEDIUM (real, reachable on every crew page at mobile widths; the obscured controls are the theme toggle and the report button) · **Class:** product layout defect · **Filed:** 2026-08-09 (surfaced rewriting `theme-toggle.spec.ts`, `BL-RESURRECT-MOBILE-SAFARI-E2E`) · **Effort:** S
+
+**Probed, not theorized** (seeded crew route, mobile-safari, 390x844, scrolled fully to the bottom):
+
+```
+toggle  top 775.6  bottom 819.6  (44x44)
+bar     top 790.7  bottom 844    (height 53.3)   overlaps: true
+footer  top 637.0  bottom 843.6
+document.elementFromPoint(toggle centre) -> the BAR's <svg>
+getComputedStyle(document.body).paddingBottom -> "0px"
+```
+
+The crew sub-nav's fixed bottom bar (`min-[720px]:hidden fixed inset-x-0 bottom-0 z-10`,
+`components/crew/CrewSubNav.tsx:155`) sits over the last ~53px of the footer, and nothing pads the
+page to clear it. The toggle's centre point belongs to the nav bar, so Playwright refuses the click
+with "intercepts pointer events" — and a real thumb lands on the nav tab, not the toggle. Only a
+~15px sliver of the toggle is reachable.
+
+**Why it was invisible until now:** every spec that touched the footer at mobile width was
+`test.describe.skip` against a 404ing route. `crew-page.spec.ts`'s inv8 asserts that the last SECTION
+block clears the fixed bar; the FOOTER is outside `page-container` and no invariant covered it.
+
+**Not fixed in-arc** — exception (a): how the footer should clear the mobile bar (page padding vs
+moving the toggle into the sub-nav vs hiding the footer chrome behind the bar) is a design call this
+arc does not settle. `tests/e2e/theme-toggle.spec.ts` therefore drives its interaction cases at 760px,
+where the bar does not render (`min-[720px]:hidden`), and still asserts the 44px tap floor at 390px.
+
+**Probably one fix with [[BL-CREW-FOOTER-NOT-ANCHORED-SHORT-CONTENT]]:** both symptoms point at
+`crew-shell` being a plain block that breaks the `page-shell` flex chain the footer is written for.
+
+---
+
+### BL-CREW-FOOTER-NOT-ANCHORED-SHORT-CONTENT — `mt-auto` on the crew footer is inert, so a short page leaves it mid-viewport
+
+**Status:** OPEN · **Severity:** LOW (no seeded show currently renders a short enough page; reachable when one does) · **Class:** product layout defect · **Filed:** 2026-08-09 (`BL-RESURRECT-MOBILE-SAFARI-E2E` Task 7 probe) · **Effort:** S
+
+**Probed, not theorized** (seeded crew route, mobile-safari, 390x844):
+
+```
+topology  page-shell (display:flex, flex-direction:column)
+            > crew-shell (display:block)          <- breaks the flex chain
+              > page-footer (class mt-auto)
+getComputedStyle(page-footer).marginTop -> "0px"   <- mt-auto resolves to ZERO
+
+every seeded section is taller than the viewport, so the case never occurs on this seed:
+  today 1985 · venue 1539 · travel 1459 · gear 1391 · crew 1329 · schedule 1083   (viewport 844)
+
+constructed short case (section body collapsed; docH 844 == viewport):
+  footer top 135.9  bottom 342.5   gapBelowFooter 501.5px
+```
+
+`mt-auto` only pushes an element when its PARENT is a flex container. The footer's parent is
+`crew-shell`, a plain block, so the declaration does nothing and the footer sits in natural flow. On a
+page shorter than the viewport it floats mid-screen with dead space beneath it.
+
+**Consequence today is nil and the signal is surfaced, not silent** — no seeded show is short enough
+to hit it, which is exactly why the residue test the spec proposed (§3.3.2) was NOT landed: it would
+have been red on arrival against the current tree. Filed under exception (a) rather than fixed: making
+`crew-shell` participate in the flex chain is a layout change to a shipped surface, and it would
+trigger the invariant-8 impeccable dual gate.
+
+**Probably one fix with [[BL-CREW-FOOTER-OBSCURED-BY-FIXED-BOTTOM-BAR]]** — same broken flex chain.
+
+---
+
+### BL-RIGHTNOW-SECTION57-FIXTURE-INERT — the §5.7 suite's run_of_show fixture does not drive the hero it asserts
+
+**Status:** OPEN · **Severity:** MEDIUM (the suite asserts nothing it claims to; it is now statically skipped so it cannot read as coverage) · **Class:** test-harness gap · **Filed:** 2026-08-09 (`BL-RESURRECT-MOBILE-SAFARI-E2E` §3.5 WHOLE-FILE valve, exception (c)) · **Effort:** M
+
+**Probed, not theorized** (TZ=UTC, to match the CI runner). `tests/e2e/right-now-transitions.spec.ts`
+seeds `shows_internal.run_of_show` in `beforeAll` and asserts the RightNowHero renders that day's
+anchor. Changing the fixture's Day-1 entry from `7:30am` to `7:13am` left the rendered hero
+UNCHANGED:
+
+```
+Expected pattern: /7:13\s*am/i
+Received string:  "Today: Show day 1 of 2Show7:30 AM"
+```
+
+The write lands (the `afterAll` restore reads the prior value back; `psql` confirms the column
+round-trips and returns to its seeded NULL). The hero simply does not source its RightNow anchor from
+`run_of_show` on this route — it renders a show-level anchor.
+
+**Two coincidences hid this**, and either alone kept the suite green for the wrong reason:
+
+1. Day 1's `7:30am` equals the seed's own show-start anchor.
+2. Day 2's `8:00am` equals noon-UTC rendered in America/New_York — so on a developer Mac the
+   assertion matched the pinned CLOCK, not any anchor. CI (UTC) renders the same instant as
+   `12:00 PM`, which is what exposed it: `"Today: Show day 2 of 2Strike4/22 @ 12:00 PM"`.
+
+This is why the file is NOT wired into `crew-e2e.yml` and is statically skipped: wiring it would pin
+a suite whose assertions pass off seed-derived values, which is precisely the "credited as coverage it
+does not provide" failure the executed-count registry exists to prevent.
+
+**What it needs:** identify the hero's ACTUAL anchor source under a real crew viewer, then re-point
+the fixture at it — the same per-test crew row + email-matched session harness
+[[BL-RIGHTNOW-RECOVERY-CASE-NEEDS-RESTRICTED-VIEWER]] needs. Both rows are one piece of work.
+
+**Retained from the attempt** (they are improvements independent of the valve): the invariant-9
+call-boundary repairs on the file's five Supabase call sites, and the rendered-state assertion added
+to `driveToState`, which is what made the recovery case's state-entry failure loud instead of silent.
+
+---
+
+### BL-RIGHTNOW-RECOVERY-CASE-NEEDS-RESTRICTED-VIEWER — the §5.7 recovery case cannot be driven by an admin viewer
+
+**Status:** OPEN · **Severity:** LOW (one e2e case statically skipped; the behavior keeps unit coverage) · **Class:** test-harness gap · **Filed:** 2026-08-09 (`BL-RESURRECT-MOBILE-SAFARI-E2E` Task 6 CASE valve, spec §3.5) · **Effort:** M
+
+**Probed, not theorized.** `tests/e2e/right-now-transitions.spec.ts`'s recovery case enters
+`viewer_off_day` by mutating the VIEWER's `date_restriction`. Admin resolution ignores
+`crew_members.date_restriction` by design, so an admin viewer never enters that state. With the
+rendered-state assertion this arc added to `driveToState`, the attempt now fails loudly instead of
+passing on coincident anchor text:
+
+```
+Error: RightNow hero must render state kind "viewer_off_day"
+Expected: "viewer_off_day"
+Received: "show_day_n"          (transiently "post_show" during hydration)
+```
+
+Under the previous helper — which checked only HTTP 200 — this case would have "entered" a state it
+was never in and asserted against whatever rendered.
+
+**What it needs:** a restricted crew viewer through REAL resolution — a per-test `crew_members` row
+plus an email-matched test-auth session, the pattern
+`tests/e2e/stage-restricted-crew-schedule.spec.ts` uses (its header explains why an email-matched
+Google session, not a picker cookie: WebKit will not store the `__Host-` Secure picker cookie over
+plain http, and this file runs under mobile-safari). That is a new harness, not a URL swap.
+
+**Superseded in scope by [[BL-RIGHTNOW-SECTION57-FIXTURE-INERT]]** — the WHOLE file's fixture turned
+out not to drive the hero, so the entire suite is now statically skipped and unwired, this case
+included. The two rows are one piece of work: find the hero's real anchor source under a crew viewer
+and the recovery case's restricted-viewer harness together.
+
+---
 
 ## BL-TOGGLE-BANNER-ANCHOR-ROOM-UNMEASURED — one clip-fit anchor still has no real-surface number
 

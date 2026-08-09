@@ -1,8 +1,15 @@
 name: Crew e2e (mobile-safari + desktop-chromium)
-# Runs five e2e specs against a real browser + a seeded local Supabase: the
-# client-side section-toggle suite (tests/e2e/crew-section-toggle.spec.ts) under
-# mobile-safari, plus four under desktop-chromium — the crew picker flow
-# (tests/e2e/picker-flow.spec.ts), alert-action-links.spec.ts, and the seeded
+# Runs EIGHT e2e spec files against a real browser + a seeded local Supabase. Both
+# projects are passed to one invocation and each project's testMatch claims its own
+# specs, so the per-project split is a RESOLUTION, not a list maintained here —
+# verify it with `--list` rather than trusting this comment:
+#   mobile-safari     crew-section-toggle, crew-page, theme-toggle, font-rendering-census
+#   desktop-chromium  picker-flow, alert-action-links, stage-restricted-crew-schedule,
+#                     font-binding, font-rendering-census, theme-toggle
+# (font-rendering-census and theme-toggle resolve under BOTH — they carry no project
+# gate and assert real behaviour under each.) Highlights: the client-side
+# section-toggle suite (tests/e2e/crew-section-toggle.spec.ts), the crew picker flow
+# (tests/e2e/picker-flow.spec.ts), alert-action-links.spec.ts, the seeded
 # stage-restricted crew schedule suite that carries the per-viewer agenda day fold
 # (tests/e2e/stage-restricted-crew-schedule.spec.ts), and the font-binding oracle
 # (tests/e2e/font-binding.spec.ts), which measures rendered text width on /admin,
@@ -15,11 +22,25 @@ name: Crew e2e (mobile-safari + desktop-chromium)
 # leave that unproved against the build CI actually ships. The stage-restricted suite is on chromium
 # for the same reason picker-flow is: WebKit cannot store the Secure `__Host-`
 # picker cookie over plain http, so every non-admin viewer in it goes dark there
-# (measured on this workflow's first run, 2026-08-02). The rest of the
-# mobile-safari project (crew-page.spec + the M4 tile specs) is still dead-in-CI;
-# lifting it wholesale is filed as BL-RESURRECT-MOBILE-SAFARI-E2E (it would surface
-# latent failures in long-unran specs, so it is its own task). This job stays scoped
-# to the specs that carry live gates rather than the whole project.
+# (measured on this workflow's first run, 2026-08-02).
+#
+# BL-RESURRECT-MOBILE-SAFARI-E2E closed the mobile-safari gap on 2026-08-09, and this
+# job now ALSO runs crew-page.spec.ts (mobile-safari only — see below) and the
+# rewritten theme-toggle.spec.ts, bringing the invocation to EIGHT spec files. right-now-transitions.spec.ts is NOT wired: its
+# §5.7 fixture (shows_internal.run_of_show) proved inert against the hero's anchor
+# on the migrated route, so wiring it would pin a suite whose assertions pass off
+# seed-derived values — spec §3.5's whole-file valve, filed as
+# BL-RIGHTNOW-SECTION57-FIXTURE-INERT. The M4 tile specs this
+# comment used to name are GONE, not pending: nine were 100% test.describe.skip
+# against the retired ?crew= viewer mock AND the slug-only /show/[slug] route, which
+# has no page.tsx, so every navigation in them 404'd. Per-file coverage accounting is
+# §2.3 of docs/superpowers/specs/ci/2026-08-09-resurrect-mobile-safari-e2e-design.md.
+#
+# crew-page.spec.ts is wired for mobile-safari ALONE. Every one of its cases used to
+# early-return off `testInfo.project.name !== "mobile-safari"`, which made a
+# desktop-chromium execution a passing no-op that the executed-count oracle would have
+# credited as real coverage. Those 22 gates were removed and the spec dropped from the
+# desktop-chromium testMatch in the same commit, so what the oracle counts is what ran.
 #
 # Why this spec needs CI: it proves the section-toggle win in a real browser —
 #   • a section tab tap fires ZERO data requests (no server round-trip; freshness
@@ -136,27 +157,26 @@ jobs:
       # browser binaries are restored from the cache above on a hit.
       - run: pnpm exec playwright install-deps chromium webkit
       - run: pnpm exec playwright install chromium webkit
-      # ONE invocation for all five specs, not one per project. Each Playwright
+      # ONE invocation for ALL the specs above, not one per project. Each Playwright
       # process owns and tears down its own webServer, and in CI that server is a
       # cold `pnpm build && pnpm start` — so multiple steps would pay the heaviest
       # phase repeatedly inside this job's timeout. Passing both projects and the
-      # file list lets each project's testMatch claim its own specs: mobile-safari
-      # runs crew-section-toggle; desktop-chromium runs picker-flow,
-      # alert-action-links, stage-restricted-crew-schedule and font-binding
-      # (measured with --list 2026-08-03: 27 tests in 5 files, no overlap;
-      # crew-section-toggle's sixth is the duration-token computed-value assertion
-      # added by fix/duration-tokens-emit-no-css, and stage-restricted's last three
-      # are the seeded agenda-fold cases).
+      # file list lets each project's testMatch claim its own specs. The split is a
+      # RESOLUTION — re-derive it with `--list` rather than trusting a hand-kept
+      # figure here; measured 2026-08-09 it is 148 tests in 8 files (it was
+      # "27 tests in 5 files" on 2026-08-03, before this job grew crew-page and
+      # theme-toggle). font-rendering-census and theme-toggle resolve under BOTH
+      # projects; crew-page resolves under mobile-safari alone.
       #
       # picker-flow is on desktop-chromium deliberately. Measured 2026-07-25: over
       # plain http WebKit refuses to STORE the server's Set-Cookie for the
       # `__Host-`-prefixed Secure picker envelope, so the first-contact bootstrap
       # and every real selection fail to persist there and a correct
       # implementation reads as broken; Chromium's localhost exemption stores it.
-      - name: Run crew section-toggle + picker-flow + alert-action-links + stage-restricted + font-binding e2e (:3000 only)
+      - name: Run the crew e2e spec set (both projects, :3000 only)
         env:
           PLAYWRIGHT_JSON_OUTPUT_NAME: test-results/crew-e2e-report.json
-        run: pnpm exec playwright test --project=mobile-safari --project=desktop-chromium tests/e2e/crew-section-toggle.spec.ts tests/e2e/picker-flow.spec.ts tests/e2e/alert-action-links.spec.ts tests/e2e/stage-restricted-crew-schedule.spec.ts tests/e2e/font-binding.spec.ts tests/e2e/font-rendering-census.spec.ts --reporter=list,json
+        run: pnpm exec playwright test --project=mobile-safari --project=desktop-chromium tests/e2e/crew-section-toggle.spec.ts tests/e2e/picker-flow.spec.ts tests/e2e/alert-action-links.spec.ts tests/e2e/stage-restricted-crew-schedule.spec.ts tests/e2e/font-binding.spec.ts tests/e2e/font-rendering-census.spec.ts tests/e2e/crew-page.spec.ts tests/e2e/theme-toggle.spec.ts --reporter=list,json
       # Collected is not executed. A `beforeEach` calling test.skip() skips every case at RUNTIME
       # while --list still counts them, so the wiring guard, its skip registry and this job's exit
       # code all stay green on a suite that ran nothing (whole-diff review R10). This step reads

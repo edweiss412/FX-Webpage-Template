@@ -20,15 +20,20 @@
  *   `Date.now` shim alone freezes time but does not cause the existing
  *   setInterval to fire — there's no "advance" capability.
  *
- *   `right-now.spec.ts` (Task 4.11 AC-4.3 suite) is written against the
- *   simpler addInitScript shim because it only needs to assert the
- *   initial render. THIS suite needs to assert pre→post transition
- *   behavior in a single session, so we use page.clock. Neither file runs
- *   in CI — no workflow names either (BL-E2E-APP-DEPENDENT-SPECS-CI-DARK).
- *   `right-now.spec.ts` is wholly `describe.skip`; in
- *   `right-now-transitions.spec.ts` the two audit blocks are skipped but the
- *   §5.7 anchor block is LIVE and does call `driveToState`, so this helper is
- *   exercised there under a local `pnpm test:e2e`.
+ *   The former `right-now.spec.ts` (Task 4.11 AC-4.3 suite) was written
+ *   against the simpler addInitScript shim because it only needed to assert
+ *   the initial render. THIS suite asserts pre→post transition behavior in a
+ *   single session, so we use page.clock. That spec was deleted 2026-08-09 as
+ *   superseded — wholly `describe.skip` against the retired `?crew=` viewer
+ *   mock and a route that 404s; its behavior keeps unit coverage in
+ *   `tests/time/rightNow.test.ts` and `tests/components/crew/rightNowHero.test.tsx`
+ *   (spec docs/superpowers/specs/ci/2026-08-09-resurrect-mobile-safari-e2e-design.md
+ *   §2.3). `right-now-transitions.spec.ts`'s §5.7 anchor block calls `driveToState`,
+ *   but as of 2026-08-09 that block is STATICALLY SKIPPED and the file is not wired
+ *   into any workflow: its `run_of_show` fixture proved not to drive the hero it
+ *   asserts (spec §3.5 whole-file valve → §6.6;
+ *   `BL-RIGHTNOW-SECTION57-FIXTURE-INERT`). So this helper currently has NO
+ *   executing caller — said plainly rather than left implying live coverage.
  *
  * Seed contract:
  *   • drive_file_id `seed-fixture:2026-04-asset-mgmt-cfo-coo-waldorf`
@@ -43,7 +48,7 @@
  *   `afterAll` can restore it. The serialization (`workers: 1` in
  *   playwright.config.ts) prevents inter-suite races.
  */
-import type { Page } from "@playwright/test";
+import { expect, type Page } from "@playwright/test";
 import { setDateRestrictionLocked } from "./lockedCrewRestriction";
 import { admin } from "./supabaseAdmin";
 
@@ -74,40 +79,80 @@ export const SEED_DATES = {
 export type SeededShow = {
   slug: string;
   showId: string;
+  /**
+   * Share token for the crew route. The slug-only `/show/[slug]` route has no
+   * page.tsx and 404s unconditionally, so every navigation resolves through
+   * `/show/[slug]/[shareToken]`.
+   */
+  shareToken: string;
   leadCrewId: string;
   leadOriginalDateRestriction: unknown;
 };
 
 export async function lookupSeededShow(): Promise<SeededShow> {
-  const showRes = await admin
+  // Invariant 9 (Supabase call-boundary discipline): destructure { data, error }
+  // rather than holding the whole response, and distinguish a returned error from
+  // an empty result. These are test-local call sites, not lib helpers, so no
+  // _metaInfraContract registry row applies — the fail-loud throw IS the
+  // discipline here, and it names the site so a seed problem is not mistaken for
+  // a product failure.
+  const { data: show, error: showError } = await admin
     .from("shows")
     .select("id, slug")
     .eq("drive_file_id", SEED_DRIVE_FILE_ID)
     .single();
-  if (showRes.error || !showRes.data) {
+  if (showError) {
     throw new Error(
-      `right-now-transitions: seeded show not found (run \`pnpm db:seed\`). drive_file_id=${SEED_DRIVE_FILE_ID}`,
+      `rightNow.lookupSeededShow: shows lookup FAILED for drive_file_id=${SEED_DRIVE_FILE_ID}: ${showError.message}`,
     );
   }
-  const showId = showRes.data.id as string;
+  if (!show) {
+    throw new Error(
+      `rightNow.lookupSeededShow: seeded show not found (run \`pnpm db:seed\`). drive_file_id=${SEED_DRIVE_FILE_ID}`,
+    );
+  }
+  const showId = show.id as string;
 
-  const crewRes = await admin
+  const { data: crew, error: crewError } = await admin
     .from("crew_members")
     .select("id, name, role_flags, date_restriction")
     .eq("show_id", showId);
-  if (crewRes.error || !crewRes.data?.length) {
-    throw new Error(`right-now-transitions: no crew rows for slug=${showRes.data.slug}`);
+  if (crewError) {
+    throw new Error(
+      `rightNow.lookupSeededShow: crew_members lookup FAILED for slug=${show.slug}: ${crewError.message}`,
+    );
   }
-  const lead = crewRes.data.find(
+  if (!crew?.length) {
+    throw new Error(`rightNow.lookupSeededShow: no crew rows for slug=${show.slug}`);
+  }
+  const lead = crew.find(
     (c) => Array.isArray(c.role_flags) && (c.role_flags as string[]).includes("LEAD"),
   );
   if (!lead) {
-    throw new Error(`right-now-transitions: no LEAD crew member for slug=${showRes.data.slug}`);
+    throw new Error(`rightNow.lookupSeededShow: no LEAD crew member for slug=${show.slug}`);
+  }
+
+  const { data: token, error: tokenError } = await admin
+    .from("show_share_tokens")
+    .select("share_token")
+    .eq("show_id", showId)
+    .limit(1)
+    .maybeSingle();
+  if (tokenError) {
+    throw new Error(
+      `rightNow.lookupSeededShow: show_share_tokens lookup FAILED for slug=${show.slug}: ${tokenError.message}`,
+    );
+  }
+  if (!token?.share_token) {
+    throw new Error(
+      `rightNow.lookupSeededShow: no share_token for slug=${show.slug} (run \`pnpm db:seed\`)`,
+    );
   }
 
   return {
-    slug: showRes.data.slug,
+    slug: show.slug,
     showId,
+    shareToken: token.share_token as string,
     leadCrewId: lead.id as string,
     leadOriginalDateRestriction: lead.date_restriction,
   };
@@ -119,8 +164,9 @@ export async function lookupSeededShow(): Promise<SeededShow> {
  * per-show advisory lock, UPDATE show-scoped to the locked show, no-row
  * RETURNING guard throws. M12.12-DEF-2 relocated this write off the
  * PostgREST admin client (which held NO lock); the Codex R2 class-sweep
- * extracted the locked path into the shared helper so
- * schedule-tile.spec.ts's identical mutation uses it too. `leadCrewId`
+ * extracted the locked path into the shared helper so the identical
+ * mutation in the former schedule-tile.spec.ts used it too (that spec was
+ * deleted 2026-08-09 as superseded; the shared helper stays). `leadCrewId`
  * always comes from lookupSeededShow(), i.e. a crew row of the
  * SEED_DRIVE_FILE_ID show.
  */
@@ -272,10 +318,34 @@ export async function driveToState(page: Page, show: SeededShow, kind: string): 
   if (!driver) throw new Error(`No driver for kind: ${kind}`);
   await setDateRestriction(show.leadCrewId, driver.restriction);
   await pinClock(page, driver.clockDate);
-  const r = await page.goto(`/show/${show.slug}?crew=${show.leadCrewId}`);
+  const r = await page.goto(`/show/${show.slug}/${show.shareToken}?s=today`, {
+    waitUntil: "domcontentloaded",
+  });
   if (r?.status() !== 200) {
     throw new Error(`right-now-transitions: navigate to ${show.slug} returned ${r?.status()}`);
   }
+  // HTTP 200 alone is NOT state entry. The helper previously stopped here, so a
+  // viewer whose resolution IGNORES the requested restriction still "arrived" and
+  // the caller's anchor-text assertions could pass on a coincident render. Assert
+  // the RENDERED discriminant the hero publishes (RightNowHero.tsx:507-510) so a
+  // lost state fails loudly, naming both kinds.
+  await assertRenderedState(page, kind);
+}
+
+/**
+ * Assert the hero's rendered state kind matches `kind`.
+ *
+ * `data-state` is the RESOLVED state the production state machine computed for
+ * this viewer — not an echo of anything the test requested — so it discriminates
+ * "the viewer really entered this state" from "the page rendered something".
+ */
+export async function assertRenderedState(page: Page, kind: string): Promise<void> {
+  const marker = page.getByTestId("right-now-hero").getByTestId("right-now-state");
+  await expect(marker, `RightNow hero must render state kind "${kind}"`).toHaveAttribute(
+    "data-state",
+    kind,
+    { timeout: 15_000 },
+  );
 }
 
 /**

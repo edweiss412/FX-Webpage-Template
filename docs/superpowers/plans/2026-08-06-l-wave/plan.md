@@ -1,5 +1,15 @@
 # L-wave implementation plan
 
+> **Deleted-spec note (2026-08-09).** This document names one or more of the nine `tests/e2e/`
+> specs deleted by `BL-RESURRECT-MOBILE-SAFARI-E2E` — schedule-tile, transport-tile,
+> status-financials, role-spoof, pack-list, notes-tile, right-now, layout-dimensions,
+> empty-state. They were 100% `test.describe.skip` against the retired `?crew=` viewer mock AND
+> the slug-only `/show/[slug]` route, which has no `page.tsx`, so every navigation in them 404'd.
+> Any command here that runs one will fail, and any claim that one provides coverage is stale.
+> Per-file coverage accounting:
+> `docs/superpowers/specs/ci/2026-08-09-resurrect-mobile-safari-e2e-design.md` §2.3. This
+> document is otherwise left as the historical record it is.
+
 > **For agentic workers:** execute task-by-task per `HANDOFF.md` in this directory (the Opus pane's entry point). The spec is `docs/superpowers/specs/2026-08-06-l-wave-design.md`; this plan carries its own adversarial-review gate below.
 
 **Goal:** execute the ratified L-tier screen — 29 claimed entries (14 dispositions: 1 ship, 5 demotes incl. 1 probe-gated, 4 decompositions, 2 zero-code closures, 1 sentence-class delete, 1 enforce; plus 15 stamp/classification targets incl. 3 executed archives and 1 resize), plus one new filing and the decomposition children — across three themed branches to three merged PRs (after this spec/plan branch merges).
