@@ -82,8 +82,12 @@ const UI_ROOTS = ["app", "components"] as const;
  */
 const EXEMPT_SITES: Readonly<Record<string, readonly string[]>> = {
   // Each row is `<enclosing function> :: <operand signature>`. See EXEMPTION KEY below.
-  "components/admin/wizard/step3ReviewSections.tsx": ["TransportBreakdown :: leg.date, leg.time"],
-  "components/admin/review/sectionFreshness.ts": ["renderedTransportation :: row.date, row.time"],
+  "components/admin/wizard/step3ReviewSections.tsx": [
+    "TransportBreakdown :: filter(…) :: leg.date, leg.time",
+  ],
+  "components/admin/review/sectionFreshness.ts": [
+    "renderedTransportation :: filter(…) :: row.date, row.time",
+  ],
 };
 
 type JoinSite = {
@@ -146,13 +150,15 @@ const ARRAY_RETURNING_METHODS = new Set([
  * Peel a chain of array-returning method calls, unwrapping value-preserving wrappers at the
  * receiver, at each intermediate callee, and between links.
  */
-function peelArrayChain(node: ts.Expression): ts.Expression {
+function peelArrayChain(node: ts.Expression): { receiver: ts.Expression; chain: string[] } {
   let receiver = unwrapValuePreserving(node);
+  const chain: string[] = [];
   for (;;) {
-    if (!ts.isCallExpression(receiver)) return receiver;
+    if (!ts.isCallExpression(receiver)) return { receiver, chain };
     const link = unwrapValuePreserving(receiver.expression);
-    if (!ts.isPropertyAccessExpression(link)) return receiver;
-    if (!ARRAY_RETURNING_METHODS.has(link.name.text)) return receiver;
+    if (!ts.isPropertyAccessExpression(link)) return { receiver, chain };
+    if (!ARRAY_RETURNING_METHODS.has(link.name.text)) return { receiver, chain };
+    chain.unshift(link.name.text);
     receiver = unwrapValuePreserving(link.expression);
   }
 }
@@ -253,7 +259,9 @@ function recognizeJoins(relPath: string, source: string): JoinSite[] {
       // taught to unwrap the intermediate callee, so `const t = [...].filter!(Boolean)`
       // routed through a const stayed silent while the identical direct form was caught.
       // Two copies of a peel rule is exactly how that recurs; there is now one.
-      receiver = peelArrayChain(receiver);
+      const firstPeel = peelArrayChain(receiver);
+      receiver = firstPeel.receiver;
+      const chain: string[] = [...firstPeel.chain];
       // A bare identifier receiver — `const tokens = ["p-2", drift]; tokens.join(" ")` — is
       // ordinary authoring and was invisible. Resolve up to three same-file `const` hops,
       // re-applying the peel after each, so `const t = [...].filter(Boolean)` and a two-hop
@@ -261,16 +269,23 @@ function recognizeJoins(relPath: string, source: string): JoinSite[] {
       for (let hop = 0; hop < 3 && ts.isIdentifier(receiver); hop += 1) {
         const resolved = soleConstInitializer(sourceFile, receiver.text);
         if (resolved === null) break;
-        receiver = peelArrayChain(unwrapValuePreserving(resolved));
+        const hopPeel = peelArrayChain(unwrapValuePreserving(resolved));
+        receiver = hopPeel.receiver;
+        chain.unshift(...hopPeel.chain);
       }
       if (ts.isArrayLiteralExpression(receiver)) {
         const operandSignature = receiver.elements
           .map((e) => normalize(e.getText(sourceFile)))
           .join(", ");
+        // The TRANSFORM CHAIN belongs to the exemption IDENTITY, not to the bare operand
+        // list. Peeling `.map(...)` erased its output-changing semantics, so
+        // `[leg.date, leg.time].map(() => "p-2").join(" ")` inherited a data-join exemption
+        // whose operands it reproduces while emitting an entirely different string.
+        const chainKey = chain.length > 0 ? `${chain.join(".")}(…) :: ` : "";
         found.push({
           file: relPath,
           line: sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1,
-          signature: `${enclosingFunctionName(node)} :: ${operandSignature}`,
+          signature: `${enclosingFunctionName(node)} :: ${chainKey}${operandSignature}`,
           operands: operandSignature,
           separator: JSON.stringify((separatorArg as ts.StringLiteral).text),
           inClassNamePosition: isInClassNamePosition(node, sourceFile),
