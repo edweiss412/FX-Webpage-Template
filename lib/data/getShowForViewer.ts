@@ -31,11 +31,13 @@
  *     gates the RETURNED value; the read itself is unconditional (2026-08-07
  *     viewer-independent-probe amendment). The fetched JSONB is discarded inside
  *     `readFinancials` for non-entitled viewers and never reaches the projection.
- *   - RLS: `shows_internal` is admin-only via `is_admin()`. M5 will widen
- *     this to LEAD-aware for cookie-bound viewers; for now, we use the
- *     service-role client to bypass RLS on the entitled branch (RLS catches
- *     what the app misses on the non-entitled branch — the helper just doesn't
- *     query at all).
+ *   - RLS: `shows_internal` is admin-only via `is_admin()`, which protects every
+ *     NON-service-role path. It is INERT on this one: the whole fan-out runs on
+ *     the service-role client, which bypasses RLS, and since the 2026-08-07
+ *     amendment the read issues for every viewer — so RLS is not a backstop
+ *     behind the application gate here. The two real lines of defense on this
+ *     path are the return-boundary gate above and the physical separation below
+ *     (honest accounting: 2026-08-07 spec §2.2).
  *   - Physical separation: financials live in `shows_internal`, NOT `shows`.
  *     A `select * from shows` cannot leak them.
  *
