@@ -18,7 +18,7 @@
 - **Ledger green bar (spec §9):** all FOUR classified buckets empty — `newHoles`, `fixedHoles`, `driftedAlarms`, `driftedStale` (`tests/parser/mutationHarness.shard0.test.ts:49-68`). `newHoles` ≠ ∅ is never acceptable. Drift → regenerate the drifted rows' fingerprints in the same branch.
 - **TDD per task; commit per task** (`feat(parser):` / `test(parser):` / `infra:` conventions).
 - **Invariant 11/12 per branch:** worktree off `origin/main` BEFORE first edit; `pnpm install && pnpm worktree:link-env && pnpm preflight`; `pnpm ledger:claims --check <its BL id>`; mark the row `**Status:** IN PROGRESS · **Branch:** <branch>`; commit + push immediately; marker off in the PR's last commit.
-- **No UI surface** anywhere in this wave (spec §1.1.8).
+- **One UI-surface touch only** — the help-family rows in `app/help/errors/_families.ts` (spec §1.1.8 as amended by the retro review); the impeccable dual-gate runs once at branch-4 close, which also swaps the closeout marker line.
 
 ## Branch order and plan files
 
@@ -33,7 +33,7 @@ Each branch merges before the next starts (spec §2.1). Each plan file is self-c
 ## Meta-test inventory (project writing-plans mandate)
 
 - **CREATES:** `tests/parser/cleanCorpusCalibration.test.ts` (spec §10 — per-code clean-corpus expectations; branch 2 creates, branches 3-4 extend); `tests/parser/payloadZeroWidth.test.ts` (spec §3.4 guard, branch 1); `tests/parser/venueSignalParity.test.ts` (spec §7.2(a), branch 5).
-- **EXTENDS:** `tests/parser/_metaAutocorrectProducers.test.ts` (+1 producer, length 13→14), `tests/parser/dataGaps.test.ts` (:402/:427 sets), `tests/parser/dataGapsClassCompleteness.test.ts` (buckets), `tests/messages/warningCardCopyRegistry.ts`, `tests/parser/operatorActionableWarnings.test.ts`, `tests/parser/_warningCodeAnchor.ts`, `tests/parser/mutation/classify.ts` `RISK_CRITICAL` (+pull_sheet) + `applicabilityAudit.ts`, `tests/parser/mutation/knownHoles.ts` (row deletions + `OPERATOR_FINDING_MAP` re-map).
+- **EXTENDS:** `tests/parser/_metaAutocorrectProducers.test.ts` (+1 producer, length 13→14), `tests/parser/dataGaps.test.ts` (:402/:427 sets), `tests/parser/dataGapsClassCompleteness.test.ts` (buckets), `tests/messages/warningCardCopyRegistry.ts`, `tests/parser/operatorActionableWarnings.test.ts`, `tests/parser/_warningCodeAnchor.ts`, `tests/parser/mutation/classify.ts` `RISK_CRITICAL` (+pull_sheet) + `applicabilityAudit.ts`, `tests/parser/mutation/knownHoles.ts` (row deletions + `OPERATOR_FINDING_MAP` comment update; value unchanged per spec §7.4).
 - Advisory-lock topology: N/A — no `pg_advisory*` surface touched (parser-only wave). Supabase call-boundary registry: N/A — no Supabase calls added.
 
 ## Plan-time sweep output (run 2026-08-08, embedded per the reconciliation-sweep mandate)
@@ -64,6 +64,6 @@ Codex CLI is quota-dead until 2026-08-11 6:21 PM (3× `nonzero_exit` usage-limit
 
 Per-branch ACs live in each plan file (AC-U*, AC-R*, AC-M*, AC-C*, AC-S*). Wave-level:
 
-- **AC-W1:** After all five branches merge, `RAW_HOLES` holds 1,076 rows PLUS the merged-cell residue (probe-predicted ≈ 7, the branch-3 harness run's `fixedHoles` count is authoritative): 7,842 − 827 − 3,314 − (2,404 − residue) − 211 − 10. Every remaining row maps to a documented finding (audit #5, audit #10, section-order documented ref) or a recorded residue note.
+- **AC-W1:** After all five branches merge, `RAW_HOLES` holds 1,076 rows PLUS the merged-cell residue: 7,842 − 827 − 3,314 − (2,404 − residue) − 211 − 10. Retro plan review F7 replayed the discriminator over the ledger: expected residue is 31 mutants across 13 target rows (≈2,373 closures, final ≈1,107) — the branch-3 harness run's `fixedHoles` count is authoritative. Every remaining row maps to a documented finding (audit #5, audit #10, section-order documented ref) or a recorded residue note.
 - **AC-W2:** Every new code passes `x1-catalog-parity`, card-copy, actionable, gap-class, and anchor gates (Global Constraints fan-out list).
 - **AC-W3:** Each branch's PR body records the substitute-review deviation while codex is quota-dead.

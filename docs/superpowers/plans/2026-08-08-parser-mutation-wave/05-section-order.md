@@ -30,7 +30,8 @@
 // corpus. Multiset of signal keys per fixture, snapshot-pinned. Failure mode caught:
 // the refactor silently widening or narrowing the unknown-field coverage window.
 import { describe, it, expect } from "vitest";
-import { readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { readFileSync, readdirSync, writeFileSync, mkdirSync } from "node:fs";
+import { dirname } from "node:path";
 import { parseSheet } from "@/lib/parser";
 import { signalKeys } from "@/tests/parser/mutation/oracle";
 
@@ -53,6 +54,7 @@ describe("venue signal parity (spec §7.2a)", () => {
     }
   }
   if (process.env["UPDATE_VENUE_PARITY_BASELINE"]) {
+    mkdirSync(dirname(BASELINE), { recursive: true }); // retro F5: tests/parser/__fixtures__/ does not exist yet
     writeFileSync(BASELINE, JSON.stringify(actual, null, 2));
   }
 
@@ -114,6 +116,7 @@ describe("venue swap invariance (spec §7.2b)", () => {
 ```
 
 - [ ] **Step 2: FAIL — all 10 cases** (today's positional scope drops warnings under these swaps).
+- [ ] **Step 3 (retro F3, wiring corrected r5 — spec §7.2(b) says ANY adjacent swap, not ten):** the EXHAUSTIVE sweep lives in a NEW file `tests/parser/mutationHarness.venueSwapSweep.test.ts` — the `mutationHarness.*.test.ts` name is what the mutation project actually collects (`vitest.projects.ts:83`); a differently-named file would never execute under `--project mutation`. Same env-gate idiom as the shard files. It iterates the SEVENTEEN fixtures from `tests/parser/mutation/fixtures.ts` (NOT a raw directory walk — that picks up `exporter-xlsx/README.md` and inflates the count to 508), and for EVERY adjacent block pair i/i+1 (corpus total 497 swaps) asserts the post-fix signal multiset equals baseline. The 10 named cases stay in the ungated fast file `tests/parser/venueSwapInvariance.test.ts`; the exhaustive file is the spec-letter proof and runs with the harness project at branch close-out. The mutation harness alone is NOT equivalent (its oracle accepts a changed multiset when a stronger signal fires).
 
 ### Task 3: Hoist the unknown-field sweep
 
@@ -157,6 +160,6 @@ perl -ni -e 'print unless /^section-reorder:(2025-03-dci-rpas-central:B1[459]|20
 - [ ] **Step 2 (PINNED — r1 F4):** `OPERATOR_FINDING_MAP["section-reorder"]` KEEPS the exact string `"BL-MUTATION-SECTION-ORDER"` — no map value change. `knownHoles.test.ts:153` validates SHAPE only (audit #N or BL- id), and the umbrella precedent (its comment at `knownHoles.test.ts:135-138`) is that an ARCHIVED row keeps its id resolvable — this PR's backlog close moves the row to `BACKLOG-archive.md` carrying the §7 ratification + 72-row documented-limit note, exactly like `BL-MUTATION-HARNESS-OPEN-HOLES` before it. Update the map's inline comment from "parser order-sensitivity" to "documented: source order ratified (spec 2026-08-07 §7; archived row)" and the suite's comment to name the archive location.
 - [ ] **Step 3:** Full harness: four buckets empty (72 section-reorder rows remain, documented; 10 gone). `knownHoles.test.ts` green.
 - [ ] **Step 4:** Backlog: close `BL-MUTATION-SECTION-ORDER` (archive move carrying the §7 ratification + 72-row documented-limit note), remove the IN PROGRESS marker in the PR's last commit.
-- [ ] **Step 5:** Full suite + typecheck + lint + format; PR (parity evidence, 10-row shrink, re-map, substitute-review deviation); merge; `0  0`. Wave complete: verify AC-W1 (1,076 rows PLUS the branch-3 merged-cell residue remain; with the probe-predicted 7 that is 1,083 - the branch-3 PR records the authoritative number).
+- [ ] **Step 5:** Full suite + typecheck + lint + format; PR (parity evidence, 10-row shrink, re-map, substitute-review deviation); merge; `0  0`. Wave complete: verify AC-W1 (1,076 rows PLUS the branch-3 merged-cell residue remain; retro F7 replay predicts ≈1,107 (31 residue mutants) - the branch-3 PR records the authoritative number).
 
 <!-- tasks: end -->
