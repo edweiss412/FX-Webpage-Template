@@ -109,7 +109,8 @@ mechanical diff reviewable: that stage 1 changes no class token at all.
    git ls-files -z components app | tr '\0' '\n' | grep -E '\.tsx?$' \
      | xargs grep -ohE '\.join\([^)]*\)' | sort | uniq -c | sort -rn
    ```
-   Expected at base: `38 .join(" ")` and no other whitespace separator. The 38 are the 36 classNames
+   Expected at base: `39 .join(" ")` and no other whitespace separator (38 / 36 at plan time — the
+   base was re-derived at the C4 final rebase, §11.1). The 39 are the 37 classNames
    plus 2 data joins in `components/admin/wizard/step3ReviewSections.tsx` and
    `components/admin/review/sectionFreshness.ts` (do not migrate those two). A whitespace-separated
    join at any other spelling means a new dark site landed — it is in scope and changes the §2.2
@@ -160,14 +161,15 @@ mechanical diff reviewable: that stage 1 changes no class token at all.
    in the task log. The fixtures ship inside the script's own `--self-test` mode, and **every
    invocation site runs `--self-test` before the live audit** (the command block above), so no
    later repair can hollow out a rejection path while the clean corpus stays green.
-   Expected tally at the current base: 30 unfiltered sites; 18 conditional operands at 18 sites;
+   Expected tally at the current base: 31 unfiltered sites; 18 conditional operands at 18 sites;
    exactly one falsy-capable branch (`components/crew/primitives/DayCard.tsx:98`); every remaining
    operand a non-empty string literal or one of the eight identifiers. Record the actual tally in
    the task log both times it runs. The audit's substance, per half:
    - *Literal operands:* the unfiltered sites must still yield exactly one `""`/`null`/`undefined`
      hit, `components/crew/primitives/DayCard.tsx:98`.
    - *Identifier operands:* the eight identifiers in spec §4.1's table (`base`, `focusRing`,
-     `pillState`, `TRACK_BASE`, `THUMB_BASE`, `surfaceClass`, `CHIP_CLASS`) must still be truthy at
+     `pillState`, `tapTarget`, `TRACK_BASE`, `THUMB_BASE`, `surfaceClass`, `CHIP_CLASS`) must still be
+     truthy at
      every definition. A rebase making any one falsy creates a second E2 site that the site count,
      the operand-parity script, the `cn` unit test, and the `DayCard` test would ALL pass over.
    - *Every operand must still fall in a PROVEN-TRUTHY category.* Checking the known literals and
@@ -176,7 +178,7 @@ mechanical diff reviewable: that stage 1 changes no class token at all.
      neither a `""`/`null`/`undefined` literal nor one of the eight names, so both checks above pass,
      while `["a", false, "b"].join(" ")` is `"a false b"` and `cn("a", false, "b")` is `"a b"`. That
      is a rendering change, not a whitespace one, and parity, the helper tests, and the `DayCard` test
-     all stay green through it. So enumerate **every** top-level operand at the 30 unfiltered sites
+     all stay green through it. So enumerate **every** top-level operand at the 31 unfiltered sites
      and assert each is one of the three kinds the base is measured to contain:
      1. a non-empty string literal;
      2. one of the eight proven-truthy identifiers from spec §4.1's table — **accepted only when
@@ -194,7 +196,7 @@ mechanical diff reviewable: that stage 1 changes no class token at all.
         sole E2 site (spec §4.1), already pinned by its own render test.
 
      Kind 3 is not an allowance added for convenience; it is the measured base. An AST probe of the
-     30 unfiltered sites finds **18 top-level conditional operands at 18 sites**
+     31 unfiltered sites finds **18 top-level conditional operands at 18 sites**
      (`_PickerInterstitial:174`; `OnboardingWizard:182,200`; `PublishedToggle:298,307`;
      `AutoPublishToggle:130,137`; `DeveloperToggleButton:91,96`; `NotifyToggle:138,145`;
      `Step3SheetCard:577`; `Section:175`; `RightNowHero:557,586`; `DayCard:70,77,98`), every branch
@@ -445,7 +447,8 @@ just a marker asserting one. The honest red is the census guard's own death ratt
    sit there pre-authorizing a future class join in that file.
 
    Calibration is already probed (spec §7.1): the recognizer yields 38 whitespace-join sites at plan-time base (39 as re-derived, §11.1)
-   — 36 classNames + the 2 exemptions — and after Task 3 must report **zero**.
+   — 36 classNames + the 2 exemptions at plan time (37 + 2 as re-derived, §11.1) — and after
+   Task 3 must report **zero**.
 2. **The recognizer's premise, stated executably.** A zero-tolerance guard cannot prove its scanner
    works by finding a non-empty set — "found nothing" is both the passing state and what a broken
    scanner reports. So: run the scanner against a fixture holding known array-join classNames and assert they **are**
@@ -926,7 +929,7 @@ authorized by CI green on the **exact head** being merged.
         `node scripts/audit-cn-operand-kinds.mjs --self-test && node scripts/audit-cn-operand-kinds.mjs`
         (P1's exact command, self-test included: it re-proves the rejection paths against the
         planted mutants before trusting the live run; the audit covers the falsy literals, the
-        seven identifier definitions, the one-binding rule, and the three-kind enumeration, and
+        eight identifier definitions, the one-binding rule, and the three-kind enumeration, and
         exits 1 naming anything that moved). The equivalence premise is base-specific (spec §4.1),
         and a newly integrated upstream edit can break it without moving a single count. Record
         both outputs in the task log.
@@ -958,7 +961,7 @@ authorized by CI green on the **exact head** being merged.
         identifier DEFINITIONS must be byte-identical to `origin/main` — this arc never edits them,
         so any difference is conflict-resolution damage, not work. Any hunk outside the declared
         classes: stop.
-     4. **A stop is a stop.** A parity-premise failure (site count moved off 36), an operand outside
+     4. **A stop is a stop.** A parity-premise failure (site count moved off the declared inventory), an operand outside
         the three kinds, an undeclared diff hunk, or a dimension-spec failure on the rebased head
         all mean the measured base moved or the resolution went wrong — stop and re-derive spec
         §2.2/§4.1 (and for a dimension failure, the §9.4 targets) exactly as P1 step 4 prescribes.
