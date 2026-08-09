@@ -426,17 +426,34 @@ git add docs/
 git commit -m "docs: multi-region enrollment convention, README row, origin supersession pointers"
 ```
 
-## Task 4: Ledger graduation
+<!-- tasks: end -->
 
-<!-- task: red=`sh -c "! rg -q BL-TASK-ENROLLMENT-SINGLE-DEPTH BACKLOG.md"` ac=AC-12 -->
+## Gate battery (pre-review; no marker — not a TDD task)
 
-**Files:**
+Run before every review dispatch below; all green is the entry condition for dispatching, not a deliverable of its own (pre-push-gates discipline: the full suite catches cross-surface regressions scoped runs miss).
 
-- Modify: `BACKLOG.md` (remove the entry), `BACKLOG-archive.md` (add the closed entry) — completes the documentation half of spec AC-12
+```bash
+pnpm test
+pnpm typecheck
+pnpm lint
+pnpm format:check
+```
 
-- [ ] **Step 1: Move the entry.**
+Any failure traces to this diff (the worktree started from green `origin/main`). Fix within the owning task's scope; if a fix changes checker behavior, re-run Task 2's mutation gate.
 
-Delete the `## BL-TASK-ENROLLMENT-SINGLE-DEPTH` section from `BACKLOG.md` (including its `**Status:** IN PROGRESS · **Branch:** …` meta line — archives categorically reject in-flight markers, and this removal is also invariant 12's marker-off-before-merge step). Add to `BACKLOG-archive.md`, following the existing closed-entry form (`## <ID> — <title> — CLOSED <date> (<branch>, <disposition>)`):
+## Whole-diff adversarial review (cross-model) to APPROVE
+
+- [ ] **Step 1: Freeze the tree** (no edits while a dispatch runs).
+- [ ] **Step 2: Dispatch via codex-guard** — `--stage diff --round <n>`, fresh `--out` per round, brief includes: REVIEWER ONLY; fresh-eyes whole-diff posture; the spec §1.1 do-not-relitigate list verbatim; the convergence criterion stated as the machine-computed one (mutation score + empty unaccepted-survivor set, `tests/mutation/source/registry.ts:153`) plus the consequence bound; `FINDINGS:`/`VERDICT:` terminal lines; `--lint-doc` on both the spec and this plan.
+- [ ] **Step 3: Iterate repair rounds** (class-sweep before patching; sweep to a derivation; re-run the gate battery after each repair) until `VERDICT: APPROVE`. Commit each round's repairs and its review-corpus row together, so the NEXT round's dispatch reviews a head that already contains them.
+
+## Closure — ledger graduation, final corpus row, marker off (the PR's last commit)
+
+This commit lands AFTER the final APPROVE, and that is sanctioned, not a review gap: AGENTS.md invariant 12 requires the in-progress marker to come off in the PR's last commit, before the merge — a marker that merges into main names a branch the merge deletes and fails `tests/docs/_metaLedgerInProgress.test.ts` on main. **Mechanical-only rule:** this final commit may contain ONLY (a) the final round's review-corpus row (appended by the wrapper after the APPROVE), (b) the `BL-TASK-ENROLLMENT-SINGLE-DEPTH` graduation below, which removes the marker as part of moving the entry. Any other change — code, test, doc content — re-enters the review loop.
+
+- [ ] **Step 1: Move the ledger entry.**
+
+Delete the `## BL-TASK-ENROLLMENT-SINGLE-DEPTH` section from `BACKLOG.md` (including its `**Status:** IN PROGRESS · **Branch:** …` meta line — archives categorically reject in-flight markers). Add to `BACKLOG-archive.md`, following the existing closed-entry form:
 
 ```markdown
 ## BL-TASK-ENROLLMENT-SINGLE-DEPTH — the declared task region cannot express hierarchical or interleaved plan shapes — CLOSED 2026-08-09 (feat/task-enrollment-multi-region, IMPLEMENTED)
@@ -452,56 +469,18 @@ spec's §7 with re-open triggers; the l-wave PREREQ stamp is discharged by this 
 - [ ] **Step 2: Verify the ledger meta-tests.**
 
 Run: `pnpm vitest run tests/docs/_metaLedgerInProgress.test.ts tests/docs/_metaInvariant8Closeout.test.ts tests/docs/_metaReviewRoundEconomy.test.ts`
-Expected: PASS (no in-flight marker left anywhere; the archive entry carries none; the 4-round filing at `docs/review-rounds/feat/task-enrollment-multi-region/d8cc5c96839b.md` satisfies the economy gate).
+Expected: PASS (no in-flight marker anywhere; the archive entry carries none; the 4-round spec filing plus any diff-stage filing satisfy the economy gate).
 
-- [ ] **Step 3: Commit.**
+- [ ] **Step 3: Commit (the PR's last commit), then hand to the merge flow.**
 
 ```bash
-git add BACKLOG.md BACKLOG-archive.md
+git add BACKLOG.md BACKLOG-archive.md docs/review-rounds/
 git commit -m "docs: graduate BL-TASK-ENROLLMENT-SINGLE-DEPTH (multi-region enrollment shipped)"
 ```
 
-## Task 5: Full-suite gates
-
-<!-- task: red=`pnpm test` ac=AC-13 -->
-
-**Files:** none new — this is the pre-push gate battery (full suite catches cross-surface regressions scoped runs miss).
-
-- [ ] **Step 1: Run the battery.**
-
-```bash
-pnpm test
-pnpm typecheck
-npx tsc --noEmit -p tests/e2e 2>/dev/null || true   # playwright tsconfig, if present per repo convention
-pnpm lint
-pnpm format:check
-```
-
-Expected: all green. (`pnpm test` excludes env-bound/e2e suites by repo convention; that exclusion is fine here — no e2e surface is touched.)
-
-- [ ] **Step 2: Fix anything red, commit residue if any.**
-
-Any failure traces to this diff (the worktree started from green `origin/main`). Fix within the task's scope; if a fix changes checker behavior, re-run Task 2's gate.
-
-```bash
-git add -A && git commit -m "test(spec-lint): full-suite gate residue"   # only if changes exist
-```
-
-## Task 6: Whole-diff adversarial review (cross-model) to APPROVE
-
-<!-- task: red=`sh -c "! test -f /tmp/diff-review-approve"` ac=AC-13 -->
-
-- [ ] **Step 1: Freeze the tree** (no edits while a dispatch runs).
-
-- [ ] **Step 2: Dispatch via codex-guard** — `--stage diff --round <n>`, fresh `--out` per round, brief includes: REVIEWER ONLY; fresh-eyes whole-diff posture; the spec §1.1 do-not-relitigate list verbatim; the convergence criterion stated as the machine-computed one (mutation score + empty unaccepted-survivor set, `tests/mutation/source/registry.ts:153`) plus the consequence bound; `FINDINGS:`/`VERDICT:` terminal lines; `--lint-doc` on both the spec and this plan.
-
-- [ ] **Step 3: Iterate repair rounds** (class-sweep before patching; sweep to a derivation) until `VERDICT: APPROVE`. Commit each round's repairs; the round corpus rows land in `docs/review-rounds/feat/task-enrollment-multi-region/` and are committed with the arc.
-
-<!-- tasks: end -->
-
 ## Execution handoff (Stage 4.4 duties — for the implementing session)
 
-Per the pipeline owner's directive, implementation + closeout run in a NEW Opus pane session. That session, on pickup: run `date`; overwrite `sessionId` in the worktree's ship-state marker file (ship-state JSON under the worktree's dot-claude directory) with its own session UUID; register its own 10-minute cron nudge (full Stage-0 semantics incl. supersession check) and write the `cronJobId` into the marker; rename its herdr pane AND agent to `feat/task-enrollment-multi-region`; then execute Tasks 1-6 in order. After Task 6 APPROVE: push; open PR (merge commit; PR body ends with the standard generated-with footer); real CI green (all twelve branch-protection contexts); `gh pr merge --merge`; fast-forward the main checkout (`git -C /Users/ericweiss/FX-Webpage-Template pull --ff-only`) and verify `git rev-list --left-right --count main...origin/main` reports `0  0`; then Stage 4.4 cleanup — `CronDelete` its nudge, `herdr pane rename "$HERDR_PANE_ID" --clear`, `herdr agent rename "$HERDR_PANE_ID" --clear`, set marker `stage` to `"done"`. Never end a turn mid-pipeline; report inline while continuing.
+Per the pipeline owner's directive, implementation + closeout run in a NEW Opus pane session. That session, on pickup: run `date`; overwrite `sessionId` in the worktree's ship-state marker file (ship-state JSON under the worktree's dot-claude directory) with its own session UUID; register its own 10-minute cron nudge (full Stage-0 semantics incl. supersession check) and write the `cronJobId` into the marker; rename its herdr pane AND agent to `feat/task-enrollment-multi-region`; then execute Tasks 1-3 in order, run the gate battery, drive the whole-diff review to APPROVE, and land the closure commit (graduation + final corpus row) as the PR's last commit. After that: push; open PR (merge commit; PR body ends with the standard generated-with footer); real CI green (all twelve branch-protection contexts); `gh pr merge --merge`; fast-forward the main checkout (`git -C /Users/ericweiss/FX-Webpage-Template pull --ff-only`) and verify `git rev-list --left-right --count main...origin/main` reports `0  0`; then Stage 4.4 cleanup — `CronDelete` its nudge, `herdr pane rename "$HERDR_PANE_ID" --clear`, `herdr agent rename "$HERDR_PANE_ID" --clear`, set marker `stage` to `"done"`. Never end a turn mid-pipeline; report inline while continuing.
 
 ## 12. Closeout
 
