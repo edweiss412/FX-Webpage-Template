@@ -757,6 +757,7 @@ self-review, adversarial review, planning, adversarial review.
 
 ### BL-PRIVATE-IMAGE-PIPELINE — Migrate diagrams gallery to `next/image` with auth-preserving pipeline
 
+**Status:** IN PROGRESS · **Branch:** feat/private-image-pipeline
 **Effort:** L (scope floor — design-gated)
 **l-wave-screen 2026-08-06:** PREREQ — scope floor — needs its own private-image-pipeline design session.
 
