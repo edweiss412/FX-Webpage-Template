@@ -77,6 +77,45 @@ const CANONICAL_USE_SITES = [
  * an AST question about one element, which is closed; "does the file mention it" is not a
  * question about the target at all.
  */
+function unconditionalClassLiterals(
+  source: string,
+  relPath: string,
+  testId: string,
+): string | null {
+  const initializer = classTextOfElement(source, relPath, testId);
+  if (initializer === null) return null;
+  // Only UNCONDITIONALLY-APPLIED class text counts. Textual presence anywhere in the
+  // initializer let `false ? "max-w-confirm-box" : "max-w-16"` satisfy the assertion while
+  // the element always renders `max-w-16` — and C1's rect keys are the documented zero-width
+  // tripwire, so that escape had nothing else catching it. A top-level string-literal
+  // argument of the className expression IS always applied; a conditional branch is not.
+  const wrapper = ts.createSourceFile(
+    "__cls.tsx",
+    `const __x = ${initializer.replace(/^\{|\}$/g, "")};`,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TSX,
+  );
+  const literals: string[] = [];
+  const collect = (n: ts.Node): void => {
+    if (ts.isVariableDeclaration(n) && n.initializer) {
+      const init = n.initializer;
+      if (ts.isStringLiteral(init) || ts.isNoSubstitutionTemplateLiteral(init)) {
+        literals.push(init.text);
+      } else if (ts.isCallExpression(init)) {
+        for (const arg of init.arguments) {
+          if (ts.isStringLiteral(arg) || ts.isNoSubstitutionTemplateLiteral(arg)) {
+            literals.push(arg.text);
+          }
+        }
+      }
+    }
+    ts.forEachChild(n, collect);
+  };
+  collect(wrapper);
+  return literals.join(" ");
+}
+
 function classTextOfElement(source: string, relPath: string, testId: string): string | null {
   const sourceFile = ts.createSourceFile(
     relPath,
@@ -125,10 +164,18 @@ function classTextOfElement(source: string, relPath: string, testId: string): st
  */
 function declarationsOf(css: string, token: string): string[] {
   const active = stripCssComments(css);
-  const pattern = new RegExp(`^\\s*${token.replace(/[-]/g, "\\-")}\\s*:\\s*([^;]+);`, "gm");
-  return themeBlocks(active).flatMap((block) =>
-    [...block.matchAll(pattern)].map((m) => (m[1] ?? "").trim()),
-  );
+  // Split on SEMICOLONS, not line boundaries. A line-anchored regex saw only the first of
+  // two declarations sharing a line, so `--spacing-confirm-box: 60px; --spacing-confirm-box: 64px;`
+  // reported ["60px"] while CSS resolves the utility to 64px — and C1's rects are the
+  // accepted 0-width tripwire, so nothing else would have caught it.
+  const out: string[] = [];
+  for (const block of themeBlocks(active)) {
+    for (const decl of block.split(";")) {
+      const m = decl.match(new RegExp(`^\\s*${token.replace(/[-]/g, "\\-")}\\s*:\\s*(.+)$`, "s"));
+      if (m) out.push((m[1] ?? "").trim());
+    }
+  }
+  return out;
 }
 
 /** The text inside each top-level `@theme { ... }` block, brace-matched. */
@@ -185,7 +232,7 @@ describe("canonicalized utilities resolve to the values they replaced (spec §6)
       // excluded because `getText()` on the className initializer returns only that
       // expression, and a token boundary is required or `max-w-confirm-box` would be
       // satisfied by a longer canonical utility that merely starts with it.
-      const src = classTextOfElement(raw, file, testId);
+      const src = unconditionalClassLiterals(raw, file, testId);
       expect(
         src,
         `${file} has no JSX element with data-testid="${testId}" — the target this ${id} token ` +
