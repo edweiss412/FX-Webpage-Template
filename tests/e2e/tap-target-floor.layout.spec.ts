@@ -810,7 +810,7 @@ for (const spec of CLASS_B_TARGETS) {
       for (const prop of spec.hoverProps) {
         const cssName = prop === "backgroundColor" ? "background-color" : prop;
         expect(
-          animated.has(cssName) || animated.has("all"),
+          animated.has(cssName),
           `${spec.label}: the visual span no longer transitions ${cssName} (got "${timing.property}")`,
         ).toBe(true);
       }
@@ -1231,10 +1231,22 @@ test.describe("DI-9 — hover feedback covers the whole target, not just the pai
     // own repair would have caught it, which is the whole point of the rule.
     const transition = await visual.evaluate((el) => getComputedStyle(el).transitionProperty);
     const pillAnimated = new Set(transition.split(",").map((t) => t.trim()));
+    // NO `all` escape hatch. `all` is what CSS computes when there is NO
+    // transition utility at all, so accepting it made this assertion unable to
+    // fail for the very regression it names: delete `transition-colors
+    // duration-fast` and the property reads `all`, the duration reads `0s`,
+    // `settledColor` shrinks its own wait to match, hover still reaches the
+    // right colour instantly, and every check passed while the 120ms crossfade
+    // was gone. `transition-colors` never computes to `all`.
     expect(
-      pillAnimated.has("color") || pillAnimated.has("all"),
+      pillAnimated.has("color"),
       `the visual span lost its colour transition (got "${transition}")`,
     ).toBe(true);
+    const pillDuration = await visual.evaluate((el) => getComputedStyle(el).transitionDuration);
+    expect(
+      [...new Set(pillDuration.split(",").map((d) => d.trim()))],
+      `the pill's colour transition was removed or retimed (got "${pillDuration}")`,
+    ).toEqual(["0.12s"]);
 
     // The target itself must be the `group` ancestor the rewritten utilities
     // resolve against; without it `group-hover:*` never matches and hover
