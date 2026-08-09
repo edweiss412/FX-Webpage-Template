@@ -16,10 +16,10 @@ You are the implementing session for the quick-wins-2 pass. Full autonomy was gr
 
 ## Stage 0 for EACH branch (A, then B, then C — per plan topology)
 
-1. `date`; create the worktree off `origin/main` (`git worktree add -b <branch> ../FX-worktrees/<name> origin/main`); **IMMEDIATELY label:** `[ -n "$HERDR_PANE_ID" ] && herdr pane rename "$HERDR_PANE_ID" "<branch>" && herdr agent rename "$HERDR_PANE_ID" "<branch>"` (labels come right after worktree creation, before any install — AGENTS.md pane-naming lifecycle).
+1. `date`; `git fetch origin`; the three implementation branches ALREADY EXIST on origin carrying their ledger-marker commit (pushed by the authoring session per invariant 12) — create the worktree FROM the existing branch: `git worktree add ../FX-worktrees/<name> <branch>` (never `-b` off origin/main, which would orphan the marker commit); **IMMEDIATELY label:** `[ -n "$HERDR_PANE_ID" ] && herdr pane rename "$HERDR_PANE_ID" "<branch>" && herdr agent rename "$HERDR_PANE_ID" "<branch>"` (labels come right after worktree creation, before any install — AGENTS.md pane-naming lifecycle).
 2. `pnpm install`, `pnpm worktree:link-env`, `pnpm preflight`.
 3. `pnpm ledger:claims --check <the branch's entry ids>` (exit 1 = collision, stop and reconcile; exit 2 = check untrustworthy, fix first).
-4. Flip each of the branch's entries from `**Branch:** docs/quick-wins-2-specs` to the implementation branch, commit, push immediately.
+4. The branch's entries are ALREADY marked `**Status:** IN PROGRESS · **Branch:** <this branch>` in its tip commit — verify with `rg -c 'Branch:.*<branch>' BACKLOG.md`; the `--check` in step 3 passing with your own branch as the declarer is the expected state, not a collision.
 5. Register the 10-minute cron nudge (off-minute `7,17,27,37,47,57 * * * *`) with the standard prompt contract: `date` first, shell clock only, discard stale framing, supersession check on the marker's sessionId, delete only at Stage 4.4 or supersession. Write the worktree ship-state marker (ship-state.json under the worktree .claude dir) (branch, stage, tasksRemaining, next, blockedOn, cronJobId, sessionId).
 
 ## Branch → entry map
