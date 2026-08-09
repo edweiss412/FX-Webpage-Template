@@ -24,9 +24,11 @@
  *    (isNavItemActive → pathname.startsWith). Wrapped in PathnameContext,
  *    NOT AppRouterContext — the precedent is _pusherRowsHarness.tsx:17-21.
  *  - `MeShowSections` is imported from app/me/meShowSections.tsx, NEVER
- *    app/me/page.tsx: the page's graph constructs an AsyncLocalStorage at
- *    module scope, which dies under the bundler's empty builtin stubs before
- *    React mounts (spec §1.1 R10).
+ *    app/me/page.tsx (spec §1.1 R10). The extraction still matters — it keeps
+ *    `next/headers`, `@supabase/ssr` and the rest of the page's server graph out
+ *    of a browser bundle — but it did NOT remove the last reach into
+ *    `lib/log`: AdminNav and OperatorErrorBlock are two more, which is why this
+ *    entry is bundled by `_tapTargetFloorBundle.mjs`.
  *  - `OperatorErrorBlock` is imported by name from OnboardingWizard.tsx, which
  *    is why that symbol is exported (spec §8; same precedent comment as
  *    StepIndicator).
@@ -41,12 +43,6 @@
  * commit. The spec gates on it and then on document.fonts.ready — never
  * networkidle.
  */
-// FIRST import, deliberately: import order is evaluation order, and this seeds
-// the bundler's empty `node:async_hooks` stub with a working AsyncLocalStorage
-// before the component graph can lazily require `@/lib/log` and construct one.
-// See that file's header for the measurement behind it.
-import { assertNodeShimsInstalled } from "./_tapTargetFloorNodeShims";
-
 import { useEffect } from "react";
 import { createRoot } from "react-dom/client";
 import { PathnameContext } from "next/dist/shared/lib/hooks-client-context.shared-runtime";
@@ -234,8 +230,6 @@ function App() {
     </PathnameContext.Provider>
   );
 }
-
-assertNodeShimsInstalled();
 
 const rootEl = document.getElementById("root");
 if (rootEl) createRoot(rootEl).render(<App />);

@@ -126,15 +126,19 @@ test.beforeAll(async ({ browser }) => {
 <body class="bg-bg"><div id="root"></div><script src="bundle.js"></script></body></html>`,
   );
 
-  // The entry's import graph reaches "use server" action modules and node
-  // builtins that Next elides from client bundles; this bundler replicates
-  // that elision. It is used UNMODIFIED (spec §8, ratified) — teaching the
-  // shared `_bundleLiveEntryChild.mjs` the same trick would redesign a surface
-  // this branch does not otherwise touch.
+  // A SIBLING of `_step3ReviewModalBundle.mjs`, differing in exactly one thing:
+  // `node:async_hooks` resolves to a functional AsyncLocalStorage rather than an
+  // empty object. Spec §8 names the shared bundler and calls it UNMODIFIED, and
+  // it IS unmodified — that fence exists because it backs other standalone
+  // specs, and a sibling leaves them untouched byte for byte. The fence's
+  // premise is what changed: R10 held that extracting `/me`'s render half
+  // removed the last path into `lib/log`, and measurement showed AdminNav (21
+  // refs) and OperatorErrorBlock (22) are two more that no `"use server"`
+  // prologue elides. See that file's header for the full measurement.
   execFileSync(
     process.execPath,
     [
-      join(REPO_ROOT, "tests", "e2e", "_step3ReviewModalBundle.mjs"),
+      join(REPO_ROOT, "tests", "e2e", "_tapTargetFloorBundle.mjs"),
       join(REPO_ROOT, "tests", "e2e", "_tapTargetFloorLiveEntry.tsx"),
       join(workDir, "bundle.js"),
       join(REPO_ROOT, "tsconfig.json"),
