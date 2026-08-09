@@ -43,6 +43,31 @@ The marker below reads `dispositions=none` because the grammar's cross-check tie
 
 impeccable-gate: critique=RAN audit=RAN p0=0 p1=0 dispositions=none
 
+### §12.1b Cross-model diff review — round 1
+
+Three tight-scope dispatches (the diff is ~60 files; `AGENTS.md` makes split briefs the default at that size), each with the REVIEWER-ONLY line, the fresh-eyes posture, a consequence bound, a threat-model fence, and a do-not-relitigate list. Corpus rows in `docs/review-rounds/fix/quick-wins-2-mech/`.
+
+| Scope | Verdict | Findings |
+| --- | --- | --- |
+| the new guards and test surfaces | NEEDS-ATTENTION | 5 |
+| the shared psql-target resolver | NEEDS-ATTENTION | 1 |
+| the mechanical class sweep, docs and ledger | NEEDS-ATTENTION | 2 |
+
+Every finding arrived with a probe, and every one was real. Seven of eight are ANTI-TAUTOLOGY defects in guards this arc wrote — which is the honest summary: the product changes held up (all four canonical substitutions and both shadow themes reproduced, token order and set retained, the six concatenations byte-identical, the 29/35 plugin claim exact), and what did not hold up was the machinery asserting it.
+
+| # | Scope | Finding | Repair |
+| --- | --- | --- | --- |
+| R1-1 | guards | `themeTokenArrowBan`'s fixture planted into the SCANNER's own `UI_ROOTS`/`UI_EXTENSIONS` and used the scanner's parsed token spellings, so any mutation of those moved the fixture with it. Probed: deleting `"app"` (168 tracked files) or `"lib"` (496), replacing `.ts` with `.js`, and appending `-mut` to every parsed token each left ALL FOUR tests green. | Fixture roots, extensions and token names now come from an INDEPENDENT read, with an agreement assertion binding them to the scanner. All four mutants now fail by name (2 of 4 fail two tests each). |
+| R1-2 | guards | A `scopeTiles` row whose `viewerNames` went empty ran its named test with ZERO assertions and reported PASS — probed for all eight rows. | Non-emptiness asserted twice: once over the whole table, once inside each row's own test, so a silent row fails in the test that is silent rather than in a sibling. |
+| R1-3 | guards | The Branch-0-inert premise validated a separately built `idInputs` array, not the call. Probed: injecting ids at the real call sites left the premise green while all four positive fuzzy-name legs were answered by Branch 0 instead of the name comparison they claim to exercise. Exactly the shape `docs/agents/writing-plans.md` names — "a premise that validates something ADJACENT to the case is not a premise". | ONE `callOptionsFor` constructor now feeds both the premise and the assertions, and each leg re-asserts inertness on its own options object. The mutant now fails 9 tests. |
+| R1-4 | guards | The tap-target static pin walked to the nearest gap-bearing ANCESTOR. Probed: deleting the inner `gap-2` made it climb to the outer `flex flex-col gap-2` header and accept that VERTICAL gap — a different axis, a different box — while reporting PASS. | The walk is now the IMMEDIATE parent only; no literal className, or no gap on it, is a premise failure rather than a climb. |
+| R1-5 | guards | `TAILWIND_SPACING_STEP_PX = 4` restated the project's spacing step instead of deriving it, and the premise "the band is a whole number of steps" compared two test-local constants. Probed: injecting `--spacing: 0.1875rem` left both static pins green at a computed 8 while the real gap was 6, under the band. | The constant is DELETED. The AST supplies the gap TOKEN and the real engine resolves it, with a premise that the token was emitted at all (an absent class computes 0 and would otherwise fail for the wrong reason). Both pins now fail under the injected spacing. |
+| R1-6 | resolver | An explicitly EMPTY DSN was treated as ABSENT. The resolution this replaced used nullish `??`, so `DATABASE_URL=""` refused; the shared resolver silently selected the local default instead — a refusal turned into an acceptance, the one thing the migration was not allowed to do. | ABSENT and EMPTY are now different states, with the empty channel refused by name and the absent-falls-through control asserted beside it. |
+| R1-7 | sweep | The retargeted `min-w` assertion accepted `min-w-0` — probed, and Tailwind emits `min-width: calc(var(--spacing) * 0)` for it — so the reserved label width could go to zero silently. | Pinned to `min-w-34`. |
+| R1-8 | sweep | The census reported round 2 as 12 files and the union as 43; commit-derived enumeration gives 14 and 38 (the rounds overlap on 7). | Corrected in both the closeout and the archive entry, with the overlap stated so the numbers reconcile. |
+
+Two CI failures surfaced in the same window and are repaired with them: the psql startup-file guard's indirection tripwire fired on the new unit suite's binary-name assertion (reworded rather than exempted — that guard already carries a SELF list and growing it is the worse trade), and the standalone spec baseline was one regen behind A6's four new cases.
+
 ### §12.2 Observed-RED transcripts index
 
 Every RED in this branch was observed against the live tree, and both observations recorded in the task's own commit message.
@@ -67,7 +92,9 @@ Every RED in this branch was observed against the live tree, and both observatio
 | Round | Cover | Sites | Disposition |
 | --- | --- | --- | --- |
 | 1 | initializer or Record value, Tailwind-bearing (≥2 tokens, ≥60% matching a utility prefix), not already inside a recognized callee | 56 across 31 files | all repaired |
-| 2 (gate finding A-3) | round 1 widened: `/opacity` modifiers modeled, single-token values admitted when they carry a dash, nested object values walked | 76 further across 12 files | all repaired |
+| 2 (gate finding A-3) | round 1 widened: `/opacity` modifiers modeled, single-token values admitted when they carry a dash, nested object values walked | 76 further across 14 files | all repaired |
+
+The two rounds overlap on 7 files, so the union is **38 files**, not the 31 + 14 a reader would add up to — corrected from a commit-derived enumeration after the cross-model review probed it (`round1_files=31 round2_files=14 overlap=7 union=38`).
 
 Deferral was considered under class-sweep exception (c) — "spans enough sites to blow the review scope" — and REJECTED on measurement rather than feel: the transform is mechanical, `tsc --noEmit` is clean, and the whole class produced only four Tailwind drifts. Deferring would have cost a full pipeline to re-earn context already held.
 

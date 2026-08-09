@@ -608,44 +608,90 @@ describe("transportTileVisible — fuzzy-name fallback pin set (BL-TRANSPORT-ID-
     },
   ] as const;
 
+  /**
+   * The EXACT argument object each leg passes — ONE constructor, used by both the
+   * premise and the assertions, so the premise cannot drift from the call.
+   */
+  function callOptionsFor(
+    pin: (typeof PINS)[number],
+    viewerName: string | null,
+  ): Parameters<typeof transportTileVisible>[0] {
+    return {
+      transportation: transportRow(pin.driver, pin.assigned),
+      viewerId: null,
+      transportationOwnerIds: [],
+      viewerName,
+      viewerNameAliases: [...pin.aliases],
+      isAdmin: pin.isAdmin,
+    };
+  }
+
   test("premise: every leg runs with no resolved owner ids and no viewerId, so Branch 0 is inert", () => {
     premise("fuzzy-name pin legs", PINS.length, 6);
-    // Asserted against the CALL every leg makes, not against a hopeful reading of the
-    // table: the two id inputs are fixed at the call site below, so this states the
-    // property the call sites actually have.
-    const idInputs = PINS.map(() => ({ viewerId: null, transportationOwnerIds: [] as string[] }));
+
+    // Built from the SAME constructor the assertions call, so this is a property
+    // of the CALLS rather than of a hopeful reading of the table. The version
+    // this replaced validated a separately built `idInputs` array: supplying ids
+    // to the real call sites left it green while all four positive fuzzy-name
+    // legs were answered by Branch 0 instead of by the name comparison they
+    // claim to exercise (cross-model review R1, probed). `docs/agents/
+    // writing-plans.md`: a premise that validates something ADJACENT to the case
+    // is not a premise.
+    const calls = PINS.flatMap((pin) => pin.viewerNames.map((n) => callOptionsFor(pin, n)));
+    premise("actual calls the table makes", calls.length, PINS.length - 1);
     premiseHolds(
-      "no leg supplies a viewerId (Branch 0 would answer before any name comparison)",
-      idInputs.every((i) => i.viewerId === null),
+      "no CALL supplies a viewerId (Branch 0 would answer before any name comparison)",
+      calls.every((c) => c.viewerId === null),
     );
     premiseHolds(
-      "no leg supplies a resolved owner id (Branch 0 would answer before any name comparison)",
-      idInputs.every((i) => i.transportationOwnerIds.length === 0),
+      "no CALL supplies a resolved owner id (Branch 0 would answer before any name comparison)",
+      calls.every((c) => c.transportationOwnerIds.length === 0),
     );
+
+    // Every row contributes at least one call. A row whose `viewerNames` went
+    // empty would run its named test with ZERO assertions and still report PASS —
+    // the shape the reviewer's probe drove through all eight rows.
+    // Widened deliberately. `PINS` is `as const`, so the COMPILER already proves
+    // no row is empty today and a narrow read makes this comparison a type error
+    // rather than a check. That proof is worth having and is not worth relying
+    // on alone: it evaporates the moment a row is built dynamically or the
+    // `as const` is dropped, which is exactly when the vacuity returns.
+    const rowLengths: readonly { id: string; count: number }[] = PINS.map((pin) => ({
+      id: pin.id,
+      count: (pin.viewerNames as readonly (string | null)[]).length,
+    }));
+    const silentRows = rowLengths.filter((r) => r.count === 0).map((r) => r.id);
+    expect(
+      silentRows,
+      "these rows would execute no assertion at all — an empty `viewerNames` makes the loop body " +
+        "unreachable, and a test that asserts nothing reports PASS",
+    ).toEqual([]);
+
     premiseHolds(
       "the table carries both outcomes, so it cannot be satisfied by a constant predicate",
       PINS.some((p) => p.expected) && PINS.some((p) => !p.expected),
     );
   });
 
-  test.each(PINS)(
-    "$id",
-    ({ driver, assigned, viewerNames, aliases, isAdmin, expected, catches }) => {
-      for (const viewerName of viewerNames) {
-        expect(
-          transportTileVisible({
-            transportation: transportRow(driver, assigned),
-            viewerId: null,
-            transportationOwnerIds: [],
-            viewerName,
-            viewerNameAliases: [...aliases],
-            isAdmin,
-          }),
-          `viewerName ${JSON.stringify(viewerName)} — catches: ${catches}`,
-        ).toBe(expected);
-      }
-    },
-  );
+  test.each(PINS)("$id", (pin) => {
+    // Guarded again HERE, not only in the premise above: `.each` gives each row
+    // its own test, and a row that asserts nothing must fail in ITS OWN test
+    // rather than lean on a sibling's bookkeeping.
+    expect(
+      (pin.viewerNames as readonly (string | null)[]).length,
+      `${pin.id}: no viewer name to assert on — this case would pass without executing anything`,
+    ).toBeGreaterThan(0);
+
+    for (const viewerName of pin.viewerNames) {
+      const options = callOptionsFor(pin, viewerName);
+      expect(options.viewerId, "Branch 0 must stay inert for this leg").toBeNull();
+      expect(options.transportationOwnerIds, "Branch 0 must stay inert for this leg").toEqual([]);
+      expect(
+        transportTileVisible(options),
+        `viewerName ${JSON.stringify(viewerName)} — catches: ${pin.catches}`,
+      ).toBe(pin.expected);
+    }
+  });
 });
 
 describe("static-analysis: scopeTiles.ts documents the role-flag origin contract", () => {

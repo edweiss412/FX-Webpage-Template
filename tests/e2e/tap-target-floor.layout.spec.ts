@@ -1594,24 +1594,32 @@ test.describe("§6.1 disclosure behaviour survives the Class-A repair", () => {
  */
 const EXPANSION_BAND_PER_SIDE = (TAP_MIN - VISUAL_PILL) / 2;
 
-/** Tailwind's spacing scale: `gap-N` is N × 0.25rem at the project's 16px root. */
-const TAILWIND_SPACING_STEP_PX = 4;
-
 /**
- * The innermost gap-bearing ancestor of the element carrying `testId`, read out
- * of the SOURCE with the TypeScript parser.
+ * The gap utility on the IMMEDIATE PARENT of the element carrying `testId`, read
+ * out of the SOURCE with the TypeScript parser.
  *
- * Deliberately not a regex over the file: "the last className containing `gap-`
- * before this line" is satisfied by a SIBLING, so it would keep passing while
- * the anchor moved out of the container the assertion is about. Asking the AST
- * for an ANCESTOR is the question the pin actually needs answered, and it
- * survives reformatting, prop reordering, and the line drift that already
- * rotted this entry's own citations once.
+ * IMMEDIATE, not "nearest ancestor that happens to declare a gap" — that was the
+ * shipped version and it was wrong in the direction that looks fine (cross-model
+ * review R1, probed). Deleting `gap-2` from the Step3Review row made the walk
+ * climb to the outer `flex flex-col gap-2` header and accept ITS vertical gap: a
+ * different axis, a different box, a different question. The pin reported PASS
+ * while the container it names had no gap at all.
+ *
+ * Returning `null` — no parent, no literal className, or no gap utility on it —
+ * is a PREMISE failure at the call site, never a pass. A `className` built from a
+ * template or a variable is also `null` for the same reason: this reads source,
+ * so a class it cannot see is a class it must not vouch for.
+ *
+ * The gap is returned as its TOKEN, not converted to pixels here. The conversion
+ * this replaced multiplied by a test-local `4`, which is the project's spacing
+ * step restated rather than derived: injecting `--spacing: 0.1875rem` left every
+ * static pin green at a computed 8 while the real gap was 6, under the band. The
+ * browser resolves the token now, in the same engine the measured case uses.
  */
-function gapAncestorOf(
+function immediateGapParentOf(
   relPath: string,
   testId: string,
-): { classText: string; gapPx: number } | null {
+): { classText: string; gapToken: string } | null {
   const source = readFileSync(join(REPO_ROOT, relPath), "utf8");
   const sourceFile = ts.createSourceFile(
     relPath,
@@ -1621,11 +1629,12 @@ function gapAncestorOf(
     ts.ScriptKind.TSX,
   );
 
-  const classOf = (opening: ts.JsxOpeningLikeElement): string | null => {
+  const literalClassOf = (opening: ts.JsxOpeningLikeElement): string | null => {
     for (const attr of opening.attributes.properties) {
       if (!ts.isJsxAttribute(attr) || attr.name.getText(sourceFile) !== "className") continue;
       const init = attr.initializer;
       if (init !== undefined && ts.isStringLiteral(init)) return init.text;
+      return null;
     }
     return null;
   };
@@ -1644,7 +1653,7 @@ function gapAncestorOf(
   const findAnchor = (node: ts.Node): void => {
     if (anchor !== null) return;
     if ((ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)) && carriesTestId(node)) {
-      anchor = node;
+      anchor = ts.isJsxOpeningElement(node) ? node.parent : node;
       return;
     }
     ts.forEachChild(node, findAnchor);
@@ -1652,21 +1661,22 @@ function gapAncestorOf(
   findAnchor(sourceFile);
   if (anchor === null) return null;
 
-  // Walk OUTWARD to the first ancestor whose own className declares a gap.
-  for (let node: ts.Node | undefined = (anchor as ts.Node).parent; node; node = node.parent) {
-    const opening = ts.isJsxElement(node)
-      ? node.openingElement
-      : ts.isJsxSelfClosingElement(node)
-        ? node
-        : null;
-    if (opening === null) continue;
-    const classText = classOf(opening);
-    if (classText === null) continue;
-    const match = /(?:^|\s)gap(?:-[xy])?-(\d+(?:\.\d+)?)(?:\s|$)/.exec(classText);
-    if (match?.[1] === undefined) continue;
-    return { classText, gapPx: Number(match[1]) * TAILWIND_SPACING_STEP_PX };
+  // Exactly one step out, skipping only the JSX-syntax wrappers that carry no
+  // element of their own (a `{cond && <El/>}` expression container is not a box).
+  let parent: ts.Node | undefined = (anchor as ts.Node).parent;
+  while (
+    parent !== undefined &&
+    (ts.isJsxExpression(parent) || ts.isParenthesizedExpression(parent))
+  ) {
+    parent = parent.parent;
   }
-  return null;
+  if (parent === undefined || !ts.isJsxElement(parent)) return null;
+
+  const classText = literalClassOf(parent.openingElement);
+  if (classText === null) return null;
+  const match = /(?:^|\s)(gap(?:-[xy])?-\d+(?:\.\d+)?)(?:\s|$)/.exec(classText);
+  if (match?.[1] === undefined) return null;
+  return { classText, gapToken: match[1] };
 }
 
 /**
@@ -1694,35 +1704,57 @@ test.describe("§2.7 — the 8px expansion band cannot reach an interactive neig
       EXPANSION_BAND_PER_SIDE,
       0,
     );
-    // A band of 8 with a 4px scale step means the smallest passing gap token is
-    // `gap-2`. Stated so a scale change (or a token that resolves to something
-    // other than N x 4px) fails here rather than silently weakening every
-    // assertion below.
-    expect(
-      EXPANSION_BAND_PER_SIDE / TAILWIND_SPACING_STEP_PX,
-      "the band is no longer a whole number of Tailwind spacing steps; the gap-token arithmetic below no longer holds",
-    ).toBe(2);
   });
 
   for (const pin of STATIC_GAP_PINS) {
-    test(`static pin: ${pin.label} keeps a gap that clears the band`, () => {
-      const found = gapAncestorOf(pin.file, pin.anchorTestId);
-      // PREMISE, not the assertion: a refactor that moves the gap to a child
-      // wrapper, renames the anchor, or drops the className must fail HERE —
-      // "no container found" would otherwise be indistinguishable from "the
-      // container is fine", which is exactly how a pin goes quietly vacuous.
+    test(`static pin: ${pin.label} keeps a gap that clears the band`, async ({ page }) => {
+      const found = immediateGapParentOf(pin.file, pin.anchorTestId);
+      // PREMISE, not the assertion. "No gap-declaring immediate parent" must fail
+      // HERE — otherwise it is indistinguishable from "the container is fine",
+      // which is exactly how a pin goes quietly vacuous. It covers three shapes at
+      // once: the anchor moved, the gap moved to a wrapper, or the className became
+      // non-literal and unreadable from source.
       premiseHolds(
-        `${pin.label}: found a gap-bearing ancestor of [data-testid="${pin.anchorTestId}"] in ${pin.file}`,
+        `${pin.label}: [data-testid="${pin.anchorTestId}"]'s IMMEDIATE parent in ${pin.file} ` +
+          `declares a literal gap utility`,
         found !== null,
       );
-      const container = found as { classText: string; gapPx: number };
+      const container = found as { classText: string; gapToken: string };
+
+      // The token is resolved by the REAL ENGINE, not by arithmetic in this file.
+      // A local `gap-N × 4px` conversion restates the project's spacing step
+      // instead of deriving it, and stays green when the step moves.
+      await boot(page, 390);
+      const resolved = await page.evaluate((token) => {
+        const probe = document.createElement("div");
+        probe.className = `flex ${token}`;
+        probe.style.position = "absolute";
+        probe.style.visibility = "hidden";
+        probe.appendChild(document.createElement("span"));
+        probe.appendChild(document.createElement("span"));
+        document.body.appendChild(probe);
+        const cs = getComputedStyle(probe);
+        const out = { column: parseFloat(cs.columnGap), row: parseFloat(cs.rowGap) };
+        probe.remove();
+        return out;
+      }, container.gapToken);
+
+      // A token the compiled stylesheet never emitted computes to 0 and would
+      // "fail" for the wrong reason. Said as a premise so the two are never
+      // confused.
+      premiseHolds(
+        `${pin.label}: the compiled stylesheet emits \`${container.gapToken}\` (computed ` +
+          `${resolved.column}px); a token absent from the bundle would read 0 and be ` +
+          `indistinguishable from a collapsed gap`,
+        Number.isFinite(resolved.column) && resolved.column > 0,
+      );
 
       expect(
-        container.gapPx,
-        `${pin.label} — its container ("${container.classText}") no longer keeps the ` +
-          `${EXPANSION_BAND_PER_SIDE}px expansion band off its neighbour. This is mutant #14 ` +
-          `from the tap-target arc: a grown target overlaps the control beside it, and every ` +
-          `other assertion in this file still passes because the PAINTED boxes never moved.`,
+        resolved.column,
+        `${pin.label} — its immediate container ("${container.classText}") no longer keeps the ` +
+          `${EXPANSION_BAND_PER_SIDE}px expansion band off its neighbour. This is mutant #14 from ` +
+          `the tap-target arc: a grown target overlaps the control beside it, and every other ` +
+          `assertion in this file still passes because the PAINTED boxes never moved.`,
       ).toBeGreaterThanOrEqual(EXPANSION_BAND_PER_SIDE);
     });
   }

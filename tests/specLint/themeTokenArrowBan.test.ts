@@ -247,8 +247,48 @@ function walkFiles(root: string, roots: readonly string[]): string[] {
 const FIXTURE_NAMESPACES = ["--shadow-", "--spacing-", "--color-"] as const;
 const BREAKPOINT_PREFIX = "--breakpoint-";
 
+/**
+ * The fixture's OWN roots and extensions, deliberately re-spelled rather than
+ * reusing the scanner's constants (cross-model review R1, probed).
+ *
+ * A fixture that plants into `UI_ROOTS` and then scans `UI_ROOTS` moves WITH any
+ * mutation of that constant: deleting `"app"` silently excluded 168 tracked
+ * files and all four tests still passed, because the plants left with the scan.
+ * Held apart, the same mutation loses a third of the positives AND fails the
+ * agreement assertion below by name.
+ */
+const FIXTURE_ROOTS = ["app", "components", "lib"] as const;
+const FIXTURE_EXTENSIONS = [".ts", ".tsx"] as const;
+
+/**
+ * A SECOND, independent read of the declared token names — a plain scan of the
+ * `@theme` block rather than the scanner's own parser.
+ *
+ * Same reason: planting with tokens the scanner parsed makes the plants follow
+ * the parser. Appending `-mut` to every parsed name left all four tests green,
+ * because the fixture asked for the mutated spellings too. Reading the file
+ * independently and then asserting the scanner AGREES turns that mutation into
+ * a named failure.
+ */
+function independentlyDeclaredTokens(): string[] {
+  const css = fs.readFileSync(GLOBALS, "utf8");
+  const open = css.indexOf("@theme");
+  const body = open === -1 ? "" : css.slice(open);
+  const names = new Set<string>();
+  for (const line of stripCssComments(body).split("\n")) {
+    if (/^\s*}/.test(line)) break;
+    const match = /^\s*(--[a-z0-9-]+)\s*:/.exec(line);
+    if (match?.[1] !== undefined) names.add(match[1]);
+  }
+  return [...names].sort();
+}
+
+const INDEPENDENT_TOKENS = independentlyDeclaredTokens();
+
 /** Every root × extension combination — the walker-coverage dimension. */
-const COMBINATIONS = UI_ROOTS.flatMap((root) => UI_EXTENSIONS.map((ext) => ({ root, ext })));
+const COMBINATIONS = FIXTURE_ROOTS.flatMap((root) =>
+  FIXTURE_EXTENSIONS.map((ext) => ({ root, ext })),
+);
 
 interface Fixture {
   dir: string;
@@ -271,7 +311,10 @@ function buildFixture(): Fixture {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "theme-arrow-ban-"));
   const tokens = FIXTURE_NAMESPACES.map((namespace) => ({
     namespace,
-    token: COVERED_TOKENS.find((t) => t.startsWith(namespace)),
+    // From the INDEPENDENT read, not from COVERED_TOKENS — see the note above.
+    token: INDEPENDENT_TOKENS.filter((t) => !t.startsWith(BREAKPOINT_PREFIX)).find((t) =>
+      t.startsWith(namespace),
+    ),
   }));
   const planted = tokens.flatMap((t) => (t.token === undefined ? [] : [t.token]));
   const signature = (root: string, ext: string, token: string): string => `${root}${ext}|${token}`;
@@ -294,7 +337,7 @@ function buildFixture(): Fixture {
   // The negatives, in one `.tsx` file. Each carries a marker so a wrongly-reported one is
   // named rather than counted. The comment negative uses a token spelling that IS covered,
   // so it discriminates the literal restriction rather than the covered-set filter.
-  const breakpointToken = DECLARED_TOKENS.find((t) => t.startsWith(BREAKPOINT_PREFIX));
+  const breakpointToken = INDEPENDENT_TOKENS.find((t) => t.startsWith(BREAKPOINT_PREFIX));
   const commentToken = planted[0] ?? "--shadow-tile";
 
   const negAbs = path.join(dir, "components", "Negatives.tsx");
@@ -331,6 +374,27 @@ describe("no `@theme`-token arrow forms survive in class strings (spec §2.2)", 
   // an empty set. These run before the clean-tree assertion, and none sits inside a `.each`
   // callback whose case count could be zero.
 
+  it("premise / agreement: the scanner's roots, extensions and parsed tokens match an INDEPENDENT read", () => {
+    // The three mutations this catches, each of which left every other assertion
+    // in this file green when the fixture shared these constants with the scanner
+    // (cross-model review R1, probed):
+    //   delete a root       -> 168 (app) / 496 (lib) tracked files silently unscanned
+    //   narrow an extension -> half the tree silently unscanned
+    //   rename every token  -> the covered set matches nothing real
+    expect([...UI_ROOTS], "the scanner's roots no longer match the fixture's").toEqual([
+      ...FIXTURE_ROOTS,
+    ]);
+    expect([...UI_EXTENSIONS], "the scanner's extensions no longer match the fixture's").toEqual([
+      ...FIXTURE_EXTENSIONS,
+    ]);
+    const missing = INDEPENDENT_TOKENS.filter((t) => !DECLARED_TOKENS.includes(t));
+    const extra = DECLARED_TOKENS.filter((t) => !INDEPENDENT_TOKENS.includes(t));
+    expect(
+      { missing, extra },
+      "the scanner's parsed token set disagrees with an independent read of the same @theme block",
+    ).toEqual({ missing: [], extra: [] });
+  });
+
   it("premise / parse: the @theme block yields a real token set", () => {
     premise("declared @theme tokens parsed from app/globals.css", DECLARED_TOKENS.length, 30);
     premise("covered tokens after the --breakpoint-* exclusion", COVERED_TOKENS.length, 30);
@@ -342,7 +406,7 @@ describe("no `@theme`-token arrow forms survive in class strings (spec §2.2)", 
     ).toBeGreaterThan(0);
   });
 
-  const fixtureSites = scanRoots({ root: fixture.dir, roots: UI_ROOTS, tracked: false });
+  const fixtureSites = scanRoots({ root: fixture.dir, roots: FIXTURE_ROOTS, tracked: false });
 
   it("premise / positives: flags every namespace at every root × extension", () => {
     // A namespace the PARSE lost never reaches the plant, so it can never show up as a
@@ -350,6 +414,17 @@ describe("no `@theme`-token arrow forms survive in class strings (spec §2.2)", 
     // narrowed to one namespace takes, and it is the one the >=30 token premise cannot see
     // (105 declarations survive a broad namespace loss).
     const unresolved = fixture.tokens.filter((t) => t.token === undefined).map((t) => t.namespace);
+    // Planted from the independent read, so this is the assertion that binds the
+    // plants to the SCANNER: narrow its parse and the planted token stops being
+    // covered, which is reported here rather than vanishing with the fixture.
+    const uncovered = fixture.tokens.flatMap((t) =>
+      t.token !== undefined && !COVERED_SET.has(t.token) ? [t.token] : [],
+    );
+    expect(
+      uncovered,
+      "these planted tokens are declared in @theme but the scanner's covered set does not hold " +
+        "them, so the positives below can no longer discriminate anything",
+    ).toEqual([]);
     expect(
       unresolved,
       "the @theme parse found NO token in these namespaces, so the positive set no longer " +
@@ -403,7 +478,7 @@ describe("no `@theme`-token arrow forms survive in class strings (spec §2.2)", 
     premiseHolds("the negatives fixture file exists on the scanned path", fs.existsSync(negFile));
     premiseHolds(
       "the negatives fixture is reachable by the same walker that found the positives",
-      walkFiles(fixture.dir, UI_ROOTS).includes(path.join("components", "Negatives.tsx")),
+      walkFiles(fixture.dir, FIXTURE_ROOTS).includes(path.join("components", "Negatives.tsx")),
     );
   });
 
