@@ -47,13 +47,20 @@ function shiftLogicalSection(md: string, start: number): string {
   for (let i = start; i < lines.length; i++) {
     const l = lines[i]!;
     if (!l.trimStart().startsWith("|")) break;
-    if (i > start && isRecognizedSectionOpener(l)) break; // next logical section begins
+    if (i > start && openerCell(l) !== null) break; // next logical section begins
     lines[i] = l.replace(/^(\s*)\|/, "$1|  |");
   }
   return lines.join("\n");
 }
-// isRecognizedSectionOpener: first cell resolves via canonicalSectionKind (branch-2
-// helper) - the same recognition boundary the harness's seg() uses for section splits.
+/** Retro r5: the opener may sit in cell 1 (unshifted) OR cell 2 (columnShift moved it
+ *  right - a shifted section's own header row leads empty). Check cell 1; when cell 1
+ *  is empty, check cell 2. Returns the canonical kind or null. */
+function openerCell(line: string): string | null {
+  const parts = line.split("|");
+  const c1 = (parts[1] ?? "").trim();
+  if (c1 !== "") return canonicalSectionKind(c1);
+  return canonicalSectionKind((parts[2] ?? "").trim());
+}
 
 describe("LEADING_COLUMN_AUTOCORRECTED (spec §6)", () => {
   const path = "fixtures/shows/exporter-xlsx/east-coast.md";
@@ -94,7 +101,7 @@ describe("LEADING_COLUMN_AUTOCORRECTED (spec §6)", () => {
 - Modify: `lib/parser/index.ts` — call immediately after the `normalizeSectionHeaders` seam (`index.ts` step 2.5), same rewrite-and-collect shape: `const colNorm = normalizeLeadingColumn(markdown); markdown = colNorm.corrected; agg.warnings.push(...colNorm.warnings);`
 
 **Interfaces:**
-- Produces: `normalizeLeadingColumn(markdown: string): { corrected: string; warnings: ParseWarning[] }` — per LOGICAL SECTION (retro F1: rows split at recognized section-opening headers WITHIN a pipe block, via `canonicalSectionKind` — the operator's own unit; a whole-block model reaches only 434/535 operator mutants and misses 46 ledger holes, list in the retro review record): if EVERY row's first cell is empty after trim (an alignment row's first cell is colon-dash text, non-empty, giving the structural guarantee), drop the leading column from every row and emit one warning at section granularity. **Segmentation note (r1 F6):** this detector segments by blank-line pipe blocks, not the harness's `seg()` model that measured the probe base rates - the clean-corpus calibration test is the transfer gate, and any divergence surfaces there as a failing pin, never as silent corruption.
+- Produces: `normalizeLeadingColumn(markdown: string): { corrected: string; warnings: ParseWarning[] }` — per LOGICAL SECTION (retro F1: rows split at recognized section-opening headers WITHIN a pipe block, via `canonicalSectionKind` — the operator's own unit; a whole-block model reaches only 434/535 operator mutants and misses 46 ledger holes, list in the retro review record): if EVERY row's first cell is empty after trim (an alignment row's first cell is colon-dash text, non-empty, giving the structural guarantee), drop the leading column from every row and emit one warning at section granularity. **Segmentation note (r1 F6, amended r5):** this detector segments by LOGICAL sections (blank lines AND two-cell-aware recognized openers), a reimplementation of — not an import of — the harness's `seg()` model; the clean-corpus calibration test plus the harness run are the transfer gates for any residual divergence.
 
 - [ ] **Step 1:** Implement:
 
@@ -138,9 +145,14 @@ export function normalizeLeadingColumn(markdown: string): {
     });
   };
 
+  // Retro r5: the opener may sit in cell 1 OR - when the section is shifted, including
+  // the boundary-defining row of a NEIGHBOUR section the operator moved - in cell 2
+  // behind an empty leading cell. One-cell detection restores only 473/535 mutants.
   const opener = (line: string): boolean => {
-    const first = (line.split("|")[1] ?? "").trim();
-    return canonicalSectionKind(first) !== null;
+    const parts = line.split("|");
+    const c1 = (parts[1] ?? "").trim();
+    if (c1 !== "") return canonicalSectionKind(c1) !== null;
+    return canonicalSectionKind((parts[2] ?? "").trim()) !== null;
   };
 
   for (let i = 0; i <= lines.length; i++) {

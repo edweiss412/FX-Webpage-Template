@@ -102,7 +102,7 @@ describe("REF_ERROR_LITERAL (spec §4)", () => {
 - Modify: `lib/parser/index.ts` (call site inside `parseSheet`, after `normalizeSectionHeaders` — the same post-seam position the §5/§6 scanners will share)
 
 **Interfaces:**
-- Produces: `detectRefErrorLiterals(markdown: string): ParseWarning[]` — pure, whole-document, post-seam. Emits one warning per offending (section, row, cell), `blockRef.kind` = the section's opening col-0 token (or `"section"` when headerless), `blockRef.index` = the section's ordinal.
+- Produces: `detectRefErrorLiterals(markdown: string): ParseWarning[]` — pure, whole-document, post-seam. Emits one warning per offending (section, row, cell), `blockRef.kind` = the section's CANONICAL routing key via `canonicalSectionKind` (or `"section"` when unrecognized/headerless; never raw text — retro F2), `blockRef.index` = the LOGICAL section ordinal (advances at blank-line boundaries AND at recognized openers within a pipe run — retro r5).
 
 - [ ] **Step 1: Implement**
 
@@ -113,10 +113,12 @@ describe("REF_ERROR_LITERAL (spec §4)", () => {
 import type { ParseWarning } from "./types";
 import { clean, splitRow } from "./blocks/_helpers";
 // canonicalSectionKind: NEW shared helper this branch adds (lib/parser/sectionKind.ts) -
-// maps a section-opening label to its KIND_TO_SECTION routing key (lib/admin/
-// step3SectionStatus.ts:22 vocabulary, e.g. HOTEL->"hotel", CREW/TECH->"crew",
-// TRANSPORTATION->"travel"...), null when unrecognized. Unit-tested against the
-// full KIND_TO_SECTION key set; branches 3-4 reuse it.
+// maps a section-opening label to a KIND_TO_SECTION routing KEY (lib/admin/
+// step3SectionStatus.ts:22 vocabulary; correct examples per retro r5:
+// HOTEL -> "hotels", TRANSPORTATION -> "transportation", CREW/TECH -> "crew",
+// CLIENT -> "client", DATES -> "dates"), null when unrecognized. The helper's
+// table test asserts every emitted key IS a KIND_TO_SECTION key (structural,
+// not example-based). Branches 3-4 reuse it.
 import { canonicalSectionKind } from "./sectionKind";
 
 export function detectRefErrorLiterals(markdown: string): ParseWarning[] {
@@ -127,10 +129,12 @@ export function detectRefErrorLiterals(markdown: string): ParseWarning[] {
   let prevBlank = true;
   for (const line of lines) {
     const isRow = line.trimStart().startsWith("|");
-    if (isRow && prevBlank) {
+    const opener = isRow && canonicalSectionKind(clean(splitRow(line)[0] ?? "")) !== null;
+    if (isRow && (prevBlank || opener)) {
+      // Retro F2 + r5: kind is a CANONICAL routing key or "section" - never raw text -
+      // and a recognized opener WITHIN a pipe run starts a new logical section, so a
+      // later section never inherits the preceding section's kind.
       sectionIndex += 1;
-      // Retro F2: kind must be a CANONICAL routing key (step3SectionStatus KIND_TO_SECTION
-      // vocabulary) or the literal "section" generic-bucket fallback - NEVER raw cell text.
       sectionKind = canonicalSectionKind(clean(splitRow(line)[0] ?? "")) ?? "section";
     }
     prevBlank = line.trim() === "";

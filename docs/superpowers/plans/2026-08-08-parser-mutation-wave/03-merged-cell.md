@@ -152,6 +152,13 @@ export function detectFusedRows(markdown: string): ParseWarning[] {
 
   for (const line of lines) {
     if (line.trimStart().startsWith("|")) {
+      const opener = canonicalSectionKind(clean(splitRow(line)[0] ?? "")) !== null;
+      if (section.length > 0 && opener) {
+        // Retro r5: a recognized opener inside a pipe run closes the previous LOGICAL
+        // section - without this, later sections inherit the preceding kind and widths.
+        flush();
+        section = [];
+      }
       if (section.length === 0) {
         sectionIndex += 1;
         // Retro F2: canonical routing key or "section" fallback - never raw cell text.
