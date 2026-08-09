@@ -29,6 +29,7 @@ import { mkdtempSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createServer, type Server } from "node:http";
+import ts from "typescript";
 import { compileEntryCss } from "./helpers/liveEntryToolchain";
 import { premise, premiseHolds } from "../_shared/premise";
 
@@ -1547,6 +1548,216 @@ test.describe("§6.1 disclosure behaviour survives the Class-A repair", () => {
         await details.evaluate((el) => (el as HTMLDetailsElement).open),
         `${mount} did not toggle open under inline-flex`,
       ).toBe(true);
+    }
+  });
+});
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * BL-TAP-TARGET-NEIGHBOUR-OVERLAP-COVERAGE — the expansion band clears its
+ * neighbour
+ *
+ * Spec: docs/superpowers/specs/2026-08-09-quick-wins-2-mech.md §2.7
+ * Plan: docs/superpowers/plans/2026-08-09-quick-wins-2/plan.md, Task A6
+ *
+ * WHAT WAS UNASSERTED. Every repaired control grows 8px per side beyond its
+ * painted box (`-m-2`), and the growth is layout-neutral: the MARGIN box stays
+ * the painted size, so the only thing keeping the grown target off an
+ * interactive neighbour is the container's own `gap`. Three targets had no
+ * assertion at all on that gap — mutant #14 from the tap-target arc (collapse a
+ * container to `gap-0` so a grown target overlaps its neighbour) passes the
+ * committed suite for all three.
+ *
+ * THE APPROACH IS RATIFIED AND NOT RE-OPENED HERE (spec §1.1 item 2): the
+ * arithmetic gap assertion derived from each container's own gap token, NOT a
+ * harness redesign that mounts production containers. So the FORM is fixed per
+ * container by what the live entry actually mounts, measured 2026-08-09:
+ *
+ *   HelpSheet close  — the sheet IS mounted, so the gap is MEASURED in the
+ *                      real engine, on the real computed style.
+ *   Step3Review      — not in any mounted subtree: STATIC PIN.
+ *   StagedReviewCard — not in any mounted subtree: STATIC PIN.
+ *
+ * CONSEQUENCE BOUND. This asserts gap ARITHMETIC, not production adjacency —
+ * the production neighbour inventory stays hand-traced and a page-level harness
+ * is out of scope (spec §4 limit 5). What the pins guarantee is that a
+ * container whose gap collapses below the band fails loudly, rather than
+ * shipping an overlap nobody measured.
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+/**
+ * The per-side growth a repaired target takes beyond its painted box.
+ *
+ * DERIVED from the two sizes this file already pins rather than written as `8`:
+ * the target is `size-tap-min` (44) around a `size-7` visual (28), so each side
+ * grows (44 − 28) / 2. A literal would go stale silently the day either token
+ * moves; this cannot.
+ */
+const EXPANSION_BAND_PER_SIDE = (TAP_MIN - VISUAL_PILL) / 2;
+
+/** Tailwind's spacing scale: `gap-N` is N × 0.25rem at the project's 16px root. */
+const TAILWIND_SPACING_STEP_PX = 4;
+
+/**
+ * The innermost gap-bearing ancestor of the element carrying `testId`, read out
+ * of the SOURCE with the TypeScript parser.
+ *
+ * Deliberately not a regex over the file: "the last className containing `gap-`
+ * before this line" is satisfied by a SIBLING, so it would keep passing while
+ * the anchor moved out of the container the assertion is about. Asking the AST
+ * for an ANCESTOR is the question the pin actually needs answered, and it
+ * survives reformatting, prop reordering, and the line drift that already
+ * rotted this entry's own citations once.
+ */
+function gapAncestorOf(
+  relPath: string,
+  testId: string,
+): { classText: string; gapPx: number } | null {
+  const source = readFileSync(join(REPO_ROOT, relPath), "utf8");
+  const sourceFile = ts.createSourceFile(
+    relPath,
+    source,
+    ts.ScriptTarget.Latest,
+    /* setParentNodes */ true,
+    ts.ScriptKind.TSX,
+  );
+
+  const classOf = (opening: ts.JsxOpeningLikeElement): string | null => {
+    for (const attr of opening.attributes.properties) {
+      if (!ts.isJsxAttribute(attr) || attr.name.getText(sourceFile) !== "className") continue;
+      const init = attr.initializer;
+      if (init !== undefined && ts.isStringLiteral(init)) return init.text;
+    }
+    return null;
+  };
+
+  const carriesTestId = (opening: ts.JsxOpeningLikeElement): boolean =>
+    opening.attributes.properties.some(
+      (attr) =>
+        ts.isJsxAttribute(attr) &&
+        attr.name.getText(sourceFile) === "data-testid" &&
+        attr.initializer !== undefined &&
+        ts.isStringLiteral(attr.initializer) &&
+        attr.initializer.text === testId,
+    );
+
+  let anchor: ts.Node | null = null;
+  const findAnchor = (node: ts.Node): void => {
+    if (anchor !== null) return;
+    if ((ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)) && carriesTestId(node)) {
+      anchor = node;
+      return;
+    }
+    ts.forEachChild(node, findAnchor);
+  };
+  findAnchor(sourceFile);
+  if (anchor === null) return null;
+
+  // Walk OUTWARD to the first ancestor whose own className declares a gap.
+  for (let node: ts.Node | undefined = (anchor as ts.Node).parent; node; node = node.parent) {
+    const opening = ts.isJsxElement(node)
+      ? node.openingElement
+      : ts.isJsxSelfClosingElement(node)
+        ? node
+        : null;
+    if (opening === null) continue;
+    const classText = classOf(opening);
+    if (classText === null) continue;
+    const match = /(?:^|\s)gap(?:-[xy])?-(\d+(?:\.\d+)?)(?:\s|$)/.exec(classText);
+    if (match?.[1] === undefined) continue;
+    return { classText, gapPx: Number(match[1]) * TAILWIND_SPACING_STEP_PX };
+  }
+  return null;
+}
+
+/**
+ * The two containers that are NOT in any mounted subtree, anchored by a testid
+ * inside them rather than by a line number (the entry's own citations had
+ * already rotted a directory prefix by the time this arc read them).
+ */
+const STATIC_GAP_PINS = [
+  {
+    label: "HelpSheet trigger container (Step3Review header row)",
+    file: "components/admin/wizard/Step3Review.tsx",
+    anchorTestId: "wizard-step3-heading",
+  },
+  {
+    label: "HelpTooltip container (StagedReviewCard summary row)",
+    file: "components/admin/StagedReviewCard.tsx",
+    anchorTestId: "staged-parse-summary",
+  },
+] as const;
+
+test.describe("§2.7 — the 8px expansion band cannot reach an interactive neighbour", () => {
+  test("premise: the band is a real, positive distance derived from this file's own sizes", () => {
+    premise(
+      "expansion band per side, derived from (TAP_MIN - VISUAL_PILL) / 2",
+      EXPANSION_BAND_PER_SIDE,
+      0,
+    );
+    // A band of 8 with a 4px scale step means the smallest passing gap token is
+    // `gap-2`. Stated so a scale change (or a token that resolves to something
+    // other than N x 4px) fails here rather than silently weakening every
+    // assertion below.
+    expect(
+      EXPANSION_BAND_PER_SIDE / TAILWIND_SPACING_STEP_PX,
+      "the band is no longer a whole number of Tailwind spacing steps; the gap-token arithmetic below no longer holds",
+    ).toBe(2);
+  });
+
+  for (const pin of STATIC_GAP_PINS) {
+    test(`static pin: ${pin.label} keeps a gap that clears the band`, () => {
+      const found = gapAncestorOf(pin.file, pin.anchorTestId);
+      // PREMISE, not the assertion: a refactor that moves the gap to a child
+      // wrapper, renames the anchor, or drops the className must fail HERE —
+      // "no container found" would otherwise be indistinguishable from "the
+      // container is fine", which is exactly how a pin goes quietly vacuous.
+      premiseHolds(
+        `${pin.label}: found a gap-bearing ancestor of [data-testid="${pin.anchorTestId}"] in ${pin.file}`,
+        found !== null,
+      );
+      const container = found as { classText: string; gapPx: number };
+
+      expect(
+        container.gapPx,
+        `${pin.label} — its container ("${container.classText}") no longer keeps the ` +
+          `${EXPANSION_BAND_PER_SIDE}px expansion band off its neighbour. This is mutant #14 ` +
+          `from the tap-target arc: a grown target overlaps the control beside it, and every ` +
+          `other assertion in this file still passes because the PAINTED boxes never moved.`,
+      ).toBeGreaterThanOrEqual(EXPANSION_BAND_PER_SIDE);
+    });
+  }
+
+  test("measured: the HelpSheet header row's computed gap clears the band on both axes", async ({
+    page,
+  }) => {
+    await boot(page, 390);
+    await openHelpSheet(page);
+
+    // Re-queried AFTER the open (detach-safety): the header does not exist in
+    // the pre-click DOM at all.
+    const gaps = await page.locator('[data-testid="help-sheet-body"] > header').evaluate((el) => {
+      const cs = getComputedStyle(el);
+      return {
+        column: parseFloat(cs.columnGap),
+        row: parseFloat(cs.rowGap),
+        display: cs.display,
+      };
+    });
+
+    // The gap only separates anything if the row is a flex/grid container —
+    // `column-gap` on a block element computes to a number and means nothing.
+    premiseHolds(
+      `the HelpSheet header is a flex row (computed display ${gaps.display})`,
+      gaps.display.includes("flex") || gaps.display.includes("grid"),
+    );
+
+    for (const axis of ["column", "row"] as const) {
+      expect(
+        gaps[axis],
+        `HelpSheet close button — the header's computed ${axis}-gap no longer clears the ` +
+          `${EXPANSION_BAND_PER_SIDE}px expansion band, so the grown close target can reach the ` +
+          `heading beside it (mutant #14).`,
+      ).toBeGreaterThanOrEqual(EXPANSION_BAND_PER_SIDE);
     }
   });
 });
