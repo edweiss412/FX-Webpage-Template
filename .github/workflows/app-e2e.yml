@@ -51,9 +51,13 @@ on:
 # already resolves to this workflow's unique display name. ${{ github.ref }} keeps distinct PRs
 # from cancelling each other.
 #
-# CANCEL is gated to pull_request: a re-pushed PR cancels its stale run, but a post-merge
-# `push: main` or scheduled run is never cancelled — every main commit gets a full verification
-# run, and a superseded main run does not report as a spurious "cancelled" failure.
+# CANCEL is gated to pull_request because tests/cross-cutting/ci-workflow-speedup.test.ts
+# requires that exact expression: a re-pushed PR cancels its stale run, while any NON-pull_request
+# run is never cancelled. For THIS workflow the protected case is workflow_dispatch, since the
+# triggers here are pull_request and workflow_dispatch only — there is deliberately no `push:` or
+# `schedule:`, so nothing about post-merge main verification is promised or implied. (Coverage of
+# main is a different question, and it is the branch-protection required-set promotion the ledger
+# entry tracks as an owner action.)
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
