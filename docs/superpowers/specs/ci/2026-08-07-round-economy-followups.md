@@ -129,10 +129,31 @@ message" class the economy system itself exists to close.
    comparison (§4 case 6), the exclusion rule's `mergedAt <= boundary` classification
    (§4 case 10), its `startedAt <= mergedAt` time cap (§4 case 11), and the
    latest-merge selection inside the exclusion map (§4 case 9) — operates on parsed
-   values. Structurally, not per-site: the implementation routes ALL timestamp
-   comparisons through ONE parse-and-compare helper and performs NO direct string
-   comparison of timestamps anywhere in the advisory block, so a later-added site
-   cannot be lexical by default. Each existing site is still pinned by its own §4 case
+   values. Structurally, not per-site: ALL parsing goes through one `instant()` helper,
+   every ordering helper accepts only its parsed output, and NO direct string comparison
+   of timestamps appears anywhere in the advisory block — so a later-added site that
+   forgets to parse is a COMPILE error rather than a silent lexical compare.
+
+   **AMENDMENT (2026-08-09, from the whole-diff review this arc never received before
+   merging).** This clause originally required
+   `routes ALL timestamp comparisons through ONE parse-and-compare helper`, and the
+   shipped implementation does not: it has one PARSE function (`instant`) and TWO
+   comparators (`atOrBefore`, `strictlyBefore`). The
+   reviewer produced that counterexample against shipped source and was right — four
+   documents repeated the claim, including a source comment reading "The ONE comparator"
+   two lines above the second one. The CODE stays: `<` and `<=` are both required, at
+   the strict boundary check and the inclusive time cap, and collapsing them behind one
+   helper would need a MODE parameter, adding a discriminating-parameter mutant surface
+   to close a wording defect. What the clause was reaching for is the rationale it
+   already states, and that is now EXECUTABLE rather than asserted —
+   `tests/reviewRounds/advisoryComparatorTopology.test.ts` pins (a) no timestamp string
+   is ever an operand of a relational operator in the module, and (b) every ordering
+   helper declares its parameters as parsed values, so a third comparator taking
+   `string` fails CI. Both properties are verified against planted mutants in the
+   production file, with a negative self-test so a scanner that flagged every relational
+   operator could not pass.
+
+   Each existing site is still pinned by its own §4 case
    with offset-bearing values whose lexical and chronological orders disagree, because
    a lexical mutant at any of them silently changes the advisory only under offsets.
 2. **`startedAt` is placeable only inside an explicit accept-set; everything else is
