@@ -664,3 +664,10 @@ produce none.
 
 **Counts at HEAD: P0 = 0, P1 = 1 (fixed in branch), and the standalone spec is 49 cases, not
 46.** The marker at the top of this file carries the same numbers.
+
+**Second re-run, 2026-08-09, after the cross-model review closed.** Rounds 4-9 changed only
+test files plus this plan and the ledgers — `git diff` over `app` and `components` between the
+§12.5 delta above and the review-close HEAD is EMPTY, so no further UI surface entered the
+diff and the gate above still describes the shipped tree. Recorded rather than assumed,
+because "the gate predated the last commits" is exactly the BLOCKING finding §12.5 exists to
+answer, and it would be worth nothing if it were only checked once.
