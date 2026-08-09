@@ -56,6 +56,15 @@ describe("cn — spec §3.2", () => {
       expect(cn("a", "a")).toBe("a a");
     });
 
+    it("preserves operand ORDER (every other row happens to be lexically sorted)", () => {
+      // `filter(Boolean).sort().join(" ")` passes every other assertion in this file,
+      // because all their multi-value inputs are already in lexical order. Order is
+      // load-bearing: `AccentButton` documents "Escape hatch LAST so per-site overrides win
+      // cascade order" (spec §9.3), so a sort would silently invert that precedence.
+      expect(cn("b", "a")).toBe("b a");
+      expect(cn("z-10", "p-2", "m-1")).toBe("z-10 p-2 m-1");
+    });
+
     it("does not resolve Tailwind conflicts (spec §1.1 R1 — no tailwind-merge)", () => {
       expect(cn("p-2", "p-4")).toBe("p-2 p-4");
     });

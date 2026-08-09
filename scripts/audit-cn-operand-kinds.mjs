@@ -622,6 +622,7 @@ function printTally(config, tally) {
 const CLEAN_WIDGET = `import { useState } from "react";
 
 const base = "rounded-md px-2";
+const trackedButUnused = "tracked-only-in-the-table";
 const pillState =
   step === 1 ? "bg-one" : step === 2 ? "bg-two" : step === 3 ? "bg-three" : "bg-four";
 const CHIP = ["inline-block max-w-full truncate", "text-xs font-semibold"].join(" ");
@@ -664,6 +665,9 @@ const SELF_TEST_BASE = {
     { name: "base", file: "components/Widget.tsx" },
     { name: "pillState", file: "components/Widget.tsx" },
     { name: "CHIP", file: "components/Widget.tsx" },
+    // Deliberately never used as an OPERAND: the operand-level shadowing stop cannot fire
+    // for it, so a double binding here exercises the definition-level branch alone.
+    { name: "trackedButUnused", file: "components/Widget.tsx" },
   ],
   sanctionedFalsyFile: "components/Widget.tsx",
   sanctionedFalsySignature:
@@ -966,6 +970,18 @@ const MUTANTS = [
     },
   },
   {
+    id: "P26-definition-level-multiple-bindings",
+    why: "a tracked identifier that is never an operand gains a second binding (only the definition-level stop can see it)",
+    expect: "bindings; spec §4.1 checks one definition",
+    mutate: (c) => ({
+      ...c,
+      "components/Widget.tsx": CLEAN_WIDGET.replace(
+        "export function Widget({ step, active, tone }) {",
+        'export function Widget({ step, active, tone }) {\n  const trackedButUnused = "";',
+      ),
+    }),
+  },
+  {
     id: "P9-identifier-definition-not-const",
     why: "an identifier definition that is no longer `const` (a later write could make it falsy)",
     expect: "declaration is not `const`",
@@ -1032,6 +1048,30 @@ function selfTest() {
       }
       console.log(`  ✓ ${mutant.id} — ${mutant.why}`);
     }
+
+    // EVERY RECONCILE PATH, EXERCISED INDEPENDENTLY. The mutants above trip the operand and
+    // definition stops, but a `reconcile(...)` line can be deleted without any of them
+    // noticing — probed: removing totalSites, filteredSites, unfilteredSites,
+    // conditionalOperands or conditionalSites still reported success. Perturbing ONE
+    // expectation at a time against the CLEAN corpus isolates each line by name.
+    const cleanExpected = SELF_TEST_BASE.expected;
+    for (const key of Object.keys(cleanExpected)) {
+      const perturbed = { ...cleanExpected, [key]: cleanExpected[key] + 1 };
+      const { stops } = runAudit({
+        ...SELF_TEST_BASE,
+        label: `reconcile:${key}`,
+        root: cleanRoot,
+        expected: perturbed,
+      });
+      if (!stops.some((s) => s.includes(`${key}: expected`))) {
+        failures.push(
+          `RECONCILE PATH NOT EXERCISED — perturbing \`${key}\` produced no stop naming it; ` +
+            "that reconcile line could be deleted and this self-test would still pass",
+        );
+      } else {
+        console.log(`  ✓ reconcile:${key} — the premise line for ${key} is live`);
+      }
+    }
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
   }
@@ -1042,7 +1082,8 @@ function selfTest() {
     return 1;
   }
   console.log(
-    `\nself-test passed — ${MUTANTS.length} rejection paths exercised, 1 accept control.`,
+    `\nself-test passed — ${MUTANTS.length} rejection paths exercised, ` +
+      `${Object.keys(SELF_TEST_BASE.expected).length} reconcile premises probed, 1 accept control.`,
   );
   return 0;
 }

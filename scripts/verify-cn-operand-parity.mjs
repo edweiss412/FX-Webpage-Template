@@ -48,6 +48,8 @@ import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 
+import ts from "typescript";
+
 import { collectSites, lineOf, operandText, parseSource } from "./lib/cnSites.mjs";
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -136,6 +138,50 @@ const EXPECTED_TOKEN_DELTAS = [
   },
 ];
 
+/**
+ * The rendered initializer of `name`'s sole `const` declaration in a parsed file, or null.
+ *
+ * Operands that are IDENTIFIERS were compared by SPELLING alone, so `const base = "class-a"`
+ * at the base and `const base = "class-b"` at the head produced identical operand lists and
+ * identical truthiness verdicts while the rendered class changed. The parity claim is about
+ * emitted strings, so an identifier's VALUE has to travel with its name.
+ */
+function identifierInitializer(sourceFile, name) {
+  let rendered = null;
+  let seen = 0;
+  const visit = (node) => {
+    if (
+      ts.isVariableDeclaration(node) &&
+      ts.isIdentifier(node.name) &&
+      node.name.text === name &&
+      node.initializer !== undefined
+    ) {
+      seen += 1;
+      rendered = renderInitializer(node.initializer, sourceFile);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  return seen === 1 ? rendered : null;
+}
+
+/**
+ * Render an initializer FORM-INDEPENDENTLY when it is itself a class-list expression.
+ *
+ * Some of the seven identifiers (`CHIP_CLASS`) are themselves among the 36 migrated sites,
+ * so their initializer legitimately changes shape — `[...].join(" ")` at the base, `cn(...)`
+ * at the head. Comparing raw renderings flagged that as drift. Comparing the OPERAND LIST
+ * compares what the initializer emits, which is the claim, and still catches a changed
+ * token inside it.
+ */
+function renderInitializer(node, sourceFile) {
+  const asSite = collectSites(sourceFile).find((site) => site.node === node);
+  if (asSite !== undefined) {
+    return `LIST(${asSite.operands.map((o) => operandText(o, sourceFile)).join(", ")})`;
+  }
+  return operandText(node, sourceFile);
+}
+
 function gitShow(sha, relPath) {
   return execFileSync("git", ["show", `${sha}:${relPath}`], {
     cwd: REPO_ROOT,
@@ -155,7 +201,73 @@ function gitShow(sha, relPath) {
  * `min-h-5 w-50`). A declared delta now fires only when it occurs EXACTLY ONCE and at
  * class-token boundaries; anything else is refused and surfaces as an undeclared change.
  */
+/**
+ * Apply declared deltas to a rendered operand, NEVER inside a conditional's discriminator.
+ *
+ * `operandText` renders a conditional as `<cond> ? <a> : <b>`, possibly nested. Applying
+ * deltas to the whole rendering let a C-entry authorize a rewrite inside a DISCRIMINATOR —
+ * C2 turning `mode === "foo h-5 w-5 bar"` into `mode === "foo size-5 bar"` selects a
+ * DIFFERENT branch for the old input, while parity reported exactly the declared set. Spec
+ * §6 declares rewrites of emitted CLASS STRINGS; a condition is not one.
+ *
+ * The rendering is split on TOP-LEVEL ` ? ` and ` : ` (quote- and bracket-aware). A segment
+ * immediately followed by ` ? ` is a condition and is passed through untouched; every other
+ * segment is a result and is eligible.
+ */
 function applyDeclaredDeltas(text, relPath) {
+  const parts = splitConditionalSegments(text);
+  if (parts === null) return applyDeclaredDeltasFlat(text, relPath);
+
+  const fired = [];
+  const refused = [];
+  let out = "";
+  for (const part of parts) {
+    if (part.kind === "separator" || part.kind === "condition") {
+      out += part.text;
+      continue;
+    }
+    const applied = applyDeclaredDeltasFlat(part.text, relPath);
+    out += applied.text;
+    fired.push(...applied.fired);
+    refused.push(...applied.refused);
+  }
+  return { text: out, fired, refused };
+}
+
+/**
+ * Segment a rendering into conditions, results, and the ` ? ` / ` : ` separators between
+ * them. Returns null when the rendering holds no top-level conditional.
+ */
+function splitConditionalSegments(rendering) {
+  const seps = [];
+  let depth = 0;
+  for (let i = 0; i < rendering.length; i += 1) {
+    const ch = rendering[i];
+    if (ch === "(" || ch === "[") depth += 1;
+    else if (ch === ")" || ch === "]") depth -= 1;
+    else if (ch === '"') {
+      i += 1;
+      while (i < rendering.length && rendering[i] !== '"') i += rendering[i] === "\\" ? 2 : 1;
+    } else if (depth === 0 && (ch === "?" || ch === ":")) {
+      if (rendering[i - 1] === " " && rendering[i + 1] === " ") seps.push({ at: i, ch });
+    }
+  }
+  if (seps.length === 0) return null;
+
+  const parts = [];
+  let cursor = 0;
+  for (const sep of seps) {
+    const text = rendering.slice(cursor, sep.at - 1);
+    // A segment immediately followed by `?` is the discriminator of that conditional.
+    parts.push({ kind: sep.ch === "?" ? "condition" : "result", text });
+    parts.push({ kind: "separator", text: ` ${sep.ch} ` });
+    cursor = sep.at + 2;
+  }
+  parts.push({ kind: "result", text: rendering.slice(cursor) });
+  return parts;
+}
+
+function applyDeclaredDeltasFlat(text, relPath) {
   let out = text;
   const fired = [];
   const refused = [];
@@ -407,7 +519,31 @@ function main(argv) {
 
       baseOperands.forEach((baseOperand, opIndex) => {
         const headOperand = headOperands[opIndex];
-        if (baseOperand === headOperand) return;
+        if (baseOperand === headOperand) {
+          // Same SPELLING is not the same VALUE. For an identifier operand, compare the
+          // definition it resolves to on each side; a changed initializer is a changed
+          // rendered class that the operand list alone cannot see.
+          const bareIdentifier = /^[A-Za-z_$][\w$]*$/.test(baseOperand);
+          if (bareIdentifier) {
+            const baseInit = identifierInitializer(baseFile, baseOperand);
+            const headInit = identifierInitializer(headFile, headOperand);
+            if (baseInit !== null && headInit !== null) {
+              const { text: canonicalInit, refused: initRefused } = applyDeclaredDeltas(
+                baseInit,
+                rel,
+              );
+              if (canonicalInit !== headInit || initRefused.length > 0) {
+                findings.push(
+                  `${where}: identifier operand \`${baseOperand}\` has the same name but a ` +
+                    "DIFFERENT definition across the migration\n" +
+                    `      base: ${baseInit}\n` +
+                    `      head: ${headInit}`,
+                );
+              }
+            }
+          }
+          return;
+        }
 
         const { text: canonicalized, fired, refused } = applyDeclaredDeltas(baseOperand, rel);
         if (canonicalized === headOperand && refused.length === 0) {

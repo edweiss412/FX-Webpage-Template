@@ -75,6 +75,8 @@ function unwrap(node) {
       ts.isParenthesizedExpression(n) ||
       ts.isAsExpression(n) ||
       ts.isNonNullExpression(n) ||
+      // Angle-bracket assertions are valid in `.ts` (`<string[]>[...]`, `<const>" "`).
+      ts.isTypeAssertionExpression(n) ||
       (ts.isSatisfiesExpression && ts.isSatisfiesExpression(n))
     ) {
       n = n.expression;

@@ -146,6 +146,13 @@ function unwrapValuePreserving(node: ts.Expression): ts.Expression {
       n = n.expression;
       continue;
     }
+    // Angle-bracket assertions — `<string[]>[...]`, `<const>" "` — are valid in `.ts` (TSX
+    // parses them as JSX, which is why they only reach here from a `.ts` file, and one of
+    // the two exempt files IS a `.ts` file).
+    if (ts.isTypeAssertionExpression(n)) {
+      n = n.expression;
+      continue;
+    }
     return n;
   }
 }
@@ -261,12 +268,40 @@ function isInClassNamePosition(node: ts.Node, sourceFile: ts.SourceFile): boolea
   return false;
 }
 
-/** Is `name` ever referenced from a `className` JSX attribute or `className:` property? */
+/**
+ * Is `name` — or anything transitively ALIASED from it — ever referenced from a `className`
+ * JSX attribute or `className:` property?
+ *
+ * Following only direct use let one ordinary alias hop launder a class join into a "data"
+ * join: `const joined = [...].join(" "); const cls = joined;` + `className={cls}`. The
+ * alias set is closed first, then every member is checked.
+ */
 function identifierUsedAsClassName(sourceFile: ts.SourceFile, name: string): boolean {
+  const aliases = new Set([name]);
+  for (let grew = true; grew; ) {
+    grew = false;
+    const visitAlias = (n: ts.Node): void => {
+      if (
+        ts.isVariableDeclaration(n) &&
+        ts.isIdentifier(n.name) &&
+        n.initializer !== undefined &&
+        !aliases.has(n.name.text)
+      ) {
+        const init = unwrapValuePreserving(n.initializer);
+        if (ts.isIdentifier(init) && aliases.has(init.text)) {
+          aliases.add(n.name.text);
+          grew = true;
+        }
+      }
+      ts.forEachChild(n, visitAlias);
+    };
+    visitAlias(sourceFile);
+  }
+
   let found = false;
   const visit = (n: ts.Node): void => {
     if (found) return;
-    if (ts.isIdentifier(n) && n.text === name) {
+    if (ts.isIdentifier(n) && aliases.has(n.text)) {
       for (let p: ts.Node | undefined = n.parent; p !== undefined; p = p.parent) {
         if (ts.isJsxAttribute(p) && ts.isIdentifier(p.name) && p.name.text === "className") {
           found = true;
