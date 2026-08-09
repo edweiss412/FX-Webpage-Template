@@ -40,7 +40,24 @@ import type { ParseWarning } from "./types";
 /** The broken-reference literal, after `clean()` has removed markdown escaping. */
 const REF_LITERAL = "#REF!";
 
-const isAlignmentRow = (line: string): boolean => /^\s*\|\s*:?-+/.test(line);
+/**
+ * A TRUE markdown delimiter row: every cell is a run of dashes with optional colons.
+ *
+ * The obvious predicate — "first cell starts with `:?-`" — is what shipped first, and it
+ * is wrong in a way that costs detections rather than causing false ones. A perfectly
+ * ordinary data row can begin with a hyphen in its otherwise-unused first column, and
+ * skipping the whole row then hides every `#REF!` further along it: cross-model review
+ * probed a CREW row with `-` in col0 and `#REF!` in NAME, which the parser stored as a
+ * crew member literally named `#REF!` while the detector stayed silent (SILENT_WRONG).
+ *
+ * Requiring EVERY cell to be delimiter-shaped cannot make that mistake, because a row
+ * carrying real data has at least one cell that is not a dash run.
+ */
+function isAlignmentRow(line: string): boolean {
+  const cells = splitRow(line);
+  if (cells.length === 0) return false;
+  return cells.every((c) => /^:?-+:?$/.test(c.trim()));
+}
 
 /** Index of the first non-whitespace character, or -1 when the line is blank. */
 function firstNonSpace(line: string): number {

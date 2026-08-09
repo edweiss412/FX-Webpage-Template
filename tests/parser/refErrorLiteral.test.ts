@@ -63,6 +63,25 @@ describe("REF_ERROR_LITERAL (spec §4)", () => {
     expect(refWarnings(md, "synthetic.md")).toHaveLength(1);
   });
 
+  it("a data row whose first cell merely LOOKS like a delimiter is still scanned", () => {
+    // Cross-model review, BLOCKING. The first predicate skipped any row whose FIRST cell
+    // began with `:?-`, so an ordinary CREW row carrying a hyphen in its unused col0 hid
+    // every #REF! further along it: the parser stored a crew member literally named
+    // "#REF!" and the detector stayed silent -- verdict SILENT_WRONG, the exact outcome
+    // this code exists to prevent. A true delimiter row has EVERY cell dash-shaped.
+    const md = "| CREW | NAME | ROLE |\n| --- | --- | --- |\n| - | #REF! | Lead |";
+    const w = refWarnings(md, "hyphen-col0.md");
+    expect(w).toHaveLength(1);
+    expect(w[0]!.rawSnippet).toContain("#REF!");
+  });
+
+  it("a REAL delimiter row is still skipped, so the row above stays the only source", () => {
+    // The other direction: tightening the predicate must not start emitting warnings for
+    // the dashes themselves, and must not double-count a section that has a delimiter.
+    const md = "| CREW | NAME |\n| :--- | ---: |\n|  | #REF! |";
+    expect(refWarnings(md, "delimiter.md")).toHaveLength(1);
+  });
+
   it("does not hard-fail: hardErrors unchanged by detection", () => {
     const md = readFileSync("fixtures/shows/exporter-xlsx/consultants.md", "utf8");
     const clean = parseSheet(md.replaceAll("\\#REF\\!", "placeholder"), "consultants.md");
