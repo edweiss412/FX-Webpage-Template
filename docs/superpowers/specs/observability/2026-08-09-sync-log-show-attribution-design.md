@@ -43,9 +43,11 @@ Each decision below is settled. Cited ratification, not re-derivation.
 | **No new admin UI section.** Sync-attempt history is not surfaced on the show page (`app/admin/_showReviewModal.tsx` / `components/admin/showpage/PublishedReviewModal.tsx`). Attempt history is a developer instrument; the operator's need is served by the status strip, documented at `app/help/admin/per-show-panel/page.mdx:26-28`. | User decision, this arc. Supersedes the `BL-ADMIN-PER-SHOW-HISTORY` body's "add two new sections to the per-show panel" scope. |
 | **No telemetry-page surface.** `/admin/dev/telemetry` reads `app_events` (`lib/admin/loadAppEvents.ts`). Per-attempt sync outcomes never reach `app_events` — the per-outcome sink is `sync_log` exclusively. Wiring this into telemetry is a new build, not a wiring job. | User decision, this arc; store separation confirmed by the `BL-ADMIN-PER-SHOW-HISTORY` store-correction stamp dated 2026-08-06. |
 | **The developer surface is the existing CLI.** `pnpm observe synclog` already filters by `showId` / `driveFileId` / `status` / `sinceHours` (`lib/observe/query/types.ts:127-134`) and already selects and renders `duration_ms` (`lib/observe/query/syncLog.ts:47`; `scripts/observe/format.ts:115`). This spec adds **no read-side code**. | Read path verified this arc; see §4. |
-| **`show_id` stays nullable.** Several attempt classes are legitimately show-less: first-seen sheets with no `shows` row, lock-contended skips, run-level entries with `driveFileId: null`, and onboarding/session-lifecycle rows. | DDL already nullable (`20260501001000_internal_and_admin.sql:223`); §3.2 enumerates the classes. |
+| **`show_id` stays nullable.** A row cannot always name a show: entries with no `drive_file_id` at all (run-level, session-lifecycle) and files with no committed `shows` row have nothing to point at. Proposing `not null` is out of scope. | DDL already nullable (`supabase/migrations/20260501001000_internal_and_admin.sql:223`); §3.2 derives the rule. Note lock-contended skips are NOT in this set — they carry a drive file id and DO attribute (§3.2). |
 | **Pruning `sync_log` discards nothing anyone is keeping.** `sync_audit` is the durable record of what was applied to a show (`20260501001000_internal_and_admin.sql:204-217`) and is **not** pruned by this change. Master spec `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:986` describes `sync_log` as "per-attempt and not surfaced as an alert"; `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:182` describes its rows as single-attempt outcomes distinct from show-level status. | Master spec `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:182`, `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:986`. |
 | **Threading `showId` through every `logSync` call site is rejected.** It is a partial fix that reproduces the original defect at smaller scale. See §3.1. | This spec, §3.1. |
+| **There is no explicit-show-id parameter, and adding one back is rejected — fenced in both directions.** Spec R1 finding 1 established that an explicit id passed from inside the cron transaction deadlocks the first-seen applied path against the FK check on the sink's separate connection. Do not re-propose `coalesce(explicit, lookup)`, and equally do not propose reversing the coalesce order as a fix — the defect is referencing uncommitted state at all, not the precedence between two arguments. | This spec, §3.1.1, with the topology cited to `lib/sync/runScheduledCronSync.ts:1563-1583` and `lib/sync/runScheduledCronSync.ts:3651-3662`. |
+| **Duration stays scoped to the `logSync` helper.** The seven other writers carry NULL by design and are enumerated. Extending timing to them is out of scope, not an oversight. | This spec, §3.3.1 and §7. |
 
 ---
 
@@ -53,18 +55,18 @@ Each decision below is settled. Cited ratification, not re-derivation.
 
 **Goal.** Every `sync_log` row that *can* name its show does; every row records how long the attempt took; per-show and per-file lookups are indexed; the table stops growing without bound.
 
-**Acceptance posture.** Consistent with the preparedness-audit posture (`docs/audits/edge-case-preparedness-audit-2026-07-04.md:92`): an attempt is either attributed correctly or is *structurally* unattributable (§3.2 enumerates those classes exhaustively) — never silently mis-attributed, and never attributable-but-dropped. A NULL `show_id` on a row from an enumerated show-less class is correct behavior, not a gap.
+**Acceptance posture.** Consistent with the preparedness-audit posture (`docs/audits/edge-case-preparedness-audit-2026-07-04.md:92`): every attempt is **attributed correct or signaled, never silently wrong**. Concretely, a row either carries the right `show_id`, or carries NULL under the derived rule in §3.2 — where NULL is the honest signal that no committed show is knowable for it. NULL under that rule is correct behavior, not a gap; NULL for a row the rule says should attribute is the defect this spec closes.
 
 ### Acceptance criteria
 
-- **AC-1.** A sync attempt processed through the cron sink for a drive file with a live `shows` row writes a `sync_log` row whose `show_id` is that show's id.
-- **AC-2.** `querySyncLog({ showId })` returns those rows. (This is the probe in §1, executable.)
-- **AC-3.** An attempt for a drive file with no `shows` row writes a row with `show_id IS NULL` and does not fail.
-- **AC-4.** A run-level entry (`driveFileId: null`) writes a row with `show_id IS NULL` and does not fail.
-- **AC-5.** Where a call site already holds an authoritative show id, that value is used verbatim — the fallback lookup never overrides it.
-- **AC-6.** Every `sync_log` row written through the cron sink or the recovery sink carries a non-null `duration_ms` reflecting the attempt's elapsed milliseconds.
-- **AC-7.** `public.sync_log` and `dev.sync_log` each carry a `(show_id, occurred_at desc)` index and a `(drive_file_id, occurred_at desc)` index.
-- **AC-8.** `prune_sync_log(retain interval default interval '60 days')` exists with the same security posture as `prune_app_events`, is scheduled via `pg_cron`, and the job name is registered in the cron-coverage gate.
+- **AC-1.** A `sync_log` row written for a `drive_file_id` that has a **committed** `shows` row lands with that show's id in `show_id`. This holds for **every** writer that supplies a `drive_file_id` — the cron sink, the recovery sink, and the onboarding-scan sink alike.
+- **AC-2.** `querySyncLog({ showId, sinceHours: null })` returns those rows, and returns zero rows for an unrelated show id. (This is the probe in §1, executable, with its negative control.)
+- **AC-3.** A row whose `drive_file_id` has no committed `shows` row lands `show_id IS NULL` and does not fail — no FK violation, no blocking wait.
+- **AC-4.** A row with `drive_file_id IS NULL` (run-level and session-lifecycle entries) lands `show_id IS NULL` and does not fail.
+- **AC-5.** **The first-seen applied path does not block.** Processing a first-seen file end-to-end — where the `shows` row is inserted inside the same transaction that awaits the sink — completes without deadlock or FK wait, and writes its row with `show_id IS NULL`. See §3.1.1.
+- **AC-6.** Every row written **through the `logSync` helper** carries a non-null `duration_ms`. Rows from the writers enumerated in §3.3.1 carry NULL by design; no other writer may.
+- **AC-7.** `public.sync_log` carries a `(show_id, occurred_at desc)` index and a `(drive_file_id, occurred_at desc)` index; `dev.sync_log` carries the same two **when the dev clone is present**, and the migration applies cleanly to a target where it is absent.
+- **AC-8.** `prune_sync_log(retain interval default interval '60 days')` exists with the same security posture as `prune_app_events`, deletes exactly the rows older than `retain` and returns the deleted count, is scheduled via `pg_cron`, and its job name is registered in the cron-coverage gate.
 - **AC-9.** `BL-ADMIN-PER-SHOW-HISTORY` is archived, with the UI half recorded as a decision rather than a debt.
 
 ---
@@ -99,32 +101,45 @@ Three of fourteen have it. Threading would make some attempts findable by show a
 ```sql
 insert into public.sync_log (show_id, drive_file_id, status, message, parse_warnings, duration_ms)
 values (
-  coalesce($1::uuid, (select id from public.shows where drive_file_id = $2)),
-  $2, $3, $4, $5::jsonb, $6
+  (select id from public.shows where drive_file_id = $1),
+  $1, $2, $3, $4::jsonb, $5
 )
 ```
 
 Properties this buys:
 
 - **One change point.** No per-site audit, and a new `logSync` call site is attributed by construction rather than by remembering to thread a parameter.
-- **Explicit wins.** The `coalesce` first argument is the optional explicit show id. Where a site holds an authoritative value it is used verbatim (AC-5). This matters for the first-seen `applied` path, where the `shows` row may be written inside the cron's still-open transaction while the sink writes on its own connection (`lib/sync/syncLog.ts:50-58` opens a fresh `postgres` client per call) and would therefore not see it. `lib/sync/runScheduledCronSync.ts:2425` holds `args.result.showId` for exactly that case.
-- **Correct NULLs.** A drive file with no `shows` row yields NULL from the subselect, which is the right answer (AC-3).
+- **Uniform across writers.** The same subselect goes into the recovery sink `insertSyncLog` (`lib/sync/runScheduledCronSync.ts:1214-1232`) and the onboarding-scan sink (`lib/sync/runOnboardingScan.ts:659-670`), so all three file-scoped writers attribute identically. `insertSyncLog`'s existing `showId?: string | null` parameter (`lib/sync/runScheduledCronSync.ts:490`) is **retired**, not retained — see §3.1.1.
+- **Correct NULLs.** A drive file with no committed `shows` row yields NULL, which is the right answer (AC-3).
 
-`insertSyncLog` (`lib/sync/runScheduledCronSync.ts:1214-1232`) — the recovery/manual sink, already accepting `showId?: string | null` per its interface at `lib/sync/runScheduledCronSync.ts:490` — gains the same `coalesce` fallback so a caller that passes no show id still gets attribution.
+#### 3.1.1 Why there is no explicit-show-id parameter (an earlier draft's deadlock)
 
-### 3.2 Structurally unattributable classes (exhaustive)
+An earlier revision of this spec used `coalesce($explicit, (select …))` so a call site holding an authoritative show id could bypass the lookup. **That design deadlocks the cron on every first-seen apply**, and the reasoning that motivated it was exactly backwards.
 
-These write `show_id IS NULL` by design. This list is the accept-set: anything not on it must attribute.
+The topology: `processOneFile_unlocked` inserts the first-seen `shows` row *inside* the locked transaction (`lib/sync/runScheduledCronSync.ts:1563-1583`), and still inside that transaction calls `emitSuccessfulPhase2Tail` (`lib/sync/runScheduledCronSync.ts:3651-3662`), which awaits `logSync`. `writeSyncLog` opens its **own** `postgres` connection (`lib/sync/syncLog.ts:50-58`). Writing `show_id = <uncommitted id>` on that second connection triggers the FK check against `shows` (`supabase/migrations/20260501001000_internal_and_admin.sql:223`), which must wait for the inserting transaction to commit or roll back — while that transaction is itself blocked awaiting the sink. Application-level deadlock, on the most common first-seen path.
 
-| Class | Site | Why unattributable |
-| --- | --- | --- |
-| Run-level entries | `runScheduledCronSync.ts:3780`, `lib/sync/runScheduledCronSync.ts:3796` | `driveFileId: null` — the entry describes the run, not a file. |
-| Escaped-throw catch | `runScheduledCronSync.ts:3953` | Emitted outside any file's resolved context. |
-| First-seen sheets | `lib/sync/runScheduledCronSync.ts:3469` stage, `lib/sync/runScheduledCronSync.ts:3328` prepared skip | No `shows` row exists yet by definition. |
-| Onboarding scan | `lib/sync/runOnboardingScan.ts:662` | Wizard-partition candidate files, pre-promotion. |
-| Session lifecycle | `lib/onboarding/sessionLifecycle.ts:306` (and :397, :634) | Session-scoped, not show-scoped; these write neither `show_id` nor `drive_file_id`. |
+Resolving by subselect only cannot reach that state: a plain `SELECT` on the second connection reads the committed snapshot, sees no row for an uncommitted first-seen show, and yields NULL — so no FK check is performed at all and nothing waits. The cost is that the single `applied` row that *creates* a show is NULL-attributed; every subsequent attempt for that show attributes normally. That is recorded as a documented limit in §6, and pinned by AC-5.
 
-The last row is why the CLI's file column renders `-` for the bulk of today's rows (`scripts/observe/format.ts:115` renders `r.driveFileId ?? "-"`).
+The general rule, worth stating because it will recur: **this sink runs on a connection that cannot see its caller's transaction, so it may only reference committed state.**
+
+### 3.2 Unattributable rows — a derived rule, not an enumeration
+
+A row lands `show_id IS NULL` **iff** its `drive_file_id` is NULL, or no committed `shows` row exists for that `drive_file_id` at write time. That is the whole accept-set, and it is derived from the mechanism rather than listed — an enumeration re-opens the moment someone adds a call site, which is the defect class this spec exists to close.
+
+Consequences worth naming, because an earlier draft got several of them wrong by enumerating:
+
+| Row class | Attributed? |
+| --- | --- |
+| Run-level entries (`lib/sync/runScheduledCronSync.ts:3780`, `lib/sync/runScheduledCronSync.ts:3796`) | **No** — `driveFileId: null`; the entry describes the run, not a file. |
+| Session lifecycle (`lib/onboarding/sessionLifecycle.ts:306`, `lib/onboarding/sessionLifecycle.ts:397`, `lib/onboarding/sessionLifecycle.ts:634`, `lib/onboarding/sessionLifecycle.ts:944`) | **No** — these write neither `show_id` nor `drive_file_id`. `lib/onboarding/sessionLifecycle.ts:944` (`reap_stale_session`) is the largest of the four by volume and was missed by the first draft. |
+| Escaped-throw catch (`lib/sync/runScheduledCronSync.ts:3953`) | **Yes** — it is inside the file loop and writes `file.driveFileId` (`lib/sync/runScheduledCronSync.ts:3928-3958`), so it attributes whenever a committed show exists. The first draft wrongly called it context-less. |
+| Prepared skip (`lib/sync/runScheduledCronSync.ts:3328`) | **Yes** — it carries gate outcomes including watermark skips for *existing* shows (`lib/sync/perFileProcessor.ts:8-18`), so it is not first-seen "by definition." First draft was wrong. |
+| Lock-contended skip (`lib/sync/runScheduledCronSync.ts:2761`) | **Yes** — it passes the drive file id. First draft was wrong. |
+| Stage / first-seen files (`lib/sync/runScheduledCronSync.ts:3469`) | **Only while no committed `shows` row exists.** Attributes on any re-stage after the show exists. |
+| Onboarding scan (`lib/sync/runOnboardingScan.ts:659-670`) | **Yes**, once the sink is repaired. `lib/sync/runOnboardingScan.ts:536-540` supports re-onboarding a file that already has a `shows` row, so its three file-scoped emissions (`lib/sync/runOnboardingScan.ts:810-813`, `lib/sync/runOnboardingScan.ts:879-883`, `lib/sync/runOnboardingScan.ts:1023-1031`) are attributable-but-NULL today. The first draft wrongly fenced this whole writer as pre-promotion. |
+| First-seen `applied` (`lib/sync/runScheduledCronSync.ts:2425`) | **No** — the `shows` row is uncommitted at write time (§3.1.1). Documented limit. |
+
+The session-lifecycle row is why the CLI's file column renders `-` for the bulk of today's rows (`scripts/observe/format.ts:115` renders `r.driveFileId ?? "-"`).
 
 ### 3.3 Duration
 
@@ -139,8 +154,23 @@ Note this is deliberately NOT the outer `txDeps` parameter of type `SyncPipeline
 Guard conditions:
 
 - **Start absent** (a deps object constructed without it, e.g. an older test double): `duration_ms` is NULL. Never a throw, never a negative, never `NaN`.
-- **Direct `deps.logSync?.({...})` calls** at `lib/sync/runScheduledCronSync.ts:3780`, `lib/sync/runScheduledCronSync.ts:3796`, `lib/sync/runScheduledCronSync.ts:3953` bypass the `logSync` helper: NULL by design, consistent with §3.2.
 - **Clock non-monotonic** (injected clock moving backwards in a test): clamp at 0 rather than persisting a negative.
+
+#### 3.3.1 Writers that carry NULL duration — the complete list
+
+Duration is scoped to the `logSync` helper, because that is the only site with an attempt boundary to measure from. Every other writer produces a row whose elapsed time is either meaningless or unavailable, and each writes NULL **by design**. AC-6 is worded against this list; an earlier draft's AC-6 said "every cron- or recovery-sink row" and contradicted its own guard section.
+
+| Writer | Why NULL |
+| --- | --- |
+| Direct `deps.logSync?.({...})` at `lib/sync/runScheduledCronSync.ts:3780`, `lib/sync/runScheduledCronSync.ts:3796` | Run-level; no single attempt to time. |
+| Escaped-throw catch at `lib/sync/runScheduledCronSync.ts:3953-3958` | The attempt aborted; a partial elapsed time would misreport as a completed duration. |
+| Recovery sink at `lib/sync/runScheduledCronSync.ts:2581-2589`, `lib/sync/runScheduledCronSync.ts:2636-2648` | `insertSyncLog` (`lib/sync/runScheduledCronSync.ts:1214-1232`) receives no clock or start. |
+| Manual recovery at `lib/sync/runManualSyncForShow.ts:175-183`, `lib/sync/runManualSyncForShow.ts:224-232` | Same — recovery sink, no start threaded. |
+| Push preflight / failure / duplicate at `lib/sync/runPushSyncForShow.ts:235-247` | Written **before** `processOneFile` captures a start; there is no attempt yet. |
+| Onboarding scan at `lib/sync/runOnboardingScan.ts:659-670` | Scan-scoped, not attempt-scoped. |
+| Session lifecycle (four sites, §3.2) | Not a sync attempt at all. |
+
+Extending timing to these is deliberately **out of scope** (§7): each needs its own notion of "the attempt," and the operator question this spec answers ("has this show been failing?") is served by outcome and timestamp, not by duration.
 
 No read-side work is required: `querySyncLog` already selects and maps it (`lib/observe/query/syncLog.ts:47`; type at `lib/observe/query/types.ts:143`) and the CLI already renders a duration column (`scripts/observe/format.ts:115`).
 
@@ -154,6 +184,23 @@ create index if not exists sync_log_drive_file_id_idx on public.sync_log (drive_
 Shape and naming mirror the established convention for this exact access pattern: `sync_audit_show_id_idx on public.sync_audit (show_id, applied_at desc)` (`20260501001000_internal_and_admin.sql:218`), `reports_show_id_idx ... (show_id, created_at desc)` (`supabase/migrations/20260501001000_internal_and_admin.sql:323`), and `app_events_show_id_idx on public.app_events (show_id, occurred_at desc)` (`20260629000002_app_events.sql:19`). `if not exists` follows the newer-migration convention (`supabase/migrations/20260629000002_app_events.sql:19-21`).
 
 The `drive_file_id` companion is included because `--file` is the flag that works *today* and is equally unindexed; leaving it out would fix the broken query path and leave the working one slow.
+
+**The `dev.sync_log` mirror MUST be existence-guarded.** The dev clone creates its own indexes inline (`supabase/migrations/20260502000000_dev_schema_clone.sql:294-295`), which is safe *there* because the same migration creates the tables immediately above. A later migration cannot copy that form: `create index if not exists … on dev.sync_log` guards only against a duplicate **index**, not a missing **table**, and raises `relation "dev.sync_log" does not exist` wherever the clone is absent. Per AGENTS.md the `dev.*` schema is local-seed infrastructure and explicitly **not a deploy target**, so the validation project is exactly such a target and the surgical apply there would abort.
+
+The established later-migration idiom for dev is `alter table if exists dev.<t>` (`supabase/migrations/20260702120200_drive_file_id_nonblank.sql:95-96`, pinned by `tests/db/schema.test.ts:300-306`), but `create index` has no `if exists` form that guards the table. The guard is therefore explicit:
+
+```sql
+do $$
+begin
+  if to_regclass('dev.sync_log') is not null then
+    create index if not exists sync_log_show_id_idx       on dev.sync_log (show_id, occurred_at desc);
+    create index if not exists sync_log_drive_file_id_idx on dev.sync_log (drive_file_id, occurred_at desc);
+  end if;
+end;
+$$;
+```
+
+Index names are reused verbatim across schemas because index names are schema-scoped — `sync_audit_show_id_idx` already exists in both `public` (`supabase/migrations/20260501001000_internal_and_admin.sql:218`) and `dev` (`supabase/migrations/20260502000000_dev_schema_clone.sql:294`). This is the convention, not a collision.
 
 ### 3.5 Retention
 
@@ -172,13 +219,15 @@ Every affected layer gets an action or an explicit N/A.
 | Layer | Action |
 | --- | --- |
 | Table DDL — `public.sync_log` | No column change. Columns already exist (`supabase/migrations/20260501001000_internal_and_admin.sql:221-230`). Two indexes added. |
-| Table DDL — `dev.sync_log` | Same two indexes. Clone at `20260502000000_dev_schema_clone.sql:300-309`; `duration_ms` at `supabase/migrations/20260502000000_dev_schema_clone.sql:307`. Precedent for altering both in one migration: `20260702120200_drive_file_id_nonblank.sql:69-70` (public) + `supabase/migrations/20260702120200_drive_file_id_nonblank.sql:95-96` (dev). `tests/db/schema.test.ts:293-303` pins that the dev block use `alter table if exists dev.<t>`. |
+| Table DDL — `dev.sync_log` | Same two indexes, **wrapped in a `to_regclass('dev.sync_log') is not null` guard** (§3.4) so the migration applies cleanly where the clone is absent — the validation project. Clone at `supabase/migrations/20260502000000_dev_schema_clone.sql:300-309`; `duration_ms` at `supabase/migrations/20260502000000_dev_schema_clone.sql:307`. Precedent for a later migration touching both schemas: `supabase/migrations/20260702120200_drive_file_id_nonblank.sql:69-70` (public) + `supabase/migrations/20260702120200_drive_file_id_nonblank.sql:95-96` (dev, `alter table if exists`), pinned by `tests/db/schema.test.ts:300-306`. |
 | Inline CHECK | N/A — no CHECK changes. `sync_log_drive_file_id_nonblank` (`20260702120200_drive_file_id_nonblank.sql:69-70`) is unaffected; nothing here writes `drive_file_id`. |
 | RLS / grants | N/A — unchanged. `admin_only` policy at `20260501002000_rls_policies.sql:67-70`; the Aug-3 lockdown revoked only INSERT/UPDATE/DELETE (`20260803000000_lockdown_admin_only_tables.sql:46`), leaving SELECT granted. |
 | DB function | New: `prune_sync_log`. SECURITY DEFINER, `search_path = public, pg_temp`, service_role-only execute. |
 | pg_cron | New job `sync_log_prune`; registered in `tests/cross-cutting/pg-cron-coverage.test.ts:107`. |
-| Write path — cron sink | `lib/sync/syncLog.ts:39-48` gains `show_id` (coalesce + subselect) and `duration_ms`. |
-| Write path — recovery sink | `lib/sync/runScheduledCronSync.ts:1214-1232` gains the coalesce fallback and `duration_ms`. |
+| Write path — cron sink | `lib/sync/syncLog.ts:39-48` resolves `show_id` by subselect on `drive_file_id` (no explicit parameter, §3.1.1) and writes `duration_ms`. |
+| Write path — recovery sink | `lib/sync/runScheduledCronSync.ts:1214-1232` resolves `show_id` by the same subselect; its `showId?` parameter (`lib/sync/runScheduledCronSync.ts:490`) is retired. Duration stays NULL (§3.3.1). |
+| Write path — onboarding-scan sink | `lib/sync/runOnboardingScan.ts:659-670` gains the same subselect. **In scope, not fenced:** `lib/sync/runOnboardingScan.ts:536-540` supports re-onboarding a file that already has a `shows` row, so its three file-scoped emissions (`lib/sync/runOnboardingScan.ts:810-813`, `lib/sync/runOnboardingScan.ts:879-883`, `lib/sync/runOnboardingScan.ts:1023-1031`) are attributable-but-NULL today and would violate the consequence bound if left alone. |
+| Write path — push sink | `lib/sync/runPushSyncForShow.ts:235-247` routes through the cron sink and therefore attributes automatically. Duration stays NULL — these rows are written before any attempt starts (§3.3.1). |
 | Write path — timing | `processOneFile` (`lib/sync/runScheduledCronSync.ts:2707`) captures start via `deps.now`; `logSync` (`lib/sync/runScheduledCronSync.ts:2231-2251`) computes the delta. |
 | Read path — query core | N/A — `lib/observe/query/syncLog.ts` already selects both columns (`lib/observe/query/syncLog.ts:7`, `lib/observe/query/syncLog.ts:47`). |
 | Read path — CLI | N/A — `scripts/observe/format.ts:115` already renders duration. |
@@ -210,14 +259,35 @@ Every affected layer gets an action or an explicit N/A.
 
 **The regression test that matters** is the §1 probe made executable: write attempts through the cron sink for a drive file with a known `shows` row, then assert `querySyncLog({ showId })` returns them. That is the assertion whose absence let this ship. It must derive the expected show id from the fixture, never hardcode it.
 
+It must be a **new, DB-backed** file. It may NOT extend `tests/observe/querySyncLog.test.ts`, which mocks `@/lib/supabase/server` wholesale (`tests/observe/querySyncLog.test.ts:11-29`) and asserts on the recorded builder call chain. A mocked read test can assert `.eq("show_id", …)` was called and stay green forever while no writer populates the column — which is precisely how this defect shipped and survived.
+
+**Two traps in the read call itself**, both verified against `lib/observe/query/syncLog.ts`:
+
+- `sinceHours` defaults to **24** when the field is `undefined` (`lib/observe/query/syncLog.ts:28`); only an explicit `null` removes the bound. A fixture older than 24h returns `rows: []` — an empty result identical to the bug under test, inside the test meant to prove it fixed. Pass `sinceHours: null`.
+- A missing service-role key makes `createSupabaseServiceRoleClient()` (`lib/observe/query/syncLog.ts:23`) throw, swallowed into `{ kind: "infra_error" }` (`lib/observe/query/syncLog.ts:52-54`). Assert `kind === "ok"` **before** asserting on rows, or an infra fault reads as "no rows."
+
+**Executable proof for AC-7 and AC-8 (F5).** `tests/db/schema.test.ts:293-303` reads only the `drive_file_id_nonblank` migration and asserts CHECK syntax; it inspects no indexes. `rg "sync_log_show_id_idx|sync_log_drive_file_id_idx|prune_sync_log|sync_log_prune" tests` currently returns nothing. Each of the following gets its own DB assertion, none of which exists today:
+
+| Claim | Assertion |
+| --- | --- |
+| AC-7 public indexes | `pg_indexes` contains `sync_log_show_id_idx` and `sync_log_drive_file_id_idx` on `public.sync_log`, with the expected column order and `DESC` on the timestamp. |
+| AC-7 dev indexes | Same two on `dev.sync_log` **when `to_regclass('dev.sync_log')` is non-null**; and the migration text is asserted to carry the `to_regclass` guard so an ungated form cannot ship. |
+| AC-8 existence + posture | `pg_proc` has `prune_sync_log(interval)`, `prosecdef = true`, `proconfig` contains `search_path=public, pg_temp`. |
+| AC-8 privileges | `has_function_privilege('service_role', …, 'EXECUTE')` is true; the same for `anon` and `authenticated` is **false**. |
+| AC-8 behavior | Insert rows straddling the cutoff, call `prune_sync_log('1 day')`, assert the returned count equals the number older than the cutoff **and** that the newer rows survive. A return-value-only assertion passes on a function that deletes everything. |
+| AC-8 schedule | `cron.job` has a row named `sync_log_prune` whose `command` calls `public.prune_sync_log()` and whose schedule matches the migration. |
+
 **Anti-tautology.** Each assertion must fail for the right reason:
 
 - Attribution is asserted against the **row read back from the DB**, not against the parameter array passed to the sink — a parameter-shape assertion passes even if the SQL never binds the value.
 - The NULL cases (§3.2) are asserted as *positively* NULL for a file with no `shows` row, not merely "did not throw."
-- The explicit-wins case (AC-5) requires a fixture where the explicit id and the lookup would resolve **differently**, otherwise the test cannot distinguish coalesce order from either branch alone.
+- AC-2 carries a **negative control**: the same query for an unrelated show id returns zero rows. Without it, a green result is equally consistent with the filter being ignored and every row matching.
 - Duration is asserted against an injected clock with a known delta, not `> 0` — a `> 0` assertion passes on a wall-clock read that ignores the injected start.
+- **AC-5 (deadlock) is a real end-to-end run, not a unit assertion.** Process a first-seen file through the full locked path with a live DB and a bounded timeout, and assert it completes and lands `show_id IS NULL`. A test using two already-committed fixtures does not exercise the topology in §3.1.1 and would have passed against the deadlocking design.
 
-**Premise guards.** Per `BL-GUARD-PREMISE-REACHABILITY` (`tests/_shared/premise.ts`), any assertion whose discriminating condition depends on a `shows` row existing must assert that precondition executably, or it passes vacuously on an empty fixture.
+**Premise guards.** Per `BL-GUARD-PREMISE-REACHABILITY` (`tests/_shared/premise.ts`), any assertion whose discriminating condition depends on a `shows` row existing must assert that precondition executably, or it passes vacuously on an empty fixture. The premise executes unconditionally relative to what it guards — never inside a `.each` callback, whose case count can be zero.
+
+**Anti-vacuity gate (F6) — executable, not aspirational.** "Must be confirmed to actually run" does not stop a `skipIf(!dbUp)` suite from exiting green when its probe fails. Mirror the established precedent at `tests/sync/qualityRegressionLifecycle.test.ts:449-459`: an always-running test that, **when a DB URL is explicitly configured**, asserts the probe succeeded and fails loudly otherwise; and that accepts a clean skip only when no DB URL is set at all. Without it, the regression test reproduces the very silent-empty-success class it exists to prevent — the failure mode is identical to the bug, one level up.
 
 **Tests that break by design** — each is an expected update, not a regression:
 
@@ -241,6 +311,8 @@ Every affected layer gets an action or an explicit N/A.
 
 Deliberate, and not findings:
 
+- **The first-seen `applied` row is NULL-attributed.** The one attempt that *creates* a show writes its `sync_log` row from inside the transaction holding the uncommitted `shows` insert, on a connection that cannot see it (§3.1.1). Every subsequent attempt for that show attributes normally, so the loss is exactly one row per show, at the moment the show is born. Accepting this is what makes the design deadlock-free; the alternative was a cron hang.
+- **Rows written before a show exists never become attributed.** Attribution is resolved at write time, not maintained. A file that fails repeatedly before its first successful apply accumulates NULL-attributed rows, and those rows stay NULL after the show is created. The operator question ("has this show been failing?") is answerable from the show's existence onward; the pre-existence history is reachable by `--file`.
 - **Historical rows are not backfilled.** The 5,073 existing rows keep `show_id IS NULL`. A backfill by `drive_file_id` would attribute rows written before a show's `drive_file_id` was reassigned, and the onboarding/lifecycle bulk has no file id at all. The 60-day prune retires them.
 - **`show_id` is resolved at write time, not maintained.** If a `shows` row is later deleted, the FK's `on delete cascade` (`20260501001000_internal_and_admin.sql:223`) removes the log rows with it. If a `drive_file_id` is reassigned between attempts, older rows keep their original attribution — which is the historically accurate answer.
 - **One additional index lookup per sink write.** A unique-index hit on a low-rate write path. Not measured as a concern; noted so a reviewer need not raise it. The pre-existing per-write connection open/close in `writeSyncLog` (`lib/sync/syncLog.ts:50-58`) dominates it by orders of magnitude and is out of scope.
@@ -255,4 +327,6 @@ Deliberate, and not findings:
 - Any `/admin/dev/telemetry` change (§1.1).
 - Emitting sync outcomes into `app_events` — a distinct design question about store consolidation, tracked by `BL-OPS-LOG-DASHBOARD-BANNER`.
 - Repairing `writeSyncLog`'s per-write connection churn.
+- Extending `duration_ms` to the seven writers enumerated in §3.3.1. Each needs its own definition of "the attempt" — a push preflight has none yet, a recovery write is not an attempt, a session reap is not a sync — and the question this spec answers is served by outcome and timestamp.
+- Moving the sink write outside the cron transaction. That would let the first-seen `applied` row attribute, but it reorders a durability boundary in the hottest path in the system for one row per show. Filed as a documented limit above rather than attempted here.
 - Backfilling historical rows.
