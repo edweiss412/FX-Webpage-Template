@@ -17,7 +17,7 @@
  *
  *   Crew DOM MUST NEVER contain `https://`, `drive.google.com`, or
  *   `docs.google.com` substrings for any opening-reel cell. The rule is
- *   pinned by `tests/visibility/openingReelText.ts`'s unit suite (the
+ *   pinned by `tests/visibility/openingReelText.test.ts` (the
  *   URL-strip value space) and by the crew-render assertion in
  *   `tests/components/crew/sections/GearSection.test.tsx`, which fails on
  *   any of those three substrings in the rendered section.

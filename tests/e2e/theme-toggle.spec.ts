@@ -398,21 +398,29 @@ test.describe("crew footer theme toggle — persistence, no-FOUC, a11y, tap targ
     page,
   }) => {
     await gotoCrewShell(page);
-    const toggle = page.getByTestId("theme-toggle");
 
-    // Light: not pressed, and the name states the ACTION a tap performs.
-    await expect(toggle).toHaveAttribute("aria-pressed", "false");
-    await expect(toggle).toHaveAttribute("aria-label", "Switch to dark theme");
+    // Resolved BY ROLE AND ACCESSIBLE NAME, not by testid + aria-* attributes.
+    // Attribute assertions alone are satisfiable by markup that exposes nothing:
+    // adding `aria-hidden="true"`, or swapping the <button> for a <div>, keeps
+    // every attribute intact while removing the named button from the
+    // accessibility tree entirely (whole-diff review round 6, P1). getByRole
+    // consults the computed accessible name, so both mutants stop resolving.
+    const named = (name: string) => page.getByRole("button", { name });
+
+    // Light: the name states the ACTION a tap performs, and it is not pressed.
+    await expect(named("Switch to dark theme")).toBeVisible();
+    await expect(named("Switch to dark theme")).toHaveAttribute("aria-pressed", "false");
 
     await tapToggle(page, "dark");
-    await expect(toggle).toHaveAttribute("aria-pressed", "true");
-    await expect(toggle).toHaveAttribute("aria-label", "Switch to light theme");
+    await expect(named("Switch to light theme")).toBeVisible();
+    await expect(named("Switch to light theme")).toHaveAttribute("aria-pressed", "true");
+    // The old name must be GONE, not merely joined by the new one.
+    await expect(named("Switch to dark theme")).toHaveCount(0);
 
     // …and the restored theme drives them after a reload, not just the click.
     await reloadCrewShell(page);
-    const restored = page.getByTestId("theme-toggle");
-    await expect(restored).toHaveAttribute("aria-pressed", "true");
-    await expect(restored).toHaveAttribute("aria-label", "Switch to light theme");
+    await expect(named("Switch to light theme")).toBeVisible();
+    await expect(named("Switch to light theme")).toHaveAttribute("aria-pressed", "true");
   });
 
   test(`tap target: the toggle is at least ${TAP_MIN}x${TAP_MIN}px`, async ({ page }) => {

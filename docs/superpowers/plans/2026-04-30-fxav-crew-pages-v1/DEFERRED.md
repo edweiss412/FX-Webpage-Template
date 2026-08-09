@@ -87,11 +87,13 @@ When picking up a deferred item:
 >   (spec §3.5 whole-file valve → §6.6; `BL-RIGHTNOW-SECTION57-FIXTURE-INERT`). The RENDERED
 >   transition treatment has no executable audit and is a documented limit (spec §6.1), not a
 >   scheduled port.
-> - **STILL OPEN**: the four `crew-page.spec.ts` tile rows (LodgingTile, VenueTile,
+> - **ALSO MOOT**: the four `crew-page.spec.ts` tile rows (LodgingTile, VenueTile,
 >   CrewTile, ContactsTile) and the `crew-page.spec.ts:508` layout-shell row. Those blocks
->   were also deleted as superseded (their subject components are pinned gone by
->   `tests/migration/crew-redesign-cleanup.test.ts`), so the ~11h they carry is likewise
->   moot. Line numbers throughout this entry are pre-deletion and no longer resolve.
+>   were deleted as superseded too — their subject components are pinned gone by
+>   `tests/migration/crew-redesign-cleanup.test.ts` — so the ~11h they carry is not work
+>   anyone owes. (An earlier draft of this block labelled them "STILL OPEN" and then said
+>   they were moot; they are moot.) Line numbers throughout this entry are pre-deletion
+>   and no longer resolve.
 >
 > The residues this arc judged real were closed in-arc rather than left here: the pack-list
 > `rawSnippet` render now has `tests/components/crew/sections/GearSection.rawSnippet.test.tsx`,
