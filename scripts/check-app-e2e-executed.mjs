@@ -20,7 +20,9 @@ import { pathToFileURL } from "node:url";
 // Every count below is derived from an ACTUAL run's report — the same shape this script reads,
 // summed over the projects each spec resolves under — never from `--list` arithmetic. `--list`
 // cannot see a runtime skip, which is the exact blindness this oracle exists to close (spec AC-5).
-// Measured 2026-08-09, full batch, both projects, --retries=0: 60 executions, all green.
+// Measured 2026-08-09, full batch, both projects, --retries=0: 54 executions across the SEVEN
+// wired specs, all green. (An earlier eight-spec measurement read 60; admin-changes-feed-layout
+// then left the batch under AC-4 on a CI-reproduced flake, taking its 6 with it.)
 //
 // Each count is the spec's FULL executable set, not a floor of 1: a floor of 1 would let a nested
 // `beforeEach(() => test.skip())` runtime-skip every case but one while the job stayed green, and a
