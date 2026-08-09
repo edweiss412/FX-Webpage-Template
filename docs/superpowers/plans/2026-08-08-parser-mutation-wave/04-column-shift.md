@@ -37,16 +37,23 @@ import { premiseHolds } from "@/tests/_shared/premise";
 const shifts = (md: string, name: string) =>
   parseSheet(md, name).warnings.filter((w) => w.code === "LEADING_COLUMN_AUTOCORRECTED");
 
-/** Prefix an empty cell to EVERY row of the section starting at line `start` (columnShift shape, operators.ts:144). */
-function shiftSection(md: string, start: number): string {
+/** Prefix an empty cell to EVERY row of ONE LOGICAL SECTION (columnShift shape,
+ *  operators.ts:144). Retro F1: the operator's unit is the LOGICAL section - rows up to
+ *  the next recognized section-opening header WITHIN the pipe block - not the whole
+ *  contiguous block. A helper that shifts the whole block leaves 46 of the 211 ledger
+ *  holes unreachable (mutants shift one section inside a multi-section block). */
+function shiftLogicalSection(md: string, start: number): string {
   const lines = md.split("\n");
   for (let i = start; i < lines.length; i++) {
     const l = lines[i]!;
     if (!l.trimStart().startsWith("|")) break;
+    if (i > start && isRecognizedSectionOpener(l)) break; // next logical section begins
     lines[i] = l.replace(/^(\s*)\|/, "$1|  |");
   }
   return lines.join("\n");
 }
+// isRecognizedSectionOpener: first cell resolves via canonicalSectionKind (branch-2
+// helper) - the same recognition boundary the harness's seg() uses for section splits.
 
 describe("LEADING_COLUMN_AUTOCORRECTED (spec §6)", () => {
   const path = "fixtures/shows/exporter-xlsx/east-coast.md";
@@ -55,12 +62,12 @@ describe("LEADING_COLUMN_AUTOCORRECTED (spec §6)", () => {
 
   it("premise: corpus fires zero clean; the mutated section genuinely leads empty on every row", () => {
     expect(shifts(md, path)).toEqual([]);
-    const mutated = shiftSection(md, firstSection);
+    const mutated = shiftLogicalSection(md, firstSection);
     premiseHolds("section was shifted", mutated !== md);
   });
 
   it("corrects: payload equals unshifted baseline, one warning with structured autocorrect", () => {
-    const mutated = shiftSection(md, firstSection);
+    const mutated = shiftLogicalSection(md, firstSection);
     expect(payloadOf(parseSheet(mutated, path))).toEqual(payloadOf(parseSheet(md, path)));
     const w = shifts(mutated, path);
     expect(w).toHaveLength(1);
@@ -87,7 +94,7 @@ describe("LEADING_COLUMN_AUTOCORRECTED (spec §6)", () => {
 - Modify: `lib/parser/index.ts` — call immediately after the `normalizeSectionHeaders` seam (`index.ts` step 2.5), same rewrite-and-collect shape: `const colNorm = normalizeLeadingColumn(markdown); markdown = colNorm.corrected; agg.warnings.push(...colNorm.warnings);`
 
 **Interfaces:**
-- Produces: `normalizeLeadingColumn(markdown: string): { corrected: string; warnings: ParseWarning[] }` — per section (blank-line separated pipe block): if EVERY row's first cell is empty after trim (an alignment row's first cell is colon-dash text, non-empty, giving the structural guarantee), drop the leading column from every row and emit one warning at section granularity. **Segmentation note (r1 F6):** this detector segments by blank-line pipe blocks, not the harness's `seg()` model that measured the probe base rates - the clean-corpus calibration test is the transfer gate, and any divergence surfaces there as a failing pin, never as silent corruption.
+- Produces: `normalizeLeadingColumn(markdown: string): { corrected: string; warnings: ParseWarning[] }` — per LOGICAL SECTION (retro F1: rows split at recognized section-opening headers WITHIN a pipe block, via `canonicalSectionKind` — the operator's own unit; a whole-block model reaches only 434/535 operator mutants and misses 46 ledger holes, list in the retro review record): if EVERY row's first cell is empty after trim (an alignment row's first cell is colon-dash text, non-empty, giving the structural guarantee), drop the leading column from every row and emit one warning at section granularity. **Segmentation note (r1 F6):** this detector segments by blank-line pipe blocks, not the harness's `seg()` model that measured the probe base rates - the clean-corpus calibration test is the transfer gate, and any divergence surfaces there as a failing pin, never as silent corruption.
 
 - [ ] **Step 1:** Implement:
 
@@ -97,6 +104,7 @@ describe("LEADING_COLUMN_AUTOCORRECTED (spec §6)", () => {
 // included) leads with an empty cell, the section was drag-shifted on export.
 // The inverse transform is total: drop the leading column, warn once.
 import type { ParseWarning } from "./types";
+import { canonicalSectionKind } from "./sectionKind"; // branch-2 helper (retro F1/F2)
 
 export function normalizeLeadingColumn(markdown: string): {
   corrected: string;
@@ -122,7 +130,7 @@ export function normalizeLeadingColumn(markdown: string): {
       severity: "warn",
       code: "LEADING_COLUMN_AUTOCORRECTED",
       message: "Every row of a section started with an empty column, so we read the section one column to the left.",
-      blockRef: { kind: "section", index: sectionIndex },
+      blockRef: { kind: canonicalSectionKind((lines[from]!.split("|")[1] ?? "").trim()) ?? "section", index: sectionIndex }, // retro F2
       autocorrect: {
         subject: null,
         corrections: [{ detected: "empty leading column", corrected: "shifted left" }],
@@ -130,15 +138,22 @@ export function normalizeLeadingColumn(markdown: string): {
     });
   };
 
+  const opener = (line: string): boolean => {
+    const first = (line.split("|")[1] ?? "").trim();
+    return canonicalSectionKind(first) !== null;
+  };
+
   for (let i = 0; i <= lines.length; i++) {
     const isRow = i < lines.length && lines[i]!.trimStart().startsWith("|");
+    const boundary = !isRow || (start !== -1 && i > start && opener(lines[i]!)); // retro F1: logical-section split
     if (isRow && start === -1) {
       start = i;
       sectionIndex += 1;
-    } else if (!isRow && start !== -1) {
+    } else if (boundary && start !== -1) {
       const rows = lines.slice(start, i);
       if (rows.length > 0 && rows.every(leadsEmpty)) correct(start, i);
-      start = -1;
+      start = isRow ? i : -1; // a recognized opener starts the next logical section
+      if (isRow) sectionIndex += 1;
     }
   }
   return { corrected: lines.join("\n"), warnings };

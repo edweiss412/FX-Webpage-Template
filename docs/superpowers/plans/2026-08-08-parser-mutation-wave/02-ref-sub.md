@@ -59,7 +59,7 @@ describe("REF_ERROR_LITERAL (spec §4)", () => {
     expect(w).toHaveLength(1);
     expect(w[0]!.severity).toBe("warn");
     expect(w[0]!.rawSnippet).toContain("#REF!");
-    expect(w[0]!.blockRef?.kind).toBeTruthy();
+    expect(w[0]!.blockRef?.kind).toBe("section"); // headerless synthetic section -> generic bucket (retro F2: canonical-or-fallback, never raw text)
   });
 
   it("detects the ESCAPED corpus form - per-fixture counts pinned (probe §13.A)", () => {
@@ -98,6 +98,7 @@ describe("REF_ERROR_LITERAL (spec §4)", () => {
 
 **Files:**
 - Create: `lib/parser/refErrorDetector.ts`
+- Create: `lib/parser/sectionKind.ts` (+ `tests/parser/sectionKind.test.ts` — retro F2 helper, full KIND_TO_SECTION vocabulary table test)
 - Modify: `lib/parser/index.ts` (call site inside `parseSheet`, after `normalizeSectionHeaders` — the same post-seam position the §5/§6 scanners will share)
 
 **Interfaces:**
@@ -111,6 +112,12 @@ describe("REF_ERROR_LITERAL (spec §4)", () => {
 // on the post-clean() text (the corpus stores the escaped form; clean() unescapes).
 import type { ParseWarning } from "./types";
 import { clean, splitRow } from "./blocks/_helpers";
+// canonicalSectionKind: NEW shared helper this branch adds (lib/parser/sectionKind.ts) -
+// maps a section-opening label to its KIND_TO_SECTION routing key (lib/admin/
+// step3SectionStatus.ts:22 vocabulary, e.g. HOTEL->"hotel", CREW/TECH->"crew",
+// TRANSPORTATION->"travel"...), null when unrecognized. Unit-tested against the
+// full KIND_TO_SECTION key set; branches 3-4 reuse it.
+import { canonicalSectionKind } from "./sectionKind";
 
 export function detectRefErrorLiterals(markdown: string): ParseWarning[] {
   const warnings: ParseWarning[] = [];
@@ -122,7 +129,9 @@ export function detectRefErrorLiterals(markdown: string): ParseWarning[] {
     const isRow = line.trimStart().startsWith("|");
     if (isRow && prevBlank) {
       sectionIndex += 1;
-      sectionKind = clean(splitRow(line)[0] ?? "") || "section";
+      // Retro F2: kind must be a CANONICAL routing key (step3SectionStatus KIND_TO_SECTION
+      // vocabulary) or the literal "section" generic-bucket fallback - NEVER raw cell text.
+      sectionKind = canonicalSectionKind(clean(splitRow(line)[0] ?? "")) ?? "section";
     }
     prevBlank = line.trim() === "";
     if (!isRow || /^\s*\|\s*:?-+/.test(line)) continue;
@@ -226,6 +235,7 @@ describe("clean-corpus calibration (spec §10)", () => {
 - Modify: `tests/parser/mutation/operators.ts:74` — `if (c.val.trim() === "#REF!") continue;` → `if (clean(c.val).includes("#REF!")) continue;` (import `clean` from `@/lib/parser/blocks/_helpers`); spec §4.4 as amended by retro review F1: INCLUDES, not equality — an equality guard leaves the escaping mutant `ref-sub:2025-10-consultants-roundtable:B28:L209:X2` (ABSORBED → SILENT_SIGNAL_LOSS once the detector lands, REF_ERROR_LITERAL 3/3 with only the echoed rawSnippet moving).
 - Modify: `tests/parser/mutation/classify.ts` `RISK_CRITICAL` (`classify.ts:25-33`): add `"pull_sheet"`; update `applicabilityAudit.ts` / floor expectations that enumerate the set.
 - Modify: `tests/parser/mutation/operators.test.ts` — add cases: an escaped `\#REF\!` whole-cell site generates NO mutant, AND a composite `\#REF\!/NAME` site generates NO mutant (includes-guard).
+- Modify: `tests/parser/mutation/applicabilityAudit.ts:140` — the audit INDEPENDENTLY mirrors the old raw-equality skip (`c.trim() !== "#REF!"`); update it to the same post-`clean()` includes rule or the exhaustive exact-count gate disagrees by 24 sites (retro F6: consultants 6, fintech 5, fixed-income 5, rpas 5, consultants-roundtable 3). Run the exhaustive gate locally (`VITEST_INCLUDE_MUTATION_HARNESS=1 pnpm exec vitest run tests/parser/mutationHarness.gates.test.ts`) before pushing.
 
 - [ ] **Step 1:** RED case first (guard test fails against old comparison), then apply both edits, suites green.
 - [ ] **Step 2: Commit** `infra: refSub no-op guard compares post-clean; RISK_CRITICAL gains pull_sheet`

@@ -119,6 +119,7 @@ describe("ROW_CELLS_FUSED (spec §5)", () => {
 // is the pipe-deletion (merged-cell) export shape. Detection only - no correction.
 import type { ParseWarning } from "./types";
 import { clean, splitRow } from "./blocks/_helpers";
+import { canonicalSectionKind } from "./sectionKind"; // branch-2 helper (retro F2)
 
 export function detectFusedRows(markdown: string): ParseWarning[] {
   const warnings: ParseWarning[] = [];
@@ -153,7 +154,8 @@ export function detectFusedRows(markdown: string): ParseWarning[] {
     if (line.trimStart().startsWith("|")) {
       if (section.length === 0) {
         sectionIndex += 1;
-        sectionKind = clean(splitRow(line)[0] ?? "") || "section";
+        // Retro F2: canonical routing key or "section" fallback - never raw cell text.
+        sectionKind = canonicalSectionKind(clean(splitRow(line)[0] ?? "")) ?? "section";
       }
       section.push({ line, cells: splitRow(line).length });
     } else if (line.trim() === "" && section.length > 0) {
@@ -180,7 +182,7 @@ export function detectFusedRows(markdown: string): ParseWarning[] {
 
 <!-- task: red=`pnpm exec vitest run tests/parser/mutation/knownHoles.test.ts` ac=AC-M4 -->
 
-- [ ] **Step 1:** Run the full harness BEFORE deletion to enumerate `fixedHoles` — expected ≈ 2,397 (2,404 minus the probe's 7 off-modal-row mutants, §13.B; the exact number the run reports is authoritative).
+- [ ] **Step 1:** Run the full harness BEFORE deletion to enumerate `fixedHoles` — expected ≈ 2,373 (retro F7 replay: 31 residue MUTANTS across 13 target rows, not 7 — the probe's 7 counted off-modal ROWS; the exact number the run reports is authoritative).
 - [ ] **Step 2:** Delete exactly the reported `fixedHoles` rows (not the blanket class): save the run's `fixedHoles` list, then remove those lines from `RAW_HOLES`. Residue rows stay, and the PR + backlog row record the count + reason (spec §5.3/§11.4).
 - [ ] **Step 3:** Full harness: four buckets empty. Full suite + typecheck + lint + format.
 - [ ] **Step 4:** PR (fan-out list, shrink count, residue note, §5.4 not-claimed statement, substitute-review deviation); marker off in last commit; merge; `0  0`.
