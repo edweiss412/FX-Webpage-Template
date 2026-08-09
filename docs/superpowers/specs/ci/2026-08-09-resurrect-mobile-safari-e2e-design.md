@@ -140,6 +140,14 @@ parity test would both credit as executed coverage. The `font-rendering-census` 
 precedent does NOT apply — that suite runs real assertions under both projects; crew-page does
 not. Its `REQUIRED` count is therefore the mobile-safari resolution alone.
 
+**Enroll every newly wired spec in `expectWired`** (spec review R3 F1):
+`tests/cross-cutting/picker-flow-e2e-ci-wiring.test.ts` gets one `expectWired` invocation per
+wired file (crew-page, theme-toggle, right-now-transitions-if-wired) — that helper, not
+`REQUIRED`, is what machine-pins the exact static-skip inventory (via an `EXPECTED_SKIPS` row
+listing each deliberately-skipped case by exact title — crew-page's kept §4.10 block's four
+titles, any triage or §3.5 valve skips) and the project set the spec genuinely executes under.
+Without enrollment, AC-1's "no early-return no-ops credited" is a promise with no guard.
+
 Add a `REQUIRED` row per §3.4. **Reclassify** the file's allowlist row in
 `tests/ci/_metaE2eWorkflowCoverage.test.ts` from `UNSEEN` to `PATH_GATED_BY_EXCLUSION` — NOT
 removed. crew-e2e.yml triggers via `pull_request.paths-ignore`, and the scanner deliberately
@@ -173,15 +181,17 @@ not, and the recipe is part of the test. Tests:
    AND `localStorage["fxav-theme"]` holds the new value → `page.reload()` → the theme survives.
    Then dark→light: tap again, reload again, assert the persisted `"light"` value and restored
    attribute — the reverse branch is part of the contract, not a symmetry assumption.
-2. **The no-FOUC oracle proves DURING-PARSE application, not just presence-by-observation-time**
-   (spec review R1 F4: an implementation that sets `data-theme` from a `DOMContentLoaded` handler
-   passes an after-the-event check while violating the first-paint guarantee). Oracle:
-   `page.addInitScript` installs a `MutationObserver` on `document.documentElement` attributes
-   that records `{ value, readyState }` for each `data-theme` mutation (plus the attribute's
-   initial state if already set when the script runs). After reload, assert the attribute reached
-   its persisted value while `document.readyState === "loading"` — i.e. set by the inline
-   `app/layout.tsx` script during parse, before `DOMContentLoaded`. A delayed-handler mutant
-   records `"interactive"` and fails.
+2. **The no-FOUC oracle proves HEAD-PARSE application — before any paintable content exists**
+   (spec review R1 F4 + R3 F2: a `DOMContentLoaded` handler passes an after-the-event check, and
+   an end-of-`<body>` script still executes with `readyState === "loading"`, so neither
+   observation point proves first-paint safety). Oracle: `page.addInitScript` installs a
+   `MutationObserver` on `document.documentElement` attributes recording
+   `{ value, readyState, bodyPresent: !!document.body }` per `data-theme` mutation (plus the
+   attribute's initial state when the script runs). After reload, assert the attribute reached
+   its persisted value with `bodyPresent === false` — the mutation happened while `<head>` was
+   still parsing (the `NO_FOUC_SCRIPT` inline block in `app/layout.tsx` sits in the head), before
+   any body content existed to paint. A DOMContentLoaded-handler mutant fails on both fields; an
+   end-of-body-script mutant fails on `bodyPresent`.
 3. **Accessibility state pinned across the cycle** (spec review R1 F5 — the dead suite carried
    this and nothing else does): in light mode `aria-pressed="false"` + accessible name "Switch to
    dark theme"; in dark mode `aria-pressed="true"` + "Switch to light theme"; after the reload in
@@ -304,7 +314,9 @@ For each §2.2 failure, in the worktree, before wiring:
 - AC-1: `crew-e2e.yml`'s invocation names `crew-page.spec.ts` + `theme-toggle.spec.ts` (+
   `right-now-transitions.spec.ts` unless the §3.5 valve fired), each with a full-set `REQUIRED`
   row counting only projects under which its tests genuinely execute (no early-return no-ops
-  credited; §3.1), and `scripts/check-crew-e2e-executed.mjs` passes on the run's own report.
+  credited; §3.1), each ENROLLED in `expectWired` with an exact-title `EXPECTED_SKIPS` row
+  (§3.1 — the machine pin for that promise), and `scripts/check-crew-e2e-executed.mjs` passes on
+  the run's own report.
 - AC-2: five consecutive green normal-dispatch runs of `crew-e2e.yml` including the newly wired
   specs (workflow_dispatch; the runs used for the bar are linked in the PR).
 - AC-3: the nine dead files are gone; neither `testMatch` regex nor the coverage allowlist nor any
@@ -341,6 +353,12 @@ For each §2.2 failure, in the worktree, before wiring:
    recorded here so the wiring cannot be read as having revived them.
 5. **The recovery/`viewer_off_day` §5.7 case may defer** per §3.5's case valve; if it does, its
    `BL-` row + registered skip are the surfaced record.
+6. **If §3.5's WHOLE-FILE valve fires, `right-now-transitions.spec.ts` stays live, `UNSEEN`, and
+   local-only** — the one arc outcome where a touched file is neither CI-executed nor deleted.
+   That disposition is legal ONLY as this documented limit plus its `BL-` row (spec review R3
+   F3): the consequence bound's third state ("documented as a limit in §6") is THIS entry, and
+   the implementer copies the fired valve's probe evidence into the `BL-` row so the limit is
+   auditable, not asserted.
 
 ## 7. Out of scope
 
