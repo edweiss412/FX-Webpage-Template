@@ -970,6 +970,53 @@ The Phase 1 crew-page projection alert (`TILE_PROJECTION_FETCH_FAILED`, §4.13 o
 
 **Promotion prerequisite:** an established `<Suspense>` streaming pattern in the codebase + an AdminNav slot refactor that lets the badge counts arrive as a streamed server child without breaking the client-side pathname-refetch hook.
 
+### BL-LOCKED-FIXTURE-HELPER-TARGETS-REMOTE-DB — a local e2e run can send fixture writes to the validation project
+
+**Status:** OPEN · **Severity:** MEDIUM (local-only, but the write lands in the SHARED validation project, and the symptom names the wrong cause) · **Class:** test-harness / env-resolution defect · **Filed:** 2026-08-09 (surfaced wiring right-now-transitions into the nine-spec crew-e2e invocation) · **Effort:** S
+
+**Probed, not theorized.** `tests/e2e/helpers/lockedCrewRestriction.ts` resolves its psql target
+ONCE, at module load:
+
+```
+const databaseUrl =
+  process.env.TEST_DATABASE_URL ?? process.env.DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+```
+
+`.env.local:50` sets `TEST_DATABASE_URL` to the persistent VALIDATION project
+(`postgresql://postgres.vzakgrxqwcalbmagufjh:***@aws-1-us-east-2.pooler.supabase.com:5432/postgres`)
+— `pnpm preflight` already warns about it: "TEST_DATABASE_URL is NON-LOOPBACK … 'local' runs that
+read it will target remote". Meanwhile the PostgREST `admin` client the same suites use reads
+`SUPABASE_URL` (`127.0.0.1:54321`). So the crew id is resolved against the LOCAL database and the
+UPDATE is sent to the REMOTE one.
+
+**Observed symptom** (crew-e2e's nine-spec invocation, both projects):
+
+```
+Error: lockedCrewRestriction: update matched no crew row
+  (id=4e6aced2-bb47-4601-aad8-bf74d589cbba,
+   drive_file_id=seed-fixture:2026-04-asset-mgmt-cfo-coo-waldorf — run `pnpm db:seed`?)
+```
+
+The row exists locally the whole time (verified by psql before and after), and `pnpm db:seed` — which
+the message tells you to run — does not help, because it seeds the wrong database relative to the
+write.
+
+**Why it is order-dependent, and why that is the nastiest part.** `databaseUrl` is captured at module
+load, so whether the remote value is visible depends on whether something has already loaded
+`.env.local` into `process.env` by then — i.e. on Playwright's import order, i.e. on HOW MANY SPEC
+FILES the invocation names. `right-now-transitions.spec.ts` alone passes; the same file inside the
+nine-spec command fails. That reads as "the new wiring broke it" and is not.
+
+**CI is unaffected** and this is not a merge blocker: `.env.local` is gitignored and absent on the
+runner, `crew-e2e.yml` sets no `TEST_DATABASE_URL`, so the helper falls back to the loopback default.
+
+**Fix shape (not applied here — out of this arc's scope):** resolve the target at CALL time, and
+refuse a non-loopback target unless something explicitly opts in. The fixture helper writes SEED data;
+silently pointing it at the shared validation project is the dangerous direction, and a loud refusal
+costs nothing. The same module-load capture pattern should be swept for across `tests/e2e/helpers/`.
+
+---
+
 ### BL-CREW-FOOTER-OBSCURED-BY-FIXED-BOTTOM-BAR — the mobile bottom tab-bar covers the crew footer
 
 **Status:** OPEN · **Severity:** MEDIUM (real, reachable on every crew page at mobile widths; the obscured controls are the theme toggle and the report button) · **Class:** product layout defect · **Filed:** 2026-08-09 (surfaced rewriting `theme-toggle.spec.ts`, `BL-RESURRECT-MOBILE-SAFARI-E2E`) · **Effort:** S
