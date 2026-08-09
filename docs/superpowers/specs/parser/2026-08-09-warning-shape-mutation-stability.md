@@ -1,86 +1,102 @@
-# Warning shape vs. mutation stability — design amendment for the parser mutation wave
+# Warning shape vs. mutation stability — design amendment for `REF_ERROR_LITERAL`
 
-**Status:** PROPOSED (2026-08-09) · **Amends:** `docs/superpowers/specs/parser/2026-08-07-parser-mutation-wave-design.md` §4, §5, §6, §9 · **Blocks:** branches 2, 3, 4 of the wave
-**Trigger:** branch 2 (`feat/mutation-ref-sub`) reached 7 rows in `newHoles`, the bucket §9 marks HARD and never deferrable, and no implementation choice removes them without also removing what makes the warning useful.
+**Status:** PROPOSED (2026-08-09, rewritten after cross-model review round 1 returned BLOCKING with 7 findings) · **Amends:** `docs/superpowers/specs/parser/2026-08-07-parser-mutation-wave-design.md` §4 · **Blocks:** branch 2 only
+**Trigger:** branch 2 (`feat/mutation-ref-sub`) reached 7 rows in `newHoles`, the bucket §9 marks HARD and never deferrable.
 
-## 1. The problem, stated once
+## 1. Resolved scope — do not relitigate
 
-A warning this wave adds has three parts a reader can use: the **code**, an **anchor** (`blockRef.kind`, "which section"), and a **snippet** (`rawSnippet`, the offending cell's text). The harness scores a mutant by comparing baseline and mutant signal channels:
+1. **`REF_ERROR_LITERAL` exists, detects via post-`clean()` `includes`, and is warn-severity** — parent spec §4, ratified. Not reopened here.
+2. **The 3,314-hole ledger shrink stands** — this amendment concerns only the 7 residual sites.
+3. **The section anchor has real product value** — user-stated 2026-08-09: it gives the operator locating context in a several-hundred-row sheet even without a working deep-link. This is an INPUT to the decision, not a claim to re-derive.
+4. **Consequence bound:** every input is handled correctly or signaled, never silently wrong. A conservative outcome plus a surfaced warning is a documented limit.
+5. **Threat-model fence:** accidental authoring mistakes and export artifacts by ordinary sheet authors, plus maintainer regressions. Adversarial obfuscation is out of scope.
+6. **This is a `REF_ERROR_LITERAL`-only problem** — see §3. Branches 3 and 4 provably cannot reach it. Do not re-propose a wave-wide contract on their behalf.
 
-- `signalEq` — a **full deep-equal** over the whole signal channel (`tests/parser/mutation/oracle.ts:47`), so it compares the anchor and the snippet.
-- `newSignalFired` — **code-count only** (`oracle.ts:51-58`), so it cannot see that an anchor became more specific.
+## 2. The mechanism
 
-A mutation that leaves payload identical but perturbs the anchor or the snippet therefore lands in `!signalEq && !stronger`, which the oracle names `SILENT_SIGNAL_LOSS`. **The warning still fires. Only its text moved.** The oracle has no vocabulary for that difference, and the ledger inherits the ambiguity.
+The harness scores a mutant from two functions:
 
-This is not specific to `REF_ERROR_LITERAL`. Branch 3 (`ROW_CELLS_FUSED`) and branch 4 (`LEADING_COLUMN_AUTOCORRECTED`) both emit anchored warnings and will meet the same wall. Deciding it once, here, is cheaper than three times.
+- `signalEq` — full deep-equal over the signal channel (`tests/parser/mutation/oracle.ts:47`), so it compares every warning field including the anchor and the snippet.
+- `newSignalFired` — **code-count only** (`oracle.ts:51-58`), so it cannot see an anchor that became more specific.
 
-## 2. Measurement
+`verdict` (`oracle.ts:67`) reads `SILENT_SIGNAL_LOSS` from `payload equal && !signalEq && !stronger`. A mutation that leaves payload alone but perturbs a warning's *text* therefore scores as signal loss even though the warning still fires.
 
-Seven sites fail on branch 2: four `blank-row:remove` (one per `#REF!`-carrying fixture) and three `merged-cell:consultants:B37:L237:X{0,1,2}`. Each candidate warning shape was replayed against all seven, modelling the oracle exactly — `equal` = deep-equal of the warning objects, `stronger` = REF **code count** strictly up, `survives` = either.
+## 3. Scope is narrower than round 1 claimed
+
+Round 1 of this document argued the wave should decide this once for three codes. **That is false, and the review proved it.** The parent spec calibrates `ROW_CELLS_FUSED` and `LEADING_COLUMN_AUTOCORRECTED` to **zero clean-corpus warnings** (§5, §6). A code with a zero baseline that fires on a mutant moves its count 0 → 1, which makes `newSignalFired` true and the verdict `SIGNALED`:
+
+```
+ROW_CELLS_FUSED               baseline=0 mutant=1 stronger=true verdict=SIGNALED
+LEADING_COLUMN_AUTOCORRECTED  baseline=0 mutant=1 stronger=true verdict=SIGNALED
+```
+
+The problem is specific to a detector with a **non-zero clean-corpus baseline**, which in this wave is only `REF_ERROR_LITERAL` (24 warnings across 5 fixtures). If branch 3 or 4 later produces `newHoles`, that is evidence of a deviation from its own zero-baseline design — not a recurrence of this.
+
+## 4. The seven sites: three mechanisms, not two
+
+Round 1 named two mechanisms and would have mis-annotated the third.
+
+| Sites | Operator | What moves | Count |
+| --- | --- | --- | --- |
+| 4 | `blank-row:remove` | `blockRef.kind` `"section"` → `"rooms"` (sections fuse) | 6 → 6 |
+| 2 (`X0`, `X1`) | `merged-cell` | count drops; snippet becomes `\#REF\!  \#REF\!` | 6 → 5 |
+| 1 (`X2`) | `merged-cell` | **snippet only** — `\#REF\!` → `\#REF\!  Tuesday` | 6 → 6 |
+
+`X2` is the case that breaks a two-category vocabulary: its count never drops and its anchor never moves.
+
+## 5. Measured shapes
+
+Modelling the oracle exactly (`equal` = deep-equal of the warning objects; `stronger` = code count strictly up), replayed against all 7:
 
 | Warning shape | Survives |
 | --- | --- |
-| `kind` + `snippet` (as implemented) | **0 / 7** |
-| `kind` + `snippet`, counted per occurrence | 0 / 7 |
+| `kind` + `snippet` (as implemented) | 0 / 7 |
 | `kind` only | 1 / 7 |
-| `kind` only, counted per occurrence | 3 / 7 |
+| `kind` only, per occurrence | 3 / 7 |
 | `snippet` only | 4 / 7 |
+| **`snippet` only, per occurrence** | **4 / 7** |
 | no anchor (code only) | 5 / 7 |
-| **no anchor, counted per occurrence** | **7 / 7** |
+| **no anchor, per occurrence** | **7 / 7** |
 
-Two independent mechanisms, separable by the table:
+Two corrections to round 1, both found by review rather than by me:
 
-1. **The anchor moves.** `blank-row:remove` fuses two sections, so a cell's section label changes (`"section"` → `"rooms"`). Dropping `kind` fixes exactly those four (`snippet only` = 4/7).
-2. **The count drops.** `merged-cell` fuses two `#REF!` cells into one, and per-cell emission warns once where it warned twice. Counting per **occurrence of the literal** fixes those three — but only when occurrences are counted on the **cleaned** value, because the corpus stores the escaped form `\#REF\!` in which the substring `#REF!` does not literally appear. (A first pass at this measurement counted on the raw snippet, always matched zero, and silently reported "per-occurrence changes nothing." The corrected count is what the table shows.)
+- Round 1 asserted that `snippet` only **+ per occurrence** would reach 7/7. It does not — it is **4/7**. Occurrence counting restores the count for `X0`/`X1` but cannot restore deep equality, because their snippets changed; `X2` was never a count problem at all. **That figure was inferred, not measured**, which is the same defect as the earlier raw-vs-cleaned occurrence-count bug recorded in §7.
+- Only the fully bare warning reaches 7/7, and it is the one shape that carries no locating information at all.
 
-**Only the fully bare warning survives all seven.** Every shape that carries locating information fails at least one.
+## 6. Options, with corrected costs
 
-## 3. What is actually at stake
+**A. Bare warning (code only, per occurrence).** 7/7. Deletes both the anchor and the snippet — everything resolved-scope item 3 says the operator needs.
 
-The seven sites are **not** cases where the parser went quiet about a corrupt sheet. In all seven the warning fires. What the oracle records is that its *text* differs from baseline — and in the `blank-row:remove` four, the mutant's anchor is arguably **better** than baseline's, naming `Rooms` where baseline named nothing.
+**B. Normalize the snippet to the matched literal, drop `kind`, count per occurrence.** Reaches 7/7 (every emitted field becomes constant), but the "snippet" is then always the string `#REF!`, which is not the cell's text and locates nothing. A rebranding of A.
 
-So the ledger entry "silent signal loss" is, for these seven, a **modelling artifact**: the instrument cannot distinguish *moved* from *lost*. That does not make it harmless — a real regression would look the same — but it does mean "make the number zero" and "make the parser better" point in opposite directions here.
+**C. Keep the rich warning; ADD 7 annotated ledger rows.** Round 1 recommended this with a predicate that review showed to be **unsound and unenforceable**, and both objections stand:
+  - The predicate's clause (a) — "the warning still fires" — is **existential**. A detector regression that skips one of six offending cells satisfies it: another warning still fires, payload is unchanged, only the warning channel differs. It admits exactly the class the ratchet exists to catch.
+  - It is **not mechanically checkable**. `Alarm`/`KnownHole` (`tests/parser/mutation/knownHoles.ts:2-6`) record `siteId`, `kind`, `fingerprint`, `finding`, `note` — no detector code, no changed-field evidence, no payload-equality evidence, no multiplicity. `reconcileLedger` (`tests/parser/mutation/knownHoles.ts:43`) tests set membership only, and `note` is free-form and never validated. Clause (c) needs causal human judgement per row.
+  - **Not viable as written.** It would need a real predicate with real evidence fields first.
 
-Against that: the anchor is what lets an operator find the offending cell in a sheet of several hundred rows. Spending it to satisfy an instrument that is measuring the wrong thing is the expensive half of the trade.
+**D. Make the oracle's equality tier anchor- and snippet-insensitive for warning TEXT, keeping code counts authoritative.** The principled version: the harness should measure *whether the parser noticed*, not *how it phrased it*. Code identity and multiplicity stay authoritative — so a genuine miss still drops a count and is still caught — while human-readable text stops being load-bearing for equality.
+  - **Blast radius is ≤ 178 rows, not 3,701.** Review's probe: the ledger is 3,523 `wrong` + 178 `signal_loss`. `signalEq` is irrelevant to every `wrong` row, because when payload changes `verdict` consults only `stronger`. Round 1 quoted the whole-ledger figure and used it to reject D. That was wrong.
+  - Text-insensitive equality alone closes the 4 `blank-row` and `X2` (text-only moves). `X0`/`X1` need per-occurrence counting as well, since their count genuinely drops.
+  - **D + per-occurrence counting is the only option reaching 7/7 while keeping the operator's anchor and the cell's real text.**
 
-## 4. Options
+## 7. Recommendation
 
-**A. Bare warning (code only, per occurrence).** `newHoles` → 0. Both existing contracts survive untouched. The operator gets a warning that says a broken reference exists *somewhere in the sheet*, with no way to find it. Rejected below.
+**D + per-occurrence counting**, scoped and reviewed as its own change.
 
-**B. Keep the anchor; record the seven as accepted ledger rows.** The warning keeps `kind` + `snippet`. Seven rows are ADDED to `RAW_HOLES`, each annotated as anchor-movement rather than signal loss. Requires amending §9's shrink-only ratchet to permit a **bounded, reviewed, annotated addition** when a new detector's informative fields move under a mutation the payload absorbs.
+It is the only option that satisfies resolved-scope item 3 and empties the HARD bucket. Its cost was overstated by an order of magnitude in round 1, and correcting that removes the reason D was rejected. It also fixes the cause rather than annotating the symptom, so branch 5 and every future detector with a non-zero baseline inherit a harness that measures the right thing.
 
-**C. Split the difference: drop `kind`, keep `snippet`, count per occurrence.** Measured 4/7 on `snippet only`; the remaining three are the `merged-cell` count-drop, which per-occurrence counting closes — so this lands at **7/7 while keeping the snippet**. The operator loses the section name but keeps the cell's own text, which is searchable in the sheet.
+Two guardrails, because this edits the shared measuring instrument:
+1. The change is **equality-tier only**. `newSignalFired` stays code-count-based and authoritative; nothing weakens the detection of a parser that stops noticing.
+2. The ≤178 `signal_loss` rows it can affect are **re-verified explicitly** — each either stays a hole or becomes a documented closure with its mechanism, with the before/after counts stated in the PR body.
 
-**D. Teach the oracle the difference.** Add an anchor-insensitive equality tier so "same codes, same counts, moved anchor" scores as `ABSORBED`. Correct in principle, and it is the only option that fixes the *cause*. But it edits the shared measuring instrument that every existing ledger row was scored against, which re-baselines the entire 3,701-row ledger and weakens a guard the whole wave leans on. Not on this branch.
+Rejected: A and B delete what item 3 says is needed. C is unsound as specified and would need a real evidence schema before it could even be evaluated.
 
-## 5. Recommendation
+## 8. Open questions for ratification
 
-**Option B**, with **D filed** for later consideration.
+1. Is equality-tier text-insensitivity too broad? It makes the harness blind to a detector that keeps firing but starts emitting *wrong* text (a mis-anchored warning). Counter-argument: that is a copy/anchoring defect, which the clean-corpus calibration pins and the card-copy gates cover — not the silent-corruption class this harness exists for. A reviewer should attack this directly.
+2. Should the equality tier be global, or opt-in per code? Global is simpler and treats all codes alike; opt-in confines the blast radius to `REF_ERROR_LITERAL` but adds a registry that will drift.
+3. Does per-occurrence emission need its own product review? It changes what Doug sees when one cell holds two broken references (two cards, or one card naming both).
 
-This reverses an earlier draft of this document, which recommended C. C is worth naming plainly: *it is the same trade as A*. Both spend `blockRef.kind` — the section name — and differ only in whether the snippet survives. The reviewer of this amendment should not read C as a middle path; on the axis that matters here, the operator's ability to locate the cell, C sits with A.
+## 9. Process note
 
-The anchor is being spent to satisfy an instrument that, at these seven sites, is measuring the wrong thing. In all seven the warning FIRES; only its text moved, and in four of them the mutant's anchor is strictly more informative than baseline's. Deleting real locating context to zero a number that is reporting an artifact is the wrong direction, and it would be repeated twice more in branches 3 and 4.
-
-So: keep `kind` + `snippet`, and ADD the seven rows to `RAW_HOLES`, each annotated with its mechanism (anchor-moved, or count-dropped-under-fusion) and the mutant that produces it. §9's ratchet is amended to permit a **bounded, reviewed, annotated addition** under one narrow condition, spelled out so it cannot become a general escape hatch:
-
-> A new detector may ADD ledger rows only when every added row is a site where (a) the detector's warning still fires on the mutant, (b) payload is unchanged, and (c) the only difference is in fields the detector derives from mutated text. Each row carries its mechanism and its reproducing mutant. Additions are reviewed as part of the branch's diff, and the count is stated in the PR body. Every other addition remains forbidden: a site where the warning stops firing is a regression, not an annotation.
-
-That condition is checkable, and it does not admit the case the ratchet exists to catch — a parser change that stops catching mutants — because (a) requires the warning to still fire.
-
-**Deferred: D.** Teaching the oracle an anchor-insensitive equality tier fixes the cause rather than the symptom, and would let these seven score as `ABSORBED` honestly. It is deferred only because it re-baselines a 3,701-row ledger mid-wave. If branches 3 and 4 each contribute their own annotated additions, that cost stops looking large by comparison, and D should be reconsidered before branch 5.
-
-**Rejected: A and C.** Both delete locating context the operator needs, to correct a measurement error.
-
-## 6. Consequences if adopted
-
-- Branch 2: warning shape is UNCHANGED (`kind` + `snippet`, one per cell). Seven annotated rows are added to `RAW_HOLES`, and the branch's PR body states the count and mechanism.
-- Wave spec §4: warning-shape contract stated explicitly, including that anchors are permitted to move under text-mutating operators.
-- Wave spec §9: the ratchet gains the bounded-addition clause in §5 above.
-- Plans 03 and 04: add a mutation-stability measurement step BEFORE the ledger shrink, so branches 3 and 4 discover this at design time rather than after a 50-minute harness run.
-- §9 unchanged — the shrink-only ratchet holds, and `newHoles` stays HARD.
-
-## 7. Open questions for ratification
-
-1. Is the §9 amendment's condition tight enough? It is designed so a genuine regression (warning stops firing) cannot satisfy clause (a), but a reviewer should attack that directly.
-2. Should the seven added rows carry a distinct `finding` value (e.g. an `ANCHOR-MOVED` marker) so a future reader can separate them from genuine holes by grep rather than by reading notes?
-3. Does deferring D leave branches 3 and 4 accumulating annotated rows faster than expected? If either contributes more than a handful, D should be pulled forward.
+Round 1 of this document contained an unmeasured claim presented as measured (§5, the `snippet` only + per-occurrence figure) and rejected the best option using a cost figure that was wrong by ~20×. Both were caught by cross-model review, not by self-review. The measurement discipline this project applies to code — probe before asserting — applies to design documents that carry numbers, and did not get applied here.
