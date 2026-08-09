@@ -1066,6 +1066,49 @@ costs nothing. The same module-load capture pattern should be swept for across `
 
 ---
 
+### BL-FONT-CENSUS-ORACLE-FLAKE-BLOCKS-CREW-E2E — the font oracle intermittently cannot read the document, failing crew-e2e on any branch
+
+**Status:** OPEN · **Severity:** MEDIUM (a green crew-e2e is not reproducible on demand, so any gate that needs consecutive green runs is blocked by chance) · **Class:** CI flake, pre-existing · **Filed:** 2026-08-09 (measured while earning the `BL-RESURRECT-MOBILE-SAFARI-E2E` five-green bar) · **Effort:** M
+
+**Not caused by the branch that measured it** — the same test fails the same way on an unrelated
+branch in the same window:
+
+```
+test/resurrect-mobile-safari-e2e   run 31310546822   1 failed, 2 flaky, 140 passed
+  ✘ [desktop-chromium] font-rendering-census.spec.ts:259
+    › every mono manifest entry still matches something on its route
+
+refactor/classname-array-join-cn   run 31310136900   1 failed, 1 flaky, 118 passed
+  ✘ [desktop-chromium] font-rendering-census.spec.ts:259
+    › every mono manifest entry still matches something on its route
+```
+
+Both fail inside the auto-fixture with the same message, on both the pre- and post-navigate sample:
+
+```
+Error: font oracle: the registered-face query failed on a document the element walk could read
+       (via pre-navigate). The guard cannot judge a document it cannot read, and passing on one
+       would make every other test's green meaningless.
+  at enforce (tests/e2e/helpers/fontFidelityFixture.ts:400:11)
+```
+
+`font-rendering-census.spec.ts:157` (`/admin/onboarding @ mobile renders the expected families`)
+flakes in the same runs, sometimes recovering on retry and sometimes not. Other branches DO go green
+in the same window (`chore/next-1630-wedge-remeasure`, `fix/step3-a11y-cluster`), so this is
+intermittent rather than a hard break.
+
+**Why it matters beyond one arc:** the guard is written to fail loud rather than pass on a document
+it cannot read, which is the right posture — but it means a transient read failure is indistinguishable
+from a real font regression, and it takes the whole job down with it. Any acceptance bar of the form
+"N consecutive green crew-e2e runs" is then a coin flip rather than a measurement.
+
+**First step if picked up:** determine WHY the registered-face query fails on a document the element
+walk could already read — a closed/navigating page during the fixture's sample, or a document whose
+`document.fonts` is not yet queryable. The message already distinguishes pre- from post-navigate,
+which should localise it.
+
+---
+
 ### BL-CREW-FOOTER-OBSCURED-BY-FIXED-BOTTOM-BAR — the mobile bottom tab-bar covers the crew footer
 
 **Status:** OPEN · **Severity:** MEDIUM (real, reachable on every crew page at mobile widths; the obscured controls are the theme toggle and the report button) · **Class:** product layout defect · **Filed:** 2026-08-09 (surfaced rewriting `theme-toggle.spec.ts`, `BL-RESURRECT-MOBILE-SAFARI-E2E`) · **Effort:** S
