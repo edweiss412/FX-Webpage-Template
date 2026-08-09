@@ -6103,3 +6103,44 @@ that an equivalence proof converges on a machine-computed mutation score rather 
 **Work:** decide the callee (add a small local `cn`, or take `clsx`), migrate the 33 sites, run `eslint --fix`, delete the census guard and its entry. Lands on a UI branch under the dual gate.
 
 ---
+
+---
+
+## BL-DEV-GATE-GALLERY-SPEC-ROT — `attention-modal-gallery.spec.ts` runs nowhere but a dispatch-only gate, and has rotted — CLOSED 2026-08-09 (`test/gallery-per-scenario-split` PR #746 + `ci/dev-gate-pr-path-trigger`)
+
+> **PARTIAL 2026-07-26 (PR4 of the CI-dark cluster).** `dev-gate-e2e.yml` now carries a DAILY schedule alongside `workflow_dispatch`, so a break is bounded to 24h instead of until someone remembers to dispatch. The ambiguous `getByText(String(n))` locator is FIXED (each count asserted on its own paragraph). The Escape assertion is deliberately UNCHANGED pending a reproduction — the product path was traced and is intact, and weakening an unreproduced assertion is how a real regression gets papered over. Still open because a schedule is not PR-blocking-capable, so the spec keeps its allowlist row.
+>
+> **PARTIAL 2026-08-09 (`test/gallery-per-scenario-split`).** The nightly-red class in the measurement below is DIAGNOSED and REPAIRED: the "Flight boundary + write containment" test swept the whole catalog under the file's fixed 60s budget, and the catalog outgrew it (117 rendered scenarios 2026-07-23 → 130 by 07-25, when the daily failures started → 144 by 08-05; even the sole green 08-03 run timed out on attempt 1 and survived on retry). Not a product regression — the budget expired mid-sweep, which is why the blamed operation wandered between `page.goto` / `locator.click` / `locator.count` across runs. The sweep is now ONE GENERATED TEST PER SCENARIO (each with the full default budget; a failure names its scenario id in the title) plus two write-mechanism-coverage finales, and the file dropped `mode: "serial"` so a flaky scenario retries alone instead of re-running the ~150-test chain. The `:265` Escape assertion stays as written and now reports per-scenario; the "detached from the DOM" publish-toggle loop observed 2026-08-09 will likewise pin itself to a named scenario if it recurs. Entry stays open on its second decision: whether the spec belongs in a gate no PR runs.
+
+**Status:** CLOSED · **Severity:** medium · **Surfaced:** `fix/picker-flow-app-bugs` Task 13 close-out (2026-07-25) · **Effort:** M
+**Nightly-red measurement 2026-08-09:** the PARTIAL's daily schedule has been red 9 of its last 10 firings (probed via `gh run list --workflow=dev-gate-e2e.yml --branch main`: failures 2026-07-31, -08-01, -08-02, -08-04, -08-05, -08-06, -08-07, -08-08, -08-09 = runs 30619278961, 30691990257, 30740095858, 30894831479, 30990761496, 31087555225, 31158561514, 31245680158, 31300710571; sole green 2026-08-03 run 30804083044). Every probed failure is the SAME test — `tests/e2e/attention-modal-gallery.spec.ts:192` ("Flight boundary + write containment"), `dev-build` project — a THIRD rotted site beyond the `:398`/`:265` pair below: on 2026-08-09 the click on the review-modal Published toggle looped "element was detached from the DOM, retrying" for the full 60s budget (the toggle keeps remounting under the dev build), and each failure aborts the run with 38 tests never executed, so the gate certifies nothing nightly. This is the entry's own predicted trigger firing daily; the "What remains" decisions below are now bounding a permanently-red scheduled gate, not a hypothetical dispatch.
+
+`tests/e2e/attention-modal-gallery.spec.ts` runs only under the `dev-build` Playwright project (`playwright.config.ts:92`), and `dev-build` runs only in `dev-gate-e2e.yml`, which is `workflow_dispatch`-only. No PR ever triggers it. Its last green run was **2026-07-02**; the only other run since was a failure on 2026-06-22. Dispatching it during this branch's close-out failed two assertions:
+
+- `:398` — `controls.getByText(String(GLOBAL.length), { exact: false })` raises a strict-mode violation, resolving to 2 elements. The substring match means any element in the controls bar containing that digit qualifies.
+- `:265` — `await expect(attentionMenu).toHaveCount(0)` after `Escape` times out; the menu does not close the way the spec expects.
+
+**Not caused by the branch that found it.** `fix/picker-flow-app-bugs` touches no file under `components/` or `app/admin/`, and its only `playwright.config.ts` edits are to the `mobile-safari` and `desktop-chromium` matchers — `dev-build` is untouched. Two commits that landed on `main` _after_ the gate's last green run change exactly what these assertions read: `432d8ef06 feat(admin-dev): exclude global-scope tier-1 scenarios from the gallery switcher` (the global-scope set the `:398` count is derived from) and `f4c4bf493 feat(admin): merge the attention panel's three groups into two` (the menu at `:265`). 793 commits touched `components/admin/` in that window.
+
+This is the dark-spec class already recorded for this repo (`feedback_dark_spec_in_unrun_project_rots`, #486): a spec nothing runs stops describing the product, and the cost lands on whoever next dispatches the gate.
+
+**What remains:** two decisions, in order. (1) Repair both assertions against the current UI — the count needs an exact/scoped match rather than a substring, and the menu-close assertion needs to match the post-merge panel behavior. (2) Decide whether the gallery spec belongs in a gate no PR runs at all. If its value is the built `ADMIN_DEV_PANEL_ENABLED=true` artifact, that is a reason for a dedicated project, not a reason to be unreachable; if it can run on the `:3000` baseline, move it somewhere PR CI executes. **Trigger:** the next `dev-gate-e2e.yml` dispatch, which will fail on this until it is fixed.
+
+> **CLOSED 2026-08-09 (`ci/dev-gate-pr-path-trigger`).** Both remaining decisions resolved.
+> **Decision (1) — repair the assertions — was completed across the two PARTIALs:** the `:398`
+> count locator was fixed 2026-07-26; the timeout class that produced every nightly red was
+> repaired by the per-scenario split (`test/gallery-per-scenario-split`, PR #746 — first honest
+> green run 31327903136, 177 passed / 2 flaky-rescued, 11 min); the `:265` Escape assertion is
+> RATIFIED AS WRITTEN (traced-intact product path, unreproduced failure, now reporting
+> per-scenario so any recurrence names its scenario id). **Decision (2) — gate placement — is
+> RATIFIED: the dedicated dev-gate projects stay, and reachability comes from a PATH-FILTERED
+> `pull_request` trigger** added to `dev-gate-e2e.yml` over the tested surfaces (the two specs,
+> `playwright.config.ts`, the workflow itself, `app/admin/dev/**`, `components/admin/dev/**`,
+> `lib/dev/**`, and the three modal files that were the 2026-07 rot sites). The spec's value is
+> the built `ADMIN_DEV_PANEL_ENABLED=true` artifact — the route is build-gated, so moving it to
+> the `:3000` baseline would dissolve the build-vs-runtime contract the workflow exists to prove.
+> The daily schedule stays as the backstop for drift arriving through files outside the filter
+> (the 793-commits-through-`components/admin/` class), pricing that path at a 24h detection
+> bound instead of an 11-minute job on every admin PR. NOT a required context: a path-filtered
+> job is absent on non-matching PRs, and required-but-skipped contexts wedge merges. The
+> `_metaE2eWorkflowCoverage` allowlist row is rewritten to cite this ratification.
