@@ -237,12 +237,14 @@ function recognizeJoins(relPath: string, source: string): JoinSite[] {
       // `(["p-2","x"] as const).join(" ")`, `(... satisfies string[]).join(" ")`, and
       // `[...].filter(Boolean).filter(Boolean).join(" ")` are all ordinary TypeScript that
       // Prettier preserves, and all three were invisible when only one link was peeled.
-      while (
-        ts.isCallExpression(receiver) &&
-        ts.isPropertyAccessExpression(receiver.expression) &&
-        ARRAY_RETURNING_METHODS.has(receiver.expression.name.text)
-      ) {
-        receiver = unwrapValuePreserving(receiver.expression.expression);
+      // The INTERMEDIATE callee can be wrapped too — `(arr.filter as F)(Boolean).join(" ")` —
+      // so unwrap at each link, not just at the outer join callee and the receiver.
+      for (;;) {
+        if (!ts.isCallExpression(receiver)) break;
+        const link = unwrapValuePreserving(receiver.expression);
+        if (!ts.isPropertyAccessExpression(link)) break;
+        if (!ARRAY_RETURNING_METHODS.has(link.name.text)) break;
+        receiver = unwrapValuePreserving(link.expression);
       }
       // A bare identifier receiver — `const tokens = ["p-2", drift]; tokens.join(" ")` — is
       // ordinary authoring and was invisible. Resolve up to three same-file `const` hops,

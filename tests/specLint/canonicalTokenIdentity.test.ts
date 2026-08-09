@@ -84,6 +84,7 @@ function unconditionalClassLiterals(
 ): string | null {
   const initializer = classTextOfElement(source, relPath, testId);
   if (initializer === null) return null;
+  const cnIsSanctionedImport = fileImportsSanctionedCn(source, relPath);
   // Only UNCONDITIONALLY-APPLIED class text counts. Textual presence anywhere in the
   // initializer let `false ? "max-w-confirm-box" : "max-w-16"` satisfy the assertion while
   // the element always renders `max-w-16` — and C1's rect keys are the documented zero-width
@@ -108,7 +109,15 @@ function unconditionalClassLiterals(
         // "max-w-16")` — satisfy both assertions while rendering `max-w-16`. `cn` is the one
         // callee whose semantics this arc pins (it concatenates every truthy argument), so it
         // is the one callee whose arguments are known to reach the class attribute.
-        if (ts.isIdentifier(init.expression) && init.expression.text === "cn") {
+        // ...and `cn` must be THE sanctioned import, not merely the spelling. A local `cn`
+        // that discards its arguments would otherwise satisfy both assertions while the
+        // element renders something else — and C1 has no browser fallback, its connector
+        // being zero-width by construction.
+        if (
+          ts.isIdentifier(init.expression) &&
+          init.expression.text === "cn" &&
+          cnIsSanctionedImport
+        ) {
           for (const arg of init.arguments) {
             if (ts.isStringLiteral(arg) || ts.isNoSubstitutionTemplateLiteral(arg)) {
               literals.push(arg.text);
@@ -121,6 +130,42 @@ function unconditionalClassLiterals(
   };
   collect(wrapper);
   return literals.join(" ");
+}
+
+/** Does this file import `cn` from `@/lib/ui/cn`, with no other binding of that name? */
+function fileImportsSanctionedCn(source: string, relPath: string): boolean {
+  const sourceFile = ts.createSourceFile(
+    relPath,
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    relPath.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
+  );
+  let imported = false;
+  let otherBindings = 0;
+  const visit = (n: ts.Node): void => {
+    if (
+      ts.isImportDeclaration(n) &&
+      ts.isStringLiteral(n.moduleSpecifier) &&
+      n.moduleSpecifier.text === "@/lib/ui/cn" &&
+      n.importClause?.namedBindings &&
+      ts.isNamedImports(n.importClause.namedBindings) &&
+      n.importClause.namedBindings.elements.some((e) => e.name.text === "cn")
+    ) {
+      imported = true;
+    }
+    if (
+      (ts.isVariableDeclaration(n) || ts.isParameter(n) || ts.isFunctionDeclaration(n)) &&
+      n.name &&
+      ts.isIdentifier(n.name) &&
+      n.name.text === "cn"
+    ) {
+      otherBindings += 1;
+    }
+    ts.forEachChild(n, visit);
+  };
+  visit(sourceFile);
+  return imported && otherBindings === 0;
 }
 
 function classTextOfElement(source: string, relPath: string, testId: string): string | null {

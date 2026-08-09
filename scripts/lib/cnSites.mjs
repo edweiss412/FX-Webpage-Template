@@ -140,12 +140,14 @@ function matchArrayJoin(node) {
   // A CHAIN of filters, not just one: `.filter(Boolean).filter(Boolean)` is valid and was
   // invisible when only a single link was peeled.
   for (;;) {
+    const link = ts.isCallExpression(receiver) ? unwrap(receiver.expression) : undefined;
     if (
       ts.isCallExpression(receiver) &&
-      ts.isPropertyAccessExpression(receiver.expression) &&
-      ARRAY_RETURNING_METHODS.has(receiver.expression.name.text)
+      link !== undefined &&
+      ts.isPropertyAccessExpression(link) &&
+      ARRAY_RETURNING_METHODS.has(link.name.text)
     ) {
-      const method = receiver.expression.name.text;
+      const method = link.name.text;
       if (method === "filter") {
         // `cn` IS `filter(Boolean).join(" ")` — and ONLY that. Any other predicate makes
         // the migration non-equivalent, so it is recorded rather than silently treated as
@@ -157,7 +159,7 @@ function matchArrayJoin(node) {
         // `filter(Boolean)` and nothing else.
         hasForeignFilter = true;
       }
-      receiver = unwrap(receiver.expression.expression);
+      receiver = unwrap(link.expression);
       continue;
     }
     break;
