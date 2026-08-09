@@ -396,6 +396,8 @@ git commit -m "test(spec-lint): mutation-gate triage for the multi-region rewrit
 
 `docs/agents/spec-self-review.md` — append to the paragraph following the fenced example (the one beginning "`spec:lint` then reports…"):
 
+<!-- plan-fences: ignore FENCE_EM_DASH — this fence quotes PROSE to be pasted verbatim into a markdown doc, not code; the em dash is deliberate repo doc style and is what spec §4 item 1 ratified, so removing it would desync the plan from the shipped sentence. The rule's own target is an em dash inside code, where it is a corruption artifact. -->
+
 ```
 A plan may declare several sequential regions, each with its own depth — close one region and open the next; headings between regions are unchecked (multi-region design, docs/superpowers/specs/2026-08-09-task-enrollment-multi-region-design.md).
 ```
