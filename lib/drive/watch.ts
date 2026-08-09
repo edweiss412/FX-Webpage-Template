@@ -176,6 +176,14 @@ export type SubscribeAttempt = { consecutiveFailures: number; nextAttemptAt: str
 
 export type SubscribeResult =
   | { outcome: "active"; channelId: string; attempt: SubscribeAttempt }
+  /**
+   * The configured folder changed mid-activation (spec §3.1). A deliberate
+   * CANCEL, not a failure: it deliberately carries no `errorClass`, no
+   * `errorMessage` and no `attempt`, so every consumer must branch on it
+   * explicitly before it can read any of those — which is what makes the §3.2
+   * consumer enumeration machine-checked rather than remembered.
+   */
+  | { outcome: "folder_changed"; channelId: string; configuredFolderId: string | null }
   | {
       outcome: "orphaned";
       channelId: string;
@@ -826,7 +834,10 @@ async function activateWithTx(
   tx: WatchTx,
   folderId: string,
   watch: { id: string; resourceId: string; expiration: string },
-): Promise<SubscribeResult> {
+  // Narrower than `SubscribeResult` on purpose: this helper either returns the
+  // ACTIVE member or throws, and the caller spreads `attempt` onto the result —
+  // which the `folder_changed` member deliberately does not carry.
+): Promise<{ outcome: "active"; channelId: string; attempt: SubscribeAttempt }> {
   const result = await callWatchTx("drive_watch_channels.activate_pending", () =>
     tx.activatePending({
       id: watch.id,
@@ -835,6 +846,12 @@ async function activateWithTx(
       expiresAt: watch.expiration,
     }),
   );
+  if (result.abortedFolderMismatch) {
+    // The §3.1 guard saw a different configured folder. Distinct from the
+    // zero-row case below: nothing is wrong with the infrastructure, and the
+    // caller's dedicated branch must not classify this as a Drive error.
+    throw new WatchFolderChangedDuringActivationError(result.configuredFolderId);
+  }
   if (result.promoted === 0) {
     // The pending row was not there to promote — most often because a folder
     // promotion orphaned it (§3.2.4). Throwing routes into the caller's
@@ -1057,6 +1074,49 @@ export async function subscribeToWatchedFolder(
     }
     return activated;
   } catch (err) {
+    // FIRST branch, before anything classifies the error (spec §3.1): the
+    // configured folder changed between this subscriber's folder read and its
+    // activation, so the activation was ABORTED. That is a deliberate cancel,
+    // not a Drive failure and not an infra fault:
+    //  - no attempt is recorded even when `recordAttempt` is set — a folder
+    //    change is not a folder failure, and the write would pollute the OLD
+    //    folder's durable backoff state;
+    //  - `classifyWatchError` is never reached, whose unknown-error fallback
+    //    would label this `"drive_api"`.
+    // The Drive channel WAS created, so it is still orphaned with its
+    // `resourceId`: GC must be able to stop it at Drive.
+    if (err instanceof WatchFolderChangedDuringActivationError) {
+      await runTx((tx) =>
+        markWatchOrphanedWithTx(
+          tx,
+          channelId,
+          {
+            watched_folder_id: folderId,
+            channel_id: watch.id,
+            requested_channel_id: channelId,
+            resource_id: watch.resourceId,
+            expiration: watch.expiration,
+            reason: "folder_changed_during_activation",
+            configured_folder_id: err.configuredFolderId,
+          },
+          watch.resourceId,
+        ),
+      );
+      // The single emit site for this outcome, so no consumer needs one of its
+      // own. Folder ids and the channel id only — never the webhook secret.
+      await log.warn("drive watch activation aborted: folder changed", {
+        source: "drive.watch",
+        code: "DRIVE_WATCH_ACTIVATION_FOLDER_CHANGED",
+        watchedFolderId: folderId,
+        configuredFolderId: err.configuredFolderId,
+        channelId: watch.id,
+      });
+      return {
+        outcome: "folder_changed",
+        channelId: watch.id,
+        configuredFolderId: err.configuredFolderId,
+      };
+    }
     const errorClass = classifyWatchError(err);
     const errorMessage = redactWatchError(String((err as { message?: unknown })?.message ?? err), {
       webhookSecret,

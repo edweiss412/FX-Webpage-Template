@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
+  classifyWatchError,
   renewalLeadMs,
   RENEWAL_LIFE_FRACTION,
   RENEWAL_MIN_LEAD_MS,
@@ -11,6 +12,16 @@ import { setLogSink } from "@/lib/log";
 import type { LogRecord } from "@/lib/log/types";
 import { premiseHolds } from "../_shared/premise";
 import type { ActivatePendingResult } from "@/lib/drive/watch";
+
+// TYPED partial mock: every export stays real (`...actual`) and only the
+// classifier is wrapped in a spy delegating to the genuine implementation, so
+// no existing case changes behaviour. `SubscribeDeps` has no classifier member,
+// so a spy on this import is the only executable seam for "the folder_changed
+// branch never reaches classifyWatchError" (spec §3.2, row 2).
+vi.mock("@/lib/drive/watchErrors", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/drive/watchErrors")>();
+  return { ...actual, classifyWatchError: vi.fn(actual.classifyWatchError) };
+});
 
 // File-wide log capture via the sanctioned setLogSink seam (observability arc);
 // replaces the earlier vi.mock("@/lib/log") harness so the telemetry describe
@@ -3134,5 +3145,93 @@ describe("activation guard at the fake port (spec §3.1 rule)", () => {
     });
     // Anti-tautology: the row, not the return value the guard itself produced.
     expect(statusOf(tx)).toBe("pending");
+  });
+});
+
+describe("folder_changed: the dedicated activation-abort branch (spec §3.1)", () => {
+  // One fixture constant; the promoted folder is derived so the two can never
+  // drift into equality and vacuously satisfy the abort rule.
+  const SUBSCRIBED_FOLDER: string = "folder-changed-subject";
+  const PROMOTED_FOLDER: string = `${SUBSCRIBED_FOLDER}-promoted`;
+  const CHANNEL = "ch-folder-changed";
+  const RESOURCE = "resource-folder-changed";
+
+  async function abortedSubscribe() {
+    const tx = new FakeWatchTx();
+    tx.settingsRow = { watched_folder_id: PROMOTED_FOLDER };
+    const { subscribeToWatchedFolder } = await import("@/lib/drive/watch");
+    const result = await subscribeToWatchedFolder(SUBSCRIBED_FOLDER, {
+      tx,
+      // recordAttempt ON, so "records no attempt" is a real claim about the
+      // branch and not an artifact of the default.
+      recordAttempt: true,
+      uuid: () => CHANNEL,
+      webhookSecret: () => "webhook-secret-value",
+      watchFolder: async () => ({
+        id: CHANNEL,
+        resourceId: RESOURCE,
+        expiration: new Date("2026-05-10T12:00:00.000Z").toISOString(),
+      }),
+    });
+    return { tx, result };
+  }
+
+  test("folder_changed is returned with exactly the union member's keys", async () => {
+    premiseHolds(
+      "the configured folder differs from the subscribed one",
+      PROMOTED_FOLDER !== SUBSCRIBED_FOLDER,
+    );
+    const { result } = await abortedSubscribe();
+
+    expect(result).toEqual({
+      outcome: "folder_changed",
+      channelId: CHANNEL,
+      configuredFolderId: PROMOTED_FOLDER,
+    });
+    // Exact key set: no errorClass / errorMessage / attempt. This is not an
+    // error result, and a consumer must not be able to read one off it.
+    expect(Object.keys(result).sort()).toEqual(["channelId", "configuredFolderId", "outcome"]);
+  });
+
+  test("folder_changed orphans the Drive channel with its resourceId so GC can stop it", async () => {
+    const { tx } = await abortedSubscribe();
+
+    premiseHolds("the watch stub returned a non-null resourceId", RESOURCE !== null);
+    expect(tx.orphanedResourceIds).toEqual([[CHANNEL, RESOURCE]]);
+    expect(tx.alerts).toHaveLength(1);
+    expect(tx.alerts[0]?.context.reason).toBe("folder_changed_during_activation");
+    expect(tx.alerts[0]?.context.resource_id).toBe(RESOURCE);
+  });
+
+  test("folder_changed records NO attempt despite recordAttempt: true", async () => {
+    const { tx } = await abortedSubscribe();
+
+    // A folder change is not a folder failure: writing one would pollute the
+    // OLD folder's durable backoff state.
+    expect(tx.attemptRecords).toEqual([]);
+    expect(tx.operations.filter((op) => op.startsWith("recordAttempt"))).toEqual([]);
+  });
+
+  test("folder_changed emits exactly one DRIVE_WATCH_ACTIVATION_FOLDER_CHANGED, secret-free", async () => {
+    await abortedSubscribe();
+
+    const emits = logRecords.filter((r) => r.code === "DRIVE_WATCH_ACTIVATION_FOLDER_CHANGED");
+    expect(emits).toHaveLength(1);
+    expect(emits[0]?.level).toBe("warn");
+    expect(emits[0]?.context).toMatchObject({
+      watchedFolderId: SUBSCRIBED_FOLDER,
+      configuredFolderId: PROMOTED_FOLDER,
+      channelId: CHANNEL,
+    });
+    expect(JSON.stringify(emits[0])).not.toContain("webhook-secret-value");
+  });
+
+  test("folder_changed never reaches classifyWatchError", async () => {
+    // The generic catch would classify an unknown error as "drive_api" — a
+    // false Drive error class for what is a deliberate cancel.
+    vi.mocked(classifyWatchError).mockClear();
+    await abortedSubscribe();
+
+    expect(vi.mocked(classifyWatchError).mock.calls).toHaveLength(0);
   });
 });
