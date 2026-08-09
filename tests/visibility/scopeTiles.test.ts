@@ -34,6 +34,7 @@ import {
   SCOPE_TILE_UNLOCKING_FLAGS,
 } from "@/lib/visibility/scopeTiles";
 import type { RoleFlag, TransportationRow } from "@/lib/parser/types";
+import { premise, premiseHolds } from "../_shared/premise";
 
 // Valid RoleFlag values per lib/parser/types.ts:36-59. Kept in sync via
 // the SCOPE_TILE_UNLOCKING_FLAGS test below — the `satisfies RoleFlag[]`
@@ -466,6 +467,185 @@ describe("transportTileVisible predicate (Task 4.7, §8.1)", () => {
     expect(call).not.toThrow();
     expect(call()).toBe(true); // falls through to the name path (exact match)
   });
+});
+
+// ── BL-TRANSPORT-ID-RESOLUTION residual: the deferred fuzzy-name pin set ────────
+//
+// Spec: docs/superpowers/specs/2026-08-09-quick-wins-2-mech.md §2.5
+// Plan: docs/superpowers/plans/2026-08-09-quick-wins-2/plan.md, Task A4
+//
+// The entry's headline residual — id-based transport visibility — shipped as Flow 8.3b
+// and is pinned above. What it deferred is THIS: the NAME fallback, pinned as one whole
+// set rather than case-by-case. Keeping the set whole is the point. The nickname-via-
+// surname leg (Bill Werner / William Werner) is the class the surname rule exists for and
+// it had no pin anywhere in the tree; the entry's own completeness check is
+// `rg -n 'Bill Werner|William Werner' tests/visibility`, which returned nothing before
+// this block. A set split across "whichever case someone happened to add" is how that
+// hole stayed open, so the legs live together and are derived from one table.
+//
+// EVERY LEG RUNS WITH NO RESOLVED OWNER IDS AND NO viewerId. Branch 0 answers before any
+// name comparison, so a leg that leaked an owner id would be a fixture testing the ID path
+// while claiming to test the name path — vacuous in the exact direction that looks green.
+// The premise below asserts that unconditionally, outside the `.each` callback (a table
+// that shrank to zero rows would take its premise with it).
+//
+// OBSERVED-RED PROTOCOL (spec §2.5): a regression pin on shipped-correct behavior cannot
+// fail naturally, so its discriminating power was observed by neutering the multi-token
+// surname branch in `lib/data/nameMatch.ts` and watching the legs that depend on it fail.
+// The mutant was never committed; both observations are in the commit message.
+describe("transportTileVisible — fuzzy-name fallback pin set (BL-TRANSPORT-ID-RESOLUTION)", () => {
+  const transportRow = (
+    driver: string | null,
+    assigned: readonly string[] = [],
+  ): TransportationRow => ({
+    driver_name: driver,
+    driver_phone: null,
+    driver_email: null,
+    loadout_name: null,
+    loadout_phone: null,
+    loadout_email: null,
+    vehicle: null,
+    license_plate: null,
+    color: null,
+    parking: null,
+    schedule: [
+      { stage: "Travel In", date: "2026-06-01", time: "09:00", assigned_names: [...assigned] },
+    ],
+    notes: null,
+  });
+
+  /**
+   * The entry's verbatim list. `viewerNames` is a list because the empty-string and null
+   * viewer names are one guard (`if (!viewerName) return false`) reached by two spellings;
+   * asserting both from one row keeps the row count equal to the number of distinct
+   * BEHAVIORS rather than the number of spellings.
+   */
+  const PINS = [
+    {
+      id: "prefix: free-text first-name driver vs full roster name",
+      driver: "Doug",
+      assigned: [] as const,
+      viewerNames: ["Doug Larson"] as const,
+      aliases: ["Doug Larson"] as const,
+      isAdmin: false,
+      expected: true,
+      catches: "exact === on a FREE-TEXT driver_name, which hid the driver's own ride",
+    },
+    {
+      id: "surname: legal name vs the roster's short form",
+      driver: "Douglas Larson",
+      assigned: [] as const,
+      viewerNames: ["Doug Larson"] as const,
+      aliases: ["Doug Larson"] as const,
+      isAdmin: false,
+      expected: true,
+      catches: "a first-name-must-match rule, which rejects Douglas/Doug",
+    },
+    {
+      id: "nickname via the surname rule: assigned 'Bill Werner' vs viewer 'William Werner'",
+      driver: null,
+      assigned: ["Bill Werner"] as const,
+      viewerNames: ["William Werner"] as const,
+      aliases: ["William Werner"] as const,
+      isAdmin: false,
+      expected: true,
+      catches:
+        "a prefix-only token rule: bill and william share neither a prefix nor a first " +
+        "letter, so ONLY the multi-token surname comparison resolves them to one person",
+    },
+    {
+      id: "case + trim: '  doug larson ' vs 'Doug Larson'",
+      driver: "Doug Larson",
+      assigned: [] as const,
+      viewerNames: ["  doug larson "] as const,
+      aliases: ["  doug larson "] as const,
+      isAdmin: false,
+      expected: true,
+      catches: "a matcher that compares raw strings instead of normalized tokens",
+    },
+    {
+      id: "negative: a different person entirely",
+      driver: "Jane Smith",
+      assigned: [] as const,
+      viewerNames: ["Doug Larson"] as const,
+      aliases: ["Doug Larson"] as const,
+      isAdmin: false,
+      expected: false,
+      catches: "a match-everything fallback, which every positive leg above would accept",
+    },
+    {
+      id: "negative: no viewer name at all (empty string and null)",
+      driver: "Doug Larson",
+      assigned: [] as const,
+      viewerNames: ["", null] as const,
+      aliases: [] as const,
+      isAdmin: false,
+      expected: false,
+      catches: "an empty alias set treated as a wildcard rather than as matching nothing",
+    },
+    {
+      id: "admin sees the tile whenever transportation exists",
+      driver: "Jane Smith",
+      assigned: [] as const,
+      viewerNames: [null] as const,
+      aliases: [] as const,
+      isAdmin: true,
+      expected: true,
+      catches: "an admin branch ordered AFTER the name guards, where a null name returns early",
+    },
+    {
+      id: "documented limit: a garbled surname token stays unmatched by name",
+      driver: "Doug Larson Loadout",
+      assigned: [] as const,
+      viewerNames: ["Doug Larson"] as const,
+      aliases: ["Doug Larson"] as const,
+      isAdmin: false,
+      expected: false,
+      catches:
+        "a surname rule loosened to 'any token matches', which would over-match by " +
+        "design here. Spec §4 limit 3: last tokens loadout != larson, and the ID path " +
+        "(Branch 0, pinned above) is the shipped remedy — NOT a looser name rule",
+    },
+  ] as const;
+
+  test("premise: every leg runs with no resolved owner ids and no viewerId, so Branch 0 is inert", () => {
+    premise("fuzzy-name pin legs", PINS.length, 6);
+    // Asserted against the CALL every leg makes, not against a hopeful reading of the
+    // table: the two id inputs are fixed at the call site below, so this states the
+    // property the call sites actually have.
+    const idInputs = PINS.map(() => ({ viewerId: null, transportationOwnerIds: [] as string[] }));
+    premiseHolds(
+      "no leg supplies a viewerId (Branch 0 would answer before any name comparison)",
+      idInputs.every((i) => i.viewerId === null),
+    );
+    premiseHolds(
+      "no leg supplies a resolved owner id (Branch 0 would answer before any name comparison)",
+      idInputs.every((i) => i.transportationOwnerIds.length === 0),
+    );
+    premiseHolds(
+      "the table carries both outcomes, so it cannot be satisfied by a constant predicate",
+      PINS.some((p) => p.expected) && PINS.some((p) => !p.expected),
+    );
+  });
+
+  test.each(PINS)(
+    "$id",
+    ({ driver, assigned, viewerNames, aliases, isAdmin, expected, catches }) => {
+      for (const viewerName of viewerNames) {
+        expect(
+          transportTileVisible({
+            transportation: transportRow(driver, assigned),
+            viewerId: null,
+            transportationOwnerIds: [],
+            viewerName,
+            viewerNameAliases: [...aliases],
+            isAdmin,
+          }),
+          `viewerName ${JSON.stringify(viewerName)} — catches: ${catches}`,
+        ).toBe(expected);
+      }
+    },
+  );
 });
 
 describe("static-analysis: scopeTiles.ts documents the role-flag origin contract", () => {
