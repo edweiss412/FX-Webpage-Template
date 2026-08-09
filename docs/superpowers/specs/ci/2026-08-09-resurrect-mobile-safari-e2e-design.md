@@ -442,9 +442,19 @@ For each §2.2 failure, in the worktree, before wiring:
 
 ## Dimensional Invariants
 
-None — this spec designs no UI component and changes no layout. The only dimension assertions are
-test-side: the §3.2 tap-target check (≥44×44px per DESIGN.md §3 `--spacing-tap-min`) and the §3.3
-footer-position e2e test, both `getBoundingClientRect` in a real browser.
+None — this spec designs no UI component and changes no layout. The only dimension assertion that
+SHIPPED is test-side: the §3.2 tap-target check (≥44×44px per DESIGN.md §3 `--spacing-tap-min`),
+`getBoundingClientRect` in a real browser.
+
+**AMENDMENT 2026-08-09 (implementation, ratified per invariant 7).** This section also named a §3.3
+footer-position e2e test. No such test landed, and none should have: §3.3's product-defect branch
+fired. Probed at 390×844 — `page-shell` is a flex column, but `crew-shell` between it and the footer
+is a plain block, so `mt-auto` on `page-footer` computes to `marginTop: "0px"`; with the section body
+collapsed to make the page shorter than the viewport, the footer sits at bottom 342.5 with 501.5px of
+dead space beneath it. The invariant does not hold in the product, so a test asserting it would have
+been red on arrival. Filed as `BL-CREW-FOOTER-NOT-ANCHORED-SHORT-CONTENT` (exception (a)), alongside
+`BL-CREW-FOOTER-OBSCURED-BY-FIXED-BOTTOM-BAR` — probably one fix, since both trace to the same broken
+flex chain.
 
 ## Transition Inventory
 
