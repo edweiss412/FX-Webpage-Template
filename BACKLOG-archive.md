@@ -661,6 +661,24 @@ earlier on this same branch.
 
 ---
 
+## BL-MUTATION-UNICODE — an injected zero-width character is silently retained — CLOSED 2026-08-08 (`feat/mutation-unicode`, PR #736, wave branch 1/5)
+
+**Status:** CLOSED · **Filed:** 2026-08-06 (L-wave decomposition of `BL-MUTATION-HARNESS-OPEN-HOLES`) · **Class:** PARSER ROBUSTNESS · **Effort:** M · **Severity:** medium
+
+A zero-width non-joiner (U+200C) injected into a cell value survived the parse intact. The class matters because invisible characters defeat EQUALITY: a name carrying one does not match the same name without one, so identity linking, crew matching, and every string comparison silently miss while the rendered page looks correct.
+
+**Resolution: the whole class closed, zero residue.** `parseSheet` now strips `[\u200B-\u200D\uFEFF]` from the entire document as its FIRST statement, before any read — including `classifyVersion`'s label reads, which run before the `normalizeSectionHeaders` seam (`lib/parser/index.ts:559`, spec §3.1). `clean()` keeps its own cell-boundary strip, because cell values are also assembled outside that entry.
+
+The row was filed with a ledgered blast radius of **827 holes** (827 `wrong` / 0 `signal_loss`) and all 827 closed: `RAW_HOLES` went 7,842 → 7,015, and the PR-head `mutation-harness` run reported **all four reconciliation buckets empty across all 8 shards** — 7,015 collected alarms against 7,015 ledger rows, `newHoles` = `fixedHoles` = 0.
+
+**The shape prediction in the original entry was right.** It said a new warn code would be warranted "only for a residue that cannot be stripped safely; if the whole 827 closes by routing through the existing boundary, no catalog row and no §12.4 lockstep is needed — which would make this smaller than M". That is what happened: no `ParseWarning` code, no catalog row, no lockstep. The M sizing was conservative.
+
+**Guard:** `tests/parser/payloadZeroWidth.test.ts` (spec §3.4). Its discriminating arm is the SEEDED one — the un-mutated corpus does not leak zero-width text into payload even without the strip, since every payload path already routes through `clean()`, so a clean-corpus assertion alone would be vacuous. That vacuity was caught in adversarial review and repaired; the guard now carries an executable reachability premise, and removing the strip fails two arms.
+
+**Documented limits (not residue).** The character class is `clean()`'s ratified one, so it omits U+2060 and U+00AD and splits emoji ZWJ sequences. Behavior deltas per spec §3.2: `contentHash` re-keys once on sheets carrying zero-width characters, and `rawSnippet` / `sourceCell` render post-strip text.
+
+---
+
 ## BL-MUTATION-HARNESS-OPEN-HOLES — parser silent-fragility classes pinned by the mutation harness — CLOSED 2026-08-06 (L-wave, `feat/l-wave-docs`, DECOMPOSED)
 
 **Resolution: DECOMPOSED into five standalone entries, one per operator class.** Ratified 2026-08-05
@@ -5875,3 +5893,21 @@ The restructure is behavior-preserving: the ok/not-ok partition over every input
 **Eight test cases, one per GUARD CONDITION rather than one per disjunct.** Two conditions were invisible to a disjunct-only table and each hid an ordinary mistake: the empty-string arm of `!raw` (a `raw == null` guard sends `""` to `JSON.parse`, mislabelling it `json_malformed`) and `email.length > 0`. The second is the worst case in the arc — break it and the wizard renders NORMALLY with an empty service-account email, suppressing both the operator-error surface and its telemetry. Every other broken condition merely produces a wrong label; that one produces a silent success on a misconfigured deploy.
 
 **The secrets contract is the load-bearing constraint here.** `GOOGLE_SERVICE_ACCOUNT_JSON` holds a service-account private key, so the emit carries the reason enum and nothing else derived from it — not the raw value or any part of it, not the parsed object or any field of it, and not the `JSON.parse` error, whose V8 message embeds a snippet of the offending input. The `catch` therefore stays parameterless. The guard is a whole-record accept-set proven by four mutants across the persisted row's three leak-channel families, each observed failing and reverted; the fixture reaching `client_email_missing` carries a PRESENT, non-string, secret-bearing `client_email` rather than an absent one, because the logger drops `undefined` keys and an absent field makes the parsed-field mutant invisible.
+
+### BL-PROJECTION-ALERT-VIEWER-INDEPENDENT-PROBE — true viewer-independent financials/lead-only alerting — **filed 2026-06-17 (crew-page redesign Phase 1 spec R44)** — **CLOSED 2026-08-08** (`feat/projection-financials-viewer-independent`)
+
+**Effort:** M
+
+**How it closed.** Approach A — un-gate the fetch, gate the RETURN. `readFinancials` is now an unconditional member of the `getShowForViewer` parallel wave for every viewer; the entitlement gate moved inside the function to the return boundary, so a non-entitled viewer's fetched value is discarded before decode and the projection (and its per-viewer cache entry) still carries no financials. Spec: `docs/superpowers/specs/2026-08-07-projection-financials-viewer-independent-design.md`; plan: `docs/superpowers/plans/2026-08-07-projection-financials-viewer-independent.md`.
+
+**The entry's own premise was only half the defect.** The filed premise (raise delay: a financials outage with non-entitled-only traffic goes unalerted) was the accepted v1 limitation. Investigation for this arc found a second, worse defect filed AFTER this entry: S6 auto-resolution (`docs/superpowers/specs/alerts/2026-07-03-admin-alert-auto-resolution.md`, ratified 2026-07-03) resolves the whole `(show_id, code)` row on any empty-`failedKeys` render. A non-entitled projection could never carry `tileErrors.financials`, so every non-entitled render looked healthy and cleared a lead-raised alert — the alert flapped for the whole outage, and this was **unbounded** (fresh non-entitled fills were just as blind as stale ones, so no amount of traffic converged). Both defects close together at the mechanism.
+
+**Contract now.** Alert state moves at rendered-cache-fill granularity (the projection is served from `unstable_cache` per viewer, stale-while-revalidate, 300s TTL backstop). Wrong-resolve shrinks from unbounded to the pre-existing SWR staleness window every other domain already has: per viewer key, TTL plus that key's next two request arrivals. Financials now sits at exact parity with `hotel`/`rooms`/`contacts`/`transportation`/`run_of_show`. The probe idea this entry proposed (a separate status-only query) was considered and rejected — a second query buys nothing over the existing one, which was already free in the wave.
+
+**Corpus.** Every ratified doc clause asserting the zero-read contract was amended by pointer, reword, or a §4.13 banner (full census in the spec's §3): master spec ×5 sites, nav-perf phase-1 ×3, phase-1 §4.13 banner + 5 inline pointers, phase-2 agenda ×3, role-scope vocab ×2, specs README index row.
+
+**Not reopened by:** the SWR staleness window (documented limit, uniform across all six domains, spec §6), decode-level corruption silence for financials (unchanged pre-existing posture), entitlement-derivation bugs (out of scope — the alert observes fetch health, not who is entitled), or no-traffic shows (no fills, no observation; admins retain drive-health and sync signals).
+
+**Original entry (2026-06-17), verbatim:**
+
+> The Phase 1 crew-page projection alert (`TILE_PROJECTION_FETCH_FAILED`, §4.13 of `specs/v1-pre-deployment-amendments/2026-06-15-crew-page-redesign-phase1-design.md`) records, per render, the `tileErrors` keys that render observed, and the dedup RPC union-merges across renders. Because `getShowForViewer` skips the `shows_internal` query unless `isLead` (`lib/data/getShowForViewer.ts:473-505`), a **non-lead render cannot observe a `financials` fetch failure** — so a `financials`/lead-only-domain outage with **non-lead-only crew-page traffic** is not alerted until a lead/admin renders. This is the **accepted v1 contract** ("union-by-accumulation"), and it is **not a regression** — today's `financials` alert already comes from the lead-gated `FinancialsTile` fallback. If true per-render viewer-independence is later wanted: add a **status-only admin-observability probe** that records each domain's fetch success/failure on every render **without returning the gated data to non-leads** (e.g. a service-role fetch-status check, or surfacing the failure through the data-sync path), and test it through the real projection path. Out of scope for v1; admins also have the dashboard's independent infra signals (drive-health, sync alerts). Technical home: `lib/data/getShowForViewer.ts` + the §4.13 projection-alert contract.

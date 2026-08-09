@@ -122,15 +122,19 @@ Commit: `fix(infra): boundary advisory excludes the adoption arc's own pre-merge
 
 In `buildReport`:
 
-- **Parse once, compare chronologically at every site — through ONE helper (spec
-  §3.1).** Replace the lexical `.sort()[0]` selection. STRUCTURAL REQUIREMENT, not just
-  behavioral: implement a single parse-and-compare helper and route ALL timestamp
-  comparisons through it — earliest selection, boundary check,
-  `mergedAt <= boundary` classification, `startedAt <= mergedAt` cap, AND the
-  latest-merge max selection. NO direct string comparison of timestamps anywhere in the
-  advisory block (spec §3.1: "a later-added site cannot be lexical by default").
-  Separate ad-hoc `Date.parse` calls at each site satisfy the test cases but violate
-  the spec.
+- **Parse once, compare chronologically at every site — through ONE PARSE function and
+  ordering helpers typed to its output (spec §3.1).** Replace the lexical `.sort()[0]`
+  selection. STRUCTURAL REQUIREMENT, not just behavioral: one parse helper, and every
+  timestamp comparison routed through ordering helpers that accept only parsed values —
+  earliest selection, boundary check, `mergedAt <= boundary` classification,
+  `startedAt <= mergedAt` cap, AND the latest-merge max selection. NO direct string
+  comparison of timestamps anywhere in the advisory block (spec §3.1: "a later-added
+  site cannot be lexical by default"). Separate ad-hoc `Date.parse` calls at each site
+  satisfy the test cases but violate the spec.
+  _(Corrected 2026-08-09: this step said "ONE helper" / "a single parse-and-compare
+  helper", and the shipped code has one parse function plus TWO comparators, `<` and
+  `<=`, both required. See the §3.1 amendment in the spec — the property is now pinned
+  by `tests/reviewRounds/advisoryComparatorTopology.test.ts` instead of asserted.)_
 - **Accept-set placement (spec §3.2).** A `startedAt` is placeable iff (a) it matches
   the §3.2 structural regex VERBATIM (explicit offset, bounded offset range, fractional
   seconds capped at 3 digits), (b) its date/time fields are calendar-valid, (c) its
@@ -234,6 +238,7 @@ Commit: `docs(spec): amend review-round-economy §9/§11.3 for the advisory excl
 | Spec R1–R5 | **APPROVE** at R5 | — | Authoring session; filing at `docs/review-rounds/feat/round-economy-followups/22795d2b56c5.md` §spec |
 | Plan R1–R4 | **APPROVE** at R4 | — | Same corpus, §plan filing |
 | Whole-diff R1 | **NOT RUN** | — | Two dispatches, six `codex exec` attempts, every one `ERROR: You've hit your usage limit … try again at Aug 11th, 2026 6:21 PM`. Both recorded `status: no_verdict`, `failureReason: attempts_exhausted`, so neither counts as a round (`diff 0/2`) |
+| Whole-diff R1, **run late** (2026-08-09) | NEEDS-ATTENTION | 1 | The account recovered after the merge and the round was re-dispatched against the same diff. Finding upheld: spec §3.1's "ONE parse-and-compare helper" was false of the shipped code, which has one parse function and two comparators. Repaired on `fix/advisory-comparator-claim` |
 
 Per the `AGENTS.md` codex-guard result contract a `no_verdict` is an **infrastructure
 fault, not a findings-free review**, and the ratified response is the skip/self-review
@@ -271,3 +276,38 @@ fixture cannot express the difference reports "no difference" and looks like evi
 
 Real CI is the remaining arbiter, and it is the one gate this substitution does not
 weaken.
+
+### The late round, and two things it surfaced about the pipeline itself
+
+The Codex account recovered on 2026-08-09, after the merge, and the missing round was
+dispatched against the same diff rather than written off. **Verdict NEEDS-ATTENTION, one
+finding, and the finding was real** — spec §3.1 required "ONE parse-and-compare helper"
+and the shipped code has one parse function plus two comparators, with a source comment
+reading "The ONE comparator" two lines above the second. Four documents carried the
+claim. The self-review above did not catch it: its own §3.1 probe asserted
+`count("const atOrBefore") == 1 and count("const strictlyBefore") == 1` and *labelled
+that* "one comparator", which verifies one definition of each rather than one comparator
+in total. A probe can restate the defect it is meant to detect.
+
+Repaired on `fix/advisory-comparator-claim`: the code stays (both `<` and `<=` are
+load-bearing, and collapsing them needs a mode parameter), the four claim sites are
+corrected, and the property is now pinned by
+`tests/reviewRounds/advisoryComparatorTopology.test.ts` rather than asserted in prose.
+
+Two pipeline properties worth knowing, both discovered by running a review this way:
+
+1. **A codex-guard review of a MERGED branch mints a phantom arc.** The corpus keys on
+   `git merge-base origin/main HEAD`, and after the merge that is the branch head itself,
+   so this round landed in `feat/round-economy-followups/a5748859c3fb.jsonl` rather than
+   the arc's real `22795d2b56c5.jsonl`. The corpus gate accepts it (identity matches the
+   path, 1 counted round, below threshold) and `pnpm review:economy` now shows the
+   feature as two arcs. The row is committed as written rather than hand-moved: it
+   records a dispatch that really happened at that base.
+2. **The reviewer could not run the test suite.** Its own report: "Vitest commands could
+   not collect tests because the read-only sandbox rejected temporary-directory creation
+   with `EPERM`." So the report, typecheck, lint, and format arms were verified and the
+   TEST arm was not — on a diff whose substance is thirteen test cases. Any codex-guard
+   review of a suite that builds fixtures under `mkdtemp` has the same blind spot. Not
+   filed as a ledger entry: it is one observation, and the owning surface is the
+   codex-guard sandbox posture, whose spec is the place to settle it. Recorded here so
+   the next reader does not mistake this round's APPROVE-adjacent arms for suite coverage.

@@ -28,6 +28,14 @@ Live in [`master-spec-patches/`](./master-spec-patches/). These are surgical edi
 
 Distinct from `v1-pre-deployment-amendments/`: those are full amendment-shaped specs (each has its own plan tree, AC table, adversarial-review log); the entries here patch existing master-spec content rather than standing alone. The earlier directory name was `amendments/` (renamed for clarity).
 
+## Cross-corpus amendments
+
+Specs whose primary effect is to **amend already-ratified contracts across several v1 documents** (master spec + amendment bundle) rather than add a subsystem feature. They are listed here because the documents they amend link back to them by pointer, so this is the reverse index.
+
+| Spec | Date | Amends |
+| --- | --- | --- |
+| [`2026-08-07-projection-financials-viewer-independent-design.md`](./2026-08-07-projection-financials-viewer-independent-design.md) | 2026-08-07 | The lead-gated financials **fetch** contract: the `shows_internal.financials` read now issues on every cache fill for every viewer (entitlement gates the RETURNED value), so a financials fetch failure is alertable viewer-independently. Amends master spec §4.4/§7.4/§8, phase-1 §4.13, phase-2 agenda, nav-perf phase-1, and the role-scope vocab spec (census in its §3). |
+
 ## v1.X+ post-deployment specs — grouped by subsystem
 
 Feedback-driven specs created after the v1 bundle are grouped into **subsystem folders** (dates stay in each filename, so chronology is preserved within a folder). Pick the folder that matches the surface you're touching:

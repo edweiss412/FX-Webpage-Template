@@ -9,8 +9,13 @@
  * The helper-under-test uses the service-role client internally per spec §7.4
  * (see prompt + plan: redeemed-link viewers don't carry a Supabase Auth
  * session, so a cookie-bound client cannot read shows_internal under RLS;
- * the helper's `isLead` derivation is the application-layer gate, RLS the
- * second line of defense).
+ * the helper's `financialsEntitled` derivation is the application-layer gate.
+ * RLS is NOT a second line behind it on this path — the fan-out runs on the
+ * service-role client, which bypasses RLS, and since the 2026-08-07 amendment
+ * the financials read issues for every viewer with only the RETURNED value
+ * gated. Physical separation is the other real line: see
+ * `docs/superpowers/specs/2026-08-07-projection-financials-viewer-independent-design.md`
+ * §2.2).
  */
 import { readFileSync } from "node:fs";
 import path from "node:path";

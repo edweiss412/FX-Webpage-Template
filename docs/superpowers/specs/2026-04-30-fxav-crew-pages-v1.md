@@ -189,11 +189,13 @@ create table shows (
 );
 
 -- Capability-gated + admin-only fields. Physically separated from `shows` so
--- non-admin RLS cannot read these even via SELECT *. The application joins this
--- in only when the viewer is admin or has a financials capability (LEAD OR
+-- non-admin RLS cannot read these even via SELECT *. The application RETURNS this
+-- data only when the viewer is admin or has a financials capability (LEAD OR
 -- FINANCIALS) in role_flags for this show (getShowForViewer.ts financialsEntitled;
--- capability-narrow 2026-07-17). (Broader financials-prose reconciliation:
--- BL-MASTERSPEC-FINANCIALS-VOCAB.)
+-- capability-narrow 2026-07-17); the read itself issues on every fill for
+-- observability (2026-08-07 viewer-independent-probe amendment; see
+-- docs/superpowers/specs/2026-08-07-projection-financials-viewer-independent-design.md
+-- §3). (Broader financials-prose reconciliation: BL-MASTERSPEC-FINANCIALS-VOCAB.)
 create table shows_internal (
   show_id          uuid primary key references shows(id) on delete cascade,
   financials       jsonb,                           -- financials-entitled (LEAD/FINANCIALS/admin; 2026-07-15 vocab extension): { po, proposal, invoice, invoiceNotes }. COI moved to shows.coi_status because it's operational, not financial.
@@ -650,7 +652,7 @@ Three independent layers protect financials specifically:
 
 1. **Physical separation** — `financials`, `parse_warnings`, and `raw_unrecognized` live in `shows_internal`, not `shows`. A `SELECT * FROM shows` cannot return them because they aren't there. This is the **first** line of defense: implementer error or accidental over-selection cannot expose them. `shows.coi_status` is on the public table by intention.
 2. **RLS** — `shows_internal` has admin-only RLS policies. Even if an end-user session somehow gets the row's primary key, no policy admits the read.
-3. **Server-side filter at fetch** — the entitlement-aware fetch helper (`lib/data/getShowForViewer(showId, viewer)`) accepts **identity only** — `viewer` is `{ kind: 'crew'; crewMemberId: string }` or `{ kind: 'admin' }`, never a role parameter. The helper internally loads `crew_members.role_flags` bound to (`crewMemberId`, `show_id`) BEFORE deciding whether to JOIN `shows_internal`; it joins only when the freshly-derived flags grant financials (LEAD or FINANCIALS, or `viewer.kind === 'admin'`; 2026-07-15 vocab extension) AND only selects `financials` (parse_warnings/raw_unrecognized are admin-only paths). For non-entitled viewers, it does not query `shows_internal` at all. **Caller-supplied role parameters are explicitly forbidden** — re-deriving role inside the helper on every call closes the stale-role hole where a token claim, preview param, or refactored argument could otherwise unlock financials after a DB demotion.
+3. **Server-side filter at fetch** — the entitlement-aware fetch helper (`lib/data/getShowForViewer(showId, viewer)`) accepts **identity only** — `viewer` is `{ kind: 'crew'; crewMemberId: string }` or `{ kind: 'admin' }`, never a role parameter. The helper internally loads `crew_members.role_flags` bound to (`crewMemberId`, `show_id`) BEFORE deciding whether to RETURN the `shows_internal` financials; it returns them only when the freshly-derived flags grant financials (LEAD or FINANCIALS, or `viewer.kind === 'admin'`; 2026-07-15 vocab extension) AND only selects `financials` (parse_warnings/raw_unrecognized are admin-only paths). For non-entitled viewers, the fetched `financials` value is discarded at the return boundary; the projection never carries it (the query itself now issues on every fill so fetch failures are observable — 2026-08-07 viewer-independent-probe amendment; see `docs/superpowers/specs/2026-08-07-projection-financials-viewer-independent-design.md` §3). **Caller-supplied role parameters are explicitly forbidden** — re-deriving role inside the helper on every call closes the stale-role hole where a token claim, preview param, or refactored argument could otherwise unlock financials after a DB demotion.
 
 A non-LEAD crew member querying directly via the Supabase client cannot reach financials. They CAN read `shows.coi_status` along with the rest of the public show data, which is the intended outcome. URL obscurity is not in this list — it has never been a defense in this app.
 
@@ -2370,11 +2372,11 @@ Two independent mechanisms invalidate prior links:
 Server-side, in the data layer. **Role is always derived fresh from the current `crew_members.role_flags`, never from a token claim.**
 
 - The matched `crew_members` row has `LEAD` or `FINANCIALS` in `role_flags`, OR the viewer is admin: financials-entitled (2026-07-15 vocab extension). The data fetcher joins `shows_internal` and includes `financials` in the response.
-- Otherwise: the data fetcher does not query `shows_internal` at all; `financials` is absent from the response by construction. **`shows.coi_status` is in the response for every crew viewer regardless of role**, because it's operational status (per §4.4). RLS on `shows_internal` (admin-only) is the second line of defense in case the fetcher is wrong; physical separation per §4.4 is the third.
+- Otherwise: `financials` is absent from the response by construction (return-boundary discard); the query issues for observability (2026-08-07 viewer-independent-probe amendment; see `docs/superpowers/specs/2026-08-07-projection-financials-viewer-independent-design.md` §3). **`shows.coi_status` is in the response for every crew viewer regardless of role**, because it's operational status (per §4.4). RLS on `shows_internal` (admin-only) protects every non-service-role path, but it is INERT behind this fetcher — the data fan-out runs on the service-role client, which bypasses RLS (2026-08-07 viewer-independent-probe amendment; see `docs/superpowers/specs/2026-08-07-projection-financials-viewer-independent-design.md` §2.2). On this path the two real lines of defense are the return-boundary discard above and the physical separation per §4.4.
 
 The matched-row lookup is identical for signed-in and signed-link paths: signed-in matches by `email`, signed-link matches by JWT-carried `(showId, name)`. In both paths the _current_ `role_flags` is the source of truth, so a role demotion takes effect on next request — no token revocation required for ops-field hiding (revocation in §7.2.1 is for entirely cutting access, not for downgrading).
 
-This is the **first** line of defense (omit at fetch). RLS is the **second** (deny if a non-admin client tries to query directly). URL obscurity is **not** a line of defense in this app.
+This is the **first** line of defense (omit from the projection at the return boundary — 2026-08-07 viewer-independent-probe amendment; see `docs/superpowers/specs/2026-08-07-projection-financials-viewer-independent-design.md` §3). RLS is the **second** (deny if a non-admin client tries to query directly). URL obscurity is **not** a line of defense in this app.
 
 ### 7.5 Doug's preview impersonation
 
@@ -2457,7 +2459,7 @@ The bridge renders nothing (`return null`); on subscription failure it logs a wa
 - **Contacts tile** — venue contact, in-house AV. Always visible.
 - **Transport tile** — visibility is the OR of two branches over the canonical TransportationRow contract: (a) `transportation.driver_name === viewer.name` (the assigned driver), OR (b) `viewer.name ∈ transportation.schedule[*].assigned_names[]` for ANY entry in the schedule array (any tagged passenger or co-driver, even if they are not the primary driver). `assigned_names: string[]` is a first-class field on every `TransportScheduleEntry` — it travels through the parser output, ParseResult, `transportation.schedule` JSONB, `getShowForViewer` projection, and tile predicate without dropping anywhere in the pipeline. Shows vehicle, license plate, color, parking, schedule. Otherwise hidden.
 - **Show status tile** — visible to every crew viewer. Carries `shows.coi_status`, dress code, venue notes, and other always-public operational signals. COI lives here, not in Financials, because it's ops, not billing (§4.4).
-- **Financials tile** — financials-entitled only (LEAD or FINANCIALS flag, or admin; 2026-07-15 vocab extension). PO#, Proposal, Invoice, Invoice Notes from `shows_internal.financials`. Hidden entirely for non-entitled viewers (omitted from data fetch per §7.4 — the JSONB column isn't even queried for them).
+- **Financials tile** — financials-entitled only (LEAD or FINANCIALS flag, or admin; 2026-07-15 vocab extension). PO#, Proposal, Invoice, Invoice Notes from `shows_internal.financials`. Hidden entirely for non-entitled viewers (server-discarded per §7.4 — fetched for observability, never returned; 2026-08-07 viewer-independent-probe amendment; see `docs/superpowers/specs/2026-08-07-projection-financials-viewer-independent-design.md` §3).
 - **Pack list tile** — visible to every crew viewer **on set day, strike day, and the travel-out day** when `shows.pull_sheet IS NOT NULL`. Hidden on show days (techs are running the show, not packing). Hidden entirely for shows whose sheet has no PULL SHEET tab. Per-day visibility further filtered by viewer's `stage_restriction` per §6.6: a crew member with `stage_restriction.kind === 'explicit'` and `stages = ["Load In", "Set"]` sees the tile only on set day; with `stages = ["Load Out", "Strike"]` only on strike (and travel-out if their schedule includes it). Unrestricted crew (`stage_restriction.kind === 'none'`) see it on every set/strike/travel-out day. Renders cases in `pull_sheet[]` order; "Show more" disclosure beyond 12 cases. Each case's items render in source order.
 - **Notes tile** — any block-level `notes` content, aggregated into a single "Things to know" card.
 

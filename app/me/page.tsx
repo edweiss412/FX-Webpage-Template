@@ -26,13 +26,12 @@
  * page chrome, written verbatim below. No raw §12.4 catalog codes
  * are surfaced — the /me page never depends on lib/messages/lookup.
  *
- * Date formatting: shares the same Date.UTC + en-US "Month D, YYYY"
- * shape as components/layout/Header.tsx (formatHeaderDate). The
- * helper is duplicated here intentionally — Header consumes the
- * typed ShowRow["dates"] union, while listShowsForCrew returns
- * `dates: unknown` (the value flows through JSONB). Centralising
- * would require widening Header's type signature, which the
- * milestone is explicitly scoped against (Header is M4 surface).
+ * The render half — MeShowSections and its private collaborators,
+ * including the date formatter — now lives in app/me/meShowSections.tsx.
+ * It was relocated verbatim by the 2026-08-07 Step-3 a11y cluster
+ * (spec §8, R10) so a browser bundle can mount it without dragging
+ * this file's server graph, which constructs an AsyncLocalStorage at
+ * module scope. Zero behavior change; see that file's header.
  *
  * CF2 carry-forward: validateGoogleIdentity currently `void req;` and
  * reads cookies/headers via createSupabaseServerClient directly. The
@@ -40,40 +39,14 @@
  * page keeps working without churn.
  */
 import { cookies, headers } from "next/headers";
-import Link from "next/link";
 import { redirect } from "next/navigation";
 
+import { MeShowSections } from "@/app/me/meShowSections";
 import { validateGoogleIdentity } from "@/lib/auth/validateGoogleIdentity";
-import { listShowsForCrew, type CrewShowSummary } from "@/lib/data/listShowsForCrew";
+import { listShowsForCrew } from "@/lib/data/listShowsForCrew";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { TerminalFailure } from "@/components/auth/TerminalFailure";
-import {
-  partitionMeShows,
-  resolveDisplayDate,
-  type PartitionedMeShow,
-} from "@/lib/me/partitionMeShows";
 import { nowDate } from "@/lib/time/now";
-import { relativeDayChip } from "@/lib/time/relative";
-
-// R14 (codex finding): the local pickShowDate helper accepted any
-// non-empty string and rendered normalized bogus dates that Doug
-// never typed (split-brain: partition used the valid fallback,
-// render used the invalid earlier field). Replaced with
-// `resolveDisplayDate` from lib/me/partitionMeShows.ts which gates
-// every candidate through isIsoDate's strict YYYY-MM-DD round-trip
-// check. Single source of truth for both partition + render.
-
-/** Render an ISO date as "Month D, YYYY" — same shape as Header.tsx. */
-function formatShowDate(iso: string): string {
-  const d = new Date(`${iso}T00:00:00Z`);
-  if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleDateString("en-US", {
-    timeZone: "UTC",
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-  });
-}
 
 export default async function MePage() {
   // Build a synthetic Request for forward-compat with the future CF2
@@ -181,252 +154,4 @@ export default async function MePage() {
       )}
     </main>
   );
-}
-
-/**
- * Render the partitioned NEXT UP / UPCOMING / PAST sections per shape brief
- * §5.1. Pure render function over the partition output; no I/O. Today is
- * resolved once here so all three sections share the same reference (chip
- * labels and partition use identical comparisons).
- */
-function MeShowSections({ shows, now }: { shows: readonly CrewShowSummary[]; now: Date }) {
-  const { featured, upcoming, past, undated } = partitionMeShows(shows, now);
-
-  // R11 (codex finding): the only true empty state is shows.length === 0,
-  // handled in the parent. If we're here AND featured is null AND undated
-  // is empty, something dropped a show without surfacing it — render a
-  // diagnostic placeholder so the user isn't stranded.
-  if (!featured && undated.length === 0) {
-    return (
-      <div data-testid="me-no-dated-shows" className="py-12 text-center text-base text-text-subtle">
-        <p>Your shows are missing dates. Doug will fill them in.</p>
-      </div>
-    );
-  }
-
-  return (
-    <div data-testid="me-show-sections" className="flex flex-col gap-section-gap">
-      {featured && (
-        <section data-testid="me-next-up" aria-labelledby="me-next-up-heading">
-          <h2
-            id="me-next-up-heading"
-            className="mb-3 text-xs font-semibold uppercase tracking-eyebrow text-text-subtle"
-          >
-            Next up
-          </h2>
-          <NextUpCard entry={featured} now={now} />
-        </section>
-      )}
-
-      {upcoming.length > 0 && (
-        <section data-testid="me-upcoming" aria-labelledby="me-upcoming-heading">
-          <h2
-            id="me-upcoming-heading"
-            className="mb-3 text-xs font-semibold uppercase tracking-eyebrow text-text-subtle"
-          >
-            Upcoming
-          </h2>
-          <ul className="flex flex-col gap-2">
-            {upcoming.map((entry) => (
-              <ShowListRow key={entry.show.id} entry={entry} now={now} />
-            ))}
-          </ul>
-        </section>
-      )}
-
-      {past.length > 0 && (
-        <details data-testid="me-past" className="group">
-          <summary
-            data-testid="me-past-summary"
-            className="cursor-pointer list-none text-xs font-semibold uppercase tracking-eyebrow text-text-subtle hover:text-text"
-          >
-            Past ({past.length}){" "}
-            <span
-              aria-hidden="true"
-              className="ml-1 inline-block transition-transform duration-normal group-open:rotate-90"
-            >
-              ▸
-            </span>
-          </summary>
-          <ul data-testid="me-past-list" className="mt-3 flex flex-col gap-2">
-            {past.map((entry) => (
-              <ShowListRow key={entry.show.id} entry={entry} now={now} />
-            ))}
-          </ul>
-        </details>
-      )}
-
-      {/*
-        R11 (codex finding): undated shows render in their own section
-        so the user retains the link to the show even when Doug hasn't
-        filled in dates yet. No chip (no chip-meaningful date), but
-        same row chrome as Upcoming/Past — title + link target.
-      */}
-      {undated.length > 0 && (
-        <section data-testid="me-undated" aria-labelledby="me-undated-heading">
-          <h2
-            id="me-undated-heading"
-            className="mb-3 text-xs font-semibold uppercase tracking-eyebrow text-text-subtle"
-          >
-            Date pending
-          </h2>
-          <ul data-testid="me-undated-list" className="flex flex-col gap-2">
-            {undated.map((show) => (
-              <UndatedShowRow key={show.id} show={show} />
-            ))}
-          </ul>
-        </section>
-      )}
-    </div>
-  );
-}
-
-/**
- * R11: undated show row. Same compact chrome as ShowListRow but no
- * chip (no date to anchor) and no date label. Title + venue (when
- * present) + link to the show.
- */
-function UndatedShowRow({ show }: { show: CrewShowSummary }) {
-  const venueLabel = pickVenueLabel(show);
-  return (
-    <li>
-      <Link
-        data-testid={`me-show-card-${show.slug}`}
-        href={`/show/${show.slug}/${show.shareToken}`}
-        className="flex min-h-tap-min items-center gap-3 rounded-md border border-border bg-surface px-tile-pad py-3 transition-colors hover:border-border-strong"
-      >
-        <div className="min-w-0 flex-1">
-          <div className="truncate text-base font-medium text-text-strong">{show.title}</div>
-          {venueLabel && (
-            <div className="mt-0.5 truncate text-xs text-text-subtle">{venueLabel}</div>
-          )}
-        </div>
-      </Link>
-    </li>
-  );
-}
-
-/**
- * Featured card — emphasized vertical padding, larger title, accent chip
- * for relative-time. Brief §5.1: "Tomorrow" / "Today" use orange chip;
- * "In N days" uses neutral info chip; past uses no chip background.
- *
- * R2 F1 (codex finding): chip uses `entry.chipAnchor` (status-aware)
- * not the display date — for an active multi-day show with set=yesterday
- * + showDays=[today], chipAnchor = today → "Today", whereas display
- * date = yesterday would render "Ended" while crew are on-site.
- *
- * R2 F2 (codex finding): venue is now part of the brief's "Where am I
- * going next?" answer (Venue · Date). Surfaces show.venue.name when
- * present; gracefully omits when absent.
- */
-function NextUpCard({ entry, now }: { entry: PartitionedMeShow; now: Date }) {
-  const { show, chipAnchor } = entry;
-  const isoDate = resolveDisplayDate(show.dates);
-  const dateLabel = isoDate ? formatShowDate(isoDate) : null;
-  const chip = relativeDayChip(chipAnchor, now);
-  const chipTone = chipToneClass(chip);
-  const venueLabel = pickVenueLabel(show);
-
-  return (
-    <Link
-      data-testid={`me-show-card-${show.slug}`}
-      href={`/show/${show.slug}/${show.shareToken}`}
-      className="block rounded-md border border-border bg-surface p-tile-pad py-6 shadow-tile transition-colors hover:border-border-strong sm:py-8"
-    >
-      {chip && (
-        <span
-          data-testid="me-next-up-chip"
-          className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium ${chipTone}`}
-        >
-          {chip}
-        </span>
-      )}
-      <h3 className="mt-2 text-lg font-semibold text-text-strong sm:text-xl">{show.title}</h3>
-      {(dateLabel || venueLabel) && (
-        <p className="mt-1 flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-sm text-text-subtle">
-          {venueLabel && <span>{venueLabel}</span>}
-          {venueLabel && dateLabel && (
-            <span aria-hidden="true" className="text-text-faint">
-              ·
-            </span>
-          )}
-          {dateLabel && isoDate && <time dateTime={isoDate}>{dateLabel}</time>}
-        </p>
-      )}
-    </Link>
-  );
-}
-
-/**
- * UPCOMING / PAST list row — compact 56px tap-target row with chip on the
- * right. Per brief §5.1: "regular list row, 56px tap target". R2 F1: chip
- * uses the partition's chipAnchor, not the display date — same fix as
- * NextUpCard.
- */
-function ShowListRow({ entry, now }: { entry: PartitionedMeShow; now: Date }) {
-  const { show, chipAnchor } = entry;
-  const isoDate = resolveDisplayDate(show.dates);
-  const dateLabel = isoDate ? formatShowDate(isoDate) : null;
-  const chip = relativeDayChip(chipAnchor, now);
-  const chipTone = chipToneClass(chip);
-  const venueLabel = pickVenueLabel(show);
-
-  return (
-    <li>
-      <Link
-        data-testid={`me-show-card-${show.slug}`}
-        href={`/show/${show.slug}/${show.shareToken}`}
-        className="flex min-h-tap-min items-center justify-between gap-3 rounded-md border border-border bg-surface px-tile-pad py-3 transition-colors hover:border-border-strong"
-      >
-        <div className="min-w-0 flex-1">
-          <div className="truncate text-base font-medium text-text-strong">{show.title}</div>
-          {(venueLabel || dateLabel) && (
-            <div className="mt-0.5 flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-xs text-text-subtle">
-              {venueLabel && <span className="truncate">{venueLabel}</span>}
-              {venueLabel && dateLabel && (
-                <span aria-hidden="true" className="text-text-faint">
-                  ·
-                </span>
-              )}
-              {dateLabel && isoDate && <time dateTime={isoDate}>{dateLabel}</time>}
-            </div>
-          )}
-        </div>
-        {chip && (
-          <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${chipTone}`}>
-            {chip}
-          </span>
-        )}
-      </Link>
-    </li>
-  );
-}
-
-/**
- * Map a chip label to its chrome class per brief §5.1:
- *   "Today" / "Tomorrow"     → accent (the singular brand moment on /me)
- *   "In N days" / "In N weeks" → info-bg (neutral)
- *   "Ended …"                  → text-subtle, no background
- */
-function chipToneClass(chip: string): string {
-  if (chip === "Today" || chip === "Tomorrow") {
-    return "bg-accent text-accent-text";
-  }
-  if (chip.startsWith("In ")) {
-    return "bg-info-bg text-text";
-  }
-  // Ended / Ended N days ago / Ended N weeks ago
-  return "text-text-subtle";
-}
-
-/**
- * R2 F2 (codex finding): the brief's /me card answers
- * "Where am I going next?" with `Venue · Date`. listShowsForCrew now
- * projects `shows.venue` so this surfaces the venue.name. Returns null
- * defensively when the venue is missing or doesn't carry a name —
- * the row gracefully collapses to title + date only.
- */
-function pickVenueLabel(show: CrewShowSummary): string | null {
-  return show.venue?.name ?? null;
 }

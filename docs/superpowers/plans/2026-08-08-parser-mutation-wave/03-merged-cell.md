@@ -109,7 +109,7 @@ describe("ROW_CELLS_FUSED (spec §5)", () => {
 - Modify: `lib/parser/index.ts` (call next to `detectRefErrorLiterals`)
 
 **Interfaces:**
-- Produces: `detectFusedRows(markdown: string): ParseWarning[]` — per blank-line-separated section: modal cell count over DATA rows (colon-dash alignment rows skipped); any data row at exactly `modal - 1` warns. Sections with < 3 data rows or without a well-defined modal (tie) are skipped (spec §5.3 residue). **Segmentation note (r1 F6):** this detector segments by blank-line pipe blocks, not the harness's `seg()` model that measured the probe base rates - the clean-corpus calibration test is the transfer gate, and any divergence surfaces there as a failing pin, never as silent corruption.
+- Produces: `detectFusedRows(markdown: string): ParseWarning[]` — per LOGICAL section (blank lines AND recognized openers split pipe runs, r5/r6): modal cell count over DATA rows (colon-dash alignment rows skipped); any data row at exactly `modal - 1` warns. Sections with < 3 data rows or without a well-defined modal (tie) are skipped (spec §5.3 residue). **Segmentation note (r1 F6, amended r7):** this detector segments by LOGICAL sections (blank lines AND recognized openers), a reimplementation of — not an import of — the harness's `seg()` model; the clean-corpus calibration test plus the harness run are the transfer gates for any residual divergence.
 
 - [ ] **Step 1:** Implement:
 
@@ -119,6 +119,7 @@ describe("ROW_CELLS_FUSED (spec §5)", () => {
 // is the pipe-deletion (merged-cell) export shape. Detection only - no correction.
 import type { ParseWarning } from "./types";
 import { clean, splitRow } from "./blocks/_helpers";
+import { canonicalSectionKind } from "./sectionKind"; // branch-2 helper (retro F2)
 
 export function detectFusedRows(markdown: string): ParseWarning[] {
   const warnings: ParseWarning[] = [];
@@ -151,9 +152,17 @@ export function detectFusedRows(markdown: string): ParseWarning[] {
 
   for (const line of lines) {
     if (line.trimStart().startsWith("|")) {
+      const opener = canonicalSectionKind(clean(splitRow(line)[0] ?? "")) !== null;
+      if (section.length > 0 && opener) {
+        // Retro r5: a recognized opener inside a pipe run closes the previous LOGICAL
+        // section - without this, later sections inherit the preceding kind and widths.
+        flush();
+        section = [];
+      }
       if (section.length === 0) {
         sectionIndex += 1;
-        sectionKind = clean(splitRow(line)[0] ?? "") || "section";
+        // Retro F2: canonical routing key or "section" fallback - never raw cell text.
+        sectionKind = canonicalSectionKind(clean(splitRow(line)[0] ?? "")) ?? "section";
       }
       section.push({ line, cells: splitRow(line).length });
     } else if (line.trim() === "" && section.length > 0) {
@@ -172,14 +181,15 @@ export function detectFusedRows(markdown: string): ParseWarning[] {
 
 <!-- task: red=`pnpm exec vitest run tests/cross-cutting/codes.test.ts tests/messages/_metaWarningCardCopy.test.ts tests/parser/operatorActionableWarnings.test.ts tests/parser/dataGapsClassCompleteness.test.ts tests/parser/warningScanScopeAnchor.test.ts` ac=AC-M3 -->
 
-- [ ] **Step 1:** §12.4 row + regen + catalog row (`helpHref: "/help/errors#ROW_CELLS_FUSED"`) + card copy + `OPERATOR_ACTIONABLE_ANCHORED` + `GAP_CLASSES` (label "two columns merged into one") + class-completeness counts (38→39) + `WARNING_CODE_ANCHOR` + help family. Copy draft: title `Two columns ran together in the sheet`; dougFacing: `A row in this sheet has one fewer column than its neighbors, which is how a merged cell exports. Values to the right of the merge may appear under the wrong headings until the merge is removed in the sheet.`
-- [ ] **Step 2:** Gates green; **Commit** `feat(parser): ROW_CELLS_FUSED catalog + card copy + gate fan-out`
+- [ ] **Step 1:** §12.4 row + BOTH regens (`pnpm gen:spec-codes` + `pnpm gen:internal-code-enums`, retro F2) + catalog row (`helpHref: "/help/errors#ROW_CELLS_FUSED"`) + card copy + `OPERATOR_ACTIONABLE_ANCHORED` + `GAP_CLASSES` (label "two columns merged into one") + class-completeness counts (38→39) + `WARNING_CODE_ANCHOR` + help family. Copy draft: title `Two columns ran together in the sheet`; dougFacing: `A row in this sheet has one fewer column than its neighbors, which is how a merged cell exports. Values to the right of the merge may appear under the wrong headings until the merge is removed in the sheet.`
+- [ ] **Step 1b (retro F3):** tests assert `sourceCell` ABSENCE for `ROW_CELLS_FUSED` (blockRef-only anchoring, spec §11.9).
+- [ ] **Step 2:** Gates green (incl. `_metaParseWarningSiteCoverage`, `errors-grouping`); **Commit** `feat(parser): ROW_CELLS_FUSED catalog + card copy + gate fan-out`
 
 ### Task 4: Ledger shrink + residue accounting + PR
 
 <!-- task: red=`pnpm exec vitest run tests/parser/mutation/knownHoles.test.ts` ac=AC-M4 -->
 
-- [ ] **Step 1:** Run the full harness BEFORE deletion to enumerate `fixedHoles` — expected ≈ 2,397 (2,404 minus the probe's 7 off-modal-row mutants, §13.B; the exact number the run reports is authoritative).
+- [ ] **Step 1:** Run the full harness BEFORE deletion to enumerate `fixedHoles` — expected ≈ 2,373 (retro F7 replay: 31 residue MUTANTS across 13 target rows, not 7 — the probe's 7 counted off-modal ROWS; the exact number the run reports is authoritative).
 - [ ] **Step 2:** Delete exactly the reported `fixedHoles` rows (not the blanket class): save the run's `fixedHoles` list, then remove those lines from `RAW_HOLES`. Residue rows stay, and the PR + backlog row record the count + reason (spec §5.3/§11.4).
 - [ ] **Step 3:** Full harness: four buckets empty. Full suite + typecheck + lint + format.
 - [ ] **Step 4:** PR (fan-out list, shrink count, residue note, §5.4 not-claimed statement, substitute-review deviation); marker off in last commit; merge; `0  0`.
