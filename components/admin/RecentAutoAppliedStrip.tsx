@@ -54,6 +54,7 @@ import { AcceptChangeButton, type AcceptButtonResult } from "@/components/admin/
 import { UndoChangeButton, type UndoButtonResult } from "@/components/admin/UndoChangeButton";
 import { CollapsePanel } from "@/components/admin/CollapsePanel";
 import { HoverHelp } from "@/components/admin/HoverHelp";
+import { cn } from "@/lib/ui/cn";
 
 type AcceptAction = (
   prev: AcceptButtonResult | null,
@@ -104,7 +105,7 @@ const KIND_PILL: Record<string, { label: string; cls: string; dot: string }> = {
 // Unknown kinds fall back to a neutral "Change" pill rather than leaking the raw enum.
 const FALLBACK_PILL = {
   label: "Change",
-  cls: "border-border bg-surface-sunken text-status-idle-text",
+  cls: cn("border-border bg-surface-sunken text-status-idle-text"),
   dot: "bg-status-idle",
 };
 
@@ -131,7 +132,7 @@ function DiffBlock({ row }: { row: AutoAppliedRow }) {
   // text-subtle (not faint): these captions carry the diff DIRECTION — the
   // non-color mechanism (From/To/Added/Removed) — so they must clear AA-body
   // contrast, and DESIGN forbids faint on actionable/meaningful copy.
-  const cap = "text-xs font-semibold uppercase tracking-wide text-text-subtle";
+  const cap = cn("text-xs font-semibold uppercase tracking-wide text-text-subtle");
   if (d.kind === "fromTo") {
     return (
       <div className="grid grid-cols-[auto_1fr] items-baseline gap-x-2.5 gap-y-0.5">

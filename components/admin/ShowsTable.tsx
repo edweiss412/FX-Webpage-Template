@@ -36,6 +36,7 @@ import { syncStatusBucket, type SyncBucket } from "@/lib/admin/syncStatus";
 import { formatAutoFixBreakdown, type AutoFixSummary } from "@/lib/parser/dataGaps";
 import { DataQualityBadge } from "@/components/admin/DataQualityBadge";
 import { ShowReviewModalSkeleton } from "@/components/admin/showpage/ShowReviewModalSkeleton";
+import { cn } from "@/lib/ui/cn";
 
 type ShowsTableProps = {
   rows: ActiveShowRow[];
@@ -82,8 +83,9 @@ type ShowsTableProps = {
 // track resolves to ~106px, below the 120px band-sweep floor (a wide data table needs to stack
 // earlier than the nav). Below 768px the row is flex-col stacked (mobile sub-line). Status
 // stays gated at 960 so the extra column never worsens the 768–959 band.
-const ROW_GRID =
-  "min-[768px]:grid min-[768px]:grid-cols-[minmax(0,1fr)_4.5rem_4.5rem_5rem_12rem_1.25rem] min-[960px]:grid-cols-[minmax(0,1fr)_4.5rem_4.5rem_5rem_12rem_6rem_1.25rem] min-[768px]:items-center min-[768px]:gap-4";
+const ROW_GRID = cn(
+  "min-[768px]:grid min-[768px]:grid-cols-[minmax(0,1fr)_4.5rem_4.5rem_5rem_12rem_1.25rem] min-[960px]:grid-cols-[minmax(0,1fr)_4.5rem_4.5rem_5rem_12rem_6rem_1.25rem] min-[768px]:items-center min-[768px]:gap-4",
+);
 
 // M12.10 — sortable columns. `null` = the server's incoming order (live-first),
 // preserved until the user picks a column. Nulls (no dates / never-synced)

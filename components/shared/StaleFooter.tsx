@@ -25,6 +25,7 @@
 import { messageFor, type MessageCode } from "@/lib/messages/lookup";
 import { renderCatalogEmphasis } from "@/components/messages/renderEmphasis";
 import { formatRelative } from "@/lib/time/relative";
+import { cn } from "@/lib/ui/cn";
 
 type StaleFooterProps = {
   /**
@@ -58,7 +59,7 @@ const TIER_CLASS: Record<Tier, string> = {
   subtle: "text-text-subtle",
   "subtle-dot": "text-text-subtle",
   yellow: "text-warning-text",
-  red: "text-warning-text font-medium",
+  red: cn("text-warning-text font-medium"),
 };
 
 function selectCodeAndTier(

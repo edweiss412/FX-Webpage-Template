@@ -84,26 +84,27 @@ export type AccentButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
 const SIZE_CLASS: Record<AccentButtonSize, string> = {
   // sm/lg deliberately omit `py-*` — the migrated sites that use them rely
   // on min-h-tap-min for vertical sizing (single-line height). md keeps py-2.
-  sm: "px-4 text-sm",
-  md: "px-4 py-2",
-  lg: "px-6 text-base",
+  sm: cn("px-4 text-sm"),
+  md: cn("px-4 py-2"),
+  lg: cn("px-6 text-base"),
 };
 
 const WEIGHT_CLASS: Record<AccentButtonWeight, string> = {
-  medium: "font-medium",
-  semibold: "font-semibold",
+  medium: cn("font-medium"),
+  semibold: cn("font-semibold"),
 };
 
 const RING_OFFSET_CLASS: Record<AccentButtonRingOffset, string> = {
-  bg: "focus-visible:ring-offset-bg",
-  "warning-bg": "focus-visible:ring-offset-warning-bg",
-  "surface-raised": "focus-visible:ring-offset-surface-raised",
-  surface: "focus-visible:ring-offset-surface",
+  bg: cn("focus-visible:ring-offset-bg"),
+  "warning-bg": cn("focus-visible:ring-offset-warning-bg"),
+  "surface-raised": cn("focus-visible:ring-offset-surface-raised"),
+  surface: cn("focus-visible:ring-offset-surface"),
 };
 
 // Canonical shared chrome — never varies across sites.
-const BASE_CLASS =
-  "min-h-tap-min rounded-sm bg-accent text-accent-text transition-colors duration-fast hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60";
+const BASE_CLASS = cn(
+  "min-h-tap-min rounded-sm bg-accent text-accent-text transition-colors duration-fast hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60",
+);
 
 export function AccentButton({
   size = "md",

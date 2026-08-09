@@ -19,6 +19,7 @@
  * accidentally re-skin a non-severity card by severity (spec amendment A5).
  */
 import type { ReactNode } from "react";
+import { cn } from "@/lib/ui/cn";
 
 export type CompactAlertTone = "warning" | "muted" | "neutral";
 export type CompactAlertStripe = "review" | "degraded" | "none";
@@ -49,9 +50,9 @@ function present(slot: ReactNode): boolean {
 
 // Full literal class strings so the Tailwind JIT resolves each one.
 const TONE_SKIN: Record<CompactAlertTone, string> = {
-  warning: "border-border bg-warning-bg text-warning-text",
-  muted: "border-border bg-surface-sunken text-text-subtle",
-  neutral: "border-border bg-surface text-text",
+  warning: cn("border-border bg-warning-bg text-warning-text"),
+  muted: cn("border-border bg-surface-sunken text-text-subtle"),
+  neutral: cn("border-border bg-surface text-text"),
 };
 
 const TONE_DIVIDER: Record<CompactAlertTone, string> = {
@@ -67,8 +68,8 @@ const TONE_DASHED_DIVIDER: Record<CompactAlertTone, string> = {
 };
 
 const STRIPE_CLASS: Record<CompactAlertStripe, string> = {
-  review: "border-l-[3px] border-l-status-review",
-  degraded: "border-l-[3px] border-l-status-degraded",
+  review: cn("border-l-[3px] border-l-status-review"),
+  degraded: cn("border-l-[3px] border-l-status-degraded"),
   none: "",
 };
 

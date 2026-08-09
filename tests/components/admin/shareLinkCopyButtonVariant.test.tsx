@@ -106,9 +106,15 @@ describe("ShareLinkCopyButton variant='outline' (T-COPY-OUTLINE — modal-header
 
   // The button sits at the strip row's `ml-auto` end, so a width change on the
   // label swap would shift its LEFT edge. A reserved min-width prevents it.
+  //
+  // Matched on the min-w UTILITY rather than the arbitrary-value bracket form: the
+  // class was `min-w-[8.5rem]` until the canonical-class rule could see it (the value
+  // moved inside `cn(...)`, quick-wins-2 §2.3) and reported the equivalent scale step
+  // `min-w-34` (34 x 0.25rem = 8.5rem). What the assertion is about is that SOME
+  // min-width is reserved, not which spelling encodes it.
   it("reserves a min-width so the label swap cannot shift the button's left edge", () => {
     render(<ShareLinkCopyButton url={URL_FIXTURE} variant="outline" />);
-    expect(button().className).toMatch(/min-w-\[/);
+    expect(button().className).toMatch(/(?:^|\s)min-w-(?:\[|[0-9])/);
   });
 
   it("renders the neutral outline recipe — transparent fill, NOT the accent arm", () => {

@@ -23,9 +23,11 @@
 import { useState } from "react";
 import { GROUP_LABELS } from "@/lib/dev/galleryModalTypes";
 import type { ExcludedScenario, ScenarioGroupId } from "@/lib/dev/galleryModalTypes";
+import { cn } from "@/lib/ui/cn";
 
-const STEP_BTN =
-  "min-h-tap-min min-w-tap-min inline-flex shrink-0 items-center justify-center rounded-md border border-border bg-surface px-3 text-text-strong hover:border-accent active:bg-surface-sunken focus-visible:outline-2 focus-visible:outline-focus-ring";
+const STEP_BTN = cn(
+  "min-h-tap-min min-w-tap-min inline-flex shrink-0 items-center justify-center rounded-md border border-border bg-surface px-3 text-text-strong hover:border-accent active:bg-surface-sunken focus-visible:outline-2 focus-visible:outline-focus-ring",
+);
 
 const EXCLUDED_PANEL_ID = "switcher-excluded-panel";
 

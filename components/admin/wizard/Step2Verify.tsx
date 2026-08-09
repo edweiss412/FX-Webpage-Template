@@ -48,6 +48,7 @@ import type {
   OnboardingScanCompletedBody,
   OnboardingScanTotals,
 } from "@/lib/onboarding/scanResponse";
+import { cn } from "@/lib/ui/cn";
 
 const RECOGNIZED_CODES = new Set<MessageCode>([
   "INVALID_FOLDER_URL",
@@ -115,13 +116,15 @@ function copyForCode(code: string | null): string {
 }
 
 // Primary CTA — the single accent fill allowed per card (DESIGN.md ≤10% accent).
-const PRIMARY_BUTTON =
-  "inline-flex min-h-tap-min items-center justify-center self-start rounded-sm bg-accent px-6 text-base font-semibold text-accent-text shadow-tile transition-colors duration-fast hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring";
+const PRIMARY_BUTTON = cn(
+  "inline-flex min-h-tap-min items-center justify-center self-start rounded-sm bg-accent px-6 text-base font-semibold text-accent-text shadow-tile transition-colors duration-fast hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring",
+);
 // Secondary CTA (re-scan in resume mode). A recessed `surface-sunken` fill +
 // strong text keeps it reading as a BUTTON, distinct from the `bg-bg` folder
 // input directly above it (which shares the same border token).
-const SECONDARY_BUTTON =
-  "inline-flex min-h-tap-min items-center justify-center self-start rounded-sm border border-border-strong bg-surface-sunken px-6 text-base font-medium text-text-strong transition-colors duration-fast hover:bg-surface disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring";
+const SECONDARY_BUTTON = cn(
+  "inline-flex min-h-tap-min items-center justify-center self-start rounded-sm border border-border-strong bg-surface-sunken px-6 text-base font-medium text-text-strong transition-colors duration-fast hover:bg-surface disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring",
+);
 
 export function Step2Verify({ priorScan }: { priorScan?: Step2PriorScan } = {}) {
   const router = useRouter();
