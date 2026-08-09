@@ -105,6 +105,11 @@ const ARRAY_RETURNING_METHODS = new Set([
   "toReversed",
   "toSpliced",
   "with",
+  // Round-5 additions: all return arrays, all were invisible rather than STOPping.
+  "copyWithin",
+  "fill",
+  "splice",
+  "valueOf",
 ]);
 
 /** `.filter(Boolean)` exactly — the ONLY predicate `cn` is equivalent to. */

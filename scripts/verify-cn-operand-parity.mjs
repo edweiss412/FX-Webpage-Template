@@ -528,10 +528,18 @@ function main(argv) {
             const baseInit = identifierInitializer(baseFile, baseOperand);
             const headInit = identifierInitializer(headFile, headOperand);
             if (baseInit !== null && headInit !== null) {
-              const { text: canonicalInit, refused: initRefused } = applyDeclaredDeltas(
-                baseInit,
-                rel,
-              );
+              const {
+                text: canonicalInit,
+                fired: initFired,
+                refused: initRefused,
+              } = applyDeclaredDeltas(baseInit, rel);
+              // Count initializer fires too. They were accepted but excluded from the
+              // multiplicity ledger, so a declared operand rewrite PLUS an identical
+              // undeclared rewrite inside an initializer reported as one rewrite.
+              initFired.forEach((id) => {
+                firedDeltas.add(id);
+                deltaFireCount.set(id, (deltaFireCount.get(id) ?? 0) + 1);
+              });
               if (canonicalInit !== headInit || initRefused.length > 0) {
                 findings.push(
                   `${where}: identifier operand \`${baseOperand}\` has the same name but a ` +
@@ -575,6 +583,17 @@ function main(argv) {
       findings.push(
         `declared delta ${id} fired ${count} times across its file; spec §6 declares exactly one ` +
           "rewrite per entry, so the extra occurrence is an undeclared token change.",
+      );
+    }
+  }
+
+  // Every declared entry must have fired. A delta that never fires means spec §6 no longer
+  // describes the tree — the canonicalization it declares is not in the diff.
+  for (const delta of EXPECTED_TOKEN_DELTAS) {
+    if (!firedDeltas.has(delta.id)) {
+      findings.push(
+        `declared delta ${delta.id} (${delta.file}: ${delta.before} -> ${delta.after}) never fired. ` +
+          "Spec §6 declares it, so either the canonicalization is missing from this diff or §6 is stale.",
       );
     }
   }

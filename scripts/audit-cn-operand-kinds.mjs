@@ -328,6 +328,17 @@ function literalJoinOperands(node) {
       ts.isPropertyAccessExpression(receiver.expression) &&
       receiver.expression.name.text === "filter"
     ) {
+      // A FOREIGN predicate can empty the list: `["truthy"].filter(() => false).join("")`
+      // is `""`, yet counting the original non-empty elements certified it truthy. Only
+      // `.filter(Boolean)` preserves the "every element is non-empty ⇒ result is non-empty"
+      // reasoning this function performs.
+      if (
+        receiver.arguments.length !== 1 ||
+        !ts.isIdentifier(receiver.arguments[0]) ||
+        receiver.arguments[0].text !== "Boolean"
+      ) {
+        return null;
+      }
       receiver = receiver.expression.expression;
     }
     if (ts.isArrayLiteralExpression(receiver)) return [...receiver.elements];

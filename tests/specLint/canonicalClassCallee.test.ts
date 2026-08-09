@@ -81,15 +81,18 @@ const UI_ROOTS = ["app", "components"] as const;
  * class join.
  */
 const EXEMPT_SITES: Readonly<Record<string, readonly string[]>> = {
-  "components/admin/wizard/step3ReviewSections.tsx": ["leg.date, leg.time"],
-  "components/admin/review/sectionFreshness.ts": ["row.date, row.time"],
+  // Each row is `<enclosing function> :: <operand signature>`. See EXEMPTION KEY below.
+  "components/admin/wizard/step3ReviewSections.tsx": ["TransportBreakdown :: leg.date, leg.time"],
+  "components/admin/review/sectionFreshness.ts": ["renderedTransportation :: row.date, row.time"],
 };
 
 type JoinSite = {
   file: string;
   line: number;
-  /** The operand list, comments stripped and whitespace collapsed. */
+  /** `<enclosing function> :: <operands>` — the exemption key. */
   signature: string;
+  /** The operand list alone, comments stripped and whitespace collapsed. */
+  operands: string;
   /** The separator's literal text, for diagnostics. */
   separator: string;
   /** Is this join feeding a `className` (JSX attribute, or a `className:` property)? */
@@ -132,6 +135,11 @@ const ARRAY_RETURNING_METHODS = new Set([
   "toReversed",
   "toSpliced",
   "with",
+  // Round-5 additions: all return arrays, all were invisible rather than STOPping.
+  "copyWithin",
+  "fill",
+  "splice",
+  "valueOf",
 ]);
 
 /** Peel wrappers that change no runtime value: `( )`, `as T`, `satisfies T`, `!`. */
@@ -225,11 +233,21 @@ function recognizeJoins(relPath: string, source: string): JoinSite[] {
       ) {
         receiver = unwrapValuePreserving(receiver.expression.expression);
       }
+      // A bare identifier receiver — `const tokens = ["p-2", drift]; tokens.join(" ")` — is
+      // ordinary authoring and was invisible. Resolved one hop, within the same file.
+      if (ts.isIdentifier(receiver)) {
+        const resolved = soleConstArrayInitializer(sourceFile, receiver.text);
+        if (resolved !== null) receiver = resolved;
+      }
       if (ts.isArrayLiteralExpression(receiver)) {
+        const operandSignature = receiver.elements
+          .map((e) => normalize(e.getText(sourceFile)))
+          .join(", ");
         found.push({
           file: relPath,
           line: sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1,
-          signature: receiver.elements.map((e) => normalize(e.getText(sourceFile))).join(", "),
+          signature: `${enclosingFunctionName(node)} :: ${operandSignature}`,
+          operands: operandSignature,
           separator: JSON.stringify((separatorArg as ts.StringLiteral).text),
           inClassNamePosition: isInClassNamePosition(node, sourceFile),
         });
@@ -241,11 +259,63 @@ function recognizeJoins(relPath: string, source: string): JoinSite[] {
   return found;
 }
 
+/** The sole `const <name> = [ ... ]` array-literal initializer in this file, or null. */
+function soleConstArrayInitializer(
+  sourceFile: ts.SourceFile,
+  name: string,
+): ts.ArrayLiteralExpression | null {
+  let found: ts.ArrayLiteralExpression | null = null;
+  let seen = 0;
+  const visit = (n: ts.Node): void => {
+    if (
+      ts.isVariableDeclaration(n) &&
+      ts.isIdentifier(n.name) &&
+      n.name.text === name &&
+      n.initializer !== undefined
+    ) {
+      seen += 1;
+      const init = unwrapValuePreserving(n.initializer);
+      found = ts.isArrayLiteralExpression(init) ? init : null;
+    }
+    ts.forEachChild(n, visit);
+  };
+  visit(sourceFile);
+  return seen === 1 ? found : null;
+}
+
 /**
- * Is this node (transitively) the value of a `className` JSX attribute or a `className:`
- * property? Used to make the data-join exemptions un-abusable: an exemption excuses a DATA
- * join, so it may never excuse a join that feeds a className, whatever its operands are.
+ * THE EXEMPTION KEY, AND WHY IT IS NOT A DATAFLOW QUESTION.
+ *
+ * Earlier revisions tried to decide "is this join feeding a className?" and extend that
+ * decision each time a reviewer found another shape it missed — direct use, then alias
+ * chains, then late assignment / function declarations / parameter defaults / destructuring.
+ * That is unbounded: className-ness is a dataflow property, and a lexical walk can always be
+ * routed around by one more hop. Three consecutive rounds spent on it, which this repo's own
+ * rule says to close structurally rather than patch again.
+ *
+ * So the guard no longer asks. Every whitespace array join is REPORTED unless it matches an
+ * exemption row exactly, and a row is keyed on THREE things: the file, the enclosing
+ * function's name, and the operand signature. That key is closed — it ranges over a finite
+ * program, not over an open set of routing shapes. Replacing a data join with a class join
+ * now has to reproduce the operand signature INSIDE the same named function to escape, and
+ * at that point the "escape" is code that renders `leg.date` as a CSS class.
  */
+function enclosingFunctionName(node: ts.Node): string {
+  for (let n: ts.Node | undefined = node; n !== undefined; n = n.parent) {
+    if (ts.isFunctionDeclaration(n) && n.name) return n.name.text;
+    if (
+      (ts.isFunctionExpression(n) || ts.isArrowFunction(n)) &&
+      n.parent &&
+      ts.isVariableDeclaration(n.parent) &&
+      ts.isIdentifier(n.parent.name)
+    ) {
+      return n.parent.name.text;
+    }
+    if (ts.isMethodDeclaration(n) && ts.isIdentifier(n.name)) return n.name.text;
+  }
+  return "<module>";
+}
+
 function isInClassNamePosition(node: ts.Node, sourceFile: ts.SourceFile): boolean {
   for (let n: ts.Node | undefined = node; n !== undefined; n = n.parent) {
     if (ts.isJsxAttribute(n) && ts.isIdentifier(n.name) && n.name.text === "className") return true;
@@ -505,7 +575,7 @@ describe("no className array joins survive (zero-tolerance, spec §7.1)", () => 
   const premiseSites = scanRoots({ root: premise.dir, roots: UI_ROOTS, tracked: false });
 
   it("premise / location: finds a planted join at all twelve root × extension combinations", () => {
-    const signatures = new Set(premiseSites.map((s) => s.signature));
+    const signatures = new Set(premiseSites.map((s) => s.operands));
     const missing = COMBINATIONS.filter(
       ({ root, ext }) => !signatures.has(premise.comboSignature(root, ext)),
     ).map(({ root, ext }) => `${root}/**/*${ext}`);
@@ -518,7 +588,7 @@ describe("no className array joins survive (zero-tolerance, spec §7.1)", () => 
   });
 
   it("premise / shape: finds all seven escape shapes from spec §7.1", () => {
-    const signatures = new Set(premiseSites.map((s) => s.signature));
+    const signatures = new Set(premiseSites.map((s) => s.operands));
     const missed = ESCAPE_SHAPES.filter((shape) => !signatures.has(shape.signature)).map(
       (s) => s.id,
     );
@@ -539,7 +609,7 @@ describe("no className array joins survive (zero-tolerance, spec §7.1)", () => 
 
     // And the three negatives are absent — a recognizer that reported every `.join(...)`
     // would satisfy every positive assertion above while being useless.
-    const signatures = new Set(premiseSites.map((s) => s.signature));
+    const signatures = new Set(premiseSites.map((s) => s.operands));
     const wronglyReported = [
       { id: "comma-separator .join(', ')", signature: '"n1a", "n1b"' },
       { id: "empty-separator .join('')", signature: '"n2a", "n2b"' },
@@ -557,11 +627,8 @@ describe("no className array joins survive (zero-tolerance, spec §7.1)", () => 
 
   it("reports zero array-join classNames outside the two named data-join exemptions", () => {
     const offenders = treeSites
-      // An exemption excuses a DATA join. A join in a className position is never data, so
-      // it is an offender even in an exempted file and even with a recorded signature —
-      // otherwise a className join written with the exempt operands (`[leg.date, leg.time]`)
-      // suppresses the whole file while signature equality still passes.
-      .filter((s) => s.inClassNamePosition || !(s.file in EXEMPT_SITES))
+      // Reported unless the row matches EXACTLY — file, enclosing function, and operands.
+      .filter((s) => !(EXEMPT_SITES[s.file] ?? []).includes(s.signature))
       .map((s) => `${s.file}:${s.line} — [${s.signature}].join(${s.separator})`);
     expect(
       offenders,
@@ -577,16 +644,9 @@ describe("no className array joins survive (zero-tolerance, spec §7.1)", () => 
     "%s holds exactly its recorded exempt sites, no more and no fewer",
     (file) => {
       const actual = treeSites
-        .filter((s) => s.file === file && !s.inClassNamePosition)
+        .filter((s) => s.file === file)
         .map((s) => s.signature)
         .sort();
-      // The exempted sites must be DATA joins. If any join in this file sits in a className
-      // position, the exemption is being used to excuse a class list.
-      expect(
-        treeSites.filter((s) => s.file === file && s.inClassNamePosition).map((s) => s.line),
-        "an exempted file holds a join in a className position — an exemption excuses a DATA " +
-          "join and can never excuse a class list, whatever its operands look like",
-      ).toEqual([]);
       expect(
         actual,
         "an exempted file's whitespace-join sites must EQUAL its recorded set. Larger means a new " +
