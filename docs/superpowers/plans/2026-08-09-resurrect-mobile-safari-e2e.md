@@ -13,7 +13,12 @@ Every task: failing/red verification → minimal change → green → commit (co
 - `tests/ci/_metaE2eWorkflowCoverage.test.ts` — allowlist rows REMOVED (wired or deleted files). The suite walks `tests/e2e/` from disk, so a row naming a deleted file fails until removed: that failure is Task 3's natural RED.
 - `tests/help/walker-routes.test.ts` frozen shrink-only DML count pins — rows removed for deleted files (shrink direction, permitted by design).
 
-**CREATES:** none. `tests/cross-cutting/picker-flow-e2e-ci-wiring.test.ts` already pins: REQUIRED key set == exact workflow file list, thresholds == live resolution under the workflow's own projects, oracle step present in command position, json reporter present (verified at plan time, lines cited below). No new meta-test is needed — the existing pair fails-by-default on every drift this plan could introduce.
+**CREATES (as extensions — plan review R1 F1, the existing suites are NOT fail-by-default for three of this plan's edits):**
+- Wiring test: an `ENROLLED`/`EXEMPT` parity assertion — a const `ENROLLED` array drives the `expectWired` invocations (`ENROLLED.map(...)`), and an assertion pins `ENROLLED ∪ EXEMPT == the workflow's spec file list` where every `EXEMPT` row carries a reason string (the four pre-contract specs: crew-section-toggle, alert-action-links, font-binding, font-rendering-census). A spec added to the workflow without enrollment then fails by default.
+- Wiring test: explicit-row requirement — for every `ENROLLED` spec, assert `spec in EXPECTED_SKIPS` (the `?? []` default at :366 makes a MISSING row indistinguishable from an empty one; theme-toggle's row is explicitly `[]`).
+- Coverage meta-test: for every spec named in a paths-ignore workflow's run command, assert its allowlist value is NOT `UNSEEN` (the test's dark/stale/shadowing checks at :234-242 accept either classification today, so a forgotten reclassification is silent).
+
+The existing pins (REQUIRED key set == workflow file list; thresholds == live resolution; oracle step; json reporter) remain load-bearing and unchanged.
 
 ## e2e harness-readiness (mandatory checklist)
 
@@ -39,6 +44,10 @@ Every task: failing/red verification → minimal change → green → commit (co
 | `tests/e2e/helpers/lockedCrewRestriction.ts` comment citing schedule-tile.spec | Task 3 rewrites comment |
 | `components/atoms/Section.tsx` comment ~:238 ("layout-dimensions.spec.ts is describe.skip and runs nowhere") | Task 3 updates to cite the surviving coverage (crew-layout-dimensions + spec §2.3 row) |
 | `tests/e2e/layout-dimensions.spec.ts` + `tests/e2e/empty-state.spec.ts` cross-cites of notes-tile.spec | moot — both files deleted in Task 3 |
+| `lib/visibility/openingReelText.ts:20` comment citing empty-state.spec.ts | Task 3 rewrites comment to cite the surviving vitest coverage (plan review R1 F4) |
+| `tests/e2e/empty-state-reachability.spec.ts:192` comment citing empty-state.spec.ts | Task 3 rewrites comment (file survives; only the cross-cite is stale) |
+| `tests/components/atoms/Section.test.tsx:27` comment citing tests/e2e/layout-dimensions.spec.ts | Task 3 rewrites comment alongside the `Section.tsx:238` sibling |
+| `tests/fixtures/ledger-mass/2026-08-04.ledgers.json` deleted-spec citations | RECORD — frozen historical fixture for the ledger-mass suite; contents are data, not claims about the live tree; explicitly NOT edited |
 | `docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/DEFERRED.md` FULL-MIGRATE/PARTIAL-PORT rows naming these files (rows ~:69–:98) | Task 7 annotates each row: superseded-by-deletion, cite spec §2.3 + §6 |
 | Historic docs (M4/M5 handoffs, 03-04-tiles.md, old specs, audits, L-wave sweep artifacts, `2026-08-03-lead-capability-prose-settle-design.md`) | RECORD — describe past state truthfully; untouched |
 | `BACKLOG.md` entry + the spec doc's self-references | Task 8 archives entry; spec is this arc's artifact |
@@ -76,7 +85,14 @@ Order: capture `pnpm exec playwright test --list` output FIRST (baseline file se
 
 ## Task 4 — rewrite `theme-toggle.spec.ts` live
 
-<!-- task: red=`CREW_E2E_ONLY=1 pnpm exec playwright test --project=mobile-safari tests/e2e/theme-toggle.spec.ts` ac=AC-1,AC-4 -->
+<!-- task: red=`CREW_E2E_ONLY=1 pnpm exec playwright test --project=mobile-safari tests/e2e/theme-toggle.spec.ts` ac=AC-1 -->
+
+**RED form (plan review R1 F5):** the current file is wholly `describe.skip`, so a bare run is a
+successful no-op, and this task pins EXISTING behavior — the failure-driven step is the
+four-mutant protocol: apply mutant (a) (`STORAGE_KEY` write disabled in `ThemeToggle.tsx`), run
+the rewritten suite, observe the persistence test FAIL naming the production line, restore, then
+run mutants (b)–(d) the same way. Production lines under test: the `STORAGE_KEY` write in
+`components/layout/ThemeToggle.tsx` and the `NO_FOUC_SCRIPT` block in `app/layout.tsx`.
 
 Replace file content: live describe on the seeded shareToken route using crew-page.spec.ts's EXACT resolution recipe — `lookupSeededShow` + share-token helper + `signInAs(page, ADMIN_FIXTURE)` (spec §3.2 R2: unauthenticated token requests render `SignInOrSkipGate`/`PickerInterstitial`, and the toggle exists only in the CrewShell Footer — `components/layout/Footer.tsx` via `_CrewShell`). Await `crew-shell` testid visible before every toggle interaction. Contract per spec §3.2 (all four parts):
 
@@ -91,6 +107,11 @@ Project honesty (spec §3.2): author WITHOUT project early-returns so both testM
 
 <!-- task: red=`pnpm vitest run tests/components/crew/sections/GearSection.rawSnippet.test.tsx` ac=AC-4 -->
 
+**RED form (plan review R1 F5):** write the test, confirm green against live code, then force the
+`item.rawSnippet ?` branch in `components/crew/sections/GearSection.tsx` to `false` — the test
+fails naming that line — restore. That branch flip is the RED; "no test file" is the test-local
+failure the RED-validity rule forbids.
+
 New vitest file (jsdom, existing GearSection test conventions). Fixture: gear item with `rawSnippet` set to a fixture-derived sentinel string; assert the rendered item node (scoped extraction — the item's own container, siblings removed per anti-tautology) contains it; negative: item without `rawSnippet` renders no snippet node. Production line under test: the `item.rawSnippet ?` branch in `components/crew/sections/GearSection.tsx`. Four mutants recorded in commit: emptied value / suffixed value / snippet present in props but branch disabled / discriminating param varied.
 
 ## Task 6 — migrate right-now-transitions §5.7 to the shareToken route (timeboxed)
@@ -101,7 +122,7 @@ NOT a bare URL swap (spec §3.5, R2-repaired). Per-case contract:
 
 1. Extend `driveToState` (`tests/e2e/helpers/rightNow.ts`) to assert the RENDERED RightNow state kind (the hero's state/treatment attribute) after navigation — HTTP 200 alone passes on lost semantics. This extension is the task's first RED (mutant: request `viewer_off_day` under a viewer that ignores restrictions → helper must fail).
 2. Migrate the two clock-driven cases (midnight rollover; non-show-now → show-day) to the shareToken route under the §3.2 admin recipe; keep `page.clock.install` + the `run_of_show` beforeAll/afterAll seed mutation.
-3. The recovery case enters `viewer_off_day` by mutating the viewer's restriction — admin resolution never enters it. Options in order: per-test crew row through real resolution (stage-restricted picker-cookie precedent) if it fits the timebox; else CASE valve — `BL-` row (exception (a)/(c), probe attached) + registered static skip carrying the ref, and the file wires only if `REQUIRED` + skip registration stay honest.
+3. The recovery case enters `viewer_off_day` by mutating the viewer's restriction — admin resolution never enters it. Options in order: per-test crew row through real resolution via the LIVE stage-restricted mechanism — an email-matched test-auth session + `seedShowWithCrew` crew row (`tests/e2e/stage-restricted-crew-schedule.spec.ts` header: "Why an email-matched Google session (not a picker cookie)" — picker cookies fail on WebKit over plain http, and Task 6's command runs mobile-safari, so the picker-cookie path is NOT usable here; plan review R1 F8) if it fits the timebox; else CASE valve — `BL-` row (exception (a)/(c), probe attached) + registered static skip carrying the ref, and the file wires only if `REQUIRED` + skip registration stay honest.
 
 **Whole-file valve:** further harness dependencies beyond the above → `BL-` row (exception (c)) WITH the fired valve's probe evidence copied in, file stays `UNSEEN`, skip wiring in Task 9, and the disposition is recorded under spec §6.6 (the consequence bound's documented-limit state — not silent). Deleting the two dead blocks already happened in Task 3. Project honesty: wire only under projects where tests genuinely execute.
 
@@ -109,19 +130,24 @@ NOT a bare URL swap (spec §3.5, R2-repaired). Per-case contract:
 
 <!-- task: red=`CREW_E2E_ONLY=1 pnpm exec playwright test --project=mobile-safari tests/e2e/crew-page.spec.ts --grep "footer position"` ac=AC-4 -->
 
-One test appended to the live layout-invariants describe in `crew-page.spec.ts` (spec §3.3.2): short-content section → footer bottom edge within viewport; long-content section → footer below fold, page scrolls to it. `getBoundingClientRect` via gated locators. Discriminating-power: assert against two DIFFERENT sections of the seeded show already known short/long (derive from fixture, never hardcode pixel values); if the seed lacks a reliably-short section, mutate content in beforeAll via the established locked-helper pattern and restore after. Same demotion valve as Task 4/5 (spec §3.3, flake evidence required). Also in this commit: annotate the M4 `DEFERRED.md` rows per the class-sweep table.
+**RED form (plan review R1 F5):** after writing the test (its title contains "footer position" so
+the grep selects it), mutant-red it: strip the footer's bottom-anchoring class/style in the crew
+Footer render path — short-content assertion fails; restore. The production mechanism under test
+is the footer's anchored-vs-flow layout, not the test's own existence.
 
-## Task 8 — ledger corrections
+One test appended to the live layout-invariants describe in `crew-page.spec.ts` (spec §3.3.2): short-content section → footer bottom edge within viewport; long-content section → footer below fold, page scrolls to it. `getBoundingClientRect` via gated locators. Discriminating-power: assert against two DIFFERENT sections of the seeded show already known short/long (derive from fixture, never hardcode pixel values); if the seed lacks a reliably-short section, mutate content in beforeAll via the established locked-helper pattern and restore after. Same demotion valve as Task 5 — the two §3.3 residues only; theme-toggle is NOT valve-eligible (AC-1; plan review R1 F7). Flake evidence required (spec §3.3). Also in this commit: annotate the M4 `DEFERRED.md` rows per the class-sweep table.
 
-<!-- task: red=`pnpm vitest run tests/docs/_metaLedgerInProgress.test.ts` ac=AC-5 -->
+## Task 8 — valve ledger rows (only)
 
-Archive `BL-RESURRECT-MOBILE-SAFARI-E2E` → `BACKLOG-archive.md` (resolution: this arc; keep the 2026-08-06 CORRECTION block in the archived body for auditability). Restate the parent `BL-E2E-APP-DEPENDENT-SPECS-CI-DARK` census FROM the meta-test allowlist after Tasks 3+9 (run the suite, count rows — never arithmetic). File any valve `BL-` rows (Tasks 4–7) with exception letters + evidence. The in-progress marker stays until the PR's LAST commit (invariant 12; removed there, not here).
+<!-- task: red=`pnpm vitest run tests/docs/_metaLedgerInProgress.test.ts` ac=AC-4 -->
+
+File any valve `BL-` rows fired by Tasks 5–7 (pack-list residue, §5.7 case/whole-file, footer residue) with exception letters + probe evidence (theme-toggle has NO valve — AC-1 wires it unconditionally; plan review R1 F7). The ARCHIVE of `BL-RESURRECT-MOBILE-SAFARI-E2E`, the parent-census restatement, and the in-progress marker removal all move to Task 11 (plan review R1 F2: archiving while the marker exists fails `keeps in-progress out of the archives`, and the census needs post-Task-9 allowlist state).
 
 ## Task 9 — wire into crew-e2e.yml + REQUIRED rows + allowlist removals
 
 <!-- task: red=`pnpm vitest run tests/cross-cutting/picker-flow-e2e-ci-wiring.test.ts tests/ci/_metaE2eWorkflowCoverage.test.ts` ac=AC-1,AC-5 -->
 
-Add `tests/e2e/crew-page.spec.ts` + `tests/e2e/theme-toggle.spec.ts` (+ `right-now-transitions.spec.ts` iff Task 6 landed) to the workflow's single `playwright test` invocation. **Project honesty (spec §3.1, R1 F3):** remove `crew-page` from the desktop-chromium testMatch regex in this commit — its 22 `project.name !== "mobile-safari"` early-returns make desktop executions counted no-ops; apply the same test to theme-toggle and right-now-transitions (wire each only under projects where its tests genuinely execute). RED: the wiring suite's key-set parity check fails until `REQUIRED` gains matching rows; add rows with values from `pnpm exec playwright test --list` under exactly the projects each spec is wired for (full executable set — never 1; runtime-skip-registered tests documented per row like picker-flow's). **Vestigial project-gate sweep FIRST** (spec §3.1, R4 F1): in the same commit as the desktop-regex removal, delete all 22 `testInfo.project.name` early-return sites in crew-page.spec.ts (17 live + 5 in the kept §4.10 block — that block keeps tests/titles/header verbatim, loses only gate lines). `expectNoProjectGate` inside `expectWired` scans the whole file, so enrollment is impossible while any remain. Verify sweep neutrality: executed count still 15, skip inventory still the 4 §4.10 titles. **Enroll each wired spec in `expectWired`** (spec §3.1, R3 F1): one invocation per wired file in `tests/cross-cutting/picker-flow-e2e-ci-wiring.test.ts` + an exact-title `EXPECTED_SKIPS` row (crew-page: the §4.10 block's four titles + any Task-1/2 triage skips; theme-toggle: `[]`; right-now-transitions: valve skip title if the case valve fired) — this is the machine pin for project honesty + skip inventory; RED for this half: enrollment added before workflow edit fails on the unwired file. **Reclassify** the wired files' allowlist rows `UNSEEN` → `PATH_GATED_BY_EXCLUSION` (spec §3.1 — crew-e2e.yml is paths-ignore-triggered; the scanner never marks its specs covered; precedent rows: crew-section-toggle, alert-action-links, font-binding, font-rendering-census). Update the workflow header comment (spec §3.1) and check job runtime: if the enlarged suite approaches the 25-minute timeout in dispatch runs, raise `timeout-minutes` in the same commit with the measured duration cited.
+Add `tests/e2e/crew-page.spec.ts` + `tests/e2e/theme-toggle.spec.ts` (+ `right-now-transitions.spec.ts` iff Task 6 landed) to the workflow's single `playwright test` invocation. **Project honesty (spec §3.1, R1 F3):** remove `crew-page` from the desktop-chromium testMatch regex in this commit — its 22 `project.name !== "mobile-safari"` early-returns make desktop executions counted no-ops; apply the same test to theme-toggle and right-now-transitions (wire each only under projects where its tests genuinely execute). RED: the wiring suite's key-set parity check fails until `REQUIRED` gains matching rows; add rows with values from `pnpm exec playwright test --list` under exactly the projects each spec is wired for (full executable set — never 1; runtime-skip-registered tests documented per row like picker-flow's). **Vestigial project-gate sweep FIRST** (spec §3.1, R4 F1): in the same commit as the desktop-regex removal, delete all 22 `testInfo.project.name` early-return sites in crew-page.spec.ts (17 live + 5 in the kept §4.10 block — that block keeps tests/titles/header verbatim, loses only gate lines). `expectNoProjectGate` inside `expectWired` scans the whole file, so enrollment is impossible while any remain. Verify sweep neutrality against a baseline captured immediately before the sweep in this task: run the file once pre-sweep and once post-sweep — executed/failed/skipped counts identical (triage in Tasks 1–2 may have changed the absolute numbers; the sweep must change NOTHING — spec §1.1.7), skip inventory still the 4 §4.10 titles. **Enroll each wired spec in `expectWired`** (spec §3.1, R3 F1): one invocation per wired file in `tests/cross-cutting/picker-flow-e2e-ci-wiring.test.ts` + an exact-title `EXPECTED_SKIPS` row (crew-page: the §4.10 block's four titles + any Task-1/2 triage skips; theme-toggle: `[]`; right-now-transitions: valve skip title if the case valve fired) — this is the machine pin for project honesty + skip inventory; RED for this half: enrollment added before workflow edit fails on the unwired file. **Reclassify** the wired files' allowlist rows `UNSEEN` → `PATH_GATED_BY_EXCLUSION` (spec §3.1 — crew-e2e.yml is paths-ignore-triggered; the scanner never marks its specs covered; precedent rows: crew-section-toggle, alert-action-links, font-binding, font-rendering-census). Update the workflow header comment (spec §3.1) and check job runtime: if the enlarged suite approaches the 25-minute timeout in dispatch runs, raise `timeout-minutes` in the same commit with the measured duration cited.
 
 ## Task 10 — full local gates
 
@@ -129,11 +155,16 @@ Add `tests/e2e/crew-page.spec.ts` + `tests/e2e/theme-toggle.spec.ts` (+ `right-n
 
 `pnpm test` (full vitest), `pnpm typecheck` (vitest AND playwright tsconfigs), `pnpm lint`, `pnpm format:check`, `pnpm spec:lint` on this plan + the spec. All green before push. (e2e/env-bound suites are excluded from `pnpm test` by design — the e2e proof is Task 11's dispatch runs.)
 
-## Task 11 — push, 5-green bar, PR, whole-diff review, merge
+## Task 11 — ledger closeout, push, 5-green bar, PR, whole-diff review, merge
 
-<!-- task: red=`gh run list --workflow=crew-e2e.yml --branch test/resurrect-mobile-safari-e2e --limit 5` ac=AC-2,AC-6 -->
+<!-- task: red=`gh run list --workflow=crew-e2e.yml --branch test/resurrect-mobile-safari-e2e -e workflow_dispatch --json conclusion,status --jq '[.[] | select(.status=="completed")] | .[0:5] | if length == 5 and all(.conclusion=="success") then "FIVE-GREEN" else halt_error end'` ac=AC-2,AC-5,AC-6 -->
 
-Push. Fire `gh workflow run crew-e2e.yml --ref test/resurrect-mobile-safari-e2e` — **five consecutive green runs** (sequential; a red run resets the count and triggers triage per spec §4). Open PR (class-sweep output + registry reconciliation counts + triage mechanisms in body). Whole-diff Codex review via codex-guard (`--stage diff`; split tight-scope briefs if the diff exceeds a handful of files — it will: split (1) workflow+registries, (2) test rewrites/deletions, (3) docs/ledger). Repair to APPROVE. Remove the ledger in-progress marker in the PR's last commit. Real CI green → `gh pr merge --merge` → ff-sync main → verify `0 0` → Stage 4.4 teardown (CronDelete, pane/agent label clear).
+Ordering is load-bearing (plan review R1 F2/F3 — the reviewed diff must BE the merged diff):
+
+1. **Ledger closeout commit:** archive `BL-RESURRECT-MOBILE-SAFARI-E2E` → `BACKLOG-archive.md` (keep the 2026-08-06 CORRECTION block in the archived body), restate the parent `BL-E2E-APP-DEPENDENT-SPECS-CI-DARK` census FROM the post-Task-9 meta-test allowlist (run the suite, count rows — never arithmetic), and REMOVE the in-progress marker — all one commit, green against `tests/docs/_metaLedgerInProgress.test.ts` (archives reject in-flight entries, so marker removal and archive must land together; invariant 12's "PR's last commit" is satisfied because every later step is review/dispatch, not tracked-file edits).
+2. Push. Fire `gh workflow run crew-e2e.yml --ref test/resurrect-mobile-safari-e2e` five times, sequentially — **five consecutive green normal-dispatch runs**; a red run resets the count and triggers triage per spec §4. The task's `red=` command is the executable gate: latest five completed dispatch runs on the branch, all `conclusion == "success"`, count exactly 5, else non-zero exit.
+3. Open PR (class-sweep output + registry reconciliation counts + triage mechanisms + 5-green run links in body). Whole-diff Codex review via codex-guard (`--stage diff`; split tight-scope briefs: (1) workflow+registries, (2) test rewrites/deletions, (3) docs/ledger). Repair rounds re-review the post-repair diff; APPROVE must be on the final tree (any commit after APPROVE voids it — re-dispatch).
+4. Real CI green → `gh pr merge --merge` → ff-sync main → verify `git rev-list --left-right --count main...origin/main` == `0 0` → Stage 4.4 teardown (CronDelete, pane/agent label clear).
 
 <!-- tasks: end -->
 
