@@ -117,60 +117,97 @@ Expected: every check green. (Auto-running on this diff, per spec §6: crew-e2e,
 - Consumes: green PR head from Task 2.
 - Produces: wedged-sample count (of 20 valid), wedged-flip count (of F executed), all run URLs, recorded in the PR body — Task 4's disposition input.
 
-- [ ] **Step 1: Dispatch measurement run 1 and capture ITS run id (never a PR-triggered run's)**
+- [ ] **Step 0: Define the shared run-capture function (used by every dispatch in Tasks 3 and 6)**
+
+One query returns id+headSha TOGETHER (no torn pair), selected by BOTH the expected head SHA and a created-after timestamp (no stale or concurrent dispatch can be picked up):
 
 ```bash
+# capture_run <workflow.yml> <branch> <expected-head-sha> <dispatched-after-utc>
+# Echoes "<databaseId> <headSha>" of the matching workflow_dispatch run; retries until it appears.
+capture_run() {
+  local wf="$1" br="$2" sha="$3" ts="$4" pair=""
+  while [ -z "$pair" ]; do
+    sleep 10
+    pair=$(gh run list --workflow="$wf" --branch "$br" --event workflow_dispatch \
+      --json databaseId,headSha,createdAt --limit 10 \
+      --jq "[.[] | select(.headSha==\"$sha\" and .createdAt>=\"$ts\")] | sort_by(.createdAt) | first | if . == null then \"\" else \"\(.databaseId) \(.headSha)\" end")
+  done
+  echo "$pair"
+}
+```
+
+- [ ] **Step 1: Dispatch measurement run 1, head-bound**
+
+```bash
+HEAD_SHA=$(git rev-parse HEAD)
+TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 gh workflow run lifecycle-layout-e2e.yml --ref chore/next-1630-wedge-remeasure -f transitions_repeats=10
-sleep 10
-RUN1=$(gh run list --workflow=lifecycle-layout-e2e.yml --branch chore/next-1630-wedge-remeasure \
-  --event workflow_dispatch --json databaseId,url,headSha --limit 1 --jq '.[0].databaseId')
-echo "RUN1=$RUN1"
+read -r RUN1 RUN1_SHA <<< "$(capture_run lifecycle-layout-e2e.yml chore/next-1630-wedge-remeasure "$HEAD_SHA" "$TS")"
+echo "RUN1=$RUN1 sha=$RUN1_SHA"
 gh run watch "$RUN1" --exit-status || true
 ```
 
-`--event workflow_dispatch` is what excludes the ordinary one-repeat `pull_request` runs of the same workflow. The `|| true`: a run conclusion of `failure` can still be a valid measurement (spec §4 item 5 — wedges self-recover, but a reload-tier throw fails the case while still being a wedged sample); validity is decided in Step 2, not by exit code.
+`--event workflow_dispatch` excludes the ordinary one-repeat `pull_request` runs; the `headSha`+`createdAt` selection excludes older or concurrent dispatches. The `|| true`: a run conclusion of `failure` can still be a valid measurement (spec §4 item 5 — wedges self-recover, but a reload-tier throw fails the case while still being a wedged sample); validity is decided in Step 2, not by exit code.
 
-- [ ] **Step 2: Classify the run and count (mechanical, spec §4 items 4–5)**
+- [ ] **Step 2: Classify the run mechanically (spec §4 items 4–5) — one script, no judgment calls**
 
-Run validity — the measurement step must have executed its repeats:
+Run validity first — the measurement step must have executed its repeats:
 
 ```bash
 gh run view "$RUN1" --log > "run-$RUN1.log"
 grep -c "Published toggle round-trip" "run-$RUN1.log" || true
 ```
 
-Expected: a nonzero count of test-execution lines mentioning the case. If the log shows the job died in setup, in the preceding layout-spec step, or hit the 35-minute timeout before/inside the measurement step: the run is INVALID — record its URL under "Discarded/invalid runs" in the PR body and dispatch a replacement (repeat Step 1).
+Expected: nonzero. If the log shows the job died in setup, in the preceding layout-spec step, or at the 35-minute timeout before/inside the measurement step: the run is INVALID — record its URL under "Discarded/invalid runs" in the PR body and dispatch a replacement (repeat Step 1).
 
-Wedged-flip count for the run (`|| true` because ZERO MATCHES IS THE FIX-CONFIRMED CASE — grep exits 1 with output `0`, which is a success branch here, not a command failure):
-
-```bash
-grep -c "tier=plain did not land" "run-$RUN1.log" || true
-grep "wedge-recovery" "run-$RUN1.log" || true
-```
-
-Sample-grained partition — one trace directory per test invocation (the workflow runs `--trace=on` and uploads `test-results/`, workflow lines 132-146), so each sample's console output is inspectable per-sample:
+Then the per-sample classifier. It reads ONLY the `trace.trace` member of each trace.zip — never the whole archive, because `--trace=on` embeds the test SOURCE under `resources/src@*.txt`, and the source contains the literal strings being grepped (that contamination was plan-review finding r2-1). Emits one line per sample plus a summary; nothing is left for the implementer to derive by hand:
 
 ```bash
-gh run download "$RUN1" --dir "run-$RUN1-artifacts"
-WEDGED_SAMPLES=0; EARLY_ENDED=0; TOTAL_TRACES=0
-for tz in $(find "run-$RUN1-artifacts" -name "trace.zip"); do
-  TOTAL_TRACES=$((TOTAL_TRACES+1))
-  if unzip -p "$tz" 2>/dev/null | grep -a -q "tier=plain did not land"; then
-    WEDGED_SAMPLES=$((WEDGED_SAMPLES+1))
-    unzip -p "$tz" 2>/dev/null | grep -a -q 'ON flip' || EARLY_ENDED=$((EARLY_ENDED+1))
-  fi
-done
-echo "traces=$TOTAL_TRACES wedged_samples=$WEDGED_SAMPLES early_ended=$EARLY_ENDED"
+classify_run() {  # classify_run <run-id>
+  local rid="$1"
+  gh run download "$rid" --dir "run-$rid-artifacts"
+  local total=0 wedged=0 flips_wedged=0 early=0 failed_nowedge=0
+  # Dir-name sort = execution order (single collision counter increments per repeat).
+  for tz in $(find "run-$rid-artifacts" -name "trace.zip" | sort); do
+    total=$((total+1))
+    local T; T=$(unzip -p "$tz" trace.trace 2>/dev/null | tr -d '\0')
+    local w_off w_on land_off land_on
+    w_off=$(printf '%s' "$T" | grep -a -c "OFF flip: tier=plain did not land" || true)
+    w_on=$(printf '%s' "$T" | grep -a -c "ON flip: tier=plain did not land" || true)
+    land_off=$(printf '%s' "$T" | grep -a -c "OFF flip: landed at tier" || true)
+    land_on=$(printf '%s' "$T" | grep -a -c "ON flip: landed at tier" || true)
+    if [ $((w_off + w_on)) -gt 0 ]; then
+      wedged=$((wedged+1)); flips_wedged=$((flips_wedged + w_off + w_on))
+      # OFF flip wedged and never landed => the reload-tier throw ended the sample
+      # before the ON flip: one executed flip, not two.
+      if [ "$w_off" -gt 0 ] && [ "$land_off" -eq 0 ]; then early=$((early+1)); fi
+      echo "sample=$total WEDGED w_off=$w_off w_on=$w_on land_off=$land_off land_on=$land_on trace=$tz"
+    else
+      echo "sample=$total no-wedge trace=$tz"
+    fi
+  done
+  echo "SUMMARY run=$rid traces=$total wedged_samples=$wedged wedged_flips=$flips_wedged early_ended=$early"
+}
+classify_run "$RUN1"
 ```
 
-Per-sample rules from the trace inspection:
-- A sample (trace) containing a `tier=plain did not land` line = **wedged sample**; its wedged flips = its count of those lines.
-- A FAILED sample with no wedge-recovery line = **indeterminate** — excluded (spec §4 item 5); note it in the PR body. (Passed samples are valid and unwedged.)
-- **F (executed flips)** = 2 × (valid samples) − (early-ended samples), where early-ended = wedged samples whose trace shows no ON-flip activity after an OFF-flip wedge (the reload-tier throw ended the sample after one flip).
+Joining trace data with pass/fail (for the indeterminate rule) uses the run log's ordered per-repeat result lines, counted mechanically:
 
-- [ ] **Step 3: Dispatch run 2; repeat Steps 1–2 (RUN2)**
+```bash
+PASSED=$(grep -c "✓ .*Published toggle round-trip" "run-$RUN1.log" || true)
+FAILED=$(grep -c "✘ .*Published toggle round-trip" "run-$RUN1.log" || true)
+echo "passed=$PASSED failed=$FAILED"
+```
 
-Same commands with `RUN2`. Keep dispatching replacement runs per the validity rule until ≥20 valid samples exist. The decision reads exactly the first 20 valid samples in dispatch order.
+Derived quantities (arithmetic, not judgment):
+- `wedged_failed` = wedged samples whose terminal flip never landed (the classifier's WEDGED lines where the wedged flip has no matching `landed` count — for the OFF flip that is the `early_ended` case; for the ON flip: `w_on>0 && land_on==0`).
+- **indeterminate** = `FAILED − wedged_failed` (failed with no wedge signal — could be pre-flip or post-republish failure; excluded, noted in the PR body).
+- **valid samples in this run** = `total − indeterminate`.
+- **F (executed flips) for this run's valid samples** = `2 × valid − early_ended`.
+
+- [ ] **Step 3: Dispatch run 2 (same Steps 1–2 shape, RUN2); replacements until ≥20 valid**
+
+The decision reads exactly the FIRST 20 valid samples in dispatch order: run 1's valid samples (in classifier sample order), then run 2's, then any replacement run's, cutting off at 20. If the cutoff lands mid-run, take that run's valid samples in classifier order (`sample=N` ascending) up to the cutoff; M and F aggregate over exactly the selected 20. All later valid samples are surplus — reported in the PR body as color but excluded from N/M/F.
 
 - [ ] **Step 4: Record in the PR body**
 
@@ -302,9 +339,11 @@ Expected: `CLEAN` (grep exits 1 with no hits).
 
 ```bash
 git diff --name-only origin/main...HEAD | grep -v -E \
-  '^(package\.json|pnpm-lock\.yaml|BACKLOG\.md|BACKLOG-archive\.md|tests/docs/_metaDeferralLedgerGraduation\.test\.ts|docs/superpowers/|docs/review-rounds/|public/help/screenshots/)' \
+  '^(package\.json|pnpm-lock\.yaml|BACKLOG\.md|BACKLOG-archive\.md|tests/docs/_metaDeferralLedgerGraduation\.test\.ts)$|^(docs/superpowers/|docs/review-rounds/|public/help/screenshots/)' \
   || echo AC5-CLEAN
 ```
+
+(Exact-file alternatives are `$`-anchored — `package.json.bak` must NOT slip through; only the three directory prefixes are open-ended.)
 
 Expected: `AC5-CLEAN`. Any other output = an out-of-allowlist file changed — STOP, investigate, remove it before proceeding.
 
@@ -318,36 +357,46 @@ Expected: all green (pushes in Steps 1 re-triggered the auto suites on the final
 
 - [ ] **Step 4: Dispatch all six dark suites against the FINAL head; verify head binding**
 
+Uses `capture_run` from Task 3 Step 0 (one query returns id+headSha together — no torn pair between a "verify" query and a "watch" query; that tear was plan-review finding r2-4).
+
 ```bash
+git pull --ff-only   # ensure local == origin before pinning the final head
 FINAL=$(git rev-parse HEAD)
+TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 for wf in admin-layout-e2e.yml help-affordances.yml published-modal-e2e.yml dev-gate-e2e.yml screenshots-drift.yml mutation-harness.yml; do
   gh workflow run "$wf" --ref chore/next-1630-wedge-remeasure
 done
-sleep 15
 for wf in admin-layout-e2e.yml help-affordances.yml published-modal-e2e.yml dev-gate-e2e.yml screenshots-drift.yml mutation-harness.yml; do
-  ID=$(gh run list --workflow="$wf" --branch chore/next-1630-wedge-remeasure \
-    --event workflow_dispatch --json databaseId,headSha --limit 1 --jq '.[0].databaseId')
-  SHA=$(gh run list --workflow="$wf" --branch chore/next-1630-wedge-remeasure \
-    --event workflow_dispatch --json databaseId,headSha --limit 1 --jq '.[0].headSha')
-  echo "$wf run=$ID headSha=$SHA (must equal $FINAL)"
+  read -r ID SHA <<< "$(capture_run "$wf" chore/next-1630-wedge-remeasure "$FINAL" "$TS")"
+  echo "$wf run=$ID headSha=$SHA"
   gh run watch "$ID" --exit-status || echo "RED: $wf run $ID"
 done
 ```
 
-Each run's `headSha` MUST equal `$FINAL` — if not (a race with a concurrent push), re-dispatch that suite. Record the six run URLs in the PR body ("Dark-suite dispatches on final head" section).
+`capture_run` only returns a run whose `headSha` equals `$FINAL`, so head binding is verified by selection, not by a separate comparison. **If the branch head changes for ANY reason during this step** (a concurrent push, the regen bot commit): the pinned `$FINAL` is stale — `git pull --ff-only`, recompute `FINAL` and `TS`, and RESTART this step from the top (all six suites re-dispatched against the new head; per-suite partial results against the old head are void). Record the six run URLs in the PR body ("Dark-suite dispatches on final head" section).
 
 **Red routing (spec §6 — three terminals: GREEN / PRE-EXISTING-RED / ESCALATED):**
-- `screenshots-drift.yml` red AT its byte-comparison step (actual drift) → Step 5's regen contingency, then return to Step 4's dispatch loop (the regen commit changed the head — ALL six suites re-dispatch against the new head).
-- Any other red (including screenshots-drift red BEFORE comparison — setup/bootstrap/capture) → re-dispatch that suite once (flake allowance); red again → `gh workflow run "$wf" --ref main` and watch: also red on main → PRE-EXISTING-RED (record both run URLs in the PR body, file per normal ledger triage, non-blocking); green on main → bump-caused → repair exceeds AC-5 → set blockedOn in the worktree's .claude/ship-state.json marker and ESCALATE.
+- `screenshots-drift.yml` red AT its byte-comparison step (actual drift) → Step 5's regen contingency, then return to Step 3 (the regen commit changed the head; Step 4 restarts wholly against it).
+- Any other red (including screenshots-drift red BEFORE comparison — setup/bootstrap/capture) → re-dispatch that suite once (flake allowance), capturing the retry with `capture_run "$wf" chore/next-1630-wedge-remeasure "$FINAL" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"`; red again → dispatch on main and capture the run identity the same way:
+
+  ```bash
+  MAIN_SHA=$(git rev-parse origin/main)
+  MTS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  gh workflow run "$wf" --ref main
+  read -r MID MSHA <<< "$(capture_run "$wf" main "$MAIN_SHA" "$MTS")"
+  gh run watch "$MID" --exit-status || echo "RED-ON-MAIN: $wf run $MID"
+  ```
+
+  Also red on main → PRE-EXISTING-RED (record both run URLs in the PR body, file per normal ledger triage, non-blocking); green on main → bump-caused → repair exceeds AC-5 → set blockedOn in the worktree's .claude/ship-state.json marker and ESCALATE.
 - Merge requires all six at GREEN or PRE-EXISTING-RED.
 
 - [ ] **Step 5: Screenshot-regen contingency (only if drift red at comparison)**
 
 ```bash
+REGEN_SHA=$(git rev-parse HEAD)
+RTS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 gh workflow run screenshots-regen.yml --ref chore/next-1630-wedge-remeasure
-sleep 15
-RID=$(gh run list --workflow=screenshots-regen.yml --branch chore/next-1630-wedge-remeasure \
-  --event workflow_dispatch --json databaseId --limit 1 --jq '.[0].databaseId')
+read -r RID RSHA <<< "$(capture_run screenshots-regen.yml chore/next-1630-wedge-remeasure "$REGEN_SHA" "$RTS")"
 gh run watch "$RID" --exit-status
 git pull --ff-only
 ```
