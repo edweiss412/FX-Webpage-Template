@@ -1043,7 +1043,7 @@ export function ModalSectionChrome({
         {...(chrome.sectionId !== undefined && chrome.freshnessFlash !== undefined
           ? { "data-section-freshness-flash": chrome.freshnessFlash }
           : {})}
-        className={`flex min-w-0 flex-col gap-1.5 rounded-md border bg-surface p-tile-pad shadow-(--shadow-tile) ${
+        className={`flex min-w-0 flex-col gap-1.5 rounded-md border bg-surface p-tile-pad shadow-tile ${
           flagged ? "border-border-strong" : "border-border"
         }`}
       >

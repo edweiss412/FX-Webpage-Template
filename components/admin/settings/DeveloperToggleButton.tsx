@@ -79,7 +79,7 @@ function errorCopyFor(state: SetDeveloperActionResult | null): string | null {
 const TRACK_BASE =
   "relative inline-flex h-7 w-12 items-center rounded-full border transition-colors duration-fast";
 const THUMB_BASE =
-  "inline-block h-5 w-5 rounded-full bg-bg shadow-(--shadow-tile) transition-transform duration-fast";
+  "inline-block h-5 w-5 rounded-full bg-bg shadow-tile transition-transform duration-fast";
 // The button IS the ≥44px tap target (spec §13); the 28px track lives inside it.
 const TAP_TARGET =
   "inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface disabled:cursor-not-allowed disabled:opacity-60";

@@ -29,7 +29,7 @@
  *                    surface); omit for the default uncolored offset
  *       inline     — inline-flex items-center justify-center
  *       selfStart  — self-start (flex-column parents)
- *       shadow     — shadow-(--shadow-tile)
+ *       shadow     — shadow-tile
  *       minWidthTap— min-w-tap-min (square tap floor)
  *   - All native <button> props pass through (type, onClick, disabled,
  *     aria-busy, data-testid, children, …). `type` defaults to "button"
@@ -69,7 +69,7 @@ export type AccentButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
   inline?: boolean;
   /** self-start, for flex-column parents that would otherwise stretch. */
   selfStart?: boolean;
-  /** shadow-(--shadow-tile) raised treatment. */
+  /** shadow-tile raised treatment. */
   shadow?: boolean;
   /** min-w-tap-min square-ish tap floor (in addition to the always-on min-h). */
   minWidthTap?: boolean;
@@ -126,7 +126,7 @@ export function AccentButton({
     minWidthTap ? "min-w-tap-min" : null,
     SIZE_CLASS[size],
     WEIGHT_CLASS[fontWeight],
-    shadow ? "shadow-(--shadow-tile)" : null,
+    shadow ? "shadow-tile" : null,
     ringOffset ? RING_OFFSET_CLASS[ringOffset] : null,
     // Escape hatch LAST so per-site overrides win cascade order.
     className ?? null,

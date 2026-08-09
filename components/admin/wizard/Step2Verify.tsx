@@ -116,7 +116,7 @@ function copyForCode(code: string | null): string {
 
 // Primary CTA — the single accent fill allowed per card (DESIGN.md ≤10% accent).
 const PRIMARY_BUTTON =
-  "inline-flex min-h-tap-min items-center justify-center self-start rounded-sm bg-accent px-6 text-base font-semibold text-accent-text shadow-(--shadow-tile) transition-colors duration-fast hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring";
+  "inline-flex min-h-tap-min items-center justify-center self-start rounded-sm bg-accent px-6 text-base font-semibold text-accent-text shadow-tile transition-colors duration-fast hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring";
 // Secondary CTA (re-scan in resume mode). A recessed `surface-sunken` fill +
 // strong text keeps it reading as a BUTTON, distinct from the `bg-bg` folder
 // input directly above it (which shares the same border token).

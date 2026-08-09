@@ -1077,7 +1077,7 @@ export function BellPanel({
         >
           <span
             aria-hidden="true"
-            className="mx-auto mb-2.5 inline-flex size-11 items-center justify-center rounded-full bg-surface text-status-positive shadow-(--shadow-tile)"
+            className="mx-auto mb-2.5 inline-flex size-11 items-center justify-center rounded-full bg-surface text-status-positive shadow-tile"
           >
             <Check className="size-[22px]" />
           </span>
