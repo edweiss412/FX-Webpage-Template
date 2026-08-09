@@ -91,20 +91,6 @@ So "retain the live row" is not obviously right at `:337`: the fallback runs whe
 
 **Promotion prerequisite:** the ruling above. If it lands as "defect", the fix mirrors arc C's: thread the live row and prefer it, with no-match falling back to today's behaviour.
 
-## BL-TASK-ENROLLMENT-SINGLE-DEPTH — the declared task region cannot express hierarchical or interleaved plan shapes
-
-**Status:** OPEN · **Severity:** LOW (opt-in convention; conservative failure with a surfaced finding, never silent) · **Class:** spec-lint task contract, enrollment expressiveness · **Filed:** 2026-08-03, from `docs/superpowers/specs/2026-08-03-pre-review-gate-arms-design.md` §6 items 6 and 7 · **Effort:** L
-**l-wave-screen 2026-08-06:** PREREQ — design-gated multi-depth enrollment redesign; the entry's own deferral-exception (c) fences it, so no wave can schedule it.
-
-The `<!-- tasks: depth=N -->` region declares ONE heading depth. Two real corpus shapes do not fit it, both measured:
-
-- **Task units at two depths** — 7 of 533 plans, e.g. `docs/superpowers/plans/alerts/2026-07-04-alert-at-a-glance-identity.md` (depths 2 and 3). Enrolling either depth silently excludes the units at the other.
-- **Non-task headings at the task depth, between the first and last task** — 6 plans, e.g. grouping headers like `Tasks 5-22: A3-A20 (PROC each)`. No region delimiter can exclude a heading in the middle of the region; it is classified as a task and draws `TASK_MARKER_MISSING`.
-
-**Deferral exception (c)** per the class-sweep disposition rule in `AGENTS.md`: the repair is a redesign of a surface this PR does not otherwise touch. Multi-depth enrollment forces a nesting model — a depth-3 task inside a depth-2 extent — whose marker ownership, extent boundaries, and `TASK_MARKER_MISSING` semantics are a design of their own, not a clause. Neither (a) nor (b) applies: this is not an unsettled product decision, and no prior ratification fences it.
-
-**Why it is safe to carry.** Enrollment is opt-in and no legacy plan is enrolled (measured: 534 plans scanned, 1 attempted, 0 findings). A plan of either shape either normalizes its task depths or stays unenrolled; the author is told plainly rather than checked wrongly. Re-open when someone wants to enrol a plan of one of these shapes.
-
 ## BL-SOURCE-ANCHORS-STALE-AFTER-FAILED-GID-FETCH — a preserved anchor map has no revision stamp, so a stale range reads as a valid deep link
 
 **Filed:** 2026-08-03 (surfaced by the cross-model review of the `fix/onboarding-cas-source-anchors` spec). **Class:** data fidelity. **Effort:** M (needs a schema decision first).

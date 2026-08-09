@@ -73,6 +73,11 @@ describe("taskContract wiring (design §3.4)", () => {
    */
   const CODE_FIXTURES: Record<string, string> = {
     TASK_ENROLL_MALFORMED: ["<!-- tasks: depth=x -->", "", "## Task 1", ""].join("\n"),
+    // Nested-open shaped (2026-08-09 multi-region design §2.2): the sequential
+    // reopen this fixture used to carry is now two legal regions. The nested
+    // opening at line 9 draws the code; the first `end` closes the region and
+    // the second is consumed against the rejected opening — sole finding, so
+    // the all-ten-codes severity proof is preserved.
     TASK_ENROLL_DUPLICATE: [
       "<!-- tasks: depth=2 -->",
       "",
@@ -82,9 +87,9 @@ describe("taskContract wiring (design §3.4)", () => {
       "",
       "AC-1 here.",
       "",
-      "<!-- tasks: end -->",
-      "",
       "<!-- tasks: depth=2 -->",
+      "",
+      "<!-- tasks: end -->",
       "",
       "<!-- tasks: end -->",
       "",
