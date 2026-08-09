@@ -34,7 +34,13 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: app-e2e-${{ github.workflow }}-${{ github.ref }}
+  # Shape 1 of the two collision-safe shapes tests/ci/_metaEnvBoundExclusionCoverage.test.ts
+  # allows. The plan drafted `app-e2e-${{ github.workflow }}-${{ github.ref }}`; that guard
+  # refuses literal splicing AROUND ${{ github.workflow }} (its R6-B F2 case: splicing
+  # synthesized another workflow's exact registry group from individually-tame pieces), and
+  # the prefix buys nothing here — github.workflow already resolves to this workflow's unique
+  # display name.
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
