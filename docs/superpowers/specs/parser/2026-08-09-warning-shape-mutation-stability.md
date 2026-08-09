@@ -100,3 +100,32 @@ Rejected: A and B delete what item 3 says is needed. C is unsound as specified a
 ## 9. Process note
 
 Round 1 of this document contained an unmeasured claim presented as measured (§5, the `snippet` only + per-occurrence figure) and rejected the best option using a cost figure that was wrong by ~20×. Both were caught by cross-model review, not by self-review. The measurement discipline this project applies to code — probe before asserting — applies to design documents that carry numbers, and did not get applied here.
+
+## 10. Round 2 review — the recommendation in §7 is also holed
+
+Cross-model review of the rewrite returned BLOCKING with 3 findings. All are accepted.
+
+**BLOCKING — D hides a real regression, and both stated mitigations fail.** A detector regressed so a CREW warning is anchored to `rooms` keeps its count, keeps its gap class, keeps card-registry membership, and scores `ABSORBED` under D — while `sectionForWarning` (`lib/admin/step3SectionStatus.ts:75`) routes it to the wrong admin section. Probe:
+
+```
+REF count 1->1   REF gap class 1->1   card registry true->true
+route crew->rooms   current SILENT_SIGNAL_LOSS   D projection equal true
+```
+
+§8 question 1 raised exactly this and then argued it away, claiming clean-corpus calibration and the card-copy gates cover it. They do not: calibration checks per-code COUNTS only (`tests/parser/cleanCorpusCalibration.test.ts:59`) and the card-copy gate checks catalog fields and code membership (`tests/messages/_metaWarningCardCopy.test.ts:138`). **Neither validates `blockRef` or `rawSnippet`.** Asking the question and then answering it with an unverified claim is the same failure mode as §9.
+
+**NEEDS-ATTENTION — per-occurrence emission has a product cost that was presented as an open question but is in fact determined.** It produces duplicate cards and inflated gap counts today: `summarizeDataGaps` counts warning objects directly (`lib/parser/dataGaps.ts:270`) and linkless warnings are never deduplicated (`dataGaps.ts:445`). A cell holding six broken references yields six identical cards and can classify a one-cell change as a quality regression.
+
+**NEEDS-ATTENTION — the scope narrowing in §3 is overstated.** Branches 3 and 4 are correctly excluded, but "in this wave only `REF_ERROR_LITERAL`" is false: branch 5 operates on `UNKNOWN_FIELD`, whose clean-corpus baseline is **394**, so it can exhibit the same count-stable equality problem. The defensible claim is limited to the two future codes.
+
+### Where that leaves the four options
+
+Every option now has a probed defect:
+
+| Option | Defect |
+| --- | --- |
+| A / B (bare or normalized warning) | Deletes the locating context resolved-scope item 3 says the operator needs |
+| C (general ledger-addition predicate) | Unsound (existential clause) and unenforceable (no evidence fields) |
+| D (+ per-occurrence) | Hides mis-anchoring regressions; per-occurrence duplicates cards |
+
+**The option not yet evaluated** is C-without-the-generalisation: a **one-time, enumerated, seven-row exception** ratified in this document, with no general predicate. Round 2's objections to C were specifically that the *general rule* is unsound and unenforceable — an enumerated exception needs neither, because the reviewing human sees all seven rows and their mechanisms in one diff. The ratchet would stay shrink-only by default, with additions requiring a spec amendment that names each row. That is a spec deviation and needs ratification, not an implementer's judgement.
