@@ -178,6 +178,8 @@ The last row corrects the proposal's own rationale: a code swap does fail `signa
 
 Two ways to weight occurrences were considered: (a) a new `occurrences: n` field on `ParseWarning`, or (b) an oracle-side extractor counting matched literals in `rawSnippet`. **(b) is preferred** — the parser stays untouched, so there is no new product-type field, no `exactOptionalPropertyTypes` fan-out, and no product surface enumerating warning fields. The cost is code-specific logic inside the instrument, which is the right place for a measurement concern.
 
+The extractor is a **per-code registry with a default weight of 1 per warning**, so a code with no entry behaves exactly as today. Only `REF_ERROR_LITERAL` is registered now. **Branch 5 decides `UNKNOWN_FIELD`'s entry with its own probe** — needed only if its operators can fuse occurrences — and must not inherit an unprobed default; that code carries a 394-warning clean-corpus baseline (§10), so guessing there is not safe.
+
 A naive implementation writes `(clean(snippet).match(/#REF!/g) ?? []).length || 1`. **That `|| 1` defeats the tier's soundness:**
 
 ```
@@ -194,6 +196,22 @@ An unlisted `SIGNAL_TEXT_DRIFT` row **fails hard**, exactly like `newHoles`. Onl
 
 `reconcileLedger` (`tests/parser/mutation/knownHoles.ts:43`) already partitions generically by `(siteId, kind)`, so extending `Alarm.kind` with `"text_drift"` gives drift rows the same new/fixed/drifted triage for free.
 
+**Two bars, one classifier** — and this is what answers §10's dumping-ground objection. In §6 C the free-form `note` carried the SOUNDNESS burden, which is why review killed it. In E the machine classifier carries it, so the note is audit trail rather than predicate:
+
+1. `signal_loss` additions stay **forbidden** — never deferrable, bar unchanged.
+2. An unlisted `text_drift` row is a **hard CI failure**.
+3. A drift row may be added **only in the same diff that triages it**, filling the existing `finding` and `note` fields with its mechanism. No schema growth — `KnownHole` (`tests/parser/mutation/knownHoles.ts:3-6`) already carries both.
+4. **Eligibility for the softer bar is decided by the classifier, never by the author.** An author cannot move a row into the drift bucket by writing a better note.
+
+Known drift shapes, with triage guidance:
+
+| Shape | Triage |
+| --- | --- |
+| Mis-anchor (`kind` changes, counts stable) | **Investigate — likely a real regression.** This is §10's BLOCKING mutant. |
+| Structure-following text move (the 7 in §11.2) | Expected under section/cell fusion; annotate and admit. |
+| Reorder-only, multiset identical | Benign; annotate and admit. |
+| Snippet gutted to empty | Investigate — a warning that says nothing locates nothing. |
+
 ### 11.6 Why E dominates §6
 
 | | Keeps the anchor | HARD bucket empty | Catches mis-anchor | Sound predicate |
@@ -205,8 +223,29 @@ An unlisted `SIGNAL_TEXT_DRIFT` row **fails hard**, exactly like `newHoles`. Onl
 
 E also inherits structurally: branch 5 operates on `UNKNOWN_FIELD` at a 394 clean-corpus baseline (§10), and any future non-zero-baseline code gets the same vocabulary. It fixes the instrument's missing distinction rather than annotating the symptom.
 
-### 11.7 Open before ratification
+### 11.7 Blast radius — measured, and larger than the seven
 
-1. Expected fingerprint re-baseline count from the `Alarm.kind` extension — state it before landing.
+Pin 1 (peer session): occurrence weighting must live ONLY in the new equality tier. `signalKeys` stays byte-for-byte unchanged and keeps feeding `newSignalFired`; a separate weighted multiset feeds `signalKeysEq` alone. If weighting leaked into `newSignalFired`, `stronger` semantics would shift and verdicts could flip across the 3,523 `wrong` rows as well, because `verdict` consults `stronger` on the payload-changed branch too.
+
+Structurally this holds: E adds a branch only under `payloadEq && !signalEq && !stronger`, which is exactly today's `SILENT_SIGNAL_LOSS`. Every other branch of `verdict` (`oracle.ts:67-76`) is untouched. Replayed rather than argued:
+
+```
+signal_loss rows replayed      : 178   (the ENTIRE class, not a sample)
+  -> reclassify to text_drift  : 143
+  -> stay SILENT_SIGNAL_LOSS   :  35
+wrong rows replayed (sample)   : 235
+  -> verdict CHANGED           :   0
+```
+
+Two things follow, and the second was not anticipated by either session:
+
+1. **The bound holds exactly.** Zero verdict changes outside the `signal_loss` class, confirming §6 D's corrected ≤178 figure and Pin 1's requirement.
+2. **The migration is 143 rows, not 7.** 143 EXISTING ledger rows are text drift that the current vocabulary has been recording as signal loss. That is the honest reading — the instrument has been conflating these all along — but it means adopting E re-files 143 rows into the new bucket, each needing its mechanism per §11.5(iii), not merely the 7 sites this branch surfaced. The remaining **35 discriminate as genuine loss**, which is itself evidence the classifier separates the classes rather than blanket-reclassifying.
+
+The 143 are a one-time, reviewable migration and should be landed as their own change, separately from branch 2's feature diff.
+
+### 11.8 Open before ratification
+
+1. The 143-row migration (§11.7) is landed as its own change, not inside branch 2. Each row's mechanism must be named; a bulk reclassification with a shared note would recreate C's unvalidated-`note` defect at 143× the scale.
 2. Whether drift rows should carry a structured mechanism field rather than free-form `note`; §10's objection to unvalidated `note` applies here too.
 3. Whether reorder-with-equal-multiset (11.3 row 5) is acceptable as drift, or wants its own class.
