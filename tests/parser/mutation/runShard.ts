@@ -11,6 +11,7 @@ import { join } from "node:path";
 import { boundedMutants, MUTANT_BUDGET, OPERATOR_NAMES } from "./operators";
 import type { Mutant } from "./operators";
 import { capture, verdict, fingerprint } from "./oracle";
+import type { Verdict } from "./oracle";
 import { FIXTURES, readFixture } from "./fixtures";
 import type { FixtureRef } from "./fixtures";
 import { computeShardAssignment, pairKey, SHARD_COUNT } from "./shardPartition";
@@ -42,6 +43,22 @@ const withSlug = (m: Mutant, op: string, slug: string): Mutant => ({
   ...m,
   siteId: `${op}:${slug}:${m.siteId.slice(op.length + 1)}`,
 });
+
+/**
+ * Every `Verdict` declares whether it produces a ledger alarm, and of what kind.
+ *
+ * The compiler forces this map TOTAL over the union: adding a verdict class without a
+ * row fails typecheck, and adding one with `null` is an explicit statement that the
+ * class is benign rather than an omission. `ABSORBED` and `SIGNALED` are the only benign
+ * pair -- the mutation was invisible, or the parser said something new about it.
+ */
+const VERDICT_ALARM_KIND: Record<Verdict, Alarm["kind"] | null> = {
+  ABSORBED: null,
+  SIGNALED: null,
+  SILENT_WRONG: "wrong",
+  SILENT_SIGNAL_LOSS: "signal_loss",
+  SIGNAL_TEXT_DRIFT: "text_drift",
+};
 
 export async function runShard(shardIndex: number, opts: RunShardOpts = {}): Promise<ShardResult> {
   const fixtures = opts.fixtures ?? FIXTURES;
@@ -100,24 +117,21 @@ export async function runShard(shardIndex: number, opts: RunShardOpts = {}): Pro
           if (v !== "ABSORBED") cosmeticViolations.push(m.siteId); // cosmetic must be fully invisible
           continue;
         }
-        if (v === "SILENT_WRONG")
-          alarms.push({ siteId: m.siteId, kind: "wrong", fingerprint: fingerprint(baseline, mut) });
-        if (v === "SILENT_SIGNAL_LOSS")
+        // Emission is DERIVED from the verdict through a total map, never a chain of
+        // `if`s. The bug this replaces was not a forgotten push: it was that nothing
+        // forced a decision when the Verdict union grew, so a new class silently
+        // recorded nothing and its ledger rows read as FIXED -- an unplumbed bucket
+        // looks EMPTY rather than broken, which is the worst failure shape available
+        // here. VERDICT_ALARM_KIND is total over the union, so the next verdict class
+        // added without deciding its recording is a TYPE error.
+        const alarmKind = VERDICT_ALARM_KIND[v];
+        if (alarmKind !== null) {
           alarms.push({
             siteId: m.siteId,
-            kind: "signal_loss",
+            kind: alarmKind,
             fingerprint: fingerprint(baseline, mut),
           });
-        // Text drift is RECORDED, not ignored (spec 2026-08-09 §11.5): an unlisted drift
-        // row must fail the run exactly like an unlisted hole. Omitting it here would
-        // make the softer bucket invisible rather than softer -- every drift site would
-        // simply vanish from the alarm set, and its ledger row would read as FIXED.
-        if (v === "SIGNAL_TEXT_DRIFT")
-          alarms.push({
-            siteId: m.siteId,
-            kind: "text_drift",
-            fingerprint: fingerprint(baseline, mut),
-          });
+        }
       }
     }
   }
