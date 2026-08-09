@@ -78,7 +78,7 @@ export function RefAnchor({
         href={`#${id}`}
         onClick={handleCopyClick}
         aria-label="Copy link to this section"
-        className="inline-flex size-11 -my-2 items-center justify-center rounded text-text md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 md:focus-visible:opacity-100 transition-opacity text-sm"
+        className="inline-flex size-11 shrink-0 -my-2 items-center justify-center rounded text-text md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 md:focus-visible:opacity-100 transition-opacity text-sm"
       >
         🔗
       </a>

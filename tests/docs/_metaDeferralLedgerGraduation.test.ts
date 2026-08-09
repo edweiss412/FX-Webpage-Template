@@ -93,6 +93,20 @@ const GRADUATED = [
  * that recorded the finding.
  */
 const BACKLOG_GRADUATED = [
+  // chore/next-1630-wedge-remeasure (2026-08-09): upstream React replay-loss fix
+  // confirmed by measurement: 0/20 wedged samples on next 16.3.0's vendored canary
+  // cbb046ab-20260731 vs the 7/10 baseline on 3f0b9e61-20260317. Graduated by the
+  // entry's OWN second watch signal ("an upstream React/Next bump once the replay
+  // fix ships in a stable vendored canary"), not by waiving it; the archived
+  // section carries the pre-stated decision rule and an un-archive contract that
+  // returns the row on either trigger. That contract is artifact-bound, not
+  // ambient: the archived entry states which future wedge shapes its sensor can
+  // and cannot see (a self-recovered or retry-recovered wedge in a green PR run
+  // uploads nothing), so re-measuring is a dispatch, not a wait.
+  {
+    id: "BL-PUBLISHED-TOGGLE-CLIENT-COMMIT-WEDGE",
+    provenance: "chore/next-1630-wedge-remeasure",
+  },
   // refactor/classname-array-join-cn (2026-08-09): the 36 array-join classNames the
   // canonical-class eslint rule could not traverse (37 by the time it merged — the final
   // rebase integrated a fifth site in OnboardingWizard.tsx). Migrated to a local `cn`

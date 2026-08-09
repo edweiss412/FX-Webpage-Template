@@ -23,25 +23,56 @@ name: Dev-gate e2e (build-vs-runtime)
 # shape instead. `workflow_dispatch` so the orchestrator can fire it during
 # close-out (real-CI-green is its own gate — local-passes-CI-fails class).
 on:
-  # Dispatch + daily schedule (NOT per-PR): the three serialized cold builds
-  # make this gate heavy + slow, so it is fired as an orchestrator close-out via
-  # `gh workflow run dev-gate-e2e.yml` (real-CI-green is its own gate — the
-  # local-passes-CI-fails class). B1-D4. The schedule below was added 2026-07-26
-  # so a break is bounded to 24h; this comment said "workflow_dispatch-only"
-  # until then.
+  # Dispatch + daily schedule + PATH-FILTERED pull_request. The three serialized
+  # cold builds make this gate heavy (~11 min job measured 2026-08-09), so it is
+  # NOT unconditionally per-PR: only PRs that touch the surfaces the three
+  # dev-gate projects actually test pay for it. Everything else stays on the
+  # 24h schedule backstop. Dispatch remains for orchestrator close-out
+  # (real-CI-green is its own gate — the local-passes-CI-fails class). B1-D4.
   workflow_dispatch:
-  # Plus a DAILY schedule, added 2026-07-26 (PR4 of the CI-dark coverage
-  # cluster). Dispatch-only meant this gate fired when someone remembered, and
-  # tests/e2e/attention-modal-gallery.spec.ts rotted behind it: two assertions
-  # went stale with nothing to notice. Twenty-four hours is the maximum interval
-  # that still bounds how long a break can hide.
-  #
-  # Owned honestly: a schedule is NOT PR-blocking-capable, so the gallery spec
-  # keeps an allowlist row — rewritten with a schedule reason rather than
-  # deleted. The workflow_dispatch trigger stays, since orchestrator close-out
-  # still fires it on demand (B1-D4).
+  # DAILY schedule, added 2026-07-26 (PR4 of the CI-dark cluster). Dispatch-only
+  # meant this gate fired when someone remembered, and
+  # tests/e2e/attention-modal-gallery.spec.ts rotted behind it. Twenty-four
+  # hours bounds how long a break can hide — and remains the ONLY line of
+  # defense for regressions arriving through files OUTSIDE the pull_request
+  # filter below (e.g. shared admin components not listed there; the 2026-07
+  # rot arrived through components/admin/ churn). That gap is deliberate: the
+  # filter prices the job only onto the PRs most likely to break these specs,
+  # and the schedule prices everything else at a 24h detection bound.
   schedule:
     - cron: "17 6 * * *"
+  # Path-filtered PR trigger (2026-08-09, BL-DEV-GATE-GALLERY-SPEC-ROT
+  # close-out). The gallery spec's value IS the built
+  # ADMIN_DEV_PANEL_ENABLED=true artifact — the route is build-gated, so it can
+  # never move to the :3000 baseline project without dissolving the
+  # build-vs-runtime contract this workflow exists to prove. The dedicated
+  # projects stay; reachability comes from running here when the tested
+  # surfaces change. NOT a required context: a path-filtered job is absent on
+  # non-matching PRs, and required-but-skipped contexts wedge merges.
+  pull_request:
+    paths:
+      # The specs the three dev-gate projects run, and their harness.
+      - "tests/e2e/admin-dev.spec.ts"
+      - "tests/e2e/attention-modal-gallery.spec.ts"
+      - "playwright.config.ts"
+      - ".github/workflows/dev-gate-e2e.yml"
+      # The build-gated dev surface itself.
+      - "app/admin/dev/**"
+      - "components/admin/dev/**"
+      # The scenario catalog + derivers the gallery renders and the spec
+      # re-derives its expectations from.
+      - "lib/dev/**"
+      # The modal under test and its shell/menu (the 2026-07 rot sites).
+      - "components/admin/showpage/PublishedReviewModal.tsx"
+      - "components/admin/showpage/AttentionMenu.tsx"
+      - "components/admin/review/ReviewModalShell.tsx"
+
+# Cancel a superseded run when the PR branch is re-pushed — three serialized
+# cold builds hold a heavy runner for ~11 min, so a stale run is expensive.
+# Schedule/dispatch runs are never cancelled (the PR-only guard below).
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   dev-gate-e2e:

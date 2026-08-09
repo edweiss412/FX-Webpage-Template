@@ -269,6 +269,9 @@ export const INTERNAL_CODE_ENUMS = {
   REEL_DRIFTED: {
     source: "parse_warnings.code"
   },
+  REF_ERROR_LITERAL: {
+    source: "parse_warnings.code"
+  },
   REPORT_HORIZON_EXPIRED: {
     source: "admin_alerts.code"
   },

@@ -75,6 +75,24 @@ describe("ref-sub skips already-#REF! cells — no byte-identical no-op (plan-R1
     expect(ms.length).toBe(1); // only ROLE=Lead is an eligible site
     expect(ms.every((m) => m.md !== md)).toBe(true); // no emitted mutant is byte-identical to baseline
   });
+
+  it("an ESCAPED whole-cell \\#REF\\! is not a site either (guard compares post-clean)", () => {
+    // The corpus stores the escaped form, so a guard that compared raw text would call
+    // this cell eligible and emit a mutant whose only change is dropping the escapes.
+    const md = "| CREW | NAME | ROLE |\n|  | \\#REF\\! | Lead |";
+    const ms = OPERATORS["ref-sub"]!(md);
+    expect(ms.map((m) => m.siteId)).toHaveLength(1); // only ROLE=Lead
+    expect(ms.every((m) => m.md !== md)).toBe(true);
+  });
+
+  it("a COMPOSITE cell carrying #REF! among other text is not a site (includes, not equality)", () => {
+    // retro F1: equality left this shape eligible, which is how
+    // ref-sub:2025-10-consultants-roundtable:B28:L209:X2 escaped — ABSORBED today, and
+    // SILENT_SIGNAL_LOSS once the detector fires on baseline and mutant alike.
+    const md = "| CREW | NAME | ROLE |\n|  | \\#REF\\!/NAME | Lead |";
+    const ms = OPERATORS["ref-sub"]!(md);
+    expect(ms.map((m) => m.siteId)).toHaveLength(1); // only ROLE=Lead
+  });
 });
 
 describe("blank-row:inject is per data-row gap, not per section (plan-R3)", () => {

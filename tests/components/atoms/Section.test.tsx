@@ -23,10 +23,13 @@
  *   - `VARIANT_BODY_DEFAULT` map exports the variant→element contract
  *     so consumers can rely on it when reading the source.
  *
- * Layout invariants (`getBoundingClientRect`) are verified nowhere in
- * CI: tests/e2e/layout-dimensions.spec.ts is `describe.skip` and runs
- * in no workflow (BL-E2E-APP-DEPENDENT-SPECS-CI-DARK). This file stops at
- * semantic + className-presence checks.
+ * Layout invariants (`getBoundingClientRect`) live in the real-browser
+ * suites, not here: tests/e2e/crew-layout-dimensions.spec.ts (wired via
+ * phantom-gap-e2e.yml) and the §4.9 invariants in tests/e2e/crew-page.spec.ts.
+ * tests/e2e/layout-dimensions.spec.ts formerly claimed that role and was
+ * deleted 2026-08-09 — it was `describe.skip` and ran in no workflow (spec
+ * docs/superpowers/specs/ci/2026-08-09-resurrect-mobile-safari-e2e-design.md
+ * §2.3). This file stops at semantic + className-presence checks.
  */
 import { describe, expect, test } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";

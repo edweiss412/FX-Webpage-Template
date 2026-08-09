@@ -992,6 +992,12 @@ export const SPEC_CODES = {
     "followUp": "Doug → re-edit sheet",
     "helpfulContext": "The video changed after you last reviewed the show, so crew see the text status without it. Any save to the sheet picks up the current reel on the next sync.",
   },
+  "REF_ERROR_LITERAL": {
+    "crewFacing": null,
+    "dougFacing": "A cell in this sheet contains '#REF!', which is what Sheets shows when a formula's reference was deleted. The page will display it as-is until the formula is repaired in the sheet.",
+    "followUp": "Doug → fix in sheet",
+    "helpfulContext": "A cell here reads '#REF!' instead of a real value. That is what Sheets leaves behind when the cell a formula pointed at was deleted.",
+  },
   "REPORT_DUPLICATE_LIVE_MATCHES": {
     "crewFacing": null,
     "dougFacing": "Multiple live GitHub issues match one report for <show-name>. Recovery is paused until Eric reviews the duplicates.",

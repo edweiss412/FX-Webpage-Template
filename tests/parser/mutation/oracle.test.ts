@@ -46,8 +46,17 @@ describe("verdict (corrupting bucket, Codex R5 SILENT_SIGNAL_LOSS)", () => {
   it("undefined ≠ null: an optional signal field flipping undefined→null is NOT absorbed (plan-R5)", () => {
     const wU = { severity: "warn" as const, code: "W", message: "m" }; // sourceCell absent (undefined)
     const wN = { severity: "warn" as const, code: "W", message: "m", sourceCell: null }; // sourceCell null
-    // same code → newSignalFired false; full signalEq must see the difference → SILENT_SIGNAL_LOSS
-    expect(verdict(base({ warnings: [wN] }), base({ warnings: [wU] }))).toBe("SILENT_SIGNAL_LOSS");
+    // same code → newSignalFired false; full signalEq must see the difference.
+    //
+    // The INVARIANT this test exists for (plan-R5) is NOT-ABSORBED, and it is asserted
+    // first and directly, so the guard cannot be satisfied by a future reclassification
+    // that quietly swallows the difference. Under the §11 verdict split this lands in
+    // SIGNAL_TEXT_DRIFT rather than SILENT_SIGNAL_LOSS: every code count is preserved
+    // and only an optional field moved, which is the definition of the drift class.
+    // Both bars still fail CI when unlisted; they differ only in triage.
+    const v = verdict(base({ warnings: [wN] }), base({ warnings: [wU] }));
+    expect(v).not.toBe("ABSORBED");
+    expect(v).toBe("SIGNAL_TEXT_DRIFT");
   });
   it("toEqual parity: {a: undefined} is equal to {} (no false alarm)", () => {
     // sourceCell:undefined is the POINT of this test (undefined-valued key vs absent key);

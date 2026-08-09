@@ -66,7 +66,7 @@ function fakeTx(): WatchTx {
   };
   return {
     insertPending: async () => {},
-    activatePending: async () => 1,
+    activatePending: async () => ({ promoted: 1, abortedFolderMismatch: false }),
     expireDeadActive: unexpected("expireDeadActive"),
     markOrphaned: unexpected("markOrphaned"),
     upsertAdminAlert: unexpected("upsertAdminAlert"),
@@ -155,7 +155,7 @@ describe("files.watch expiration request (§3.1)", () => {
     const tx = fakeTx();
     tx.activatePending = async (row) => {
       activated.push({ expiresAt: row.expiresAt });
-      return 1;
+      return { promoted: 1, abortedFolderMismatch: false };
     };
     const { subscribeToWatchedFolder } = await import("@/lib/drive/watch");
 
@@ -176,7 +176,7 @@ describe("files.watch expiration request (§3.1)", () => {
     const tx = fakeTx();
     tx.activatePending = async (row) => {
       activated.push({ expiresAt: row.expiresAt });
-      return 1;
+      return { promoted: 1, abortedFolderMismatch: false };
     };
     const { subscribeToWatchedFolder } = await import("@/lib/drive/watch");
 

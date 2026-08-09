@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
+  classifyWatchError,
   renewalLeadMs,
   RENEWAL_LIFE_FRACTION,
   RENEWAL_MIN_LEAD_MS,
@@ -9,6 +10,18 @@ import {
 } from "@/lib/drive/watchErrors";
 import { setLogSink } from "@/lib/log";
 import type { LogRecord } from "@/lib/log/types";
+import { premiseHolds } from "../_shared/premise";
+import type { ActivatePendingResult } from "@/lib/drive/watch";
+
+// TYPED partial mock: every export stays real (`...actual`) and only the
+// classifier is wrapped in a spy delegating to the genuine implementation, so
+// no existing case changes behaviour. `SubscribeDeps` has no classifier member,
+// so a spy on this import is the only executable seam for "the folder_changed
+// branch never reaches classifyWatchError" (spec §3.2, row 2).
+vi.mock("@/lib/drive/watchErrors", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/drive/watchErrors")>();
+  return { ...actual, classifyWatchError: vi.fn(actual.classifyWatchError) };
+});
 
 // File-wide log capture via the sanctioned setLogSink seam (observability arc);
 // replaces the earlier vi.mock("@/lib/log") harness so the telemetry describe
@@ -60,13 +73,30 @@ class FakeWatchTx {
     });
   }
 
+  /**
+   * The §3.1 activation-guard input, modelled at this port because the settings
+   * comparison is part of `activatePending`'s CONTRACT (spec §3.2 test-ports
+   * row). `null` means the settings row is ABSENT — the four-row rule requires
+   * absence to be representable, and absent maps to PROCEED, so every
+   * pre-existing case is behaviourally unchanged without per-case wiring (the
+   * fake receives no folder at construction, and existing cases subscribe with
+   * different folders, so a matched-folder default is not derivable).
+   */
+  settingsRow: { watched_folder_id: string | null } | null = null;
+
   async activatePending(row: {
     id: string;
     watchedFolderId: string;
     resourceId: string;
     expiresAt: string;
-  }): Promise<number> {
+  }): Promise<ActivatePendingResult> {
     this.operations.push(`activatePending:${row.id}`);
+    // Mirrors the production guard's rule exactly (spec §3.1): abort iff the
+    // row EXISTS and its value is non-NULL and names a different folder.
+    const configured = this.settingsRow?.watched_folder_id ?? null;
+    if (this.settingsRow !== null && configured !== null && configured !== row.watchedFolderId) {
+      return { promoted: 0, abortedFolderMismatch: true, configuredFolderId: configured };
+    }
     for (const existing of this.rows) {
       if (
         existing.watchedFolderId === row.watchedFolderId &&
@@ -77,16 +107,16 @@ class FakeWatchTx {
       }
     }
     // Mirrors production: only a row still in `pending` is promoted, and the
-    // COUNT is returned so the caller can detect the zero-row case that the
+    // COUNT is reported so the caller can detect the zero-row case that the
     // canonical spec has always required to roll back.
     const pending = this.rows.find(
       (existing) => existing.id === row.id && existing.status === "pending",
     );
-    if (!pending) return 0;
+    if (!pending) return { promoted: 0, abortedFolderMismatch: false };
     pending.status = "active";
     pending.resourceId = row.resourceId;
     pending.expiresAt = row.expiresAt;
-    return 1;
+    return { promoted: 1, abortedFolderMismatch: false };
   }
 
   orphanedResourceIds: Array<[string, string | null | undefined]> = [];
@@ -387,6 +417,15 @@ describe("Drive watch lifecycle", () => {
     );
     expect(activate).toMatch(/set status = 'superseded'/);
     expect(activate).toMatch(/set status = 'active'/);
+
+    // The §3.1 activation guard shares that transaction too, and the §3.4 lock
+    // ordering requires it to run BEFORE either channel UPDATE — a guard placed
+    // after them would take the settings row second and open a deadlock cycle.
+    expect(activate).toMatch(
+      /select watched_folder_id from public\.app_settings where id = 'default' for share/,
+    );
+    const guard = activate.indexOf("for share");
+    expect(guard).toBeLessThan(activate.indexOf("set status = 'superseded'"));
   });
 
   test("subscribe inserts pending, activates it, and supersedes prior active channel", async () => {
@@ -558,7 +597,7 @@ describe("Drive watch lifecycle", () => {
         watchedFolderId: string;
         resourceId: string;
         expiresAt: string;
-      }): Promise<number> {
+      }): Promise<ActivatePendingResult> {
         this.operations.push(`activatePending:${row.id}`);
         throw new Error("database unavailable after Drive watch");
       }
@@ -2062,9 +2101,9 @@ describe("activation and GC failure branches (whole-diff findings 2 and 5)", () 
     // so activatePending matches zero rows and returns 0 WITHOUT throwing —
     // the case no existing test covered, since they all threw instead.
     class ZeroActivationTx extends FakeWatchTx {
-      override async activatePending(): Promise<number> {
+      override async activatePending(): Promise<ActivatePendingResult> {
         this.operations.push("activatePending:zero-rows");
-        return 0;
+        return { promoted: 0, abortedFolderMismatch: false };
       }
     }
     const tx = new ZeroActivationTx();
@@ -3046,5 +3085,223 @@ describe("refresh writes no state (spec §6 class 7, deps-spy half)", () => {
       getActiveWatchedFolder: async () => ({ folderId: "folder-1", folderName: null }),
     });
     expect(tx.attemptRecords).toEqual([]);
+  });
+});
+
+describe("activation guard at the fake port (spec §3.1 rule)", () => {
+  // One fixture constant; the mismatch folder is derived from it so the two can
+  // never drift into equality and vacuously satisfy the abort rule.
+  const GUARD_FOLDER: string = "guard-fixture-folder";
+  const PROMOTED_FOLDER: string = `${GUARD_FOLDER}-promoted`;
+  const CHANNEL = "guard-ch";
+
+  async function activateUnder(settingsRow: { watched_folder_id: string | null } | null) {
+    const tx = new FakeWatchTx();
+    tx.settingsRow = settingsRow;
+    await tx.insertPending({
+      id: CHANNEL,
+      watchedFolderId: GUARD_FOLDER,
+      webhookSecret: "secret-1",
+    });
+    const result = await tx.activatePending({
+      id: CHANNEL,
+      watchedFolderId: GUARD_FOLDER,
+      resourceId: "resource-1",
+      expiresAt: new Date("2026-05-10T12:00:00.000Z").toISOString(),
+    });
+    return { tx, result };
+  }
+
+  const statusOf = (tx: FakeWatchTx) => tx.rows.find((r) => r.id === CHANNEL)?.status;
+
+  test("activation guard proceeds when the settings row is absent", async () => {
+    const { tx, result } = await activateUnder(null);
+    expect(result).toEqual({ promoted: 1, abortedFolderMismatch: false });
+    expect(statusOf(tx)).toBe("active");
+  });
+
+  test("activation guard proceeds when watched_folder_id is NULL", async () => {
+    const { tx, result } = await activateUnder({ watched_folder_id: null });
+    expect(result).toEqual({ promoted: 1, abortedFolderMismatch: false });
+    expect(statusOf(tx)).toBe("active");
+  });
+
+  test("activation guard proceeds when the configured folder matches", async () => {
+    const { tx, result } = await activateUnder({ watched_folder_id: GUARD_FOLDER });
+    expect(result).toEqual({ promoted: 1, abortedFolderMismatch: false });
+    expect(statusOf(tx)).toBe("active");
+  });
+
+  test("activation guard aborts when the configured folder differs", async () => {
+    premiseHolds(
+      "the configured folder differs from the folder being activated",
+      PROMOTED_FOLDER !== GUARD_FOLDER,
+    );
+    const { tx, result } = await activateUnder({ watched_folder_id: PROMOTED_FOLDER });
+    expect(result).toEqual({
+      promoted: 0,
+      abortedFolderMismatch: true,
+      configuredFolderId: PROMOTED_FOLDER,
+    });
+    // Anti-tautology: the row, not the return value the guard itself produced.
+    expect(statusOf(tx)).toBe("pending");
+  });
+});
+
+describe("folder_changed: the dedicated activation-abort branch (spec §3.1)", () => {
+  // One fixture constant; the promoted folder is derived so the two can never
+  // drift into equality and vacuously satisfy the abort rule.
+  const SUBSCRIBED_FOLDER: string = "folder-changed-subject";
+  const PROMOTED_FOLDER: string = `${SUBSCRIBED_FOLDER}-promoted`;
+  const CHANNEL = "ch-folder-changed";
+  const RESOURCE = "resource-folder-changed";
+
+  async function abortedSubscribe() {
+    const tx = new FakeWatchTx();
+    tx.settingsRow = { watched_folder_id: PROMOTED_FOLDER };
+    const { subscribeToWatchedFolder } = await import("@/lib/drive/watch");
+    const result = await subscribeToWatchedFolder(SUBSCRIBED_FOLDER, {
+      tx,
+      // recordAttempt ON, so "records no attempt" is a real claim about the
+      // branch and not an artifact of the default.
+      recordAttempt: true,
+      uuid: () => CHANNEL,
+      webhookSecret: () => "webhook-secret-value",
+      watchFolder: async () => ({
+        id: CHANNEL,
+        resourceId: RESOURCE,
+        expiration: new Date("2026-05-10T12:00:00.000Z").toISOString(),
+      }),
+    });
+    return { tx, result };
+  }
+
+  test("folder_changed is returned with exactly the union member's keys", async () => {
+    premiseHolds(
+      "the configured folder differs from the subscribed one",
+      PROMOTED_FOLDER !== SUBSCRIBED_FOLDER,
+    );
+    const { result } = await abortedSubscribe();
+
+    expect(result).toEqual({
+      outcome: "folder_changed",
+      channelId: CHANNEL,
+      configuredFolderId: PROMOTED_FOLDER,
+    });
+    // Exact key set: no errorClass / errorMessage / attempt. This is not an
+    // error result, and a consumer must not be able to read one off it.
+    expect(Object.keys(result).sort()).toEqual(["channelId", "configuredFolderId", "outcome"]);
+  });
+
+  test("folder_changed orphans the Drive channel with its resourceId so GC can stop it", async () => {
+    const { tx } = await abortedSubscribe();
+
+    premiseHolds("the watch stub returned a non-null resourceId", RESOURCE !== null);
+    expect(tx.orphanedResourceIds).toEqual([[CHANNEL, RESOURCE]]);
+    expect(tx.alerts).toHaveLength(1);
+    expect(tx.alerts[0]?.context.reason).toBe("folder_changed_during_activation");
+    expect(tx.alerts[0]?.context.resource_id).toBe(RESOURCE);
+  });
+
+  test("folder_changed records NO attempt despite recordAttempt: true", async () => {
+    const { tx } = await abortedSubscribe();
+
+    // A folder change is not a folder failure: writing one would pollute the
+    // OLD folder's durable backoff state.
+    expect(tx.attemptRecords).toEqual([]);
+    expect(tx.operations.filter((op) => op.startsWith("recordAttempt"))).toEqual([]);
+  });
+
+  test("folder_changed emits exactly one DRIVE_WATCH_ACTIVATION_FOLDER_CHANGED, secret-free", async () => {
+    await abortedSubscribe();
+
+    const emits = logRecords.filter((r) => r.code === "DRIVE_WATCH_ACTIVATION_FOLDER_CHANGED");
+    expect(emits).toHaveLength(1);
+    expect(emits[0]?.level).toBe("warn");
+    expect(emits[0]?.context).toMatchObject({
+      watchedFolderId: SUBSCRIBED_FOLDER,
+      configuredFolderId: PROMOTED_FOLDER,
+      channelId: CHANNEL,
+    });
+    expect(JSON.stringify(emits[0])).not.toContain("webhook-secret-value");
+  });
+
+  test("folder_changed never reaches classifyWatchError", async () => {
+    // The generic catch would classify an unknown error as "drive_api" — a
+    // false Drive error class for what is a deliberate cancel.
+    vi.mocked(classifyWatchError).mockClear();
+    await abortedSubscribe();
+
+    expect(vi.mocked(classifyWatchError).mock.calls).toHaveLength(0);
+  });
+});
+
+describe("folder_changed consumer branches (spec §3.2)", () => {
+  test("folder_changed consumer: renewal neither records a failure nor an orphan, and emits no DRIVE_WATCH_RENEWAL_FAILED", async () => {
+    const tx = new FakeWatchTx();
+    tx.rows.push({
+      id: "renewal-channel",
+      status: "active",
+      watchedFolderId: "folder-1",
+      webhookSecret: "secret-1",
+      resourceId: "resource-1",
+      // 24h lease created 05-08T16:00, expiring 05-09T16:00. At tx.now
+      // (05-09T12:00) it has 4h left against a 6h renewal lead, so it is due.
+      createdAt: "2026-05-08T16:00:00.000Z",
+      expiresAt: "2026-05-09T16:00:00.000Z",
+    });
+    const { refreshWatchSubscriptions } = await import("@/lib/drive/watch");
+
+    const result = await refreshWatchSubscriptions({
+      tx,
+      now: () => tx.now,
+      subscribeToWatchedFolder: vi.fn(async () => ({
+        outcome: "folder_changed" as const,
+        channelId: "renewal-channel",
+        configuredFolderId: "folder-2",
+      })),
+      getActiveWatchedFolder: folderOf(tx) as never,
+    } as unknown as Parameters<typeof refreshWatchSubscriptions>[0]);
+
+    // A deliberate cancel is not a renewal failure and not an orphan: the loop
+    // continues and the folder appears in NONE of the three buckets.
+    expect(result).toEqual({ refreshed: [], orphaned: [], failures: [] });
+    expect(logRecords.filter((r) => r.code === "DRIVE_WATCH_RENEWAL_FAILED")).toEqual([]);
+  });
+
+  test("folder_changed consumer: reconcile reports folder_changed with no state_write fault and no escalation", async () => {
+    const tx = new FakeWatchTx();
+    // No live active channel, so the cycle reaches the recovery subscribe.
+    const gateRow = {
+      consecutiveFailures: 3,
+      nextAttemptAt: "2026-05-09T12:15:00.000Z",
+      waiting: false,
+    };
+    tx.gateRow = gateRow;
+    const { reconcileWatchChannels } = await import("@/lib/drive/watch");
+    const deps = reconcileDeps(tx, {
+      subscribeToWatchedFolder: vi.fn().mockResolvedValue({
+        outcome: "folder_changed",
+        channelId: "chan-1",
+        configuredFolderId: "folder-2",
+      }),
+    });
+
+    const result = await reconcileWatchChannels(NO_REFRESH, deps);
+
+    expect(result.outcome).toBe("folder_changed");
+    // The branch records no attempt BY DESIGN, so a missing attempt is not a
+    // state-write fault here — the pre-arc `attempt === null` arm would have
+    // called it one.
+    expect(result.faults).not.toContain("state_write");
+    expect(result.faults).toEqual([]);
+    // Structurally non-escalating: folder_changed is not in the escalation
+    // condition list, and the next cycle reads the NEW folder.
+    expect(deps.maybeEscalateWatchOrphaned).not.toHaveBeenCalled();
+    expect(result.escalated).toBe(false);
+    // Ladder fields keep exactly what the cycle's gate read supplied — derived
+    // from the fixture, not restated.
+    expect(result.nextAttemptAt).toBe(gateRow.nextAttemptAt);
+    expect(result.consecutiveFailures).toBe(gateRow.consecutiveFailures);
   });
 });

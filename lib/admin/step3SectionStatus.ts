@@ -19,7 +19,12 @@ export type SectionId =
   | "warnings"
   | "report";
 
-const KIND_TO_SECTION: Record<string, Exclude<SectionId, "warnings">> = {
+/**
+ * Exported so the parser's `canonicalSectionKind` can be pinned to THIS vocabulary
+ * structurally rather than by an example list that would drift (parser mutation wave,
+ * spec §5/§6 detectors emit `blockRef.kind` values that must be real routing keys).
+ */
+export const KIND_TO_SECTION: Record<string, Exclude<SectionId, "warnings">> = {
   crew: "crew",
   travel: "crew",
   flights: "crew",

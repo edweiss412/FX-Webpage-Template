@@ -1,5 +1,6 @@
 // tests/parser/mutation/operators.ts
 import { segment } from "./rows";
+import { clean } from "@/lib/parser/blocks/_helpers";
 import type { LogicalSection, Row, Segmentation } from "./rows";
 import { isHeaderCells, classifySection, RISK_CRITICAL } from "./classify";
 import type { Domain } from "./classify";
@@ -69,10 +70,18 @@ const sid = (op: string, s: LogicalSection, line: number, locus: number | string
 // full operator array (Codex plan-R20 [high]). The array form used by tests is derived below.
 function* refSub(md: string): Generator<Mutant> {
   for (const c of eachDataCell(md)) {
-    // Skip cells already `#REF!` — rewriting them to `#REF!` is a byte-identical no-op that
+    // Skip cells that ALREADY carry `#REF!` — rewriting them to `#REF!` is a no-op that
     // would still claim a siteId and count toward coverage without exercising the parser
     // (Codex plan-R18 [medium]). The independent audit applies the identical exclusion.
-    if (c.val.trim() === "#REF!") continue;
+    //
+    // INCLUDES on the post-`clean()` value, not equality (spec §4.4 as amended by retro
+    // F1). Equality misses two shapes that are both real: the ESCAPED corpus form
+    // `\#REF\!`, which only becomes `#REF!` after clean(), and COMPOSITE cells such as
+    // `#REF!/NAME`. Leaving those unskipped produced an escaping mutant
+    // (ref-sub:2025-10-consultants-roundtable:B28:L209:X2) that is ABSORBED today and
+    // becomes SILENT_SIGNAL_LOSS once the detector lands, since the detector fires on
+    // baseline and mutant alike and only the echoed rawSnippet moves.
+    if (clean(c.val).includes("#REF!")) continue;
     yield {
       md: withCell(md, c.line, c.cellIdx, "#REF!"),
       siteId: sid("ref-sub", c.sec, c.line, c.cellIdx),

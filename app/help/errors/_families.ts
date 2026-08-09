@@ -66,6 +66,7 @@ export const FAMILIES: Family[] = [
       "HOTEL", // HOTEL_GUEST_SPLIT_AMBIGUOUS, HOTEL_CARDINALITY_EXCEEDED, HOTEL_ADDRESS_SPLIT_AMBIGUOUS
       "DATE", // DATE_ORDER_SUGGESTS_DMY — show-date reading
       "USE", // USE_RAW_DECISION_STALE — "use the sheet's raw value" pin went stale
+      "REF", // REF_ERROR_LITERAL — a broken #REF! reference read straight out of the sheet
     ],
   },
   {
