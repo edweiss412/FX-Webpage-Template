@@ -30,6 +30,7 @@ export const RISK_CRITICAL: readonly Domain[] = [
   "agenda",
   "dates",
   "event_details",
+  "pull_sheet",
 ];
 
 /** Every current KNOWN_SECTION_HEADERS member (knownSections.ts:34-65) → domain. */
