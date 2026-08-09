@@ -973,6 +973,7 @@ The Phase 1 crew-page projection alert (`TILE_PROJECTION_FETCH_FAILED`, §4.13 o
 ### BL-RESURRECT-MOBILE-SAFARI-E2E — lift the remaining mobile-safari tile/crew specs into CI
 
 **Filed:** 2026-06-23 (discovered building the crew-e2e CI job). **Effort:** L
+**Status:** IN PROGRESS · **Branch:** test/resurrect-mobile-safari-e2e
 
 > **CORRECTION 2026-08-06 (L-wave, `feat/l-wave-docs`).** The entry's founding premise — "NO CI
 > workflow runs the `mobile-safari` Playwright project" — is **REFUTED**. Three workflows run it
