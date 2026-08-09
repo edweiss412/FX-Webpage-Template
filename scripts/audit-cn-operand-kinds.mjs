@@ -478,7 +478,7 @@ function runAudit(config) {
     }
   }
 
-  // Every one of the seven identifier definitions is checked, whether or not it was
+  // Every one of the eight identifier definitions is checked, whether or not it was
   // reached as an operand above — a definition that moved is the drift this catches.
   for (const entry of config.identifierTable) {
     const sourceFile = parsed.get(entry.file);
@@ -1050,7 +1050,7 @@ function selfTest() {
   const failures = [];
 
   try {
-    // Accept-side control: in-kind operands, the seven-identifier pattern with truthy
+    // Accept-side control: in-kind operands, the identifier pattern with truthy
     // definitions (including a truthy conditional initializer — the `pillState` shape),
     // a `.filter(Boolean)` site, and the sanctioned falsy branch.  Must exit 0.
     const cleanRoot = path.join(tmp, "clean");

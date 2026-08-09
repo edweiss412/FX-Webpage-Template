@@ -18,8 +18,8 @@ advance).
 | id | Criterion |
 |---|---|
 | AC-1 | `lib/ui/cn.ts` exports `cn` + `ClassValue`; unit test covers every row of spec §3.2. |
-| AC-2 | All 36 sites call `cn`; recognizer reports zero across every UI source extension (`.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, `.cjs`), any whitespace separator, any syntactic position. |
-| AC-3 | `scripts/verify-cn-operand-parity.mjs` reports parity for all 36 sites; output in the PR body. One-shot, not a tracked test — so C4 step 4 re-runs it against a re-resolved anchor after the final rebase. |
+| AC-2 | All 37 sites call `cn` (36 at plan time; re-derived §11.1); recognizer reports zero across every UI source extension (`.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, `.cjs`), any whitespace separator, any syntactic position. |
+| AC-3 | `scripts/verify-cn-operand-parity.mjs` reports parity for all 37 sites; output in the PR body. One-shot, not a tracked test — so C4 step 4 re-runs it against a re-resolved anchor after the final rebase. |
 | AC-4 | `DayCard` `tone === "set"` dot: unchanged `classList`, no trailing space. |
 | AC-5 | `pnpm lint` clean; fixes applied are exactly C1–C6, no undeclared rewrite. |
 | AC-6 | Census guard deleted; zero-tolerance guard replaces it with its premise fixture. |
@@ -100,7 +100,7 @@ mechanical diff reviewable: that stage 1 changes no class token at all.
 ## P1 — rebase, then re-establish BOTH halves of the equivalence premise
 
 `fix/step3-a11y-cluster` is touching step-3 UI concurrently, including
-`components/admin/wizard/Step3SheetCard.tsx`, which holds one of the 36 sites.
+`components/admin/wizard/Step3SheetCard.tsx`, which holds one of the sites.
 
 1. `git -C <worktree> fetch origin && git -C <worktree> rebase origin/main`.
 2. **Re-run the inventory sweep separator-agnostically** (spec §2.2 — a sweep keyed on the literal
@@ -133,8 +133,8 @@ mechanical diff reviewable: that stage 1 changes no class token at all.
    The script walks the §2.2 site inventory (before Task 3: array-join operand lists, extracted
    with the same backward bracket-matching the parity script uses; after Task 3 it accepts the
    `cn(...)` argument-list form at the same sites), classifies every top-level operand of every
-   unfiltered site into the three kinds below, checks the seven identifier definitions for
-   non-empty truthiness at their definition sites, verifies each of the seven names has exactly
+   unfiltered site into the three kinds below, checks the eight identifier definitions for
+   non-empty truthiness at their definition sites, verifies each of the eight names has exactly
    one binding in its file (the shadowing stop in kind 2 below), and exits 0 printing a per-kind
    tally — or exits 1 naming every operand outside the kinds, every identifier definition that
    moved, and every shadowed name.
@@ -155,37 +155,37 @@ mechanical diff reviewable: that stage 1 changes no class token at all.
       `"a  b"` against `cn`'s `"a b"`.
 
    Assert exit 1 naming all of them. Then run against a clean fixture — in-kind operands, the
-   seven-identifier pattern with truthy definitions including one truthy conditional initializer
+   identifier pattern with truthy definitions including one truthy conditional initializer
    (the `pillState` shape), and the `DayCard` sanctioned branch — assert exit 0. Record both runs
    in the task log. The fixtures ship inside the script's own `--self-test` mode, and **every
    invocation site runs `--self-test` before the live audit** (the command block above), so no
    later repair can hollow out a rejection path while the clean corpus stays green.
    Expected tally at the current base: 30 unfiltered sites; 18 conditional operands at 18 sites;
    exactly one falsy-capable branch (`components/crew/primitives/DayCard.tsx:98`); every remaining
-   operand a non-empty string literal or one of the seven identifiers. Record the actual tally in
+   operand a non-empty string literal or one of the eight identifiers. Record the actual tally in
    the task log both times it runs. The audit's substance, per half:
    - *Literal operands:* the unfiltered sites must still yield exactly one `""`/`null`/`undefined`
      hit, `components/crew/primitives/DayCard.tsx:98`.
-   - *Identifier operands:* the seven identifiers in spec §4.1's table (`base`, `focusRing`,
+   - *Identifier operands:* the eight identifiers in spec §4.1's table (`base`, `focusRing`,
      `pillState`, `TRACK_BASE`, `THUMB_BASE`, `surfaceClass`, `CHIP_CLASS`) must still be truthy at
      every definition. A rebase making any one falsy creates a second E2 site that the site count,
      the operand-parity script, the `cn` unit test, and the `DayCard` test would ALL pass over.
    - *Every operand must still fall in a PROVEN-TRUTHY category.* Checking the known literals and
-     the seven known names is not the same as proving no operand of an unvetted kind appeared. The
+     the eight known names is not the same as proving no operand of an unvetted kind appeared. The
      concrete case: an upstream edit to `active && "bg-accent"` introduces a `false` operand — it is
-     neither a `""`/`null`/`undefined` literal nor one of the seven names, so both checks above pass,
+     neither a `""`/`null`/`undefined` literal nor one of the eight names, so both checks above pass,
      while `["a", false, "b"].join(" ")` is `"a false b"` and `cn("a", false, "b")` is `"a b"`. That
      is a rendering change, not a whitespace one, and parity, the helper tests, and the `DayCard` test
      all stay green through it. So enumerate **every** top-level operand at the 30 unfiltered sites
      and assert each is one of the three kinds the base is measured to contain:
      1. a non-empty string literal;
-     2. one of the seven proven-truthy identifiers from spec §4.1's table — **accepted only when
+     2. one of the eight proven-truthy identifiers from spec §4.1's table — **accepted only when
         the name has exactly ONE binding in the file.** Name-matching alone is not
         binding-awareness: a nested `const base = ""` shadows the truthy outer `base`, the operand
         spelling and the checked outer definition both stay unchanged, and `join` emits `"a  b"`
         where `cn` emits `"a b"` — silent wrongness with every other proof green. So the script
         counts binding positions (declarations, function params, destructuring) for each of the
-        seven names per file; more than one binding for a name used as an operand is a STOP. A
+        eight names per file; more than one binding for a name used as an operand is a STOP. A
         legitimate second binding in an unrelated scope also stops — a false stop, conservative
         and signaled, resolved by re-deriving spec §4.1;
      3. a conditional (ternary) expression — possibly nested — **every** result branch of which is a
@@ -272,6 +272,10 @@ would pass against `tailwind-merge`.
 **Commit:** `feat(ui): add a local cn class-name helper`
 
 ## Task 3 — migrate all 36 sites, under the operand-parity check
+
+> The counts in this task are the ones it EXECUTED against (36 sites / 18 files). The C4 final
+> rebase later added a 37th — see §11.1. The task record is left as executed; the live inventory
+> lives in the two arc scripts and spec §2.2.
 
 <!-- task: red=`node scripts/verify-cn-operand-parity.mjs --base $MIGRATION_PARENT && pnpm vitest run tests/components/crew/primitives.test.tsx` ac=AC-2,AC-3,AC-4 -->
 
@@ -440,7 +444,7 @@ just a marker asserting one. The honest red is the census guard's own death ratt
    file fails (set is larger), and a REMOVED one fails too (set is smaller), so a stale row cannot
    sit there pre-authorizing a future class join in that file.
 
-   Calibration is already probed (spec §7.1): the recognizer yields 38 whitespace-join sites at base
+   Calibration is already probed (spec §7.1): the recognizer yields 38 whitespace-join sites at plan-time base (39 as re-derived, §11.1)
    — 36 classNames + the 2 exemptions — and after Task 3 must report **zero**.
 2. **The recognizer's premise, stated executably.** A zero-tolerance guard cannot prove its scanner
    works by finding a non-empty set — "found nothing" is both the passing state and what a broken
@@ -950,7 +954,7 @@ authorized by CI green on the **exact head** being merged.
         `.github/workflows/lifecycle-layout-e2e.yml` (Task 5),
         `tests/docs/_metaDeferralLedgerGraduation.test.ts` (C4 step 5), `BACKLOG.md` and its
         archive (C1, C4 step 5) — and (d) inside the 18 migrated files, hunks that are the `cn`
-        import line, a spec §5 rewrite, or a §6 C1–C6 token change. In particular the seven §4.1
+        import line, a spec §5 rewrite, or a §6 C1–C6 token change. In particular the eight §4.1
         identifier DEFINITIONS must be byte-identical to `origin/main` — this arc never edits them,
         so any difference is conflict-resolution damage, not work. Any hunk outside the declared
         classes: stop.

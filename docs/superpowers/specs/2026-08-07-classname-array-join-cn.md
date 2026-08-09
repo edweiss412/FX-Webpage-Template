@@ -57,7 +57,16 @@ the `DEFAULT_CALLEE_SELECTORS` array exported by `options/default-options`. No c
 needed to make `cn(...)` visible. (Both are vendored paths under `node_modules/`, cited by module
 name rather than repo path because they are not tracked here.)
 
-### 2.2 The site inventory — 36 sites, 18 files
+### 2.2 The site inventory — 37 sites, 18 files
+
+> **RE-DERIVED 2026-08-09 AT THE C4 FINAL REBASE.** The measurement below was taken at spec time
+> (`61281c23e`) and read **36 sites / 38 whitespace joins**. `fix/step3-a11y-cluster` then landed on
+> `main`, splitting the wizard step pill into a 44px tap-target anchor plus an inner painted span,
+> which added a fifth site in `OnboardingWizard.tsx` and an eighth proven-truthy identifier
+> (`tapTarget`, §4.1). The current base is **37 class sites across the same 18 files, 39 whitespace
+> joins total** (37 + the 2 data joins), **6 filtered / 31 unfiltered**. The table and totals below
+> carry the re-derived values. Figures inside the §2.5 probe transcript are the ORIGINAL
+> measurements and are deliberately left as the historical record of what was measured when.
 
 The backlog entry says 33. Probed count is **36**. The 3 uncounted sites are the
 `components/crew/primitives/PersonRow.tsx` module consts `CHIP_CLASS`, `PARTIAL_CHIP_CLASS`, and
@@ -87,9 +96,9 @@ under `CENSUS_DIRECT`, so the census *covers* the file while the tally missed th
 | **Total** | **37** | | 6 filtered / 31 unfiltered |
 
 **The 18 files are the complete set, and the sweep proving it is separator-agnostic.** Sweeping every
-tracked `.tsx?` under `components/` and `app/` for `.join(` at *any* separator yields 38 occurrences
-of `.join(" ")` and no other whitespace separator anywhere — no `.join(' ')`, no `` .join(` `) ``.
-Of the 38, 36 are the classNames tabulated above and 2 are data joins, correctly outside the census:
+tracked `.tsx?` under `components/` and `app/` for `.join(` at *any* separator yields 39 occurrences
+of `.join(" ")` at the re-derived base (38 at spec time) and no other whitespace separator anywhere — no `.join(' ')`, no `` .join(` `) ``.
+Of those, 37 are the classNames tabulated above and 2 are data joins, correctly outside the census:
 `components/admin/wizard/step3ReviewSections.tsx:1353` and
 `components/admin/review/sectionFreshness.ts:537`. They are NOT the same expression: the first is
 `[leg.date, leg.time].filter(...).join(" ")` and the second is
@@ -123,7 +132,7 @@ positive control and an array-join as the negative control. Seeded drift was
 
 Two consequences, both load-bearing:
 
-- Every one of the 36 sites becomes visible, because at every site the class *literals* are inline
+- Every one of the sites becomes visible, because at every site the class *literals* are inline
   array elements, which become inline `cn` arguments.
 - Identifier arguments stay dark. That is §9.2 / R6 — a pre-existing, different blind spot.
 
@@ -229,14 +238,14 @@ being silently dropped by a `Boolean` filter.
 
 ## 4. The equivalence claim
 
-**Stage 1 — migration (§5).** For all 36 sites, at every reachable input, the emitted string relates
+**Stage 1 — migration (§5).** For all 37 sites, at every reachable input, the emitted string relates
 to the pre-migration string by exactly one of:
 
-- **E1 — byte-identical.** 35 of 36 sites.
+- **E1 — byte-identical.** 36 of 37 sites.
   - The 6 `.filter(Boolean).join(" ")` sites are byte-identical *by definition*: `cn` is that
     expression. (`KeyValue.tsx:121`, `GearSection.tsx:303`, `TodaySection.tsx:571`,
     `TodaySection.tsx:645`, `TravelSection.tsx:637`, `AccentButton.tsx:121`.)
-  - The other 29 unfiltered sites are byte-identical because **every operand is truthy at every
+  - The other 30 unfiltered sites are byte-identical because **every operand is truthy at every
     input** — verified mechanically in §4.1, not by inspection.
 - **E2 — whitespace-normalized.** Exactly 1 site: `components/crew/primitives/DayCard.tsx:98`,
   and only on the `tone === "set"` branch.
@@ -255,7 +264,7 @@ what makes "did this change rendering?" unanswerable.
 
 ### 4.1 The all-truthy claim, verified mechanically
 
-The claim "every operand at the other 29 unfiltered sites is truthy" is the one place stage 1 could
+The claim "every operand at the other 30 unfiltered sites is truthy" is the one place stage 1 could
 silently change output, so it is established by a scan rather than by reading.
 
 **Two operand kinds have to be checked, not one.** A literal scan alone is not a proof: an operand
@@ -302,7 +311,7 @@ prescribes. Totals elsewhere in this document that read "36" describe the pre-re
 are left as the historical record of what was measured when.
 
 **This claim is base-specific, and the plan re-establishes it rather than inheriting it.** A rebase
-that made any of the seven falsy would leave the site count, the operand-parity check, the `cn` unit
+that made any of the eight falsy would leave the site count, the operand-parity check, the `cn` unit
 test, and the `DayCard` test all passing while output bytes changed — precisely the composition gap
 §4.2 otherwise rules out. The rebase task therefore re-runs **both** halves of this audit, not the
 site count alone.
@@ -635,10 +644,10 @@ not a reason to update the audit.
 
 - **AC-1** `lib/ui/cn.ts` exports `cn` and `ClassValue` with §3.1's signature, and a unit test covers
   every row of the §3.2 table including the empty and all-falsy cases.
-- **AC-2** All 36 sites in §2.2 call `cn`. The §7.1 recognizer reports zero sites across every UI
+- **AC-2** All 37 sites in §2.2 call `cn`. The §7.1 recognizer reports zero sites across every UI
   source extension (`.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, `.cjs`), at any whitespace separator spelling
   and in any syntactic position — the two named data-join exemptions are untouched.
-- **AC-3** `scripts/verify-cn-operand-parity.mjs` reports operand parity for all 36 sites against the
+- **AC-3** `scripts/verify-cn-operand-parity.mjs` reports operand parity for all 37 sites against the
   pre-migration commit, with stage-2 token rewrites permitted only where §6 declares them, and its
   output is recorded in the PR body. It is a one-shot check, not a tracked test (§4.3).
 - **AC-4** `DayCard`'s `tone === "set"` dot has an unchanged `classList` and a `className` with no
