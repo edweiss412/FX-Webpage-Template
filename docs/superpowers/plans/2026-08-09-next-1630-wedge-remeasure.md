@@ -185,9 +185,14 @@ classify_run() {  # classify_run <run-id>  — one line per sample + a summary; 
     # (a wedge that recovered and then hit a downstream assertion failure is
     # still a valid wedged sample). Failed with NO wedge signal = indeterminate.
     if [ "$status" = failed ] && [ "$wl" -eq 0 ]; then v=no; indet=$((indet+1)); fi
-    # OFF flip wedged and never landed => the throw ended the sample before the
-    # ON flip: one executed flip. (Necessarily a failed sample.)
-    if [ "$w_off" -gt 0 ] && [ "$land_off" -eq 0 ]; then flips=1; fi
+    # Executed-flip evidence for FAILED samples: a clean flip is console-silent,
+    # so only wedge lines prove a flip ran. passed => both flips ran. failed with
+    # ON-flip wedge lines => both ran (reaching ON implies OFF completed). failed
+    # with only OFF-flip wedge lines => count 1: the failure may have hit between
+    # the flips (crew-page assertions) OR after a clean ON flip — F is therefore a
+    # FLOOR, off by at most 1 per such sample; every such sample is listed in the
+    # PR body (documented limit, surfaced).
+    if [ "$status" = failed ] && [ "$w_on" -eq 0 ]; then flips=1; fi
     if [ "$v" = yes ]; then
       valid=$((valid+1)); flips_exec=$((flips_exec+flips))
       if [ "$wl" -gt 0 ]; then wedged=$((wedged+1)); flips_wedged=$((flips_wedged+wl)); fi
@@ -376,10 +381,10 @@ git fetch origin chore/next-1630-wedge-remeasure
 [ "$(git rev-parse origin/chore/next-1630-wedge-remeasure)" = "$FINAL" ] && echo HEAD-STABLE || echo HEAD-MOVED
 ```
 
-`HEAD-MOVED` → the pinned `$FINAL` is stale (a concurrent push or the regen bot commit): `git pull --ff-only`, recompute `FINAL` and `TS`, and RESTART this step from the top (all six suites re-dispatched against the new head; per-suite partial results against the old head are void). Record the six run URLs in the PR body ("Dark-suite dispatches on final head" section).
+`HEAD-MOVED` → the pinned `$FINAL` is stale (a concurrent push or the regen bot commit): `git pull --ff-only`, then RESTART FROM STEP 2 — the AC-5 allowlist check (Step 2) and the auto-CI green (Step 3) are evidence about a specific head, so a new head must re-earn them before Step 4 re-dispatches all six suites against it (recompute `FINAL` and `TS` at the top of the re-entered Step 4; per-suite partial results against the old head are void). Record the six run URLs in the PR body ("Dark-suite dispatches on final head" section).
 
 **Red routing (spec §6 — three terminals: GREEN / PRE-EXISTING-RED / ESCALATED):**
-- `screenshots-drift.yml` red AT its byte-comparison step (actual drift) → Step 5's regen contingency, then return to Step 3 (the regen commit changed the head; Step 4 restarts wholly against it).
+- `screenshots-drift.yml` red AT its byte-comparison step (actual drift) → Step 5's regen contingency, whose exit path re-runs the whole-diff review (Task 5) against the updated diff and then re-enters Task 6 from Step 1 (see Step 5).
 - Any other red (including screenshots-drift red BEFORE comparison — setup/bootstrap/capture) → re-dispatch that suite once (flake allowance). The timestamp is captured BEFORE the dispatch, always — a timestamp taken after `gh workflow run` can postdate the run's `createdAt` and make `capture_run` wait forever:
 
   ```bash
@@ -424,16 +429,21 @@ gh run watch "$RID" --exit-status
 git pull --ff-only
 ```
 
-The regen workflow's final step commits regenerated baselines and pushes them to the branch itself (`git push origin "HEAD:$BRANCH"` in its last step) — the `git pull --ff-only` synchronizes the local worktree with the bot commit BEFORE any further local commits, preventing divergence. If the regen run fails, or a re-dispatched drift run is still red after the regen commit landed: ESCALATED (set blockedOn, escalate). Then RETURN TO STEP 3 (the head changed: auto-CI re-verifies, and Step 4 re-dispatches all six against the new head). This loop is bounded: the regen cycle may run at most once (spec §6).
+The regen workflow's final step commits regenerated baselines and pushes them to the branch itself (`git push origin "HEAD:$BRANCH"` in its last step) — the `git pull --ff-only` synchronizes the local worktree with the bot commit BEFORE any further local commits, preventing divergence. If the regen run fails, or a re-dispatched drift run is still red after the regen commit landed: ESCALATED (set blockedOn, escalate). Otherwise the regen bot commit is now part of the diff that merges but was NOT in the diff Task 5's review approved — so RETURN TO TASK 5 Step 2 first (re-dispatch the whole-diff review, next round number, against the updated diff including `public/help/screenshots/**`), then re-enter Task 6 from Step 1 (commit the new corpus rows; the marker-gone grep still passes) and proceed Step 2 → 3 → 4 against the new head. This loop is bounded: the regen cycle may run at most once (spec §6).
 
 - [ ] **Step 6: Merge + verify complete**
 
+The merge is INSIDE the guard's success branch — a mismatch cannot fall through to it:
+
 ```bash
 git fetch origin chore/next-1630-wedge-remeasure
-[ "$(git rev-parse origin/chore/next-1630-wedge-remeasure)" = "$FINAL" ] || { echo "HEAD-MOVED - restart Task 6 Step 4"; false; }
-gh pr merge --merge
-git -C /Users/ericweiss/FX-Webpage-Template pull --ff-only
-git -C /Users/ericweiss/FX-Webpage-Template rev-list --left-right --count main...origin/main
+if [ "$(git rev-parse origin/chore/next-1630-wedge-remeasure)" = "$FINAL" ]; then
+  gh pr merge --merge
+  git -C /Users/ericweiss/FX-Webpage-Template pull --ff-only
+  git -C /Users/ericweiss/FX-Webpage-Template rev-list --left-right --count main...origin/main
+else
+  echo "HEAD-MOVED - do NOT merge; restart from Task 6 Step 2"
+fi
 ```
 
 Expected final line: `0	0`. Green CI is not a stopping point — merge in the same turn as the last green check. The run is complete ONLY when `0	0` prints.
