@@ -36,7 +36,9 @@ import path from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { stripCommentsForFile, stripCssComments } from "../_shared/stripComments";
+import ts from "typescript";
+
+import { stripCssComments } from "../_shared/stripComments";
 
 const GLOBALS = path.join(process.cwd(), "app/globals.css");
 
@@ -52,16 +54,61 @@ const CANONICAL_USE_SITES = [
   {
     id: "C1",
     file: "components/admin/OnboardingWizard.tsx",
+    testId: "wizard-step-connector",
     utility: "max-w-confirm-box",
     replaced: "max-w-[60px]",
   },
   {
     id: "C5",
     file: "components/crew/RightNowHero.tsx",
+    testId: "right-now-hero",
     utility: "min-h-right-now-min-h",
     replaced: "min-h-(--spacing-right-now-min-h)",
   },
 ] as const;
+
+/**
+ * The class text of the JSX element carrying `data-testid={testId}`, or null.
+ *
+ * Searching the whole FILE was not a binding at all: a sibling component in the same file
+ * using the utility satisfied the assertion while the real target changed to a different
+ * canonical utility — and for C1 the rect keys are the accepted `0 == 0` tripwire, so
+ * nothing else would have caught it. The question "does THIS element use THIS utility" is
+ * an AST question about one element, which is closed; "does the file mention it" is not a
+ * question about the target at all.
+ */
+function classTextOfElement(source: string, relPath: string, testId: string): string | null {
+  const sourceFile = ts.createSourceFile(
+    relPath,
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    relPath.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
+  );
+  let found: string | null = null;
+  const visit = (node: ts.Node): void => {
+    if (found !== null) return;
+    if (ts.isJsxOpeningLikeElement(node)) {
+      const attrs = node.attributes.properties.filter(ts.isJsxAttribute);
+      const marks = attrs.some(
+        (a) =>
+          ts.isIdentifier(a.name) &&
+          a.name.text === "data-testid" &&
+          a.initializer !== undefined &&
+          ts.isStringLiteral(a.initializer) &&
+          a.initializer.text === testId,
+      );
+      if (marks) {
+        const className = attrs.find((a) => ts.isIdentifier(a.name) && a.name.text === "className");
+        found = className?.initializer ? className.initializer.getText(sourceFile) : "";
+        return;
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  return found;
+}
 
 /**
  * Every ACTIVE `--<name>: <value>;` declaration inside an `@theme` block, in source order.
@@ -130,14 +177,21 @@ describe("canonicalized utilities resolve to the values they replaced (spec §6)
     ).toEqual(["60px"]);
   });
 
-  it.each(CANONICAL_USE_SITES.map((u) => [u.id, u.file, u.utility, u.replaced] as const))(
-    "%s: the production site still consumes the canonical utility",
-    (id, file, utility, replaced) => {
+  it.each(CANONICAL_USE_SITES.map((u) => [u.id, u.file, u.testId, u.utility, u.replaced] as const))(
+    "%s: the production ELEMENT still consumes the canonical utility",
+    (id, file, testId, utility, replaced) => {
       const raw = readFileSync(path.join(process.cwd(), file), "utf8");
-      // Comments are not code: a bare `includes` passed when the utility survived ONLY in a
-      // comment. And a token boundary is required, or `max-w-confirm-box` is satisfied by a
-      // longer canonical utility that merely starts with it.
-      const src = stripCommentsForFile(raw, file);
+      // Scoped to the ELEMENT the canonicalization applies to, not the file. Comments are
+      // excluded because `getText()` on the className initializer returns only that
+      // expression, and a token boundary is required or `max-w-confirm-box` would be
+      // satisfied by a longer canonical utility that merely starts with it.
+      const src = classTextOfElement(raw, file, testId);
+      expect(
+        src,
+        `${file} has no JSX element with data-testid="${testId}" — the target this ${id} token ` +
+          "assertion is about has moved or been renamed, so the assertion is not binding anything.",
+      ).not.toBeNull();
+      if (src === null) return;
       const hasToken = (needle: string): boolean =>
         new RegExp(
           `(^|[\\s"'\`])${needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}([\\s"'\`]|$)`,
