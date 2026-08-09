@@ -28,21 +28,57 @@ import { describe, expect, it } from "vitest";
 import { parseSheet } from "@/lib/parser";
 import { premise, premiseHolds } from "@/tests/_shared/premise";
 import { FIXTURES, readFixture } from "@/tests/parser/mutation/fixtures";
-import { OPERATORS } from "@/tests/parser/mutation/operators";
+import { boundedMutants } from "@/tests/parser/mutation/operators";
 import { payloadOf } from "@/tests/parser/mutation/oracle";
 
 /** ZWSP U+200B - ZWJ U+200D, plus BOM U+FEFF — the class `clean()` strips (_helpers.ts:50). */
 const ZW = /[\u200B-\u200D\uFEFF]/;
+/**
+ * Each arm walks all 17 corpus fixtures through the real parser, so the default 30s
+ * per-test budget is not enough on a loaded CI shard — that is what failed
+ * `unit-suite-nodb (1)` before the memoization above landed.
+ */
+const CORPUS_WALK_TIMEOUT_MS = 120_000;
 /** A marker no fixture contains, so "did THIS occurrence reach payload" is answerable. */
 const MARKER = "ZWPROBEMARKER";
 
 const fixtures = FIXTURES.map((f) => ({ name: f.path, md: readFixture(f) }));
 
-/** The first `unicode-inject` mutant for a fixture — the exact mutant the harness scores. */
+/**
+ * The first `unicode-inject` mutant for a fixture — the exact mutant the harness scores.
+ *
+ * STREAMS the generator and stops at the first yield. `OPERATORS[op](md)` would
+ * materialize every mutant for the fixture (thousands), which its own docstring reserves
+ * for BOUNDED synthetic inputs; spreading it over a real corpus fixture is the misuse it
+ * warns about, and doing so here timed the premise out at CI's 30s limit.
+ *
+ * Memoized per fixture: the premise and three arms all need the same mutant, and
+ * regenerating it per call was the other half of that timeout.
+ */
+const mutantCache = new Map<string, { md: string; siteId: string }>();
 function firstUnicodeMutant(md: string): { md: string; siteId: string } {
-  const m = OPERATORS["unicode-inject"]!(md)[0];
-  if (m === undefined) throw new Error("no unicode-inject mutant - premise violated");
-  return { md: m.md, siteId: m.siteId };
+  const hit = mutantCache.get(md);
+  if (hit !== undefined) return hit;
+  for (const m of boundedMutants("unicode-inject", md)) {
+    const out = { md: m.md, siteId: m.siteId };
+    mutantCache.set(md, out);
+    return out;
+  }
+  throw new Error("no unicode-inject mutant - premise violated");
+}
+
+/**
+ * Memoized `payloadOf(parseSheet(...))`.
+ *
+ * The arms below deliberately re-ask the same questions of the same documents (baseline
+ * vs mutant vs marker), and parseSheet over a corpus fixture is ~150ms. Without this the
+ * absorption arm alone ran 18s locally and blew CI's 30s per-test timeout.
+ */
+const payloadCache = new Map<string, unknown>();
+function payloadFor(md: string, name: string): unknown {
+  const key = `${name}\u0000${md.length}\u0000${md}`;
+  if (!payloadCache.has(key)) payloadCache.set(key, payloadOf(parseSheet(md, name)));
+  return payloadCache.get(key);
 }
 
 /** Every payload string carrying a zero-width codepoint, as `<fixture> <path.to.field>`. */
@@ -57,7 +93,7 @@ function zwInPayload(md: string, name: string): string[] {
       for (const [k, x] of Object.entries(v)) walk(x, `${path}.${k}`);
     }
   };
-  walk(payloadOf(parseSheet(md, name)), "payload");
+  walk(payloadFor(md, name), "payload");
   return hits;
 }
 
@@ -73,7 +109,7 @@ function payloadContains(md: string, name: string, needle: string): boolean {
       Object.values(v).forEach(walk);
     }
   };
-  walk(payloadOf(parseSheet(md, name)));
+  walk(payloadFor(md, name));
   return found;
 }
 
@@ -86,7 +122,16 @@ function payloadContains(md: string, name: string, needle: string): boolean {
  * payload at all. Measured: those two questions disagreed on 6 of 17 fixtures in both
  * directions. A marker at the exact injection site cannot be confused with anything.
  */
+const markerCache = new Map<string, string | null>();
 function markerAtInjectionSite(md: string): string | null {
+  const hit = markerCache.get(md);
+  if (hit !== undefined) return hit;
+  const out = computeMarkerAtInjectionSite(md);
+  markerCache.set(md, out);
+  return out;
+}
+
+function computeMarkerAtInjectionSite(md: string): string | null {
   const mutated = firstUnicodeMutant(md).md;
   const before = md.split("\n");
   const after = mutated.split("\n");
@@ -100,61 +145,80 @@ function markerAtInjectionSite(md: string): string | null {
 }
 
 describe("payload zero-width freedom (spec §3.4)", () => {
-  it("premise: the corpus is real, the operator mutates it, and the injection site reaches payload", () => {
-    // Premise 1: the registry actually yielded the corpus. An empty list would make
-    // every assertion below vacuously true.
-    premise("corpus fixtures discovered", fixtures.length, 16);
+  it(
+    "premise: the corpus is real, the operator mutates it, and the injection site reaches payload",
+    () => {
+      // Premise 1: the registry actually yielded the corpus. An empty list would make
+      // every assertion below vacuously true.
+      premise("corpus fixtures discovered", fixtures.length, 16);
 
-    // Premise 2: the corpus carries native zero-width input at all (probe §13.D).
-    const fintech = fixtures.find((f) => f.name.endsWith("exporter-xlsx/fintech.md"));
-    premiseHolds("fintech fixture carries raw ZWNJ", fintech !== undefined && ZW.test(fintech.md));
-
-    // Premise 3: the operator genuinely injects a zero-width character on EVERY fixture.
-    for (const f of fixtures) {
+      // Premise 2: the corpus carries native zero-width input at all (probe §13.D).
+      const fintech = fixtures.find((f) => f.name.endsWith("exporter-xlsx/fintech.md"));
       premiseHolds(
-        `operator mutant carries ZWNJ (${f.name})`,
-        ZW.test(firstUnicodeMutant(f.md).md),
+        "fintech fixture carries raw ZWNJ",
+        fintech !== undefined && ZW.test(fintech.md),
       );
-      premiseHolds(
-        `marker substitution located the injection (${f.name})`,
-        markerAtInjectionSite(f.md) !== null,
-      );
-    }
 
-    // Premise 4 — THE REACHABILITY PREMISE, and the reason the seeded arms below are
-    // not vacuous. The mutated OCCURRENCE must actually surface in payload, or a
-    // retained zero-width character would be unobservable there and the assertions
-    // would pass no matter what the parser did. Measured 2026-08-08: 6 of 17 fixtures
-    // carry the injection site into payload. The floor sits below the measurement so
-    // ordinary fixture edits do not red it, and above zero so the arms always bite.
-    const reaching = fixtures.filter((f) =>
-      payloadContains(markerAtInjectionSite(f.md)!, f.name, MARKER),
-    ).length;
-    premise("fixtures whose injection site reaches payload", reaching, 3);
-  });
+      // Premise 3: the operator genuinely injects a zero-width character on EVERY fixture.
+      for (const f of fixtures) {
+        premiseHolds(
+          `operator mutant carries ZWNJ (${f.name})`,
+          ZW.test(firstUnicodeMutant(f.md).md),
+        );
+        premiseHolds(
+          `marker substitution located the injection (${f.name})`,
+          markerAtInjectionSite(f.md) !== null,
+        );
+      }
 
-  it("no corpus fixture leaks a zero-width codepoint into payload", () => {
-    // Regression pin, NOT the discriminating arm — see the header note. This is
-    // already true without the entry strip, and exists so a future cell-read path
-    // that bypasses clean() cannot land silently.
-    const hits = fixtures.flatMap((f) => zwInPayload(f.md, f.name));
-    expect(hits).toEqual([]);
-  });
+      // Premise 4 — THE REACHABILITY PREMISE, and the reason the seeded arms below are
+      // not vacuous. The mutated OCCURRENCE must actually surface in payload, or a
+      // retained zero-width character would be unobservable there and the assertions
+      // would pass no matter what the parser did. Measured 2026-08-08: 6 of 17 fixtures
+      // carry the injection site into payload. The floor sits below the measurement so
+      // ordinary fixture edits do not red it, and above zero so the arms always bite.
+      const reaching = fixtures.filter((f) =>
+        payloadContains(markerAtInjectionSite(f.md)!, f.name, MARKER),
+      ).length;
+      premise("fixtures whose injection site reaches payload", reaching, 3);
+    },
+    CORPUS_WALK_TIMEOUT_MS,
+  );
 
-  it("no operator-mutated fixture leaks a zero-width codepoint into payload", () => {
-    // The discriminating arm: without the parseSheet-entry strip this fails, because
-    // the injected cell reaches payload through a path clean() does not cover.
-    const hits = fixtures.flatMap((f) => zwInPayload(firstUnicodeMutant(f.md).md, f.name));
-    expect(hits).toEqual([]);
-  });
+  it(
+    "no corpus fixture leaks a zero-width codepoint into payload",
+    () => {
+      // Regression pin, NOT the discriminating arm — see the header note. This is
+      // already true without the entry strip, and exists so a future cell-read path
+      // that bypasses clean() cannot land silently.
+      const hits = fixtures.flatMap((f) => zwInPayload(f.md, f.name));
+      expect(hits).toEqual([]);
+    },
+    CORPUS_WALK_TIMEOUT_MS,
+  );
 
-  it("an injected ZWNJ is absorbed: payload equals the un-mutated baseline", () => {
-    for (const f of fixtures) {
-      expect(payloadOf(parseSheet(firstUnicodeMutant(f.md).md, f.name)), f.name).toEqual(
-        payloadOf(parseSheet(f.md, f.name)),
-      );
-    }
-  });
+  it(
+    "no operator-mutated fixture leaks a zero-width codepoint into payload",
+    () => {
+      // The discriminating arm: without the parseSheet-entry strip this fails, because
+      // the injected cell reaches payload through a path clean() does not cover.
+      const hits = fixtures.flatMap((f) => zwInPayload(firstUnicodeMutant(f.md).md, f.name));
+      expect(hits).toEqual([]);
+    },
+    CORPUS_WALK_TIMEOUT_MS,
+  );
+
+  it(
+    "an injected ZWNJ is absorbed: payload equals the un-mutated baseline",
+    () => {
+      for (const f of fixtures) {
+        expect(payloadFor(firstUnicodeMutant(f.md).md, f.name), f.name).toEqual(
+          payloadFor(f.md, f.name),
+        );
+      }
+    },
+    CORPUS_WALK_TIMEOUT_MS,
+  );
 
   it("a zero-width character in the FILENAME never reaches show.title", () => {
     // `filename` is the title's final fallback (lib/parser/index.ts:330-331) and is a
