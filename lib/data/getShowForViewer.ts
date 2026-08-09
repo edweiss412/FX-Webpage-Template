@@ -28,8 +28,9 @@
  * Defense in depth (§4.4):
  *   - Application gate: `financialsEntitled` derivation here (admin, LEAD, or a
  *     FINANCIALS mapping grant — spec 2026-07-15-extend-role-scope-vocab §4.1)
- *     decides whether to JOIN `shows_internal` at all. When not entitled, the
- *     JSONB column is never queried.
+ *     gates the RETURNED value; the read itself is unconditional (2026-08-07
+ *     viewer-independent-probe amendment). The fetched JSONB is discarded inside
+ *     `readFinancials` for non-entitled viewers and never reaches the projection.
  *   - RLS: `shows_internal` is admin-only via `is_admin()`. M5 will widen
  *     this to LEAD-aware for cookie-bound viewers; for now, we use the
  *     service-role client to bypass RLS on the entitled branch (RLS catches
@@ -75,8 +76,9 @@ import type {
 
 // Entitled-only financials JSONB shape (matches `shows_internal.financials` and
 // the seed writer at supabase/seed.ts:233-238 — `invoice_notes` snake_case
-// because that's how it's persisted). Read only for financialsEntitled viewers
-// (admin, LEAD, or a FINANCIALS grant — spec §4.1).
+// because that's how it's persisted). Fetched for every viewer (observability —
+// 2026-08-07 spec §2.1); RETURNED only to financialsEntitled viewers (admin,
+// LEAD, or a FINANCIALS grant — spec §4.1).
 export type FinancialsRow = {
   po: string | null;
   proposal: string | null;
@@ -709,12 +711,18 @@ async function readShowDataForViewer(
     }
   };
 
-  // === Financials — JOIN shows_internal ONLY when authorized ===
-  // The first-line-of-defense gate: when not financialsEntitled (admin, LEAD, or
-  // a FINANCIALS grant — spec §4.1), this read is NEVER issued (the wave passes
-  // Promise.resolve(undefined) instead), so the JSONB column isn't even queried.
-  // RLS on shows_internal (admin-only via is_admin()) is the second line; physical
-  // separation (financials NOT on `shows`) is third.
+  // === Financials — read always, RETURN only when authorized ===
+  // The first-line-of-defense gate sits at the RETURN boundary (2026-08-07 spec
+  // `docs/superpowers/specs/2026-08-07-projection-financials-viewer-independent-design.md`
+  // §2.1/§2.2), not at query issuance: the read joins the wave on every cache fill
+  // for every viewer, so a financials fetch failure is observable in `tileErrors`
+  // (and therefore alertable) regardless of who triggered the fill. The VALUE
+  // leaves this function only for financialsEntitled viewers (admin, LEAD, or a
+  // FINANCIALS grant — spec §4.1), so a non-entitled projection — and its
+  // per-viewer cache entry — never carries financials data.
+  // RLS on shows_internal (admin-only via is_admin()) never applied on THIS path
+  // (service-role client bypasses it); the real defense lines are this gate and
+  // physical separation (financials NOT on `shows`).
   const readFinancials = async (): Promise<FinancialsRow | undefined> => {
     try {
       const internalRes = await supabase
@@ -726,6 +734,10 @@ async function readShowDataForViewer(
         tileErrors["financials"] = internalRes.error.message;
         return undefined;
       }
+      // Return-boundary gate: the fetch outcome above was already recorded for
+      // observability; the fetched value is dropped here for non-entitled viewers
+      // and never decoded, serialized, or cached.
+      if (!financialsEntitled) return undefined;
       if (!internalRes.data?.financials) return undefined;
       // decodeJsonbColumn: a legacy double-encoded financials is a STRING scalar
       // from Supabase-JS; decode so f.po/proposal/... read as fields, not chars (R8).
@@ -749,8 +761,9 @@ async function readShowDataForViewer(
 
   // === Parallel wave: every independent post-validation read fans out at once ===
   // Promise.all the query PROMISES (invariant 9 — they resolve, never reject;
-  // each read above owns its try/catch). When !financialsEntitled the financials
-  // slot is Promise.resolve(undefined) so ZERO financials reads issue. NEVER allSettled.
+  // each read above owns its try/catch). The financials read always joins the wave
+  // (2026-08-07 spec §2.1); its return value is entitlement-gated inside
+  // readFinancials. NEVER allSettled.
   const [crewMembers, allHotels, rooms, transportation, contacts, runOfShowRaw, financialsResult] =
     await Promise.all([
       readCrewMembers(),
@@ -759,7 +772,7 @@ async function readShowDataForViewer(
       readTransportation(),
       readContacts(),
       readRunOfShow(),
-      financialsEntitled ? readFinancials() : Promise.resolve(undefined),
+      readFinancials(),
     ]);
 
   const hotelReservations: HotelReservationRow[] =
@@ -817,10 +830,10 @@ async function readShowDataForViewer(
   const pullSheet: PullSheetCase[] | null =
     decodeJsonbColumn<PullSheetCase[]>(showRowDb.pull_sheet) ?? null;
 
-  // === Financials — from the parallel wave (LEAD-gated; see readFinancials) ===
-  // `financialsResult` is `undefined` for every non-LEAD viewer (the wave passed
-  // Promise.resolve(undefined), so NO shows_internal financials read issued) and
-  // for LEAD viewers whose row has no financials. The spread at the return site
+  // === Financials — from the parallel wave (return-gated; see readFinancials) ===
+  // `financialsResult` is `undefined` for every non-entitled viewer (readFinancials
+  // returned undefined at the return-boundary gate, after issuing the read for
+  // observability) and for entitled viewers whose row has no financials. The spread
   // only adds the key when defined, preserving the optional-field contract.
   const financials: FinancialsRow | undefined = financialsResult;
 

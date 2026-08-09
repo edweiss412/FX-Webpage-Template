@@ -16,7 +16,12 @@
  * Correctness arms (preserve discrimination):
  *  - a returned {data:null,error} on ONE tile read sets only that tileErrors[id]
  *    and leaves siblings populated;
- *  - a non-LEAD viewer issues ZERO financials (shows_internal financials) reads.
+ *  - the financials read issues for EVERY viewer inside the wave; only the
+ *    returned value is entitlement-gated (2026-08-07 spec
+ *    `docs/superpowers/specs/2026-08-07-projection-financials-viewer-independent-design.md`
+ *    §2.1). The non-LEAD arm proves BOTH: the read is a wave member (initiated
+ *    before release, so a serial await cannot satisfy it) and the projection
+ *    still carries no financials.
  */
 import { describe, test, expect, vi, beforeEach } from "vitest";
 
@@ -127,6 +132,37 @@ vi.mock("@/lib/supabase/server", () => ({
 }));
 
 import { getShowForViewer } from "@/lib/data/getShowForViewer";
+
+type DeferredHarness = ReturnType<typeof makeDeferredClient>;
+
+/**
+ * Resolve the crew-identity lookup IMMEDIATELY with the given `role_flags`, so the
+ * helper reaches the parallel wave with a known entitlement. The FIRST `crew_members`
+ * call is the identity `maybeSingle`; every later call (the roster read) falls through
+ * to the harness client unchanged.
+ */
+function overrideCrewIdentity(harness: DeferredHarness, flags: string[]) {
+  let crewCall = 0;
+  const realFrom = harness.client.from.bind(harness.client);
+  (harness.client as { from: (t: string) => unknown }).from = (t: string) => {
+    if (t === "crew_members") {
+      crewCall += 1;
+      if (crewCall === 1) {
+        const thenable: Record<string, unknown> = {};
+        const chain = () => thenable;
+        thenable.select = chain;
+        thenable.eq = chain;
+        thenable.maybeSingle = () =>
+          Promise.resolve({
+            data: { role_flags: flags, name: "Crew Person", flight_info: null },
+            error: null,
+          });
+        return thenable;
+      }
+    }
+    return realFrom(t);
+  };
+}
 
 // A minimal valid show row so the post-validation projection succeeds.
 function showRow() {
@@ -259,7 +295,7 @@ describe("getShowForViewer — parallel independent reads (A1)", () => {
     expect(r.tileErrors.transportation).toBeUndefined();
   });
 
-  test("non-LEAD viewer issues ZERO financials reads", async () => {
+  test("non-LEAD viewer: the financials read ISSUES exactly once, projection still carries none", async () => {
     let financialsReads = 0;
     const harness = makeDeferredClient({
       deferredTables: [],
@@ -271,37 +307,25 @@ describe("getShowForViewer — parallel independent reads (A1)", () => {
         transportation: { data: null, error: null },
         contacts: { data: [], error: null },
         "shows_internal:run_of_show": { data: null, error: null },
-        "shows_internal:financials": { data: null, error: null },
+        // A REAL row: `r.financials` being undefined below can then only come from
+        // the return-boundary gate, never from an empty seed.
+        "shows_internal:financials": {
+          data: { financials: { po: "PO-1", proposal: "$5,000", invoice: "INV-9" } },
+          error: null,
+        },
         crew_members: { data: [], error: null },
         "rpc:viewer_version_token": { data: "", error: null },
       },
     });
 
     // identity lookup → non-LEAD (A1 only); count financials reads via from() wrap.
-    let crewCall = 0;
+    overrideCrewIdentity(harness, ["A1"]);
     const realFrom = harness.client.from.bind(harness.client);
-    let lastCols = "";
     (harness.client as { from: (t: string) => unknown }).from = (t: string) => {
-      if (t === "crew_members") {
-        crewCall += 1;
-        if (crewCall === 1) {
-          const thenable: Record<string, unknown> = {};
-          const chain = () => thenable;
-          thenable.select = chain;
-          thenable.eq = chain;
-          thenable.maybeSingle = () =>
-            Promise.resolve({
-              data: { role_flags: ["A1"], name: "Crew Person", flight_info: null },
-              error: null,
-            });
-          return thenable;
-        }
-      }
       if (t === "shows_internal") {
         // wrap to detect a financials select
         const wrapped: Record<string, unknown> = {};
         wrapped.select = (cols?: string) => {
-          if (typeof cols === "string") lastCols = cols;
           if (typeof cols === "string" && cols.includes("financials")) financialsReads += 1;
           return (realFrom("shows_internal") as { select: (c?: string) => unknown }).select(cols);
         };
@@ -309,11 +333,56 @@ describe("getShowForViewer — parallel independent reads (A1)", () => {
       }
       return realFrom(t);
     };
-    void lastCols;
     supabaseState.client = harness.client;
 
     const r = await getShowForViewer("show-1", { kind: "crew", crewMemberId: "crew-1" });
+    // Return-boundary gate: the value is discarded for this viewer...
     expect(r.financials).toBeUndefined();
-    expect(financialsReads).toBe(0);
+    // ...but the read itself issued (exactly once — no duplicate probe query).
+    expect(financialsReads).toBe(1);
+  });
+
+  test("NON-tautological (non-LEAD): the financials read is INITIATED inside the wave, before release", async () => {
+    const deferredTables = [
+      "hotel_reservations",
+      "rooms",
+      "transportation",
+      "contacts",
+      "shows_internal:run_of_show",
+      "shows_internal:financials", // NEW: deferred so a serial await would hang here
+      "crew_members", // roster
+    ];
+    const harness = makeDeferredClient({
+      deferredTables,
+      deferredRpcs: [],
+      seed: {
+        crew_members: { data: null, error: null }, // identity overridden below
+        shows: { data: showRow(), error: null },
+        hotel_reservations: { data: [], error: null },
+        rooms: { data: [], error: null },
+        transportation: { data: null, error: null },
+        contacts: { data: [], error: null },
+        "shows_internal:run_of_show": { data: null, error: null },
+        "shows_internal:financials": { data: null, error: null },
+        "rpc:viewer_version_token": { data: "", error: null },
+      },
+    });
+    // Crew identity resolves IMMEDIATELY with non-LEAD, non-FINANCIALS flags.
+    overrideCrewIdentity(harness, ["A1"]);
+    supabaseState.client = harness.client;
+
+    const p = getShowForViewer("show-1", { kind: "crew", crewMemberId: "crew-1" });
+    await Promise.resolve();
+    await Promise.resolve();
+    await new Promise((r) => setTimeout(r, 0));
+
+    // The financials read joined the SAME wave: initiated before any deferred
+    // read resolves. A serial readFinancials await before or after the wave
+    // FAILS here (absent at inspection time, or the wave never started).
+    expect(harness.started).toContain("shows_internal:financials");
+    expect(harness.started).toContain("shows_internal:run_of_show");
+
+    harness.releaseAll();
+    await p;
   });
 });

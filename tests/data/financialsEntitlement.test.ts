@@ -4,15 +4,22 @@
  * The FINANCIALS `RoleFlag` grant must reach the financials DATA read, not only the
  * tile render predicate (Codex R1 F1 — render predicate alone is NOT enough). This
  * pins the SECOND gate in `getShowForViewer`: `financialsEntitled = isAdmin || LEAD ||
- * FINANCIALS` (`lib/data/getShowForViewer.ts:373`) decides whether the
- * `shows_internal.financials` read even issues (`:755`).
+ * FINANCIALS` decides whether the fetched `shows_internal.financials` VALUE reaches
+ * the projection.
+ *
+ * Contract amended 2026-08-07 (spec
+ * `docs/superpowers/specs/2026-08-07-projection-financials-viewer-independent-design.md`
+ * §2.1): the read itself is now UNCONDITIONAL — it issues on every cache fill for
+ * every viewer so fetch failures land in `tileErrors` viewer-independently — and the
+ * entitlement gate sits at the RETURN boundary inside `readFinancials`.
  *
  * Mocked service-role client (readOrder.test.ts pattern — NOT the DB-bound
  * getShowForViewer.test.ts harness): the client records every `shows_internal`
- * `.select(col)` so we can assert the financials read issued (FINANCIALS-only, LEAD)
- * or did NOT issue (neither entitlement) — the existing zero-read contract. The
- * unconditional `run_of_show` read on the same table is the control: it always issues,
- * proving "financials never selected" is a real gate, not a dead client.
+ * `.select(col)` so we can assert the financials read issued for every viewer while
+ * the projected value stays entitlement-gated. The unconditional `run_of_show` read on
+ * the same table is the control: it always issues, proving a live client. Every
+ * non-entitled case seeds a REAL `FINANCIALS_ROW`, so `result.financials === undefined`
+ * can only pass via the gate, never vacuously.
  */
 import { describe, test, expect, beforeEach, vi } from "vitest";
 
@@ -74,7 +81,10 @@ function showRow() {
  * A service-role client that records every `shows_internal.select(col)`. `run_of_show`
  * (unconditional) is the control; `financials` issuing is the thing under test.
  */
-function makeFinancialsClient(viewerFlags: string[]) {
+function makeFinancialsClient(
+  viewerFlags: string[],
+  financialsResult: QueryResult = { data: { financials: FINANCIALS_ROW }, error: null },
+) {
   const internalSelects: string[] = [];
 
   function thenable(result: QueryResult) {
@@ -118,8 +128,7 @@ function makeFinancialsClient(viewerFlags: string[]) {
         const t: Record<string, unknown> = {};
         t.select = (col: string) => {
           internalSelects.push(col);
-          if (col === "financials")
-            return thenable({ data: { financials: FINANCIALS_ROW }, error: null });
+          if (col === "financials") return thenable(financialsResult);
           return thenable({ data: { run_of_show: null }, error: null });
         };
         return t;
@@ -155,7 +164,7 @@ describe("getShowForViewer financials entitlement gate (§4.1)", () => {
     expect(result.financials).toEqual(FINANCIALS_ROW);
   });
 
-  test("viewer with NEITHER entitlement: ZERO financials reads issue, no financials on result", async () => {
+  test("viewer with NEITHER entitlement: financials read ISSUES, result still carries NO financials (return-boundary gate)", async () => {
     const { client, internalSelects } = makeFinancialsClient([]);
     supabaseState.client = client;
 
@@ -164,8 +173,38 @@ describe("getShowForViewer financials entitlement gate (§4.1)", () => {
 
     // Control: the unconditional run_of_show read still fired, so the client is live.
     expect(internalSelects).toContain("run_of_show");
-    // The gate held: the financials column was never selected (existing zero-read contract).
-    expect(internalSelects).not.toContain("financials");
+    // NEW contract (spec 2026-08-07 §2.1): the financials read issues for EVERY viewer,
+    expect(internalSelects).toContain("financials");
+    // but the VALUE is discarded at the return boundary. The mock seeded a real
+    // FINANCIALS_ROW, so this can only pass via the gate, never vacuously.
+    expect(result.financials).toBeUndefined();
+  });
+
+  test("viewer with NEITHER entitlement: financials query error sets tileErrors.financials (viewer-independent observability)", async () => {
+    const { client, internalSelects } = makeFinancialsClient([], {
+      data: null,
+      error: { message: "financials boom" },
+    });
+    supabaseState.client = client;
+
+    const viewer: Viewer = { kind: "crew", crewMemberId: CREW_ID };
+    const result = await getShowForViewer(SHOW_ID, viewer);
+
+    expect(internalSelects).toContain("financials");
+    expect(result.tileErrors.financials).toBe("financials boom");
+    expect(result.financials).toBeUndefined();
+  });
+
+  test("LEAD viewer: financials query error sets tileErrors.financials (unchanged pre-existing behavior)", async () => {
+    const { client } = makeFinancialsClient(["LEAD"], {
+      data: null,
+      error: { message: "financials boom" },
+    });
+    supabaseState.client = client;
+
+    const result = await getShowForViewer(SHOW_ID, { kind: "crew", crewMemberId: CREW_ID });
+
+    expect(result.tileErrors.financials).toBe("financials boom");
     expect(result.financials).toBeUndefined();
   });
 
