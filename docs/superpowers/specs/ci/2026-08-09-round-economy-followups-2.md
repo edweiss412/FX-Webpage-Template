@@ -102,9 +102,10 @@ guard, proof, or equivalence surface the registry can express (a lib module or s
 defect class is "reports OK while the output moved"), enrol it in
 `tests/mutation/source/registry.ts` and run `pnpm mutation:guards` BEFORE the first dispatch,
 and state the score plus the unaccepted-survivor set in the round-1 brief. Two arcs measured
-the cost of the MISSING enrolment as mutants hand-discovered by reviewers at roughly 25
-minutes of dispatch each: the classname equivalence scripts — registry-expressible lib-shaped
-modules that were never enrolled — drew fifty false-pass findings across fourteen diff rounds,
+the cost of the MISSING enrolment as mutants hand-discovered by reviewers: the classname
+equivalence scripts — registry-expressible lib-shaped modules that were never enrolled — drew
+fifty false-pass findings across fourteen diff rounds at roughly 25 minutes of dispatch per
+mutant (that arc's own figure; the step3 filing records no per-mutant duration),
 and the step3-a11y tap-target suite spent six of nine diff rounds the same way before a later
 probe showed the registry cannot express that Playwright surface at all (its nineteen mutants
 are bespoke component edits). An enrolled surface runs in roughly 93 seconds (the
@@ -201,7 +202,9 @@ immediately via P3. Design and opt-in mechanics belong to the implementing arc.
   and `BL-SPECLINT-PROSE-COUNT-PARITY` resolve for any future filing that cites them
   (`tests/docs/_metaReviewRoundEconomy.test.ts` resolves cited ids against live ledgers).
 - AC-3: `pnpm spec:lint docs/superpowers/specs/ci/2026-08-09-round-economy-followups-2.md`
-  reports no findings on the final spec.
+  reports zero HARD findings on the final spec; advisory findings are acceptable only as
+  `COPY_UNPAIRED_QUOTE` artifacts of quoting filing prose mid-line, and each review dispatch
+  acknowledges the advisory count rather than omitting it.
 - AC-4: the docs test suite is green on the branch (at minimum `pnpm vitest run tests/docs`),
   covering the ledger guards and the review-round economy gate.
 - AC-5: this spec gains its `docs/superpowers/specs/ci/README.md` index row in the same PR.
