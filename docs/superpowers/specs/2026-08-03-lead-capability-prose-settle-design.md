@@ -1,5 +1,15 @@
 # Settling `BL-LEAD-CAPABILITY-PROSE-STALE` — prose that asserts a capability the flag does not confer
 
+> **Deleted-spec note (2026-08-09).** This document names one or more of the nine `tests/e2e/`
+> specs deleted by `BL-RESURRECT-MOBILE-SAFARI-E2E` — schedule-tile, transport-tile,
+> status-financials, role-spoof, pack-list, notes-tile, right-now, layout-dimensions,
+> empty-state. They were 100% `test.describe.skip` against the retired `?crew=` viewer mock AND
+> the slug-only `/show/[slug]` route, which has no `page.tsx`, so every navigation in them 404'd.
+> Any command here that runs one will fail, and any claim that one provides coverage is stale.
+> Per-file coverage accounting:
+> `docs/superpowers/specs/ci/2026-08-09-resurrect-mobile-safari-e2e-design.md` §2.3. This
+> document is otherwise left as the historical record it is.
+
 **Date:** 2026-08-03 · **Branch:** `docs/settle-lead-capability-prose` · **Class:** docs/contract + structural guard · **Ledger entry:** `BL-LEAD-CAPABILITY-PROSE-STALE` (BACKLOG.md)
 
 `BL-LEAD-CAPABILITY-PROSE-STALE` was filed on 2026-08-02 by `chore/copy-deadcode-sweep` for two deliberate non-fixes. That branch corrected every Doug-visible copy string carrying the claim and stopped at two written statements about what a capability flag confers, because settling either meant reading the contract it belongs to rather than editing a sentence. This branch reads both contracts and settles both, and — per the AGENTS.md class-sweep rule — sweeps the rest of the class in the same files rather than closing only the two named instances.

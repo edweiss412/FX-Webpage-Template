@@ -100,6 +100,10 @@ const EXPECTED_GLOBAL_IDS = [
 // codes were always emitted and always in the §12.4 catalog, but the old scanner could
 // not see the factories that build them, so the gallery never rendered them. They are
 // recovered, not new — which is exactly the rot the guard now prevents.
+// One more added 2026-08-09 by the parser mutation wave: warn-ref-error-literal
+// (docs/superpowers/specs/parser/2026-08-07-parser-mutation-wave-design.md §4). A new
+// warn-severity ParseWarning code renders a gallery scenario, so the baseline grows by
+// exactly one — that is the reviewed diff naming its spec this list asks for.
 const RENDERED_IDS_BEFORE: string[] = [
   "alert-ambiguous-email-binding",
   "alert-asset-recovery-bytes-exceeded",
@@ -230,6 +234,7 @@ const RENDERED_IDS_BEFORE: string[] = [
   "warn-pull-sheet-parse-partial",
   "warn-pull-sheet-unknown-variant",
   "warn-reel-drifted",
+  "warn-ref-error-literal",
   "warn-role-token-autocorrected",
   "warn-room-header-split-ambiguous",
   "warn-schedule-strike-date-off-schedule",

@@ -394,7 +394,7 @@ describe(
       const scanned = scanTree();
       expect(
         scanned.length,
-        "expected 66 files reading LOCAL_TEST_DATABASE_URL = 36 swept + 15 pre-existing " +
+        "expected 67 files reading LOCAL_TEST_DATABASE_URL = 36 swept + 15 pre-existing " +
           "+ tests/sync/qualityRegressionLifecycle.test.ts + tests/db/_remediationHelpers.ts " +
           "+ tests/db/tileAlertResolution.db.test.ts " +
           "+ tests/db/watchRenewalDue.test.ts (watch lease slack; deletes rows, local-only) " +
@@ -413,8 +413,12 @@ describe(
           "readers still outside this scan set) " +
           "+ tests/onboarding/finalizeCasSourceAnchors.db.test.ts (existing-show re-onboard " +
           "source-anchor thread, 2026-08-03; seeds and deletes shows/pending_syncs rows, " +
+          "local-only) " +
+          "+ tests/db/watchActivationRace.db.test.ts (the promotion/activation interleave " +
+          "test, 2026-08-09; runs promoteSettings's GLOBALLY-scoped channel statements and " +
+          "captures/restores drive_watch_channels, app_settings and the orphan alert, " +
           "local-only)",
-      ).toBe(66);
+      ).toBe(67);
     });
 
     test("the one validation-capable suite guards its LOCAL leg WITHOUT constraining TEST_DATABASE_URL", () => {

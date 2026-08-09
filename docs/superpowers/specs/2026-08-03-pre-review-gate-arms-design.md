@@ -367,6 +367,8 @@ So the plan declares its own task grain, in a **delimited region**:
 - A closing line is consumed silently in exactly one circumstance: it matches an opening line that was itself rejected as `TASK_ENROLL_DUPLICATE`. Track a count of rejected openings; each close while the region is not open decrements it. A close with the counter at zero and the region not open is `TASK_ENROLL_MALFORMED`.
 
   Two wrong spellings were tried before this one. "Malformed whenever the region is not currently open" **cascades**: the close matching a rejected duplicate reports a phantom unmatched-close, so one authoring error manufactures a misleading second finding. "Consumed whenever any opening precedes it anywhere" **over-corrects**: `open → close → close` and any number of surplus closes after a completed region are then swallowed with no finding at all, which is the silent-acceptance shape again. Pairing each silent consumption with a specific rejected opening is what makes both cases come out right. Probed against `open → close → open → close`: the second opening correctly draws `TASK_ENROLL_DUPLICATE`, and because rejecting it leaves the region closed, its matching close then draws a second finding claiming no open precedes it, which is visibly false. One authoring mistake must not manufacture a misleading second finding; the duplicate is the whole defect.
+> **Superseded (2026-08-09):** multi-region enrollment — see `2026-08-09-task-enrollment-multi-region-design.md` §3.
+
 **The leading-space allowance is not cosmetic.** CommonMark permits an HTML block up to three spaces of indentation, and such lines occur in the tracked corpus. Anchoring at column zero classifies an indented marker as ordinary prose, so a plan that visibly declares enrollment is treated as never having attempted it: silently unenrolled, zero findings, no diagnostic at all. Four or more leading spaces is an indented code block in CommonMark and correctly is not a marker. The same allowance applies to task markers (§3.3).
 
 - A **task** is a heading of exactly the declared depth **lying inside the region**. Nothing else is a task, at any depth; no heading text is ever read. End of document closes an unclosed region.
@@ -383,6 +385,8 @@ Twelve depth-2 headings, seven of them tasks. Front matter (`## Pre-draft verifi
 A plan that **never attempts enrollment** — no `<!-- tasks:` line anywhere — produces zero `taskContract` findings. That is what keeps §1.1 item 3 true: the 533 legacy plans are untouched, and the convention costs nothing until first used.
 
 **"Never attempted" is not the same as "attempted and failed", and conflating them erases findings.** An earlier wording made enrollment hold "iff there is exactly one valid opening" and then gave every unenrolled plan zero findings — which deletes the very errors the line pass just raised. A malformed opening has zero valid openings; an unmatched close has zero; duplicate openings have two. All three would be silenced, including the duplicate case AC-26 explicitly requires to be reported. So: any plan carrying a `<!-- tasks:` line has attempted enrollment, its line-pass findings always stand, and only the task-level rows (`TASK_ENROLL_EMPTY`, `TASK_MARKER_MISSING`, `TASK_MARKER_DUPLICATE`) are skipped when a single valid region could not be established.
+
+> **Superseded (2026-08-09):** multi-region enrollment — see `2026-08-09-task-enrollment-multi-region-design.md` §3.
 
 ### 3.3 The task marker
 
@@ -488,7 +492,11 @@ This catalog is a **summary of §3.4.1, never a second source of truth.** Where 
 | `TASK_AC_MISSING` | 2 | **in an enrolled plan**, the line matches except that `ac=` is absent or its list is empty (precedence 2) |
 | `TASK_AC_UNRESOLVED` | 2 | **in an enrolled plan**, an `ac=` id cited by a **well-formed marker inside a task extent** has no exact-token occurrence in the plan's own text outside a marker. The gate matters: without it the row also fires for an orphaned marker's ids, contradicting the table's `TASK_MARKER_ORPHANED` **alone** |
 
+> **Superseded (2026-08-09):** multi-region enrollment — see `2026-08-09-task-enrollment-multi-region-design.md` §3.
+
 **Every marker code is pass 2, and that is a correctness requirement rather than an implementation preference.** Marker classification depends on extents; extents depend on the region; and whether the region counts at all is the pass-2 enrollment conclusion. An implementation that classified markers during the line scan would emit `TASK_MARKER_MALFORMED` inside a *provisional* extent, then learn at the end of the document that a second opening line left the plan unenrolled — with the form finding already reported. Two documents differing only in a trailing duplicate opening would then disagree about a marker finding a thousand lines above it. Pass 1 records where marker-shaped lines are; it does not judge them.
+
+> **Superseded (2026-08-09):** multi-region enrollment — see `2026-08-09-task-enrollment-multi-region-design.md` §3.
 
 ### 3.4.1 Total classification table — the structural defense
 
@@ -514,6 +522,8 @@ Every non-fenced line in a plan falls into exactly one class:
 | ATX heading at any other depth | any | ordinary prose; terminates an extent only if shallower |
 | anything else | any | ordinary prose |
 
+> **Superseded (2026-08-09):** multi-region enrollment — see `2026-08-09-task-enrollment-multi-region-design.md` §3.
+
 Pass 1 emits **only** `TASK_ENROLL_DUPLICATE` and `TASK_ENROLL_MALFORMED` — two codes, not three. `TASK_ENROLL_EMPTY` is a pass-2 conclusion, since whether a region holds zero tasks is unknowable until the region has ended and enrollment has been decided; an earlier draft said "the three enrollment codes" and contradicted its own catalog one paragraph above. Pass 1 records marker-shaped lines and task headings without judging either, because both judgements need state pass 1 does not yet have.
 
 The three `tasks: end` rows are jointly exhaustive over the region state, which is what makes the surplus close come out right. An earlier table collapsed the last two into one row reading "an opening line appeared earlier, region not currently open → consumed silently", which swallowed every close after a completed region: `open → close → close` produced no finding, contradicting §3.2's counter rule and reinstating the silent-acceptance shape the counter was introduced to remove. The counter is the whole mechanism — a close is forgiven only when a specific rejected opening is there to forgive it.
@@ -534,6 +544,8 @@ The three `tasks: end` rows are jointly exhaustive over the region state, which 
 | enrolled, inside an extent, **matches the marker form in every respect except** that `ac=` is absent or its list is empty | `TASK_AC_MISSING` (occupies the slot) |
 | enrolled, inside an extent, matches the marker form **fully** | satisfies that task; its ids are checked by `TASK_AC_UNRESOLVED` |
 | enrolled, inside an extent, matches nothing above | `TASK_MARKER_MALFORMED` (occupies the slot) |
+
+> **Superseded (2026-08-09):** multi-region enrollment — see `2026-08-09-task-enrollment-multi-region-design.md` §3.
 
 **The "in every respect except" prerequisite is load-bearing on the first two rows**, and an earlier draft omitted it. Because this table is declared authoritative over the §3.4 catalog, dropping the prerequisite made it override §3.3's precedence rule outright: `` <!-- task: red=`` foo=x ac=AC-1 --> `` has an empty command *and* an unknown key, so the shortened row classified it `TASK_RED_EMPTY` where precedence rule 3 and AC-11 both require `TASK_MARKER_MALFORMED`. Likewise `` <!-- task: red=`cmd` foo=x --> `` read as `TASK_AC_MISSING` rather than malformed. The specific codes describe a marker that is *otherwise well-formed*; a line carrying junk as well is malformed, whatever else is also wrong with it.
 
@@ -714,6 +726,8 @@ So the check compares the header's path to the requested `--lint-doc`, resolved 
 
 **AC-26.** `open → close → open → close` reports exactly `[TASK_ENROLL_DUPLICATE]`, anchored to the second opening. The first region must contain **a task that would itself draw a task-level finding if it were checked** — the fixture uses a depth-N heading with no marker at all. The full-list assertion then pins both halves at once: the duplicate fires (never silent), and the task-level rows are skipped (never guessed against one of two declared regions).
 
+> **Superseded (2026-08-09):** multi-region enrollment — see `2026-08-09-task-enrollment-multi-region-design.md` §3.
+
 The fixture's shape is load-bearing and an earlier draft got it wrong in a way that is worth stating, because it is the anti-tautology trap in its purest form. That draft put a **well-formed** task with a valid marker in the first region and asserted no task-level finding. A well-formed task produces no task-level findings under *either* behavior, so the criterion could not fail. Verified by mutation against a reference implementation of §3.4.1 — flipping the pass-2 conclusion from `openCount === 1` to `openCount >= 1`:
 
 ```
@@ -801,6 +815,8 @@ duplicate openings  correct=[TASK_ENROLL_DUPLICATE]   mutant=[TASK_ENROLL_DUPLIC
 
 AC-32 requires the line-pass finding to be *present* and AC-26's and AC-30's fixtures are marker-less, so a mutant that judges recorded markers anyway passes all three while emitting task-level findings about a region the design calls unknowable. Presence assertions cannot catch a spurious extra finding; only the full list can.
 
+> **Superseded (2026-08-09):** multi-region enrollment — see `2026-08-09-task-enrollment-multi-region-design.md` §3.
+
 **AC-46.** `TASK_MARKER_ORPHANED` fires **alone whatever the orphan's form** — a matrix over every form class, each asserted as a full list:
 
 ```
@@ -859,6 +875,8 @@ The zero half is an absence assertion, so the fixture must be a document that **
    `docs/superpowers/plans/2026-07-26-stripcomments-shared.md`, `docs/superpowers/plans/admin/2026-07-07-admin-field-overrides/PLAN.md`, `docs/superpowers/plans/observability/2026-07-01-durable-outcome-telemetry.md`, `docs/superpowers/plans/observability/2026-07-02-observability-coverage-completion.md`, `docs/superpowers/plans/step3-onboarding/2026-06-11-onboarding-fixups/HANDOFF-NOTES-F5A.md`, and `docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-30-m12.2-admin-redesign/M12.2-phase-b3-email-delivery.md`.
 
    Interloper counts run 1 to 5 per plan. Such a heading is classified as a task and draws `TASK_MARKER_MISSING`. That is a **conservative failure with a surfaced finding**, not silent corruption, so per the project's admissibility contract it files here rather than forcing a redesign: the author's remedy is to demote the grouping header a level or leave the plan unenrolled. Enrollment is opt-in, so nothing breaks until someone enrols a plan of this shape.
+
+> **Superseded (2026-08-09):** items 6 and 7 are CLOSED by multi-region enrollment — see `2026-08-09-task-enrollment-multi-region-design.md` §3.
 
 8. **`--lint-doc` reports are budgeted, so a large enough set is shown truncated.** §2.2.2 caps embedded reports at 200,000 bytes combined with an explicit notice. A reviewer handed a truncated report sees that it was truncated; they do not see the omitted findings. Raising the cap trades against the wrapper's 2,000,000-byte composition limit, which a full corpus-scale set would cross on its own.
 

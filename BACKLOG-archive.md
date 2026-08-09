@@ -20,6 +20,113 @@ Same split as [DEFERRED.md](./DEFERRED.md) ↔ [DEFERRED-archive.md](./DEFERRED-
 
 Post-fix measurement: 72/78 counted (84 mutants, 6 equivalent, 6 accepted-gap), score ≈ 0.923 ≥ floor 0.9. The parser-shard half of the same nightly red (drifted fingerprints) was healed separately by the wave itself (PR #736: zero-width strip + ledger re-bless `cdab19a29`).
 
+### BL-RESURRECT-MOBILE-SAFARI-E2E — lift the remaining mobile-safari tile/crew specs into CI
+
+**Filed:** 2026-06-23 (discovered building the crew-e2e CI job). **Effort:** L
+
+> **CORRECTION 2026-08-06 (L-wave, `feat/l-wave-docs`).** The entry's founding premise — "NO CI
+> workflow runs the `mobile-safari` Playwright project" — is **REFUTED**. Three workflows run it
+> today: `lifecycle-layout-e2e.yml` (`:110`, `:130`, `:132`), `crew-e2e.yml` (`:159`, alongside
+> desktop-chromium), and `phantom-gap-e2e.yml` (`:175`). The project is not dark; a **subset of specs
+> inside it** is. The id is KEPT deliberately — it is cross-referenced from the CI-dark cluster specs
+> and the 2026-08-05 sizing sweep, and a rename would cost more than the stale title saved. The body
+> below is rewritten at honest scope; the original claim is preserved in this note so the correction
+> is auditable rather than silent.
+
+**Honest residual: the ~20 M4 tile/crew specs that no workflow names.** Every CI Playwright run is
+still an explicit spec list, so a spec matched by the `mobile-safari` project but named in no run
+command executes nowhere. That set is roughly: `crew-page`, `schedule-tile`, `transport-tile`,
+`status-financials`, `role-spoof`, `pack-list`, `notes-tile`, `right-now`, `right-now-transitions`,
+`layout-dimensions`, `empty-state`, `theme-toggle`, and their siblings — the twelve that are
+additionally `describe.skip` are enumerated in `BACKLOG-archive.md` §
+`BL-COVERAGE-CLAIMS-CITE-SKIPPED-SUITES`. **A spec being project-matched is not coverage**, and that
+distinction is the whole content of this row now.
+
+**Why it is still L, and still not "now":** these specs have been unrun in CI for a long time and
+will surface latent seed/timing/env failures. The crew corpus and the M4 tile fixtures mutate shared
+rows — `workers: 1` already serializes them, but resurrecting ~20 at once is a multi-round debugging
+slog, not a follow-on edit. Several also predate the crew redesign and assume a pre-redesign DOM.
+
+**Promotion path — incremental, and the bar is already demonstrated.** Extend `crew-e2e.yml` (or a
+sibling) spec by spec, triaging each failure; the `CREW_E2E_ONLY` filter + `pnpm db:seed` pattern
+there is the working template. `lifecycle-layout-e2e.yml` is the worked example of the acceptance bar
+a batch must clear — **five consecutive green normal-dispatch runs** before a spec counts as wired
+(spec §6.1 / AC-6). Land green globs as they pass rather than flipping the project on at once.
+
+**Relationship to `BL-E2E-APP-DEPENDENT-SPECS-CI-DARK` — it is a SUBSET, not a sibling.** Probed
+2026-08-06: all twelve specs listed above are `UNSEEN` rows of the same
+`tests/ci/_metaE2eWorkflowCoverage.test.ts` allowlist that entry's 43-row population is drawn from.
+An earlier draft of this note claimed the two cover different populations and may close
+independently; that was false in the direction that matters, and is corrected here rather than left
+to be re-derived. **Closing the parent closes this one.** This entry survives as a distinct row only
+because it names a coherent, prioritizable BATCH — the mobile-safari tile/crew specs, which share one
+project, one seed, and one template — and the parent's own promotion path is explicitly incremental
+batches. If the parent is worked wholesale, archive this as absorbed.
+
+**RESOLVED 2026-08-09** — PR #743, branch `test/resurrect-mobile-safari-e2e`. Closed at the honest
+scope the 2026-08-06 correction established: wire what lives, delete what is superseded, revive the
+one unique gap.
+
+**What shipped.**
+
+- **Deleted nine specs** (schedule-tile, transport-tile, status-financials, role-spoof, pack-list,
+  notes-tile, right-now, layout-dimensions, empty-state). Each was 100% `test.describe.skip` against
+  the retired `?crew=` viewer mock AND the slug-only `/show/[slug]` route, which has no `page.tsx`,
+  so every `page.goto` in them 404'd. Per-file coverage accounting is spec §2.3; nothing this repo
+  still had was removed. `--list` before/after: 69 → 60 files, exactly the nine, nothing else.
+- **Wired `crew-page.spec.ts`** (mobile-safari ALONE — its 22 `testInfo.project.name` early-returns
+  made a desktop execution a passing no-op the executed-count oracle would have credited; all 22
+  removed and the spec dropped from the desktop regex in the same commit, sweep neutrality verified
+  against a pre-sweep baseline of 15 expected / 4 skipped).
+- **Rewrote and wired `theme-toggle.spec.ts`** against the seeded shareToken route: persistence in
+  BOTH directions, a no-FOUC oracle that proves the theme is applied before anything paints, a11y
+  resolved by ROLE and computed accessible name, and the 44px tap floor. `REQUIRED` rows are 15 and
+  8, derived from real run reports.
+- **Fired the §3.5 whole-file valve on `right-now-transitions.spec.ts`** — unwired, statically
+  skipped, recorded as the §6.6 documented limit. See `BL-RIGHTNOW-SECTION57-FIXTURE-INERT`.
+- **Three fail-by-default guards** so this cannot silently regress: `ENROLLED ∪ EXEMPT` must equal
+  the workflow's spec list; every enrolled spec needs an explicit `EXPECTED_SKIPS` row; and no spec
+  a paths-ignore workflow runs may stay `UNSEEN`. Each shipped with its own mutant-red.
+
+**AC-2 met:** five consecutive green `crew-e2e` `workflow_dispatch` runs on `79a22d11e` —
+31317463872, 31317829789, 31318165364, 31318525822, 31318896147.
+
+**Product defects the resurrection surfaced** (this entry predicted exactly that):
+[[BL-CREW-FOOTER-OBSCURED-BY-FIXED-BOTTOM-BAR]] and
+[[BL-CREW-FOOTER-NOT-ANCHORED-SHORT-CONTENT]] — probably one fix, both filed with probes.
+
+**Harness/infra defects it surfaced:** [[BL-RIGHTNOW-SECTION57-FIXTURE-INERT]],
+[[BL-LOCKED-FIXTURE-HELPER-TARGETS-REMOTE-DB]], [[BL-FONT-CENSUS-ORACLE-FLAKE-BLOCKS-CREW-E2E]].
+
+**Residues closed in-arc:** the pack-list `rawSnippet` render now has
+`tests/components/crew/sections/GearSection.rawSnippet.test.tsx` (four mutants). The
+layout-dimensions footer residue did NOT land a test — the invariant does not hold in the product
+(`mt-auto` computes to 0px because `crew-shell` breaks the `page-shell` flex chain), so it became a
+defect row instead; spec §3.3's product-defect branch, ratified in the spec's Dimensional Invariants
+amendment.
+
+**Whole-diff review:** 7 Codex rounds to APPROVE; round-economy filing at
+`docs/review-rounds/test/resurrect-mobile-safari-e2e/b2aca7b02547.md`.
+
+---
+
+## BL-WATCH-PROMOTION-ACTIVATION-RACE — a folder switch racing a subscriber can leave one stale active channel — CLOSED 2026-08-09 (`fix/watch-promotion-activation-race`, PR #747)
+
+Closed by `docs/superpowers/specs/2026-08-09-watch-promotion-activation-race-fix-design.md` (PR #747); supersedes the 2026-08-05 PARK ratification. Activation now serializes against promotion via a `for share` read of the `app_settings` row inside the activation transaction — which is not an advisory lock and adds no hashkey, so the ratified no-advisory-locks constraint on every watch surface is honored rather than waived. The lock-topology design session the 2026-08-04 screen ruling asked for is that spec.
+
+**Status:** CLOSED · **Severity:** low (bounded to one lease; no data loss) · **Surfaced:** 2026-07-26, watch-renewal-lifecycle spec rounds 2-5 · **Effort:** L
+**l-wave-screen 2026-08-06:** PARKED (ratified 2026-08-05) for its own lock-topology design session; not schedulable inside any wave (see the 2026-08-04 screen ruling in-body).
+
+`promoteSettings` supersedes the prior folder's `active` channels and orphans its `pending` ones inside the settings-swap transaction, and `activatePending` refuses a zero-row activation. That closes every window where the pending row exists when promotion runs. It does NOT close the window where a subscriber reads the old configured folder, promotion commits, and the subscriber then inserts and activates its pending row — nor the one where the subscriber commits its activation while promotion is still uncommitted, since under READ COMMITTED it reads the previous committed folder.
+
+Three review rounds tried to close this with an `app_settings` predicate inside `activatePending`; each attempt failed for a different reason, the last being that an ordinary subquery cannot see an uncommitted promotion. **A correct fix requires serialization** between the promotion transaction and concurrent subscribers — an advisory lock on the settings row, or `select … for update` — which collides with the ratified "no advisory locks on any watch surface" constraint (that constraint exists because a second holder on this hashkey is the M5-R20 nested-holder class). So this is a lock-topology change and needs its own design.
+
+**Bounded, not open-ended:** refresh renews only the configured folder and renews nothing when the folder read fails, so a stale row is never renewed under any branch. It dies at its own `expires_at` within `WATCH_TTL_MS`, is reaped to `expired`, and is GC'd. Worst case is up to 24h of webhook deliveries for a folder nobody watches — the same class that was PERMANENT before that work landed.
+
+**Amends AC-6.18**, which is otherwise absolute. Design context: `docs/superpowers/specs/observability/2026-07-26-watch-renewal-lifecycle-design.md` §3.2.4.
+
+screen-disposition 2026-08-04: KEEP — probe-adjacent evidence already in the tree, and the worst case is not conservative. The race is asserted by the production code itself at `app/api/admin/onboarding/finalize-cas/route.ts:860-862` ("A subscriber that inserts AFTER promotion commits is not covered — closing that needs serialization this surface deliberately does not have"), the same-transaction supersede it races is at `:863-869`, and the isolation premise is stated verbatim at `lib/drive/watch.ts:1070-1072` ("`sql.begin` runs at READ COMMITTED, where each statement takes its own"). `activatePending` (`lib/drive/watch.ts:253-283`) takes no `for update`, no advisory lock and no isolation override. The outcome is a stale `active` channel delivering webhooks for an unwatched folder for up to 24h — a wrong live state, not a refusal, so it is not a documented-limit candidate.
+
 ## BL-FRESHNESS-ABORTED-CLOSE-E2E — the freshness cue's clear-on-hide branch has no behavioural proof — CLOSED 2026-08-07 (`feat/backlog-quick-wins`, arc C Q2)
 
 **Status:** CLOSED · **Filed:** 2026-08-03 (round-3 cross-model review of `feat/modal-freshness-cue`) · **Class:** test coverage · **Effort:** S (one e2e case on an existing spec) · **Severity:** low
@@ -409,6 +516,47 @@ Design memo captures six load-bearing principles: push-not-pull, severity tierin
 
 ---
 
+## BL-TWO-WAY-SHEET-SYNC — Write corrections back to the source Google Sheet — CLOSED 2026-08-09 (`docs/demote-two-way-sheet-sync`, DEMOTED: accepted limit)
+
+**Resolution: DEMOTED to an accepted limit, by owner call 2026-08-09.** The canonical method for
+updating the parsed data IS updating the source sheet — one-directional flow is the product model,
+not a gap awaiting work. Under the ledger filing bar (AGENTS.md;
+`docs/superpowers/specs/2026-08-04-backlog-convergence-design.md` §2), a limit whose worst case is
+the designed conservative behavior — human fixes the sheet; the app holds the overridden item steady
+via `sync_holds` until the sheet reconciles — belongs in a limits record, not the open queue. This
+archive entry is that record; grep the id to reach it.
+
+**Revisit trigger, carried from the entry's promotion prerequisite:** Doug (or the operator)
+explicitly wants genuine two-way sync (e.g. "fixing it in the app should fix my sheet"). If that
+fires, re-file as its own project — write-scope + re-consent escalation, parser cell-provenance
+retention, conflict/feedback-loop handling, and a trust decision about the app editing
+source-of-truth sheets. The three hard walls in the original body below are the starting scope; the
+demotion refutes none of them.
+
+**Supersedes:** the 2026-08-06 L-wave screen's "PREREQ fences stand … BL-TWO-WAY-SHEET-SYNC (Doug
+asks). Untouched." (`docs/superpowers/specs/2026-08-06-l-wave-design.md` §1.1 item 11), which kept
+the row open on the same trigger. Nothing about the trigger changed — only its queue residency: the
+row was a prerequisite-fenced feature idea sitting in the open queue for a flow the product
+deliberately does not have.
+
+**Original entry, preserved in full:**
+
+**Filed:** 2026-06-08, during the "sync changes feed + identity-only gate" brainstorming (`docs/superpowers/specs/v1-pre-deployment-amendments/2026-06-08-sync-changes-feed-identity-gate-design.md`). Surfaced when evaluating whether **undo** could write the old value back to the sheet to keep app and sheet consistent (instead of the chosen "revert + per-entity hold" approach).
+
+**Effort:** L
+
+**Description:** Today the app is strictly one-directional — Doug's Google Sheet is the source of truth, the app reflects it. A two-way-sync feature would let an admin correction made in the app (e.g. an undo, or a future inline edit) write back into the source sheet, so the sheet and the live pages stay consistent without the app having to "hold/override" the sheet's value across syncs. It would obviate the per-entity `sync_holds` override mechanism for the undo path (the conflict simply wouldn't exist if the sheet were corrected too).
+
+**Why backlog, not deferred — three hard walls (all verified 2026-06-08):**
+
+- **Read-only OAuth scopes.** The app uses `auth/drive.readonly` + `auth/spreadsheets.readonly` (`lib/drive/client.ts`). Write-back needs `auth/spreadsheets` (write) + re-consent + **edit** access to Doug's sheets — a real permission/security/trust escalation.
+- **No source-cell provenance.** The parser abstracts the messy human sheet into structured `parse_result` and discards cell/row/range coordinates (`lib/parser/types.ts` `CrewMemberRow` etc. carry no provenance). Writing "Bob" back to "the name cell" requires a reverse field→cell mapping the parser doesn't retain — a significant parser change, brittle against merged cells/formulas/free-form layout.
+- **Inverts the product model + new hazards.** "App edits Doug's source data" flips the one-directional trust model and introduces formatting-clobber risk, concurrent-edit races with Doug, and a modified-time feedback loop (app writes → sheet mtime advances → sync re-triggers; needs app-origin-write guards).
+
+**Promotion prerequisite:** Doug (or the operator) explicitly wants genuine two-way sync (e.g. "fixing it in the app should fix my sheet"). It's its own project — scope expansion (write scope + consent), a parser change to retain cell provenance, conflict/feedback-loop handling, and a trust/relationship decision about the app editing source-of-truth sheets. The chosen v1 reconciliation (human fixes the sheet; the app holds the overridden item steady until then) keeps the app in its read-only lane; this entry exists only so the idea isn't lost.
+
+---
+
 ## BL-ADOPTION-PIN-REACHABILITY-BLIND — the shared-helper adoption guard cannot prove LIVE-PATH use — CLOSED 2026-08-06 (L-wave, `feat/l-wave-docs`, DEMOTED)
 
 **Resolution: DEMOTED and archived. This is a DOCUMENTED LIMIT filed as open work, and the entry says
@@ -670,6 +818,22 @@ earlier on this same branch.
 `tests/e2e/admin-lifecycle-layout.spec.ts` and `tests/e2e/admin-lifecycle-transitions.spec.ts` appear in the `mobile-safari` project `testMatch` (`playwright.config.ts`), but every e2e workflow runs an explicit spec list and none names them — they run nowhere in CI. The archive-row-menu-idiom branch wires the LAYOUT spec (new `lifecycle-layout-e2e.yml`, since it carries that feature's load-bearing assertions); the TRANSITIONS spec remains dark. **Fix (when prioritized):** add `admin-lifecycle-transitions.spec.ts` to the same workflow (or its own) after fixing its local flake class — the 2026-07-24 flake audit (archive-row branch) measured: static source-guard red since 2026-07-20 (fixed on that branch via the ArchiveShowButton transition-opacity carve-out mirroring PublishedToggle's), plus 3 pre-hydration click-swallow failures (hub kebab open x2, published toggle x1) whose failing cases move between runs; the layout spec's toPass hydration-retry is the template. The structural guard for the class (workflow-coverage meta-test with a reasoned allowlist) SHIPPED with the archive-row-menu-idiom branch (spec §6 item 6); un-wiring work here is now just moving this spec off that allowlist by adding it to a workflow. Related owner decision (R18), **corrected 2026-07-26**: the claim that branch protection requires only the `quality` context is STALE — measured, the live required set holds TWELVE contexts. The e2e jobs are advisory not because one context is required, but because none of them is in that set. Promoting e2e jobs into it so a red e2e blocks merge at the GitHub layer remains an owner GitHub-settings action, not repo code; until then enforcement is the pipeline's all-checks-green procedural gate. Measurement: `docs/superpowers/specs/ci/2026-07-26-ci-dark-coverage-design.md` §2.5.
 
 **New instance observed 2026-07-26 — FIXED 2026-08-03** on `chore/ci-boot-overlap-and-popover-flake`: T-REGROW's two armed measurements no longer take a fixed wait. The real run retries the whole measurement so a transient pre-re-placement state retries while a regression still times out; the ladder sweep settles on observed growth. A structural guard (`tests/cross-cutting/e2e-regrow-settle-contract.test.ts`) anchors a retry at each arming site so the fixed wait cannot creep back. The three fixed waits the class sweep found ELSEWHERE in that file are filed separately as `BL-E2E-LAYOUT-FIXED-WAIT-RESIDUE`. The umbrella below — the ~60 app-dependent specs — is unchanged and stays OPEN. Original text follows, unedited, for provenance. (destruct-thumb-order PR #604): the LAYOUT spec — the one this row records as stabilized by the `toPass` hydration retry — failed once in `lifecycle-layout-e2e` on `mobile-safari`, at the archive-confirm popover assertions (`tests/e2e/admin-lifecycle-layout.spec.ts:411` `scrollIntoView(confirm) must have been called`, and `:538` armed body within the clip rect), 24 passed / 1 failed. Confirmed a flake, not a regression: the failing commit touched only `tests/e2e/pendingDiscardReal.layout.spec.ts`, which that workflow does not run, the two commits before it passed, and a re-run of the identical tree went green. So the hydration retry does NOT cover the popover-placement path — the growth-then-replace measurement takes a fixed `waitForTimeout(300)` rather than retrying to a condition, which is the likely remaining gap. \*\*Fix shape:\*\* replace that fixed wait with a `toPass` block around the armed measurement, same template as the rest of the spec.
+
+---
+
+## BL-MUTATION-REF-SUB — an exported `#REF!` is absorbed into the parse with no signal — CLOSED 2026-08-09 (`feat/mutation-ref-sub`, PR #749, wave branch 2/5)
+
+**Status:** CLOSED · **Filed:** 2026-08-06 (L-wave decomposition of `BL-MUTATION-HARNESS-OPEN-HOLES`) · **Class:** PARSER ROBUSTNESS · **Effort:** M · **Severity:** medium
+
+A body cell rewritten to the literal `#REF!` — a real broken-reference export artifact, present in 3 of the 7 live shows — parsed as an ordinary value, so the operator saw a crew page reading `#REF!` where a name or a time belongs with nothing upstream saying so.
+
+**Resolution: the whole class closed.** `detectRefErrorLiterals` (`lib/parser/refErrorDetector.ts`) emits one warn-severity `REF_ERROR_LITERAL` per offending cell. Detection is `includes` on the post-`clean()` value, which matters twice over: the corpus stores the ESCAPED form `\#REF\!` that only becomes the literal after `clean()`, and cells are not always the literal alone (`#REF!/NAME`, `#REF! - #REF!`), so equality would miss the composites.
+
+All **3,314** ledgered holes closed; `RAW_HOLES` 7,015 → 3,701. The full 8-shard harness reported all four reconciliation buckets empty.
+
+**This branch also gave the harness a verdict class it had been missing.** The detector produced 7 rows in `newHoles` — the bucket spec §9 marks HARD and never deferrable — and no implementation choice removed them without also deleting the operator's locating context. Two adversarial rounds killed four successive proposals, each with a probed defect. The resolution, user-ratified, was `SIGNAL_TEXT_DRIFT`: a verdict class distinguishing "the parser went quiet about a corrupt sheet" from "the parser said the same thing differently". Spec: `docs/superpowers/specs/parser/2026-08-09-warning-shape-mutation-stability.md`. 143 existing rows were re-kinded by the classifier; `BL-MUTATION-DRIFT-TRIAGE` carries their mechanism triage.
+
+**Documented limits.** Detection only, never correction — the value is left exactly as parsed (spec §1.1.4). Shows already carrying `#REF!` begin warning on their next sync, which is the point (spec §4.2), and `tests/parser/cleanCorpusCalibration.test.ts` pins the 24-warning clean-corpus base rate so a future shift is visible rather than silent.
 
 ---
 
@@ -6008,3 +6172,55 @@ that an equivalence proof converges on a machine-computed mutation score rather 
 **Work:** decide the callee (add a small local `cn`, or take `clsx`), migrate the 33 sites, run `eslint --fix`, delete the census guard and its entry. Lands on a UI branch under the dual gate.
 
 ---
+
+## BL-TASK-ENROLLMENT-SINGLE-DEPTH — the declared task region cannot express hierarchical or interleaved plan shapes — CLOSED 2026-08-09 (`feat/task-enrollment-multi-region`, IMPLEMENTED)
+
+**Status:** CLOSED · **Filed:** 2026-08-03, from `docs/superpowers/specs/2026-08-03-pre-review-gate-arms-design.md` §6 items 6 and 7 · **Class:** spec-lint task contract, enrollment expressiveness · **Effort:** L · **Severity:** LOW (opt-in convention; conservative failure with a surfaced finding, never silent)
+
+**Resolution: IMPLEMENTED.** Sequential multi-region enrollment shipped per
+`docs/superpowers/specs/2026-08-09-task-enrollment-multi-region-design.md` (RATIFIED, adversarial R4 APPROVE):
+a plan may declare any number of sequential regions, each with its own depth. Both filed shapes are now
+expressible — multi-depth plans via per-depth regions, interlopers and range headings via fence placement.
+The deliberate residue (no marked parent tasks, no skip notes) is recorded as documented limits in that
+spec's §7 with re-open triggers; the l-wave PREREQ stamp is discharged by this design session.
+
+---
+
+## BL-DEV-GATE-GALLERY-SPEC-ROT — `attention-modal-gallery.spec.ts` runs nowhere but a dispatch-only gate, and has rotted — CLOSED 2026-08-09 (`test/gallery-per-scenario-split` PR #746 + `ci/dev-gate-pr-path-trigger`)
+
+> **PARTIAL 2026-07-26 (PR4 of the CI-dark cluster).** `dev-gate-e2e.yml` now carries a DAILY schedule alongside `workflow_dispatch`, so a break is bounded to 24h instead of until someone remembers to dispatch. The ambiguous `getByText(String(n))` locator is FIXED (each count asserted on its own paragraph). The Escape assertion is deliberately UNCHANGED pending a reproduction — the product path was traced and is intact, and weakening an unreproduced assertion is how a real regression gets papered over. Still open because a schedule is not PR-blocking-capable, so the spec keeps its allowlist row.
+>
+> **PARTIAL 2026-08-09 (`test/gallery-per-scenario-split`).** The nightly-red class in the measurement below is DIAGNOSED and REPAIRED: the "Flight boundary + write containment" test swept the whole catalog under the file's fixed 60s budget, and the catalog outgrew it (117 rendered scenarios 2026-07-23 → 130 by 07-25, when the daily failures started → 144 by 08-05; even the sole green 08-03 run timed out on attempt 1 and survived on retry). Not a product regression — the budget expired mid-sweep, which is why the blamed operation wandered between `page.goto` / `locator.click` / `locator.count` across runs. The sweep is now ONE GENERATED TEST PER SCENARIO (each with the full default budget; a failure names its scenario id in the title) plus two write-mechanism-coverage finales, and the file dropped `mode: "serial"` so a flaky scenario retries alone instead of re-running the ~150-test chain. The `:265` Escape assertion stays as written and now reports per-scenario; the "detached from the DOM" publish-toggle loop observed 2026-08-09 will likewise pin itself to a named scenario if it recurs. Entry stays open on its second decision: whether the spec belongs in a gate no PR runs.
+
+**Status:** CLOSED · **Severity:** medium · **Surfaced:** `fix/picker-flow-app-bugs` Task 13 close-out (2026-07-25) · **Effort:** M
+**Nightly-red measurement 2026-08-09:** the PARTIAL's daily schedule has been red 9 of its last 10 firings (probed via `gh run list --workflow=dev-gate-e2e.yml --branch main`: failures 2026-07-31, -08-01, -08-02, -08-04, -08-05, -08-06, -08-07, -08-08, -08-09 = runs 30619278961, 30691990257, 30740095858, 30894831479, 30990761496, 31087555225, 31158561514, 31245680158, 31300710571; sole green 2026-08-03 run 30804083044). Every probed failure is the SAME test — `tests/e2e/attention-modal-gallery.spec.ts:192` ("Flight boundary + write containment"), `dev-build` project — a THIRD rotted site beyond the `:398`/`:265` pair below: on 2026-08-09 the click on the review-modal Published toggle looped "element was detached from the DOM, retrying" for the full 60s budget (the toggle keeps remounting under the dev build), and each failure aborts the run with 38 tests never executed, so the gate certifies nothing nightly. This is the entry's own predicted trigger firing daily; the "What remains" decisions below are now bounding a permanently-red scheduled gate, not a hypothetical dispatch.
+
+`tests/e2e/attention-modal-gallery.spec.ts` runs only under the `dev-build` Playwright project (`playwright.config.ts:92`), and `dev-build` runs only in `dev-gate-e2e.yml`, which is `workflow_dispatch`-only. No PR ever triggers it. Its last green run was **2026-07-02**; the only other run since was a failure on 2026-06-22. Dispatching it during this branch's close-out failed two assertions:
+
+- `:398` — `controls.getByText(String(GLOBAL.length), { exact: false })` raises a strict-mode violation, resolving to 2 elements. The substring match means any element in the controls bar containing that digit qualifies.
+- `:265` — `await expect(attentionMenu).toHaveCount(0)` after `Escape` times out; the menu does not close the way the spec expects.
+
+**Not caused by the branch that found it.** `fix/picker-flow-app-bugs` touches no file under `components/` or `app/admin/`, and its only `playwright.config.ts` edits are to the `mobile-safari` and `desktop-chromium` matchers — `dev-build` is untouched. Two commits that landed on `main` _after_ the gate's last green run change exactly what these assertions read: `432d8ef06 feat(admin-dev): exclude global-scope tier-1 scenarios from the gallery switcher` (the global-scope set the `:398` count is derived from) and `f4c4bf493 feat(admin): merge the attention panel's three groups into two` (the menu at `:265`). 793 commits touched `components/admin/` in that window.
+
+This is the dark-spec class already recorded for this repo (`feedback_dark_spec_in_unrun_project_rots`, #486): a spec nothing runs stops describing the product, and the cost lands on whoever next dispatches the gate.
+
+**What remains:** two decisions, in order. (1) Repair both assertions against the current UI — the count needs an exact/scoped match rather than a substring, and the menu-close assertion needs to match the post-merge panel behavior. (2) Decide whether the gallery spec belongs in a gate no PR runs at all. If its value is the built `ADMIN_DEV_PANEL_ENABLED=true` artifact, that is a reason for a dedicated project, not a reason to be unreachable; if it can run on the `:3000` baseline, move it somewhere PR CI executes. **Trigger:** the next `dev-gate-e2e.yml` dispatch, which will fail on this until it is fixed.
+
+> **CLOSED 2026-08-09 (`ci/dev-gate-pr-path-trigger`).** Both remaining decisions resolved.
+> **Decision (1) — repair the assertions — was completed across the two PARTIALs:** the `:398`
+> count locator was fixed 2026-07-26; the timeout class that produced every nightly red was
+> repaired by the per-scenario split (`test/gallery-per-scenario-split`, PR #746 — first honest
+> green run 31327903136, 177 passed / 2 flaky-rescued, 11 min); the `:265` Escape assertion is
+> RATIFIED AS WRITTEN (traced-intact product path, unreproduced failure, now reporting
+> per-scenario so any recurrence names its scenario id). **Decision (2) — gate placement — is
+> RATIFIED: the dedicated dev-gate projects stay, and reachability comes from a PATH-FILTERED
+> `pull_request` trigger** added to `dev-gate-e2e.yml` over the tested surfaces (the two specs,
+> `playwright.config.ts`, the workflow itself, `app/admin/dev/**`, `components/admin/dev/**`,
+> `lib/dev/**`, and the three modal files that were the 2026-07 rot sites). The spec's value is
+> the built `ADMIN_DEV_PANEL_ENABLED=true` artifact — the route is build-gated, so moving it to
+> the `:3000` baseline would dissolve the build-vs-runtime contract the workflow exists to prove.
+> The daily schedule stays as the backstop for drift arriving through files outside the filter
+> (the 793-commits-through-`components/admin/` class), pricing that path at a 24h detection
+> bound instead of an 11-minute job on every admin PR. NOT a required context: a path-filtered
+> job is absent on non-matching PRs, and required-but-skipped contexts wedge merges. The
+> `_metaE2eWorkflowCoverage` allowlist row is rewritten to cite this ratification.

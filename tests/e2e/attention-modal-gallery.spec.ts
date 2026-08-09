@@ -10,16 +10,26 @@
  *  1. Flight boundary (§1.4): EVERY rendered scenario, deep-linked via
  *     `?scenario=<id>`, shows ITS OWN attention artifact INSIDE the freshly
  *     queried `[role="dialog"]` — a scenario-specific marker scoped to the
- *     dialog, never to `SwitcherControls` (which also prints codes).
+ *     dialog, never to `SwitcherControls` (which also prints codes). One
+ *     GENERATED test per rendered scenario: the original single-test sweep
+ *     ran the whole catalog under one fixed 60s budget, which the growing
+ *     catalog outran (117 rendered scenarios 2026-07-23, 144 by 2026-08-05 —
+ *     the dev-gate-e2e nightly-red class, BL-DEV-GATE-GALLERY-SPEC-ROT), so
+ *     each scenario now owns a full test budget and a failure names its
+ *     scenario instead of aborting the sweep.
  *  2. Operability (§1.5): the control bar is OUTSIDE `[data-inert-root]`, stays
  *     non-inert, and is clickable while the admin root is inert.
  *  3. Stepping (R1-1, §6.5): `←`/`→` advance the `aria-live` count with focus
  *     inside the dialog; N discrete presses leave EXACTLY one dialog + one
  *     control bar (no leaked remounts); body scroll stays locked.
- *  4. Write containment (§1.8, §6.4): across every mutation control found in the
- *     sweep, NO non-GET request leaves the browser; the fetch-backed resolve
- *     control trips `data-gallery-blocked-write` and is run last per the
- *     guard-attribute sequencing (`plan-R2 §16`).
+ *  4. Write containment (§1.8, §6.4): every per-scenario test carries its own
+ *     non-GET recorder (nothing writes while rendering or toggling), and two
+ *     mechanism-coverage finales prove BOTH write mechanisms still exist and
+ *     are contained — the form-action publish toggle, and the fetch-backed
+ *     resolve control tripping `data-gallery-blocked-write` in-process. The
+ *     old run-resolve-LAST guard-attribute sequencing (`plan-R2 §16`) is now
+ *     structural: contexts are per-test, so the attribute cannot leak across
+ *     tests.
  *  5. Close/reopen/Escape (§1.6, plan-R2 §11): X releases inert + scroll-lock;
  *     Reopen restores the dialog, the locks, and nav; Escape while OPEN is
  *     swallowed; Escape while CLOSED is NOT intercepted.
@@ -147,13 +157,21 @@ async function expectMarker(page: Page, id: string): Promise<void> {
 // Derived ONCE at module load — the authority the route also uses.
 const { rendered, excluded } = partitionScenarios();
 const RENDERED_IDS = rendered.map((s) => s.id);
+// Collection-time guard: the flight-boundary tests are GENERATED per rendered
+// scenario, so an empty partition would generate zero tests and the suite
+// would pass vacuously. Fail loudly at collection instead.
+if (RENDERED_IDS.length === 0) {
+  throw new Error(
+    "partitionScenarios() returned zero rendered scenarios — the generated flight-boundary suite would be empty",
+  );
+}
 const STRUCTURAL = excluded.filter((e) => e.reason === "structural");
 const CUT = excluded.filter((e) => e.reason === "cut");
 const GLOBAL = excluded.filter((e) => e.reason === "global");
 
 async function gotoScenario(page: Page, id: string): Promise<void> {
   // Bounded retry: the route is a server render whose first line is a Supabase
-  // requireDeveloper() call. Under the 72-scenario sweep a single request can
+  // requireDeveloper() call. Under the full-catalog sweep a single request can
   // transiently blip (a masked SSR digest error, verified NON-reproducible in
   // isolation — the same scenario renders 8/8 clean on the built artifact), so
   // one reload absorbs the transient without masking a persistent failure (the
@@ -172,7 +190,63 @@ async function gotoScenario(page: Page, id: string): Promise<void> {
   }
 }
 
-test.describe.configure({ mode: "serial" });
+// ── Write containment (§1.8) ─────────────────────────────────────────────────
+// A non-GET request to a SHOW-MUTATION endpoint fails the test. The admin
+// LAYOUT (which wraps every admin page) mints a realtime subscription token via
+// `POST /api/admin/alerts/bell/token` on load — that is background admin
+// chrome, present on every admin route, unrelated to the gallery's mutation
+// controls, and outside GalleryWriteGuard's fetch-only scope (it is not a
+// `window.fetch` call). It never writes show data, so it is not a containment
+// failure; ignore it and any other realtime-token mint. Same class: the client
+// error-reporting beacon (`POST /api/observe/client-error`) fires whenever a
+// transient SSR digest blip (the DEVELOPER_SESSION_LOOKUP_FAILED class
+// gotoScenario's bounded retry absorbs) reaches the client error boundary. It
+// writes telemetry, never show data, and fires independently of any mutation
+// control.
+const IGNORED_WRITE_PATHS = [
+  /\/api\/admin\/alerts\/bell\/token$/,
+  /\/token$/,
+  /\/api\/observe\/client-error$/,
+];
+
+/**
+ * Attach a non-GET recorder to the page and return its live accumulator.
+ * Contexts are per-test, so there is no cross-test bleed and no detach needed —
+ * the page dies with the test that owns it.
+ */
+function collectNonGetWrites(page: Page): string[] {
+  const nonGetWrites: string[] = [];
+  page.on("request", (req: Request) => {
+    const method = req.method().toUpperCase();
+    if (method !== "GET" && method !== "HEAD" && method !== "OPTIONS") {
+      const u = new URL(req.url());
+      // Only our own app origin is interesting; ignore any 3rd-party beacons.
+      if (u.port !== "3001") return;
+      if (IGNORED_WRITE_PATHS.some((re) => re.test(u.pathname))) return;
+      nonGetWrites.push(`${method} ${u.pathname}`);
+    }
+  });
+  return nonGetWrites;
+}
+
+/**
+ * Catalog-derived (same helpers the route renders from): does this scenario
+ * surface an actionable alert? Used to ORDER the resolve finale's probe so the
+ * representative is found in one or two navigations; the DOM probe below stays
+ * the source of truth for whether the control actually renders.
+ */
+function hasActionableAlert(id: string): boolean {
+  const s = ALL_SCENARIOS.find((x) => x.id === id);
+  return s ? deriveScenarioAttention(s).some((i) => i.kind === "alert" && i.actionable) : false;
+}
+
+// Deliberately NOT `test.describe.configure({ mode: "serial" })` (it was until
+// 2026-08-09). The config already serializes execution (workers: 1,
+// fullyParallel: false) and every test re-auths + re-navigates from scratch, so
+// there is no cross-test state for serial mode to protect. Its only remaining
+// contribution would be retry semantics: in serial mode one flaky test re-runs
+// the ENTIRE file per retry attempt — with ~150 generated tests, the exact
+// wall-clock blowup the per-scenario split exists to end.
 
 test.describe("attention modal switcher gallery", () => {
   test.beforeEach(async ({ page }) => {
@@ -189,135 +263,147 @@ test.describe("attention modal switcher gallery", () => {
     await expect(page.locator(CONTROLS)).toHaveCount(1);
   });
 
-  test("Flight boundary + write containment: every rendered scenario shows its own attention, nothing writes", async ({
+  // ── Flight boundary + write containment, one GENERATED test per scenario ──
+  // These were a single serial sweep under one 60s budget until 2026-08-09;
+  // the catalog outgrew it (see the file header). Each test now: navigates,
+  // proves the scenario's OWN marker, exercises the form-action publish toggle
+  // where enabled, and asserts its page issued no non-GET request. The
+  // fetch-backed resolve control is deliberately NOT clicked here — the
+  // mechanism-coverage finale below owns it.
+  for (const id of RENDERED_IDS) {
+    test(`flight boundary [${id}]: dialog shows this scenario's attention; nothing writes`, async ({
+      page,
+    }) => {
+      const nonGetWrites = collectNonGetWrites(page);
+      await gotoScenario(page, id);
+      const dialog = page.locator(DIALOG);
+
+      // (1) Flight proof — the scenario's OWN marker inside the dialog.
+      await expectMarker(page, id);
+
+      // (2) Exercise the publish toggle where present (a form-action write path).
+      // Scenarios with actionable items AUTO-OPEN the attention dropdown
+      // (§5.2), and a tall menu (needs-look + monitoring groups, e.g.
+      // t3-full-attention-split) overlays the strip and intercepts the click.
+      // First Escape closes only the menu (capture-phase handler), never the
+      // modal.
+      const attentionMenu = dialog.locator('[data-testid="published-show-review-attention-menu"]');
+      // DIAGNOSED 2026-07-26 and DELIBERATELY LEFT ALONE. This assertion was
+      // reported as timing out, and the temptation is to relax it. Tracing
+      // the path says it is correct:
+      //   - AttentionMenu:50 returns null when `open` is false, and the
+      //     testid is on the inner panel container, so closing unmounts it;
+      //   - the hooks live in AttentionMenuPanel, so the early return is not
+      //     a hooks-order problem;
+      //   - AttentionMenu:81-105 still registers a capture-phase Escape
+      //     handler calling onClose(), and PublishedReviewModal:873 passes
+      //     `onClose={() => setMenuOpen(false)}` with
+      //     `open={menuEffectivelyOpen}` = `menuOpen && interactive`.
+      // An earlier draft blamed commit f4c4bf493; that was retracted — the
+      // pre-commit handler had the same semantics.
+      //
+      // So the product path is intact and this assertion should hold. What is
+      // missing is a REPRODUCTION, which needs the built dev-build artifact.
+      // Weakening an assertion whose failure nobody has reproduced is how a
+      // real regression gets papered over, so it stays as written; a failure
+      // now names its scenario id in the test title instead of hiding inside
+      // the sweep. Tracked: BL-DEV-GATE-GALLERY-SPEC-ROT.
+      if ((await attentionMenu.count()) > 0) {
+        await page.keyboard.press("Escape");
+        await expect(attentionMenu).toHaveCount(0);
+      }
+      const publish = dialog.locator('[data-testid="strip-publish-toggle"] button').first();
+      // Skip DISABLED toggles (e.g. the finalize-owned / live lifecycle
+      // scenarios render the switch locked): a disabled control cannot write,
+      // so containment holds trivially, and clicking it only times out. That
+      // at least ONE scenario renders the toggle ENABLED is proven by the
+      // publish mechanism-coverage finale, not per scenario.
+      if ((await publish.count()) > 0 && (await publish.isEnabled())) {
+        await publish.click();
+        // Settle window matching the old sweep's implicit gap before its next
+        // navigation: a leaked form-action POST fires within it and lands in
+        // the recorder before the assertion below reads it.
+        await page.waitForTimeout(150);
+      }
+
+      expect(nonGetWrites, `mutation controls leaked writes: ${nonGetWrites.join(", ")}`).toEqual(
+        [],
+      );
+    });
+  }
+
+  test("write-mechanism coverage: at least one scenario renders an ENABLED publish toggle, and its click is contained", async ({
     page,
   }) => {
-    expect(RENDERED_IDS.length).toBeGreaterThan(0);
-
-    // Global write guard: a non-GET request to a SHOW-MUTATION endpoint fails
-    // the test. The admin LAYOUT (which wraps every admin page) mints a realtime
-    // subscription token via `POST /api/admin/alerts/bell/token` on load — that
-    // is background admin chrome, present on every admin route, unrelated to the
-    // gallery's mutation controls, and outside GalleryWriteGuard's fetch-only
-    // scope (it is not a `window.fetch` call). It never writes show data, so it
-    // is not a containment failure; ignore it and any other realtime-token mint.
-    // Same class: the client error-reporting beacon (`POST
-    // /api/observe/client-error`) fires whenever a transient SSR digest blip
-    // (the DEVELOPER_SESSION_LOOKUP_FAILED class gotoScenario's bounded retry
-    // absorbs) reaches the client error boundary. It writes telemetry, never
-    // show data, and fires independently of any mutation control.
-    const IGNORED_WRITE_PATHS = [
-      /\/api\/admin\/alerts\/bell\/token$/,
-      /\/token$/,
-      /\/api\/observe\/client-error$/,
-    ];
-    const nonGetWrites: string[] = [];
-    const onRequest = (req: Request) => {
-      const method = req.method().toUpperCase();
-      if (method !== "GET" && method !== "HEAD" && method !== "OPTIONS") {
-        const u = new URL(req.url());
-        // Only our own app origin is interesting; ignore any 3rd-party beacons.
-        if (u.port !== "3001") return;
-        if (IGNORED_WRITE_PATHS.some((re) => re.test(u.pathname))) return;
-        nonGetWrites.push(`${method} ${u.pathname}`);
+    // The per-scenario tests click the publish toggle only where ENABLED, so a
+    // catalog drift that disabled every toggle would silently stop exercising
+    // the form-action mechanism. This finale pins the claim: an enabled toggle
+    // EXISTS, and clicking it leaves no request on the wire.
+    const nonGetWrites = collectNonGetWrites(page);
+    let exercisedId: string | null = null;
+    for (const id of RENDERED_IDS) {
+      await gotoScenario(page, id);
+      const dialog = page.locator(DIALOG);
+      const attentionMenu = dialog.locator('[data-testid="published-show-review-attention-menu"]');
+      if ((await attentionMenu.count()) > 0) {
+        await page.keyboard.press("Escape");
+        await expect(attentionMenu).toHaveCount(0);
       }
-    };
-    page.on("request", onRequest);
-
-    // Coverage ledger: prove BOTH write mechanisms were exercised — a form-action
-    // control (publish toggle) and the fetch-backed control (resolve). Both are
-    // no-ops here; the point is that clicking them produces no write.
-    const exercised = new Set<string>();
-
-    try {
-      // The fetch-backed resolve control runs LAST (guard-attribute sequencing),
-      // so defer any scenario that surfaces it and sweep the rest first.
-      const resolveScenarios: string[] = [];
-
-      for (const id of RENDERED_IDS) {
-        await gotoScenario(page, id);
-        const dialog = page.locator(DIALOG);
-
-        // (1) Flight proof — the scenario's OWN marker inside the dialog.
-        await expectMarker(page, id);
-
-        // Defer resolve-bearing scenarios; sweep form-action controls now.
-        const resolveBtn = dialog.locator('[data-testid^="per-show-alert-resolve-"]');
-        // Scripted action-outcome scenarios (t2-act-*) serve a SCRIPTED response
-        // for resolve (data-gallery-scripted-write, not blocked-write) and are
-        // containment-proven by their own suite below; this sweep's blocked-write
-        // sequencing needs an UNSCRIPTED representative.
-        if ((await resolveBtn.count()) > 0 && !id.startsWith("t2-act-")) {
-          resolveScenarios.push(id);
-        }
-
-        // (2) Exercise the publish toggle where present (a form-action write path).
-        // Scenarios with actionable items AUTO-OPEN the attention dropdown
-        // (§5.2), and a tall menu (needs-look + monitoring groups, e.g.
-        // t3-full-attention-split) overlays the strip and intercepts the click.
-        // First Escape closes only the menu (capture-phase handler), never the
-        // modal.
-        const attentionMenu = dialog.locator(
-          '[data-testid="published-show-review-attention-menu"]',
-        );
-        // DIAGNOSED 2026-07-26 and DELIBERATELY LEFT ALONE. This assertion was
-        // reported as timing out, and the temptation is to relax it. Tracing
-        // the path says it is correct:
-        //   - AttentionMenu:50 returns null when `open` is false, and the
-        //     testid is on the inner panel container, so closing unmounts it;
-        //   - the hooks live in AttentionMenuPanel, so the early return is not
-        //     a hooks-order problem;
-        //   - AttentionMenu:81-105 still registers a capture-phase Escape
-        //     handler calling onClose(), and PublishedReviewModal:873 passes
-        //     `onClose={() => setMenuOpen(false)}` with
-        //     `open={menuEffectivelyOpen}` = `menuOpen && interactive`.
-        // An earlier draft blamed commit f4c4bf493; that was retracted — the
-        // pre-commit handler had the same semantics.
-        //
-        // So the product path is intact and this assertion should hold. What is
-        // missing is a REPRODUCTION, which needs the built dev-build artifact.
-        // Weakening an assertion whose failure nobody has reproduced is how a
-        // real regression gets papered over, so it stays as written and the new
-        // daily schedule (dev-gate-e2e.yml) will surface it with a trace.
-        // Tracked: BL-DEV-GATE-GALLERY-SPEC-ROT.
-        if ((await attentionMenu.count()) > 0) {
-          await page.keyboard.press("Escape");
-          await expect(attentionMenu).toHaveCount(0);
-        }
-        const publish = dialog.locator('[data-testid="strip-publish-toggle"] button').first();
-        // Skip DISABLED toggles (e.g. the finalize-owned / live lifecycle
-        // scenarios render the switch locked): a disabled control cannot write,
-        // so containment holds trivially, and clicking it only times out. The
-        // ledger's "publish" entry is still proven by the enabled scenarios.
-        if ((await publish.count()) > 0 && (await publish.isEnabled())) {
-          await publish.click();
-          exercised.add("publish");
-        }
+      const publish = dialog.locator('[data-testid="strip-publish-toggle"] button').first();
+      if ((await publish.count()) > 0 && (await publish.isEnabled())) {
+        await publish.click();
+        exercisedId = id;
+        break;
       }
-
-      // The fetch-backed control LAST. `data-gallery-blocked-write` must be
-      // ABSENT before the action, SET after the click, and the click must leave
-      // NO request on the wire (the guard synthesises the refusal in-process).
-      for (const id of resolveScenarios) {
-        await gotoScenario(page, id);
-        const dialog = page.locator(DIALOG);
-        await expect(page.locator("html")).not.toHaveAttribute("data-gallery-blocked-write", /.+/);
-        const resolveBtn = dialog.locator('[data-testid^="per-show-alert-resolve-"]').first();
-        await resolveBtn.click();
-        await expect(page.locator("html")).toHaveAttribute("data-gallery-blocked-write", /.+/);
-        exercised.add("resolve");
-        // A fresh navigation clears the attribute (guard-attribute sequencing).
-        await gotoScenario(page, RENDERED_IDS[0]!);
-        await expect(page.locator("html")).not.toHaveAttribute("data-gallery-blocked-write", /.+/);
-        break; // one representative resolve control is sufficient
-      }
-    } finally {
-      page.off("request", onRequest);
     }
+    expect(
+      exercisedId,
+      "no rendered scenario exposes an ENABLED publish toggle — the form-action write mechanism (§1.8) went unexercised",
+    ).not.toBeNull();
+    await page.waitForTimeout(150);
+    expect(nonGetWrites, `publish toggle leaked writes: ${nonGetWrites.join(", ")}`).toEqual([]);
+  });
 
-    expect(nonGetWrites, `mutation controls leaked writes: ${nonGetWrites.join(", ")}`).toEqual([]);
-    // Both distinct write mechanisms (§1.8) were exercised and contained.
-    expect([...exercised].sort()).toEqual(["publish", "resolve"]);
+  test("write-mechanism coverage: the fetch-backed resolve control trips the guard in-process; no request leaves", async ({
+    page,
+  }) => {
+    // `data-gallery-blocked-write` must be ABSENT before the action, SET after
+    // the click, and the click must leave NO request on the wire (the guard
+    // synthesises the refusal in-process). One UNSCRIPTED representative is
+    // sufficient; scripted action-outcome scenarios (t2-act-*) serve a
+    // SCRIPTED response for resolve (data-gallery-scripted-write, not
+    // blocked-write) and are containment-proven by their own suite below.
+    //
+    // Candidates are ORDERED by the catalog derivation (actionable-alert
+    // scenarios first) so the representative is normally found on the first
+    // navigation, and BOUNDED to derived-actionable scenarios: the derivation
+    // is the same helper set the route renders from, so if none of them
+    // surfaces the control, the mechanism is gone and the assertion below
+    // reports it cleanly instead of a full-catalog probe eating the budget.
+    const nonGetWrites = collectNonGetWrites(page);
+    const candidates = RENDERED_IDS.filter(
+      (id) => !id.startsWith("t2-act-") && hasActionableAlert(id),
+    );
+    let exercisedId: string | null = null;
+    for (const id of candidates) {
+      await gotoScenario(page, id);
+      const dialog = page.locator(DIALOG);
+      const resolveBtn = dialog.locator('[data-testid^="per-show-alert-resolve-"]').first();
+      if ((await resolveBtn.count()) === 0) continue;
+      await expect(page.locator("html")).not.toHaveAttribute("data-gallery-blocked-write", /.+/);
+      await resolveBtn.click();
+      await expect(page.locator("html")).toHaveAttribute("data-gallery-blocked-write", /.+/);
+      // A fresh navigation clears the attribute (guard-attribute sequencing).
+      await gotoScenario(page, RENDERED_IDS[0]!);
+      await expect(page.locator("html")).not.toHaveAttribute("data-gallery-blocked-write", /.+/);
+      exercisedId = id;
+      break;
+    }
+    expect(
+      exercisedId,
+      `no unscripted resolve control found across ${candidates.length} derived-actionable scenario(s) — the fetch-backed write mechanism (§1.8) went unexercised`,
+    ).not.toBeNull();
+    expect(nonGetWrites, `resolve control leaked writes: ${nonGetWrites.join(", ")}`).toEqual([]);
   });
 
   test("stepping: arrows advance the aria-live count and never leak a second dialog", async ({

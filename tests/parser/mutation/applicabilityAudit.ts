@@ -1,4 +1,5 @@
 // tests/parser/mutation/applicabilityAudit.ts
+import { clean } from "@/lib/parser/blocks/_helpers";
 import {
   normalizeHeader,
   KNOWN_SECTION_HEADERS,
@@ -135,9 +136,15 @@ export function auditSites(md: string): Map<string, number> {
     if (s.headerToken && typoEligible(s.headerToken)) bump("header-typo", s.domain); // exact typo-eligible count (plan-R4)
     for (const row of s.dataRows) {
       const cells = row.filter((c) => c.length > 0);
-      // ref-sub excludes cells already `#REF!` (no-op parity with the operator, plan-R18);
+      // ref-sub excludes cells that already CARRY `#REF!` (no-op parity with the operator,
+      // plan-R18). This audit derives its counts INDEPENDENTLY of operators.ts, which is the
+      // whole point of it — so the exclusion rule has to be restated here, and restated
+      // identically. It is `clean()`-then-includes, matching the operator's guard (retro F6):
+      // an equality test here while the operator uses includes puts the exhaustive
+      // exact-count gate off by 24 sites, the escaped occurrences in consultants (6),
+      // fintech (5), fixed-income (5), rpas (5) and consultants-roundtable (3).
       // unicode-inject keeps them (injecting a ZWNJ into `#REF!` IS a real, non-identical change).
-      bump("ref-sub", s.domain, cells.filter((c) => c.trim() !== "#REF!").length);
+      bump("ref-sub", s.domain, cells.filter((c) => !clean(c).includes("#REF!")).length);
       bump("unicode-inject", s.domain, cells.filter((c) => [...c].length >= 2).length);
       if (row.length >= 3) bump("merged-cell", s.domain, row.length - 1); // one per interior pipe (plan-R5)
     }
@@ -164,8 +171,12 @@ export function auditSites(md: string): Map<string, number> {
   return m;
 }
 
-/** The 7 risk-critical domains — DUPLICATED here (not imported from classify.ts) so this
- *  audit's domain-presence view is independent of the shared classifier (plan-R10). */
+/** The 8 risk-critical domains — DUPLICATED here (not imported from classify.ts) so this
+ *  audit's domain-presence view is independent of the shared classifier (plan-R10). The
+ *  duplication is the point, so keeping the two in step is deliberate maintenance rather
+ *  than a smell: `pull_sheet` joined this set with the REF_ERROR_LITERAL branch, and the
+ *  exhaustive gate caught the one-sided edit immediately (east-coast/ref-sub reported
+ *  pull_sheet skipped-inapplicable on the shared side and not here). */
 const RISK_CRITICAL_AUDIT: ReadonlySet<string> = new Set([
   "crew",
   "hotel",
@@ -174,6 +185,7 @@ const RISK_CRITICAL_AUDIT: ReadonlySet<string> = new Set([
   "agenda",
   "dates",
   "event_details",
+  "pull_sheet",
 ]);
 
 /** Risk-critical domains the INDEPENDENT scan finds present (≥1 section), regardless of

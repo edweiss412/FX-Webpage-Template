@@ -128,33 +128,29 @@ const LOCAL_ONLY_ALLOWLIST: Record<string, string> = {
   "tests/e2e/admin-route-boundaries.spec.ts": UNSEEN,
   "tests/e2e/admin-settings-admins-refresh.spec.ts": UNSEEN,
   "tests/e2e/attention-modal-gallery.spec.ts":
-    "runs in dev-gate-e2e.yml, which is workflow_dispatch + DAILY SCHEDULE (2026-07-26). A schedule is not PR-blocking-capable per the scanner contract, so this row stays — but the spec is no longer unrun: a break is now bounded to 24h instead of until someone remembers to dispatch. Three serialized cold builds make a per-PR trigger too heavy; ratified B1-D4. BL-DEV-GATE-GALLERY-SPEC-ROT",
+    "runs in dev-gate-e2e.yml via a project-only --project invocation (invisible to the scanner), which since 2026-08-09 carries a PATH-FILTERED pull_request trigger over the tested surfaces PLUS the daily schedule backstop for out-of-filter drift (24h bound). Not PR-blocking-capable: the job is absent on non-matching PRs, so it cannot join the required set. Gate-placement decision ratified at BL-DEV-GATE-GALLERY-SPEC-ROT close-out (BACKLOG-archive.md): the spec's value is the built ADMIN_DEV_PANEL_ENABLED=true artifact, so the dedicated project stays.",
   "tests/e2e/bell-panel-layout.spec.ts": PATH_GATED,
   "tests/e2e/crew-layout-dimensions.spec.ts": PATH_GATED,
   "tests/e2e/alert-action-links.spec.ts": PATH_GATED_BY_EXCLUSION,
   "tests/e2e/crew-section-toggle.spec.ts": PATH_GATED_BY_EXCLUSION,
   "tests/e2e/font-binding.spec.ts": PATH_GATED_BY_EXCLUSION,
   "tests/e2e/font-rendering-census.spec.ts": PATH_GATED_BY_EXCLUSION,
-  "tests/e2e/crew-page.spec.ts": UNSEEN,
+  "tests/e2e/crew-page.spec.ts": PATH_GATED_BY_EXCLUSION,
   "tests/e2e/deep-link-walker.spec.ts": UNSEEN,
   "tests/e2e/dev-capture.spec.ts": UNSEEN,
   "tests/e2e/developer-tier.spec.ts": UNSEEN,
   "tests/e2e/empty-state-reachability.spec.ts": UNSEEN,
-  "tests/e2e/empty-state.spec.ts": UNSEEN,
   "tests/e2e/help-auth.spec.ts": UNSEEN,
   "tests/e2e/help-mobile.spec.ts": UNSEEN,
   "tests/e2e/help-pages.spec.ts": UNSEEN,
   "tests/e2e/help-screenshots-clock-pipeline.spec.ts": UNSEEN,
   "tests/e2e/help-typography.spec.ts": UNSEEN,
-  "tests/e2e/layout-dimensions.spec.ts": UNSEEN,
   "tests/e2e/me-page.spec.ts": UNSEEN,
   "tests/e2e/needs-attention-holds.spec.ts": PATH_GATED,
   "tests/e2e/needs-attention-page.spec.ts": UNSEEN,
   "tests/e2e/no-raw-codes.spec.ts": UNSEEN,
-  "tests/e2e/notes-tile.spec.ts": UNSEEN,
   "tests/e2e/notify-toggles.spec.ts": UNSEEN,
   "tests/e2e/onboarding-wizard-step1.spec.ts": UNSEEN,
-  "tests/e2e/pack-list.spec.ts": UNSEEN,
   // packlist-rescan-recovery returned to the standalone CI project under the
   // PR-C directive resolver (BL-HARNESS-PACKLIST-SERVER-GRAPH graduated) — no
   // longer local-only.
@@ -169,14 +165,11 @@ const LOCAL_ONLY_ALLOWLIST: Record<string, string> = {
   "tests/e2e/published-show-attention.spec.ts": UNSEEN,
   "tests/e2e/report-modal.spec.ts": UNSEEN,
   "tests/e2e/right-now-transitions.spec.ts": UNSEEN,
-  "tests/e2e/right-now.spec.ts": UNSEEN,
-  "tests/e2e/role-spoof.spec.ts": UNSEEN,
   "tests/e2e/roles-settings-layout.spec.ts": UNSEEN,
   "tests/e2e/root-landing.spec.ts": UNSEEN,
   "tests/e2e/sample.spec.ts": UNSEEN,
   "tests/e2e/section-header-visual.spec.ts":
     "invoked only through the section-header-visual.yml docker run … bash -lc '…' block, which the R13 scanner refuses (spec path inside a quoted string is not a command-position invocation, and the block carries $PWD expansion). The census routes that same block through the complex-invocation registry, and the spec's LIVENESS is owned by the byte-comparing visual drift gate itself (a dead run has no fresh capture to compare); BL-SECTION-HEADER-VISUAL-REQUIRED-CONTEXT tracks required-set promotion",
-  "tests/e2e/schedule-tile.spec.ts": UNSEEN,
   "tests/e2e/screenshots-help-capture.spec.ts": UNSEEN,
   "tests/e2e/sign-in-page.spec.ts": UNSEEN,
   "tests/e2e/source-link-dimensional.spec.ts": UNSEEN,
@@ -184,10 +177,8 @@ const LOCAL_ONLY_ALLOWLIST: Record<string, string> = {
   // moved off mobile-safari when the first CI run measured every non-admin viewer dark on Linux
   // WebKit), so it is paths-ignore-gated like its three siblings rather than unseen.
   "tests/e2e/stage-restricted-crew-schedule.spec.ts": PATH_GATED_BY_EXCLUSION,
-  "tests/e2e/status-financials.spec.ts": UNSEEN,
   "tests/e2e/telemetry-layout.spec.ts": UNSEEN,
-  "tests/e2e/theme-toggle.spec.ts": UNSEEN,
-  "tests/e2e/transport-tile.spec.ts": UNSEEN,
+  "tests/e2e/theme-toggle.spec.ts": PATH_GATED_BY_EXCLUSION,
   "tests/e2e/warning-panel-polish.spec.ts": UNSEEN,
 };
 
@@ -234,6 +225,33 @@ describe("e2e workflow coverage (spec §6 item 6)", () => {
   it("every e2e spec is PR-covered or reason-allowlisted", () => {
     const dark = specs.filter((s) => !covered.has(s) && !(s in LOCAL_ONLY_ALLOWLIST));
     expect(dark, "dark specs - wire a workflow or add a reasoned allowlist row").toEqual([]);
+  });
+
+  it("no spec a paths-ignore workflow RUNS is still classified UNSEEN", () => {
+    // The dark/stale/shadowing checks above accept either classification for a
+    // path-gated spec, so a forgotten reclassification is silent: a spec can be
+    // wired into a workflow and still be counted in the
+    // BL-E2E-APP-DEPENDENT-SPECS-CI-DARK census as "no workflow names it".
+    // UNSEEN is a claim about the corpus, and this makes it a checkable one.
+    const namedByPathsIgnoreWorkflow = new Set<string>();
+    for (const yaml of Object.values(workflows)) {
+      if (!/^\s*paths-ignore:/m.test(yaml)) continue;
+      for (const m of yaml.matchAll(/tests\/e2e\/[\w.-]+\.spec\.ts/g)) {
+        namedByPathsIgnoreWorkflow.add(m[0]);
+      }
+    }
+    expect(
+      namedByPathsIgnoreWorkflow.size,
+      "no paths-ignore workflow names any e2e spec — the scan is wrong",
+    ).toBeGreaterThan(0);
+    const stillUnseen = [...namedByPathsIgnoreWorkflow]
+      .filter((spec) => LOCAL_ONLY_ALLOWLIST[spec] === UNSEEN)
+      .sort();
+    expect(
+      stillUnseen,
+      "these specs ARE named in a paths-ignore workflow's run command but their allowlist row " +
+        "still says UNSEEN. Reclassify to PATH_GATED_BY_EXCLUSION — a workflow does name them.",
+    ).toEqual([]);
   });
 
   it("the allowlist carries no stale or shadowing rows", () => {

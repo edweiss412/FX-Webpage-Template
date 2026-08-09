@@ -1,5 +1,15 @@
 # FXAV Crew Pages Implementation Plan
 
+> **Deleted-spec note (2026-08-09).** This document names one or more of the nine `tests/e2e/`
+> specs deleted by `BL-RESURRECT-MOBILE-SAFARI-E2E` — schedule-tile, transport-tile,
+> status-financials, role-spoof, pack-list, notes-tile, right-now, layout-dimensions,
+> empty-state. They were 100% `test.describe.skip` against the retired `?crew=` viewer mock AND
+> the slug-only `/show/[slug]` route, which has no `page.tsx`, so every navigation in them 404'd.
+> Any command here that runs one will fail, and any claim that one provides coverage is stale.
+> Per-file coverage accounting:
+> `docs/superpowers/specs/ci/2026-08-09-resurrect-mobile-safari-e2e-design.md` §2.3. This
+> document is otherwise left as the historical record it is.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 > **Sibling plan:** [M11 — User-Facing Docs](../2026-05-12-user-facing-docs/) builds the in-app `/help` wiki for Doug. M11 depends on M10 (already closed) and is **independent of X.\***; the two can run in parallel or sequentially. Shared file surface: only `lib/messages/catalog.ts` (X.1 catalog parity audit ↔ M11 Phase B catalog extension) — coordinate ordering. See [`../README.md`](../README.md) for the full plan catalog. Speculative post-v1 work lives in [`../BACKLOG.md`](../BACKLOG.md), not DEFERRED.
