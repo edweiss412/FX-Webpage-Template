@@ -20,15 +20,16 @@
  *   `Date.now` shim alone freezes time but does not cause the existing
  *   setInterval to fire — there's no "advance" capability.
  *
- *   `right-now.spec.ts` (Task 4.11 AC-4.3 suite) is written against the
- *   simpler addInitScript shim because it only needs to assert the
- *   initial render. THIS suite needs to assert pre→post transition
- *   behavior in a single session, so we use page.clock. Neither file runs
- *   in CI — no workflow names either (BL-E2E-APP-DEPENDENT-SPECS-CI-DARK).
- *   `right-now.spec.ts` is wholly `describe.skip`; in
- *   `right-now-transitions.spec.ts` the two audit blocks are skipped but the
- *   §5.7 anchor block is LIVE and does call `driveToState`, so this helper is
- *   exercised there under a local `pnpm test:e2e`.
+ *   The former `right-now.spec.ts` (Task 4.11 AC-4.3 suite) was written
+ *   against the simpler addInitScript shim because it only needed to assert
+ *   the initial render. THIS suite asserts pre→post transition behavior in a
+ *   single session, so we use page.clock. That spec was deleted 2026-08-09 as
+ *   superseded — wholly `describe.skip` against the retired `?crew=` viewer
+ *   mock and a route that 404s; its behavior keeps unit coverage in
+ *   `tests/time/rightNow.test.ts` and `tests/components/crew/rightNowHero.test.tsx`
+ *   (spec docs/superpowers/specs/ci/2026-08-09-resurrect-mobile-safari-e2e-design.md
+ *   §2.3). In `right-now-transitions.spec.ts` the §5.7 anchor block is LIVE and
+ *   does call `driveToState`, so this helper stays exercised.
  *
  * Seed contract:
  *   • drive_file_id `seed-fixture:2026-04-asset-mgmt-cfo-coo-waldorf`
@@ -119,8 +120,9 @@ export async function lookupSeededShow(): Promise<SeededShow> {
  * per-show advisory lock, UPDATE show-scoped to the locked show, no-row
  * RETURNING guard throws. M12.12-DEF-2 relocated this write off the
  * PostgREST admin client (which held NO lock); the Codex R2 class-sweep
- * extracted the locked path into the shared helper so
- * schedule-tile.spec.ts's identical mutation uses it too. `leadCrewId`
+ * extracted the locked path into the shared helper so the identical
+ * mutation in the former schedule-tile.spec.ts used it too (that spec was
+ * deleted 2026-08-09 as superseded; the shared helper stays). `leadCrewId`
  * always comes from lookupSeededShow(), i.e. a crew row of the
  * SEED_DRIVE_FILE_ID show.
  */

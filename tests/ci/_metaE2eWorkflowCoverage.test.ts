@@ -140,21 +140,17 @@ const LOCAL_ONLY_ALLOWLIST: Record<string, string> = {
   "tests/e2e/dev-capture.spec.ts": UNSEEN,
   "tests/e2e/developer-tier.spec.ts": UNSEEN,
   "tests/e2e/empty-state-reachability.spec.ts": UNSEEN,
-  "tests/e2e/empty-state.spec.ts": UNSEEN,
   "tests/e2e/help-auth.spec.ts": UNSEEN,
   "tests/e2e/help-mobile.spec.ts": UNSEEN,
   "tests/e2e/help-pages.spec.ts": UNSEEN,
   "tests/e2e/help-screenshots-clock-pipeline.spec.ts": UNSEEN,
   "tests/e2e/help-typography.spec.ts": UNSEEN,
-  "tests/e2e/layout-dimensions.spec.ts": UNSEEN,
   "tests/e2e/me-page.spec.ts": UNSEEN,
   "tests/e2e/needs-attention-holds.spec.ts": PATH_GATED,
   "tests/e2e/needs-attention-page.spec.ts": UNSEEN,
   "tests/e2e/no-raw-codes.spec.ts": UNSEEN,
-  "tests/e2e/notes-tile.spec.ts": UNSEEN,
   "tests/e2e/notify-toggles.spec.ts": UNSEEN,
   "tests/e2e/onboarding-wizard-step1.spec.ts": UNSEEN,
-  "tests/e2e/pack-list.spec.ts": UNSEEN,
   // packlist-rescan-recovery returned to the standalone CI project under the
   // PR-C directive resolver (BL-HARNESS-PACKLIST-SERVER-GRAPH graduated) — no
   // longer local-only.
@@ -169,14 +165,11 @@ const LOCAL_ONLY_ALLOWLIST: Record<string, string> = {
   "tests/e2e/published-show-attention.spec.ts": UNSEEN,
   "tests/e2e/report-modal.spec.ts": UNSEEN,
   "tests/e2e/right-now-transitions.spec.ts": UNSEEN,
-  "tests/e2e/right-now.spec.ts": UNSEEN,
-  "tests/e2e/role-spoof.spec.ts": UNSEEN,
   "tests/e2e/roles-settings-layout.spec.ts": UNSEEN,
   "tests/e2e/root-landing.spec.ts": UNSEEN,
   "tests/e2e/sample.spec.ts": UNSEEN,
   "tests/e2e/section-header-visual.spec.ts":
     "invoked only through the section-header-visual.yml docker run … bash -lc '…' block, which the R13 scanner refuses (spec path inside a quoted string is not a command-position invocation, and the block carries $PWD expansion). The census routes that same block through the complex-invocation registry, and the spec's LIVENESS is owned by the byte-comparing visual drift gate itself (a dead run has no fresh capture to compare); BL-SECTION-HEADER-VISUAL-REQUIRED-CONTEXT tracks required-set promotion",
-  "tests/e2e/schedule-tile.spec.ts": UNSEEN,
   "tests/e2e/screenshots-help-capture.spec.ts": UNSEEN,
   "tests/e2e/sign-in-page.spec.ts": UNSEEN,
   "tests/e2e/source-link-dimensional.spec.ts": UNSEEN,
@@ -184,10 +177,8 @@ const LOCAL_ONLY_ALLOWLIST: Record<string, string> = {
   // moved off mobile-safari when the first CI run measured every non-admin viewer dark on Linux
   // WebKit), so it is paths-ignore-gated like its three siblings rather than unseen.
   "tests/e2e/stage-restricted-crew-schedule.spec.ts": PATH_GATED_BY_EXCLUSION,
-  "tests/e2e/status-financials.spec.ts": UNSEEN,
   "tests/e2e/telemetry-layout.spec.ts": UNSEEN,
   "tests/e2e/theme-toggle.spec.ts": UNSEEN,
-  "tests/e2e/transport-tile.spec.ts": UNSEEN,
   "tests/e2e/warning-panel-polish.spec.ts": UNSEEN,
 };
 

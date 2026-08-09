@@ -16,12 +16,16 @@
  *   Task 7.6 (additive — fed by post-Apply pin columns).
  *
  *   Crew DOM MUST NEVER contain `https://`, `drive.google.com`, or
- *   `docs.google.com` substrings for any opening-reel cell. The
- *   The `tests/e2e/empty-state.spec.ts` AC-4.5 suite would pin this
- *   invariant end-to-end across the documented value space, but it is
- *   `describe.skip` and executes in no CI workflow
- *   (BL-E2E-APP-DEPENDENT-SPECS-CI-DARK): nothing enforces the invariant
- *   end-to-end today.
+ *   `docs.google.com` substrings for any opening-reel cell. The rule is
+ *   pinned by `tests/visibility/openingReelText.ts`'s unit suite (the
+ *   URL-strip value space) and by the crew-render assertion in
+ *   `tests/components/crew/sections/GearSection.test.tsx`, which fails on
+ *   any of those three substrings in the rendered section.
+ *   `tests/e2e/empty-state.spec.ts` carried the AC-4.5 end-to-end variant;
+ *   it was deleted 2026-08-09 (100% `describe.skip` against the retired
+ *   ?crew= mock, executing in no workflow — spec docs/superpowers/specs/ci/
+ *   2026-08-09-resurrect-mobile-safari-e2e-design.md §2.3). There is still no
+ *   END-TO-END pin across the full documented value space.
  *
  * Strip rules:
  *

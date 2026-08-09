@@ -32,12 +32,17 @@ export default defineConfig({
   testDir: "tests/e2e",
   timeout: 60_000,
   fullyParallel: false, // multiple webServer ports + shared dev.* state requires serialization
-  // Single-worker run. The M4 tile suites mutate shared crew_members /
-  // rooms / transportation rows between cases (the Waldorf seed is the
-  // single fixture all M4 tests share). Two workers running file-level
-  // parallel would race those mutations — e.g., one suite strips a
-  // viewer's role_flags while role-spoof.spec is asserting tile
+  // Single-worker run. Suites sharing the Waldorf seed mutate its
+  // crew_members / rooms / transportation rows between cases, and two
+  // workers running file-level parallel would race those mutations — e.g.
+  // one suite strips a viewer's role_flags while another asserts
   // visibility for the same identity. Serialize.
+  //
+  // The M4 tile suites that first motivated this were deleted 2026-08-09
+  // (superseded — spec docs/superpowers/specs/ci/
+  // 2026-08-09-resurrect-mobile-safari-e2e-design.md §2.3). The constraint
+  // still binds: crew-page.spec.ts mutates the seed's room A/V in beforeAll
+  // and right-now-transitions.spec.ts mutates shows_internal.run_of_show.
   workers: 1,
   retries: process.env.CI ? 2 : 0,
   use: {
@@ -62,7 +67,7 @@ export default defineConfig({
       // mirror-image limit — its CDP rejects addCookies for a `__Host-` cookie —
       // so that suite stages state by driving the picker instead of injecting.)
       testMatch:
-        /(font-rendering-census|sample|crew-page|crew-section-toggle|schedule-tile|transport-tile|status-financials|role-spoof|pack-list|notes-tile|right-now|right-now-transitions|report-modal|layout-dimensions|theme-toggle|empty-state|empty-state-reachability|apply-driven-refresh|redeem-link|leaked-link|auth-chain|admin-banner|admin-banner-layout|alert-identity-banner-layout|alert-banner-autoresolve-layout|admin-layout|admin-lifecycle-layout|admin-changes-feed-layout|admin-lifecycle-transitions|admin-parse-panel|sign-in-page|bootstrap|me-page|onboarding-wizard-step1|admin-phase2-surfaces|no-raw-codes|help-pages|notify-toggles|needs-attention-page|root-landing)\.spec\.ts/,
+        /(font-rendering-census|sample|crew-page|crew-section-toggle|right-now-transitions|report-modal|crew-layout-dimensions|admin-layout-dimensions|admin-nav-layout-dimensions|theme-toggle|empty-state-reachability|apply-driven-refresh|redeem-link|leaked-link|auth-chain|admin-banner|admin-banner-layout|alert-identity-banner-layout|alert-banner-autoresolve-layout|admin-layout|admin-lifecycle-layout|admin-changes-feed-layout|admin-lifecycle-transitions|admin-parse-panel|sign-in-page|bootstrap|me-page|onboarding-wizard-step1|admin-phase2-surfaces|no-raw-codes|help-pages|notify-toggles|needs-attention-page|root-landing)\.spec\.ts/,
       use: {
         ...devices["iPhone 14"],
         viewport: { width: 390, height: 844 },
@@ -76,7 +81,7 @@ export default defineConfig({
     {
       name: "desktop-chromium",
       testMatch:
-        /(picker-flow|stage-restricted-crew-schedule|sample|crew-page|font-binding|schedule-tile|transport-tile|status-financials|role-spoof|pack-list|notes-tile|right-now|right-now-transitions|report-modal|layout-dimensions|source-link-dimensional|telemetry-layout|theme-toggle|empty-state|empty-state-reachability|apply-driven-refresh|redeem-link|leaked-link|auth-chain|admin-banner|admin-banner-layout|alert-identity-banner-layout|alert-banner-autoresolve-layout|bell-panel-layout|admin-changes-feed-layout|admin-layout|admin-parse-panel|admin-route-boundaries|admin-settings-admins-refresh|roles-settings-layout|developer-tier|sign-in-page|bootstrap|me-page|notify-toggles|needs-attention-page|root-landing|published-review-modal\.interactions|published-review-modal\.deeplink|published-review-modal\.layout|published-review-modal\.prefetch|published-review-modal\.reopen|published-review-modal\.closeFreshness|published-review-modal\.realtime|published-review-modal\.crew-actions|step3-review-modal\.interactions|step3-review-modal\.agenda|warning-panel-polish|dev-capture|published-show-attention|alert-action-links|nojs-loading-notice|font-rendering-census|needs-attention-holds)\.spec\.ts/,
+        /(picker-flow|stage-restricted-crew-schedule|sample|crew-page|font-binding|right-now-transitions|report-modal|crew-layout-dimensions|admin-layout-dimensions|admin-nav-layout-dimensions|source-link-dimensional|telemetry-layout|theme-toggle|empty-state-reachability|apply-driven-refresh|redeem-link|leaked-link|auth-chain|admin-banner|admin-banner-layout|alert-identity-banner-layout|alert-banner-autoresolve-layout|bell-panel-layout|admin-changes-feed-layout|admin-layout|admin-parse-panel|admin-route-boundaries|admin-settings-admins-refresh|roles-settings-layout|developer-tier|sign-in-page|bootstrap|me-page|notify-toggles|needs-attention-page|root-landing|published-review-modal\.interactions|published-review-modal\.deeplink|published-review-modal\.layout|published-review-modal\.prefetch|published-review-modal\.reopen|published-review-modal\.closeFreshness|published-review-modal\.realtime|published-review-modal\.crew-actions|step3-review-modal\.interactions|step3-review-modal\.agenda|warning-panel-polish|dev-capture|published-show-attention|alert-action-links|nojs-loading-notice|font-rendering-census|needs-attention-holds)\.spec\.ts/,
       use: {
         ...devices["Desktop Chrome"],
         viewport: { width: 1280, height: 800 },

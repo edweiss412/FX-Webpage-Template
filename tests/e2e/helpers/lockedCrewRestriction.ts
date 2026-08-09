@@ -33,9 +33,11 @@
  * PostgREST `.update({ date_restriction: null })` semantics); objects are
  * written as jsonb.
  *
- * Consumers: tests/e2e/helpers/rightNow.ts (right-now-transitions suite),
- * tests/e2e/schedule-tile.spec.ts, and
- * tests/e2e/published-review-modal.realtime.spec.ts. The e2e-wide structural guard at
+ * Consumers: tests/e2e/helpers/rightNow.ts (right-now-transitions suite) and
+ * tests/e2e/published-review-modal.realtime.spec.ts. (tests/e2e/schedule-tile.spec.ts
+ * was a third consumer until it was deleted 2026-08-09 as superseded — spec
+ * docs/superpowers/specs/ci/2026-08-09-resurrect-mobile-safari-e2e-design.md §2.3.)
+ * The e2e-wide structural guard at
  * tests/help/walker-routes.test.ts forbids unlocked PostgREST DML on locked
  * tables anywhere under tests/e2e/ — new fixture mutations on locked tables
  * go through THIS file (or a sibling following the same pattern), never
