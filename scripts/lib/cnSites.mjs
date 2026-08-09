@@ -84,6 +84,27 @@ function unwrap(node) {
   }
 }
 
+/**
+ * Array-returning methods that can sit between the literal and the `.join()`. Peeling only
+ * `.filter` left `[...].map(x => x).join(" ")`, `.slice()`, `.flat()` and `.concat(...)`
+ * invisible — and the census guard this replaces DID see those when they sat directly under
+ * `className={[`, so missing them is a coverage regression, not a new limit.
+ */
+const ARRAY_RETURNING_METHODS = new Set([
+  "filter",
+  "map",
+  "slice",
+  "flat",
+  "flatMap",
+  "concat",
+  "sort",
+  "reverse",
+  "toSorted",
+  "toReversed",
+  "toSpliced",
+  "with",
+]);
+
 /** `.filter(Boolean)` exactly — the ONLY predicate `cn` is equivalent to. */
 function isBooleanFilter(call) {
   return (
@@ -108,13 +129,20 @@ function matchArrayJoin(node) {
     if (
       ts.isCallExpression(receiver) &&
       ts.isPropertyAccessExpression(receiver.expression) &&
-      receiver.expression.name.text === "filter"
+      ARRAY_RETURNING_METHODS.has(receiver.expression.name.text)
     ) {
-      // `cn` IS `filter(Boolean).join(" ")` — and ONLY that. Any other predicate makes the
-      // migration non-equivalent, so it is recorded rather than silently treated as the
-      // sanctioned form.
-      if (isBooleanFilter(receiver)) hasFilterMarker = true;
-      else hasForeignFilter = true;
+      const method = receiver.expression.name.text;
+      if (method === "filter") {
+        // `cn` IS `filter(Boolean).join(" ")` — and ONLY that. Any other predicate makes
+        // the migration non-equivalent, so it is recorded rather than silently treated as
+        // the sanctioned form.
+        if (isBooleanFilter(receiver)) hasFilterMarker = true;
+        else hasForeignFilter = true;
+      } else {
+        // Any other array transform also breaks the `cn` equivalence: `cn` reproduces
+        // `filter(Boolean)` and nothing else.
+        hasForeignFilter = true;
+      }
       receiver = unwrap(receiver.expression.expression);
       continue;
     }

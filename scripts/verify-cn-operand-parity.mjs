@@ -77,6 +77,23 @@ const SITE_FILES = [
 const EXPECTED_SITE_TOTAL = 36;
 
 /**
+ * The 6 `.filter(Boolean)` sites (spec §2.2), by 0-based index in source order per file.
+ *
+ * Parity compared FORM and OPERANDS only, which left the base side's FILTER SEMANTICS
+ * unchecked: if upstream removed a `.filter(Boolean)` (or swapped its predicate) before the
+ * final rebase, the base site and the migrated `cn(...)` still had identical operands, so
+ * parity passed while `join` and `cn` emitted different strings. The base's filter state is
+ * now reconciled against this declaration at all six sites.
+ */
+const FILTERED_SITES = {
+  "components/atoms/KeyValue.tsx": [0],
+  "components/crew/sections/GearSection.tsx": [0],
+  "components/crew/sections/TodaySection.tsx": [0, 1],
+  "components/crew/sections/TravelSection.tsx": [0],
+  "components/shared/AccentButton.tsx": [0],
+};
+
+/**
  * The declared stage-2 deltas — spec §6, C1–C6. `eslint --fix` DELIBERATELY changes these
  * class tokens, so a difference here is permitted; a token change anywhere else is a
  * finding, not a fix.
@@ -253,6 +270,8 @@ function main(argv) {
 
   const findings = [];
   const firedDeltas = new Set();
+  /** How many times each declared delta fired across ALL operands of its file. */
+  const deltaFireCount = new Map();
   let baseSiteTotal = 0;
   let headSiteTotal = 0;
   let comparedSites = 0;
@@ -302,6 +321,26 @@ function main(argv) {
       const where = `${rel}:${lineOf(headFile, headSite.node)}`;
       comparedSites += 1;
 
+      const declaredFiltered = (FILTERED_SITES[rel] ?? []).includes(index);
+      if (baseSite.hasForeignFilter) {
+        findings.push(
+          `${where}: the BASE site is filtered by something other than \`.filter(Boolean)\`. ` +
+            "`cn` reproduces `filter(Boolean)` and nothing else, so this site's migration is " +
+            "not operand-equivalent however well the operands match.",
+        );
+        return;
+      }
+      if (baseSite.hasFilterMarker !== declaredFiltered) {
+        findings.push(
+          `${where}: base filter semantics moved — site ${index} ` +
+            (baseSite.hasFilterMarker
+              ? "carries .filter(Boolean) but is not declared filtered"
+              : "is declared filtered but carries no .filter(Boolean)") +
+            '. Operands alone cannot see this: `[a, "", b].join(" ")` and ' +
+            '`[a, "", b].filter(Boolean).join(" ")` share an operand list and emit different strings.',
+        );
+        return;
+      }
       if (baseSite.form !== "array-join") {
         findings.push(
           `${rel} site ${index}: base form is ${baseSite.form}, expected array-join — ` +
@@ -334,7 +373,10 @@ function main(argv) {
 
         const { text: canonicalized, fired, refused } = applyDeclaredDeltas(baseOperand, rel);
         if (canonicalized === headOperand && refused.length === 0) {
-          fired.forEach((id) => firedDeltas.add(id));
+          fired.forEach((id) => {
+            firedDeltas.add(id);
+            deltaFireCount.set(id, (deltaFireCount.get(id) ?? 0) + 1);
+          });
           return;
         }
         findings.push(
@@ -348,6 +390,19 @@ function main(argv) {
         );
       });
     });
+  }
+
+  // Spec §6 declares ONE rewrite per C-entry. Per-operand multiplicity was already refused,
+  // but the same delta firing once in each of several operands of its file collapsed into a
+  // single reported ID — so an ADDITIONAL undeclared rewrite read as exactly the declared
+  // set. Multiplicity is therefore also checked per declared entry, across the whole file.
+  for (const [id, count] of deltaFireCount) {
+    if (count > 1) {
+      findings.push(
+        `declared delta ${id} fired ${count} times across its file; spec §6 declares exactly one ` +
+          "rewrite per entry, so the extra occurrence is an undeclared token change.",
+      );
+    }
   }
 
   // The premise, stated executably and unconditionally — never inside a per-site

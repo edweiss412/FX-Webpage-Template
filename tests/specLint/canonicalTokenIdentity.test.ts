@@ -41,6 +41,29 @@ import { stripCssComments } from "../_shared/stripComments";
 const GLOBALS = path.join(process.cwd(), "app/globals.css");
 
 /**
+ * The two production sites whose class token this file's token assertions are supposed to
+ * prove. Without binding them, the proof is answering a question nobody asked: a rebase
+ * changing the connector to `max-w-16` (64px, canonical, so ESLint stays silent) leaves
+ * `--spacing-confirm-box: 60px` intact, and the C1 rect keys are 0-width, so every C1
+ * assertion passed while the rendered constraint changed. The token identity and the
+ * SITE THAT USES IT are two halves of one claim.
+ */
+const CANONICAL_USE_SITES = [
+  {
+    id: "C1",
+    file: "components/admin/OnboardingWizard.tsx",
+    utility: "max-w-confirm-box",
+    replaced: "max-w-[60px]",
+  },
+  {
+    id: "C5",
+    file: "components/crew/RightNowHero.tsx",
+    utility: "min-h-right-now-min-h",
+    replaced: "min-h-(--spacing-right-now-min-h)",
+  },
+] as const;
+
+/**
  * Every ACTIVE `--<name>: <value>;` declaration inside an `@theme` block, in source order.
  *
  * Two things this must not do, both probed as real holes in an earlier draft:
@@ -106,6 +129,25 @@ describe("canonicalized utilities resolve to the values they replaced (spec §6)
         "changed a computed max-width and spec §6 C1's equivalence claim is false.",
     ).toEqual(["60px"]);
   });
+
+  it.each(CANONICAL_USE_SITES.map((u) => [u.id, u.file, u.utility, u.replaced] as const))(
+    "%s: the production site still consumes the canonical utility",
+    (id, file, utility, replaced) => {
+      const src = readFileSync(path.join(process.cwd(), file), "utf8");
+      expect(
+        src.includes(utility),
+        `${file} no longer contains \`${utility}\`. The token assertions in this file prove what ` +
+          `that utility RESOLVES to; they prove nothing if the site stopped using it. A rebase ` +
+          `that swapped it for a different canonical utility would leave every other ${id} ` +
+          `assertion green while changing the rendered constraint.`,
+      ).toBe(true);
+      expect(
+        src.includes(replaced),
+        `${file} still contains the pre-canonicalization form \`${replaced}\`, which spec §6 ${id} ` +
+          "replaced.",
+      ).toBe(false);
+    },
+  );
 
   it("C5: --spacing-right-now-min-h is defined once — the single token BOTH spellings reference", () => {
     const values = declarationsOf(css, "--spacing-right-now-min-h");

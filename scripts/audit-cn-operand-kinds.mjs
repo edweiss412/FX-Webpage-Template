@@ -285,6 +285,15 @@ function proveDefinitionTruthy(decl) {
   // `const X = ["a", "b"].join(" ")` before the migration, `const X = cn("a", "b")` after.
   const operands = literalJoinOperands(init);
   if (operands) {
+    // An EMPTY list is falsy, not vacuously truthy: `[].join(" ")` and `cn()` are both `""`.
+    // Without this, `const CHIP_CLASS = cn()` certifies as truthy while every one of its
+    // consumers silently loses a separator.
+    if (operands.length === 0) {
+      return {
+        ok: false,
+        why: "class-list initializer is EMPTY, so it evaluates to the empty string",
+      };
+    }
     const bad = operands.filter((o) => !isNonEmptyStringLiteral(o));
     if (bad.length > 0) {
       return {
@@ -864,6 +873,30 @@ const MUTANTS = [
       "components/Widget.tsx": CLEAN_WIDGET.replace(
         'const base = "rounded-md px-2";',
         "const base = computeBase();",
+      ),
+    }),
+  },
+  {
+    id: "P21-empty-class-list-initializer",
+    why: 'an allowlisted definition whose class-list initializer is EMPTY (evaluates to "")',
+    expect: "class-list initializer is EMPTY",
+    mutate: (c) => ({
+      ...c,
+      "components/Widget.tsx": CLEAN_WIDGET.replace(
+        'const CHIP = ["inline-block max-w-full truncate", "text-xs font-semibold"].join(" ");',
+        'const CHIP = [].join(" ");',
+      ),
+    }),
+  },
+  {
+    id: "P22-array-transform-other-than-filter",
+    why: "an array transform other than `filter` between the literal and the join (`.map`), which `cn` does not reproduce",
+    expect: "filtered by a predicate other than `Boolean`",
+    mutate: (c) => ({
+      ...c,
+      "components/Other.tsx": CLEAN_OTHER.replace(
+        '["fixed inset-0", open ? "block" : "hidden"].join(" ")',
+        '["fixed inset-0", open ? "block" : "hidden"].map((x) => x).join(" ")',
       ),
     }),
   },

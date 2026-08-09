@@ -90,6 +90,10 @@ describe("cn — spec §3.2", () => {
       // @ts-expect-error nested ClassValue[] is deliberately outside ClassValue (spec §3.2);
       // no call site needs it, and excluding it keeps the eslint traversal premise narrow.
       cn(["a"]);
+      // @ts-expect-error `object` is deliberately outside ClassValue. Without this row a
+      // union widened with `Record<string, unknown>` satisfies both directives above while
+      // admitting operands that render as the literal string "[object Object]".
+      cn({ a: true });
       expect(true).toBe(true);
     });
   });
