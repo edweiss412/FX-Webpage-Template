@@ -33,6 +33,7 @@ import { readFileSync } from "node:fs";
 import { parseSheet } from "@/lib/parser";
 import { payloadOf } from "@/tests/parser/mutation/oracle";
 import { premiseHolds } from "@/tests/_shared/premise";
+import { canonicalSectionKind } from "@/lib/parser/sectionKind"; // branch-2 helper (r6: openerCell needs it)
 
 const shifts = (md: string, name: string) =>
   parseSheet(md, name).warnings.filter((w) => w.code === "LEADING_COLUMN_AUTOCORRECTED");
