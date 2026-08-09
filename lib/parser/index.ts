@@ -550,13 +550,29 @@ export function buildThrownParsedSheet(message: string): ParsedSheet {
   return buildMinimalParsedSheet("v4", [{ code: "MI-1_VERSION_DETECTION_FAILED", message }]);
 }
 
+/**
+ * Remove zero-width characters: ZWSP U+200B - ZWJ U+200D, plus BOM U+FEFF. The same
+ * class `clean()` strips at the cell boundary (blocks/_helpers.ts:50), kept identical
+ * on purpose so the two boundaries can never disagree about what "invisible" means.
+ */
+const stripZeroWidth = (s: string): string => s.replace(/[\u200B-\u200D\uFEFF]/g, "");
+
 export function parseSheet(markdown: string, filename?: string): ParsedSheet {
   // Spec 2026-08-07-parser-mutation-wave §3.1: strip zero-width characters from the
   // whole document before ANY read - including classifyVersion's label reads
   // (schema.ts:68,127), which run before the normalizeSectionHeaders seam. Same
   // character class clean() strips at the cell boundary (blocks/_helpers.ts:50);
   // clean() keeps its strip, because cell values are also assembled outside this entry.
-  markdown = markdown.replace(/[\u200B-\u200D\uFEFF]/g, "");
+  //
+  // BOTH string inputs are stripped, not just the document. `filename` is the title's
+  // final fallback (extractTitleFromMarkdown, index.ts:330-331), so a Drive filename
+  // carrying a pasted zero-width character put one straight into show.title with no
+  // compensating signal - SILENT_WRONG on exactly the field this strip exists to
+  // protect. The mutation harness never mutates filenames, so no ledger row covers it;
+  // found by probe in cross-model review. These two parameters are the COMPLETE input
+  // surface of parseSheet, so stripping both closes the class, not one instance.
+  markdown = stripZeroWidth(markdown);
+  if (filename !== undefined) filename = stripZeroWidth(filename);
   const hardErrors: ParseError[] = [];
 
   // Step 1: Detect version with confidence scoring. Hard-error gate per spec §6.8.

@@ -105,17 +105,24 @@ export function findingFor(siteId: string): string {
 //     0 rows added, 0 fingerprint drift; regenerated from the sharded HEAD corpus, 8 LPT shard
 //     dumps, re-verified byte-identical after the r1 F2/F3 repairs. Prior re-bless 2026-07-28
 //     (hotel ambiguity-judgment drift, PR #633); before that 2026-07-22 (autocorrect field). ────
-// 7842 known silent holes = current parser reality, pinned so a REGRESSION (a NEW silent
+// ─── SHRUNK 2026-08-08 by the parseSheet-entry zero-width strip (`feat/mutation-unicode`,
+//     PR #736, mutation wave 1/5): 827 unicode-inject holes closed, the WHOLE class, taking
+//     7842 → 7015. Same commit RE-BLESSED 2497 drifted fingerprints that origin/main already
+//     carried — the 2026-07-31 hotel inline-later-group wave changed parse output (an
+//     intentional, ratified change: HOTEL_INLINE_GROUP_* shipped with full registration
+//     lockstep) without the ledger refresh its fingerprints require. Fingerprint-only movement
+//     at the SAME siteIds; zero new siteIds, zero fixed holes. ────
+// 7015 known silent holes = current parser reality, pinned so a REGRESSION (a NEW silent
 // hole) or a FIX (a resolved hole → stale row) both fail the nightly harness. Stored as
 // pipe-delimited rows inside a TEMPLATE LITERAL (prettier leaves its interior intact, so each hole
-// stays ONE line instead of prettier exploding 7842 object literals to ~56k lines). Row format:
+// stays ONE line instead of prettier exploding 7015 object literals to ~56k lines). Row format:
 //   siteId|kind|fingerprint|finding|note      (fields are pipe-free: siteId uses ':', fp is hex)
 // finding = OPERATOR_FINDING_MAP[operator] (audit #N or BL-MUTATION-* — never a blanket "unaudited",
 // Codex R3). Fingerprints use the EXHAUSTIVE-by-type signal redaction (oracle.ts redactNode) so an
 // in-ledger drift on ANY signal field is caught (Codex R3). Ratchet: SHRINK this list as holes are
 // fixed; never grow it silently. Breakdown: 6 domain-scoped corrupting ops + section-reorder;
-// section-reorder (order-sensitivity, reclassified corrupting) = 82; all others = 7760;
-// by kind: 7444 wrong + 398 signal_loss.
+// section-reorder (order-sensitivity, reclassified corrupting) = 82; all others = 6933;
+// by kind: 6617 wrong + 398 signal_loss.
 const RAW_HOLES = `
 blank-row:inject:2024-05-east-coast-family-office:B10:L69:Xgap0|wrong|73d9f07eed068f65|#10|blank-row wrong @ inject
 blank-row:inject:2024-05-east-coast-family-office:B10:L70:Xgap1|wrong|c1155b75248f6c82|#10|blank-row wrong @ inject
