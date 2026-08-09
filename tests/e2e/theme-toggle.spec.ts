@@ -180,20 +180,28 @@ test.describe("crew footer theme toggle — persistence, no-FOUC, a11y, tap targ
    */
   async function gotoCrewShell(page: Page): Promise<void> {
     await page.setViewportSize({ width: 760, height: 1000 });
-    const res = await page.goto(`/show/${slug}/${shareToken}?s=today`, {
-      waitUntil: "domcontentloaded",
-    });
-    expect(res?.status(), `crew route /show/${slug}/${shareToken} must render`).toBe(200);
-    // Readiness gate: the shell, then the toggle itself, before any interaction.
-    await expect(page.getByTestId("crew-shell")).toBeVisible();
-    await expect(page.getByTestId("theme-toggle")).toBeVisible();
+    // Retried, because two things here are slow rather than wrong: the admin
+    // session set by signInAs has to be visible to the SSR request (until it is,
+    // resolveShowPageAccess renders SignInOrSkipGate and `crew-shell` never
+    // appears), and a cold dev server compiles this route on first hit. Neither
+    // can mask a broken route — one that never renders the shell still fails on
+    // the outer timeout, naming the same locator.
+    await expect(async () => {
+      const res = await page.goto(`/show/${slug}/${shareToken}?s=today`, {
+        waitUntil: "domcontentloaded",
+      });
+      expect(res?.status(), `crew route /show/${slug}/${shareToken} must render`).toBe(200);
+      await expect(page.getByTestId("crew-shell")).toBeVisible({ timeout: 15_000 });
+    }).toPass({ timeout: 90_000 });
+    // Readiness gate: the toggle itself, before any interaction.
+    await expect(page.getByTestId("theme-toggle")).toBeVisible({ timeout: 15_000 });
     await hideDevOverlay(page);
   }
 
   /** A reload plus the gates every post-reload assertion depends on. */
   async function reloadCrewShell(page: Page): Promise<void> {
     await page.reload({ waitUntil: "domcontentloaded" });
-    await expect(page.getByTestId("theme-toggle")).toBeVisible();
+    await expect(page.getByTestId("theme-toggle")).toBeVisible({ timeout: 15_000 });
     await hideDevOverlay(page);
   }
 
@@ -201,6 +209,35 @@ test.describe("crew footer theme toggle — persistence, no-FOUC, a11y, tap targ
     page.evaluate(() => document.documentElement.getAttribute("data-theme"));
   const storedTheme = (page: Page) =>
     page.evaluate((key) => window.localStorage.getItem(key), STORAGE_KEY);
+
+  /**
+   * Tap the toggle and wait for the applied theme to reach `expected`.
+   *
+   * ThemeToggle is a client island (`"use client"`). Before it hydrates the
+   * button is SSR markup with NO onClick, so a tap is silently a no-op: visible,
+   * enabled, stable, dispatched — and nothing happens. Measured on this branch
+   * under TZ=UTC (the CI runner's zone), where the SSR/CSR hero mismatch widens
+   * React's regeneration window and the SECOND tap of the persistence cycle
+   * landed inside it:
+   *
+   *     > 227 | await expect.poll(() => appliedTheme(page), …).toBe("light")
+   *     Expected: "light"   Received: "dark"
+   *
+   * Gates on the OUTCOME rather than on a sleep, and cannot mask a broken
+   * toggle — one that never flips still fails, on the timeout, exactly as
+   * before. The theme is re-checked BEFORE each click, so a working toggle is
+   * tapped exactly once and the light<->dark parity the persistence test walks
+   * is preserved.
+   */
+  async function tapToggle(page: Page, expected: "light" | "dark"): Promise<void> {
+    const toggle = page.getByTestId("theme-toggle");
+    await expect(toggle).toBeVisible();
+    await expect(async () => {
+      if ((await appliedTheme(page)) === expected) return;
+      await toggle.click();
+      await expect.poll(() => appliedTheme(page), { timeout: 2_000 }).toBe(expected);
+    }).toPass({ timeout: 20_000 });
+  }
 
   test("persistence: a tap flips data-theme, writes localStorage, and survives a reload — BOTH directions", async ({
     page,
@@ -212,8 +249,7 @@ test.describe("crew footer theme toggle — persistence, no-FOUC, a11y, tap targ
     expect(await appliedTheme(page), "seeded starting theme is light").toBe("light");
 
     // ── light → dark ──
-    await page.getByTestId("theme-toggle").click();
-    await expect.poll(() => appliedTheme(page), { timeout: 5_000 }).toBe("dark");
+    await tapToggle(page, "dark");
     expect(await storedTheme(page), `the tap must write ${STORAGE_KEY}`).toBe("dark");
 
     await reloadCrewShell(page);
@@ -223,8 +259,7 @@ test.describe("crew footer theme toggle — persistence, no-FOUC, a11y, tap targ
     // ── dark → light ── the reverse branch is part of the contract, not a
     // symmetry assumption: flip() computes `next` from the CURRENT theme, so a
     // one-directional test passes against a write that is hardcoded to "dark".
-    await page.getByTestId("theme-toggle").click();
-    await expect.poll(() => appliedTheme(page), { timeout: 5_000 }).toBe("light");
+    await tapToggle(page, "light");
     expect(await storedTheme(page), "the reverse tap must write light").toBe("light");
 
     await reloadCrewShell(page);
@@ -236,8 +271,7 @@ test.describe("crew footer theme toggle — persistence, no-FOUC, a11y, tap targ
     page,
   }) => {
     await gotoCrewShell(page);
-    await page.getByTestId("theme-toggle").click();
-    await expect.poll(() => appliedTheme(page), { timeout: 5_000 }).toBe("dark");
+    await tapToggle(page, "dark");
 
     // The oracle. Installed BEFORE the reload, so it runs ahead of every page
     // script on the next navigation and can observe the bootstrap's own write.
@@ -340,8 +374,7 @@ test.describe("crew footer theme toggle — persistence, no-FOUC, a11y, tap targ
     await expect(toggle).toHaveAttribute("aria-pressed", "false");
     await expect(toggle).toHaveAttribute("aria-label", "Switch to dark theme");
 
-    await toggle.click();
-    await expect.poll(() => appliedTheme(page), { timeout: 5_000 }).toBe("dark");
+    await tapToggle(page, "dark");
     await expect(toggle).toHaveAttribute("aria-pressed", "true");
     await expect(toggle).toHaveAttribute("aria-label", "Switch to light theme");
 

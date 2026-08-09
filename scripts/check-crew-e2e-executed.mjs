@@ -54,13 +54,6 @@ export const REQUIRED = {
   // case asserts behavior identical under mobile-safari and desktop-chromium, and
   // both were run separately to prove it before this row was written.
   "theme-toggle.spec.ts": 8,
-  // 4 = 2 cases x BOTH projects. The third §5.7 case (recovery/last-good) is
-  // STATICALLY skipped: it enters viewer_off_day by mutating the viewer's
-  // restriction, which an admin viewer never enters, so it needs a restricted
-  // crew viewer through real resolution — filed as
-  // BL-RIGHTNOW-RECOVERY-CASE-NEEDS-RESTRICTED-VIEWER and registered by exact
-  // title in EXPECTED_SKIPS. The count is the reduced executable set, not a floor.
-  "right-now-transitions.spec.ts": 4,
   // The census, across mobile-safari + desktop-chromium. The checker enforces
   // `executed >= min`, so THE NUMBER IS THE GUARD: a row of 1 would let every
   // case but one skip while CI stayed green, which is exactly what the registry

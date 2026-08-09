@@ -61,8 +61,8 @@ import { admin } from "./helpers/supabaseAdmin";
  *
  * Seed contract:
  *   Shows_internal.run_of_show is populated in beforeAll with a 2-show-day
- *   fixture (showDay1 = 2026-04-21 showStart=7:30am, showDay2 = 2026-04-22
- *   showStart=8:00am). The distinct anchors make stale-freeze observable
+ *   fixture (showDay1 = 2026-04-21, showDay2 = 2026-04-22, each with its OWN
+ *   agenda entry at a distinct time). The distinct anchors make stale-freeze observable
  *   (Day1 time persisting into Day2 would be caught by not.toContainText).
  *   Restored to the original in afterAll.
  *
@@ -78,18 +78,71 @@ import { admin } from "./helpers/supabaseAdmin";
  *   `right-now-body` — the AnimatePresence child that carries the call-time
  *   detail (RightNowHero.tsx:504 `data-testid="right-now-body"`).
  */
-test.describe("RightNow per-day Show anchor selection (§5.7)", () => {
+/**
+ * ═══════════════════════════════════════════════════════════════════════════
+ * WHOLE-FILE VALVE FIRED (spec §3.5, recorded as the §6.6 documented limit).
+ * Ledger row: BL-RIGHTNOW-SECTION57-FIXTURE-INERT. Exception (c).
+ *
+ * This suite is NOT wired into crew-e2e.yml and is statically skipped, because
+ * its fixture does not drive the thing it asserts.
+ *
+ * PROBED, not theorized (2026-08-09, TZ=UTC to match the CI runner). The suite
+ * seeds `shows_internal.run_of_show` in beforeAll and asserts the hero renders
+ * that day's anchor. Changing the fixture's Day-1 entry from "7:30am" to
+ * "7:13am" left the rendered hero UNCHANGED:
+ *
+ *     Expected pattern: /7:13\s*am/i
+ *     Received string:  "Today: Show day 1 of 2Show7:30 AM"
+ *
+ * The write itself lands (the afterAll restore reads the value back, and a psql
+ * check confirms the column round-trips), so the hero simply does not source its
+ * RightNow anchor from run_of_show on this route — it renders a show-level
+ * anchor. The original assertions "passed" only because 7:30am/8:00am HAPPENED
+ * to equal seed-derived values.
+ *
+ * Two separate coincidences hid this, and both are worth naming because either
+ * alone would have kept the suite green for the wrong reason:
+ *   1. Day 1's "7:30am" equals the seed's own show-start anchor.
+ *   2. Day 2's "8:00am" equals noon-UTC rendered in America/New_York — so on a
+ *      developer Mac the assertion matched the pinned CLOCK, not any anchor. CI
+ *      (UTC) renders the same instant "12:00 PM", which is what finally exposed
+ *      it: "Today: Show day 2 of 2Strike4/22 @ 12:00 PM".
+ *
+ * Driving this honestly needs the hero's actual anchor source under a real crew
+ * viewer — the same per-test-crew-row + email-matched-session harness the §5.7
+ * recovery case already defers for. That is a new harness, not a URL swap, and
+ * it is out of this arc's timebox.
+ *
+ * KEPT rather than deleted: unlike the nine specs this arc removed, the behavior
+ * here is real and the route is live — only the fixture mechanism is unproven.
+ * The invariant-9 call-boundary repairs and the rendered-state assertion added to
+ * driveToState this round are retained; the latter is what made the recovery
+ * case's failure loud instead of silent.
+ * ═══════════════════════════════════════════════════════════════════════════
+ */
+test.describe.skip("RightNow per-day Show anchor selection (§5.7)", () => {
   // Anchor times derived from the seed (distinct so freeze is observable).
   const DAY1_ISO = "2026-04-21";
   const DAY2_ISO = "2026-04-22";
-  const DAY1_TIME = "7:30am"; // showStart for Day 1, as the FIXTURE spells it
-  const DAY2_TIME = "8:00am"; // showStart for Day 2, as the FIXTURE spells it
+  // Anchor times as the FIXTURE spells them. Both carry an odd minute ON PURPOSE.
+  //
+  // The clock these tests pin is noon UTC (see pinClock), and the hero renders a
+  // fallback anchor as a real instant in the RUNNER's timezone. On an
+  // America/New_York machine noon UTC renders "8:00 AM" — which is exactly what
+  // DAY2_TIME used to be, so the Day-2 assertion matched the CLOCK rather than the
+  // ANCHOR and passed locally for the wrong reason. CI (UTC) rendered the same
+  // instant as "12:00 PM" and the coincidence broke, exposing that the hero was
+  // showing a fallback ("Show day 2 of 2 · Strike 4/22 @ 12:00 PM"), never the
+  // day's own anchor. A :00 or :30 time can collide with a pinned instant in some
+  // offset; :13 and :47 cannot collide with a top-of-hour clock in ANY offset.
+  const DAY1_TIME = "7:13am";
+  const DAY2_TIME = "8:47am";
 
   /**
    * Match the fixture's anchor time as the hero RENDERS it.
    *
-   * The fixture writes `run_of_show.showStart` as "7:30am"; the hero renders
-   * "4/21 @ 7:30 AM" — different case and spacing. Measured, not assumed: these
+   * The fixture writes entry times like "7:13am"; the hero renders
+   * "7:13 AM" — different case and spacing. Measured, not assumed: these
    * assertions previously compared against the raw fixture string and had never
    * run against a live route, so the mismatch had never surfaced.
    *
@@ -109,18 +162,24 @@ test.describe("RightNow per-day Show anchor selection (§5.7)", () => {
   const ANCHOR_RUN_OF_SHOW = {
     [DAY1_ISO]: {
       entries: [
-        { start: "7:30am", title: "Registration & Breakfast" },
+        { start: DAY1_TIME, title: "Registration & Breakfast" },
         { start: "8:15am", title: "Welcome & Polling" },
       ],
       showStart: DAY1_TIME,
       showEnd: null,
       window: null,
     },
+    // Day 2 carries its OWN entry. It used to be `entries: []`, which made the
+    // hero fall through to a show-level anchor (the Strike time) instead of the
+    // day's anchor — so the re-selection this suite exists to prove was never
+    // actually exercised on Day 2. Entry times render verbatim (they are strings
+    // in run_of_show, not instants), which is also what makes the assertion
+    // timezone-independent.
     [DAY2_ISO]: {
-      entries: [],
+      entries: [{ start: DAY2_TIME, title: "Doors & Soundcheck" }],
       showStart: DAY2_TIME,
       showEnd: null,
-      window: { start: "8:00am", end: "5:30pm" },
+      window: { start: DAY2_TIME, end: "5:30pm" },
     },
   };
 
@@ -198,7 +257,7 @@ test.describe("RightNow per-day Show anchor selection (§5.7)", () => {
    * §5.7 midnight rollover: Day1 → Day2.
    *
    * Concrete failure mode caught: the RightNowHero anchor selection pins
-   * showAnchors[0] (Day1's 7:30am) regardless of todayIso — so after the
+   * showAnchors[0] (Day1's anchor) regardless of todayIso — so after the
    * clock advances to Day2, day1Time still appears and the
    * `not.toContainText(day1Time)` assertion trips.
    */
@@ -214,7 +273,7 @@ test.describe("RightNow per-day Show anchor selection (§5.7)", () => {
 
     // State entry asserted, not assumed: Day 1 is a show day, so the hero must
     // resolve show_day_n. Without this the anchor-text assertion below could be
-    // satisfied by any render that happens to contain "7:30am".
+    // satisfied by any render that happens to contain Day 1's time.
     await assertRenderedState(page, "show_day_n");
     await expect(page.getByTestId("right-now-body")).toContainText(anchorText(DAY1_TIME));
 
@@ -287,7 +346,7 @@ test.describe("RightNow per-day Show anchor selection (§5.7)", () => {
    * §5.7 non-show "now" → show day: call time appears only once now is a show day.
    *
    * Pre-show is 2026-04-20 (set day — no runOfShow entry, not a show_day).
-   * Advancing to Day1 (2026-04-21) should surface the 7:30am anchor.
+   * Advancing to Day1 (2026-04-21) should surface Day 1's anchor.
    *
    * Concrete failure mode caught: todayShowAnchors returns [] when todayIso
    * doesn't match any anchor date, falling back to ctx.callTime. If
@@ -307,7 +366,7 @@ test.describe("RightNow per-day Show anchor selection (§5.7)", () => {
     expect(res?.status(), "crew route must render").toBe(200);
 
     // The set day is a DIFFERENT kind, and asserting it is what makes the
-    // negative below meaningful: "7:30am is absent" is trivially true on any
+    // negative below meaningful: "Day 1's time is absent" is trivially true on any
     // page that failed to render the hero at all.
     await assertRenderedState(page, "set_day");
     // Day1 call time must NOT appear on the set day.

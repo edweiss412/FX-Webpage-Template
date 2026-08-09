@@ -208,12 +208,6 @@ const EXPECTED_SKIPS: Record<string, string[]> = {
     "transition (d): hero state-change while leaving Today unmounts the hero cleanly (no concurrent animation; compound)",
   ],
   "tests/e2e/theme-toggle.spec.ts": [],
-  // BL-RIGHTNOW-RECOVERY-CASE-NEEDS-RESTRICTED-VIEWER: admin resolution ignores
-  // date_restriction, so this case's viewer_off_day entry is unreachable without
-  // a restricted crew viewer through real resolution (spec §3.5 CASE valve).
-  "tests/e2e/right-now-transitions.spec.ts": [
-    "recovery/last-good does not pin a prior day's call time",
-  ],
 };
 
 /**
@@ -231,7 +225,6 @@ const ENROLLED = [
   "tests/e2e/stage-restricted-crew-schedule.spec.ts",
   "tests/e2e/crew-page.spec.ts",
   "tests/e2e/theme-toggle.spec.ts",
-  "tests/e2e/right-now-transitions.spec.ts",
 ] as const;
 
 const EXEMPT: Record<string, string> = {

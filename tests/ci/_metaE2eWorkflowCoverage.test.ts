@@ -164,7 +164,7 @@ const LOCAL_ONLY_ALLOWLIST: Record<string, string> = {
   "tests/e2e/published-review-modal.reopen.spec.ts": PATH_GATED,
   "tests/e2e/published-show-attention.spec.ts": UNSEEN,
   "tests/e2e/report-modal.spec.ts": UNSEEN,
-  "tests/e2e/right-now-transitions.spec.ts": PATH_GATED_BY_EXCLUSION,
+  "tests/e2e/right-now-transitions.spec.ts": UNSEEN,
   "tests/e2e/roles-settings-layout.spec.ts": UNSEEN,
   "tests/e2e/root-landing.spec.ts": UNSEEN,
   "tests/e2e/sample.spec.ts": UNSEEN,
