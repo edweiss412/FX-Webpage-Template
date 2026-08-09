@@ -35,6 +35,11 @@ vi.mock("@/lib/adminAlerts/resolveAdminAlert", () => ({
   resolveAdminAlert: resolveAdminAlertSpy,
 }));
 
+const logAdminOutcomeSpy = vi.hoisted(() => vi.fn(async () => undefined));
+vi.mock("@/lib/log/logAdminOutcome", () => ({
+  logAdminOutcome: logAdminOutcomeSpy,
+}));
+
 const revalidatePathSpy = vi.hoisted(() => vi.fn());
 vi.mock("next/cache", () => ({
   revalidatePath: revalidatePathSpy,
@@ -63,6 +68,7 @@ describe("retryWatchSubscriptionFormAction", () => {
     resolveAdminAlertSpy.mockClear();
     revalidatePathSpy.mockClear();
     logInfoSpy.mockClear();
+    logAdminOutcomeSpy.mockClear();
   });
 
   test("calls requireAdmin before any read", async () => {
@@ -150,6 +156,29 @@ describe("retryWatchSubscriptionFormAction", () => {
     expect(resolveAdminAlertSpy).not.toHaveBeenCalled();
     expect(revalidatePathSpy).toHaveBeenCalledWith("/admin", "layout");
     expect(revalidatePathSpy).toHaveBeenCalledWith("/admin/settings");
+    expect(revalidatePathSpy).toHaveBeenCalledTimes(2);
+  });
+
+  test("folder_changed consumer: no WATCH_SUBSCRIPTION_RETRIED emit and no alert resolve", async () => {
+    // AC-5. This row needs NO production change: the action's success arm is
+    // gated on `outcome === "active"`, which already excludes the new member.
+    // It is a PIN, and its discriminating power is not assumed — the task's
+    // step-4 mutant run inverts that gate to `!== "active"` and confirms this
+    // case fails, then restores it.
+    getActiveWatchedFolderSpy.mockResolvedValue({ folderId: "folder-123" });
+    subscribeToWatchedFolderSpy.mockResolvedValue({
+      outcome: "folder_changed",
+      channelId: "chan-1",
+      configuredFolderId: "folder-999",
+    });
+
+    await retryWatchSubscriptionFormAction(new FormData());
+
+    // The retried folder is no longer the configured one, so neither the
+    // success telemetry nor the alert resolve may fire.
+    expect(logAdminOutcomeSpy).not.toHaveBeenCalled();
+    expect(resolveAdminAlertSpy).not.toHaveBeenCalled();
+    // Still revalidates: the admin's next retry reads the new folder.
     expect(revalidatePathSpy).toHaveBeenCalledTimes(2);
   });
 

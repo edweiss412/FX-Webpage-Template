@@ -1329,6 +1329,13 @@ export async function refreshWatchSubscriptions(deps: RefreshDeps = {}): Promise
         refreshed.push(row.watchedFolderId);
         continue;
       }
+      if (result.outcome === "folder_changed") {
+        // A deliberate cancel, not a renewal failure (spec §3.2): no warn, and
+        // the folder enters NONE of the three buckets. The §3.1 abort branch
+        // already emitted DRIVE_WATCH_ACTIVATION_FOLDER_CHANGED, which is the
+        // record; a second emit here would double-count one event.
+        continue;
+      }
       // Renewal-specific forensic warn (origin/main 51429aa1) — fires for BOTH
       // orphan reasons; channel classification below stays ours.
       void log.warn("watch channel renewal failed", {
@@ -1517,6 +1524,11 @@ export type ReconcileOutcome =
   // In-memory cycle outcome ONLY - never persisted; the state table's
   // last_attempt_outcome is deliberately narrower (backoff spec §3.2).
   | "backoff_waiting"
+  // Same in-memory-only carve-out as `backoff_waiting`: the configured folder
+  // changed mid-cycle (spec §3.2). No existing member fits — `healthy`,
+  // `recovered` and `vacuous` would all be semantically false — and the cron
+  // route reports it additively.
+  | "folder_changed"
   | "vacuous"
   | "infra_error";
 export type ReconcileResult = {
@@ -1714,33 +1726,45 @@ export async function reconcileWatchChannels(
           deps.subscribeToWatchedFolder ??
           ((folderId: string) => subscribeToWatchedFolder(folderId, { recordAttempt: true }))
         )(folder.folderId);
-        // §3.3a observer: a RETURNED result with attempt === null means the
-        // state write failed (this caller always opts in). A thrown flow has no
-        // result; the swallow-site warn is its record.
-        if (result.attempt === null) {
-          faults.push("state_write");
+        if (result.outcome === "folder_changed") {
+          // FIRST, before the attempt check and before the alert resolves
+          // (spec §3.2). The abort branch records no attempt BY DESIGN, so the
+          // `attempt === null` arm below would read a deliberate cancel as a
+          // state-write fault. The ladder fields keep whatever this cycle's
+          // gate read supplied — this branch writes neither — and the
+          // escalation condition list below does not name `folder_changed`, so
+          // the cycle is structurally non-escalating. The next cycle reads the
+          // NEW folder and proceeds normally.
+          outcome = "folder_changed";
         } else {
-          nextAttemptAt = result.attempt.nextAttemptAt;
-          consecutiveFailures = result.attempt.consecutiveFailures;
-        }
-        if (result.outcome === "active") {
-          // The channel IS healthy the moment subscribe returns active — set
-          // recovered BEFORE attempting resolve, so a resolve-write fault can
-          // never route a recovered channel into the escalation branch
-          // (plan-R2 finding 1: false Sentry/email on a healthy watch).
-          outcome = "recovered";
-          try {
-            await resolve({ showId: null, code: "WATCH_CHANNEL_ORPHANED" });
-            await runTx((tx) =>
-              callWatchTx("admin_alerts.resolve_webhook_token_invalid", () =>
-                tx.resolveStaleWebhookTokenInvalid(folder.folderId, now().toISOString()),
-              ),
-            );
-          } catch {
-            faults.push("alert_resolve_write");
+          // §3.3a observer: a RETURNED result with attempt === null means the
+          // state write failed (this caller always opts in). A thrown flow has
+          // no result; the swallow-site warn is its record.
+          if (result.attempt === null) {
+            faults.push("state_write");
+          } else {
+            nextAttemptAt = result.attempt.nextAttemptAt;
+            consecutiveFailures = result.attempt.consecutiveFailures;
           }
-        } else if (result.reason === "activate_failed_after_watch_created") {
-          faults.push("activate_write"); // DB fault in an orphaned costume (spec §3.1.2)
+          if (result.outcome === "active") {
+            // The channel IS healthy the moment subscribe returns active — set
+            // recovered BEFORE attempting resolve, so a resolve-write fault can
+            // never route a recovered channel into the escalation branch
+            // (plan-R2 finding 1: false Sentry/email on a healthy watch).
+            outcome = "recovered";
+            try {
+              await resolve({ showId: null, code: "WATCH_CHANNEL_ORPHANED" });
+              await runTx((tx) =>
+                callWatchTx("admin_alerts.resolve_webhook_token_invalid", () =>
+                  tx.resolveStaleWebhookTokenInvalid(folder.folderId, now().toISOString()),
+                ),
+              );
+            } catch {
+              faults.push("alert_resolve_write");
+            }
+          } else if (result.reason === "activate_failed_after_watch_created") {
+            faults.push("activate_write"); // DB fault in an orphaned costume (spec §3.1.2)
+          }
         }
       } catch {
         faults.push("subscribe_infra");

@@ -3235,3 +3235,73 @@ describe("folder_changed: the dedicated activation-abort branch (spec §3.1)", (
     expect(vi.mocked(classifyWatchError).mock.calls).toHaveLength(0);
   });
 });
+
+describe("folder_changed consumer branches (spec §3.2)", () => {
+  test("folder_changed consumer: renewal neither records a failure nor an orphan, and emits no DRIVE_WATCH_RENEWAL_FAILED", async () => {
+    const tx = new FakeWatchTx();
+    tx.rows.push({
+      id: "renewal-channel",
+      status: "active",
+      watchedFolderId: "folder-1",
+      webhookSecret: "secret-1",
+      resourceId: "resource-1",
+      // 24h lease created 05-08T16:00, expiring 05-09T16:00. At tx.now
+      // (05-09T12:00) it has 4h left against a 6h renewal lead, so it is due.
+      createdAt: "2026-05-08T16:00:00.000Z",
+      expiresAt: "2026-05-09T16:00:00.000Z",
+    });
+    const { refreshWatchSubscriptions } = await import("@/lib/drive/watch");
+
+    const result = await refreshWatchSubscriptions({
+      tx,
+      now: () => tx.now,
+      subscribeToWatchedFolder: vi.fn(async () => ({
+        outcome: "folder_changed" as const,
+        channelId: "renewal-channel",
+        configuredFolderId: "folder-2",
+      })),
+      getActiveWatchedFolder: folderOf(tx) as never,
+    } as unknown as Parameters<typeof refreshWatchSubscriptions>[0]);
+
+    // A deliberate cancel is not a renewal failure and not an orphan: the loop
+    // continues and the folder appears in NONE of the three buckets.
+    expect(result).toEqual({ refreshed: [], orphaned: [], failures: [] });
+    expect(logRecords.filter((r) => r.code === "DRIVE_WATCH_RENEWAL_FAILED")).toEqual([]);
+  });
+
+  test("folder_changed consumer: reconcile reports folder_changed with no state_write fault and no escalation", async () => {
+    const tx = new FakeWatchTx();
+    // No live active channel, so the cycle reaches the recovery subscribe.
+    const gateRow = {
+      consecutiveFailures: 3,
+      nextAttemptAt: "2026-05-09T12:15:00.000Z",
+      waiting: false,
+    };
+    tx.gateRow = gateRow;
+    const { reconcileWatchChannels } = await import("@/lib/drive/watch");
+    const deps = reconcileDeps(tx, {
+      subscribeToWatchedFolder: vi.fn().mockResolvedValue({
+        outcome: "folder_changed",
+        channelId: "chan-1",
+        configuredFolderId: "folder-2",
+      }),
+    });
+
+    const result = await reconcileWatchChannels(NO_REFRESH, deps);
+
+    expect(result.outcome).toBe("folder_changed");
+    // The branch records no attempt BY DESIGN, so a missing attempt is not a
+    // state-write fault here — the pre-arc `attempt === null` arm would have
+    // called it one.
+    expect(result.faults).not.toContain("state_write");
+    expect(result.faults).toEqual([]);
+    // Structurally non-escalating: folder_changed is not in the escalation
+    // condition list, and the next cycle reads the NEW folder.
+    expect(deps.maybeEscalateWatchOrphaned).not.toHaveBeenCalled();
+    expect(result.escalated).toBe(false);
+    // Ladder fields keep exactly what the cycle's gate read supplied — derived
+    // from the fixture, not restated.
+    expect(result.nextAttemptAt).toBe(gateRow.nextAttemptAt);
+    expect(result.consecutiveFailures).toBe(gateRow.consecutiveFailures);
+  });
+});
