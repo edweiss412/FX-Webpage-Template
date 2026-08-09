@@ -255,6 +255,19 @@ export async function GET(request: NextRequest): Promise<Response> {
   await stampOauthClaim(supabase);
 
   if (hasInvalidExplicitNext) {
+    // Cluster E: the refusal was already user-visible and left NO durable row.
+    // `reason` names the branch; the rejected `next` is attacker-controlled text
+    // and is deliberately never carried (spec §2.1, documented limit §5.2).
+    // Fail-open at the callsite — a telemetry fault must never replace the 302.
+    try {
+      await log.warn("next param rejected; redirecting with OAUTH_REDIRECT_INVALID", {
+        source: "auth.callback",
+        code: "OAUTH_REDIRECT_INVALID",
+        reason: "callback_invalid_explicit_next",
+      });
+    } catch {
+      /* best-effort */
+    }
     const response = signInRedirect(request, "OAUTH_REDIRECT_INVALID", nextOutcome.path);
     clearPkceVerifierCookies(request, response);
     return response;

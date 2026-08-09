@@ -159,10 +159,39 @@ export async function GET(request: Request): Promise<Response> {
   return runWithRequestContext({ requestId: deriveRequestId(request.headers) }, async () => {
     const url = new URL(request.url);
     const nextOutcome = validateNextParamDetailed(url.searchParams.get("next"));
-    if (!nextOutcome.ok) return htmlResponse("OAUTH_REDIRECT_INVALID", 403);
+    if (!nextOutcome.ok) {
+      // Cluster E: this 403 was user-visible and left no durable row. Unlike the
+      // two auth.* routes this branch carries no `rawNext !== null` guard, so an
+      // ABSENT `next` lands here too — the reason is worded to stay true of both.
+      // The rejected value itself is never carried (spec §2.1, limit §5.2).
+      // Fail-open at the callsite: a telemetry fault must never replace the 403.
+      try {
+        await log.warn("picker bootstrap refused; responding with OAUTH_REDIRECT_INVALID", {
+          source: "api.auth.pickerBootstrap",
+          code: "OAUTH_REDIRECT_INVALID",
+          reason: "bootstrap_next_rejected",
+        });
+      } catch {
+        /* best-effort */
+      }
+      return htmlResponse("OAUTH_REDIRECT_INVALID", 403);
+    }
 
     const parsedNext = parseNextPath(nextOutcome.path);
-    if (!parsedNext) return htmlResponse("OAUTH_REDIRECT_INVALID", 403);
+    if (!parsedNext) {
+      // Validation passed but the path is not a tokenized crew route, so
+      // parseNextPath could not split slug/token.
+      try {
+        await log.warn("picker bootstrap refused; responding with OAUTH_REDIRECT_INVALID", {
+          source: "api.auth.pickerBootstrap",
+          code: "OAUTH_REDIRECT_INVALID",
+          reason: "bootstrap_unparsable_next",
+        });
+      } catch {
+        /* best-effort */
+      }
+      return htmlResponse("OAUTH_REDIRECT_INVALID", 403);
+    }
 
     let signingKey: string;
     try {
@@ -173,6 +202,23 @@ export async function GET(request: Request): Promise<Response> {
 
     const intent = verifyPickerIntent(url.searchParams.get("t"), signingKey);
     if (!intent || intent.slug !== parsedNext.slug || intent.shareToken !== parsedNext.shareToken) {
+      // Split on `!intent` (a disjunct the guard already evaluates, so this costs
+      // nothing) because one label here would be untruthful. verifyPickerIntent
+      // returns a bare null from eight causes including EXPIRY, and reporting a
+      // crew member who simply sat past `exp` as a "mismatch" would send an
+      // operator hunting tampering that never happened. The mismatch label is
+      // asserted ONLY when an intent verified and then disagreed — the one case
+      // that genuinely suggests a forged or stale link. The eight null causes
+      // stay collapsed (documented limit §5.6); "could not verify" is true of all.
+      try {
+        await log.warn("picker bootstrap refused; responding with OAUTH_REDIRECT_INVALID", {
+          source: "api.auth.pickerBootstrap",
+          code: "OAUTH_REDIRECT_INVALID",
+          reason: intent ? "bootstrap_intent_target_mismatch" : "bootstrap_intent_unverified",
+        });
+      } catch {
+        /* best-effort */
+      }
       return htmlResponse("OAUTH_REDIRECT_INVALID", 403);
     }
 

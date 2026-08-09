@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
+import { premiseHolds } from "../_shared/premise";
 import { ROUND_THRESHOLD } from "../../lib/reviewRounds/constants";
 import { mergedArcs } from "../../lib/reviewRounds/mergedArcs";
 import { buildReport, main, render } from "../../scripts/review-economy";
@@ -551,6 +552,53 @@ describe("report aggregation (spec §9)", () => {
     expect(report.silentArcs?.map((a) => a.branch)).toEqual(["feat/nothing-recorded"]);
   });
 
+  // --- boundary advisory: exclusion rule, accept-set, wording (spec §3, §4) ---
+  //
+  // Spec §3.4 VERBATIM, written here as a test-local literal and never imported
+  // from the implementation: an assertion built out of the module's own constant
+  // is satisfied by whatever that module emits, including an empty string.
+  // Parameterised by BOTH interpolations so P1 mutant (d) - the advisory's row
+  // timestamp swapped for another row's - fails the case that names it.
+  const advisoryLine = (earliest: string, boundary: string): string =>
+    `ADVISORY: the earliest recorded row (${earliest}) precedes the declared adoption boundary (${boundary}) and no same-branch pre-adoption merge covers it — the boundary, the row's arc attribution, or the row's own timing is in question.`;
+
+  /** Spec §3.2's note, asserted as a FULL LINE (`notes` array containment), so
+   *  P1 mutant (b) - the same content plus a suffix - fails rather than passing
+   *  a substring match. */
+  const unplaceableNote = (n: number): string =>
+    `${n} row(s) without a placeable startedAt are invisible to the boundary advisory.`;
+
+  /** The shallow refusal note with its §3.5 extension, likewise full-line. */
+  const SHALLOW_NOTE =
+    "merged-arc scan REFUSED: this is a shallow clone, so its history is truncated. The silent-arc list is withheld, not empty; the boundary advisory is withheld for the same reason.";
+
+  /** A recognized merge. `sha` is DERIVED from the branch and timestamp, so the
+   *  two merges of case 9 cannot silently share one identity. */
+  const merge = (
+    branch: string,
+    mergedAt: string,
+    baseSha = "aaaaaaaaaaaa",
+  ): { sha: string; branch: string; baseSha: string; mergedAt: string } => ({
+    sha: Buffer.from(`${branch} ${mergedAt}`).toString("hex").slice(0, 40).padEnd(40, "0"),
+    branch,
+    baseSha,
+    mergedAt,
+  });
+
+  /**
+   * The premise every null-asserting exclusion case rests on: the SAME corpus,
+   * with the merge set emptied, must FIRE. Without it, a case asserting
+   * `boundaryAdvisory === null` passes on any corpus that never had a
+   * pre-boundary row at all — the whole exclusion rule could be deleted and the
+   * case would stay green. Stated on each case's OWN inputs (the same `root`,
+   * varying only the merges), never on an adjacent fixture.
+   */
+  const premiseFiresWithoutMerges = (root: string): void =>
+    premiseHolds(
+      "this corpus fires the advisory once its merges are removed, so the null asserted below is the exclusion rule's doing",
+      buildReport(root, { ...opts, mergedArcs: [] }).boundaryAdvisory !== null,
+    );
+
   it("prints an advisory mismatch when the earliest corpus row precedes the boundary", () => {
     const root = corpus(mkdtempSync(join(tmpdir(), "rep-mismatch-")), [
       {
@@ -559,7 +607,438 @@ describe("report aggregation (spec §9)", () => {
       },
     ]);
     const report = buildReport(root, opts);
-    expect(report.boundaryAdvisory).toContain("2026-08-15");
+    // Reworded per spec §3.4 - the ONE existing assertion this arc changes.
+    // Full-line equality, not `toContain`, because a substring match on the
+    // timestamp survives every one of P1's four string mutants.
+    expect(report.boundaryAdvisory).toBe(advisoryLine("2026-08-15T00:00:00.000Z", BOUNDARY));
+  });
+
+  // §4 case 1 (AC-W2.1). Failure caught: `earliest` computed over ALL rows
+  // (scripts/review-economy.ts, the `.flatMap((a) => a.rows)` selection), which
+  // is the LIVE defect - the wrapper wrote rows on the adoption branch hours
+  // before that branch merged, and the report calls the constant wrong on every
+  // run. The merge's baseSha DIFFERS from the corpus path's, because
+  // `mergedArcs` derives baseSha from the merge-base of the merge's two
+  // parents, so a split arc's earlier segments can never match an exact arcKey:
+  // an implementation joining on arcKey(branch, baseSha) still fires here.
+  it("excludes a pre-boundary row covered by its branch's pre-adoption merge, joined on branch and time rather than arcKey", () => {
+    const root = corpus(mkdtempSync(join(tmpdir(), "rep-adv-split-")), [
+      {
+        path: "feat/split/111111111111.jsonl",
+        body: jrows({
+          round: 1,
+          branch: "feat/split",
+          baseSha: "111111111111",
+          startedAt: "2026-08-20T00:00:00.000Z",
+        }),
+      },
+    ]);
+    premiseFiresWithoutMerges(root);
+    const report = buildReport(root, {
+      ...opts,
+      // Same branch, DIFFERENT baseSha, mergedAt at the boundary itself (the
+      // `<=` carve-out makes it pre-adoption).
+      mergedArcs: [merge("feat/split", BOUNDARY, "222222222222")],
+    });
+    expect(report.boundaryAdvisory).toBeNull();
+  });
+
+  // §4 case 2 (AC-W2.2). Failure caught: an exclusion rule so wide it swallows
+  // the signal the advisory exists for. The companion pins STRICTLY-precedes:
+  // a `<= boundary` mutant at the advisory condition prints "precedes" about a
+  // timestamp that equals the boundary.
+  it("still fires for an unexplained pre-boundary row, and only when the row STRICTLY precedes the boundary", () => {
+    const unexplained = (startedAt: string): string =>
+      jrows({ round: 1, branch: "feat/lonely", baseSha: "333333333333", startedAt });
+
+    const firing = buildReport(
+      corpus(mkdtempSync(join(tmpdir(), "rep-adv-lonely-")), [
+        { path: "feat/lonely/333333333333.jsonl", body: unexplained("2026-08-20T00:00:00.000Z") },
+      ]),
+      { ...opts, mergedArcs: [] },
+    );
+    expect(firing.boundaryAdvisory).toBe(advisoryLine("2026-08-20T00:00:00.000Z", BOUNDARY));
+
+    // Companion: the only unexplained row sits EXACTLY at the boundary.
+    const atBoundary = buildReport(
+      corpus(mkdtempSync(join(tmpdir(), "rep-adv-at-boundary-")), [
+        { path: "feat/lonely/333333333333.jsonl", body: unexplained(BOUNDARY) },
+      ]),
+      { ...opts, mergedArcs: [] },
+    );
+    expect(atBoundary.boundaryAdvisory).toBeNull();
+  });
+
+  // §4 case 3 (AC-W2.3). The time cap's premise, stated executably: without the
+  // firing run the cap could be deleted entirely and every other case would
+  // still pass. The companion pins the cap as INCLUSIVE - a `<` cap strands a
+  // row whose startedAt equals the merge's mergedAt, and neither of the firing
+  // run's comparisons discriminates `<` from `<=`.
+  it("counts a row written AFTER its branch's pre-adoption merge, and treats the cap boundary as inclusive", () => {
+    const MERGED_AT = "2026-08-10T00:00:00.000Z";
+    const reused = (startedAt: string): string =>
+      jrows({ round: 1, branch: "feat/reuse", baseSha: "444444444444", startedAt });
+    const withMerge = { ...opts, mergedArcs: [merge("feat/reuse", MERGED_AT)] };
+
+    const afterMerge = buildReport(
+      corpus(mkdtempSync(join(tmpdir(), "rep-adv-reuse-")), [
+        { path: "feat/reuse/444444444444.jsonl", body: reused("2026-08-20T00:00:00.000Z") },
+      ]),
+      withMerge,
+    );
+    expect(afterMerge.boundaryAdvisory).toBe(advisoryLine("2026-08-20T00:00:00.000Z", BOUNDARY));
+
+    // Companion: EXACTLY at the merge's timestamp, so the cap must include it.
+    const atMerge = buildReport(
+      corpus(mkdtempSync(join(tmpdir(), "rep-adv-at-merge-")), [
+        { path: "feat/reuse/444444444444.jsonl", body: reused(MERGED_AT) },
+      ]),
+      withMerge,
+    );
+    expect(atMerge.boundaryAdvisory).toBeNull();
+  });
+
+  // §4 case 4 (AC-W2.4). Failure caught: an exclusion keyed on branch alone,
+  // with no pre-adoption classification - only a merge that predates the
+  // contract can explain a row that predates the contract.
+  it("does not let a POST-adoption merge launder a pre-boundary row on its branch", () => {
+    const root = corpus(mkdtempSync(join(tmpdir(), "rep-adv-late-")), [
+      {
+        path: "feat/late/555555555555.jsonl",
+        body: jrows({
+          round: 1,
+          branch: "feat/late",
+          baseSha: "555555555555",
+          startedAt: "2026-08-20T00:00:00.000Z",
+        }),
+      },
+    ]);
+    const report = buildReport(root, {
+      ...opts,
+      mergedArcs: [merge("feat/late", "2026-09-05T00:00:00.000Z")],
+    });
+    expect(report.boundaryAdvisory).toBe(advisoryLine("2026-08-20T00:00:00.000Z", BOUNDARY));
+  });
+
+  // §4 case 5 (AC-W2.5). Failure caught: an advisory computed from an exclusion
+  // set that a shallow clone silently emptied - every pre-boundary row then
+  // reads as unexplained and the report accuses the constant on a scan it
+  // already refused to trust.
+  //
+  // PREMISE PAIR, executable and on THIS case's own inputs: the identical
+  // corpus is asserted to fire the advisory under a non-shallow run FIRST. The
+  // existing shallow fixture's corpus is EMPTY, where boundaryAdvisory is null
+  // with no withholding logic at all - the trivial null this pair exists to
+  // block.
+  it("withholds an advisory that WOULD fire when the merged-arc scan refused a shallow clone", () => {
+    const CORPUS = [
+      {
+        path: "feat/uncovered/666666666666.jsonl",
+        body: jrows({
+          round: 1,
+          branch: "feat/uncovered",
+          baseSha: "666666666666",
+          startedAt: "2026-08-20T00:00:00.000Z",
+        }),
+      },
+    ];
+    const EXPECTED = advisoryLine("2026-08-20T00:00:00.000Z", BOUNDARY);
+
+    // Premise: this corpus fires the advisory when the scan is trusted.
+    const deep = buildReport(corpus(mkdtempSync(join(tmpdir(), "rep-adv-deep-")), CORPUS), opts);
+    expect(deep.boundaryAdvisory, "premise: this corpus fires when not shallow").toBe(EXPECTED);
+
+    const origin = fixtureRepo().dir;
+    const shallow = join(mkdtempSync(join(tmpdir(), "rep-adv-shallow-")), "clone");
+    execFileSync("git", ["clone", "--depth=1", `file://${origin}`, shallow]);
+    corpus(shallow, CORPUS);
+    // NOT `mergedArcs: []`: injecting the merges bypasses the shallow detection
+    // this case is named for.
+    const report = buildReport(shallow, opts);
+    expect(report.shallow, "premise: the clone really is shallow").toBe(true);
+    expect(report.boundaryAdvisory).toBeNull();
+    // FULL-LINE equality. A `toMatch` on a fragment survives P1's suffix mutant.
+    expect(report.notes).toContain(SHALLOW_NOTE);
+  });
+
+  // §4 case 6 (AC-W2.6). Failure caught: `earliest` selected by LEXICAL
+  // `.sort()[0]` over startedAt strings and only then parsed - the lexically
+  // smallest string here is chronologically LATER than the boundary, so the
+  // advisory is silently suppressed for a genuinely pre-boundary row.
+  it("selects the CHRONOLOGICALLY earliest row, not the lexically smallest string", () => {
+    const root = corpus(mkdtempSync(join(tmpdir(), "rep-adv-lex-")), [
+      {
+        path: "feat/offsets/777777777777.jsonl",
+        body: jrows(
+          // Chronologically 2026-09-01T01:30Z - POST-boundary, lexically SMALLEST.
+          {
+            round: 1,
+            branch: "feat/offsets",
+            baseSha: "777777777777",
+            startedAt: "2026-08-31T23:30:00-02:00",
+          },
+          // Chronologically 2026-08-31T23:00Z - PRE-boundary, lexically LARGER.
+          {
+            round: 2,
+            branch: "feat/offsets",
+            baseSha: "777777777777",
+            startedAt: "2026-09-01T01:00:00+02:00",
+          },
+        ),
+      },
+    ]);
+    const report = buildReport(root, { ...opts, mergedArcs: [] });
+    expect(report.boundaryAdvisory).toBe(advisoryLine("2026-09-01T01:00:00+02:00", BOUNDARY));
+    // Both rows are inside the accept-set, so the note must be ABSENT: this
+    // pins the note's only-when-any-exist conditional against an unconditional
+    // emit.
+    expect(report.notes.some((n) => n.includes("without a placeable startedAt"))).toBe(false);
+  });
+
+  // §4 case 7 (AC-W2.7). Failure caught: NaN comparisons return false and
+  // `null` startedAt is filtered - both silently, so a row the advisory could
+  // not place looks exactly like a row it placed and cleared. Scenario (ii)
+  // additionally pins the note's condition as "any non-placeable rows exist",
+  // never "and no advisory fired".
+  it("signals rows it cannot place, whether or not the advisory itself fires", () => {
+    const INVALID = [
+      { round: 1, branch: "feat/mixed", baseSha: "888888888888", startedAt: "not-a-date" },
+      { round: 2, branch: "feat/mixed", baseSha: "888888888888", startedAt: null },
+    ];
+
+    // (i) the only placeable row is POST-boundary: no advisory, note present.
+    const quiet = buildReport(
+      corpus(mkdtempSync(join(tmpdir(), "rep-adv-unplaceable-quiet-")), [
+        {
+          path: "feat/mixed/888888888888.jsonl",
+          body: jrows(...INVALID, {
+            round: 3,
+            branch: "feat/mixed",
+            baseSha: "888888888888",
+            startedAt: "2026-09-03T00:00:00.000Z",
+          }),
+        },
+      ]),
+      { ...opts, mergedArcs: [] },
+    );
+    expect(quiet.boundaryAdvisory).toBeNull();
+    expect(quiet.notes).toContain(unplaceableNote(INVALID.length));
+
+    // (ii) same invalid rows, plus an UNCOVERED pre-boundary row: the advisory
+    // fires AND the note is still there.
+    const loud = buildReport(
+      corpus(mkdtempSync(join(tmpdir(), "rep-adv-unplaceable-loud-")), [
+        {
+          path: "feat/mixed/888888888888.jsonl",
+          body: jrows(...INVALID, {
+            round: 3,
+            branch: "feat/mixed",
+            baseSha: "888888888888",
+            startedAt: "2026-08-20T00:00:00.000Z",
+          }),
+        },
+      ]),
+      { ...opts, mergedArcs: [] },
+    );
+    expect(loud.boundaryAdvisory).toBe(advisoryLine("2026-08-20T00:00:00.000Z", BOUNDARY));
+    expect(loud.notes).toContain(unplaceableNote(INVALID.length));
+  });
+
+  // §4 case 8 (AC-W2.8). Failure caught: a bare `Date.parse` placement test.
+  // Each row below is pre-boundary-LOOKING and each fails placement for its own
+  // reason: the timezone-less string parses PRE-boundary under TZ=UTC and
+  // POST-boundary under TZ=America/New_York (the same corpus flips the advisory
+  // by environment); the calendar-invalid date silently normalizes to Mar 2;
+  // the out-of-range offset is structurally plausible and parses NaN, so an
+  // unbounded `[+-]\d{2}:\d{2}` regex calls it placeable and every later
+  // comparison returns false with no note; the sub-millisecond fraction is
+  // silently truncated, so a row can compare EQUAL to a `.000` merge and slip
+  // inside the exclusion cap.
+  it("rejects and counts all four accept-set rejection families", () => {
+    const REJECTED = [
+      "2026-08-31T23:00:00",
+      "2026-02-30T00:00:00.000Z",
+      "2026-08-31T12:00:00+24:00",
+      "2026-08-31T12:00:00.0001Z",
+    ];
+    const root = corpus(mkdtempSync(join(tmpdir(), "rep-adv-acceptset-")), [
+      {
+        path: "feat/families/999999999999.jsonl",
+        body: jrows(
+          ...REJECTED.map((startedAt, i) => ({
+            round: i + 1,
+            branch: "feat/families",
+            baseSha: "999999999999",
+            startedAt,
+          })),
+          {
+            round: REJECTED.length + 1,
+            branch: "feat/families",
+            baseSha: "999999999999",
+            startedAt: "2026-09-03T00:00:00.000Z",
+          },
+        ),
+      },
+    ]);
+    // PREMISE, on this case's own inputs: the calendar-invalid and
+    // sub-millisecond rows really do PARSE, and land pre-boundary — so a bare
+    // `Date.parse` placement would have COMPARED them and suppressed the note,
+    // which is exactly what this case discriminates. (The timezone-less row is
+    // deliberately excluded from the premise: its parse is host-dependent,
+    // which is its own defect. The `+24:00` row parses NaN, which is the
+    // structural test's job, not the parser's.)
+    premiseHolds(
+      "the calendar-invalid and sub-millisecond rows parse to finite pre-boundary instants, so a naive placement would have compared rather than counted them",
+      [REJECTED[1], REJECTED[3]].every((s) => {
+        const t = Date.parse(s as string);
+        return Number.isFinite(t) && t < Date.parse(BOUNDARY);
+      }),
+    );
+    const report = buildReport(root, { ...opts, mergedArcs: [] });
+    expect(report.boundaryAdvisory).toBeNull();
+    // Count DERIVED from the fixture, so a hardcoded N (P1 mutant (d)) fails.
+    expect(report.notes).toContain(unplaceableNote(REJECTED.length));
+  });
+
+  // §4 case 9 (AC-W2.9). Failure caught by TWO mutants at the SELECTION site:
+  // oldest-only selection (the live history holds four reused-branch instances)
+  // and lexical-max selection, which picks the lexically-larger string whose
+  // instant is 22:00Z and strands the 22:15Z row outside the cap. Both merge
+  // strings lexically precede the boundary string, so classification (case 10)
+  // is not also under test here.
+  it("caps a multi-merge branch with the CHRONOLOGICALLY latest pre-adoption merge", () => {
+    const root = corpus(mkdtempSync(join(tmpdir(), "rep-adv-multi-")), [
+      {
+        path: "feat/multi/aaaaaaaaaaab.jsonl",
+        body: jrows({
+          round: 1,
+          branch: "feat/multi",
+          baseSha: "aaaaaaaaaaab",
+          // Between the two merges chronologically: after 22:00Z, before 22:30Z.
+          startedAt: "2026-08-31T22:15:00Z",
+        }),
+      },
+    ]);
+    premiseFiresWithoutMerges(root);
+    const report = buildReport(root, {
+      ...opts,
+      mergedArcs: [
+        // Chronologically 22:30Z, lexically SMALLER.
+        merge("feat/multi", "2026-08-31T20:30:00-02:00"),
+        // Chronologically 22:00Z, lexically LARGER.
+        merge("feat/multi", "2026-09-01T00:00:00+02:00"),
+      ],
+    });
+    expect(report.boundaryAdvisory).toBeNull();
+  });
+
+  // §4 case 10 (AC-W2.10). Failure caught: a LEXICAL `mergedAt <= boundary`
+  // classification. This merge is chronologically 2026-08-31T23:00Z - inside
+  // the pre-adoption carve-out - but its STRING is lexically greater than the
+  // boundary string, so a lexical test files it post-adoption, drops it from
+  // the exclusion map, and fires the advisory.
+  it("classifies a merge as pre-adoption chronologically, not by string order", () => {
+    const root = corpus(mkdtempSync(join(tmpdir(), "rep-adv-classify-")), [
+      {
+        path: "feat/classify/bbbbbbbbbbbb.jsonl",
+        body: jrows({
+          round: 1,
+          branch: "feat/classify",
+          baseSha: "bbbbbbbbbbbb",
+          startedAt: "2026-08-31T22:00:00Z",
+        }),
+      },
+    ]);
+    premiseFiresWithoutMerges(root);
+    const report = buildReport(root, {
+      ...opts,
+      mergedArcs: [merge("feat/classify", "2026-09-01T01:00:00+02:00")],
+    });
+    expect(report.boundaryAdvisory).toBeNull();
+  });
+
+  // §4 case 11 (AC-W2.11). Failure caught: a LEXICAL `startedAt <= mergedAt`
+  // cap. The row is chronologically an hour BEFORE the merge but its string is
+  // lexically greater, so a lexical cap places a covered row outside the
+  // exclusion and fires.
+  it("applies the time cap chronologically, not by string order", () => {
+    const root = corpus(mkdtempSync(join(tmpdir(), "rep-adv-cap-")), [
+      {
+        path: "feat/cap/cccccccccccc.jsonl",
+        body: jrows({
+          round: 1,
+          branch: "feat/cap",
+          baseSha: "cccccccccccc",
+          startedAt: "2026-08-31T21:00:00Z",
+        }),
+      },
+    ]);
+    premiseFiresWithoutMerges(root);
+    const report = buildReport(root, {
+      ...opts,
+      // Chronologically 2026-08-31T22:00Z: pre-adoption, and after the row.
+      mergedArcs: [merge("feat/cap", "2026-08-31T20:00:00-02:00")],
+    });
+    expect(report.boundaryAdvisory).toBeNull();
+  });
+
+  // §4 case 12 (AC-W2.12). Failure caught: a mutant that drops the branch
+  // condition and caps on time alone, which lets any branch's pre-adoption
+  // merge explain any branch's row. The fixture varies ONLY branch identity
+  // against case 3's inclusive-cap companion - same timestamps, same equality,
+  // merge moved to a different branch.
+  it("covers a row only with a SAME-branch pre-adoption merge, never a global time cap", () => {
+    const root = corpus(mkdtempSync(join(tmpdir(), "rep-adv-branch-")), [
+      {
+        path: "feat/x/dddddddddddd.jsonl",
+        body: jrows({
+          round: 1,
+          branch: "feat/x",
+          baseSha: "dddddddddddd",
+          startedAt: "2026-08-20T00:00:00.000Z",
+        }),
+      },
+    ]);
+    const report = buildReport(root, {
+      ...opts,
+      // Same instant as the row, so a branch-blind time cap would exclude it.
+      mergedArcs: [merge("feat/y", "2026-08-20T00:00:00.000Z")],
+    });
+    expect(report.boundaryAdvisory).toBe(advisoryLine("2026-08-20T00:00:00.000Z", BOUNDARY));
+  });
+
+  // §4 case 13 (AC-W2.13). Failure caught: selecting the global chronological
+  // earliest FIRST and then nulling the advisory because that row is covered.
+  // The 2026-08-10 row is covered; the 2026-08-20 row is not, and it is a
+  // legitimate signal that a select-then-filter implementation silently
+  // suppresses. No other case combines an earlier covered row with a later
+  // uncovered one.
+  it("excludes covered rows BEFORE selecting the earliest, not after", () => {
+    const root = corpus(mkdtempSync(join(tmpdir(), "rep-adv-order-")), [
+      {
+        path: "feat/covered/eeeeeeeeeeee.jsonl",
+        body: jrows({
+          round: 1,
+          branch: "feat/covered",
+          baseSha: "eeeeeeeeeeee",
+          startedAt: "2026-08-10T00:00:00.000Z",
+        }),
+      },
+      {
+        path: "feat/uncovered-later/ffffffffffff.jsonl",
+        body: jrows({
+          round: 1,
+          branch: "feat/uncovered-later",
+          baseSha: "ffffffffffff",
+          startedAt: "2026-08-20T00:00:00.000Z",
+        }),
+      },
+    ]);
+    const report = buildReport(root, {
+      ...opts,
+      mergedArcs: [merge("feat/covered", "2026-08-15T00:00:00.000Z")],
+    });
+    expect(report.boundaryAdvisory).toBe(advisoryLine("2026-08-20T00:00:00.000Z", BOUNDARY));
   });
 
   // Failure caught: an unset boundary treated as the epoch, which accuses every
