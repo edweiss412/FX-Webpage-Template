@@ -1,0 +1,133 @@
+/**
+ * lib/parser/refErrorDetector.ts — spec §4.
+ *
+ * `#REF!` is what Sheets writes into a cell whose formula reference was deleted. It
+ * exports verbatim, so the parser sees it as an ordinary value and stores it as one:
+ * the crew page then renders "#REF!" where a name or a time belongs, and nothing
+ * upstream ever said so. Present in 3 of the 7 live shows, so this is observed, not
+ * hypothetical.
+ *
+ * DETECTION IS `includes` ON THE POST-`clean()` TEXT, and both halves of that matter.
+ * The corpus stores the ESCAPED form `\#REF\!`, which `clean()` unescapes, so matching
+ * raw line text would miss every real occurrence. And a cell is not always the literal
+ * alone — `#REF!/NAME` and `#REF! - #REF!` both occur — so an equality test would miss
+ * the composite cells while `includes` catches them (spec §4.4 as amended by retro F1).
+ *
+ * ONE WARNING PER OFFENDING CELL. The loop visits each cell once, so a cell that fans
+ * out into several derived fields still warns once, and a cell containing the literal
+ * twice still warns once. That is the dedup the spec requires, achieved by construction
+ * rather than by a post-pass.
+ *
+ * Detection only. The value is left exactly as parsed (spec §1.1.4: warn, never
+ * hard-fail) — an operator seeing the literal on the page and a warning naming its
+ * section is strictly better informed than one seeing a silently blanked field.
+ */
+import { clean, splitRow } from "./blocks/_helpers";
+import { GENERIC_SECTION_KIND, canonicalSectionKind } from "./sectionKind";
+import type { ParseWarning } from "./types";
+
+/** The broken-reference literal, after `clean()` has removed markdown escaping. */
+const REF_LITERAL = "#REF!";
+
+const isAlignmentRow = (line: string): boolean => /^\s*\|\s*:?-+/.test(line);
+
+/** Index of the first non-whitespace character, or -1 when the line is blank. */
+function firstNonSpace(line: string): number {
+  for (let i = 0; i < line.length; i++) {
+    const c = line.charCodeAt(i);
+    if (c !== 32 && c !== 9 && c !== 13) return i;
+  }
+  return -1;
+}
+
+/**
+ * Memoized `canonicalSectionKind(clean(col0))`, keyed on the RAW first cell.
+ *
+ * Section labels repeat relentlessly — every row of a section shares a col0 shape, and
+ * the empty string alone accounts for most rows in the corpus — while `clean()` runs
+ * three regex passes and the resolver normalizes and scans a prefix list. Measured on
+ * the 17-fixture corpus (best-of-3, expressed as a RATIO against `parseSheet` in the
+ * same process, because this host's load swings absolute timings by 2x): the memo took
+ * the detector from 8.35 to 1.16 ms/doc, which is 0.4% of the 330 ms `parseSheet` costs
+ * on those same documents. The detector is therefore not on anyone's critical path.
+ *
+ * Bounded so a pathological document cannot grow it without limit; the cap is far above
+ * the number of DISTINCT col0 values any real sheet has.
+ */
+const KIND_MEMO_CAP = 4096;
+const kindMemo = new Map<string, string | null>();
+function kindOfFirstCell(rawCol0: string): string | null {
+  const hit = kindMemo.get(rawCol0);
+  if (hit !== undefined) return hit;
+  const resolved = canonicalSectionKind(clean(rawCol0));
+  if (kindMemo.size >= KIND_MEMO_CAP) kindMemo.clear();
+  kindMemo.set(rawCol0, resolved);
+  return resolved;
+}
+
+/**
+ * The row's first cell, without splitting the whole row.
+ *
+ * Same slice `splitRow` would yield at index 0, but it stops at the second pipe instead
+ * of allocating an array per line — this runs on every row of every parse, and the
+ * section-tracking read is the only thing it is needed for.
+ */
+function firstCell(line: string): string {
+  const open = line.indexOf("|");
+  if (open === -1) return "";
+  const close = line.indexOf("|", open + 1);
+  return close === -1 ? "" : line.slice(open + 1, close);
+}
+
+export function detectRefErrorLiterals(markdown: string): ParseWarning[] {
+  const warnings: ParseWarning[] = [];
+  const lines = markdown.split("\n");
+  let sectionIndex = -1;
+  let sectionKind: string = GENERIC_SECTION_KIND;
+  let prevBlank = true;
+
+  for (const line of lines) {
+    // Character scan rather than trimStart()/trim(): both allocate a new string for
+    // every line of every parse, which is pure waste on a pass that reads two facts.
+    const start = firstNonSpace(line);
+    const isRow = start !== -1 && line.charCodeAt(start) === 124; /* "|" */
+    if (isRow) {
+      const opener = kindOfFirstCell(firstCell(line));
+      // A new LOGICAL section starts at a blank-line boundary OR at a recognized
+      // opener inside a pipe run (retro r5). Without the second condition a section
+      // that follows another with no blank line between them inherits its
+      // predecessor's kind, and every warning in it is anchored to the wrong place.
+      if (prevBlank || opener !== null) {
+        sectionIndex += 1;
+        sectionKind = opener ?? GENERIC_SECTION_KIND;
+      }
+    }
+    prevBlank = start === -1;
+    if (!isRow || isAlignmentRow(line)) continue;
+
+    // HOT PATH. This detector runs on every parse, and the typo-space generator suites
+    // parse tens of thousands of documents, so a per-cell `clean()` here is not free:
+    // adding one timed out `venue.test.ts` and `event.test.ts` at their 30s budgets.
+    //
+    // `clean()` only REMOVES characters (markdown escapes, zero-width, surrounding
+    // whitespace) — it can never introduce a `#`. So a line with no `#` at all cannot
+    // contain a cell that cleans to something holding `#REF!`, and skipping it is
+    // behavior-preserving rather than an approximation. Nearly every corpus line
+    // takes this exit.
+    if (!line.includes("#")) continue;
+
+    for (const cellRaw of splitRow(line)) {
+      if (!cellRaw.includes("#")) continue;
+      if (!clean(cellRaw).includes(REF_LITERAL)) continue;
+      warnings.push({
+        severity: "warn",
+        code: "REF_ERROR_LITERAL",
+        message:
+          'A broken spreadsheet reference ("#REF!") appears in the sheet where a real value belongs.',
+        blockRef: { kind: sectionKind, index: sectionIndex },
+        rawSnippet: cellRaw.trim(),
+      });
+    }
+  }
+  return warnings;
+}
