@@ -1,0 +1,131 @@
+# Crew chrome (footer band + header avatar menu) + wizard step connector
+
+**Date:** 2026-08-09 · **Authoring branch:** `docs/quick-wins-2-specs` · **Implementation branches:** `feat/crew-chrome-footer-avatar` (§2), `feat/wizard-step-connector` (§3) · **Status:** DRAFT (pre-adversarial-review)
+
+## §0 Scope and design source of record
+
+The UI half of the quick-wins-2 pass (mech half: `2026-08-09-quick-wins-2-mech.md`). Three claimed entries (invariant 12, marked on `docs/quick-wins-2-specs`):
+
+1. `BL-CREW-FOOTER-OBSCURED-BY-FIXED-BOTTOM-BAR` (MEDIUM) — archive on §2.
+2. `BL-CREW-FOOTER-NOT-ANCHORED-SHORT-CONTENT` — archive on §2 (same root cause).
+3. `BL-WIZARD-CONNECTOR-MAXW-INERT` — archive on §3.
+
+**Design source of record:** the ratified mockup artifact (three iteration rounds with the user, 2026-08-09) at `https://claude.ai/code/artifact/32e30717-3fb5-4de6-b576-a7be54aba783`. Round 3 is the ratified state; this spec §1.1 restates every ratified decision in full so the artifact is corroborating, not load-bearing.
+
+## §1.1 Resolved scope — do not relitigate
+
+All ratified by the user 2026-08-09 via AskUserQuestion over the mockup rounds.
+
+1. **Footer approach: Option A** — the footer clears the fixed mobile tab bar and anchors to the viewport bottom on short pages. Moving controls into the tab bar and hiding footer chrome were both rejected.
+2. **Footer form: the one-line band** ("Design 2", round 2→3): a raised band (`--color-surface-raised` — whose DESIGN.md §1.1 role literally includes "footer pinned-to-bottom variant"), one row at phone width: fine-print run of mark · year · freshness on the left, a **symbol-only report button** on the right.
+3. **Report control loses its visible copy** ("lets remove the 'Something looks wrong?' copy and just keep the symbol. Tapping symbol launch a popup modal"). The accessible name stays `Something looks wrong?`; tapping opens the existing ReportModal, unchanged. The discoverability cost (a symbol invites fewer reports than a written question) was surfaced in the mockup note and ratified anyway — do not relitigate it back into text.
+4. **The theme switch leaves the footer at every width** ("theme toggle doesnt belong in this grouping") and moves to the crew page header, **hidden in a menu opened from an avatar** ("lets put the light/dark switch in the header but hide it in a menu from the avatar there on tap").
+5. **Menu contents: Menu A** — identity header (name · role), the theme item, and `Not you? Switch person` all live in the avatar menu. The existing always-visible "Not you?" link is absorbed; its recovery flow becomes two taps, ratified with the tradeoff stated on the mockup.
+6. **Wizard connector: render it** (user selected the mockup's draw-the-line option): the intended hairline between step groups becomes visible; deleting the dead constraint was rejected.
+7. **Autonomy: both user review gates WAIVED** (grant 2026-08-09). Stop only for a genuinely NEW question.
+8. **All AGENTS.md invariants bind**; both branches are UI surfaces — the impeccable dual gate (critique + audit) runs per branch on the affected diff.
+
+## §2 Crew chrome — footer band, flex chain, header avatar menu
+
+Code claims verified 2026-08-09 at `97e179d83`; anchors file + symbol, line numbers are drafting-time locators.
+
+### §2.1 The broken flex chain (root cause both footer entries share)
+
+`app/show/[slug]/layout.tsx` renders `page-shell` as `flex min-h-screen flex-col` (:38) precisely so the footer's `mt-auto` anchors (`components/layout/Footer.tsx` :20-23 comment, :118 `mt-auto`). The crew route interposes `<div data-testid="crew-shell">` (`app/show/[slug]/[shareToken]/_CrewShell.tsx` :461) — a classless block — so `mt-auto` resolves against a block parent and does nothing, and nothing pads the page above the fixed mobile bar (`components/crew/CrewSubNav.tsx` :155, `min-[720px]:hidden fixed inset-x-0 bottom-0 z-10`).
+
+**Fix:** `crew-shell` joins the chain: `flex min-h-0 flex-1 flex-col` (Tailwind v4 does NOT default flex to stretch — DESIGN.md §7; the chain is stated explicitly per the dimensional-invariants rule). The footer's `mt-auto` then anchors on short pages with no further change.
+
+### Dimensional Invariants
+
+Each row verified by a real-browser assertion in the plan, never jsdom (§3's nav-to-connector relationship is restated in its own section):
+
+| Parent → child | Guarantee |
+| --- | --- |
+| `page-shell` (`flex min-h-screen flex-col`) → `crew-shell` | `flex-1` on crew-shell: fills remaining viewport height |
+| `crew-shell` (`flex flex-col`) → `page-footer` | `mt-auto` on the footer: bottom-anchored when content is short |
+| `page-footer` bottom vs fixed bar top, <720px | footer clearance padding (§2.2): `footer.bottom ≤ bar.top` at 390×844, scrolled to end |
+
+### §2.2 The footer band
+
+`components/layout/Footer.tsx` is crew-mounted only (`_CrewShell.tsx` is its sole importer — verified). The stacked mobile column (`flex-col items-start gap-3`, :119) becomes **one row at every width**:
+
+- **Left — fine print, one run:** `FXAV · <year> · ` then the freshness slot. The freshness slot keeps its existing three states verbatim (guard conditions, from :121-138): `lastCheckedAt` present → `<StaleFooter>` (`components/shared/StaleFooter.tsx`, unchanged); else `asOf` present → "as of <time>"; else "syncing…". Typography per DESIGN.md: `text-xs`, `text-text-subtle`/`text-text-faint`, brand run keeps `tracking-eyebrow-strong` and tabular year.
+- **Right — the report symbol:** the existing `ReportButton` (`components/shared/ReportButton.tsx`) gains an **icon variant** (new prop; default behavior of both existing variants unchanged): `min-h-tap-min min-w-tap-min` bordered `rounded-sm` icon button matching the shipped toggle recipe (`ThemeToggle.tsx` :132 class run is the visual precedent), lucide `MessageCircleWarning`-family glyph (exact glyph is an impeccable-gate call from the shipped icon set, DESIGN.md §8), `aria-label="Something looks wrong?"`; opens the existing ReportModal with unchanged props (`surface`, `surfaceId`, `showId`, autocapture). When `showId` is absent the button is absent (existing guard, :143).
+- **Band surface:** `bg-surface-raised` with top hairline `border-border`; shadow via canonical `shadow-(--shadow-…)`-free utility — the mech arc (§2.2 there) makes `shadow-popover`/`shadow-tile` canonical; the band uses the token the impeccable pass ratifies or none.
+- **Clearance, <720px:** the band carries bottom padding `calc(var(--spacing-tap-min) + env(safe-area-inset-bottom) + …)` mirroring the `<main>` clearance recipe (`components/crew/CrewSections.tsx` :115) so every control clears the fixed bar; `min-[720px]:` resets to the desktop padding. Exact calc is pinned in the plan against measured bar height (53.3px + inset, from the entry's probe) with margin.
+- **ThemeToggle is removed from the Footer at all widths** (§1.1 item 4). `Footer` drops the import; the toggle's owner becomes the header (§2.3).
+
+**No fixed-bottom footer:** the band scrolls with the page (it is the page's end), exactly as today — only clearance and layout change. Desktop (`≥720px`, no fixed bar) renders the same single row with the existing `sm:` paddings.
+
+### §2.3 The header avatar menu
+
+`components/layout/Header.tsx` right slot (`page-header-right-slot`, :118) currently renders the text `IdentityChip` (`components/auth/IdentityChip.tsx`): name · role stack plus an always-visible `Not you?` button (aria-label `Switch crew member`, :85) driving the picker's `clearIdentity` flow (`lib/auth/picker/clearIdentity.ts`).
+
+**Replacement (crew pages with an identity):** an **avatar button** — the person's initials on their deterministic swatch from `lib/crew/avatarColor.ts` (`AVATAR_PALETTE`/`avatarColor`, :11/:28; white initials, AA-guarded by `tests/crew/avatarColor.test.ts`) — `min-h-tap-min min-w-tap-min` circular target, `aria-haspopup="menu"`, `aria-expanded`, accessible name carrying the identity ("Doug L., Lead, account menu" shape finalized at impeccable; no em dash in copy per the mechanical UI gate). Tap opens a right-anchored popover menu:
+
+| Menu row | Behavior |
+| --- | --- |
+| Identity header (name · role) | non-interactive, `text-text-strong`/`text-text-subtle` |
+| Theme item | the relocated ThemeToggle behavior — same dataset/localStorage handshake and no-FOUC contract with `app/layout.tsx` (ThemeToggle.tsx header comments; SSR-stable Moon-first render), presented as a menu item ("Dark mode"/"Light mode" + glyph); activating it applies the theme immediately and does NOT close the menu |
+| `Not you? Switch person` | invokes the exact flow the current button does (`clearIdentity` + navigation); keeps `Switch crew member` semantics in its accessible name |
+
+Popover: `bg-surface-raised`, `border-border`, canonical popover shadow, `z-` above page content and below nothing that overlaps it (the crew fixed bar is `z-10` and bottom-anchored; the menu anchors top-right — plan pins the value against the existing numeric bands, `BL-ADMIN-SEMANTIC-Z-INDEX-SCALE` stays untouched). Menu a11y: `role="menu"`/`menuitem`, Escape and outside-tap close, focus returns to the avatar, items ≥44px, focus-visible rings per DESIGN tokens (`focus-ring` + container-matched offset).
+
+**Guard conditions:**
+
+- `identityChip` prop absent (Header renders for states without a resolved identity, :41 optional): the right slot renders a **standalone theme icon button** (today's ThemeToggle recipe verbatim) so the switch never becomes unreachable; no avatar, no menu.
+- Blank/whitespace name: `avatarColor` already falls back to slate (DESIGN.md §1.4); initials fall back to a neutral glyph — plan pins.
+- Admin surfaces are untouched: `AdminNav` keeps its own ThemeToggle (`components/admin/nav/AdminNav.tsx` :188).
+
+### Transition Inventory
+
+The menu is the arc's one multi-state component; footer band states swap instantly per the shipped freshness contract:
+
+| Pair | Treatment |
+| --- | --- |
+| closed → open | `duration-fast` fade/scale per DESIGN §5, `motion-reduce:` instant |
+| open → closed (Escape / outside / navigate) | same, reversed; instant under reduced motion |
+| theme flip while open | instant (existing toggle contract); menu stays open |
+| open while page re-renders (realtime refresh) | menu unmounts only if its anchor unmounts; state is component-local |
+
+### §2.4 Test surface impacts (enumerated so the plan budgets them)
+
+- `tests/e2e/theme-toggle.spec.ts` — rewritten: the 760px drive documented at :175-197 exists BECAUSE of the bar defect; post-fix, interaction runs at 390px against the header menu (arm: open menu → toggle → dataset asserted), tap-floor case re-targets the avatar + menu items.
+- `tests/e2e/crew-page.spec.ts` inv8 (:838) gains the footer clause: `page-footer` bottom ≤ bar top at 390px scrolled to end; the short-page anchored case lands per the entry's constructed-short probe (section body collapsed), asserting `footer.bottom === viewport.bottom` within tolerance.
+- Footer report-trigger assertions (:1518-1533) re-target the icon variant (accessible name unchanged — locators by role+name survive).
+- Mobile-safari suite and any screenshot baselines touching the crew footer re-capture per the byte-gate discipline (pinned image, `--platform linux/amd64`).
+- New jsdom suites: ReportButton icon variant contract; avatar menu (roles, Escape, focus return, clearIdentity invocation — spy on the picker flow); Footer band states (three freshness states × icon presence).
+
+## §3 Wizard step connector — render the hairline
+
+`components/admin/OnboardingWizard.tsx` `StepIndicator` renders the connector (`wizard-step-connector`, :260) as `h-px max-w-confirm-box flex-1 rounded-full` with `bg-border`/`bg-border-strong` state colors already coded — it computes to 0×1 because the `<nav>` (:190-193, `flex items-center gap-2 sm:gap-3`) is a content-sized flex item inside a `justify-between` row (the entry's probe: 0×1 at 390px AND 900px).
+
+**Fix:** let the nav stretch — `flex-1 min-w-0` on the nav (or a stretching wrapper; plan picks against the actual sibling in the `justify-between` row and states which). `flex-1` on the connectors then distributes real free space; `max-w-confirm-box` clamps each at 60px (`--spacing-confirm-box: 60px`, `app/globals.css` :186). Existing state colors (done `bg-border-strong`, ahead `bg-border`) ship as-is — they were coded for exactly this render.
+
+**Consequences, pinned:**
+
+- `tests/e2e/canonical-class-dimensions.spec.ts` — the 0-width regression tripwire (:91-95 comment; keys `wizard-step-connector-0/1`) flips to assert the REAL clamp: width `> 0` and `≤ 60px` (equal to 60 where free space allows at the measured viewports), height 1.
+- `tests/e2e/__baselines__/canonical-dimensions.json` re-baselines for the connector keys — regenerated FROM the pinned Playwright Docker image with `--platform linux/amd64` (byte-comparison discipline), never from the dev host.
+- At 390px the connectors may clamp below 60px (labels hide `<sm`, :247-250 label classes); the plan measures both widths and pins per-viewport expectations rather than a single literal.
+- Impeccable dual gate judges the rendered hairline (spacing, weight against the pills); any P0/P1 finding lands pre-merge per invariant 8.
+
+**Dimensional invariants:** nav (`flex-1 min-w-0` in a `justify-between gap-3` row) → connectors (`flex-1 max-w-confirm-box`): connectors absorb only free space; pills and labels keep intrinsic size (`shrink-0` on pill targets already shipped, :187).
+
+## §4 Documented limits
+
+1. **Two-tap "Not you?"** is a ratified UX regression-in-exchange (§1.1 item 5); the picker flow itself is unchanged.
+2. **Symbol-only report** may reduce report volume (§1.1 item 3) — ratified; the accessible name and modal copy keep the full invitation.
+3. **Footer band is crew-scoped.** Admin/help surfaces have their own chrome; `Footer` has no second importer today, and this spec adds none.
+4. **The wizard connector's sub-60px clamp at narrow widths** is accepted render behavior, pinned per-viewport rather than forced to 60.
+5. **No native-app safe-area simulation in e2e** — `env(safe-area-inset-bottom)` is 0 in the harness browsers; clearance asserts the calc's non-inset floor (the bar itself is measured live).
+
+## §5 Acceptance criteria
+
+- **AC-U1:** at 390×844 on the seeded crew route, scrolled to end: `elementFromPoint` at the report button's centre hits the button; `page-footer.bottom ≤ bar.top`; both crew-footer entries' probe symptoms are un-reproducible.
+- **AC-U2:** constructed short page: `page-footer` bottom-anchored (entry's 501.5px dead-space case renders anchored).
+- **AC-U3:** footer band renders the three freshness states in one row with the icon-only report trigger; accessible name `Something looks wrong?`; modal opens unchanged.
+- **AC-U4:** ThemeToggle absent from Footer at all widths; avatar menu delivers theme switch + person switch with the full a11y contract (roles, Escape, focus return, 44px items); identity-less pages keep a reachable standalone toggle; admin nav untouched.
+- **AC-U5:** wizard connectors measure >0 wide (clamped ≤60px) at 390px and 900px; state colors render; canonical-dimensions baseline regenerated from the pinned image; tripwire comment updated to describe the rendered state.
+- **AC-U6:** impeccable critique + audit pass per branch (P0/P1 fixed or DEFERRED.md-dispositioned); full suite + typecheck + lint + format + real CI green; three archives land with markers stripped (invariant 12).
+
+impeccable-gate: run — both branches are UI surfaces (crew chrome; admin wizard step indicator)
