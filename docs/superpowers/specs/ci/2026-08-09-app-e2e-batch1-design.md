@@ -43,7 +43,7 @@ Nine specs at spec time, SEVEN after the §1.1 amendment's two AC-4 drops (`help
 
 "Projects resolving it" is a resolution from the `testMatch` regexes of `mobile-safari` and `desktop-chromium` in `playwright.config.ts` — re-derive with `--list` at implementation time rather than trusting this table (the `crew-e2e.yml` header comment ratifies exactly this posture for its own list).
 
-Estimated ~74 test executions when the batch was nine specs. **As shipped: 54 executions across the amended seven**, measured from a real run rather than estimated. 6–10 min spec runtime on top of the build/bootstrap floor.
+Estimated ~74 test executions when the batch was nine specs. **As wired in this PR: 54 executions across the amended seven**, measured from a real run rather than estimated. 6–10 min spec runtime on top of the build/bootstrap floor.
 
 <!-- spec-lint: ignore — .github/workflows/app-e2e.yml is created by this spec's implementation; not yet tracked -->
 ## 3. Workflow: `.github/workflows/app-e2e.yml`
