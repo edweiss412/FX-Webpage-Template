@@ -74,6 +74,7 @@
  * Server Component (no `'use client'`).
  */
 import type { ReactNode } from "react";
+import { cn } from "@/lib/ui/cn";
 
 /**
  * The three tile shapes. See file header for assignment.
@@ -172,7 +173,7 @@ export function Section({
   // variant-invariant — every variant
   // shares the same shell so the §8.4 dimensional invariants hold for
   // every tile regardless of shape.
-  const outerClass = [
+  const outerClass = cn(
     "h-full min-h-tile-min-h",
     "flex flex-col",
     // Heading-to-body gap differs per variant — `primary` runs tighter
@@ -183,7 +184,7 @@ export function Section({
     variant === "primary" ? "gap-2" : "gap-3",
     "rounded-md border border-border bg-surface",
     "p-tile-pad",
-  ].join(" ");
+  );
 
   // Heading classes by tone.
   const headingClass =

@@ -27,6 +27,7 @@
 import type { ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { useFormStatus } from "react-dom";
+import { cn } from "@/lib/ui/cn";
 
 export type NotifyToggleInitial = { kind: "value"; on: boolean } | { kind: "infra_error" };
 
@@ -135,17 +136,17 @@ function SwitchButton({
       aria-label={ariaLabel}
       data-testid={`${testId}-toggle`}
       disabled={isDisabled}
-      className={[
+      className={cn(
         "relative inline-flex h-7 w-12 shrink-0 items-center rounded-full border transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface disabled:cursor-not-allowed disabled:opacity-60",
         on ? "border-accent-edge bg-accent" : "border-border-strong bg-surface-sunken",
-      ].join(" ")}
+      )}
     >
       <span
         aria-hidden="true"
-        className={[
-          "inline-block h-5 w-5 rounded-full bg-bg shadow-(--shadow-tile) transition-transform duration-fast",
+        className={cn(
+          "inline-block size-5 rounded-full bg-bg shadow-(--shadow-tile) transition-transform duration-fast",
           on ? "translate-x-6" : "translate-x-1",
-        ].join(" ")}
+        )}
       />
     </button>
   );

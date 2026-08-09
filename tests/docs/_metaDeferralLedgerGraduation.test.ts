@@ -93,6 +93,16 @@ const GRADUATED = [
  * that recorded the finding.
  */
 const BACKLOG_GRADUATED = [
+  // refactor/classname-array-join-cn (2026-08-09): the 36 array-join classNames the
+  // canonical-class eslint rule could not traverse (37 by the time it merged — the final
+  // rebase integrated a fifth site in OnboardingWizard.tsx). Migrated to a local `cn`
+  // callee the plugin recognizes by default, which exposed 10 real Tailwind violations
+  // that had been escaping CI. The census guard that BOUNDED the blind spot is replaced by
+  // a zero-tolerance recognizer that closes it.
+  {
+    id: "BL-CLASSNAME-ARRAY-JOIN-MIGRATION",
+    provenance: "refactor/classname-array-join-cn",
+  },
   { id: "BL-CODEX-GUARD-COMMONMARK-PARSE", provenance: "feat/review-infra-gates" },
   { id: "BL-PLAN-SNIPPET-FENCE-GATE", provenance: "feat/review-infra-gates" },
   // feat/backlog-quick-wins (2026-08-07, arc C): the retainRows asymmetry. The

@@ -45,6 +45,7 @@ import {
   type PendingSyncRowForBuild,
   type ShowCandidate,
 } from "@/lib/admin/assembleStep3Row";
+import { cn } from "@/lib/ui/cn";
 
 type OnboardingWizardProps = {
   settings: AppSettingsRow;
@@ -223,12 +224,9 @@ export function StepIndicator({
             data-testid={`wizard-step-indicator-${n}`}
             aria-current={isActive ? "step" : undefined}
             aria-label={isActive ? `Step ${n}, current step` : navLabel}
-            className={[tapTarget, focusRing].join(" ")}
+            className={cn(tapTarget, focusRing)}
           >
-            <span
-              data-testid={`wizard-step-indicator-${n}-visual`}
-              className={[base, pillState].join(" ")}
-            >
+            <span data-testid={`wizard-step-indicator-${n}-visual`} className={cn(base, pillState)}>
               {glyph}
             </span>
           </Link>
@@ -236,17 +234,17 @@ export function StepIndicator({
           <span
             data-testid={`wizard-step-indicator-${n}`}
             aria-disabled="true"
-            className={[base, pillState].join(" ")}
+            className={cn(base, pillState)}
           >
             {glyph}
           </span>
         );
         const label = (
           <span
-            className={[
+            className={cn(
               "text-xs font-medium whitespace-nowrap sm:text-sm",
               isActive ? "font-semibold text-text-strong" : "hidden text-text-subtle sm:inline",
-            ].join(" ")}
+            )}
           >
             {STEP_LABELS[n - 1]}
           </span>
@@ -261,10 +259,10 @@ export function StepIndicator({
               <span
                 data-testid="wizard-step-connector"
                 aria-hidden="true"
-                className={[
-                  "h-px max-w-[60px] flex-1 rounded-full",
+                className={cn(
+                  "h-px max-w-confirm-box flex-1 rounded-full",
                   isDone ? "bg-border-strong" : "bg-border",
-                ].join(" ")}
+                )}
               />
             ) : null}
           </Fragment>
