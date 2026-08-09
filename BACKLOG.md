@@ -813,7 +813,7 @@ Both surfaces need a schema decision (new table vs derived view vs append-only c
 
 **Origin:** M11-I-D-1 (MEDIUM) filed 2026-05-22 during Phase I Codex R1 adversarial review.
 
-**Effort:** L
+**Effort:** S (resized from L 2026-08-09 — staleness repair: the "API + storage. Decision needed" block is refuted by live code; `reports.show_id` nullable since `20260501001000_internal_and_admin.sql:311` and `/api/report` accepts `show_id: null` on the admin path per §D4. Design: `docs/superpowers/specs/2026-08-09-help-report-surface-design.md`.)
 
 **Symptom:** AC-11.11 (M11 spec line 695) says the `/help/errors` trailing CTA points to "the bug-report flow (per §4.3)". Master-spec §13.1 defines four bug-report surfaces, all show-scoped. There is no surface defined for a non-show-scoped recurrence report — "I keep seeing code X across my show portfolio."
 

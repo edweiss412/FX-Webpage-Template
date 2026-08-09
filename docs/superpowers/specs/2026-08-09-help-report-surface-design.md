@@ -1,0 +1,110 @@
+# Non-show report surface on `/help/errors` — design
+
+**Date:** 2026-08-09
+**Status:** ratified (owner, 2026-08-09 session) — autonomous-ship pipeline authorized
+**Ledger:** promotes `BL-HELP-NON-SHOW-REPORT-SURFACE` (BACKLOG.md), closes `M11-I-D-1` (docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/DEFERRED.md:9)
+**Branch:** `feat/help-report-surface`
+
+## §1 Context
+
+`/help/errors` ends with a `mailto:` CTA ("If this keeps happening, tell Eric →", `app/help/errors/page.tsx` — the `Callout` at the page foot). AC-11.11 r11 (docs/superpowers/specs/v1-pre-deployment-amendments/2026-05-12-user-facing-docs-design.md:709) ratified the mailto as a v1 stopgap because master-spec §13.1 defined only four show-scoped bug-report surfaces. The owner promoted the backlog entry on 2026-08-09 and chose **Option A** from the decision mockup (artifact `f8abc77e`): replace the mailto with the existing M8 report flow, non-show-scoped; **no** recurrence-count dashboard, **no** catalog wiring (Option B, explicitly not chosen, sequencing preserved — see §4 limit 1).
+
+**Staleness repair on the backlog entry.** The entry's "API + storage. …Decision needed" block is refuted by the live code: `reports.show_id` is nullable since the founding migration (`supabase/migrations/20260501001000_internal_and_admin.sql:311`), and `/api/report` already accepts `show_id: null` on the admin path (`app/api/report/route.ts:36-41`, spec §D4 wizard allowance). No new endpoint, table, or migration is needed. Effort resizes **L → S** in the claim commit's follow-up (same PR).
+
+## §1.1 Resolved scope — do not relitigate
+
+1. **Option A only.** No recurrence aggregation table/view, no `/api/report-recurrence`, no admin triage screen, no §12.4 catalog row additions. Ratified by owner 2026-08-09 after side-by-side mockup review. Option B's un-fence trigger is recorded in §4 limit 1.
+2. **No DB change.** `reports.show_id` nullable (`20260501001000_internal_and_admin.sql:311`); `reports.reported_by_kind` stays `'admin'` for this surface (auth-kind derived, `lib/reports/submit.ts` — `reporterLabel`/`areaLabel` from `auth.kind`); `report_rate_limits` admin bucket reused (`20260501001000_internal_and_admin.sql:328-334`). No migration ⇒ no validation-project apply, no schema-manifest regen, no tier×domain matrix.
+3. **Auth path is the existing admin path.** `/help/**` is admin-gated (`app/help/layout.tsx:19` `requireAdmin()`). The route's `"help"` surface authenticates via the same `requireAdminIdentity()` branch as `"admin"` (`app/api/report/route.ts:121`). No new auth mechanism. Crew cannot reach this surface (§4 limit 4).
+4. **Surface discriminator = widen `ReportSurface` to `"crew" | "admin" | "help"`.** Rejected alternatives: (a) `fieldRef` marker hack — repurposes a data field as a surface discriminator, leaves issue title/Surface line saying "admin"; (b) separate `ReportRecurrenceButton` + new endpoint — duplicates a hardened pipeline. The widening is admin-LIKE: every modal behavior keyed "crew vs not-crew" (accept-set: `surface === "crew"` selects crew behavior; everything else gets admin behavior). §2.2 enumerates every site.
+5. **Code capture is best-effort via URL hash, in a page-level wrapper.** Every `helpHref` deep-link lands as `/help/errors#<CODE>` (`lib/messages/catalog.ts:110` pattern). No per-code report buttons (dozens of codes — clutter), no code-picker input in the modal (YAGNI). Hashless arrival prints "Not captured" (§2.1, §4 limit 3).
+6. **Freeform message stays required** (`messageOptional` NOT set — the message IS the recurrence report; the autocapture alone is not actionable).
+7. **GitHub labels unchanged** (`bug-report`, `reporter:admin`, `area:parser` — `lib/reports/submit.ts:495`). Refining `area:` per reported code is out of scope (§4 limit 2).
+8. **Master spec is amended, not silently diverged** (invariant 7): §13.1 gains surface 5, AC-11.11 gains r12 (§2.5). The three-way §12.4 lockstep does NOT fire — no catalog row changes.
+9. **Existing four surfaces byte-identical in behavior.** The `showId` prop widening and `=== "crew"`-keyed refactor are behavior-preserving for `"crew"` and `"admin"`; existing test suites are the regression net (§3).
+
+## §2 Design
+
+### §2.1 UI — `app/help/errors/page.tsx` + new wrapper
+
+- New client component HelpReportCta (a NEW file under `app/help/errors/_components/`; filename HelpReportCta with the tsx extension):
+  - Tracks `location.hash` (subscribe to `hashchange`; read once on mount — `useSyncExternalStore` or equivalent so the value is current when the modal opens).
+  - Renders `ReportButton` with: `surface="help"`, `surfaceId="help-errors"` (stable sessionStorage scope per `components/shared/ReportButton.tsx` header contract), `showId={null}`, `autocapture={{ fieldRef: hash ? { helpCode: hash } : undefined }}` where `hash` = `location.hash.slice(1)` (may be a family anchor like `sync` rather than a code — passed through verbatim, not validated against the catalog; the issue reader disambiguates).
+  - The modal spreads `autocapture` into the submit body (`components/shared/ReportModal.tsx:281-289` spread), so `fieldRef` reaches the issue's "Field/section ref:" line (`lib/reports/submit.ts:417`) with zero modal changes for capture.
+- The trailing `Callout` in `app/help/errors/page.tsx` drops the `mailto:` anchor and mounts `HelpReportCta`. Callout prose: "Read your code’s explanation above. Still seeing it after that?" followed by the button. Button label (via `label` prop): "Report a recurring error". Exact copy is subject to the impeccable dual-gate; no em dashes, curly apostrophes per DESIGN.md §9.
+- Intro prose "There is a contact link at the foot of the page." (`app/help/errors/page.tsx:58-59`) updates to name the report button instead of a contact link.
+- Button variant: `accent` (admin default, 44px tap target already in `ReportButton`); `ringOffset` matches the Callout background it sits on (verify token at implementation; `ringOffset="bg"` expected).
+- **Guard conditions:** `showId={null}` → body `show_id: null` (§2.2); empty/absent hash → no `fieldRef` → "Field/section ref: Not captured"; hash present but not a catalog code → passed through verbatim (§4 limit 3).
+#### Dimensional Invariants
+
+None — no fixed-dimension parent introduced.
+
+#### Transition Inventory
+
+No new visual states. The modal's states (idle/submitting/succeeded/error/resume) are M8's, reused unchanged; the CTA button is a single static state; the Callout is static. Instant swap of anchor → button in the server-rendered Callout (no animation — server component).
+
+### §2.2 Component contract — `components/shared/` (M8 hardened; careful pass)
+
+- `ReportModal.tsx`:
+  - `ReportSurface` (`components/shared/ReportModal.tsx:40`) becomes `"crew" | "admin" | "help"`.
+  - `showId: string` (`components/shared/ReportModal.tsx:61`) widens to `string | null`; payload `show_id: showId` (`components/shared/ReportModal.tsx:283`) already passes it through.
+  - **Every surface-keyed site flips to crew-vs-rest form** so `"help"` inherits admin behavior. Enumerated (drafting-time locators; re-anchor by searchable token):
+    - `components/shared/ReportModal.tsx:152-154` `copyForCode` — `surface === "admin" ? entry.dougFacing : entry.crewFacing` → `surface === "crew" ? entry.crewFacing : entry.dougFacing` (help reports show Doug-facing error copy; Doug is the only possible reporter).
+    - `components/shared/ReportModal.tsx:324` success github_issue_url persistence gate — `surface === "admin" &&` → `surface !== "crew" &&`.
+    - `components/shared/ReportModal.tsx:408` heading — `surface === "crew" ? "Something looks wrong?" : "Report this"` (already crew-vs-rest; no change).
+    - `components/shared/ReportModal.tsx:424-425` crew disclaimer copy gate (already crew-vs-rest; no change).
+    - `components/shared/ReportModal.tsx:442` `oppositeSurface` — inspect at implementation: its purpose (cross-surface sessionStorage hygiene) keys on the OTHER surface's storage; with three surfaces the "opposite" concept becomes "all other surfaces" — implement as a list, preserving current crew↔admin behavior and adding help's key.
+    - `components/shared/ReportModal.tsx:589`, `components/shared/ReportModal.tsx:615`, `components/shared/ReportModal.tsx:653` admin-only success/error affordances — `=== "admin"` → `!== "crew"`.
+  - The accept-set rule: crew behavior iff `surface === "crew"`; everything else (admin, help, any future admin-authed surface) gets admin behavior. A site written `=== "admin"` after this change is a defect; the plan adds a structural scan (§3 test 6).
+- `ReportButton.tsx`:
+  - `showId: string` → `string | null` (forwarded).
+  - `DEFAULT_LABEL` / `DEFAULT_VARIANT` records (`components/shared/ReportButton.tsx:66-73`) gain `help` rows: label "Report a recurring error", variant `accent`. (Records are `Record<ReportSurface, …>` — the type widening forces both additions at compile time.)
+- Existing callers (`components/layout/Footer.tsx`, `components/admin/PreviewBanner.tsx`, `components/admin/DataQualityWarningControls.tsx`, `components/admin/StagedReviewCard.tsx`) pass string `showId` and surfaces `"crew"`/`"admin"` — no edits. (`components/shared/TileErrorFallback.tsx` only references `ReportButton` in a comment.)
+
+### §2.3 Route — `app/api/report/route.ts` (two sites)
+
+- `app/api/report/route.ts:36-41` null-show allowance: `if (body.surface !== "admin") return null` → `if (body.surface !== "admin" && body.surface !== "help") return null`. Explicit enumeration, NOT `!== "crew"` — an unknown surface string must keep falling through to the crew branch and failing closed there, exactly as today.
+- `app/api/report/route.ts:121` auth branch: `if (body.surface === "admin")` → `if (body.surface === "admin" || body.surface === "help")` — same `requireAdminIdentity()` gate, same `AdminInfraError` handling, same `{ kind: "admin" }` auth context (so `reports.reported_by_kind = 'admin'` and the admin rate-limit bucket apply unchanged).
+
+### §2.4 Issue rendering — `lib/reports/submit.ts`
+
+- `showLine` (`lib/reports/submit.ts:272`): `body.show_id ?? "staged wizard sheet (no show record)"` → when `body.surface === "help"`, the null-show fallback reads `"non-show recurrence report (/help/errors)"`; the wizard copy stays for everything else. Same branch applies wherever that fallback string is composed (`lib/reports/submit.ts:284` `showContextLine` path); sweep the file for the wizard-copy literal (class-sweep at round 0).
+- Issue title `Bug report: ${body.surface}` (`lib/reports/submit.ts:490`) and `**Surface:** ${body.surface}` (`lib/reports/submit.ts:414`) now print `help` — the discriminator is first-class; no template restructuring.
+- `buildAdminIssueBody` is selected by `auth.kind === "admin"` (`lib/reports/submit.ts:490-495`) — automatic for help. The captured code renders on the existing "Field/section ref:" line as `{"helpCode":"<CODE>"}` via `formatValue` (`lib/reports/submit.ts:417`, `lib/reports/submit.ts:248`). No new body template.
+- `RequestBody.surface` is optional `string | null` (`lib/reports/submit.ts:30`) — no type change server-side.
+
+### §2.5 Master-spec amendments (invariant 7)
+
+Same PR, `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md`:
+
+- §13.1 (line 3400 region): add surface **5** under a new "Doug-facing (admin), non-show-scoped:" subheading: "**Recurring-error report on `/help/errors`.** Trailing CTA at the page foot. Opens the standard report modal with `surface: "help"`, `show_id: null`. Auto-attaches the page's URL fragment (the error-code anchor Doug arrived on) as `fieldRef.helpCode`. Admin-authenticated; admin rate-limit bucket; lands as a GitHub issue titled `Bug report: help`."
+- §13.2.1: one-line note that for surface `help`, Show renders "non-show recurrence report (/help/errors)" and Field/section ref carries `helpCode`.
+- AC-11.11 (docs/superpowers/specs/v1-pre-deployment-amendments/2026-05-12-user-facing-docs-design.md:709): append **r12 amendment**: trailing CTA is the §13.1 surface-5 report button; the r11 mailto stopgap is retired. Cite this spec.
+- §12.4: untouched — no new or edited codes, so the gen/catalog lockstep does not fire. The modal's error rendering reuses M8's existing code paths.
+
+### §2.6 Ledger
+
+- `BACKLOG.md`: `BL-HELP-NON-SHOW-REPORT-SURFACE` — archive to `BACKLOG-archive.md` with dated resolution paragraph (Option A shipped; Option B trigger recorded; staleness repair noted; effort resized L→S). Flight marker stripped in the PR's last commit per invariant 12.
+- `M11-I-D-1` (plan-tree DEFERRED.md): resolution note pointing at this spec + the r12 amendment; moved/closed per that file's local convention.
+
+## §3 Tests
+
+Anti-tautology: each row names the failure it catches. Fixture-derived expectations; no hardcoded copies of implementation output.
+
+1. **Page swap** (`tests/help/page-errors.test.tsx` update): `/help/errors` renders the report CTA button and NO `mailto:` anchor. Catches: mailto left behind, button missing. (Existing "tell Eric" link-text pins in this file update in the same commit — ripple obligation.)
+2. **Hash capture:** `HelpReportCta` with `location.hash = "#PARSE_ERROR_LAST_GOOD"` → modal submit body carries `fieldRef: { helpCode: "PARSE_ERROR_LAST_GOOD" }`; with empty hash → no `fieldRef` key. Assert against the fetch body (data source), not rendered text. Catches: capture wired to render-time-stale hash, capture dropped by spread order.
+3. **Null-show flow:** submit with `surface: "help"`, `show_id: null` → route 200 path reaches `submitReport` with `show_id: null` (route unit, mocked deps per existing route tests); non-admin identity → 403/500 shape unchanged. Catches: route null-guard regressing to reject help, auth branch missing help.
+4. **Issue body:** `buildAdminIssueBody` with `surface: "help"`, `show_id: null`, `fieldRef: { helpCode: X }` → contains `**Surface:** help`, the `non-show recurrence report (/help/errors)` show line, and `helpCode` with X; does NOT contain `staged wizard sheet`. Derive X from the fixture. Catches: wizard copy leaking into help issues.
+5. **Wizard copy preserved:** `surface: "admin"`, `show_id: null` → show line still `staged wizard sheet (no show record)`. Catches: §2.4 branch inverting the default.
+6. **Structural crew-vs-rest scan:** meta-test asserting `components/shared/ReportModal.tsx` contains no `surface === "admin"` / `"admin" === surface` comparison (the accept-set rule from §2.2 made executable; the `oppositeSurface` implementation must also satisfy it). Premise stated executably per `tests/_shared/premise.ts` house rule: the test fixture plants a violating line and proves the scan fails.
+7. **Existing surfaces regression:** existing M8 suites (modal lifecycle, idempotency, route auth, submit) run green untouched — the widening is compile-checked (`Record<ReportSurface, …>` exhaustiveness) + behavior-pinned by suites already in tree.
+8. **Invariant 8:** impeccable critique + audit on the diff (UI surface: `app/help/**`, `components/shared/**`).
+9. **Invariant 10:** no new mutation surface — `/api/report` POST already exists with its instrumentation; no registry change. (Route is the AGENTS.md-cited example of a NON-admin surface by path rule.)
+
+## §4 Documented limits
+
+1. **No recurrence aggregation.** Five reports on one code = five issues; Eric spots patterns manually. Un-fence trigger (Option B): report volume makes manual pattern-spotting painful, or the owner asks for the count screen. A later Option B can backfill counts from issues/`reports.context` since `helpCode` is recorded per report.
+2. **Labels stay `area:parser`** for help reports even when the code is sync/render-family. Trigger: label-driven triage friction.
+3. **Hash capture is best-effort.** Ctrl+F arrival or manual URL yields no/wrong fragment; family anchors (e.g. `#sync`) pass through unvalidated. The required freeform message is the backstop. Trigger: issues arriving systematically code-less.
+4. **Crew has no non-show report path** — `/help` is admin-gated; crew keeps §13.1 surface 4. Trigger: crew-side recurrence need surfaces.
+5. **No `reporterUrl` capture** — "Reporter URL: Not captured" on help issues (`fieldRef.helpCode` + Surface line suffice). Trigger: triage needs the full URL with query state.
