@@ -161,22 +161,47 @@ function applyDeclaredDeltas(text, relPath) {
   const refused = [];
   for (const delta of EXPECTED_TOKEN_DELTAS) {
     if (delta.file !== relPath) continue;
-    const hits = boundedOccurrences(out, delta.before);
-    if (hits.length === 0) continue;
-    if (hits.length > 1) {
-      refused.push(`${delta.id}: ${hits.length} occurrences, spec §6 declares exactly one`);
+    const applied = applyOneDelta(out, delta);
+    if (applied.hits === 0) continue;
+    if (applied.hits > 1) {
+      refused.push(`${delta.id}: ${applied.hits} occurrences, spec §6 declares exactly one`);
       continue;
     }
-    const at = hits[0];
-    out = out.slice(0, at) + delta.after + out.slice(at + delta.before.length);
+    out = applied.text;
     fired.push(delta.id);
   }
   return { text: out, fired, refused };
 }
 
-/** Offsets where `needle` occurs delimited by class-token boundaries (not mid-token). */
+/**
+ * Apply one declared delta INSIDE THE STRING VALUE, at class-token boundaries.
+ *
+ * `operandText` renders a string literal as its JSON encoding, so the rendering's own
+ * delimiting quotes are not part of the class list. Treating any quote as a boundary
+ * therefore licensed a match embedded in the VALUE — `prefix'h-5 w-5'suffix` read as the
+ * declared rewrite for every one of C1-C6. Decoding first makes "boundary" mean what it
+ * means in a class attribute: whitespace, or the edge of the value.
+ */
+function applyOneDelta(rendering, delta) {
+  const isQuoted = rendering.length >= 2 && rendering.startsWith('"') && rendering.endsWith('"');
+  let value = rendering;
+  if (isQuoted) {
+    try {
+      value = JSON.parse(rendering);
+    } catch {
+      value = rendering;
+    }
+  }
+  const hits = boundedOccurrences(value, delta.before);
+  if (hits.length !== 1) return { text: rendering, hits: hits.length };
+  const at = hits[0];
+  const next = value.slice(0, at) + delta.after + value.slice(at + delta.before.length);
+  return { text: isQuoted ? JSON.stringify(next) : next, hits: 1 };
+}
+
+/** Offsets where `needle` sits at class-token boundaries: whitespace, or the value's edge. */
 function boundedOccurrences(haystack, needle) {
-  const isBoundary = (ch) => ch === undefined || /[\s"'`]/.test(ch);
+  const isBoundary = (ch) => ch === undefined || /\s/.test(ch);
   const out = [];
   let from = 0;
   for (;;) {
@@ -190,6 +215,9 @@ function boundedOccurrences(haystack, needle) {
 /**
  * Is `base` really the parent of the migration commit on THIS history?
  * Returns null when it is, or a one-line reason when it is not.
+ *
+ * `--base` REQUIRED was never enough: a stale pre-rebase SHA is syntactically valid and
+ * passed silently, which is the exact failure this file's header claims to prevent.
  */
 function checkAnchorIdentity(base) {
   const git = (args) =>
@@ -197,7 +225,7 @@ function checkAnchorIdentity(base) {
   try {
     execFileSync("git", ["merge-base", "--is-ancestor", base, "HEAD"], { cwd: REPO_ROOT });
   } catch {
-    return `it is not an ancestor of HEAD — it names a commit from a rewritten history.`;
+    return "it is not an ancestor of HEAD — it names a commit from a rewritten history.";
   }
   const log = git(["log", "--format=%H%x09%s", "HEAD"]).split("\n").filter(Boolean);
   const migration = log.find((l) =>
@@ -322,6 +350,16 @@ function main(argv) {
       comparedSites += 1;
 
       const declaredFiltered = (FILTERED_SITES[rel] ?? []).includes(index);
+      // `cn` joins with exactly one ASCII space. A base joined with "  ", "\t" or "\n" has
+      // an identical form and identical operands and a DIFFERENT rendered string, so form
+      // and operands alone cannot see it.
+      if (baseSite.separatorText !== undefined && baseSite.separatorText !== " ") {
+        findings.push(
+          `${where}: the BASE separator is ${JSON.stringify(baseSite.separatorText)}, not a single ` +
+            'ASCII space. `cn` always emits " ", so this site\'s migration changes the rendered string.',
+        );
+        return;
+      }
       if (baseSite.hasForeignFilter) {
         findings.push(
           `${where}: the BASE site is filtered by something other than \`.filter(Boolean)\`. ` +

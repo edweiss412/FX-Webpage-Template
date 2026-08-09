@@ -426,6 +426,32 @@ function runAudit(config) {
     });
   }
 
+  // SPELLING-BASED RECOGNITION NEEDS ITS NAMES TO MEAN WHAT THEY SAY. Both extractors match
+  // `Boolean` and `cn` by spelling, so a local binding of either silently changes what a
+  // recognized site DOES while leaving every count and operand identical:
+  //   `const Boolean = () => true`  -> a "sanctioned" filter that drops nothing
+  //   `const cn = (...p) => p.join("-")` -> a "migrated" call that renders "a-b"
+  // Both are pathological rather than ordinary authoring, but the walked set is 18 declared
+  // files, so proving their absence is cheap and removes the argument entirely.
+  for (const [rel] of config.files) {
+    const sourceFile = parsed.get(rel);
+    if (sourceFile === undefined) continue;
+    for (const reserved of ["Boolean", "cn"]) {
+      const bindings = collectBindings(sourceFile, reserved).filter(
+        // The `cn` module import is the one binding that is supposed to exist.
+        (b) => !(reserved === "cn" && isCnModuleImport(b)),
+      );
+      if (bindings.length > 0) {
+        stop(
+          `${rel}:${lineOf(sourceFile, bindings[0])}`,
+          `\`${reserved}\` has a local binding in this file. Both extractors recognize it by ` +
+            "SPELLING, so a local one changes what a recognized site does while every count " +
+            "and operand stays identical.",
+        );
+      }
+    }
+  }
+
   // Every one of the seven identifier definitions is checked, whether or not it was
   // reached as an operand above — a definition that moved is the drift this catches.
   for (const entry of config.identifierTable) {
@@ -558,6 +584,17 @@ function checkIdentifierDefinition({ entry, sourceFile, stop }) {
       `identifier \`${entry.name}\` is no longer proven truthy: ${verdict.why} — spec §4.1's all-truthy claim is broken`,
     );
   }
+}
+
+/** Is this `cn` binding the sanctioned `import { cn } from "@/lib/ui/cn"`? */
+function isCnModuleImport(node) {
+  for (let n = node; n !== undefined; n = n.parent) {
+    if (ts.isImportDeclaration(n)) {
+      const spec = n.moduleSpecifier;
+      return ts.isStringLiteral(spec) && spec.text === "@/lib/ui/cn";
+    }
+  }
+  return false;
 }
 
 function lineOf(sourceFile, node) {
@@ -899,6 +936,34 @@ const MUTANTS = [
         '["fixed inset-0", open ? "block" : "hidden"].map((x) => x).join(" ")',
       ),
     }),
+  },
+  {
+    id: "P23-local-Boolean-shadow",
+    why: "a local `Boolean` binding, which makes a `.filter(Boolean)` marker mean something else",
+    expect: "`Boolean` has a local binding in this file",
+    mutate: (c) => ({
+      ...c,
+      "components/Other.tsx": `const Boolean = () => true;\n${CLEAN_OTHER}`,
+    }),
+  },
+  {
+    id: "P24-local-cn-shadow",
+    why: "a local `cn` binding, which makes a recognized `cn(...)` site render differently",
+    expect: "`cn` has a local binding in this file",
+    mutate: (c) => ({
+      ...c,
+      "components/Other.tsx": `const cn = (...p) => p.join("-");\n${CLEAN_OTHER}`,
+    }),
+  },
+  {
+    id: "P25-identifier-defining-file-unparsed",
+    why: "an identifier-table entry whose defining file is absent, so its definition cannot be checked",
+    expect: "defining file was not parsed",
+    mutate: (c) => {
+      const next = { ...c };
+      delete next["components/Widget.tsx"];
+      return next;
+    },
   },
   {
     id: "P9-identifier-definition-not-const",

@@ -105,6 +105,18 @@ export async function enterWizardAdminState(): Promise<() => Promise<void>> {
         "restore, this helper would leave the shared local DB in a state it did not create.",
     );
   }
+  // A prior state where EVERY managed field is already null is the signature of a previous
+  // run that was hard-aborted between the update and its `afterAll` restore. Capturing it
+  // and "restoring" it later would make the strand permanent and self-perpetuating, so it
+  // is refused loudly with the remedy instead.
+  if (FIELDS.every((field) => prior[field] === null)) {
+    throw new Error(
+      "enterWizardAdminState: app_settings already has ALL ten managed fields null. That is " +
+        "the fingerprint of a previous run that died between the update and its restore, not " +
+        "a state this helper may capture — restoring it later would make the strand permanent. " +
+        "Re-seed first: `pnpm db:seed`.",
+    );
+  }
 
   // not-subject-to-meta: e2e test scaffolding — see the waiver on the read above.
   const { error: upErr } = await admin

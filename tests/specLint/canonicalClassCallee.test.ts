@@ -113,6 +113,27 @@ function isStringLiteralNode(
   return ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node);
 }
 
+/**
+ * Array-returning methods that can sit between the literal and the `.join()`. Peeling only
+ * `.filter` left `.map(String)`, `.slice()`, `.flat()` and `.concat(...)` invisible — and
+ * the census guard this file replaces DID see those under `className={[`, so missing them
+ * was a coverage regression. Kept in lockstep with `scripts/lib/cnSites.mjs`.
+ */
+const ARRAY_RETURNING_METHODS = new Set([
+  "filter",
+  "map",
+  "slice",
+  "flat",
+  "flatMap",
+  "concat",
+  "sort",
+  "reverse",
+  "toSorted",
+  "toReversed",
+  "toSpliced",
+  "with",
+]);
+
 /** Peel wrappers that change no runtime value: `( )`, `as T`, `satisfies T`, `!`. */
 function unwrapValuePreserving(node: ts.Expression): ts.Expression {
   let n = node;
@@ -172,8 +193,12 @@ function recognizeJoins(relPath: string, source: string): JoinSite[] {
   const found: JoinSite[] = [];
 
   const visit = (node: ts.Node): void => {
-    const separatorArg =
+    // The separator can be wrapped too: `.join(" " as const)` is ordinary TypeScript that
+    // Prettier leaves alone, and it escaped a check that read `arguments[0]` raw.
+    const rawSeparator =
       ts.isCallExpression(node) && node.arguments.length === 1 ? node.arguments[0] : undefined;
+    const separatorArg =
+      rawSeparator === undefined ? undefined : unwrapValuePreserving(rawSeparator);
     if (
       ts.isCallExpression(node) &&
       ts.isPropertyAccessExpression(node.expression) &&
@@ -189,7 +214,7 @@ function recognizeJoins(relPath: string, source: string): JoinSite[] {
       while (
         ts.isCallExpression(receiver) &&
         ts.isPropertyAccessExpression(receiver.expression) &&
-        receiver.expression.name.text === "filter"
+        ARRAY_RETURNING_METHODS.has(receiver.expression.name.text)
       ) {
         receiver = unwrapValuePreserving(receiver.expression.expression);
       }
@@ -199,7 +224,7 @@ function recognizeJoins(relPath: string, source: string): JoinSite[] {
           line: sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1,
           signature: receiver.elements.map((e) => normalize(e.getText(sourceFile))).join(", "),
           separator: JSON.stringify((separatorArg as ts.StringLiteral).text),
-          inClassNamePosition: isInClassNamePosition(node),
+          inClassNamePosition: isInClassNamePosition(node, sourceFile),
         });
       }
     }
@@ -214,7 +239,7 @@ function recognizeJoins(relPath: string, source: string): JoinSite[] {
  * property? Used to make the data-join exemptions un-abusable: an exemption excuses a DATA
  * join, so it may never excuse a join that feeds a className, whatever its operands are.
  */
-function isInClassNamePosition(node: ts.Node): boolean {
+function isInClassNamePosition(node: ts.Node, sourceFile: ts.SourceFile): boolean {
   for (let n: ts.Node | undefined = node; n !== undefined; n = n.parent) {
     if (ts.isJsxAttribute(n) && ts.isIdentifier(n.name) && n.name.text === "className") return true;
     if (
@@ -224,9 +249,44 @@ function isInClassNamePosition(node: ts.Node): boolean {
     ) {
       return true;
     }
-    if (ts.isVariableDeclaration(n) || ts.isFunctionDeclaration(n)) break;
+    // VIA A VARIABLE. Stopping the walk at the declaration classified
+    // `const classList = [...].join(" ")` + `className={classList}` as a DATA join, which
+    // let an exemption signature authorize a real class list. Follow the binding instead:
+    // if the name it is assigned to is ever used in a className position, this is one too.
+    if (ts.isVariableDeclaration(n) && ts.isIdentifier(n.name)) {
+      return identifierUsedAsClassName(sourceFile, n.name.text);
+    }
+    if (ts.isFunctionDeclaration(n)) break;
   }
   return false;
+}
+
+/** Is `name` ever referenced from a `className` JSX attribute or `className:` property? */
+function identifierUsedAsClassName(sourceFile: ts.SourceFile, name: string): boolean {
+  let found = false;
+  const visit = (n: ts.Node): void => {
+    if (found) return;
+    if (ts.isIdentifier(n) && n.text === name) {
+      for (let p: ts.Node | undefined = n.parent; p !== undefined; p = p.parent) {
+        if (ts.isJsxAttribute(p) && ts.isIdentifier(p.name) && p.name.text === "className") {
+          found = true;
+          return;
+        }
+        if (
+          ts.isPropertyAssignment(p) &&
+          (ts.isIdentifier(p.name) || ts.isStringLiteral(p.name)) &&
+          p.name.text === "className"
+        ) {
+          found = true;
+          return;
+        }
+        if (ts.isJsxAttribute(p) || ts.isStatement(p)) break;
+      }
+    }
+    ts.forEachChild(n, visit);
+  };
+  visit(sourceFile);
+  return found;
 }
 
 /**

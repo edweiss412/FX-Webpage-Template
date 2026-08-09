@@ -36,7 +36,7 @@ import path from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { stripCssComments } from "../_shared/stripComments";
+import { stripCommentsForFile, stripCssComments } from "../_shared/stripComments";
 
 const GLOBALS = path.join(process.cwd(), "app/globals.css");
 
@@ -133,16 +133,24 @@ describe("canonicalized utilities resolve to the values they replaced (spec §6)
   it.each(CANONICAL_USE_SITES.map((u) => [u.id, u.file, u.utility, u.replaced] as const))(
     "%s: the production site still consumes the canonical utility",
     (id, file, utility, replaced) => {
-      const src = readFileSync(path.join(process.cwd(), file), "utf8");
+      const raw = readFileSync(path.join(process.cwd(), file), "utf8");
+      // Comments are not code: a bare `includes` passed when the utility survived ONLY in a
+      // comment. And a token boundary is required, or `max-w-confirm-box` is satisfied by a
+      // longer canonical utility that merely starts with it.
+      const src = stripCommentsForFile(raw, file);
+      const hasToken = (needle: string): boolean =>
+        new RegExp(
+          `(^|[\\s"'\`])${needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}([\\s"'\`]|$)`,
+        ).test(src);
       expect(
-        src.includes(utility),
+        hasToken(utility),
         `${file} no longer contains \`${utility}\`. The token assertions in this file prove what ` +
           `that utility RESOLVES to; they prove nothing if the site stopped using it. A rebase ` +
           `that swapped it for a different canonical utility would leave every other ${id} ` +
           `assertion green while changing the rendered constraint.`,
       ).toBe(true);
       expect(
-        src.includes(replaced),
+        hasToken(replaced),
         `${file} still contains the pre-canonicalization form \`${replaced}\`, which spec §6 ${id} ` +
           "replaced.",
       ).toBe(false);

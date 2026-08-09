@@ -80,6 +80,18 @@ describe("cn — spec §3.2", () => {
       expect(cn(...admitted)).toBe("a");
     });
 
+    it("is EXACTLY `string | false | null | undefined`, no wider", () => {
+      // The `@ts-expect-error` rows below each reject ONE named shape, so a union widened
+      // with something they do not name — `symbol` (throws inside `.join()`), or `boolean`
+      // (renders `cn("a", true)` as `"a true"`) — leaves every one of them satisfied. This
+      // asserts the union itself, mutually, so any widening OR narrowing fails to compile.
+      type Expected = string | false | null | undefined;
+      type Equals<A, B> =
+        (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2 ? true : false;
+      const exact: Equals<ClassValue, Expected> = true;
+      expect(exact).toBe(true);
+    });
+
     it("excludes number and nested arrays", () => {
       // These directives are invisible to Vitest — an unsatisfied `@ts-expect-error` fails
       // only `tsc`, which is why this task's red command runs `pnpm typecheck` too. Without

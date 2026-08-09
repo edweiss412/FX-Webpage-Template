@@ -118,7 +118,9 @@ function matchArrayJoin(node) {
   if (!ts.isCallExpression(node)) return null;
   if (!ts.isPropertyAccessExpression(node.expression)) return null;
   if (node.expression.name.text !== "join") return null;
-  if (node.arguments.length !== 1 || !isWhitespaceSeparator(node.arguments[0])) return null;
+  if (node.arguments.length !== 1) return null;
+  const separator = unwrap(node.arguments[0]);
+  if (!isWhitespaceSeparator(separator)) return null;
 
   let receiver = unwrap(node.expression.expression);
   let hasFilterMarker = false;
@@ -149,7 +151,15 @@ function matchArrayJoin(node) {
     break;
   }
   if (!ts.isArrayLiteralExpression(receiver)) return null;
-  return { operands: [...receiver.elements], hasFilterMarker, hasForeignFilter };
+  return {
+    operands: [...receiver.elements],
+    hasFilterMarker,
+    hasForeignFilter,
+    // `cn` always emits ONE ASCII space. A base joined with "  ", "\n" or "\t" has the same
+    // form and the same operands but a different rendered string, so the separator's exact
+    // value is carried for the parity proof to reconcile.
+    separatorText: separator.text,
+  };
 }
 
 /** Match `cn(...)` — the post-migration form. */
@@ -205,15 +215,22 @@ export function operandText(node, sourceFile) {
     if (ts.isConditionalExpression(n)) {
       return `${render(n.condition)} ? ${render(n.whenTrue)} : ${render(n.whenFalse)}`;
     }
-    if (ts.isPropertyAccessExpression(n)) return `${render(n.expression)}.${n.name.text}`;
+    // `?.` is NOT decoration: `obj.value` throws where `obj?.value` yields undefined, so
+    // erasing it made a real behavioural change compare equal.
+    if (ts.isPropertyAccessExpression(n)) {
+      const q = n.questionDotToken ? "?." : ".";
+      return `${render(n.expression)}${q}${n.name.text}`;
+    }
     if (ts.isElementAccessExpression(n)) {
-      return `${render(n.expression)}[${render(n.argumentExpression)}]`;
+      const q = n.questionDotToken ? "?." : "";
+      return `${render(n.expression)}${q}[${render(n.argumentExpression)}]`;
     }
     if (ts.isBinaryExpression(n)) {
       return `${render(n.left)} ${n.operatorToken.getText(sourceFile)} ${render(n.right)}`;
     }
     if (ts.isCallExpression(n)) {
-      return `${render(n.expression)}(${n.arguments.map(render).join(", ")})`;
+      const q = n.questionDotToken ? "?." : "";
+      return `${render(n.expression)}${q}(${n.arguments.map(render).join(", ")})`;
     }
     if (n.kind === ts.SyntaxKind.NullKeyword) return "null";
     if (n.kind === ts.SyntaxKind.TrueKeyword) return "true";
