@@ -48,11 +48,12 @@ async function assertNoAdminDevLinks(page: Page, extraAllowedPaths: readonly str
   // `/admin/dev/telemetry/`, so a stray dev-only harness link is still caught.
   const hrefs = await page
     .locator("a[href*='/admin/dev']")
-    .evaluateAll((els) =>
-      els.map((el) => (el as HTMLAnchorElement).getAttribute("href") ?? ""),
-    );
+    .evaluateAll((els) => els.map((el) => (el as HTMLAnchorElement).getAttribute("href") ?? ""));
   const offenders = hrefs.filter((href) => {
-    const path = href.split(/[?#]/)[0];
+    // `?? href` for the type checker only: String.split always yields at least one element, so
+    // the fallback is unreachable — but the repo compiles with noUncheckedIndexedAccess, which
+    // cannot know that.
+    const path = href.split(/[?#]/)[0] ?? href;
     if (path === "/admin/dev/telemetry" || path.startsWith("/admin/dev/telemetry/")) return false;
     return !extraAllowedPaths.includes(path);
   });

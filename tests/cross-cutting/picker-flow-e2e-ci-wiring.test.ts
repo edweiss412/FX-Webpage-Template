@@ -45,7 +45,6 @@ const SPEC = "tests/e2e/picker-flow.spec.ts";
 const readRaw = (wf: string): string =>
   readFileSync(join(process.cwd(), ".github/workflows", wf), "utf8");
 
-
 const read = (wf: string): string => stripYamlComments(readRaw(wf));
 
 /**

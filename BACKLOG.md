@@ -734,11 +734,11 @@ never becomes visible inside its 30s wait — "element(s) not found", not a slow
 
 **Measured 2026-08-09 on real CI**, in the five-green acceptance loop for `BL-E2E-APP-DEPENDENT-SPECS-CI-DARK` batch 1, where the database is freshly bootstrapped and seeded per job and no other session can touch it:
 
-| run | head | outcome |
-| --- | --- | --- |
-| [31335519416](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/31335519416) | `d07330a0` | green |
-| [31335770085](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/31335770085) | `5c7a0704` | green |
-| [31335985584](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/31335985584) | `7089ec9e` | **failed @720, mobile-safari** |
+| run                                                                                       | head       | outcome                         |
+| ----------------------------------------------------------------------------------------- | ---------- | ------------------------------- |
+| [31335519416](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/31335519416) | `d07330a0` | green                           |
+| [31335770085](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/31335770085) | `5c7a0704` | green                           |
+| [31335985584](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/31335985584) | `7089ec9e` | **failed @720, mobile-safari**  |
 | [31337109375](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/31337109375) | `434d753f` | **failed @1280, mobile-safari** |
 
 The failing WIDTH BAND differs between runs, and locally the same spec failed at `@390` under desktop-chromium — so it is not band- or project-specific.

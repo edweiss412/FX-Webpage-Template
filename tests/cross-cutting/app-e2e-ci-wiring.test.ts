@@ -36,21 +36,22 @@ const ORACLE = "scripts/check-app-e2e-executed.mjs";
 const read = (wf: string): string =>
   readFileSync(join(process.cwd(), ".github/workflows", wf), "utf8");
 
-
 /**
  * Every ACTIVATED, un-chained `playwright test` invocation, as the argv that FOLLOWS the
  * `playwright` token — i.e. starting at `test`. Returning the post-`playwright` slice is what
  * makes a segment directly replayable as `pnpm exec playwright <argv> --list`.
  */
 function playwrightTestSegments(yaml: string): string[][] {
-  return activatedRunScalars(yaml)
-    .map((c) => stripYamlComments(c).trim())
-    // A chained command can hide a second invocation behind a shell operator; this job has
-    // exactly one run step in command position, so refuse chaining outright rather than model it.
-    .filter((c) => !/&&|\|\||;|\|/.test(c))
-    .map((c) => c.split(/\s+/))
-    .filter((t) => t.includes("playwright") && t[t.indexOf("playwright") + 1] === "test")
-    .map((t) => t.slice(t.indexOf("playwright") + 1));
+  return (
+    activatedRunScalars(yaml)
+      .map((c) => stripYamlComments(c).trim())
+      // A chained command can hide a second invocation behind a shell operator; this job has
+      // exactly one run step in command position, so refuse chaining outright rather than model it.
+      .filter((c) => !/&&|\|\||;|\|/.test(c))
+      .map((c) => c.split(/\s+/))
+      .filter((t) => t.includes("playwright") && t[t.indexOf("playwright") + 1] === "test")
+      .map((t) => t.slice(t.indexOf("playwright") + 1))
+  );
 }
 
 /**
@@ -181,7 +182,9 @@ describe("app-e2e.yml CI wiring", () => {
       };
       const [argv] = playwrightTestSegments(read(WORKFLOW));
       const named = [
-        ...new Set((argv ?? []).filter((w) => w.endsWith(".spec.ts")).map((w) => w.split("/").pop()!)),
+        ...new Set(
+          (argv ?? []).filter((w) => w.endsWith(".spec.ts")).map((w) => w.split("/").pop()!),
+        ),
       ].sort();
 
       // KEY SET parity, both directions (review round 1, finding 1): a missing row means that

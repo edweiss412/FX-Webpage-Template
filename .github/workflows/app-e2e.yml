@@ -1,7 +1,14 @@
 name: App e2e batch 1 (mobile-safari + desktop-chromium)
-# Un-darkens batch 1 of BL-E2E-APP-DEPENDENT-SPECS-CI-DARK — eight specs that
+# Un-darkens batch 1 of BL-E2E-APP-DEPENDENT-SPECS-CI-DARK — seven specs that
 # existed, matched a Playwright testMatch, and proved nothing on any PR (spec
 # docs/superpowers/specs/ci/2026-08-09-app-e2e-batch1-design.md).
+#
+# The spec scoped NINE. Two came out under AC-4 and neither may be re-added
+# without its blocker closing first: help-pages.spec.ts (below) and
+# admin-changes-feed-layout.spec.ts, whose review modal intermittently never
+# mounts inside a batch run — green on two consecutive CI runs, then red on two
+# of the next three, a different width band each time
+# (BL-CHANGES-FEED-MODAL-BATCH-FLAKE).
 #
 # Deliberately NO pull_request filter of any kind — no paths, paths-ignore,
 # types, or branches. Any configuration under `pull_request:` voids coverage
@@ -24,11 +31,10 @@ name: App e2e batch 1 (mobile-safari + desktop-chromium)
 # BASELINE_SERVER_ONLY boots ONLY the :3000 webServer (playwright.config.ts
 # filter; the CREW_E2E_ONLY alias).
 #
-# help-pages.spec.ts is deliberately NOT here. It is the ninth member of the
-# specced batch, dropped under AC-4 at implementation: /help/tour throws a React
+# help-pages.spec.ts is deliberately NOT here either: /help/tour throws a React
 # hydration mismatch (13 page errors) in dev and production builds alike. That
-# is an app defect on a UI surface, tracked in the ledger, and it keeps its
-# LOCAL_ONLY_ALLOWLIST row until it is fixed.
+# is an app defect on a UI surface (BL-HELP-TOUR-HYDRATION-MISMATCH), and the
+# spec keeps its LOCAL_ONLY_ALLOWLIST row until it is fixed.
 on:
   pull_request:
   workflow_dispatch:
