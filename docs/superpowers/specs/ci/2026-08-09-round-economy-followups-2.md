@@ -101,11 +101,14 @@ is enrolled", `AGENTS.md:264`). **Action:** extend the bullet.
 guard, proof, or equivalence surface the registry can express (a lib module or script whose
 defect class is "reports OK while the output moved"), enrol it in
 `tests/mutation/source/registry.ts` and run `pnpm mutation:guards` BEFORE the first dispatch,
-and state the score plus the unaccepted-survivor set in the round-1 brief. Two arcs measured
-the cost of the MISSING enrolment as mutants hand-discovered by reviewers: the classname
-equivalence scripts — registry-expressible lib-shaped modules that were never enrolled — drew
-fifty false-pass findings across fourteen diff rounds at roughly 25 minutes of dispatch per
-mutant (that arc's own figure; the step3 filing records no per-mutant duration),
+and state the score plus the unaccepted-survivor set in the round-1 brief. Enrolment-precedes-
+review includes SHAPE: the runner overlays a target only when a Vitest suite imports it, so a
+new proof/guard surface is authored as an importable module with a referring suite from the
+start — not as a terminal CLI script. Two arcs measured the cost of deciding this late: the
+classname equivalence scripts were never enrolled and, as shipped, not even enrollable without
+restructuring (CLI-shaped — no exports, unconditional `process.exit`, no importing suite) and
+drew fifty false-pass findings across fourteen diff rounds at roughly 25 minutes of dispatch
+per mutant (that arc's own figure; the step3 filing records no per-mutant duration),
 and the step3-a11y tap-target suite spent six of nine diff rounds the same way before a later
 probe showed the registry cannot express that Playwright surface at all (its nineteen mutants
 are bespoke component edits). An enrolled surface runs in roughly 93 seconds (the
@@ -165,8 +168,9 @@ Description: extend `spec:lint`'s declared-task-contract arm (`pnpm spec:lint`,
 an enrolled plan: (a) an execution mode that RUNS each `red=` command and reports a new code
 (e.g. `RED_ALREADY_GREEN`) when it exits 0 against the live tree — opt-in per invocation, since
 a `red=` may be expensive; (b) static never-red shapes needing no execution: a `red=` naming a
-file the plan itself creates with no pre-existing failing counterpart, and an `&&` conjunct
-behind an expected failure; (c) an advisory listing declared gate commands that carry no
+file the plan itself creates with no pre-existing failing counterpart, an `&&` conjunct
+behind an expected failure, and a task body with no one-line "what is red and why" statement;
+(c) an advisory listing declared gate commands that carry no
 "probed against a constructed failing input" annotation. The rule half binds immediately via
 P1; this row is the mechanical enforcement. Design and thresholds belong to the implementing
 arc, not this row.
@@ -203,8 +207,9 @@ immediately via P3. Design and opt-in mechanics belong to the implementing arc.
   (`tests/docs/_metaReviewRoundEconomy.test.ts` resolves cited ids against live ledgers).
 - AC-3: `pnpm spec:lint docs/superpowers/specs/ci/2026-08-09-round-economy-followups-2.md`
   reports zero HARD findings on the final spec; advisory findings are acceptable only as
-  `COPY_UNPAIRED_QUOTE` artifacts of quoting filing prose mid-line, and each review dispatch
-  acknowledges the advisory count rather than omitting it.
+  `COPY_UNPAIRED_QUOTE` artifacts of verbatim quotation (filing prose, user-ratification
+  wording, and target-file anchor text), and each review dispatch acknowledges the advisory
+  count rather than omitting it.
 - AC-4: the docs test suite is green on the branch (at minimum `pnpm vitest run tests/docs`),
   covering the ledger guards and the review-round economy gate.
 - AC-5: this spec gains its `docs/superpowers/specs/ci/README.md` index row in the same PR.
