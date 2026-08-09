@@ -13,11 +13,14 @@ import { KNOWN_SILENT_HOLES } from "@/tests/parser/mutation/knownHoles";
 import { newSignalFired, signalKeys, signalKeysEq, verdict } from "@/tests/parser/mutation/oracle";
 import { VERDICT_ALARM_KIND } from "@/tests/parser/mutation/runShard";
 
-const sheet = (warnings: ParseWarning[]): ParsedSheet =>
+const sheet = (
+  warnings: ParseWarning[],
+  extra: { hardErrors?: unknown[]; raw_unrecognized?: unknown[] } = {},
+): ParsedSheet =>
   ({
     warnings,
-    hardErrors: [],
-    raw_unrecognized: [],
+    hardErrors: extra.hardErrors ?? [],
+    raw_unrecognized: extra.raw_unrecognized ?? [],
     show: { title: "t" },
   }) as unknown as ParsedSheet;
 
@@ -99,6 +102,39 @@ describe("occurrence weighting", () => {
       } as ParseWarning,
     ]);
     expect(signalKeysEq(a, b)).toBe(true);
+  });
+});
+
+describe("the other two signal channels are in the key", () => {
+  // FAULT-INJECTION GAP, found by cross-model review: the builder above pinned both of
+  // these to empty arrays, so DELETING either loop from `weightedSignalKeys` left all 13
+  // earlier arms green while softening a real removal from loss to drift. An assertion
+  // that cannot see a channel does not cover it.
+  it("a dropped HARD ERROR is loss, not drift", () => {
+    const a = sheet([ref("\\#REF\\!")], {
+      hardErrors: [{ code: "MI-1_VERSION_DETECTION_FAILED", message: "m" }],
+    });
+    const b = sheet([ref("\\#REF\\!")]);
+    expect(signalKeysEq(a, b)).toBe(false);
+    expect(verdict(a, b)).toBe("SILENT_SIGNAL_LOSS");
+  });
+
+  it("a dropped RAW_UNRECOGNIZED entry is loss, not drift", () => {
+    const a = sheet([ref("\\#REF\\!")], {
+      raw_unrecognized: [{ block: "venue", key: "k", value: "v" }],
+    });
+    const b = sheet([ref("\\#REF\\!")]);
+    expect(signalKeysEq(a, b)).toBe(false);
+    expect(verdict(a, b)).toBe("SILENT_SIGNAL_LOSS");
+  });
+
+  it("hard errors and raw_unrecognized still compare EQUAL when genuinely unchanged", () => {
+    const he = [{ code: "MI-1_VERSION_DETECTION_FAILED", message: "m" }];
+    const ru = [{ block: "venue", key: "k", value: "v" }];
+    const a = sheet([ref("\\#REF\\!")], { hardErrors: he, raw_unrecognized: ru });
+    const b = sheet([ref("\\#REF\\!  Tuesday")], { hardErrors: he, raw_unrecognized: ru });
+    expect(signalKeysEq(a, b)).toBe(true);
+    expect(verdict(a, b)).toBe("SIGNAL_TEXT_DRIFT");
   });
 });
 

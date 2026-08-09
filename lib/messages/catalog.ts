@@ -1390,7 +1390,7 @@ export const MESSAGE_CATALOG = {
       "A cell here reads '#REF!' instead of a real value. That is what Sheets leaves behind when the cell a formula pointed at was deleted.",
     triggerContext:
       "Appears when any cell in the sheet contains the text '#REF!', including a cell that mixes it with other text.",
-    title: "Broken spreadsheet reference in the sheet",
+    title: "A cell shows #REF! (broken formula reference)",
     longExplanation:
       "Sheets writes '#REF!' into a cell when the reference its formula depended on was deleted. We show the cell exactly as the sheet has it rather than guessing at the value that belongs there, so the page will keep displaying '#REF!' until the formula is repaired in the sheet.",
     helpHref: "/help/errors#REF_ERROR_LITERAL",

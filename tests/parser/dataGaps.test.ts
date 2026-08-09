@@ -162,7 +162,7 @@ describe("summarizeDataGaps", () => {
   it("counts EVERY gap class once when given one warn per code (derived from registry)", () => {
     const oneEach = GAP_CLASSES.map((g) => warn(g.code));
     const out = summarizeDataGaps(oneEach);
-    expect(out.total).toBe(GAP_CLASSES.length); // 37
+    expect(out.total).toBe(GAP_CLASSES.length); // 38
     for (const { code } of GAP_CLASSES) expect(out.classes[code]).toBe(1);
   });
 

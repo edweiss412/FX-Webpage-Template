@@ -190,6 +190,23 @@ literal dropped from a cell:
 
 Removing it costs nothing — all seven still classify as drift without it (`X0`/`X1`/`X2` and all four `blank-row` sites re-measured). A `REF_ERROR_LITERAL` warning whose cleaned snippet contains zero literals **is itself the anomaly** the softer bucket must never swallow.
 
+### 11.4.1 Severity is part of the key (round-1 whole-diff review, BLOCKING)
+
+The first implementation keyed warnings on the code alone (`W` plus code), which made a `warn` → `info`
+downgrade indistinguishable from text drift: same code, same count. It is not harmless —
+an `info` warning drops out of the operator-facing gap counts (`lib/parser/dataGaps.ts`)
+and out of section routing, so the operator stops seeing it entirely. That is signal LOSS
+wearing the multiset of drift.
+
+The key now carries severity alongside the code. Re-measured after the change: the downgrade reads
+`SILENT_SIGNAL_LOSS`, and all 150 existing drift rows still classify as drift, so the
+correction cost no ledger churn.
+
+The other two channels (hard errors, raw-unrecognized) were always in the key,
+but the focused suite could not see them — its fixture pinned both to empty, so deleting
+either loop left every arm green. Both now have arms, and each was fault-injected to
+confirm it kills its mutant.
+
 ### 11.5 Ratchet for the new bucket
 
 An unlisted `SIGNAL_TEXT_DRIFT` row **fails hard**, exactly like `newHoles`. Only the triage differs: a drift row is admitted to the ledger by naming its mechanism, where a hole must be fixed or documented as a limit. Without this the new bucket becomes the dumping ground §10 warned about, and a mis-anchoring regression lands somewhere people learn to bless — reintroducing the failure both review rounds were spent eliminating.
