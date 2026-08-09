@@ -59,7 +59,9 @@ The ledger entry names ~12 spec files matched by the `mobile-safari` `testMatch`
 
 - **`tests/e2e/crew-page.spec.ts` — live.** Two live describes ("crew redesign layout invariants
   (§4.9 / test 12)" and "crew redesign nav addressability + preview-as + footer report"), 18
-  live-authored tests, current `/show/[slug]/[shareToken]` route, Waldorf seed
+  live-authored test declarations (15 executed in the §2.2 run; the delta is runtime-conditional
+  skips — §1.1.7's derivation rule governs, not either snapshot), current
+  `/show/[slug]/[shareToken]` route, Waldorf seed
   (`seed-fixture:2026-04-asset-mgmt-cfo-coo-waldorf`), same harness pattern as the already-wired
   `crew-section-toggle.spec.ts`. Plus five `test.describe.skip` blocks (pre-redesign tiles,
   lines ≥1416) in the same class as the dead files.
@@ -114,12 +116,27 @@ section components.
 
 After §4 triage reaches 0 failed locally: add `tests/e2e/crew-page.spec.ts` to the workflow's
 single `playwright test` invocation (it keeps the one-invocation shape — the workflow's own
-comment explains why: each Playwright process cold-builds its own webServer). The file is in both
-projects' `testMatch`, so it executes under mobile-safari AND desktop-chromium; both are wanted
-(the `font-rendering-census` precedent). Add a `REQUIRED` row per §3.4. Remove the file's `UNSEEN`
-row from `tests/ci/_metaE2eWorkflowCoverage.test.ts`. Update the crew-e2e.yml header comment that
-currently says "The rest of the mobile-safari project (crew-page.spec + the M4 tile specs) is
-still dead-in-CI" — after this arc that sentence is false.
+comment explains why: each Playwright process cold-builds its own webServer).
+
+**Mobile-safari only — remove crew-page from the desktop-chromium `testMatch` in the same
+commit.** Probed (spec review R1): every live crew-page test early-returns off
+`testInfo.project.name !== "mobile-safari"` (22 sites), so a desktop-chromium execution is a
+passing no-op that `scripts/check-crew-e2e-executed.mjs` (`status === "passed"`) and the wiring
+parity test would both credit as executed coverage. The `font-rendering-census` both-projects
+precedent does NOT apply — that suite runs real assertions under both projects; crew-page does
+not. Its `REQUIRED` count is therefore the mobile-safari resolution alone.
+
+Add a `REQUIRED` row per §3.4. **Reclassify** the file's allowlist row in
+`tests/ci/_metaE2eWorkflowCoverage.test.ts` from `UNSEEN` to `PATH_GATED_BY_EXCLUSION` — NOT
+removed. crew-e2e.yml triggers via `pull_request.paths-ignore`, and the scanner deliberately
+never marks a paths-filtered workflow's specs covered (its own "rejects a pull_request
+paths-IGNORE filter too" case pins `covered.has(spec) === false`); every already-wired crew-e2e
+spec (`crew-section-toggle`, `alert-action-links`, `font-binding`, `font-rendering-census`) sits
+in the allowlist as `PATH_GATED_BY_EXCLUSION`, and the wired files follow that precedent. This
+reclassification rule applies to every file this arc wires (theme-toggle §3.2,
+right-now-transitions §3.5). Update the crew-e2e.yml header comment that currently says "The rest
+of the mobile-safari project (crew-page.spec + the M4 tile specs) is still dead-in-CI" — after
+this arc that sentence is false.
 
 Delete the five pre-redesign `test.describe.skip` blocks inside `crew-page.spec.ts` (same class as
 the dead files; the redesign-cleanup meta-test pins their subject components deleted).
@@ -127,18 +144,35 @@ the dead files; the redesign-cleanup meta-test pins their subject components del
 ### 3.2 Rewrite `theme-toggle.spec.ts` live
 
 Replace the file's dead content with a live describe against the seeded shareToken route (same
-`lookupSeededShow`/share-token helpers as `crew-page.spec.ts`). Tests, both identity-agnostic
+`lookupSeededShow`/share-token helpers as `crew-page.spec.ts`). Tests, all identity-agnostic
 (no per-identity fixture needed — the toggle renders in the crew Footer for every viewer, reached
 via `_CrewShell`):
 
-1. **Persistence + no-FOUC:** tap toggle → `<html data-theme>` flips AND
-   `localStorage["fxav-theme"]` holds the new value → `page.reload()` → the theme survives, and it
-   is already applied at first paint (assert via the no-FOUC script's effect: `data-theme` correct
-   on `domcontentloaded`, before hydration).
-2. **Tap target:** toggle's bounding box ≥ 44×44px (DESIGN.md §3 `--spacing-tap-min`).
+1. **Persistence + no-FOUC, both directions.** Light→dark: tap toggle → `<html data-theme>` flips
+   AND `localStorage["fxav-theme"]` holds the new value → `page.reload()` → the theme survives.
+   Then dark→light: tap again, reload again, assert the persisted `"light"` value and restored
+   attribute — the reverse branch is part of the contract, not a symmetry assumption.
+2. **The no-FOUC oracle proves DURING-PARSE application, not just presence-by-observation-time**
+   (spec review R1 F4: an implementation that sets `data-theme` from a `DOMContentLoaded` handler
+   passes an after-the-event check while violating the first-paint guarantee). Oracle:
+   `page.addInitScript` installs a `MutationObserver` on `document.documentElement` attributes
+   that records `{ value, readyState }` for each `data-theme` mutation (plus the attribute's
+   initial state if already set when the script runs). After reload, assert the attribute reached
+   its persisted value while `document.readyState === "loading"` — i.e. set by the inline
+   `app/layout.tsx` script during parse, before `DOMContentLoaded`. A delayed-handler mutant
+   records `"interactive"` and fails.
+3. **Accessibility state pinned across the cycle** (spec review R1 F5 — the dead suite carried
+   this and nothing else does): in light mode `aria-pressed="false"` + accessible name "Switch to
+   dark theme"; in dark mode `aria-pressed="true"` + "Switch to light theme"; after the reload in
+   (1), `aria-pressed` reflects the restored theme. (Copy strings verified against
+   `components/layout/ThemeToggle.tsx` at implementation time; if the live copy differs, the test
+   pins the live copy and this spec's strings are drafting-time locators.)
+4. **Tap target:** toggle's bounding box ≥ 44×44px (DESIGN.md §3 `--spacing-tap-min`).
 
-Wire it into the same crew-e2e.yml invocation + `REQUIRED` row + `UNSEEN` row removal. It stays in
-both `testMatch` regexes (already present).
+Wire it into the same crew-e2e.yml invocation + `REQUIRED` row + allowlist reclassification per
+§3.1. It stays in both `testMatch` regexes (already present) ONLY if its tests genuinely execute
+under both projects — the rewrite must not early-return off a project; if it is authored
+mobile-safari-only, remove it from the desktop-chromium regex, same rule as crew-page.
 
 ### 3.3 Close the two cheap residues in-arc
 
@@ -160,8 +194,23 @@ Delete nine files under `tests/e2e/`: schedule-tile, transport-tile, status-fina
 role-spoof, pack-list, notes-tile, right-now, layout-dimensions, empty-state (theme-toggle is
 rewritten, not deleted). For each:
 
-- Remove from BOTH `testMatch` regexes in `playwright.config.ts` (mobile-safari + desktop-chromium).
-- Remove its `UNSEEN` row from `tests/ci/_metaE2eWorkflowCoverage.test.ts`.
+- Remove its alternative from BOTH `testMatch` regexes in `playwright.config.ts` — **subject to a
+  substring-collision check per token** (spec review R1 F2). The regexes are substring
+  alternations over basenames, so a token may register files beyond the deleted one. Probed
+  collision table for the nine: `layout-dimensions` ALSO matches the surviving
+  `crew-layout-dimensions`, `admin-layout-dimensions`, and `admin-nav-layout-dimensions` specs
+  (all three actively invoked — phantom-gap-e2e.yml and admin-layout-e2e.yml), so that token is
+  NOT removed bare: replace it with explicit `crew-layout-dimensions|admin-layout-dimensions|admin-nav-layout-dimensions`
+  alternatives in each regex that needs them (dropping only the bare-basename match). The other
+  eight tokens (`schedule-tile`, `transport-tile`, `status-financials`, `role-spoof`,
+  `pack-list`, `notes-tile`, `right-now`, `empty-state`) match no surviving file — `right-now`
+  does not match `right-now-transitions.spec.ts` and `empty-state` does not match
+  `empty-state-reachability.spec.ts`, because each alternative must be followed immediately by
+  the literal spec-file suffix — and are removed bare. The implementation re-runs this collision check
+  (`--list` before/after, equal file sets minus the deleted nine) rather than trusting this
+  table.
+- Remove its `UNSEEN` row from `tests/ci/_metaE2eWorkflowCoverage.test.ts` (deleted files' rows
+  are REMOVED; wired files' rows are RECLASSIFIED per §3.1 — two different operations).
 - **Class-sweep to a derivation:** `rg` each deleted basename across the repo (source comments,
   docs, specs, ledgers) and repair or annotate every reference — the sweep output is the list of
   hits with dispositions, recorded in the PR body. Precedent: `Section.tsx`'s stale "Verified by
@@ -178,10 +227,12 @@ of 1, per the registry's own R12 rationale in `scripts/check-crew-e2e-executed.m
   `rightNowHero.test.tsx`. The rendered-treatment loss is a documented limit (§6).
 - Migrate the live §5.7 block (3 tests, day-anchor selection — a per-show concern, not
   per-identity) from the dead `/show/[slug]?crew=` URL to the seeded shareToken route, and wire
-  the file (both `testMatch` regexes already carry it). **Timebox:** if migration surfaces a
-  harness dependency beyond the URL swap (e.g. picker-gate interaction that `?gate=skip` does not
-  clear), defer via a `BL-` row naming exception (c) with the probe output; the file then keeps
-  its `UNSEEN` row and its live block stays local-only.
+  the file. Same project-honesty rule as §3.1/§3.2: if the migrated tests execute only under one
+  project, the file is wired for that project alone and removed from the other `testMatch` regex;
+  its allowlist row is then RECLASSIFIED to `PATH_GATED_BY_EXCLUSION` per §3.1. **Timebox:** if
+  migration surfaces a harness dependency beyond the URL swap (e.g. picker-gate interaction that
+  `?gate=skip` does not clear), defer via a `BL-` row naming exception (c) with the probe output;
+  the file then keeps its `UNSEEN` row and its live block stays local-only.
 
 ### 3.6 Ledger + docs
 
@@ -214,15 +265,17 @@ For each §2.2 failure, in the worktree, before wiring:
 
 - AC-1: `crew-e2e.yml`'s invocation names `crew-page.spec.ts` + `theme-toggle.spec.ts` (+
   `right-now-transitions.spec.ts` unless the §3.5 valve fired), each with a full-set `REQUIRED`
-  row, and `scripts/check-crew-e2e-executed.mjs` passes on the run's own report.
+  row counting only projects under which its tests genuinely execute (no early-return no-ops
+  credited; §3.1), and `scripts/check-crew-e2e-executed.mjs` passes on the run's own report.
 - AC-2: five consecutive green normal-dispatch runs of `crew-e2e.yml` including the newly wired
   specs (workflow_dispatch; the runs used for the bar are linked in the PR).
 - AC-3: the nine dead files are gone; neither `testMatch` regex nor the coverage allowlist nor any
   repo prose references them un-annotated (class-sweep output in PR body).
 - AC-4: the two residue tests (§3.3) exist and pass in CI, or their demotion `BL-` rows exist with
   flake evidence.
-- AC-5: `tests/ci/_metaE2eWorkflowCoverage.test.ts` passes with zero rows for wired/deleted files;
-  the parent ledger entry's census is restated from the allowlist.
+- AC-5: `tests/ci/_metaE2eWorkflowCoverage.test.ts` passes with zero rows for DELETED files and
+  `PATH_GATED_BY_EXCLUSION` rows (not `UNSEEN`) for every wired file; the parent ledger entry's
+  census is restated from the allowlist.
 - AC-6: full local suite (`pnpm test`), typecheck (vitest AND playwright tsconfigs), eslint,
   `format:check` green before push; real CI green before merge.
 
