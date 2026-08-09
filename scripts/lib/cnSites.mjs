@@ -123,13 +123,16 @@ function isBooleanFilter(call) {
 
 function matchArrayJoin(node) {
   if (!ts.isCallExpression(node)) return null;
-  if (!ts.isPropertyAccessExpression(node.expression)) return null;
-  if (node.expression.name.text !== "join") return null;
+  // The CALLEE can be wrapped as well as the receiver: `(arr.join)(" ")`, `arr.join!(" ")`,
+  // `(arr.join as F)(" ")` all emit the identical runtime call.
+  const callee = unwrap(node.expression);
+  if (!ts.isPropertyAccessExpression(callee)) return null;
+  if (callee.name.text !== "join") return null;
   if (node.arguments.length !== 1) return null;
   const separator = unwrap(node.arguments[0]);
   if (!isWhitespaceSeparator(separator)) return null;
 
-  let receiver = unwrap(node.expression.expression);
+  let receiver = unwrap(callee.expression);
   let hasFilterMarker = false;
   let hasForeignFilter = false;
   // A CHAIN of filters, not just one: `.filter(Boolean).filter(Boolean)` is valid and was
@@ -172,7 +175,8 @@ function matchArrayJoin(node) {
 /** Match `cn(...)` — the post-migration form. */
 function matchCnCall(node) {
   if (!ts.isCallExpression(node)) return null;
-  if (!ts.isIdentifier(node.expression) || node.expression.text !== "cn") return null;
+  const callee = unwrap(node.expression);
+  if (!ts.isIdentifier(callee) || callee.text !== "cn") return null;
   return { operands: [...node.arguments], hasFilterMarker: false, hasForeignFilter: false };
 }
 

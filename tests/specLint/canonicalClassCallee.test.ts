@@ -214,14 +214,21 @@ function recognizeJoins(relPath: string, source: string): JoinSite[] {
       ts.isCallExpression(node) && node.arguments.length === 1 ? node.arguments[0] : undefined;
     const separatorArg =
       rawSeparator === undefined ? undefined : unwrapValuePreserving(rawSeparator);
+    // The CALLEE can be wrapped too: `(arr.join)(" ")`, `arr.join!(" ")`, `(arr.join as F)(" ")`
+    // all emit the identical runtime call and were invisible while only the RECEIVER was
+    // unwrapped. Same bounded wrapper class, one level out.
+    const callee = ts.isCallExpression(node) ? unwrapValuePreserving(node.expression) : undefined;
     if (
       ts.isCallExpression(node) &&
-      ts.isPropertyAccessExpression(node.expression) &&
-      node.expression.name.text === "join" &&
+      callee !== undefined &&
+      ts.isPropertyAccessExpression(callee) &&
+      callee.name.text === "join" &&
       separatorArg !== undefined &&
       isWhitespaceSeparator(separatorArg)
     ) {
-      let receiver: ts.Expression = unwrapValuePreserving(node.expression.expression);
+      let receiver: ts.Expression = unwrapValuePreserving(
+        (callee as ts.PropertyAccessExpression).expression,
+      );
       // A CHAIN of filters, and value-preserving wrappers between them. Probed escapes:
       // `(["p-2","x"] as const).join(" ")`, `(... satisfies string[]).join(" ")`, and
       // `[...].filter(Boolean).filter(Boolean).join(" ")` are all ordinary TypeScript that
@@ -510,6 +517,28 @@ const ESCAPE_SHAPES = [
     signature: '"esc-7a", "esc-7b"',
     code: 'export const G = () => <div className={["esc-7a", "esc-7b"].join(" ")} />;',
   },
+  // Callee wrappers. Each emits the identical runtime call and was invisible while only the
+  // RECEIVER was unwrapped; the fixture pins the closure rather than the implementation.
+  {
+    id: "parenthesized-callee",
+    signature: '"esc-8a", "esc-8b"',
+    code: 'export const H = () => <div className={(["esc-8a", "esc-8b"].join)(" ")} />;',
+  },
+  {
+    id: "nonnull-callee",
+    signature: '"esc-9a", "esc-9b"',
+    code: 'export const I = () => <div className={["esc-9a", "esc-9b"].join!(" ")} />;',
+  },
+  {
+    id: "as-cast-callee",
+    signature: '"esc-10a", "esc-10b"',
+    code: 'export const J = () => <div className={(["esc-10a", "esc-10b"].join as (s: string) => string)(" ")} />;',
+  },
+  {
+    id: "satisfies-callee",
+    signature: '"esc-11a", "esc-11b"',
+    code: 'export const K = () => <div className={(["esc-11a", "esc-11b"].join satisfies (s: string) => string)(" ")} />;',
+  },
 ] as const;
 
 /**
@@ -607,7 +636,7 @@ describe("no className array joins survive (zero-tolerance, spec §7.1)", () => 
     ).toEqual([]);
   });
 
-  it("premise / shape: finds all seven escape shapes from spec §7.1", () => {
+  it("premise / shape: finds every escape shape — the seven from spec §7.1 plus the callee wrappers", () => {
     const signatures = new Set(premiseSites.map((s) => s.operands));
     const missed = ESCAPE_SHAPES.filter((shape) => !signatures.has(shape.signature)).map(
       (s) => s.id,
