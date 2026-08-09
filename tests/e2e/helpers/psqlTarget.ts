@@ -147,22 +147,37 @@ export function resolvePsqlTarget(options: PsqlTargetOptions): string {
   const caller = options.caller;
   const envVars = options.envVars ?? [];
 
+  // ABSENT and EMPTY are different, and conflating them is a LOOSENING (cross-model
+  // review R1, probed). The resolution this replaced used nullish `??`, so
+  // `DATABASE_URL=""` reached `new URL("")` and REFUSED; treating "" as absent
+  // would have made the same input silently select the local default instead —
+  // turning a refusal into an acceptance, which the migration is not allowed to
+  // do. So: undefined falls through to the next channel; a channel that is
+  // PRESENT and empty is an explicit instruction that cannot be honored, and is
+  // refused by name.
   let url = options.dsn;
   let channel = "the explicit dsn argument";
-  if (url === undefined || url === "") {
-    url = undefined;
+  if (url === undefined) {
     for (const name of envVars) {
       const candidate = source[name];
-      if (candidate !== undefined && candidate !== "") {
+      if (candidate !== undefined) {
         url = candidate;
         channel = `$${name}`;
         break;
       }
     }
   }
-  if (url === undefined || url === "") {
+  if (url === undefined) {
     url = LOCAL_SUPABASE_DSN;
     channel = "the built-in local default";
+  }
+  if (url === "") {
+    throw new Error(
+      `${caller}: the psql target from ${channel} is EMPTY. An empty value is not the same as an ` +
+        `unset one — unset falls through to the next channel and then to ${LOCAL_SUPABASE_DSN}, ` +
+        `while an empty one is an explicit instruction that cannot be honored. Unset it, or give ` +
+        `it a real postgresql:// URI.`,
+    );
   }
 
   let parsed: URL;

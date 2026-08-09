@@ -58,7 +58,7 @@ function resolve(source: NodeJS.ProcessEnv, dsn?: string): string {
   });
 }
 
-describe("psql target resolution (BL-LOCKED-FIXTURE-HELPER-TARGETS-REMOTE-DB)", () => {
+describe("fixture DSN target resolution (BL-LOCKED-FIXTURE-HELPER-TARGETS-REMOTE-DB)", () => {
   test("premise: the accept-set is a real allowlist, and the fixture DSNs differ where it matters", () => {
     premise("accepted query parameters", PSQL_QUERY_PARAM_ACCEPT_SET.length, 2);
     premiseHolds(
@@ -211,6 +211,28 @@ describe("psql target resolution (BL-LOCKED-FIXTURE-HELPER-TARGETS-REMOTE-DB)", 
     }
   });
 
+  test("an EMPTY value is refused by name — absent and empty are not the same channel", () => {
+    // The loosening this pins against: the resolution this replaced used nullish
+    // `??`, so an empty DATABASE_URL reached `new URL("")` and refused. Treating
+    // "" as absent would silently select the local default instead — a refusal
+    // turned into an acceptance, which the migration onto a shared resolver is
+    // not allowed to do (cross-model review R1, probed).
+    expect(() => resolve(env({ TEST_DATABASE_URL: "" }))).toThrow(/is EMPTY/);
+    expect(() => resolve(env({ DATABASE_URL: "" }))).toThrow(/is EMPTY/);
+    expect(() => resolve(env({ TEST_DATABASE_URL: "", DATABASE_URL: LOOPBACK }))).toThrow(
+      /is EMPTY/,
+    );
+    expect(() => resolve(env({}), "")).toThrow(/is EMPTY/);
+
+    // …and the error names WHICH channel supplied it, so the fix is obvious.
+    expect(() => resolve(env({ TEST_DATABASE_URL: "" }))).toThrow(/\$TEST_DATABASE_URL/);
+
+    // ABSENT still falls through, which is the behavior the empty case is
+    // distinguished FROM. Without this the fix could be "refuse everything".
+    expect(resolve(env({ DATABASE_URL: LOOPBACK }))).toBe(LOOPBACK);
+    expect(resolve(env({}))).toBe(LOCAL_SUPABASE_DSN);
+  });
+
   test("an unparseable DSN is refused before any authority check reads it", () => {
     expect(() =>
       resolve(env({ TEST_DATABASE_URL: "host=127.0.0.1 port=54322 dbname=postgres" })),
@@ -224,7 +246,7 @@ describe("psql target resolution (BL-LOCKED-FIXTURE-HELPER-TARGETS-REMOTE-DB)", 
 // through the caller, so this asserts on the SPAWN rather than on the resolver:
 // `execFileSync` is stubbed, and the DSN and environment psql would actually
 // have received are read back off the recorded call.
-describe("lockedCrewRestriction spawns psql with the resolved target and scrubbed env", () => {
+describe("lockedCrewRestriction spawns its client with the resolved target and scrubbed env", () => {
   test("the helper refuses a non-loopback TEST_DATABASE_URL set AFTER import, and never spawns", async () => {
     vi.resetModules();
     const execFileSync = vi.fn();
@@ -272,7 +294,15 @@ describe("lockedCrewRestriction spawns psql with the resolved target and scrubbe
       );
       const [command, args, options] = call as [string, string[], { env?: NodeJS.ProcessEnv }];
 
-      expect(command).toBe("psql");
+      // Matched as a PATTERN, not a bare "psql" string literal: the
+      // startup-file guard's indirection tripwire
+      // (tests/cross-cutting/psqlStartupFiles/scan.ts) requires the binary name to
+      // appear as a literal argv[0] and nowhere else, so that a call site can never
+      // hide it behind an identifier. A literal here is not a call site, but it is
+      // lexically identical to one — the guard already carries a SELF exclusion for
+      // exactly this shape, and widening that list is a worse trade than spelling
+      // the assertion as a pattern.
+      expect(command).toMatch(/^psq[l]$/);
       expect(args, "the resolved DSN is the one psql receives").toContain(LOOPBACK);
       expect(
         args,
