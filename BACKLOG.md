@@ -433,20 +433,6 @@ Deleting one interior pipe — which is exactly how a merged cell exports to mar
 
 **Why filed rather than repaired in the wave branch that found it** (AGENTS.md class-sweep disposition, exception (c)): causes 2 and 3 are a redesign of a guard surface the parser wave does not otherwise touch — a new executable suite case for the maxBuffer bound, plus settling an environment-dependence claim in the surface's ratified limits. Repairing only cause 1 would leave the gate red anyway (below-floor persists), so it buys nothing. The parser wave's PRs record this as an inherited red.
 
-### BL-MUTATION-UNICODE — an injected zero-width character is silently retained
-
-**Status:** IN PROGRESS (2026-08-06, L-wave decomposition of `BL-MUTATION-HARNESS-OPEN-HOLES`; wave spec+plan ratified 2026-08-08 — see docs/superpowers/specs/parser/2026-08-07-parser-mutation-wave-design.md) · **Severity:** medium · **Class:** PARSER ROBUSTNESS · **Effort:** M · **Branch:** feat/mutation-unicode
-
-A zero-width non-joiner (U+200C) injected into a cell value survives the parse intact — the live fintech ZWNJ shape. Invisible-character class, and the reason it matters is that it defeats EQUALITY: a name carrying a zero-width character does not match the same name without one, so identity linking, crew matching, and every string comparison silently miss while the rendered page looks correct.
-
-**Ledgered blast radius: 827 holes** (827 `wrong` / 0 `signal_loss`) — derived 2026-08-06 from `RAW_HOLES`. Linkage: `OPERATOR_FINDING_MAP["unicode-inject"] = "BL-MUTATION-UNICODE"` (`tests/parser/mutation/knownHoles.ts:83`), pinned by `knownHoles.test.ts`.
-
-**STRIP IS ALREADY THE RATIFIED POLICY — this row is incomplete ENFORCEMENT of it, not an open strip-vs-warn question.** Corrected 2026-08-06 after cross-model review probed the claim: `clean()` strips `[\u200B-\u200D\uFEFF]` at the shared cell boundary (`lib/parser/blocks/_helpers.ts:44-50`, which covers ZWNJ U+200C), and the live fintech ZWNJ shape has an executing regression asserting removal (`tests/parser/blocks/transport.test.ts:409-417`). The 827 holes are real and are fields the mutation harness reaches that this boundary does not.
-
-**Shape (M):** find the paths that bypass `clean()` and route them through it (or through the same character class), then shrink the ledger. The corpus calibration is establishing WHICH fields are still unprotected and whether any legitimately needs a zero-width character preserved. A warn-severity `ParseWarning` code is warranted only for a residue that cannot be stripped safely; if the whole 827 closes by routing through the existing boundary, no catalog row and no §12.4 lockstep is needed — which would make this smaller than M, and the first task should establish that.
-
-**Ratchet contract:** SHRINK-ONLY, as above. Decomposition record: `BACKLOG-archive.md` § `BL-MUTATION-HARNESS-OPEN-HOLES`.
-
 ### BL-MUTATION-COLUMN-SHIFT — a spurious leading empty column shifts a section's row grid with no signal
 
 **Status:** OPEN (2026-08-06, L-wave decomposition of `BL-MUTATION-HARNESS-OPEN-HOLES`; wave spec+plan ratified 2026-08-08 — see docs/superpowers/specs/parser/2026-08-07-parser-mutation-wave-design.md) · **Severity:** medium · **Class:** PARSER ROBUSTNESS · **Effort:** M
