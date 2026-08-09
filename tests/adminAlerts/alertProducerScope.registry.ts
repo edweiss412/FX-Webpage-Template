@@ -219,13 +219,11 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
   {
     site: "lib/drive/watch.ts:887",
     computedContext: true,
-    contextKeys: [
-      "watched_folder_id",
-      "channel_id",
+    contextKeys: ["watched_folder_id", "channel_id", "reason"],
+    optionalContextKeys: [
       "requested_channel_id",
       "resource_id",
       "expiration",
-      "reason",
       "error_class",
       "error_message",
       "configured_folder_id",
@@ -234,11 +232,17 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
     scope: "global",
     dynamic: true,
     note:
-      "const; tx.upsertAdminAlert passes no showId -> null. One helper, three callers, so these " +
-      "keys are the UNION of their payloads: watch_create_failed (no channel/resource detail — " +
-      "Drive never answered), activate_failed_after_watch_created (adds requested_channel_id, " +
-      "resource_id, expiration), and folder_changed_during_activation (same, plus " +
-      "configured_folder_id and no error pair — a deliberate cancel carries no error).",
+      "const; tx.upsertAdminAlert passes no showId -> null. ONE helper site, THREE callers with " +
+      "different payloads, so the split matters: contextKeys is the INTERSECTION (this file's " +
+      "contract — keys written on every branch) and the branch-varying rest is optional. " +
+      "watch_create_failed carries no channel/resource detail because Drive never answered; " +
+      "activate_failed_after_watch_created adds requested_channel_id, resource_id, expiration; " +
+      "folder_changed_during_activation adds those plus configured_folder_id and carries NO " +
+      "error pair, because a deliberate cancel is not an error. " +
+      "NARROWED from five guaranteed keys on 2026-08-09: error_class/error_message were " +
+      "guaranteed only while every caller was a failure, and the third caller ends that. " +
+      "Consumers degrade safely — watchEscalation defaults both " +
+      "(lib/drive/watchEscalation.ts:107, :166) and a folder_changed cycle never escalates.",
   },
   {
     site: "lib/crew/sweepTileRenderAlerts.ts:51",
