@@ -155,13 +155,14 @@ export function detectRefErrorLiterals(markdown: string): ParseWarning[] {
 
 **Files (all in ONE commit):**
 - Modify: `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md` §12.4 (new row, mirror the `STAGE_WORD_AUTOCORRECTED` row shape at `2026-04-30-fxav-crew-pages-v1.md:2899`)
-- Regenerate: `pnpm gen:spec-codes` → `lib/messages/__generated__/spec-codes.ts`
+- Regenerate: `pnpm gen:spec-codes` → `lib/messages/__generated__/spec-codes.ts` AND `pnpm gen:internal-code-enums` → `lib/messages/__generated__/internal-code-enums.ts` (retro F2; gates: `tests/messages/_metaParseWarningSiteCoverage.test.ts:60`, `tests/parser/warningScanScopeAnchor.test.ts:49`)
 - Modify: `lib/messages/catalog.ts` (full row: dougFacing, crewFacing null, followUp "Doug → fix in sheet", helpfulContext, triggerContext, title, longExplanation, `helpHref: "/help/errors#REF_ERROR_LITERAL"`)
 - Modify: `tests/messages/warningCardCopyRegistry.ts` (`WARNING_CARD_COPY_CODES` + copy row)
 - Modify: `lib/parser/dataGaps.ts` (`OPERATOR_ACTIONABLE_ANCHORED` + `GAP_CLASSES` row — label "broken reference in sheet")
 - Modify: `tests/parser/dataGapsClassCompleteness.test.ts` (DATA_GAP_CODES 37→38 at this branch; Layer-1 totals accordingly)
 - Modify: `tests/parser/_warningCodeAnchor.ts` (`WARNING_CODE_ANCHOR` + row)
-- Modify: `app/help/errors/_families.ts` (family row)
+- Modify: `app/help/errors/_families.ts` (family row — the wave's ONLY UI-surface touch, spec §1.1.8 as amended; the impeccable dual-gate runs at branch 4 close, not here)
+- Note (retro F3): tests assert `sourceCell` ABSENCE for `REF_ERROR_LITERAL` (`attachSourceCellAnchors` has no dispatch for it; blockRef-only anchoring, spec §11.9)
 
 Copy draft (adjust to catalog voice; NO em-dashes, `'` apostrophes):
 - title: `Broken spreadsheet reference in the sheet`
@@ -222,9 +223,9 @@ describe("clean-corpus calibration (spec §10)", () => {
 <!-- task: red=`pnpm exec vitest run tests/parser/mutation/operators.test.ts tests/parser/mutation/applicabilityAudit.test.ts tests/parser/mutation/classify.test.ts` ac=AC-R4 -->
 
 **Files:**
-- Modify: `tests/parser/mutation/operators.ts:74` — `if (c.val.trim() === "#REF!") continue;` → `if (clean(c.val) === "#REF!") continue;` (import `clean` from `@/lib/parser/blocks/_helpers`); spec §4.4.
+- Modify: `tests/parser/mutation/operators.ts:74` — `if (c.val.trim() === "#REF!") continue;` → `if (clean(c.val).includes("#REF!")) continue;` (import `clean` from `@/lib/parser/blocks/_helpers`); spec §4.4 as amended by retro review F1: INCLUDES, not equality — an equality guard leaves the escaping mutant `ref-sub:2025-10-consultants-roundtable:B28:L209:X2` (ABSORBED → SILENT_SIGNAL_LOSS once the detector lands, REF_ERROR_LITERAL 3/3 with only the echoed rawSnippet moving).
 - Modify: `tests/parser/mutation/classify.ts` `RISK_CRITICAL` (`classify.ts:25-33`): add `"pull_sheet"`; update `applicabilityAudit.ts` / floor expectations that enumerate the set.
-- Modify: `tests/parser/mutation/operators.test.ts` — add a case: an escaped `\#REF\!` whole-cell site generates NO mutant (guard now fires post-clean).
+- Modify: `tests/parser/mutation/operators.test.ts` — add cases: an escaped `\#REF\!` whole-cell site generates NO mutant, AND a composite `\#REF\!/NAME` site generates NO mutant (includes-guard).
 
 - [ ] **Step 1:** RED case first (guard test fails against old comparison), then apply both edits, suites green.
 - [ ] **Step 2: Commit** `infra: refSub no-op guard compares post-clean; RISK_CRITICAL gains pull_sheet`

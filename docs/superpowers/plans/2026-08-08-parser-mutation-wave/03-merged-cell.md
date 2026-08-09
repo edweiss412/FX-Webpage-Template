@@ -172,8 +172,9 @@ export function detectFusedRows(markdown: string): ParseWarning[] {
 
 <!-- task: red=`pnpm exec vitest run tests/cross-cutting/codes.test.ts tests/messages/_metaWarningCardCopy.test.ts tests/parser/operatorActionableWarnings.test.ts tests/parser/dataGapsClassCompleteness.test.ts tests/parser/warningScanScopeAnchor.test.ts` ac=AC-M3 -->
 
-- [ ] **Step 1:** §12.4 row + regen + catalog row (`helpHref: "/help/errors#ROW_CELLS_FUSED"`) + card copy + `OPERATOR_ACTIONABLE_ANCHORED` + `GAP_CLASSES` (label "two columns merged into one") + class-completeness counts (38→39) + `WARNING_CODE_ANCHOR` + help family. Copy draft: title `Two columns ran together in the sheet`; dougFacing: `A row in this sheet has one fewer column than its neighbors, which is how a merged cell exports. Values to the right of the merge may appear under the wrong headings until the merge is removed in the sheet.`
-- [ ] **Step 2:** Gates green; **Commit** `feat(parser): ROW_CELLS_FUSED catalog + card copy + gate fan-out`
+- [ ] **Step 1:** §12.4 row + BOTH regens (`pnpm gen:spec-codes` + `pnpm gen:internal-code-enums`, retro F2) + catalog row (`helpHref: "/help/errors#ROW_CELLS_FUSED"`) + card copy + `OPERATOR_ACTIONABLE_ANCHORED` + `GAP_CLASSES` (label "two columns merged into one") + class-completeness counts (38→39) + `WARNING_CODE_ANCHOR` + help family. Copy draft: title `Two columns ran together in the sheet`; dougFacing: `A row in this sheet has one fewer column than its neighbors, which is how a merged cell exports. Values to the right of the merge may appear under the wrong headings until the merge is removed in the sheet.`
+- [ ] **Step 1b (retro F3):** tests assert `sourceCell` ABSENCE for `ROW_CELLS_FUSED` (blockRef-only anchoring, spec §11.9).
+- [ ] **Step 2:** Gates green (incl. `_metaParseWarningSiteCoverage`, `errors-grouping`); **Commit** `feat(parser): ROW_CELLS_FUSED catalog + card copy + gate fan-out`
 
 ### Task 4: Ledger shrink + residue accounting + PR
 

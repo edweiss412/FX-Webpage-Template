@@ -2,7 +2,7 @@
 
 impeccable-gate: N/A — no UI surface
 
-Wave closes when all five branches are merged, AC-W1..W3 (see [00-overview.md](./00-overview.md)) verified, and every `BL-MUTATION-*` row is archived with its residue note. No file under `app/` (outside `app/api/**`), `components/`, or the design-token surfaces is touched anywhere in this wave (spec §1.1.8); the invariant-8 dual gate is therefore N/A per the closeout-marker grammar.
+Wave closes when all five branches are merged, AC-W1..W3 (see [00-overview.md](./00-overview.md)) verified, and every `BL-MUTATION-*` row is archived with its residue note. The wave's ONLY UI-surface touch is the help-family rows in `app/help/errors/_families.ts` (spec §1.1.8 as amended by the 2026-08-08 retro cross-model review): the impeccable dual-gate runs once, on the /help/errors diff, at `feat/mutation-column-shift` close-out — that branch replaces the interim `N/A` marker line below with the filled `critique=RAN audit=RAN …` form. Until then the line reflects the not-yet-touched state.
 
 Per-branch close: PR-head `mutation-harness` workflow verified green (procedural gate, spec §2.2), ledger marker removed in the PR's last commit, `git rev-list --left-right --count main...origin/main` = `0  0` after merge.
 

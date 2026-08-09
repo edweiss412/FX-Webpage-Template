@@ -162,6 +162,9 @@ Spec §6.2 table, verbatim surface list (every row one commit):
 - [ ] `tests/messages/autocorrectGuidance.test.ts:94` + `lib/messages/autocorrectGuidance.ts` row
 - [ ] `tests/parser/dataGapsClassCompleteness.test.ts:40` `BENIGN_WARN_CODES` +1 (7→8; totals 59→60)
 - [ ] §12.4 row + regen + catalog row (`helpHref: "/help/errors#LEADING_COLUMN_AUTOCORRECTED"`; copy per `STAGE_WORD_AUTOCORRECTED` tone: title `Auto-corrected a shifted section`; dougFacing: `Every row of a section in this sheet started with an empty column, so we read the section one column to the left and it parses correctly. If the empty column was intentional, update the sheet.`) + card copy + `OPERATOR_ACTIONABLE_ANCHORED` + `WARNING_CODE_ANCHOR` + help family
+- [ ] `tests/components/admin/dataGapsTransitionAudit.test.tsx:178` + `tests/components/admin/ShowsTable.test.tsx:1071` — exact five-key `AutoFixSummary` fixtures gain the sixth key (retro F5)
+- [ ] `pnpm gen:internal-code-enums` regen + gates (retro F2, as in branches 2-3)
+- [ ] Note (retro F3): tests assert `sourceCell` ABSENCE for `LEADING_COLUMN_AUTOCORRECTED` (spec §11.9)
 - [ ] Re-check every consumer in the overview's plan-time sweep list (monitorDigest.autofix* ×3, step3Buckets, warningFingerprint, sectionWarningModel.autocorrect, perShowActionableWarnings.autocorrect) for exact-set/length assumptions; update any found; note each in the commit body.
 - [ ] All marker suites green. **Commit** `feat(parser): sixth autocorrect code fan-out for LEADING_COLUMN_AUTOCORRECTED`
 
@@ -170,6 +173,7 @@ Spec §6.2 table, verbatim surface list (every row one commit):
 <!-- task: red=`pnpm exec vitest run tests/parser/mutation/knownHoles.test.ts` ac=AC-C4 -->
 
 - [ ] **Step 1:** `perl -ni -e 'print unless /^column-shift:/' tests/parser/mutation/knownHoles.ts`; `knownHoles.test.ts` green; full harness: four buckets empty (211 expected closures — 193 wrong via restored payload+signal, 18 signal_loss via restored baseline emissions, spec §6.4).
-- [ ] **Step 2:** Full suite + typecheck + lint + format; PR (fan-out, shrink −211, §6.1 live-pipeline note: exporter drops the live shape today, this defends the parser boundary; substitute-review deviation); marker off; merge; `0  0`.
+- [ ] **Step 2 (retro F4 — the wave's one impeccable gate):** the help-family rows (branches 2-4) are the wave's single UI-surface touch. Run `/impeccable critique` AND `/impeccable audit` on the /help/errors diff (canonical v3 setup gates), disposition P0/P1 findings, then REPLACE the plan closeout's `impeccable-gate: N/A — no UI surface` line with the filled `impeccable-gate: critique=RAN audit=RAN p0=<n> p1=<n> dispositions=<recorded|none>` form in this branch.
+- [ ] **Step 3:** Full suite + typecheck + lint + format; PR (fan-out, shrink −211, §6.1 live-pipeline note: exporter drops the live shape today, this defends the parser boundary; review-mechanism note per overview); marker off; merge; `0  0`.
 
 <!-- tasks: end -->
