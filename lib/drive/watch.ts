@@ -46,6 +46,32 @@ export class DriveWatchInfraError extends Error {
   }
 }
 
+/**
+ * `activatePending`'s two failure modes, kept structurally distinct so neither
+ * can be silently read as the other (invariant 9): an infra/zero-row outcome
+ * (`promoted === 0` with `abortedFolderMismatch: false`) versus the deliberate
+ * cancel the §3.1 activation guard raises when the configured folder changed
+ * mid-flight.
+ * Spec: docs/superpowers/specs/2026-08-09-watch-promotion-activation-race-fix-design.md §3.1
+ */
+export type ActivatePendingResult =
+  | { promoted: number; abortedFolderMismatch: false }
+  | { promoted: 0; abortedFolderMismatch: true; configuredFolderId: string | null };
+
+/**
+ * The configured watched folder changed between the subscriber's folder read
+ * and its activation, so the activation was ABORTED — not a Drive failure and
+ * not an infra fault. Carries the folder that is configured now.
+ */
+export class WatchFolderChangedDuringActivationError extends Error {
+  readonly kind = "watch_folder_changed_during_activation";
+
+  constructor(readonly configuredFolderId: string | null) {
+    super("watch activation aborted: configured folder changed");
+    this.name = "WatchFolderChangedDuringActivationError";
+  }
+}
+
 export type WatchChannelRow = {
   id: string;
   status: WatchChannelStatus;
@@ -62,17 +88,22 @@ export type WatchTx = {
   insertPending(row: { id: string; watchedFolderId: string; webhookSecret: string }): Promise<void>;
   /**
    * Promote the pending row, superseding any prior active row for the folder.
-   * Returns the number of PENDING rows it actually promoted — the canonical
+   * Reports the number of PENDING rows it actually promoted — the canonical
    * spec has required a zero-row rollback since v1
    * (docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:1318) and nothing
    * checked it, so activation reported success while the row stayed put.
+   *
+   * ALSO enforces the §3.1 activation guard: the configured watched folder is
+   * read (and share-locked) inside this same transaction, and activation aborts
+   * when it no longer names the folder being activated. That comparison is part
+   * of this method's CONTRACT, so every test port models it at its own level.
    */
   activatePending(row: {
     id: string;
     watchedFolderId: string;
     resourceId: string;
     expiresAt: string;
-  }): Promise<number>;
+  }): Promise<ActivatePendingResult>;
   /**
    * Orphan a still-`pending` row, recording the Drive `resourceId` when the
    * caller knows it. Without that id GC's `channels.stop` exits early on the
@@ -255,7 +286,26 @@ class PostgresWatchTx implements WatchTx {
     watchedFolderId: string;
     resourceId: string;
     expiresAt: string;
-  }): Promise<number> {
+  }): Promise<ActivatePendingResult> {
+    // LOCK ORDER (spec §3.4): the app_settings row is acquired BEFORE any
+    // drive_watch_channels row, matching promotion's acquisition order
+    // (finalize-cas takes app_settings for update at preflight): one direction
+    // of acquisition, no deadlock cycle. Keep this select the FIRST statement.
+    //
+    // `for share` and not `for update` (spec §3.3): concurrent subscribers for
+    // the same folder may hold it together — only promotion's row-exclusive
+    // UPDATE conflicts. A share lock taken while promotion holds the row blocks,
+    // then re-reads the NEWEST committed version on wake (READ COMMITTED
+    // locking-clause re-check), which is what makes the guard see the truth.
+    const settings = await this.rows<{ watched_folder_id: string | null }>(
+      `select watched_folder_id from public.app_settings where id = 'default' for share`,
+      [],
+    );
+    const configured = settings[0]?.watched_folder_id ?? null;
+    if (settings.length > 0 && configured !== null && configured !== row.watchedFolderId) {
+      return { promoted: 0, abortedFolderMismatch: true, configuredFolderId: configured };
+    }
+
     await this.rows(
       `
         update public.drive_watch_channels
@@ -280,7 +330,7 @@ class PostgresWatchTx implements WatchTx {
       `,
       [row.id, row.resourceId, row.expiresAt],
     );
-    return promoted.length;
+    return { promoted: promoted.length, abortedFolderMismatch: false };
   }
 
   async markOrphaned(id: string, resourceId?: string | null) {
@@ -777,7 +827,7 @@ async function activateWithTx(
   folderId: string,
   watch: { id: string; resourceId: string; expiration: string },
 ): Promise<SubscribeResult> {
-  const promoted = await callWatchTx("drive_watch_channels.activate_pending", () =>
+  const result = await callWatchTx("drive_watch_channels.activate_pending", () =>
     tx.activatePending({
       id: watch.id,
       watchedFolderId: folderId,
@@ -785,7 +835,7 @@ async function activateWithTx(
       expiresAt: watch.expiration,
     }),
   );
-  if (promoted === 0) {
+  if (result.promoted === 0) {
     // The pending row was not there to promote — most often because a folder
     // promotion orphaned it (§3.2.4). Throwing routes into the caller's
     // existing activate_failed_after_watch_created path, which orphans the

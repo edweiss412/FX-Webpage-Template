@@ -9,6 +9,8 @@ import {
 } from "@/lib/drive/watchErrors";
 import { setLogSink } from "@/lib/log";
 import type { LogRecord } from "@/lib/log/types";
+import { premiseHolds } from "../_shared/premise";
+import type { ActivatePendingResult } from "@/lib/drive/watch";
 
 // File-wide log capture via the sanctioned setLogSink seam (observability arc);
 // replaces the earlier vi.mock("@/lib/log") harness so the telemetry describe
@@ -60,13 +62,30 @@ class FakeWatchTx {
     });
   }
 
+  /**
+   * The §3.1 activation-guard input, modelled at this port because the settings
+   * comparison is part of `activatePending`'s CONTRACT (spec §3.2 test-ports
+   * row). `null` means the settings row is ABSENT — the four-row rule requires
+   * absence to be representable, and absent maps to PROCEED, so every
+   * pre-existing case is behaviourally unchanged without per-case wiring (the
+   * fake receives no folder at construction, and existing cases subscribe with
+   * different folders, so a matched-folder default is not derivable).
+   */
+  settingsRow: { watched_folder_id: string | null } | null = null;
+
   async activatePending(row: {
     id: string;
     watchedFolderId: string;
     resourceId: string;
     expiresAt: string;
-  }): Promise<number> {
+  }): Promise<ActivatePendingResult> {
     this.operations.push(`activatePending:${row.id}`);
+    // Mirrors the production guard's rule exactly (spec §3.1): abort iff the
+    // row EXISTS and its value is non-NULL and names a different folder.
+    const configured = this.settingsRow?.watched_folder_id ?? null;
+    if (this.settingsRow !== null && configured !== null && configured !== row.watchedFolderId) {
+      return { promoted: 0, abortedFolderMismatch: true, configuredFolderId: configured };
+    }
     for (const existing of this.rows) {
       if (
         existing.watchedFolderId === row.watchedFolderId &&
@@ -77,16 +96,16 @@ class FakeWatchTx {
       }
     }
     // Mirrors production: only a row still in `pending` is promoted, and the
-    // COUNT is returned so the caller can detect the zero-row case that the
+    // COUNT is reported so the caller can detect the zero-row case that the
     // canonical spec has always required to roll back.
     const pending = this.rows.find(
       (existing) => existing.id === row.id && existing.status === "pending",
     );
-    if (!pending) return 0;
+    if (!pending) return { promoted: 0, abortedFolderMismatch: false };
     pending.status = "active";
     pending.resourceId = row.resourceId;
     pending.expiresAt = row.expiresAt;
-    return 1;
+    return { promoted: 1, abortedFolderMismatch: false };
   }
 
   orphanedResourceIds: Array<[string, string | null | undefined]> = [];
@@ -387,6 +406,15 @@ describe("Drive watch lifecycle", () => {
     );
     expect(activate).toMatch(/set status = 'superseded'/);
     expect(activate).toMatch(/set status = 'active'/);
+
+    // The §3.1 activation guard shares that transaction too, and the §3.4 lock
+    // ordering requires it to run BEFORE either channel UPDATE — a guard placed
+    // after them would take the settings row second and open a deadlock cycle.
+    expect(activate).toMatch(
+      /select watched_folder_id from public\.app_settings where id = 'default' for share/,
+    );
+    const guard = activate.indexOf("for share");
+    expect(guard).toBeLessThan(activate.indexOf("set status = 'superseded'"));
   });
 
   test("subscribe inserts pending, activates it, and supersedes prior active channel", async () => {
@@ -558,7 +586,7 @@ describe("Drive watch lifecycle", () => {
         watchedFolderId: string;
         resourceId: string;
         expiresAt: string;
-      }): Promise<number> {
+      }): Promise<ActivatePendingResult> {
         this.operations.push(`activatePending:${row.id}`);
         throw new Error("database unavailable after Drive watch");
       }
@@ -2062,9 +2090,9 @@ describe("activation and GC failure branches (whole-diff findings 2 and 5)", () 
     // so activatePending matches zero rows and returns 0 WITHOUT throwing —
     // the case no existing test covered, since they all threw instead.
     class ZeroActivationTx extends FakeWatchTx {
-      override async activatePending(): Promise<number> {
+      override async activatePending(): Promise<ActivatePendingResult> {
         this.operations.push("activatePending:zero-rows");
-        return 0;
+        return { promoted: 0, abortedFolderMismatch: false };
       }
     }
     const tx = new ZeroActivationTx();
@@ -3046,5 +3074,65 @@ describe("refresh writes no state (spec §6 class 7, deps-spy half)", () => {
       getActiveWatchedFolder: async () => ({ folderId: "folder-1", folderName: null }),
     });
     expect(tx.attemptRecords).toEqual([]);
+  });
+});
+
+describe("activation guard at the fake port (spec §3.1 rule)", () => {
+  // One fixture constant; the mismatch folder is derived from it so the two can
+  // never drift into equality and vacuously satisfy the abort rule.
+  const GUARD_FOLDER: string = "guard-fixture-folder";
+  const PROMOTED_FOLDER: string = `${GUARD_FOLDER}-promoted`;
+  const CHANNEL = "guard-ch";
+
+  async function activateUnder(settingsRow: { watched_folder_id: string | null } | null) {
+    const tx = new FakeWatchTx();
+    tx.settingsRow = settingsRow;
+    await tx.insertPending({
+      id: CHANNEL,
+      watchedFolderId: GUARD_FOLDER,
+      webhookSecret: "secret-1",
+    });
+    const result = await tx.activatePending({
+      id: CHANNEL,
+      watchedFolderId: GUARD_FOLDER,
+      resourceId: "resource-1",
+      expiresAt: new Date("2026-05-10T12:00:00.000Z").toISOString(),
+    });
+    return { tx, result };
+  }
+
+  const statusOf = (tx: FakeWatchTx) => tx.rows.find((r) => r.id === CHANNEL)?.status;
+
+  test("activation guard proceeds when the settings row is absent", async () => {
+    const { tx, result } = await activateUnder(null);
+    expect(result).toEqual({ promoted: 1, abortedFolderMismatch: false });
+    expect(statusOf(tx)).toBe("active");
+  });
+
+  test("activation guard proceeds when watched_folder_id is NULL", async () => {
+    const { tx, result } = await activateUnder({ watched_folder_id: null });
+    expect(result).toEqual({ promoted: 1, abortedFolderMismatch: false });
+    expect(statusOf(tx)).toBe("active");
+  });
+
+  test("activation guard proceeds when the configured folder matches", async () => {
+    const { tx, result } = await activateUnder({ watched_folder_id: GUARD_FOLDER });
+    expect(result).toEqual({ promoted: 1, abortedFolderMismatch: false });
+    expect(statusOf(tx)).toBe("active");
+  });
+
+  test("activation guard aborts when the configured folder differs", async () => {
+    premiseHolds(
+      "the configured folder differs from the folder being activated",
+      PROMOTED_FOLDER !== GUARD_FOLDER,
+    );
+    const { tx, result } = await activateUnder({ watched_folder_id: PROMOTED_FOLDER });
+    expect(result).toEqual({
+      promoted: 0,
+      abortedFolderMismatch: true,
+      configuredFolderId: PROMOTED_FOLDER,
+    });
+    // Anti-tautology: the row, not the return value the guard itself produced.
+    expect(statusOf(tx)).toBe("pending");
   });
 });

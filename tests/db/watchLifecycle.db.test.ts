@@ -8,6 +8,7 @@
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "vitest";
 import postgres from "postgres";
 import { assertLocalDbUrl } from "./_localDbUrl";
+import { premiseHolds } from "../_shared/premise";
 
 // This suite INSERTs and DELETEs rows, so it is local-only by contract: resolve
 // through LOCAL_TEST_DATABASE_URL and refuse a remote host before any client
@@ -40,6 +41,69 @@ const PREFIX = "watchlifecycle-";
 
 async function cleanup(): Promise<void> {
   await sql`delete from public.drive_watch_channels where watched_folder_id like ${PREFIX + "%"}`;
+}
+
+// ---------------------------------------------------------------------------
+// app_settings isolation for every describe that runs `activatePending`.
+//
+// The activation guard (spec §3.1) reads the singleton settings row inside the
+// transaction, so any case that promotes a row now depends on that row's shape.
+// These cases run ordinary `sql.begin` and observe COMMITTED state — there is
+// no rollback isolation — so restoration is explicit: capture the whole row as
+// jsonb, reshape it per case, put the captured row back afterwards.
+// ---------------------------------------------------------------------------
+
+type CapturedSettings = postgres.JSONValue | null;
+
+async function captureSettings(): Promise<CapturedSettings> {
+  const rows = await sql<{ row: postgres.JSONValue }[]>`
+    select to_jsonb(t) as row from public.app_settings t where id = 'default'
+  `;
+  return rows[0]?.row ?? null;
+}
+
+async function restoreSettings(captured: CapturedSettings): Promise<void> {
+  // ONE transaction. A restore that deletes and then fails to re-insert leaves
+  // the singleton row missing for every suite that runs after this one — and
+  // the next capture then reads `null`, so the damage is silent and permanent.
+  // Rolling the delete back with the insert is what makes a restore failure
+  // loud instead of destructive.
+  //
+  // `sql.json` and NOT `JSON.stringify`: the stringified form arrives as a JSON
+  // *scalar* and `jsonb_populate_record` rejects it ("cannot call
+  // populate_composite on a scalar").
+  await sql.begin(async (tx) => {
+    await tx`delete from public.app_settings where id = 'default'`;
+    if (captured !== null) {
+      await tx`
+        insert into public.app_settings
+        select * from jsonb_populate_record(null::public.app_settings, ${sql.json(captured)})
+      `;
+    }
+  });
+}
+
+/** Seeds the singleton row's `watched_folder_id`. Returns the rows written, so
+ *  a case can premise-assert that its seed actually landed. */
+async function seedWatchedFolder(folderId: string | null): Promise<number> {
+  const rows = await sql<{ id: string }[]>`
+    insert into public.app_settings (id, watched_folder_id)
+    values ('default', ${folderId})
+    on conflict (id) do update set watched_folder_id = excluded.watched_folder_id
+    returning id
+  `;
+  return rows.length;
+}
+
+async function deleteSettings(): Promise<void> {
+  await sql`delete from public.app_settings where id = 'default'`;
+}
+
+async function settingsRowCount(): Promise<number> {
+  const rows = await sql<{ count: number }[]>`
+    select count(*)::int as count from public.app_settings where id = 'default'
+  `;
+  return rows[0]?.count ?? -1;
 }
 
 // File-scope teardown: the postgres client is shared across every describe in
@@ -512,26 +576,43 @@ describe("markStopped is guarded by the resource id GC read (R6 finding 1)", () 
 });
 
 describe("activatePending's COUNT comes from the production SQL (R6 finding 2)", () => {
+  // These cases now run through the §3.1 activation guard, so each seeds the
+  // settings row to its OWN fixture folder — the guard's match arm — keeping the
+  // original subject (the promoted COUNT) rather than swapping it for the
+  // absent-row arm.
+  let captured: CapturedSettings = null;
+  beforeAll(async () => {
+    captured = await captureSettings();
+  });
+  afterAll(async () => {
+    await restoreSettings(captured);
+  });
   afterEach(cleanup);
+
+  const FOLDER = `${PREFIX}f`;
 
   const row = (id: string) => ({
     id,
-    watchedFolderId: `${PREFIX}f`,
+    watchedFolderId: FOLDER,
     resourceId: "res",
     expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
   });
 
   test("returns 1 when a pending row is promoted", async () => {
     const id = `${PREFIX}act-one`;
+    premiseHolds(
+      "the matched-folder settings seed wrote exactly one row",
+      (await seedWatchedFolder(FOLDER)) === 1,
+    );
     await sql`
       insert into public.drive_watch_channels (id, status, watched_folder_id, webhook_secret)
-      values (${id}, 'pending', ${PREFIX + "f"}, 's')
+      values (${id}, 'pending', ${FOLDER}, 's')
     `;
     const { createPostgresWatchTx } = await import("@/lib/drive/watch");
-    const count = await sql.begin(async (tx) =>
+    const result = await sql.begin(async (tx) =>
       createPostgresWatchTx(tx as never).activatePending(row(id)),
     );
-    expect(count).toBe(1);
+    expect(result).toEqual({ promoted: 1, abortedFolderMismatch: false });
   });
 
   test("returns 0 when promotion already orphaned the row", async () => {
@@ -539,20 +620,123 @@ describe("activatePending's COUNT comes from the production SQL (R6 finding 2)",
     // it cannot see the production statement returning a wrong count — an
     // adapter hardcoded to 1 would restore silent activation success.
     const id = `${PREFIX}act-zero`;
+    premiseHolds(
+      "the matched-folder settings seed wrote exactly one row",
+      (await seedWatchedFolder(FOLDER)) === 1,
+    );
     await sql`
       insert into public.drive_watch_channels (id, status, watched_folder_id, webhook_secret)
-      values (${id}, 'orphaned', ${PREFIX + "f"}, 's')
+      values (${id}, 'orphaned', ${FOLDER}, 's')
     `;
     const { createPostgresWatchTx } = await import("@/lib/drive/watch");
-    const count = await sql.begin(async (tx) =>
+    const result = await sql.begin(async (tx) =>
       createPostgresWatchTx(tx as never).activatePending(row(id)),
     );
-    expect(count).toBe(0);
+    expect(result).toEqual({ promoted: 0, abortedFolderMismatch: false });
 
     const rows = await sql<{ status: string }[]>`
       select status from public.drive_watch_channels where id = ${id}
     `;
     expect(rows[0]?.status).toBe("orphaned");
+  });
+});
+
+describe("activation guard against the real adapter (spec §3.1 rule)", () => {
+  // One fixture constant; the promoted folder is derived so the two can never
+  // drift into equality and vacuously satisfy the abort rule.
+  const GUARD_FOLDER: string = `${PREFIX}guard`;
+  const PROMOTED_FOLDER: string = `${PREFIX}guard-promoted`;
+
+  let captured: CapturedSettings = null;
+  beforeAll(async () => {
+    captured = await captureSettings();
+  });
+  afterAll(async () => {
+    await restoreSettings(captured);
+  });
+  afterEach(cleanup);
+
+  const row = (id: string) => ({
+    id,
+    watchedFolderId: GUARD_FOLDER,
+    resourceId: "res",
+    expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
+  });
+
+  async function seedPending(id: string): Promise<void> {
+    await sql`
+      insert into public.drive_watch_channels (id, status, watched_folder_id, webhook_secret)
+      values (${id}, 'pending', ${GUARD_FOLDER}, 's')
+    `;
+  }
+
+  async function statusOf(id: string): Promise<string | undefined> {
+    const rows = await sql<{ status: string }[]>`
+      select status from public.drive_watch_channels where id = ${id}
+    `;
+    return rows[0]?.status;
+  }
+
+  async function activate(id: string) {
+    const { createPostgresWatchTx } = await import("@/lib/drive/watch");
+    return await sql.begin(async (tx) =>
+      createPostgresWatchTx(tx as never).activatePending(row(id)),
+    );
+  }
+
+  test("activation guard proceeds when the settings row is absent", async () => {
+    const id = `${PREFIX}guard-absent`;
+    await deleteSettings();
+    premiseHolds("the settings row is absent for this case", (await settingsRowCount()) === 0);
+    await seedPending(id);
+
+    expect(await activate(id)).toEqual({ promoted: 1, abortedFolderMismatch: false });
+    expect(await statusOf(id)).toBe("active");
+  });
+
+  test("activation guard proceeds when watched_folder_id is NULL", async () => {
+    const id = `${PREFIX}guard-null`;
+    premiseHolds(
+      "the NULL settings seed wrote exactly one row",
+      (await seedWatchedFolder(null)) === 1,
+    );
+    await seedPending(id);
+
+    expect(await activate(id)).toEqual({ promoted: 1, abortedFolderMismatch: false });
+    expect(await statusOf(id)).toBe("active");
+  });
+
+  test("activation guard proceeds when the configured folder matches", async () => {
+    const id = `${PREFIX}guard-match`;
+    premiseHolds(
+      "the matched-folder settings seed wrote exactly one row",
+      (await seedWatchedFolder(GUARD_FOLDER)) === 1,
+    );
+    await seedPending(id);
+
+    expect(await activate(id)).toEqual({ promoted: 1, abortedFolderMismatch: false });
+    expect(await statusOf(id)).toBe("active");
+  });
+
+  test("activation guard aborts when the configured folder differs", async () => {
+    const id = `${PREFIX}guard-mismatch`;
+    premiseHolds(
+      "the configured folder differs from the folder being activated",
+      PROMOTED_FOLDER !== GUARD_FOLDER,
+    );
+    premiseHolds(
+      "the mismatched settings seed wrote exactly one row",
+      (await seedWatchedFolder(PROMOTED_FOLDER)) === 1,
+    );
+    await seedPending(id);
+
+    expect(await activate(id)).toEqual({
+      promoted: 0,
+      abortedFolderMismatch: true,
+      configuredFolderId: PROMOTED_FOLDER,
+    });
+    // Anti-tautology: the DB row, not the return value the guard itself produced.
+    expect(await statusOf(id)).toBe("pending");
   });
 });
 
