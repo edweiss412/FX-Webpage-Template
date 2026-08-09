@@ -13,6 +13,33 @@
   // (.github/workflows/quality.yml:41) still runs `tsc --noEmit` against the base
   // tsconfig.json, so tests/** remain fully type-checked in CI — just not during a
   // build whose own gate has removed the modules they import.
+  // `exclude` REPLACES the inherited array — it does not merge — so every base
+  // exclusion is restated here and `tests` is the only addition. Dropping them
+  // would re-admit the build-artifact trees (`.next-prod` and friends, which the
+  // base `include` reaches through `<distDir>/types/**/*.ts`): a flag-unset build
+  // would then type-check an EARLIER build's emitted types, whose references to
+  // app/admin/dev/* are exactly the modules this build has renamed aside. Probed
+  // by whole-diff review r1 — a planted `.next-dev/types/validator.ts` was
+  // excluded by the base config and admitted here, producing TS2307.
+  //
+  // The union is not maintained by hand-diffing: the r30 block in
+  // tests/components/admin/sheetIconLinkContainment.test.ts asserts
+  // build.exclude === base.exclude + ["tests"] as sets, so adding a base
+  // exclusion without mirroring it fails there rather than silently widening
+  // what a build type-checks.
   "extends": "./tsconfig.json",
-  "exclude": ["node_modules", "tests"]
+  "exclude": [
+    "node_modules",
+    ".next-dev",
+    ".next-prod",
+    ".next-prod-flip",
+    ".next-build-artifact-gate-test",
+    ".next-screenshots-help",
+    "tests/cross-cutting/fixtures/auth-x3",
+    "tests/cross-cutting/fixtures/no-global-cursor",
+    "tests/cross-cutting/fixtures/no-global-cursor-semantic",
+    "tests/cross-cutting/fixtures/email-canonicalization",
+    "tests/e2e/helpers/__fixtures__/directive",
+    "tests"
+  ]
 }

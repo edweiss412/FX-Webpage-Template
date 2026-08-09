@@ -1794,6 +1794,22 @@ describe("sheet-link phrase containment (spec §7.10)", () => {
     );
     expect(buildConfig.compilerOptions?.paths).toBeUndefined();
     expect(buildConfig.compilerOptions?.baseUrl).toBeUndefined();
+    // r30/whole-diff-r1: `exclude` REPLACES the inherited array rather than
+    // merging it, so the build config silently re-admitted every base
+    // exclusion it failed to restate — including the build-artifact trees the
+    // base `include` reaches via `<distDir>/types/**/*.ts`, which is how a
+    // flag-unset build ends up type-checking an EARLIER artifact's emitted
+    // references to the very app/admin/dev/* modules it just renamed aside
+    // (probed: a planted `.next-dev/types/validator.ts` was excluded by the
+    // base config and admitted by the build config, TS2307). The contract is
+    // pinned as a DERIVATION, not a second list to keep in step: the build
+    // config's exclusions are exactly the base's plus `tests`, so adding a
+    // base exclusion without mirroring it fails HERE.
+    const baseExclude = (raw.config as { exclude?: string[] }).exclude ?? [];
+    expect(baseExclude.length, "the base config has exclusions to inherit").toBeGreaterThan(0);
+    expect([...(buildConfig.exclude ?? [])].sort(), "build exclusions = base + tests").toEqual(
+      [...baseExclude, "tests"].sort(),
+    );
     // PREMISE, both directions. Without the first, the carve could sit over a
     // build config that excludes nothing and would silently stop describing
     // the reason it exists; without the second, a filter that admitted every

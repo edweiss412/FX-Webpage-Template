@@ -1,0 +1,6 @@
+`tsconfig.build.json:17` / `sheetIconLinkContainment.test.ts:1801`: 🔴 `exclude` replaces the base list, re-admitting `.next-dev`, `.next-prod`, `.next-prod-flip`, `.next-build-artifact-gate-test`, and `.next-screenshots-help`. The required dev-gate builds share a worktree; a later flag-unset build can type-check an earlier artifact after gated source files are renamed. Probe: base config rejected a virtual `.next-dev/types/validator.ts`; build config included it and produced `TS2307 Cannot find module '../../app/admin/dev/page.js'`. The guard only asserts `.toContain("tests")`, so this is unsignaled. Preserve the base exclusions and pin that effective contract.
+
+Other probes: both TypeScript configs exited 0; effective compiler options and current non-test file sets matched; AC-5 was clean; flight marker absent; measurement arithmetic and Fisher value (`5.89448865e-5`) were consistent. GitHub API was unreachable, so remote PR-body and Actions state were not independently verified.
+
+FINDINGS: 1
+VERDICT: BLOCKING
