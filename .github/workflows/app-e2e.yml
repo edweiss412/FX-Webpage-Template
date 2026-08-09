@@ -33,15 +33,24 @@ on:
   pull_request:
   workflow_dispatch:
 
+# Concurrency, satisfying two guards at once — the comments sit ABOVE the block because
+# tests/cross-cutting/ci-workflow-speedup.test.ts matches `group:` on the line immediately
+# following `concurrency:`.
+#
+# GROUP is shape 1 of the two collision-safe shapes
+# tests/ci/_metaEnvBoundExclusionCoverage.test.ts allows. The plan drafted
+# `app-e2e-${{ github.workflow }}-${{ github.ref }}`; that guard refuses literal splicing AROUND
+# ${{ github.workflow }} (its R6-B F2 case: splicing synthesized another workflow's exact
+# registry group from individually-tame pieces), and the prefix buys nothing — github.workflow
+# already resolves to this workflow's unique display name. ${{ github.ref }} keeps distinct PRs
+# from cancelling each other.
+#
+# CANCEL is gated to pull_request: a re-pushed PR cancels its stale run, but a post-merge
+# `push: main` or scheduled run is never cancelled — every main commit gets a full verification
+# run, and a superseded main run does not report as a spurious "cancelled" failure.
 concurrency:
-  # Shape 1 of the two collision-safe shapes tests/ci/_metaEnvBoundExclusionCoverage.test.ts
-  # allows. The plan drafted `app-e2e-${{ github.workflow }}-${{ github.ref }}`; that guard
-  # refuses literal splicing AROUND ${{ github.workflow }} (its R6-B F2 case: splicing
-  # synthesized another workflow's exact registry group from individually-tame pieces), and
-  # the prefix buys nothing here — github.workflow already resolves to this workflow's unique
-  # display name.
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   app-e2e:

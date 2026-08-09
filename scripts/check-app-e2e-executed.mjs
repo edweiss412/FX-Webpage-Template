@@ -64,11 +64,20 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
   const report = JSON.parse(readFileSync(reportPath, "utf8"));
 
   /**
-   * file basename -> set of UNIQUE spec ids that passed ON THEIR FIRST ATTEMPT.
+   * file basename -> set of UNIQUE (case x project) identities that passed ON THEIR FIRST ATTEMPT.
    *
-   * Identities, not result rows: a config-level `grep` selecting half the cases plus
-   * `repeatEach: 2` would preserve every count while half the unique coverage never runs.
-   * Counting `spec.id` makes a repeat a repeat rather than a second test.
+   * The identity is `file:line:title|projectId`, NOT `spec.id`. Whole-diff review round 1
+   * (finding 3) probed the id-based form this script first shipped with and it does not hold:
+   * repeating seven mobile-safari cases produced FOURTEEN distinct ids while only SEVEN logical
+   * cases ran, so `--grep` selecting half the cases plus `--repeat-each=2` kept the count at its
+   * floor with half the coverage dark. Deduplicating on the logical identity makes a repeat count
+   * once, which is what the id-based comment wrongly claimed. Counting per PROJECT is deliberate:
+   * the floors are cases x resolving projects, so losing a whole project must drop the count
+   * rather than be absorbed by the other one.
+   *
+   * Two independent guards, neither subsuming the other: this one observes the RUN, and
+   * tests/cross-cutting/app-e2e-ci-wiring.test.ts pins these floors against live Playwright
+   * resolution and refuses a narrowing flag on the workflow's command in the first place.
    *
    * FIRST ATTEMPT is the deliberate strengthening over the crew sibling, which accepts
    * `results.some(r => r.status === "passed")`. The workflow pins `--retries=0`, so no retry
@@ -92,7 +101,9 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
           const passedFirstAttempt = results.length === 1 && results[0].status === "passed";
           if (!passedFirstAttempt) continue;
           if (!executed.has(base)) executed.set(base, new Set());
-          executed.get(base).add(spec.id ?? `${spec.file}:${spec.line}:${spec.title}`);
+          executed
+            .get(base)
+            .add(`${spec.file}:${spec.line}:${spec.title}|${test.projectId ?? "?"}`);
         }
       }
       walk(suite.suites);

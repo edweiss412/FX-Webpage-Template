@@ -32,7 +32,7 @@ import { execFileSync } from "node:child_process";
 import { parse as parseYaml } from "yaml";
 import ts from "typescript";
 
-import { stripCommentsSafely } from "../_shared/stripComments";
+import { stripCommentsSafely, stripYamlComments } from "../_shared/stripComments";
 import { activatedRunScalars } from "../_shared/workflowActivation";
 import { readFileSync } from "node:fs";
 
@@ -45,38 +45,6 @@ const SPEC = "tests/e2e/picker-flow.spec.ts";
 const readRaw = (wf: string): string =>
   readFileSync(join(process.cwd(), ".github/workflows", wf), "utf8");
 
-/**
- * Strip YAML comments — WHOLE-LINE and TRAILING.
- *
- * Review found all three assertions passing against commented-out wiring, twice.
- * Removing only full-line comments still accepted
- * `run: echo ok # playwright test …picker-flow.spec.ts`,
- * `FOO: bar # PICKER_COOKIE_SIGNING_KEY: "<64hex>"` and
- * `- "other" # - "app/auth/**"`. A guard that greens on disabled wiring is worse
- * than no guard, so the trailing form is stripped too — quote-aware, since a `#`
- * inside a quoted scalar is data, not a comment.
- */
-function stripYamlComments(yaml: string): string {
-  return yaml
-    .split("\n")
-    .map((line) => {
-      let quote: string | null = null;
-      for (let i = 0; i < line.length; i += 1) {
-        const ch = line[i]!;
-        if (quote !== null) {
-          if (ch === quote) quote = null;
-          continue;
-        }
-        if (ch === '"' || ch === "'") {
-          quote = ch;
-          continue;
-        }
-        if (ch === "#" && (i === 0 || /\s/.test(line[i - 1]!))) return line.slice(0, i);
-      }
-      return line;
-    })
-    .join("\n");
-}
 
 const read = (wf: string): string => stripYamlComments(readRaw(wf));
 
