@@ -63,7 +63,7 @@ Code comments naming the gap (swept `grep -rn "promotion-race\|promotion race\|B
 
 ### Task 1: Guard inside `activatePending` + discriminated result + typed error
 
-<!-- task: red=`pnpm vitest run tests/db/watchLifecycle.db.test.ts -t "activation guard"` ac=AC-1 -->
+<!-- task: red=`pnpm vitest run tests/db/watchLifecycle.db.test.ts tests/drive/watch.test.ts -t "activation guard"` ac=AC-1 -->
 
 **Files:**
 - Modify: `lib/drive/watch.ts` (type `WatchTx` at symbol `WatchTx`; class method `PostgresWatchTx.activatePending` at symbol `activatePending`; new module-level error class near `DriveWatchInfraError`)
@@ -79,7 +79,7 @@ Code comments naming the gap (swept `grep -rn "promotion-race\|promotion race\|B
   - `watched_folder_id` NULL → activates
   - value === activated folder → activates
   - value !== activated folder → `{ promoted: 0, abortedFolderMismatch: true, configuredFolderId: "<other>" }` AND the pending row is STILL `pending` (assert via direct select — anti-tautology: the DB row, not the return value)
-- [ ] **Step 2: Run to verify RED.** `pnpm vitest run tests/db/watchLifecycle.db.test.ts -t "activation guard"`. Expected: type error / failures — `activatePending` returns `Promise<number>` today (`lib/drive/watch.ts:253`), so the result-shape assertions cannot pass. RED validity: the production line whose absence fails this is the guard select + result change in `PostgresWatchTx.activatePending`.
+- [ ] **Step 2: Run to verify RED.** `pnpm vitest run tests/db/watchLifecycle.db.test.ts tests/drive/watch.test.ts -t "activation guard"` — both files, so the four fake rows AND the real-adapter rows execute RED before implementation (plan review R6 finding 1; name every step-1 case so it contains `activation guard` and the filter matches all of them). Expected: type error / failures — `activatePending` returns `Promise<number>` today (`lib/drive/watch.ts:253`) and the fake still returns scalars (`tests/drive/watch.test.ts:63`), so the result-shape assertions cannot pass in either file. RED validity: the production line whose absence fails this is the guard select + result change in `PostgresWatchTx.activatePending`.
 - [ ] **Step 3: Implement.** In `lib/drive/watch.ts`:
 
 ```ts
