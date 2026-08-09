@@ -1025,6 +1025,34 @@ describe("the git adapter, against a constructed checkout (guard-premise Task 8)
     expect(hunks).toEqual([{ file: "BACKLOG.md", start: 2, count: 1 }]);
   });
 
+  it("parses a multi-line hunk's explicit count, not a collapsed 1", () => {
+    // Kills `hm[2] === undefined ? …` -> `hm[3] === undefined ? …` (group 3
+    // never exists, so every counted hunk collapses to 1) and `Number(hm[2])`
+    // -> `Number(hm[3])` (NaN, so the hunk overlaps no span). Only a hunk whose
+    // count group is PRESENT separates group 2 from the always-undefined group
+    // 3 — the single-line case above cannot, because there the group is absent
+    // on clean and mutant alike. Until this case existed the pair died only
+    // when the suite ran somewhere a multi-line hunk happened to arise, which
+    // is what let it survive CI's zero-ref checkout while dying on a full
+    // clone; a constructed repo makes the kill environment-independent.
+    const repo = throwawayRepo();
+    writeFileSync(join(repo.dir, "BACKLOG.md"), "a\nb\nc\nd\ne\n");
+    repo.g("add", "BACKLOG.md");
+    repo.g("commit", "--quiet", "-m", "one");
+    const base = repo.g("rev-parse", "HEAD").trim();
+    writeFileSync(join(repo.dir, "BACKLOG.md"), "a\nB\nC\nD\ne\n");
+    repo.g("commit", "--quiet", "-a", "-m", "two");
+    const tip = repo.g("rev-parse", "HEAD").trim();
+
+    const hunks = atRepo(repo.dir, (git) => git.diffHunks(base, tip, ["BACKLOG.md"]));
+
+    premiseHolds(
+      "the diff really is one counted three-line hunk",
+      repo.g("diff", "--unified=0", base, tip, "--", "BACKLOG.md").includes("@@ -2,3 +2,3 @@"),
+    );
+    expect(hunks).toEqual([{ file: "BACKLOG.md", start: 2, count: 3 }]);
+  });
+
   it("refuses a tip date it cannot use, at the epoch and one second past it", () => {
     // Kills `!Number.isFinite(n) || n <= 0` -> `&&`, `n <= 0` -> `n < 0`, and
     // `n <= 0` -> `n <= 1`. Returning 0 would date every branch to 1970 and
