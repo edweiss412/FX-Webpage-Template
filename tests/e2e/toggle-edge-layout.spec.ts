@@ -35,7 +35,7 @@ const TOL = 0.5;
 const SETTINGS_TRACK_ON =
   "relative inline-flex h-7 w-12 shrink-0 items-center rounded-full border transition-colors duration-fast border-accent-edge bg-accent";
 const SETTINGS_THUMB_ON =
-  "inline-block h-5 w-5 rounded-full bg-bg shadow-(--shadow-tile) transition-transform duration-fast translate-x-6";
+  "inline-block h-5 w-5 rounded-full bg-bg shadow-tile transition-transform duration-fast translate-x-6";
 const AUTOREFRESH_TRACK = (on: boolean) =>
   `relative inline-flex h-5 w-[34px] items-center rounded-full border transition-colors ${on ? "border-accent-edge bg-accent" : "border-border-strong bg-surface-sunken"}`;
 const AUTOREFRESH_THUMB = (on: boolean) =>

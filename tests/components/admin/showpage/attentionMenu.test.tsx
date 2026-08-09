@@ -176,7 +176,7 @@ describe("AttentionMenu", () => {
     // `shadow-lg` is a fixed rgba with no dark-mode runtime, so the panel kept a
     // light-theme shadow in dark. `--shadow-popover` carries both runtimes
     // (app/globals.css) and is the canonical utility for popover surfaces.
-    expect(panel.className).toContain("shadow-(--shadow-popover)");
+    expect(panel.className).toContain("shadow-popover");
     expect(panel.className).not.toContain("shadow-lg");
   });
 
