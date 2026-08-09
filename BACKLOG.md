@@ -411,18 +411,6 @@ screen-disposition 2026-08-04: KEEP — PROBED, and the mislabeling is determini
 
 The cron sync path also synthesizes workbooks (`lib/sync/runScheduledCronSync.ts:3118,3144`). A throw at either site escapes `prepareProcessOneFile` and is caught by the outer per-file loop (`:3915-3925`), which records `outcome: "parse_error"` with `classifySyncFailure(error)` — typically `SYNC_FILE_FAILED`. So it is already parse-family rather than Drive-family (unlike the onboarding paths this batch fixed), and the open question is narrower: should a corrupt workbook there report `PARSE_ERROR_LAST_GOOD`, whose copy tells Doug the latest edit did not parse and the previous version is still live? **Fix (when prioritized):** key on the `WorkbookSynthesisError` type this batch introduced. Deferred because it changes a live crew-visible sync contract and belongs in its own spec.
 
-### BL-MUTATION-REF-SUB — an exported `#REF!` is absorbed into the parse with no signal
-
-**Status:** IN PROGRESS (2026-08-06, L-wave decomposition of `BL-MUTATION-HARNESS-OPEN-HOLES`; wave spec+plan ratified 2026-08-08 — see docs/superpowers/specs/parser/2026-08-07-parser-mutation-wave-design.md) · **Severity:** medium · **Class:** PARSER ROBUSTNESS · **Effort:** M · **Branch:** feat/mutation-ref-sub
-
-A body cell rewritten to the literal `#REF!` — a real broken-reference export artifact, **present in 3 of the 7 live shows** — parses as an ordinary value. Value-corruption class: the operator sees a crew page with `#REF!` where a name or time belongs, and nothing upstream said so.
-
-**Ledgered blast radius: 3314 holes** (3094 `wrong` / 220 `signal_loss`), the LARGEST class in the harness — derived 2026-08-06 from `RAW_HOLES` in `tests/parser/mutation/knownHoles.ts`. Linkage: `OPERATOR_FINDING_MAP["ref-sub"] = "BL-MUTATION-REF-SUB"` (`tests/parser/mutation/knownHoles.ts:82`), pinned by `tests/parser/mutation/knownHoles.test.ts` — this id must stay resolvable while that row exists.
-
-**Shape (M):** one corpus-calibrated detection heuristic (`#REF!` is an unambiguous literal, so the discriminator is cheap — the calibration is deciding WHICH fields warn vs hard-fail) plus one new warn-severity `ParseWarning` code carrying the §12.4 lockstep triple (master-spec §12.4 prose + `pnpm gen:spec-codes` + `lib/messages/catalog.ts`, same commit) and a warning-card copy row.
-
-**Ratchet contract:** the ledger is SHRINK-ONLY. Hardening this class turns its holes into `staleRows` and the nightly harness FAILS until they are removed from `knownHoles.ts`, so the fix is measurable as a ledger reduction. Never grow the ledger silently; a NEW hole fails as `newAlarms`. Decomposition record: `BACKLOG-archive.md` § `BL-MUTATION-HARNESS-OPEN-HOLES`.
-
 ### BL-MUTATION-MERGED-CELL — a merged cell exports as a deleted pipe and silently fuses two cells
 
 **Status:** OPEN (2026-08-06, L-wave decomposition of `BL-MUTATION-HARNESS-OPEN-HOLES`; wave spec+plan ratified 2026-08-08 — see docs/superpowers/specs/parser/2026-08-07-parser-mutation-wave-design.md) · **Severity:** medium · **Class:** PARSER ROBUSTNESS · **Effort:** M
