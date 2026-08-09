@@ -271,7 +271,7 @@ Doug-facing copy tone follows the `STAGE_WORD_AUTOCORRECTED` template (`lib/mess
 - **Clean-corpus calibration test (NEW, added by the first detector branch, extended by each subsequent one):** parses all 17 unmutated fixtures and asserts each new code's expected clean-corpus behavior — `ROW_CELLS_FUSED`: zero warnings; `LEADING_COLUMN_AUTOCORRECTED`: zero warnings; `REF_ERROR_LITERAL`: EXACTLY the 24 known artifact occurrences (probe §13.A), pinned per fixture — real hits asserted as expected, not suppressed. `negativeControls.test.ts` (the oracle/operator reachability suite) stays green and untouched, including its R16 signal-order fingerprint pin (§7.3).
 - **Coverage floors:** `classify.ts` per-domain floors + `applicabilityAudit.ts` per-operator cross-check remain green.
 - **Structural guards:** §3.4 payload-level ZW-freedom; §6.2 closed-set sweep; §7.2 baseline signal-parity assertion (venue hardening); §8 lockstep gates.
-- **No new e2e surface:** warnings ride the existing card pipeline; the existing card tests cover rendering. No UI diff (resolved scope #8).
+- **No new e2e surface:** warnings ride the existing card pipeline; the existing card tests cover rendering. The only UI diff in the wave is the help-family rows (resolved scope #8 as amended; impeccable dual-gate at branch-4 close).
 
 ## 11. Documented limits (round 0)
 
@@ -288,7 +288,7 @@ Doug-facing copy tone follows the `STAGE_WORD_AUTOCORRECTED` template (`lib/mess
 
 ## 11.1 Dimensional Invariants
 
-None — no UI surface in this wave (resolved scope #8); no component, layout, or dimension changes anywhere in the diff.
+None — the wave's single UI touch (help-family rows, resolved scope #8 as amended) is data rows on an existing page; no component, layout, or dimension changes anywhere in the diff.
 
 ## 11.2 Transition Inventory
 

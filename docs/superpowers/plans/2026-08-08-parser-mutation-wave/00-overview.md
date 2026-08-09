@@ -18,7 +18,7 @@
 - **Ledger green bar (spec §9):** all FOUR classified buckets empty — `newHoles`, `fixedHoles`, `driftedAlarms`, `driftedStale` (`tests/parser/mutationHarness.shard0.test.ts:49-68`). `newHoles` ≠ ∅ is never acceptable. Drift → regenerate the drifted rows' fingerprints in the same branch.
 - **TDD per task; commit per task** (`feat(parser):` / `test(parser):` / `infra:` conventions).
 - **Invariant 11/12 per branch:** worktree off `origin/main` BEFORE first edit; `pnpm install && pnpm worktree:link-env && pnpm preflight`; `pnpm ledger:claims --check <its BL id>`; mark the row `**Status:** IN PROGRESS · **Branch:** <branch>`; commit + push immediately; marker off in the PR's last commit.
-- **No UI surface** anywhere in this wave (spec §1.1.8).
+- **One UI-surface touch only** — the help-family rows in `app/help/errors/_families.ts` (spec §1.1.8 as amended by the retro review); the impeccable dual-gate runs once at branch-4 close, which also swaps the closeout marker line.
 
 ## Branch order and plan files
 
