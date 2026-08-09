@@ -1408,7 +1408,7 @@ export const MESSAGE_CATALOG = {
       "Appears when a row in a section is exactly one cell short of the width its neighboring rows share.",
     title: "Two columns ran together in the sheet",
     longExplanation:
-      "When two cells are merged in the sheet, the export writes that row with one fewer column than the rows around it. The two merged values arrive joined together, and everything to their right lands one column over, so a call time can end up under a role heading. We show the row exactly as the sheet has it rather than guess which value belongs in which column. Unmerge the cells in the sheet and the row will line up again.",
+      "Unmerge the cells in that row and it will line up again. Merging two cells makes the export write that row one column short, so the joined values and everything to their right land one column over, and a call time can end up under a role heading. We show the row exactly as the sheet has it rather than guess which value belongs where.",
     helpHref: "/help/errors#ROW_CELLS_FUSED",
   },
   STAGE_WORD_AUTOCORRECTED: {
