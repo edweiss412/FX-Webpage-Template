@@ -18,6 +18,17 @@
  * twice still warns once. That is the dedup the spec requires, achieved by construction
  * rather than by a post-pass.
  *
+ * `blockRef` CARRIES `kind` BUT NO `index`, deliberately, and against the plan's original
+ * "logical section ordinal" wording. A document-position ordinal is not stable under
+ * unrelated structural edits: the harness's `signalEq` is a full deep-equal over the
+ * signal channel, so injecting a blank row anywhere ABOVE a `#REF!` cell shifts that
+ * warning's index, makes baseline and mutant signals unequal while no signal key gets
+ * stronger, and the oracle scores the mutant SILENT_SIGNAL_LOSS. Measured on the first
+ * full 8-shard run of this branch: 603 such rows, 564 of them `blank-row`, in `newHoles`
+ * — the bucket spec §9 marks HARD and never deferrable. The index was manufacturing
+ * signal churn, not carrying information: `kind` plus `rawSnippet` already identify the
+ * offending cell, and warnings.ts:50 and :114 already omit `index` for the same reason.
+ *
  * Detection only. The value is left exactly as parsed (spec §1.1.4: warn, never
  * hard-fail) — an operator seeing the literal on the page and a warning naming its
  * section is strictly better informed than one seeing a silently blanked field.
@@ -82,7 +93,6 @@ function firstCell(line: string): string {
 export function detectRefErrorLiterals(markdown: string): ParseWarning[] {
   const warnings: ParseWarning[] = [];
   const lines = markdown.split("\n");
-  let sectionIndex = -1;
   let sectionKind: string = GENERIC_SECTION_KIND;
   let prevBlank = true;
 
@@ -97,10 +107,10 @@ export function detectRefErrorLiterals(markdown: string): ParseWarning[] {
       // opener inside a pipe run (retro r5). Without the second condition a section
       // that follows another with no blank line between them inherits its
       // predecessor's kind, and every warning in it is anchored to the wrong place.
-      if (prevBlank || opener !== null) {
-        sectionIndex += 1;
-        sectionKind = opener ?? GENERIC_SECTION_KIND;
-      }
+      //
+      // NO POSITIONAL ORDINAL IS EMITTED, and that is deliberate — see the note on
+      // blockRef below.
+      if (prevBlank || opener !== null) sectionKind = opener ?? GENERIC_SECTION_KIND;
     }
     prevBlank = start === -1;
     if (!isRow || isAlignmentRow(line)) continue;
@@ -124,7 +134,7 @@ export function detectRefErrorLiterals(markdown: string): ParseWarning[] {
         code: "REF_ERROR_LITERAL",
         message:
           'A broken spreadsheet reference ("#REF!") appears in the sheet where a real value belongs.',
-        blockRef: { kind: sectionKind, index: sectionIndex },
+        blockRef: { kind: sectionKind },
         rawSnippet: cellRaw.trim(),
       });
     }
