@@ -25,7 +25,7 @@
  */
 import { Fragment } from "react";
 import Link from "next/link";
-import { Check } from "lucide-react";
+import { Check, ChevronRight } from "lucide-react";
 import type { AppSettingsRow } from "@/lib/onboarding/sessionLifecycle";
 import { startOverServerAction } from "@/lib/onboarding/serverActions";
 import { log } from "@/lib/log";
@@ -635,12 +635,10 @@ export function OperatorErrorBlock() {
         <details className="group text-sm">
           <summary className="inline-flex w-fit min-h-tap-min cursor-pointer list-none items-center font-medium">
             What does this mean?{" "}
-            <span
+            <ChevronRight
               aria-hidden="true"
-              className="ml-1 inline-block transition-transform duration-normal group-open:rotate-90"
-            >
-              ▸
-            </span>
+              className="ml-1 inline-block size-4 shrink-0 transition-transform duration-normal group-open:rotate-90"
+            />
           </summary>
           <p className="mt-2 max-w-prose">{entry.helpfulContext}</p>
         </details>
