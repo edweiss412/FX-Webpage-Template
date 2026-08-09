@@ -102,11 +102,15 @@ guard, proof, or equivalence surface the registry can express (a lib module or s
 defect class is "reports OK while the output moved"), enrol it in
 `tests/mutation/source/registry.ts` and run `pnpm mutation:guards` BEFORE the first dispatch,
 and state the score plus the unaccepted-survivor set in the round-1 brief. Two arcs measured
-enrolling late: hand-discovered mutants at roughly 25 minutes of dispatch each — six of nine
-diff rounds on one arc, fifty false-pass findings across fourteen rounds on the other — against
-roughly 93 seconds per machine run. A surface the registry cannot express (e.g. a Playwright
-spec whose mutants are bespoke component edits) is re-dispositioned honestly with the probe
-that shows it, the quick-wins-2 §2.4 pattern
+the cost of the MISSING enrolment as mutants hand-discovered by reviewers at roughly 25
+minutes of dispatch each: the classname equivalence scripts — registry-expressible lib-shaped
+modules that were never enrolled — drew fifty false-pass findings across fourteen diff rounds,
+and the step3-a11y tap-target suite spent six of nine diff rounds the same way before a later
+probe showed the registry cannot express that Playwright surface at all (its nineteen mutants
+are bespoke component edits). An enrolled surface runs in roughly 93 seconds (the
+convergence-criterion block's own measured first customer). The step3 outcome is the other
+branch of the same rule: a surface the registry cannot express is re-dispositioned honestly
+with the probe that shows it, the quick-wins-2 §2.4 pattern
 (`docs/superpowers/specs/2026-08-09-quick-wins-2-mech.md` §1.1.4), not enrolled symbolically.
 
 **Sources (two arcs):** `docs/review-rounds/fix/step3-a11y-cluster/61281c23e8ce.md` (diff §
@@ -122,7 +126,7 @@ fourteen rounds; the un-filed enrolment nomination this row now records).
 (`docs/agents/spec-self-review.md:14`). **Action:** extend the bullet.
 
 **Substance:** Where a count exists in BOTH an executable declaration and prose, the executable
-one (a named exported constant — the `EXPECTED_SITE_TOTAL` pattern,
+one (a single named declaration — the `EXPECTED_SITE_TOTAL` pattern, a module-local `const` at
 `scripts/verify-cn-operand-parity.mjs:80`) is the single source. Prose either references the
 constant by name or carries a dated "at authoring time" qualifier; a present-tense prose
 cardinality that repeats the literal is a defect even while the values are equal, because the
@@ -133,7 +137,7 @@ contradicted — and the wedge-remeasure arc filed the sibling-list-count and cr
 variants of the same shape against `NUMERIC_NOUN_MISMATCH` (`lib/specLint/numerics.ts:88`).
 Mechanical arm: `BL-SPECLINT-PROSE-COUNT-PARITY`.
 
-**Sources (two arcs, three filings):**
+**Sources (two arcs):**
 `docs/review-rounds/refactor/classname-array-join-cn/b2aca7b02547.md` (diff §, Mechanizable —
 "a re-derived cardinality needs a single source, or a lint that ties prose to it");
 `docs/review-rounds/chore/next-1630-wedge-remeasure/9bec2e11ab11.md` (spec §, Mechanizable 2 —
@@ -179,8 +183,9 @@ quoted disposition templates), diff r4 (stale cardinality over a grown sibling l
 
 Description: extend `lib/specLint/numerics.ts` beyond `NUMERIC_NOUN_MISMATCH`
 (`lib/specLint/numerics.ts:88`) with the three measured shapes: (a) when a doc names a script
-that exports a count constant (the `EXPECTED_SITE_TOTAL` pattern), compare the doc's prose
-cardinalities against the constant's live value; (b) count the sibling list items directly
+that declares a count constant (the `EXPECTED_SITE_TOTAL` pattern — a module-local `const` in
+the live precedent, so the arm reads the declaration textually rather than importing it),
+compare the doc's prose cardinalities against the constant's live value; (b) count the sibling list items directly
 beneath an "N shapes/items" claim and compare; (c) compare quantities repeated across quoted
 disposition templates within one doc. Advisory-first is acceptable; the rule half binds
 immediately via P3. Design and opt-in mechanics belong to the implementing arc.
