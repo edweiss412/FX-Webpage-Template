@@ -103,12 +103,25 @@ function instant(value: string | null): number | null {
 }
 
 /**
- * The ONE comparator every timestamp comparison in the advisory block routes
- * through (spec §3.1). Structural, not per-site: valid ISO-8601 timestamps with
- * non-Z offsets order differently lexically than chronologically, and each
- * comparison site is silently wrong under a lexical test only when an offset is
- * present. Separate ad-hoc `Date.parse` calls per site would satisfy the tests
- * while leaving a later-added site lexical by default.
+ * The two ordering helpers, and the ONLY way this module compares timestamps
+ * (spec §3.1). TWO, not one: `<` and `<=` are both load-bearing - the strict
+ * boundary check and the inclusive time cap - and collapsing them behind a
+ * single helper would need a MODE parameter, which is a discriminating
+ * parameter a mutant can flip, added to save a word.
+ *
+ * What makes this structural rather than per-site is the TYPE, not the count.
+ * Both take `number | null` and `instant` is their only producer, so a
+ * later-added site that forgets to parse is a COMPILE error rather than a
+ * silent lexical compare - and valid ISO-8601 timestamps with non-Z offsets
+ * order differently lexically than chronologically, so a lexical site is wrong
+ * only under offsets, which is exactly the failure that ships unnoticed.
+ * `tests/reviewRounds/advisoryComparatorTopology.test.ts` pins both halves: no
+ * timestamp string is ever an operand of a relational operator here, and no
+ * ordering helper accepts anything but parsed values.
+ *
+ * (This comment used to claim "The ONE comparator", two lines above the second
+ * one. Corrected 2026-08-09 from the whole-diff review; the guard exists so the
+ * claim cannot drift from the code again.)
  *
  * `null` on either side means NOT COMPARABLE, and the caller gets `false` -
  * never "equal", never "earlier".

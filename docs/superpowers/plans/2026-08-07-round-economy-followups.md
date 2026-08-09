@@ -122,15 +122,19 @@ Commit: `fix(infra): boundary advisory excludes the adoption arc's own pre-merge
 
 In `buildReport`:
 
-- **Parse once, compare chronologically at every site — through ONE helper (spec
-  §3.1).** Replace the lexical `.sort()[0]` selection. STRUCTURAL REQUIREMENT, not just
-  behavioral: implement a single parse-and-compare helper and route ALL timestamp
-  comparisons through it — earliest selection, boundary check,
-  `mergedAt <= boundary` classification, `startedAt <= mergedAt` cap, AND the
-  latest-merge max selection. NO direct string comparison of timestamps anywhere in the
-  advisory block (spec §3.1: "a later-added site cannot be lexical by default").
-  Separate ad-hoc `Date.parse` calls at each site satisfy the test cases but violate
-  the spec.
+- **Parse once, compare chronologically at every site — through ONE PARSE function and
+  ordering helpers typed to its output (spec §3.1).** Replace the lexical `.sort()[0]`
+  selection. STRUCTURAL REQUIREMENT, not just behavioral: one parse helper, and every
+  timestamp comparison routed through ordering helpers that accept only parsed values —
+  earliest selection, boundary check, `mergedAt <= boundary` classification,
+  `startedAt <= mergedAt` cap, AND the latest-merge max selection. NO direct string
+  comparison of timestamps anywhere in the advisory block (spec §3.1: "a later-added
+  site cannot be lexical by default"). Separate ad-hoc `Date.parse` calls at each site
+  satisfy the test cases but violate the spec.
+  _(Corrected 2026-08-09: this step said "ONE helper" / "a single parse-and-compare
+  helper", and the shipped code has one parse function plus TWO comparators, `<` and
+  `<=`, both required. See the §3.1 amendment in the spec — the property is now pinned
+  by `tests/reviewRounds/advisoryComparatorTopology.test.ts` instead of asserted.)_
 - **Accept-set placement (spec §3.2).** A `startedAt` is placeable iff (a) it matches
   the §3.2 structural regex VERBATIM (explicit offset, bounded offset range, fractional
   seconds capped at 3 digits), (b) its date/time fields are calendar-valid, (c) its
