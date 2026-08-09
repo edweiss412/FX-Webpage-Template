@@ -77,14 +77,25 @@ function report(name, expect, got, pass) {
 
 // Promotion transaction shape (finalize-cas promoteSettings): settings update
 // first, then the same-tx supersede — same statement order as the real route.
-async function promotionTx(sql, { holdUntil } = {}) {
+// `onAfterUpdate` is a PHASE ACKNOWLEDGEMENT: it fires only after the settings
+// UPDATE statement has returned, i.e. the row lock is provably held (or, in S4,
+// provably being waited on until the statement returns). Schedules await it
+// instead of sleeping and hoping (spec review R1 finding 2).
+async function promotionTx(sql, { holdUntil, onAfterUpdate } = {}) {
   await sql.begin(async (tx) => {
     await tx`update probe_settings set folder = 'B' where id = 'default'`;
+    if (onAfterUpdate) onAfterUpdate();
     await tx`
       update probe_watch_channels set status = 'superseded'
       where status = 'active' and folder is distinct from 'B'`;
     if (holdUntil) await holdUntil;
   });
+}
+
+// Settles to "pending" if `p` has not settled within `ms` — a positive probe
+// that a task is genuinely blocked, replacing tautological sleep-then-measure.
+function settledWithin(p, ms) {
+  return Promise.race([p.then(() => "settled"), new Promise((r) => setTimeout(() => r("pending"), ms))]);
 }
 
 // Subscriber activation, current shape: no settings read, straight activate.
@@ -137,21 +148,21 @@ async function s2() {
   await sub`insert into probe_watch_channels values ('c2', 'A', 'pending')`;
   let release;
   const gate = new Promise((r) => (release = r));
-  const promoDone = promotionTx(promo, { holdUntil: gate }); // settings row now locked, tx open
-  await sleep(300); // let promotion take its row lock
-  const t0 = Date.now();
+  let ackUpdate;
+  const updated = new Promise((r) => (ackUpdate = r));
+  const promoDone = promotionTx(promo, { holdUntil: gate, onAfterUpdate: ackUpdate });
+  await updated; // PROOF the settings UPDATE returned: row lock is held, tx open
   const subDone = activateWithCheck(sub, "c2", "A"); // must block on FOR SHARE
-  await sleep(700); // subscriber should still be blocked
+  const whileHeld = await settledWithin(subDone, 700); // "pending" = genuinely blocked
   release();
   await promoDone;
   const { activated, folderSeen } = await subDone;
-  const blockedMs = Date.now() - t0;
   const stale = await staleActive();
   report(
     "S2 promo-first: FOR SHARE blocks then sees B, aborts",
-    "blocked >=700ms, folderSeen=B, activated=false, 0 stale",
-    `blocked ${blockedMs}ms, folderSeen=${folderSeen}, activated=${activated}, ${stale} stale`,
-    blockedMs >= 700 && folderSeen === "B" && activated === false && stale === 0,
+    "blocked while lock held (pending), folderSeen=B, activated=false, 0 stale",
+    `whileHeld=${whileHeld}, folderSeen=${folderSeen}, activated=${activated}, ${stale} stale`,
+    whileHeld === "pending" && folderSeen === "B" && activated === false && stale === 0,
   );
   await sub.end();
   await promo.end();
@@ -182,24 +193,30 @@ async function s4() {
   let holdRelease;
   const hold = new Promise((r) => (holdRelease = r));
   let folderSeen;
+  let ackShare;
+  const shareHeld = new Promise((r) => (ackShare = r));
   const subDone = sub.begin(async (tx) => {
     const [row] = await tx`select folder from probe_settings where id = 'default' for share`;
     folderSeen = row.folder;
+    ackShare(); // PROOF the share lock is held before promotion starts
     await hold; // promotion's settings UPDATE arrives while we hold the share lock
     await tx`update probe_watch_channels set status = 'active' where id = 'c4' and status = 'pending'`;
   });
-  await sleep(300);
-  const promoDone = promotionTx(promo); // blocks on settings row
-  await sleep(700);
+  await shareHeld;
+  let ackUpdate;
+  const promoUpdated = new Promise((r) => (ackUpdate = r));
+  const promoDone = promotionTx(promo, { onAfterUpdate: ackUpdate }); // must block on settings row
+  const whileHeld = await settledWithin(promoUpdated, 700); // "pending" = promotion genuinely waiting
   holdRelease();
   await subDone;
   await promoDone; // must complete without deadlock
+  await promoUpdated; // phase settles once unblocked
   const stale = await staleActive();
   report(
     "S4 overlap: promotion waits (no deadlock), supersedes after",
-    "folderSeen=A, 0 stale, both txs complete",
-    `folderSeen=${folderSeen}, ${stale} stale`,
-    folderSeen === "A" && stale === 0,
+    "share held first, promotion blocked (pending), folderSeen=A, 0 stale, both txs complete",
+    `promoWhileHeld=${whileHeld}, folderSeen=${folderSeen}, ${stale} stale`,
+    whileHeld === "pending" && folderSeen === "A" && stale === 0,
   );
   await sub.end();
   await promo.end();

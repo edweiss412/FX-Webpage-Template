@@ -76,13 +76,35 @@ It proceeds in every other case:
 - `abortedFolderMismatch: true` → throw a NEW typed error `WatchFolderChangedDuringActivationError` (module-level class in `lib/drive/watch.ts`), carrying `configuredFolderId`.
 - `promoted === 0` (row vanished) → existing `DriveWatchInfraError("drive_watch_channels.activate_pending", ...)` path, unchanged.
 
+`subscribeToWatchedFolder` catches `WatchFolderChangedDuringActivationError` in a DEDICATED branch BEFORE the generic activation-failure catch — it never reaches `classifyWatchError` (whose unknown-error fallback is `"drive_api"`, `lib/drive/watchErrors.ts:180`, which would be a false Drive error class — spec review R1 finding 1). The branch:
+
+1. Runs `markWatchOrphanedWithTx` with the Drive `resourceId` (the Drive channel WAS created; GC must be able to stop it) and orphan-payload reason `"folder_changed_during_activation"`.
+2. Records NO attempt (`recordAttemptSafe` is NOT called even when `deps.recordAttempt` is set): a folder change is not a folder failure, and writing one would both pollute the OLD folder's durable backoff state (`lib/drive/watch.ts:1015`) and be semantically wrong.
+3. Emits the `log.warn` with code `DRIVE_WATCH_ACTIVATION_FOLDER_CHANGED` (§3.2) — the single emit site, so callers need no emit of their own.
+4. Returns a NEW `SubscribeResult` union member: `{ outcome: "folder_changed"; channelId: string; configuredFolderId: string | null }`. It deliberately carries no `errorClass`, no `errorMessage`, and no `attempt` field — it is not an error result, and a distinct outcome forces every consumer through an explicit compile-time branch (accessing `.attempt` or `.reason` requires narrowing past it), which is what makes the consumer enumeration in §3.2 machine-checked rather than remembered.
+
 `subscribeToWatchedFolder`'s existing catch around activation (the `activate_failed_after_watch_created` arm, `lib/drive/watch.ts`, symbol `subscribeToWatchedFolder`) handles the new error class the same way mechanically — attempt record, `markWatchOrphanedWithTx` (Drive DID create the channel, so the `resourceId` is passed and GC can stop it), log — but with reason `"folder_changed_during_activation"` in the orphan payload instead of `"activate_failed_after_watch_created"`, and log severity `warn` not `error`: this outcome is the guard WORKING, not a fault.
 
-### 3.2 Reason string, alerting, and instrumentation
+### 3.2 Every consumer of the new outcome, enumerated (spec review R1 finding 1)
 
-- `"folder_changed_during_activation"` is a payload/reason string, not a §12.4 error-code row — same category as the existing `"watch_create_failed"` / `"activate_failed_after_watch_created"` strings (`lib/drive/watch.ts:910`, `lib/drive/watch.ts:1028`). No §12.4 / catalog / gen:spec-codes change.
-- Reason-string consumers to update (enumerated; the class-sweep for this change): `refreshWatchSubscriptions`'s failure classification (`lib/drive/watch.ts:1230`) and `reconcileWatchChannels`'s (`lib/drive/watch.ts:1632`). A folder-mismatch abort is NOT counted as a renewal failure (it is not retryable against that folder and resolves itself — the next cycle reads the new folder). It must not feed `watchEscalation` failure streaks.
-- Invariant 10: no new mutation surface — activation already lives under the instrumented cron route / server action / finalize-cas callers. The abort emits a `log.warn` WITH a durable `code:` field (new non-§12.4 log code `DRIVE_WATCH_ACTIVATION_FOLDER_CHANGED`, same class as `DRIVE_WATCH_RENEWAL_SKIPPED_STALE_FOLDER` at `lib/drive/watch.ts:1184`), so the occurrence is observable.
+The `"folder_changed"` outcome is a deliberate cancel, not a failure. Every site that consumes a `SubscribeResult` (or its downstream state), and what it does with the new outcome:
+
+| consumer | site | disposition |
+| --- | --- | --- |
+| attempt/backoff record | `recordAttemptSafe` call in the activation catch (`lib/drive/watch.ts:1015`) | NOT called for `folder_changed` (dedicated branch precedes it, §3.1); no durable backoff write against the old folder |
+| `classifyWatchError` | `lib/drive/watchErrors.ts:180` | never reached for `folder_changed` (dedicated branch precedes the generic catch); no false `"drive_api"` class |
+| renewal loop failure accounting | `refreshWatchSubscriptions`, `DRIVE_WATCH_RENEWAL_FAILED` warn + `failures[]`/`orphaned[]` push (`lib/drive/watch.ts:1226-1232`) | explicit `outcome === "folder_changed"` branch BEFORE the orphan-reason handling: no `DRIVE_WATCH_RENEWAL_FAILED` emit, no `failures[]` push, no `orphaned[]` push (the §3.1 warn code is the record); loop continues |
+| reconcile state-write observer | `reconcileWatchChannels`, `result.attempt === null` → `faults.push("state_write")` (`lib/drive/watch.ts:1610`) | explicit `outcome === "folder_changed"` branch BEFORE the `attempt` check: not a state-write fault (the branch never records an attempt by design); reconcile outcome for the cycle maps to a NON-escalating value |
+| escalation | `maybeEscalateWatchOrphaned`, keyed on reconcile outcome `still_orphaned` / `renewal_failing` / `backoff_waiting` (`lib/drive/watch.ts:1650-1660`) | `folder_changed` maps to none of the escalating outcomes; the next reconcile cycle reads the NEW folder and proceeds normally |
+| admin retry action | `retryWatchSubscriptionFormAction` (`app/admin/actions.ts:333`), branches on `outcome === "active"` | `folder_changed` is not `"active"`: no `WATCH_SUBSCRIPTION_RETRIED` success emit, no alert resolve — correct, since the retried folder is no longer configured; the admin's next retry reads the new folder |
+| finalize-cas post-commit subscribe | `handleOnboardingFinalizeCas` (`app/api/admin/onboarding/finalize-cas/route.ts:1190` and `app/api/admin/onboarding/finalize-cas/route.ts:1290`), awaits and discards the result | unchanged; a `folder_changed` here means ANOTHER switch landed between this one's commit and its subscribe — the §3.1 warn is the record, and the newer promotion's own subscribe covers the newer folder |
+| `WATCH_CHANNEL_ORPHANED` admin alert | raised by the orphan machinery `markWatchOrphanedWithTx` reaches | still raised (the Drive channel really is orphaned and GC must stop it); auto-resolves on the next successful subscribe for the new folder — same lifecycle as every orphan alert |
+| test fakes | `tests/drive/watch.test.ts`, `tests/drive/watchExpiration.test.ts`, `tests/db/watchLifecycle.db.test.ts` (the three files containing `activatePending`, enumerated at plan time) | fakes gain the new `activatePending` result shape + settings read; type error until updated (deliberate) |
+
+Notes:
+
+- `"folder_changed_during_activation"` (the orphan-payload reason string) is not a §12.4 error-code row — same category as `"watch_create_failed"` / `"activate_failed_after_watch_created"` (`lib/drive/watch.ts:910`, `lib/drive/watch.ts:1028`). No §12.4 / catalog / gen:spec-codes change.
+- Invariant 10: no new mutation surface — activation already lives under the instrumented cron route / server action / finalize-cas callers. The abort's `log.warn` carries the durable code `DRIVE_WATCH_ACTIVATION_FOLDER_CHANGED` (same non-§12.4 class as `DRIVE_WATCH_RENEWAL_SKIPPED_STALE_FOLDER`, `lib/drive/watch.ts:1184`).
 - Secrets: the emit carries folder ids and channel id only — never `webhookSecret` (existing redaction discipline, `redactWatchError`).
 
 ### 3.3 Why `for share`, not `for update`
@@ -102,6 +124,23 @@ One direction of acquisition = no cycle. Probe S4 exercises the overlap empirica
 
 No advisory lock is added or moved; the per-show `show:` and `finalize:` hashkeys are untouched. The advisory-lock single-holder analysis is therefore vacuous for this change; recorded here so review does not re-derive it.
 
+### 3.6 DB completeness matrix (tier × layer; spec review R1 finding 3)
+
+| surface | layer | action |
+| --- | --- | --- |
+| `app_settings` | DDL / CHECKs | N/A — no schema change; the guard is a query-level `for share` read |
+| `app_settings` | read paths | NEW in-tx `for share` read inside `activatePending` (§3.1); existing PostgREST read in `getActiveWatchedFolder` unchanged |
+| `app_settings` | write paths | unchanged — `promoteSettings` remains the only writer on this surface (out-of-band writers: §6 threat fence) |
+| `drive_watch_channels` | DDL / CHECKs | N/A — no schema change |
+| `drive_watch_channels` | write paths | statement set unchanged (supersede-others + promote); only newly preceded by the guard read in the same tx |
+| attempt/backoff state (`recordAttemptSafe` target table) | write paths | deliberately NOT written on `folder_changed` (§3.2 row 1) |
+| admin alerts | write paths | `WATCH_CHANNEL_ORPHANED` unchanged (§3.2); no new alert code |
+| log emits | write paths | one new durable warn code `DRIVE_WATCH_ACTIVATION_FOLDER_CHANGED`, emitted inside `subscribeToWatchedFolder` only |
+| RPC / PostgREST surface | all | N/A — no RPC touched; the acting path uses the direct postgres.js connection (`withDefaultTx`) |
+| triggers / cleanup | all | N/A — GC (`gcWatchChannels`) consumes orphan rows exactly as before |
+| frontend | all | N/A — no UI change (retry action's behavior on non-active outcomes is unchanged) |
+| tests | — | §5: interleave test, guard-rule unit rows, consumer-branch rows, fakes update |
+
 ## 4. Documentation + ledger updates (the "full close" half)
 
 | artifact | change |
@@ -116,9 +155,9 @@ No advisory lock is added or moved; the per-show `show:` and `finalize:` hashkey
 
 ## 5. Tests
 
-1. **Interleave test (the probe, productionized — TDD red first).** Real-DB two-connection test driving the REAL code paths: `promoteSettings`'s statement shape vs `subscribeToWatchedFolder` with an injected `watchFolder` stub and a gate between Drive-call return and activation. Asserts S1 (red on current code: stale row exists), then green after the guard: S2 (block + abort + orphaned outcome with reason `folder_changed_during_activation`), S3, S4 (no deadlock, bounded by test timeout). Loopback-guarded like every DB test; premise guard per `tests/_shared/premise.ts` (the test FAILS if the fixture folder ids are equal — the discriminating condition must hold, AGENTS.md `BL-GUARD-PREMISE-REACHABILITY`).
+1. **Interleave test (the probe, productionized — TDD red first).** Real-DB two-connection test driving the REAL code paths: `promoteSettings`'s statement shape vs `subscribeToWatchedFolder` with an injected `watchFolder` stub and a gate between Drive-call return and activation. Asserts S1 (red on current code: stale row exists), then green after the guard: S2 (block + abort + `folder_changed` outcome), S3, S4 (no deadlock, bounded by test timeout). **Phase acknowledgements are mandatory, sleeps are not synchronization** (spec review R1 finding 2): the test proves the contended schedule actually occurred — an ack after promotion's settings UPDATE returns (S2), an ack after the guard's `for share` returns plus a positive still-pending check on promotion (S4) — exactly as the repaired probe does. Loopback-guarded like every DB test; premise guard per `tests/_shared/premise.ts` (the test FAILS if the fixture folder ids are equal — the discriminating condition must hold, AGENTS.md `BL-GUARD-PREMISE-REACHABILITY`).
 2. **Guard-rule unit rows** (fake tx): row absent → proceed; NULL → proceed; match → proceed; mismatch → abort result with `configuredFolderId`. Derived from §3.1's table — one assertion per row, values from the fixture, never hardcoded duplicates.
-3. **Reason-classification rows:** a `folder_changed_during_activation` orphan is not counted in `refreshWatchSubscriptions` `failures[]` and not fed to escalation; assert against the injected fake's recorded calls, not log text.
+3. **Consumer-branch rows (one per §3.2 table row with a behavior change):** a `folder_changed` outcome (a) records no attempt (fake tx asserts `recordAttempt` sink never called), (b) produces no `DRIVE_WATCH_RENEWAL_FAILED` emit and no `failures[]`/`orphaned[]` push in `refreshWatchSubscriptions`, (c) produces no `state_write` fault and no escalation call in `reconcileWatchChannels`, (d) produces no `WATCH_SUBSCRIPTION_RETRIED` emit in the retry action. Each asserts against the injected fake's recorded calls, not log text.
 4. **Anti-tautology:** the interleave test's stale-row assertion selects via the SAME predicate the probe used (`status='active' and folder is distinct from settings`) against the DB, not against any in-process return value the guard itself produced.
 5. Existing suites: every fake `WatchTx` gains the new read (enumerated at plan time via `grep -rn "activatePending" tests/`); `tests/auth/advisoryLockRpcDeadlock.test.ts` unaffected (no advisory lock added) — stated so review does not ask.
 
