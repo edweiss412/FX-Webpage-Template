@@ -5968,3 +5968,14 @@ that an equivalence proof converges on a machine-computed mutation score rather 
 **Work:** decide the callee (add a small local `cn`, or take `clsx`), migrate the 33 sites, run `eslint --fix`, delete the census guard and its entry. Lands on a UI branch under the dual gate.
 
 ---
+
+## BL-TASK-ENROLLMENT-SINGLE-DEPTH — the declared task region cannot express hierarchical or interleaved plan shapes — CLOSED 2026-08-09 (`feat/task-enrollment-multi-region`, IMPLEMENTED)
+
+**Status:** CLOSED · **Filed:** 2026-08-03, from `docs/superpowers/specs/2026-08-03-pre-review-gate-arms-design.md` §6 items 6 and 7 · **Class:** spec-lint task contract, enrollment expressiveness · **Effort:** L · **Severity:** LOW (opt-in convention; conservative failure with a surfaced finding, never silent)
+
+**Resolution: IMPLEMENTED.** Sequential multi-region enrollment shipped per
+`docs/superpowers/specs/2026-08-09-task-enrollment-multi-region-design.md` (RATIFIED, adversarial R4 APPROVE):
+a plan may declare any number of sequential regions, each with its own depth. Both filed shapes are now
+expressible — multi-depth plans via per-depth regions, interlopers and range headings via fence placement.
+The deliberate residue (no marked parent tasks, no skip notes) is recorded as documented limits in that
+spec's §7 with re-open triggers; the l-wave PREREQ stamp is discharged by this design session.
