@@ -234,10 +234,20 @@ function recognizeJoins(relPath: string, source: string): JoinSite[] {
         receiver = unwrapValuePreserving(receiver.expression.expression);
       }
       // A bare identifier receiver — `const tokens = ["p-2", drift]; tokens.join(" ")` — is
-      // ordinary authoring and was invisible. Resolved one hop, within the same file.
-      if (ts.isIdentifier(receiver)) {
-        const resolved = soleConstArrayInitializer(sourceFile, receiver.text);
-        if (resolved !== null) receiver = resolved;
+      // ordinary authoring and was invisible. Resolve up to three same-file `const` hops,
+      // re-applying the array-method peel after each, so `const t = [...].filter(Boolean)`
+      // and a two-hop alias both reduce. Bounded on purpose: see RECEIVER REACHABILITY.
+      for (let hop = 0; hop < 3 && ts.isIdentifier(receiver); hop += 1) {
+        const resolved = soleConstInitializer(sourceFile, receiver.text);
+        if (resolved === null) break;
+        receiver = unwrapValuePreserving(resolved);
+        while (
+          ts.isCallExpression(receiver) &&
+          ts.isPropertyAccessExpression(receiver.expression) &&
+          ARRAY_RETURNING_METHODS.has(receiver.expression.name.text)
+        ) {
+          receiver = unwrapValuePreserving(receiver.expression.expression);
+        }
       }
       if (ts.isArrayLiteralExpression(receiver)) {
         const operandSignature = receiver.elements
@@ -259,12 +269,23 @@ function recognizeJoins(relPath: string, source: string): JoinSite[] {
   return found;
 }
 
-/** The sole `const <name> = [ ... ]` array-literal initializer in this file, or null. */
-function soleConstArrayInitializer(
-  sourceFile: ts.SourceFile,
-  name: string,
-): ts.ArrayLiteralExpression | null {
-  let found: ts.ArrayLiteralExpression | null = null;
+/**
+ * RECEIVER REACHABILITY — what this scanner resolves, and the limit it stops at.
+ *
+ * It reduces a join's receiver through: value-preserving wrappers, a chain of
+ * array-returning methods, and up to three same-file sole-`const` hops. That covers the
+ * accidental-authoring shapes — a filtered array in a const, an alias, an alias of an alias.
+ *
+ * It does NOT resolve a factory call, a member array, a conditional array, or
+ * `Array.from(...)`. Those are a DATAFLOW/type question, and a lexical guard cannot close
+ * them: each resolution rule invites one more indirection. **The limit is bounded and
+ * stated rather than silently widened**, and it is strictly stronger than what it replaces —
+ * the deleted census scanner anchored on the literal text `className={[`, so it missed
+ * every one of those shapes too, plus the ones this scanner now catches. `pnpm lint` remains
+ * the primary mechanism for anything routed through `cn(...)`.
+ */
+function soleConstInitializer(sourceFile: ts.SourceFile, name: string): ts.Expression | null {
+  let found: ts.Expression | null = null;
   let seen = 0;
   const visit = (n: ts.Node): void => {
     if (
@@ -274,8 +295,7 @@ function soleConstArrayInitializer(
       n.initializer !== undefined
     ) {
       seen += 1;
-      const init = unwrapValuePreserving(n.initializer);
-      found = ts.isArrayLiteralExpression(init) ? init : null;
+      found = n.initializer;
     }
     ts.forEachChild(n, visit);
   };

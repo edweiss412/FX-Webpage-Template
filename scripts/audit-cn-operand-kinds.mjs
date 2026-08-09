@@ -132,6 +132,14 @@ const IDENTIFIER_TABLE = [
 const SANCTIONED_FALSY_FILE = "components/crew/primitives/DayCard.tsx";
 const SANCTIONED_FALSY_SIGNATURE =
   'tone === "show" ? "bg-accent" : tone === "set" ? "" : "bg-border-strong"';
+/**
+ * ...and the 0-based index of the SITE it lives at, in source order within its file.
+ *
+ * File + signature + count-of-1 stops substitution and duplication but NOT relocation of
+ * that exact signature to another site in the same file. The DayCard render test that
+ * justifies E2 is attached to a specific site, so the sanction has to name that site too.
+ */
+const SANCTIONED_FALSY_SITE_INDEX = 2;
 
 /** Reconciliation targets for the live tree (spec §2.2, §4.1, plan P1 step 3). */
 const EXPECTED = {
@@ -151,6 +159,7 @@ const LIVE_CONFIG = {
   identifierTable: IDENTIFIER_TABLE,
   sanctionedFalsyFile: SANCTIONED_FALSY_FILE,
   sanctionedFalsySignature: SANCTIONED_FALSY_SIGNATURE,
+  sanctionedFalsySiteIndex: SANCTIONED_FALSY_SITE_INDEX,
   expected: EXPECTED,
 };
 
@@ -425,6 +434,7 @@ function runAudit(config) {
         const verdict = classifyOperand({
           operand,
           rel,
+          siteIndex: index,
           sourceFile,
           config,
           stop,
@@ -492,7 +502,7 @@ function runAudit(config) {
   return { stops, tally };
 }
 
-function classifyOperand({ operand, rel, sourceFile, config, stop, where, tally }) {
+function classifyOperand({ operand, rel, siteIndex, sourceFile, config, stop, where, tally }) {
   // Kind 1 — non-empty string literal.
   if (isNonEmptyStringLiteral(operand)) {
     tally.kind1Literal += 1;
@@ -548,7 +558,8 @@ function classifyOperand({ operand, rel, sourceFile, config, stop, where, tally 
       if (
         isFalsyLiteral &&
         rel === config.sanctionedFalsyFile &&
-        signature === config.sanctionedFalsySignature
+        signature === config.sanctionedFalsySignature &&
+        siteIndex === config.sanctionedFalsySiteIndex
       ) {
         tally.sanctionedFalsyBranches += 1;
         continue;
@@ -683,6 +694,7 @@ const SELF_TEST_BASE = {
   sanctionedFalsyFile: "components/Widget.tsx",
   sanctionedFalsySignature:
     'tone === "show" ? "bg-accent" : tone === "set" ? "" : "bg-border-strong"',
+  sanctionedFalsySiteIndex: 3,
   expected: {
     totalSites: 6,
     filteredSites: 1,
@@ -991,6 +1003,19 @@ const MUTANTS = [
         'export function Widget({ step, active, tone }) {\n  const trackedButUnused = "";',
       ),
     }),
+  },
+  {
+    id: "P27-sanctioned-branch-relocated-same-signature",
+    why: "the sanctioned conditional SWAPPED with the conditional at another site in the same file (signature and every count unchanged)",
+    expect: "falsy branch at a non-sanctioned site",
+    mutate: (c) => {
+      const sanctioned = 'tone === "show" ? "bg-accent" : tone === "set" ? "" : "bg-border-strong"';
+      const other = 'active ? "bg-on" : "bg-off"';
+      const swapped = CLEAN_WIDGET.replace(sanctioned, "__TMP__")
+        .replace(other, sanctioned)
+        .replace("__TMP__", other);
+      return { ...c, "components/Widget.tsx": swapped };
+    },
   },
   {
     id: "P9-identifier-definition-not-const",

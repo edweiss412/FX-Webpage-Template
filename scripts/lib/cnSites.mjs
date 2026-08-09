@@ -258,10 +258,14 @@ function collapseOutsideLiterals(node, sourceFile) {
     if (
       ts.isStringLiteral(n) ||
       ts.isNoSubstitutionTemplateLiteral(n) ||
+      ts.isRegularExpressionLiteral(n) ||
       ts.isTemplateHead(n) ||
       ts.isTemplateMiddle(n) ||
       ts.isTemplateTail(n)
     ) {
+      // Regex literals too: whitespace inside `/  /` is SEMANTIC, and collapsing it made
+      // `/  /.test(v) ? a : b` and `/ /.test(v) ? a : b` compare equal while selecting
+      // different branches.
       protectedRanges.push([n.getStart(sourceFile) - start, n.getEnd() - start]);
     }
     ts.forEachChild(n, collect);

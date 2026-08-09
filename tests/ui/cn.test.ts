@@ -69,6 +69,12 @@ describe("cn — spec §3.2", () => {
       expect(cn("p-2", "p-4")).toBe("p-2 p-4");
     });
 
+    it("does not trim leading whitespace off a non-first operand", () => {
+      // A `trimStart()` applied to retained operands after the first passes every other row,
+      // because no other expected output has interior leading whitespace.
+      expect(cn("a", " b")).toBe("a  b");
+    });
+
     it("does not trim a trailing space off its output", () => {
       // Distinct from the leading/interior case below: a `trimEnd()` mutant survives every
       // other row in this file, because no other expected output ENDS in whitespace.
