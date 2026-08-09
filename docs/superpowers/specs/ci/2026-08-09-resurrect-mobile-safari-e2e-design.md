@@ -194,17 +194,24 @@ not, and the recipe is part of the test. Tests:
    AND `localStorage["fxav-theme"]` holds the new value → `page.reload()` → the theme survives.
    Then dark→light: tap again, reload again, assert the persisted `"light"` value and restored
    attribute — the reverse branch is part of the contract, not a symmetry assumption.
-2. **The no-FOUC oracle proves HEAD-PARSE application — before any paintable content exists**
-   (spec review R1 F4 + R3 F2: a `DOMContentLoaded` handler passes an after-the-event check, and
-   an end-of-`<body>` script still executes with `readyState === "loading"`, so neither
-   observation point proves first-paint safety). Oracle: `page.addInitScript` installs a
-   `MutationObserver` on `document.documentElement` attributes recording
-   `{ value, readyState, bodyPresent: !!document.body }` per `data-theme` mutation (plus the
-   attribute's initial state when the script runs). After reload, assert the attribute reached
-   its persisted value with `bodyPresent === false` — the mutation happened while `<head>` was
-   still parsing (the `NO_FOUC_SCRIPT` inline block in `app/layout.tsx` sits in the head), before
-   any body content existed to paint. A DOMContentLoaded-handler mutant fails on both fields; an
-   end-of-body-script mutant fails on `bodyPresent`.
+2. **The no-FOUC oracle proves FIRST-BODY-CHILD application — before any paintable sibling
+   exists** (spec review R1 F4 + R3 F2 + R5 F1: a `DOMContentLoaded` handler passes an
+   after-the-event check; an end-of-`<body>` script still executes with
+   `readyState === "loading"`; and a `bodyPresent === false` requirement is unsatisfiable
+   because the live `NO_FOUC_SCRIPT` is the FIRST CHILD OF `<body>` — `app/layout.tsx` renders
+   `html > body > script dangerouslySetInnerHTML NO_FOUC_SCRIPT` before `GlobalErrorListener`
+   and `children` — so `document.body` necessarily exists when it runs). Oracle:
+   `page.addInitScript` installs a `MutationObserver` on `document.documentElement` attributes
+   recording `{ value, readyState, bodyChildCount: document.body ? document.body.childElementCount : 0 }`
+   per `data-theme` mutation (plus the attribute's initial state when the script runs). After
+   reload, assert the attribute reached its persisted value with `readyState === "loading"` AND
+   `bodyChildCount <= 1` — at mutation time the body held at most the executing bootstrap script
+   itself, so no paintable sibling content preceded the theme application. A
+   DOMContentLoaded-handler mutant fails on `readyState`; an end-of-body-script mutant fails on
+   `bodyChildCount` (the page's real content parses as earlier siblings). If the bootstrap ever
+   legitimately moves (e.g. into `<head>`), the recorded fields make the new placement's expected
+   values explicit rather than silently green — the assertion is on the pair, not on placement
+   folklore.
 3. **Accessibility state pinned across the cycle** (spec review R1 F5 — the dead suite carried
    this and nothing else does): in light mode `aria-pressed="false"` + accessible name "Switch to
    dark theme"; in dark mode `aria-pressed="true"` + "Switch to light theme"; after the reload in
