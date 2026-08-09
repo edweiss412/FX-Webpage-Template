@@ -173,12 +173,12 @@ export function checkTaskContract(model: DocModel, kind: "spec" | "plan"): Findi
           `task region selects no depth-${region.depth} heading`,
         ),
       );
-      // NOT an early return, and deliberately not a `continue` past the other
-      // regions either. TASK_ENROLL_EMPTY and per-marker classification are
-      // independent: with zero extents every recorded marker lies outside all
-      // of them and is orphaned. Returning here silently dropped markers
-      // before, inside, and after the region; skipping the remaining regions
-      // would drop their checking entirely.
+      // NOT an early return. TASK_ENROLL_EMPTY and per-marker classification
+      // are independent: with zero extents every recorded marker lies outside
+      // all of them and is orphaned. Returning here silently dropped markers
+      // before, inside, and after the region. (A `continue` would be harmless
+      // rather than wrong: it advances to the next region, and the extent loop
+      // below is already a no-op over an empty `regionTasks`.)
     }
 
     // A task's extent runs to the next heading of ITS region's depth or

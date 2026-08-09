@@ -307,9 +307,21 @@ describe("checkTaskContract: sequential multi-region (2026-08-09 design §2.2-§
   });
 
   it("AC-8: zero well-formed regions still discards; defective marker unjudged", () => {
-    // The marker MUST be form-defective (empty red=): a wrong implementation
-    // that judges markers after failed enrollment adds TASK_RED_EMPTY; a valid
-    // marker produces the same list either way and proves nothing (spec §5).
+    // The FULL-LIST form is what discriminates. An implementation that judges
+    // recorded markers after failed enrollment reports
+    // [TASK_ENROLL_MALFORMED, TASK_MARKER_ORPHANED] — with zero regions there
+    // are no extents, so every recorded marker is orphaned — and the whole-array
+    // equality catches the extra code.
+    //
+    // NOT because the marker is form-defective. An earlier wording here claimed
+    // the empty `red=` was load-bearing and a valid marker would prove nothing;
+    // probed against this implementation both forms behave identically (clean
+    // [TASK_ENROLL_MALFORMED], marker-judging mutant [TASK_ENROLL_MALFORMED,
+    // TASK_MARKER_ORPHANED]), because the orphan path classifies no marker and
+    // resolves no ids (M56). Corrected at whole-diff R1 finding 1. The empty
+    // `red=` marker stays: it is a strictly stronger input, additionally killing
+    // any implementation that classifies a recorded marker WITHOUT the orphan
+    // check, which is the only way TASK_RED_EMPTY could ever appear here.
     expect(
       codes(doc("<!-- tasks: depth=7 -->", "## A", "<!-- task: red=`` ac=AC-1 -->", "AC-1 here.")),
     ).toEqual(["TASK_ENROLL_MALFORMED"]);
