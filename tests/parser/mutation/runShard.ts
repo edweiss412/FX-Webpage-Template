@@ -108,6 +108,16 @@ export async function runShard(shardIndex: number, opts: RunShardOpts = {}): Pro
             kind: "signal_loss",
             fingerprint: fingerprint(baseline, mut),
           });
+        // Text drift is RECORDED, not ignored (spec 2026-08-09 §11.5): an unlisted drift
+        // row must fail the run exactly like an unlisted hole. Omitting it here would
+        // make the softer bucket invisible rather than softer -- every drift site would
+        // simply vanish from the alarm set, and its ledger row would read as FIXED.
+        if (v === "SIGNAL_TEXT_DRIFT")
+          alarms.push({
+            siteId: m.siteId,
+            kind: "text_drift",
+            fingerprint: fingerprint(baseline, mut),
+          });
       }
     }
   }
