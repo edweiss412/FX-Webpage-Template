@@ -31,20 +31,47 @@ async function assertNoRawCodes(page: Page) {
   expect(match, `raw §12.4 catalog code rendered: ${match?.[0]}`).toBeNull();
 }
 
-async function assertNoAdminDevLinks(page: Page) {
+async function assertNoAdminDevLinks(page: Page, extraAllowedPaths: readonly string[] = []) {
   // /admin/dev/telemetry is the deliberate prod-available exception (developer-
   // gated); the dev PANEL + source-link-dim + telemetry-dim stay 404 in prod, so
-  // no Phase-2 surface may link to them. Exclude ONLY the exact telemetry route
-  // + its subpaths — a boundary-safe `[href="…/telemetry"]` + `[href^="…/telemetry/"]`
-  // pair, NOT a substring `[href*="…/telemetry"]` (which would also silently exempt
-  // /admin/dev/telemetry-dim, leaving a stray dev-only harness link uncaught).
-  const count = await page
-    .locator(
-      "a[href*='/admin/dev']:not([href='/admin/dev/telemetry']):not([href^='/admin/dev/telemetry/'])",
-    )
-    .count();
-  expect(count, "found a non-telemetry /admin/dev link in Phase 2 surface").toBe(0);
+  // no Phase-2 surface may link to them.
+  //
+  // The exemption is matched on the href's PATH, parsed by splitting at the
+  // first `?` or `#`, rather than on the raw attribute. The previous
+  // `:not([href='…/telemetry']):not([href^='…/telemetry/'])` CSS pair matched
+  // the raw string, so the moment the shipped link grew a fragment
+  // (`/admin/dev/telemetry#health`, the health-anchor deep link) the
+  // DELIBERATE exception stopped matching and the guard failed on its own
+  // sanctioned link — on every Phase 2 surface at once. Path parsing keeps the
+  // boundary safety the old pair was written for: `/admin/dev/telemetry-dim`
+  // is neither equal to `/admin/dev/telemetry` nor prefixed by
+  // `/admin/dev/telemetry/`, so a stray dev-only harness link is still caught.
+  const hrefs = await page
+    .locator("a[href*='/admin/dev']")
+    .evaluateAll((els) =>
+      els.map((el) => (el as HTMLAnchorElement).getAttribute("href") ?? ""),
+    );
+  const offenders = hrefs.filter((href) => {
+    const path = href.split(/[?#]/)[0];
+    if (path === "/admin/dev/telemetry" || path.startsWith("/admin/dev/telemetry/")) return false;
+    return !extraAllowedPaths.includes(path);
+  });
+  expect(
+    offenders,
+    `found a non-telemetry /admin/dev link in Phase 2 surface: ${JSON.stringify(offenders)}`,
+  ).toEqual([]);
 }
+
+// /admin/settings mounts <DevToolsRow> (app/admin/settings/page.tsx:238), whose
+// links are gated on the BUILD-TIME dev-panel flag plus an isDeveloper check
+// (components/admin/settings/DevToolsRow.tsx:53,63). Production leaves the flag
+// unset, so the row — and therefore both links — does not render there at all;
+// the e2e baseline server sets ADMIN_DEV_PANEL_ENABLED=true (playwright.config.ts
+// webServer command), which is the ONLY reason they are on the page under test.
+// The build gate, not this assertion, is what keeps them out of production, so
+// the two are named exemptions on this surface only — every other Phase 2
+// surface still asserts zero non-telemetry dev links.
+const SETTINGS_DEV_PANEL_LINKS = ["/admin/dev", "/admin/dev/attention-gallery"] as const;
 
 test.describe("admin Phase 2 surfaces (mobile-safari)", () => {
   test.beforeEach(async ({ page }) => {
@@ -84,7 +111,7 @@ test.describe("admin Phase 2 surfaces (mobile-safari)", () => {
     );
 
     await assertNoRawCodes(page);
-    await assertNoAdminDevLinks(page);
+    await assertNoAdminDevLinks(page, SETTINGS_DEV_PANEL_LINKS);
   });
 
   test("/admin first-visit OR post-onboarding renders without raw codes or /admin/dev links", async ({
