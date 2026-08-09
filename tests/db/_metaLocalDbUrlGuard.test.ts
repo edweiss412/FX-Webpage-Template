@@ -413,8 +413,12 @@ describe(
           "readers still outside this scan set) " +
           "+ tests/onboarding/finalizeCasSourceAnchors.db.test.ts (existing-show re-onboard " +
           "source-anchor thread, 2026-08-03; seeds and deletes shows/pending_syncs rows, " +
+          "local-only) " +
+          "+ tests/db/watchActivationRace.db.test.ts (the promotion/activation interleave " +
+          "test, 2026-08-09; runs promoteSettings's GLOBALLY-scoped channel statements and " +
+          "captures/restores drive_watch_channels, app_settings and the orphan alert, " +
           "local-only)",
-      ).toBe(66);
+      ).toBe(67);
     });
 
     test("the one validation-capable suite guards its LOCAL leg WITHOUT constraining TEST_DATABASE_URL", () => {

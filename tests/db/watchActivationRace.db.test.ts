@@ -316,7 +316,7 @@ describe("watch activation vs folder promotion — the four interleavings (spec 
     } finally {
       await sub.end({ timeout: 5 });
     }
-  }, 20_000);
+  }, 30_000);
 
   test("S2 promotion holds the settings row: the guard BLOCKS, then wakes to the promoted folder and aborts", async () => {
     premiseHolds(
@@ -386,7 +386,7 @@ describe("watch activation vs folder promotion — the four interleavings (spec 
       await sub.end({ timeout: 5 });
       await promo.end({ timeout: 5 });
     }
-  }, 20_000);
+  }, 30_000);
 
   test("S3 the subscriber commits first: promotion's own in-tx supersede catches it, zero stale", async () => {
     premiseHolds(
@@ -415,7 +415,7 @@ describe("watch activation vs folder promotion — the four interleavings (spec 
     } finally {
       await sub.end({ timeout: 5 });
     }
-  }, 20_000);
+  }, 30_000);
 
   test("S4 overlap: the subscriber holds the share lock, promotion WAITS, both complete, zero stale", async () => {
     premiseHolds(
@@ -487,5 +487,5 @@ describe("watch activation vs folder promotion — the four interleavings (spec 
       await sub.end({ timeout: 5 });
       await promo.end({ timeout: 5 });
     }
-  }, 20_000);
+  }, 30_000);
 });

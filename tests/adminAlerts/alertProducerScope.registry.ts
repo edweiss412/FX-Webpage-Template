@@ -217,13 +217,28 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
 
   // ── DYNAMIC (one row per resolvable literal; code-completeness is the §3.0 residual risk) ──
   {
-    site: "lib/drive/watch.ts:820",
+    site: "lib/drive/watch.ts:887",
     computedContext: true,
-    contextKeys: ["watched_folder_id", "channel_id", "reason", "error_class", "error_message"],
+    contextKeys: [
+      "watched_folder_id",
+      "channel_id",
+      "requested_channel_id",
+      "resource_id",
+      "expiration",
+      "reason",
+      "error_class",
+      "error_message",
+      "configured_folder_id",
+    ],
     code: "WATCH_CHANNEL_ORPHANED",
     scope: "global",
     dynamic: true,
-    note: "const; tx.upsertAdminAlert passes no showId -> null",
+    note:
+      "const; tx.upsertAdminAlert passes no showId -> null. One helper, three callers, so these " +
+      "keys are the UNION of their payloads: watch_create_failed (no channel/resource detail — " +
+      "Drive never answered), activate_failed_after_watch_created (adds requested_channel_id, " +
+      "resource_id, expiration), and folder_changed_during_activation (same, plus " +
+      "configured_folder_id and no error pair — a deliberate cancel carries no error).",
   },
   {
     site: "lib/crew/sweepTileRenderAlerts.ts:51",
