@@ -25,9 +25,10 @@ A5 rewires DSN resolution for two helpers whose SQL already holds per-show advis
 | Helper | Mutates | Holder layer (sole) |
 | --- | --- | --- |
 | `tests/e2e/helpers/lockedCrewRestriction.ts` (`runLockedCrewUpdate`, :75 region) | `crew_members` | in-SQL `pg_advisory_xact_lock(hashtext('show:' || drive_file_id))` inside the psql transaction the helper composes — the ONE holder for its hashkey on this path |
-| `tests/e2e/helpers/devCaptureStaged.ts` (`runLockedSql`, :206 region) | `pending_syncs` / `pending_ingestions` | same in-SQL blocking form inside its composed transaction — the ONE holder on this path |
+| `tests/e2e/helpers/devCaptureStaged.ts` (`runLockedSql`, :206 region) | `pending_syncs` / `pending_ingestions` | same in-SQL blocking form inside its composed psql transaction — the ONE holder on this path |
+| `tests/e2e/helpers/devCaptureStaged.ts` (`runLockedSqlWithProbe`, :251 region — the postgres-js transaction twin; callers: hooked seed :692, hooked cleanup :708 — plan R3 P1) | `pending_syncs` / `pending_ingestions` | the same per-show advisory lock acquired inside the postgres-js transaction — the ONE holder on this path; a distinct TRANSPORT, not a second holder layer for any single execution path |
 
-A5 changes WHERE the DSN string comes from (call-time shared resolver) and WHAT targets it accepts; it does not add, move, or remove any lock acquisition, introduce a JS-side wrapper, or touch any RPC. The A5 suite runs with the psql spawn stubbed, so no lock is even taken in its tests. `tests/auth/advisoryLockRpcDeadlock.test.ts` is not extended — no topology change to pin; its continued green plus this table is the invariant-2 disposition.
+A5 changes WHERE the DSN string comes from (call-time shared resolver, feeding BOTH transports — the psql spawn AND `runLockedSqlWithProbe`'s postgres-js connection) and WHAT targets it accepts; it does not add, move, or remove any lock acquisition, introduce a JS-side wrapper, or touch any RPC. The A5 suite runs with the psql spawn stubbed and the postgres-js client unconnected, so no lock is taken in its tests. The structural guard `tests/auth/advisoryLockRpcDeadlock.test.ts` does NOT cover these e2e helpers (plan R3 P1) — THIS TABLE is the invariant-2 enumeration of record for them, and it is complete: every lock-acquiring function in both helpers is listed (`runLockedCrewUpdate`, `runLockedSql`, `runLockedSqlWithProbe`), each a sole holder on its own execution path.
 
 ## Pre-verified code facts (probed 2026-08-09, cited in the specs and plan reviews)
 
@@ -127,9 +128,9 @@ UI spec §2.4 + plan R1 F10. Two arms: (a) admin-fixture recipe → STANDALONE t
 
 ## Task B5 — branch B design gate
 
-<!-- task: red=`rg -q '^## Branch B — feat/crew-chrome-footer-avatar' docs/superpowers/plans/2026-08-09-quick-wins-2/closeout.md` ac=AC-U6 -->
+<!-- task: red=`rg -q '^## Branch B — feat/crew-chrome-footer-avatar$' docs/superpowers/plans/2026-08-09-quick-wins-2/closeout.md` ac=AC-U6 -->
 
-Run the invariant-8 dual design gate (both halves, canonical v3 setup) on the branch diff; P0/P1 fixed or DEFERRED.md-dispositioned. Closeout blocks use the exact heading form `## Branch <letter> — <branch-name>`; the red greps that anchored heading (plan R2 F1 — an unanchored lowercase grep could false-green on prose), exits 1 until this task appends the branch-B block + the exact §3.3 grammar marker. Commit `docs(plan): branch B closeout + gate marker`.
+Run the invariant-8 dual design gate (both halves, canonical v3 setup) on the branch diff; P0/P1 fixed or DEFERRED.md-dispositioned. Closeout blocks use the exact heading form `## Branch <letter> — <branch-name>`; the red greps that heading anchored at BOTH ends (`^...$`, plan R3 P2 — a start-only anchor would accept a malformed suffixed heading), exits 1 until this task appends the branch-B block + the exact §3.3 grammar marker. Commit `docs(plan): branch B closeout + gate marker`.
 
 ## Task B6 — branch B graduation + PR
 
