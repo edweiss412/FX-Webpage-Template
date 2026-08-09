@@ -1,5 +1,5 @@
 name: Crew e2e (mobile-safari + desktop-chromium)
-# Runs nine e2e specs against a real browser + a seeded local Supabase: the
+# Runs eight e2e specs against a real browser + a seeded local Supabase: the
 # client-side section-toggle suite (tests/e2e/crew-section-toggle.spec.ts) under
 # mobile-safari, plus four under desktop-chromium — the crew picker flow
 # (tests/e2e/picker-flow.spec.ts), alert-action-links.spec.ts, and the seeded
@@ -19,7 +19,7 @@ name: Crew e2e (mobile-safari + desktop-chromium)
 #
 # BL-RESURRECT-MOBILE-SAFARI-E2E closed the mobile-safari gap on 2026-08-09, and this
 # job now ALSO runs crew-page.spec.ts (mobile-safari only — see below) and the
-# rewritten theme-toggle.spec.ts. right-now-transitions.spec.ts is NOT wired: its
+# rewritten theme-toggle.spec.ts, bringing the invocation to EIGHT spec files. right-now-transitions.spec.ts is NOT wired: its
 # §5.7 fixture (shows_internal.run_of_show) proved inert against the hero's anchor
 # on the migrated route, so wiring it would pin a suite whose assertions pass off
 # seed-derived values — spec §3.5's whole-file valve, filed as
@@ -150,7 +150,7 @@ jobs:
       # browser binaries are restored from the cache above on a hit.
       - run: pnpm exec playwright install-deps chromium webkit
       - run: pnpm exec playwright install chromium webkit
-      # ONE invocation for all five specs, not one per project. Each Playwright
+      # ONE invocation for ALL the specs above, not one per project. Each Playwright
       # process owns and tears down its own webServer, and in CI that server is a
       # cold `pnpm build && pnpm start` — so multiple steps would pay the heaviest
       # phase repeatedly inside this job's timeout. Passing both projects and the

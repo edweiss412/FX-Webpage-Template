@@ -226,32 +226,45 @@ test.describe("crew footer theme toggle — persistence, no-FOUC, a11y, tap targ
     page.evaluate((key) => window.localStorage.getItem(key), STORAGE_KEY);
 
   /**
-   * Tap the toggle and wait for the applied theme to reach `expected`.
+   * Wait until the toggle is INTERACTIVE, not merely present.
    *
-   * ThemeToggle is a client island (`"use client"`). Before it hydrates the
+   * ThemeToggle is a client island (`"use client"`). Before React hydrates it, the
    * button is SSR markup with NO onClick, so a tap is silently a no-op: visible,
    * enabled, stable, dispatched — and nothing happens. Measured on this branch
    * under TZ=UTC (the CI runner's zone), where the SSR/CSR hero mismatch widens
-   * React's regeneration window and the SECOND tap of the persistence cycle
-   * landed inside it:
+   * React's regeneration window.
    *
-   *     > 227 | await expect.poll(() => appliedTheme(page), …).toBe("light")
-   *     Expected: "light"   Received: "dark"
+   * The gate is React's own marker: hydration attaches a `__reactProps$…` key to
+   * the DOM node. That is deterministic — unlike `networkidle`, which is a
+   * heuristic the plan's harness checklist rules out as a readiness gate.
+   */
+  async function waitForToggleHydrated(page: Page): Promise<void> {
+    await expect(page.getByTestId("theme-toggle")).toBeVisible({ timeout: 15_000 });
+    await page.waitForFunction(
+      () => {
+        const el = document.querySelector('[data-testid="theme-toggle"]');
+        return !!el && Object.keys(el).some((k) => k.startsWith("__reactProps$"));
+      },
+      undefined,
+      { timeout: 30_000 },
+    );
+  }
+
+  /**
+   * Tap the toggle ONCE and assert the theme reaches `expected`.
    *
-   * Gates on the OUTCOME rather than on a sleep, and cannot mask a broken
-   * toggle — one that never flips still fails, on the timeout, exactly as
-   * before. The theme is re-checked BEFORE each click, so a working toggle is
-   * tapped exactly once and the light<->dark parity the persistence test walks
-   * is preserved.
+   * The single tap is the contract, and it is deliberately NOT retried. An earlier
+   * version of this helper wrapped the click in `toPass`, which made it pass when
+   * the first tap did nothing and a later one worked — masking exactly the
+   * one-tap regression this suite is the unique cover for (whole-diff review
+   * round 3, P1). Readiness is handled where readiness belongs, above; if the
+   * island is not interactive yet, that gate fails and says so, rather than the
+   * suite quietly accepting a toggle that needs two taps.
    */
   async function tapToggle(page: Page, expected: "light" | "dark"): Promise<void> {
-    const toggle = page.getByTestId("theme-toggle");
-    await expect(toggle).toBeVisible();
-    await expect(async () => {
-      if ((await appliedTheme(page)) === expected) return;
-      await toggle.click();
-      await expect.poll(() => appliedTheme(page), { timeout: 2_000 }).toBe(expected);
-    }).toPass({ timeout: 20_000 });
+    await waitForToggleHydrated(page);
+    await page.getByTestId("theme-toggle").click();
+    await expect.poll(() => appliedTheme(page), { timeout: 10_000 }).toBe(expected);
   }
 
   test("persistence: a tap flips data-theme, writes localStorage, and survives a reload — BOTH directions", async ({

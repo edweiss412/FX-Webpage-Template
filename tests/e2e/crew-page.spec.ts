@@ -11,9 +11,17 @@
  * "today-band" / "tile-grid" equal-height blocks, which the 6-section redesign
  * subsumes (those testids no longer exist in components/crew/**).
  *
- * SKIPPED (pre-existing backlog, untouched here): the Task-4.2 layout-shell and
- * Task-4.4 tile suites below still use the retired `?crew=`/`?as=admin` mock and
- * await the §B migration to per-test crew identity via signInAs.
+ * SKIPPED: exactly ONE block — the §4.10 transition audit. It is statically
+ * skipped for a documented webkit technique limit (a frozen clock plus controlled
+ * rAF stalls the very AnimatePresence transition under test), and its own header
+ * names the three live surfaces that cover it instead. Its four titles are
+ * registered by exact title in the wiring guard's EXPECTED_SKIPS.
+ *
+ * The Task-4.2 layout-shell and Task-4.4 tile blocks this header used to describe
+ * as "skipped below" were DELETED 2026-08-09 — they targeted the retired
+ * `?crew=`/`?as=admin` mock and the slug-only `/show/[slug]` route, which has no
+ * page.tsx, so every navigation in them 404'd (spec docs/superpowers/specs/ci/
+ * 2026-08-09-resurrect-mobile-safari-e2e-design.md §2.3).
  *
  * Slug source: the seed corpus (supabase/seed.ts) loads the fixtures in
  * fixtures/shows/raw/ on every `pnpm db:seed` run and writes deterministic slugs

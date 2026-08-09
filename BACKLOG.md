@@ -1021,7 +1021,7 @@ screen-disposition 2026-08-04: PREREQ-FENCED + ANNOTATED, stays open, NOT claime
 
 ### BL-LOCKED-FIXTURE-HELPER-TARGETS-REMOTE-DB — a local e2e run can send fixture writes to the validation project
 
-**Status:** OPEN · **Severity:** MEDIUM (local-only, but the write lands in the SHARED validation project, and the symptom names the wrong cause) · **Class:** test-harness / env-resolution defect · **Filed:** 2026-08-09 (surfaced wiring right-now-transitions into the nine-spec crew-e2e invocation) · **Effort:** S
+**Status:** OPEN · **Severity:** MEDIUM (local-only, but the write lands in the SHARED validation project, and the symptom names the wrong cause) · **Class:** test-harness / env-resolution defect · **Filed:** 2026-08-09 (surfaced wiring right-now-transitions into the crew-e2e multi-spec invocation) · **Effort:** S
 
 **Probed, not theorized.** `tests/e2e/helpers/lockedCrewRestriction.ts` resolves its psql target
 ONCE, at module load:
@@ -1038,7 +1038,7 @@ read it will target remote". Meanwhile the PostgREST `admin` client the same sui
 `SUPABASE_URL` (`127.0.0.1:54321`). So the crew id is resolved against the LOCAL database and the
 UPDATE is sent to the REMOTE one.
 
-**Observed symptom** (crew-e2e's nine-spec invocation, both projects):
+**Observed symptom** (crew-e2e's multi-spec invocation, both projects):
 
 ```
 Error: lockedCrewRestriction: update matched no crew row
@@ -1054,7 +1054,7 @@ write.
 load, so whether the remote value is visible depends on whether something has already loaded
 `.env.local` into `process.env` by then — i.e. on Playwright's import order, i.e. on HOW MANY SPEC
 FILES the invocation names. `right-now-transitions.spec.ts` alone passes; the same file inside the
-nine-spec command fails. That reads as "the new wiring broke it" and is not.
+multi-spec command fails. That reads as "the new wiring broke it" and is not.
 
 **CI is unaffected** and this is not a merge blocker: `.env.local` is gitignored and absent on the
 runner, `crew-e2e.yml` sets no `TEST_DATABASE_URL`, so the helper falls back to the loopback default.
