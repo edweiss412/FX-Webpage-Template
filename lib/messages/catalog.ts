@@ -1379,6 +1379,22 @@ export const MESSAGE_CATALOG = {
       "This crew member's role cell mixes a recognized work-phase (like Set) with a token we couldn't read (e.g. 'Set / Rehearsal ONLY'), so we can't safely tell which days apply. We're showing them the whole show rather than hide a day. Use the standard phases: Load In / Set / Show / Strike / Load Out, so their schedule can be filtered.",
     helpHref: "/help/errors#UNKNOWN_STAGE_RESTRICTION",
   },
+  REF_ERROR_LITERAL: {
+    code: "REF_ERROR_LITERAL",
+    warningClass: "parse_warning",
+    dougFacing:
+      "A cell in this sheet contains '#REF!', which is what Sheets shows when a formula's reference was deleted. The page will display it as-is until the formula is repaired in the sheet.",
+    crewFacing: null,
+    followUp: "Doug → fix in sheet",
+    helpfulContext:
+      "A cell here reads '#REF!' instead of a real value. That is what Sheets leaves behind when the cell a formula pointed at was deleted.",
+    triggerContext:
+      "Appears when any cell in the sheet contains the text '#REF!', including a cell that mixes it with other text.",
+    title: "Broken spreadsheet reference in the sheet",
+    longExplanation:
+      "Sheets writes '#REF!' into a cell when the reference its formula depended on was deleted. We show the cell exactly as the sheet has it rather than guessing at the value that belongs there, so the page will keep displaying '#REF!' until the formula is repaired in the sheet.",
+    helpHref: "/help/errors#REF_ERROR_LITERAL",
+  },
   STAGE_WORD_AUTOCORRECTED: {
     code: "STAGE_WORD_AUTOCORRECTED",
     warningClass: "parse_warning",

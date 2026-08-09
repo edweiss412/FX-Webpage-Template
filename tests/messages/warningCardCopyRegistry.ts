@@ -2,6 +2,7 @@
 // Nothing in lib/ or components/ imports this module (spec 2026-07-20-warning-card-copy-restore §3.5).
 // Copy strings are the spec §4.2 table, byte-for-byte - the frozen enforcement arm of the canonical table.
 export const WARNING_CARD_COPY_CODES: ReadonlySet<string> = new Set([
+  "REF_ERROR_LITERAL",
   "AGENDA_BLOCK_UNRESOLVED",
   "AGENDA_DAY_AMBIGUOUS",
   "AGENDA_DAY_EMPTIED",
@@ -81,6 +82,8 @@ export const EXPECTED_TRIGGER_CONTEXT: Readonly<Record<string, string>> = {
     "Appears when a role in a crew cell is a letter or two off a known role.",
   ROOM_HEADER_SPLIT_AMBIGUOUS:
     "Appears when a room line mixes its name and dimensions in an unusual order.",
+  REF_ERROR_LITERAL:
+    "Appears when any cell in the sheet contains the text '#REF!', including a cell that mixes it with other text.",
   SCHEDULE_STRIKE_DATE_OFF_SCHEDULE:
     "Appears when a Strike Time's date isn't one of the show's days.",
   SCHEDULE_TIME_UNPARSED: "Appears when a TIME cell doesn't begin with a readable time.",
@@ -196,6 +199,8 @@ export const EXPECTED_HELPFUL_CONTEXT: Readonly<Record<string, string>> = {
     "A room line could split into name and dimensions more than one way, so we picked the most likely reading. Check the rooms section; the name or dimensions might be slightly off.",
   SCHEDULE_STRIKE_DATE_OFF_SCHEDULE:
     "A room's Strike Time is dated on a day outside the show's schedule, so it won't appear on crew schedules. Fix that cell's date to a show day.",
+  REF_ERROR_LITERAL:
+    "A cell here reads '#REF!' instead of a real value. That is what Sheets leaves behind when the cell a formula pointed at was deleted.",
   SCHEDULE_TIME_UNPARSED:
     "One show day's TIME cell wasn't readable as a start time, so that day shows the standard schedule. Give it a clear start like '7:15am - Registration'.",
   SECTION_HEADER_AUTOCORRECTED:
@@ -229,6 +234,7 @@ export const EXPECTED_HELPFUL_CONTEXT: Readonly<Record<string, string>> = {
 };
 
 export const EXPECTED_CORPUS_WARN_CODES: ReadonlySet<string> = new Set([
+  "REF_ERROR_LITERAL",
   "AGENDA_BLOCK_UNRESOLVED",
   // 2026-07-25 hotel-ambiguity-coverage: the inline hotel path now reports the
   // hotel/first-guest boundary it has always judged silently. 9 cards across the
