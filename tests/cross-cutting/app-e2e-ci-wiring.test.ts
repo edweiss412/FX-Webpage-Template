@@ -196,12 +196,30 @@ describe("app-e2e.yml CI wiring", () => {
       // must equal what Playwright actually resolves for that spec under this command, which also
       // keeps the floors correct as specs gain cases instead of quietly under-demanding.
       for (const [base, floor] of Object.entries(REQUIRED)) {
+        const live = resolvedByCommand(argv ?? [], base);
+        // PREMISE FIRST (diff review round 3): equality alone is satisfied by 0 === 0, so a spec
+        // that resolves NOTHING — statically skipped, env-gated off, or unresolvable — passes key
+        // parity, passes floor parity, and passes the runtime oracle too (`0 < 0` is false). The
+        // probe promoted the env-gated published-review-modal.prefetch spec with REQUIRED = 0 and
+        // every assertion here stayed green while the job executed none of it. Both sides must be
+        // positive before their equality means anything.
+        expect(
+          live,
+          `${base}: the workflow's own command resolves ZERO non-skipped (case x project) ` +
+            "identities for this spec, so naming it in the run step buys no coverage at all. " +
+            "A statically-skipped or env-gated spec must not be promoted into this job.",
+        ).toBeGreaterThan(0);
+        expect(
+          floor,
+          `${base}: a floor of ${floor} demands nothing. Every REQUIRED row must demand at least ` +
+            "one execution, or the oracle passes on a spec that ran nothing.",
+        ).toBeGreaterThan(0);
         expect(
           floor,
           `${base}: the oracle demands ${floor} executed, but the workflow's own command resolves ` +
             "a different number of unique non-skipped (case x project) identities. A floor below " +
             "the real count is an oracle calibrated to a partially dark run.",
-        ).toBe(resolvedByCommand(argv ?? [], base));
+        ).toBe(live);
       }
     },
     PLAYWRIGHT_RESOLUTION_TIMEOUT_MS,

@@ -109,6 +109,20 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
   };
   walk(report.suites);
 
+  // A floor must DEMAND something. Diff review round 3: `executed >= 0` is vacuously true, so a
+  // row of 0 — the natural thing to write when promoting a spec whose cases are all skipped or
+  // env-gated off — makes this oracle green on a spec that executed nothing, which is the exact
+  // failure it exists to catch. Refuse the row rather than evaluate it.
+  const invalidFloors = Object.entries(REQUIRED).filter(
+    ([, min]) => !Number.isInteger(min) || min < 1,
+  );
+  if (invalidFloors.length > 0) {
+    console.error("check-app-e2e-executed: REQUIRED holds a floor that demands nothing:");
+    for (const [file, min] of invalidFloors) console.error(`  ${file}: ${min}`);
+    console.error("Every floor must be a positive integer — `executed >= 0` proves nothing.");
+    process.exit(1);
+  }
+
   const failures = [];
   for (const [file, min] of Object.entries(REQUIRED)) {
     const n = executed.get(file)?.size ?? 0;
