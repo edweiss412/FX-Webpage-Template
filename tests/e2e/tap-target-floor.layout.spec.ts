@@ -671,6 +671,28 @@ for (const spec of CLASS_B_TARGETS) {
           `${spec.label} visual is not vertically centred in its target`,
         ).toBeCloseTo(0, 1);
 
+        // ...and one level DOWN. `justify-center`/`items-center` sit on BOTH
+        // elements, so the pair above only covers half the claim: dropping them
+        // from the VISUAL leaves it correctly sized and correctly placed while
+        // its glyph slides to the edge. Measured against the glyph's own box.
+        const glyph = await page
+          .locator(`${visualSel} > *`)
+          .first()
+          .evaluate((el) => {
+            const r = el.getBoundingClientRect();
+            return { x: r.x, y: r.y, w: r.width, h: r.height };
+          })
+          .catch(() => null);
+        premiseHolds(`${spec.label} visual renders a glyph element to centre`, glyph !== null);
+        expect(
+          glyph!.x + glyph!.w / 2 - (visual.x + visual.w / 2),
+          `${spec.label} glyph is not horizontally centred in its visual`,
+        ).toBeCloseTo(0, 1);
+        expect(
+          glyph!.y + glyph!.h / 2 - (visual.y + visual.h / 2),
+          `${spec.label} glyph is not vertically centred in its visual`,
+        ).toBeCloseTo(0, 1);
+
         // §2.2: `cursor-pointer` belongs on the TARGET, so the cursor changes
         // across the whole 44px band. Moving it to the inner span leaves the
         // painted centre correct and reverts the 8px expansion band to the
@@ -1202,8 +1224,17 @@ test.describe("DI-9 — hover feedback covers the whole target, not just the pai
     // §4.1: the crossfade wiring survived the class move. With the pointer
     // parked in the band, the property that transitions must still be on the
     // element that now paints it.
+    // Exact TOKEN, for the same reason the Class-B block splits: `.toContain("color")`
+    // is satisfied by `background-color`, so `transition-[background-color]`
+    // would pass while the pill's text colour snaps. This site kept the
+    // substring form when round 5 repaired the other one — a class sweep of my
+    // own repair would have caught it, which is the whole point of the rule.
     const transition = await visual.evaluate((el) => getComputedStyle(el).transitionProperty);
-    expect(transition, "the visual span lost its colour transition").toContain("color");
+    const pillAnimated = new Set(transition.split(",").map((t) => t.trim()));
+    expect(
+      pillAnimated.has("color") || pillAnimated.has("all"),
+      `the visual span lost its colour transition (got "${transition}")`,
+    ).toBe(true);
 
     // The target itself must be the `group` ancestor the rewritten utilities
     // resolve against; without it `group-hover:*` never matches and hover

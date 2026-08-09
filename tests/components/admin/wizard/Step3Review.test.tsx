@@ -798,6 +798,19 @@ describe("Step3Review — heading outline (spec §2.3, AC-4)", () => {
 
     // DERIVE the sequence and assert no gap. Asserting "an h2 exists" is
     // forbidden (spec §8): it passes on a page that also skips to h4.
+    // No-skip is necessary but NOT sufficient, and the gap is reachable by a
+    // PARTIAL revert: turn only the grouped-rows heading back to h3 and the
+    // page renders h1, h2, h3 — monotonic, so the sequence check passes, while
+    // a top-level page section is misrepresented as a subsection of the one
+    // above it. Spec §2.3 names BOTH promoted headings as h2, so both are
+    // asserted by identity, after the tag-agnostic premises above (which have
+    // to stay tag-agnostic or RED would die at the premise).
+    expect(needsAttention!.tagName, "the needs-attention heading is not an h2").toBe("H2");
+    expect(
+      groupedSection.querySelector("h1, h2, h3, h4, h5, h6")!.tagName,
+      "the grouped-rows section heading is not an h2",
+    ).toBe("H2");
+
     const levels = Array.from(container.querySelectorAll("h1, h2, h3, h4, h5, h6")).map((el) =>
       Number(el.tagName.slice(1)),
     );
