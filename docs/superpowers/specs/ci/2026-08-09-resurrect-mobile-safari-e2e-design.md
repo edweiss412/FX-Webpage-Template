@@ -1,0 +1,272 @@
+# Resurrect mobile-safari e2e — wire what lives, delete what's superseded, revive the one unique gap
+
+**Date:** 2026-08-09 · **Ledger:** `BL-RESURRECT-MOBILE-SAFARI-E2E` (BACKLOG.md) · **Branch:** `test/resurrect-mobile-safari-e2e` · **Effort:** L
+
+This spec closes `BL-RESURRECT-MOBILE-SAFARI-E2E` at its honest scope. The 2026-08-06 L-wave
+correction already established that the `mobile-safari` Playwright project is not dark — three
+workflows run it — and that the entry's real content is the set of M4 tile/crew specs matched by
+the project but named in no workflow run command. This arc probed that set (2026-08-09) and found
+it splits three ways: one file with live, current-route tests worth wiring; ten files that are
+100% `test.describe.skip` against a retired mock surface and a route that no longer exists; and
+one narrow behavior (theme persistence) tested nowhere else that deserves a rewrite. The work is:
+wire the live file, delete the superseded dead files, rewrite the unique one, close or file the
+small residues, and correct the ledger.
+
+## 1.1 Resolved scope — do not relitigate
+
+Each decision below is ratified; reviewers verify the citation, not the decision.
+
+1. **Autonomous ship ratified by the user 2026-08-09** (this arc's kickoff conversation): spec +
+   plan by this session, implementation + closeout by a delegated Opus session. Both user review
+   gates waived per the AGENTS.md autonomous-ship gate.
+2. **Scope = wire live + delete superseded + revive theme-toggle.** User selected this over "full
+   resurrection" (rewriting all ten dead suites) and over "ledger correction only", after an
+   investigation pass whose findings are §2. Do not propose resurrecting the eight
+   identity-dependent dead suites; that alternative was considered and rejected.
+3. **The ten dead suites' premise is retired, not dormant.** The `?crew=`/`?as=`/`?role=` viewer
+   mock is fully removed from production code: the only `searchParams` read in the crew tree is
+   `gate`/`s` (`app/show/[slug]/[shareToken]/page.tsx`, the `searchParams` prop type), and
+   `tests/data/show-page-role-spoof.test.ts` is a build-failing static guard that the page never
+   reads `searchParams.role`. The slug-only route `/show/[slug]` has no `page.tsx` (only
+   `layout.tsx`, `[shareToken]/`, `unpublish/` exist under `app/show/[slug]/`) and no middleware
+   exists to redirect it, so every dead suite's `page.goto` 404s unconditionally. Deleting these
+   suites is not deleting coverage; §2.3 is the per-file coverage accounting.
+4. **role-spoof.spec.ts is deleted despite its PARTIAL verdict.** The residue ("nothing executes a
+   spoof against a rendered page") has no live surface to exercise: the params it spoofs no longer
+   reach any code path, and the static guard pins that they never will silently return. This is a
+   DOCUMENTED LIMIT (§6), not a follow-up work item.
+5. **Acceptance bar for newly wired specs: five consecutive green normal-dispatch runs** before a
+   spec counts as wired — the bar the ledger entry itself sets, demonstrated by
+   `lifecycle-layout-e2e.yml` (spec §6.1 / AC-6 of the CI-dark cluster design).
+6. **No UI surface.** This arc touches `.github/workflows/`, `tests/`, `scripts/`,
+   `playwright.config.ts`, and ledger/spec docs only. `impeccable-gate: N/A — no UI surface`
+   applies at closeout. If failure triage (§4) forces a product-code fix under `app/` or
+   `components/`, that fix triggers the invariant-8 dual gate for the affected diff — the N/A
+   marker holds only while the diff stays out of UI files.
+7. **Numeric counts in this spec are probe-time snapshots, not contracts.** Executable-test counts
+   change during triage (a repaired test, a deleted runtime skip). The binding rule is the
+   derivation procedure (§3.4): `REQUIRED` counts come from the wiring-time `--list`/report of the
+   actual run, per the established `font-rendering-census` pattern in
+   `scripts/check-crew-e2e-executed.mjs` ("derived from an actual --list run, NOT from arithmetic").
+
+## 2. Findings the scope rests on (probed 2026-08-09)
+
+### 2.1 The population
+
+The ledger entry names ~12 spec files matched by the `mobile-safari` `testMatch`
+(`playwright.config.ts`, `mobile-safari` project) but named in no workflow run command — all
+`UNSEEN` rows of `tests/ci/_metaE2eWorkflowCoverage.test.ts`.
+
+- **`tests/e2e/crew-page.spec.ts` — live.** Two live describes ("crew redesign layout invariants
+  (§4.9 / test 12)" and "crew redesign nav addressability + preview-as + footer report"), 18
+  live-authored tests, current `/show/[slug]/[shareToken]` route, Waldorf seed
+  (`seed-fixture:2026-04-asset-mgmt-cfo-coo-waldorf`), same harness pattern as the already-wired
+  `crew-section-toggle.spec.ts`. Plus five `test.describe.skip` blocks (pre-redesign tiles,
+  lines ≥1416) in the same class as the dead files.
+- **Ten spec files 100% `test.describe.skip`** (each a spec file under `tests/e2e/`, named by its
+  basename here and throughout): schedule-tile,
+  transport-tile, status-financials, role-spoof, pack-list, notes-tile, right-now,
+  layout-dimensions, empty-state, theme-toggle. All ten carry the same verbatim TODO ("migrate off
+  ?crew=/?as=admin mock to signInAs… retired in Task 5.7 follow-up") and all navigate the
+  404-ing slug-only route. Eight of ten additionally need a *specific non-LEAD crew identity*,
+  which `signInAs` cannot reproduce without per-test crew rows — the actual cost the TODO names.
+- **`tests/e2e/right-now-transitions.spec.ts` — mixed.** Two skipped blocks (66-pair matrix audit,
+  compound audits) plus one live block ("RightNow per-day Show anchor selection (§5.7)", 3 tests)
+  that also navigates the dead slug-only route, so it 404s despite not being skipped.
+
+### 2.2 Local run of the live crew-page tests (seeded, dev server, webkit, 2026-08-09)
+
+12 passed / 3 failed / 7.2 minutes. Failures, for the implementer's triage queue (§4):
+
+1. `inv5: bottom tab-bar full-width + bottom-anchored + equal tabs (390px); top tabs ≥44px` —
+   geometry assertion failure, cause unestablished.
+2. `preview-as: /admin/show/<slug>/preview/<crewId>?s=venue renders the CrewShell` — non-200.
+3. `footer report metadata: preview-as footer carries admin-preview-footer-<slug>-<crewId>` —
+   180s `page.goto` timeout on the same admin-preview route family as (2).
+
+(2) and (3) share the admin-preview route family and are plausibly local-dev-only (cold compile /
+auth env); CI runs the built artifact. Plausibly ≠ established: §4 requires root-causing, not
+assuming.
+
+### 2.3 Coverage accounting for the dead suites
+
+Framing: every tile component the dead suites exercised was deleted in the crew redesign —
+`tests/migration/crew-redesign-cleanup.test.ts` pins ScheduleTile / TransportTile / PackListTile /
+NotesTile / FinancialsTile / ShowStatusTile gone. Verdicts are on the surviving *behavior* in the
+section components.
+
+| File | Verdict | Live coverage / residue |
+| --- | --- | --- |
+| schedule-tile | SUPERSEDED | `stage-restricted-crew-schedule.spec.ts` (wired) + `tests/components/crew/sections/ScheduleSection.viewerDays.test.tsx` + `ScheduleSection.test.tsx` (unconfirmed-days placeholder) |
+| transport-tile | SUPERSEDED | `tests/visibility/scopeTiles.test.ts` (driver / passenger / neither + case-trim the e2e lacked); projection in `tests/data/getShowForViewer.test.ts`; render in `TravelSection.test.tsx` |
+| status-financials | SUPERSEDED | COI moved to Venue: `tests/components/crew/sections/VenueSection.test.tsx` asserts `data-testid="coi-status"` renders, sentinel-guarded |
+| role-spoof | PARTIAL → documented limit (§1.1.4) | positive controls in `scopeTiles.test.ts`; negative pinned statically by `tests/data/show-page-role-spoof.test.ts` |
+| pack-list | PARTIAL → residue closed in-arc | phase gate + stage_restriction: `tests/visibility/packList.test.ts`; cap: `CardinalityCapBoundary.test.tsx`; wiring: `GearSection.test.tsx`. **Residue:** `GearSection.tsx` renders `item.rawSnippet` inline (the `item.rawSnippet ?` branch) and no test in any crew-render context references `rawSnippet` — §3.3 adds one component test |
+| notes-tile | SUPERSEDED | `TodaySection.test.tsx` (5 sources in order, transport gated) + `CardinalityCapBoundary.test.tsx` (SOURCE_CAP, TRUNCATE_AT summary/details) |
+| right-now | SUPERSEDED | `tests/time/rightNow.test.ts` (all §8.2 precedence rows) + `tests/components/crew/rightNowHero.test.tsx` (12-state eyebrow/lead map) |
+| layout-dimensions | PARTIAL → residue closed in-arc | inv1–3 live in `crew-page.spec.ts` + `crew-layout-dimensions.spec.ts`; inv4 moot (NotesTile gone). **Residue:** footer sticky-to-viewport on short content / natural flow on long — §3.3 adds one e2e test to the live crew-page spec |
+| empty-state | SUPERSEDED | `tests/visibility/emptyState.test.ts` (sentinels; N/A + TBA named) + `tests/visibility/openingReelText.test.ts` (URL-strip) + `GearSection.test.tsx`; `empty-state-reachability.spec.ts` is a separate file and stays, but it is itself still `UNSEEN` and NOT load-bearing for this verdict — the vitest coverage is. Its "no `<video>`" assertion is obsolete — M7 shipped OpeningReelVideo |
+| theme-toggle | UNIQUE → rewritten in-arc (§3.2) | live `crew-page.spec.ts` covers only the instant `data-theme` flip mid-crossfade. Nothing covers persistence: `ThemeToggle.tsx` writes `localStorage["fxav-theme"]` (`STORAGE_KEY`), read by the no-FOUC inline script in `app/layout.tsx`; `tests/help/header.test.tsx` mocks the component. Tap-target ≥44px also untested |
+
+## 3. Work items
+
+### 3.1 Wire `crew-page.spec.ts` into `crew-e2e.yml`
+
+After §4 triage reaches 0 failed locally: add `tests/e2e/crew-page.spec.ts` to the workflow's
+single `playwright test` invocation (it keeps the one-invocation shape — the workflow's own
+comment explains why: each Playwright process cold-builds its own webServer). The file is in both
+projects' `testMatch`, so it executes under mobile-safari AND desktop-chromium; both are wanted
+(the `font-rendering-census` precedent). Add a `REQUIRED` row per §3.4. Remove the file's `UNSEEN`
+row from `tests/ci/_metaE2eWorkflowCoverage.test.ts`. Update the crew-e2e.yml header comment that
+currently says "The rest of the mobile-safari project (crew-page.spec + the M4 tile specs) is
+still dead-in-CI" — after this arc that sentence is false.
+
+Delete the five pre-redesign `test.describe.skip` blocks inside `crew-page.spec.ts` (same class as
+the dead files; the redesign-cleanup meta-test pins their subject components deleted).
+
+### 3.2 Rewrite `theme-toggle.spec.ts` live
+
+Replace the file's dead content with a live describe against the seeded shareToken route (same
+`lookupSeededShow`/share-token helpers as `crew-page.spec.ts`). Tests, both identity-agnostic
+(no per-identity fixture needed — the toggle renders in the crew Footer for every viewer, reached
+via `_CrewShell`):
+
+1. **Persistence + no-FOUC:** tap toggle → `<html data-theme>` flips AND
+   `localStorage["fxav-theme"]` holds the new value → `page.reload()` → the theme survives, and it
+   is already applied at first paint (assert via the no-FOUC script's effect: `data-theme` correct
+   on `domcontentloaded`, before hydration).
+2. **Tap target:** toggle's bounding box ≥ 44×44px (DESIGN.md §3 `--spacing-tap-min`).
+
+Wire it into the same crew-e2e.yml invocation + `REQUIRED` row + `UNSEEN` row removal. It stays in
+both `testMatch` regexes (already present).
+
+### 3.3 Close the two cheap residues in-arc
+
+1. **pack-list residue:** one component test in `tests/components/crew/sections/`
+   (GearSection context) asserting a fixture item with `rawSnippet` set renders that snippet's
+   text. Anti-tautology: fixture-derived expected string, scoped extraction to the gear item node.
+2. **layout-dimensions residue:** one e2e test appended to the live layout-invariants describe in
+   `crew-page.spec.ts`: with short section content the footer's bottom edge is within the viewport
+   (bottom-anchored); with long content the footer sits below the fold and the page scrolls to it
+   (natural flow). Real-browser `getBoundingClientRect`, per the layout-dimensions plan rule.
+
+**Demotion valve:** if either residue test proves flaky against the 5-green bar, it may be demoted
+to a `BL-` row carrying the flake evidence (run logs) and naming exception (c) — but the default
+is in-arc, and a demotion without evidence is a review finding.
+
+### 3.4 Delete the nine dead files + config/registry cleanup
+
+Delete nine files under `tests/e2e/`: schedule-tile, transport-tile, status-financials,
+role-spoof, pack-list, notes-tile, right-now, layout-dimensions, empty-state (theme-toggle is
+rewritten, not deleted). For each:
+
+- Remove from BOTH `testMatch` regexes in `playwright.config.ts` (mobile-safari + desktop-chromium).
+- Remove its `UNSEEN` row from `tests/ci/_metaE2eWorkflowCoverage.test.ts`.
+- **Class-sweep to a derivation:** `rg` each deleted basename across the repo (source comments,
+  docs, specs, ledgers) and repair or annotate every reference — the sweep output is the list of
+  hits with dispositions, recorded in the PR body. Precedent: `Section.tsx`'s stale "Verified by
+  tests/e2e/layout-dimensions.spec.ts" citation was exactly this class (L-wave found it).
+
+`REQUIRED` counts for newly wired specs are derived from the wiring-time run report / `--list`
+(per project pair, summed, matching how the checker counts), full executable set — never a floor
+of 1, per the registry's own R12 rationale in `scripts/check-crew-e2e-executed.mjs`.
+
+### 3.5 `right-now-transitions.spec.ts`
+
+- Delete the two `test.describe.skip` blocks (66-pair + compound audits). The matrix's structural
+  invariants stay pinned by `tests/time/rightNowTransitions.test.ts`; the 12-state copy map by
+  `rightNowHero.test.tsx`. The rendered-treatment loss is a documented limit (§6).
+- Migrate the live §5.7 block (3 tests, day-anchor selection — a per-show concern, not
+  per-identity) from the dead `/show/[slug]?crew=` URL to the seeded shareToken route, and wire
+  the file (both `testMatch` regexes already carry it). **Timebox:** if migration surfaces a
+  harness dependency beyond the URL swap (e.g. picker-gate interaction that `?gate=skip` does not
+  clear), defer via a `BL-` row naming exception (c) with the probe output; the file then keeps
+  its `UNSEEN` row and its live block stays local-only.
+
+### 3.6 Ledger + docs
+
+- Archive `BL-RESURRECT-MOBILE-SAFARI-E2E` to `BACKLOG-archive.md` as resolved at honest scope
+  (wire-live + delete-superseded + revive-unique), removing the in-progress marker in the PR's
+  last commit per invariant 12.
+- Update the parent `BL-E2E-APP-DEPENDENT-SPECS-CI-DARK` census: its 43-row `UNSEEN` population
+  shrinks by every row this arc removes (deleted files + wired files); restate the count from the
+  meta-test allowlist after the change, not by arithmetic.
+- Add this spec to the specs README index (its directory's README row convention).
+- New `BL-` rows only where a §3.3/§3.5 valve fires, each naming its exception and evidence.
+
+## 4. Triage contract for the three known failures
+
+For each §2.2 failure, in the worktree, before wiring:
+
+1. Reproduce individually (`--grep`), then root-cause. No fix without a diagnosed mechanism —
+   systematic-debugging discipline, not assertion-loosening.
+2. If the cause is environmental (dev-server compile latency, auth env), prove it by running the
+   test against a local production build (`pnpm build && pnpm start`, the CI shape) — green there
+   with a diagnosed dev-only mechanism is an acceptable close (record in PR body).
+3. If the cause is a product bug: small fixes land in-arc (triggering the UI gate per §1.1.6 if
+   under `app/`/`components/`); anything larger files a severity-tagged `BL-` row with the repro,
+   and the affected TEST (not the whole file) is excluded from wiring via a registered skip with a
+   citation — the checker's `REQUIRED` count then reflects the reduced executable set, and the
+   skip registration includes the `BL-` ref.
+4. If the cause is a test defect (stale assumption, race): repair the test.
+
+## 5. Acceptance criteria
+
+- AC-1: `crew-e2e.yml`'s invocation names `crew-page.spec.ts` + `theme-toggle.spec.ts` (+
+  `right-now-transitions.spec.ts` unless the §3.5 valve fired), each with a full-set `REQUIRED`
+  row, and `scripts/check-crew-e2e-executed.mjs` passes on the run's own report.
+- AC-2: five consecutive green normal-dispatch runs of `crew-e2e.yml` including the newly wired
+  specs (workflow_dispatch; the runs used for the bar are linked in the PR).
+- AC-3: the nine dead files are gone; neither `testMatch` regex nor the coverage allowlist nor any
+  repo prose references them un-annotated (class-sweep output in PR body).
+- AC-4: the two residue tests (§3.3) exist and pass in CI, or their demotion `BL-` rows exist with
+  flake evidence.
+- AC-5: `tests/ci/_metaE2eWorkflowCoverage.test.ts` passes with zero rows for wired/deleted files;
+  the parent ledger entry's census is restated from the allowlist.
+- AC-6: full local suite (`pnpm test`), typecheck (vitest AND playwright tsconfigs), eslint,
+  `format:check` green before push; real CI green before merge.
+
+## 6. Documented limits
+
+1. **Rendered framer-motion transition treatments are not e2e-audited.** The 66-pair matrix and
+   compound audits die with §3.5. The matrix's structure and the 12-state copy stay unit-pinned;
+   the *rendered animation* has no executable audit. Reviving one is a deliberate future decision,
+   not this arc's debt — the suites being deleted never ran in CI either.
+2. **No executable role-spoof e2e.** The spoofable params are gone from the code; the static
+   source guard (`tests/data/show-page-role-spoof.test.ts`) is the pin. A spoof arriving by a
+   future NEW param surface is outside any existing test's reach — that is a property of the
+   guard's design (source-scan), stated here so nobody reads the deletion as having removed a
+   runtime defense that existed. It did not exist: the dead suite asserted against a route that
+   404s.
+3. **Eight identity-dependent behaviors keep unit/component coverage only** (§2.3 SUPERSEDED
+   rows). The e2e layer proves the section components mount in a real browser via the wired
+   `crew-page`/`crew-section-toggle`/`stage-restricted` specs; per-identity e2e variants (specific
+   non-LEAD viewers) remain unbuilt, same as before this arc.
+
+## 7. Out of scope
+
+- The parent `BL-E2E-APP-DEPENDENT-SPECS-CI-DARK`'s non-mobile-safari residual (admin/help/etc.
+  `UNSEEN` rows) — untouched except the census restatement.
+- Branch-protection promotion of e2e jobs (owner action, per the parent entry).
+- Any rewrite of the eight identity-dependent suites (ratified out, §1.1.2).
+
+## Dimensional Invariants
+
+None — this spec designs no UI component and changes no layout. The only dimension assertions are
+test-side: the §3.2 tap-target check (≥44×44px per DESIGN.md §3 `--spacing-tap-min`) and the §3.3
+footer-position e2e test, both `getBoundingClientRect` in a real browser.
+
+## Transition Inventory
+
+None — no component states are introduced or modified. The deleted 66-pair transition audit's
+subject matrix stays unit-pinned (§6.1).
+
+## 8. Review posture (for adversarial-review dispatch)
+
+Consequence bound: every spec this arc touches is either executed in CI with a full-set
+executed-count pin, deleted with its coverage accounted for in §2.3, or explicitly documented as
+a limit in §6 — never silently dark. Threat-model fence: the guards touched (executed-count
+registry, workflow-coverage allowlist) defend against accidental authoring drift by ordinary
+contributors; adversarial evasion of the test infrastructure is out of scope and files to
+documented limits. Convergence: the §5 ACs are the closable bound; enumeration of further
+hypothetical dead-spec classes is not a finding without a live instance.
