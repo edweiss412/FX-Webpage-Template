@@ -142,6 +142,21 @@ const ARRAY_RETURNING_METHODS = new Set([
   "valueOf",
 ]);
 
+/**
+ * Peel a chain of array-returning method calls, unwrapping value-preserving wrappers at the
+ * receiver, at each intermediate callee, and between links.
+ */
+function peelArrayChain(node: ts.Expression): ts.Expression {
+  let receiver = unwrapValuePreserving(node);
+  for (;;) {
+    if (!ts.isCallExpression(receiver)) return receiver;
+    const link = unwrapValuePreserving(receiver.expression);
+    if (!ts.isPropertyAccessExpression(link)) return receiver;
+    if (!ARRAY_RETURNING_METHODS.has(link.name.text)) return receiver;
+    receiver = unwrapValuePreserving(link.expression);
+  }
+}
+
 /** Peel wrappers that change no runtime value: `( )`, `as T`, `satisfies T`, `!`. */
 function unwrapValuePreserving(node: ts.Expression): ts.Expression {
   let n = node;
@@ -233,34 +248,20 @@ function recognizeJoins(relPath: string, source: string): JoinSite[] {
       let receiver: ts.Expression = unwrapValuePreserving(
         (callee as ts.PropertyAccessExpression).expression,
       );
-      // A CHAIN of filters, and value-preserving wrappers between them. Probed escapes:
-      // `(["p-2","x"] as const).join(" ")`, `(... satisfies string[]).join(" ")`, and
-      // `[...].filter(Boolean).filter(Boolean).join(" ")` are all ordinary TypeScript that
-      // Prettier preserves, and all three were invisible when only one link was peeled.
-      // The INTERMEDIATE callee can be wrapped too — `(arr.filter as F)(Boolean).join(" ")` —
-      // so unwrap at each link, not just at the outer join callee and the receiver.
-      for (;;) {
-        if (!ts.isCallExpression(receiver)) break;
-        const link = unwrapValuePreserving(receiver.expression);
-        if (!ts.isPropertyAccessExpression(link)) break;
-        if (!ARRAY_RETURNING_METHODS.has(link.name.text)) break;
-        receiver = unwrapValuePreserving(link.expression);
-      }
+      // ONE function, called from both places. There used to be two copies of this loop —
+      // the direct one and the one inside the const-resolution hop — and only the first was
+      // taught to unwrap the intermediate callee, so `const t = [...].filter!(Boolean)`
+      // routed through a const stayed silent while the identical direct form was caught.
+      // Two copies of a peel rule is exactly how that recurs; there is now one.
+      receiver = peelArrayChain(receiver);
       // A bare identifier receiver — `const tokens = ["p-2", drift]; tokens.join(" ")` — is
       // ordinary authoring and was invisible. Resolve up to three same-file `const` hops,
-      // re-applying the array-method peel after each, so `const t = [...].filter(Boolean)`
-      // and a two-hop alias both reduce. Bounded on purpose: see RECEIVER REACHABILITY.
+      // re-applying the peel after each, so `const t = [...].filter(Boolean)` and a two-hop
+      // alias both reduce. Bounded on purpose: see RECEIVER REACHABILITY.
       for (let hop = 0; hop < 3 && ts.isIdentifier(receiver); hop += 1) {
         const resolved = soleConstInitializer(sourceFile, receiver.text);
         if (resolved === null) break;
-        receiver = unwrapValuePreserving(resolved);
-        while (
-          ts.isCallExpression(receiver) &&
-          ts.isPropertyAccessExpression(receiver.expression) &&
-          ARRAY_RETURNING_METHODS.has(receiver.expression.name.text)
-        ) {
-          receiver = unwrapValuePreserving(receiver.expression.expression);
-        }
+        receiver = peelArrayChain(unwrapValuePreserving(resolved));
       }
       if (ts.isArrayLiteralExpression(receiver)) {
         const operandSignature = receiver.elements
@@ -539,6 +540,11 @@ const ESCAPE_SHAPES = [
     id: "as-cast-callee",
     signature: '"esc-10a", "esc-10b"',
     code: 'export const J = () => <div className={(["esc-10a", "esc-10b"].join as (s: string) => string)(" ")} />;',
+  },
+  {
+    id: "const-routed-wrapped-intermediate-callee",
+    signature: '"esc-13a", "esc-13b"',
+    code: 'const esc13 = ["esc-13a", "esc-13b"].filter!(Boolean);\nexport const M = () => <div className={esc13.join(" ")} />;',
   },
   {
     id: "extra-ignored-argument",
