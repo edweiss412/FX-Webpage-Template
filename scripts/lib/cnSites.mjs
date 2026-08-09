@@ -62,31 +62,73 @@ export function isWhitespaceSeparator(node) {
  * Match `[...].join(<ws>)` or `[...].filter(Boolean).join(<ws>)`.
  * Returns `{ operands, hasFilterMarker }` or null.
  */
+/**
+ * Peel wrappers that change no runtime value: parentheses, `as const` / `as T`,
+ * `satisfies T`, and non-null `!`. Without this, `(["a","b"] as const).join(" ")` — which
+ * Prettier preserves and which is ordinary TypeScript — is invisible to every proof built
+ * on this extractor.
+ */
+function unwrap(node) {
+  let n = node;
+  for (;;) {
+    if (
+      ts.isParenthesizedExpression(n) ||
+      ts.isAsExpression(n) ||
+      ts.isNonNullExpression(n) ||
+      (ts.isSatisfiesExpression && ts.isSatisfiesExpression(n))
+    ) {
+      n = n.expression;
+      continue;
+    }
+    return n;
+  }
+}
+
+/** `.filter(Boolean)` exactly — the ONLY predicate `cn` is equivalent to. */
+function isBooleanFilter(call) {
+  return (
+    call.arguments.length === 1 &&
+    ts.isIdentifier(call.arguments[0]) &&
+    call.arguments[0].text === "Boolean"
+  );
+}
+
 function matchArrayJoin(node) {
   if (!ts.isCallExpression(node)) return null;
   if (!ts.isPropertyAccessExpression(node.expression)) return null;
   if (node.expression.name.text !== "join") return null;
   if (node.arguments.length !== 1 || !isWhitespaceSeparator(node.arguments[0])) return null;
 
-  let receiver = node.expression.expression;
+  let receiver = unwrap(node.expression.expression);
   let hasFilterMarker = false;
-  if (
-    ts.isCallExpression(receiver) &&
-    ts.isPropertyAccessExpression(receiver.expression) &&
-    receiver.expression.name.text === "filter"
-  ) {
-    hasFilterMarker = true;
-    receiver = receiver.expression.expression;
+  let hasForeignFilter = false;
+  // A CHAIN of filters, not just one: `.filter(Boolean).filter(Boolean)` is valid and was
+  // invisible when only a single link was peeled.
+  for (;;) {
+    if (
+      ts.isCallExpression(receiver) &&
+      ts.isPropertyAccessExpression(receiver.expression) &&
+      receiver.expression.name.text === "filter"
+    ) {
+      // `cn` IS `filter(Boolean).join(" ")` — and ONLY that. Any other predicate makes the
+      // migration non-equivalent, so it is recorded rather than silently treated as the
+      // sanctioned form.
+      if (isBooleanFilter(receiver)) hasFilterMarker = true;
+      else hasForeignFilter = true;
+      receiver = unwrap(receiver.expression.expression);
+      continue;
+    }
+    break;
   }
   if (!ts.isArrayLiteralExpression(receiver)) return null;
-  return { operands: [...receiver.elements], hasFilterMarker };
+  return { operands: [...receiver.elements], hasFilterMarker, hasForeignFilter };
 }
 
 /** Match `cn(...)` — the post-migration form. */
 function matchCnCall(node) {
   if (!ts.isCallExpression(node)) return null;
   if (!ts.isIdentifier(node.expression) || node.expression.text !== "cn") return null;
-  return { operands: [...node.arguments], hasFilterMarker: false };
+  return { operands: [...node.arguments], hasFilterMarker: false, hasForeignFilter: false };
 }
 
 /**
@@ -113,14 +155,82 @@ export function collectSites(sourceFile) {
   return sites;
 }
 
-/** Printable, comment-and-whitespace-insensitive text for an operand node. */
+/**
+ * A stable, comparable rendering of an operand.
+ *
+ * WHITESPACE IS COLLAPSED ONLY OUTSIDE STRING LITERALS, and comments are dropped only
+ * where they are really comments. A regex over the raw text cannot tell either apart, and
+ * for a PARITY PROOF that is not a nicety: collapsing inside a literal makes
+ * `"a  b"` -> `"a b"` — a real rendered class change — compare equal, which is precisely
+ * the drift this script exists to catch. String literals are therefore rendered from their
+ * parsed `.text`, exactly, and everything else is structural.
+ */
 export function operandText(node, sourceFile) {
-  return node
-    .getText(sourceFile)
-    .replace(/\/\*[\s\S]*?\*\//g, " ")
-    .replace(/(^|[^:])\/\/[^\n]*/g, "$1 ")
-    .replace(/\s+/g, " ")
-    .trim();
+  const render = (n) => {
+    if (ts.isStringLiteral(n) || ts.isNoSubstitutionTemplateLiteral(n)) {
+      return JSON.stringify(n.text); // exact: interior whitespace preserved
+    }
+    if (ts.isIdentifier(n)) return n.text;
+    if (ts.isParenthesizedExpression(n)) return `(${render(n.expression)})`;
+    if (ts.isAsExpression(n) || ts.isNonNullExpression(n)) return render(n.expression);
+    if (ts.isSatisfiesExpression && ts.isSatisfiesExpression(n)) return render(n.expression);
+    if (ts.isConditionalExpression(n)) {
+      return `${render(n.condition)} ? ${render(n.whenTrue)} : ${render(n.whenFalse)}`;
+    }
+    if (ts.isPropertyAccessExpression(n)) return `${render(n.expression)}.${n.name.text}`;
+    if (ts.isElementAccessExpression(n)) {
+      return `${render(n.expression)}[${render(n.argumentExpression)}]`;
+    }
+    if (ts.isBinaryExpression(n)) {
+      return `${render(n.left)} ${n.operatorToken.getText(sourceFile)} ${render(n.right)}`;
+    }
+    if (ts.isCallExpression(n)) {
+      return `${render(n.expression)}(${n.arguments.map(render).join(", ")})`;
+    }
+    if (n.kind === ts.SyntaxKind.NullKeyword) return "null";
+    if (n.kind === ts.SyntaxKind.TrueKeyword) return "true";
+    if (n.kind === ts.SyntaxKind.FalseKeyword) return "false";
+    // Fallback for shapes not modelled above: collapse whitespace only in the regions that
+    // are NOT string literals, so a literal's bytes still cannot be silently normalized.
+    return collapseOutsideLiterals(n, sourceFile);
+  };
+  return render(node);
+}
+
+/** Collapse runs of whitespace except inside string/template literal spans. */
+function collapseOutsideLiterals(node, sourceFile) {
+  const start = node.getStart(sourceFile);
+  const text = node.getText(sourceFile);
+  const protectedRanges = [];
+  const collect = (n) => {
+    if (
+      ts.isStringLiteral(n) ||
+      ts.isNoSubstitutionTemplateLiteral(n) ||
+      ts.isTemplateHead(n) ||
+      ts.isTemplateMiddle(n) ||
+      ts.isTemplateTail(n)
+    ) {
+      protectedRanges.push([n.getStart(sourceFile) - start, n.getEnd() - start]);
+    }
+    ts.forEachChild(n, collect);
+  };
+  collect(node);
+  const inProtected = (i) => protectedRanges.some(([a, b]) => i >= a && i < b);
+  let out = "";
+  let pendingSpace = false;
+  for (let i = 0; i < text.length; i += 1) {
+    const ch = text[i];
+    if (!inProtected(i) && /\s/.test(ch)) {
+      pendingSpace = true;
+      continue;
+    }
+    if (pendingSpace) {
+      if (out.length > 0) out += " ";
+      pendingSpace = false;
+    }
+    out += ch;
+  }
+  return out.trim();
 }
 
 /** 1-based line number of a node. */

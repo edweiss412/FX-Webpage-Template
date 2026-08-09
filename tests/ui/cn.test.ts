@@ -60,6 +60,13 @@ describe("cn — spec §3.2", () => {
       expect(cn("p-2", "p-4")).toBe("p-2 p-4");
     });
 
+    it("does not trim a trailing space off its output", () => {
+      // Distinct from the leading/interior case below: a `trimEnd()` mutant survives every
+      // other row in this file, because no other expected output ENDS in whitespace.
+      expect(cn("a ")).toBe("a ");
+      expect(cn("a", "b ")).toBe("a b ");
+    });
+
     it("does not trim its own output", () => {
       // A leading/trailing space inside an operand is the operand's, not a separator, so
       // `cn` carries it through. `.trim()` would make E1 sites byte-different from base.

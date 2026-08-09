@@ -107,6 +107,33 @@ function readBaseline(): Baseline | null {
   return JSON.parse(fs.readFileSync(BASELINE_PATH, "utf8")) as Baseline;
 }
 
+/**
+ * Every compared field must be a FINITE NUMBER, checked at runtime.
+ *
+ * The JSON was previously cast to `Baseline` and trusted. That fails OPEN in the worst
+ * possible way: a missing `width` yields `undefined`, `Math.abs(measured - undefined)` is
+ * `NaN`, and `NaN > 0.5` is FALSE — so a baseline of three correctly-named EMPTY objects
+ * passes the key-set assertion and then silently accepts any geometry at all. A numeric
+ * string coerces the same way. An oracle that cannot be read is a loud failure, not a pass.
+ */
+function malformedRectFields(baseline: Baseline): string[] {
+  const bad: string[] = [];
+  for (const key of KEYS) {
+    const rect = baseline[key] as Record<string, unknown> | undefined;
+    if (rect === undefined || rect === null || typeof rect !== "object") {
+      bad.push(`${key}: not an object`);
+      continue;
+    }
+    for (const axis of ["x", "y", "width", "height"] as const) {
+      const value = rect[axis];
+      if (typeof value !== "number" || !Number.isFinite(value)) {
+        bad.push(`${key}.${axis}: ${JSON.stringify(value)} is not a finite number`);
+      }
+    }
+  }
+  return bad;
+}
+
 /** invariant-9 form; replicated from crew-layout-dimensions.spec.ts (module-private there). */
 async function lookupSeededShow(): Promise<{ slug: string; showId: string }> {
   // not-subject-to-meta: e2e test scaffolding — a returned error is converted to an
@@ -340,6 +367,15 @@ test.describe("canonical-class sizing deltas do not move geometry (AC-11)", () =
       Object.keys(oracle).sort(),
       "the committed baseline's key set does not match the measured target set",
     ).toEqual([...KEYS].sort());
+
+    // ...and on a key whose rect is present but unreadable. Without this the comparison
+    // below fails open: NaN never exceeds the tolerance.
+    expect(
+      malformedRectFields(oracle),
+      `the committed baseline at ${path.relative(process.cwd(), BASELINE_PATH)} has fields that ` +
+        "are not finite numbers. Every comparison against them would silently pass. Re-capture " +
+        `it deliberately:\n  ${CAPTURE_COMMAND}`,
+    ).toEqual([]);
 
     const drifted: string[] = [];
     for (const key of KEYS) {

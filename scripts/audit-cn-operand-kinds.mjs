@@ -70,7 +70,7 @@ import { fileURLToPath } from "node:url";
 
 import ts from "typescript";
 
-import { collectSites, parseSource } from "./lib/cnSites.mjs";
+import { collectSites, operandText, parseSource } from "./lib/cnSites.mjs";
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -128,8 +128,10 @@ const IDENTIFIER_TABLE = [
   { name: "CHIP_CLASS", file: "components/crew/primitives/PersonRow.tsx" },
 ];
 
-/** The sole sanctioned falsy conditional branch (spec §4, E2). */
+/** The sole sanctioned falsy conditional branch (spec §4, E2) — file AND exact operand. */
 const SANCTIONED_FALSY_FILE = "components/crew/primitives/DayCard.tsx";
+const SANCTIONED_FALSY_SIGNATURE =
+  'tone === "show" ? "bg-accent" : tone === "set" ? "" : "bg-border-strong"';
 
 /** Reconciliation targets for the live tree (spec §2.2, §4.1, plan P1 step 3). */
 const EXPECTED = {
@@ -148,6 +150,7 @@ const LIVE_CONFIG = {
   filteredSites: FILTERED_SITES,
   identifierTable: IDENTIFIER_TABLE,
   sanctionedFalsyFile: SANCTIONED_FALSY_FILE,
+  sanctionedFalsySignature: SANCTIONED_FALSY_SIGNATURE,
   expected: EXPECTED,
 };
 
@@ -207,9 +210,16 @@ function collectBindings(sourceFile, name) {
     if (
       (ts.isFunctionDeclaration(node) ||
         ts.isClassDeclaration(node) ||
+        ts.isFunctionExpression(node) ||
+        ts.isClassExpression(node) ||
         ts.isImportSpecifier(node) ||
         ts.isImportClause(node) ||
-        ts.isNamespaceImport(node)) &&
+        ts.isNamespaceImport(node) ||
+        // `import base = N.empty` is a real, legal binding that can shadow an allowlisted
+        // name with a falsy value while the outer definition stays truthy.
+        ts.isImportEqualsDeclaration(node) ||
+        ts.isEnumDeclaration(node) ||
+        ts.isModuleDeclaration(node)) &&
       node.name &&
       ts.isIdentifier(node.name) &&
       node.name.text === name
@@ -367,6 +377,14 @@ function runAudit(config) {
 
       // Reconciliation: before the migration the `.filter(Boolean)` marker is present and
       // must agree with the declared map; after it, the map is the only authority.
+      if (site.hasForeignFilter) {
+        stop(
+          where,
+          "the join is filtered by a predicate other than `Boolean`. `cn` is exactly " +
+            '`filter(Boolean).join(" ")`, so migrating this site would change output for any ' +
+            "operand the predicate keeps and `Boolean` drops (or vice versa).",
+        );
+      }
       if (site.form === "array-join" && site.hasFilterMarker !== isDeclaredFiltered) {
         stop(
           where,
@@ -476,7 +494,16 @@ function classifyOperand({ operand, rel, sourceFile, config, stop, where, tally 
         branch.kind === ts.SyntaxKind.NullKeyword ||
         (ts.isIdentifier(branch) && branch.text === "undefined") ||
         branch.kind === ts.SyntaxKind.FalseKeyword;
-      if (isFalsyLiteral && rel === config.sanctionedFalsyFile) {
+      // Keyed on file AND the operand's exact rendering, NOT the file alone. A file-wide
+      // key lets the sanctioned branch be DELETED and an equivalent one introduced at a
+      // different conditional in the same file: the count stays 1 and every reconciliation
+      // target stays green while a different site's output changes.
+      const signature = operandText(operand, sourceFile);
+      if (
+        isFalsyLiteral &&
+        rel === config.sanctionedFalsyFile &&
+        signature === config.sanctionedFalsySignature
+      ) {
         tally.sanctionedFalsyBranches += 1;
         continue;
       }
@@ -593,6 +620,8 @@ const SELF_TEST_BASE = {
     { name: "CHIP", file: "components/Widget.tsx" },
   ],
   sanctionedFalsyFile: "components/Widget.tsx",
+  sanctionedFalsySignature:
+    'tone === "show" ? "bg-accent" : tone === "set" ? "" : "bg-border-strong"',
   expected: {
     totalSites: 6,
     filteredSites: 1,
@@ -708,6 +737,133 @@ const MUTANTS = [
       "components/Widget.tsx": CLEAN_WIDGET.replace(
         `tone === "set" ? "" : "bg-border-strong"`,
         `tone === "set" ? "bg-set" : "bg-border-strong"`,
+      ),
+    }),
+  },
+  {
+    id: "P10-sanctioned-branch-relocated",
+    why: "the sanctioned falsy branch DELETED and an equivalent one introduced elsewhere in the same file (the count stays 1)",
+    expect: "falsy branch at a non-sanctioned site",
+    mutate: (c) => ({
+      ...c,
+      "components/Widget.tsx": CLEAN_WIDGET.replace(
+        `tone === "show" ? "bg-accent" : tone === "set" ? "" : "bg-border-strong"`,
+        `tone === "show" ? "bg-accent" : "bg-border-strong"`,
+      ).replace(`active ? "bg-on" : "bg-off"`, `active ? "bg-on" : ""`),
+    }),
+  },
+  {
+    id: "P11-foreign-filter-predicate",
+    why: "a join filtered by a predicate other than `Boolean`, which `cn` is NOT equivalent to",
+    expect: "filtered by a predicate other than `Boolean`",
+    mutate: (c) => ({
+      ...c,
+      "components/Widget.tsx": CLEAN_WIDGET.replace(
+        `["a-token", active ? "b-token" : null].filter(Boolean).join(" ")`,
+        `["a-token", active ? "b-token" : null].filter((x) => x !== "skip").join(" ")`,
+      ),
+    }),
+  },
+  {
+    id: "P12-missing-file",
+    why: "a declared inventory file that no longer exists",
+    expect: "file is missing",
+    mutate: (c) => {
+      const next = { ...c };
+      delete next["components/Other.tsx"];
+      return next;
+    },
+  },
+  {
+    id: "P13-filtered-map-mismatch-other-direction",
+    why: "a `.filter(Boolean)` marker on a site the map does NOT declare filtered (the opposite direction of P7)",
+    expect: "but is not declared filtered",
+    mutate: (c) => ({
+      ...c,
+      "components/Other.tsx": CLEAN_OTHER.replace(
+        `["fixed inset-0", open ? "block" : "hidden"].join(" ")`,
+        `["fixed inset-0", open ? "block" : "hidden"].filter(Boolean).join(" ")`,
+      ),
+    }),
+  },
+  {
+    id: "P14-top-level-empty-string-operand",
+    why: "a bare empty-string operand at an unfiltered site (not inside a conditional)",
+    expect: "operand is the empty string literal at an unfiltered site",
+    mutate: (c) => ({
+      ...c,
+      "components/Other.tsx": CLEAN_OTHER.replace(`"fixed inset-0",`, `"fixed inset-0", "",`),
+    }),
+  },
+  {
+    id: "P15-nonliteral-conditional-branch",
+    why: "a conditional operand with a branch that is neither a literal nor falsy (a call)",
+    expect: "not a non-empty string literal",
+    mutate: (c) => ({
+      ...c,
+      "components/Other.tsx": CLEAN_OTHER.replace(
+        `open ? "block" : "hidden"`,
+        `open ? compute() : "hidden"`,
+      ),
+    }),
+  },
+  {
+    id: "P16-allowlisted-identifier-with-no-binding",
+    why: "an allowlisted identifier whose definition has vanished from its file",
+    expect: "has no binding in this file",
+    mutate: (c) => ({
+      ...c,
+      "components/Widget.tsx": CLEAN_WIDGET.replace(
+        'const base = "rounded-md px-2";\n',
+        "",
+      ).replace("[base, pillState,", "[pillState,"),
+    }),
+  },
+  {
+    id: "P17-definition-binding-not-a-variable-declaration",
+    why: "an allowlisted name whose sole binding is a function declaration, not a variable",
+    expect: "not a variable declaration",
+    mutate: (c) => ({
+      ...c,
+      "components/Widget.tsx": CLEAN_WIDGET.replace(
+        'const base = "rounded-md px-2";',
+        "function base() {}",
+      ),
+    }),
+  },
+  {
+    id: "P18-const-without-initializer",
+    why: "an allowlisted definition declared without an initializer",
+    expect: "declaration has no initializer",
+    mutate: (c) => ({
+      ...c,
+      "components/Widget.tsx": CLEAN_WIDGET.replace(
+        'const base = "rounded-md px-2";',
+        "declare const base: string;",
+      ),
+    }),
+  },
+  {
+    id: "P19-invalid-class-list-initializer",
+    why: "a class-list initializer holding an empty-string operand",
+    expect: "class-list initializer has",
+    mutate: (c) => ({
+      ...c,
+      "components/Widget.tsx": CLEAN_WIDGET.replace(
+        'const CHIP = ["inline-block max-w-full truncate", "text-xs font-semibold"].join(" ");',
+        'const CHIP = ["inline-block max-w-full truncate", ""].join(" ");',
+      ),
+    }),
+  },
+  {
+    id: "P20-unsupported-initializer-kind",
+    why: "an allowlisted definition whose initializer is a call, which is not proven truthy",
+    expect: "that is not proven truthy",
+    mutate: (c) => ({
+      ...c,
+      "components/Widget.tsx": CLEAN_WIDGET.replace(
+        'const base = "rounded-md px-2";',
+        "const base = computeBase();",
       ),
     }),
   },

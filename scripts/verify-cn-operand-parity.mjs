@@ -128,16 +128,73 @@ function gitShow(sha, relPath) {
 }
 
 /** Apply the declared C1–C6 deltas for a file, reporting which fired. */
+/**
+ * Apply the declared C1–C6 deltas for a file, reporting which fired and which were
+ * REFUSED.
+ *
+ * Unrestricted `split().join()` was too permissive in two independent ways: it rewrote
+ * EVERY occurrence (so a delta could silently license two token changes where spec §6
+ * declares one), and it matched inside larger tokens (so `h-5 w-5` would fire inside
+ * `min-h-5 w-50`). A declared delta now fires only when it occurs EXACTLY ONCE and at
+ * class-token boundaries; anything else is refused and surfaces as an undeclared change.
+ */
 function applyDeclaredDeltas(text, relPath) {
   let out = text;
   const fired = [];
+  const refused = [];
   for (const delta of EXPECTED_TOKEN_DELTAS) {
     if (delta.file !== relPath) continue;
-    if (!out.includes(delta.before)) continue;
-    out = out.split(delta.before).join(delta.after);
+    const hits = boundedOccurrences(out, delta.before);
+    if (hits.length === 0) continue;
+    if (hits.length > 1) {
+      refused.push(`${delta.id}: ${hits.length} occurrences, spec §6 declares exactly one`);
+      continue;
+    }
+    const at = hits[0];
+    out = out.slice(0, at) + delta.after + out.slice(at + delta.before.length);
     fired.push(delta.id);
   }
-  return { text: out, fired };
+  return { text: out, fired, refused };
+}
+
+/** Offsets where `needle` occurs delimited by class-token boundaries (not mid-token). */
+function boundedOccurrences(haystack, needle) {
+  const isBoundary = (ch) => ch === undefined || /[\s"'`]/.test(ch);
+  const out = [];
+  let from = 0;
+  for (;;) {
+    const i = haystack.indexOf(needle, from);
+    if (i === -1) return out;
+    if (isBoundary(haystack[i - 1]) && isBoundary(haystack[i + needle.length])) out.push(i);
+    from = i + 1;
+  }
+}
+
+/**
+ * Is `base` really the parent of the migration commit on THIS history?
+ * Returns null when it is, or a one-line reason when it is not.
+ */
+function checkAnchorIdentity(base) {
+  const git = (args) =>
+    execFileSync("git", args, { cwd: REPO_ROOT, encoding: "utf8", maxBuffer: 16 * 1024 * 1024 });
+  try {
+    execFileSync("git", ["merge-base", "--is-ancestor", base, "HEAD"], { cwd: REPO_ROOT });
+  } catch {
+    return `it is not an ancestor of HEAD — it names a commit from a rewritten history.`;
+  }
+  const log = git(["log", "--format=%H%x09%s", "HEAD"]).split("\n").filter(Boolean);
+  const migration = log.find((l) =>
+    l.split("\t")[1].startsWith("refactor(ui): migrate array-join classNames"),
+  );
+  if (migration === undefined) {
+    return "no commit on HEAD has the migration subject, so the anchor cannot be verified.";
+  }
+  const sha = migration.split("\t")[0];
+  const parent = git(["rev-parse", `${sha}~1`]).trim();
+  if (parent !== base) {
+    return `the migration commit is ${sha.slice(0, 12)}, whose parent is ${parent.slice(0, 12)}.`;
+  }
+  return null;
 }
 
 function main(argv) {
@@ -175,6 +232,22 @@ function main(argv) {
     }).trim();
   } catch {
     console.error(`--base ${base} does not resolve to a commit in this repository.`);
+    return 2;
+  }
+
+  // `--base` REQUIRED was never enough: a stale, pre-rebase SHA is syntactically valid and
+  // silently passed, which is the exact failure this file's header claims to prevent. The
+  // anchor's IDENTITY is now checked — it must be an ancestor of HEAD, and it must be the
+  // parent of the commit that actually performed the migration.
+  const identity = checkAnchorIdentity(resolvedBase);
+  if (identity !== null) {
+    console.error(`--base ${resolvedBase} is not the current migration parent.`);
+    console.error(`  ${identity}`);
+    console.error(
+      "Re-resolve it: find the commit whose subject starts\n" +
+        '  "refactor(ui): migrate array-join classNames"\n' +
+        "and pass its `~1`. Any rebase rewrites BOTH that commit and its parent.",
+    );
     return 2;
   }
 
@@ -259,8 +332,8 @@ function main(argv) {
         const headOperand = headOperands[opIndex];
         if (baseOperand === headOperand) return;
 
-        const { text: canonicalized, fired } = applyDeclaredDeltas(baseOperand, rel);
-        if (canonicalized === headOperand) {
+        const { text: canonicalized, fired, refused } = applyDeclaredDeltas(baseOperand, rel);
+        if (canonicalized === headOperand && refused.length === 0) {
           fired.forEach((id) => firedDeltas.add(id));
           return;
         }
@@ -270,7 +343,8 @@ function main(argv) {
             `      head: ${headOperand}` +
             (fired.length > 0
               ? `\n      (declared deltas ${fired.join(", ")} applied and it still differs)`
-              : ""),
+              : "") +
+            (refused.length > 0 ? `\n      REFUSED: ${refused.join("; ")}` : ""),
         );
       });
     });

@@ -92,6 +92,8 @@ type JoinSite = {
   signature: string;
   /** The separator's literal text, for diagnostics. */
   separator: string;
+  /** Is this join feeding a `className` (JSX attribute, or a `className:` property)? */
+  inClassNamePosition: boolean;
 };
 
 /**
@@ -109,6 +111,22 @@ function isStringLiteralNode(
   node: ts.Node,
 ): node is ts.StringLiteral | ts.NoSubstitutionTemplateLiteral {
   return ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node);
+}
+
+/** Peel wrappers that change no runtime value: `( )`, `as T`, `satisfies T`, `!`. */
+function unwrapValuePreserving(node: ts.Expression): ts.Expression {
+  let n = node;
+  for (;;) {
+    if (ts.isParenthesizedExpression(n) || ts.isAsExpression(n) || ts.isNonNullExpression(n)) {
+      n = n.expression;
+      continue;
+    }
+    if (ts.isSatisfiesExpression(n)) {
+      n = n.expression;
+      continue;
+    }
+    return n;
+  }
 }
 
 /** The accept-set's key: a non-empty, all-whitespace separator, at ANY quote style. */
@@ -163,13 +181,17 @@ function recognizeJoins(relPath: string, source: string): JoinSite[] {
       separatorArg !== undefined &&
       isWhitespaceSeparator(separatorArg)
     ) {
-      let receiver: ts.Expression = node.expression.expression;
-      if (
+      let receiver: ts.Expression = unwrapValuePreserving(node.expression.expression);
+      // A CHAIN of filters, and value-preserving wrappers between them. Probed escapes:
+      // `(["p-2","x"] as const).join(" ")`, `(... satisfies string[]).join(" ")`, and
+      // `[...].filter(Boolean).filter(Boolean).join(" ")` are all ordinary TypeScript that
+      // Prettier preserves, and all three were invisible when only one link was peeled.
+      while (
         ts.isCallExpression(receiver) &&
         ts.isPropertyAccessExpression(receiver.expression) &&
         receiver.expression.name.text === "filter"
       ) {
-        receiver = receiver.expression.expression;
+        receiver = unwrapValuePreserving(receiver.expression.expression);
       }
       if (ts.isArrayLiteralExpression(receiver)) {
         found.push({
@@ -177,6 +199,7 @@ function recognizeJoins(relPath: string, source: string): JoinSite[] {
           line: sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1,
           signature: receiver.elements.map((e) => normalize(e.getText(sourceFile))).join(", "),
           separator: JSON.stringify((separatorArg as ts.StringLiteral).text),
+          inClassNamePosition: isInClassNamePosition(node),
         });
       }
     }
@@ -184,6 +207,26 @@ function recognizeJoins(relPath: string, source: string): JoinSite[] {
   };
   visit(sourceFile);
   return found;
+}
+
+/**
+ * Is this node (transitively) the value of a `className` JSX attribute or a `className:`
+ * property? Used to make the data-join exemptions un-abusable: an exemption excuses a DATA
+ * join, so it may never excuse a join that feeds a className, whatever its operands are.
+ */
+function isInClassNamePosition(node: ts.Node): boolean {
+  for (let n: ts.Node | undefined = node; n !== undefined; n = n.parent) {
+    if (ts.isJsxAttribute(n) && ts.isIdentifier(n.name) && n.name.text === "className") return true;
+    if (
+      ts.isPropertyAssignment(n) &&
+      (ts.isIdentifier(n.name) || ts.isStringLiteral(n.name)) &&
+      n.name.text === "className"
+    ) {
+      return true;
+    }
+    if (ts.isVariableDeclaration(n) || ts.isFunctionDeclaration(n)) break;
+  }
+  return false;
 }
 
 /**
@@ -419,7 +462,11 @@ describe("no className array joins survive (zero-tolerance, spec §7.1)", () => 
 
   it("reports zero array-join classNames outside the two named data-join exemptions", () => {
     const offenders = treeSites
-      .filter((s) => !(s.file in EXEMPT_SITES))
+      // An exemption excuses a DATA join. A join in a className position is never data, so
+      // it is an offender even in an exempted file and even with a recorded signature —
+      // otherwise a className join written with the exempt operands (`[leg.date, leg.time]`)
+      // suppresses the whole file while signature equality still passes.
+      .filter((s) => s.inClassNamePosition || !(s.file in EXEMPT_SITES))
       .map((s) => `${s.file}:${s.line} — [${s.signature}].join(${s.separator})`);
     expect(
       offenders,
@@ -435,9 +482,16 @@ describe("no className array joins survive (zero-tolerance, spec §7.1)", () => 
     "%s holds exactly its recorded exempt sites, no more and no fewer",
     (file) => {
       const actual = treeSites
-        .filter((s) => s.file === file)
+        .filter((s) => s.file === file && !s.inClassNamePosition)
         .map((s) => s.signature)
         .sort();
+      // The exempted sites must be DATA joins. If any join in this file sits in a className
+      // position, the exemption is being used to excuse a class list.
+      expect(
+        treeSites.filter((s) => s.file === file && s.inClassNamePosition).map((s) => s.line),
+        "an exempted file holds a join in a className position — an exemption excuses a DATA " +
+          "join and can never excuse a class list, whatever its operands look like",
+      ).toEqual([]);
       expect(
         actual,
         "an exempted file's whitespace-join sites must EQUAL its recorded set. Larger means a new " +
@@ -544,6 +598,13 @@ function buildCoverageProbe(): { source: string; cells: Cell[] } {
 
 describe("the premise the census deletion rests on (spec §7.2)", () => {
   it("the rule reports drift inside cn(...) and NOT inside an array join", async () => {
+    // `better-tailwindcss` resolves canonical classes through a synckit worker whose default
+    // timeout is short. On a loaded machine (this repo's arcs ship concurrently, and a
+    // measured load average of 57 was enough) the worker misses it and ESLint reports
+    // `Internal error: Atomics.wait() failed: timed-out` — a machine-contention failure that
+    // says nothing about the rule. Raise it so this assertion measures the RULE, not the
+    // scheduler. Respects an explicit outer value.
+    process.env.SYNCKIT_TIMEOUT ??= "120000";
     const { source, cells } = buildCoverageProbe();
     const eslint = new ESLint({ cwd: ROOT });
     // `lintText` needs no file on disk, so nothing is written into the repo that a

@@ -217,6 +217,19 @@ describe("<DayCard> — horizontal date badge", () => {
       expect(shared.length).toBeGreaterThan(0); // premise: the branches DO share a base
       expect(set.tokens).toEqual(shared);
 
+      // The derivation above proves the SET RELATIONSHIP between branches, but it is blind
+      // to drift that moves every branch at once: change the base from `size-1.75` to
+      // `size-2` on all three and each assertion still passes while the dot's rendered size
+      // changes. So the shared base is ALSO pinned literally. Both halves are wanted — the
+      // derivation catches one branch drifting, the literal catches all of them drifting
+      // together.
+      expect(
+        shared,
+        "the tone dot's shared base classes changed. This arc is operand-preserving, so a " +
+          "change here means the rewrite escaped its scope (or a real design change landed " +
+          "and this pin needs updating deliberately).",
+      ).toEqual(["rounded-full", "shrink-0", "size-1.75"]);
+
       // And the two non-empty branches each add exactly their own background token, so the
       // `set` branch's emptiness is a real absence rather than a scan that found nothing.
       expect(show.tokens.filter((t) => !shared.includes(t))).toEqual(["bg-accent"]);
@@ -229,6 +242,11 @@ describe("<DayCard> — horizontal date badge", () => {
       const set = dotFor("Set");
 
       expect([show.tone, travel.tone, set.tone]).toEqual(["show", "travel", "set"]);
+      // Compare the className BYTES, not just the token sets: `set` is exactly the shared
+      // base, and the other two are the base plus their own background token.
+      expect(set.className).toBe("size-1.75 shrink-0 rounded-full");
+      expect(show.className).toBe("size-1.75 shrink-0 rounded-full bg-accent");
+      expect(travel.className).toBe("size-1.75 shrink-0 rounded-full bg-border-strong");
       for (const branch of [show, travel]) {
         expect(branch.className).toBe(branch.className.trimEnd());
         expect(branch.className).not.toMatch(/\s{2,}/);

@@ -36,12 +36,48 @@ import path from "node:path";
 
 import { describe, expect, it } from "vitest";
 
+import { stripCssComments } from "../_shared/stripComments";
+
 const GLOBALS = path.join(process.cwd(), "app/globals.css");
 
-/** Every `--<name>: <value>;` declaration in the file, in source order. */
+/**
+ * Every ACTIVE `--<name>: <value>;` declaration inside an `@theme` block, in source order.
+ *
+ * Two things this must not do, both probed as real holes in an earlier draft:
+ *
+ *  - **Read commented-out declarations.** A raw regex happily matched a token inside a
+ *    `/* ... *\/` block, so a file whose ONLY matching declarations were commented out
+ *    still reported `["60px"]` and passed. Comments are stripped first, by the
+ *    single-source `stripCssComments` (blanks them, preserving offsets).
+ *  - **Read declarations outside `@theme`.** Tailwind v4 only exposes `@theme` tokens as
+ *    utilities, so a `:root` declaration of the same name proves nothing about what
+ *    `max-w-confirm-box` resolves to. Only `@theme` blocks are scanned.
+ */
 function declarationsOf(css: string, token: string): string[] {
+  const active = stripCssComments(css);
   const pattern = new RegExp(`^\\s*${token.replace(/[-]/g, "\\-")}\\s*:\\s*([^;]+);`, "gm");
-  return [...css.matchAll(pattern)].map((m) => (m[1] ?? "").trim());
+  return themeBlocks(active).flatMap((block) =>
+    [...block.matchAll(pattern)].map((m) => (m[1] ?? "").trim()),
+  );
+}
+
+/** The text inside each top-level `@theme { ... }` block, brace-matched. */
+function themeBlocks(css: string): string[] {
+  const out: string[] = [];
+  const re = /@theme[^{]*\{/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(css)) !== null) {
+    let depth = 1;
+    let i = m.index + m[0].length;
+    const start = i;
+    for (; i < css.length && depth > 0; i += 1) {
+      if (css[i] === "{") depth += 1;
+      else if (css[i] === "}") depth -= 1;
+    }
+    out.push(css.slice(start, i - 1));
+    re.lastIndex = i;
+  }
+  return out;
 }
 
 describe("canonicalized utilities resolve to the values they replaced (spec §6)", () => {
@@ -54,6 +90,9 @@ describe("canonicalized utilities resolve to the values they replaced (spec §6)
   it("premise: app/globals.css was read and carries @theme spacing tokens", () => {
     expect(css.length, `${GLOBALS} is empty or unreadable`).toBeGreaterThan(0);
     expect(css).toContain("--spacing-");
+    // And the @theme scoping actually finds blocks — otherwise every assertion below would
+    // read an empty set and "defined exactly once" would fail for the wrong reason.
+    expect(themeBlocks(stripCssComments(css)).length, "no @theme block found").toBeGreaterThan(0);
   });
 
   it("C1: --spacing-confirm-box is exactly the 60px `max-w-[60px]` encoded", () => {
