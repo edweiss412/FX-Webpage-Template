@@ -787,6 +787,27 @@ Asset URLs are proxied through `/api/asset/diagram/...` which returns auth-check
 
 **Promotion prerequisite:** Either (a) FXAV operator feedback surfaces dashboard-level friction (Doug actively wants to triage multiple shows from the dashboard without drilling in), OR (b) a v1.x admin-UX polish milestone. `Archive` may need a separate spec amendment if `shows.archived_at` semantics need definition (idempotency, side effects on `crew_member_auth`, etc.).
 
+### BL-PENDING-RETRY-EXISTING-SHOW-THROWS — existing-show pending-ingestion retry throws before any sync work
+
+**Status:** OPEN · **Severity:** HIGH (a shipped admin action appears to work and cannot) · **Class:** sync pipeline · **Effort:** M · **Filed:** 2026-08-09
+
+**Probe.** `app/api/admin/pending-ingestions/[id]/retry/route.ts:427-433` calls `runManualSyncForShow_unlocked(tx, driveFileId, "manual", metadata, {})`. That function invokes `processOneFile_unlocked` with **five** arguments (`lib/sync/runManualSyncForShow.ts:287-294`) — it never passes the sixth `prepared` parameter. `processOneFile_unlocked` throws unconditionally when `prepared` is absent (`lib/sync/runScheduledCronSync.ts:3299-3304`):
+
+```
+if (!prepared) {
+  throw new SyncInfraError("processOneFile_unlocked", "thrown_error",
+    new Error("prepared process data is required before acquiring the show lock"));
+}
+```
+
+So for any non-archived show, the existing-show retry path throws `SyncInfraError` before doing any sync work. Only the archived-skip early return at `:3296` avoids it.
+
+**Why this is not fixed by the arc that found it.** Surfaced by cross-model review R7 (F2/F3) during `fix/sync-log-show-id-duration`. That change makes every sync writer attribute its show, and it wires a `logSync` sink into this site along with seven others — but the throw precedes emission, so the sink is inert here. Repairing it means deciding what `prepared` data this route should construct before taking the lock, which is a design question about the retry flow rather than about logging. Class-sweep disposition exception (a): needs a design decision the current PR cannot settle.
+
+**Scope of a real fix:** decide whether the route should call `prepareProcessOneFile` itself, or use the locked `runManualSyncForShow` entry point instead of the `_unlocked` variant. Then verify with a live retry against an existing show — the current tests inject `processOneFile_unlocked`, which is why this never surfaced.
+
+**Related:** the same path is the third duration-capture boundary noted in `docs/superpowers/specs/observability/2026-08-09-sync-log-show-attribution-design.md` §6.1; duration there is moot until the path executes.
+
 ### BL-ADMIN-PER-SHOW-HISTORY — Sync-health-history + parse-warnings-history sections on per-show panel
 
 **Status:** IN PROGRESS · **Branch:** fix/sync-log-show-id-duration

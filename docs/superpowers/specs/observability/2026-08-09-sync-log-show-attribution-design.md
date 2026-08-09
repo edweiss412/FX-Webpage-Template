@@ -280,7 +280,11 @@ The recognizer is therefore derived: **every exported symbol of `lib/sync/syncLo
 
 **Scope bound, stated so it cannot ratchet.** Target ~150 lines. If review pressure pushes it past ~250, that is the ratchet the round-economy retrospective describes, and the response is to narrow the claim rather than widen the recognizer.
 
-**Threat model.** Defends against an ordinary contributor adding a call site and forgetting attribution. Deliberate obfuscation — a dynamically computed writer name, an aliased import — is out of scope and files to documented limits.
+**The entry-point rule keys on the IMPORT, not the call name (R7 F1).** All four indirect sinkless paths call through a local alias rather than a syntactically named export: `catchUp` in `lib/showLifecycle/unarchiveShow.ts:24-32`, `runSync` in `app/api/admin/show/pull-sheet-override/route.ts:135`, and dependency-object properties at `app/api/admin/pending-ingestions/[id]/retry/route.ts:211-215` and `app/api/admin/pending-ingestions/[id]/retry/route.ts:216-220`. A recognizer matching callee names finds none of them.
+
+So the rule is: **a file that imports an exported sync entry point must supply a sink at some call, or carry a site exemption.** The entry-point seed set is derived from the exports of `lib/sync/runManualSyncForShow.ts` and `lib/sync/runManualStageForFirstSeen.ts`, exactly as the writer set is derived from `lib/sync/syncLog.ts`. Import presence is a file-local fact, so no interprocedural alias resolution is needed — the direct importer is always in a scanned root and is the correct site to name.
+
+**Threat model — corrected (R7 F1).** An earlier draft fenced "an aliased import" out as obfuscation. That was wrong, and it contradicted the rule above: an import alias and a DI-default binding are ordinary authoring, and they are the shape every real sinkless path uses. They are **in** scope and are covered by keying on the import. What remains out of scope is a writer or entry point reached with **no import at all** — a dynamically computed module specifier, or a callee assembled at runtime — which files to documented limits.
 
 **Seed registry** — exactly the rows §3.2 derives: `lib/sync/runScheduledCronSync.ts:3780`, `lib/sync/runScheduledCronSync.ts:3796`, the four `lib/onboarding/sessionLifecycle.ts` sites, `lib/sync/runOnboardingScan.ts:1134`, and `app/api/drive/webhook/route.ts:224`. The `app/api/cron/sync/route.ts:21` wiring is a *dependency injection*, not an emission, and is covered by the sites inside `runScheduledCronSync` that it drives — the meta-test must distinguish the two, or every injection site becomes a false positive.
 
@@ -366,6 +370,19 @@ Deliberate, and not findings:
 - **Retention is uniform at 60 days.** No per-show or per-status retention tiering. `sync_audit` remains the durable record of applied changes and is not pruned.
 
 ---
+
+## 6.1 A pre-existing defect this change surfaced but does NOT fix (R7 F2/F3)
+
+The existing-show pending-ingestion retry path is broken today, independently of this change, and a sink cannot repair it.
+
+`app/api/admin/pending-ingestions/[id]/retry/route.ts:427-433` calls `runManualSyncForShow_unlocked(..., {})`. That function invokes `processOneFile_unlocked` with **five** arguments (`lib/sync/runManualSyncForShow.ts:287-294`) — no sixth `prepared` — and `processOneFile_unlocked` throws unconditionally when `prepared` is absent (`lib/sync/runScheduledCronSync.ts:3299-3304`). For any non-archived show the call therefore throws `SyncInfraError` before reaching any emission.
+
+Two consequences, both deliberate:
+
+- **Adding `logSync` to that site does not make it log.** The throw precedes emission, so the R5 F1 repair is a no-op there. The site still receives the sink, because it should have one once the path works, but this spec does not claim it produces a row.
+- **The third duration-capture boundary (R7 F3) is moot until the path executes.** `runManualSyncForShow_unlocked` reaches `processOneFile_unlocked` directly, bypassing both capture sites in §3.3, so it would carry NULL duration — but only if it ever got that far, which it does not.
+
+This is a different defect class from sync-log attribution: a broken retry path, not a missing sink. Repairing it means deciding what `prepared` data that route should build, which is a design question this change cannot settle. **Filed as `BL-PENDING-RETRY-EXISTING-SHOW-THROWS`** with the citations above, per the class-sweep disposition rule's exception (a). AC-6 and the consequence bound are scoped to exclude it explicitly, rather than being quietly false for it.
 
 ## 7. Out of scope
 
