@@ -661,6 +661,24 @@ earlier on this same branch.
 
 ---
 
+## BL-MUTATION-UNICODE — an injected zero-width character is silently retained — CLOSED 2026-08-08 (`feat/mutation-unicode`, PR #736, wave branch 1/5)
+
+**Status:** CLOSED · **Filed:** 2026-08-06 (L-wave decomposition of `BL-MUTATION-HARNESS-OPEN-HOLES`) · **Class:** PARSER ROBUSTNESS · **Effort:** M · **Severity:** medium
+
+A zero-width non-joiner (U+200C) injected into a cell value survived the parse intact. The class matters because invisible characters defeat EQUALITY: a name carrying one does not match the same name without one, so identity linking, crew matching, and every string comparison silently miss while the rendered page looks correct.
+
+**Resolution: the whole class closed, zero residue.** `parseSheet` now strips `[\u200B-\u200D\uFEFF]` from the entire document as its FIRST statement, before any read — including `classifyVersion`'s label reads, which run before the `normalizeSectionHeaders` seam (`lib/parser/index.ts:559`, spec §3.1). `clean()` keeps its own cell-boundary strip, because cell values are also assembled outside that entry.
+
+The row was filed with a ledgered blast radius of **827 holes** (827 `wrong` / 0 `signal_loss`) and all 827 closed: `RAW_HOLES` went 7,842 → 7,015, and the PR-head `mutation-harness` run reported **all four reconciliation buckets empty across all 8 shards** — 7,015 collected alarms against 7,015 ledger rows, `newHoles` = `fixedHoles` = 0.
+
+**The shape prediction in the original entry was right.** It said a new warn code would be warranted "only for a residue that cannot be stripped safely; if the whole 827 closes by routing through the existing boundary, no catalog row and no §12.4 lockstep is needed — which would make this smaller than M". That is what happened: no `ParseWarning` code, no catalog row, no lockstep. The M sizing was conservative.
+
+**Guard:** `tests/parser/payloadZeroWidth.test.ts` (spec §3.4). Its discriminating arm is the SEEDED one — the un-mutated corpus does not leak zero-width text into payload even without the strip, since every payload path already routes through `clean()`, so a clean-corpus assertion alone would be vacuous. That vacuity was caught in adversarial review and repaired; the guard now carries an executable reachability premise, and removing the strip fails two arms.
+
+**Documented limits (not residue).** The character class is `clean()`'s ratified one, so it omits U+2060 and U+00AD and splits emoji ZWJ sequences. Behavior deltas per spec §3.2: `contentHash` re-keys once on sheets carrying zero-width characters, and `rawSnippet` / `sourceCell` render post-strip text.
+
+---
+
 ## BL-MUTATION-HARNESS-OPEN-HOLES — parser silent-fragility classes pinned by the mutation harness — CLOSED 2026-08-06 (L-wave, `feat/l-wave-docs`, DECOMPOSED)
 
 **Resolution: DECOMPOSED into five standalone entries, one per operator class.** Ratified 2026-08-05

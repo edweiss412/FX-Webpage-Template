@@ -420,19 +420,45 @@ Deleting one interior pipe — which is exactly how a merged cell exports to mar
 
 **Ratchet contract:** SHRINK-ONLY, as above — `staleRows` on hardening, `newAlarms` on regression. Decomposition record: `BACKLOG-archive.md` § `BL-MUTATION-HARNESS-OPEN-HOLES`.
 
-### BL-MUTATION-UNICODE — an injected zero-width character is silently retained
+### BL-ZERO-WIDTH-POST-PARSE-ENRICHMENT — zero-width text still reaches the PERSISTED payload through the sync/Drive enrichment layer
 
-**Status:** OPEN (2026-08-06, L-wave decomposition of `BL-MUTATION-HARNESS-OPEN-HOLES`; wave spec+plan ratified 2026-08-08 — see docs/superpowers/specs/parser/2026-08-07-parser-mutation-wave-design.md) · **Severity:** medium · **Class:** PARSER ROBUSTNESS · **Effort:** M
+**Status:** OPEN (2026-08-09, surfaced by codex-guard round 4 on `feat/mutation-unicode`, PR #736) · **Severity:** medium · **Class:** PARSER ROBUSTNESS / SYNC · **Effort:** M
 
-A zero-width non-joiner (U+200C) injected into a cell value survives the parse intact — the live fintech ZWNJ shape. Invisible-character class, and the reason it matters is that it defeats EQUALITY: a name carrying a zero-width character does not match the same name without one, so identity linking, crew matching, and every string comparison silently miss while the rendered page looks correct.
+The parser-side hole is closed: `parseSheet` strips `[\u200B-\u200D\uFEFF]` from both of its inputs, so nothing invisible survives a parse. But `ParsedSheet` is not finished when `parseSheet` returns. The sync layer attaches Drive-derived fields afterwards (`lib/parser/index.ts` header: those fields are "NEVER populated here"), and every one of them carries author-controlled text that no boundary strips:
 
-**Ledgered blast radius: 827 holes** (827 `wrong` / 0 `signal_loss`) — derived 2026-08-06 from `RAW_HOLES`. Linkage: `OPERATOR_FINDING_MAP["unicode-inject"] = "BL-MUTATION-UNICODE"` (`tests/parser/mutation/knownHoles.ts:83`), pinned by `knownHoles.test.ts`.
+- `embeddedImages[].sheetTab` — both the XLSX and Sheets-API branches (`lib/sync/enrichWithDrivePins.ts:232`, `:311`)
+- `embeddedImages[].alt` (`enrichWithDrivePins.ts:314`)
+- `linkedFolderItems[].alt` (`enrichWithDrivePins.ts:380`)
+- `archivedPullSheetTabs[].tabName` and `.headerPreviews[]` (`lib/drive/exportSheetToMarkdown.ts:382`), attached post-parse by `lib/sync/pullSheetOverride.ts:229`
 
-**STRIP IS ALREADY THE RATIFIED POLICY — this row is incomplete ENFORCEMENT of it, not an open strip-vs-warn question.** Corrected 2026-08-06 after cross-model review probed the claim: `clean()` strips `[\u200B-\u200D\uFEFF]` at the shared cell boundary (`lib/parser/blocks/_helpers.ts:44-50`, which covers ZWNJ U+200C), and the live fintech ZWNJ shape has an executing regression asserting removal (`tests/parser/blocks/transport.test.ts:409-417`). The 827 holes are real and are fields the mutation harness reaches that this boundary does not.
+**Probe evidence** (codex-guard round 4, `--stage diff --round 4`). Clean-vs-dirty runs through `enrichWithDrivePins` and through `buildXlsx → parseSheet → finalizeArchivedTabs`, both scored with the mutation oracle:
 
-**Shape (M):** find the paths that bypass `clean()` and route them through it (or through the same character class), then shrink the ledger. The corpus calibration is establishing WHICH fields are still unprotected and whether any legitimately needs a zero-width character preserved. A warn-severity `ParseWarning` code is warranted only for a residue that cannot be stripped safely; if the whole 827 closes by routing through the existing boundary, no catalog row and no §12.4 lockstep is needed — which would make this smaller than M, and the first task should establish that.
+```
+{"verdict":"SILENT_WRONG","paths":["payload.diagrams.embeddedImages[0].sheetTab","payload.diagrams.embeddedImages[0].alt","payload.diagrams.linkedFolderItems[0].alt"]}
+{"verdict":"SILENT_WRONG","paths":["payload.archivedPullSheetTabs[0].tabName","payload.archivedPullSheetTabs[0].headerPreviews[0]"]}
+```
 
-**Ratchet contract:** SHRINK-ONLY, as above. Decomposition record: `BACKLOG-archive.md` § `BL-MUTATION-HARNESS-OPEN-HOLES`.
+The archived-tab fingerprint also rekeys silently: `{"clean":"705848ac…f97c25","dirty":"80fd09c3…28058","equal":false}`.
+
+This is the SAME consequence the wave exists to remove — invisible characters defeat equality, so a sheet tab or alt text carrying one fails exact comparison while rendering identically.
+
+**Why filed rather than repaired in the branch that found it** (AGENTS.md class-sweep disposition, exception (b) — a ratified scope decision already fences it): the wave's spec fences every branch to the parser (`docs/superpowers/specs/parser/2026-08-07-parser-mutation-wave-design.md` §3.1 scopes the strip to `parseSheet` entry), and plan-wide invariant 7 makes the spec canonical, directing an out-of-scope discovery to a question rather than a silent fix. `lib/sync/**` and `lib/drive/**` are a different subsystem that no branch of this wave otherwise touches. Note this is NOT the "same defect, different file" case the rule forbids deferring: the fence is a ratified scope decision, not convenience.
+
+**Shape (M):** strip at the point Drive-supplied strings enter the payload (five call sites across the three files above, sharing one helper with the parser's `stripZeroWidth` so the boundaries cannot drift), plus a guard in the shape of `tests/parser/payloadZeroWidth.test.ts` covering the enriched payload rather than the parse output, plus a decision on whether the archived-tab fingerprint rekey needs a one-time migration note.
+
+### BL-MUTATION-LEDGERGIT-SITE-DRIFT — the `ledgerGit` source-mutation gate is red on main: relocated sites, an uncovered new constant, and a CI-only survivor pair
+
+**Status:** OPEN (2026-08-08, surfaced by the parser mutation-hardening wave; PRE-EXISTING on `main`, not introduced by that wave) · **Severity:** medium · **Class:** CI / GUARD SURFACE · **Effort:** M
+
+`tests/mutation/guardSurfaces.gate.test.ts` fails for the `ledgerGit` surface (`tests/mutation/source/registry.ts:355`, source `scripts/lib/ledger-git.ts`). Three distinct causes, only the first of which is bookkeeping:
+
+1. **Relocated sites (6 rows, mechanical).** `229563b76` ("fix(scripts): CLIs set exitCode instead of exit()") inserted ~16-19 lines into `scripts/lib/ledger-git.ts` without re-pointing the registry's `accepted` rows, which key on line numbers. Every one of the six is byte-identical at its new line, so the existing `reason` prose stays valid verbatim: `67:12`→`83:12`, `114:18`→`130:18`, `176:32`→`192:32`, `202:17`→`219:17`, `261:11`→`280:11`, `306:14`→`325:14`.
+2. **A genuinely uncovered new constant (3 mutants).** The same commit added `const MAX_GIT_STDOUT = 64 * 1024 * 1024;` (`scripts/lib/ledger-git.ts:62`). All three of its integer-literal mutants survive — `62:24:64>65`, `62:29:1024>1025`, `62:36:1024>1025` — so `tests/scripts/ledgerClaimsCheck.test.ts` never exercises the maxBuffer bound. This is a real coverage gap, not a relocation, and closing it needs a new suite case that drives stdout past the cap.
+3. **A CI-only survivor pair contradicting the surface's own documented limit.** CI reports 11 unaccepted survivors and score 0.8333; a local full clone reports 9 and 0.8571. The two extra are `integer-literal:284:60:2>3` and `284:93:2>3`. The registry comment at `registry.ts:359-363` asserts every verdict is "environment-INDEPENDENT by construction ... none of them can read differently on a developer's full clone than in CI's zero-ref checkout (spec AC-6, limit L-6)". The measurement below falsifies that claim for at least these two sites; the fix must either make them environment-independent or amend the claim.
+
+**Probe evidence.** Nightly `mutation-harness` on `main` @ `9bd0a8456` (run 31246763153): `unaccepted-survivor: 11 survivor(s) with no ledger row: ... integer-literal:284:60:2>3, integer-literal:284:93:2>3`, `stale-ledger-row: 6 ledger row(s) whose site no longer survives: logical-connector:114:18:||>&&, logical-connector:67:12:||>&&, logical-connector:176:32:||>&&, integer-literal:202:17:1>2, statement-removal:261:11:continue;>(removed), logical-connector:306:14:||>&&`, `below-floor: ledgerGit: score 0.8333 < floor 0.9`. Local reproduction on a full clone off the same commit: `VITEST_INCLUDE_MUTATION_HARNESS=1 pnpm exec vitest run tests/mutation/guardSurfaces.gate.test.ts` → same 6 stale rows, 9 survivors, `score 0.8571 < floor 0.9`. Byte-identity of the six relocations verified with `git show 229563b76~1:scripts/lib/ledger-git.ts`.
+
+**Why filed rather than repaired in the wave branch that found it** (AGENTS.md class-sweep disposition, exception (c)): causes 2 and 3 are a redesign of a guard surface the parser wave does not otherwise touch — a new executable suite case for the maxBuffer bound, plus settling an environment-dependence claim in the surface's ratified limits. Repairing only cause 1 would leave the gate red anyway (below-floor persists), so it buys nothing. The parser wave's PRs record this as an inherited red.
 
 ### BL-MUTATION-COLUMN-SHIFT — a spurious leading empty column shifts a section's row grid with no signal
 
