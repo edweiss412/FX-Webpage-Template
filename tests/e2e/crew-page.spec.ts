@@ -150,7 +150,7 @@ type Rect = {
   height: number;
 };
 
-async function rectOf(locator: import("@playwright/test").Locator): Promise<Rect> {
+async function readRect(locator: import("@playwright/test").Locator): Promise<Rect> {
   return locator.evaluate((el) => {
     const r = el.getBoundingClientRect();
     return {
@@ -162,6 +162,60 @@ async function rectOf(locator: import("@playwright/test").Locator): Promise<Rect
       height: r.height,
     };
   });
+}
+
+/**
+ * Read a laid-out rect, gated against the TORN read.
+ *
+ * Mechanism (measured 2026-08-09, this branch). The layout describe freezes the
+ * browser clock to a show-day instant so the hero state is deterministic. The
+ * SERVER has no such clock: `RightNowHero` seeds its state from
+ * `useState(() => new Date())` (components/crew/RightNowHero.tsx:338), so SSR
+ * renders at the real wall clock (months past the seeded April show → "Show
+ * complete") while the client hydrates at the frozen instant (show day → live
+ * dot). React reports "Hydration failed … this tree will be regenerated on the
+ * client" (42 occurrences in one full-file run) and RE-CREATES the subtree.
+ * While it does, `getBoundingClientRect()` on a container inside that subtree
+ * transiently returns 0×0 — captured directly:
+ *
+ *     prev=358x1558.15625  next=0x0  →  next=358x1566.046875
+ *
+ * (the height CHANGES across the gap, so the tree is genuinely re-created, not
+ * merely re-measured). A one-shot read landing in that window is what produced
+ * `container=0` / `bar=0` — a DIFFERENT test failing per run, because which read
+ * lands in the window is timing-dependent.
+ *
+ * The gate below is on the READ, not on any assertion: it returns the first rect
+ * that repeats identically AND is not the all-zero torn state. Discriminating
+ * power is preserved deliberately —
+ *   • a genuine single-dimension collapse (width 0, height 683) is NOT the torn
+ *     state, so it is returned immediately and its assertion still fails;
+ *   • a genuinely 0×0 element never satisfies the gate, and the last read (0×0)
+ *     is returned when the budget runs out, so that assertion still fails too.
+ * Only the transient whole-subtree teardown is waited out.
+ *
+ * Placed on `rectOf` itself rather than on the call sites so the gate is a
+ * DERIVED cover: every present and future rect read in this file inherits it
+ * (AGENTS.md class-sweep — sweep to a derivation, not an enumeration).
+ */
+async function rectOf(locator: import("@playwright/test").Locator): Promise<Rect> {
+  const SETTLE_ATTEMPTS = 40;
+  const SETTLE_PAUSE_MS = 50;
+  const EPSILON = 0.01;
+  let prev = await readRect(locator);
+  for (let i = 0; i < SETTLE_ATTEMPTS; i++) {
+    const next = await readRect(locator);
+    const repeats =
+      Math.abs(next.width - prev.width) < EPSILON &&
+      Math.abs(next.height - prev.height) < EPSILON &&
+      Math.abs(next.top - prev.top) < EPSILON &&
+      Math.abs(next.left - prev.left) < EPSILON;
+    const torn = next.width === 0 && next.height === 0;
+    if (repeats && !torn) return next;
+    prev = next;
+    await new Promise((resolve) => setTimeout(resolve, SETTLE_PAUSE_MS));
+  }
+  return prev;
 }
 
 /** Resolve the seeded show's share token (required path segment for the crew route). */
