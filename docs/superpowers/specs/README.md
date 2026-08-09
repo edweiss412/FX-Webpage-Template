@@ -34,6 +34,7 @@ Specs whose primary effect is to **amend already-ratified contracts across sever
 
 | Spec | Date | Amends |
 | --- | --- | --- |
+| [`2026-08-09-task-enrollment-multi-region-design.md`](./2026-08-09-task-enrollment-multi-region-design.md) | 2026-08-09 | Task enrollment becomes sequential multi-region: supersedes the pre-review-gate-arms spec's §3.2 exactly-one-region rule, its §3.4/§3.4.1 catalog and table rows, and AC-26/29/30/32/45; closes its §6 items 6-7 (`BL-TASK-ENROLLMENT-SINGLE-DEPTH`). |
 | [`2026-08-07-projection-financials-viewer-independent-design.md`](./2026-08-07-projection-financials-viewer-independent-design.md) | 2026-08-07 | The lead-gated financials **fetch** contract: the `shows_internal.financials` read now issues on every cache fill for every viewer (entitlement gates the RETURNED value), so a financials fetch failure is alertable viewer-independently. Amends master spec §4.4/§7.4/§8, phase-1 §4.13, phase-2 agenda, nav-perf phase-1, and the role-scope vocab spec (census in its §3). |
 
 ## v1.X+ post-deployment specs — grouped by subsystem
