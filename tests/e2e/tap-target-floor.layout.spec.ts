@@ -489,6 +489,10 @@ const CLASS_B_TARGETS = [
     visual: "help-sheet-trigger-visual",
     visualSize: VISUAL_PILL,
     radius: "pill",
+    cursor: "pointer",
+    // No margin before the repair, so `-m-2` on a 44px target cancels back to
+    // the painted 28px exactly.
+    marginBox: VISUAL_PILL,
     hoverProps: ["color", "backgroundColor"],
     openSheetFirst: false,
   },
@@ -500,6 +504,8 @@ const CLASS_B_TARGETS = [
     visual: "help-tooltip-trigger-visual",
     visualSize: VISUAL_PILL,
     radius: "pill",
+    cursor: "pointer",
+    marginBox: VISUAL_PILL,
     hoverProps: ["color", "backgroundColor"],
     openSheetFirst: false,
   },
@@ -511,6 +517,15 @@ const CLASS_B_TARGETS = [
     visual: "help-sheet-close-visual",
     visualSize: VISUAL_CLOSE,
     radius: "sm",
+    // Never carried one; §2.2's table dispositions classes that are PRESENT
+    // rather than licensing new ones, so this stays the default cursor.
+    cursor: "preserved-default",
+    // 28, NOT 36 — and unchanged by the repair. This button already carried
+    // `-m-1`, so its margin box was 36 - 4 - 4 = 28 before; the repair drops
+    // `-m-1` and adds `-m-2` to a 44px target, giving 44 - 8 - 8 = 28. Spec
+    // §2.2 calls that swap "the target's own -m-2 replaces its layout role",
+    // and this is the number that shows it actually did.
+    marginBox: 28,
     hoverProps: ["color", "backgroundColor"],
     openSheetFirst: true,
   },
@@ -610,6 +625,30 @@ for (const spec of CLASS_B_TARGETS) {
         expect(target.w, `${spec.label} target width`).toBeGreaterThanOrEqual(TAP_MIN - EPS);
         expect(target.h, `${spec.label} target height`).toBeGreaterThanOrEqual(TAP_MIN - EPS);
 
+        // R7: the repair consumes NO layout. The negative margin has to cancel
+        // the growth exactly, so the margin box still measures the painted box.
+        // Size alone cannot see this — changing `-m-2` to `-m-1` keeps the
+        // target 44x44 and the visual 28x28 while the margin box silently grows
+        // to 36px and pushes its row apart.
+        const margins = await page.locator(targetSel).evaluate((el) => {
+          const cs = getComputedStyle(el);
+          return {
+            left: parseFloat(cs.marginLeft),
+            right: parseFloat(cs.marginRight),
+            top: parseFloat(cs.marginTop),
+            bottom: parseFloat(cs.marginBottom),
+            cursor: cs.cursor,
+          };
+        });
+        expect(
+          target.w + margins.left + margins.right,
+          `${spec.label} horizontal margin box changed — does the negative margin still cancel?`,
+        ).toBeCloseTo(spec.marginBox, 1);
+        expect(
+          target.h + margins.top + margins.bottom,
+          `${spec.label} vertical margin box changed — does the negative margin still cancel?`,
+        ).toBeCloseTo(spec.marginBox, 1);
+
         // Asserted on a DIFFERENT element from the target, or the pair is
         // self-satisfying (spec §8). R6: the painted box is preserved at its
         // OWN existing size — 28 for the trigger and tooltip, 36 here for the
@@ -617,6 +656,33 @@ for (const spec of CLASS_B_TARGETS) {
         const visual = await rectOf(page, visualSel);
         expect(visual.w, `${spec.label} visual width`).toBeCloseTo(spec.visualSize, 1);
         expect(visual.h, `${spec.label} visual height`).toBeCloseTo(spec.visualSize, 1);
+
+        // §2.2's ownership table puts `items-center` and `justify-center` on
+        // BOTH elements precisely so the glyph does not sit off-centre. Sizes
+        // cannot see that either: dropping `items-center` from the target
+        // top-aligns a correctly-sized visual inside a correctly-sized box and
+        // moves the painted control 8px up, which R6 forbids.
+        expect(
+          visual.x + visual.w / 2 - (target.x + target.w / 2),
+          `${spec.label} visual is not horizontally centred in its target`,
+        ).toBeCloseTo(0, 1);
+        expect(
+          visual.y + visual.h / 2 - (target.y + target.h / 2),
+          `${spec.label} visual is not vertically centred in its target`,
+        ).toBeCloseTo(0, 1);
+
+        // §2.2: `cursor-pointer` belongs on the TARGET, so the cursor changes
+        // across the whole 44px band. Moving it to the inner span leaves the
+        // painted centre correct and reverts the 8px expansion band to the
+        // default cursor — invisible to every other assertion here. Stated per
+        // control, because the close button never carried one and the ownership
+        // table dispositions the classes that are PRESENT.
+        if (spec.cursor === "pointer") {
+          expect(
+            margins.cursor,
+            `${spec.label} target lost its pointer cursor — was it moved to the visual span?`,
+          ).toBe("pointer");
+        }
 
         // Corners excluded deliberately (spec §6, probe P4). Edge midpoints of
         // the element's OWN rect are meaningful here only because the previous
@@ -964,6 +1030,7 @@ test.describe("DI-3/DI-4/DI-5 — the step pills grow their target without movin
           const cs = getComputedStyle(el);
           return {
             x: r.x,
+            y: r.y,
             w: r.width,
             h: r.height,
             marginLeft: parseFloat(cs.marginLeft),
@@ -986,6 +1053,23 @@ test.describe("DI-3/DI-4/DI-5 — the step pills grow their target without movin
         });
         expect(visual.w, `pill ${n} visual width`).toBeCloseTo(VISUAL_PILL, 1);
         expect(visual.h, `pill ${n} visual height`).toBeCloseTo(VISUAL_PILL, 1);
+
+        // Dropping `items-center` from the anchor top-aligns a correctly-sized
+        // visual inside a correctly-sized target and moves the painted pill 8px
+        // up, which sizes alone cannot see (§2.2's ownership table puts
+        // `items-center`/`justify-center` on BOTH for exactly this reason).
+        const visualBox = await pillVisual(page, n).evaluate((el) => {
+          const r = el.getBoundingClientRect();
+          return { x: r.x, y: r.y, w: r.width, h: r.height };
+        });
+        expect(
+          visualBox.x + visualBox.w / 2 - (measured.x + measured.w / 2),
+          `pill ${n} visual is not horizontally centred in its target`,
+        ).toBeCloseTo(0, 1);
+        expect(
+          visualBox.y + visualBox.h / 2 - (measured.y + measured.h / 2),
+          `pill ${n} visual is not vertically centred in its target`,
+        ).toBeCloseTo(0, 1);
 
         // DI-5 (PRESERVATION, spec §8 — passes before AND after by design; do
         // not "strengthen" it into discriminating form). The margin box is what

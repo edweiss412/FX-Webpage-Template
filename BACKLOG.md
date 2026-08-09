@@ -8,6 +8,18 @@ Last reconciled: 2026-08-04 — `feat/harness-font-fidelity` (PR #705) graduated
 
 ---
 
+## BL-TAP-TARGET-SPEC-MUTATION-ENROLMENT — enrol the tap-target-floor spec in the source-mutation registry
+
+**Filed:** 2026-08-09 (`fix/step3-a11y-cluster`, diff-review round economy). **Class:** review-round economy (a convergence criterion that is machine-computed rather than argued). **Effort:** S — one registry row plus an operator pass. **Class-sweep exception:** (c) — the registry and its runner are a surface this PR does not otherwise touch, and enrolling mid-review would have changed the artifact under review. **Reachability: PROBED.**
+
+`tests/e2e/tap-target-floor.layout.spec.ts` is a guard suite, and its four diff-review rounds produced twelve findings of which **eleven were the same shape**: "the guard does not pin what it claims", each arriving with an exact production edit the committed suite failed to catch. Every one was reproduced locally as an isolating mutant and reverted, so the operator set is already written down — in the commit messages of `893793235`, `95e9eb4a7`, `06cc09ed1` and its successor. It is simply not machine-run.
+
+The mutants, as an operator list ready to enrol: drop `group` from a `<details>`; strip `transition-colors duration-fast` from a visual span; add `group` to an ancestor that must not carry it; swap `rounded-pill` for `rounded-sm` on BOTH a target and its visual; delete a caret's glyph while keeping its span and classes; add `text-transparent` to a caret; relabel an `aria-label` to a string that contradicts the visible wordmark; change `-m-2` to `-m-1`; remove `items-center` from a split target; move `cursor-pointer` from a target to its inner span.
+
+**Why this is worth a row rather than a shrug:** the brief's prose bar ("an exact production edit the suite fails to catch") kept every finding admissible, but it never made the set CLOSABLE — "can you think of another way to defeat it?" does not terminate, and rounds 2 through 4 were spent hand-discovering mutants one at a time. Enrolment converts that into "is the unaccepted-survivor set empty?", which does terminate, at the cost of one registry row and roughly 93s per run (`pnpm mutation:guards`). Registry: `tests/mutation/source/registry.ts`; spec: `docs/superpowers/specs/ci/2026-08-04-source-mutation-guard-gate.md`; the round-economy filing is `docs/review-rounds/fix/step3-a11y-cluster/61281c23e8ce.md`.
+
+**First scheduled step:** add the registry row and run the gate, then triage survivors — the eleven above should all be killed already, so any survivor is new information.
+
 ## BL-TAP-TARGET-INLINE-TEXT-CONTROLS — eight inline text controls sit under the 44px floor pending a per-site prose-vs-chrome call
 
 **Filed:** 2026-08-07 (`fix/step3-a11y-cluster`, spec §9.1). **Class:** accessibility (tap-target floor). **Effort:** S-M (the judgment, then a mechanical repair for whatever it classifies as chrome). **Class-sweep exception:** (a) — needs a product decision the filing branch cannot settle. **Reachability:** PROBED — every site and its computed height is in the spec's §2.6 corpus baseline (`docs/superpowers/specs/2026-08-07-step3-a11y-cluster.md`).
