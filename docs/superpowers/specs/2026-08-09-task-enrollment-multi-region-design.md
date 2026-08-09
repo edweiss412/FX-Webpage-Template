@@ -1,6 +1,6 @@
 # Multi-Region Task Enrollment — Design
 
-**Date:** 2026-08-09 · **Status:** DRAFT · **Closes:** `BL-TASK-ENROLLMENT-SINGLE-DEPTH` (BACKLOG.md)
+**Date:** 2026-08-09 · **Status:** RATIFIED (adversarial review APPROVE, R4, 2026-08-09) · **Closes:** `BL-TASK-ENROLLMENT-SINGLE-DEPTH` (BACKLOG.md)
 **Amends:** `docs/superpowers/specs/2026-08-03-pre-review-gate-arms-design.md` §3.2, §3.4, §3.4.1 (line-pass and Pass-2 rows), AC-26/AC-30, AC-29, AC-32, AC-45, §6 items 6–7
 **Surface:** `lib/specLint/taskContract.ts` (enrolled mutation-guard surface, `tests/mutation/source/registry.ts:153`)
 
