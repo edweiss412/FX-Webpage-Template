@@ -1,7 +1,7 @@
 # Watch promotion/activation race — settings-row serialization (closes BL-WATCH-PROMOTION-ACTIVATION-RACE)
 
-**Date:** 2026-08-09 · **Branch:** `fix/watch-promotion-activation-race` · **Status:** draft
-**Closes:** `BL-WATCH-PROMOTION-ACTIVATION-RACE` (BACKLOG.md, `## BL-WATCH-PROMOTION-ACTIVATION-RACE` heading)
+**Date:** 2026-08-09 · **Branch:** `fix/watch-promotion-activation-race` · **Status:** shipped (PR #747)
+**Closes:** `BL-WATCH-PROMOTION-ACTIVATION-RACE` — graduated to `BACKLOG-archive.md` by this arc's last commit, so the `## BL-WATCH-PROMOTION-ACTIVATION-RACE` heading lives there, not in `BACKLOG.md`
 <!-- spec-lint: not-ui — DB serialization + lib change; app/admin/actions.ts is cited as a caller, no rendered UI surface changes -->
 **Probe:** `docs/superpowers/specs/probes/2026-08-09-watch-race-forshare-probe.mjs` (5/5 schedules PASS, §2)
 
