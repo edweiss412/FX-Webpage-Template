@@ -235,9 +235,20 @@ mobile-safari-only, remove it from the desktop-chromium regex, same rule as crew
    (bottom-anchored); with long content the footer sits below the fold and the page scrolls to it
    (natural flow). Real-browser `getBoundingClientRect`, per the layout-dimensions plan rule.
 
-**Demotion valve:** if either residue test proves flaky against the 5-green bar, it may be demoted
-to a `BL-` row carrying the flake evidence (run logs) and naming exception (c) — but the default
-is in-arc, and a demotion without evidence is a review finding.
+**Demotion valves (per-residue, they differ — plan review R2 F3/F5):**
+- The pack-list residue is a deterministic vitest test; the flake valve is inapplicable to it. It
+  either lands with its mutant-red proof or it is a review finding — no valve.
+- The footer residue's test runs under the 5-green bar, so its flake valve fires only DURING that
+  bar (Task-11 stage), with the run links as evidence, naming exception (c).
+- **Product-defect branch:** the footer invariant is asserted against the CURRENT tree, and the
+  live topology (`page-shell` flex column → `crew-shell` block wrapper → `page-footer` with
+  `mt-auto`) may not actually anchor the footer on short content — `mt-auto` is inert inside a
+  non-flex parent. The implementation PROBES FIRST (real-browser rect on a seeded short section).
+  If the invariant does not hold in the product, the residue is a severity-tagged product-defect
+  `BL-` row carrying the probe, the test lands only after the fix, and any in-arc fix under
+  `app/`/`components/` triggers the invariant-8 dual gate per §1.1.6. Filing the defect instead
+  of fixing is legal (exception (a): anchoring behavior on short crew pages is a design call this
+  arc need not settle).
 
 ### 3.4 Delete the nine dead files + config/registry cleanup
 
@@ -341,8 +352,9 @@ For each §2.2 failure, in the worktree, before wiring:
   specs (workflow_dispatch; the runs used for the bar are linked in the PR).
 - AC-3: the nine dead files are gone; neither `testMatch` regex nor the coverage allowlist nor any
   repo prose references them un-annotated (class-sweep output in PR body).
-- AC-4: the two residue tests (§3.3) exist and pass in CI, or their demotion `BL-` rows exist with
-  flake evidence.
+- AC-4: the two residue tests (§3.3) exist and pass in CI, or their `BL-` rows exist with the
+  evidence §3.3's valves require (flake run-links for the footer test; probe output for the
+  product-defect branch; the pack-list residue has no valve).
 - AC-5: `tests/ci/_metaE2eWorkflowCoverage.test.ts` passes with zero rows for DELETED files and
   `PATH_GATED_BY_EXCLUSION` rows (not `UNSEEN`) for every wired file; the parent ledger entry's
   census is restated from the allowlist.
