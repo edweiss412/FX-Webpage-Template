@@ -768,6 +768,22 @@ earlier on this same branch.
 
 ---
 
+## BL-MUTATION-REF-SUB — an exported `#REF!` is absorbed into the parse with no signal — CLOSED 2026-08-09 (`feat/mutation-ref-sub`, PR #749, wave branch 2/5)
+
+**Status:** CLOSED · **Filed:** 2026-08-06 (L-wave decomposition of `BL-MUTATION-HARNESS-OPEN-HOLES`) · **Class:** PARSER ROBUSTNESS · **Effort:** M · **Severity:** medium
+
+A body cell rewritten to the literal `#REF!` — a real broken-reference export artifact, present in 3 of the 7 live shows — parsed as an ordinary value, so the operator saw a crew page reading `#REF!` where a name or a time belongs with nothing upstream saying so.
+
+**Resolution: the whole class closed.** `detectRefErrorLiterals` (`lib/parser/refErrorDetector.ts`) emits one warn-severity `REF_ERROR_LITERAL` per offending cell. Detection is `includes` on the post-`clean()` value, which matters twice over: the corpus stores the ESCAPED form `\#REF\!` that only becomes the literal after `clean()`, and cells are not always the literal alone (`#REF!/NAME`, `#REF! - #REF!`), so equality would miss the composites.
+
+All **3,314** ledgered holes closed; `RAW_HOLES` 7,015 → 3,701. The full 8-shard harness reported all four reconciliation buckets empty.
+
+**This branch also gave the harness a verdict class it had been missing.** The detector produced 7 rows in `newHoles` — the bucket spec §9 marks HARD and never deferrable — and no implementation choice removed them without also deleting the operator's locating context. Two adversarial rounds killed four successive proposals, each with a probed defect. The resolution, user-ratified, was `SIGNAL_TEXT_DRIFT`: a verdict class distinguishing "the parser went quiet about a corrupt sheet" from "the parser said the same thing differently". Spec: `docs/superpowers/specs/parser/2026-08-09-warning-shape-mutation-stability.md`. 143 existing rows were re-kinded by the classifier; `BL-MUTATION-DRIFT-TRIAGE` carries their mechanism triage.
+
+**Documented limits.** Detection only, never correction — the value is left exactly as parsed (spec §1.1.4). Shows already carrying `#REF!` begin warning on their next sync, which is the point (spec §4.2), and `tests/parser/cleanCorpusCalibration.test.ts` pins the 24-warning clean-corpus base rate so a future shift is visible rather than silent.
+
+---
+
 ## BL-MUTATION-UNICODE — an injected zero-width character is silently retained — CLOSED 2026-08-08 (`feat/mutation-unicode`, PR #736, wave branch 1/5)
 
 **Status:** CLOSED · **Filed:** 2026-08-06 (L-wave decomposition of `BL-MUTATION-HARNESS-OPEN-HOLES`) · **Class:** PARSER ROBUSTNESS · **Effort:** M · **Severity:** medium
