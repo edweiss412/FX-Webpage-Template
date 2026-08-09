@@ -309,7 +309,9 @@ test.describe("crew footer theme toggle — persistence, no-FOUC, a11y, tap targ
     // bootstrap ran with NO body would be unsatisfiable: the live script IS the
     // first child of <body> (app/layout.tsx:63), so document.body necessarily
     // exists when it executes. What actually distinguishes correct placement is
-    // the PAIR (readyState, bodyChildCount) at mutation time.
+    // the PAIR (readyState, paintedTextLength) at mutation time — see the
+    // ThemeMutation docblock for why painted text, and not a raw child count,
+    // is the discriminator the spec ratified.
     await page.addInitScript(() => {
       const w = window as unknown as { __themeMutations?: ThemeMutation[]; __themeErr?: string };
       w.__themeMutations = [];

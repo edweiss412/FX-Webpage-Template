@@ -1,7 +1,7 @@
 name: Crew e2e (mobile-safari + desktop-chromium)
 # Runs eight e2e specs against a real browser + a seeded local Supabase: the
 # client-side section-toggle suite (tests/e2e/crew-section-toggle.spec.ts) under
-# mobile-safari, plus four under desktop-chromium — the crew picker flow
+# mobile-safari, plus five more under desktop-chromium — the crew picker flow
 # (tests/e2e/picker-flow.spec.ts), alert-action-links.spec.ts, and the seeded
 # stage-restricted crew schedule suite that carries the per-viewer agenda day fold
 # (tests/e2e/stage-restricted-crew-schedule.spec.ts), and the font-binding oracle

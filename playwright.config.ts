@@ -41,8 +41,11 @@ export default defineConfig({
   // The M4 tile suites that first motivated this were deleted 2026-08-09
   // (superseded — spec docs/superpowers/specs/ci/
   // 2026-08-09-resurrect-mobile-safari-e2e-design.md §2.3). The constraint
-  // still binds: crew-page.spec.ts mutates the seed's room A/V in beforeAll
-  // and right-now-transitions.spec.ts mutates shows_internal.run_of_show.
+  // still binds: crew-page.spec.ts mutates the seed's room A/V in beforeAll.
+  // (right-now-transitions.spec.ts also mutates shows_internal.run_of_show, but
+  // its only suite is statically skipped as of 2026-08-09, so it currently writes
+  // nothing — it is named here because un-skipping it would make it a writer
+  // again, not because it is one today.)
   workers: 1,
   retries: process.env.CI ? 2 : 0,
   use: {
@@ -53,9 +56,11 @@ export default defineConfig({
   projects: [
     {
       // Mobile-primary project. Covers M0 baseline (sample.spec.ts) AND the
-      // M4 crew-page layout shell (crew-page.spec.ts) — both run against the
-      // generic dev server on port 3000 because the public /show/[slug]
-      // route doesn't depend on any of the dev-build / prod-build env gates.
+      // crew page (crew-page.spec.ts) — both run against the generic dev server
+      // on port 3000 because the public crew route doesn't depend on any of the
+      // dev-build / prod-build env gates. That route is
+      // /show/[slug]/[shareToken]; the slug-only /show/[slug] form this comment
+      // used to name has no page.tsx and is retired.
       name: "mobile-safari",
       // `picker-flow` and `stage-restricted-crew-schedule` deliberately do NOT run
       // here — both are in desktop-chromium, and for the same cookie reason.

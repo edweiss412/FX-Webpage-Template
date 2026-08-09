@@ -279,8 +279,12 @@ test.describe("crew redesign layout invariants (§4.9 / test 12)", () => {
   // temporarily populate TWO disciplines (audio + video) with DIFFERENT-LENGTH
   // values on the seed room so the two scope cards have unequal natural content —
   // exactly the case the items-stretch row must equalize. Restored in afterAll.
-  // Gated to mobile-safari so the mutation stays single-writer (the desktop-
-  // chromium project early-returns from every test and never reads these rows).
+  // Single-writer by construction: crew-page resolves under mobile-safari ALONE
+  // (it is absent from the desktop-chromium testMatch), so only one project ever
+  // mutates these rows. It used to be single-writer because every test
+  // early-returned off testInfo.project.name; those 22 gates were removed when the
+  // spec was wired, since a desktop execution that returns immediately is a
+  // passing no-op the executed-count oracle would have credited as coverage.
   let gearRoomId: string | null = null;
   let gearRoomOriginal: { audio: string | null; video: string | null } | null = null;
 
