@@ -433,16 +433,20 @@ The regen workflow's final step commits regenerated baselines and pushes them to
 
 - [ ] **Step 6: Merge + verify complete**
 
-The merge is INSIDE the guard's success branch — a mismatch cannot fall through to it:
+The merge is INSIDE the guard's success branch — a mismatch cannot fall through to it — and the `0  0` completion proof is chained on the merge SUCCEEDING, so a failed merge cannot print a false completion:
 
 ```bash
 git fetch origin chore/next-1630-wedge-remeasure
 if [ "$(git rev-parse origin/chore/next-1630-wedge-remeasure)" = "$FINAL" ]; then
-  gh pr merge --merge
-  git -C /Users/ericweiss/FX-Webpage-Template pull --ff-only
-  git -C /Users/ericweiss/FX-Webpage-Template rev-list --left-right --count main...origin/main
+  if gh pr merge --merge; then
+    git -C /Users/ericweiss/FX-Webpage-Template pull --ff-only
+    git -C /Users/ericweiss/FX-Webpage-Template rev-list --left-right --count main...origin/main
+  else
+    echo "MERGE-FAILED - diagnose (branch protection? conflict?); do not treat as complete"
+  fi
 else
-  echo "HEAD-MOVED - do NOT merge; restart from Task 6 Step 2"
+  git pull --ff-only
+  echo "HEAD-MOVED - do NOT merge; local now synced to the new head; restart from Task 6 Step 2"
 fi
 ```
 
