@@ -207,10 +207,10 @@ Known drift shapes, with triage guidance:
 
 | Shape | Triage |
 | --- | --- |
-| Mis-anchor (`kind` changes, counts stable) | **Investigate — likely a real regression.** This is §10's BLOCKING mutant. |
+| Mis-anchor (`kind` changes, counts stable) | **Investigate: likely a real regression.** This is §10's BLOCKING mutant. |
 | Structure-following text move (the 7 in §11.2) | Expected under section/cell fusion; annotate and admit. |
 | Reorder-only, multiset identical | Benign; annotate and admit. |
-| Snippet gutted to empty | Investigate — a warning that says nothing locates nothing. |
+| Snippet gutted to empty | Investigate: a warning that says nothing locates nothing. |
 
 ### 11.6 Why E dominates §6
 
@@ -251,7 +251,7 @@ Two things follow, and the second was not anticipated by either session:
 | `blockRef.index` moved (`kind` unchanged) | 4 | Benign — positional ordinal, same class as §7's finding |
 | **Mis-anchor (`blockRef.kind` changed)** | **0** | — |
 
-**Zero mis-anchors is the safety result that makes the migration admissible.** §11.5's triage table marks mis-anchor-shaped drift as "investigate — likely a real regression", so a non-zero count here would have meant real regressions sitting mislabelled in the ledger today, to be pulled out and investigated BEFORE this classifier lands. There are none. The 4 `blockRef.index` rows were checked specifically: `kind` multisets are equal and only the positional ordinal moves.
+**Zero mis-anchors is the safety result that makes the migration admissible.** §11.5's triage table marks mis-anchor-shaped drift as "investigate, likely a real regression", so a non-zero count here would have meant real regressions sitting mislabelled in the ledger today, to be pulled out and investigated BEFORE this classifier lands. There are none. The 4 `blockRef.index` rows were checked specifically: `kind` multisets are equal and only the positional ordinal moves.
 
 ### 11.7.1 The migration must ride WITH branch 2, not after it
 
