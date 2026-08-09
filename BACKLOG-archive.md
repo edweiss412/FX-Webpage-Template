@@ -504,6 +504,47 @@ Design memo captures six load-bearing principles: push-not-pull, severity tierin
 
 ---
 
+## BL-TWO-WAY-SHEET-SYNC — Write corrections back to the source Google Sheet — CLOSED 2026-08-09 (`docs/demote-two-way-sheet-sync`, DEMOTED: accepted limit)
+
+**Resolution: DEMOTED to an accepted limit, by owner call 2026-08-09.** The canonical method for
+updating the parsed data IS updating the source sheet — one-directional flow is the product model,
+not a gap awaiting work. Under the ledger filing bar (AGENTS.md;
+`docs/superpowers/specs/2026-08-04-backlog-convergence-design.md` §2), a limit whose worst case is
+the designed conservative behavior — human fixes the sheet; the app holds the overridden item steady
+via `sync_holds` until the sheet reconciles — belongs in a limits record, not the open queue. This
+archive entry is that record; grep the id to reach it.
+
+**Revisit trigger, carried from the entry's promotion prerequisite:** Doug (or the operator)
+explicitly wants genuine two-way sync (e.g. "fixing it in the app should fix my sheet"). If that
+fires, re-file as its own project — write-scope + re-consent escalation, parser cell-provenance
+retention, conflict/feedback-loop handling, and a trust decision about the app editing
+source-of-truth sheets. The three hard walls in the original body below are the starting scope; the
+demotion refutes none of them.
+
+**Supersedes:** the 2026-08-06 L-wave screen's "PREREQ fences stand … BL-TWO-WAY-SHEET-SYNC (Doug
+asks). Untouched." (`docs/superpowers/specs/2026-08-06-l-wave-design.md` §1.1 item 11), which kept
+the row open on the same trigger. Nothing about the trigger changed — only its queue residency: the
+row was a prerequisite-fenced feature idea sitting in the open queue for a flow the product
+deliberately does not have.
+
+**Original entry, preserved in full:**
+
+**Filed:** 2026-06-08, during the "sync changes feed + identity-only gate" brainstorming (`docs/superpowers/specs/v1-pre-deployment-amendments/2026-06-08-sync-changes-feed-identity-gate-design.md`). Surfaced when evaluating whether **undo** could write the old value back to the sheet to keep app and sheet consistent (instead of the chosen "revert + per-entity hold" approach).
+
+**Effort:** L
+
+**Description:** Today the app is strictly one-directional — Doug's Google Sheet is the source of truth, the app reflects it. A two-way-sync feature would let an admin correction made in the app (e.g. an undo, or a future inline edit) write back into the source sheet, so the sheet and the live pages stay consistent without the app having to "hold/override" the sheet's value across syncs. It would obviate the per-entity `sync_holds` override mechanism for the undo path (the conflict simply wouldn't exist if the sheet were corrected too).
+
+**Why backlog, not deferred — three hard walls (all verified 2026-06-08):**
+
+- **Read-only OAuth scopes.** The app uses `auth/drive.readonly` + `auth/spreadsheets.readonly` (`lib/drive/client.ts`). Write-back needs `auth/spreadsheets` (write) + re-consent + **edit** access to Doug's sheets — a real permission/security/trust escalation.
+- **No source-cell provenance.** The parser abstracts the messy human sheet into structured `parse_result` and discards cell/row/range coordinates (`lib/parser/types.ts` `CrewMemberRow` etc. carry no provenance). Writing "Bob" back to "the name cell" requires a reverse field→cell mapping the parser doesn't retain — a significant parser change, brittle against merged cells/formulas/free-form layout.
+- **Inverts the product model + new hazards.** "App edits Doug's source data" flips the one-directional trust model and introduces formatting-clobber risk, concurrent-edit races with Doug, and a modified-time feedback loop (app writes → sheet mtime advances → sync re-triggers; needs app-origin-write guards).
+
+**Promotion prerequisite:** Doug (or the operator) explicitly wants genuine two-way sync (e.g. "fixing it in the app should fix my sheet"). It's its own project — scope expansion (write scope + consent), a parser change to retain cell provenance, conflict/feedback-loop handling, and a trust/relationship decision about the app editing source-of-truth sheets. The chosen v1 reconciliation (human fixes the sheet; the app holds the overridden item steady until then) keeps the app in its read-only lane; this entry exists only so the idea isn't lost.
+
+---
+
 ## BL-ADOPTION-PIN-REACHABILITY-BLIND — the shared-helper adoption guard cannot prove LIVE-PATH use — CLOSED 2026-08-06 (L-wave, `feat/l-wave-docs`, DEMOTED)
 
 **Resolution: DEMOTED and archived. This is a DOCUMENTED LIMIT filed as open work, and the entry says
