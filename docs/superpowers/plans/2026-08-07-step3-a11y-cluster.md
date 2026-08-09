@@ -4,7 +4,7 @@
 **Branch:** `fix/step3-a11y-cluster`
 **Closes:** `NEWTAB-A11Y-RESIDUE-1` (fully — archived); `STEP3-GALLERY-TAP-TARGETS-1` items (a)(b)(c) (struck; (d) stays deferred)
 
-impeccable-gate: critique=RAN-DEGRADED audit=RAN-DEGRADED p0=0 p1=1 dispositions=recorded
+impeccable-gate: critique=RAN audit=RAN p0=0 p1=1 dispositions=recorded
 
 (The marker followed the `2026-08-03-nojs-loading-shell-notice.md` lifecycle: PENDING
 while the arc was live, replaced with real counts in the close-out commit after both gate
@@ -634,6 +634,61 @@ The repo-wide structural tap-target guard (descoped with its measurement, spec �
 `BL-TAP-TARGET-STRUCTURAL-GUARD`); the eight further inline text controls (filed as
 `BL-TAP-TARGET-INLINE-TEXT-CONTROLS` pending a per-site prose-vs-chrome product call); and
 spec §4's four documented limits. Each was checked against its citation, not re-derived.
+
+### 12.6 NON-DEGRADED re-run (2026-08-09, `docs/step3-a11y-impeccable-regate`)
+
+The gate below ran single-context because its sub-agents never returned (§12.0). It was re-run
+properly against merged `b2aca7b02`: Assessment A (design), Assessment B (detector) and the
+audit each ran as an ISOLATED sub-agent, all three returned, and A never saw B's output. The
+marker at the top of this file is corrected from `RAN-DEGRADED` to `RAN` on that basis.
+
+**It was worth re-running — the clean pass found what the degraded one had rationalised.**
+
+**[P1] The revoked-admins toggle lost hit area. FIXED.** Both reviewers raised it
+independently. `w-fit` shrank a full-width card header to ~140px: the height went 40.8 → 44px
+and the WIDTH fell by roughly 200px, leaving a row that still reads as a full-width affordance
+while only its text toggles — a smaller target than before the repair. §12.2 of the degraded
+run recorded this as an accepted DOCUMENTED LIMIT. That call was wrong, and it is worth naming
+why: the reasoning there ("the target still clears the floor on both axes, which is the actual
+contract") checked the invariant and not the user, and two independent readers looking at the
+same surface both saw a defect. Repaired to `flex w-full`, with DI-2 exempting the site — as an
+INVERTED assertion rather than a skip, so reapplying `w-fit` fails. User-ratified against a
+visual comparison of the three options.
+
+**[P2] The `▸` caret was the wrong glyph. FIXED at all three sites.** Measured with fontTools:
+U+25B8 is absent from the shipped Inter subset (1004 codepoints, `app/fonts.css:28`) and from
+its metric-matched fallback, so it resolved from a last-resort system font at three different
+sizes across the three disclosures. The repo already had the answer in near-identical
+disclosures — lucide `<ChevronRight className="size-4 … group-open:rotate-90">` at
+`sectionWarningExtras.tsx:277` and `Step1Share.tsx:197`. All three now use it, including the
+pre-existing `/me` one, per the class-sweep default. The caret guard was widened from
+"non-blank text" to "an svg with drawable content OR non-blank text" and re-proven against an
+emptied caret.
+
+**[P2] Neighbour-overlap coverage exists for only two of seven targets.** Structural: the live
+entry mounts each component in its own isolated wrapper, so production neighbours are not in
+the tree. All three uncovered targets were traced by hand — no interactive neighbour sits in
+any of their bands today, so it is a coverage gap and not a defect. Spec §4 limit 2 was
+UNDERSTATED (it scoped the overhang to the stepper) and is widened; filed as
+`BL-TAP-TARGET-NEIGHBOUR-OVERLAP-COVERAGE`.
+
+**[P3] ~150 glyph sites render outside the font subset.** Overwhelmingly pre-existing — `→` at
+84 sites, `↗` at 11 — and every one decorative and `aria-hidden`. Filed as
+`BL-GLYPHS-OUTSIDE-INTER-SUBSET` with the full census.
+
+**[P3] `await log.error` in a Server Component render path** (`OnboardingWizard.tsx:672-681`):
+unbounded per-load emits while credentials are broken. Confirmed PRE-EXISTING (`91fe47ea5`),
+outside this arc.
+
+**Refuted by the audit, recorded so it is not re-raised:** the dropped `-m-1` does NOT shift the
+HelpSheet header — 36 − 2·4 == 44 − 2·8 == 28px, the margin box is identical. And the corpus
+claim holds: every `<summary>` under `app/` and `components/` now carries `min-h-tap-min`,
+enumerated across eleven further already-compliant sites.
+
+**Scores: design 30/40 (Nielsen), audit 18/20.** Detector: 2 hits, both `broken-image`, both
+false positives — and the audit corrected my own provenance for them, which is worth keeping:
+they are comment-text matches on the literal `<img` inside JSDoc, NOT the ratified
+runtime-`src` shape, whose actual element the detector correctly does not flag.
 
 ### 12.5 Gate re-run over the post-gate delta (2026-08-09)
 

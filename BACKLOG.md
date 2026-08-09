@@ -8,6 +8,39 @@ Last reconciled: 2026-08-04 — `feat/harness-font-fidelity` (PR #705) graduated
 
 ---
 
+## BL-TAP-TARGET-NEIGHBOUR-OVERLAP-COVERAGE — three 44px targets ship an unasserted expansion band
+
+**Filed:** 2026-08-09 (`docs/step3-a11y-impeccable-regate`, non-degraded invariant-8 re-run). **Class:** guard coverage. **Effort:** S-M — the blocker is harness shape, not assertion difficulty. **Class-sweep exception:** (c) — closing it means changing how the live entry mounts, which is a redesign of the harness this PR does not otherwise touch. **Reachability: PROBED — no live defect.**
+
+`tests/e2e/tap-target-floor.layout.spec.ts` asserts neighbour non-overlap for exactly two of the seven repaired targets: the three step pills (DI-3, against each other) and the `AdminNav` brand link (against every interactive element in its own topbar). It cannot assert it for the other three, and the reason is structural: `tests/e2e/_tapTargetFloorLiveEntry.tsx` mounts each component in its own isolated `<div data-mount>`, so the neighbours those controls actually have in production are not in the tree.
+
+The three uncovered targets and the slack they ship: HelpSheet trigger (`components/admin/wizard/Step3Review.tsx:1312`, `gap-2`), HelpTooltip (`components/admin/wizard/StagedReviewCard.tsx:464`, `gap-2 flex-wrap`), HelpSheet close (`components/admin/HelpSheet.tsx:167`, `gap-3`). Each expands 8px per side into an 8–12px gap — **0–4px of slack**.
+
+**Traced by hand at all three: no interactive neighbour sits in any of those bands today.** So this is a coverage gap, not a defect, and spec §4 limit 2 has been widened to say so rather than continuing to scope the overhang to the stepper alone.
+
+**First scheduled step:** decide whether the live entry should mount these controls in their production containers (which changes what the harness _is_ — it currently mounts components, not pages), or whether a separate assertion should measure the gap arithmetically from the container's own `gap` token. The second is cheaper and probably right.
+
+## BL-GLYPHS-OUTSIDE-INTER-SUBSET — ~150 UI glyph sites render in a fallback face, not Inter
+
+**Filed:** 2026-08-09 (`docs/step3-a11y-impeccable-regate`, the non-degraded invariant-8 re-run of the step3-a11y cluster). **Class:** visual consistency (`DESIGN.md` §2.1 commits to ONE type family). **Effort:** M — the fix is a decision plus either a wider subset or a glyph-to-icon migration, not a patch. **Class-sweep exception:** (c) — it spans surfaces no single PR touches. **Reachability: PROBED.**
+
+`app/fonts.css:28` loads `public/fonts/InterVariable-latin.fada467b.woff2`, a latin + latin-ext subset carrying **1004 codepoints**. Any character outside it falls back to a system face, so the glyph renders in a different family from the text beside it — which is what the one-family commitment says should not happen.
+
+**Probe** — fontTools over the shipped binary, then a scan of every tracked `.tsx`/`.ts` under `app/` and `components/`, comment-only lines excluded:
+
+```
+codepoints in shipped subset: 1004
+U+2192 →   84 sites     U+2265 ≥   21     U+2197 ↗   11     U+2713 ✓    6
+U+25B8 ▸    4           U+2194 ↔    4     U+2264 ≤    4     U+21D2 ⇒    2
+24 distinct glyphs, ~150 sites total (also ⚠ ⟷ ≠ ⌄ ⌃ ← ℹ 🔗 ⌘ 🔒 ✕ ≈ ☎ ✉ ⊘)
+```
+
+**Why it is filed rather than fixed, and why nothing was reverted.** It is overwhelmingly PRE-EXISTING: `→` at 84 sites and `↗` at 11 have shipped for months. The step3-a11y cluster added exactly two members — `components/admin/OnboardingWizard.tsx:644` and `components/admin/settings/AdministratorsSection.tsx:142`, the disclosure carets that replaced the native `<summary>` marker `inline-flex` removes. Reverting those would restore a real regression the cross-model review caught (two disclosures losing their open/closed cue) in exchange for a cosmetic inconsistency shared with ~148 other sites. The pattern they copy, `app/me/meShowSections.tsx:130`, predates the branch.
+
+**Worst case is cosmetic and already on screen:** the glyph renders, in a system face, at a slightly different weight and metric. Nothing is unreadable, and every one of these is decorative and `aria-hidden`, so assistive technology is unaffected. That is why this is a backlog row rather than a deferral with a trigger.
+
+**First scheduled step is the decision, not the edit:** either widen the subset to cover the arrows and math symbols actually in use (cheap in bytes, but `scripts/subset-inter.sh` and its checksum-pinned input make it deliberate), or migrate the recurring ones to the lucide icons the codebase already ships. Counting first is what makes that call possible; the counts above are the input.
+
 ## BL-TAP-TARGET-SPEC-MUTATION-ENROLMENT — enrol the tap-target-floor spec in the source-mutation registry
 
 **Filed:** 2026-08-09 (`fix/step3-a11y-cluster`, diff-review round economy). **Class:** review-round economy (a convergence criterion that is machine-computed rather than argued). **Effort:** S — one registry row plus an operator pass. **Class-sweep exception:** (c) — the registry and its runner are a surface this PR does not otherwise touch, and enrolling mid-review would have changed the artifact under review. **Reachability: PROBED.**
@@ -921,19 +954,83 @@ screen-disposition 2026-08-04: PREREQ-FENCED + ANNOTATED, stays open, NOT claime
 
 ---
 
-### BL-CLASSNAME-ARRAY-JOIN-MIGRATION — migrate the 18 array-join classNames so the canonical-class rule can see them
+### BL-SHADOW-TILE-ARROW-SYNTAX — `shadow-(--shadow-tile)` is not canonicalized, and globals.css claims it is
 
-**Severity:** LOW (lint coverage, no user-visible defect) · **Class:** lint coverage · **Filed:** 2026-08-04 (`chore/sweep-guards-tests`, split out of BL-CANONICAL-CLASS-ARRAY-BLINDSPOT under class-sweep exception (c)) · **Effort:** M · **Reachability:** PROBED 2026-08-04 — 18 files, 33 sites, enumerated in `tests/specLint/canonicalClassArray.test.ts`.
+**Severity:** LOW (documented inconsistency, nothing renders differently) · **Class:** lint coverage · **Filed:** 2026-08-07 (`refactor/classname-array-join-cn`, spec §9.1 / R5, class-sweep exception (c)) · **Effort:** S · **Reachability:** PROBED 2026-08-07 — 24 textual matches across 18 files (21 class-string sites; 3 are doc comments), all live under a passing `pnpm lint`.
 
-**Description:** `better-tailwindcss/enforce-canonical-classes` cannot traverse `[...].join(" ")`, so Tailwind drift inside those classNames escapes `pnpm lint` and CI. The blind spot is now BOUNDED by a census guard — no NEW array-join className can land — but the 18 existing files remain unreadable to the rule.
+**Description:** `app/globals.css:285-289` instructs components to prefer the canonical `shadow-tile` over the `shadow-(--shadow-tile)` arrow form and states _"(eslint-plugin-better-tailwindcss enforces this)."_ **Probed false.** A plain-string className carrying `shadow-(--shadow-tile)` — the shape the rule reads best — is reported clean. This entry owns both the sweep and correcting that false claim in the comment.
 
-**Two shapes,** both covered by the census: inline `className={[...].join(" ")}` (15 files) and joined-into-a-local-then-used-as-className (3 files: `_PickerInterstitial.tsx`, `Section.tsx`, `AccentButton.tsx`).
+**The mechanism is the token's VALUE, not its namespace,** which is what makes this bigger than shadows. The rule canonicalizes a token whose `@theme` value is a literal and skips one whose value is itself a `var()` reference. Probed, four cases in `app/globals.css`:
 
-**The parent entry's prescribed fix does not apply as written.** It says "migrate to `cn(...)` (already a default-detected callee)". Probed 2026-08-04: **there is no `cn` helper anywhere** under `lib/`, `components/` or `app/`, and neither `clsx` nor `class-variance-authority` is a dependency — the eslint config names them only in a comment describing plugin defaults. So this is not the mechanical `eslint --fix` the parent promises: it must first INTRODUCE a recognized callee, which is a dependency-or-helper decision in its own right. `tests/specLint/canonicalClassArray.test.ts` asserts the absence, so the day a `cn` lands this becomes cheap and the test says so.
+| `@theme` value                                    | Line | Arrow/bracket form                  | Reported? |
+| ------------------------------------------------- | ---- | ----------------------------------- | --------- |
+| `--spacing-right-now-min-h: 176px`                | 216  | `min-h-(--spacing-right-now-min-h)` | **yes**   |
+| `--spacing-confirm-box: 60px`                     | 186  | `max-w-[60px]`                      | **yes**   |
+| `--shadow-tile: var(--shadow-tile-runtime)`       | 293  | `shadow-(--shadow-tile)`            | no        |
+| `--shadow-popover: var(--shadow-popover-runtime)` | 302  | `shadow-(--shadow-popover)`         | no        |
 
-**Why not done on `chore/sweep-guards-tests`:** class-sweep exception (c). The repair spans 20 files under `components/` and `app/`, which would make that branch an invariant-8 UI surface; the plan scopes the dual gate to the UI branch and marks the guards branch `impeccable-gate: N/A — no UI surface`. Doing it there would either violate the plan's scoping or drag a 20-file UI refactor through a guards review.
+So this is not a `shadow-*` carve-out: **every `@theme` token defined through a `-runtime` indirection — the pattern this project uses for all light/dark-spanning tokens — is invisible to the rule.** Both forms resolve to the same token, so the consequence is a documented inconsistency, not a defect.
 
-**Work:** decide the callee (add a small local `cn`, or take `clsx`), migrate the 33 sites, run `eslint --fix`, delete the census guard and its entry. Lands on a UI branch under the dual gate.
+**Why not done on `refactor/classname-array-join-cn`:** class-sweep exception (c) — 21 sites spanning files that arc does not otherwise touch, which would blow its review scope.
+
+**Work:** sweep the 21 class-string sites to `shadow-tile` / `shadow-popover`, correct the `app/globals.css:288` enforcement claim, and decide whether the `-runtime` indirection blind spot deserves its own guard.
+
+---
+
+### BL-CLASS-CONST-LINT-BLINDSPOT — class strings in arbitrary-named consts and object values stay unlinted
+
+**Severity:** LOW (lint coverage, no user-visible defect) · **Class:** lint coverage · **Filed:** 2026-08-07 (`refactor/classname-array-join-cn`, spec §9.2 / R6, class-sweep exception (c)) · **Effort:** S-M · **Reachability:** PROBED 2026-08-07 — shape matrix run against the real config (spec §2.3).
+
+**Description:** `better-tailwindcss/enforce-canonical-classes` traverses string literals, recognized callees, and the `^classes$` variable selector. It does NOT traverse a class string bound to an arbitrarily-named const, an object value, or an identifier passed INTO a recognized callee. Probe table:
+
+| Shape                                                | Reported?                                                         |
+| ---------------------------------------------------- | ----------------------------------------------------------------- |
+| `className="… min-h-(--spacing-tap-min)"`            | **yes**                                                           |
+| `cn("…", "min-h-(--spacing-tap-min)")`               | **yes**                                                           |
+| `cn("…", cond ? "min-h-(--spacing-tap-min)" : "…")`  | **yes**                                                           |
+| `const anyName = cn(…)` used as a className          | **yes** — the callee match does not depend on the variable's name |
+| `cn(IDENT, …)` where `IDENT` is a class-string const | **no** — identifier args are not followed                         |
+| `const TRACK_BASE = "… min-h-(--spacing-tap-min)"`   | **no**                                                            |
+| `const classes = "… min-h-(--spacing-tap-min)"`      | **yes** — `^classes$` variable selector                           |
+| `const SIZE = { sm: "… min-h-(--spacing-tap-min)" }` | **no**                                                            |
+
+**Surviving dark sites after the cn migration** (line numbers are the SHIPPED post-migration ones — each file gained a `cn` import, so they sit one line below spec §9.2's pre-migration citations): `DeveloperToggleButton.tsx` `TRACK_BASE:79` / `THUMB_BASE:81` / `TAP_TARGET:84`; `AccentButton.tsx` `SIZE_CLASS:84` / `WEIGHT_CLASS:92` / `RING_OFFSET_CLASS:97` / `BASE_CLASS:105`; `OnboardingWizard.tsx` `base:127` / `focusRing:129`.
+
+**Worked example, surfaced by this arc's own impeccable critique (P2):** `THUMB_BASE:81` still reads `"inline-block h-5 w-5 rounded-full …"` while the three structurally identical sibling switches — `PublishedToggle`, `AutoPublishToggle`, `NotifyToggle` — were canonicalized to `size-5` in the same diff. Zero visual delta (`size-5` IS `h-5 w-5`), but it is precisely the drift the cn migration exists to make lint-visible, and it stayed invisible because `THUMB_BASE` is a bare const rather than an inline argument. The rule never saw it, before or after. That asymmetry is the clearest available evidence for why this entry is worth scheduling.
+
+**This is a DIFFERENT mechanism from the array-join blind spot** and was never covered by the census guard, so the cn migration neither worsens it nor is responsible for it. `tests/specLint/canonicalClassCallee.test.ts` records deliberately that its recognizer does not decide these either — its subject is the join, and the join alone.
+
+**Cheap known repair, which is why this is filed rather than merely noted:** rename to `classes` (which the plugin's variable selector matches) or wrap in `cn(...)`.
+
+**Why not done on `refactor/classname-array-join-cn`:** class-sweep exception (c) — a different mechanism needing its own recognizer decision, not another instance of the shape that arc repaired.
+
+---
+
+### BL-ESLINT-CONFIG-ARRAY-JOIN-COMMENT-STALE — the eslint config's array-join comment outlived the sites it describes
+
+**Severity:** LOW (stale comment, no behavior) · **Class:** docs accuracy · **Filed:** 2026-08-07 (`refactor/classname-array-join-cn`) · **Effort:** XS · **Reachability:** PROBED 2026-08-07 — read at `eslint.config.mjs:64-70` on the post-migration tree.
+
+**Description:** The comment above `"better-tailwindcss/enforce-canonical-classes"` says array-style patterns like `className={[...].filter(Boolean).join(" ")}` "are NOT covered by the plugin's default selectors — those are linted **by hand** on initial canonicalization." Its first clause is still true (the plugin genuinely cannot traverse an array join); its second is not. After `refactor/classname-array-join-cn` there are no array-join classNames left to lint by hand, and `tests/specLint/canonicalClassCallee.test.ts` reports any new one as a hard failure rather than leaving it to a manual pass.
+
+**Why not fixed in the arc that made it stale:** class-sweep exception (b) — a ratified scope fence. `eslint.config.mjs` is not in that plan's declared-delta allowlist (C4 step 4.3), and widening the allowlist after the diff had passed cross-model review would have put an unreviewed file in the merge.
+
+**Work:** replace the second clause with a pointer to the zero-tolerance guard. One comment edit.
+
+---
+
+### BL-WIZARD-CONNECTOR-MAXW-INERT — the wizard step connector renders 0-width, so its `max-w` is a dead constraint
+
+**Severity:** LOW (cosmetic; an intended hairline separator never renders) · **Class:** UI correctness · **Filed:** 2026-08-07 (`refactor/classname-array-join-cn`) · **Effort:** S · **Reachability:** PROBED 2026-08-08 — measured `getBoundingClientRect()` in mobile-safari at 390px AND at 900px: both connectors are `0 × 1` at both widths.
+
+**Description:** `components/admin/OnboardingWizard.tsx` renders a step-indicator connector after steps 1 and 2 as `<span className={cn("h-px max-w-confirm-box flex-1 rounded-full", …)} />` — evidently intended as a hairline rule between the step pills. It never renders: measured 0px wide at every viewport.
+
+**Cause is structural, not a viewport threshold.** `StepIndicator`'s `<nav>` is `flex items-center gap-2`, and it sits inside `<div className="flex items-center justify-between gap-3">` — a ROW flex container, in which the nav is a flex ITEM with the default `flex: 0 1 auto` and therefore sizes to its CONTENT. A content-sized flex container has no free space to distribute, so the connector's `flex-1` resolves to 0 and its `max-w` upper bound never applies. Widening the viewport does not help; the nav simply stays as wide as its pills and labels.
+
+**Consequence for the cn arc, recorded so it is not rediscovered as a finding:** C1 (`max-w-[60px]` → `max-w-confirm-box`) cannot be verified by measuring this element — a rect equality there is `0 == 0` before and after. `tests/e2e/canonical-class-dimensions.spec.ts` keeps both connector keys as a REGRESSION TRIPWIRE and asserts the 0-width state explicitly, so the day the layout changes the spec says so; C1's discriminating proof is the deterministic token assertion in `tests/specLint/canonicalTokenIdentity.test.ts`.
+
+**Why not fixed in the arc that found it:** class-sweep exception (a) — it needs a design decision the cn arc could not settle. Making the connector visible is a deliberate visual change to the wizard's step indicator (spec §9.4 of that arc states no dimensional invariant may change), and whether the hairline should render at all — and at what width on a 390px viewport — is an impeccable/design call, not a mechanical repair.
+
+**Work:** decide whether the connector should render; if yes, let the nav stretch (`w-full` on the nav, or `flex-1` on its wrapper) and re-baseline `tests/e2e/__baselines__/canonical-dimensions.json`, which will then measure a real 60px clamp.
 
 ---
 

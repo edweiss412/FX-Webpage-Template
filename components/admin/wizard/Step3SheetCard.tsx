@@ -63,6 +63,7 @@ import { postPublishIntent } from "@/lib/admin/publishIntent";
 import { RescanSheetButton } from "@/components/admin/RescanSheetButton";
 import { DataQualityBadge } from "@/components/admin/DataQualityBadge";
 import { stripNewTabSuffix } from "@/components/shared/NewTabHint";
+import { cn } from "@/lib/ui/cn";
 
 // Summary date rendering (§4.2): `dateSummarySegments` moved to
 // step3ReviewSections.tsx in Task 4 (imported above) so the review modal's
@@ -574,14 +575,14 @@ export function Step3SheetCard({
       data-testid={`wizard-step3-card-${dfid}-more`}
       aria-haspopup="dialog"
       onClick={() => setDetailsOpen(true)}
-      className={[
+      className={cn(
         "inline-flex min-h-tap-min shrink-0 items-center justify-center gap-1.5 rounded-md px-3 text-sm font-semibold transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface",
         // Review = outline + strong text (the primary needs-a-look action); View =
         // subtler ghost (a clean row needs no urging), so the two read distinctly.
         label === "Review"
           ? "border border-border-strong text-text-strong"
           : "text-text-subtle hover:text-text-strong",
-      ].join(" ")}
+      )}
     >
       {label}
     </button>

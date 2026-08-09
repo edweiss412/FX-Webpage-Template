@@ -44,6 +44,7 @@ import { isValidShowPathPair } from "@/lib/auth/picker/validateClearIdentityInpu
 import { ClaimedRowButton } from "./_ClaimedRowButton";
 import { buildShowReturnUrl } from "@/lib/crew/buildShowReturnUrl";
 import { StaleCleanupAutoSubmit } from "./_StaleCleanupAutoSubmit";
+import { cn } from "@/lib/ui/cn";
 
 export type PickerInterstitialRoster = ReadonlyArray<{
   id: string;
@@ -171,14 +172,14 @@ export function PickerInterstitial({
               const isClaimed = c.claimed_via_oauth_at !== null;
               const isLead = c.role_flags.includes("LEAD") && !isClaimed;
 
-              const rowClasses = [
+              const rowClasses = cn(
                 "w-full min-h-tap-min flex items-center justify-between gap-3 rounded-md border border-border px-4",
                 "transition-colors duration-fast",
                 "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg",
                 isClaimed
                   ? "bg-surface-sunken text-text-subtle cursor-pointer hover:bg-surface"
                   : "bg-surface text-text hover:bg-surface-sunken",
-              ].join(" ");
+              );
 
               const chipBase = "shrink-0 rounded-pill px-2 py-0.5 text-xs font-semibold";
               const chipClasses = isLead

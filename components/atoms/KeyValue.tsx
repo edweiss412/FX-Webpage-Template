@@ -43,6 +43,7 @@
  */
 import type { ReactNode } from "react";
 import { EmptyState } from "@/components/atoms/EmptyState";
+import { cn } from "@/lib/ui/cn";
 
 type KeyValueProps = {
   /** Field label rendered as the <dt>. Required. */
@@ -118,7 +119,7 @@ export function KeyValue({ label, value, linkAs, tabular, emptyLabel }: KeyValue
       return (
         <a
           href={href}
-          className={[
+          className={cn(
             // 44px tap-target floor (§3 / DESIGN.md `--spacing-tap-min`).
             "inline-flex min-h-tap-min items-center",
             // Row-gap spacing on the wrapper handles vertical rhythm;
@@ -132,9 +133,7 @@ export function KeyValue({ label, value, linkAs, tabular, emptyLabel }: KeyValue
             // Tabular figures for phone strings; let mailto stay
             // proportional unless caller opts in.
             useTabular ? "tabular-nums" : "",
-          ]
-            .filter(Boolean)
-            .join(" ")}
+          )}
         >
           {value}
         </a>

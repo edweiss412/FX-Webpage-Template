@@ -23,6 +23,7 @@
  * `lib/time/relative.ts` imports nothing, and `lib/me/partitionMeShows.ts`
  * carries only a type import.
  */
+import { ChevronRight } from "lucide-react";
 import Link from "next/link";
 
 import type { CrewShowSummary } from "@/lib/data/listShowsForCrew";
@@ -123,12 +124,10 @@ export function MeShowSections({ shows, now }: { shows: readonly CrewShowSummary
             className="inline-flex w-fit min-h-tap-min cursor-pointer list-none items-center text-xs font-semibold uppercase tracking-eyebrow text-text-subtle hover:text-text"
           >
             Past ({past.length}){" "}
-            <span
+            <ChevronRight
               aria-hidden="true"
-              className="ml-1 inline-block transition-transform duration-normal group-open:rotate-90"
-            >
-              ▸
-            </span>
+              className="ml-1 inline-block size-4 shrink-0 transition-transform duration-normal group-open:rotate-90"
+            />
           </summary>
           <ul data-testid="me-past-list" className="mt-3 flex flex-col gap-2">
             {past.map((entry) => (

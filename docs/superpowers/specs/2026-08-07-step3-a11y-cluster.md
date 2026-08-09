@@ -421,6 +421,19 @@ Each has a conservative worst case with a visible signal, not silent breakage.
    intended effect of a negative margin and is why layout is preserved; it means the
    stepper's *painted* bounds and its *tappable* bounds differ by 8px. No adjacent
    interactive element sits within that band on any wizard viewport (probe P6).
+
+   **Widened 2026-08-09** by the non-degraded invariant-8 re-run, which found this limit
+   UNDERSTATED as written: it scopes the overhang to the stepper, and **four** targets ship
+   it. The HelpSheet trigger (`components/admin/wizard/Step3Review.tsx:1312`, `gap-2`),
+   HelpTooltip (`components/admin/wizard/StagedReviewCard.tsx:464`, `gap-2 flex-wrap`) and the
+   HelpSheet close button (`components/admin/HelpSheet.tsx:167`, `gap-3`) each expand 8px per
+   side into an 8–12px gap, leaving 0–4px of slack. All three were traced by hand and **no
+   interactive neighbour sits in any of those bands today**, so this is a coverage gap rather
+   than a live defect — and it is a coverage gap precisely because the live-entry harness
+   mounts each component in its own isolated `data-mount` wrapper, which makes a
+   neighbour-overlap assertion structurally impossible for anything but `AdminNav` (the one
+   target whose real neighbours are inside its own component). Filed as
+   `BL-TAP-TARGET-NEIGHBOUR-OVERLAP-COVERAGE`.
 3. **`AdministratorsSection.tsx:131` was 40.8px — a 3.2px miss.** Recorded because it is the
    one site the eye would pass: it is not obviously tiny, and only the arithmetic
    (16.8 + 12 + 12) shows it under the floor.

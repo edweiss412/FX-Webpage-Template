@@ -66,6 +66,25 @@ const CLASS_A_MOUNTS = [
 ] as const;
 
 /**
+ * DI-2's ONE exemption, and it is stated as a premise rather than a subtraction.
+ *
+ * DI-2 exists to stop a repaired `<summary>` becoming a full-width invisible
+ * band that swallows pointer events aimed at NEIGHBOURING content — that is the
+ * harm, and `w-fit` is the guard against it. The revoked-admins disclosure has
+ * no neighbour: its `<summary>` is a bordered card's own header, alone on its
+ * row. Applying `w-fit` there bought nothing and cost roughly 200px of hit
+ * area, leaving a row that still read as a full-width affordance while only its
+ * text toggled — a SMALLER target than before the repair.
+ *
+ * So this site is deliberately full-width, and the assertion below flips for it
+ * rather than skipping it: a skip would go quiet if the site ever regained a
+ * neighbour, while an inverted assertion keeps measuring something. Spec §6
+ * already exempts HelpTooltip from DI-2 by construction; this is the same shape
+ * with a different reason, and both are named rather than implied.
+ */
+const DI2_FULL_WIDTH_BY_DESIGN = new Set<string>(["administrators"]);
+
+/**
  * All SEVEN repaired disclosures — DI-1's full scope (spec §6). HelpTooltip is
  * the seventh; it is a <summary> that is also a 28x28 pill, so both recipes
  * name it and Class B wins (spec §2.2 precedence): Class A's
@@ -927,23 +946,34 @@ test.describe("§1.1 R6 — the two disclosures that HAD a native marker keep a 
       // Premise: the native marker really is gone, so a replacement is required.
       // If a future change restored `display: list-item`, this guard would be a
       // belt over working braces and should be revisited rather than trusted.
+      // The premise is that the NATIVE marker is gone, which is true of any
+      // non-`list-item` display — the recipe uses `inline-flex` at five sites
+      // and `flex` at the full-width one, and pinning one spelling would fail
+      // the site that is deliberately the other.
       const display = await summary.evaluate((el) => getComputedStyle(el).display);
       premiseHolds(
-        `${mount} summary is inline-flex, so the native marker is gone`,
-        display === "inline-flex",
+        `${mount} summary is not display:list-item, so the native marker is gone (got "${display}")`,
+        display !== "list-item",
       );
       expect(await caret.count(), `${mount} lost its disclosure caret`).toBeGreaterThan(0);
 
-      // A rotating EMPTY span is not a cue. Deleting just the `▸` text while
-      // keeping the span and its classes leaves the node count positive and the
-      // computed rotation still changing, so a count-plus-rotation guard passes
-      // on a disclosure that once again shows nothing. What has to hold is that
-      // something is actually painted: non-blank text inside a box with area.
+      // A rotating EMPTY node is not a cue. Emptying the caret while keeping it
+      // and its classes leaves the node count positive and the computed rotation
+      // still changing, so a count-plus-rotation guard passes on a disclosure
+      // that once again shows nothing. What has to hold is that something is
+      // actually PAINTED, and the caret is a lucide <svg> rather than a text
+      // glyph — so "non-blank" means an svg with drawable content OR non-blank
+      // text, not text alone. A text-only check would fail the icon it is
+      // meant to protect, which is how a guard ends up loosened for the wrong
+      // reason.
       const painted = await caret.first().evaluate((el) => {
         const r = el.getBoundingClientRect();
         const cs = getComputedStyle(el);
+        const isSvg = el.tagName.toLowerCase() === "svg";
         return {
           text: (el.textContent ?? "").trim(),
+          drawable: isSvg ? el.querySelectorAll("path, line, polyline, circle, rect").length : 0,
+          isSvg,
           w: r.width,
           h: r.height,
           visibility: cs.visibility,
@@ -952,7 +982,10 @@ test.describe("§1.1 R6 — the two disclosures that HAD a native marker keep a 
           color: cs.color,
         };
       });
-      expect(painted.text, `${mount} caret renders no glyph`).not.toBe("");
+      expect(
+        painted.isSvg ? painted.drawable > 0 : painted.text !== "",
+        `${mount} caret renders nothing (svg=${painted.isSvg}, drawable=${painted.drawable}, text=${JSON.stringify(painted.text)})`,
+      ).toBe(true);
       expect(painted.w * painted.h, `${mount} caret has no painted area`).toBeGreaterThan(0);
       expect(painted.visibility, `${mount} caret is not visible`).not.toBe("hidden");
       expect(painted.display, `${mount} caret is display:none`).not.toBe("none");
@@ -1366,7 +1399,7 @@ test.describe("DI-1 — every repaired <summary> clears the 44px floor on both a
   }
 });
 
-test.describe("DI-2 — the six Class-A summaries stay narrower than their container", () => {
+test.describe("DI-2 — five Class-A summaries stay narrower than their container; one spans it by design", () => {
   for (const width of VIEWPORTS) {
     test(`@${width}px: no Class-A summary becomes a full-width band`, async ({ page }) => {
       await boot(page, width);
@@ -1382,16 +1415,38 @@ test.describe("DI-2 — the six Class-A summaries stay narrower than their conta
           .locator(`[data-mount="${mount}"]`)
           .evaluate((container: HTMLElement) => {
             const summary = container.querySelector("summary");
+            const card = summary?.closest("details");
             return {
               summary: summary ? summary.getBoundingClientRect().width : null,
               container: container.getBoundingClientRect().width,
+              // The exempt site's claim is "spans its own card", so it is
+              // measured against the <details> content box. Measuring it
+              // against the whole mount would compare the header to a column
+              // that also holds the heading row and the active-admins card,
+              // and fail by their difference rather than by anything real.
+              card: card
+                ? card.getBoundingClientRect().width -
+                  parseFloat(getComputedStyle(card).borderLeftWidth) -
+                  parseFloat(getComputedStyle(card).borderRightWidth)
+                : null,
             };
           });
         premiseHolds(`${mount} rendered a <summary>`, measured.summary !== null);
         premise(`${mount} container has width`, measured.container, 0);
-        expect(measured.summary!, `${mount} summary width vs container`).toBeLessThan(
-          measured.container - EPS,
-        );
+        if (DI2_FULL_WIDTH_BY_DESIGN.has(mount)) {
+          // Inverted, not skipped. This site must SPAN its container, because a
+          // narrow target under a full-width-looking header is the defect. If
+          // someone reapplies `w-fit` here, this fails.
+          premiseHolds(`${mount} rendered a <details> card to span`, measured.card !== null);
+          expect(
+            measured.summary!,
+            `${mount} is full-width BY DESIGN and lost it — was w-fit reapplied?`,
+          ).toBeGreaterThanOrEqual(measured.card! - EPS);
+        } else {
+          expect(measured.summary!, `${mount} summary width vs container`).toBeLessThan(
+            measured.container - EPS,
+          );
+        }
 
         // MEASURED, and it corrects this invariant's own stated cause. Spec
         // §2.1 attributes the narrow box to `w-fit` — "without it the <summary>
@@ -1408,10 +1463,12 @@ test.describe("DI-2 — the six Class-A summaries stay narrower than their conta
         // conformance rather than as cause — belt over braces, labelled as
         // belt. It also stops mattering the moment someone changes the display
         // utility, which is precisely when a redundant guard earns its keep.
-        await expect(
-          page.locator(`[data-mount="${mount}"] summary`),
-          `${mount} summary dropped the spec-required w-fit token`,
-        ).toHaveClass(/(^|\s)w-fit(\s|$)/);
+        if (!DI2_FULL_WIDTH_BY_DESIGN.has(mount)) {
+          await expect(
+            page.locator(`[data-mount="${mount}"] summary`),
+            `${mount} summary dropped the spec-required w-fit token`,
+          ).toHaveClass(/(^|\s)w-fit(\s|$)/);
+        }
       }
     });
   }
@@ -1464,17 +1521,21 @@ test.describe("§6.1 disclosure behaviour survives the Class-A repair", () => {
     );
   });
 
-  test("<details> still toggles when its <summary> is display: inline-flex", async ({ page }) => {
+  test("<details> still toggles when its <summary> is a flex container", async ({ page }) => {
     await boot(page, 390);
 
     for (const mount of CLASS_A_MOUNTS) {
       const summary = summaryIn(page, mount);
       const display = await summary.evaluate((el) => getComputedStyle(el).display);
       // Changing a <summary>'s display was the standing risk of the Class-A
-      // recipe (spec §2.1, probe P2). The premise is that the recipe actually
-      // landed on this element; without it the toggle assertion below is just
-      // re-testing native <details> on an unrepaired build.
-      premiseHolds(`${mount} summary is inline-flex (got "${display}")`, display === "inline-flex");
+      // recipe (spec §2.1, probe P2), and the risk is the CHANGE, not one
+      // spelling of it: five sites are `inline-flex` and the full-width one is
+      // `flex`. The premise is that the recipe landed at all — without it the
+      // toggle assertion below is just re-testing native <details>.
+      premiseHolds(
+        `${mount} summary is a flex container, so the display change under test applied (got "${display}")`,
+        display === "inline-flex" || display === "flex",
+      );
 
       const details = summary.locator("xpath=..");
       expect(
