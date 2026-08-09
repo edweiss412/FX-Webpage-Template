@@ -781,10 +781,14 @@ for (const spec of CLASS_B_TARGETS) {
         const cs = getComputedStyle(el);
         return { property: cs.transitionProperty, duration: cs.transitionDuration };
       });
+      // Split into TOKENS. A substring test accepts a suffix — "background-color"
+      // contains "color", so `transition-[background-color]` would satisfy a
+      // check for `color` while the text colour snaps.
+      const animated = new Set(timing.property.split(",").map((t) => t.trim()));
       for (const prop of spec.hoverProps) {
         const cssName = prop === "backgroundColor" ? "background-color" : prop;
         expect(
-          `${timing.property},`.includes(`${cssName},`) || timing.property === "all",
+          animated.has(cssName) || animated.has("all"),
           `${spec.label}: the visual span no longer transitions ${cssName} (got "${timing.property}")`,
         ).toBe(true);
       }
@@ -818,6 +822,10 @@ for (const spec of CLASS_B_TARGETS) {
       premiseHolds(`${spec.label} rendered its inner visual span`, radii.visual !== null);
       expect(parseFloat(radii.target), `${spec.label} target radius`).toBeGreaterThan(0);
       expect(radii.target, `${spec.label} radius diverged from its visual`).toBe(radii.visual);
+      // Each box is judged against ITS OWN size. Measuring the 44px target
+      // against the 28px visual's half-width accepts `rounded-[14px]`, which
+      // leaves the visual circular and the focus ring a rounded square.
+      const targetBox = await rectOf(page, targetSel);
       // Non-zero AND equal is not enough: swapping `rounded-pill` for
       // `rounded-sm` on BOTH elements keeps them equal and non-zero at 6px
       // while turning a circle into a rounded square — R6 says the existing
@@ -825,7 +833,8 @@ for (const spec of CLASS_B_TARGETS) {
       // consistency. Spec §6 DI-14 states the shape per control: the pill
       // radius ("half the box or greater") for the trigger and tooltip, the
       // `rounded-sm` token for the close button.
-      expectPreservedRadius(spec.label, radii.target, spec.radius, spec.visualSize);
+      expectPreservedRadius(`${spec.label} target`, radii.target, spec.radius, targetBox.h);
+      expectPreservedRadius(`${spec.label} visual`, radii.visual!, spec.radius, spec.visualSize);
 
       await focusWithKeyboard(page, targetSel);
       const state = await page.locator(targetSel).evaluate((el, visualId) => {
@@ -1237,7 +1246,8 @@ test.describe("DI-13/DI-14 — focus outlines the target, at the target's own ra
       expect(resting.targetRadius, `pill ${n} radius diverged from its visual`).toBe(
         resting.spanRadius,
       );
-      expectPreservedRadius(`pill ${n}`, resting.targetRadius, "pill", VISUAL_PILL);
+      expectPreservedRadius(`pill ${n} target`, resting.targetRadius, "pill", TAP_MIN);
+      expectPreservedRadius(`pill ${n} visual`, resting.spanRadius!, "pill", VISUAL_PILL);
 
       // DI-13 — the ring, which only exists in the focused state.
       await page.locator(selector).evaluate((el) => (el as HTMLElement).focus());
