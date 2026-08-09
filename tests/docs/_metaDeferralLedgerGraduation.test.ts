@@ -93,6 +93,17 @@ const GRADUATED = [
  * that recorded the finding.
  */
 const BACKLOG_GRADUATED = [
+  // chore/next-1630-wedge-remeasure (2026-08-09): upstream React replay-loss fix
+  // confirmed by measurement: 0/20 wedged samples on next 16.3.0's vendored canary
+  // cbb046ab-20260731 vs the 7/10 baseline on 3f0b9e61-20260317. Graduated by the
+  // entry's OWN second watch signal ("an upstream React/Next bump once the replay
+  // fix ships in a stable vendored canary"), not by waiving it; the archived
+  // section carries the pre-stated decision rule and an un-archive contract, so a
+  // residual rate returns the row rather than being absorbed.
+  {
+    id: "BL-PUBLISHED-TOGGLE-CLIENT-COMMIT-WEDGE",
+    provenance: "chore/next-1630-wedge-remeasure",
+  },
   { id: "BL-CODEX-GUARD-COMMONMARK-PARSE", provenance: "feat/review-infra-gates" },
   { id: "BL-PLAN-SNIPPET-FENCE-GATE", provenance: "feat/review-infra-gates" },
   // feat/backlog-quick-wins (2026-08-07, arc C): the retainRows asymmetry. The
