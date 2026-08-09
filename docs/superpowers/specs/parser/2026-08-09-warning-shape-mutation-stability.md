@@ -129,3 +129,84 @@ Every option now has a probed defect:
 | D (+ per-occurrence) | Hides mis-anchoring regressions; per-occurrence duplicates cards |
 
 **The option not yet evaluated** is C-without-the-generalisation: a **one-time, enumerated, seven-row exception** ratified in this document, with no general predicate. Round 2's objections to C were specifically that the *general rule* is unsound and unenforceable — an enumerated exception needs neither, because the reviewing human sees all seven rows and their mechanisms in one diff. The ratchet would stay shrink-only by default, with additions requiring a spec amendment that names each row. That is a spec deviation and needs ratification, not an implementer's judgement.
+
+## 11. Option E — split the verdict, do not blind the instrument
+
+Proposed by a peer session 2026-08-09 and **replayed against the live harness here**; every number below is measured, not projected. E is not one of §6's four, and it dominates all of them.
+
+### 11.1 The predicate
+
+`signalKeys` (`tests/parser/mutation/oracle.ts:51`) is compared today only one-directionally, by `newSignalFired` ("did any code count go UP"). E adds the missing exact-equality tier:
+
+```
+signalKeysEq(b, m)  =  FULL multiset equality of signalKeys(b) and signalKeys(m)
+                       — every W:/H:/R: key, both directions, exact counts
+
+SILENT_SIGNAL_LOSS  =  payloadEq && !signalEq && !signalKeysEq      (unchanged, HARD, shrink-only)
+SIGNAL_TEXT_DRIFT   =  payloadEq && !signalEq &&  signalKeysEq      (new bucket)
+```
+
+**Why this is sound where §6 C was not.** C's clause was EXISTENTIAL — "a warning still fires" — which a detector skipping one of six offending cells satisfies. `signalKeysEq` is UNIVERSAL: every code's count must be exactly preserved. There is no free-form predicate and no human judgement in the classifier.
+
+### 11.2 The seven, measured
+
+| Site | Today | E (plain) | E (occurrence-weighted) |
+| --- | --- | --- | --- |
+| `blank-row:remove` × 4 | SILENT_SIGNAL_LOSS | SIGNAL_TEXT_DRIFT | SIGNAL_TEXT_DRIFT |
+| `merged-cell` `X0` | SILENT_SIGNAL_LOSS | SILENT_SIGNAL_LOSS | SIGNAL_TEXT_DRIFT |
+| `merged-cell` `X1` | SILENT_SIGNAL_LOSS | SILENT_SIGNAL_LOSS | SIGNAL_TEXT_DRIFT |
+| `merged-cell` `X2` | SILENT_SIGNAL_LOSS | SIGNAL_TEXT_DRIFT | SIGNAL_TEXT_DRIFT |
+
+Plain E reaches 5/7; the occurrence tier is genuinely required for `X0`/`X1`, whose cell count really does drop 6 → 5. With it, **7/7** — and the HARD bucket empties with **no deviation from its never-deferrable bar**, which is what §10 escalated for.
+
+### 11.3 Kill-cases — the classifier is not a blanket
+
+| Injected regression | Classifies as |
+| --- | --- |
+| Detector skips 1 of 6 offending cells | **SILENT_SIGNAL_LOSS** (correctly HARD) |
+| Cell keeps its warning but loses its literal | **SILENT_SIGNAL_LOSS** (correctly HARD — see 11.4) |
+| Mis-anchor `crew` → `rooms`, counts stable (§10's BLOCKING mutant) | SIGNAL_TEXT_DRIFT — visible, unlisted, gate fails, human triages |
+| Warning snippet gutted to `""` | SIGNAL_TEXT_DRIFT — same triage path |
+| Warning reordering, multiset identical | SIGNAL_TEXT_DRIFT |
+| One REF swapped to `UNKNOWN_FIELD` | SIGNALED — `newSignalFired` fires first and never reaches this tier |
+
+The third row is the decisive one. §6 D **absorbed** that mutant silently, which is what made it BLOCKING. E *sees* it and files it distinctly.
+
+The last row corrects the proposal's own rationale: a code swap does fail `signalKeysEq`, but the classifier never consults it, because `newSignalFired` is evaluated earlier. That is today's behaviour, unchanged by E — but it is not evidence for E and must not be cited as such.
+
+### 11.4 The occurrence extractor must NOT have a zero-fallback
+
+Two ways to weight occurrences were considered: (a) a new `occurrences: n` field on `ParseWarning`, or (b) an oracle-side extractor counting matched literals in `rawSnippet`. **(b) is preferred** — the parser stays untouched, so there is no new product-type field, no `exactOptionalPropertyTypes` fan-out, and no product surface enumerating warning fields. The cost is code-specific logic inside the instrument, which is the right place for a measurement concern.
+
+A naive implementation writes `(clean(snippet).match(/#REF!/g) ?? []).length || 1`. **That `|| 1` defeats the tier's soundness:**
+
+```
+literal dropped from a cell:
+  with `|| 1` fallback : SIGNAL_TEXT_DRIFT     <- wrong; this is real loss
+  without fallback     : SILENT_SIGNAL_LOSS    <- correct
+```
+
+Removing it costs nothing — all seven still classify as drift without it (`X0`/`X1`/`X2` and all four `blank-row` sites re-measured). A `REF_ERROR_LITERAL` warning whose cleaned snippet contains zero literals **is itself the anomaly** the softer bucket must never swallow.
+
+### 11.5 Ratchet for the new bucket
+
+An unlisted `SIGNAL_TEXT_DRIFT` row **fails hard**, exactly like `newHoles`. Only the triage differs: a drift row is admitted to the ledger by naming its mechanism, where a hole must be fixed or documented as a limit. Without this the new bucket becomes the dumping ground §10 warned about, and a mis-anchoring regression lands somewhere people learn to bless — reintroducing the failure both review rounds were spent eliminating.
+
+`reconcileLedger` (`tests/parser/mutation/knownHoles.ts:43`) already partitions generically by `(siteId, kind)`, so extending `Alarm.kind` with `"text_drift"` gives drift rows the same new/fixed/drifted triage for free.
+
+### 11.6 Why E dominates §6
+
+| | Keeps the anchor | HARD bucket empty | Catches mis-anchor | Sound predicate |
+| --- | --- | --- | --- | --- |
+| A / B | ✗ | ✓ | n/a | ✓ |
+| C | ✓ | ✗ (deviation) | ✗ | ✗ |
+| D | ✓ | ✓ | **✗** | ✓ |
+| **E** | **✓** | **✓** | **✓** | **✓** |
+
+E also inherits structurally: branch 5 operates on `UNKNOWN_FIELD` at a 394 clean-corpus baseline (§10), and any future non-zero-baseline code gets the same vocabulary. It fixes the instrument's missing distinction rather than annotating the symptom.
+
+### 11.7 Open before ratification
+
+1. Expected fingerprint re-baseline count from the `Alarm.kind` extension — state it before landing.
+2. Whether drift rows should carry a structured mechanism field rather than free-form `note`; §10's objection to unvalidated `note` applies here too.
+3. Whether reorder-with-equal-multiset (11.3 row 5) is acceptable as drift, or wants its own class.
