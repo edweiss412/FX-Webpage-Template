@@ -53,7 +53,8 @@ Cloned from the scanner-clean template `lifecycle-layout-e2e.yml` (bare `pull_re
   ```
 
   One invocation because each Playwright process cold-builds and owns its webServer (`pnpm build && pnpm start` in CI — `playwright.config.ts` baseline `webServer` command); per-project or per-spec steps would pay that cost repeatedly (the `crew-e2e.yml` run-step comment ratifies this). Each project's `testMatch` claims its own subset of the named files.
-- **Vacuity oracle:** a post-run step invoking `scripts/check-crew-e2e-executed.mjs` (parameterized as #743 leaves it; exact flags resolved at plan time against the post-#743 script) asserting a minimum executed-test count from the JSON report, so a runtime `test.skip` regression cannot fake green. The JSON report path goes through step-level `PLAYWRIGHT_JSON_OUTPUT_NAME`.
+<!-- spec-lint: ignore — scripts/check-app-e2e-executed.mjs is created by this spec's implementation; not yet tracked -->
+- **Vacuity oracle:** a post-run step invoking a NEW sibling script (working name `scripts/check-app-e2e-executed.mjs`, same shape as `scripts/check-crew-e2e-executed.mjs`: reads the run's own JSON report, per-spec `executed >= min` floor map). The crew script is not reusable — its `REQUIRED` map is a hardcoded module constant keyed to the crew-e2e specs. Per the derivation rule its #743 additions ratify in-file, every count in the new map is derived from an ACTUAL run's report (summed over the projects each spec resolves under), never from arithmetic. The JSON report path goes through step-level `PLAYWRIGHT_JSON_OUTPUT_NAME` (already-allowlisted env pair).
 
 ## 4. Mandated pre-wiring test repairs (same branch, before the workflow lands)
 
@@ -77,7 +78,7 @@ Each repair is TDD-shaped: the strengthened assertion (or a probe of the current
 - **AC-2:** The three §4 repairs are landed, each with its strengthened assertion.
 - **AC-3 (the bar):** **Five consecutive green `workflow_dispatch` runs** of the new workflow on the branch, zero retries, before merge — the `lifecycle-layout-e2e.yml` precedent (ci-dark design §6.1 amendment / AC-6). Run links recorded in the PR body.
 - **AC-4 (pre-ratified fallback):** any spec that cannot clear AC-3 is dropped from the run command, its allowlist row restored with a recorded flake reason, and the ledger census adjusted — "an admitted flake is worse than a known gap" (ci-dark design, pre-ratified fallback). The batch does not hold the arc hostage.
-- **AC-5:** Executed-count oracle fails the job if the executed total drops below the floor measured at wiring time (exact floor set at plan time from a `--list` count).
+- **AC-5:** Executed-count oracle fails the job if any batch spec's executed count drops below its floor; floors are measured from a real run's JSON report at wiring time (never `--list` arithmetic — `--list` cannot see runtime skips, the exact blindness the oracle exists to close).
 - **AC-6:** Real CI green on the PR itself (all workflows), then merge; local green is not sufficient (local-passes-CI-fails is its own bug class).
 
 ## 7. Documented limits
