@@ -1708,7 +1708,119 @@ describe("sheet-link phrase containment (spec §7.10)", () => {
         nextConfigAliasOffenders(readFileSync(join(root, rel), "utf8")).map((v) => `${rel}: ${v}`),
       ),
     ];
-    expect(configOffenders).toEqual([]);
+    // r30 (2026-08-09, next 16.3.0 bump — spec
+    // docs/superpowers/specs/2026-08-09-next-1630-wedge-remeasure-design.md §3.1):
+    // `typescript.tsconfigPath` is the r18 spelling that just became a REAL
+    // config key. Next 16.3.0's build-time type-check reports diagnostics for
+    // every file in the tsconfig project, including tests/** — five of which
+    // import @/app/admin/dev/*, renamed aside by the build-artifact gate — so
+    // the build reads a tests-excluding project instead. It is admitted on a
+    // STRUCTURAL fence, not on intent: exactly one occurrence graph-wide, in
+    // the entry file, as `typescript: { tsconfigPath: <string literal> }`, and
+    // the file it names carries the SAME alias-free resolver state the root
+    // config is pinned to. Any other spelling, site, or shape still offends,
+    // and the r18 laundering path (an alternate tsconfig's `paths`) is closed
+    // by reading that file here rather than by trusting the key's purpose.
+    const TSCONFIG_PATH_OFFENSE =
+      'next.config.ts: resolver-remap spelling "tsconfigPath" (cooked) in next.config.ts';
+    expect(
+      configOffenders.filter((o) => o !== TSCONFIG_PATH_OFFENSE),
+      "no resolver-remap offense beyond the sanctioned tsconfigPath",
+    ).toEqual([]);
+    expect(
+      configOffenders.filter((o) => o === TSCONFIG_PATH_OFFENSE),
+      "exactly one tsconfigPath token, in the entry file",
+    ).toEqual([TSCONFIG_PATH_OFFENSE]);
+    // The sanctioned SHAPE, read from the AST: one `tsconfigPath` property,
+    // string-literal value, nested directly inside the `typescript` property's
+    // object literal. A shorthand, a computed key, a non-literal value, or the
+    // same key under another parent never reaches `sanctionedTsconfigPaths`.
+    const entrySf = ts.createSourceFile(
+      "next.config.ts",
+      readFileSync(join(root, "next.config.ts"), "utf8"),
+      ts.ScriptTarget.Latest,
+      true,
+      ts.ScriptKind.TS,
+    );
+    const sanctionedTsconfigPaths: string[] = [];
+    const collectTsconfigPath = (node: ts.Node): void => {
+      if (
+        ts.isPropertyAssignment(node) &&
+        (ts.isIdentifier(node.name) || ts.isStringLiteralLike(node.name)) &&
+        node.name.text === "tsconfigPath" &&
+        ts.isStringLiteralLike(node.initializer)
+      ) {
+        const objectLiteral = node.parent;
+        const owner = ts.isObjectLiteralExpression(objectLiteral)
+          ? objectLiteral.parent
+          : undefined;
+        if (
+          owner &&
+          ts.isPropertyAssignment(owner) &&
+          (ts.isIdentifier(owner.name) || ts.isStringLiteralLike(owner.name)) &&
+          owner.name.text === "typescript"
+        ) {
+          sanctionedTsconfigPaths.push(node.initializer.text);
+        }
+      }
+      ts.forEachChild(node, collectTsconfigPath);
+    };
+    collectTsconfigPath(entrySf);
+    expect(sanctionedTsconfigPaths, "typescript.tsconfigPath, pinned by exact set").toEqual([
+      "tsconfig.build.json",
+    ]);
+    // The tracked tsconfig set is pinned too: the build config is only closed
+    // if a THIRD config cannot appear beside it unseen.
+    const tsconfigs = execFileSync("git", ["ls-files", "--", "tsconfig*"], {
+      cwd: root,
+      encoding: "utf8",
+    })
+      .trim()
+      .split("\n")
+      .sort();
+    expect(tsconfigs, "the tracked tsconfig set").toEqual(["tsconfig.build.json", "tsconfig.json"]);
+    // The alternate config's own resolver state: it must inherit the root
+    // config and add no alias of its own. `paths`/`baseUrl` absent here means
+    // the effective values are the root ones, already pinned above.
+    const buildRaw = ts.readConfigFile(join(root, sanctionedTsconfigPaths[0]!), ts.sys.readFile);
+    expect(buildRaw.error).toBeUndefined();
+    const buildConfig = buildRaw.config as {
+      extends?: string;
+      exclude?: string[];
+      compilerOptions?: { paths?: Record<string, string[]>; baseUrl?: string };
+    };
+    expect(buildConfig.extends, "the build config extends the pinned root config").toBe(
+      "./tsconfig.json",
+    );
+    expect(buildConfig.compilerOptions?.paths).toBeUndefined();
+    expect(buildConfig.compilerOptions?.baseUrl).toBeUndefined();
+    // r30/whole-diff-r1: `exclude` REPLACES the inherited array rather than
+    // merging it, so the build config silently re-admitted every base
+    // exclusion it failed to restate — including the build-artifact trees the
+    // base `include` reaches via `<distDir>/types/**/*.ts`, which is how a
+    // flag-unset build ends up type-checking an EARLIER artifact's emitted
+    // references to the very app/admin/dev/* modules it just renamed aside
+    // (probed: a planted `.next-dev/types/validator.ts` was excluded by the
+    // base config and admitted by the build config, TS2307). The contract is
+    // pinned as a DERIVATION, not a second list to keep in step: the build
+    // config's exclusions are exactly the base's plus `tests`, so adding a
+    // base exclusion without mirroring it fails HERE.
+    const baseExclude = (raw.config as { exclude?: string[] }).exclude ?? [];
+    expect(baseExclude.length, "the base config has exclusions to inherit").toBeGreaterThan(0);
+    expect([...(buildConfig.exclude ?? [])].sort(), "build exclusions = base + tests").toEqual(
+      [...baseExclude, "tests"].sort(),
+    );
+    // PREMISE, both directions. Without the first, the carve could sit over a
+    // build config that excludes nothing and would silently stop describing
+    // the reason it exists; without the second, a filter that admitted every
+    // spelling would read as a pass.
+    expect(buildConfig.exclude, "the build config's reason to exist").toContain("tests");
+    expect(
+      nextConfigAliasOffenders(
+        'export default { typescript: { tsconfigPath: "x" }, turbopack: { resolveAlias: {} } };',
+      ).length,
+      "the offender scan still flags a second remap spelling beside tsconfigPath",
+    ).toBeGreaterThan(1);
     // r23: the compiled-PAGE surface is a resolution surface too — adding
     // "md" to pageExtensions (or an MDX `extension` regex, denied via
     // REMAP_SPELLINGS above) turns tracked `.md` — a tree the walk treats as

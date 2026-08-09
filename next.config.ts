@@ -31,6 +31,14 @@ const withMDX = createMDX({
 
 const nextConfig: NextConfig = {
   distDir: process.env.NEXT_DIST_DIR ?? ".next",
+  // Build-time type-check reads tsconfig.build.json, which excludes tests/.
+  // `pnpm build` renames app/admin/dev/* aside (scripts/with-admin-dev-flag.mjs,
+  // the build-artifact gate), and Next 16.3.0's check pass reports diagnostics for
+  // every file in the project — so the five test files that statically import
+  // @/app/admin/dev/* failed the build with TS2307 (Next 16.2.10 did not check
+  // them). `pnpm typecheck` still uses the base tsconfig.json, so tests/** keep
+  // their full type coverage in CI (quality.yml:41). Rationale in tsconfig.build.json.
+  typescript: { tsconfigPath: "tsconfig.build.json" },
   experimental: {
     authInterrupts: true,
     // Next 16's default builder is Turbopack, which — unlike webpack — writes no
