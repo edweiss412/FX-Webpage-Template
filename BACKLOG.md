@@ -22,7 +22,7 @@ The three uncovered targets and the slack they ship: HelpSheet trigger (`compone
 
 ## BL-GLYPHS-OUTSIDE-INTER-SUBSET — ~150 UI glyph sites render in a fallback face, not Inter
 
-**Filed:** 2026-08-09 (`docs/step3-a11y-impeccable-regate`, the non-degraded invariant-8 re-run of the step3-a11y cluster). **Class:** visual consistency (`DESIGN.md` §2.1 commits to ONE type family). **Effort:** M — the fix is a decision plus either a wider subset or a glyph-to-icon migration, not a patch. **Class-sweep exception:** (c) — it spans surfaces no single PR touches. **Reachability: PROBED.**
+**Filed:** 2026-08-09 (`docs/step3-a11y-impeccable-regate`, the non-degraded invariant-8 re-run of the step3-a11y cluster). **Class:** visual consistency (`DESIGN.md` §2.1 commits to ONE type family). **Effort:** M — the fix is a decision plus either a wider subset or a glyph-to-icon migration, not a patch. **Class-sweep exception:** (c) — it spans surfaces no single PR touches. **Reachability: PROBED.** · **Status:** IN PROGRESS · **Branch:** docs/m-wave-2-spec
 
 `app/fonts.css:28` loads `public/fonts/InterVariable-latin.fada467b.woff2`, a latin + latin-ext subset carrying **1004 codepoints**. Any character outside it falls back to a system face, so the glyph renders in a different family from the text beside it — which is what the one-family commitment says should not happen.
 
@@ -103,7 +103,7 @@ Every writer of `shows.source_anchors` preserves the stored map rather than clea
 
 **Why backlog, not deferred:** the failure needs an empty-anchor scan AND a row-moving sheet edit in the same window, and the visible symptom is a deep link that opens the wrong range — not data loss. No trigger scheduled. Documented as an accepted limit at `docs/superpowers/specs/step3-onboarding/2026-08-03-finalize-cas-source-anchors.md` §4.1.
 
-**Status:** OPEN.
+**Status:** IN PROGRESS · **Branch:** docs/m-wave-2-spec
 
 ---
 
@@ -133,7 +133,7 @@ The adapter is the substance of the work, not the rendering — `getShowForViewe
 
 ## BL-POPOVER-REGISTRY-PER-FILE-AND-TAILWIND-ONLY — the anchored-scroller registry is fail-by-default per FILE, and only for the Tailwind idiom
 
-**Effort:** M
+**Effort:** M · **Status:** IN PROGRESS · **Branch:** docs/m-wave-2-spec
 
 Surfaced by cross-model review of `fix/admin-popover-overlay-cluster` (2026-08-02),
 with live probes against the shipped guard. PRE-EXISTING: the cluster tightened the
@@ -212,7 +212,7 @@ then archive this entry. Nothing else is owed.
 
 ## BL-PG-CRON-COVERAGE-UNRUN — the live pg-cron introspection suite runs in no CI workflow
 
-**Status:** PARTIALLY CLOSED 2026-07-26 (PR3 of the CI-dark coverage cluster) · **Severity:** medium · **Surfaced:** 2026-07-25, whole-diff review round 17 · **Effort:** M
+**Status:** IN PROGRESS (was: PARTIALLY CLOSED 2026-07-26, PR3 of the CI-dark coverage cluster) · **Severity:** medium · **Surfaced:** 2026-07-25, whole-diff review round 17 · **Effort:** M · **Branch:** docs/m-wave-2-spec
 **l-wave-screen 2026-08-06:** KEEP at honest residual scope — the wired-in-CI half closed 2026-07-26/27 and only the per-job smoke residue remains, so it is resized L->M in this same commit.
 
 **What closed.** The suite now runs in `unit-suite-db` (removed from `ENV_BOUND_EXCLUDES`, which applied only under `VITEST_EXCLUDE_ENV_BOUND=1` — so it ran locally and was dark in CI only), and against the persistent validation project via the new `pg-cron-validation-parity` job in `x-audits.yml`. Under CI an unreachable `psql` now throws instead of skipping, and a live-case counter refuses a run where zero live cases executed — measured before: exit 0 with "2 passed | 6 skipped", asserting nothing.
@@ -308,7 +308,7 @@ the fix IS the control. Claim released; it was marked at Stage 0 before the fenc
 > rather than reasoning from cache-tag behaviour. Full rationale:
 > `docs/superpowers/specs/2026-08-03-picker-signin-flow-cluster-design.md` §1.3.
 
-**Status:** OPEN · **Severity:** low · **Surfaced:** class-sweep of the `?gate=skip` revalidate defect (2026-07-25)
+**Status:** IN PROGRESS · **Severity:** low · **Surfaced:** class-sweep of the `?gate=skip` revalidate defect (2026-07-25) · **Branch:** docs/m-wave-2-spec
 
 `lib/auth/picker/cleanupStaleEntry.ts:107` calls `revalidatePath('/show/<slug>/<shareToken>')`. `revalidatePath` takes a path and ignores the query string, and the picker is commonly reached at `?gate=skip`, so that variant's entry is not invalidated. This is the same defect fixed in `_PickerInterstitial`'s select-identity form action, where a roster tap set the cookie and then re-served the picker, leaving the person exactly where they were until a reload.
 
@@ -385,7 +385,7 @@ alert-audience-split (spec §6.7) makes health-alert resolution developer-gated 
 
 ### BL-PREPARE-INTERNAL-FAULT-KIND — a third fault kind for post-parse internal helpers
 
-**Status:** OPEN (2026-07-25) · **Severity:** low · **Class:** TELEMETRY GRANULARITY · **Effort:** M
+**Status:** IN PROGRESS (2026-07-25) · **Severity:** low · **Class:** TELEMETRY GRANULARITY · **Effort:** M · **Branch:** docs/m-wave-2-spec
 
 `PrepareOnboardingFileError` has two kinds, `drive_fetch` and `parse`, and the post-parse internal helpers (`finalizeArchivedTabs`, `reconcileIncludedTab`, `discardAndRerun`'s fix-up, `applyRoleTokenMappings`) currently fall to `drive_fetch` — today's unchanged behavior. Neither code is right for them: a bug in the role-mapping overlay is not a Drive failure, and it is not something Doug fixes by editing his sheet either, so `STAGED_PARSE_FAILED` ("fix its structure", `warn` severity) would be a new wrong instruction. **Fix (when prioritized):** a third `internal` kind mapped to a code that tells the operator to contact the developer, with the finalize severity staying `error`. Needs a new §12.4 row and the full four-gate CI fan-out, which is why it was not folded into the batch that surfaced it.
 
@@ -393,7 +393,7 @@ screen-disposition 2026-08-04: KEEP — PROBED, and the mislabeling is determini
 
 ### BL-CRON-WORKBOOK-FAULT-CODE — a corrupt workbook on the cron path reports SYNC_FILE_FAILED
 
-**Status:** OPEN (2026-07-25) · **Severity:** low · **Class:** TELEMETRY GRANULARITY · **Effort:** M
+**Status:** IN PROGRESS (2026-07-25) · **Severity:** low · **Class:** TELEMETRY GRANULARITY · **Effort:** M · **Branch:** docs/m-wave-2-spec
 
 The cron sync path also synthesizes workbooks (`lib/sync/runScheduledCronSync.ts:3118,3144`). A throw at either site escapes `prepareProcessOneFile` and is caught by the outer per-file loop (`:3915-3925`), which records `outcome: "parse_error"` with `classifySyncFailure(error)` — typically `SYNC_FILE_FAILED`. So it is already parse-family rather than Drive-family (unlike the onboarding paths this batch fixed), and the open question is narrower: should a corrupt workbook there report `PARSE_ERROR_LAST_GOOD`, whose copy tells Doug the latest edit did not parse and the previous version is still live? **Fix (when prioritized):** key on the `WorkbookSynthesisError` type this batch introduced. Deferred because it changes a live crew-visible sync contract and belongs in its own spec.
 
@@ -411,7 +411,7 @@ Deleting one interior pipe — which is exactly how a merged cell exports to mar
 
 ### BL-ZERO-WIDTH-POST-PARSE-ENRICHMENT — zero-width text still reaches the PERSISTED payload through the sync/Drive enrichment layer
 
-**Status:** OPEN (2026-08-09, surfaced by codex-guard round 4 on `feat/mutation-unicode`, PR #736) · **Severity:** medium · **Class:** PARSER ROBUSTNESS / SYNC · **Effort:** M
+**Status:** IN PROGRESS (2026-08-09, surfaced by codex-guard round 4 on `feat/mutation-unicode`, PR #736) · **Severity:** medium · **Class:** PARSER ROBUSTNESS / SYNC · **Effort:** M · **Branch:** docs/m-wave-2-spec
 
 The parser-side hole is closed: `parseSheet` strips `[\u200B-\u200D\uFEFF]` from both of its inputs, so nothing invisible survives a parse. But `ParsedSheet` is not finished when `parseSheet` returns. The sync layer attaches Drive-derived fields afterwards (`lib/parser/index.ts` header: those fields are "NEVER populated here"), and every one of them carries author-controlled text that no boundary strips:
 
@@ -437,7 +437,7 @@ This is the SAME consequence the wave exists to remove — invisible characters 
 
 ### BL-MUTATION-DRIFT-TRIAGE — mechanism-triage the 143 ledger rows re-kinded to `text_drift`
 
-**Status:** OPEN (2026-08-09, created by the warning-shape amendment ratified for `feat/mutation-ref-sub`) · **Severity:** low · **Class:** CI / LEDGER HYGIENE · **Effort:** M
+**Status:** IN PROGRESS (2026-08-09, created by the warning-shape amendment ratified for `feat/mutation-ref-sub`) · **Severity:** low · **Class:** CI / LEDGER HYGIENE · **Effort:** M · **Branch:** docs/m-wave-2-spec
 
 The mutation harness gained a verdict class. `SIGNAL_TEXT_DRIFT` (payload equal, every code count exactly preserved, only a warning's human-readable text moved) is now distinct from `SILENT_SIGNAL_LOSS` (the parser genuinely went quieter), which stays never-deferrable. Spec: `docs/superpowers/specs/parser/2026-08-09-warning-shape-mutation-stability.md` §11.
 
@@ -719,7 +719,7 @@ restructures the effect body. Micro-optimisation otherwise.
 
 ## BL-ADMIN-SEMANTIC-Z-INDEX-SCALE — overlay stacking is raw Tailwind numerics, not named bands
 
-**Effort:** M
+**Effort:** M · **Status:** IN PROGRESS · **Branch:** docs/m-wave-2-spec
 
 Surfaced by the non-degraded impeccable gate rerun on PR #658 (2026-08-02).
 
@@ -1133,7 +1133,7 @@ costs nothing. The same module-load capture pattern should be swept for across `
 
 ### BL-FONT-CENSUS-ORACLE-FLAKE-BLOCKS-CREW-E2E — the font oracle intermittently cannot read the document, failing crew-e2e on any branch
 
-**Status:** OPEN · **Severity:** MEDIUM (a green crew-e2e is not reproducible on demand, so any gate that needs consecutive green runs is blocked by chance) · **Class:** CI flake, pre-existing · **Filed:** 2026-08-09 (measured while earning the `BL-RESURRECT-MOBILE-SAFARI-E2E` five-green bar) · **Effort:** M
+**Status:** IN PROGRESS · **Severity:** MEDIUM (a green crew-e2e is not reproducible on demand, so any gate that needs consecutive green runs is blocked by chance) · **Class:** CI flake, pre-existing · **Filed:** 2026-08-09 (measured while earning the `BL-RESURRECT-MOBILE-SAFARI-E2E` five-green bar) · **Effort:** M · **Branch:** docs/m-wave-2-spec
 
 **Not caused by the branch that measured it** — the same test fails the same way on an unrelated
 branch in the same window:
@@ -1243,7 +1243,7 @@ trigger the invariant-8 impeccable dual gate.
 
 ### BL-RIGHTNOW-SECTION57-FIXTURE-INERT — the §5.7 suite's run_of_show fixture does not drive the hero it asserts
 
-**Status:** OPEN · **Severity:** MEDIUM (the suite asserts nothing it claims to; it is now statically skipped so it cannot read as coverage) · **Class:** test-harness gap · **Filed:** 2026-08-09 (`BL-RESURRECT-MOBILE-SAFARI-E2E` §3.5 WHOLE-FILE valve, exception (c)) · **Effort:** M
+**Status:** IN PROGRESS · **Severity:** MEDIUM (the suite asserts nothing it claims to; it is now statically skipped so it cannot read as coverage) · **Class:** test-harness gap · **Filed:** 2026-08-09 (`BL-RESURRECT-MOBILE-SAFARI-E2E` §3.5 WHOLE-FILE valve, exception (c)) · **Effort:** M · **Branch:** docs/m-wave-2-spec
 
 **Probed, not theorized** (TZ=UTC, to match the CI runner). `tests/e2e/right-now-transitions.spec.ts`
 seeds `shows_internal.run_of_show` in `beforeAll` and asserts the RightNowHero renders that day's
@@ -1282,7 +1282,7 @@ to `driveToState`, which is what made the recovery case's state-entry failure lo
 
 ### BL-RIGHTNOW-RECOVERY-CASE-NEEDS-RESTRICTED-VIEWER — the §5.7 recovery case cannot be driven by an admin viewer
 
-**Status:** OPEN · **Severity:** LOW (one e2e case statically skipped; the behavior keeps unit coverage) · **Class:** test-harness gap · **Filed:** 2026-08-09 (`BL-RESURRECT-MOBILE-SAFARI-E2E` Task 6 CASE valve, spec §3.5) · **Effort:** M
+**Status:** IN PROGRESS · **Severity:** LOW (one e2e case statically skipped; the behavior keeps unit coverage) · **Class:** test-harness gap · **Filed:** 2026-08-09 (`BL-RESURRECT-MOBILE-SAFARI-E2E` Task 6 CASE valve, spec §3.5) · **Effort:** M · **Branch:** docs/m-wave-2-spec
 
 **Probed, not theorized.** `tests/e2e/right-now-transitions.spec.ts`'s recovery case enters
 `viewer_off_day` by mutating the VIEWER's `date_restriction`. Admin resolution ignores
@@ -1363,4 +1363,4 @@ docblock states the gap rather than papering over it.
 
 **Deferral exception: (c)** — a redesign of the guard's oracle spanning the whole crosswalk corpus, on a surface this PR does not otherwise touch. W-UI shipped the half that is closable without it.
 
-**Status:** OPEN.
+**Status:** IN PROGRESS · **Branch:** docs/m-wave-2-spec
