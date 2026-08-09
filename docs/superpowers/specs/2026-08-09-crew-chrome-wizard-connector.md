@@ -1,6 +1,6 @@
 # Crew chrome (footer band + header avatar menu) + wizard step connector
 
-**Date:** 2026-08-09 · **Authoring branch:** `docs/quick-wins-2-specs` · **Implementation branches:** `feat/crew-chrome-footer-avatar` (§2), `feat/wizard-step-connector` (§3) · **Status:** DRAFT (pre-adversarial-review)
+**Date:** 2026-08-09 · **Authoring branch:** `docs/quick-wins-2-specs` · **Implementation branches:** `feat/crew-chrome-footer-avatar` (§2), `feat/wizard-step-connector` (§3) · **Status:** spec-APPROVED (codex-guard R3 2026-08-09; R1-R2 findings repaired in-branch)
 
 ## §0 Scope and design source of record
 

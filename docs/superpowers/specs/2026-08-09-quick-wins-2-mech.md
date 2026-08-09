@@ -1,6 +1,6 @@
 # Quick wins 2 — mech batch (seven ledger entries, no product-visual change)
 
-**Date:** 2026-08-09 · **Authoring branch:** `docs/quick-wins-2-specs` · **Implementation branch:** `fix/quick-wins-2-mech` · **Status:** DRAFT (pre-adversarial-review)
+**Date:** 2026-08-09 · **Authoring branch:** `docs/quick-wins-2-specs` · **Implementation branch:** `fix/quick-wins-2-mech` · **Status:** spec-APPROVED (codex-guard R4 2026-08-09; R1-R3 findings repaired in-branch)
 
 ## §0 Why this arc exists, and its scope
 
