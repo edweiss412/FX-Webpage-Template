@@ -100,7 +100,7 @@ export class WatchFolderChangedDuringActivationError extends Error {
 ```ts
 // LOCK ORDER (spec §3.4): the app_settings row is acquired BEFORE any
 // drive_watch_channels row, matching promotion's acquisition order
-// (finalize-cas takes app_settings for update at preflight) — one direction
+// (finalize-cas takes app_settings for update at preflight): one direction
 // of acquisition, no deadlock cycle. Keep this select the FIRST statement.
 const settings = await this.rows<{ watched_folder_id: string | null }>(
   `select watched_folder_id from public.app_settings where id = 'default' for share`,
