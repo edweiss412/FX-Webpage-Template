@@ -446,6 +446,31 @@ This is the SAME consequence the wave exists to remove — invisible characters 
 
 **Shape (M):** strip at the point Drive-supplied strings enter the payload (five call sites across the three files above, sharing one helper with the parser's `stripZeroWidth` so the boundaries cannot drift), plus a guard in the shape of `tests/parser/payloadZeroWidth.test.ts` covering the enriched payload rather than the parse output, plus a decision on whether the archived-tab fingerprint rekey needs a one-time migration note.
 
+### BL-MUTATION-DRIFT-TRIAGE — mechanism-triage the 143 ledger rows re-kinded to `text_drift`
+
+**Status:** OPEN (2026-08-09, created by the warning-shape amendment ratified for `feat/mutation-ref-sub`) · **Severity:** low · **Class:** CI / LEDGER HYGIENE · **Effort:** M
+
+The mutation harness gained a verdict class. `SIGNAL_TEXT_DRIFT` (payload equal, every code count exactly preserved, only a warning's human-readable text moved) is now distinct from `SILENT_SIGNAL_LOSS` (the parser genuinely went quieter), which stays never-deferrable. Spec: `docs/superpowers/specs/parser/2026-08-09-warning-shape-mutation-stability.md` §11.
+
+Landing that classifier re-kinded **143 existing ledger rows** from `signal_loss` to `text_drift` — a machine-generated flip carrying zero author judgement, since the classifier's own output decides eligibility (§11.5(iv)). Each flipped row keeps its original `finding` so it stays resolvable through `OPERATOR_FINDING_MAP`, and carries `[re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]` in its note.
+
+**What is owed:** each of the 143 gets its mechanism named in the note, replacing the migration marker. §11.5(iii) requires that of every ADDED drift row; the flip was a migration rather than an addition, so the bar arrives here instead of blocking the branch.
+
+**Probe evidence — the shape histogram, machine-derived from the warning objects (never authored):**
+
+| Drift shape                              | Count |
+| ---------------------------------------- | ----- |
+| Snippet moved                            | 125   |
+| Reorder-only, multiset identical         | 14    |
+| `blockRef.index` moved, `kind` unchanged | 4     |
+| **Mis-anchor (`blockRef.kind` changed)** | **0** |
+
+Replay: classify each `signal_loss` row's mutant under the new tier, then diff the baseline and mutant warning objects field-by-field. Zero mis-anchors is the safety result that made the flip admissible — §11.5 marks mis-anchor-shaped drift as likely-regression, so a non-zero count would have meant real regressions sitting mislabelled in the ledger today, needing extraction BEFORE the classifier landed. The 4 `blockRef.index` rows were checked individually rather than left as an unexplained residue: `kind` multisets are equal and only the positional ordinal moves.
+
+**Why this is triage and not investigation:** the histogram already assigns every row a shape, so the work is confirming 143 derived classifications, not deriving them. The 35 rows that stayed `signal_loss` are NOT in scope — the classifier discriminated them as genuine loss, which is itself evidence it is not a rubber stamp.
+
+**Not urgent.** These rows were already ledgered and already failing nothing; the flip corrects a label the instrument had been getting wrong since day one. Their notes are honest about what is owed.
+
 ### BL-MUTATION-LEDGERGIT-SITE-DRIFT — the `ledgerGit` source-mutation gate is red on main: relocated sites, an uncovered new constant, and a CI-only survivor pair
 
 **Status:** OPEN (2026-08-08, surfaced by the parser mutation-hardening wave; PRE-EXISTING on `main`, not introduced by that wave) · **Severity:** medium · **Class:** CI / GUARD SURFACE · **Effort:** M

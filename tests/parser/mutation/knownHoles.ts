@@ -1,5 +1,14 @@
 // tests/parser/mutation/knownHoles.ts
-export type Alarm = { siteId: string; kind: "wrong" | "signal_loss"; fingerprint: string };
+/**
+ * `text_drift` (spec 2026-08-09-warning-shape-mutation-stability §11): payload equal,
+ * every code count exactly preserved, only a warning's human-readable text moved. A
+ * distinct bucket from `signal_loss`, which remains never-deferrable.
+ */
+export type Alarm = {
+  siteId: string;
+  kind: "wrong" | "signal_loss" | "text_drift";
+  fingerprint: string;
+};
 export type KnownHole = Alarm & {
   finding: string; // audit finding ref (#N) or a BACKLOG.md id (BL-MUTATION-*)
   note: string;
@@ -1627,72 +1636,72 @@ merged-cell:2025-03-dci-rpas-central:B17:L259:X0|wrong|41695751c913674d|BL-MUTAT
 merged-cell:2025-03-dci-rpas-central:B20:L317:X0|wrong|fdb856438b94ada3|BL-MUTATION-MERGED-CELL|merged-cell wrong @ 2025-03-dci-rpas-central
 merged-cell:2025-03-dci-rpas-central:B20:L317:X1|wrong|df2f02ed58b4e9f8|BL-MUTATION-MERGED-CELL|merged-cell wrong @ 2025-03-dci-rpas-central
 merged-cell:2025-03-dci-rpas-central:B20:L318:X1|wrong|fdb856438b94ada3|BL-MUTATION-MERGED-CELL|merged-cell wrong @ 2025-03-dci-rpas-central
-merged-cell:2025-03-dci-rpas-central:B23:L341:X1|signal_loss|12dd46f737de62b6|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central
-merged-cell:2025-03-dci-rpas-central:B23:L342:X1|signal_loss|1ed551a9f1e34a3a|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central
-merged-cell:2025-03-dci-rpas-central:B23:L343:X1|signal_loss|dfe9d84d29330175|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central
-merged-cell:2025-03-dci-rpas-central:B23:L344:X1|signal_loss|603b7c0db22f6034|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central
-merged-cell:2025-03-dci-rpas-central:B23:L345:X1|signal_loss|0a13ebdceb6f905e|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central
-merged-cell:2025-03-dci-rpas-central:B23:L346:X1|signal_loss|178311a83f755d06|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central
-merged-cell:2025-03-dci-rpas-central:B23:L347:X1|signal_loss|d40e507c4a794d59|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central
-merged-cell:2025-03-dci-rpas-central:B23:L348:X1|signal_loss|16aa79a62fe4f92a|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central
-merged-cell:2025-03-dci-rpas-central:B23:L349:X1|signal_loss|63afcb6e4b50cf87|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central
-merged-cell:2025-03-dci-rpas-central:B23:L350:X1|signal_loss|c908904fa55dd910|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central
-merged-cell:2025-03-dci-rpas-central:B23:L351:X1|signal_loss|65665bf81a49af7d|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central
-merged-cell:2025-03-dci-rpas-central:B23:L352:X1|signal_loss|098405b8152bc6e6|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central
-merged-cell:2025-03-dci-rpas-central:B23:L357:X1|signal_loss|6d18a11dc97df7dc|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central
-merged-cell:2025-03-dci-rpas-central:B23:L358:X1|signal_loss|2c174c07895e7586|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central
-merged-cell:2025-03-dci-rpas-central:B23:L359:X1|signal_loss|a5e01fcabc112384|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central
-merged-cell:2025-03-dci-rpas-central:B23:L360:X1|signal_loss|4638158adb4ace72|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central
-merged-cell:2025-03-dci-rpas-central:B23:L361:X1|signal_loss|75d525f375f0fbed|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central
-merged-cell:2025-03-dci-rpas-central:B23:L362:X1|signal_loss|e5bec246f6355015|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central
-merged-cell:2025-03-dci-rpas-central:B23:L363:X1|signal_loss|91203f98bff93fa4|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central
-merged-cell:2025-03-dci-rpas-central:B23:L364:X1|signal_loss|3ac46eaca332c29d|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central
-merged-cell:2025-03-dci-rpas-central:B23:L365:X1|signal_loss|ba900c460231b6c5|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central
-merged-cell:2025-03-dci-rpas-central:B23:L366:X1|signal_loss|e4237072ecdfe904|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central
-merged-cell:2025-03-dci-rpas-central:B23:L367:X1|signal_loss|c4d09b22796f39de|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central
-merged-cell:2025-03-dci-rpas-central:B23:L368:X1|signal_loss|73169af8459ad774|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central
-merged-cell:2025-03-dci-rpas-central:B23:L369:X1|signal_loss|913d66345a71f16c|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central
-merged-cell:2025-03-dci-rpas-central:B23:L370:X1|signal_loss|ffdf1a974e967b57|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central
-merged-cell:2025-03-dci-rpas-central:B24:L373:X1|signal_loss|ded02cbae3b57301|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central
-merged-cell:2025-03-dci-rpas-central:B24:L375:X1|signal_loss|e10ca22fec9fb58f|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central
-merged-cell:2025-03-dci-rpas-central:B24:L376:X1|signal_loss|efbcecf2669adab8|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central
-merged-cell:2025-03-dci-rpas-central:B24:L377:X1|signal_loss|19ac2255c3d2e036|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central
-merged-cell:2025-03-dci-rpas-central:B24:L378:X1|signal_loss|92777ba2a4f2f0d9|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central
-merged-cell:2025-03-dci-rpas-central:B24:L379:X1|signal_loss|3faaced94596b624|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central
-merged-cell:2025-03-dci-rpas-central:B24:L380:X1|signal_loss|8d773f834c6579f1|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central
-merged-cell:2025-03-dci-rpas-central:B24:L381:X1|signal_loss|623e8f5e71158f09|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central
-merged-cell:2025-03-dci-rpas-central:B24:L382:X1|signal_loss|9e36d072d3c9119e|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central
-merged-cell:2025-03-dci-rpas-central:B24:L383:X1|signal_loss|1d22e68c03f180c0|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central
-merged-cell:2025-03-dci-rpas-central:B24:L384:X1|signal_loss|07758fba3dd9507f|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central
-merged-cell:2025-03-dci-rpas-central:B24:L385:X1|signal_loss|dc04c316ee972bd2|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central
-merged-cell:2025-03-dci-rpas-central:B24:L386:X1|signal_loss|2872507305debd08|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central
-merged-cell:2025-03-dci-rpas-central:B24:L387:X1|signal_loss|285bda615ff9f4f7|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central
-merged-cell:2025-03-dci-rpas-central:B24:L388:X1|signal_loss|577e0c6cae3ebdf6|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central
-merged-cell:2025-03-dci-rpas-central:B24:L389:X1|signal_loss|5c017aa4e9688302|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central
-merged-cell:2025-03-dci-rpas-central:B24:L390:X1|signal_loss|91a696c780a8909b|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central
-merged-cell:2025-03-dci-rpas-central:B24:L391:X1|signal_loss|15dac17464207a1b|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central
-merged-cell:2025-03-dci-rpas-central:B24:L392:X1|signal_loss|b6ad8faca10d6db9|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central
-merged-cell:2025-03-dci-rpas-central:B24:L393:X1|signal_loss|d7eac5b854d26010|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central
-merged-cell:2025-03-dci-rpas-central:B24:L394:X1|signal_loss|c9446f917775b96c|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central
-merged-cell:2025-03-dci-rpas-central:B24:L395:X1|signal_loss|81520c990f090876|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central
-merged-cell:2025-03-dci-rpas-central:B24:L396:X1|signal_loss|4fd8fb03bd0ffe12|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central
-merged-cell:2025-03-dci-rpas-central:B24:L397:X1|signal_loss|f6dab2dd095594a6|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central
-merged-cell:2025-03-dci-rpas-central:B24:L398:X1|signal_loss|017c605e452a95aa|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central
-merged-cell:2025-03-dci-rpas-central:B24:L399:X1|signal_loss|86d320d94d84593a|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central
-merged-cell:2025-03-dci-rpas-central:B24:L400:X1|signal_loss|54c6f7f9da18c0bf|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central
-merged-cell:2025-03-dci-rpas-central:B24:L403:X1|signal_loss|38de64212c977ea7|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central
-merged-cell:2025-03-dci-rpas-central:B24:L404:X1|signal_loss|5c04202562d8b34b|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central
-merged-cell:2025-03-dci-rpas-central:B24:L405:X1|signal_loss|a83b3aa7de003ffa|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central
-merged-cell:2025-03-dci-rpas-central:B24:L406:X1|signal_loss|7d602cfe7c3a332d|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central
-merged-cell:2025-03-dci-rpas-central:B24:L407:X1|signal_loss|d1ef7e386d0b1ce3|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central
-merged-cell:2025-03-dci-rpas-central:B24:L408:X1|signal_loss|56b0e34daa00e351|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central
-merged-cell:2025-03-dci-rpas-central:B24:L409:X1|signal_loss|79239d0a84b89910|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central
-merged-cell:2025-03-dci-rpas-central:B24:L410:X1|signal_loss|c99f5554dbfe8d7d|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central
-merged-cell:2025-03-dci-rpas-central:B24:L411:X1|signal_loss|dc38c087c1ed1145|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central
-merged-cell:2025-03-dci-rpas-central:B24:L412:X1|signal_loss|91ec8f6a33c30aec|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central
-merged-cell:2025-03-dci-rpas-central:B24:L413:X1|signal_loss|8b619a8950ae390b|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central
-merged-cell:2025-03-dci-rpas-central:B24:L414:X1|signal_loss|21533cbef903a73a|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central
-merged-cell:2025-03-dci-rpas-central:B24:L415:X1|signal_loss|93243df56137e5a5|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central
+merged-cell:2025-03-dci-rpas-central:B23:L341:X1|text_drift|12dd46f737de62b6|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-03-dci-rpas-central:B23:L342:X1|text_drift|1ed551a9f1e34a3a|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-03-dci-rpas-central:B23:L343:X1|text_drift|dfe9d84d29330175|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-03-dci-rpas-central:B23:L344:X1|text_drift|603b7c0db22f6034|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-03-dci-rpas-central:B23:L345:X1|text_drift|0a13ebdceb6f905e|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-03-dci-rpas-central:B23:L346:X1|text_drift|178311a83f755d06|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-03-dci-rpas-central:B23:L347:X1|text_drift|d40e507c4a794d59|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-03-dci-rpas-central:B23:L348:X1|text_drift|16aa79a62fe4f92a|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-03-dci-rpas-central:B23:L349:X1|text_drift|63afcb6e4b50cf87|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-03-dci-rpas-central:B23:L350:X1|text_drift|c908904fa55dd910|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-03-dci-rpas-central:B23:L351:X1|text_drift|65665bf81a49af7d|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-03-dci-rpas-central:B23:L352:X1|text_drift|098405b8152bc6e6|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-03-dci-rpas-central:B23:L357:X1|text_drift|6d18a11dc97df7dc|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-03-dci-rpas-central:B23:L358:X1|text_drift|2c174c07895e7586|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-03-dci-rpas-central:B23:L359:X1|text_drift|a5e01fcabc112384|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-03-dci-rpas-central:B23:L360:X1|text_drift|4638158adb4ace72|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-03-dci-rpas-central:B23:L361:X1|text_drift|75d525f375f0fbed|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-03-dci-rpas-central:B23:L362:X1|text_drift|e5bec246f6355015|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-03-dci-rpas-central:B23:L363:X1|text_drift|91203f98bff93fa4|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-03-dci-rpas-central:B23:L364:X1|text_drift|3ac46eaca332c29d|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-03-dci-rpas-central:B23:L365:X1|text_drift|ba900c460231b6c5|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-03-dci-rpas-central:B23:L366:X1|text_drift|e4237072ecdfe904|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-03-dci-rpas-central:B23:L367:X1|text_drift|c4d09b22796f39de|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-03-dci-rpas-central:B23:L368:X1|text_drift|73169af8459ad774|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-03-dci-rpas-central:B23:L369:X1|text_drift|913d66345a71f16c|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-03-dci-rpas-central:B23:L370:X1|text_drift|ffdf1a974e967b57|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-03-dci-rpas-central:B24:L373:X1|text_drift|ded02cbae3b57301|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-03-dci-rpas-central:B24:L375:X1|text_drift|e10ca22fec9fb58f|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-03-dci-rpas-central:B24:L376:X1|text_drift|efbcecf2669adab8|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-03-dci-rpas-central:B24:L377:X1|text_drift|19ac2255c3d2e036|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-03-dci-rpas-central:B24:L378:X1|text_drift|92777ba2a4f2f0d9|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-03-dci-rpas-central:B24:L379:X1|text_drift|3faaced94596b624|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-03-dci-rpas-central:B24:L380:X1|text_drift|8d773f834c6579f1|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-03-dci-rpas-central:B24:L381:X1|text_drift|623e8f5e71158f09|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-03-dci-rpas-central:B24:L382:X1|text_drift|9e36d072d3c9119e|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-03-dci-rpas-central:B24:L383:X1|text_drift|1d22e68c03f180c0|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-03-dci-rpas-central:B24:L384:X1|text_drift|07758fba3dd9507f|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-03-dci-rpas-central:B24:L385:X1|text_drift|dc04c316ee972bd2|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-03-dci-rpas-central:B24:L386:X1|text_drift|2872507305debd08|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-03-dci-rpas-central:B24:L387:X1|text_drift|285bda615ff9f4f7|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-03-dci-rpas-central:B24:L388:X1|text_drift|577e0c6cae3ebdf6|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-03-dci-rpas-central:B24:L389:X1|text_drift|5c017aa4e9688302|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-03-dci-rpas-central:B24:L390:X1|text_drift|91a696c780a8909b|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-03-dci-rpas-central:B24:L391:X1|text_drift|15dac17464207a1b|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-03-dci-rpas-central:B24:L392:X1|text_drift|b6ad8faca10d6db9|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-03-dci-rpas-central:B24:L393:X1|text_drift|d7eac5b854d26010|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-03-dci-rpas-central:B24:L394:X1|text_drift|c9446f917775b96c|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-03-dci-rpas-central:B24:L395:X1|text_drift|81520c990f090876|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-03-dci-rpas-central:B24:L396:X1|text_drift|4fd8fb03bd0ffe12|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-03-dci-rpas-central:B24:L397:X1|text_drift|f6dab2dd095594a6|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-03-dci-rpas-central:B24:L398:X1|text_drift|017c605e452a95aa|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-03-dci-rpas-central:B24:L399:X1|text_drift|86d320d94d84593a|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-03-dci-rpas-central:B24:L400:X1|text_drift|54c6f7f9da18c0bf|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-03-dci-rpas-central:B24:L403:X1|text_drift|38de64212c977ea7|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-03-dci-rpas-central:B24:L404:X1|text_drift|5c04202562d8b34b|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-03-dci-rpas-central:B24:L405:X1|text_drift|a83b3aa7de003ffa|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-03-dci-rpas-central:B24:L406:X1|text_drift|7d602cfe7c3a332d|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-03-dci-rpas-central:B24:L407:X1|text_drift|d1ef7e386d0b1ce3|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-03-dci-rpas-central:B24:L408:X1|text_drift|56b0e34daa00e351|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-03-dci-rpas-central:B24:L409:X1|text_drift|79239d0a84b89910|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-03-dci-rpas-central:B24:L410:X1|text_drift|c99f5554dbfe8d7d|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-03-dci-rpas-central:B24:L411:X1|text_drift|dc38c087c1ed1145|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-03-dci-rpas-central:B24:L412:X1|text_drift|91ec8f6a33c30aec|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-03-dci-rpas-central:B24:L413:X1|text_drift|8b619a8950ae390b|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-03-dci-rpas-central:B24:L414:X1|text_drift|21533cbef903a73a|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-03-dci-rpas-central:B24:L415:X1|text_drift|93243df56137e5a5|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-03-dci-rpas-central [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
 merged-cell:2025-03-dci-rpas-central:B8:L200:X0|wrong|06d505c502637f7a|BL-MUTATION-MERGED-CELL|merged-cell wrong @ 2025-03-dci-rpas-central
 merged-cell:2025-03-dci-rpas-central:B8:L200:X1|wrong|59f355265a009975|BL-MUTATION-MERGED-CELL|merged-cell wrong @ 2025-03-dci-rpas-central
 merged-cell:2025-03-dci-rpas-central:B8:L201:X1|wrong|07a259a45ff5b39f|BL-MUTATION-MERGED-CELL|merged-cell wrong @ 2025-03-dci-rpas-central
@@ -1966,59 +1975,59 @@ merged-cell:2025-06-ria-investment-forum:B6:L31:X3|wrong|8e466e6b1574b51c|BL-MUT
 merged-cell:2025-06-ria-investment-forum:B7:L35:X0|wrong|dd2732ec709a8af3|BL-MUTATION-MERGED-CELL|merged-cell wrong @ 2025-06-ria-investment-forum
 merged-cell:2025-06-ria-investment-forum:B7:L35:X1|wrong|1fe370c32ba6f959|BL-MUTATION-MERGED-CELL|merged-cell wrong @ 2025-06-ria-investment-forum
 merged-cell:2025-06-ria-investment-forum:B7:L36:X1|wrong|dd2732ec709a8af3|BL-MUTATION-MERGED-CELL|merged-cell wrong @ 2025-06-ria-investment-forum
-merged-cell:2025-06-ria-investment-forum:B8:L104:X1|signal_loss|3a53b5f8e565b84f|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-06-ria-investment-forum
-merged-cell:2025-06-ria-investment-forum:B8:L105:X1|signal_loss|df8addb7c2fdc4ea|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-06-ria-investment-forum
-merged-cell:2025-06-ria-investment-forum:B8:L38:X1|signal_loss|e690e3c8f99dd8d0|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-06-ria-investment-forum
-merged-cell:2025-06-ria-investment-forum:B8:L40:X1|signal_loss|908cfb50e09f7ec7|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-06-ria-investment-forum
-merged-cell:2025-06-ria-investment-forum:B8:L41:X1|signal_loss|cf17bac51e5af67d|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-06-ria-investment-forum
-merged-cell:2025-06-ria-investment-forum:B8:L42:X1|signal_loss|68aa1e606ed8f421|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-06-ria-investment-forum
-merged-cell:2025-06-ria-investment-forum:B8:L43:X1|signal_loss|b30e14be58d33f5b|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-06-ria-investment-forum
-merged-cell:2025-06-ria-investment-forum:B8:L44:X1|signal_loss|49155d51c0d83b31|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-06-ria-investment-forum
-merged-cell:2025-06-ria-investment-forum:B8:L46:X1|signal_loss|85009cb9ef55466d|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-06-ria-investment-forum
-merged-cell:2025-06-ria-investment-forum:B8:L47:X1|signal_loss|8a926f50f3b53e40|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-06-ria-investment-forum
-merged-cell:2025-06-ria-investment-forum:B8:L49:X1|signal_loss|f61c3685f3645890|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-06-ria-investment-forum
-merged-cell:2025-06-ria-investment-forum:B8:L50:X1|signal_loss|fe7df4787e288814|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-06-ria-investment-forum
-merged-cell:2025-06-ria-investment-forum:B8:L51:X1|signal_loss|083fb3d0839081c7|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-06-ria-investment-forum
-merged-cell:2025-06-ria-investment-forum:B8:L52:X1|signal_loss|1d464f97a4feedfd|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-06-ria-investment-forum
-merged-cell:2025-06-ria-investment-forum:B8:L53:X1|signal_loss|fe19e06064fe67e5|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-06-ria-investment-forum
-merged-cell:2025-06-ria-investment-forum:B8:L54:X1|signal_loss|abeba134a866f31d|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-06-ria-investment-forum
-merged-cell:2025-06-ria-investment-forum:B8:L55:X1|signal_loss|ef341d2f021170e4|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-06-ria-investment-forum
-merged-cell:2025-06-ria-investment-forum:B8:L56:X1|signal_loss|656929f52f24dbf9|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-06-ria-investment-forum
-merged-cell:2025-06-ria-investment-forum:B8:L57:X1|signal_loss|c7d595c36f96442e|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-06-ria-investment-forum
-merged-cell:2025-06-ria-investment-forum:B8:L58:X1|signal_loss|977de8578d5cd761|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-06-ria-investment-forum
-merged-cell:2025-06-ria-investment-forum:B8:L59:X1|signal_loss|d662d14d3646f039|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-06-ria-investment-forum
-merged-cell:2025-06-ria-investment-forum:B8:L61:X1|signal_loss|62dc0baa346e44af|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-06-ria-investment-forum
-merged-cell:2025-06-ria-investment-forum:B8:L62:X1|signal_loss|663495f9b85fb50b|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-06-ria-investment-forum
-merged-cell:2025-06-ria-investment-forum:B8:L63:X1|signal_loss|19cc1bc20687879c|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-06-ria-investment-forum
-merged-cell:2025-06-ria-investment-forum:B8:L64:X1|signal_loss|c27c94637835211c|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-06-ria-investment-forum
-merged-cell:2025-06-ria-investment-forum:B8:L65:X1|signal_loss|20ed3436b940b656|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-06-ria-investment-forum
-merged-cell:2025-06-ria-investment-forum:B8:L66:X1|signal_loss|0b7c83be31c3d695|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-06-ria-investment-forum
-merged-cell:2025-06-ria-investment-forum:B8:L67:X1|signal_loss|06d551016025e2b0|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-06-ria-investment-forum
-merged-cell:2025-06-ria-investment-forum:B8:L68:X1|signal_loss|9504764db491f22c|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-06-ria-investment-forum
-merged-cell:2025-06-ria-investment-forum:B8:L71:X1|signal_loss|6da41b2bf138bd46|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-06-ria-investment-forum
-merged-cell:2025-06-ria-investment-forum:B8:L72:X1|signal_loss|7b03c6a98363d7b8|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-06-ria-investment-forum
-merged-cell:2025-06-ria-investment-forum:B8:L73:X1|signal_loss|e18cbe3b838063ac|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-06-ria-investment-forum
-merged-cell:2025-06-ria-investment-forum:B8:L74:X1|signal_loss|17ef23978565ee29|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-06-ria-investment-forum
-merged-cell:2025-06-ria-investment-forum:B8:L75:X1|signal_loss|ddd6af2041ec8e23|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-06-ria-investment-forum
-merged-cell:2025-06-ria-investment-forum:B8:L76:X1|signal_loss|311f5cea54406baf|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-06-ria-investment-forum
-merged-cell:2025-06-ria-investment-forum:B8:L77:X1|signal_loss|f808511e7c57d6d3|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-06-ria-investment-forum
-merged-cell:2025-06-ria-investment-forum:B8:L78:X1|signal_loss|5d3a006da5bb2f79|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-06-ria-investment-forum
-merged-cell:2025-06-ria-investment-forum:B8:L79:X1|signal_loss|c1fb6b98b144f12a|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-06-ria-investment-forum
-merged-cell:2025-06-ria-investment-forum:B8:L80:X1|signal_loss|11691110df2b418d|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-06-ria-investment-forum
-merged-cell:2025-06-ria-investment-forum:B8:L81:X1|signal_loss|3740386af04d37bf|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-06-ria-investment-forum
-merged-cell:2025-06-ria-investment-forum:B8:L82:X1|signal_loss|e0936a16846e2080|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-06-ria-investment-forum
-merged-cell:2025-06-ria-investment-forum:B8:L83:X1|signal_loss|2c230c86661ebc35|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-06-ria-investment-forum
-merged-cell:2025-06-ria-investment-forum:B8:L84:X1|signal_loss|8501e1084adae19e|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-06-ria-investment-forum
-merged-cell:2025-06-ria-investment-forum:B8:L85:X1|signal_loss|ae91c79762729a11|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-06-ria-investment-forum
-merged-cell:2025-06-ria-investment-forum:B8:L86:X1|signal_loss|a4753c64a663c16f|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-06-ria-investment-forum
-merged-cell:2025-06-ria-investment-forum:B8:L87:X1|signal_loss|70c9ab7382c3da38|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-06-ria-investment-forum
-merged-cell:2025-06-ria-investment-forum:B8:L88:X1|signal_loss|3e4f7f0de7b0c2ea|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-06-ria-investment-forum
-merged-cell:2025-06-ria-investment-forum:B8:L89:X1|signal_loss|6db7af3aea59f237|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-06-ria-investment-forum
-merged-cell:2025-06-ria-investment-forum:B8:L91:X1|signal_loss|840f3eeeb0a9b409|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-06-ria-investment-forum
-merged-cell:2025-06-ria-investment-forum:B8:L93:X1|signal_loss|52b7e25ffd20d0ea|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-06-ria-investment-forum
-merged-cell:2025-06-ria-investment-forum:B8:L95:X1|signal_loss|9331844ff560117d|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-06-ria-investment-forum
-merged-cell:2025-06-ria-investment-forum:B8:L96:X1|signal_loss|4b1b998351608988|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-06-ria-investment-forum
-merged-cell:2025-06-ria-investment-forum:B8:L97:X1|signal_loss|9fc780d3196e37a8|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-06-ria-investment-forum
+merged-cell:2025-06-ria-investment-forum:B8:L104:X1|text_drift|3a53b5f8e565b84f|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-06-ria-investment-forum [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-06-ria-investment-forum:B8:L105:X1|text_drift|df8addb7c2fdc4ea|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-06-ria-investment-forum [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-06-ria-investment-forum:B8:L38:X1|text_drift|e690e3c8f99dd8d0|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-06-ria-investment-forum [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-06-ria-investment-forum:B8:L40:X1|text_drift|908cfb50e09f7ec7|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-06-ria-investment-forum [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-06-ria-investment-forum:B8:L41:X1|text_drift|cf17bac51e5af67d|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-06-ria-investment-forum [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-06-ria-investment-forum:B8:L42:X1|text_drift|68aa1e606ed8f421|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-06-ria-investment-forum [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-06-ria-investment-forum:B8:L43:X1|text_drift|b30e14be58d33f5b|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-06-ria-investment-forum [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-06-ria-investment-forum:B8:L44:X1|text_drift|49155d51c0d83b31|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-06-ria-investment-forum [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-06-ria-investment-forum:B8:L46:X1|text_drift|85009cb9ef55466d|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-06-ria-investment-forum [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-06-ria-investment-forum:B8:L47:X1|text_drift|8a926f50f3b53e40|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-06-ria-investment-forum [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-06-ria-investment-forum:B8:L49:X1|text_drift|f61c3685f3645890|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-06-ria-investment-forum [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-06-ria-investment-forum:B8:L50:X1|text_drift|fe7df4787e288814|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-06-ria-investment-forum [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-06-ria-investment-forum:B8:L51:X1|text_drift|083fb3d0839081c7|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-06-ria-investment-forum [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-06-ria-investment-forum:B8:L52:X1|text_drift|1d464f97a4feedfd|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-06-ria-investment-forum [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-06-ria-investment-forum:B8:L53:X1|text_drift|fe19e06064fe67e5|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-06-ria-investment-forum [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-06-ria-investment-forum:B8:L54:X1|text_drift|abeba134a866f31d|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-06-ria-investment-forum [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-06-ria-investment-forum:B8:L55:X1|text_drift|ef341d2f021170e4|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-06-ria-investment-forum [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-06-ria-investment-forum:B8:L56:X1|text_drift|656929f52f24dbf9|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-06-ria-investment-forum [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-06-ria-investment-forum:B8:L57:X1|text_drift|c7d595c36f96442e|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-06-ria-investment-forum [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-06-ria-investment-forum:B8:L58:X1|text_drift|977de8578d5cd761|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-06-ria-investment-forum [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-06-ria-investment-forum:B8:L59:X1|text_drift|d662d14d3646f039|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-06-ria-investment-forum [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-06-ria-investment-forum:B8:L61:X1|text_drift|62dc0baa346e44af|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-06-ria-investment-forum [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-06-ria-investment-forum:B8:L62:X1|text_drift|663495f9b85fb50b|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-06-ria-investment-forum [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-06-ria-investment-forum:B8:L63:X1|text_drift|19cc1bc20687879c|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-06-ria-investment-forum [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-06-ria-investment-forum:B8:L64:X1|text_drift|c27c94637835211c|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-06-ria-investment-forum [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-06-ria-investment-forum:B8:L65:X1|text_drift|20ed3436b940b656|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-06-ria-investment-forum [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-06-ria-investment-forum:B8:L66:X1|text_drift|0b7c83be31c3d695|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-06-ria-investment-forum [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-06-ria-investment-forum:B8:L67:X1|text_drift|06d551016025e2b0|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-06-ria-investment-forum [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-06-ria-investment-forum:B8:L68:X1|text_drift|9504764db491f22c|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-06-ria-investment-forum [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-06-ria-investment-forum:B8:L71:X1|text_drift|6da41b2bf138bd46|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-06-ria-investment-forum [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-06-ria-investment-forum:B8:L72:X1|text_drift|7b03c6a98363d7b8|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-06-ria-investment-forum [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-06-ria-investment-forum:B8:L73:X1|text_drift|e18cbe3b838063ac|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-06-ria-investment-forum [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-06-ria-investment-forum:B8:L74:X1|text_drift|17ef23978565ee29|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-06-ria-investment-forum [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-06-ria-investment-forum:B8:L75:X1|text_drift|ddd6af2041ec8e23|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-06-ria-investment-forum [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-06-ria-investment-forum:B8:L76:X1|text_drift|311f5cea54406baf|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-06-ria-investment-forum [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-06-ria-investment-forum:B8:L77:X1|text_drift|f808511e7c57d6d3|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-06-ria-investment-forum [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-06-ria-investment-forum:B8:L78:X1|text_drift|5d3a006da5bb2f79|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-06-ria-investment-forum [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-06-ria-investment-forum:B8:L79:X1|text_drift|c1fb6b98b144f12a|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-06-ria-investment-forum [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-06-ria-investment-forum:B8:L80:X1|text_drift|11691110df2b418d|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-06-ria-investment-forum [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-06-ria-investment-forum:B8:L81:X1|text_drift|3740386af04d37bf|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-06-ria-investment-forum [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-06-ria-investment-forum:B8:L82:X1|text_drift|e0936a16846e2080|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-06-ria-investment-forum [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-06-ria-investment-forum:B8:L83:X1|text_drift|2c230c86661ebc35|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-06-ria-investment-forum [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-06-ria-investment-forum:B8:L84:X1|text_drift|8501e1084adae19e|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-06-ria-investment-forum [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-06-ria-investment-forum:B8:L85:X1|text_drift|ae91c79762729a11|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-06-ria-investment-forum [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-06-ria-investment-forum:B8:L86:X1|text_drift|a4753c64a663c16f|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-06-ria-investment-forum [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-06-ria-investment-forum:B8:L87:X1|text_drift|70c9ab7382c3da38|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-06-ria-investment-forum [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-06-ria-investment-forum:B8:L88:X1|text_drift|3e4f7f0de7b0c2ea|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-06-ria-investment-forum [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-06-ria-investment-forum:B8:L89:X1|text_drift|6db7af3aea59f237|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-06-ria-investment-forum [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-06-ria-investment-forum:B8:L91:X1|text_drift|840f3eeeb0a9b409|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-06-ria-investment-forum [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-06-ria-investment-forum:B8:L93:X1|text_drift|52b7e25ffd20d0ea|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-06-ria-investment-forum [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-06-ria-investment-forum:B8:L95:X1|text_drift|9331844ff560117d|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-06-ria-investment-forum [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-06-ria-investment-forum:B8:L96:X1|text_drift|4b1b998351608988|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-06-ria-investment-forum [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-06-ria-investment-forum:B8:L97:X1|text_drift|9fc780d3196e37a8|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-06-ria-investment-forum [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
 merged-cell:2025-10-consultants-roundtable:B11:L77:X0|wrong|9d0a3de29c9d6238|BL-MUTATION-MERGED-CELL|merged-cell wrong @ 2025-10-consultants-roundtable
 merged-cell:2025-10-consultants-roundtable:B13:L82:X0|wrong|da4e37225e9f0e41|BL-MUTATION-MERGED-CELL|merged-cell wrong @ 2025-10-consultants-roundtable
 merged-cell:2025-10-consultants-roundtable:B13:L83:X0|wrong|01d44d5d5cd63a1d|BL-MUTATION-MERGED-CELL|merged-cell wrong @ 2025-10-consultants-roundtable
@@ -2029,13 +2038,13 @@ merged-cell:2025-10-consultants-roundtable:B13:L87:X0|wrong|a110abd3e9d53dce|BL-
 merged-cell:2025-10-consultants-roundtable:B15:L97:X0|wrong|96763f6c0af09954|BL-MUTATION-MERGED-CELL|merged-cell wrong @ 2025-10-consultants-roundtable
 merged-cell:2025-10-consultants-roundtable:B15:L97:X1|wrong|709b77f6c235c9ca|BL-MUTATION-MERGED-CELL|merged-cell wrong @ 2025-10-consultants-roundtable
 merged-cell:2025-10-consultants-roundtable:B15:L98:X1|wrong|96763f6c0af09954|BL-MUTATION-MERGED-CELL|merged-cell wrong @ 2025-10-consultants-roundtable
-merged-cell:2025-10-consultants-roundtable:B22:L139:X1|signal_loss|bce7cf9ecd15e7ef|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-10-consultants-roundtable
-merged-cell:2025-10-consultants-roundtable:B26:L171:X1|signal_loss|139539d74ed9e240|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-10-consultants-roundtable
+merged-cell:2025-10-consultants-roundtable:B22:L139:X1|text_drift|bce7cf9ecd15e7ef|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-10-consultants-roundtable [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-10-consultants-roundtable:B26:L171:X1|text_drift|139539d74ed9e240|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-10-consultants-roundtable [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
 merged-cell:2025-10-consultants-roundtable:B28:L209:X10|wrong|1f8e097e8c62ec4c|BL-MUTATION-MERGED-CELL|merged-cell wrong @ 2025-10-consultants-roundtable
-merged-cell:2025-10-consultants-roundtable:B28:L209:X11|signal_loss|28de5ab04689ab6f|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-10-consultants-roundtable
-merged-cell:2025-10-consultants-roundtable:B28:L209:X12|signal_loss|28de5ab04689ab6f|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-10-consultants-roundtable
-merged-cell:2025-10-consultants-roundtable:B28:L209:X13|signal_loss|28de5ab04689ab6f|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-10-consultants-roundtable
-merged-cell:2025-10-consultants-roundtable:B28:L209:X14|signal_loss|28de5ab04689ab6f|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-10-consultants-roundtable
+merged-cell:2025-10-consultants-roundtable:B28:L209:X11|text_drift|28de5ab04689ab6f|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-10-consultants-roundtable [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-10-consultants-roundtable:B28:L209:X12|text_drift|28de5ab04689ab6f|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-10-consultants-roundtable [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-10-consultants-roundtable:B28:L209:X13|text_drift|28de5ab04689ab6f|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-10-consultants-roundtable [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+merged-cell:2025-10-consultants-roundtable:B28:L209:X14|text_drift|28de5ab04689ab6f|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-10-consultants-roundtable [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
 merged-cell:2025-10-consultants-roundtable:B28:L209:X17|signal_loss|6ed6e7d045be6b9f|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-10-consultants-roundtable
 merged-cell:2025-10-consultants-roundtable:B28:L209:X18|signal_loss|6ed6e7d045be6b9f|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-10-consultants-roundtable
 merged-cell:2025-10-consultants-roundtable:B28:L209:X19|signal_loss|6ed6e7d045be6b9f|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-10-consultants-roundtable
@@ -2083,7 +2092,7 @@ merged-cell:2025-10-fixed-income-trading-summit:B2:L22:X3|wrong|4c1db2c54eaa4f36
 merged-cell:2025-10-fixed-income-trading-summit:B2:L23:X0|wrong|930e048975fc9460|BL-MUTATION-MERGED-CELL|merged-cell wrong @ 2025-10-fixed-income-trading-summit
 merged-cell:2025-10-fixed-income-trading-summit:B2:L23:X1|wrong|930e048975fc9460|BL-MUTATION-MERGED-CELL|merged-cell wrong @ 2025-10-fixed-income-trading-summit
 merged-cell:2025-10-fixed-income-trading-summit:B2:L23:X2|wrong|930e048975fc9460|BL-MUTATION-MERGED-CELL|merged-cell wrong @ 2025-10-fixed-income-trading-summit
-merged-cell:2025-10-fixed-income-trading-summit:B32:L251:X0|signal_loss|a89cfa4833e83ca6|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-10-fixed-income-trading-summit
+merged-cell:2025-10-fixed-income-trading-summit:B32:L251:X0|text_drift|a89cfa4833e83ca6|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2025-10-fixed-income-trading-summit [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
 merged-cell:2025-10-fixed-income-trading-summit:B3:L26:X3|wrong|960ded339172049b|BL-MUTATION-MERGED-CELL|merged-cell wrong @ 2025-10-fixed-income-trading-summit
 merged-cell:2025-10-fixed-income-trading-summit:B3:L27:X3|wrong|15d8970be2e18565|BL-MUTATION-MERGED-CELL|merged-cell wrong @ 2025-10-fixed-income-trading-summit
 merged-cell:2025-10-fixed-income-trading-summit:B3:L28:X3|wrong|18508574f5c8a71c|BL-MUTATION-MERGED-CELL|merged-cell wrong @ 2025-10-fixed-income-trading-summit
@@ -2163,7 +2172,7 @@ merged-cell:2026-03-rpas-central-four-seasons:B1:L14:X2|wrong|5cf428b5fcb373d7|B
 merged-cell:2026-03-rpas-central-four-seasons:B21:L222:X17|wrong|18e42246e4033411|BL-MUTATION-MERGED-CELL|merged-cell wrong @ 2026-03-rpas-central-four-seasons
 merged-cell:2026-03-rpas-central-four-seasons:B21:L222:X18|wrong|18e42246e4033411|BL-MUTATION-MERGED-CELL|merged-cell wrong @ 2026-03-rpas-central-four-seasons
 merged-cell:2026-03-rpas-central-four-seasons:B21:L222:X19|wrong|18e42246e4033411|BL-MUTATION-MERGED-CELL|merged-cell wrong @ 2026-03-rpas-central-four-seasons
-merged-cell:2026-03-rpas-central-four-seasons:B22:L237:X0|signal_loss|db4a66ca6d4f08bd|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2026-03-rpas-central-four-seasons
+merged-cell:2026-03-rpas-central-four-seasons:B22:L237:X0|text_drift|db4a66ca6d4f08bd|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2026-03-rpas-central-four-seasons [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
 merged-cell:2026-03-rpas-central-four-seasons:B2:L18:X0|wrong|3b2338188d58ba82|BL-MUTATION-MERGED-CELL|merged-cell wrong @ 2026-03-rpas-central-four-seasons
 merged-cell:2026-03-rpas-central-four-seasons:B2:L19:X0|wrong|3b2338188d58ba82|BL-MUTATION-MERGED-CELL|merged-cell wrong @ 2026-03-rpas-central-four-seasons
 merged-cell:2026-03-rpas-central-four-seasons:B2:L19:X1|wrong|6ab08613596ec59e|BL-MUTATION-MERGED-CELL|merged-cell wrong @ 2026-03-rpas-central-four-seasons
@@ -2265,7 +2274,7 @@ merged-cell:2026-04-asset-mgmt-cfo-coo-waldorf:B1:L21:X0|wrong|b0f5be3465997ac2|
 merged-cell:2026-04-asset-mgmt-cfo-coo-waldorf:B1:L21:X1|wrong|4ae9c4d26bc258d3|BL-MUTATION-MERGED-CELL|merged-cell wrong @ 2026-04-asset-mgmt-cfo-coo-waldorf
 merged-cell:2026-04-asset-mgmt-cfo-coo-waldorf:B1:L22:X0|wrong|1f3a116796aeab29|BL-MUTATION-MERGED-CELL|merged-cell wrong @ 2026-04-asset-mgmt-cfo-coo-waldorf
 merged-cell:2026-04-asset-mgmt-cfo-coo-waldorf:B1:L22:X1|wrong|91a1489b5ca7f0a5|BL-MUTATION-MERGED-CELL|merged-cell wrong @ 2026-04-asset-mgmt-cfo-coo-waldorf
-merged-cell:2026-04-asset-mgmt-cfo-coo-waldorf:B29:L339:X0|signal_loss|eed1b676c4101ccf|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2026-04-asset-mgmt-cfo-coo-waldorf
+merged-cell:2026-04-asset-mgmt-cfo-coo-waldorf:B29:L339:X0|text_drift|eed1b676c4101ccf|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2026-04-asset-mgmt-cfo-coo-waldorf [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
 merged-cell:2026-04-asset-mgmt-cfo-coo-waldorf:B2:L25:X0|wrong|82c282ac5885cde7|BL-MUTATION-MERGED-CELL|merged-cell wrong @ 2026-04-asset-mgmt-cfo-coo-waldorf
 merged-cell:2026-04-asset-mgmt-cfo-coo-waldorf:B2:L26:X0|wrong|8d0459f017d97f33|BL-MUTATION-MERGED-CELL|merged-cell wrong @ 2026-04-asset-mgmt-cfo-coo-waldorf
 merged-cell:2026-04-asset-mgmt-cfo-coo-waldorf:B2:L27:X0|wrong|bc9ef692ee2a0c30|BL-MUTATION-MERGED-CELL|merged-cell wrong @ 2026-04-asset-mgmt-cfo-coo-waldorf
@@ -2343,7 +2352,7 @@ merged-cell:2026-05-fintech-forum-cto-summit:B1:L15:X2|wrong|efdb1cb424f895e9|BL
 merged-cell:2026-05-fintech-forum-cto-summit:B2:L19:X4|wrong|64e728eb97b1427f|BL-MUTATION-MERGED-CELL|merged-cell wrong @ 2026-05-fintech-forum-cto-summit
 merged-cell:2026-05-fintech-forum-cto-summit:B2:L20:X4|wrong|ccca9c7b222811e9|BL-MUTATION-MERGED-CELL|merged-cell wrong @ 2026-05-fintech-forum-cto-summit
 merged-cell:2026-05-fintech-forum-cto-summit:B2:L21:X4|wrong|fb1a3c9802814bb2|BL-MUTATION-MERGED-CELL|merged-cell wrong @ 2026-05-fintech-forum-cto-summit
-merged-cell:2026-05-fintech-forum-cto-summit:B30:L311:X0|signal_loss|a89cfa4833e83ca6|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2026-05-fintech-forum-cto-summit
+merged-cell:2026-05-fintech-forum-cto-summit:B30:L311:X0|text_drift|a89cfa4833e83ca6|BL-MUTATION-MERGED-CELL|merged-cell signal_loss @ 2026-05-fintech-forum-cto-summit [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
 merged-cell:2026-05-fintech-forum-cto-summit:B3:L25:X0|wrong|81bfd11a1d85a9bb|BL-MUTATION-MERGED-CELL|merged-cell wrong @ 2026-05-fintech-forum-cto-summit
 merged-cell:2026-05-fintech-forum-cto-summit:B3:L25:X1|wrong|1c732ecc39cca7a6|BL-MUTATION-MERGED-CELL|merged-cell wrong @ 2026-05-fintech-forum-cto-summit
 merged-cell:2026-05-fintech-forum-cto-summit:B3:L25:X2|wrong|6aa70cf4e18a1167|BL-MUTATION-MERGED-CELL|merged-cell wrong @ 2026-05-fintech-forum-cto-summit
@@ -3749,9 +3758,9 @@ merged-cell:rpas:B8:L56:X3|wrong|67165ac48abaa55d|BL-MUTATION-MERGED-CELL|merged
 section-reorder:2025-03-dci-rpas-central:B0:L0:Xpair0|wrong|95cf315b569f7a90|BL-MUTATION-SECTION-ORDER|section-reorder wrong @ 2025-03-dci-rpas-central
 section-reorder:2025-03-dci-rpas-central:B14:L0:Xpair14|signal_loss|d88b1c0e21b63614|BL-MUTATION-SECTION-ORDER|section-reorder signal_loss @ 2025-03-dci-rpas-central
 section-reorder:2025-03-dci-rpas-central:B15:L0:Xpair15|signal_loss|12729d7697ea4c1f|BL-MUTATION-SECTION-ORDER|section-reorder signal_loss @ 2025-03-dci-rpas-central
-section-reorder:2025-03-dci-rpas-central:B16:L0:Xpair16|signal_loss|548290a37b815585|BL-MUTATION-SECTION-ORDER|section-reorder signal_loss @ 2025-03-dci-rpas-central
-section-reorder:2025-03-dci-rpas-central:B17:L0:Xpair17|signal_loss|b63aa0d2da7e7291|BL-MUTATION-SECTION-ORDER|section-reorder signal_loss @ 2025-03-dci-rpas-central
-section-reorder:2025-03-dci-rpas-central:B18:L0:Xpair18|signal_loss|ca469d874faead90|BL-MUTATION-SECTION-ORDER|section-reorder signal_loss @ 2025-03-dci-rpas-central
+section-reorder:2025-03-dci-rpas-central:B16:L0:Xpair16|text_drift|548290a37b815585|BL-MUTATION-SECTION-ORDER|section-reorder signal_loss @ 2025-03-dci-rpas-central [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+section-reorder:2025-03-dci-rpas-central:B17:L0:Xpair17|text_drift|b63aa0d2da7e7291|BL-MUTATION-SECTION-ORDER|section-reorder signal_loss @ 2025-03-dci-rpas-central [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+section-reorder:2025-03-dci-rpas-central:B18:L0:Xpair18|text_drift|ca469d874faead90|BL-MUTATION-SECTION-ORDER|section-reorder signal_loss @ 2025-03-dci-rpas-central [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
 section-reorder:2025-03-dci-rpas-central:B19:L0:Xpair19|signal_loss|be465f99b184a2b4|BL-MUTATION-SECTION-ORDER|section-reorder signal_loss @ 2025-03-dci-rpas-central
 section-reorder:2025-03-dci-rpas-central:B7:L0:Xpair7|wrong|06d505c502637f7a|BL-MUTATION-SECTION-ORDER|section-reorder wrong @ 2025-03-dci-rpas-central
 section-reorder:2025-04-asset-mgmt-cfo-coo:B0:L0:Xpair0|wrong|7196d666114dd7f5|BL-MUTATION-SECTION-ORDER|section-reorder wrong @ 2025-04-asset-mgmt-cfo-coo
@@ -3761,19 +3770,19 @@ section-reorder:2025-04-asset-mgmt-cfo-coo:B3:L0:Xpair3|wrong|e5f3f64b58866db3|B
 section-reorder:2025-06-ria-investment-forum:B0:L0:Xpair0|wrong|430b36c42d5ce9b4|BL-MUTATION-SECTION-ORDER|section-reorder wrong @ 2025-06-ria-investment-forum
 section-reorder:2025-06-ria-investment-forum:B3:L0:Xpair3|signal_loss|a14152b707653a47|BL-MUTATION-SECTION-ORDER|section-reorder signal_loss @ 2025-06-ria-investment-forum
 section-reorder:2025-06-ria-investment-forum:B4:L0:Xpair4|signal_loss|05952f96213c5e9d|BL-MUTATION-SECTION-ORDER|section-reorder signal_loss @ 2025-06-ria-investment-forum
-section-reorder:2025-06-ria-investment-forum:B5:L0:Xpair5|signal_loss|f45cfe17e1c5c564|BL-MUTATION-SECTION-ORDER|section-reorder signal_loss @ 2025-06-ria-investment-forum
-section-reorder:2025-06-ria-investment-forum:B6:L0:Xpair6|signal_loss|52b8a817f90fe583|BL-MUTATION-SECTION-ORDER|section-reorder signal_loss @ 2025-06-ria-investment-forum
+section-reorder:2025-06-ria-investment-forum:B5:L0:Xpair5|text_drift|f45cfe17e1c5c564|BL-MUTATION-SECTION-ORDER|section-reorder signal_loss @ 2025-06-ria-investment-forum [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+section-reorder:2025-06-ria-investment-forum:B6:L0:Xpair6|text_drift|52b8a817f90fe583|BL-MUTATION-SECTION-ORDER|section-reorder signal_loss @ 2025-06-ria-investment-forum [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
 section-reorder:2025-06-ria-investment-forum:B7:L0:Xpair7|signal_loss|9882bb835e25ebb2|BL-MUTATION-SECTION-ORDER|section-reorder signal_loss @ 2025-06-ria-investment-forum
 section-reorder:2025-06-ria-investment-forum:B8:L0:Xpair8|signal_loss|a98d978500e4b72e|BL-MUTATION-SECTION-ORDER|section-reorder signal_loss @ 2025-06-ria-investment-forum
-section-reorder:2025-10-consultants-roundtable:B13:L0:Xpair13|signal_loss|4cfb29c1ec118c16|BL-MUTATION-SECTION-ORDER|section-reorder signal_loss @ 2025-10-consultants-roundtable
-section-reorder:2025-10-consultants-roundtable:B14:L0:Xpair14|signal_loss|d8e811f27fd629b0|BL-MUTATION-SECTION-ORDER|section-reorder signal_loss @ 2025-10-consultants-roundtable
-section-reorder:2025-10-consultants-roundtable:B15:L0:Xpair15|signal_loss|01057b877eca2fc1|BL-MUTATION-SECTION-ORDER|section-reorder signal_loss @ 2025-10-consultants-roundtable
-section-reorder:2025-10-consultants-roundtable:B16:L0:Xpair16|signal_loss|a98ecdb29aa8c7ef|BL-MUTATION-SECTION-ORDER|section-reorder signal_loss @ 2025-10-consultants-roundtable
-section-reorder:2025-10-consultants-roundtable:B17:L0:Xpair17|signal_loss|5a1101bd816ec67c|BL-MUTATION-SECTION-ORDER|section-reorder signal_loss @ 2025-10-consultants-roundtable
-section-reorder:2025-10-consultants-roundtable:B18:L0:Xpair18|signal_loss|5f598b5f4e3d0ecc|BL-MUTATION-SECTION-ORDER|section-reorder signal_loss @ 2025-10-consultants-roundtable
-section-reorder:2025-10-consultants-roundtable:B19:L0:Xpair19|signal_loss|6ee1db349eae5640|BL-MUTATION-SECTION-ORDER|section-reorder signal_loss @ 2025-10-consultants-roundtable
-section-reorder:2025-10-consultants-roundtable:B20:L0:Xpair20|signal_loss|54e184842251fe8d|BL-MUTATION-SECTION-ORDER|section-reorder signal_loss @ 2025-10-consultants-roundtable
-section-reorder:2025-10-consultants-roundtable:B21:L0:Xpair21|signal_loss|7ef629ba683b7e27|BL-MUTATION-SECTION-ORDER|section-reorder signal_loss @ 2025-10-consultants-roundtable
+section-reorder:2025-10-consultants-roundtable:B13:L0:Xpair13|text_drift|4cfb29c1ec118c16|BL-MUTATION-SECTION-ORDER|section-reorder signal_loss @ 2025-10-consultants-roundtable [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+section-reorder:2025-10-consultants-roundtable:B14:L0:Xpair14|text_drift|d8e811f27fd629b0|BL-MUTATION-SECTION-ORDER|section-reorder signal_loss @ 2025-10-consultants-roundtable [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+section-reorder:2025-10-consultants-roundtable:B15:L0:Xpair15|text_drift|01057b877eca2fc1|BL-MUTATION-SECTION-ORDER|section-reorder signal_loss @ 2025-10-consultants-roundtable [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+section-reorder:2025-10-consultants-roundtable:B16:L0:Xpair16|text_drift|a98ecdb29aa8c7ef|BL-MUTATION-SECTION-ORDER|section-reorder signal_loss @ 2025-10-consultants-roundtable [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+section-reorder:2025-10-consultants-roundtable:B17:L0:Xpair17|text_drift|5a1101bd816ec67c|BL-MUTATION-SECTION-ORDER|section-reorder signal_loss @ 2025-10-consultants-roundtable [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+section-reorder:2025-10-consultants-roundtable:B18:L0:Xpair18|text_drift|5f598b5f4e3d0ecc|BL-MUTATION-SECTION-ORDER|section-reorder signal_loss @ 2025-10-consultants-roundtable [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+section-reorder:2025-10-consultants-roundtable:B19:L0:Xpair19|text_drift|6ee1db349eae5640|BL-MUTATION-SECTION-ORDER|section-reorder signal_loss @ 2025-10-consultants-roundtable [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+section-reorder:2025-10-consultants-roundtable:B20:L0:Xpair20|text_drift|54e184842251fe8d|BL-MUTATION-SECTION-ORDER|section-reorder signal_loss @ 2025-10-consultants-roundtable [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
+section-reorder:2025-10-consultants-roundtable:B21:L0:Xpair21|text_drift|7ef629ba683b7e27|BL-MUTATION-SECTION-ORDER|section-reorder signal_loss @ 2025-10-consultants-roundtable [re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]
 section-reorder:2025-10-consultants-roundtable:B22:L0:Xpair22|signal_loss|9f46d169136ee9b7|BL-MUTATION-SECTION-ORDER|section-reorder signal_loss @ 2025-10-consultants-roundtable
 section-reorder:consultants:B0:L0:Xpair0|wrong|2ae8a6183899dedb|BL-MUTATION-SECTION-ORDER|section-reorder wrong @ consultants
 section-reorder:consultants:B14:L0:Xpair14|wrong|ee722bd4f82edca8|BL-MUTATION-SECTION-ORDER|section-reorder wrong @ consultants

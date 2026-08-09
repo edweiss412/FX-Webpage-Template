@@ -211,6 +211,7 @@ Known drift shapes, with triage guidance:
 | Structure-following text move (the 7 in §11.2) | Expected under section/cell fusion; annotate and admit. |
 | Reorder-only, multiset identical | Benign; annotate and admit. |
 | Snippet gutted to empty | Investigate: a warning that says nothing locates nothing. |
+| Optional field nulled (e.g. `blockRef` → null) | **Investigate.** A nulled `blockRef` changes `sectionForWarning` routing (`lib/admin/step3SectionStatus.ts:75`), the same consequence class as a mis-anchor. |
 
 ### 11.6 Why E dominates §6
 
@@ -257,7 +258,9 @@ Two things follow, and the second was not anticipated by either session:
 
 Framing the 143 as a pure follow-up is **mechanically wrong**, and the seam is the reason. The moment E's classifier lands, the oracle emits `kind: "text_drift"` for those alarms while their ledger rows still read `signal_loss`. `ledgerKey` is `(siteId, kind, fingerprint)` (`tests/parser/mutation/knownHoles.ts:11`), so reconciliation sees 143 unlisted drift alarms — a hard failure under §11.5(2) — plus 143 stale rows. The first post-merge run goes red.
 
-So branch 2 carries a **mechanical kind-flip** of the 143: `signal_loss` → `text_drift`, fingerprints untouched, `finding` set to a migration backlog ref, `note` marked as re-kinded pending mechanism triage.
+So branch 2 carries a **mechanical kind-flip** of the 143: `signal_loss` → `text_drift`, fingerprints untouched, **`finding` PRESERVED**, and the migration marker in `note`.
+
+Preserving `finding` is not cosmetic. `knownHoles.test.ts` requires every `finding` to be a value in `OPERATOR_FINDING_MAP`, so writing a migration backlog ref there breaks the ledger's referential integrity — the guard caught exactly that on the first attempt. The row still belongs to its operator's finding, which remains true after re-kinding, and the marker belongs in `note`, which is audit trail rather than predicate.
 
 **Migration is not addition, and §11.5(iii) governs additions.** The per-row-mechanism bar applies to NEW rows — the 7 this branch surfaced, each mechanism-named — and to the follow-up triage. It does not apply to the flip, because the flip is the classifier's own output applied to the ledger, with zero author judgement. This is not §11.8(1)'s shared-note defect: in §6 C the note carried the SOUNDNESS burden, which is why review killed it; here §11.5(iv) puts that burden on the classifier and the note is audit trail only.
 
