@@ -93,7 +93,7 @@ So "retain the live row" is not obviously right at `:337`: the fallback runs whe
 
 ## BL-TASK-ENROLLMENT-SINGLE-DEPTH — the declared task region cannot express hierarchical or interleaved plan shapes
 
-**Status:** OPEN · **Severity:** LOW (opt-in convention; conservative failure with a surfaced finding, never silent) · **Class:** spec-lint task contract, enrollment expressiveness · **Filed:** 2026-08-03, from `docs/superpowers/specs/2026-08-03-pre-review-gate-arms-design.md` §6 items 6 and 7 · **Effort:** L
+**Status:** IN PROGRESS · **Branch:** feat/task-enrollment-multi-region · **Severity:** LOW (opt-in convention; conservative failure with a surfaced finding, never silent) · **Class:** spec-lint task contract, enrollment expressiveness · **Filed:** 2026-08-03, from `docs/superpowers/specs/2026-08-03-pre-review-gate-arms-design.md` §6 items 6 and 7 · **Effort:** L
 **l-wave-screen 2026-08-06:** PREREQ — design-gated multi-depth enrollment redesign; the entry's own deferral-exception (c) fences it, so no wave can schedule it.
 
 The `<!-- tasks: depth=N -->` region declares ONE heading depth. Two real corpus shapes do not fit it, both measured:
