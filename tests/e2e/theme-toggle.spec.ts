@@ -80,32 +80,47 @@ type ThemeMutation = {
 };
 /** Resolve the seeded Waldorf show + a share token for its crew route. */
 async function lookupSeededShow(): Promise<{ slug: string; shareToken: string }> {
-  const showRes = await admin
+  // not-subject-to-meta: test-local fixture lookup, not a lib helper — no
+  // _metaInfraContract registry row applies. Invariant 9's call-boundary
+  // discipline still does: destructure { data, error }, distinguish a RETURNED
+  // error from an empty result, and fail loud naming the site so a seed problem
+  // is never mistaken for a product failure.
+  const { data: show, error: showError } = await admin
     .from("shows")
     .select("id, slug")
     .eq("drive_file_id", SEED_DRIVE_FILE_ID)
     .single();
-  if (showRes.error || !showRes.data) {
+  if (showError) {
+    throw new Error(
+      `theme-toggle.spec: shows lookup FAILED for drive_file_id=${SEED_DRIVE_FILE_ID}: ${showError.message}`,
+    );
+  }
+  if (!show) {
     throw new Error(
       `theme-toggle.spec: seeded show not found (run \`pnpm db:seed\` first). ` +
-        `drive_file_id=${SEED_DRIVE_FILE_ID}, error=${showRes.error?.message ?? "no row"}`,
+        `drive_file_id=${SEED_DRIVE_FILE_ID}`,
     );
   }
-  const tokenRes = await admin
+
+  // not-subject-to-meta: same test-local fixture lookup as above.
+  const { data: token, error: tokenError } = await admin
     .from("show_share_tokens")
     .select("share_token")
-    .eq("show_id", showRes.data.id as string)
+    .eq("show_id", show.id as string)
     .limit(1)
     .maybeSingle();
-  if (tokenRes.error || !tokenRes.data?.share_token) {
+  if (tokenError) {
     throw new Error(
-      `theme-toggle.spec: no share_token for show ${showRes.data.id} (run \`pnpm db:seed\`). ` +
-        `error=${tokenRes.error?.message ?? "no row"}`,
+      `theme-toggle.spec: show_share_tokens lookup FAILED for show ${show.id}: ${tokenError.message}`,
     );
   }
+  if (!token?.share_token) {
+    throw new Error(`theme-toggle.spec: no share_token for show ${show.id} (run \`pnpm db:seed\`)`);
+  }
+
   return {
-    slug: showRes.data.slug as string,
-    shareToken: tokenRes.data.share_token as string,
+    slug: show.slug as string,
+    shareToken: token.share_token as string,
   };
 }
 

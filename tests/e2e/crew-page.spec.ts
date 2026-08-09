@@ -47,49 +47,66 @@ async function lookupSeededShow(): Promise<{
   lodgingNamedCrewId: string;
   lodgingUnnamedCrewId: string;
 }> {
-  const showRes = await admin
+  // not-subject-to-meta: test-local fixture lookups, not lib helpers — no
+  // _metaInfraContract registry row applies. Invariant 9's call-boundary
+  // discipline still does: destructure { data, error }, distinguish a RETURNED
+  // error from an empty result, and fail loud naming the site.
+  const { data: show, error: showError } = await admin
     .from("shows")
     .select("id, slug")
     .eq("drive_file_id", SEED_DRIVE_FILE_ID)
     .single();
-  if (showRes.error || !showRes.data) {
+  if (showError) {
     throw new Error(
-      `crew-page.spec: seeded show not found (run \`pnpm db:seed\` first). drive_file_id=${SEED_DRIVE_FILE_ID}, error=${showRes.error?.message ?? "no row"}`,
+      `crew-page.spec: shows lookup FAILED for drive_file_id=${SEED_DRIVE_FILE_ID}: ${showError.message}`,
     );
   }
-  const showId = showRes.data.id as string;
+  if (!show) {
+    throw new Error(
+      `crew-page.spec: seeded show not found (run \`pnpm db:seed\` first). drive_file_id=${SEED_DRIVE_FILE_ID}`,
+    );
+  }
+  const showId = show.id as string;
 
-  const crewRes = await admin
+  const { data: crew, error: crewError } = await admin
     .from("crew_members")
     .select("id, name, role_flags")
     .eq("show_id", showId);
-  if (crewRes.error || !crewRes.data?.length) {
+  if (crewError) {
     throw new Error(
-      `crew-page.spec: no crew rows for slug=${showRes.data.slug}; seed corpus must include some.`,
+      `crew-page.spec: crew_members lookup FAILED for slug=${show.slug}: ${crewError.message}`,
+    );
+  }
+  if (!crew?.length) {
+    throw new Error(
+      `crew-page.spec: no crew rows for slug=${show.slug}; seed corpus must include some.`,
     );
   }
 
-  const lead = crewRes.data.find(
+  const lead = crew.find(
     (c) => Array.isArray(c.role_flags) && (c.role_flags as string[]).includes("LEAD"),
   );
   if (!lead) {
-    throw new Error(`crew-page.spec: no LEAD crew member found for slug=${showRes.data.slug}.`);
+    throw new Error(`crew-page.spec: no LEAD crew member found for slug=${show.slug}.`);
   }
 
   // Find hotel reservations to build named/unnamed crew lookups.
-  const hotelRes = await admin.from("hotel_reservations").select("names").eq("show_id", showId);
-  if (hotelRes.error) {
-    throw new Error(`crew-page.spec: hotel_reservations fetch failed: ${hotelRes.error.message}`);
+  const { data: hotels, error: hotelError } = await admin
+    .from("hotel_reservations")
+    .select("names")
+    .eq("show_id", showId);
+  if (hotelError) {
+    throw new Error(`crew-page.spec: hotel_reservations fetch FAILED: ${hotelError.message}`);
   }
-  const allHotelNames: string[] = (hotelRes.data ?? []).flatMap((r) =>
+  const allHotelNames: string[] = (hotels ?? []).flatMap((r) =>
     Array.isArray(r.names) ? (r.names as string[]) : [],
   );
 
   const isNamed = (crewName: string) =>
     allHotelNames.some((n) => n.toLowerCase().includes(crewName.toLowerCase()));
 
-  const namedCrew = crewRes.data.find((c) => isNamed(c.name as string));
-  const unnamedCrew = crewRes.data.find((c) => !isNamed(c.name as string));
+  const namedCrew = crew.find((c) => isNamed(c.name as string));
+  const unnamedCrew = crew.find((c) => !isNamed(c.name as string));
   if (!namedCrew || !unnamedCrew) {
     throw new Error(
       `crew-page.spec: seed corpus must include at least one crew member named in a hotel reservation AND one not. Got named=${namedCrew?.name ?? "none"}, unnamed=${unnamedCrew?.name ?? "none"}.`,
@@ -97,7 +114,7 @@ async function lookupSeededShow(): Promise<{
   }
 
   return {
-    slug: showRes.data.slug,
+    slug: show.slug,
     showId,
     leadCrewId: lead.id as string,
     lodgingNamedCrewId: namedCrew.id as string,
@@ -220,18 +237,22 @@ async function rectOf(locator: import("@playwright/test").Locator): Promise<Rect
 
 /** Resolve the seeded show's share token (required path segment for the crew route). */
 async function lookupShareToken(showId: string): Promise<string> {
-  const res = await admin
+  // not-subject-to-meta: test-local fixture lookup (see lookupSeededShow).
+  const { data: token, error: tokenError } = await admin
     .from("show_share_tokens")
     .select("share_token")
     .eq("show_id", showId)
     .limit(1)
     .maybeSingle();
-  if (res.error || !res.data?.share_token) {
+  if (tokenError) {
     throw new Error(
-      `crew-page.spec: no share_token for show ${showId} (run \`pnpm db:seed\`). error=${res.error?.message ?? "no row"}`,
+      `crew-page.spec: show_share_tokens lookup FAILED for show ${showId}: ${tokenError.message}`,
     );
   }
-  return res.data.share_token as string;
+  if (!token?.share_token) {
+    throw new Error(`crew-page.spec: no share_token for show ${showId} (run \`pnpm db:seed\`)`);
+  }
+  return token.share_token as string;
 }
 
 test.describe("crew redesign layout invariants (§4.9 / test 12)", () => {
@@ -257,21 +278,23 @@ test.describe("crew redesign layout invariants (§4.9 / test 12)", () => {
 
   test.beforeAll(async ({}) => {
     const seeded = await lookupSeededShow();
-    const room = await admin
+    // not-subject-to-meta: test-local fixture setup (see lookupSeededShow).
+    const { data: room, error: roomError } = await admin
       .from("rooms")
       .select("id, audio, video")
       .eq("show_id", seeded.showId)
       .limit(1)
       .maybeSingle();
-    if (room.error || !room.data?.id) {
-      throw new Error(
-        `inv3 setup: no room on the Waldorf seed (run \`pnpm db:seed\`). error=${room.error?.message ?? "no row"}`,
-      );
+    if (roomError) {
+      throw new Error(`inv3 setup: rooms lookup FAILED: ${roomError.message}`);
     }
-    gearRoomId = room.data.id as string;
+    if (!room?.id) {
+      throw new Error(`inv3 setup: no room on the Waldorf seed (run \`pnpm db:seed\`)`);
+    }
+    gearRoomId = room.id as string;
     gearRoomOriginal = {
-      audio: (room.data.audio as string | null) ?? null,
-      video: (room.data.video as string | null) ?? null,
+      audio: (room.audio as string | null) ?? null,
+      video: (room.video as string | null) ?? null,
     };
     const upd = await admin
       .from("rooms")
@@ -282,18 +305,25 @@ test.describe("crew redesign layout invariants (§4.9 / test 12)", () => {
         video: "2x 7000-lumen laser projectors; 1x switcher; 1x confidence monitor",
       })
       .eq("id", gearRoomId);
-    if (upd.error) throw new Error(`inv3 setup: room A/V override failed: ${upd.error.message}`);
+    if (upd.error) throw new Error(`inv3 setup: room A/V override FAILED: ${upd.error.message}`);
   });
 
   test.afterAll(async ({}) => {
     if (!gearRoomId || !gearRoomOriginal) return;
-    const restore = await admin
+    // The RESTORE is the loud one by construction. A returned error does not
+    // throw, so an unchecked (or merely console.error'd) restore leaks the
+    // overridden room A/V into every later suite sharing this seed while THIS
+    // suite — and the dispatch bar — stay green. Silence is the failure mode,
+    // so it throws. Same repair as the run_of_show restore in
+    // right-now-transitions.spec.ts (plan review R4 F2); swept here as a peer.
+    const { error: restoreError } = await admin
       .from("rooms")
       .update({ audio: gearRoomOriginal.audio, video: gearRoomOriginal.video })
       .eq("id", gearRoomId);
-    if (restore.error) {
-      console.error(
-        `inv3 teardown: room A/V restore failed (manual reseed needed): ${restore.error.message}`,
+    if (restoreError) {
+      throw new Error(
+        `inv3 teardown: room A/V RESTORE FAILED for room ${gearRoomId} — the seed is left ` +
+          `overridden; re-run \`pnpm db:seed\`: ${restoreError.message}`,
       );
     }
   });

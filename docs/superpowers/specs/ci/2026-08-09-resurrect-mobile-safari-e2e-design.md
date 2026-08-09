@@ -212,6 +212,30 @@ not, and the recipe is part of the test. Tests:
    legitimately moves (e.g. into `<head>`), the recorded fields make the new placement's expected
    values explicit rather than silently green — the assertion is on the pair, not on placement
    folklore.
+
+   **AMENDMENT 2026-08-09 (implementation, ratified here per invariant 7 — the spec is canonical,
+   so an execution-disproved detail is amended rather than silently replaced).** The INTENT above is
+   unchanged and is what the shipped test asserts; two mechanical details did not survive contact
+   with the live tree, both measured rather than reasoned:
+
+   - **`bodyChildCount <= 1` is not satisfiable and was never the real contract.** Two
+     NON-PAINTING siblings precede the bootstrap: under the dev server Next injects
+     `<script data-nextjs-dev-overlay="true">`, and React streams an empty Suspense marker,
+     captured verbatim as `<div hidden=""><!--$--><!--/$--></div>`. The count reaches 2 with
+     nothing painted. The shipped assertion is therefore on the PAINTED TEXT of `<body>`'s
+     non-`script`/`style`/`link`/`template` children (`paintedTextLength === 0`), which is exactly
+     what this section's own words require ("no paintable sibling content preceded the theme
+     application") and reads identically under dev and the production artifact. Body `textContent`
+     is unusable for this: it includes the inline bootstrap's own source, so it is never 0.
+     The end-of-`<body>` mutant is what proves the replacement earns its place — `readyState`
+     ALONE cannot kill it, because a script at the end of `<body>` also runs with
+     `readyState === "loading"`; the shipped assertion fails it with
+     `paintable body children at write time: DIV,DIV`.
+   - **The observer targets `document`, not `document.documentElement`.** `documentElement` can be
+     absent at `document_start`; the throw killed the observer before it installed and the oracle
+     came back silently EMPTY. Observing `document` with `subtree: true` and
+     `attributeFilter: ["data-theme"]` covers the same mutation, and an explicit length assertion
+     now fails loudly with the in-page error rather than as a confusing empty-array comparison.
 3. **Accessibility state pinned across the cycle** (spec review R1 F5 — the dead suite carried
    this and nothing else does): in light mode `aria-pressed="false"` + accessible name "Switch to
    dark theme"; in dark mode `aria-pressed="true"` + "Switch to light theme"; after the reload in
