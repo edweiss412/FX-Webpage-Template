@@ -76,7 +76,16 @@ async function captureAll(): Promise<Captured> {
   };
 }
 
-async function restoreAll(captured: Captured): Promise<void> {
+async function restoreAll(captured: Captured | undefined): Promise<void> {
+  // NEVER-CAPTURED guard. vitest runs `afterAll` even when `beforeAll` THREW,
+  // so a transient capture failure would otherwise reach this restore with an
+  // empty snapshot — and the deletes below would then wipe live state and put
+  // nothing back. `undefined` means "no capture happened"; a captured-but-absent
+  // row is `null`, which IS restorable and must stay distinguishable from it.
+  // The guard lives HERE rather than at the call sites so a future scope cannot
+  // reintroduce the shape by forgetting it.
+  if (captured === undefined) return;
+
   // ONE transaction: a restore that clears state and then fails to put it back
   // leaves the damage in place for every suite that runs after this one, and
   // the next capture reads the emptied table as the truth.
@@ -248,7 +257,7 @@ function withTxOn(sql: postgres.Sql) {
   };
 }
 
-let captured: Captured = { settings: null, channels: [], alerts: [] };
+let captured: Captured | undefined;
 let restoreSink: (() => void) | null = null;
 
 beforeAll(async () => {

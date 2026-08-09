@@ -62,7 +62,16 @@ async function captureSettings(): Promise<CapturedSettings> {
   return rows[0]?.row ?? null;
 }
 
-async function restoreSettings(captured: CapturedSettings): Promise<void> {
+async function restoreSettings(captured: CapturedSettings | undefined): Promise<void> {
+  // NEVER-CAPTURED guard. vitest runs `afterAll` even when `beforeAll` THREW,
+  // so a transient capture failure would otherwise reach this restore with an
+  // empty snapshot — and the deletes below would then wipe live state and put
+  // nothing back. `undefined` means "no capture happened"; a captured-but-absent
+  // row is `null`, which IS restorable and must stay distinguishable from it.
+  // The guard lives HERE rather than at the call sites so a future scope cannot
+  // reintroduce the shape by forgetting it.
+  if (captured === undefined) return;
+
   // ONE transaction. A restore that deletes and then fails to re-insert leaves
   // the singleton row missing for every suite that runs after this one — and
   // the next capture then reads `null`, so the damage is silent and permanent.
@@ -580,7 +589,7 @@ describe("activatePending's COUNT comes from the production SQL (R6 finding 2)",
   // settings row to its OWN fixture folder — the guard's match arm — keeping the
   // original subject (the promoted COUNT) rather than swapping it for the
   // absent-row arm.
-  let captured: CapturedSettings = null;
+  let captured: CapturedSettings | undefined;
   beforeAll(async () => {
     captured = await captureSettings();
   });
@@ -647,7 +656,7 @@ describe("activation guard against the real adapter (spec §3.1 rule)", () => {
   const GUARD_FOLDER: string = `${PREFIX}guard`;
   const PROMOTED_FOLDER: string = `${PREFIX}guard-promoted`;
 
-  let captured: CapturedSettings = null;
+  let captured: CapturedSettings | undefined;
   beforeAll(async () => {
     captured = await captureSettings();
   });
