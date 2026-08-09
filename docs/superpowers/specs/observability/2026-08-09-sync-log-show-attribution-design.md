@@ -234,11 +234,17 @@ Filesystem discovery is the load-bearing part: a NEW call site fails by default 
 
 **This is the oracle for the caller class**, which no DB scenario can cover: the seven superseded branches are mutually exclusive, so a behavioral test reaches one per scenario (§5, R3 F1).
 
-**Scope bound, stated so it cannot ratchet.** Roots `lib/sync`, `lib/onboarding`, and `app/api/drive`. Recognized writers: `logSync(...)`, `tx.logSync(...)`, `deps.logSync?.(...)`, `insertSyncLog(...)`, and any literal `insert into public.sync_log`. Target ~150 lines. If review pressure pushes it past ~250, that is the ratchet the round-economy retrospective describes, and the response is to narrow the claim rather than widen the recognizer.
+**Recognized writers — derived from the module's exports, not hand-listed (R4 F4).** An earlier draft enumerated call shapes and omitted the two canonical exported writers, `writeSyncLog` and `makePostgresSyncLogSink` (`lib/sync/syncLog.ts:39`, `lib/sync/syncLog.ts:51`). That is not a hypothetical gap: `app/api/cron/sync/route.ts:4` imports `writeSyncLog` and `app/api/cron/sync/route.ts:21` wires it as `logSync: writeSyncLog`, so an ordinary direct `writeSyncLog({ driveFileId: null, … })` call — no aliasing, no obfuscation — evaded both the recognizer and the registry.
+
+The recognizer is therefore derived: **every exported symbol of `lib/sync/syncLog.ts`, plus the `logSync`/`insertSyncLog` method and callback forms, plus any literal `insert into public.sync_log`.** Deriving from the module's export list rather than a hand-kept list is the same "derive a cover, don't enumerate" rule the class-sweep discipline requires, and it is what makes a future writer covered by default.
+
+**Roots:** `lib/sync`, `lib/onboarding`, `app/api/drive`, **and `app/api/cron`**. Roots are asserted against the derived writer set — a writer reachable from a root not scanned is itself a failure, so the two cannot drift apart silently.
+
+**Scope bound, stated so it cannot ratchet.** Target ~150 lines. If review pressure pushes it past ~250, that is the ratchet the round-economy retrospective describes, and the response is to narrow the claim rather than widen the recognizer.
 
 **Threat model.** Defends against an ordinary contributor adding a call site and forgetting attribution. Deliberate obfuscation — a dynamically computed writer name, an aliased import — is out of scope and files to documented limits.
 
-**Seed registry** — exactly the rows §3.2 derives: `lib/sync/runScheduledCronSync.ts:3780`, `lib/sync/runScheduledCronSync.ts:3796`, the four `lib/onboarding/sessionLifecycle.ts` sites, `lib/sync/runOnboardingScan.ts:1134`, and `app/api/drive/webhook/route.ts:224`.
+**Seed registry** — exactly the rows §3.2 derives: `lib/sync/runScheduledCronSync.ts:3780`, `lib/sync/runScheduledCronSync.ts:3796`, the four `lib/onboarding/sessionLifecycle.ts` sites, `lib/sync/runOnboardingScan.ts:1134`, and `app/api/drive/webhook/route.ts:224`. The `app/api/cron/sync/route.ts:21` wiring is a *dependency injection*, not an emission, and is covered by the sites inside `runScheduledCronSync` that it drives — the meta-test must distinguish the two, or every injection site becomes a false positive.
 
 ---
 
@@ -285,80 +291,29 @@ Every affected layer gets an action or an explicit N/A.
 
 ---
 
-## 5. Testing
+## 5. Testing posture
 
-**The regression test that matters** is the §1 probe made executable: write attempts through the cron sink for a drive file with a known `shows` row, then assert `querySyncLog({ showId })` returns them. That is the assertion whose absence let this ship. It must derive the expected show id from the fixture, never hardcode it.
+The assertion-by-assertion inventory lives in this change's implementation plan, under `docs/superpowers/plans/observability/` (created alongside this spec), not here. This section states the posture that inventory must satisfy; where the two disagree, this section wins and the plan is wrong.
 
-It must be a **new, DB-backed** file. It may NOT extend `tests/observe/querySyncLog.test.ts`, which mocks `@/lib/supabase/server` wholesale (`tests/observe/querySyncLog.test.ts:11-29`) and asserts on the recorded builder call chain. A mocked read test can assert `.eq("show_id", …)` was called and stay green forever while no writer populates the column — which is precisely how this defect shipped and survived.
+The split is deliberate and was learned in this arc. An earlier revision carried the full inventory, and three of round 2's findings plus five of round 4's were assertion-shaped — all real defects, but each cost a full spec round to close when it belonged where a plan reviewer would find it. Round 4 returned five findings, none about the design. That is the signal for this move, not an argument against the findings.
 
-**Two traps in the read call itself**, both verified against `lib/observe/query/syncLog.ts`:
+**The regression that matters** is §1's probe made executable: write through a sink for a `drive_file_id` with a committed `shows` row, then read the row back and assert `show_id`. Its absence is why this shipped.
 
-- `sinceHours` defaults to **24** when the field is `undefined` (`lib/observe/query/syncLog.ts:28`); only an explicit `null` removes the bound. A fixture older than 24h returns `rows: []` — an empty result identical to the bug under test, inside the test meant to prove it fixed. Pass `sinceHours: null`.
-- A missing service-role key makes `createSupabaseServiceRoleClient()` (`lib/observe/query/syncLog.ts:23`) throw, swallowed into `{ kind: "infra_error" }` (`lib/observe/query/syncLog.ts:52-54`). Assert `kind === "ok"` **before** asserting on rows, or an infra fault reads as "no rows."
+**Posture requirements**, each naming the failure it prevents:
 
-**The attribution oracle is PER SINK, not per repair (R2 F4).** AC-1 spans three writers, but the obvious test set proves only one. Today the recovery sink's test reads positional warning params and never verifies persisted attribution (`tests/sync/runOfShowSyncLogChannel.test.ts:221-248`), and the onboarding tests inject a fake `logSync` and never exercise its SQL (`tests/sync/onboarding.test.ts:229-230`). A change that repairs only `makePostgresSyncLogSink` would therefore satisfy every row-read assertion while leaving the other two sinks' SQL wrong — including the onboarding sink, which R2 F1 shows is the one most likely to stay broken.
+1. **Read back from the database, never the parameter array.** A parameter-shape assertion passes even when the SQL never binds the value.
+2. **One oracle per sink, not one parameterized over a sink.** AC-1 spans three writers; a repair to `makePostgresSyncLogSink` alone must not satisfy the suite (R2 F4).
+3. **The caller class needs a static oracle, not a behavioral one.** The seven superseded branches are mutually exclusive, so a DB scenario reaches exactly one and six can stay broken behind green (R3 F1). §3.6 is that oracle.
+4. **Branch-complete, not path-complete.** Duration has five distinct behaviors — prepared skip, lock-contended skip, manual first-seen apply, the reuse hazard, and the missing-start/backward-clock guards — and an oracle exercising only the applied path leaves every one of them free (R4 F1). Each behavior gets its own assertion.
+5. **A prune oracle must prove non-deletion of rows it did not mark.** Asserting only that marked-new rows survive admits a predicate like `occurred_at < cutoff OR status = 'skipped'`, which deletes unrelated recent rows while every marked assertion passes (R4 F5).
+6. **Every guard states its premise executably** (`tests/_shared/premise.ts`), unconditionally relative to what it guards — never inside a `.each` callback, whose case count can be zero.
 
-So each of the three sinks gets its **own** DB readback: write through that sink for a `drive_file_id` with a committed `shows` row, then read the row back and assert `show_id`. Three assertions, not one parameterized over a single sink. The onboarding case must additionally cover a `WIZARD_SESSION_SUPERSEDED_DURING_SCAN` emission, since that is the caller-side omission R2 F1 identified and a sink-only fix leaves it NULL.
+**Three hazards that are design-level, and therefore stay here:**
 
-**But a DB oracle cannot cover the caller class, and must not pretend to (R3 F1).** The seven superseded sites (`lib/sync/runOnboardingScan.ts:740`, `lib/sync/runOnboardingScan.ts:826`, `lib/sync/runOnboardingScan.ts:842`, `lib/sync/runOnboardingScan.ts:863`, `lib/sync/runOnboardingScan.ts:896`, `lib/sync/runOnboardingScan.ts:922`, `lib/sync/runOnboardingScan.ts:1019`) are **mutually exclusive branches** — each returns immediately — so one DB scenario exercises exactly one of them. Seven scenarios would be needed, and a partial implementation that repairs the sink plus the single tested caller passes while six sites still drop an available `file.driveFileId`.
-
-The oracle for this class is therefore **static, not behavioral**: the attribution meta-test (§3.6) walks every call site from disk and requires each to attribute or hold a registry row. The DB test proves the sink resolves; the meta-test proves no caller starves it. Neither alone is sufficient, and the split is deliberate.
-
-**Prune-test target and isolation contract (R2 F5) — a live hazard, not a style note.** `prune_sync_log('1 day')` deletes every qualifying row in whatever database it is pointed at, and the sink's own resolver **prefers `TEST_DATABASE_URL`** (`lib/sync/syncLog.ts:8-14`), which on this machine is the shared **validation project** (`BACKLOG.md:1101`). Following a naive reading of this spec could permanently delete validation history. Three requirements, all mandatory:
-
-1. **Pin the target explicitly to loopback** via `assertLocalDbUrl` (`tests/db/_localDbUrl.ts:50`). Never let the prune test inherit `TEST_DATABASE_URL`.
-
-   **The existing meta-guards do NOT cover this, contrary to an earlier draft of this spec (R3 F6).** That claim was false and is corrected here rather than quietly dropped, because it was the entire basis for calling the hazard already-handled:
-
-   - `tests/db/_metaDestructiveDbTargetGuard.test.ts:35-43` discovers destructive tests by two literal patterns — `EXECUTES_WIPE = /select\s+public\.reset_validation_data\s*\(\s*\)/i` and an `ENABLES_WIPE_GATE` update. Neither matches `prune_sync_log`.
-   - `tests/db/_metaLocalDbUrlGuard.test.ts:122` scans reads of `process.env.LOCAL_TEST_DATABASE_URL` only. `TEST_DATABASE_URL` — the variable that actually points at validation, and the one `lib/sync/syncLog.ts:8-14` prefers — is outside its scan.
-
-   A prune test connected through `TEST_DATABASE_URL` therefore passes **both** guards and deletes shared validation history. So this spec **extends** `EXECUTES_WIPE`'s discovery to recognize `prune_sync_log` (and any future `prune_*` executing against a non-loopback target), making the guard cover the surface it is claimed to cover. That extension is part of the deliverable, not an assumption about it.
-2. **Run inside a transaction that is always rolled back**, per the template at `tests/db/driveFileIdNonblank.db.test.ts` — so the suite leaves zero residue even while red.
-3. **Assert on fixture-scoped rows, not global counts.** Pre-existing qualifying rows (the local DB currently holds 5,073) contaminate any expected-count assertion. Scope every count to a unique fixture marker.
-
-**Executable proof for AC-7 and AC-8 (F5).** `tests/db/schema.test.ts:293-303` reads only the `drive_file_id_nonblank` migration and asserts CHECK syntax; it inspects no indexes. `rg "sync_log_show_id_idx|sync_log_drive_file_id_idx|prune_sync_log|sync_log_prune" tests` currently returns nothing. Each of the following gets its own DB assertion, none of which exists today:
-
-| Claim | Assertion |
-| --- | --- |
-| AC-7 public indexes | `pg_indexes` contains `sync_log_show_id_idx` and `sync_log_drive_file_id_idx` on `public.sync_log`, with the expected column order and `DESC` on the timestamp. |
-| AC-7 dev indexes | Same two on `dev.sync_log` **when `to_regclass('dev.sync_log')` is non-null**; and the migration text is asserted to carry the `to_regclass` guard so an ungated form cannot ship. |
-| AC-8 existence + posture | `pg_proc` has `prune_sync_log(interval)`, `prosecdef = true`, `proconfig` contains `search_path=public, pg_temp`. |
-| AC-8 default interval | `proargdefaults` decodes to **60 days**. Asserting only signature and posture lets a `1 day` default ship and silently discard 59 extra days — the behavior test calls an explicit `'1 day'` and would not notice (R3 F5). |
-| AC-8 schedule literal | The live `cron.job.schedule` equals the exact expected cron string, **and differs from `app_events_prune`'s `17 4 * * *`**. "Matches the migration" is not an oracle: migration and live row agree on an every-minute or colliding cadence just as happily as on the right one. |
-| AC-8 privileges | `has_function_privilege('service_role', …, 'EXECUTE')` is true; the same for `anon` and `authenticated` is **false**. |
-| AC-8 behavior | Insert fixture rows straddling the cutoff under a unique status marker, call `prune_sync_log('1 day')`, then assert **on the marker-scoped set**: every fixture row older than the cutoff is gone, and every newer one survives. The function's **return value is global** — it counts every qualifying row in the table — so it may only be asserted as `>= fixtureOldCount`, never as equality. (R3 F4: requiring equality while forbidding global counts is self-contradictory, and on any database holding pre-existing old rows the *correct* function fails it.) Survival of the newer marker-scoped rows is what rules out a delete-everything implementation. |
-| AC-8 schedule | `cron.job` has a row named `sync_log_prune` whose `command` calls `public.prune_sync_log()`, whose schedule matches the migration, **and whose `active` is true**. The `active` column is not decorative: the same suite documents and tests that a correct-looking `active = false` row never fires (`tests/cross-cutting/pg-cron-coverage.test.ts:408-412`), and the non-`fxav_` registry snapshot compares names only — so retention could be silently disabled with every other assertion green. |
-
-**Anti-tautology.** Each assertion must fail for the right reason:
-
-- Attribution is asserted against the **row read back from the DB**, not against the parameter array passed to the sink — a parameter-shape assertion passes even if the SQL never binds the value.
-- The NULL cases (§3.2) are asserted as *positively* NULL for a file with no `shows` row, not merely "did not throw."
-- AC-2 carries a **negative control**: the same query for an unrelated show id returns zero rows. Without it, a green result is equally consistent with the filter being ignored and every row matching.
-- Duration is asserted against an injected clock with a known delta, not `> 0` — a `> 0` assertion passes on a wall-clock read that ignores the injected start.
-- **AC-5 (deadlock) is a real end-to-end run, not a unit assertion.** Process a first-seen file through the full locked path with a live DB and a bounded timeout, and assert it completes and lands `show_id IS NULL`. A test using two already-committed fixtures does not exercise the topology in §3.1.1 and would have passed against the deadlocking design.
-
-**Premise guards.** Per `BL-GUARD-PREMISE-REACHABILITY` (`tests/_shared/premise.ts`), any assertion whose discriminating condition depends on a `shows` row existing must assert that precondition executably, or it passes vacuously on an empty fixture. The premise executes unconditionally relative to what it guards — never inside a `.each` callback, whose case count can be zero.
-
-**Anti-vacuity gate (F6) — executable, not aspirational.** "Must be confirmed to actually run" does not stop a `skipIf(!dbUp)` suite from exiting green when its probe fails. Mirror the established precedent at `tests/sync/qualityRegressionLifecycle.test.ts:449-459`: an always-running test that, **when a DB URL is explicitly configured**, asserts the probe succeeded and fails loudly otherwise; and that accepts a clean skip only when no DB URL is set at all. Without it, the regression test reproduces the very silent-empty-success class it exists to prevent — the failure mode is identical to the bug, one level up.
-
-**Tests that break by design** — each is an expected update, not a regression:
-
-| Test | What it pins |
-| --- | --- |
-| `tests/sync/syncLog.test.ts:5-25` | Exact sink SQL string + 4-param array. **Primary TDD entry point** — the first failing test. |
-| `tests/sync/syncLogSink.persistence.test.ts:7-51` | Sink persists `entry.parseWarnings` into the warnings param. |
-| `tests/sync/runOfShowSyncLogChannel.test.ts:199-250` | Structural pin on `insertSyncLog`'s jsonb param. |
-| `tests/sync/runScheduledCronSync.test.ts:2643-2680` | Exact-object `toHaveBeenCalledWith` on `logSync` entries — breaks when the entry gains a field. |
-| `tests/sync/def4-archived-skip.test.ts:41-112` | Archived paths must not call `logSync`; watermark skip calls it exactly once. Must still hold. |
-| `tests/sync/perFileProcessor.test.ts:950-984` | Wizard-staged first-seen file with no `shows` row still writes a row — the AC-3 case, already covered. |
-| `tests/observe/querySyncLog.test.ts:47-77` | Select column list including `duration_ms`. |
-| `tests/db/schema.test.ts:293-303` | `sync_log` public + dev parity. |
-| `tests/cross-cutting/pg-cron-coverage.test.ts:107` | Non-`fxav_` cron job registry. |
-
-**Environment hazard.** `pnpm preflight` on this worktree warns: `TEST_DATABASE_URL is NON-LOOPBACK (aws-1-us-east-2.pooler.supabase.com)`. Loopback-guarded DB tests **skip** rather than fail under that env. Any DB-backed test added here must be confirmed to actually run — a skipped test is indistinguishable from a passing one in the summary line, which is this spec's own defect class.
-
----
+- **`TEST_DATABASE_URL` is the validation project**, and `lib/sync/syncLog.ts:8-14` prefers it. `prune_sync_log` deletes every qualifying row in whatever database it reaches, so a test inheriting that variable can permanently delete shared validation history. Targets are pinned to loopback via `assertLocalDbUrl`.
+- **The pre-existing meta-guards do not cover this, and extending their discovery is necessary but NOT sufficient (R3 F6, sharpened by R4 F3).** `tests/db/_metaDestructiveDbTargetGuard.test.ts:42-43` recognizes a guard by *name match only* — it does not establish that the guarded value is the URL actually handed to `postgres`, that the call precedes the connection, or that the callee is the imported guard rather than a local same-named function. A prune test can therefore call `assertLocalDbUrl` on an unrelated loopback literal, or after pruning, and pass. The guard extension is part of the deliverable **and** so is closing those three holes; a name-match guard is a documented limit being relied on as a control.
+- **Anti-vacuity must key on CI presence, not on a configured URL (R4 F2).** `unit-suite-db` boots local Supabase and runs the serial project with **no** `TEST_DATABASE_URL` and no `LOCAL_TEST_DATABASE_URL` (`.github/workflows/unit-suite.yml:139-144`, whose only env is `VITEST_EXCLUDE_ENV_BOUND`). A condition that fires only when a URL is explicitly configured is therefore dead in the exact job that runs these tests, and every new DB assertion could skip while CI stays green. Follow `unreachableDbFailure` (`lib/driveIdCoverage/introspect.ts:132-148`), which keys on `CI` being *present* — its own comment records the escape it was hardened against, an earlier `if (!opts.ci)` that let a wrapper exporting `CI=` disable the guard silently.
+- **`querySyncLog` defaults `sinceHours` to 24** (`lib/observe/query/syncLog.ts:28`); only an explicit `null` removes the bound. A fixture older than a day returns `rows: []` — an empty result identical to the bug under test, inside the test meant to prove it fixed.
 
 ## 6. Documented limits
 
