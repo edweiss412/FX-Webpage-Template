@@ -14,11 +14,11 @@ Wave closes when all five branches are merged, AC-W1..W3 (see [00-overview.md](.
 | --- | --- | --- |
 | P1 | Catalog title omitted `#REF!` | **Fixed** this branch |
 | P2 | `RefAnchor` copy-link squeezed to 35.9px at 390px against the 44px convention; this branch's own entry is one of 31 affected | **Fixed** this branch (`shrink-0`) |
-| P2 | 216 copy-links share one accessible name, and sit as 216 tab stops before the footer CTA | Deferred: pre-existing, whole-surface a11y change |
+| P2 | 216 copy-links share one accessible name, and sit as 216 tab stops before the footer CTA | Deferred: pre-existing in KIND, but this branch adds the 216th — every renderable catalog entry becomes another identically-named `RefAnchor`. The fix is one `aria-label` on a shared component, so it belongs to a whole-surface a11y pass rather than to the branch that incremented the count |
 | P3 | Jump-list links 18px tall, clearing WCAG only via the spacing exception | Deferred: pre-existing |
 | P3 | Stale `md`-breakpoint comment (`app/globals.css:267`) | Deferred: comment-only, no behaviour change |
 
-Both deferrals are pre-existing and untouched by this diff.
+The two P3s are pre-existing and untouched by this diff. The P2 above is NOT untouched: a new renderable code adds one instance of it, and branches 3 and 4 will each add one more. An earlier draft of this table claimed all three were untouched, which was false — a later reviewer would have been told 216 identical links were entirely inherited when this branch contributed the last one.
 
 Per-branch close: PR-head `mutation-harness` workflow verified green (procedural gate, spec §2.2), ledger marker removed in the PR's last commit, `git rev-list --left-right --count main...origin/main` = `0  0` after merge.
 
