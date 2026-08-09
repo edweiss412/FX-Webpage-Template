@@ -1,0 +1,125 @@
+# Multi-Region Task Enrollment — Design
+
+**Date:** 2026-08-09 · **Status:** DRAFT · **Closes:** `BL-TASK-ENROLLMENT-SINGLE-DEPTH` (BACKLOG.md)
+**Amends:** `docs/superpowers/specs/2026-08-03-pre-review-gate-arms-design.md` §3.2, §3.4.1, AC-26/AC-30, §6 items 6–7
+**Surface:** `lib/specLint/taskContract.ts` (enrolled mutation-guard surface, `tests/mutation/source/registry.ts:153`)
+
+## 1. Problem
+
+The declared task contract (`<!-- tasks: depth=N -->` … `<!-- tasks: end -->`, origin spec §3.2; checker `lib/specLint/taskContract.ts`, wired at `lib/specLint/run.ts:37`) supports exactly one region per plan, watching exactly one heading depth. Two measured corpus shapes cannot enroll (origin spec §6 items 6–7, filed as `BL-TASK-ENROLLMENT-SINGLE-DEPTH`):
+
+- **Shape A — task units at two depths** (7 of 533 plans at filing). Example: `docs/superpowers/plans/observability/2026-07-04-mutation-surface-observability.md` — `## Task 6`, group header `## Tasks 7–16`, children `### Task 7`…`### Task 16`, then `## Task 17`. Enrolling either depth silently excludes the units at the other.
+- **Shape B — non-task headings at the task depth between the first and last task** (6 plans at filing). Example: `docs/superpowers/plans/2026-07-26-stripcomments-shared.md` — `### Canonical migration procedure ("PROC", used by Tasks 3–46)` between Task 2 and Task 3. A single region cannot exclude a heading in its middle; the interloper draws `TASK_MARKER_MISSING`.
+
+The feature is live and standard for new plans — 12 plans enrolled as of 2026-08-09 (`rg -l 'tasks: depth=' docs/superpowers/plans/` → 12 files), all flat single-depth. The limit costs authors of hierarchical plans a forced flattening, and keeps the 13 measured legacy-shaped plans permanently unenrollable.
+
+**Fix (ratified — Option A):** a plan may declare any number of *sequential* regions, each with its own depth. Close a fence before an odd stretch, reopen after. Every rule inside a region is unchanged.
+
+### 1.1 Resolved scope — do not relitigate
+
+1. **Option A (sequential multi-region) over per-heading skip notes (B), nested parent/child semantics (C), and leave-as-documented-limit (D).** User-ratified 2026-08-09 in the design session for this spec, from a rendered four-option comparison. B and C file to §7 (documented limits) as re-open triggers, not gaps.
+2. **The nested-open code keeps the name `TASK_ENROLL_DUPLICATE`; the message changes.** User-approved design §2. Rationale: code stability across the origin spec's catalog, the existing suite, and the review-round corpus outweighs the more honest name `TASK_ENROLL_NESTED`; the message ("task-region opening inside an unclosed region") carries the semantics. Renaming proposals are out of scope.
+3. **This spec supersedes the origin spec's single-region ratification deliberately, not by oversight.** Origin §3.2 (*Every opening line after the first is `TASK_ENROLL_DUPLICATE` — whether or not a close intervenes… Multiple regions are not supported, and the unsupported case must be loud*) was correct *given* single-region support: the unsupported case had to be loud. This spec makes the case supported, so the loudness rationale no longer applies to it. The nested-open case — the one shape that is still not supported — stays loud. The origin fence against "guessing which of two declared regions the author meant" (§3.2) is not violated: no intent is inferred; the already-open region continues by deterministic rule and the nested line is refused with a finding.
+4. **No legacy plan is enrolled by this work.** The 13 shaped plans become *enrollable*, not enrolled. Enrollment stays opt-in (origin §6 item 2).
+5. **Threat model (fence):** the checker defends against accidental authoring mistakes by an ordinary contributor. Adversarial obfuscation of enrollment lines is out of scope and files to documented limits. **Consequence bound:** every input is either checked correctly or draws a surfaced finding; a conservative refusal plus a surfaced finding is a documented limit, not a finding. **Convergence criterion for review:** the surface is enrolled in the source-mutation registry (`tests/mutation/source/registry.ts:153`), so convergence is the mutation score plus an empty unaccepted-survivor set — a "guard does not pin what it claims" finding is admissible only with a surviving mutant from the declared operator set.
+
+### 1.2 Out of scope
+
+- Per-heading skip notes (Option B) and parent/child nesting with marked parents (Option C) — §7 items 1–2.
+- Enrolling any existing plan; authoring markers for legacy tasks.
+- Any change to marker grammar (`MARKER`, `MARKER_AC_ABSENT`, `ID` at `lib/specLint/taskContract.ts:28-39`), AC-id resolution (`resolvesId`), finding order (`compareFindings`), or any other `spec:lint` check family.
+- Changes to `codex-guard --lint-doc` or `scripts/spec-lint.ts` — the checker's callers are untouched.
+
+## 2. Design
+
+### 2.1 Grammar — unchanged line forms, plural regions
+
+The three line forms are byte-identical to origin §3.2: `OPEN` (`lib/specLint/taskContract.ts:19`), `END` (`lib/specLint/taskContract.ts:20`), and the marker forms. Indentation rules (0–3 spaces), fence-inertness, and CRLF normalization are unchanged. What changes is document-level cardinality: a plan may contain any number of regions, in sequence. There is no new syntax and no region count cap.
+
+### 2.2 Region model
+
+Lines are read in order; fenced lines are inert (unchanged). Region state is a single open/closed flag plus a rejected-opens counter, exactly as today (`lib/specLint/taskContract.ts:74-75`):
+
+| Line | Region closed | Region open |
+| --- | --- | --- |
+| `OPEN` match | **starts a new region** (this is the behavior change) | `TASK_ENROLL_DUPLICATE`, message "task-region opening inside an unclosed region"; the line is inert — no region starts, the open region continues; `rejectedOpens += 1` |
+| `END` match | consumed silently if `rejectedOpens > 0` (decrement); else `TASK_ENROLL_MALFORMED` "task-region close with no matching opening" | closes the current region |
+| other `<!-- tasks:` line | `TASK_ENROLL_MALFORMED` (unchanged, `lib/specLint/taskContract.ts:123-133`) | same |
+
+- End of document closes an unclosed region (unchanged, `lib/specLint/taskContract.ts:146`). Only the last region can be unclosed, since an `OPEN` while open never starts a region.
+- The close-pairing rule is unchanged from origin §3.2: in `open open close close`, the first close closes the region (deterministic — the nested open's "intended" region is never guessed; the author was already told at the nested open), and the second close is consumed silently against the rejected open. In `open close close` the second close draws `TASK_ENROLL_MALFORMED`.
+- A document with a `<!-- tasks:` line but **zero well-formed regions** (e.g. only `<!-- tasks: depth=7 -->`) keeps today's conclusion: the line-pass findings stand and recorded marker-shaped lines are discarded unjudged (origin §3.4.1's discard row, narrowed from "not exactly one opening" to "no well-formed region"). Note a lone unclosed `OPEN` *is* a well-formed region (EOF-closed), so this case is reachable only via malformed lines.
+
+**Enrollment redefined:** a plan is enrolled iff it contains at least one well-formed region. The origin's two-pass correctness argument ("whether a region counts at all is not knowable until every enrollment line has been seen", `lib/specLint/taskContract.ts:8-12`) dissolves under this model — a region is final at its close, and no later line can invalidate it, because a nested `OPEN` is inert rather than disqualifying. Pass structure becomes an implementation choice, not a correctness requirement; the file's header comment must be updated to say so.
+
+### 2.3 Per-region checking — all existing rules, region-local
+
+For each region, with `depth`, `regionStart`, `regionEnd` now per-region:
+
+- **Task selection** (unchanged formula, `lib/specLint/taskContract.ts:154-156`): headings of exactly the region's depth, strictly between the region's open and close lines.
+- **`TASK_ENROLL_EMPTY`** (unchanged, `lib/specLint/taskContract.ts:157-165`): per region, anchored at that region's open line. An empty region does not affect any other region's checking, and marker classification still proceeds (the existing not-an-early-return rule).
+- **Extents** (unchanged formula, `lib/specLint/taskContract.ts:169-178`): a task's extent runs to the next heading of the region's depth or shallower, the region's close, or end of document — whichever is first. An extent never crosses its region's close, so prose between two regions belongs to no task.
+- **Marker ownership, cardinality, classification** (`lib/specLint/taskContract.ts:182-243`): unchanged. Extents from different regions are disjoint by construction (regions are disjoint and extents are clipped to their region), so the global marker-to-extent assignment is unambiguous. A marker outside every extent — including one between regions, or after a region's close — draws `TASK_MARKER_ORPHANED` (existing code; it now also covers the between-fences gap).
+- **Fenced marker-shaped lines** (`markerShaped`, `lib/specLint/taskContract.ts:137-144`) stay a global, document-wide set; AC-id resolution (`resolvesId`) is document-wide and unchanged.
+- **Finding order** (`compareFindings`, `lib/specLint/taskContract.ts:266`): unchanged; the comparator is already total over line/code/message and regions add no new tie shape.
+
+Depths are independent per region; consecutive regions may declare the same depth (that is exactly the Shape-B split).
+
+### 2.4 The two corpus shapes, worked
+
+**Shape A** (`docs/superpowers/plans/observability/2026-07-04-mutation-surface-observability.md`): depth-2 region over `## Task 1`–`## Task 6` · close · the group header `## Tasks 7–16` sits between fences, unchecked · depth-3 region over `### Task 7`–`### Task 16` · close · depth-2 region over `## Task 17`–`## Task 22`. The group header is not a task and demands no marker.
+
+**Shape B** (`2026-07-26-stripcomments-shared.md`): depth-3 region over Tasks 1–2 · close before `### Canonical migration procedure` · reopen depth-3 · Tasks 3–47. The interloper is unchecked.
+
+## 3. Supersession map
+
+The origin spec stays in place; this table is the normative delta. Each superseded locus gains a one-line pointer to this spec (same PR).
+
+| Origin locus | Old rule | New rule |
+| --- | --- | --- |
+| §3.2 "enrolled iff **exactly one** opening line" | one region or nothing | enrolled iff ≥1 well-formed region |
+| §3.2 *Every opening line after the first is `TASK_ENROLL_DUPLICATE` — whether or not a close intervenes* | sequential reopen is an error | reopen after close starts a new region; only an open **while open** draws the code |
+| §3.2 "A duplicate opening leaves the plan unenrolled… task-level rows are skipped" | any second open discards all marker judgement | a nested open is inert with a finding; all well-formed regions are checked. Discard survives only for zero-well-formed-region documents |
+| §3.4.1 line-pass row "any open seen before → `TASK_ENROLL_DUPLICATE`" | state = "any open ever" | state = "currently open" |
+| §3.4.1 conclusion row "not exactly one opening → findings stand, markers discarded" | — | "no well-formed region → findings stand, markers discarded" |
+| AC-26 / AC-30 | duplicate-open fixtures expect exactly `[TASK_ENROLL_DUPLICATE]` with task-level checks skipped | replaced by AC-3/AC-8 below; the `open → close → open → close` probe from §3.2 now expects **zero** enrollment findings |
+| §6 item 6, §6 item 7 | documented limits | closed by this spec; pointer added |
+
+The `TASK_ENROLL_DUPLICATE` message changes from "second task-region opening; only one is supported" (`lib/specLint/taskContract.ts:98`) to "task-region opening inside an unclosed region".
+
+## 4. Documentation changes
+
+1. `docs/agents/spec-self-review.md` convention block (`docs/agents/spec-self-review.md:27-36`): after the existing example, add one sentence: a plan may declare several sequential regions, each with its own depth — close one and open the next; headings between regions are unchecked.
+2. `docs/superpowers/specs/README.md` — row in the Cross-corpus amendments table for this spec.
+3. Origin spec pointers per §3 above.
+4. `BACKLOG.md` — `BL-TASK-ENROLLMENT-SINGLE-DEPTH` graduates to the archive on ship (marker off in the PR's last commit per invariant 12; archive entry cites this spec).
+
+## 5. Acceptance criteria
+
+Every full-list criterion asserts the complete findings array, not presence (origin §5's rule; presence assertions cannot catch spurious extras).
+
+- **AC-1 — two depths, both checked.** A Shape-A-shaped fixture (depth-2 region, close, depth-3 region, close, depth-2 region; every task marked; group header between fences) reports `[]`. Kills the retained single-region implementation, which reports `TASK_ENROLL_DUPLICATE` at the second open.
+- **AC-2 — reopen is not an error, and the second region is genuinely checked.** Two fixtures, both required: (a) `open close open close` with valid marked tasks in both regions → `[]`; (b) the same with a marker-less task in the *second* region → `[TASK_MARKER_MISSING]` at that task. Fixture (b) exists because (a) alone is an absence assertion — an implementation that *ignores* everything after the first region also reports `[]` (the probe-fixture-must-vary-the-field rule).
+- **AC-3 — nested open is loud, inert, and non-disqualifying.** `open(d2), marked task, open(d3), close, close` reports exactly `[TASK_ENROLL_DUPLICATE]` at the nested line — the outer region's task is judged (its marker classified), the nested open starts nothing, and its close is consumed silently. A second variant with the outer task marker-less reports `[TASK_ENROLL_DUPLICATE, TASK_MARKER_MISSING]`, proving the outer region is checked rather than skipped (supersedes origin AC-26/AC-30's skip-all expectation).
+- **AC-4 — marker between regions is orphaned.** A marker after region 1's close and before region 2's open draws `TASK_MARKER_ORPHANED`.
+- **AC-5 — per-region EMPTY independence.** Region 1 selects zero tasks; region 2 holds a marker-less task. Report: `[TASK_ENROLL_EMPTY]` at region 1's open line plus `[TASK_MARKER_MISSING]` at region 2's task. Kills an abort-on-first-empty mutant.
+- **AC-6 — EOF closes the last region in a multi-region document.** A closed well-formed region followed by an unclosed second region whose final task is marker-less reports `[TASK_MARKER_MISSING]` (origin AC-43's discipline: the final task must be defective so "checked" and "dropped" are distinguishable).
+- **AC-7 — same-depth split around an interloper.** A Shape-B-shaped fixture (depth-3 region, close, interloper heading at depth 3, open depth-3, more marked tasks, close) reports `[]`; the interloper draws nothing.
+- **AC-8 — zero well-formed regions still discards.** A document whose only `<!-- tasks:` line is malformed (e.g. `depth=7`), containing marker-shaped lines, reports exactly the line-pass findings (`TASK_ENROLL_MALFORMED`) with every marker unjudged. The fixture must use a malformed line, not a lone `OPEN` — a lone unclosed `OPEN` is a well-formed EOF-closed region.
+- **AC-9 — extents clip at the region close.** A marker placed after a region's close, with no heading between the last task and the close, draws `TASK_MARKER_ORPHANED` — killing a mutant whose extents run to the next region or EOF instead of the close. (The origin suite's close-clipping case exists for the single region; this pins it where a following region is available to leak into.)
+- **AC-10 — close pairing unchanged.** (a) `open close close` → second close `TASK_ENROLL_MALFORMED`; (b) `open open close close` → exactly the nested-open finding, the second close consumed silently. Full lists.
+- **AC-11 — every region is checked, not the first or last.** Three regions where the first and third each hold one defect and the middle is clean report both findings. Kills first-region-only and last-region-only mutants.
+- **AC-12 — docs.** `docs/agents/spec-self-review.md` documents multi-region enrollment (verified by grep in the plan; no new meta-test).
+- **AC-13 — mutation gate.** `pnpm mutation:guards` on the `taskContract` surface: score does not regress and the unaccepted-survivor set is empty. If tests land in a new file, `tests/mutation/source/registry.ts` `suitePaths` gains the row in the same commit (the registry row's own comment records why both suites are load-bearing).
+
+## 6. Testing notes
+
+New cases extend the existing suites (`tests/specLint/taskContract.test.ts`, `tests/specLint/taskContractFindingOrder.test.ts` — the registry's declared `suitePaths`). Existing fixtures asserting the retired semantics (duplicate-open discard-all: the suite's M2/AC-26/AC-30 cases) are rewritten to the new expectations in the same commit as the behavior change — TDD order: rewrite expectations red first, then change the checker. `tests/specLint/taskContractWiring.test.ts` is untouched (the caller contract does not change).
+
+## 7. Documented limits
+
+1. **A parent task cannot itself carry a marker while its children are enrolled.** Group headers between fences are unchecked by design; a plan wanting a *marked* parent with marked children needs the Option-C nesting model. Re-open trigger: an author asks for a marked parent. (This is `BL-TASK-ENROLLMENT-SINGLE-DEPTH`'s deliberate residue, fenced by ratification §1.1 item 1, not a gap.)
+2. **No per-heading skip notes.** Exclusion is expressed only by fence placement (Option B declined). Re-open trigger: a corpus shape where splitting produces pathological region counts.
+3. **Fence placement is a silent per-heading opt-out.** Any heading left outside every region is invisible to the checker, and nothing accounts for which headings were excluded. Same trade as enrollment being opt-in at the plan level (origin §6 item 2), one level down. An author who fences out a real task gets no warning; the reviewer sees the fence placement in the diff.
+4. **Depth is uniform within a region.** A plan interleaving depths heading-by-heading needs a region per run — verbose but expressible.
+5. **Deterministic close pairing can differ from intent.** In `open open close close` the first close closes the *outer* region regardless of the author's intent for the nested pair; the nested-open finding is the signal. Conservative refusal plus surfaced finding — a documented limit per §1.1 item 5's consequence bound.
