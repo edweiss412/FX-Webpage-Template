@@ -27,6 +27,7 @@ import { parseDates } from "./blocks/dates";
 import { parseCrew } from "./blocks/crew";
 import { normalizeSectionHeaders } from "./sectionHeaderNormalize";
 import { detectRefErrorLiterals } from "./refErrorDetector";
+import { detectFusedRows } from "./rowWidthDiscriminator";
 import { parseTravelFlights } from "./blocks/travelFlights";
 import { parseHotels } from "./blocks/hotels";
 import { parseRooms } from "./blocks/rooms";
@@ -624,6 +625,7 @@ export function parseSheet(markdown: string, filename?: string): ParsedSheet {
   // section-opening labels to anchor their warnings, so they must see the NORMALIZED
   // headers a typo'd sheet would otherwise hide from them.
   agg.warnings.push(...detectRefErrorLiterals(markdown));
+  agg.warnings.push(...detectFusedRows(markdown));
 
   // Step 3: Call each block parser.
   const { client_label, client_contact } = parseClient(markdown, version, agg);
