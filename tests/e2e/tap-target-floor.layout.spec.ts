@@ -436,10 +436,28 @@ test.describe("DI-11/DI-12 — the AdminNav brand link clears the floor and spen
       // the link's only rendered child is the decorative icon and both text
       // spans are `display: none`, so its accessible name came out EMPTY —
       // asserted at every breakpoint, because that is the axis the bug lived on.
+      //
+      // Non-empty is NOT sufficient, and the weaker form is a real trap:
+      // relabelling it "Dashboard" satisfies /\S/ at all six widths while the
+      // spoken name contradicts the visible "FXAV" wordmark, which is its own
+      // failure (WCAG 2.5.3, label in name) and breaks voice control. The
+      // expected substring is DERIVED from the wordmark span's own text rather
+      // than hardcoded, so it tracks a rebrand instead of rotting into a
+      // second, stale copy of the brand string.
+      const wordmark = await page.locator(brand).evaluate(
+        (el) =>
+          Array.from(el.querySelectorAll("span"))
+            .find((s) => (s.textContent ?? "").trim())
+            ?.textContent?.trim() ?? "",
+      );
+      premiseHolds(
+        `the brand link renders wordmark text to match its name against (got "${wordmark}")`,
+        wordmark.length > 0,
+      );
       await expect(
         page.locator(brand),
-        `brand link has no accessible name at ${width}px`,
-      ).toHaveAccessibleName(/\S/);
+        `brand link name is empty or contradicts its visible "${wordmark}" wordmark at ${width}px`,
+      ).toHaveAccessibleName(new RegExp(wordmark.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i"));
 
       premise("other interactive topbar elements exist to overlap", hits.siblingCount, 0);
       expect(hits.edges, "brand link edge hit map").toHaveLength(4);
@@ -816,6 +834,7 @@ test.describe("§1.1 R6 — the two disclosures that HAD a native marker keep a 
           visibility: cs.visibility,
           display: cs.display,
           opacity: cs.opacity,
+          color: cs.color,
         };
       });
       expect(painted.text, `${mount} caret renders no glyph`).not.toBe("");
@@ -823,6 +842,23 @@ test.describe("§1.1 R6 — the two disclosures that HAD a native marker keep a 
       expect(painted.visibility, `${mount} caret is not visible`).not.toBe("hidden");
       expect(painted.display, `${mount} caret is display:none`).not.toBe("none");
       expect(parseFloat(painted.opacity), `${mount} caret is transparent`).toBeGreaterThan(0);
+      // Ink, not just geometry: `text-transparent` leaves the text, the box, the
+      // display, the visibility, the opacity AND the rotation all intact while
+      // painting nothing. The alpha channel is the last way to hide a glyph that
+      // every other check here reports as present.
+      //
+      // Parsed by COMPONENT COUNT, not by "the last number before the paren":
+      // that shortcut reads the BLUE channel of an opaque `rgb(92, 63, 0)` as an
+      // alpha of 0 and fails a perfectly visible caret. Caught by running it.
+      const parts = painted.color
+        .replace(/^rgba?\(|\)$/g, "")
+        .split(/[,\s/]+/)
+        .filter(Boolean);
+      const alpha = parts.length >= 4 ? parseFloat(parts[3]!) : 1;
+      expect(
+        alpha,
+        `${mount} caret text is fully transparent (color ${painted.color})`,
+      ).toBeGreaterThan(0);
 
       // Tailwind v4 emits `rotate-90` as the standalone `rotate` property, NOT
       // as `transform` — a `transform`-only read returns "none" in both states
