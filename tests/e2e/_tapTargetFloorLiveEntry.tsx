@@ -41,6 +41,12 @@
  * commit. The spec gates on it and then on document.fonts.ready — never
  * networkidle.
  */
+// FIRST import, deliberately: import order is evaluation order, and this seeds
+// the bundler's empty `node:async_hooks` stub with a working AsyncLocalStorage
+// before the component graph can lazily require `@/lib/log` and construct one.
+// See that file's header for the measurement behind it.
+import { assertNodeShimsInstalled } from "./_tapTargetFloorNodeShims";
+
 import { useEffect } from "react";
 import { createRoot } from "react-dom/client";
 import { PathnameContext } from "next/dist/shared/lib/hooks-client-context.shared-runtime";
@@ -228,6 +234,8 @@ function App() {
     </PathnameContext.Provider>
   );
 }
+
+assertNodeShimsInstalled();
 
 const rootEl = document.getElementById("root");
 if (rootEl) createRoot(rootEl).render(<App />);
