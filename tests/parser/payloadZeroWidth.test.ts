@@ -121,6 +121,14 @@ function payloadContains(md: string, name: string, needle: string): boolean {
  * repeated or fallback-derived string while the mutated OCCURRENCE never reaches
  * payload at all. Measured: those two questions disagreed on 6 of 17 fixtures in both
  * directions. A marker at the exact injection site cannot be confused with anything.
+ *
+ * The site is located by DIFFING the mutated line against its original and taking the
+ * first divergent index, which is precisely where the operator inserted. An earlier
+ * version replaced the first zero-width character ON that line instead — indistinguishable
+ * on the 17 mutants actually selected, but wrong for 3 of the 24,441 mutants the operator
+ * can produce (a line that already carried a native zero-width character before the
+ * injection), and one of those three also flipped the reachability answer. Operator order
+ * or a fixture edit could surface any of them, so the weaker rule is not kept.
  */
 const markerCache = new Map<string, string | null>();
 function markerAtInjectionSite(md: string): string | null {
@@ -136,10 +144,20 @@ function computeMarkerAtInjectionSite(md: string): string | null {
   const before = md.split("\n");
   const after = mutated.split("\n");
   for (let i = 0; i < after.length; i++) {
-    if (after[i] !== before[i]) {
-      after[i] = after[i]!.replace(/[\u200B-\u200D\uFEFF]/, MARKER);
-      return after.join("\n");
-    }
+    const orig = before[i];
+    const mut = after[i]!;
+    if (orig === mut) continue;
+    if (orig === undefined) return null;
+    // First index at which the mutated line diverges from its original IS the
+    // insertion point, because the operator's only edit is a single inserted
+    // character. Replacing "the first zero-width character on the line" would
+    // instead hit a pre-existing one whenever the cell already had any.
+    let k = 0;
+    while (k < orig.length && orig[k] === mut[k]) k++;
+    const injected = mut[k];
+    if (injected === undefined || !ZW.test(injected)) return null;
+    after[i] = mut.slice(0, k) + MARKER + mut.slice(k + 1);
+    return after.join("\n");
   }
   return null;
 }
@@ -174,7 +192,7 @@ describe("payload zero-width freedom (spec §3.4)", () => {
       // Premise 4 — THE REACHABILITY PREMISE, and the reason the seeded arms below are
       // not vacuous. The mutated OCCURRENCE must actually surface in payload, or a
       // retained zero-width character would be unobservable there and the assertions
-      // would pass no matter what the parser did. Measured 2026-08-08: 6 of 17 fixtures
+      // would pass no matter what the parser did. Measured 2026-08-09: 5 of 17 fixtures
       // carry the injection site into payload. The floor sits below the measurement so
       // ordinary fixture edits do not red it, and above zero so the arms always bite.
       const reaching = fixtures.filter((f) =>
