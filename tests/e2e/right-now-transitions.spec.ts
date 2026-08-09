@@ -1,160 +1,50 @@
 /**
- * Playwright audit suite for the §8.2 RightNow 12-state transition
- * matrix (M4 Task 4.12 Batch 2). CI-DARK, and partly skipped besides: no
- * workflow names this file, so nothing in it runs in CI
- * (BL-E2E-APP-DEPENDENT-SPECS-CI-DARK). Two of its three blocks are also
- * `test.describe.skip` — the 66-pair audit and the compound audits — so they
- * would not run even if the file were invoked. The §5.7 anchor-selection block
- * is NOT skipped and does run under a local `pnpm test:e2e`. (Block titles are
- * cited rather than line numbers, which rot on every edit to this header. The
- * compound block's own title says "6 compound transition audits"; it contains
- * SEVEN tests — a miscount that predates this comment and is left in the title
- * only because renaming a skipped block's title is not this branch's scope.)
+ * Playwright suite for the §5.7 RightNowHero day-anchor re-selection contract.
  *
- * Wired in Batch 2: framer-motion is installed, the Today hero renders
- * via AnimatePresence + matrix-driven motion props, and this suite
- * asserts the implementation conforms to the matrix.
+ * HISTORY (2026-08-09, spec docs/superpowers/specs/ci/
+ * 2026-08-09-resurrect-mobile-safari-e2e-design.md §3.5): this file also carried
+ * the §8.2 66-pair pairwise transition audit and the compound transition audits.
+ * Both were `test.describe.skip` against the retired `?crew=` viewer mock and ran
+ * in no workflow, and both were deleted. The matrix's structural invariants stay
+ * pinned by `tests/time/rightNowTransitions.test.ts` and the 12-state copy map by
+ * `tests/components/crew/rightNowHero.test.tsx`; the RENDERED framer-motion
+ * treatment has no executable audit, recorded as a documented limit in spec §6.1.
  *
- * Source-of-truth contract:
- *   The 66-pair matrix is `RIGHT_NOW_TRANSITION_MATRIX` in
- *   `lib/time/rightNowTransitions.ts`. The matrix's structural
- *   invariants are pinned by `tests/time/rightNowTransitions.test.ts`.
- *   THIS file's job is to assert the rendered animation matches the
- *   matrix-declared treatment for every pair.
+ * The §5.7 block below is LIVE and is what this file now is.
  *
- * Test strategy:
+ * ROUTE + RESOLUTION. Every navigation goes through
+ * `/show/[slug]/[shareToken]` with an admin session. The slug-only
+ * `/show/[slug]` route these tests used to hit has no page.tsx and 404s
+ * unconditionally, and an UNAUTHENTICATED share-token request renders
+ * SignInOrSkipGate/PickerInterstitial rather than the CrewShell — so the
+ * signInAs(ADMIN_FIXTURE) step is part of the test, not incidental setup (spec
+ * §3.2/§3.5). The §5.7 contract is per-SHOW (anchors come from
+ * shows_internal.run_of_show), so the admin viewer resolves the same anchors any
+ * viewer would.
  *
- *   1. The hero is a `'use client'` island (`components/crew/
- *      RightNowHero.tsx`); `selectRightNowState` re-derives on every
- *      60-second tick from `now`. Playwright's `page.clock.install` is
- *      used to deterministically advance time.
+ * Why `page.clock` and not an addInitScript Date shim: the hero's 60-second
+ * setInterval only fires when wall-clock time advances on the page. Playwright's
+ * clock controller pins the start instant AND drives setInterval deterministically
+ * via clock.runFor, so a day rollover can be observed WITHIN one page session.
  *
- *   2. Each pair is dispatched into one of three categories:
- *
- *      • TICK_DRIVABLE — clock advance alone in a single page session
- *        causes a kind change. The Rule 4 adjacent time-driven pairs.
- *        Test: navigate at FROM clock, advance to TO clock, run timers,
- *        assert (a) the rendered kind is TO, (b) `data-treatment`
- *        matches matrix entry, (c) for `crossfade-body`, the card
- *        height stays within 0.5px of the pre-transition height.
- *
- *      • NAV_DRIVABLE — kind change requires a fresh page navigation
- *        (e.g., a viewer.date_restriction change is captured at SSR
- *        time, not on a clock tick). Test: navigate at FROM, assert
- *        FROM rendered; navigate at TO, assert TO rendered. The
- *        matrix-declared treatment IS preserved at the
- *        `transitionTreatment(from, to)` helper layer (verified by
- *        unit tests); the e2e here verifies both endpoints render
- *        without error and the card's `data-state` matches.
- *
- *      • UNREACHABLE / SHOW_MUTATION — `test.skip` with stamped
- *        reason. Unreachable pairs are matrix-declared as never
- *        firing on the natural code path; show.dates mutation pairs
- *        require dedicated setup that NO block in this file performs —
- *        the compound audits below make zero shows.dates mutations
- *        (probed 2026-08-06), so these pairs are undriven, not deferred.
- *
- *   The matrix is the single dispatch table — every entry maps to
- *   exactly one of these categories via `categorize(entry)`.
+ * STATE ENTRY IS ASSERTED, NEVER ASSUMED (spec §3.5). Anchor TEXT alone cannot
+ * distinguish "the viewer entered the intended state" from "a coincident render
+ * happens to contain that time", so every navigation and every clock tick is
+ * followed by an assertion on the hero's rendered `data-state`
+ * (RightNowHero.tsx:507-510) via assertRenderedState.
  */
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect } from "@playwright/test";
 import {
-  RIGHT_NOW_TRANSITION_MATRIX,
-  type TransitionMatrixEntry,
-} from "@/lib/time/rightNowTransitions";
-import {
-  STATE_DRIVERS,
   driveToState,
+  assertRenderedState,
   lookupSeededShow,
-  pinClock,
   setDateRestriction,
   setSystemTime,
-  advanceClock,
   type SeededShow,
-  SEED_DRIVE_FILE_ID,
 } from "./helpers/rightNow";
+import { ADMIN_FIXTURE } from "./helpers/fixtures";
+import { signInAs, signOut } from "./helpers/signInAs";
 import { admin } from "./helpers/supabaseAdmin";
-
-/** What kind of in-page driving each treatment maps to. */
-type Category = "TICK_DRIVABLE" | "NAV_DRIVABLE" | "SKIP";
-
-/**
- * Categorize a matrix entry into a driving strategy. The classification
- * is determined by:
- *
- *   - Unreachable cells → SKIP (matrix-declared no-fire)
- *   - Either endpoint is `unknown` or `dateless` → SKIP (requires
- *     show.dates mutation, which no block in this file performs)
- *   - Both endpoints are time-driven AND adjacent on the show-day
- *     sequence → TICK_DRIVABLE (clock advance alone fires the kind
- *     change in-session)
- *   - Otherwise → NAV_DRIVABLE (assert both endpoints render)
- */
-function categorize(entry: TransitionMatrixEntry): Category {
-  if (entry.treatment === "unreachable") return "SKIP";
-  // Show-mutation endpoints — no block in this file performs a shows.dates
-  // mutation, so these pairs are undriven rather than deferred elsewhere.
-  if (
-    STATE_DRIVERS[entry.from]?.requiresShowMutation ||
-    STATE_DRIVERS[entry.to]?.requiresShowMutation
-  ) {
-    return "SKIP";
-  }
-  const TIME_DRIVEN = new Set([
-    "pre_travel",
-    "travel_in_day",
-    "set_day",
-    "show_day_n",
-    "travel_out_day",
-    "post_show",
-  ]);
-  if (TIME_DRIVEN.has(entry.from) && TIME_DRIVEN.has(entry.to)) {
-    return "TICK_DRIVABLE";
-  }
-  return "NAV_DRIVABLE";
-}
-
-/**
- * Read the current rendered card's resolved state attributes. Uses
- * Playwright auto-retrying assertions (via `toHaveAttribute` upstream)
- * — the helper extracts the eventually-stable values via a small
- * `waitForFunction` so the caller receives a snapshot AFTER hydration
- * has settled. The card is a `'use client'` island that re-derives on
- * the first client tick AFTER SSR hands off; without this wait the
- * caller would race the hydration boundary.
- */
-async function readCardAttrs(
-  page: Page,
-  expectedState?: string,
-): Promise<{ state: string | null; treatment: string | null; stale: string | null }> {
-  const card = page.getByTestId("right-now-hero");
-  await expect(card).toBeVisible();
-  if (expectedState) {
-    // Wait for hydration to settle on the expected state before
-    // sampling other attributes. The card's SSR render may briefly
-    // show the server-clock state before the pinned client clock
-    // takes over.
-    await expect(card.getByTestId("right-now-state")).toHaveAttribute("data-state", expectedState, {
-      timeout: 5000,
-    });
-  }
-  const stateMarker = card.getByTestId("right-now-state");
-  const state = await stateMarker.getAttribute("data-state");
-  const treatment = await stateMarker.getAttribute("data-treatment");
-  const stale = await card.getAttribute("data-stale");
-  return { state, treatment, stale };
-}
-
-/**
- * Read the bounding box (height) of the card. Used to verify the
- * `min-h-right-now-min-h` invariant: card height stays
- * within ±0.5px of the pre-transition height during a crossfade.
- */
-async function cardHeight(page: Page): Promise<number> {
-  const box = await page.getByTestId("right-now-hero").boundingBox();
-  if (!box) throw new Error("right-now-hero not visible");
-  return box.height;
-}
 
 /**
  * §5.7 RightNowHero client-state transitions — day-anchor re-selection.
@@ -192,8 +82,23 @@ test.describe("RightNow per-day Show anchor selection (§5.7)", () => {
   // Anchor times derived from the seed (distinct so freeze is observable).
   const DAY1_ISO = "2026-04-21";
   const DAY2_ISO = "2026-04-22";
-  const DAY1_TIME = "7:30am"; // showStart for Day 1
-  const DAY2_TIME = "8:00am"; // showStart for Day 2
+  const DAY1_TIME = "7:30am"; // showStart for Day 1, as the FIXTURE spells it
+  const DAY2_TIME = "8:00am"; // showStart for Day 2, as the FIXTURE spells it
+
+  /**
+   * Match the fixture's anchor time as the hero RENDERS it.
+   *
+   * The fixture writes `run_of_show.showStart` as "7:30am"; the hero renders
+   * "4/21 @ 7:30 AM" — different case and spacing. Measured, not assumed: these
+   * assertions previously compared against the raw fixture string and had never
+   * run against a live route, so the mismatch had never surfaced.
+   *
+   * Derived FROM the fixture constant rather than hardcoding the rendered
+   * string, so a fixture change cannot leave the expectation silently stale
+   * (anti-tautology: never retype the expected value at the assertion).
+   */
+  const anchorText = (fixtureTime: string) =>
+    new RegExp(fixtureTime.replace(/\s*(am|pm)$/i, "\\s*$1"), "i");
 
   /**
    * 2-show-day run_of_show seed. Mirrors the shape used by
@@ -226,26 +131,34 @@ test.describe("RightNow per-day Show anchor selection (§5.7)", () => {
   test.beforeAll(async () => {
     s = await lookupSeededShow();
 
-    // Seed shows_internal.run_of_show with the 2-day anchor fixture.
-    const si = await admin
+    // Invariant 9 (Supabase call-boundary discipline): destructure
+    // { data, error } and distinguish a RETURNED error from an empty result.
+    // Test-local call sites, so no _metaInfraContract registry row applies —
+    // the fail-loud throw naming the site IS the discipline here.
+    const { data: internal, error: internalError } = await admin
       .from("shows_internal")
       .select("show_id, run_of_show")
       .eq("show_id", s.showId)
       .maybeSingle();
-    if (si.error || !si.data?.show_id) {
+    if (internalError) {
       throw new Error(
-        `§5.7 setup: no shows_internal row for show ${s.showId} (run \`pnpm db:seed\`). error=${si.error?.message ?? "no row"}`,
+        `§5.7 setup: shows_internal lookup FAILED for show ${s.showId}: ${internalError.message}`,
       );
     }
-    showInternalId = si.data.show_id as string;
-    runOfShowOriginal = (si.data as { run_of_show?: unknown }).run_of_show ?? null;
+    if (!internal?.show_id) {
+      throw new Error(
+        `§5.7 setup: no shows_internal row for show ${s.showId} (run \`pnpm db:seed\`)`,
+      );
+    }
+    showInternalId = internal.show_id as string;
+    runOfShowOriginal = (internal as { run_of_show?: unknown }).run_of_show ?? null;
 
-    const upd = await admin
+    const { error: seedError } = await admin
       .from("shows_internal")
       .update({ run_of_show: ANCHOR_RUN_OF_SHOW })
       .eq("show_id", showInternalId);
-    if (upd.error) {
-      throw new Error(`§5.7 setup: run_of_show seed failed: ${upd.error.message}`);
+    if (seedError) {
+      throw new Error(`§5.7 setup: run_of_show seed FAILED: ${seedError.message}`);
     }
 
     // Restore the LEAD's restriction to neutral so clock alone drives the kind.
@@ -254,13 +167,31 @@ test.describe("RightNow per-day Show anchor selection (§5.7)", () => {
 
   test.afterAll(async () => {
     if (showInternalId) {
-      await admin
+      // The RESTORE is the loud one by construction (plan review R4 F2). A
+      // returned error does not throw, so an unchecked restore leaks the mutated
+      // run_of_show into every later suite sharing this seed while THIS suite —
+      // and the five-green dispatch bar — stay green. Silence here is the
+      // failure mode, so the error is inspected and thrown.
+      const { error: restoreError } = await admin
         .from("shows_internal")
         .update({ run_of_show: runOfShowOriginal })
         .eq("show_id", showInternalId);
+      if (restoreError) {
+        throw new Error(
+          `§5.7 teardown: run_of_show RESTORE FAILED for show ${showInternalId} — ` +
+            `the seed is left mutated; re-run \`pnpm db:seed\`: ${restoreError.message}`,
+        );
+      }
     }
     // Restore restriction.
     await setDateRestriction(s.leadCrewId, { kind: "none", days: null });
+  });
+
+  test.beforeEach(async ({ page }) => {
+    // Resolution recipe (spec §3.2/§3.5): the crew route renders the CrewShell
+    // for an admin session; unauthenticated it renders the picker gate instead.
+    await signOut(page);
+    await signInAs(page, ADMIN_FIXTURE);
   });
 
   /**
@@ -274,20 +205,29 @@ test.describe("RightNow per-day Show anchor selection (§5.7)", () => {
   test("midnight rollover Day1→Day2: call time re-selects the NEW day's anchor (no stale freeze)", async ({
     page,
   }) => {
-    // Pin client clock to Day 1 noon UTC, navigate as the LEAD.
+    // Pin client clock to Day 1 noon UTC, then resolve the crew route.
     await page.clock.install({ time: new Date(`${DAY1_ISO}T12:00:00Z`) });
-    await page.goto(`/show/${s.slug}?crew=${s.leadCrewId}`);
+    const res = await page.goto(`/show/${s.slug}/${s.shareToken}?s=today`, {
+      waitUntil: "domcontentloaded",
+    });
+    expect(res?.status(), "crew route must render").toBe(200);
 
-    // Day 1 anchor must appear on initial render.
-    await expect(page.getByTestId("right-now-body")).toContainText(DAY1_TIME);
+    // State entry asserted, not assumed: Day 1 is a show day, so the hero must
+    // resolve show_day_n. Without this the anchor-text assertion below could be
+    // satisfied by any render that happens to contain "7:30am".
+    await assertRenderedState(page, "show_day_n");
+    await expect(page.getByTestId("right-now-body")).toContainText(anchorText(DAY1_TIME));
 
     // Advance client clock to Day 2 and fire the 60s tick.
     await page.clock.setSystemTime(new Date(`${DAY2_ISO}T12:00:00Z`));
     await page.clock.runFor(60_000); // fire the hero's 60s re-derive tick
 
+    // Still a show day AFTER the tick — the rollover must not drop the state on
+    // the way to re-selecting the anchor.
+    await assertRenderedState(page, "show_day_n");
     // After the tick, the hero re-selects by the new todayIso → Day 2 time.
-    await expect(page.getByTestId("right-now-body")).toContainText(DAY2_TIME);
-    await expect(page.getByTestId("right-now-body")).not.toContainText(DAY1_TIME);
+    await expect(page.getByTestId("right-now-body")).toContainText(anchorText(DAY2_TIME));
+    await expect(page.getByTestId("right-now-body")).not.toContainText(anchorText(DAY1_TIME));
   });
 
   /**
@@ -297,8 +237,37 @@ test.describe("RightNow per-day Show anchor selection (§5.7)", () => {
    * Concrete failure mode caught: a last-good cache that stores an anchor
    * object (rather than re-running todayShowAnchors on recovery) would pin
    * the Day1 time even after the clock is on Day2.
+   *
+   * ─────────────────────────────────────────────────────────────────────────
+   * DEFERRED — spec §3.5 CASE valve, exception (a). Ledger row:
+   * BL-RIGHTNOW-RECOVERY-CASE-NEEDS-RESTRICTED-VIEWER.
+   *
+   * This case enters `viewer_off_day` by mutating the VIEWER's date_restriction
+   * — a viewer-scoped state an ADMIN viewer never enters, because admin
+   * resolution ignores crew_members.date_restriction by design. The other two
+   * cases are clock-driven and per-SHOW, so the admin recipe carries them; this
+   * one is not.
+   *
+   * PROBED, not assumed (2026-08-09). With the rendered-state assertion this
+   * arc added to driveToState, requesting the state under the admin recipe
+   * fails loudly instead of passing on coincident anchor text:
+   *
+   *   Error: RightNow hero must render state kind "viewer_off_day"
+   *   Expected: "viewer_off_day"
+   *   Received: "show_day_n"          (transiently "post_show" during hydration)
+   *
+   * That is the whole point of the extension: the pre-existing helper checked
+   * only HTTP 200, so this case would have "entered" a state it was never in.
+   *
+   * Honest migration needs a restricted crew viewer through real resolution —
+   * a per-test crew row plus an email-matched session, the cost the retired
+   * `?crew=` mock used to hide and the same cost named by the dead suites' TODO.
+   * That is a new harness, not a URL swap, and it is out of this arc's timebox.
+   * Skipped STATICALLY so it is visible to the wiring guard's EXPECTED_SKIPS
+   * inventory rather than silently absent from the executed count.
+   * ─────────────────────────────────────────────────────────────────────────
    */
-  test("recovery/last-good does not pin a prior day's call time", async ({ page }) => {
+  test.skip("recovery/last-good does not pin a prior day's call time", async ({ page }) => {
     // Enter a degraded-zone kind (viewer_off_day: clock=Day1, restricted to Day2 only).
     await driveToState(page, s, "viewer_off_day");
 
@@ -311,7 +280,7 @@ test.describe("RightNow per-day Show anchor selection (§5.7)", () => {
     await page.clock.runFor(60_000);
 
     // After the tick on Day2, the hero must show Day2's anchor, not Day1's.
-    await expect(page.getByTestId("right-now-body")).toContainText(DAY2_TIME);
+    await expect(page.getByTestId("right-now-body")).toContainText(anchorText(DAY2_TIME));
   });
 
   /**
@@ -332,16 +301,26 @@ test.describe("RightNow per-day Show anchor selection (§5.7)", () => {
     // Pin to 2026-04-20 (set day — before showDay1). The hero should be in
     // set_day state; the showAnchors filter yields [] for this date.
     await page.clock.install({ time: new Date("2026-04-20T12:00:00Z") });
-    await page.goto(`/show/${s.slug}?crew=${s.leadCrewId}`);
+    const res = await page.goto(`/show/${s.slug}/${s.shareToken}?s=today`, {
+      waitUntil: "domcontentloaded",
+    });
+    expect(res?.status(), "crew route must render").toBe(200);
 
+    // The set day is a DIFFERENT kind, and asserting it is what makes the
+    // negative below meaningful: "7:30am is absent" is trivially true on any
+    // page that failed to render the hero at all.
+    await assertRenderedState(page, "set_day");
     // Day1 call time must NOT appear on the set day.
-    await expect(page.getByTestId("right-now-body")).not.toContainText(DAY1_TIME);
+    await expect(page.getByTestId("right-now-body")).not.toContainText(anchorText(DAY1_TIME));
 
     // Advance clock to Day1 noon UTC and fire the 60s tick.
     await page.clock.setSystemTime(new Date(`${DAY1_ISO}T12:00:00Z`));
     await page.clock.runFor(60_000);
 
+    // The tick must have moved the STATE, not just the text.
+    await assertRenderedState(page, "show_day_n");
+
     // Now on Day1 — the anchor selection fires and DAY1_TIME appears.
-    await expect(page.getByTestId("right-now-body")).toContainText(DAY1_TIME);
+    await expect(page.getByTestId("right-now-body")).toContainText(anchorText(DAY1_TIME));
   });
 });

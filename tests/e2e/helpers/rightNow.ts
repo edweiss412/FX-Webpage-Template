@@ -44,7 +44,7 @@
  *   `afterAll` can restore it. The serialization (`workers: 1` in
  *   playwright.config.ts) prevents inter-suite races.
  */
-import type { Page } from "@playwright/test";
+import { expect, type Page } from "@playwright/test";
 import { setDateRestrictionLocked } from "./lockedCrewRestriction";
 import { admin } from "./supabaseAdmin";
 
@@ -75,40 +75,80 @@ export const SEED_DATES = {
 export type SeededShow = {
   slug: string;
   showId: string;
+  /**
+   * Share token for the crew route. The slug-only `/show/[slug]` route has no
+   * page.tsx and 404s unconditionally, so every navigation resolves through
+   * `/show/[slug]/[shareToken]`.
+   */
+  shareToken: string;
   leadCrewId: string;
   leadOriginalDateRestriction: unknown;
 };
 
 export async function lookupSeededShow(): Promise<SeededShow> {
-  const showRes = await admin
+  // Invariant 9 (Supabase call-boundary discipline): destructure { data, error }
+  // rather than holding the whole response, and distinguish a returned error from
+  // an empty result. These are test-local call sites, not lib helpers, so no
+  // _metaInfraContract registry row applies — the fail-loud throw IS the
+  // discipline here, and it names the site so a seed problem is not mistaken for
+  // a product failure.
+  const { data: show, error: showError } = await admin
     .from("shows")
     .select("id, slug")
     .eq("drive_file_id", SEED_DRIVE_FILE_ID)
     .single();
-  if (showRes.error || !showRes.data) {
+  if (showError) {
     throw new Error(
-      `right-now-transitions: seeded show not found (run \`pnpm db:seed\`). drive_file_id=${SEED_DRIVE_FILE_ID}`,
+      `rightNow.lookupSeededShow: shows lookup FAILED for drive_file_id=${SEED_DRIVE_FILE_ID}: ${showError.message}`,
     );
   }
-  const showId = showRes.data.id as string;
+  if (!show) {
+    throw new Error(
+      `rightNow.lookupSeededShow: seeded show not found (run \`pnpm db:seed\`). drive_file_id=${SEED_DRIVE_FILE_ID}`,
+    );
+  }
+  const showId = show.id as string;
 
-  const crewRes = await admin
+  const { data: crew, error: crewError } = await admin
     .from("crew_members")
     .select("id, name, role_flags, date_restriction")
     .eq("show_id", showId);
-  if (crewRes.error || !crewRes.data?.length) {
-    throw new Error(`right-now-transitions: no crew rows for slug=${showRes.data.slug}`);
+  if (crewError) {
+    throw new Error(
+      `rightNow.lookupSeededShow: crew_members lookup FAILED for slug=${show.slug}: ${crewError.message}`,
+    );
   }
-  const lead = crewRes.data.find(
+  if (!crew?.length) {
+    throw new Error(`rightNow.lookupSeededShow: no crew rows for slug=${show.slug}`);
+  }
+  const lead = crew.find(
     (c) => Array.isArray(c.role_flags) && (c.role_flags as string[]).includes("LEAD"),
   );
   if (!lead) {
-    throw new Error(`right-now-transitions: no LEAD crew member for slug=${showRes.data.slug}`);
+    throw new Error(`rightNow.lookupSeededShow: no LEAD crew member for slug=${show.slug}`);
+  }
+
+  const { data: token, error: tokenError } = await admin
+    .from("show_share_tokens")
+    .select("share_token")
+    .eq("show_id", showId)
+    .limit(1)
+    .maybeSingle();
+  if (tokenError) {
+    throw new Error(
+      `rightNow.lookupSeededShow: show_share_tokens lookup FAILED for slug=${show.slug}: ${tokenError.message}`,
+    );
+  }
+  if (!token?.share_token) {
+    throw new Error(
+      `rightNow.lookupSeededShow: no share_token for slug=${show.slug} (run \`pnpm db:seed\`)`,
+    );
   }
 
   return {
-    slug: showRes.data.slug,
+    slug: show.slug,
     showId,
+    shareToken: token.share_token as string,
     leadCrewId: lead.id as string,
     leadOriginalDateRestriction: lead.date_restriction,
   };
@@ -274,10 +314,34 @@ export async function driveToState(page: Page, show: SeededShow, kind: string): 
   if (!driver) throw new Error(`No driver for kind: ${kind}`);
   await setDateRestriction(show.leadCrewId, driver.restriction);
   await pinClock(page, driver.clockDate);
-  const r = await page.goto(`/show/${show.slug}?crew=${show.leadCrewId}`);
+  const r = await page.goto(`/show/${show.slug}/${show.shareToken}?s=today`, {
+    waitUntil: "domcontentloaded",
+  });
   if (r?.status() !== 200) {
     throw new Error(`right-now-transitions: navigate to ${show.slug} returned ${r?.status()}`);
   }
+  // HTTP 200 alone is NOT state entry. The helper previously stopped here, so a
+  // viewer whose resolution IGNORES the requested restriction still "arrived" and
+  // the caller's anchor-text assertions could pass on a coincident render. Assert
+  // the RENDERED discriminant the hero publishes (RightNowHero.tsx:507-510) so a
+  // lost state fails loudly, naming both kinds.
+  await assertRenderedState(page, kind);
+}
+
+/**
+ * Assert the hero's rendered state kind matches `kind`.
+ *
+ * `data-state` is the RESOLVED state the production state machine computed for
+ * this viewer — not an echo of anything the test requested — so it discriminates
+ * "the viewer really entered this state" from "the page rendered something".
+ */
+export async function assertRenderedState(page: Page, kind: string): Promise<void> {
+  const marker = page.getByTestId("right-now-hero").getByTestId("right-now-state");
+  await expect(marker, `RightNow hero must render state kind "${kind}"`).toHaveAttribute(
+    "data-state",
+    kind,
+    { timeout: 15_000 },
+  );
 }
 
 /**
