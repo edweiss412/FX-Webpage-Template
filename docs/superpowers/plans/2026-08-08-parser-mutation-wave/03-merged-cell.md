@@ -109,7 +109,7 @@ describe("ROW_CELLS_FUSED (spec §5)", () => {
 - Modify: `lib/parser/index.ts` (call next to `detectRefErrorLiterals`)
 
 **Interfaces:**
-- Produces: `detectFusedRows(markdown: string): ParseWarning[]` — per LOGICAL section (blank lines AND recognized openers split pipe runs, r5/r6): modal cell count over DATA rows (colon-dash alignment rows skipped); any data row at exactly `modal - 1` warns. Sections with < 3 data rows or without a well-defined modal (tie) are skipped (spec §5.3 residue). **Segmentation note (r1 F6):** this detector segments by blank-line pipe blocks, not the harness's `seg()` model that measured the probe base rates - the clean-corpus calibration test is the transfer gate, and any divergence surfaces there as a failing pin, never as silent corruption.
+- Produces: `detectFusedRows(markdown: string): ParseWarning[]` — per LOGICAL section (blank lines AND recognized openers split pipe runs, r5/r6): modal cell count over DATA rows (colon-dash alignment rows skipped); any data row at exactly `modal - 1` warns. Sections with < 3 data rows or without a well-defined modal (tie) are skipped (spec §5.3 residue). **Segmentation note (r1 F6, amended r7):** this detector segments by LOGICAL sections (blank lines AND recognized openers), a reimplementation of — not an import of — the harness's `seg()` model; the clean-corpus calibration test plus the harness run are the transfer gates for any residual divergence.
 
 - [ ] **Step 1:** Implement:
 
