@@ -255,8 +255,7 @@ test.describe("crew redesign layout invariants (§4.9 / test 12)", () => {
   let gearRoomId: string | null = null;
   let gearRoomOriginal: { audio: string | null; video: string | null } | null = null;
 
-  test.beforeAll(async ({}, testInfo) => {
-    if (testInfo.project.name !== "mobile-safari") return;
+  test.beforeAll(async ({}) => {
     const seeded = await lookupSeededShow();
     const room = await admin
       .from("rooms")
@@ -286,8 +285,7 @@ test.describe("crew redesign layout invariants (§4.9 / test 12)", () => {
     if (upd.error) throw new Error(`inv3 setup: room A/V override failed: ${upd.error.message}`);
   });
 
-  test.afterAll(async ({}, testInfo) => {
-    if (testInfo.project.name !== "mobile-safari") return;
+  test.afterAll(async ({}) => {
     if (!gearRoomId || !gearRoomOriginal) return;
     const restore = await admin
       .from("rooms")
@@ -300,8 +298,7 @@ test.describe("crew redesign layout invariants (§4.9 / test 12)", () => {
     }
   });
 
-  test.beforeEach(async ({ page }, testInfo) => {
-    if (testInfo.project.name !== "mobile-safari") return; // single-writer: mobile-safari only
+  test.beforeEach(async ({ page }) => {
     const seeded = await lookupSeededShow();
     slug = seeded.slug;
     shareToken = await lookupShareToken(seeded.showId);
@@ -356,9 +353,7 @@ test.describe("crew redesign layout invariants (§4.9 / test 12)", () => {
   // regression (a re-introduced horizontal row at ≥720px) is also caught.
   test("inv1: Today quick-cards stack full-width, non-overlapping (390px + 760px)", async ({
     page,
-  }, testInfo) => {
-    if (testInfo.project.name !== "mobile-safari") return;
-
+  }) => {
     for (const width of [390, 760]) {
       await page.setViewportSize({ width, height: 1000 });
       await gotoSection(page, "today");
@@ -421,9 +416,7 @@ test.describe("crew redesign layout invariants (§4.9 / test 12)", () => {
   // to the tall roster; 2026-06-21 owner amendment). At 390px they STACK.
   test("inv2: Crew columns side-by-side (natural height) at ≥720px, stacked at 390px", async ({
     page,
-  }, testInfo) => {
-    if (testInfo.project.name !== "mobile-safari") return;
-
+  }) => {
     // Desktop-ish: side-by-side (items-start — natural height, NOT equal-height).
     await page.setViewportSize({ width: 760, height: 1000 });
     await gotoSection(page, "crew");
@@ -468,9 +461,7 @@ test.describe("crew redesign layout invariants (§4.9 / test 12)", () => {
   // length values so ≥2 cards render and the equal-height case is exercised.
   test("inv3: Gear scope cards — 3 cols side-by-side + equal-height (≥720px), single column stacked (<720px)", async ({
     page,
-  }, testInfo) => {
-    if (testInfo.project.name !== "mobile-safari") return;
-
+  }) => {
     // Per-discipline cards only — the `gear-scopes-row` wrapper does NOT match the
     // `gear-scope-` prefix (it has no hyphen at position 10), so this collects just
     // the A/V/L cards (the same prefix the jsdom scope tests use).
@@ -539,10 +530,7 @@ test.describe("crew redesign layout invariants (§4.9 / test 12)", () => {
   // The hero holds ≥176px (--spacing-right-now-min-h) and does NOT resize across
   // a state crossfade (§4.16). Force a state change by advancing the frozen clock
   // past a day boundary + a visibilitychange, then re-read.
-  test("inv4: RightNowHero min-h ≥176px, stable through a state crossfade", async ({
-    page,
-  }, testInfo) => {
-    if (testInfo.project.name !== "mobile-safari") return;
+  test("inv4: RightNowHero min-h ≥176px, stable through a state crossfade", async ({ page }) => {
     await gotoSection(page, "today");
 
     const hero = page.getByTestId("right-now-hero");
@@ -586,9 +574,7 @@ test.describe("crew redesign layout invariants (§4.9 / test 12)", () => {
   // (items-stretch). At ≥720px each top tab clears the 44px tap floor.
   test("inv5: bottom tab-bar full-width + bottom-anchored + equal tabs (390px); top tabs ≥44px (≥720px)", async ({
     page,
-  }, testInfo) => {
-    if (testInfo.project.name !== "mobile-safari") return;
-
+  }) => {
     // Mobile bottom bar.
     await page.setViewportSize({ width: 390, height: 844 });
     await gotoSection(page, "today");
@@ -670,10 +656,7 @@ test.describe("crew redesign layout invariants (§4.9 / test 12)", () => {
   // With ≥2 anchor rows, the label-column left edges align (equal .left) and the
   // value-column right edges align (equal .right). Each anchor row is a
   // justify-between flex with a label span (left) and a value span (right).
-  test("inv6: KeyTimesStrip label-lefts + value-rights align across anchors", async ({
-    page,
-  }, testInfo) => {
-    if (testInfo.project.name !== "mobile-safari") return;
+  test("inv6: KeyTimesStrip label-lefts + value-rights align across anchors", async ({ page }) => {
     await gotoSection(page, "today");
 
     const strip = page.getByTestId("key-times-strip");
@@ -726,11 +709,7 @@ test.describe("crew redesign layout invariants (§4.9 / test 12)", () => {
   // does — the invariant is "IF two columns, they behave as split-wide," never
   // "two columns MUST exist."
   for (const section of ["schedule", "venue", "travel"] as const) {
-    test(`inv7: ${section} is split-wide 2-col (≥720px) / stacked (390px)`, async ({
-      page,
-    }, testInfo) => {
-      if (testInfo.project.name !== "mobile-safari") return;
-
+    test(`inv7: ${section} is split-wide 2-col (≥720px) / stacked (390px)`, async ({ page }) => {
       const colTestId = `${section}-column`;
 
       // Desktop-ish: side-by-side (items-start — natural height, NOT equal-height).
@@ -789,9 +768,7 @@ test.describe("crew redesign layout invariants (§4.9 / test 12)", () => {
   //       this. Verified on a content-bearing section (Today).
   test("inv8: no horizontal overflow @390px + last block clears the fixed bottom bar", async ({
     page,
-  }, testInfo) => {
-    if (testInfo.project.name !== "mobile-safari") return;
-
+  }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await gotoSection(page, "today");
     const viewport = page.viewportSize()!;
@@ -966,8 +943,7 @@ test.describe
     });
   }
 
-  test.beforeEach(async ({ page }, testInfo) => {
-    if (testInfo.project.name !== "mobile-safari") return; // single-writer: mobile-safari only
+  test.beforeEach(async ({ page }) => {
     const seeded = await lookupSeededShow();
     slug = seeded.slug;
     shareToken = await lookupShareToken(seeded.showId);
@@ -1005,9 +981,7 @@ test.describe
   // (a) ── tab today→venue: the wrapper opacity animates, then settles ──
   test("transition (a): today→venue crossfade — wrapper opacity animates mid-transition then settles to a rendered Venue", async ({
     page,
-  }, testInfo) => {
-    if (testInfo.project.name !== "mobile-safari") return;
-
+  }) => {
     await gotoSettled(page, "today");
     // Begin the section swap. The push is client-side; the keyed motion.div
     // re-mounts and AnimatePresence plays the OUT (today)→IN (venue) crossfade.
@@ -1039,9 +1013,7 @@ test.describe
   //         section crossfade still settles ──
   test("transition (b): theme-toggle during a section nav flips data-theme instantly and the crossfade still settles (compound)", async ({
     page,
-  }, testInfo) => {
-    if (testInfo.project.name !== "mobile-safari") return;
-
+  }) => {
     await gotoSettled(page, "today");
     const themeBefore = await page.evaluate(
       () => document.documentElement.dataset.theme ?? "light",
@@ -1075,9 +1047,7 @@ test.describe
   //         first paint is at rest (no animate-from-hidden; M12.11) ──
   test("transition (c): re-enter Today re-mounts the hero at rest (no animate-from-hidden; compound)", async ({
     page,
-  }, testInfo) => {
-    if (testInfo.project.name !== "mobile-safari") return;
-
+  }) => {
     await gotoSettled(page, "today");
     await expect(page.getByTestId("right-now-hero")).toBeVisible();
 
@@ -1115,9 +1085,7 @@ test.describe
   //         no concurrent hero+section animation, no §8.2 console error ──
   test("transition (d): hero state-change while leaving Today unmounts the hero cleanly (no concurrent animation; compound)", async ({
     page,
-  }, testInfo) => {
-    if (testInfo.project.name !== "mobile-safari") return;
-
+  }) => {
     // Capture any console.error (the hero logs a §8.2 "unreachable transition"
     // diagnostic to console.error; a clean run must produce none).
     const heroErrors: string[] = [];
@@ -1206,15 +1174,40 @@ test.describe("crew redesign nav addressability + preview-as + footer report (Ta
     page: import("@playwright/test").Page,
     section: string,
   ): Promise<void> {
-    await page
+    const tab = page
       .getByTestId("crew-sub-nav")
       .locator(`[data-section="${section}"]:visible`)
-      .first()
-      .click();
+      .first();
+    await expect(tab).toBeVisible();
+
+    // CrewSubNav is a client island. Before it hydrates, the tab is SSR markup
+    // with no handler attached, so a click is SILENTLY a no-op: Playwright's
+    // actionability checks all pass (visible, enabled, stable), the click
+    // dispatches, and nothing happens. Measured twice on this branch — the
+    // scroll-reset case failed with the URL still on `?s=today` after clicking
+    // "crew", and once earlier with `section-crew` never appearing.
+    //
+    // The already-wired sibling crew-section-toggle.spec.ts avoids this by
+    // awaiting `networkidle` before its tab clicks ("Settle ALL load-time
+    // traffic (hydration chunk fetches, any RSC prefetch)"). This gates on the
+    // OUTCOME instead, which is deterministic rather than a network heuristic
+    // and is what the plan's harness checklist asks for (never networkidle).
+    //
+    // It cannot mask a broken nav: a nav that never pushes still fails, on the
+    // timeout, exactly as before. Only "the click landed before the handler
+    // existed" is tolerated. The URL is re-checked BEFORE each click and
+    // `waitForURL` lets an in-flight push land, so a working nav is clicked
+    // exactly once — history stays one entry per section, which the
+    // back-button case in this describe depends on.
+    const onSection = new RegExp(`[?&]s=${section}\\b`);
+    await expect(async () => {
+      if (onSection.test(page.url())) return;
+      await tab.click();
+      await page.waitForURL(onSection, { timeout: 3_000 });
+    }).toPass({ timeout: 20_000 });
   }
 
-  test.beforeEach(async ({ page }, testInfo) => {
-    if (testInfo.project.name !== "mobile-safari") return; // single-writer: mobile-safari only
+  test.beforeEach(async ({ page }) => {
     const seeded = await lookupSeededShow();
     slug = seeded.slug;
     shareToken = await lookupShareToken(seeded.showId);
@@ -1230,8 +1223,7 @@ test.describe("crew redesign nav addressability + preview-as + footer report (Ta
   // ── Test 13 — nav addressability ──────────────────────────────────────────
   test("nav addressability: ?s= deep-link is SSR'd, a tab click swaps section client-side, URL + back-button track sections", async ({
     page,
-  }, testInfo) => {
-    if (testInfo.project.name !== "mobile-safari") return;
+  }) => {
     await page.setViewportSize({ width: 390, height: 844 });
 
     // ── (a) SSR deep-link: ?s=venue renders section-venue on FIRST PAINT ──
@@ -1325,8 +1317,7 @@ test.describe("crew redesign nav addressability + preview-as + footer report (Ta
   // ── Test 13 (cont.) — gate param survives deep-link + tab click ──
   test("nav addressability: ?gate=skip survives the deep-link load AND a tab click (allow-listed param re-emitted)", async ({
     page,
-  }, testInfo) => {
-    if (testInfo.project.name !== "mobile-safari") return;
+  }) => {
     await page.setViewportSize({ width: 390, height: 844 });
 
     // Deep-link with BOTH ?s=venue and ?gate=skip. The admin arm renders the
@@ -1352,8 +1343,7 @@ test.describe("crew redesign nav addressability + preview-as + footer report (Ta
   // ── Test 13 (cont.) — section change resets scroll to top ──
   test("nav addressability: a section change resets scroll position to the top", async ({
     page,
-  }, testInfo) => {
-    if (testInfo.project.name !== "mobile-safari") return;
+  }) => {
     await page.setViewportSize({ width: 390, height: 844 });
 
     await page.goto(`/show/${slug}/${shareToken}?s=today`, { waitUntil: "domcontentloaded" });
@@ -1379,8 +1369,7 @@ test.describe("crew redesign nav addressability + preview-as + footer report (Ta
   // ── Test 15 — preview-as parity ───────────────────────────────────────────
   test("preview-as: /admin/show/<slug>/preview/<crewId>?s=venue renders the CrewShell (not a flat tile-grid), section resolves, PreviewBanner above", async ({
     page,
-  }, testInfo) => {
-    if (testInfo.project.name !== "mobile-safari") return;
+  }) => {
     await page.setViewportSize({ width: 390, height: 844 });
 
     // ?s=venue → the preview renders the redesigned CrewShell with Venue active.
@@ -1422,8 +1411,7 @@ test.describe("crew redesign nav addressability + preview-as + footer report (Ta
   // ── Test 19 — footer report metadata (preview-as override id in the DOM) ──
   test("footer report metadata: preview-as footer carries admin-preview-footer-<slug>-<crewId>; a normal crew footer does not", async ({
     page,
-  }, testInfo) => {
-    if (testInfo.project.name !== "mobile-safari") return;
+  }) => {
     await page.setViewportSize({ width: 390, height: 844 });
 
     // ── preview-as: the footer's report button carries the admin-preview id ──

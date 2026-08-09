@@ -135,7 +135,7 @@ const LOCAL_ONLY_ALLOWLIST: Record<string, string> = {
   "tests/e2e/crew-section-toggle.spec.ts": PATH_GATED_BY_EXCLUSION,
   "tests/e2e/font-binding.spec.ts": PATH_GATED_BY_EXCLUSION,
   "tests/e2e/font-rendering-census.spec.ts": PATH_GATED_BY_EXCLUSION,
-  "tests/e2e/crew-page.spec.ts": UNSEEN,
+  "tests/e2e/crew-page.spec.ts": PATH_GATED_BY_EXCLUSION,
   "tests/e2e/deep-link-walker.spec.ts": UNSEEN,
   "tests/e2e/dev-capture.spec.ts": UNSEEN,
   "tests/e2e/developer-tier.spec.ts": UNSEEN,
@@ -164,7 +164,7 @@ const LOCAL_ONLY_ALLOWLIST: Record<string, string> = {
   "tests/e2e/published-review-modal.reopen.spec.ts": PATH_GATED,
   "tests/e2e/published-show-attention.spec.ts": UNSEEN,
   "tests/e2e/report-modal.spec.ts": UNSEEN,
-  "tests/e2e/right-now-transitions.spec.ts": UNSEEN,
+  "tests/e2e/right-now-transitions.spec.ts": PATH_GATED_BY_EXCLUSION,
   "tests/e2e/roles-settings-layout.spec.ts": UNSEEN,
   "tests/e2e/root-landing.spec.ts": UNSEEN,
   "tests/e2e/sample.spec.ts": UNSEEN,
@@ -178,7 +178,7 @@ const LOCAL_ONLY_ALLOWLIST: Record<string, string> = {
   // WebKit), so it is paths-ignore-gated like its three siblings rather than unseen.
   "tests/e2e/stage-restricted-crew-schedule.spec.ts": PATH_GATED_BY_EXCLUSION,
   "tests/e2e/telemetry-layout.spec.ts": UNSEEN,
-  "tests/e2e/theme-toggle.spec.ts": UNSEEN,
+  "tests/e2e/theme-toggle.spec.ts": PATH_GATED_BY_EXCLUSION,
   "tests/e2e/warning-panel-polish.spec.ts": UNSEEN,
 };
 
@@ -225,6 +225,33 @@ describe("e2e workflow coverage (spec §6 item 6)", () => {
   it("every e2e spec is PR-covered or reason-allowlisted", () => {
     const dark = specs.filter((s) => !covered.has(s) && !(s in LOCAL_ONLY_ALLOWLIST));
     expect(dark, "dark specs - wire a workflow or add a reasoned allowlist row").toEqual([]);
+  });
+
+  it("no spec a paths-ignore workflow RUNS is still classified UNSEEN", () => {
+    // The dark/stale/shadowing checks above accept either classification for a
+    // path-gated spec, so a forgotten reclassification is silent: a spec can be
+    // wired into a workflow and still be counted in the
+    // BL-E2E-APP-DEPENDENT-SPECS-CI-DARK census as "no workflow names it".
+    // UNSEEN is a claim about the corpus, and this makes it a checkable one.
+    const namedByPathsIgnoreWorkflow = new Set<string>();
+    for (const yaml of Object.values(workflows)) {
+      if (!/^\s*paths-ignore:/m.test(yaml)) continue;
+      for (const m of yaml.matchAll(/tests\/e2e\/[\w.-]+\.spec\.ts/g)) {
+        namedByPathsIgnoreWorkflow.add(m[0]);
+      }
+    }
+    expect(
+      namedByPathsIgnoreWorkflow.size,
+      "no paths-ignore workflow names any e2e spec — the scan is wrong",
+    ).toBeGreaterThan(0);
+    const stillUnseen = [...namedByPathsIgnoreWorkflow]
+      .filter((spec) => LOCAL_ONLY_ALLOWLIST[spec] === UNSEEN)
+      .sort();
+    expect(
+      stillUnseen,
+      "these specs ARE named in a paths-ignore workflow's run command but their allowlist row " +
+        "still says UNSEEN. Reclassify to PATH_GATED_BY_EXCLUSION — a workflow does name them.",
+    ).toEqual([]);
   });
 
   it("the allowlist carries no stale or shadowing rows", () => {
