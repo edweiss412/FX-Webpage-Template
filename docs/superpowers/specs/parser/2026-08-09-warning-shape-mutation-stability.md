@@ -242,7 +242,24 @@ Two things follow, and the second was not anticipated by either session:
 1. **The bound holds exactly.** Zero verdict changes outside the `signal_loss` class, confirming §6 D's corrected ≤178 figure and Pin 1's requirement.
 2. **The migration is 143 rows, not 7.** 143 EXISTING ledger rows are text drift that the current vocabulary has been recording as signal loss. That is the honest reading — the instrument has been conflating these all along — but it means adopting E re-files 143 rows into the new bucket, each needing its mechanism per §11.5(iii), not merely the 7 sites this branch surfaced. The remaining **35 discriminate as genuine loss**, which is itself evidence the classifier separates the classes rather than blanket-reclassifying.
 
-The 143 are a one-time, reviewable migration and should be landed as their own change, separately from branch 2's feature diff.
+**Shape histogram of the 143, machine-derived from the warning objects (never authored):**
+
+| Drift shape | Count | Disposition |
+| --- | --- | --- |
+| Snippet moved | 125 | Expected under text-mutating operators |
+| Reorder-only, multiset identical | 14 | Benign |
+| `blockRef.index` moved (`kind` unchanged) | 4 | Benign — positional ordinal, same class as §7's finding |
+| **Mis-anchor (`blockRef.kind` changed)** | **0** | — |
+
+**Zero mis-anchors is the safety result that makes the migration admissible.** §11.5's triage table marks mis-anchor-shaped drift as "investigate — likely a real regression", so a non-zero count here would have meant real regressions sitting mislabelled in the ledger today, to be pulled out and investigated BEFORE this classifier lands. There are none. The 4 `blockRef.index` rows were checked specifically: `kind` multisets are equal and only the positional ordinal moves.
+
+### 11.7.1 The migration must ride WITH branch 2, not after it
+
+Framing the 143 as a pure follow-up is **mechanically wrong**, and the seam is the reason. The moment E's classifier lands, the oracle emits `kind: "text_drift"` for those alarms while their ledger rows still read `signal_loss`. `ledgerKey` is `(siteId, kind, fingerprint)` (`tests/parser/mutation/knownHoles.ts:11`), so reconciliation sees 143 unlisted drift alarms — a hard failure under §11.5(2) — plus 143 stale rows. The first post-merge run goes red.
+
+So branch 2 carries a **mechanical kind-flip** of the 143: `signal_loss` → `text_drift`, fingerprints untouched, `finding` set to a migration backlog ref, `note` marked as re-kinded pending mechanism triage.
+
+**Migration is not addition, and §11.5(iii) governs additions.** The per-row-mechanism bar applies to NEW rows — the 7 this branch surfaced, each mechanism-named — and to the follow-up triage. It does not apply to the flip, because the flip is the classifier's own output applied to the ledger, with zero author judgement. This is not §11.8(1)'s shared-note defect: in §6 C the note carried the SOUNDNESS burden, which is why review killed it; here §11.5(iv) puts that burden on the classifier and the note is audit trail only.
 
 ### 11.8 Open before ratification
 
