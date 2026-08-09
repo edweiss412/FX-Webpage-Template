@@ -52,6 +52,7 @@ const CALLERS = [
   "step3-review-modal.layout",
   "step3-review-page.layout",
   "step3-schedule-bookend-layout",
+  "tap-target-floor.layout",
   "toggle-edge-layout",
   "wizard-blocker-modal.layout",
 ] as const;

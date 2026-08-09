@@ -746,9 +746,14 @@ function SetAsideSection({
   return (
     <section data-testid={testId} className="flex flex-col gap-3">
       <div className="flex flex-col gap-0.5">
-        <h3 className="text-sm font-semibold text-text-subtle">
+        {/* h2, not h3: this is a top-level page section directly under the page
+            h1, and the page rendered no h2 at all, so the outline skipped a
+            level (spec 2026-08-07-step3-a11y-cluster §2.3, WCAG 1.3.1). The
+            class string is byte-identical — the tag changes, the rendered type
+            scale does not, and a visual diff here is a defect. */}
+        <h2 className="text-sm font-semibold text-text-subtle">
           {heading} <span className="tabular-nums text-text-faint">({rows.length})</span>
-        </h3>
+        </h2>
         {description ? <p className="text-xs text-text-subtle">{description}</p> : null}
       </div>
       <ul className="flex flex-col gap-2">
@@ -1403,12 +1408,15 @@ export function Step3Review({
               <div className="flex flex-col gap-1">
                 <div className="flex items-center gap-2">
                   <AlertTriangle aria-hidden="true" className="size-4 shrink-0 text-warning-text" />
-                  <h3
+                  {/* h2 for the same reason as the grouped-rows heading above
+                      (spec §2.3). The id stays on the heading element, so the
+                      section's aria-labelledby wiring is unchanged. */}
+                  <h2
                     id="wizard-step3-needs-attention-heading"
                     className="text-base font-semibold text-text-strong"
                   >
                     Needs your attention
-                  </h3>
+                  </h2>
                 </div>
                 <p className="text-sm text-text-subtle">
                   These sheets have no show to publish yet. Clear each one to finish setup.

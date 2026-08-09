@@ -94,7 +94,7 @@ export function HelpAffordance({ code, params, route }: HelpAffordanceProps) {
         <details className="list-none [&::-webkit-details-marker]:hidden [&_summary::-webkit-details-marker]:hidden [&_summary]:list-none">
           <summary
             data-testid="help-affordance-trigger"
-            className="cursor-pointer list-none underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+            className="inline-flex w-fit min-h-tap-min cursor-pointer list-none items-center underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
           >
             What does this mean?
           </summary>

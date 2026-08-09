@@ -111,7 +111,9 @@ export function ErrorExplainer({
       */}
       {showHelpfulContext ? (
         <details className="mt-3 list-none text-sm text-text-subtle [&::-webkit-details-marker]:hidden [&_summary::-webkit-details-marker]:hidden [&_summary]:list-none">
-          <summary className="cursor-pointer list-none">Helpful context</summary>
+          <summary className="inline-flex w-fit min-h-tap-min cursor-pointer list-none items-center">
+            Helpful context
+          </summary>
           <p data-testid="error-explainer-helpful-context" className="mt-2">
             {renderCatalogEmphasis(entry.helpfulContext!, params)}
           </p>

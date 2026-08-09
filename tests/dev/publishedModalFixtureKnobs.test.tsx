@@ -211,14 +211,29 @@ describe("volume knobs", () => {
   });
   test("diagramImages: 13 render a 12-tile grid plus the overflow note", () => {
     const { snapshot } = applied({ volumes: { diagramImages: 13 } }, undefined);
-    render(
+    const { container } = render(
       <PublishedDiagramsBreakdown
         showId="99999999-9999-4999-8999-999999999999"
         driveFileId="DRIVE_GALLERY"
         diagrams={(snapshot.show as Record<string, unknown>).diagrams}
       />,
     );
-    expect(screen.getAllByRole("img")).toHaveLength(12);
+    // Counted as TILES, not as `role="img"`. Each tile's <img> is decorative by
+    // design (`alt=""`) since the wrapping anchor carries the tile's single
+    // accessible name (spec 2026-08-07-step3-a11y-cluster §2.4), and an empty
+    // alt removes an <img> from the `img` role entirely. The knob under test is
+    // the GRID SIZE, so counting the named tiles measures it directly instead
+    // of through an accessibility-tree side effect of the alt.
+    const tiles = container.querySelectorAll(
+      '[data-testid^="wizard-step3-card-DRIVE_GALLERY-diagram-tile-"]',
+    );
+    expect(tiles).toHaveLength(12);
+    // Each tile still paints an image and still carries a name — the cap is a
+    // count of real tiles, not of empty slots.
+    for (const tile of tiles) {
+      expect(tile.querySelector("img")?.getAttribute("alt")).toBe("");
+      expect(tile.getAttribute("aria-label")).toMatch(/\(opens in a new tab\)$/);
+    }
     expect(screen.getByText(/\+1 more/)).toBeDefined();
   });
 });

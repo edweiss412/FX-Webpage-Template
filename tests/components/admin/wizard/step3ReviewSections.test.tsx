@@ -896,32 +896,53 @@ describe("DiagramsBreakdown body (follow-ups spec §B3 + §K8)", () => {
     expect(container.innerHTML).not.toContain("undefined");
   });
 
-  test("alt fallback derives from the stub's sheetTab when alt is absent", () => {
+  /*
+   * spec 2026-08-07-step3-a11y-cluster §2.4 / AC-5, closing
+   * NEWTAB-A11Y-RESIDUE-1(a). All three tests below encoded the old
+   * belt-and-braces contract, where the wrapping <a> and the inner <img> BOTH
+   * carried the same name and a screen reader navigating into the link heard it
+   * twice. The anchor's aria-label (step3ReviewSections.tsx:3706) now solves the
+   * nameless-link risk permanently, including its empty-alt fallback, so the
+   * duplicate alt is redundant and the img becomes decorative.
+   *
+   * This deliberately REVERSES a previously accepted audit fix (spec R5), which
+   * is why the anchor half of each test is preserved unchanged and each name is
+   * rewritten to state the new contract — a name still promising the old one is
+   * how the next reader concludes the change was a mistake.
+   */
+
+  test("the img is decorative (alt=''), and the ANCHOR carries the sheetTab-derived fallback name when alt is absent", () => {
     const stub = diagramStub(); // no alt
-    const { container } = renderDiagrams(diagramsOf({ embeddedImages: [stub] }));
-    const img = container.querySelector("img");
-    expect(img?.getAttribute("alt")).toBe(`Diagram from ${stub.sheetTab}`);
+    const { container, scoped } = renderDiagrams(diagramsOf({ embeddedImages: [stub] }));
+    expect(container.querySelector("img")?.getAttribute("alt")).toBe("");
+    // Without this the test would no longer check the fallback AT ALL and would
+    // be strictly weaker than the one it replaces (spec §2.4).
+    const tile = scoped.getByTestId(`${TILE_PREFIX}0`);
+    expect(tile.getAttribute("aria-label")).toBe(
+      `Diagram from ${stub.sheetTab} (opens in a new tab)`,
+    );
   });
 
-  test("alt: '' (and whitespace-only) falls back for BOTH the img alt and the anchor aria-label (which also carries the new-tab suffix) — a persisted empty alt must never yield a nameless link (impeccable audit P2, WCAG 2.4.4/4.1.2)", () => {
+  test("alt: '' (and whitespace-only) leaves the img decorative while the ANCHOR still names the tile — a persisted empty alt must never yield a nameless link (WCAG 2.4.4/4.1.2)", () => {
     for (const empty of ["", "   "]) {
       const stub = diagramStub({ alt: empty });
       const { container, scoped } = renderDiagrams(diagramsOf({ embeddedImages: [stub] }));
       const fallback = `Diagram from ${stub.sheetTab}`;
       const tile = scoped.getByTestId(`${TILE_PREFIX}0`);
+      // The anchor half is the load-bearing contract and is UNCHANGED.
       expect(tile.tagName).toBe("A");
       expect(tile.getAttribute("aria-label")).toBe(`${fallback} (opens in a new tab)`);
-      expect(container.querySelector("img")?.getAttribute("alt")).toBe(fallback);
+      expect(container.querySelector("img")?.getAttribute("alt")).toBe("");
       cleanup();
     }
   });
 
-  test("a real alt names both the img and the wrapping anchor (aria-label = alt plus the new-tab suffix)", () => {
+  test("a real alt names the tile ONCE, on the wrapping anchor; the img stays decorative", () => {
     const stub = diagramStub({ alt: "Stage plot" });
     const { scoped } = renderDiagrams(diagramsOf({ embeddedImages: [stub] }));
     const tile = scoped.getByTestId(`${TILE_PREFIX}0`);
     expect(tile.getAttribute("aria-label")).toBe("Stage plot (opens in a new tab)");
-    expect(tile.querySelector("img")?.getAttribute("alt")).toBe("Stage plot");
+    expect(tile.querySelector("img")?.getAttribute("alt")).toBe("");
   });
 
   test("tile img src (and wrapping anchor href) is the Task-3 staged-diagram route URL derived from the fixture", () => {

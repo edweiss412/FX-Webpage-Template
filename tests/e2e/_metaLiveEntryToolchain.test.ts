@@ -54,6 +54,17 @@ const EXEMPT = new Map<string, string>([
       "a resolver plugin, so this cannot route through the helper. See its own header.",
   ],
   [
+    "_tapTargetFloorBundle.mjs",
+    "same reason as _step3ReviewModalBundle.mjs — it needs esbuild's PLUGIN API " +
+      "for the SHARED useServerDirectivePlugin plus its own builtin resolver, which " +
+      "a CLI invocation cannot express. It is a SIBLING of that file rather than an " +
+      "edit to it because spec 2026-08-07-step3-a11y-cluster §8 fences changing the " +
+      "shared bundler's resolution semantics for the specs that already depend on it; " +
+      "the one difference is a functional node:async_hooks stub, measured necessary " +
+      "because AdminNav and OperatorErrorBlock reach lib/log's module-scope " +
+      "AsyncLocalStorage. See its own header.",
+  ],
+  [
     "helpers/useServerDirectivePlugin.test.ts",
     "the plugin contract test builds fixtures through the real esbuild API — the " +
       "build boundary IS the contract, so it imports esbuild by name (PR-C / C1).",
