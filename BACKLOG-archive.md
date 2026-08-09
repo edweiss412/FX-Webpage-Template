@@ -8,6 +8,96 @@ Same split as [DEFERRED.md](./DEFERRED.md) ↔ [DEFERRED-archive.md](./DEFERRED-
 
 ---
 
+### BL-RESURRECT-MOBILE-SAFARI-E2E — lift the remaining mobile-safari tile/crew specs into CI
+
+**Filed:** 2026-06-23 (discovered building the crew-e2e CI job). **Effort:** L
+
+> **CORRECTION 2026-08-06 (L-wave, `feat/l-wave-docs`).** The entry's founding premise — "NO CI
+> workflow runs the `mobile-safari` Playwright project" — is **REFUTED**. Three workflows run it
+> today: `lifecycle-layout-e2e.yml` (`:110`, `:130`, `:132`), `crew-e2e.yml` (`:159`, alongside
+> desktop-chromium), and `phantom-gap-e2e.yml` (`:175`). The project is not dark; a **subset of specs
+> inside it** is. The id is KEPT deliberately — it is cross-referenced from the CI-dark cluster specs
+> and the 2026-08-05 sizing sweep, and a rename would cost more than the stale title saved. The body
+> below is rewritten at honest scope; the original claim is preserved in this note so the correction
+> is auditable rather than silent.
+
+**Honest residual: the ~20 M4 tile/crew specs that no workflow names.** Every CI Playwright run is
+still an explicit spec list, so a spec matched by the `mobile-safari` project but named in no run
+command executes nowhere. That set is roughly: `crew-page`, `schedule-tile`, `transport-tile`,
+`status-financials`, `role-spoof`, `pack-list`, `notes-tile`, `right-now`, `right-now-transitions`,
+`layout-dimensions`, `empty-state`, `theme-toggle`, and their siblings — the twelve that are
+additionally `describe.skip` are enumerated in `BACKLOG-archive.md` §
+`BL-COVERAGE-CLAIMS-CITE-SKIPPED-SUITES`. **A spec being project-matched is not coverage**, and that
+distinction is the whole content of this row now.
+
+**Why it is still L, and still not "now":** these specs have been unrun in CI for a long time and
+will surface latent seed/timing/env failures. The crew corpus and the M4 tile fixtures mutate shared
+rows — `workers: 1` already serializes them, but resurrecting ~20 at once is a multi-round debugging
+slog, not a follow-on edit. Several also predate the crew redesign and assume a pre-redesign DOM.
+
+**Promotion path — incremental, and the bar is already demonstrated.** Extend `crew-e2e.yml` (or a
+sibling) spec by spec, triaging each failure; the `CREW_E2E_ONLY` filter + `pnpm db:seed` pattern
+there is the working template. `lifecycle-layout-e2e.yml` is the worked example of the acceptance bar
+a batch must clear — **five consecutive green normal-dispatch runs** before a spec counts as wired
+(spec §6.1 / AC-6). Land green globs as they pass rather than flipping the project on at once.
+
+**Relationship to `BL-E2E-APP-DEPENDENT-SPECS-CI-DARK` — it is a SUBSET, not a sibling.** Probed
+2026-08-06: all twelve specs listed above are `UNSEEN` rows of the same
+`tests/ci/_metaE2eWorkflowCoverage.test.ts` allowlist that entry's 43-row population is drawn from.
+An earlier draft of this note claimed the two cover different populations and may close
+independently; that was false in the direction that matters, and is corrected here rather than left
+to be re-derived. **Closing the parent closes this one.** This entry survives as a distinct row only
+because it names a coherent, prioritizable BATCH — the mobile-safari tile/crew specs, which share one
+project, one seed, and one template — and the parent's own promotion path is explicitly incremental
+batches. If the parent is worked wholesale, archive this as absorbed.
+
+**RESOLVED 2026-08-09** — PR #743, branch `test/resurrect-mobile-safari-e2e`. Closed at the honest
+scope the 2026-08-06 correction established: wire what lives, delete what is superseded, revive the
+one unique gap.
+
+**What shipped.**
+
+- **Deleted nine specs** (schedule-tile, transport-tile, status-financials, role-spoof, pack-list,
+  notes-tile, right-now, layout-dimensions, empty-state). Each was 100% `test.describe.skip` against
+  the retired `?crew=` viewer mock AND the slug-only `/show/[slug]` route, which has no `page.tsx`,
+  so every `page.goto` in them 404'd. Per-file coverage accounting is spec §2.3; nothing this repo
+  still had was removed. `--list` before/after: 69 → 60 files, exactly the nine, nothing else.
+- **Wired `crew-page.spec.ts`** (mobile-safari ALONE — its 22 `testInfo.project.name` early-returns
+  made a desktop execution a passing no-op the executed-count oracle would have credited; all 22
+  removed and the spec dropped from the desktop regex in the same commit, sweep neutrality verified
+  against a pre-sweep baseline of 15 expected / 4 skipped).
+- **Rewrote and wired `theme-toggle.spec.ts`** against the seeded shareToken route: persistence in
+  BOTH directions, a no-FOUC oracle that proves the theme is applied before anything paints, a11y
+  resolved by ROLE and computed accessible name, and the 44px tap floor. `REQUIRED` rows are 15 and
+  8, derived from real run reports.
+- **Fired the §3.5 whole-file valve on `right-now-transitions.spec.ts`** — unwired, statically
+  skipped, recorded as the §6.6 documented limit. See `BL-RIGHTNOW-SECTION57-FIXTURE-INERT`.
+- **Three fail-by-default guards** so this cannot silently regress: `ENROLLED ∪ EXEMPT` must equal
+  the workflow's spec list; every enrolled spec needs an explicit `EXPECTED_SKIPS` row; and no spec
+  a paths-ignore workflow runs may stay `UNSEEN`. Each shipped with its own mutant-red.
+
+**AC-2 met:** five consecutive green `crew-e2e` `workflow_dispatch` runs on `79a22d11e` —
+31317463872, 31317829789, 31318165364, 31318525822, 31318896147.
+
+**Product defects the resurrection surfaced** (this entry predicted exactly that):
+[[BL-CREW-FOOTER-OBSCURED-BY-FIXED-BOTTOM-BAR]] and
+[[BL-CREW-FOOTER-NOT-ANCHORED-SHORT-CONTENT]] — probably one fix, both filed with probes.
+
+**Harness/infra defects it surfaced:** [[BL-RIGHTNOW-SECTION57-FIXTURE-INERT]],
+[[BL-LOCKED-FIXTURE-HELPER-TARGETS-REMOTE-DB]], [[BL-FONT-CENSUS-ORACLE-FLAKE-BLOCKS-CREW-E2E]].
+
+**Residues closed in-arc:** the pack-list `rawSnippet` render now has
+`tests/components/crew/sections/GearSection.rawSnippet.test.tsx` (four mutants). The
+layout-dimensions footer residue did NOT land a test — the invariant does not hold in the product
+(`mt-auto` computes to 0px because `crew-shell` breaks the `page-shell` flex chain), so it became a
+defect row instead; spec §3.3's product-defect branch, ratified in the spec's Dimensional Invariants
+amendment.
+
+**Whole-diff review:** 7 Codex rounds to APPROVE; round-economy filing at
+`docs/review-rounds/test/resurrect-mobile-safari-e2e/b2aca7b02547.md`.
+
+---
+
 ## BL-FRESHNESS-ABORTED-CLOSE-E2E — the freshness cue's clear-on-hide branch has no behavioural proof — CLOSED 2026-08-07 (`feat/backlog-quick-wins`, arc C Q2)
 
 **Status:** CLOSED · **Filed:** 2026-08-03 (round-3 cross-model review of `feat/modal-freshness-cue`) · **Class:** test coverage · **Effort:** S (one e2e case on an existing spec) · **Severity:** low
