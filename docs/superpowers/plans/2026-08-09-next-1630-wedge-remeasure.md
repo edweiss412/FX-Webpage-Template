@@ -160,54 +160,50 @@ grep -c "Published toggle round-trip" "run-$RUN1.log" || true
 
 Expected: nonzero. If the log shows the job died in setup, in the preceding layout-spec step, or at the 35-minute timeout before/inside the measurement step: the run is INVALID — record its URL under "Discarded/invalid runs" in the PR body and dispatch a replacement (repeat Step 1).
 
-Then the per-sample classifier. It reads ONLY the `trace.trace` member of each trace.zip — never the whole archive, because `--trace=on` embeds the test SOURCE under `resources/src@*.txt`, and the source contains the literal strings being grepped (that contamination was plan-review finding r2-1). Emits one line per sample plus a summary; nothing is left for the implementer to derive by hand:
+Then the per-sample classifier. Its three anchor facts were settled by a LOCAL EMPIRICAL PROBE against this worktree's own Playwright (1.59.1, CI=1, trace=on, repeat-each=2, once passing and once failing — the writing-plans empirical-spike discipline; probe transcript in the plan-review r3 repair commit message's session):
+- Runner-side `console.log` output lands in the **`test.trace`** zip member as `{"type":"stdout"}` events (NOT `trace.trace`; and `resources/src@*.txt` embeds the test SOURCE, which contains the same literal strings — so the classifier reads the `test.trace` member and nothing else).
+- A FAILED test invocation's `test-results/` dir contains an **error-context markdown file** (filename: error-context dot md); a passed one does not. Per-sample pass/fail is directory-local — no reporter parsing (the CI default is the `dot` reporter, whose output has no per-test result lines to grep).
+- Repeat dirs are named `<base>` (repeat 0) then `<base>-repeat1`…`-repeat9` — a deterministic execution-order key; `sort -V` orders them.
 
 ```bash
-classify_run() {  # classify_run <run-id>
+classify_run() {  # classify_run <run-id>  — one line per sample + a summary; pure facts, no judgment
   local rid="$1"
   gh run download "$rid" --dir "run-$rid-artifacts"
-  local total=0 wedged=0 flips_wedged=0 early=0 failed_nowedge=0
-  # Dir-name sort = execution order (single collision counter increments per repeat).
-  for tz in $(find "run-$rid-artifacts" -name "trace.zip" | sort); do
+  local total=0 valid=0 wedged=0 flips_wedged=0 flips_exec=0 indet=0
+  for tz in $(find "run-$rid-artifacts" -name "trace.zip" | sort -V); do
     total=$((total+1))
-    local T; T=$(unzip -p "$tz" trace.trace 2>/dev/null | tr -d '\0')
-    local w_off w_on land_off land_on
+    local dir status T w_off w_on land_off land_on
+    dir=$(dirname "$tz")
+    if [ -f "$dir/error-context.md" ]; then status=failed; else status=passed; fi
+    T=$(unzip -p "$tz" test.trace 2>/dev/null | tr -d '\0')
     w_off=$(printf '%s' "$T" | grep -a -c "OFF flip: tier=plain did not land" || true)
     w_on=$(printf '%s' "$T" | grep -a -c "ON flip: tier=plain did not land" || true)
     land_off=$(printf '%s' "$T" | grep -a -c "OFF flip: landed at tier" || true)
     land_on=$(printf '%s' "$T" | grep -a -c "ON flip: landed at tier" || true)
-    if [ $((w_off + w_on)) -gt 0 ]; then
-      wedged=$((wedged+1)); flips_wedged=$((flips_wedged + w_off + w_on))
-      # OFF flip wedged and never landed => the reload-tier throw ended the sample
-      # before the ON flip: one executed flip, not two.
-      if [ "$w_off" -gt 0 ] && [ "$land_off" -eq 0 ]; then early=$((early+1)); fi
-      echo "sample=$total WEDGED w_off=$w_off w_on=$w_on land_off=$land_off land_on=$land_on trace=$tz"
-    else
-      echo "sample=$total no-wedge trace=$tz"
+    local wl=$((w_off + w_on)) v=yes flips=2
+    # Spec §4 item 5: valid = passed, OR failed WITH >=1 wedge-recovery signal
+    # (a wedge that recovered and then hit a downstream assertion failure is
+    # still a valid wedged sample). Failed with NO wedge signal = indeterminate.
+    if [ "$status" = failed ] && [ "$wl" -eq 0 ]; then v=no; indet=$((indet+1)); fi
+    # OFF flip wedged and never landed => the throw ended the sample before the
+    # ON flip: one executed flip. (Necessarily a failed sample.)
+    if [ "$w_off" -gt 0 ] && [ "$land_off" -eq 0 ]; then flips=1; fi
+    if [ "$v" = yes ]; then
+      valid=$((valid+1)); flips_exec=$((flips_exec+flips))
+      if [ "$wl" -gt 0 ]; then wedged=$((wedged+1)); flips_wedged=$((flips_wedged+wl)); fi
     fi
+    echo "sample=$total status=$status valid=$v wedge_lines=$wl flips=$flips w_off=$w_off w_on=$w_on land_off=$land_off land_on=$land_on dir=$dir"
   done
-  echo "SUMMARY run=$rid traces=$total wedged_samples=$wedged wedged_flips=$flips_wedged early_ended=$early"
+  echo "SUMMARY run=$rid traces=$total valid=$valid indeterminate=$indet wedged_samples=$wedged wedged_flips=$flips_wedged flips_executed=$flips_exec"
 }
 classify_run "$RUN1"
 ```
 
-Joining trace data with pass/fail (for the indeterminate rule) uses the run log's ordered per-repeat result lines, counted mechanically:
-
-```bash
-PASSED=$(grep -c "✓ .*Published toggle round-trip" "run-$RUN1.log" || true)
-FAILED=$(grep -c "✘ .*Published toggle round-trip" "run-$RUN1.log" || true)
-echo "passed=$PASSED failed=$FAILED"
-```
-
-Derived quantities (arithmetic, not judgment):
-- `wedged_failed` = wedged samples whose terminal flip never landed (the classifier's WEDGED lines where the wedged flip has no matching `landed` count — for the OFF flip that is the `early_ended` case; for the ON flip: `w_on>0 && land_on==0`).
-- **indeterminate** = `FAILED − wedged_failed` (failed with no wedge signal — could be pre-flip or post-republish failure; excluded, noted in the PR body).
-- **valid samples in this run** = `total − indeterminate`.
-- **F (executed flips) for this run's valid samples** = `2 × valid − early_ended`.
+Every quantity the disposition needs is on the per-sample lines: N = count of `valid=yes` samples with `wedge_lines>0` among the selected 20; M = their `wedge_lines` sum; F = their `flips` sum. Indeterminates are excluded per-sample (noted in the PR body), never by aggregate subtraction.
 
 - [ ] **Step 3: Dispatch run 2 (same Steps 1–2 shape, RUN2); replacements until ≥20 valid**
 
-The decision reads exactly the FIRST 20 valid samples in dispatch order: run 1's valid samples (in classifier sample order), then run 2's, then any replacement run's, cutting off at 20. If the cutoff lands mid-run, take that run's valid samples in classifier order (`sample=N` ascending) up to the cutoff; M and F aggregate over exactly the selected 20. All later valid samples are surplus — reported in the PR body as color but excluded from N/M/F.
+The decision reads exactly the FIRST 20 valid samples in dispatch order: concatenate the classifier's per-sample lines run by run (dispatch order), keep only `valid=yes` lines, and select the first 20 in that concatenated order (`sample=N` ascending within each run). N/M/F are computed from exactly those 20 lines (N = lines with `wedge_lines>0`; M = sum of their `wedge_lines`; F = sum of the 20 lines' `flips`). Selection is line-level, so a mid-run cutoff is unambiguous regardless of where indeterminates fall. All later valid samples are surplus — reported in the PR body as color but excluded from N/M/F.
 
 - [ ] **Step 4: Record in the PR body**
 
@@ -373,21 +369,48 @@ for wf in admin-layout-e2e.yml help-affordances.yml published-modal-e2e.yml dev-
 done
 ```
 
-`capture_run` only returns a run whose `headSha` equals `$FINAL`, so head binding is verified by selection, not by a separate comparison. **If the branch head changes for ANY reason during this step** (a concurrent push, the regen bot commit): the pinned `$FINAL` is stale — `git pull --ff-only`, recompute `FINAL` and `TS`, and RESTART this step from the top (all six suites re-dispatched against the new head; per-suite partial results against the old head are void). Record the six run URLs in the PR body ("Dark-suite dispatches on final head" section).
+`capture_run` only returns a run whose `headSha` equals `$FINAL`, so head binding is verified by selection, not by a separate comparison. The head-change restart rule is EXECUTABLE, not prose — after the watch loop completes (and again immediately before merging in Step 6), run the detector:
+
+```bash
+git fetch origin chore/next-1630-wedge-remeasure
+[ "$(git rev-parse origin/chore/next-1630-wedge-remeasure)" = "$FINAL" ] && echo HEAD-STABLE || echo HEAD-MOVED
+```
+
+`HEAD-MOVED` → the pinned `$FINAL` is stale (a concurrent push or the regen bot commit): `git pull --ff-only`, recompute `FINAL` and `TS`, and RESTART this step from the top (all six suites re-dispatched against the new head; per-suite partial results against the old head are void). Record the six run URLs in the PR body ("Dark-suite dispatches on final head" section).
 
 **Red routing (spec §6 — three terminals: GREEN / PRE-EXISTING-RED / ESCALATED):**
 - `screenshots-drift.yml` red AT its byte-comparison step (actual drift) → Step 5's regen contingency, then return to Step 3 (the regen commit changed the head; Step 4 restarts wholly against it).
-- Any other red (including screenshots-drift red BEFORE comparison — setup/bootstrap/capture) → re-dispatch that suite once (flake allowance), capturing the retry with `capture_run "$wf" chore/next-1630-wedge-remeasure "$FINAL" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"`; red again → dispatch on main and capture the run identity the same way:
+- Any other red (including screenshots-drift red BEFORE comparison — setup/bootstrap/capture) → re-dispatch that suite once (flake allowance). The timestamp is captured BEFORE the dispatch, always — a timestamp taken after `gh workflow run` can postdate the run's `createdAt` and make `capture_run` wait forever:
 
   ```bash
-  MAIN_SHA=$(git rev-parse origin/main)
+  RTS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  gh workflow run "$wf" --ref chore/next-1630-wedge-remeasure
+  read -r RID2 RSHA2 <<< "$(capture_run "$wf" chore/next-1630-wedge-remeasure "$FINAL" "$RTS")"
+  gh run watch "$RID2" --exit-status || echo "STILL-RED: $wf run $RID2"
+  ```
+
+  Red again → dispatch on main. Main can advance while the dark suites run, so the main-comparison run is selected by TIMESTAMP ONLY (`capture_run_any` below) and its actual `headSha` is recorded as evidence — any current-main run answers the pre-existing question; pinning a possibly stale local `origin/main` SHA would wait forever:
+
+  ```bash
+  # capture_run_any <workflow.yml> <branch> <dispatched-after-utc> — like capture_run, no SHA filter
+  capture_run_any() {
+    local wf="$1" br="$2" ts="$3" pair=""
+    while [ -z "$pair" ]; do
+      sleep 10
+      pair=$(gh run list --workflow="$wf" --branch "$br" --event workflow_dispatch \
+        --json databaseId,headSha,createdAt --limit 10 \
+        --jq "[.[] | select(.createdAt>=\"$ts\")] | sort_by(.createdAt) | first | if . == null then \"\" else \"\(.databaseId) \(.headSha)\" end")
+    done
+    echo "$pair"
+  }
   MTS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   gh workflow run "$wf" --ref main
-  read -r MID MSHA <<< "$(capture_run "$wf" main "$MAIN_SHA" "$MTS")"
+  read -r MID MSHA <<< "$(capture_run_any "$wf" main "$MTS")"
+  echo "main-comparison: run=$MID at main head=$MSHA"
   gh run watch "$MID" --exit-status || echo "RED-ON-MAIN: $wf run $MID"
   ```
 
-  Also red on main → PRE-EXISTING-RED (record both run URLs in the PR body, file per normal ledger triage, non-blocking); green on main → bump-caused → repair exceeds AC-5 → set blockedOn in the worktree's .claude/ship-state.json marker and ESCALATE.
+  Also red on main → PRE-EXISTING-RED (record both run URLs AND `$MSHA` in the PR body, file per normal ledger triage, non-blocking); green on main → bump-caused → repair exceeds AC-5 → set blockedOn in the worktree's .claude/ship-state.json marker and ESCALATE.
 - Merge requires all six at GREEN or PRE-EXISTING-RED.
 
 - [ ] **Step 5: Screenshot-regen contingency (only if drift red at comparison)**
@@ -406,6 +429,8 @@ The regen workflow's final step commits regenerated baselines and pushes them to
 - [ ] **Step 6: Merge + verify complete**
 
 ```bash
+git fetch origin chore/next-1630-wedge-remeasure
+[ "$(git rev-parse origin/chore/next-1630-wedge-remeasure)" = "$FINAL" ] || { echo "HEAD-MOVED - restart Task 6 Step 4"; false; }
 gh pr merge --merge
 git -C /Users/ericweiss/FX-Webpage-Template pull --ff-only
 git -C /Users/ericweiss/FX-Webpage-Template rev-list --left-right --count main...origin/main
