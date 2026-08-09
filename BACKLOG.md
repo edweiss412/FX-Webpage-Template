@@ -873,6 +873,8 @@ screen-disposition 2026-08-04: PREREQ-FENCED + ANNOTATED, stays open, NOT claime
 
 ### BL-TWO-WAY-SHEET-SYNC — Write corrections back to the source Google Sheet
 
+**Status:** IN PROGRESS · **Branch:** docs/demote-two-way-sheet-sync
+
 **Filed:** 2026-06-08, during the "sync changes feed + identity-only gate" brainstorming (`docs/superpowers/specs/v1-pre-deployment-amendments/2026-06-08-sync-changes-feed-identity-gate-design.md`). Surfaced when evaluating whether **undo** could write the old value back to the sheet to keep app and sheet consistent (instead of the chosen "revert + per-entity hold" approach).
 
 **Effort:** L
