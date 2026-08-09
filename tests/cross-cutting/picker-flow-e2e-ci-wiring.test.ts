@@ -22,8 +22,11 @@
  * own self-test), and every crew spec this job runs — including
  * stage-restricted-crew-schedule.spec, wired here for the seeded agenda fold —
  * carries a `PATH_GATED_BY_EXCLUSION` allowlist row that says what it actually is.
- * The rest of the mobile-safari project stays dark under
- * BL-RESURRECT-MOBILE-SAFARI-E2E.
+ * BL-RESURRECT-MOBILE-SAFARI-E2E closed 2026-08-09: crew-page.spec (mobile-safari
+ * only) and the rewritten theme-toggle.spec are now wired here too, nine specs
+ * were deleted as superseded, and right-now-transitions stays UNSEEN and
+ * statically skipped under its own valve. What remains dark is the NON-mobile-safari
+ * residual of BL-E2E-APP-DEPENDENT-SPECS-CI-DARK.
  */
 import { execFileSync } from "node:child_process";
 import { parse as parseYaml } from "yaml";

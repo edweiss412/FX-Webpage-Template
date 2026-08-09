@@ -590,22 +590,47 @@ test.describe("crew redesign layout invariants (§4.9 / test 12)", () => {
       `RightNowHero must hold the 176px min-height; got ${before.height}`,
     ).toBeGreaterThanOrEqual(176 - TOL);
 
-    // Drive a state change: advance the clock well past the show-day boundary so
-    // the hero's 60s interval re-derives a new kind, then nudge visibility so any
-    // visibility-gated tick fires. The min-h must hold across the crossfade.
-    await page.clock.runFor(2 * 60 * 1000);
+    // Drive a REAL state change. This block previously advanced the clock by
+    // 2min + 70s — 190 seconds total, which never leaves `show_day_n` despite the
+    // comment claiming it passed a day boundary. The hero's animated body is keyed
+    // by state KIND, so no remount and no crossfade occurred: the test measured the
+    // same steady state twice while being counted as crossfade coverage
+    // (whole-diff review round 4, P1).
+    //
+    // Jump the wall clock past the whole show (travelOut is 2026-04-23) into
+    // post_show, then fire one 60s tick. setSystemTime + a single runFor is used
+    // rather than runFor(4 days), which would fire ~5760 intervals.
+    const stateOf = () => page.getByTestId("right-now-state").getAttribute("data-state");
+    const stateBefore = await stateOf();
+    await page.clock.setSystemTime(new Date("2026-04-25T12:00:00Z"));
     await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
     await page.clock.runFor(70 * 1000);
+
+    // Premise: the crossfade this test is named for actually happened. Without
+    // this, a future change that pins the state makes every assertion below a
+    // measurement of one unchanging box — which is exactly the defect above.
+    await expect.poll(stateOf, { timeout: 10_000 }).not.toBe(stateBefore);
 
     const after = await rectOf(page.getByTestId("right-now-hero"));
     expect(
       after.height,
       `RightNowHero min-height must hold after the crossfade; got ${after.height}`,
     ).toBeGreaterThanOrEqual(176 - TOL);
+    // The FLOOR is the contract, not exact equality. This assertion used to demand
+    // `|after - before| <= 0.5`, which only ever held because the "crossfade" above
+    // never actually changed state. With a REAL state change it is false, and
+    // measured: show_day_n renders 183.890625 and post_show renders exactly 176.
+    // The hero is a min-height box whose content drives its height, so two states
+    // with different copy lengths legitimately differ — an equality assertion was
+    // over-strong, and it had never run to find that out. What §4.16 actually
+    // guarantees, and what a layout regression would break, is that the hero never
+    // COLLAPSES below its floor while the body remounts mid-transition. That is
+    // asserted on both sides of the crossfade, above and here.
     expect(
-      Math.abs(after.height - before.height),
-      `RightNowHero height must be stable across the crossfade; before=${before.height} after=${after.height}`,
-    ).toBeLessThanOrEqual(TOL);
+      Math.min(before.height, after.height),
+      `RightNowHero must hold the 176px floor on BOTH sides of the crossfade; ` +
+        `before=${before.height} after=${after.height}`,
+    ).toBeGreaterThanOrEqual(176 - TOL);
   });
 
   // ── Invariant 5 — Bottom tab-bar (mobile) + top tabs (desktop) ──
@@ -1210,7 +1235,21 @@ test.describe("crew redesign nav addressability + preview-as + footer report (Ta
    * would hang. The `:visible` filter selects whichever nav the breakpoint shows
    * (mobile at <720px, desktop at ≥720px) — exactly the real tap a user makes.
    */
-  async function clickSection(
+  /**
+   * Wait until the sub-nav is INTERACTIVE, not merely present.
+   *
+   * CrewSubNav is a client island. Before React hydrates it the tab is SSR markup
+   * with no handler, so a click is silently a no-op: visible, enabled, stable,
+   * dispatched, and nothing happens. Measured twice on this branch — the
+   * scroll-reset case failed with the URL still on `?s=today` after clicking
+   * "crew", and once earlier with `section-crew` never appearing.
+   *
+   * The gate is React's own marker: hydration attaches a `__reactProps$…` key to
+   * the DOM node. Deterministic, and deliberately not `networkidle` (which the
+   * plan's harness checklist rules out as a readiness gate) even though the
+   * already-wired sibling crew-section-toggle.spec.ts uses that heuristic.
+   */
+  async function waitForSubNavHydrated(
     page: import("@playwright/test").Page,
     section: string,
   ): Promise<void> {
@@ -1218,33 +1257,46 @@ test.describe("crew redesign nav addressability + preview-as + footer report (Ta
       .getByTestId("crew-sub-nav")
       .locator(`[data-section="${section}"]:visible`)
       .first();
-    await expect(tab).toBeVisible();
+    await expect(tab).toBeVisible({ timeout: 15_000 });
+    await page.waitForFunction(
+      (sel) => {
+        const els = [...document.querySelectorAll(sel)].filter(
+          (e) => (e as HTMLElement).offsetParent !== null,
+        );
+        return els.length > 0 && Object.keys(els[0]!).some((k) => k.startsWith("__reactProps$"));
+      },
+      `[data-testid="crew-sub-nav"] [data-section="${section}"]`,
+      { timeout: 30_000 },
+    );
+  }
 
-    // CrewSubNav is a client island. Before it hydrates, the tab is SSR markup
-    // with no handler attached, so a click is SILENTLY a no-op: Playwright's
-    // actionability checks all pass (visible, enabled, stable), the click
-    // dispatches, and nothing happens. Measured twice on this branch — the
-    // scroll-reset case failed with the URL still on `?s=today` after clicking
-    // "crew", and once earlier with `section-crew` never appearing.
-    //
-    // The already-wired sibling crew-section-toggle.spec.ts avoids this by
-    // awaiting `networkidle` before its tab clicks ("Settle ALL load-time
-    // traffic (hydration chunk fetches, any RSC prefetch)"). This gates on the
-    // OUTCOME instead, which is deterministic rather than a network heuristic
-    // and is what the plan's harness checklist asks for (never networkidle).
-    //
-    // It cannot mask a broken nav: a nav that never pushes still fails, on the
-    // timeout, exactly as before. Only "the click landed before the handler
-    // existed" is tolerated. The URL is re-checked BEFORE each click and
-    // `waitForURL` lets an in-flight push land, so a working nav is clicked
-    // exactly once — history stays one entry per section, which the
-    // back-button case in this describe depends on.
-    const onSection = new RegExp(`[?&]s=${section}\\b`);
-    await expect(async () => {
-      if (onSection.test(page.url())) return;
-      await tab.click();
-      await page.waitForURL(onSection, { timeout: 3_000 });
-    }).toPass({ timeout: 20_000 });
+  /**
+   * Click the sub-nav tab for `section` at the CURRENT viewport, ONCE.
+   *
+   * CrewSubNav renders the section tabs TWICE — a desktop row
+   * (`hidden min-[720px]:flex`, DOM-first) and a mobile bottom bar
+   * (`min-[720px]:hidden`, DOM-second). At 390px the desktop tab is
+   * `display:none`, so a bare `.first()` would target the hidden button and hang.
+   * The `:visible` filter selects whichever nav the breakpoint shows — exactly the
+   * tap a real user makes.
+   *
+   * The click is deliberately NOT retried. An earlier version wrapped it in
+   * `toPass`, which made a nav that ignored its first click pass on the second —
+   * masking a genuine "first interaction dropped" regression, the same defect
+   * repaired in theme-toggle's tapToggle (whole-diff review rounds 3 and 4).
+   * Readiness is handled by the hydration gate above, where it belongs.
+   */
+  async function clickSection(
+    page: import("@playwright/test").Page,
+    section: string,
+  ): Promise<void> {
+    await waitForSubNavHydrated(page, section);
+    await page
+      .getByTestId("crew-sub-nav")
+      .locator(`[data-section="${section}"]:visible`)
+      .first()
+      .click();
+    await page.waitForURL(new RegExp(`[?&]s=${section}\\b`), { timeout: 15_000 });
   }
 
   test.beforeEach(async ({ page }) => {

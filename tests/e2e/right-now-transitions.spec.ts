@@ -10,7 +10,10 @@
  * `tests/components/crew/rightNowHero.test.tsx`; the RENDERED framer-motion
  * treatment has no executable audit, recorded as a documented limit in spec §6.1.
  *
- * The §5.7 block below is LIVE and is what this file now is.
+ * The §5.7 block below is what this file now is — and it is STATICALLY SKIPPED
+ * and wired into no workflow: spec §3.5's whole-file valve fired because its
+ * run_of_show fixture proved not to drive the hero it asserts. See the block's
+ * own header for the probe, and BL-RIGHTNOW-SECTION57-FIXTURE-INERT.
  *
  * ROUTE + RESOLUTION. Every navigation goes through
  * `/show/[slug]/[shareToken]` with an admin session. The slug-only
