@@ -394,7 +394,7 @@ describe(
       const scanned = scanTree();
       expect(
         scanned.length,
-        "expected 66 files reading LOCAL_TEST_DATABASE_URL = 36 swept + 15 pre-existing " +
+        "expected 67 files reading LOCAL_TEST_DATABASE_URL = 36 swept + 15 pre-existing " +
           "+ tests/sync/qualityRegressionLifecycle.test.ts + tests/db/_remediationHelpers.ts " +
           "+ tests/db/tileAlertResolution.db.test.ts " +
           "+ tests/db/watchRenewalDue.test.ts (watch lease slack; deletes rows, local-only) " +
