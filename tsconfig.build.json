@@ -1,0 +1,18 @@
+{
+  // Build-only TypeScript project (next.config.ts -> typescript.tsconfigPath).
+  //
+  // WHY: `pnpm build` runs through scripts/with-admin-dev-flag.mjs, which renames
+  // app/admin/dev/* aside on flag-unset builds so the artifact cannot contain the
+  // route (the build-artifact gate). Next 16.3.0's build-time type-check pass
+  // reports diagnostics for every file in the tsconfig project, including
+  // tests/** — and five test files statically import @/app/admin/dev/*, which is
+  // absent by construction during that build. Result: 7 x TS2307 and a red build
+  // on 16.3.0 (green on 16.2.10, which did not check those files).
+  //
+  // Excluding tests/ HERE and nowhere else keeps the loss at zero: `pnpm typecheck`
+  // (.github/workflows/quality.yml:41) still runs `tsc --noEmit` against the base
+  // tsconfig.json, so tests/** remain fully type-checked in CI — just not during a
+  // build whose own gate has removed the modules they import.
+  "extends": "./tsconfig.json",
+  "exclude": ["node_modules", "tests"]
+}

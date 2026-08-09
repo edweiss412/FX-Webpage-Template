@@ -12,7 +12,7 @@
 
 - Worktree: `/Users/ericweiss/FX-worktrees/next-1630-wedge-remeasure`, branch `chore/next-1630-wedge-remeasure` (already created, claimed, pushed).
 - Spec §1.1 (do not relitigate): `next`-only bump — no `@next/*`/`eslint-config-next` alignment; NO client watchdog under any outcome; merge-per-AC-2-even-if-still-wedging (measurement decides the LEDGER disposition, not the merge); zero product code; no new CI surface.
-- Spec §7 AC-5 file allowlist: only `package.json`, `pnpm-lock.yaml`, `BACKLOG.md`, `BACKLOG-archive.md`, `tests/docs/_metaDeferralLedgerGraduation.test.ts` (outcome A's registry row only), `docs/superpowers/**`, `docs/review-rounds/**`, and (drift contingency only) `public/help/screenshots/**` may change on this branch. Task 6 verifies this executably.
+- Spec §7 AC-5 file allowlist: only `package.json`, `pnpm-lock.yaml`, `next.config.ts`, `tsconfig.build.json` (spec §3.1's forced build repair, user-ratified 2026-08-09), `BACKLOG.md`, `BACKLOG-archive.md`, `tests/docs/_metaDeferralLedgerGraduation.test.ts` (outcome A's registry row only), `docs/superpowers/**`, `docs/review-rounds/**`, and (drift contingency only) `public/help/screenshots/**` may change on this branch. Task 6 verifies this executably.
 - **Every commit is followed by `git push` in the same step.** The reviewed and merged head must contain everything; a local-only commit is a plan violation.
 - **TDD posture (declared):** Invariant 1 has no RED shape here — no behavior is authored; the app's existing suites are the regression net and the CI measurement loop is the empirical test. No task in this plan writes a test.
 - **Meta-test inventory (declared):** none applies beyond outcome A's registry row in the EXISTING `tests/docs/_metaDeferralLedgerGraduation.test.ts` — no new meta-test is created or extended structurally; no auth/DB/admin-alert/tile surface, no advisory-lock path, no mutation surface.
@@ -340,7 +340,7 @@ Expected: `CLEAN` (grep exits 1 with no hits).
 
 ```bash
 git diff --name-only origin/main...HEAD | grep -v -E \
-  '^(package\.json|pnpm-lock\.yaml|BACKLOG\.md|BACKLOG-archive\.md|tests/docs/_metaDeferralLedgerGraduation\.test\.ts)$|^(docs/superpowers/|docs/review-rounds/|public/help/screenshots/)' \
+  '^(package\.json|pnpm-lock\.yaml|next\.config\.ts|tsconfig\.build\.json|BACKLOG\.md|BACKLOG-archive\.md|tests/docs/_metaDeferralLedgerGraduation\.test\.ts)$|^(docs/superpowers/|docs/review-rounds/|public/help/screenshots/)' \
   || echo AC5-CLEAN
 ```
 

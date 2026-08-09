@@ -7,7 +7,7 @@
 - **Bump + measure over watchdog.** User-ratified 2026-08-09 (this session's AskUserQuestion): upgrade `next` and re-measure the wedge rate BEFORE any product-code mitigation. The client-side watchdog (`Promise.race` in `PublishedToggle.formAction`) is explicitly NOT in this branch's scope under any outcome; if measurement shows the wedge persists, the watchdog is a separate future decision. Do not propose adding it here.
 - **`next`-only bump.** `@next/env` (16.2.4), `@next/mdx` (^16.2.6), `eslint-config-next` (16.2.4) stay put. The repo already runs version-mixed `@next/*` pins against `next` 16.2.10 (root `package.json` dependency block — grep `"@next/env"`, `"@next/mdx"`, `"eslint-config-next"`), so alignment is not a correctness requirement; adding it widens the diff for zero measured benefit (YAGNI). Do not propose aligning them.
 - **Merge-even-if-still-wedging.** User-approved design 2026-08-09: if measurement shows the wedge persists, the bump still merges provided AC-2's CI condition holds — staying current on the framework has independent value. The measurement outcome decides the LEDGER disposition, not the merge.
-- **Zero product code.** This branch changes `package.json` + `pnpm-lock.yaml` + docs/ledger only. The e2e wedge-recovery tiers (`tests/e2e/admin-lifecycle-transitions.spec.ts`, `expectFlipLanded`) stay in place under every outcome — they are read-only, self-documenting, and cost nothing on the healthy path.
+- **Zero product code.** This branch changes `package.json` + `pnpm-lock.yaml` + docs/ledger only, plus the build-config repair the bump forced (`next.config.ts` + new `tsconfig.build.json`, ratified 2026-08-09 — see §3.1). No `app/`, `components/`, or `lib/` file is touched. The e2e wedge-recovery tiers (`tests/e2e/admin-lifecycle-transitions.spec.ts`, `expectFlipLanded`) stay in place under every outcome — they are read-only, self-documenting, and cost nothing on the healthy path.
 - **No new CI surface.** The measurement uses the existing `workflow_dispatch` input `transitions_repeats` on `.github/workflows/lifecycle-layout-e2e.yml:16-23` — built for exactly this loop (baseline run 30235889083 used it). No workflow edits.
 
 ## §2 Background (measured, cited)
@@ -35,7 +35,23 @@ Peer-dependency probe (no cascade): `npm view next@16.3.0 peerDependencies` is i
 
 ## §3 Change
 
-One dependency edit: in the repo-root `package.json`, `"next": "16.2.10"` → `"next": "16.3.0"`, plus the resulting `pnpm-lock.yaml` update (`pnpm install`). Nothing else.
+One dependency edit: in the repo-root `package.json`, `"next": "16.2.10"` → `"next": "16.3.0"`, plus the resulting `pnpm-lock.yaml` update (`pnpm install`). Nothing else, except the build-config repair the bump forces — §3.1.
+
+### §3.1 Forced build-config repair (measured 2026-08-09; scope widening ratified by the user the same day)
+
+The bump alone makes `pnpm build` RED, and the failure is bump-caused, not pre-existing:
+
+| Probe | Result |
+| --- | --- |
+| `pnpm build` on 16.3.0 | RED — 7 × TS2307, 5 test files, all `Cannot find module '@/app/admin/dev/…'` |
+| `pnpm build` on 16.2.10, same tree, `tsconfig.tsbuildinfo` + `.next/cache/.tsbuildinfo` deleted first | GREEN (so it is not an incremental-cache artifact) |
+| `ADMIN_DEV_PANEL_ENABLED=true pnpm build` on 16.3.0 | GREEN (isolates the cause to the hidden-file interaction) |
+
+Mechanism: `pnpm build` runs through `scripts/with-admin-dev-flag.mjs`, which renames `app/admin/dev/{page.tsx,actions.ts,…}` aside on flag-unset builds so the artifact cannot contain the route (the build-artifact gate). `tsconfig.json` includes `**/*.ts(x)`, so `tests/**` are in the project, and five of them statically import `@/app/admin/dev/*` (`tests/admin/dev-requires-developer.test.ts:75`, `tests/admin/parseAndStage-auth.test.ts:42`, `tests/app/admin/attentionGalleryPage.test.tsx:36`, `tests/log/adminOutcomeBehavior.test.ts:209`, `tests/sync/dev-routing.test.ts:67,439,500`). Next 16.3.0's build-time check pass reports diagnostics for those files; 16.2.10's did not.
+
+Repair (probed green, both directions): a `tsconfig.build.json` extending the base config with `"exclude": ["node_modules", "tests"]`, selected via `typescript: { tsconfigPath: "tsconfig.build.json" }` in `next.config.ts`. Coverage loss is zero — `pnpm typecheck` still runs `tsc --noEmit` against the base `tsconfig.json` in CI (`.github/workflows/quality.yml:41`), so `tests/**` stay fully type-checked; only the build whose own gate removed those modules stops checking them. The build-artifact gate itself is untouched (`tsconfigPath` selects a type-check project, not what compiles).
+
+Alternatives considered and rejected: `typescript.ignoreBuildErrors` (drops the build's whole type-check, not just the impossible files); rewriting the five tests to type-erased dynamic imports (larger diff, loses static typing on those imports).
 
 ## §4 Measurement protocol
 
@@ -76,7 +92,7 @@ One dependency edit: in the repo-root `package.json`, `"next": "16.2.10"` → `"
 - AC-2: All auto-triggered PR checks green on the branch head that merges, AND every one of the six required dark-suite dispatches (§6) at a §6 terminal disposition on that head — GREEN or PRE-EXISTING-RED (recorded); an ESCALATED suite blocks merge until the user resolves it.
 - AC-3: Enough valid `lifecycle-layout-e2e` dispatch runs (`transitions_repeats=10`) to yield ≥20 valid samples per §4's validity rule (item 5); all run URLs (valid AND discarded) recorded in the PR body; wedged-sample and wedged-flip counts stated per §4's counting rule (item 4).
 - AC-4: Ledger disposition matches the measured outcome per §5 (A xor B), and the IN PROGRESS marker is absent from the merge commit.
-- AC-5: No file outside `package.json`, `pnpm-lock.yaml`, `BACKLOG.md`, `BACKLOG-archive.md`, `tests/docs/_metaDeferralLedgerGraduation.test.ts` (outcome A's registry row only), `docs/superpowers/**`, `docs/review-rounds/**`, and (only if the dispatched drift run fails) `public/help/screenshots/**` changes on this branch.
+- AC-5: No file outside `package.json`, `pnpm-lock.yaml`, `next.config.ts`, `tsconfig.build.json` (both §3.1's forced build repair, user-ratified 2026-08-09), `BACKLOG.md`, `BACKLOG-archive.md`, `tests/docs/_metaDeferralLedgerGraduation.test.ts` (outcome A's registry row only), `docs/superpowers/**`, `docs/review-rounds/**`, and (only if the dispatched drift run fails) `public/help/screenshots/**` changes on this branch.
 
 ## §8 Documented limits
 
