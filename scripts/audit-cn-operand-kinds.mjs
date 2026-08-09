@@ -13,16 +13,16 @@
  * rather than read.  It is re-measured after every rebase (plan C4 step 4.1), because a
  * single upstream edit can break it without moving any count this arc otherwise watches.
  *
- * WHY THREE KINDS AND NOT TWO.  Checking the known falsy literals and the seven known
+ * WHY THREE KINDS AND NOT TWO.  Checking the known falsy literals and the eight known
  * identifier names is not the same as proving no operand of an unvetted kind appeared.
  * An upstream edit to `active && "bg-accent"` introduces a `false` operand that is
- * neither a falsy literal nor one of the seven names: both narrow checks pass, parity
+ * neither a falsy literal nor one of the eight names: both narrow checks pass, parity
  * passes (the operand is preserved), the `cn` unit test passes, the DayCard test passes,
  * and rendering changes.  So every top-level operand at every unfiltered site is
  * enumerated and must fall in one of three PROVEN-TRUTHY kinds:
  *
  *   1. a non-empty string literal;
- *   2. one of the seven proven-truthy identifiers of spec §4.1 — accepted ONLY when the
+ *   2. one of the eight proven-truthy identifiers of spec §4.1 — accepted ONLY when the
  *      name has exactly one binding in its file (a nested `const base = ""` shadows the
  *      truthy outer `base` while the operand spelling and the outer definition both stay
  *      unchanged), and only when its own definition is proven truthy;
@@ -117,7 +117,7 @@ const FILTERED_SITES = {
   "components/shared/AccentButton.tsx": [0],
 };
 
-/** The seven proven-truthy identifiers of spec §4.1, with their defining file. */
+/** The eight proven-truthy identifiers of spec §4.1, with their defining file. */
 const IDENTIFIER_TABLE = [
   { name: "base", file: "components/admin/OnboardingWizard.tsx" },
   { name: "focusRing", file: "components/admin/OnboardingWizard.tsx" },
@@ -521,7 +521,7 @@ function classifyOperand({ operand, rel, siteIndex, sourceFile, config, stop, wh
     return "stop";
   }
 
-  // Kind 2 — one of the seven proven-truthy identifiers, sole-bound in its file.
+  // Kind 2 — one of the eight proven-truthy identifiers, sole-bound in its file.
   if (ts.isIdentifier(operand)) {
     const entry = config.identifierTable.find((e) => e.name === operand.text && e.file === rel);
     if (!entry) {

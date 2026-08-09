@@ -5,7 +5,8 @@
  * Spec:  docs/superpowers/specs/2026-08-07-classname-array-join-cn.md §4.2, §4.3
  * Plan:  docs/superpowers/plans/2026-08-07-classname-array-join-cn.md, Task 3
  *
- * WHAT IT PROVES. That the 36-site migration is a PURE SYNTACTIC REWRITE: every operand,
+ * WHAT IT PROVES. That the migration (37 sites as re-derived 2026-08-09; 36 at spec time) is a
+ * PURE SYNTACTIC REWRITE: every operand,
  * in order, survives `[A, B, C].join(" ")` → `cn(A, B, C)`. Composed with the `cn` unit
  * test (`cn ≡ filter(Boolean).join(" ")`) and the operand-kind audit (every operand at an
  * unfiltered site is truthy), that gives "same operands ⇒ same emitted string" — which is
@@ -39,7 +40,7 @@
  * closed migration's C1–C6 allowlist. It ships unwired, and is retained after merge only
  * because plan C4 step 4 re-runs it after the final rebase.
  *
- * Exit 0: parity holds at all 36 sites. Exit 1: a finding. Exit 2: usage error.
+ * Exit 0: parity holds at every site. Exit 1: a finding. Exit 2: usage error.
  */
 
 import { execFileSync } from "node:child_process";
@@ -168,7 +169,7 @@ function identifierInitializer(sourceFile, name) {
 /**
  * Render an initializer FORM-INDEPENDENTLY when it is itself a class-list expression.
  *
- * Some of the seven identifiers (`CHIP_CLASS`) are themselves among the 36 migrated sites,
+ * Some of the eight identifiers (`CHIP_CLASS`) are themselves among the 36 migrated sites,
  * so their initializer legitimately changes shape — `[...].join(" ")` at the base, `cn(...)`
  * at the head. Comparing raw renderings flagged that as drift. Comparing the OPERAND LIST
  * compares what the initializer emits, which is the claim, and still catches a changed
@@ -621,7 +622,9 @@ function main(argv) {
     return 1;
   }
 
-  console.log("\nOK — every operand at all 36 sites is preserved in order, with only the");
+  console.log(
+    `\nOK — every operand at all ${comparedSites} sites is preserved in order, with only the`,
+  );
   console.log("declared spec §6 token deltas differing.");
   return 0;
 }
