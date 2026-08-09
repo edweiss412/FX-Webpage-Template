@@ -155,6 +155,31 @@ describe("ROW_CELLS_FUSED calibration (hand-built shapes the corpus does not con
     expect(fused(md, "calibration.md")).toEqual([]);
   });
 
+  it("closes the section at a prose line, not only at a blank one", () => {
+    // KILLS: flushing only when the line is BLANK. Markdown ends a table at the first line
+    // that is not part of it, and a paragraph between two tables is a common sheet-export
+    // shape. Measured as one section, the four 5-cell rows set the modal and all three
+    // 4-cell rows report as fused: three false positives on well-formed input.
+    //
+    // The second table opens with NOTES, which `canonicalSectionKind` does NOT recognize,
+    // so the opener boundary cannot rescue this fixture — the prose flush is the only
+    // thing that can, which is what makes the arm discriminating rather than incidental.
+    const md = [
+      "| CREW | Role | Call | Out | Note |",
+      "| --- | --- | --- | --- | --- |",
+      "| Alice | A1 | 08:00 | 17:00 | x |",
+      "| Bob | A2 | 08:00 | 17:00 | x |",
+      "| Carla | A2 | 09:00 | 17:00 | x |",
+      "Note: load-in moved to the dock entrance.",
+      "| NOTES | Start | End | Note |",
+      "| --- | --- | --- | --- |",
+      "| Load in | 3/1 | 3/1 | x |",
+      "| Show | 3/2 | 3/3 | x |",
+      "",
+    ].join("\n");
+    expect(fused(md, "calibration.md")).toEqual([]);
+  });
+
   it("stays silent when the section's widths TIE, since modal-1 has no referent", () => {
     // KILLS: deleting the §5.3 tie-guard. On a 2-2 split the sort still yields a "modal",
     // and the losing half is then reported wholesale. "Short by one against the section's

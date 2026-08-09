@@ -117,7 +117,17 @@ export function detectFusedRows(markdown: string): ParseWarning[] {
       continue;
     }
 
-    if (start === -1 && section.length > 0) {
+    // ANY non-row line closes the section, not only a blank one — markdown ends a table at
+    // the first line that is not part of it. Restricting this to blank lines merges two
+    // tables separated by a paragraph into a single section, and the wider table's rows
+    // then set a modal that reports every row of the narrower one as fused.
+    //
+    // The converse cost is accepted deliberately: a stray line INSIDE one table splits it,
+    // and each half may fall under the 3-row floor and be skipped. That direction is a
+    // conservative miss (spec §5.3 residue), while the other is a false positive on
+    // well-formed input — which is the failure that teaches an operator to ignore the
+    // warning.
+    if (section.length > 0) {
       flush();
       section = [];
     }
