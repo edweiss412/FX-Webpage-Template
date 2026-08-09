@@ -37,3 +37,4 @@ Post-deployment (v1.X+) specs grouped by subsystem. See [`../README.md`](../READ
 | [`2026-07-26-watch-reconcile-backoff-v2-design.md`](./2026-07-26-watch-reconcile-backoff-v2-design.md) | 2026-07-26 |
 | [`2026-07-26-watch-renewal-lifecycle-design.md`](./2026-07-26-watch-renewal-lifecycle-design.md) | 2026-07-26 |
 | [`2026-07-26-watch-renewal-lifecycle-review-log.md`](./2026-07-26-watch-renewal-lifecycle-review-log.md) | 2026-07-26 |
+| [`2026-08-09-sync-log-show-attribution-design.md`](./2026-08-09-sync-log-show-attribution-design.md) | 2026-08-09 |
