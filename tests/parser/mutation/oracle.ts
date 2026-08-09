@@ -93,7 +93,13 @@ export function weightedSignalKeys(p: ParsedSheet): Map<string, number> {
   const map = new Map<string, number>();
   const bump = (k: string, n = 1) => map.set(k, (map.get(k) ?? 0) + n);
   for (const h of p.hardErrors) bump(`H:${h.code}`);
-  for (const w of p.warnings) bump(`W:${w.code}`, OCCURRENCE_EXTRACTORS[w.code]?.(w) ?? 1);
+  // SEVERITY IS PART OF THE KEY. Keying on the code alone would call a warn -> info
+  // downgrade "text drift": the code is still present and the count is unchanged, but an
+  // info warning drops out of the operator-facing gap counts (lib/parser/dataGaps.ts) and
+  // out of section routing, so Doug stops seeing it. That is signal LOSS wearing the same
+  // multiset as drift, and it is exactly what this tier must not wave through.
+  for (const w of p.warnings)
+    bump(`W:${w.severity}:${w.code}`, OCCURRENCE_EXTRACTORS[w.code]?.(w) ?? 1);
   for (const r of p.raw_unrecognized) bump(`R:${r.block}|${r.key}`);
   return map;
 }

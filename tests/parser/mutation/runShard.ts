@@ -52,7 +52,7 @@ const withSlug = (m: Mutant, op: string, slug: string): Mutant => ({
  * class is benign rather than an omission. `ABSORBED` and `SIGNALED` are the only benign
  * pair -- the mutation was invisible, or the parser said something new about it.
  */
-const VERDICT_ALARM_KIND: Record<Verdict, Alarm["kind"] | null> = {
+export const VERDICT_ALARM_KIND: Record<Verdict, Alarm["kind"] | null> = {
   ABSORBED: null,
   SIGNALED: null,
   SILENT_WRONG: "wrong",

@@ -1,6 +1,6 @@
 # Warning shape vs. mutation stability — design amendment for `REF_ERROR_LITERAL`
 
-**Status:** PROPOSED (2026-08-09, rewritten after cross-model review round 1 returned BLOCKING with 7 findings) · **Amends:** `docs/superpowers/specs/parser/2026-08-07-parser-mutation-wave-design.md` §4 · **Blocks:** branch 2 only
+**Status:** RATIFIED 2026-08-09 (option "E + mechanical flip now, triage later"; rewritten after cross-model review round 1 returned BLOCKING with 7 findings, and amended again after round 2) · **Amends:** `docs/superpowers/specs/parser/2026-08-07-parser-mutation-wave-design.md` §4 · **Blocks:** branch 2 only
 **Trigger:** branch 2 (`feat/mutation-ref-sub`) reached 7 rows in `newHoles`, the bucket §9 marks HARD and never deferrable.
 
 ## 1. Resolved scope — do not relitigate
@@ -258,7 +258,7 @@ Two things follow, and the second was not anticipated by either session:
 
 Framing the 143 as a pure follow-up is **mechanically wrong**, and the seam is the reason. The moment E's classifier lands, the oracle emits `kind: "text_drift"` for those alarms while their ledger rows still read `signal_loss`. `ledgerKey` is `(siteId, kind, fingerprint)` (`tests/parser/mutation/knownHoles.ts:11`), so reconciliation sees 143 unlisted drift alarms — a hard failure under §11.5(2) — plus 143 stale rows. The first post-merge run goes red.
 
-So branch 2 carries a **mechanical kind-flip** of the 143: `signal_loss` → `text_drift`, fingerprints untouched, **`finding` PRESERVED**, and the migration marker in `note`.
+So branch 2 carries a **mechanical kind-flip** of the 143: `signal_loss` → `text_drift`, **`finding` PRESERVED**, and the migration marker in `note`. Fingerprints are NOT all untouched: 15 of the 143 re-blessed because the detector changes parse output on the fixtures it fires on, and each was regenerated from the run that produced it. An earlier draft claimed "fingerprints untouched" flatly, which review falsified — an auditor reading that would mistake 15 behaviour re-blesses for kind-only edits.
 
 Preserving `finding` is not cosmetic. `knownHoles.test.ts` requires every `finding` to be a value in `OPERATOR_FINDING_MAP`, so writing a migration backlog ref there breaks the ledger's referential integrity — the guard caught exactly that on the first attempt. The row still belongs to its operator's finding, which remains true after re-kinding, and the marker belongs in `note`, which is audit trail rather than predicate.
 
@@ -266,6 +266,6 @@ Preserving `finding` is not cosmetic. `knownHoles.test.ts` requires every `findi
 
 ### 11.8 Open before ratification
 
-1. The 143-row migration (§11.7) is landed as its own change, not inside branch 2. Each row's mechanism must be named; a bulk reclassification with a shared note would recreate C's unvalidated-`note` defect at 143× the scale.
+1. ~~The 143-row migration is landed as its own change, not inside branch 2.~~ **SUPERSEDED by §11.7.1** — the kind-flip MUST ride with branch 2 or the first post-merge run goes red on 143 unlisted drift rows plus 143 stale rows. What defers to the follow-up chore is the per-row MECHANISM TRIAGE, not the flip. `BL-MUTATION-DRIFT-TRIAGE` carries it.
 2. Whether drift rows should carry a structured mechanism field rather than free-form `note`; §10's objection to unvalidated `note` applies here too.
 3. Whether reorder-with-equal-multiset (11.3 row 5) is acceptable as drift, or wants its own class.
