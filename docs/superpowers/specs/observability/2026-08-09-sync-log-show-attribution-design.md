@@ -221,6 +221,29 @@ Scheduling mirrors `supabase/migrations/20260629000002_app_events.sql:53-63`: a 
 
 **Gate coupling:** `sync_log_prune` sits outside the `fxav_cron_` prefix, exactly like `app_events_prune`, so it MUST be added to `EXPECTED_NON_FXAV_NON_ORPHAN_CRONS` (`tests/cross-cutting/pg-cron-coverage.test.ts:107`, currently `["app_events_prune"]`) in the same commit as the migration, or that gate fails.
 
+### 3.5.1 Manual sync paths install no sink at all (R5 F1)
+
+`SyncLogDeps.logSync` is optional (`lib/sync/runScheduledCronSync.ts:2218-2220`) and emitted through optional chaining (`lib/sync/runScheduledCronSync.ts:2250`). Every production manual entry point passes **no** sink, so `deps.logSync?.(entry)` is a no-op and a manual applied / skipped / error outcome writes **no `sync_log` row at all**:
+
+| Entry point | Shape |
+| --- | --- |
+| `app/api/admin/sync/[slug]/route.ts:94` | calls `runManualSyncForShow` with no `processDeps` |
+| `app/admin/dev/actions.ts:622` | same |
+| `app/admin/show/[slug]/_actions/roleToken.ts:184` | same |
+| `app/admin/show/[slug]/_actions/useRaw.ts:168` | same |
+| `app/api/admin/pending-ingestions/[id]/retry/route.ts:427-433` | passes `{}` |
+| `app/api/admin/pending-ingestions/[id]/retry/route.ts:480-488` | first-seen `stageDeps` carries no logger |
+
+`runManualSyncForShow` forwards only `...(deps.processDeps ?? {})` (`lib/sync/runManualSyncForShow.ts:431-436`), so nothing supplies one. The existing test injects `logSync` explicitly (`tests/sync/runOfShowSyncLogChannel.test.ts:172-185`) and therefore proves only a test-only path.
+
+**This is silence, not NULL, and it violates the consequence bound directly.** §2 requires every attempt to be attributed correctly or signaled; a row that never exists is neither. It also defeats the change's own purpose for the operator's most deliberate action: `observe synclog --show` stays blind to manual syncs even after the sink resolves show ids perfectly.
+
+Note the manual *fetch-failure* paths do log, via `insertSyncLog` (`lib/sync/runManualSyncForShow.ts:175`, `lib/sync/runManualSyncForShow.ts:224`). So manual sync records its failures-to-fetch and drops its ordinary outcomes — the worst of both, because the log looks populated.
+
+**Repair, in scope:** each entry point passes `logSync: writeSyncLog`. Six call sites, one property each. This is the class-sweep default (repair every instance in the same PR) rather than a filing: it needs no product decision, no ratified fence excludes it, and it is not a redesign. Leaving it would ship a spec whose headline claim is false for manual syncs.
+
+Two comments in `app/admin/show/[slug]/_actions/useRaw.ts:162` and `app/admin/show/[slug]/_actions/useRaw.ts:173` assert that logging already happens here. They are wrong today and must be corrected with the wiring, or they will re-mislead the next reader exactly as they misled this spec.
+
 ### 3.6 Attribution meta-test (the structural defense)
 
 Three findings across rounds 1 and 2 were instances of one vector — *a `sync_log` row that could name its show does not*: the onboarding sink never resolved it (R1 F2), three row classes were misfiled as unattributable (R1 F7), and seven onboarding callers drop an available `driveFileId` (R2 F1). Each was repaired per-instance. `docs/agents/writing-plans.md` is explicit that this is the stopping point: *"if the class is already nameable at FIRST occurrence, ship the structural defense in the FIRST repair commit"*, because *"the 3-round same-vector threshold is a ceiling, not a waiting period."*
@@ -238,7 +261,13 @@ Filesystem discovery is the load-bearing part: a NEW call site fails by default 
 
 The recognizer is therefore derived: **every exported symbol of `lib/sync/syncLog.ts`, plus the `logSync`/`insertSyncLog` method and callback forms, plus any literal `insert into public.sync_log`.** Deriving from the module's export list rather than a hand-kept list is the same "derive a cover, don't enumerate" rule the class-sweep discipline requires, and it is what makes a future writer covered by default.
 
-**Roots:** `lib/sync`, `lib/onboarding`, `app/api/drive`, **and `app/api/cron`**. Roots are asserted against the derived writer set — a writer reachable from a root not scanned is itself a failure, so the two cannot drift apart silently.
+**Roots:** `lib`, `app/api`, and `app/admin`. R5 F2: the earlier narrow list omitted `app/admin` and `app/api/admin`, where all six manual entry points live, and an assertion over scanned roots cannot discover a writer in an unscanned root.
+
+**Writer grammar — three shapes the export-derived list alone misses (R5 F2):**
+
+- **The PostgREST idiom.** `.from("sync_log").insert(...)` is an established repository write form (`lib/log/persist.ts:16`) and is not an exported `syncLog.ts` symbol, a `logSync`/`insertSyncLog` call, or a SQL literal. Recognized explicitly.
+- **Schema-unqualified SQL.** `insert into sync_log` is ordinary valid SQL and falls outside an `insert into public.sync_log` literal match. The pattern accepts an optional `public.` qualifier.
+- **The factory boundary.** `makePostgresSyncLogSink` takes `sql` and RETURNS the emitter (`lib/sync/syncLog.ts:39-48`); the emitting invocation is the returned binding's call (`lib/sync/syncLog.ts:54`), whose callee is a call expression rather than a name. Deriving names from exports alone therefore inspects the wrong call boundary — classifying the construction as an emission and missing the entry-bearing call. The recognizer tracks the binding a factory call is assigned to and treats *that* binding's invocation as the emission. Roots are asserted against the derived writer set — a writer reachable from a root not scanned is itself a failure, so the two cannot drift apart silently.
 
 **Scope bound, stated so it cannot ratchet.** Target ~150 lines. If review pressure pushes it past ~250, that is the ratchet the round-economy retrospective describes, and the response is to narrow the claim rather than widen the recognizer.
 
