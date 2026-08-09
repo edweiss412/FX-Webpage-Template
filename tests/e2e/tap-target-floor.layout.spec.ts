@@ -80,6 +80,37 @@ const SUMMARY_MOUNT_COUNT = ALL_SUMMARY_MOUNTS.length;
 /** The HelpSheet close button's painted box — `size-9`, NOT 28 (spec R6). */
 const VISUAL_CLOSE = 36;
 
+/** `--radius-sm: 6px` (app/globals.css:233), the close button's token. */
+const RADIUS_SM = 6;
+
+/**
+ * R6 preserves each control's EXISTING corner radius, and spec §6 DI-14 states
+ * the shape per control: the pill radius — "half the box or greater" — for the
+ * pills, trigger and tooltip, and `rounded-sm` for the close button.
+ *
+ * Pinning the VALUE, not just "non-zero and equal to the visual", is what makes
+ * this discriminating. Swapping `rounded-pill` for `rounded-sm` on both the
+ * target and its visual leaves them equal and non-zero at 6px, so every other
+ * radius assertion here still passes while the circular pills silently become
+ * rounded squares.
+ */
+function expectPreservedRadius(
+  label: string,
+  measured: string,
+  shape: "pill" | "sm",
+  boxPx: number,
+): void {
+  const px = parseFloat(measured);
+  if (shape === "sm") {
+    expect(px, `${label} radius is no longer the rounded-sm token`).toBeCloseTo(RADIUS_SM, 1);
+    return;
+  }
+  expect(
+    px,
+    `${label} is no longer pill-shaped: radius ${measured} on a ${boxPx}px box`,
+  ).toBeGreaterThanOrEqual(boxPx / 2 - EPS);
+}
+
 let server: Server;
 let baseUrl: string;
 let workDir: string;
@@ -401,6 +432,15 @@ test.describe("DI-11/DI-12 — the AdminNav brand link clears the floor and spen
           siblingCount: others.length,
         };
       });
+      // A 44px target nobody can name is not an accessibility win. Below 360px
+      // the link's only rendered child is the decorative icon and both text
+      // spans are `display: none`, so its accessible name came out EMPTY —
+      // asserted at every breakpoint, because that is the axis the bug lived on.
+      await expect(
+        page.locator(brand),
+        `brand link has no accessible name at ${width}px`,
+      ).toHaveAccessibleName(/\S/);
+
       premise("other interactive topbar elements exist to overlap", hits.siblingCount, 0);
       expect(hits.edges, "brand link edge hit map").toHaveLength(4);
       for (const { edge, ownsHit } of hits.edges) {
@@ -430,6 +470,7 @@ const CLASS_B_TARGETS = [
     target: "help-sheet-trigger",
     visual: "help-sheet-trigger-visual",
     visualSize: VISUAL_PILL,
+    radius: "pill",
     hoverProps: ["color", "backgroundColor"],
     openSheetFirst: false,
   },
@@ -440,6 +481,7 @@ const CLASS_B_TARGETS = [
     target: "help-tooltip-trigger",
     visual: "help-tooltip-trigger-visual",
     visualSize: VISUAL_PILL,
+    radius: "pill",
     hoverProps: ["color", "backgroundColor"],
     openSheetFirst: false,
   },
@@ -450,6 +492,7 @@ const CLASS_B_TARGETS = [
     target: "help-sheet-close",
     visual: "help-sheet-close-visual",
     visualSize: VISUAL_CLOSE,
+    radius: "sm",
     hoverProps: ["color", "backgroundColor"],
     openSheetFirst: true,
   },
@@ -691,6 +734,14 @@ for (const spec of CLASS_B_TARGETS) {
       premiseHolds(`${spec.label} rendered its inner visual span`, radii.visual !== null);
       expect(parseFloat(radii.target), `${spec.label} target radius`).toBeGreaterThan(0);
       expect(radii.target, `${spec.label} radius diverged from its visual`).toBe(radii.visual);
+      // Non-zero AND equal is not enough: swapping `rounded-pill` for
+      // `rounded-sm` on BOTH elements keeps them equal and non-zero at 6px
+      // while turning a circle into a rounded square — R6 says the existing
+      // corner radius is preserved, so the VALUE has to be pinned, not just its
+      // consistency. Spec §6 DI-14 states the shape per control: the pill
+      // radius ("half the box or greater") for the trigger and tooltip, the
+      // `rounded-sm` token for the close button.
+      expectPreservedRadius(spec.label, radii.target, spec.radius, spec.visualSize);
 
       await focusWithKeyboard(page, targetSel);
       const state = await page.locator(targetSel).evaluate((el, visualId) => {
@@ -749,6 +800,29 @@ test.describe("§1.1 R6 — the two disclosures that HAD a native marker keep a 
         display === "inline-flex",
       );
       expect(await caret.count(), `${mount} lost its disclosure caret`).toBeGreaterThan(0);
+
+      // A rotating EMPTY span is not a cue. Deleting just the `▸` text while
+      // keeping the span and its classes leaves the node count positive and the
+      // computed rotation still changing, so a count-plus-rotation guard passes
+      // on a disclosure that once again shows nothing. What has to hold is that
+      // something is actually painted: non-blank text inside a box with area.
+      const painted = await caret.first().evaluate((el) => {
+        const r = el.getBoundingClientRect();
+        const cs = getComputedStyle(el);
+        return {
+          text: (el.textContent ?? "").trim(),
+          w: r.width,
+          h: r.height,
+          visibility: cs.visibility,
+          display: cs.display,
+          opacity: cs.opacity,
+        };
+      });
+      expect(painted.text, `${mount} caret renders no glyph`).not.toBe("");
+      expect(painted.w * painted.h, `${mount} caret has no painted area`).toBeGreaterThan(0);
+      expect(painted.visibility, `${mount} caret is not visible`).not.toBe("hidden");
+      expect(painted.display, `${mount} caret is display:none`).not.toBe("none");
+      expect(parseFloat(painted.opacity), `${mount} caret is transparent`).toBeGreaterThan(0);
 
       // Tailwind v4 emits `rotate-90` as the standalone `rotate` property, NOT
       // as `transform` — a `transform`-only read returns "none" in both states
@@ -1043,6 +1117,7 @@ test.describe("DI-13/DI-14 — focus outlines the target, at the target's own ra
       expect(resting.targetRadius, `pill ${n} radius diverged from its visual`).toBe(
         resting.spanRadius,
       );
+      expectPreservedRadius(`pill ${n}`, resting.targetRadius, "pill", VISUAL_PILL);
 
       // DI-13 — the ring, which only exists in the focused state.
       await page.locator(selector).evaluate((el) => (el as HTMLElement).focus());

@@ -88,6 +88,16 @@ export function AdminNav({
         <Link
           href="/admin"
           data-testid="admin-nav-brand"
+          /* The link's ONLY always-rendered child is the decorative icon
+             (`alt="" aria-hidden`), and both text spans are `display: none`
+             below 360px — so on a narrow phone this link had NO accessible name
+             at all (WCAG 2.4.4 / 4.1.2). Pre-existing, surfaced by the a11y
+             review of this element, and fixed here rather than deferred: a link
+             this branch is repairing INTO a 44px target must be nameable when a
+             screen-reader user reaches it. The label matches the visible
+             wordmark at wide widths, so it never contradicts what is on screen
+             (WCAG 2.5.3), and it survives every breakpoint. */
+          aria-label="FXAV Admin"
           /* spec 2026-08-07-step3-a11y-cluster §2.2: a COMPOSITE link, so it
              takes its own recipe rather than the generic icon-button one.
              `size-tap-min` would clamp the whole block to a 44px square and

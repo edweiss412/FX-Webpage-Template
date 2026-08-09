@@ -545,9 +545,10 @@ expectation. **Ordered so every gate runs against a fully-valid tree (R3 F1):**
 ## 12. Impeccable gate findings + dispositions
 
 Run 2026-08-08 on the whole diff against merge-base `61281c23e8ce`, scoped to the thirteen
-invariant-8 UI-surface files. Canonical v3 setup gates ran first: `context.mjs` loaded
-`PRODUCT.md` + `DESIGN.md`, and the **product** register was read (this is admin/app UI —
-design serves the product), plus `reference/critique.md` and `reference/audit.md`.
+invariant-8 UI-surface files, and **RE-RUN 2026-08-09 over the post-gate delta** (§12.5).
+Canonical v3 setup gates ran first: `context.mjs` loaded `PRODUCT.md` + `DESIGN.md`, and the
+**product** register was read (this is admin/app UI — design serves the product), plus
+`reference/critique.md` and `reference/audit.md`.
 
 ### 12.0 Provenance — ⚠️ DEGRADED, declared rather than silent
 
@@ -620,7 +621,7 @@ recipe (spec §1.1 R6/§2.1).
 
 | # | Dimension | Score | Key finding |
 | --- | --- | --- | --- |
-| 1 | Accessibility | 4 | The diff's entire subject. Thirteen targets raised to the floor with painted boxes preserved, a skipped heading level closed, a double accessible name reduced to one, a lying new-tab glyph removed. Pinned by 46 real-browser cases at 320/360/390/440/768/1280. |
+| 1 | Accessibility | 4 | The diff's entire subject. Thirteen targets raised to the floor with painted boxes preserved, a skipped heading level closed, a double accessible name reduced to one, a lying new-tab glyph removed. Pinned by 49 real-browser cases at 320/360/390/440/768/1280 (§12.5). |
 | 2 | Performance | 4 | No animation added, removed or retimed (spec §6.1). The HelpSheet portal's scrim and rise are byte-identical — `git diff` matches no animate/scrim/sheet-rise/backdrop line. No new render work: every change is a class string or one wrapper `<span>`. |
 | 3 | Theming | 4 | Zero hard-coded colors added — `grep -E "#[0-9a-f]{3,8}\|rgba?\(\|hsla?\(\|oklch\("` over added lines in the UI files returns nothing. Every color-bearing class removed has a matching one added: `hover:bg-surface` ×2 → `group-hover:bg-surface` ×2, `hover:bg-surface-sunken` ×1 → `group-hover:` ×1, `hover:text-text-strong` ×4 → `group-hover:` ×4. Both themes are unaffected because no token changed. |
 | 4 | Responsive | 4 | The floor is met on both axes at every asserted width, DI-7's 320px no-overflow pin still holds, and DI-5/DI-12 pin that neither repair spends layout — which matters because the connectors measure 0px wide at 320/390 (probe P3). |
@@ -633,3 +634,33 @@ The repo-wide structural tap-target guard (descoped with its measurement, spec �
 `BL-TAP-TARGET-STRUCTURAL-GUARD`); the eight further inline text controls (filed as
 `BL-TAP-TARGET-INLINE-TEXT-CONTROLS` pending a per-site prose-vs-chrome product call); and
 spec §4's four documented limits. Each was checked against its citation, not re-derived.
+
+### 12.5 Gate re-run over the post-gate delta (2026-08-09)
+
+**Why this section exists at all:** diff-review round 2 found that the gate above predated
+three further UI-surface commits, so its "whole diff" claim and its 46-case figure no longer
+described HEAD. That is a real invariant-8 violation — a gate that evaluated an earlier tree
+is not a gate on the shipped one — and it is repaired by re-running rather than by rewording.
+
+**Delta evaluated** (`git diff 167a279cb HEAD -- app components`, plus the working-tree change
+that landed with it): `components/admin/OnboardingWizard.tsx`,
+`components/admin/settings/AdministratorsSection.tsx`, `components/admin/nav/AdminNav.tsx`.
+Three visible changes: the two restored disclosure carets, and the brand link's `aria-label`.
+
+**Detector, re-run on all thirteen UI files at HEAD:** still exactly two `broken-image` hits at
+`step3ReviewSections.tsx:3673` and `:3704`, the same pair classified in §12.1. The delta files
+produce none.
+
+**Design/audit pass over the delta:**
+
+- The carets restore a cue the repair had removed; they are the treatment
+  `app/me/meShowSections.tsx` already ships, so they add no new visual language. `▸` is
+  `aria-hidden`, so the disclosure's accessible name is unchanged.
+- `aria-label="FXAV Admin"` fixes a P1 the review found (below 360px the link had NO accessible
+  name at all — WCAG 2.4.4 / 4.1.2). It matches the visible wordmark at wide widths, so it never
+  contradicts what is on screen (WCAG 2.5.3), and it is stable across every breakpoint.
+- Both are pinned by new real-browser cases, each with an isolating negative-regression mutant
+  recorded in the commit that added it.
+
+**Counts at HEAD: P0 = 0, P1 = 1 (fixed in branch), and the standalone spec is 49 cases, not
+46.** The marker at the top of this file carries the same numbers.
