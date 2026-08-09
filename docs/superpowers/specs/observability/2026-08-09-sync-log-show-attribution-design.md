@@ -154,6 +154,10 @@ Both fields are required. `logSync` computes `now() - attemptStartedAtMs`, so a 
 
 **There are TWO capture sites, not one.** `lib/sync/runManualStageForFirstSeen.ts:147-158` calls `emitSuccessfulPhase2Tail` directly — reaching the `logSync` helper **without** passing through `processOneFile`, the other site that establishes a start. Its emission is exercised by an existing test through an injected sink (`tests/sync/runOfShowSyncLogChannel.test.ts:172-192`). Left alone it would write NULL duration through the helper path and contradict AC-6, so it captures its own start the same way. This is a genuine attempt with a real boundary, which is why it gets a start rather than a place on the §3.3.1 NULL list. Propagation is already guaranteed: the object actually passed at the in-transaction call sites is the locally-constructed `txDeps = txBoundProcessDeps(tx, deps)` (`lib/sync/runScheduledCronSync.ts:3298`), and `txBoundProcessDeps` (`lib/sync/runScheduledCronSync.ts:2301-2305`) returns a `ProcessOneFileDeps` — either `deps` verbatim (`lib/sync/runScheduledCronSync.ts:2306`) or a derivation of it — so a new field on `ProcessOneFileDeps` reaches every site without touching any call site. `logSync` computes the delta and sets it on the entry; the sink writes it to `duration_ms`.
 
+The three are: the prepared-skip branch (`lib/sync/runScheduledCronSync.ts:2742`), the lock-contended branch (`lib/sync/runScheduledCronSync.ts:2761`), and the main path through `txBoundProcessDeps` (`lib/sync/runScheduledCronSync.ts:2755`). The first two log with the **original** `deps` and are outside the `txBoundProcessDeps` propagation argument entirely — substituting only the third gives the applied path a correct duration while both skip classes stay NULL, and no listed assertion notices.
+
+**Derive a fresh object; do NOT mutate `deps`.** The same `processDeps` object is reused across files in the run loop (`lib/sync/runScheduledCronSync.ts:3877-3942`), so writing a start onto it leaks one file's start into the next file's row. `processOneFile` therefore builds its own `depsWithStart` per invocation.
+
 Note this is deliberately NOT the outer `txDeps` parameter of type `SyncPipelineTxBoundDeps` (`lib/sync/runScheduledCronSync.ts:457-459`, `{ upsertAdminAlert }` only) — that type carries no `logSync` and is shadowed at `lib/sync/runScheduledCronSync.ts:3298`. Confusing the two would produce a change that typechecks and silently writes nothing, because `logSync?` is optional and `deps.logSync?.(entry)` would no-op.
 
 Guard conditions:
@@ -173,6 +177,8 @@ Duration is scoped to the `logSync` helper, because that is the only site with a
 | Manual recovery at `lib/sync/runManualSyncForShow.ts:175-183`, `lib/sync/runManualSyncForShow.ts:224-232` | Same — recovery sink, no start threaded. |
 | Push preflight / failure / duplicate at `lib/sync/runPushSyncForShow.ts:235-247` | Written **before** `processOneFile` captures a start; there is no attempt yet. |
 | Onboarding scan at `lib/sync/runOnboardingScan.ts:659-670` | Scan-scoped, not attempt-scoped. |
+| Webhook folder-list failure (`app/api/drive/webhook/route.ts:224`) | Calls the sink directly with `driveFileId: null`; no attempt has begun. |
+| Webhook per-file escaped error (`app/api/drive/webhook/route.ts:234-239`) | Calls the sink directly, outside the timed helper. Note it DOES pass `driveFileId`, so it attributes — it is a NULL-**duration** writer, not a NULL-attribution one. |
 | Session lifecycle (four sites, §3.2) | Not a sync attempt at all. |
 
 Extending timing to these is deliberately **out of scope** (§7): each needs its own notion of "the attempt," and the operator question this spec answers ("has this show been failing?") is served by outcome and timestamp, not by duration.
@@ -214,6 +220,25 @@ Index names are reused verbatim across schemas because index names are schema-sc
 Scheduling mirrors `supabase/migrations/20260629000002_app_events.sql:53-63`: a self-guarded `do $$ ... $$` block that unschedules any existing job of the same name before `cron.schedule`, so re-applying the migration is idempotent. Job name `sync_log_prune`, on an off-peak minute distinct from `app_events_prune`'s `17 4 * * *`.
 
 **Gate coupling:** `sync_log_prune` sits outside the `fxav_cron_` prefix, exactly like `app_events_prune`, so it MUST be added to `EXPECTED_NON_FXAV_NON_ORPHAN_CRONS` (`tests/cross-cutting/pg-cron-coverage.test.ts:107`, currently `["app_events_prune"]`) in the same commit as the migration, or that gate fails.
+
+### 3.6 Attribution meta-test (the structural defense)
+
+Three findings across rounds 1 and 2 were instances of one vector — *a `sync_log` row that could name its show does not*: the onboarding sink never resolved it (R1 F2), three row classes were misfiled as unattributable (R1 F7), and seven onboarding callers drop an available `driveFileId` (R2 F1). Each was repaired per-instance. `docs/agents/writing-plans.md` is explicit that this is the stopping point: *"if the class is already nameable at FIRST occurrence, ship the structural defense in the FIRST repair commit"*, because *"the 3-round same-vector threshold is a ceiling, not a waiting period."*
+
+A NEW meta-suite under `tests/sync/` (named `_metaSyncLogAttribution`, created by this change, so it is a deliverable rather than a citation) walks every call site reaching a `sync_log` writer **from disk** and requires each to be in exactly one state:
+
+1. **Attributing** — the call passes a `drive_file_id`, or
+2. **Registered run-level** — an explicit `RUN_LEVEL_SYNC_LOG_SITES` row naming the site and why it cannot name a file.
+
+Filesystem discovery is the load-bearing part: a NEW call site fails by default rather than being silently exempt. Same posture as `tests/log/_metaMutationSurfaceObservability.test.ts` (invariant 10). Mechanism: `walkSourceFiles` (`lib/messages/__internal__/walkSourceFiles.ts:8-11`) plus the TypeScript AST, exactly as that precedent uses them.
+
+**This is the oracle for the caller class**, which no DB scenario can cover: the seven superseded branches are mutually exclusive, so a behavioral test reaches one per scenario (§5, R3 F1).
+
+**Scope bound, stated so it cannot ratchet.** Roots `lib/sync`, `lib/onboarding`, and `app/api/drive`. Recognized writers: `logSync(...)`, `tx.logSync(...)`, `deps.logSync?.(...)`, `insertSyncLog(...)`, and any literal `insert into public.sync_log`. Target ~150 lines. If review pressure pushes it past ~250, that is the ratchet the round-economy retrospective describes, and the response is to narrow the claim rather than widen the recognizer.
+
+**Threat model.** Defends against an ordinary contributor adding a call site and forgetting attribution. Deliberate obfuscation — a dynamically computed writer name, an aliased import — is out of scope and files to documented limits.
+
+**Seed registry** — exactly the rows §3.2 derives: `lib/sync/runScheduledCronSync.ts:3780`, `lib/sync/runScheduledCronSync.ts:3796`, the four `lib/onboarding/sessionLifecycle.ts` sites, `lib/sync/runOnboardingScan.ts:1134`, and `app/api/drive/webhook/route.ts:224`.
 
 ---
 
@@ -275,9 +300,20 @@ It must be a **new, DB-backed** file. It may NOT extend `tests/observe/querySync
 
 So each of the three sinks gets its **own** DB readback: write through that sink for a `drive_file_id` with a committed `shows` row, then read the row back and assert `show_id`. Three assertions, not one parameterized over a single sink. The onboarding case must additionally cover a `WIZARD_SESSION_SUPERSEDED_DURING_SCAN` emission, since that is the caller-side omission R2 F1 identified and a sink-only fix leaves it NULL.
 
+**But a DB oracle cannot cover the caller class, and must not pretend to (R3 F1).** The seven superseded sites (`lib/sync/runOnboardingScan.ts:740`, `lib/sync/runOnboardingScan.ts:826`, `lib/sync/runOnboardingScan.ts:842`, `lib/sync/runOnboardingScan.ts:863`, `lib/sync/runOnboardingScan.ts:896`, `lib/sync/runOnboardingScan.ts:922`, `lib/sync/runOnboardingScan.ts:1019`) are **mutually exclusive branches** — each returns immediately — so one DB scenario exercises exactly one of them. Seven scenarios would be needed, and a partial implementation that repairs the sink plus the single tested caller passes while six sites still drop an available `file.driveFileId`.
+
+The oracle for this class is therefore **static, not behavioral**: the attribution meta-test (§3.6) walks every call site from disk and requires each to attribute or hold a registry row. The DB test proves the sink resolves; the meta-test proves no caller starves it. Neither alone is sufficient, and the split is deliberate.
+
 **Prune-test target and isolation contract (R2 F5) — a live hazard, not a style note.** `prune_sync_log('1 day')` deletes every qualifying row in whatever database it is pointed at, and the sink's own resolver **prefers `TEST_DATABASE_URL`** (`lib/sync/syncLog.ts:8-14`), which on this machine is the shared **validation project** (`BACKLOG.md:1101`). Following a naive reading of this spec could permanently delete validation history. Three requirements, all mandatory:
 
-1. **Pin the target explicitly to loopback** via `assertLocalDbUrl` (`tests/db/_localDbUrl.ts:50`). Never let the prune test inherit `TEST_DATABASE_URL`. The existing guards `tests/db/_metaDestructiveDbTargetGuard.test.ts` and `_metaLocalDbUrlGuard.test.ts` cover this class; do not fight them.
+1. **Pin the target explicitly to loopback** via `assertLocalDbUrl` (`tests/db/_localDbUrl.ts:50`). Never let the prune test inherit `TEST_DATABASE_URL`.
+
+   **The existing meta-guards do NOT cover this, contrary to an earlier draft of this spec (R3 F6).** That claim was false and is corrected here rather than quietly dropped, because it was the entire basis for calling the hazard already-handled:
+
+   - `tests/db/_metaDestructiveDbTargetGuard.test.ts:35-43` discovers destructive tests by two literal patterns — `EXECUTES_WIPE = /select\s+public\.reset_validation_data\s*\(\s*\)/i` and an `ENABLES_WIPE_GATE` update. Neither matches `prune_sync_log`.
+   - `tests/db/_metaLocalDbUrlGuard.test.ts:122` scans reads of `process.env.LOCAL_TEST_DATABASE_URL` only. `TEST_DATABASE_URL` — the variable that actually points at validation, and the one `lib/sync/syncLog.ts:8-14` prefers — is outside its scan.
+
+   A prune test connected through `TEST_DATABASE_URL` therefore passes **both** guards and deletes shared validation history. So this spec **extends** `EXECUTES_WIPE`'s discovery to recognize `prune_sync_log` (and any future `prune_*` executing against a non-loopback target), making the guard cover the surface it is claimed to cover. That extension is part of the deliverable, not an assumption about it.
 2. **Run inside a transaction that is always rolled back**, per the template at `tests/db/driveFileIdNonblank.db.test.ts` — so the suite leaves zero residue even while red.
 3. **Assert on fixture-scoped rows, not global counts.** Pre-existing qualifying rows (the local DB currently holds 5,073) contaminate any expected-count assertion. Scope every count to a unique fixture marker.
 
@@ -288,8 +324,10 @@ So each of the three sinks gets its **own** DB readback: write through that sink
 | AC-7 public indexes | `pg_indexes` contains `sync_log_show_id_idx` and `sync_log_drive_file_id_idx` on `public.sync_log`, with the expected column order and `DESC` on the timestamp. |
 | AC-7 dev indexes | Same two on `dev.sync_log` **when `to_regclass('dev.sync_log')` is non-null**; and the migration text is asserted to carry the `to_regclass` guard so an ungated form cannot ship. |
 | AC-8 existence + posture | `pg_proc` has `prune_sync_log(interval)`, `prosecdef = true`, `proconfig` contains `search_path=public, pg_temp`. |
+| AC-8 default interval | `proargdefaults` decodes to **60 days**. Asserting only signature and posture lets a `1 day` default ship and silently discard 59 extra days — the behavior test calls an explicit `'1 day'` and would not notice (R3 F5). |
+| AC-8 schedule literal | The live `cron.job.schedule` equals the exact expected cron string, **and differs from `app_events_prune`'s `17 4 * * *`**. "Matches the migration" is not an oracle: migration and live row agree on an every-minute or colliding cadence just as happily as on the right one. |
 | AC-8 privileges | `has_function_privilege('service_role', …, 'EXECUTE')` is true; the same for `anon` and `authenticated` is **false**. |
-| AC-8 behavior | Insert rows straddling the cutoff, call `prune_sync_log('1 day')`, assert the returned count equals the number older than the cutoff **and** that the newer rows survive. A return-value-only assertion passes on a function that deletes everything. |
+| AC-8 behavior | Insert fixture rows straddling the cutoff under a unique status marker, call `prune_sync_log('1 day')`, then assert **on the marker-scoped set**: every fixture row older than the cutoff is gone, and every newer one survives. The function's **return value is global** — it counts every qualifying row in the table — so it may only be asserted as `>= fixtureOldCount`, never as equality. (R3 F4: requiring equality while forbidding global counts is self-contradictory, and on any database holding pre-existing old rows the *correct* function fails it.) Survival of the newer marker-scoped rows is what rules out a delete-everything implementation. |
 | AC-8 schedule | `cron.job` has a row named `sync_log_prune` whose `command` calls `public.prune_sync_log()`, whose schedule matches the migration, **and whose `active` is true**. The `active` column is not decorative: the same suite documents and tests that a correct-looking `active = false` row never fires (`tests/cross-cutting/pg-cron-coverage.test.ts:408-412`), and the non-`fxav_` registry snapshot compares names only — so retention could be silently disabled with every other assertion green. |
 
 **Anti-tautology.** Each assertion must fail for the right reason:
