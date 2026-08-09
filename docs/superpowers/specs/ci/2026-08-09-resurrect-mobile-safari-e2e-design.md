@@ -409,12 +409,29 @@ For each §2.2 failure, in the worktree, before wiring:
    recorded here so the wiring cannot be read as having revived them.
 5. **The recovery/`viewer_off_day` §5.7 case may defer** per §3.5's case valve; if it does, its
    `BL-` row + registered skip are the surfaced record.
-6. **If §3.5's WHOLE-FILE valve fires, `right-now-transitions.spec.ts` stays live, `UNSEEN`, and
-   local-only** — the one arc outcome where a touched file is neither CI-executed nor deleted.
-   That disposition is legal ONLY as this documented limit plus its `BL-` row (spec review R3
-   F3): the consequence bound's third state ("documented as a limit in §6") is THIS entry, and
+6. **§3.5's WHOLE-FILE valve FIRED, and `right-now-transitions.spec.ts` is `UNSEEN`, local-only,
+   and STATICALLY SKIPPED** — the one arc outcome where a touched file is neither CI-executed nor
+   deleted. That disposition is legal ONLY as this documented limit plus its `BL-` row (spec review
+   R3 F3): the consequence bound's third state ("documented as a limit in §6") is THIS entry, and
    the implementer copies the fired valve's probe evidence into the `BL-` row so the limit is
-   auditable, not asserted.
+   auditable, not asserted. Filed as `BL-RIGHTNOW-SECTION57-FIXTURE-INERT`.
+
+   **AMENDMENT 2026-08-09 (implementation, ratified here per invariant 7).** This entry was drafted
+   as "stays LIVE, `UNSEEN`, and local-only", on the assumption that a fired valve leaves a working
+   local suite. Execution disproved the assumption: the block's `shows_internal.run_of_show` fixture
+   does not drive the hero it asserts. Probed under TZ=UTC (the CI runner's zone) — changing the
+   fixture's Day-1 entry from `7:30am` to `7:13am` left the render UNCHANGED at
+   `"Today: Show day 1 of 2Show7:30 AM"`, and the write demonstrably lands (the `afterAll` restore
+   reads the prior value back; `psql` confirms the column round-trips). Two coincidences had kept it
+   green: Day 1's `7:30am` equals the seed's OWN show-start anchor, and Day 2's `8:00am` equals
+   noon-UTC rendered in `America/New_York`, so on a developer Mac that assertion matched the pinned
+   CLOCK rather than any anchor (CI renders the same instant `12:00 PM`, which is what exposed it).
+
+   Leaving the block "live" would therefore have left a locally-green suite whose assertions pass off
+   seed-derived values — a false coverage signal, which is the very thing the consequence bound
+   forbids. The honest form of "neither CI-executed nor deleted" is a STATIC SKIP carrying the `BL-`
+   reference, so the file is visibly parked rather than quietly passing. `never silently dark` is
+   satisfied by the skip plus this entry plus the ledger row, not by a green local run.
 
 ## 7. Out of scope
 

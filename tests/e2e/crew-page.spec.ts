@@ -296,7 +296,7 @@ test.describe("crew redesign layout invariants (§4.9 / test 12)", () => {
       audio: (room.audio as string | null) ?? null,
       video: (room.video as string | null) ?? null,
     };
-    const upd = await admin
+    const { error: overrideError } = await admin
       .from("rooms")
       // Intentionally different lengths (1-line audio vs 3-line video) so the
       // cards' natural heights differ — the stretch row must still equalize them.
@@ -305,7 +305,9 @@ test.describe("crew redesign layout invariants (§4.9 / test 12)", () => {
         video: "2x 7000-lumen laser projectors; 1x switcher; 1x confidence monitor",
       })
       .eq("id", gearRoomId);
-    if (upd.error) throw new Error(`inv3 setup: room A/V override FAILED: ${upd.error.message}`);
+    if (overrideError) {
+      throw new Error(`inv3 setup: room A/V override FAILED: ${overrideError.message}`);
+    }
   });
 
   test.afterAll(async ({}) => {

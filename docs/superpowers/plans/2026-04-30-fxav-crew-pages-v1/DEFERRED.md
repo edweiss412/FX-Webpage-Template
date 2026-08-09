@@ -81,9 +81,12 @@ When picking up a deferred item:
 >   shareToken route and wired into `crew-e2e.yml`, so the "~3h jsdom + RTL port" row is
 >   settled by an e2e that actually runs, not by a port.
 > - **PARTIALLY SETTLED**: `right-now-transitions.spec.ts` — the two audit blocks (66-pair,
->   compound) were deleted; the live §5.7 block was migrated to the shareToken route and
->   wired. The RENDERED transition treatment has no executable audit and is a documented
->   limit (spec §6.1), not a scheduled port.
+>   compound) were deleted. The §5.7 block was migrated to the shareToken route but is NOT wired
+>   and is now statically skipped: its `shows_internal.run_of_show` fixture proved not to drive
+>   the hero it asserts, so wiring it would have pinned a suite passing off seed-derived values
+>   (spec §3.5 whole-file valve → §6.6; `BL-RIGHTNOW-SECTION57-FIXTURE-INERT`). The RENDERED
+>   transition treatment has no executable audit and is a documented limit (spec §6.1), not a
+>   scheduled port.
 > - **STILL OPEN**: the four `crew-page.spec.ts` tile rows (LodgingTile, VenueTile,
 >   CrewTile, ContactsTile) and the `crew-page.spec.ts:508` layout-shell row. Those blocks
 >   were also deleted as superseded (their subject components are pinned gone by
