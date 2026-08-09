@@ -210,8 +210,12 @@ function recognizeJoins(relPath: string, source: string): JoinSite[] {
   const visit = (node: ts.Node): void => {
     // The separator can be wrapped too: `.join(" " as const)` is ordinary TypeScript that
     // Prettier leaves alone, and it escaped a check that read `arguments[0]` raw.
+    // `arguments.length >= 1`, not `=== 1`: `.join(" ", undefined)` is valid JavaScript that
+    // ignores the extra argument and still emits a space-separated className. Prettier
+    // preserves it and ESLint is blind to it, so an exact-arity check was a free bypass in
+    // every `.js`/`.jsx`/`.mjs`/`.cjs` UI file.
     const rawSeparator =
-      ts.isCallExpression(node) && node.arguments.length === 1 ? node.arguments[0] : undefined;
+      ts.isCallExpression(node) && node.arguments.length >= 1 ? node.arguments[0] : undefined;
     const separatorArg =
       rawSeparator === undefined ? undefined : unwrapValuePreserving(rawSeparator);
     // The CALLEE can be wrapped too: `(arr.join)(" ")`, `arr.join!(" ")`, `(arr.join as F)(" ")`
@@ -533,6 +537,11 @@ const ESCAPE_SHAPES = [
     id: "as-cast-callee",
     signature: '"esc-10a", "esc-10b"',
     code: 'export const J = () => <div className={(["esc-10a", "esc-10b"].join as (s: string) => string)(" ")} />;',
+  },
+  {
+    id: "extra-ignored-argument",
+    signature: '"esc-12a", "esc-12b"',
+    code: 'export const L = () => <div className={["esc-12a", "esc-12b"].join(" ", undefined)} />;',
   },
   {
     id: "satisfies-callee",

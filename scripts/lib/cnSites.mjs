@@ -128,7 +128,9 @@ function matchArrayJoin(node) {
   const callee = unwrap(node.expression);
   if (!ts.isPropertyAccessExpression(callee)) return null;
   if (callee.name.text !== "join") return null;
-  if (node.arguments.length !== 1) return null;
+  // `>= 1`, not `=== 1`: `.join(" ", undefined)` ignores the extra argument and still emits a
+  // space-separated string, so an exact-arity check was a free bypass.
+  if (node.arguments.length < 1) return null;
   const separator = unwrap(node.arguments[0]);
   if (!isWhitespaceSeparator(separator)) return null;
 
