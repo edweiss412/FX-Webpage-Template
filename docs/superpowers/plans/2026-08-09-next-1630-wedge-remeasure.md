@@ -445,8 +445,11 @@ if [ "$(git rev-parse origin/chore/next-1630-wedge-remeasure)" = "$FINAL" ]; the
     echo "MERGE-FAILED - diagnose (branch protection? conflict?); do not treat as complete"
   fi
 else
-  git pull --ff-only
-  echo "HEAD-MOVED - do NOT merge; local now synced to the new head; restart from Task 6 Step 2"
+  if git pull --ff-only; then
+    echo "HEAD-MOVED - do NOT merge; local now synced to the new head; restart from Task 6 Step 2"
+  else
+    echo "HEAD-MOVED and PULL-FAILED (diverged local tree?) - do NOT merge and do NOT restart until the pull succeeds; resolve the divergence first"
+  fi
 fi
 ```
 
