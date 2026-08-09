@@ -8,6 +8,96 @@ Same split as [DEFERRED.md](./DEFERRED.md) ↔ [DEFERRED-archive.md](./DEFERRED-
 
 ---
 
+### BL-RESURRECT-MOBILE-SAFARI-E2E — lift the remaining mobile-safari tile/crew specs into CI
+
+**Filed:** 2026-06-23 (discovered building the crew-e2e CI job). **Effort:** L
+
+> **CORRECTION 2026-08-06 (L-wave, `feat/l-wave-docs`).** The entry's founding premise — "NO CI
+> workflow runs the `mobile-safari` Playwright project" — is **REFUTED**. Three workflows run it
+> today: `lifecycle-layout-e2e.yml` (`:110`, `:130`, `:132`), `crew-e2e.yml` (`:159`, alongside
+> desktop-chromium), and `phantom-gap-e2e.yml` (`:175`). The project is not dark; a **subset of specs
+> inside it** is. The id is KEPT deliberately — it is cross-referenced from the CI-dark cluster specs
+> and the 2026-08-05 sizing sweep, and a rename would cost more than the stale title saved. The body
+> below is rewritten at honest scope; the original claim is preserved in this note so the correction
+> is auditable rather than silent.
+
+**Honest residual: the ~20 M4 tile/crew specs that no workflow names.** Every CI Playwright run is
+still an explicit spec list, so a spec matched by the `mobile-safari` project but named in no run
+command executes nowhere. That set is roughly: `crew-page`, `schedule-tile`, `transport-tile`,
+`status-financials`, `role-spoof`, `pack-list`, `notes-tile`, `right-now`, `right-now-transitions`,
+`layout-dimensions`, `empty-state`, `theme-toggle`, and their siblings — the twelve that are
+additionally `describe.skip` are enumerated in `BACKLOG-archive.md` §
+`BL-COVERAGE-CLAIMS-CITE-SKIPPED-SUITES`. **A spec being project-matched is not coverage**, and that
+distinction is the whole content of this row now.
+
+**Why it is still L, and still not "now":** these specs have been unrun in CI for a long time and
+will surface latent seed/timing/env failures. The crew corpus and the M4 tile fixtures mutate shared
+rows — `workers: 1` already serializes them, but resurrecting ~20 at once is a multi-round debugging
+slog, not a follow-on edit. Several also predate the crew redesign and assume a pre-redesign DOM.
+
+**Promotion path — incremental, and the bar is already demonstrated.** Extend `crew-e2e.yml` (or a
+sibling) spec by spec, triaging each failure; the `CREW_E2E_ONLY` filter + `pnpm db:seed` pattern
+there is the working template. `lifecycle-layout-e2e.yml` is the worked example of the acceptance bar
+a batch must clear — **five consecutive green normal-dispatch runs** before a spec counts as wired
+(spec §6.1 / AC-6). Land green globs as they pass rather than flipping the project on at once.
+
+**Relationship to `BL-E2E-APP-DEPENDENT-SPECS-CI-DARK` — it is a SUBSET, not a sibling.** Probed
+2026-08-06: all twelve specs listed above are `UNSEEN` rows of the same
+`tests/ci/_metaE2eWorkflowCoverage.test.ts` allowlist that entry's 43-row population is drawn from.
+An earlier draft of this note claimed the two cover different populations and may close
+independently; that was false in the direction that matters, and is corrected here rather than left
+to be re-derived. **Closing the parent closes this one.** This entry survives as a distinct row only
+because it names a coherent, prioritizable BATCH — the mobile-safari tile/crew specs, which share one
+project, one seed, and one template — and the parent's own promotion path is explicitly incremental
+batches. If the parent is worked wholesale, archive this as absorbed.
+
+**RESOLVED 2026-08-09** — PR #743, branch `test/resurrect-mobile-safari-e2e`. Closed at the honest
+scope the 2026-08-06 correction established: wire what lives, delete what is superseded, revive the
+one unique gap.
+
+**What shipped.**
+
+- **Deleted nine specs** (schedule-tile, transport-tile, status-financials, role-spoof, pack-list,
+  notes-tile, right-now, layout-dimensions, empty-state). Each was 100% `test.describe.skip` against
+  the retired `?crew=` viewer mock AND the slug-only `/show/[slug]` route, which has no `page.tsx`,
+  so every `page.goto` in them 404'd. Per-file coverage accounting is spec §2.3; nothing this repo
+  still had was removed. `--list` before/after: 69 → 60 files, exactly the nine, nothing else.
+- **Wired `crew-page.spec.ts`** (mobile-safari ALONE — its 22 `testInfo.project.name` early-returns
+  made a desktop execution a passing no-op the executed-count oracle would have credited; all 22
+  removed and the spec dropped from the desktop regex in the same commit, sweep neutrality verified
+  against a pre-sweep baseline of 15 expected / 4 skipped).
+- **Rewrote and wired `theme-toggle.spec.ts`** against the seeded shareToken route: persistence in
+  BOTH directions, a no-FOUC oracle that proves the theme is applied before anything paints, a11y
+  resolved by ROLE and computed accessible name, and the 44px tap floor. `REQUIRED` rows are 15 and
+  8, derived from real run reports.
+- **Fired the §3.5 whole-file valve on `right-now-transitions.spec.ts`** — unwired, statically
+  skipped, recorded as the §6.6 documented limit. See `BL-RIGHTNOW-SECTION57-FIXTURE-INERT`.
+- **Three fail-by-default guards** so this cannot silently regress: `ENROLLED ∪ EXEMPT` must equal
+  the workflow's spec list; every enrolled spec needs an explicit `EXPECTED_SKIPS` row; and no spec
+  a paths-ignore workflow runs may stay `UNSEEN`. Each shipped with its own mutant-red.
+
+**AC-2 met:** five consecutive green `crew-e2e` `workflow_dispatch` runs on `79a22d11e` —
+31317463872, 31317829789, 31318165364, 31318525822, 31318896147.
+
+**Product defects the resurrection surfaced** (this entry predicted exactly that):
+[[BL-CREW-FOOTER-OBSCURED-BY-FIXED-BOTTOM-BAR]] and
+[[BL-CREW-FOOTER-NOT-ANCHORED-SHORT-CONTENT]] — probably one fix, both filed with probes.
+
+**Harness/infra defects it surfaced:** [[BL-RIGHTNOW-SECTION57-FIXTURE-INERT]],
+[[BL-LOCKED-FIXTURE-HELPER-TARGETS-REMOTE-DB]], [[BL-FONT-CENSUS-ORACLE-FLAKE-BLOCKS-CREW-E2E]].
+
+**Residues closed in-arc:** the pack-list `rawSnippet` render now has
+`tests/components/crew/sections/GearSection.rawSnippet.test.tsx` (four mutants). The
+layout-dimensions footer residue did NOT land a test — the invariant does not hold in the product
+(`mt-auto` computes to 0px because `crew-shell` breaks the `page-shell` flex chain), so it became a
+defect row instead; spec §3.3's product-defect branch, ratified in the spec's Dimensional Invariants
+amendment.
+
+**Whole-diff review:** 7 Codex rounds to APPROVE; round-economy filing at
+`docs/review-rounds/test/resurrect-mobile-safari-e2e/b2aca7b02547.md`.
+
+---
+
 ## BL-FRESHNESS-ABORTED-CLOSE-E2E — the freshness cue's clear-on-hide branch has no behavioural proof — CLOSED 2026-08-07 (`feat/backlog-quick-wins`, arc C Q2)
 
 **Status:** CLOSED · **Filed:** 2026-08-03 (round-3 cross-model review of `feat/modal-freshness-cue`) · **Class:** test coverage · **Effort:** S (one e2e case on an existing spec) · **Severity:** low
@@ -5911,6 +6001,34 @@ The restructure is behavior-preserving: the ok/not-ok partition over every input
 **Original entry (2026-06-17), verbatim:**
 
 > The Phase 1 crew-page projection alert (`TILE_PROJECTION_FETCH_FAILED`, §4.13 of `specs/v1-pre-deployment-amendments/2026-06-15-crew-page-redesign-phase1-design.md`) records, per render, the `tileErrors` keys that render observed, and the dedup RPC union-merges across renders. Because `getShowForViewer` skips the `shows_internal` query unless `isLead` (`lib/data/getShowForViewer.ts:473-505`), a **non-lead render cannot observe a `financials` fetch failure** — so a `financials`/lead-only-domain outage with **non-lead-only crew-page traffic** is not alerted until a lead/admin renders. This is the **accepted v1 contract** ("union-by-accumulation"), and it is **not a regression** — today's `financials` alert already comes from the lead-gated `FinancialsTile` fallback. If true per-render viewer-independence is later wanted: add a **status-only admin-observability probe** that records each domain's fetch success/failure on every render **without returning the gated data to non-leads** (e.g. a service-role fetch-status check, or surfacing the failure through the data-sync path), and test it through the real projection path. Out of scope for v1; admins also have the dashboard's independent infra signals (drive-health, sync alerts). Technical home: `lib/data/getShowForViewer.ts` + the §4.13 projection-alert contract.
+
+---
+
+## BL-PUBLISHED-TOGGLE-CLIENT-COMMIT-WEDGE — a fast server action can leave the Published toggle stuck pending on WebKit — CLOSED 2026-08-09 (`chore/next-1630-wedge-remeasure`, upstream fix confirmed by measurement)
+
+**Status:** CLOSED 2026-08-09 (upstream fix confirmed by measurement) · **Severity:** MEDIUM (real-user exposure unquantified; measured 7/10 in a CI loop) · **Class:** upstream framework defect, product exposure · **Filed:** 2026-07-26 (BL-E2E-LIFECYCLE-TRANSITIONS-ROUNDTRIP-FLAKE measurement work) · **Effort:** L
+**l-wave-screen 2026-08-06:** PARKED-WATCH — measured upstream React replay-loss defect; mitigations gated on real-user reports or a vendored React fix, and the watch signals are named in-body.
+
+**Measured, not theorized** (CI run 30233337644 retry1 trace + baseline loop 30235889083, 7/10 samples): `setShowPublishedAction` POSTs, the server commits and responds 200 `{ok:true}` in ~230ms with the re-rendered `published:false` tree in the response body, the page stays responsive — and the `PublishedToggle` switch sits `disabled aria-busy="true"` with the OLD `aria-checked` indefinitely. `await setPublished(...)` inside the form action never resolves, so `useFormStatus().pending` never clears and `router.refresh()` is never reached. React never commits the applied tree (React 19 replay-loss class; nearest public report vercel/next.js discussion 88767). Vendored React was identical through next 16.2.12 (`19.3.0-canary-3f0b9e61-20260317`), so no patch-bump fix existed at filing time.
+
+**User-visible shape if it bites in production:** an admin flips Published on mobile Safari, the switch greys out and spins forever; the mutation HAS committed (crew link state is already flipped). A reload shows truth. All observations so far are Playwright WebKit under CI; not yet reproduced in desktop Chromium or a real handheld Safari — quantifying that is the first step if this is picked up.
+
+**Watch signals:** `[wedge-recovery]` lines in the lifecycle-transitions e2e output (tier=nudge/reload counts per run), and admin reports of a stuck Published switch. **Candidate mitigations if real-user reports arrive:** a client-side watchdog in `PublishedToggle.formAction` (`Promise.race` the action against a generous timeout, then `router.refresh()` — the mutation is NOT retried, only the read is), or an upstream React/Next bump once the replay fix ships in a stable vendored canary.
+
+**How it closed (2026-08-09, `chore/next-1630-wedge-remeasure`).** The second candidate mitigation arrived: next 16.3.0 vendors `19.3.0-canary-cbb046ab-20260731`, 4.5 months newer than the `19.3.0-canary-3f0b9e61-20260317` every release through 16.2.12 carried. The bump was landed and the wedge re-measured on the branch head `113eac3fb`, using the same `lifecycle-layout-e2e` `transitions_repeats` dispatch arm that produced the baseline.
+
+- **Decision rule (pre-stated, spec §4.1):** 0 wedged samples in 20 valid samples = fix confirmed; ≥1 = not fixed. **Measured: 0/20.**
+- **Valid dispatch runs:** https://github.com/edweiss412/FX-Webpage-Template/actions/runs/31309768624 (10 samples) and https://github.com/edweiss412/FX-Webpage-Template/actions/runs/31310094026 (10 samples), both `transitions_repeats=10`, both bound to head `113eac3fb`. No discarded or invalid runs; 0 indeterminate samples.
+- **Counts:** 0 wedged samples of 20 valid; 0 wedged flips across all 40 executed flips (2 per sample, every sample passed). `3f0b9e61-20260317` wedged 7/10 (baseline run 30235889083); `cbb046ab-20260731` wedged 0/20.
+- **Fisher exact one-sided p ≈ 5.9×10⁻⁵** (0/20 vs 7/10, sample-grained).
+- **The zero is a measured zero, not a blind detector.** A positive control was run before the counts were accepted: a local Playwright test emitting the two `[wedge-recovery]` marker strings produced `{"type":"stdout"}` events in its `test.trace` member and the classifier's greps matched them. (The run LOGS carry no marker at all — the baseline run's log has zero `[wedge-recovery]` lines too — which is why the counting reads traces.)
+- **The e2e recovery tiers remain in `expectFlipLanded` deliberately** (`tests/e2e/admin-lifecycle-transitions.spec.ts`): they are read-only, self-documenting, and cost nothing on the healthy path — and they are the sensor behind trigger (a) below, within the bound the next paragraph states.
+
+**Un-archive triggers:** (a) any future `[wedge-recovery]` line (ANY tier, including the plain-escalation line) in a lifecycle-layout-e2e TRACE ARTIFACT — which exists for a FAILED run or any `workflow_dispatch` run; (b) an admin report of a stuck Published switch. On either, this entry returns to BACKLOG.md as **Status:** OPEN (park posture re-evaluated against whatever canary is then vendored) and its `BACKLOG_GRADUATED` row is removed in the same commit.
+
+**Documented limit — the passive sensor is partial (whole-diff review r2, spec §8).** `lifecycle-layout-e2e` uploads traces `if: failure() || github.event_name == 'workflow_dispatch'`, and the ordinary `pull_request` path runs one repeat at `trace: "on-first-retry"`. So a wedge that exhausts the reload tier and fails the job, or one seen in a dispatch run, IS observable — but two shapes are not, both silently: **a wedge that self-recovers inside an otherwise-green PR run uploads no trace and prints no marker** (the run log carries none either — the 7/10 baseline run's own log has zero `[wedge-recovery]` lines in 3578 lines), and **a wedge that exhausts the reload tier on one attempt and then passes on a Playwright retry** (`retries: 2` under CI, playwright.config.ts:42) leaves the job green, so the failure-gated upload never runs and the marker dies with the attempt. Detecting a low residual RATE therefore needs a periodic `transitions_repeats` dispatch, not passive PR traffic, and silence is not by itself evidence of continued absence. Widening the upload condition is a workflow edit fenced out of the closing branch; it is the natural first step if this entry is ever un-archived. The measurement also certifies the reproduction environment, not real Safari — every observation, baseline and post-bump, is Playwright WebKit (`mobile-safari`) on ubuntu CI runners — and 20 samples bound the detectable rate: 0/20 is consistent with a true per-sample rate up to ≈13.9% (exact one-sided 95% upper bound).
+
+---
 
 ### BL-CLASSNAME-ARRAY-JOIN-MIGRATION — migrate the array-join classNames so the canonical-class rule can see them — RESOLVED 2026-08-09 (`refactor/classname-array-join-cn`, PR #734)
 

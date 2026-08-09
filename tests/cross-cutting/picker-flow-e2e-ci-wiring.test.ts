@@ -22,8 +22,11 @@
  * own self-test), and every crew spec this job runs — including
  * stage-restricted-crew-schedule.spec, wired here for the seeded agenda fold —
  * carries a `PATH_GATED_BY_EXCLUSION` allowlist row that says what it actually is.
- * The rest of the mobile-safari project stays dark under
- * BL-RESURRECT-MOBILE-SAFARI-E2E.
+ * BL-RESURRECT-MOBILE-SAFARI-E2E closed 2026-08-09: crew-page.spec (mobile-safari
+ * only) and the rewritten theme-toggle.spec are now wired here too, nine specs
+ * were deleted as superseded, and right-now-transitions stays UNSEEN and
+ * statically skipped under its own valve. What remains dark is the NON-mobile-safari
+ * residual of BL-E2E-APP-DEPENDENT-SPECS-CI-DARK.
  */
 import { execFileSync } from "node:child_process";
 import { parse as parseYaml } from "yaml";
@@ -193,6 +196,48 @@ const EXPECTED_SKIPS: Record<string, string[]> = {
     "Admin Reset + Rotate flow: changing the share-token invalidates the old URL and the new URL works",
   ],
   "tests/e2e/stage-restricted-crew-schedule.spec.ts": [],
+  // Wired 2026-08-09 (BL-RESURRECT-MOBILE-SAFARI-E2E). Rows are EXPLICIT — an
+  // empty array is a claim ("this spec skips nothing"), and the ENROLLED
+  // membership assertion below refuses a missing row rather than defaulting it.
+  //
+  // crew-page's four are the §4.10 transition-audit block: statically skipped for
+  // a documented webkit technique limit (a frozen clock plus controlled rAF
+  // stalls the very AnimatePresence transition under test), with its three live
+  // coverage surfaces named in the block's own header. Kept, not revived.
+  "tests/e2e/crew-page.spec.ts": [
+    "transition (a): today→venue crossfade — wrapper opacity animates mid-transition then settles to a rendered Venue",
+    "transition (b): theme-toggle during a section nav flips data-theme instantly and the crossfade still settles (compound)",
+    "transition (c): re-enter Today re-mounts the hero at rest (no animate-from-hidden; compound)",
+    "transition (d): hero state-change while leaving Today unmounts the hero cleanly (no concurrent animation; compound)",
+  ],
+  "tests/e2e/theme-toggle.spec.ts": [],
+};
+
+/**
+ * Specs the crew-e2e.yml run command names that are ENROLLED in expectWired, and
+ * the pre-contract specs deliberately exempt from it.
+ *
+ * Why this exists (plan review R2 F1): expectWired is opt-in — a spec added to
+ * the workflow with no matching `it(...)` block is simply never checked, so the
+ * guard would stay green while the new spec's project honesty and skip inventory
+ * went unpinned. The parity assertion below makes enrollment FAIL-BY-DEFAULT:
+ * every file in the run command is either ENROLLED or carries an EXEMPT reason.
+ */
+const ENROLLED = [
+  "tests/e2e/picker-flow.spec.ts",
+  "tests/e2e/stage-restricted-crew-schedule.spec.ts",
+  "tests/e2e/crew-page.spec.ts",
+  "tests/e2e/theme-toggle.spec.ts",
+] as const;
+
+const EXEMPT: Record<string, string> = {
+  // Pre-contract specs: wired before expectWired existed, each already covered by
+  // its own bespoke assertion in this file or by the executed-count oracle.
+  "tests/e2e/crew-section-toggle.spec.ts": "pre-contract; pinned by the executed-count oracle row",
+  "tests/e2e/alert-action-links.spec.ts": "pre-contract; pinned by the executed-count oracle row",
+  "tests/e2e/font-binding.spec.ts": "pre-contract; pinned by the executed-count oracle row",
+  "tests/e2e/font-rendering-census.spec.ts":
+    "pre-contract; pinned by the executed-count oracle row (both projects, real assertions under each)",
 };
 
 /**
@@ -443,6 +488,53 @@ describe("picker-flow e2e CI wiring", () => {
     },
     PLAYWRIGHT_RESOLUTION_TIMEOUT_MS,
   );
+
+  for (const spec of ENROLLED.filter(
+    (f) => f !== SPEC && f !== "tests/e2e/stage-restricted-crew-schedule.spec.ts",
+  )) {
+    it(
+      `crew-e2e.yml's own command collects ${spec}`,
+      () => {
+        expectWired(playwrightTestSegments(read("crew-e2e.yml")), spec, "Its cases");
+      },
+      PLAYWRIGHT_RESOLUTION_TIMEOUT_MS,
+    );
+  }
+
+  it("every spec the crew-e2e.yml command names is ENROLLED or explicitly EXEMPT", () => {
+    // Fail-by-default enrollment. Adding a spec to the workflow without enrolling
+    // it here fails HERE, rather than shipping an unpinned spec whose project
+    // honesty and skip inventory nothing checks.
+    const named = new Set<string>();
+    for (const segment of playwrightTestSegments(read("crew-e2e.yml"))) {
+      for (const word of segment) {
+        if (word.startsWith("tests/e2e/") && word.endsWith(".spec.ts")) named.add(word);
+      }
+    }
+    expect(named.size, "crew-e2e.yml names no spec files — the parser is wrong").toBeGreaterThan(0);
+    const accounted = new Set<string>([...ENROLLED, ...Object.keys(EXEMPT)]);
+    expect(
+      [...named].filter((f) => !accounted.has(f)).sort(),
+      "these specs are in the crew-e2e.yml run command but are neither ENROLLED in expectWired " +
+        "nor given an EXEMPT reason. Enroll it (preferred) or record why it is exempt.",
+    ).toEqual([]);
+    expect(
+      [...accounted].filter((f) => !named.has(f)).sort(),
+      "these specs are ENROLLED/EXEMPT here but the crew-e2e.yml run command no longer names " +
+        "them. A stale row lets a spec drop out of CI without this guard noticing.",
+    ).toEqual([]);
+  });
+
+  it("every ENROLLED spec has an EXPLICIT EXPECTED_SKIPS row", () => {
+    // expectWired reads `EXPECTED_SKIPS[spec] ?? []`, so a MISSING row and a row
+    // that says "skips nothing" are indistinguishable. For enrolled specs the row
+    // must exist, making "no skips" an assertion someone wrote rather than a
+    // default nobody chose.
+    expect(
+      ENROLLED.filter((spec) => !Object.prototype.hasOwnProperty.call(EXPECTED_SKIPS, spec)).sort(),
+      "these ENROLLED specs have no EXPECTED_SKIPS row. Add one — `[]` is a valid, explicit claim.",
+    ).toEqual([]);
+  });
 
   it("crew-e2e.yml asserts the guarded specs actually EXECUTED", () => {
     // Static wiring proves collection, never execution. R10 (HIGH) escaping mutant: a `beforeEach`

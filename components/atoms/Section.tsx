@@ -235,9 +235,14 @@ export function Section({
         content height exceeds it. Tiles whose body fits inside 240px
         never see scroll because content < container; tiles that overflow
         keep the excess internal, never blowing past their row track.
-        Not verified anywhere in CI: the AC-4.4 suite in
-        tests/e2e/layout-dimensions.spec.ts is `describe.skip` and runs
-        in no workflow (BL-E2E-APP-DEPENDENT-SPECS-CI-DARK).
+        Real-browser coverage for the crew-side dimensional invariants is
+        tests/e2e/crew-layout-dimensions.spec.ts (wired, phantom-gap-e2e.yml).
+        The AC-4.4 suite that formerly claimed this contract,
+        tests/e2e/layout-dimensions.spec.ts, was deleted 2026-08-09: it was
+        `describe.skip` against the retired ?crew= viewer mock and ran in no
+        workflow. Its inv4 half is moot (NotesTile no longer exists); see
+        docs/superpowers/specs/ci/2026-08-09-resurrect-mobile-safari-e2e-design.md
+        §2.3 for the per-invariant accounting.
 
         `flex-1` deliberately allows the body to grow into the row
         stretch (§8.4 invariant 2 — equal-height tiles in the first

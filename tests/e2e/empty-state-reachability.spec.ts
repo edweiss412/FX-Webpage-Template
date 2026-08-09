@@ -189,8 +189,10 @@ test.describe("crew page — §8.3 empty-state reachability (Task 9.3, AC-9.2)",
     page,
   }) => {
     // Default fixture: the LEAD viewer is not named on a hotel reservation
-    // in the seeded Waldorf fixture (verified via empty-state.spec.ts
-    // mutation patterns). No patch needed — the default state demonstrates
+    // in the seeded Waldorf fixture (originally verified via the mutation
+    // patterns in empty-state.spec.ts, deleted 2026-08-09 as superseded —
+    // spec docs/superpowers/specs/ci/2026-08-09-resurrect-mobile-safari-e2e-design.md
+    // §2.3). No patch needed — the default state demonstrates
     // category 3. If the seed evolves, the assertion below catches the drift.
     await page.goto(`/show/${s.slug}`);
     await expect(page.getByTestId("tile-grid")).toBeVisible();

@@ -59,7 +59,47 @@ When picking up a deferred item:
 
 ### M4-E2E-SUITES-MIGRATION — M4-era `test.describe.skip` Playwright suites: triage outcome
 
-**Status:** Deferred 2026-05-25 from per-suite redundancy audit.
+**Status:** Deferred 2026-05-25 from per-suite redundancy audit. **SUPERSEDED BY DELETION 2026-08-09** — see the disposition block immediately below before reading any row here.
+
+> **2026-08-09 — most of this entry is moot; the suites it schedules no longer exist.**
+>
+> `BL-RESURRECT-MOBILE-SAFARI-E2E` re-probed this population and found its premise
+> retired rather than dormant: the `?crew=`/`?as=`/`?role=` viewer mock is gone from
+> production code, and the slug-only `/show/[slug]` route these suites navigate has no
+> `page.tsx` and no redirecting middleware, so every `page.goto` in them 404s
+> unconditionally. Nine files were DELETED with their coverage accounted for per-file in
+> `docs/superpowers/specs/ci/2026-08-09-resurrect-mobile-safari-e2e-design.md` §2.3.
+>
+> Row-by-row disposition:
+>
+> - **DELETED 2026-08-09** (file gone; no port owed): `role-spoof`, `layout-dimensions`,
+>   `transport-tile`, `empty-state`, `pack-list`, `right-now`, `status-financials`,
+>   `schedule-tile`, `notes-tile`. The PARKED bucket is therefore empty — neither
+>   `role-spoof.spec.ts` nor `layout-dimensions.spec.ts` is waiting on
+>   `M11.5-PLAYWRIGHT-HELPERS` any more.
+> - **REWRITTEN LIVE 2026-08-09**: `theme-toggle.spec.ts` — rewritten against the seeded
+>   shareToken route and wired into `crew-e2e.yml`, so the "~3h jsdom + RTL port" row is
+>   settled by an e2e that actually runs, not by a port.
+> - **PARTIALLY SETTLED**: `right-now-transitions.spec.ts` — the two audit blocks (66-pair,
+>   compound) were deleted. The §5.7 block was migrated to the shareToken route but is NOT wired
+>   and is now statically skipped: its `shows_internal.run_of_show` fixture proved not to drive
+>   the hero it asserts, so wiring it would have pinned a suite passing off seed-derived values
+>   (spec §3.5 whole-file valve → §6.6; `BL-RIGHTNOW-SECTION57-FIXTURE-INERT`). The RENDERED
+>   transition treatment has no executable audit and is a documented limit (spec §6.1), not a
+>   scheduled port.
+> - **ALSO MOOT**: the four `crew-page.spec.ts` tile rows (LodgingTile, VenueTile,
+>   CrewTile, ContactsTile) and the `crew-page.spec.ts:508` layout-shell row. Those blocks
+>   were deleted as superseded too — their subject components are pinned gone by
+>   `tests/migration/crew-redesign-cleanup.test.ts` — so the ~11h they carry is not work
+>   anyone owes. (An earlier draft of this block labelled them "STILL OPEN" and then said
+>   they were moot; they are moot.) Line numbers throughout this entry are pre-deletion
+>   and no longer resolve.
+>
+> The residues this arc judged real were closed in-arc rather than left here: the pack-list
+> `rawSnippet` render now has `tests/components/crew/sections/GearSection.rawSnippet.test.tsx`,
+> and the layout-dimensions footer residue became a product-defect row
+> (`BL-CREW-FOOTER-NOT-ANCHORED-SHORT-CONTENT`) because the invariant does not hold in the
+> product. Nothing below should be scheduled without re-reading spec §2.3 first.
 **Source:** Two-stage triage of 14 hard-skipped M4-era Playwright suites in `tests/e2e/` (each had inline TODO citing the retired `?crew=/?as=admin` mock surface from Task 5.7 follow-up). Originally treated as a single blocker on `M11.5-PLAYWRIGHT-HELPERS`; the audit showed only 2 of the 14 actually need that helper layer.
 
 **Triage outcome (4 categories):**

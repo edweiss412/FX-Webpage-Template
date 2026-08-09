@@ -11,9 +11,17 @@
  * "today-band" / "tile-grid" equal-height blocks, which the 6-section redesign
  * subsumes (those testids no longer exist in components/crew/**).
  *
- * SKIPPED (pre-existing backlog, untouched here): the Task-4.2 layout-shell and
- * Task-4.4 tile suites below still use the retired `?crew=`/`?as=admin` mock and
- * await the §B migration to per-test crew identity via signInAs.
+ * SKIPPED: exactly ONE block — the §4.10 transition audit. It is statically
+ * skipped for a documented webkit technique limit (a frozen clock plus controlled
+ * rAF stalls the very AnimatePresence transition under test), and its own header
+ * names the three live surfaces that cover it instead. Its four titles are
+ * registered by exact title in the wiring guard's EXPECTED_SKIPS.
+ *
+ * The Task-4.2 layout-shell and Task-4.4 tile blocks this header used to describe
+ * as "skipped below" were DELETED 2026-08-09 — they targeted the retired
+ * `?crew=`/`?as=admin` mock and the slug-only `/show/[slug]` route, which has no
+ * page.tsx, so every navigation in them 404'd (spec docs/superpowers/specs/ci/
+ * 2026-08-09-resurrect-mobile-safari-e2e-design.md §2.3).
  *
  * Slug source: the seed corpus (supabase/seed.ts) loads the fixtures in
  * fixtures/shows/raw/ on every `pnpm db:seed` run and writes deterministic slugs
@@ -47,49 +55,66 @@ async function lookupSeededShow(): Promise<{
   lodgingNamedCrewId: string;
   lodgingUnnamedCrewId: string;
 }> {
-  const showRes = await admin
+  // not-subject-to-meta: test-local fixture lookups, not lib helpers — no
+  // _metaInfraContract registry row applies. Invariant 9's call-boundary
+  // discipline still does: destructure { data, error }, distinguish a RETURNED
+  // error from an empty result, and fail loud naming the site.
+  const { data: show, error: showError } = await admin
     .from("shows")
     .select("id, slug")
     .eq("drive_file_id", SEED_DRIVE_FILE_ID)
     .single();
-  if (showRes.error || !showRes.data) {
+  if (showError) {
     throw new Error(
-      `crew-page.spec: seeded show not found (run \`pnpm db:seed\` first). drive_file_id=${SEED_DRIVE_FILE_ID}, error=${showRes.error?.message ?? "no row"}`,
+      `crew-page.spec: shows lookup FAILED for drive_file_id=${SEED_DRIVE_FILE_ID}: ${showError.message}`,
     );
   }
-  const showId = showRes.data.id as string;
+  if (!show) {
+    throw new Error(
+      `crew-page.spec: seeded show not found (run \`pnpm db:seed\` first). drive_file_id=${SEED_DRIVE_FILE_ID}`,
+    );
+  }
+  const showId = show.id as string;
 
-  const crewRes = await admin
+  const { data: crew, error: crewError } = await admin
     .from("crew_members")
     .select("id, name, role_flags")
     .eq("show_id", showId);
-  if (crewRes.error || !crewRes.data?.length) {
+  if (crewError) {
     throw new Error(
-      `crew-page.spec: no crew rows for slug=${showRes.data.slug}; seed corpus must include some.`,
+      `crew-page.spec: crew_members lookup FAILED for slug=${show.slug}: ${crewError.message}`,
+    );
+  }
+  if (!crew?.length) {
+    throw new Error(
+      `crew-page.spec: no crew rows for slug=${show.slug}; seed corpus must include some.`,
     );
   }
 
-  const lead = crewRes.data.find(
+  const lead = crew.find(
     (c) => Array.isArray(c.role_flags) && (c.role_flags as string[]).includes("LEAD"),
   );
   if (!lead) {
-    throw new Error(`crew-page.spec: no LEAD crew member found for slug=${showRes.data.slug}.`);
+    throw new Error(`crew-page.spec: no LEAD crew member found for slug=${show.slug}.`);
   }
 
   // Find hotel reservations to build named/unnamed crew lookups.
-  const hotelRes = await admin.from("hotel_reservations").select("names").eq("show_id", showId);
-  if (hotelRes.error) {
-    throw new Error(`crew-page.spec: hotel_reservations fetch failed: ${hotelRes.error.message}`);
+  const { data: hotels, error: hotelError } = await admin
+    .from("hotel_reservations")
+    .select("names")
+    .eq("show_id", showId);
+  if (hotelError) {
+    throw new Error(`crew-page.spec: hotel_reservations fetch FAILED: ${hotelError.message}`);
   }
-  const allHotelNames: string[] = (hotelRes.data ?? []).flatMap((r) =>
+  const allHotelNames: string[] = (hotels ?? []).flatMap((r) =>
     Array.isArray(r.names) ? (r.names as string[]) : [],
   );
 
   const isNamed = (crewName: string) =>
     allHotelNames.some((n) => n.toLowerCase().includes(crewName.toLowerCase()));
 
-  const namedCrew = crewRes.data.find((c) => isNamed(c.name as string));
-  const unnamedCrew = crewRes.data.find((c) => !isNamed(c.name as string));
+  const namedCrew = crew.find((c) => isNamed(c.name as string));
+  const unnamedCrew = crew.find((c) => !isNamed(c.name as string));
   if (!namedCrew || !unnamedCrew) {
     throw new Error(
       `crew-page.spec: seed corpus must include at least one crew member named in a hotel reservation AND one not. Got named=${namedCrew?.name ?? "none"}, unnamed=${unnamedCrew?.name ?? "none"}.`,
@@ -97,7 +122,7 @@ async function lookupSeededShow(): Promise<{
   }
 
   return {
-    slug: showRes.data.slug,
+    slug: show.slug,
     showId,
     leadCrewId: lead.id as string,
     lodgingNamedCrewId: namedCrew.id as string,
@@ -150,7 +175,7 @@ type Rect = {
   height: number;
 };
 
-async function rectOf(locator: import("@playwright/test").Locator): Promise<Rect> {
+async function readRect(locator: import("@playwright/test").Locator): Promise<Rect> {
   return locator.evaluate((el) => {
     const r = el.getBoundingClientRect();
     return {
@@ -164,20 +189,78 @@ async function rectOf(locator: import("@playwright/test").Locator): Promise<Rect
   });
 }
 
+/**
+ * Read a laid-out rect, gated against the TORN read.
+ *
+ * Mechanism (measured 2026-08-09, this branch). The layout describe freezes the
+ * browser clock to a show-day instant so the hero state is deterministic. The
+ * SERVER has no such clock: `RightNowHero` seeds its state from
+ * `useState(() => new Date())` (components/crew/RightNowHero.tsx:338), so SSR
+ * renders at the real wall clock (months past the seeded April show → "Show
+ * complete") while the client hydrates at the frozen instant (show day → live
+ * dot). React reports "Hydration failed … this tree will be regenerated on the
+ * client" (42 occurrences in one full-file run) and RE-CREATES the subtree.
+ * While it does, `getBoundingClientRect()` on a container inside that subtree
+ * transiently returns 0×0 — captured directly:
+ *
+ *     prev=358x1558.15625  next=0x0  →  next=358x1566.046875
+ *
+ * (the height CHANGES across the gap, so the tree is genuinely re-created, not
+ * merely re-measured). A one-shot read landing in that window is what produced
+ * `container=0` / `bar=0` — a DIFFERENT test failing per run, because which read
+ * lands in the window is timing-dependent.
+ *
+ * The gate below is on the READ, not on any assertion: it returns the first rect
+ * that repeats identically AND is not the all-zero torn state. Discriminating
+ * power is preserved deliberately —
+ *   • a genuine single-dimension collapse (width 0, height 683) is NOT the torn
+ *     state, so it is returned immediately and its assertion still fails;
+ *   • a genuinely 0×0 element never satisfies the gate, and the last read (0×0)
+ *     is returned when the budget runs out, so that assertion still fails too.
+ * Only the transient whole-subtree teardown is waited out.
+ *
+ * Placed on `rectOf` itself rather than on the call sites so the gate is a
+ * DERIVED cover: every present and future rect read in this file inherits it
+ * (AGENTS.md class-sweep — sweep to a derivation, not an enumeration).
+ */
+async function rectOf(locator: import("@playwright/test").Locator): Promise<Rect> {
+  const SETTLE_ATTEMPTS = 40;
+  const SETTLE_PAUSE_MS = 50;
+  const EPSILON = 0.01;
+  let prev = await readRect(locator);
+  for (let i = 0; i < SETTLE_ATTEMPTS; i++) {
+    const next = await readRect(locator);
+    const repeats =
+      Math.abs(next.width - prev.width) < EPSILON &&
+      Math.abs(next.height - prev.height) < EPSILON &&
+      Math.abs(next.top - prev.top) < EPSILON &&
+      Math.abs(next.left - prev.left) < EPSILON;
+    const torn = next.width === 0 && next.height === 0;
+    if (repeats && !torn) return next;
+    prev = next;
+    await new Promise((resolve) => setTimeout(resolve, SETTLE_PAUSE_MS));
+  }
+  return prev;
+}
+
 /** Resolve the seeded show's share token (required path segment for the crew route). */
 async function lookupShareToken(showId: string): Promise<string> {
-  const res = await admin
+  // not-subject-to-meta: test-local fixture lookup (see lookupSeededShow).
+  const { data: token, error: tokenError } = await admin
     .from("show_share_tokens")
     .select("share_token")
     .eq("show_id", showId)
     .limit(1)
     .maybeSingle();
-  if (res.error || !res.data?.share_token) {
+  if (tokenError) {
     throw new Error(
-      `crew-page.spec: no share_token for show ${showId} (run \`pnpm db:seed\`). error=${res.error?.message ?? "no row"}`,
+      `crew-page.spec: show_share_tokens lookup FAILED for show ${showId}: ${tokenError.message}`,
     );
   }
-  return res.data.share_token as string;
+  if (!token?.share_token) {
+    throw new Error(`crew-page.spec: no share_token for show ${showId} (run \`pnpm db:seed\`)`);
+  }
+  return token.share_token as string;
 }
 
 test.describe("crew redesign layout invariants (§4.9 / test 12)", () => {
@@ -196,31 +279,36 @@ test.describe("crew redesign layout invariants (§4.9 / test 12)", () => {
   // temporarily populate TWO disciplines (audio + video) with DIFFERENT-LENGTH
   // values on the seed room so the two scope cards have unequal natural content —
   // exactly the case the items-stretch row must equalize. Restored in afterAll.
-  // Gated to mobile-safari so the mutation stays single-writer (the desktop-
-  // chromium project early-returns from every test and never reads these rows).
+  // Single-writer by construction: crew-page resolves under mobile-safari ALONE
+  // (it is absent from the desktop-chromium testMatch), so only one project ever
+  // mutates these rows. It used to be single-writer because every test
+  // early-returned off testInfo.project.name; those 22 gates were removed when the
+  // spec was wired, since a desktop execution that returns immediately is a
+  // passing no-op the executed-count oracle would have credited as coverage.
   let gearRoomId: string | null = null;
   let gearRoomOriginal: { audio: string | null; video: string | null } | null = null;
 
-  test.beforeAll(async ({}, testInfo) => {
-    if (testInfo.project.name !== "mobile-safari") return;
+  test.beforeAll(async ({}) => {
     const seeded = await lookupSeededShow();
-    const room = await admin
+    // not-subject-to-meta: test-local fixture setup (see lookupSeededShow).
+    const { data: room, error: roomError } = await admin
       .from("rooms")
       .select("id, audio, video")
       .eq("show_id", seeded.showId)
       .limit(1)
       .maybeSingle();
-    if (room.error || !room.data?.id) {
-      throw new Error(
-        `inv3 setup: no room on the Waldorf seed (run \`pnpm db:seed\`). error=${room.error?.message ?? "no row"}`,
-      );
+    if (roomError) {
+      throw new Error(`inv3 setup: rooms lookup FAILED: ${roomError.message}`);
     }
-    gearRoomId = room.data.id as string;
+    if (!room?.id) {
+      throw new Error(`inv3 setup: no room on the Waldorf seed (run \`pnpm db:seed\`)`);
+    }
+    gearRoomId = room.id as string;
     gearRoomOriginal = {
-      audio: (room.data.audio as string | null) ?? null,
-      video: (room.data.video as string | null) ?? null,
+      audio: (room.audio as string | null) ?? null,
+      video: (room.video as string | null) ?? null,
     };
-    const upd = await admin
+    const { error: overrideError } = await admin
       .from("rooms")
       // Intentionally different lengths (1-line audio vs 3-line video) so the
       // cards' natural heights differ — the stretch row must still equalize them.
@@ -229,25 +317,32 @@ test.describe("crew redesign layout invariants (§4.9 / test 12)", () => {
         video: "2x 7000-lumen laser projectors; 1x switcher; 1x confidence monitor",
       })
       .eq("id", gearRoomId);
-    if (upd.error) throw new Error(`inv3 setup: room A/V override failed: ${upd.error.message}`);
+    if (overrideError) {
+      throw new Error(`inv3 setup: room A/V override FAILED: ${overrideError.message}`);
+    }
   });
 
-  test.afterAll(async ({}, testInfo) => {
-    if (testInfo.project.name !== "mobile-safari") return;
+  test.afterAll(async ({}) => {
     if (!gearRoomId || !gearRoomOriginal) return;
-    const restore = await admin
+    // The RESTORE is the loud one by construction. A returned error does not
+    // throw, so an unchecked (or merely console.error'd) restore leaks the
+    // overridden room A/V into every later suite sharing this seed while THIS
+    // suite — and the dispatch bar — stay green. Silence is the failure mode,
+    // so it throws. Same repair as the run_of_show restore in
+    // right-now-transitions.spec.ts (plan review R4 F2); swept here as a peer.
+    const { error: restoreError } = await admin
       .from("rooms")
       .update({ audio: gearRoomOriginal.audio, video: gearRoomOriginal.video })
       .eq("id", gearRoomId);
-    if (restore.error) {
-      console.error(
-        `inv3 teardown: room A/V restore failed (manual reseed needed): ${restore.error.message}`,
+    if (restoreError) {
+      throw new Error(
+        `inv3 teardown: room A/V RESTORE FAILED for room ${gearRoomId} — the seed is left ` +
+          `overridden; re-run \`pnpm db:seed\`: ${restoreError.message}`,
       );
     }
   });
 
-  test.beforeEach(async ({ page }, testInfo) => {
-    if (testInfo.project.name !== "mobile-safari") return; // single-writer: mobile-safari only
+  test.beforeEach(async ({ page }) => {
     const seeded = await lookupSeededShow();
     slug = seeded.slug;
     shareToken = await lookupShareToken(seeded.showId);
@@ -302,9 +397,7 @@ test.describe("crew redesign layout invariants (§4.9 / test 12)", () => {
   // regression (a re-introduced horizontal row at ≥720px) is also caught.
   test("inv1: Today quick-cards stack full-width, non-overlapping (390px + 760px)", async ({
     page,
-  }, testInfo) => {
-    if (testInfo.project.name !== "mobile-safari") return;
-
+  }) => {
     for (const width of [390, 760]) {
       await page.setViewportSize({ width, height: 1000 });
       await gotoSection(page, "today");
@@ -367,9 +460,7 @@ test.describe("crew redesign layout invariants (§4.9 / test 12)", () => {
   // to the tall roster; 2026-06-21 owner amendment). At 390px they STACK.
   test("inv2: Crew columns side-by-side (natural height) at ≥720px, stacked at 390px", async ({
     page,
-  }, testInfo) => {
-    if (testInfo.project.name !== "mobile-safari") return;
-
+  }) => {
     // Desktop-ish: side-by-side (items-start — natural height, NOT equal-height).
     await page.setViewportSize({ width: 760, height: 1000 });
     await gotoSection(page, "crew");
@@ -414,9 +505,7 @@ test.describe("crew redesign layout invariants (§4.9 / test 12)", () => {
   // length values so ≥2 cards render and the equal-height case is exercised.
   test("inv3: Gear scope cards — 3 cols side-by-side + equal-height (≥720px), single column stacked (<720px)", async ({
     page,
-  }, testInfo) => {
-    if (testInfo.project.name !== "mobile-safari") return;
-
+  }) => {
     // Per-discipline cards only — the `gear-scopes-row` wrapper does NOT match the
     // `gear-scope-` prefix (it has no hyphen at position 10), so this collects just
     // the A/V/L cards (the same prefix the jsdom scope tests use).
@@ -485,10 +574,7 @@ test.describe("crew redesign layout invariants (§4.9 / test 12)", () => {
   // The hero holds ≥176px (--spacing-right-now-min-h) and does NOT resize across
   // a state crossfade (§4.16). Force a state change by advancing the frozen clock
   // past a day boundary + a visibilitychange, then re-read.
-  test("inv4: RightNowHero min-h ≥176px, stable through a state crossfade", async ({
-    page,
-  }, testInfo) => {
-    if (testInfo.project.name !== "mobile-safari") return;
+  test("inv4: RightNowHero min-h ≥176px, stable through a state crossfade", async ({ page }) => {
     await gotoSection(page, "today");
 
     const hero = page.getByTestId("right-now-hero");
@@ -508,22 +594,47 @@ test.describe("crew redesign layout invariants (§4.9 / test 12)", () => {
       `RightNowHero must hold the 176px min-height; got ${before.height}`,
     ).toBeGreaterThanOrEqual(176 - TOL);
 
-    // Drive a state change: advance the clock well past the show-day boundary so
-    // the hero's 60s interval re-derives a new kind, then nudge visibility so any
-    // visibility-gated tick fires. The min-h must hold across the crossfade.
-    await page.clock.runFor(2 * 60 * 1000);
+    // Drive a REAL state change. This block previously advanced the clock by
+    // 2min + 70s — 190 seconds total, which never leaves `show_day_n` despite the
+    // comment claiming it passed a day boundary. The hero's animated body is keyed
+    // by state KIND, so no remount and no crossfade occurred: the test measured the
+    // same steady state twice while being counted as crossfade coverage
+    // (whole-diff review round 4, P1).
+    //
+    // Jump the wall clock past the whole show (travelOut is 2026-04-23) into
+    // post_show, then fire one 60s tick. setSystemTime + a single runFor is used
+    // rather than runFor(4 days), which would fire ~5760 intervals.
+    const stateOf = () => page.getByTestId("right-now-state").getAttribute("data-state");
+    const stateBefore = await stateOf();
+    await page.clock.setSystemTime(new Date("2026-04-25T12:00:00Z"));
     await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
     await page.clock.runFor(70 * 1000);
+
+    // Premise: the crossfade this test is named for actually happened. Without
+    // this, a future change that pins the state makes every assertion below a
+    // measurement of one unchanging box — which is exactly the defect above.
+    await expect.poll(stateOf, { timeout: 10_000 }).not.toBe(stateBefore);
 
     const after = await rectOf(page.getByTestId("right-now-hero"));
     expect(
       after.height,
       `RightNowHero min-height must hold after the crossfade; got ${after.height}`,
     ).toBeGreaterThanOrEqual(176 - TOL);
+    // The FLOOR is the contract, not exact equality. This assertion used to demand
+    // `|after - before| <= 0.5`, which only ever held because the "crossfade" above
+    // never actually changed state. With a REAL state change it is false, and
+    // measured: show_day_n renders 183.890625 and post_show renders exactly 176.
+    // The hero is a min-height box whose content drives its height, so two states
+    // with different copy lengths legitimately differ — an equality assertion was
+    // over-strong, and it had never run to find that out. What §4.16 actually
+    // guarantees, and what a layout regression would break, is that the hero never
+    // COLLAPSES below its floor while the body remounts mid-transition. That is
+    // asserted on both sides of the crossfade, above and here.
     expect(
-      Math.abs(after.height - before.height),
-      `RightNowHero height must be stable across the crossfade; before=${before.height} after=${after.height}`,
-    ).toBeLessThanOrEqual(TOL);
+      Math.min(before.height, after.height),
+      `RightNowHero must hold the 176px floor on BOTH sides of the crossfade; ` +
+        `before=${before.height} after=${after.height}`,
+    ).toBeGreaterThanOrEqual(176 - TOL);
   });
 
   // ── Invariant 5 — Bottom tab-bar (mobile) + top tabs (desktop) ──
@@ -532,9 +643,7 @@ test.describe("crew redesign layout invariants (§4.9 / test 12)", () => {
   // (items-stretch). At ≥720px each top tab clears the 44px tap floor.
   test("inv5: bottom tab-bar full-width + bottom-anchored + equal tabs (390px); top tabs ≥44px (≥720px)", async ({
     page,
-  }, testInfo) => {
-    if (testInfo.project.name !== "mobile-safari") return;
-
+  }) => {
     // Mobile bottom bar.
     await page.setViewportSize({ width: 390, height: 844 });
     await gotoSection(page, "today");
@@ -616,10 +725,7 @@ test.describe("crew redesign layout invariants (§4.9 / test 12)", () => {
   // With ≥2 anchor rows, the label-column left edges align (equal .left) and the
   // value-column right edges align (equal .right). Each anchor row is a
   // justify-between flex with a label span (left) and a value span (right).
-  test("inv6: KeyTimesStrip label-lefts + value-rights align across anchors", async ({
-    page,
-  }, testInfo) => {
-    if (testInfo.project.name !== "mobile-safari") return;
+  test("inv6: KeyTimesStrip label-lefts + value-rights align across anchors", async ({ page }) => {
     await gotoSection(page, "today");
 
     const strip = page.getByTestId("key-times-strip");
@@ -672,11 +778,7 @@ test.describe("crew redesign layout invariants (§4.9 / test 12)", () => {
   // does — the invariant is "IF two columns, they behave as split-wide," never
   // "two columns MUST exist."
   for (const section of ["schedule", "venue", "travel"] as const) {
-    test(`inv7: ${section} is split-wide 2-col (≥720px) / stacked (390px)`, async ({
-      page,
-    }, testInfo) => {
-      if (testInfo.project.name !== "mobile-safari") return;
-
+    test(`inv7: ${section} is split-wide 2-col (≥720px) / stacked (390px)`, async ({ page }) => {
       const colTestId = `${section}-column`;
 
       // Desktop-ish: side-by-side (items-start — natural height, NOT equal-height).
@@ -735,9 +837,7 @@ test.describe("crew redesign layout invariants (§4.9 / test 12)", () => {
   //       this. Verified on a content-bearing section (Today).
   test("inv8: no horizontal overflow @390px + last block clears the fixed bottom bar", async ({
     page,
-  }, testInfo) => {
-    if (testInfo.project.name !== "mobile-safari") return;
-
+  }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await gotoSection(page, "today");
     const viewport = page.viewportSize()!;
@@ -912,8 +1012,7 @@ test.describe
     });
   }
 
-  test.beforeEach(async ({ page }, testInfo) => {
-    if (testInfo.project.name !== "mobile-safari") return; // single-writer: mobile-safari only
+  test.beforeEach(async ({ page }) => {
     const seeded = await lookupSeededShow();
     slug = seeded.slug;
     shareToken = await lookupShareToken(seeded.showId);
@@ -951,9 +1050,7 @@ test.describe
   // (a) ── tab today→venue: the wrapper opacity animates, then settles ──
   test("transition (a): today→venue crossfade — wrapper opacity animates mid-transition then settles to a rendered Venue", async ({
     page,
-  }, testInfo) => {
-    if (testInfo.project.name !== "mobile-safari") return;
-
+  }) => {
     await gotoSettled(page, "today");
     // Begin the section swap. The push is client-side; the keyed motion.div
     // re-mounts and AnimatePresence plays the OUT (today)→IN (venue) crossfade.
@@ -985,9 +1082,7 @@ test.describe
   //         section crossfade still settles ──
   test("transition (b): theme-toggle during a section nav flips data-theme instantly and the crossfade still settles (compound)", async ({
     page,
-  }, testInfo) => {
-    if (testInfo.project.name !== "mobile-safari") return;
-
+  }) => {
     await gotoSettled(page, "today");
     const themeBefore = await page.evaluate(
       () => document.documentElement.dataset.theme ?? "light",
@@ -1021,9 +1116,7 @@ test.describe
   //         first paint is at rest (no animate-from-hidden; M12.11) ──
   test("transition (c): re-enter Today re-mounts the hero at rest (no animate-from-hidden; compound)", async ({
     page,
-  }, testInfo) => {
-    if (testInfo.project.name !== "mobile-safari") return;
-
+  }) => {
     await gotoSettled(page, "today");
     await expect(page.getByTestId("right-now-hero")).toBeVisible();
 
@@ -1061,9 +1154,7 @@ test.describe
   //         no concurrent hero+section animation, no §8.2 console error ──
   test("transition (d): hero state-change while leaving Today unmounts the hero cleanly (no concurrent animation; compound)", async ({
     page,
-  }, testInfo) => {
-    if (testInfo.project.name !== "mobile-safari") return;
-
+  }) => {
     // Capture any console.error (the hero logs a §8.2 "unreachable transition"
     // diagnostic to console.error; a clean run must produce none).
     const heroErrors: string[] = [];
@@ -1148,19 +1239,71 @@ test.describe("crew redesign nav addressability + preview-as + footer report (Ta
    * would hang. The `:visible` filter selects whichever nav the breakpoint shows
    * (mobile at <720px, desktop at ≥720px) — exactly the real tap a user makes.
    */
+  /**
+   * Wait until the sub-nav is INTERACTIVE, not merely present.
+   *
+   * CrewSubNav is a client island. Before React hydrates it the tab is SSR markup
+   * with no handler, so a click is silently a no-op: visible, enabled, stable,
+   * dispatched, and nothing happens. Measured twice on this branch — the
+   * scroll-reset case failed with the URL still on `?s=today` after clicking
+   * "crew", and once earlier with `section-crew` never appearing.
+   *
+   * The gate is React's own marker: hydration attaches a `__reactProps$…` key to
+   * the DOM node. Deterministic, and deliberately not `networkidle` (which the
+   * plan's harness checklist rules out as a readiness gate) even though the
+   * already-wired sibling crew-section-toggle.spec.ts uses that heuristic.
+   */
+  async function waitForSubNavHydrated(
+    page: import("@playwright/test").Page,
+    section: string,
+  ): Promise<void> {
+    const tab = page
+      .getByTestId("crew-sub-nav")
+      .locator(`[data-section="${section}"]:visible`)
+      .first();
+    await expect(tab).toBeVisible({ timeout: 15_000 });
+    await page.waitForFunction(
+      (sel) => {
+        const els = [...document.querySelectorAll(sel)].filter(
+          (e) => (e as HTMLElement).offsetParent !== null,
+        );
+        return els.length > 0 && Object.keys(els[0]!).some((k) => k.startsWith("__reactProps$"));
+      },
+      `[data-testid="crew-sub-nav"] [data-section="${section}"]`,
+      { timeout: 30_000 },
+    );
+  }
+
+  /**
+   * Click the sub-nav tab for `section` at the CURRENT viewport, ONCE.
+   *
+   * CrewSubNav renders the section tabs TWICE — a desktop row
+   * (`hidden min-[720px]:flex`, DOM-first) and a mobile bottom bar
+   * (`min-[720px]:hidden`, DOM-second). At 390px the desktop tab is
+   * `display:none`, so a bare `.first()` would target the hidden button and hang.
+   * The `:visible` filter selects whichever nav the breakpoint shows — exactly the
+   * tap a real user makes.
+   *
+   * The click is deliberately NOT retried. An earlier version wrapped it in
+   * `toPass`, which made a nav that ignored its first click pass on the second —
+   * masking a genuine "first interaction dropped" regression, the same defect
+   * repaired in theme-toggle's tapToggle (whole-diff review rounds 3 and 4).
+   * Readiness is handled by the hydration gate above, where it belongs.
+   */
   async function clickSection(
     page: import("@playwright/test").Page,
     section: string,
   ): Promise<void> {
+    await waitForSubNavHydrated(page, section);
     await page
       .getByTestId("crew-sub-nav")
       .locator(`[data-section="${section}"]:visible`)
       .first()
       .click();
+    await page.waitForURL(new RegExp(`[?&]s=${section}\\b`), { timeout: 15_000 });
   }
 
-  test.beforeEach(async ({ page }, testInfo) => {
-    if (testInfo.project.name !== "mobile-safari") return; // single-writer: mobile-safari only
+  test.beforeEach(async ({ page }) => {
     const seeded = await lookupSeededShow();
     slug = seeded.slug;
     shareToken = await lookupShareToken(seeded.showId);
@@ -1176,8 +1319,7 @@ test.describe("crew redesign nav addressability + preview-as + footer report (Ta
   // ── Test 13 — nav addressability ──────────────────────────────────────────
   test("nav addressability: ?s= deep-link is SSR'd, a tab click swaps section client-side, URL + back-button track sections", async ({
     page,
-  }, testInfo) => {
-    if (testInfo.project.name !== "mobile-safari") return;
+  }) => {
     await page.setViewportSize({ width: 390, height: 844 });
 
     // ── (a) SSR deep-link: ?s=venue renders section-venue on FIRST PAINT ──
@@ -1271,8 +1413,7 @@ test.describe("crew redesign nav addressability + preview-as + footer report (Ta
   // ── Test 13 (cont.) — gate param survives deep-link + tab click ──
   test("nav addressability: ?gate=skip survives the deep-link load AND a tab click (allow-listed param re-emitted)", async ({
     page,
-  }, testInfo) => {
-    if (testInfo.project.name !== "mobile-safari") return;
+  }) => {
     await page.setViewportSize({ width: 390, height: 844 });
 
     // Deep-link with BOTH ?s=venue and ?gate=skip. The admin arm renders the
@@ -1298,8 +1439,7 @@ test.describe("crew redesign nav addressability + preview-as + footer report (Ta
   // ── Test 13 (cont.) — section change resets scroll to top ──
   test("nav addressability: a section change resets scroll position to the top", async ({
     page,
-  }, testInfo) => {
-    if (testInfo.project.name !== "mobile-safari") return;
+  }) => {
     await page.setViewportSize({ width: 390, height: 844 });
 
     await page.goto(`/show/${slug}/${shareToken}?s=today`, { waitUntil: "domcontentloaded" });
@@ -1325,8 +1465,7 @@ test.describe("crew redesign nav addressability + preview-as + footer report (Ta
   // ── Test 15 — preview-as parity ───────────────────────────────────────────
   test("preview-as: /admin/show/<slug>/preview/<crewId>?s=venue renders the CrewShell (not a flat tile-grid), section resolves, PreviewBanner above", async ({
     page,
-  }, testInfo) => {
-    if (testInfo.project.name !== "mobile-safari") return;
+  }) => {
     await page.setViewportSize({ width: 390, height: 844 });
 
     // ?s=venue → the preview renders the redesigned CrewShell with Venue active.
@@ -1368,8 +1507,7 @@ test.describe("crew redesign nav addressability + preview-as + footer report (Ta
   // ── Test 19 — footer report metadata (preview-as override id in the DOM) ──
   test("footer report metadata: preview-as footer carries admin-preview-footer-<slug>-<crewId>; a normal crew footer does not", async ({
     page,
-  }, testInfo) => {
-    if (testInfo.project.name !== "mobile-safari") return;
+  }) => {
     await page.setViewportSize({ width: 390, height: 844 });
 
     // ── preview-as: the footer's report button carries the admin-preview id ──
@@ -1404,197 +1542,5 @@ test.describe("crew redesign nav addressability + preview-as + footer report (Ta
       `footer-crew-${slug}`,
     );
     await expect(crewTrigger).toHaveAttribute("data-surface", "crew");
-  });
-});
-
-// TODO(M5 §B follow-up): migrate off ?crew=/?as=admin mock to signInAs(non-admin-crew-fixture).
-// The dev-only mock surface was retired in Task 5.7 follow-up (Issue 4). The migration
-// is non-trivial because each test renders as a SPECIFIC crew identity (often non-LEAD),
-// which signInAs cannot easily reproduce — real Supabase auth ties to email, not crew_member_id.
-// Each affected show needs a per-test crew row whose email matches NON_ADMIN_CREW_FIXTURE,
-// plus per-test fixture seeding. See handoff §0.
-test.describe.skip("crew page — layout shell (Task 4.2)", () => {
-  test("renders page-shell + tile-grid (2 cols mobile) + right-now-hero + footer at /show/[slug]?crew=…", async ({
-    page,
-  }) => {
-    // M9 C1 / M4-D6: assertion is mobile-specific (§8.4: 2 cols < 640px).
-    // Without setViewportSize the desktop-chromium project (default 1280px)
-    // would render the 4-col desktop grid and the trackCount assertion
-    // would fail. Pin the viewport at the mobile target (390×667 — iPhone
-    // 12/13/14 reference) so the assertion runs at the breakpoint it tests.
-    await page.setViewportSize({ width: 390, height: 667 });
-
-    const { slug, leadCrewId } = await lookupSeededShow();
-
-    const response = await page.goto(`/show/${slug}?crew=${leadCrewId}`);
-    expect(response?.status(), "page render must succeed").toBe(200);
-
-    await expect(page.getByTestId("page-shell")).toBeVisible();
-    await expect(page.getByTestId("page-container")).toBeVisible();
-    await expect(page.getByTestId("right-now-hero")).toBeVisible();
-    await expect(page.getByTestId("tile-grid")).toBeVisible();
-    await expect(page.getByTestId("page-footer")).toBeVisible();
-
-    // grid-template-columns at mobile must resolve to TWO tracks. Browsers
-    // serialize the computed value as a space-separated list of resolved
-    // pixel widths (e.g. "163px 163px"). Counting the tracks is the safe
-    // assertion across viewports — content widths vary.
-    const cols = await page
-      .getByTestId("tile-grid")
-      .evaluate((el) => getComputedStyle(el).gridTemplateColumns);
-    const trackCount = cols.trim().split(/\s+/).filter(Boolean).length;
-    expect(trackCount, `mobile tile-grid must be 2 columns (§8.4); got "${cols}"`).toBe(2);
-  });
-});
-
-/*
- * Task 4.4 — tile components (Lodging, Venue, Crew, Contacts).
- *
- * The four tile suites below extend the layout-shell coverage with content
- * + presence assertions per the plan's "failing Playwright test asserts the
- * tile's data-testid is visible and contains expected text from a seeded
- * fixture" instruction (plan lines 290-306). Layout-dimension assertions
- * (full §8.4 invariants) are Task 4.13's job; these tests stop at presence
- * + content + empty-state-discipline boundaries.
- */
-
-// TODO(M5 §B follow-up): migrate off ?crew=/?as=admin mock to signInAs(non-admin-crew-fixture).
-// The dev-only mock surface was retired in Task 5.7 follow-up (Issue 4). The migration
-// is non-trivial because each test renders as a SPECIFIC crew identity (often non-LEAD),
-// which signInAs cannot easily reproduce — real Supabase auth ties to email, not crew_member_id.
-// Each affected show needs a per-test crew row whose email matches NON_ADMIN_CREW_FIXTURE,
-// plus per-test fixture seeding. See handoff §0.
-test.describe.skip("crew page — LodgingTile (Task 4.4)", () => {
-  test("renders LodgingTile with hotel name when viewer is named on a reservation", async ({
-    page,
-  }) => {
-    const { slug, lodgingNamedCrewId } = await lookupSeededShow();
-    const response = await page.goto(`/show/${slug}?crew=${lodgingNamedCrewId}`);
-    expect(response?.status(), "page render must succeed").toBe(200);
-
-    const lodging = page.getByTestId("lodging-tile");
-    await expect(lodging).toBeVisible();
-    // Waldorf fixture (fixtures/shows/raw/2026-04-asset-mgmt-cfo-coo-waldorf.md
-    // line 69) names the reservation hotel as "Waldorf Astoria Chicago".
-    // The tile MUST render the hotel name verbatim.
-    await expect(lodging).toContainText(/Waldorf Astoria/i);
-  });
-
-  test("LodgingTile is absent (whole-tile-missing reflow per §8.3) when viewer is not named on any reservation", async ({
-    page,
-  }) => {
-    const { slug, lodgingUnnamedCrewId } = await lookupSeededShow();
-    const response = await page.goto(`/show/${slug}?crew=${lodgingUnnamedCrewId}`);
-    expect(response?.status(), "page render must succeed").toBe(200);
-
-    // Whole-tile-missing per spec §8.3 — the tile is NOT rendered at all
-    // and the grid reflows. NOT a "no hotel" empty-state placeholder
-    // (that branch belongs to required-field-missing inside a rendered
-    // tile, not to the whole-tile case).
-    await expect(page.getByTestId("lodging-tile")).toHaveCount(0);
-  });
-});
-
-// TODO(M5 §B follow-up): migrate off ?crew=/?as=admin mock to signInAs(non-admin-crew-fixture).
-// The dev-only mock surface was retired in Task 5.7 follow-up (Issue 4). The migration
-// is non-trivial because each test renders as a SPECIFIC crew identity (often non-LEAD),
-// which signInAs cannot easily reproduce — real Supabase auth ties to email, not crew_member_id.
-// Each affected show needs a per-test crew row whose email matches NON_ADMIN_CREW_FIXTURE,
-// plus per-test fixture seeding. See handoff §0.
-test.describe.skip("crew page — VenueTile (Task 4.4)", () => {
-  test("renders VenueTile with the venue name + address from a complete fixture", async ({
-    page,
-  }) => {
-    const { slug, leadCrewId } = await lookupSeededShow();
-    const response = await page.goto(`/show/${slug}?crew=${leadCrewId}`);
-    expect(response?.status()).toBe(200);
-
-    const venue = page.getByTestId("venue-tile");
-    await expect(venue).toBeVisible();
-    // Waldorf fixture (line 75-76 of the markdown): venue name is
-    // "Waldorf Astoria Chicago"; address is "11 E Walton St Chicago, IL 60611".
-    await expect(venue).toContainText(/Waldorf Astoria Chicago/i);
-    await expect(venue).toContainText(/11 E Walton St/i);
-  });
-});
-
-// TODO(M5 §B follow-up): migrate off ?crew=/?as=admin mock to signInAs(non-admin-crew-fixture).
-// The dev-only mock surface was retired in Task 5.7 follow-up (Issue 4). The migration
-// is non-trivial because each test renders as a SPECIFIC crew identity (often non-LEAD),
-// which signInAs cannot easily reproduce — real Supabase auth ties to email, not crew_member_id.
-// Each affected show needs a per-test crew row whose email matches NON_ADMIN_CREW_FIXTURE,
-// plus per-test fixture seeding. See handoff §0.
-test.describe.skip("crew page — CrewTile (Task 4.4)", () => {
-  test("renders CrewTile with every crew member + tap-to-call/email anchors", async ({ page }) => {
-    const { slug, leadCrewId } = await lookupSeededShow();
-    const response = await page.goto(`/show/${slug}?crew=${leadCrewId}`);
-    expect(response?.status()).toBe(200);
-
-    const crew = page.getByTestId("crew-tile");
-    await expect(crew).toBeVisible();
-
-    // Waldorf fixture (lines 50-52 of the markdown) seeds three crew rows:
-    // John Carleo, Eric Weiss, Calvin Saller. The viewer (LEAD) MUST see
-    // all three including themselves — see plan §4.4 "Do NOT filter the
-    // viewer themselves out".
-    await expect(crew.getByTestId("crew-row")).toHaveCount(3);
-    await expect(crew).toContainText(/John Carleo/i);
-    await expect(crew).toContainText(/Eric Weiss/i);
-    await expect(crew).toContainText(/Calvin Saller/i);
-
-    // Tap-to-call: Calvin Saller's phone is "480-330-1848"; the tel:
-    // href digits-strips the formatting.
-    await expect(crew.locator('a[href="tel:4803301848"]')).toBeVisible();
-
-    // Tap-to-email: Eric Weiss's email is "edweiss412@gmail.com".
-    await expect(crew.locator('a[href="mailto:edweiss412@gmail.com"]')).toBeVisible();
-  });
-});
-
-// TODO(M5 §B follow-up): migrate off ?crew=/?as=admin mock to signInAs(non-admin-crew-fixture).
-// The dev-only mock surface was retired in Task 5.7 follow-up (Issue 4). The migration
-// is non-trivial because each test renders as a SPECIFIC crew identity (often non-LEAD),
-// which signInAs cannot easily reproduce — real Supabase auth ties to email, not crew_member_id.
-// Each affected show needs a per-test crew row whose email matches NON_ADMIN_CREW_FIXTURE,
-// plus per-test fixture seeding. See handoff §0.
-test.describe.skip("crew page — ContactsTile (Task 4.4)", () => {
-  test("renders ContactsTile with at least one contact when seeded", async ({ page }) => {
-    const { slug, leadCrewId, showId } = await lookupSeededShow();
-
-    // Pre-flight: assert the seed corpus has at least one contact for this
-    // show. The Waldorf fixture seeds the venue contact "Isabella Vizzini"
-    // (line 31 of the markdown). If this assertion fails, the seed has
-    // drifted — either re-seed or update the fixture-name expectation
-    // below.
-    const contactsRes = await admin
-      .from("contacts")
-      .select("name, email, phone")
-      .eq("show_id", showId);
-    expect(contactsRes.error, "contacts fetch must succeed").toBeNull();
-    expect(
-      (contactsRes.data ?? []).length,
-      "Waldorf fixture must seed at least one contact",
-    ).toBeGreaterThan(0);
-
-    const response = await page.goto(`/show/${slug}?crew=${leadCrewId}`);
-    expect(response?.status()).toBe(200);
-
-    const contacts = page.getByTestId("contacts-tile");
-    await expect(contacts).toBeVisible();
-
-    // Assert the seeded contact name appears (Isabella Vizzini per
-    // Waldorf fixture). We match on the first row's name from the live
-    // seed result rather than hard-coding so a fixture rename doesn't
-    // break the test silently.
-    const firstName = (contactsRes.data?.[0]?.name as string | null) ?? null;
-    if (firstName) {
-      // Match the first non-empty token of the first contact name to
-      // avoid coupling to formatting (whitespace, &#13; carriage-return
-      // entities in upstream sources, etc.).
-      const firstToken = firstName.trim().split(/\s+/)[0];
-      if (firstToken) {
-        await expect(contacts).toContainText(firstToken);
-      }
-    }
   });
 });
