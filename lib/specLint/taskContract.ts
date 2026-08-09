@@ -2,14 +2,20 @@ import type { DocModel } from "./parse";
 import type { Finding } from "./types";
 
 /**
- * Declared task contract for plans (design §3.2–§3.4.1).
+ * Declared task contract for plans (design §3.2–§3.4.1, as amended by the
+ * 2026-08-09 multi-region design §2.2–§2.3).
  *
- * Two passes. Pass 1 classifies lines mechanically and records marker-shaped
- * lines WITHOUT judging them; pass 2 draws the whole-document enrollment
- * conclusion and only then classifies markers. The split is a correctness
- * requirement: whether a region counts at all is not knowable until every
- * enrollment line has been seen, so a single-pass checker would report marker
- * findings inside a region a later duplicate opening invalidates.
+ * A plan may declare any number of SEQUENTIAL regions, each with its own depth.
+ * Two passes. Pass 1 classifies lines mechanically, collects the regions, and
+ * records marker-shaped lines WITHOUT judging them; pass 2 draws the
+ * whole-document enrollment conclusion and only then classifies markers.
+ *
+ * The split is no longer a correctness REQUIREMENT — it is an implementation
+ * choice. A region is final at its close and no later line can invalidate it,
+ * because an opening seen while a region is open is inert (it draws
+ * `TASK_ENROLL_DUPLICATE` and starts nothing) rather than disqualifying. What
+ * still needs the whole document is the zero-well-formed-region conclusion,
+ * which discards recorded markers unjudged.
  *
  * Pure: reads only `model.lines`, `model.fencedInfo` and `model.headings`.
  */
@@ -71,13 +77,13 @@ export function checkTaskContract(model: DocModel, kind: "spec" | "plan"): Findi
   const nonFenced = (i: number) => model.fencedInfo[i] === undefined;
 
   // ---- pass 1 — line classification --------------------------------------
+  type Region = { depth: number; start: number; end: number };
+  const regions: Region[] = [];
   let open = false;
   let rejectedOpens = 0;
-  let openCount = 0;
-  let depth: number | null = null;
+  let openDepth = 0;
+  let openStart = 0;
   let sawTasksLine = false;
-  let regionStart = 0;
-  let regionEnd = 0;
   const markerLines: number[] = [];
 
   for (let i = 0; i < model.lines.length; i++) {
@@ -88,14 +94,14 @@ export function checkTaskContract(model: DocModel, kind: "spec" | "plan"): Findi
     const om = OPEN.exec(line);
     if (om) {
       sawTasksLine = true;
-      openCount++;
-      if (openCount === 1) {
+      if (!open) {
+        // A close has been seen (or none yet): this starts a new region.
         open = true;
-        depth = Number(om[1]);
-        regionStart = n;
+        openDepth = Number(om[1]);
+        openStart = n;
       } else {
         findings.push(
-          fail("TASK_ENROLL_DUPLICATE", n, "second task-region opening; only one is supported"),
+          fail("TASK_ENROLL_DUPLICATE", n, "task-region opening inside an unclosed region"),
         );
         rejectedOpens++;
       }
@@ -105,8 +111,8 @@ export function checkTaskContract(model: DocModel, kind: "spec" | "plan"): Findi
     if (END.test(line)) {
       sawTasksLine = true;
       if (open) {
+        regions.push({ depth: openDepth, start: openStart, end: n });
         open = false;
-        regionEnd = n;
       } else if (rejectedOpens > 0) {
         // Belongs to an opening already rejected as a duplicate. Consuming it
         // silently is what stops one authoring error manufacturing a second,
@@ -142,40 +148,52 @@ export function checkTaskContract(model: DocModel, kind: "spec" | "plan"): Findi
   for (let i = 0; i < model.lines.length; i++) {
     if (MARKER_ANY.test(model.lines[i]!)) markerShaped.add(i + 1);
   }
-  // End of document closes an unclosed region.
-  if (open) regionEnd = model.lines.length + 1;
+  // End of document closes an unclosed region. Only the LAST region can be
+  // unclosed, because an opening seen while open never starts one.
+  if (open) regions.push({ depth: openDepth, start: openStart, end: model.lines.length + 1 });
 
   // ---- pass 2 — whole-document conclusion --------------------------------
   if (!sawTasksLine) return [];
-  // Exactly one opening, or enrollment is not established: pass-1 findings
+  // No well-formed region, so enrollment is not established: pass-1 findings
   // stand and every recorded marker is discarded unjudged.
-  if (openCount !== 1 || depth === null) return findings;
+  if (regions.length === 0) return findings;
 
-  const tasks = model.headings.filter(
-    (h) => h.depth === depth && h.line > regionStart && h.line < regionEnd,
-  );
-  if (tasks.length === 0) {
-    findings.push(
-      fail("TASK_ENROLL_EMPTY", regionStart, `task region selects no depth-${depth} heading`),
+  // Regions are disjoint and every extent is clipped to its own region, so the
+  // combined list stays unambiguous for the marker ownership pass below.
+  const extents: { start: number; end: number }[] = [];
+  for (const region of regions) {
+    const regionTasks = model.headings.filter(
+      (h) => h.depth === region.depth && h.line > region.start && h.line < region.end,
     );
-    // NOT an early return. TASK_ENROLL_EMPTY and per-marker classification are
-    // independent: with zero extents every recorded marker lies outside all of
-    // them and is orphaned. Returning here silently dropped markers before,
-    // inside, and after the region.
-  }
-
-  // A task's extent runs to the next heading of the enrolled depth or
-  // shallower, the region's close, or end of document — whichever is first.
-  const extents = tasks.map((t) => {
-    let end = regionEnd;
-    for (const h of model.headings) {
-      if (h.line > t.line && h.depth <= depth!) {
-        end = Math.min(end, h.line);
-        break;
-      }
+    if (regionTasks.length === 0) {
+      findings.push(
+        fail(
+          "TASK_ENROLL_EMPTY",
+          region.start,
+          `task region selects no depth-${region.depth} heading`,
+        ),
+      );
+      // NOT an early return, and deliberately not a `continue` past the other
+      // regions either. TASK_ENROLL_EMPTY and per-marker classification are
+      // independent: with zero extents every recorded marker lies outside all
+      // of them and is orphaned. Returning here silently dropped markers
+      // before, inside, and after the region; skipping the remaining regions
+      // would drop their checking entirely.
     }
-    return { start: t.line, end };
-  });
+
+    // A task's extent runs to the next heading of ITS region's depth or
+    // shallower, that region's close, or end of document — whichever is first.
+    for (const t of regionTasks) {
+      let end = region.end;
+      for (const h of model.headings) {
+        if (h.line > t.line && h.depth <= region.depth) {
+          end = Math.min(end, h.line);
+          break;
+        }
+      }
+      extents.push({ start: t.line, end });
+    }
+  }
 
   const markerSet = markerShaped;
 

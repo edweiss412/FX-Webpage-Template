@@ -34,12 +34,14 @@ describe("checkTaskContract — enrollment (design §3.2)", () => {
     }
   });
 
-  it("M2/AC-26/AC-30: duplicate openings report exactly [TASK_ENROLL_DUPLICATE] and skip task-level checks", () => {
-    // The first region holds a MARKER-LESS task. With a well-formed task here
-    // both the correct implementation and one that wrongly enrols report [],
-    // and the case proves nothing.
+  it("M2/AC-2: sequential reopen enrolls both regions and both are checked", () => {
+    // Was: duplicate openings -> exactly [TASK_ENROLL_DUPLICATE]. Under the
+    // multi-region spec (§2.2) this is two regions; both marker-less tasks
+    // report. Marker-less tasks kept deliberately: with well-formed tasks both
+    // the correct implementation and one that ignores region 2 report [].
     expect(codes(doc(OPEN, "## A", "prose, no marker", END, OPEN, "## B", END))).toEqual([
-      "TASK_ENROLL_DUPLICATE",
+      "TASK_MARKER_MISSING",
+      "TASK_MARKER_MISSING",
     ]);
   });
 
@@ -53,9 +55,13 @@ describe("checkTaskContract — enrollment (design §3.2)", () => {
     ]);
   });
 
-  it("M27/AC-30: a rejected duplicate's close is consumed silently — one authoring error, one finding", () => {
+  it("M27/AC-10: a reopened-then-closed empty region is EMPTY, not a consumed close", () => {
+    // Was: rejected duplicate's close consumed silently. The sequential shape
+    // now enrolls region 2, which holds no task. The consumed-close behavior
+    // itself is re-pinned by the nested-shape cases (AC-3 and AC-10(b) below,
+    // which share one fixture) and by M36d.
     expect(codes(doc(OPEN, "## A", WELL, "AC-1 here.", END, OPEN, END))).toEqual([
-      "TASK_ENROLL_DUPLICATE",
+      "TASK_ENROLL_EMPTY",
     ]);
   });
 
@@ -163,11 +169,193 @@ describe("checkTaskContract — enrollment (design §3.2)", () => {
     expect(codes(doc(OPEN, "## A", "prose, no marker"))).toEqual(["TASK_MARKER_MISSING"]);
   });
 
-  it("M29/AC-32/AC-45: a failed enrollment keeps its line-pass finding and discards recorded markers unjudged", () => {
+  it("M29/AC-32: a failed enrollment keeps its line-pass finding and discards recorded markers unjudged", () => {
     const BAD = "<!-- task: red=x ac=AC-1 -->";
     expect(codes(doc("<!-- tasks: depth=x -->", "## A", BAD))).toEqual(["TASK_ENROLL_MALFORMED"]);
     expect(codes(doc(END, "## A", BAD))).toEqual(["TASK_ENROLL_MALFORMED"]);
-    expect(codes(doc(OPEN, "## A", BAD, END, OPEN, END))).toEqual(["TASK_ENROLL_DUPLICATE"]);
+    // Third assertion migrated (spec §6): both regions enroll; region 1's BAD
+    // marker is judged, region 2 is empty. codes() sorts alphabetically.
+    expect(codes(doc(OPEN, "## A", BAD, END, OPEN, END))).toEqual([
+      "TASK_ENROLL_EMPTY",
+      "TASK_MARKER_MALFORMED",
+    ]);
+  });
+});
+
+const OPEN3 = "<!-- tasks: depth=3 -->";
+
+describe("checkTaskContract: sequential multi-region (2026-08-09 design §2.2-§2.3)", () => {
+  it("AC-1: two depths, both checked", () => {
+    // (a) Shape-A: d2 region, close, d3 region, close, d2 region; all marked.
+    expect(
+      codes(
+        doc(
+          OPEN,
+          "## T6",
+          WELL,
+          "AC-1 here.",
+          END,
+          "## Tasks 7-16 group header",
+          OPEN3,
+          "### T7",
+          WELL,
+          "### T8",
+          WELL,
+          END,
+          OPEN,
+          "## T17",
+          WELL,
+          END,
+        ),
+      ),
+    ).toEqual([]);
+    // (b) one d3 child marker-less -> exactly [TASK_MARKER_MISSING] at it.
+    expect(
+      codes(
+        doc(
+          OPEN,
+          "## T6",
+          WELL,
+          "AC-1 here.",
+          END,
+          "## Tasks 7-16 group header",
+          OPEN3,
+          "### T7",
+          WELL,
+          "### T8",
+          "prose, no marker",
+          END,
+          OPEN,
+          "## T17",
+          WELL,
+          END,
+        ),
+      ),
+    ).toEqual(["TASK_MARKER_MISSING"]);
+  });
+
+  it("AC-2: reopen after close is not an error, and the second region is genuinely checked", () => {
+    expect(codes(doc(OPEN, "## A", WELL, "AC-1 here.", END, OPEN, "## B", WELL, END))).toEqual([]);
+    expect(
+      codes(doc(OPEN, "## A", WELL, "AC-1 here.", END, OPEN, "## B", "prose, no marker", END)),
+    ).toEqual(["TASK_MARKER_MISSING"]);
+  });
+
+  it("AC-3: a nested open is loud, inert, and non-disqualifying", () => {
+    expect(codes(doc(OPEN, "## A", WELL, "AC-1 here.", OPEN3, END, END))).toEqual([
+      "TASK_ENROLL_DUPLICATE",
+    ]);
+    // Outer task marker-less: outer region is checked, not skipped.
+    // Report order [MISSING@2, DUPLICATE@4]; codes() sorts alphabetically.
+    expect(codes(doc(OPEN, "## A", "prose, no marker", OPEN3, END, END))).toEqual([
+      "TASK_ENROLL_DUPLICATE",
+      "TASK_MARKER_MISSING",
+    ]);
+  });
+
+  it("AC-4: a marker between regions is orphaned, not assigned", () => {
+    expect(
+      codes(doc(OPEN, "## A", WELL, "AC-1 here.", END, WELL, OPEN, "## B", WELL, END)),
+    ).toEqual(["TASK_MARKER_ORPHANED"]);
+  });
+
+  it("AC-5: per-region EMPTY independence", () => {
+    expect(
+      codes(doc(OPEN, "### deep only", END, OPEN, "## B", "prose, no marker", END, "AC-1 here.")),
+    ).toEqual(["TASK_ENROLL_EMPTY", "TASK_MARKER_MISSING"]);
+  });
+
+  it("AC-6: EOF closes the last region in a multi-region document", () => {
+    expect(
+      codes(doc(OPEN, "## A", WELL, "AC-1 here.", END, OPEN, "## B", "prose, no marker")),
+    ).toEqual(["TASK_MARKER_MISSING"]);
+  });
+
+  it("AC-7: same-depth split around an interloper", () => {
+    expect(
+      codes(
+        doc(
+          OPEN3,
+          "### T1",
+          WELL,
+          "AC-1 here.",
+          END,
+          "### PROC interloper",
+          OPEN3,
+          "### T3",
+          WELL,
+          END,
+        ),
+      ),
+    ).toEqual([]);
+    expect(
+      codes(
+        doc(
+          OPEN3,
+          "### T1",
+          WELL,
+          "AC-1 here.",
+          END,
+          "### PROC interloper",
+          OPEN3,
+          "### T3",
+          "prose, no marker",
+          END,
+        ),
+      ),
+    ).toEqual(["TASK_MARKER_MISSING"]);
+  });
+
+  it("AC-8: zero well-formed regions still discards; defective marker unjudged", () => {
+    // The marker MUST be form-defective (empty red=): a wrong implementation
+    // that judges markers after failed enrollment adds TASK_RED_EMPTY; a valid
+    // marker produces the same list either way and proves nothing (spec §5).
+    expect(
+      codes(doc("<!-- tasks: depth=7 -->", "## A", "<!-- task: red=`` ac=AC-1 -->", "AC-1 here.")),
+    ).toEqual(["TASK_ENROLL_MALFORMED"]);
+  });
+
+  it("AC-9: extents clip at the region close, even with a following region to leak into", () => {
+    // Region 1's task is marker-less; the stray marker sits after its close.
+    // A close-leaking implementation assigns it and reports []. AC-28 pattern
+    // across a region boundary.
+    expect(
+      codes(
+        doc(OPEN, "## A", "prose, no marker", END, WELL, OPEN, "## B", WELL, END, "AC-1 here."),
+      ),
+    ).toEqual(["TASK_MARKER_MISSING", "TASK_MARKER_ORPHANED"]);
+  });
+
+  it("AC-10: close pairing unchanged; surplus close after a completed region", () => {
+    expect(codes(doc(OPEN, "## A", WELL, "AC-1 here.", END, END))).toEqual([
+      "TASK_ENROLL_MALFORMED",
+    ]);
+    // Nested variant (= AC-3 first fixture; kept adjacent for the pairing story):
+    expect(codes(doc(OPEN, "## A", WELL, "AC-1 here.", OPEN3, END, END))).toEqual([
+      "TASK_ENROLL_DUPLICATE",
+    ]);
+  });
+
+  it("AC-11: every region is checked; first and third region defects both report", () => {
+    expect(
+      codes(
+        doc(
+          OPEN,
+          "## A",
+          "prose, no marker",
+          END,
+          OPEN,
+          "## B",
+          WELL,
+          "AC-1 here.",
+          END,
+          OPEN,
+          "## C",
+          "prose, no marker",
+          END,
+        ),
+      ),
+    ).toEqual(["TASK_MARKER_MISSING", "TASK_MARKER_MISSING"]);
   });
 });
 
@@ -421,9 +609,10 @@ describe("checkTaskContract — mutation-gate repayments (groups F-J)", () => {
     // marker findings, so a LATE malformed tasks-line and an EARLY marker
     // finding come out reversed unless the sort runs. Deleting
     // `findings.sort(...)` outright survived the entire suite before this.
-    // A malformed `<!-- tasks: ... -->` line is the only pass-1 finding that
-    // leaves openCount at 1; a duplicate opening would return at
-    // lib/specLint/taskContract.ts:152 before any marker finding exists.
+    // A malformed `<!-- tasks: ... -->` line is a pass-1 finding that still
+    // leaves a well-formed region behind, so a pass-1 and a pass-2 finding
+    // coexist and the sort is observable. A document with NO well-formed region
+    // returns before any marker finding exists (2026-08-09 design §2.2).
     const findings = checkTaskContract(
       parseDoc(
         doc(
