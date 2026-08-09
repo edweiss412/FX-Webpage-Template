@@ -6171,3 +6171,185 @@ This is the dark-spec class already recorded for this repo (`feedback_dark_spec_
 > bound instead of an 11-minute job on every admin PR. NOT a required context: a path-filtered
 > job is absent on non-matching PRs, and required-but-skipped contexts wedge merges. The
 > `_metaE2eWorkflowCoverage` allowlist row is rewritten to cite this ratification.
+
+---
+
+## BL-ESLINT-CONFIG-ARRAY-JOIN-COMMENT-STALE — the eslint config's array-join comment outlived the sites it describes — CLOSED 2026-08-09 (`fix/quick-wins-2-mech`, IMPLEMENTED)
+
+**Resolution: IMPLEMENTED.** The comment's first clause (the plugin's default selectors do not traverse array joins) was accurate and stays. The stale second clause — array-join patterns "are linted by hand on initial canonicalization" — now points at `tests/specLint/canonicalClassCallee.test.ts`, the zero-tolerance guard that fails on ANY new className array join rather than relying on a one-time hand pass. TDD disposition N/A for behavior, declared: a comment carries no behavior, so the red column was the stale-phrase grep on the CONTIGUOUS token (`hand on initial canonicalization`; the phrase wraps mid-line, so `linted by hand` never appears on one line), exit 0 before and exit 1 after.
+
+**Severity:** LOW (stale comment, no behavior) · **Class:** docs accuracy · **Filed:** 2026-08-07 (`refactor/classname-array-join-cn`) · **Effort:** XS · **Reachability:** PROBED 2026-08-07 — read at `eslint.config.mjs:64-70` on the post-migration tree.
+
+**Description:** The comment above `"better-tailwindcss/enforce-canonical-classes"` says array-style patterns like `className={[...].filter(Boolean).join(" ")}` "are NOT covered by the plugin's default selectors — those are linted **by hand** on initial canonicalization." Its first clause is still true (the plugin genuinely cannot traverse an array join); its second is not. After `refactor/classname-array-join-cn` there are no array-join classNames left to lint by hand, and `tests/specLint/canonicalClassCallee.test.ts` reports any new one as a hard failure rather than leaving it to a manual pass.
+
+**Why not fixed in the arc that made it stale:** class-sweep exception (b) — a ratified scope fence. `eslint.config.mjs` is not in that plan's declared-delta allowlist (C4 step 4.3), and widening the allowlist after the diff had passed cross-model review would have put an unreviewed file in the merge.
+
+**Work:** replace the second clause with a pointer to the zero-tolerance guard. One comment edit.
+
+---
+
+## BL-SHADOW-TILE-ARROW-SYNTAX — `shadow-(--shadow-tile)` is not canonicalized, and globals.css claims it is — CLOSED 2026-08-09 (`fix/quick-wins-2-mech`, IMPLEMENTED)
+
+**Resolution: IMPLEMENTED, all three parts.** The census was DERIVED from the new guard's own RED output rather than copied from this entry — 22 sites, 21 `--shadow-tile` and 1 `--shadow-popover`, where the entry's 2026-08-07 count of 24 had already rotted. Every one is now its canonical utility; the residue grep returns exactly one hit, the `app/globals.css` deprecation mention that names the form in order to forbid it. The false enforcement claim is replaced by the MEASURED mechanism, and the entry's own replacement theory ("every `-runtime` indirection token is invisible to the rule") was refuted with it: the block carries 35 such tokens and direct ESLint probes found 29 already canonicalized, so the silent set is the two shadow tokens plus exactly four color tokens. The durable enforcement is `tests/specLint/themeTokenArrowBan.test.ts`, a DERIVED ban — it parses the `@theme` block for declared token names and fails on any string-literal arrow use of one, so every future token is covered on arrival. `--breakpoint-*` is excluded by rule: `min-w-(--breakpoint-sm)` emits `var(--breakpoint-sm)` while `min-w-sm` resolves `--container-sm`, a DIFFERENT token, so there is no token-preserving canonical form there. Four mutation families were run against the shipped guard and each killed by a named fixture failure. Zero visual delta was measured, not asserted: the impeccable gate compiled both spellings with the project's own Tailwind 4.2.4 and diffed the emitted declarations, light and dark.
+
+**Severity:** LOW (documented inconsistency, nothing renders differently) · **Class:** lint coverage · **Filed:** 2026-08-07 (`refactor/classname-array-join-cn`, spec §9.1 / R5, class-sweep exception (c)) · **Effort:** S · **Reachability:** PROBED 2026-08-07 — 24 textual matches across 18 files (21 class-string sites; 3 are doc comments), all live under a passing `pnpm lint`.
+
+**Description:** `app/globals.css:285-289` instructs components to prefer the canonical `shadow-tile` over the `shadow-(--shadow-tile)` arrow form and states _"(eslint-plugin-better-tailwindcss enforces this)."_ **Probed false.** A plain-string className carrying `shadow-(--shadow-tile)` — the shape the rule reads best — is reported clean. This entry owns both the sweep and correcting that false claim in the comment.
+
+**The mechanism is the token's VALUE, not its namespace,** which is what makes this bigger than shadows. The rule canonicalizes a token whose `@theme` value is a literal and skips one whose value is itself a `var()` reference. Probed, four cases in `app/globals.css`:
+
+| `@theme` value                                    | Line | Arrow/bracket form                  | Reported? |
+| ------------------------------------------------- | ---- | ----------------------------------- | --------- |
+| `--spacing-right-now-min-h: 176px`                | 216  | `min-h-(--spacing-right-now-min-h)` | **yes**   |
+| `--spacing-confirm-box: 60px`                     | 186  | `max-w-[60px]`                      | **yes**   |
+| `--shadow-tile: var(--shadow-tile-runtime)`       | 293  | `shadow-(--shadow-tile)`            | no        |
+| `--shadow-popover: var(--shadow-popover-runtime)` | 302  | `shadow-(--shadow-popover)`         | no        |
+
+So this is not a `shadow-*` carve-out: **every `@theme` token defined through a `-runtime` indirection — the pattern this project uses for all light/dark-spanning tokens — is invisible to the rule.** Both forms resolve to the same token, so the consequence is a documented inconsistency, not a defect.
+
+**Why not done on `refactor/classname-array-join-cn`:** class-sweep exception (c) — 21 sites spanning files that arc does not otherwise touch, which would blow its review scope.
+
+**Work:** sweep the 21 class-string sites to `shadow-tile` / `shadow-popover`, correct the `app/globals.css:288` enforcement claim, and decide whether the `-runtime` indirection blind spot deserves its own guard.
+
+---
+
+## BL-CLASS-CONST-LINT-BLINDSPOT — class strings in arbitrary-named consts and object values stay unlinted — CLOSED 2026-08-09 (`fix/quick-wins-2-mech`, IMPLEMENTED)
+
+**Resolution: IMPLEMENTED, wider than filed.** The nine named consts are `cn(...)`-wrapped and pinned by `tests/specLint/canonicalClassConstWrap.test.ts` (per-declaration, per-Record-value, with premises that the declaration is still FOUND and still carries class text). The behavioral evidence the entry asked for was observed in both directions: a planted `min-h-[44px]` was SILENT under `pnpm lint` pre-wrap in all three files and REPORTED post-wrap in each. The entry's worked example was real — `THUMB_BASE`'s `h-5 w-5` became `size-5` the moment the rule could see it. The census then went well past the nine: the entry's `rg` shape misses one-line declarations, function-scoped consts, object VALUES and literal concatenations, so it was re-run as an AST pass, and the impeccable gate found even THAT under-inclusive (no `/opacity` modifier, no single-token values). Two rounds, 132 sites across 43 files, ALL repaired in the same PR — deferral under class-sweep exception (c) was considered and rejected on measurement: the transform is mechanical, `tsc --noEmit` clean, and the whole class produced only four Tailwind drifts (`h-5 w-5`→`size-5`, `break-words`→`wrap-break-word`, `min-w-[8.5rem]`→`min-w-34`, `h-full w-full`→`size-full`). Runtime is unchanged on a checked fact, not an assumption: `cn` is exactly `parts.filter(Boolean).join(" ")`, tailwind-merge having been rejected by ratification precisely so a wrap cannot re-resolve conflicting classes.
+
+**Severity:** LOW (lint coverage, no user-visible defect) · **Class:** lint coverage · **Filed:** 2026-08-07 (`refactor/classname-array-join-cn`, spec §9.2 / R6, class-sweep exception (c)) · **Effort:** S-M · **Reachability:** PROBED 2026-08-07 — shape matrix run against the real config (spec §2.3).
+
+**Description:** `better-tailwindcss/enforce-canonical-classes` traverses string literals, recognized callees, and the `^classes$` variable selector. It does NOT traverse a class string bound to an arbitrarily-named const, an object value, or an identifier passed INTO a recognized callee. Probe table:
+
+| Shape                                                | Reported?                                                         |
+| ---------------------------------------------------- | ----------------------------------------------------------------- |
+| `className="… min-h-(--spacing-tap-min)"`            | **yes**                                                           |
+| `cn("…", "min-h-(--spacing-tap-min)")`               | **yes**                                                           |
+| `cn("…", cond ? "min-h-(--spacing-tap-min)" : "…")`  | **yes**                                                           |
+| `const anyName = cn(…)` used as a className          | **yes** — the callee match does not depend on the variable's name |
+| `cn(IDENT, …)` where `IDENT` is a class-string const | **no** — identifier args are not followed                         |
+| `const TRACK_BASE = "… min-h-(--spacing-tap-min)"`   | **no**                                                            |
+| `const classes = "… min-h-(--spacing-tap-min)"`      | **yes** — `^classes$` variable selector                           |
+| `const SIZE = { sm: "… min-h-(--spacing-tap-min)" }` | **no**                                                            |
+
+**Surviving dark sites after the cn migration** (line numbers are the SHIPPED post-migration ones — each file gained a `cn` import, so they sit one line below spec §9.2's pre-migration citations): `DeveloperToggleButton.tsx` `TRACK_BASE:79` / `THUMB_BASE:81` / `TAP_TARGET:84`; `AccentButton.tsx` `SIZE_CLASS:84` / `WEIGHT_CLASS:92` / `RING_OFFSET_CLASS:97` / `BASE_CLASS:105`; `OnboardingWizard.tsx` `base:127` / `focusRing:129`.
+
+**Worked example, surfaced by this arc's own impeccable critique (P2):** `THUMB_BASE:81` still reads `"inline-block h-5 w-5 rounded-full …"` while the three structurally identical sibling switches — `PublishedToggle`, `AutoPublishToggle`, `NotifyToggle` — were canonicalized to `size-5` in the same diff. Zero visual delta (`size-5` IS `h-5 w-5`), but it is precisely the drift the cn migration exists to make lint-visible, and it stayed invisible because `THUMB_BASE` is a bare const rather than an inline argument. The rule never saw it, before or after. That asymmetry is the clearest available evidence for why this entry is worth scheduling.
+
+**This is a DIFFERENT mechanism from the array-join blind spot** and was never covered by the census guard, so the cn migration neither worsens it nor is responsible for it. `tests/specLint/canonicalClassCallee.test.ts` records deliberately that its recognizer does not decide these either — its subject is the join, and the join alone.
+
+**Cheap known repair, which is why this is filed rather than merely noted:** rename to `classes` (which the plugin's variable selector matches) or wrap in `cn(...)`.
+
+**Why not done on `refactor/classname-array-join-cn`:** class-sweep exception (c) — a different mechanism needing its own recognizer decision, not another instance of the shape that arc repaired.
+
+---
+
+## BL-TRANSPORT-ID-RESOLUTION — the deferred red-first regression pins for `transportTileVisible` — CLOSED 2026-08-09 (`fix/quick-wins-2-mech`, IMPLEMENTED)
+
+**Resolution: IMPLEMENTED.** The deferred fuzzy-name pin set shipped as one table in `tests/visibility/scopeTiles.test.ts` — prefix, surname, nickname-via-surname, case/trim, the different-person and no-viewer-name negatives, the admin case, and the garbled-surname documented limit asserted AS a negative. Kept whole deliberately: the nickname leg (Bill Werner / William Werner) is the class the multi-token surname rule exists for and had no pin anywhere in the tree, which is what a set split across "whichever case someone happened to add" produces. The entry's own completeness check flipped: `rg -n 'Bill Werner|William Werner' tests/visibility` went from exit 1 to six hits. Every leg runs with no `viewerId` and no resolved owner ids, asserted by a premise OUTSIDE the `.each` callback, so Branch 0 cannot answer ahead of the name comparison and make the fixtures vacuous. Observed-RED per the arc C protocol: neutering the multi-token surname branch in `lib/data/nameMatch.ts` failed six cases including three of this set's own legs; restored, 42 passed, `git diff` empty. The mutant was never committed.
+
+**Severity:** low · **Class:** TEST COVERAGE · **Effort:** S · **Filed:** 2026-07-09 · **Resized:** 2026-08-06 (L-wave)
+
+> **RESIZED 2026-08-06 (L-wave, `feat/l-wave-docs`), decided by probe.** The entry's headline residual
+> — id-based transport visibility — landed as Flow 8.3b (#380). `transportTileVisible` now carries
+> a garble-proof id path: Branch 0 matches `transportationOwnerIds.includes(viewerId)` before any name
+> comparison (`lib/visibility/scopeTiles.ts:189,200,214-215`, re-probed 2026-08-06), and the
+> preparedness audit's shipped-status table records "8.4 transport visibility fully closed".
+>
+> What did NOT land is the deferred REGRESSION PIN SET, and that is the entire remaining content of
+> this row. Probed 2026-08-06: `rg -n 'Bill Werner|William Werner' tests/visibility lib/visibility`
+> returns nothing (exit 1). **The pin-set probe must grep the SPECIFIC named fixtures** — greping the
+> abundant `namesRefer` / `transportationOwnerIds` tokens instead would false-green, since those exist
+> precisely because the id path shipped. Resized L → S accordingly: what is left is one red-first test
+> task against an existing predicate, not a feature.
+
+**The residual, verbatim from the original deferral — land these RED-FIRST** (they were removed from
+`flow8-self-serve-trio` at plan-review Round-11 because a green-only regression-pin task conflicts with
+plan-wide invariant 1, and they belong red-first in the branch that next touches this predicate):
+
+Pin `transportTileVisible`'s CURRENT fuzzy-name tolerance against name-parse-variance regression:
+
+- driver `"Doug"` vs viewer `"Doug Larson"` → visible (prefix)
+- `"Douglas Larson"` vs `"Doug Larson"` → visible (surname)
+- assigned-names `["Bill Werner"]` vs `"William Werner"` → visible
+- case/trim `"  doug larson "` → visible
+- negative controls: `"Jane Smith"` → not visible; empty / `null` → not visible; admin → visible when transportation exists
+- the **known-gap fixture**: driver `"Doug Larson Loadout"` vs `"Doug Larson"` → **not visible**, verified live (the multi-token rule compares last tokens, `"loadout"` ≠ `"larson"`, `lib/data/nameMatch.ts:50-53`)
+
+**Why the known-gap fixture stays a NEGATIVE assertion, given Branch 0:** Branch 0
+only fires when `transportationOwnerIds` carries the viewer's id. The fuzzy-name branch is still the
+fallback for legs with no resolved owner id, so its tolerance — and its documented hard-mis-parse hole
+— remain live behaviour worth pinning. Pinning the name branch is not redundant with the id branch;
+they are different code paths for different data states.
+
+**Prior work, recorded so no future pass re-derives it:** the enrich-time no-match admin warning
+shipped in Flow 8.4 (PR #374) — `lib/sync/enrichTransportAssignees.ts` emits an admin-only aggregate
+`TRAVEL_TRANSPORT_NAME_UNMATCHED` (`gateExempt: true`) when a transport name references a crew member
+who would not see their own tile. The id-persistence half that PR called "architecturally infeasible
+in the enrich pass" (a crew uuid is DB-assigned at APPLY via `gen_random_uuid()`) was solved at
+apply-time by 8.3b, which is why Branch 0 exists.
+
+---
+
+## BL-LOCKED-FIXTURE-HELPER-TARGETS-REMOTE-DB — a local e2e run can send fixture writes to the validation project — CLOSED 2026-08-09 (`fix/quick-wins-2-mech`, IMPLEMENTED)
+
+**Resolution: IMPLEMENTED, via one shared resolver.** `tests/e2e/helpers/psqlTarget.ts` is now the only way an e2e fixture psql write resolves its target, consumed by BOTH in-class helpers through EVERY DSN entry point — the `runLockedSql` default and its explicit dsn argument, `seedStagedRow({ dsn })`, the module-level cleanup call, and `runLockedSqlWithProbe`'s postgres-js transport, which is a different door onto the same target and would otherwise have stayed unguarded. Three parts, because inspecting a URL does not constrain what libpq dials: (1) CALL-TIME resolution, so import order stops deciding the target; (2) an ACCEPT-SET rather than a denylist — `devCaptureStaged`'s check was in fact a seven-name denylist, and a denylist accepts whatever it did not model, so the contract is now exactly `connect_timeout`/`application_name`/`sslmode` with every other parameter refused BY NAME, modeled steering channel or not; (3) a scrubbed child environment where `PGSERVICEFILE` is REPOINTED at a nonexistent path rather than merely stripped, since stripping it restores the `~/.pg_service.conf` fallback a live probe had used to reach 192.0.2.3. Refusals name the resolved target, the channel that supplied it, and the `LOCKED_FIXTURE_ALLOW_REMOTE=1` escape hatch, replacing the old symptom (a no-rows error suggesting `pnpm db:seed`) that named the wrong cause. `devCaptureStaged`'s port, database, credential and split-target protections carry over verbatim and it does NOT honor the opt-in, so the migration turned nothing either helper refused into an acceptance. The scoped class sweep re-run at implementation time returns three hits, all prose in comments describing the removed pattern.
+
+**Severity:** MEDIUM (local-only, but the write lands in the SHARED validation project, and the symptom names the wrong cause) · **Class:** test-harness / env-resolution defect · **Filed:** 2026-08-09 (surfaced wiring right-now-transitions into the crew-e2e multi-spec invocation) · **Effort:** S
+
+**Probed, not theorized.** `tests/e2e/helpers/lockedCrewRestriction.ts` resolves its psql target
+ONCE, at module load:
+
+```
+const databaseUrl =
+  process.env.TEST_DATABASE_URL ?? process.env.DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+```
+
+`.env.local:50` sets `TEST_DATABASE_URL` to the persistent VALIDATION project
+(`postgresql://postgres.vzakgrxqwcalbmagufjh:***@aws-1-us-east-2.pooler.supabase.com:5432/postgres`)
+— `pnpm preflight` already warns about it: "TEST_DATABASE_URL is NON-LOOPBACK … 'local' runs that
+read it will target remote". Meanwhile the PostgREST `admin` client the same suites use reads
+`SUPABASE_URL` (`127.0.0.1:54321`). So the crew id is resolved against the LOCAL database and the
+UPDATE is sent to the REMOTE one.
+
+**Observed symptom** (crew-e2e's multi-spec invocation, both projects):
+
+```
+Error: lockedCrewRestriction: update matched no crew row
+  (id=4e6aced2-bb47-4601-aad8-bf74d589cbba,
+   drive_file_id=seed-fixture:2026-04-asset-mgmt-cfo-coo-waldorf — run `pnpm db:seed`?)
+```
+
+The row exists locally the whole time (verified by psql before and after), and `pnpm db:seed` — which
+the message tells you to run — does not help, because it seeds the wrong database relative to the
+write.
+
+**Why it is order-dependent, and why that is the nastiest part.** `databaseUrl` is captured at module
+load, so whether the remote value is visible depends on whether something has already loaded
+`.env.local` into `process.env` by then — i.e. on Playwright's import order, i.e. on HOW MANY SPEC
+FILES the invocation names. `right-now-transitions.spec.ts` alone passes; the same file inside the
+multi-spec command fails. That reads as "the new wiring broke it" and is not.
+
+**CI is unaffected** and this is not a merge blocker: `.env.local` is gitignored and absent on the
+runner, `crew-e2e.yml` sets no `TEST_DATABASE_URL`, so the helper falls back to the loopback default.
+
+**Fix shape (not applied here — out of this arc's scope):** resolve the target at CALL time, and
+refuse a non-loopback target unless something explicitly opts in. The fixture helper writes SEED data;
+silently pointing it at the shared validation project is the dangerous direction, and a loud refusal
+costs nothing. The same module-load capture pattern should be swept for across `tests/e2e/helpers/`.
+
+---
+
+## BL-TAP-TARGET-NEIGHBOUR-OVERLAP-COVERAGE — three 44px targets ship an unasserted expansion band — CLOSED 2026-08-09 (`fix/quick-wins-2-mech`, IMPLEMENTED)
+
+**Resolution: IMPLEMENTED, at the ratified scope.** No harness redesign: the live entry still mounts components in isolation, and what shipped is the arithmetic gap assertion this entry sketched, in `tests/e2e/tap-target-floor.layout.spec.ts`. Form is fixed per container by what the entry actually mounts — the HelpSheet close row is MEASURED (open the sheet, computed column- and row-gap in the real engine), while the Step3Review and StagedReviewCard rows are STATIC PINS. The band is DERIVED from the suite's own sizes, `(TAP_MIN - VISUAL_PILL) / 2`, so neither token can move without the pin failing. The static pins ask the TypeScript AST for the innermost gap-bearing ANCESTOR of a `data-testid` inside the container, not a regex for a nearby line — "the last `gap-` before this line" is satisfied by a sibling, and this entry's own citations had already rotted a directory prefix. Finding no container is a PREMISE failure, not a pass. Observed-RED: mutant #14 run per container (`gap-3`/`gap-2` → `gap-0`), each killing exactly its own case by name; restored, 53 passed. The documented limit is unchanged and restated: this pins gap arithmetic, not production adjacency.
+
+**Filed:** 2026-08-09 (`docs/step3-a11y-impeccable-regate`, non-degraded invariant-8 re-run). **Class:** guard coverage. **Effort:** S-M — the blocker is harness shape, not assertion difficulty. **Class-sweep exception:** (c) — closing it means changing how the live entry mounts, which is a redesign of the harness this PR does not otherwise touch. **Reachability: PROBED — no live defect.**
+
+`tests/e2e/tap-target-floor.layout.spec.ts` asserts neighbour non-overlap for exactly two of the seven repaired targets: the three step pills (DI-3, against each other) and the `AdminNav` brand link (against every interactive element in its own topbar). It cannot assert it for the other three, and the reason is structural: `tests/e2e/_tapTargetFloorLiveEntry.tsx` mounts each component in its own isolated `<div data-mount>`, so the neighbours those controls actually have in production are not in the tree.
+
+The three uncovered targets and the slack they ship: HelpSheet trigger (`components/admin/wizard/Step3Review.tsx:1312`, `gap-2`), HelpTooltip (`components/admin/wizard/StagedReviewCard.tsx:464`, `gap-2 flex-wrap`), HelpSheet close (`components/admin/HelpSheet.tsx:167`, `gap-3`). Each expands 8px per side into an 8–12px gap — **0–4px of slack**.
+
+**Traced by hand at all three: no interactive neighbour sits in any of those bands today.** So this is a coverage gap, not a defect, and spec §4 limit 2 has been widened to say so rather than continuing to scope the overhang to the stepper alone.
+
+**First scheduled step:** decide whether the live entry should mount these controls in their production containers (which changes what the harness _is_ — it currently mounts components, not pages), or whether a separate assertion should measure the gap arithmetically from the container's own `gap` token. The second is cheaper and probably right.
