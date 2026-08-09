@@ -1362,6 +1362,26 @@ test.describe("DI-2 — the six Class-A summaries stay narrower than their conta
         expect(measured.summary!, `${mount} summary width vs container`).toBeLessThan(
           measured.container - EPS,
         );
+
+        // MEASURED, and it corrects this invariant's own stated cause. Spec
+        // §2.1 attributes the narrow box to `w-fit` — "without it the <summary>
+        // stays block-level and becomes a 288px-wide invisible band". That is
+        // true of `w-fit` alone, but NOT of the recipe as shipped: the recipe
+        // also sets `inline-flex`, and an inline-level flex container is
+        // shrink-to-fit by definition. Probed by stripping `w-fit` from all six
+        // summaries — every DI-2 case still passed at all four widths. So the
+        // width comparison above proves the CONSEQUENCE and cannot attribute it
+        // to `w-fit`, and saying otherwise would be a false attribution in a
+        // guard whose whole job is to be exact.
+        //
+        // The token is still REQUIRED by the spec, so it is pinned as
+        // conformance rather than as cause — belt over braces, labelled as
+        // belt. It also stops mattering the moment someone changes the display
+        // utility, which is precisely when a redundant guard earns its keep.
+        await expect(
+          page.locator(`[data-mount="${mount}"] summary`),
+          `${mount} summary dropped the spec-required w-fit token`,
+        ).toHaveClass(/(^|\s)w-fit(\s|$)/);
       }
     });
   }
