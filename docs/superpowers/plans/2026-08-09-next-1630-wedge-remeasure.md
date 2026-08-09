@@ -263,7 +263,7 @@ Expected: vitest green before the commit; push succeeds.
 
 In one commit:
 1. In `BACKLOG.md`, leave the `**Status:** IN PROGRESS · **Branch:** …` meta line UNTOUCHED (Task 6 removes it in the last content commit).
-2. Below the l-wave-screen stamp line, add: `**Re-measured 2026-08-XX (chore/next-1630-wedge-remeasure):** next 16.3.0 (vendored canary cbb046ab-20260731) still wedges: N wedged samples of 20 valid samples; M wedged flips of F executed flips (F from the run logs per spec §4 item 4; run URLs, valid runs only); 16.3.0 is measured-insufficient, PARKED-WATCH continues.`
+2. Below the l-wave-screen stamp line, add: `**Re-measured 2026-08-XX (chore/next-1630-wedge-remeasure):** next 16.3.0 (vendored canary cbb046ab-20260731) still wedges: N wedged samples of 20 valid samples; M wedged flips of F executed flips (F from the trace artifacts per spec §4 item 4 — the run log carries no marker; run URLs, valid runs only); 16.3.0 is measured-insufficient, PARKED-WATCH continues.`
 3. In the entry body, edit the sentence ending "so no patch-bump fix exists today." to "so no patch-bump fix existed then; next 16.3.0 (canary cbb046ab-20260731) was measured insufficient 2026-08-XX (see the re-measurement stamp)."
 4. Verify + commit + push:
 
