@@ -235,7 +235,7 @@ In one commit:
    - **the §4.1 decision rule, restated:** "Decision rule (pre-stated): 0 wedged samples in 20 valid samples = fix confirmed; ≥1 = not fixed. Measured: 0/20.";
    - the branch name `chore/next-1630-wedge-remeasure` (the graduation guard asserts the archived section contains the provenance string);
    - the note that the e2e recovery tiers remain in `expectFlipLanded` deliberately;
-   - the un-archive contract verbatim: "Un-archive triggers: (a) any future `[wedge-recovery]` line (ANY tier, including the plain-escalation line) in lifecycle-layout-e2e output; (b) an admin report of a stuck Published switch. On either, this entry returns to BACKLOG.md as **Status:** OPEN (park posture re-evaluated against whatever canary is then vendored) and its `BACKLOG_GRADUATED` row is removed in the same commit."
+   - the un-archive contract as spec §5A states it (amended by whole-diff r2/r3 — the trigger is artifact-bound and availability-limited, so copy §5A's current wording rather than this line's older paraphrase): "Un-archive triggers: (a) any future `[wedge-recovery]` line (ANY tier, including the plain-escalation line) in a lifecycle-layout-e2e TRACE ARTIFACT — which exists for a FAILED run or any `workflow_dispatch` run; (b) an admin report of a stuck Published switch. On either, this entry returns to BACKLOG.md as **Status:** OPEN (park posture re-evaluated against whatever canary is then vendored) and its `BACKLOG_GRADUATED` row is removed in the same commit."
 3. Add to the `BACKLOG_GRADUATED` array in `tests/docs/_metaDeferralLedgerGraduation.test.ts` (existing commented-row style):
 
 ```ts
