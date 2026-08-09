@@ -665,7 +665,7 @@ Consequence: Doug must leave the dashboard to see operator telemetry and, as a n
 
 **Possible bundle, with the caveat that decides it:** `BL-ADMIN-PER-SHOW-HISTORY` wants a per-show operator history view, and both surface operator history to an admin — but they read DIFFERENT stores today. This entry's sink is `app_events`; that entry's own body names `sync_history` / `pending_syncs` / `shows` and `shows_internal.parse_warnings`, and sync history persists to `sync_log` (`lib/sync/syncLog.ts:43`). So a bundle is a DESIGN question (should one surface span both stores?), not a shared read path to be reused. Decomposition record: `BACKLOG-archive.md` § `BL-OPS-LOG`.
 
-## BL-E2E-APP-DEPENDENT-SPECS-CI-DARK — 24 app-dependent e2e specs are named by no CI workflow
+## BL-E2E-APP-DEPENDENT-SPECS-CI-DARK — 25 app-dependent e2e specs are named by no CI workflow
 
 **Status:** OPEN · **Severity:** MEDIUM (dark regression coverage) · **Class:** CI wiring · **Effort:** L · **Filed:** 2026-08-06 (L-wave, refile of `BL-E2E-LIFECYCLE-SPECS-CI-DARK` at honest scope)
 
@@ -677,12 +677,12 @@ the 2026-08-06 counts are kept alongside so the delta is auditable):
 
 | Allowlist rows                                                          | 2026-08-06 | 2026-08-09 |
 | ----------------------------------------------------------------------- | ---------- | ---------- |
-| `UNSEEN` — named by no workflow, **this entry's population**            | 43         | **24**     |
+| `UNSEEN` — named by no workflow, **this entry's population**            | 43         | **25**     |
 | `PATH_GATED` — named by a workflow, runs when its filter matches        | 13         | 13         |
 | `PATH_GATED_BY_EXCLUSION` — named, runs unless the change is prose-only | 6          | 8          |
 | `LOCAL_ONLY` — local artifact by design                                 | 1          | 1          |
 | custom-reason rows                                                      | 3          | 3          |
-| **Total rows**                                                          | 66         | **49**     |
+| **Total rows**                                                          | 66         | **50**     |
 
 The 11-row drop in `UNSEEN` and the 9-row drop in the total are `BL-RESURRECT-MOBILE-SAFARI-E2E`
 (archived 2026-08-09): NINE rows removed with their deleted spec files, and TWO reclassified
@@ -706,17 +706,48 @@ Path-gated rows are NOT this entry's scope: a workflow does name them, and "not 
 
 **Owner action that no branch can close.** Promoting e2e jobs into the branch-protection required set — so a red e2e blocks merge at the GitHub layer — is a GitHub-settings action, not repo code. Measured 2026-07-26: the live required set holds TWELVE contexts, and no e2e job is among them, which is why every e2e job is advisory. Until an owner changes that, enforcement is the pipeline's all-checks-green procedural gate. Measurement: `docs/superpowers/specs/ci/2026-07-26-ci-dark-coverage-design.md` §2.5.
 
-**Batch 1 landed 2026-08-09 — EIGHT specs wired, census 32 → 24** (PR #753, `.github/workflows/app-e2e.yml`, an always-on bare-`pull_request` job running both projects with `--retries=0` behind a per-spec executed-count oracle, `scripts/check-app-e2e-executed.mjs`). Wired: `sample`, `root-landing`, `admin-layout`, `admin-phase2-surfaces`, `notify-toggles`, `me-page`, `report-modal`, `admin-changes-feed-layout`. Their `UNSEEN` rows are deleted, which is what moves both the population and the total by eight. Spec: `docs/superpowers/specs/ci/2026-08-09-app-e2e-batch1-design.md`.
+**Batch 1 landed 2026-08-09 — SEVEN specs wired, census 32 → 25** (PR #753, `.github/workflows/app-e2e.yml`, an always-on bare-`pull_request` job running both projects with `--retries=0` behind a per-spec executed-count oracle, `scripts/check-app-e2e-executed.mjs`). Wired: `sample`, `root-landing`, `admin-layout`, `admin-phase2-surfaces`, `notify-toggles`, `me-page`, `report-modal`. Their `UNSEEN` rows are deleted, which is what moves both the population and the total by seven. Spec: `docs/superpowers/specs/ci/2026-08-09-app-e2e-batch1-design.md`.
 
 Five of the nine specced members were RED when first run — the spec had verified them by full-file read, and a read is not a run. Four were repaired in-branch as test-only staleness (a Next 16 streamed `redirect()` answering 200 where two specs asserted a 3xx first hop; a `/show/<slug>` href predating the M11.5 picker pivot; a Phase-2 dev-link guard whose telemetry exemption matched the raw href and so failed on its own sanctioned link once that link grew a `#health` fragment). Recorded here because the same read-not-run gap will otherwise be repeated by batch 2: **derive a batch's membership from a real run, not from reading the files.**
 
 **Ninth member deferred, not wired — `help-pages.spec.ts`.** It stays `UNSEEN` with its allowlist row intact. Its blocker is an APP defect, not a wiring gap: `/help/tour` throws a React hydration mismatch (13 page errors) under `pnpm dev` and the production build alike. The fix lands in `app/help/tour/page.mdx`, a UI surface under invariant 8, so repairing it drags the impeccable dual gate into what is otherwise a CI-wiring arc — its own arc, filed as `BL-HELP-TOUR-HYDRATION-MISMATCH`. The spec's route-coverage guard WAS repaired in that PR (it now derives from the `_nav.ts` export and covers `/help/admin/settings`), so promoting it later costs one allowlist-row deletion.
+
+**A second member was dropped mid-acceptance under AC-4 — `admin-changes-feed-layout.spec.ts`.** It stays `UNSEEN` with its allowlist row restored. Unlike help-pages this one is a genuine FLAKE, and it was caught by exactly the bar that exists to catch it: it passed the first two `pull_request` runs of the five-green loop and then failed two of the next three, on a DIFFERENT width band each time (`@720`, then `@1280`, both mobile-safari), with `published-show-review-modal` never appearing inside a 30s wait after `/admin?show=<slug>`. It passes standalone (6/6 locally, repeatedly) and fails only inside the batch, which points at a cross-spec interaction rather than a slow render. Filed as `BL-CHANGES-FEED-MODAL-BATCH-FLAKE`. Recorded because the local signal was misleading in BOTH directions here: the same spec's local reds were correctly attributed to a shared-database collision with a concurrent agent session, and that correct diagnosis then masked a real CI-reproducible flake underneath. **Only CI settles a flake question — AC-4 exists so an admitted flake never rides in.**
 
 **`onboarding-wizard-step1.spec.ts` is excluded from every batch until a seed-state redesign, and the reason is recorded so batch 2 does not re-derive it:** it asserts `[data-testid=onboarding-wizard]` on `/admin`, but `supabase/seed.ts` sets `app_settings.watched_folder_id` and `app/admin/page.tsx` then renders the dashboard — a deterministic failure on any seeded DB, and a required state mutually exclusive with `admin-changes-feed-layout.spec.ts`'s.
 
 **Structural guard already in place:** the workflow-coverage meta-test with its reasoned allowlist (`tests/ci/_metaE2eWorkflowCoverage.test.ts`) shipped with the archive-row-menu-idiom branch. Wiring work here is moving a spec OFF that allowlist by adding it to a workflow — the guard makes each removal explicit rather than silent.
 
 **Related, filed separately:** `BL-E2E-LAYOUT-FIXED-WAIT-RESIDUE` (three fixed waits the 2026-08-03 class sweep found in the layout spec).
+
+## BL-CHANGES-FEED-MODAL-BATCH-FLAKE — admin-changes-feed-layout's review modal intermittently never mounts inside a batch run
+
+**Status:** OPEN · **Severity:** MEDIUM (blocks wiring the spec into CI; no known product impact) · **Class:** e2e flake · **Effort:** M · **Filed:** 2026-08-09
+
+`tests/e2e/admin-changes-feed-layout.spec.ts` fails intermittently when run as part of a multi-spec batch: after `page.goto('/admin?show=<slug>')` the locator
+
+```
+[data-testid="published-show-review-modal"]:has([data-testid="published-show-review-title"])
+```
+
+never becomes visible inside its 30s wait — "element(s) not found", not a slow render.
+
+**Measured 2026-08-09 on real CI**, in the five-green acceptance loop for `BL-E2E-APP-DEPENDENT-SPECS-CI-DARK` batch 1, where the database is freshly bootstrapped and seeded per job and no other session can touch it:
+
+| run | head | outcome |
+| --- | --- | --- |
+| [31335519416](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/31335519416) | `d07330a0` | green |
+| [31335770085](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/31335770085) | `5c7a0704` | green |
+| [31335985584](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/31335985584) | `7089ec9e` | **failed @720, mobile-safari** |
+| [31337109375](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/31337109375) | `434d753f` | **failed @1280, mobile-safari** |
+
+The failing WIDTH BAND differs between runs, and locally the same spec failed at `@390` under desktop-chromium — so it is not band- or project-specific.
+
+**It passes standalone.** `pnpm exec playwright test tests/e2e/admin-changes-feed-layout.spec.ts --project=mobile-safari --project=desktop-chromium` was 6/6 green on repeated local runs against a freshly seeded database. The defect appears only when other specs run first, which points at a cross-spec interaction — the spec resolves the seeded Waldorf show by `drive_file_id` and seeds `show_change_log` / `sync_holds` marker rows in `beforeAll`, and `report-modal.spec.ts` pins the SAME show.
+
+**First thing to check:** whether the show's state (published / archived, or the presence of the feed rows the modal renders from) is disturbed by a spec that runs earlier in the batch, and whether the modal's mount condition depends on it. A per-test re-seed, or resolving a show of its own rather than sharing the Waldorf fixture, are the obvious candidate repairs — but confirm the mechanism before choosing.
+
+**Not a product bug as far as anything shows** — no user-facing report, and the surface passes every other run. The cost is coverage: the spec stays `UNSEEN` until it is stable enough to clear five consecutive green runs.
 
 ## BL-HELP-TOUR-HYDRATION-MISMATCH — /help/tour throws a React hydration mismatch on every visit
 

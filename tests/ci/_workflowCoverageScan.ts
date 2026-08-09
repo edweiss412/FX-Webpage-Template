@@ -723,7 +723,6 @@ export const ENV_KEY_ALLOWLIST: EnvKeyAllowlist = {
         // the artifact confusion the "oracle reads the run's own report" rule
         // exists to prevent.
         governs: [
-          "tests/e2e/admin-changes-feed-layout.spec.ts",
           "tests/e2e/admin-layout.spec.ts",
           "tests/e2e/admin-phase2-surfaces.spec.ts",
           "tests/e2e/me-page.spec.ts",
@@ -747,7 +746,6 @@ export const ENV_KEY_ALLOWLIST: EnvKeyAllowlist = {
       {
         text: "http://127.0.0.1:54321",
         governs: [
-          "tests/e2e/admin-changes-feed-layout.spec.ts",
           "tests/e2e/admin-layout.spec.ts",
           "tests/e2e/admin-lifecycle-layout.spec.ts",
           "tests/e2e/admin-phase2-surfaces.spec.ts",
@@ -767,7 +765,6 @@ export const ENV_KEY_ALLOWLIST: EnvKeyAllowlist = {
       {
         text: "http://127.0.0.1:54321",
         governs: [
-          "tests/e2e/admin-changes-feed-layout.spec.ts",
           "tests/e2e/admin-layout.spec.ts",
           "tests/e2e/admin-lifecycle-layout.spec.ts",
           "tests/e2e/admin-phase2-surfaces.spec.ts",
@@ -788,7 +785,6 @@ export const ENV_KEY_ALLOWLIST: EnvKeyAllowlist = {
       {
         text: DEMO_SERVICE_JWT,
         governs: [
-          "tests/e2e/admin-changes-feed-layout.spec.ts",
           "tests/e2e/admin-layout.spec.ts",
           "tests/e2e/admin-lifecycle-layout.spec.ts",
           "tests/e2e/admin-phase2-surfaces.spec.ts",
@@ -808,7 +804,6 @@ export const ENV_KEY_ALLOWLIST: EnvKeyAllowlist = {
       {
         text: DEMO_ANON_JWT,
         governs: [
-          "tests/e2e/admin-changes-feed-layout.spec.ts",
           "tests/e2e/admin-layout.spec.ts",
           "tests/e2e/admin-lifecycle-layout.spec.ts",
           "tests/e2e/admin-phase2-surfaces.spec.ts",
@@ -828,7 +823,6 @@ export const ENV_KEY_ALLOWLIST: EnvKeyAllowlist = {
       {
         text: DEMO_SERVICE_JWT,
         governs: [
-          "tests/e2e/admin-changes-feed-layout.spec.ts",
           "tests/e2e/admin-layout.spec.ts",
           "tests/e2e/admin-lifecycle-layout.spec.ts",
           "tests/e2e/admin-phase2-surfaces.spec.ts",
@@ -848,7 +842,6 @@ export const ENV_KEY_ALLOWLIST: EnvKeyAllowlist = {
       {
         text: DEMO_ANON_JWT,
         governs: [
-          "tests/e2e/admin-changes-feed-layout.spec.ts",
           "tests/e2e/admin-layout.spec.ts",
           "tests/e2e/admin-lifecycle-layout.spec.ts",
           "tests/e2e/admin-phase2-surfaces.spec.ts",
@@ -868,7 +861,6 @@ export const ENV_KEY_ALLOWLIST: EnvKeyAllowlist = {
       {
         text: DEMO_ANON_JWT,
         governs: [
-          "tests/e2e/admin-changes-feed-layout.spec.ts",
           "tests/e2e/admin-layout.spec.ts",
           "tests/e2e/admin-lifecycle-layout.spec.ts",
           "tests/e2e/admin-phase2-surfaces.spec.ts",
@@ -888,7 +880,6 @@ export const ENV_KEY_ALLOWLIST: EnvKeyAllowlist = {
       {
         text: "super-secret-jwt-token-with-at-least-32-characters-long",
         governs: [
-          "tests/e2e/admin-changes-feed-layout.spec.ts",
           "tests/e2e/admin-layout.spec.ts",
           "tests/e2e/admin-lifecycle-layout.spec.ts",
           "tests/e2e/admin-phase2-surfaces.spec.ts",
@@ -908,7 +899,6 @@ export const ENV_KEY_ALLOWLIST: EnvKeyAllowlist = {
       {
         text: "supabase-demo",
         governs: [
-          "tests/e2e/admin-changes-feed-layout.spec.ts",
           "tests/e2e/admin-layout.spec.ts",
           "tests/e2e/admin-lifecycle-layout.spec.ts",
           "tests/e2e/admin-phase2-surfaces.spec.ts",
@@ -948,7 +938,6 @@ export const ENV_KEY_ALLOWLIST: EnvKeyAllowlist = {
       {
         text: "fxav-r41-test-pepper-32-chars-min-deterministic",
         governs: [
-          "tests/e2e/admin-changes-feed-layout.spec.ts",
           "tests/e2e/admin-layout.spec.ts",
           "tests/e2e/admin-lifecycle-layout.spec.ts",
           "tests/e2e/admin-phase2-surfaces.spec.ts",
@@ -968,7 +957,6 @@ export const ENV_KEY_ALLOWLIST: EnvKeyAllowlist = {
       {
         text: "true",
         governs: [
-          "tests/e2e/admin-changes-feed-layout.spec.ts",
           "tests/e2e/admin-layout.spec.ts",
           "tests/e2e/admin-lifecycle-layout.spec.ts",
           "tests/e2e/admin-phase2-surfaces.spec.ts",
@@ -988,7 +976,6 @@ export const ENV_KEY_ALLOWLIST: EnvKeyAllowlist = {
       {
         text: "fxav-m3-test-auth-2026-DO-NOT-SHIP",
         governs: [
-          "tests/e2e/admin-changes-feed-layout.spec.ts",
           "tests/e2e/admin-layout.spec.ts",
           "tests/e2e/admin-lifecycle-layout.spec.ts",
           "tests/e2e/admin-phase2-surfaces.spec.ts",
@@ -1009,7 +996,6 @@ export const ENV_KEY_ALLOWLIST: EnvKeyAllowlist = {
       {
         text: "redeem-link-test-secret-32-bytes-min",
         governs: [
-          "tests/e2e/admin-changes-feed-layout.spec.ts",
           "tests/e2e/admin-layout.spec.ts",
           "tests/e2e/admin-lifecycle-layout.spec.ts",
           "tests/e2e/admin-phase2-surfaces.spec.ts",
@@ -1029,7 +1015,6 @@ export const ENV_KEY_ALLOWLIST: EnvKeyAllowlist = {
       {
         text: "7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f",
         governs: [
-          "tests/e2e/admin-changes-feed-layout.spec.ts",
           "tests/e2e/admin-layout.spec.ts",
           "tests/e2e/admin-lifecycle-layout.spec.ts",
           "tests/e2e/admin-phase2-surfaces.spec.ts",
@@ -1049,7 +1034,6 @@ export const ENV_KEY_ALLOWLIST: EnvKeyAllowlist = {
       {
         text: '{"client_email":"walker-fixture@seed-mode.iam.gserviceaccount.com"}',
         governs: [
-          "tests/e2e/admin-changes-feed-layout.spec.ts",
           "tests/e2e/admin-layout.spec.ts",
           "tests/e2e/admin-lifecycle-layout.spec.ts",
           "tests/e2e/admin-phase2-surfaces.spec.ts",
@@ -1069,7 +1053,6 @@ export const ENV_KEY_ALLOWLIST: EnvKeyAllowlist = {
       {
         text: "1",
         governs: [
-          "tests/e2e/admin-changes-feed-layout.spec.ts",
           "tests/e2e/admin-layout.spec.ts",
           "tests/e2e/admin-lifecycle-layout.spec.ts",
           "tests/e2e/admin-phase2-surfaces.spec.ts",

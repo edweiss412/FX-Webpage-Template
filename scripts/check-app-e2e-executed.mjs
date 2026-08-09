@@ -26,8 +26,6 @@ import { pathToFileURL } from "node:url";
 // `beforeEach(() => test.skip())` runtime-skip every case but one while the job stayed green, and a
 // partially dark suite is the same defect as a wholly dark one, just quieter.
 export const REQUIRED = {
-  // 3 width bands x 2 projects.
-  "admin-changes-feed-layout.spec.ts": 6,
   // 2 cases x 2 projects.
   "admin-layout.spec.ts": 4,
   // 4 cases x 1 project — admin-phase2-surfaces resolves under mobile-safari only
