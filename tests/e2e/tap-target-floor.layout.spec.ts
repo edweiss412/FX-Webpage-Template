@@ -162,10 +162,56 @@ test.afterAll(async () => {
  * networkidle says nothing about whether React has rendered.
  */
 async function boot(page: Page, width: number): Promise<void> {
+  // Collected so a boot failure REPORTS instead of hanging. An unbounded
+  // waitForSelector on a page whose React threw burns the whole 120s test
+  // timeout and prints "Test timeout exceeded" — which names the symptom and
+  // hides every cause. CI proved this is not hypothetical: six cases each spent
+  // 2.0m timing out and the job was cancelled before Playwright printed a
+  // single reason. This harness bundles a real component graph out-of-process,
+  // so "it mounted here and not there" is a live failure mode and the message
+  // has to carry the page's own errors across that boundary.
+  const pageErrors: string[] = [];
+  const consoleErrors: string[] = [];
+  page.on("pageerror", (e) => pageErrors.push(String(e)));
+  page.on("console", (m) => {
+    if (m.type() === "error") consoleErrors.push(m.text());
+  });
+  const requestFailures: string[] = [];
+  page.on("requestfailed", (r) => requestFailures.push(`${r.url()} ${r.failure()?.errorText}`));
+
   await page.setViewportSize({ width, height: 900 });
   await page.goto(baseUrl);
-  await page.waitForSelector('body[data-harness-ready="true"]');
-  await page.evaluate(() => document.fonts.ready);
+  try {
+    await page.waitForSelector('body[data-harness-ready="true"]', { timeout: 20_000 });
+  } catch {
+    const diag = await page
+      .evaluate(() => ({
+        rootChildren: document.getElementById("root")?.childElementCount ?? -1,
+        readyAttr: document.body.getAttribute("data-harness-ready"),
+        bodyHtmlHead: document.body.innerHTML.slice(0, 400),
+      }))
+      .catch((e: unknown) => ({ evaluateFailed: String(e) }));
+    throw new Error(
+      `harness never reached data-harness-ready at ${width}px.\n` +
+        `pageerrors: ${JSON.stringify(pageErrors)}\n` +
+        `console errors: ${JSON.stringify(consoleErrors)}\n` +
+        `failed requests: ${JSON.stringify(requestFailures)}\n` +
+        `dom: ${JSON.stringify(diag)}`,
+    );
+  }
+  // Bounded in-page, because a never-settling font promise would otherwise be
+  // indistinguishable from a slow one and would also burn the full timeout.
+  const fontsSettled = await page.evaluate(() =>
+    Promise.race([
+      document.fonts.ready.then(() => true),
+      new Promise<boolean>((r) => setTimeout(() => r(false), 15_000)),
+    ]),
+  );
+  premiseHolds(
+    `document.fonts.ready settled before measurement at ${width}px ` +
+      `(failed requests: ${JSON.stringify(requestFailures)})`,
+    fontsSettled,
+  );
 }
 
 /** The <summary> owned by one mounted surface. */
@@ -596,6 +642,32 @@ for (const spec of CLASS_B_TARGETS) {
         );
       }
       await expect(page.locator(targetSel)).toHaveClass(/(^|\s)group(\s|$)/);
+
+      // §6.1: no transition is added, REMOVED, or RETIMED. The end colours
+      // above cannot see either failure — moving `transition-colors
+      // duration-fast` from the visual span back onto the target leaves every
+      // final value correct while the change snaps instantly, and `settledProps`
+      // reads the duration only to size its own wait, so it would adjust to the
+      // regression rather than catch it. Both halves are pinned on the element
+      // that actually paints the colour.
+      const timing = await page.locator(visualSel).evaluate((el) => {
+        const cs = getComputedStyle(el);
+        return { property: cs.transitionProperty, duration: cs.transitionDuration };
+      });
+      for (const prop of spec.hoverProps) {
+        const cssName = prop === "backgroundColor" ? "background-color" : prop;
+        expect(
+          `${timing.property},`.includes(`${cssName},`) || timing.property === "all",
+          `${spec.label}: the visual span no longer transitions ${cssName} (got "${timing.property}")`,
+        ).toBe(true);
+      }
+      // `duration-fast` is 120ms (app/globals.css:240). Read as a SET, because
+      // `transition-colors` expands to one duration per animated property.
+      const durations = new Set(timing.duration.split(",").map((d) => d.trim()));
+      expect(
+        [...durations],
+        `${spec.label}: colour transition was retimed (got "${timing.duration}")`,
+      ).toEqual(["0.12s"]);
     });
 
     test(`focus rings the target, and the radius is non-zero and shared`, async ({ page }) => {
@@ -649,6 +721,123 @@ for (const spec of CLASS_B_TARGETS) {
     });
   });
 }
+
+/**
+ * The two Class-A sites whose <summary> carried a VISIBLE NATIVE MARKER before
+ * the repair. `inline-flex` overrides `display: list-item`, which removes it —
+ * so these two need a replacement or they silently lose their open/closed cue.
+ * The other four suppressed the marker deliberately long before this branch
+ * (`list-none` + `[&::-webkit-details-marker]:hidden`), so they are correctly
+ * absent from this list rather than missing from it.
+ */
+const CARET_MOUNTS = ["operator-error", "administrators"] as const;
+
+test.describe("§1.1 R6 — the two disclosures that HAD a native marker keep a visible cue", () => {
+  for (const mount of CARET_MOUNTS) {
+    test(`${mount}: the caret exists and rotates when the disclosure opens`, async ({ page }) => {
+      await boot(page, 390);
+
+      const summary = summaryIn(page, mount);
+      const caret = page.locator(`[data-mount="${mount}"] summary [aria-hidden="true"]`);
+
+      // Premise: the native marker really is gone, so a replacement is required.
+      // If a future change restored `display: list-item`, this guard would be a
+      // belt over working braces and should be revisited rather than trusted.
+      const display = await summary.evaluate((el) => getComputedStyle(el).display);
+      premiseHolds(
+        `${mount} summary is inline-flex, so the native marker is gone`,
+        display === "inline-flex",
+      );
+      expect(await caret.count(), `${mount} lost its disclosure caret`).toBeGreaterThan(0);
+
+      // Tailwind v4 emits `rotate-90` as the standalone `rotate` property, NOT
+      // as `transform` — a `transform`-only read returns "none" in both states
+      // and passes whether or not the rotation is wired. Both are captured so
+      // the guard survives either representation.
+      const read = () =>
+        caret.first().evaluate((el) => {
+          const cs = getComputedStyle(el);
+          return `${cs.rotate}|${cs.transform}`;
+        });
+
+      const closed = await read();
+      await summary.click();
+      // The rotation is a real transition (`duration-normal`), so read it after
+      // the element's own declared duration rather than on the next frame.
+      const durationMs = await caret.first().evaluate((el) => {
+        const d = getComputedStyle(el).transitionDuration.split(",")[0]?.trim() ?? "0s";
+        return d.endsWith("ms") ? parseFloat(d) : parseFloat(d) * 1000;
+      });
+      await page.waitForTimeout((Number.isFinite(durationMs) ? durationMs : 0) + 60);
+      const open = await read();
+
+      expect(
+        open,
+        `${mount} caret did not rotate on open — is \`group\` missing from the <details>?`,
+      ).not.toBe(closed);
+    });
+  }
+});
+
+test.describe("§2.2 — HelpTooltip's `group` is on the <summary>, not the <details>", () => {
+  test("hovering the DISCLOSED BODY does not light up the trigger", async ({ page }) => {
+    await boot(page, 390);
+
+    const summarySel = '[data-mount="help-tooltip"] [data-testid="help-tooltip-trigger"]';
+    const visualSel = '[data-mount="help-tooltip"] [data-testid="help-tooltip-trigger-visual"]';
+    const bodySel = '[data-mount="help-tooltip"] [data-testid="help-tooltip-body"]';
+    const props = ["color", "backgroundColor"] as const;
+
+    const resting = await settledProps(page, visualSel, props);
+
+    // Premise: the trigger DOES change on hover, or "the body hover changed
+    // nothing" is true for a control that never changes at all.
+    await page.locator(visualSel).hover();
+    const hovered = await settledProps(page, visualSel, props);
+    for (const prop of props) {
+      premiseHolds(
+        `HelpTooltip changes ${prop} on hover (resting ${resting[prop]}, hovered ${hovered[prop]})`,
+        resting[prop] !== hovered[prop],
+      );
+    }
+
+    await page.mouse.move(0, 0);
+    await page.locator(summarySel).click();
+    await page.waitForSelector(bodySel, { state: "visible" });
+
+    const triggerRect = await rectOf(page, summarySel);
+    const bodyRect = await rectOf(page, bodySel);
+    premise("the disclosed body has area to hover", bodyRect.w * bodyRect.h, 0);
+    const sampleX = bodyRect.x + bodyRect.w / 2;
+    const sampleY = bodyRect.y + bodyRect.h / 2;
+    // The POINT is what has to be outside, not the body's top edge: the
+    // trigger's `-m-2` makes its border box 8px taller than its margin box, so
+    // the body's `mt-2` puts its top edge exactly ON the trigger's bottom edge.
+    // Requiring the whole body to clear the box fails by 0px and would report a
+    // wrong environment for a correct one.
+    premiseHolds(
+      `the sampled body point (${Math.round(sampleX)},${Math.round(sampleY)}) lies outside the trigger's 44px box`,
+      sampleY > triggerRect.y + triggerRect.h ||
+        sampleY < triggerRect.y ||
+        sampleX > triggerRect.x + triggerRect.w ||
+        sampleX < triggerRect.x,
+    );
+
+    await page.mouse.move(sampleX, sampleY);
+    const whileBodyHovered = await settledProps(page, visualSel, props);
+
+    // spec §2.2: `group` belongs on the <summary>. The outer <details> is an
+    // ancestor too, so `group-hover:*` WOULD match from there — and hovering the
+    // disclosed content would then light the trigger. The exact edit this
+    // catches: add `group` to the <details> at components/admin/HelpTooltip.tsx.
+    for (const prop of props) {
+      expect(
+        whileBodyHovered[prop],
+        `hovering the disclosed body leaked ${prop} onto the trigger — is \`group\` on the <details>?`,
+      ).toBe(resting[prop]);
+    }
+  });
+});
 
 test.describe("DI-3/DI-4/DI-5 — the step pills grow their target without moving their layout", () => {
   for (const width of VIEWPORTS) {

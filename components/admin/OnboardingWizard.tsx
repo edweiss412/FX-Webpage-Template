@@ -589,9 +589,22 @@ export function OperatorErrorBlock() {
       </h2>
       <p className="max-w-prose text-base">{entry.dougFacing}</p>
       {entry.helpfulContext ? (
-        <details className="text-sm">
-          <summary className="inline-flex w-fit min-h-tap-min cursor-pointer items-center font-medium">
-            What does this mean?
+        // `group` + the caret span below replace the NATIVE disclosure marker,
+        // which `inline-flex` removes: a summary is `display: list-item` by
+        // default and the 44px floor repair overrides that. Four of the six
+        // repaired disclosures already suppressed the marker deliberately; this
+        // one and the revoked-admins list did not, so without a replacement they
+        // silently lose their open/closed cue. Same treatment as
+        // app/me/meShowSections.tsx's past-shows disclosure.
+        <details className="group text-sm">
+          <summary className="inline-flex w-fit min-h-tap-min cursor-pointer list-none items-center font-medium">
+            What does this mean?{" "}
+            <span
+              aria-hidden="true"
+              className="ml-1 inline-block transition-transform duration-normal group-open:rotate-90"
+            >
+              ▸
+            </span>
           </summary>
           <p className="mt-2 max-w-prose">{entry.helpfulContext}</p>
         </details>

@@ -124,12 +124,23 @@ export function AdministratorsSection({
       </div>
 
       {revoked.length > 0 && (
+        // `group` drives the caret below, which replaces the NATIVE disclosure
+        // marker that `inline-flex` removes: a summary is `display: list-item`
+        // by default and the 44px floor repair overrides that. Without a
+        // replacement this list silently loses its open/closed cue. Same
+        // treatment as app/me/meShowSections.tsx's past-shows disclosure.
         <details
           data-testid="admin-revoked-list"
-          className="rounded-md border border-border bg-surface-sunken"
+          className="group rounded-md border border-border bg-surface-sunken"
         >
-          <summary className="inline-flex w-fit min-h-tap-min cursor-pointer items-center p-3 text-xs font-semibold uppercase tracking-wide text-text-subtle">
-            Revoked ({revoked.length})
+          <summary className="inline-flex w-fit min-h-tap-min cursor-pointer list-none items-center p-3 text-xs font-semibold uppercase tracking-wide text-text-subtle">
+            Revoked ({revoked.length}){" "}
+            <span
+              aria-hidden="true"
+              className="ml-1 inline-block transition-transform duration-normal group-open:rotate-90"
+            >
+              ▸
+            </span>
           </summary>
           <ul className="flex flex-col gap-2 px-3 pb-3">
             {revoked.map((row) => (
