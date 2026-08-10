@@ -5,7 +5,7 @@
 
 ## 1.1 Resolved scope — do not relitigate
 
-- **The fix is a formatting normalization of `app/help/tour/page.mdx`, not a rewrite.** Copy, link targets, aria-labels, and classNames are byte-identical after the change; only JSX line structure changes — multi-line attribute lists collapse to one line and text children move inline with their tags (both halves of the §4 recipe). Any finding proposing copy or layout changes is out of scope.
+- **The fix is a formatting normalization of `app/help/tour/page.mdx`, not a rewrite.** Link targets, aria-labels, and classNames are byte-identical after the change; user-visible copy is preserved up to whitespace normalization — moving a text child onto one line replaces its embedded newlines-plus-indentation with single spaces, which is the same collapse HTML rendering applies, so the RENDERED text is unchanged (R4 F1). Only JSX line structure changes — multi-line attribute lists collapse to one line and text children move inline with their tags (both halves of the §4 recipe). Any finding proposing copy or layout changes is out of scope.
 - **The CI promotion rides in the same arc.** BACKLOG.md (`BL-HELP-TOUR-HYDRATION-MISMATCH`, "Closing this unblocks a one-line follow-up") names the allowlist-row deletion + workflow wiring as the un-defer payload; folding it here is the ratified disposition, not scope creep.
 - **No new test files.** The red test already exists: `tests/e2e/help-pages.spec.ts` asserts zero page errors per `/help/*` route and currently fails on `/help/tour` (probed 2026-08-09, both server postures, per the backlog entry). Green is the same suite passing. A bespoke MDX-compile unit guard was considered and rejected (YAGNI: the e2e page-error assertion is the durable guard once promoted to CI).
 - **The backlog entry's causal guess is superseded by the probe below.** The entry hypothesized column-0 `<a>` elements being wrapped in `<p>`. The confirmed mechanism is different (text children on their own lines inside JSX flow elements are parsed as markdown paragraphs). Do not relitigate the old hypothesis.
@@ -37,7 +37,7 @@ Reformat the three expanded cards to the exact style of their compact siblings, 
 - attributes on one line;
 - every text child inline between its opening and closing tag on a single line (`<p className="…">The text…</p>`), so MDX emits it as a plain JSX text child instead of a markdown paragraph.
 
-No character of user-visible copy, no href, no aria-label, no className changes. The diff is whitespace/line-structure only. (Equivalent alternative — wrapping text children in `{"…"}` expressions — rejected: it diverges from the sibling style instead of converging on it.)
+No word of user-visible copy, no href, no aria-label, no className changes; within text children, newline-plus-indentation runs become single spaces (the §1.1 normalization). The diff is whitespace/line-structure only. (Equivalent alternative — wrapping text children in `{"…"}` expressions — rejected: it diverges from the sibling style instead of converging on it.)
 
 Acceptance for this section: recompiling the fixed file with the §3 probe yields exactly **one** `_components.p` in the whole module (the legitimate intro paragraph, `app/help/tour/page.mdx:3`), and none nested inside a JSX element.
 
@@ -78,7 +78,7 @@ None. The page is static content with a single visual state; the fix adds no sta
 ## 8. Acceptance criteria
 
 - **AC-1:** `/help/tour` renders with zero page errors under both server postures (e2e assertion green, mobile-safari project — the only project the spec resolves in, `playwright.config.ts:78`).
-- **AC-2:** `app/help/tour/page.mdx` copy, hrefs, aria-labels, and classNames are byte-identical to before (verifiable by diffing the extracted strings).
+- **AC-2:** `app/help/tour/page.mdx` hrefs, aria-labels, and classNames are byte-identical to before; text content matches after collapsing each whitespace run to a single space (the HTML rendering collapse — R4 F1: raw string equality would wrongly reject the mandated newline removal). Verifiable by diffing the extracted, whitespace-normalized strings.
 - **AC-3:** `help-pages.spec.ts` runs in `app-e2e.yml` on pull_request; its allowlist row is gone; `tests/ci/_metaE2eWorkflowCoverage.test.ts` passes (governance-equality included, per §5.4b). *Fallback reading (§5): the allowlist row is restored with a recorded flake reason, the YAML/oracle/governs additions are reverted, and the meta-test passes in that state.*
 - **AC-4:** No stale comment in `app-e2e.yml` still names this spec as blocked. *Fallback reading: the comments name the recorded flake, not the fixed hydration bug.*
 - **AC-5:** Impeccable critique + audit pass on the diff (P0/P1 fixed or DEFERRED.md-logged).
