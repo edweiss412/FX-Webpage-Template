@@ -72,7 +72,7 @@ function stepper(): string {
       <a data-testid="wizard-step-indicator-${n}" class="${base} border-transparent bg-accent text-accent-text">${n}</a>
       <span class="${labelActive}">${label}</span>
     </div>`;
-  return `<nav aria-label="Onboarding progress" data-testid="wizard-step-indicator" class="flex items-center gap-2 sm:gap-3">
+  return `<nav aria-label="Onboarding progress" data-testid="wizard-step-indicator" class="flex min-w-0 items-center gap-2 sm:gap-3">
     ${done(1, "Share folder")}${done(2, "Verify")}${active(3, "Review &amp; publish")}
     <span class="sr-only">Step 3 of 3</span>
   </nav>`;

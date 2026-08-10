@@ -204,7 +204,15 @@ export function StepIndicator({
       // 900px, with the rail's width jumping between steps 2 and 3 as the page
       // container's max-width changed. Sizing the connector directly (below)
       // renders identically with none of that.
-      className="flex items-center gap-2 sm:gap-3"
+      //
+      // `min-w-0` STAYS, and dropping it was a regression CI caught that no
+      // local run did: a flex item's default `min-width: auto` floors it at
+      // content width, so a content-sized nav carrying two FIXED 60px
+      // connectors could no longer shrink to fit a narrow container and
+      // overflowed it (step3-review-page.layout.spec.ts:216, `navScrollW <=
+      // contClientW`). Removing `flex-1` was right; removing `min-w-0` with it
+      // was not — the two do different jobs, and only the growth was inert.
+      className="flex min-w-0 items-center gap-2 sm:gap-3"
     >
       {([1, 2, 3] as const).map((n) => {
         const isActive = n === step;

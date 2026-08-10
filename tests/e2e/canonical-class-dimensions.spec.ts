@@ -480,40 +480,48 @@ test.describe("canonical-class sizing deltas do not move geometry (AC-11)", () =
   // is a guard that reports on the cases it happens to visit.
   for (const step of [1, 2, 3] as const) {
     for (const theme of ["light", "dark"] as const) {
-      test(`C1 — both connectors clear the 3:1 non-text floor at ?step=${step} in ${theme}`, async ({
-        page,
-      }) => {
-        await sampleConnectors(page, step, PROJECT_VIEWPORT.width);
-        await page.evaluate((t) => {
-          document.documentElement.dataset.theme = t;
-        }, theme);
-        const measured = [];
-        for (const n of [0, 1]) {
-          const c = await contrastAgainstBackdrop(page, '[data-testid="wizard-step-connector"]', n);
-          premiseHolds(
-            `connector ${n} and its backdrop both resolve to real colours in ${theme}`,
-            c !== null && c.bg !== "rgba(0, 0, 0, 0)",
-          );
-          // Not folded into the ratio: `visibility: hidden` is not a low-contrast
-          // line, it is an absent one, and reporting it as a contrast number
-          // would name the wrong defect.
-          premiseHolds(
-            `connector ${n} is not hidden by \`visibility\` in ${theme}`,
-            (c as { hidden: boolean }).hidden === false,
-          );
-          measured.push({
-            connector: n,
-            ...(c as { fg: string; bg: string; ratio: number; shown: number }),
-          });
-        }
-        expect(
-          measured.filter((m) => m.ratio < 3),
-          `every connector must clear the 3:1 non-text contrast floor against what is behind ` +
-            `it (DESIGN.md §1.2a). A token swapped toward the page background reads as "still a ` +
-            `different token" to the colour oracle while being invisible on screen — that is the ` +
-            `mutant this exists to kill. Measured at step ${step} in ${theme}: ${JSON.stringify(measured)}`,
-        ).toEqual([]);
-      });
+      for (const width of BAND_VIEWPORTS) {
+        test(`C1 — both connectors clear the 3:1 non-text floor at ?step=${step}, ${width}px, ${theme}`, async ({
+          page,
+        }) => {
+          await sampleConnectors(page, step, width);
+          await page.evaluate((t) => {
+            document.documentElement.dataset.theme = t;
+          }, theme);
+          const measured = [];
+          for (const n of [0, 1]) {
+            const c = await contrastAgainstBackdrop(
+              page,
+              '[data-testid="wizard-step-connector"]',
+              n,
+            );
+            premiseHolds(
+              `connector ${n} and its backdrop both resolve to real colours in ${theme}`,
+              c !== null && c.bg !== "rgba(0, 0, 0, 0)",
+            );
+            // Not folded into the ratio: `visibility: hidden` is not a low-contrast
+            // line, it is an absent one, and reporting it as a contrast number
+            // would name the wrong defect.
+            premiseHolds(
+              `connector ${n} is not hidden by \`visibility\` in ${theme}`,
+              (c as { hidden: boolean }).hidden === false,
+            );
+            measured.push({
+              connector: n,
+              ...(c as { fg: string; bg: string; ratio: number; shown: number }),
+            });
+          }
+          expect(
+            measured.filter((m) => m.ratio < 3),
+            `every connector must clear the 3:1 non-text contrast floor against what is behind ` +
+              `it (DESIGN.md §1.2a). A token swapped toward the page background reads as "still a ` +
+              `different token" to the colour oracle while being invisible on screen. Checked at ` +
+              `EVERY viewport too — review R4 showed \`sm:opacity-0\` surviving because paint was ` +
+              `only ever sampled at 390px. Measured at step ${step}, ${width}px, ${theme}: ` +
+              `${JSON.stringify(measured)}`,
+          ).toEqual([]);
+        });
+      }
     }
   }
 
