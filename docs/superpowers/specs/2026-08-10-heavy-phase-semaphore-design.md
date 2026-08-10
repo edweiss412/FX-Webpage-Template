@@ -532,7 +532,11 @@ real `/tmp/fx-heavy-slots`.
    `--slots` yet accept a 65-slot env and silently defeat the machine-wide bound.
    Companion boundary: `FX_HEAVY_SLOTS=64` accepted (config records 64, no warning). `FX_HEAVY_DISABLE=true` (not `1`): stderr warning
    naming the expected value AND locking still active (observable: the case-1 mutual
-   exclusion holds under it). `FX_HEAVY_POLL_MS=0`: warn + default (asserted via the
+   exclusion holds under it). Full-matrix arms (plan R3 F1 amendment — every knob's
+   invalid class has an oracle): `FX_HEAVY_WAIT_WARN_S=banana` → warn + default 300;
+   `FX_HEAVY_JITTER_PCT=99` → warn + default 20; `FX_HEAVY_PRIORITY=true` (not `1`)
+   → warning naming the expected value AND no priority behavior (no prio-wait marker
+   created). `FX_HEAVY_POLL_MS=0`: warn + default (asserted via the
    warning line; no busy-spin).
 9. **Slot-count consistency (R1 F9, R2 F2; discriminators per R8 F5).** Sequential
    arm: dir created under `FX_HEAVY_SLOTS=3` (config records 3); a second invocation

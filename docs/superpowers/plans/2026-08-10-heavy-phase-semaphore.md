@@ -18,7 +18,7 @@
 ## Meta-test inventory (mandatory declaration)
 
 - CREATES: tests/docs/agentsHeavyPhaseRule.test.ts (Task 5 — pins the new AGENTS.md bullet's load-bearing anchors; plan R2 F2). EXTENDS: none. No Supabase call boundary, advisory lock, admin alert, or tile surface is touched. Executable proof for the wrapper is its own process-spawning suite (spec §7). `tests/docs/_metaInvariant8Closeout.test.ts` satisfied by the §12 marker below; `tests/docs/specsReadmeIndexParity.test.ts` green at spec commit (root-level spec, no row required — verified by running it).
-- Mutation-family closure: N/A — Python CLI, process-lifecycle defect class; the source-mutation registry overlays vitest-imported TS modules and cannot express it (step3-a11y precedent, spec §1.1). Defect classes are the spec §7 case list; a reviewer-proposed NEW class needs a live demonstration against the shipped wrapper.
+- Mutation-family closure: the WRAPPER is registry-inexpressible (Python CLI, process-lifecycle defect class; step3-a11y precedent, spec §1.1) — its defect classes are the spec §7 case list, and a reviewer-proposed NEW class needs a live demonstration. The Task 5 AGENTS-rule guard IS operator-enumerable and carries its own four-operator closure set with live mutant probes (see Task 5; plan R3 F3).
 
 ## e2e harness-readiness: N/A — no Playwright attached; all tests are vitest + child_process.
 
@@ -85,9 +85,9 @@ Commit: `feat(infra): heavy-slot priority bias and outermost-owns reentrancy`
 
 ## Task 5 — pnpm entry point + AGENTS.md rule
 
-<!-- task: red=`pnpm vitest run tests/scripts/withHeavySlot.test.ts` ac=AC-10 -->
+<!-- task: red=`pnpm vitest run tests/scripts/withHeavySlot.test.ts tests/docs/agentsHeavyPhaseRule.test.ts` ac=AC-10 -->
 
-RED: add spec §7 case 10 (fails: no `heavy` script in package.json) AND create tests/docs/agentsHeavyPhaseRule.test.ts asserting the AGENTS.md bullet exists with its load-bearing anchors — `pnpm heavy`, the FX_HEAVY_PRIORITY closeout convention, the never-set-FX_HEAVY_SLOT_DIR rule, both named transitive-shape members, and the --recreate-only capacity rule (fails pre-edit; closes plan R2 F2 — the existing marker-contract meta-test deliberately cannot see this bullet).
+RED: add spec §7 case 10 (fails: no `heavy` script in package.json) AND create tests/docs/agentsHeavyPhaseRule.test.ts — its red= run above includes the new file, so the guard's own failure is OBSERVED before the prose exists (plan R3 F2). The guard asserts EVERY load-bearing rule element as a distinct anchor (plan R3 F3): full-suite vitest shape, non-interactive playwright shape, builds, mutation harness, the transitive rule with BOTH named members, the interactive (--ui/--debug/PWDEBUG) exclusion, the scoped-vitest exclusion, the outermost-wrap rule, the dev-server rule, the FX_HEAVY_PRIORITY closeout convention, the never-set-FX_HEAVY_SLOT_DIR rule, the --recreate-only capacity rule, and the spec citation. Mutation-family closure FOR THIS GUARD (the wrapper itself stays registry-inexpressible, but a string-presence guard is exactly the operator-enumerable shape): four declared operators, each probed as a live mutant AGENTS.md during the task — (1) delete the whole bullet, (2) delete one MUST shape, (3) delete one MUST-NOT shape, (4) move a member across the MUST/MUST-NOT boundary (e.g. test:e2e:ui into MUST) — the guard must fail all four.
 
 GREEN: add `"heavy": "python3 scripts/with-heavy-slot.py --"` to root package.json; append the AGENTS.md cross-cutting bullet per spec §5 — mechanism, §4.6 MUST/MUST-NOT shapes INCLUDING the transitive-shape rule and its two named members, FX_HEAVY_PRIORITY closeout convention, never-set-FX_HEAVY_SLOT_DIR rule, dev-server instruction, --recreate-only capacity changes, spec citation.
 
