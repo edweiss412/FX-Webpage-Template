@@ -208,7 +208,10 @@ Description: extend `lib/specLint/numerics.ts` beyond `NUMERIC_NOUN_MISMATCH`
 (`lib/specLint/numerics.ts:88`) with the three measured shapes: (a) when a doc names a script
 that declares a count constant (the `EXPECTED_SITE_TOTAL` pattern — a module-local `const` in
 the live precedent, so the arm reads the declaration textually rather than importing it),
-compare the doc's prose cardinalities against the constant's live value; (b) count the sibling list items directly
+compare the doc's PRESENT-TENSE prose cardinalities against the constant's live value — prose
+carrying P3's dated "at authoring time" qualifier, and dated historical records (probe
+transcripts, execution records — the filing's own boundary: they "must not be 'corrected'"),
+are EXCLUDED from the comparison, not flagged; (b) count the sibling list items directly
 beneath an "N shapes/items" claim and compare; (c) compare quantities repeated across quoted
 disposition templates within one doc. Advisory-first is acceptable; the rule half binds
 immediately via P3. Design and opt-in mechanics belong to the implementing arc.
