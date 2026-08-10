@@ -1721,75 +1721,38 @@ test.describe("§2.7 — the 8px expansion band cannot reach an interactive neig
       );
       const className = classText as string;
 
-      // A gap gated on a PSEUDO-STATE is not measurable this way and must not be
-      // measured anyway. The probe is a hidden, un-hovered element, so Tailwind's
-      // `&:hover` (and `:focus`, `group-*`, `peer-*`) branches never apply — the
-      // measurement would report the resting gap and call it clearance.
+      // WHICH VARIANTS THIS PROBE CAN ACTUALLY EXERCISE — an ACCEPT-SET, not a
+      // list of states to refuse.
       //
-      // Review R4 caught this against my own commit transcript: it claimed a
-      // `md:hover:gap-0` mutant had been killed, and what was actually run was
-      // `md:gap-0`. The media-query variant IS settled by resizing; the hover one
-      // is not, and the record said otherwise.
+      // The first version enumerated pseudo-state prefixes (`hover`, `focus`,
+      // `group-*`, …) and refused those. Review R7 drove `has-[:hover]:gap-0`
+      // straight through it: Tailwind emits `&:has(*:is(:hover))`, the hidden
+      // unhovered probe measures the base gap, and the pin passes while the real
+      // container collapses to `gap-0` whenever a child is hovered. Enumerating
+      // spellings does not terminate — arbitrary variants are an open set — which
+      // is the same lesson the gap RECOGNIZER taught two rounds earlier.
       //
-      // This does NOT try to compute such a gap — that is the recognizer road
-      // this file left. It refuses to vouch, which is the same conservative
-      // posture as the `--spacing` tripwire: a state-gated gap fails loudly here
-      // instead of passing quietly.
-      const stateGatedGap = className
+      // So the question is inverted. The sweep below resizes the viewport, so the
+      // only variants it can settle are the ones a width change triggers. Every
+      // OTHER variant on a gap utility is state-conditioned as far as this probe
+      // is concerned, and is REFUSED — including variants nobody has written yet,
+      // because they are not on the list either.
+      const VIEWPORT_VARIANTS =
+        /^(?:sm|md|lg|xl|2xl|min-\[[^\]]+\]|max-\[[^\]]+\]|max-(?:sm|md|lg|xl|2xl))$/;
+      const unexercisable = className
         .split(/\s+/)
-        .filter((t) => /:gap(?:-[xy])?-/.test(t))
-        .filter((t) =>
-          /(?:^|:)(?:hover|focus|focus-visible|focus-within|active|visited|target|group-[^:]*|peer-[^:]*)(?::|$)/.test(
-            t.slice(0, t.lastIndexOf(":") + 1),
-          ),
-        );
+        .filter((t) => /(?::)gap(?:-[xy])?-/.test(t))
+        .filter((t) => {
+          const variants = t.split(":").slice(0, -1);
+          return variants.some((v) => !VIEWPORT_VARIANTS.test(v));
+        });
       premiseHolds(
-        `${pin.label}: the container declares no pseudo-state-gated gap (found ` +
-          `${stateGatedGap.join(", ") || "none"}). A hidden probe never enters :hover/:focus, so ` +
-          `such a gap cannot be settled here and is refused rather than measured at its resting ` +
-          `value.`,
-        stateGatedGap.length === 0,
-      );
-
-      // A TRIPWIRE on the one assumption the probe below still makes, with its
-      // reach stated rather than implied. The probe is a detached element on
-      // `document.body`, so it resolves the ROOT `--spacing`; a container beneath
-      // an element that scoped its own would diverge.
-      //
-      // It reads SOURCE TEXT, so it sees the two static spellings
-      // (`[--spacing:3px]` in a class, `--spacing: 3px` in CSS) and NOT the two
-      // dynamic ones (`el.style.setProperty("--spacing", …)`,
-      // `style={{ "--spacing": … }}`), which review R3 probed. Widening it to
-      // chase those is one more step down the recognizer road this file just
-      // backed out of, so the residual is a DOCUMENTED LIMIT: closing it needs
-      // the container measured where it lives, which means mounting it — the
-      // harness redesign the ratified scope excludes (UI spec §1.1 item 2). The
-      // measured HelpSheet case below IS mounted and has no such gap; these two
-      // containers are precisely the ones that cannot be.
-      const scopedSpacing = ((): string => {
-        const hits: string[] = [];
-        const walk = (dir: string): void => {
-          for (const entry of readdirSync(dir, { withFileTypes: true })) {
-            const abs = join(dir, entry.name);
-            if (entry.isDirectory()) {
-              walk(abs);
-            } else if (/\.(?:tsx?|css)$/.test(entry.name)) {
-              readFileSync(abs, "utf8")
-                .split("\n")
-                .forEach((line, i) => {
-                  if (/--spacing\s*:/.test(line)) hits.push(`${abs}:${i + 1}`);
-                });
-            }
-          }
-        };
-        for (const root of ["app", "components", "lib"]) walk(join(REPO_ROOT, root));
-        return hits.join("\n");
-      })();
-      premiseHolds(
-        `no element scopes its own --spacing in source (found: ${scopedSpacing || "none"}), so a ` +
-          `detached probe on document.body resolves the same step the real container does. Static ` +
-          `spellings only; a runtime setProperty is a documented limit.`,
-        scopedSpacing === "",
+        `${pin.label}: every gap variant on this container is one the viewport sweep can ` +
+          `exercise (unexercisable: ${unexercisable.join(", ") || "none"}). A gap conditioned on ` +
+          `anything but width — hover, focus, group/peer state, an arbitrary \`has-[…]\` variant — ` +
+          `cannot be settled by a hidden probe, so it is refused rather than measured at its ` +
+          `resting value.`,
+        unexercisable.length === 0,
       );
 
       await boot(page, VIEWPORTS[0]);

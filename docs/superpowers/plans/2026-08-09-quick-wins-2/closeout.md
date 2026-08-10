@@ -152,6 +152,17 @@ Both findings are correct, and the reviewer named them for what they were: the S
 
 An intermediate design was built and rejected on measurement rather than taste: a behavioral probe that plants into each declaration IN MEMORY and asks the REAL eslint through `--stdin --stdin-filename`. It models nothing, so renames, scoping and composition cannot fool it — but each invocation took ~219s under this machine's load and still tripped synckit's `Atomics.wait` timeout, so nine of them is not a per-CI-run unit test. Its first form was worse and is worth recording: it wrote the plants into the real source files and restored them afterwards, and it left three production files modified when the run failed. A test that can corrupt the tree it is testing is a worse defect than the one it was written to catch.
 
+### §12.1h Round 7 — the deletion verified, and the last enumeration inverted
+
+Round 7 reviewed the post-deletion diff. **It independently verified the claim the deletion rests on**, with the probe I could not run locally: declaration-anchored in-memory plants passed through the REAL ESLint configuration produced canonical-class errors at all nine constants (`DeveloperToggleButton.tsx` 80/83/87, `AccentButton.tsx` 87/93/98/106, `OnboardingWizard.tsx` 166/169), and `.github/workflows/quality.yml:36` runs `pnpm lint`. It also confirmed no executable suite, registry, config or meta-test referenced the deleted file. Two findings.
+
+| # | Finding | Repair |
+| --- | --- | --- |
+| R7-1 (BLOCKING) | The pseudo-state gap refusal ENUMERATED prefixes (`hover`, `focus`, `group-*`, …) and missed Tailwind's arbitrary variants: `has-[:hover]:gap-0` compiles to `&:has(*:is(:hover))`, the hidden unhovered probe measures the base gap, and the pin passes while the container collapses whenever a child is hovered. Enumerating spellings does not terminate — the same lesson the gap recognizer taught two rounds earlier, one level down. | **Inverted to an accept-set.** The sweep resizes the viewport, so the only variants it can settle are width variants; every OTHER variant on a gap utility is refused, including ones nobody has written yet. Mutant: `has-[:hover]:gap-0` now fails; control: an ordinary `md:gap-3` is NOT refused. |
+| R7-2 | The deletion left two present-tense claims that the removed test "pins" the sites (`lib/ui/cn.ts`, the archive entry). | Both rewritten to name the lint rule as the cover, with the six-round history and §12.1g as the pointer. |
+
+The shape worth carrying forward: this arc's last four mechanism defects were all one thing — **an enumeration standing in for a decision procedure**. A list of Tailwind spellings, a list of declaration names, a list of pseudo-state prefixes. Each was replaced by asking the authority directly (the compiler, the lint rule) or by inverting to an accept-set that refuses the unknown. That is the generalizable lesson, and it is why the round count stopped climbing.
+
 ### §12.2 Observed-RED transcripts index
 
 Every RED in this branch was observed against the live tree, and both observations recorded in the task's own commit message.

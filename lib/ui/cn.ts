@@ -28,8 +28,11 @@
  * object VALUE — nine such constants shipped with Tailwind drift inside them
  * (`THUMB_BASE`'s `h-5 w-5` where its three sibling switches said `size-5`),
  * invisible to `pnpm lint` and therefore to CI. The wrap is what makes them
- * visible; `tests/specLint/canonicalClassConstWrap.test.ts` pins the named
- * sites. Spec: docs/superpowers/specs/2026-08-09-quick-wins-2-mech.md §2.3.
+ * visible. The cover is the LINT RULE itself, which traverses these wraps and
+ * runs in CI as a required context — a guard that re-derived the rule's own
+ * identifier resolution was tried, took six review rounds, and was deleted.
+ * Spec: docs/superpowers/specs/2026-08-09-quick-wins-2-mech.md §2.3;
+ * rationale: docs/superpowers/plans/2026-08-09-quick-wins-2/closeout.md §12.1g.
  *
  * `number` is deliberately outside `ClassValue`: admitting it would let a `0` be silently
  * dropped by the `Boolean` filter. Nested arrays are excluded for the same reason the
