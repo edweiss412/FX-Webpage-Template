@@ -353,7 +353,12 @@ describe("Archive — a row that loses eligibility under an open menu", () => {
     expect(archiveActionMock).not.toHaveBeenCalled();
   });
 
-  test("a failure banner from the previous state does not outlive the eligibility change", async () => {
+  test("a failure banner SURVIVES the eligibility change — it is an outcome, not an affordance", async () => {
+    // Written the other way round at R3, and wrong: hiding a banner that says
+    // what already happened is the silent-outcome defect this vector kept
+    // producing, not a fix for it. The class rule (pinned in
+    // _metaOutcomeVisibility.test.tsx) is that ACTIONABLE regions close on an
+    // eligibility change and READ-ONLY outcomes do not.
     archiveActionMock.mockResolvedValue({ ok: false, code: "infra_error" });
     const r = row({ slug: "banner" });
     const { rerender } = render(<ShowRowActions row={r} />);
@@ -361,7 +366,15 @@ describe("Archive — a row that loses eligibility under an open menu", () => {
     enterConfirm("banner");
     fireEvent.click(q("row-actions-archive-go-banner")!);
     await waitFor(() => expect(q("row-actions-archive-error-banner")).not.toBeNull());
+
     rerender(<ShowRowActions row={{ ...r, published: false }} />);
-    expect(q("row-actions-archive-error-banner")).toBeNull();
+
+    // The banner stays…
+    const banner = q("row-actions-archive-error-banner")!;
+    expect(banner).not.toBeNull();
+    expect(banner.textContent ?? "").toContain(ARCHIVE_GENERIC_ERROR_COPY);
+    // …and the thing that could ACT on the row is gone.
+    expect(q("row-actions-archive-confirm-banner")).toBeNull();
+    expect(q("row-action-archive-banner")).toBeNull();
   });
 });

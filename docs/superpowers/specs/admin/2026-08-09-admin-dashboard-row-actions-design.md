@@ -83,7 +83,7 @@ States: closed / open / open+pending / open+error / confirm-step (Archive). Pair
 | open → closed (dismiss/success) | same as primitive |
 | open → open+pending | instant swap of item content to spinner; other items disable |
 | open+pending → open+error | instant; the error line appears in a `role="group"` naming an inner `role="alert"` message node — the shipped `ReSyncButton.tsx:280-287` reference; the alert role IS the announcement. (Aligned with §3.4 per plan R4 F5, which corrected an earlier `role="status"` here; a node cannot carry both roles, and §3.4 is the ratified one.) |
-| open+pending → closed (success) | close after `router.refresh()` resolves |
+| open+pending → closed (success) | `router.refresh()` is called, THEN the menu closes — an ORDERING, not an await. Next declares `refresh(): void` (`app-router-context.shared-runtime.d.ts`), so there is no completion to wait for; the earlier "after it resolves" wording described a contract the framework does not offer (corrected at whole-diff R4). The tests assert the ordering, which is the whole of what is observable. |
 | open → confirm-step (Archive) | instant in-place swap of the Archive row; initial focus lands on the SAFE control (Cancel) per the destructive-action contract |
 | confirm-step → open (cancel) | instant; focus restores to the Archive item (cancel focus restoration per DESIGN.md destructive contract) |
 | open+pending → held-decision (Re-sync `shrink_held`) | instant swap to the held prompt (§3.4a); other items stay disabled |
@@ -132,7 +132,7 @@ The Archive confirm step implements the DESIGN.md destructive-action rules (the 
 
 1. **Open duplicates the row Link** (same `openHref` target). Deliberate: §9.1 documents Open as an explicit action; the duplicate affordance costs one menu row and removes the "the row is secretly a link" discoverability gap.
 2. **Crew list staleness.** `row.crew` is loader-time data; a roster change after dashboard render shows a stale submenu until refresh. The preview page itself re-validates the crewId — a stale click lands on the preview route's own guard, never a wrong crew page.
-3. **Menu closes on background refresh** (§3.5 compound row). Cosmetic; accepted.
+3. **A background refresh does NOT close the menu** (§3.5 compound row, corrected at whole-diff R3). `router.refresh()` merges the RSC payload without losing React state and the row keeps its `row.id` key, so the same menu instance survives. What the surface owes is ELIGIBILITY, not closure: if the refresh flips the row to unpublished, every mutating surface closes and an answer already in flight is SIGNALED rather than dropped. The earlier entry claimed the opposite and called it cosmetic.
 4. **Archived bucket unchanged** (§1.4).
 
 ## §7 Out of scope

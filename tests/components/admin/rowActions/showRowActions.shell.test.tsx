@@ -261,6 +261,23 @@ describe("ShowRowActions — the menu element holds only menu content", () => {
     }
   });
 
+  test("a separator precedes the destructive item — required, not merely permitted", () => {
+    render(<ShowRowActions row={row({ slug: "sep" })} />);
+    const menu = openMenu("sep");
+    const kids = Array.from(menu.children);
+    const archiveAt = kids.findIndex(
+      (k) => k.getAttribute("data-testid") === "row-action-archive-sep",
+    );
+    premise("the menu renders the Archive item", archiveAt, 0);
+    // The permissive content-model check above accepts a menu with NO separator
+    // at all, which is how this was lost once already: §12 recorded it fixed
+    // while the ARIA restructure had removed it.
+    expect(
+      kids[archiveAt - 1]?.getAttribute("role"),
+      "the destructive item must be separated from Re-sync",
+    ).toBe("separator");
+  });
+
   test("the Archive confirm renders OUTSIDE the menu element, inside the panel", () => {
     render(<ShowRowActions row={row({ slug: "outside" })} />);
     const menu = openMenu("outside");

@@ -256,3 +256,35 @@ describe("AnchoredPortal — teardown (spec §3.5 compound: row unmounts while o
     expect(panelNode()).toBeNull();
   });
 });
+
+// ── whole-diff review R4 F1 ─────────────────────────────────────────────────
+// The subscriptions cover scroll, resize and SIZE changes. None covers a
+// POSITION-ONLY move, and ResizeObserver explicitly does not — it reports size.
+// A background `router.refresh()` that reorders rows moves the anchor without
+// changing any dimension, and a body-child portal holding absolute coordinates
+// then visually belongs to a DIFFERENT row.
+describe("AnchoredPortal — a position-only move re-places the panel", () => {
+  test("re-renders re-measure, so an anchor that moved without resizing is followed", () => {
+    const before: StubRect = { left: 120, top: 200, width: 44, height: 44 };
+    const after: StubRect = { left: 120, top: 900, width: 44, height: 44 };
+    stubbed.set('[data-testid="anchor"]', before);
+    stubbed.set('[data-testid="portal-panel"]', { left: 0, top: 0, width: 200, height: 100 });
+    const { rerender } = render(<Harness open />);
+    const panel = panelNode()!;
+    expect(panel.style.top).toBe(`${before.top + before.height + GAP}px`);
+
+    // PREMISE (own inputs): the anchor must MOVE while keeping its size, or
+    // this proves nothing the ResizeObserver would not already have caught.
+    premiseHolds("the anchor moves", before.top !== after.top);
+    premiseHolds(
+      "…without changing size, which is what ResizeObserver watches",
+      before.width === after.width && before.height === after.height,
+    );
+
+    // A re-render with no scroll, no resize and no size change — the shape a
+    // reordering refresh takes.
+    stubbed.set('[data-testid="anchor"]', after);
+    rerender(<Harness open />);
+    expect(panel.style.top).toBe(`${after.top + after.height + GAP}px`);
+  });
+});

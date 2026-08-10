@@ -234,6 +234,21 @@ export function AnchoredPortal({
     };
   }, [open, mounted, measureAndApply, anchorRef]);
 
+  /**
+   * Re-measure after EVERY commit while open. The subscriptions above catch
+   * scroll, resize and size changes; none of them catches a POSITION-ONLY move,
+   * and `ResizeObserver` explicitly does not — it reports size. A background
+   * `router.refresh()` that reorders rows without changing any dimension moves
+   * the anchor under a portal that is a body child with absolute coordinates,
+   * and the panel then visually belongs to a DIFFERENT row. `commit` drops an
+   * unchanged placement, so the common case costs one measurement and no
+   * render.
+   */
+  useLayoutEffect(() => {
+    if (!open || !mounted) return;
+    measureAndApply();
+  });
+
   // A closed surface holds no stale placement: the next open measures fresh.
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- discarding a placement on close is a RESET, not a derivation: it runs once per close and cannot cascade, because the panel is unmounted by then and nothing re-measures until the next open.

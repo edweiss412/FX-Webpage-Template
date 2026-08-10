@@ -72,7 +72,7 @@ The geometry spec runs against the REAL wired dashboard (Task 6 landed). **This 
 
 ## Transition-audit distribution (plan R3 F2 — no standalone post-hoc audit task)
 
-The spec §3.5 inventory's rows are asserted RED-first inside the tasks that IMPLEMENT each state, where they have production defects: menu open/close rows in Task 3's suite; pending, error, success-close (INCLUDING open+pending → closed after `router.refresh()` resolves — asserted as an ordering, plan R4 F2) and held-decision rows in Task 4's suite (where the actions land); confirm-step focus rows in Task 5's; the two compound rows (row-unmount portal close; background-refresh remount close) in Task 7's Playwright spec. Each task's suite enumerates the conditional renders it introduces and asserts instant treatment (or the primitive default) per the inventory. The inventory table verbatim:
+The spec §3.5 inventory's rows are asserted RED-first inside the tasks that IMPLEMENT each state, where they have production defects: menu open/close rows in Task 3's suite; pending, error, success-close (INCLUDING open+pending → closed, where `router.refresh()` is CALLED and the close follows — asserted as an ordering, plan R4 F2; `refresh(): void` offers no completion to await, corrected in the inventory at whole-diff R4) and held-decision rows in Task 4's suite (where the actions land); confirm-step focus rows in Task 5's; the two compound rows in Task 7's Playwright spec (row-unmount portal close; and the background-refresh row, whose original "remount close" premise was REFUTED at whole-diff R3 — a refresh preserves state, so the menu stays open and the assertion is eligibility, covered by same-instance re-render cases rather than the e2e, which unmounts for real). Each task's suite enumerates the conditional renders it introduces and asserts instant treatment (or the primitive default) per the inventory. The inventory table verbatim:
 
 | Transition | Treatment |
 | --- | --- |
@@ -80,7 +80,7 @@ The spec §3.5 inventory's rows are asserted RED-first inside the tasks that IMP
 | open → closed (dismiss/success) | same as primitive |
 | open → open+pending | instant swap of item content to spinner; other items disable |
 | open+pending → open+error | instant; the error line appears in a `role="group"` naming an inner `role="alert"` message node — the shipped `ReSyncButton.tsx:280-287` reference; the alert role IS the announcement. (Aligned with §3.4 per plan R4 F5, which corrected an earlier `role="status"` here; a node cannot carry both roles, and §3.4 is the ratified one.) |
-| open+pending → closed (success) | close after `router.refresh()` resolves |
+| open+pending → closed (success) | `router.refresh()` is called, THEN the menu closes — an ORDERING, not an await. Next declares `refresh(): void` (`app-router-context.shared-runtime.d.ts`), so there is no completion to wait for; the earlier "after it resolves" wording described a contract the framework does not offer (corrected at whole-diff R4). The tests assert the ordering, which is the whole of what is observable. |
 | open → confirm-step (Archive) | instant in-place swap of the Archive row; initial focus lands on the SAFE control (Cancel) per the destructive-action contract |
 | confirm-step → open (cancel) | instant; focus restores to the Archive item (cancel focus restoration per DESIGN.md destructive contract) |
 | open+pending → held-decision (Re-sync `shrink_held`) | instant swap to the held prompt (§3.4a); other items stay disabled |
@@ -117,7 +117,7 @@ Audit dimension scores: a11y 1 · performance 3 · responsive 3 · theming 3 · 
 | A-P1 | P1 | The empty-crew hint used `text-text-faint` (3.36:1 light / 3.53:1 dark), a token DESIGN.md caps at 3:1 decorative | FIXED — `text-text-subtle` |
 | A-P2 | P2 | `role="menu"` wrapped an error region, a decision prompt and a confirm step — none are in the ARIA menu content model | FIXED — the panel owns the chrome and the key handling; `role="menu"` now holds only menuitems and separators. Pinned by a content-model test |
 | A-P2 | P2 | Raw `shadow-lg` where `--shadow-popover` is the admin popover token | FIXED — `shadow-popover` |
-| C-P2 | P2 | No `role="separator"` before the destructive Archive item | FIXED |
+| C-P2 | P2 | No `role="separator"` before the destructive Archive item | FIXED, then LOST in the ARIA content-model restructure and re-fixed at whole-diff R4, which caught the §12 row claiming a repair the tree no longer had. The shell test now REQUIRES a separator before the destructive item rather than merely permitting one, so the claim and the code cannot drift apart again. |
 | A-P3 | P3 | `AnchoredPortal` allocated fresh placement state every tick, re-rendering the hosted surface on every scroll frame | FIXED — unchanged placements are dropped |
 | A-P3 | P3 | `onDismissRef` written during render | FIXED — moved into an effect |
 | C-P3 | P3 | The fallback placement ignored `align="right"` | FIXED |

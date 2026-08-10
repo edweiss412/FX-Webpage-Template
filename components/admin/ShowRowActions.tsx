@@ -76,6 +76,9 @@ const RESYNC_IDLE_LABEL = "Re-sync";
 const RESYNC_PENDING_LABEL = "Syncing…";
 /** The established unnamed-crew fallback (wizard roster, step3ReviewSections.tsx:1688). */
 const UNNAMED_CREW = "Unnamed";
+/** Spoken when an answer arrives for a row that has since stopped accepting it. */
+const STALE_ROW_COPY =
+  "This show changed while that was running, so the result no longer applies here. Open the show to see where it stands.";
 
 type HeldShrink = { detail: string; heldModifiedTime: string };
 
@@ -93,6 +96,14 @@ export function ShowRowActions({ row }: { row: ActiveShowRow }) {
    */
   const [pendingAction, setPendingAction] = useState<"sync" | "archive" | null>(null);
   const pending = pendingAction !== null;
+  /**
+   * A request that resolves AFTER the row lost its mutating actions. Its real
+   * outcome region is eligibility-gated (it is actionable), so without this the
+   * answer would be written into a region that can no longer render and the
+   * admin would be told nothing at all — the exact silent-outcome class the
+   * consequence bound forbids. Read-only, so it renders UNGATED.
+   */
+  const [staleOutcome, setStaleOutcome] = useState<string | null>(null);
   const [errorCode, setErrorCode] = useState<string | null>(null);
   const [heldShrink, setHeldShrink] = useState<HeldShrink | null>(null);
   const [confirmingArchive, setConfirmingArchive] = useState(false);
@@ -120,6 +131,7 @@ export function ShowRowActions({ row }: { row: ActiveShowRow }) {
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const submenuRef = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
   const previewItemRef = useRef<HTMLButtonElement>(null);
   const resyncItemRef = useRef<HTMLButtonElement>(null);
   const keepCurrentRef = useRef<HTMLButtonElement>(null);
@@ -140,6 +152,13 @@ export function ShowRowActions({ row }: { row: ActiveShowRow }) {
   const slug = row.slug;
   // §1.3: the four-item menu is a PUBLISHED-row surface.
   const showMutatingActions = row.published;
+  // Mirrored into a ref because an in-flight request captured the value that
+  // was true when it STARTED; the answer has to be judged against the row as
+  // it is when the answer arrives.
+  const eligibleRef = useRef(showMutatingActions);
+  useEffect(() => {
+    eligibleRef.current = showMutatingActions;
+  }, [showMutatingActions]);
 
   const crew = row.crew ?? [];
   const shownCrew = crew.slice(0, CREW_SUBMENU_CAP);
@@ -198,13 +217,33 @@ export function ShowRowActions({ row }: { row: ActiveShowRow }) {
    */
   useEffect(() => {
     if (showMutatingActions) return;
+    // The flip unmounts whatever the admin was standing on — a submenu item, a
+    // confirm button, the held decision — while the MENU stays open, so the
+    // open-focus effect (keyed on `open`) never re-runs. Move focus back to the
+    // menu before the nodes go, or it lands on <body> mid-task.
+    // By the time this runs React has already removed the node the admin was
+    // standing on, so focus is ALREADY on <body> — asking where it used to be
+    // answers nothing. The question is where it is now: if the menu is open and
+    // focus is not inside it, put it back on the first remaining item.
+    if (open) {
+      const active = document.activeElement;
+      if (!(active instanceof HTMLElement) || !menuRef.current?.contains(active)) {
+        menuRef.current
+          ?.querySelector<HTMLElement>('[role="menuitem"]')
+          ?.focus({ preventScroll: true });
+      }
+    }
+    // ACTIONABLE surfaces close. The read-only outcome banners (`errorCode`,
+    // `archiveFailure`) are deliberately NOT cleared and NOT gated: they only
+    // report what already happened, and clearing them here is precisely how an
+    // answer the admin is owed goes silent — the defect this whole vector kept
+    // producing. `tests/.../_metaOutcomeVisibility.test.tsx` pins the rule for
+    // every region, so a new one has to answer the question explicitly.
     // eslint-disable-next-line react-hooks/set-state-in-effect -- a RESET on an eligibility change, not a derivation: it runs only on the published→unpublished edge, sets constants, and cannot cascade.
     setSubmenuOpen(false);
     setConfirmingArchive(false);
     setHeldShrink(null);
-    setArchiveFailure(null);
-    setErrorCode(null);
-  }, [showMutatingActions]);
+  }, [showMutatingActions, open]);
 
   // APG: opening a menu button moves focus to the first item.
   useEffect(() => {
@@ -245,6 +284,7 @@ export function ShowRowActions({ row }: { row: ActiveShowRow }) {
     setHeldShrink(null);
     setConfirmingArchive(false);
     setArchiveFailure(null);
+    setStaleOutcome(null);
   }, [open]);
 
   // C3 (DESIGN.md destructive contract): the confirm mounts with the SAFE
@@ -284,6 +324,13 @@ export function ShowRowActions({ row }: { row: ActiveShowRow }) {
     setPendingAction("sync");
     try {
       const outcome = await requestShowSync(slug, accept);
+      if (!eligibleRef.current) {
+        // The row stopped accepting these actions while this request was in
+        // flight. Say so; do not write into a gated region.
+        setStaleOutcome(STALE_ROW_COPY);
+        announce(STALE_ROW_COPY);
+        return;
+      }
       if (outcome.kind === "held") {
         // NOT a success: the reduced version was withheld and last-good is
         // still live. Closing here would silently discard the decision.
@@ -320,6 +367,11 @@ export function ShowRowActions({ row }: { row: ActiveShowRow }) {
       // The SHIPPED action takes a SLUG and resolves the show itself; passing
       // row.id would return show_not_found without archiving anything.
       const result = await archiveShowAction(slug);
+      if (!eligibleRef.current && !result.ok) {
+        setStaleOutcome(STALE_ROW_COPY);
+        announce(STALE_ROW_COPY);
+        return;
+      }
       if (result.ok) {
         setConfirmingArchive(false);
         announce(`Archived ${label}. Crew links for this show stop working now.`);
@@ -331,6 +383,11 @@ export function ShowRowActions({ row }: { row: ActiveShowRow }) {
         setArchiveFailure(classifyArchiveFailure(result.code));
       }
     } catch {
+      if (!eligibleRef.current) {
+        setStaleOutcome(STALE_ROW_COPY);
+        announce(STALE_ROW_COPY);
+        return;
+      }
       // A server action can REJECT — transport, auth, or a post-commit fault in
       // the action itself (its telemetry write is awaited). Without this the
       // rejection is an unhandled promise and the row shows a confirm step for
@@ -542,6 +599,7 @@ export function ShowRowActions({ row }: { row: ActiveShowRow }) {
             a confirm step, and a keydown handler on the wrapper still sees keys
             from every one of them. */}
         <div
+          ref={panelRef}
           data-testid={`row-actions-panel-${slug}`}
           onKeyDown={onMenuKeyDown}
           className="min-w-52 max-w-80 rounded-md border border-border bg-surface-raised p-1.5 shadow-popover"
@@ -636,6 +694,15 @@ export function ShowRowActions({ row }: { row: ActiveShowRow }) {
                   {pendingAction === "sync" ? RESYNC_PENDING_LABEL : RESYNC_IDLE_LABEL}
                 </button>
 
+                {/* Archive is destructive and sits one arrow-key from Re-sync;
+                    the shipped CrewRowActions precedent separates it the same
+                    way. §12 recorded this fixed once and the ARIA restructure
+                    then removed it — the shell test now REQUIRES a separator
+                    before the destructive item rather than merely permitting
+                    one, so it cannot be lost silently again. */}
+                {confirmingArchive ? null : (
+                  <div role="separator" className="mx-1.5 my-1 h-px bg-border" />
+                )}
                 {confirmingArchive ? null : (
                   <button
                     type="button"
@@ -708,7 +775,7 @@ export function ShowRowActions({ row }: { row: ActiveShowRow }) {
               </div>
             </div>
           ) : null}
-          {showMutatingActions && archiveFailure ? (
+          {archiveFailure ? (
             // Every reachable failure says SOMETHING: the two lowercase
             // sentinels get generic prose (they are NOT §12.4 codes and
             // must never reach messageFor), catalog codes get catalog copy.
@@ -727,7 +794,20 @@ export function ShowRowActions({ row }: { row: ActiveShowRow }) {
             </div>
           ) : null}
 
-          {showMutatingActions && errorCode ? (
+          {staleOutcome ? (
+            // UNGATED on purpose: this is read-only copy about a row that has
+            // already stopped accepting actions, and gating it would recreate
+            // the silence it exists to prevent.
+            <div
+              role="alert"
+              data-testid={`row-actions-stale-${slug}`}
+              className="mt-1 rounded-sm border border-border-strong bg-warning-bg p-2.5 text-xs/relaxed text-warning-text"
+            >
+              {staleOutcome}
+            </div>
+          ) : null}
+
+          {errorCode ? (
             // Same split as the shipped ReSyncButton reference (:280-287): the
             // live region is the MESSAGE node, and the named group wraps it, so
             // no focusable control is announced as part of the alert.
