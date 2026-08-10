@@ -437,9 +437,14 @@ export function locateRule(agents: string): Located {
 
   for (const heading of headings) {
     const headingEnd = heading.position?.end.offset ?? 0;
-    const depth = heading.depth ?? 2;
     const after = blocks.filter((node) => (node.position?.start.offset ?? 0) > headingEnd);
-    const next = after.find((node) => node.type === "heading" && (node.depth ?? 6) <= depth);
+    // The FIRST heading of ANY depth ends the section's DIRECT content. Stopping
+    // only at a same-or-shallower heading left a child subsection inside the
+    // region, so inserting `### Retired guidance (non-normative)` above the
+    // untouched bullet moved it into explicitly non-normative prose while the
+    // guard stayed green. Spec §5 requires the rule to be a direct bullet of the
+    // cross-cutting section, and "direct" is the part that was not enforced.
+    const next = after.find((node) => node.type === "heading");
     const nextAt = next?.position?.start.offset ?? Number.POSITIVE_INFINITY;
     const section = after.filter((node) => (node.position?.start.offset ?? 0) < nextAt);
 
@@ -617,6 +622,14 @@ describe("AGENTS.md heavy-phase rule", () => {
 
   const OPERATORS: Array<[string, (text: string) => string]> = [
     ["delete the whole bullet", (text) => withinRule(text, () => "")],
+    [
+      "nest the rule under a non-normative subsection",
+      (text) =>
+        text.replace(
+          RULE_OPENER_FOR_TESTS,
+          "### Retired guidance (non-normative)\n\n" + RULE_OPENER_FOR_TESTS,
+        ),
+    ],
     [
       "break a code span with a blank line, so the command stops being one",
       editRule("`pnpm test`", "`pnpm\r\n\r\n  test`"),
