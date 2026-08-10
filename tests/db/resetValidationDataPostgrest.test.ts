@@ -36,7 +36,23 @@ const DB_URL = assertLocalDbUrl(
 );
 
 // Local PostgREST + the well-known local demo service_role JWT (role=service_role).
-const REST_URL = "http://127.0.0.1:54321/rest/v1";
+//
+// The wipe travels over REST_URL, NOT over DB_URL — so guarding only the database URL
+// left the destructive call itself unguarded: pointing REST_URL at a remote project
+// wiped it while the loopback assert stayed green (whole-diff r16). The endpoint the
+// mutation actually uses is asserted loopback here, at module load, on the same terms.
+const REST_URL = assertLocalRestUrl("http://127.0.0.1:54321/rest/v1");
+
+function assertLocalRestUrl(url: string): string {
+  const host = new URL(url).hostname;
+  if (!["127.0.0.1", "localhost", "::1", "[::1]"].includes(host)) {
+    throw new Error(
+      `resetValidationDataPostgrest.test.ts: REST_URL host '${host}' is not loopback. ` +
+        "reset_validation_data() wipes ALL shows — refusing to run against a remote PostgREST.",
+    );
+  }
+  return url;
+}
 const LOCAL_SERVICE_ROLE_JWT =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU";
 

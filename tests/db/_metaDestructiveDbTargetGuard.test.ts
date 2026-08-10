@@ -37,6 +37,17 @@ const TESTS_ROOT = join(process.cwd(), "tests");
 /**
  * Executes the whole-DB wipe RPC.
  *
+ * **DOCUMENTED LIMIT — discovery is spelling-sensitive, and that is not closed.**
+ * These patterns require the schema-qualified, unquoted `public.<name>(` form. An
+ * unqualified `select prune_sync_log()` or a quoted `select "public"."prune_sync_log"()`
+ * is NOT discovered, so no safety analysis runs on such a file (whole-diff r16). Chasing
+ * SQL spellings has the same non-termination as the aliasing enumerations this module's
+ * analyzer went through, so it is recorded rather than pursued: the terminating framing
+ * is to discover files by the fact that they OPEN A DATABASE CONNECTION, and require the
+ * guard of all of them, which removes SQL spelling from the question entirely. That is a
+ * cross-cutting change over every DB test in the repo and is filed as part of
+ * `BL-DESTRUCTIVE-GUARD-EXECUTION-SITE`.
+ *
  * Keyed on the FUNCTION NAME, not on a statement shape. r15 showed
  * `select * from public.reset_validation_data()`, a parenthesized form, and an aliased
  * `update … as g set enabled = true` all escaping shape-anchored patterns — the same
@@ -98,8 +109,15 @@ const destructive = files.filter(({ path, source }) => {
   // literals. whole-diff r15: `select /* note */ public.reset_validation_data()` was
   // not discovered, because stripping JS comments correctly leaves SQL comments in a
   // literal untouched and the regexes never normalized them.
-  const code = stripSqlComments(stripCommentsForFile(source, path));
-  return EXECUTES_WIPE.test(code) || ENABLES_WIPE_GATE.test(code) || EXECUTES_PRUNE.test(code);
+  // UNION of two views, never the SQL-stripped one alone. `stripSqlComments` over a
+  // whole TypeScript file treats a JS decrement (`i--`) as a SQL line comment and
+  // erases the rest of that line, which can delete a real destructive execution
+  // (whole-diff r16, a regression introduced by r15's repair). Matching either view
+  // means erasure can only ever ADD a match, never hide one.
+  const js = stripCommentsForFile(source, path);
+  const sql = stripSqlComments(js);
+  const hit = (re: RegExp) => re.test(js) || re.test(sql);
+  return hit(EXECUTES_WIPE) || hit(ENABLES_WIPE_GATE) || hit(EXECUTES_PRUNE);
 });
 
 describe("destructive DB target guard", () => {
