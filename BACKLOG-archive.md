@@ -6573,6 +6573,95 @@ Speculative scope: 1-2 weeks of milestone-shape work (design pass + impl + tests
 
 **Promotion prerequisite:** a CI pass that adds (a) a remote-validation matrix leg for `pg-cron-coverage` + (b) a live-auth setup (or a root-cause fix) for `test-auth-gate` Layer 2, each verified green in real CI before being added to the gate's run set.
 
+### BL-ZERO-WIDTH-POST-PARSE-ENRICHMENT — zero-width text still reaches the PERSISTED payload through the sync/Drive enrichment layer — RESOLVED 2026-08-10 (`feat/m2-payload-hygiene`)
+
+**Status:** RESOLVED (2026-08-10; filed 2026-08-09, surfaced by codex-guard round 4 on `feat/mutation-unicode`, PR #736) · **Severity:** medium · **Class:** PARSER ROBUSTNESS / SYNC · **Effort:** M
+
+The parser-side hole is closed: `parseSheet` strips `[\u200B-\u200D\uFEFF]` from both of its inputs, so nothing invisible survives a parse. But `ParsedSheet` is not finished when `parseSheet` returns. The sync layer attaches Drive-derived fields afterwards (`lib/parser/index.ts` header: those fields are "NEVER populated here"), and every one of them carries author-controlled text that no boundary strips:
+
+- `embeddedImages[].sheetTab` — both the XLSX and Sheets-API branches (`lib/sync/enrichWithDrivePins.ts:232`, `:311`)
+- `embeddedImages[].alt` (`enrichWithDrivePins.ts:314`)
+- `linkedFolderItems[].alt` (`enrichWithDrivePins.ts:380`)
+- `archivedPullSheetTabs[].tabName` and `.headerPreviews[]` (`lib/drive/exportSheetToMarkdown.ts:382`), attached post-parse by `lib/sync/pullSheetOverride.ts:229`
+
+**Probe evidence** (codex-guard round 4, `--stage diff --round 4`). Clean-vs-dirty runs through `enrichWithDrivePins` and through `buildXlsx → parseSheet → finalizeArchivedTabs`, both scored with the mutation oracle:
+
+```
+{"verdict":"SILENT_WRONG","paths":["payload.diagrams.embeddedImages[0].sheetTab","payload.diagrams.embeddedImages[0].alt","payload.diagrams.linkedFolderItems[0].alt"]}
+{"verdict":"SILENT_WRONG","paths":["payload.archivedPullSheetTabs[0].tabName","payload.archivedPullSheetTabs[0].headerPreviews[0]"]}
+```
+
+The archived-tab fingerprint also rekeys silently: `{"clean":"705848ac…f97c25","dirty":"80fd09c3…28058","equal":false}`.
+
+This is the SAME consequence the wave exists to remove — invisible characters defeat equality, so a sheet tab or alt text carrying one fails exact comparison while rendering identically.
+
+**Why filed rather than repaired in the branch that found it** (AGENTS.md class-sweep disposition, exception (b) — a ratified scope decision already fences it): the wave's spec fences every branch to the parser (`docs/superpowers/specs/parser/2026-08-07-parser-mutation-wave-design.md` §3.1 scopes the strip to `parseSheet` entry), and plan-wide invariant 7 makes the spec canonical, directing an out-of-scope discovery to a question rather than a silent fix. `lib/sync/**` and `lib/drive/**` are a different subsystem that no branch of this wave otherwise touches. Note this is NOT the "same defect, different file" case the rule forbids deferring: the fence is a ratified scope decision, not convenience.
+
+**Shape (M):** strip at the point Drive-supplied strings enter the payload (five call sites across the three files above, sharing one helper with the parser's `stripZeroWidth` so the boundaries cannot drift), plus a guard in the shape of `tests/parser/payloadZeroWidth.test.ts` covering the enriched payload rather than the parse output, plus a decision on whether the archived-tab fingerprint rekey needs a one-time migration note.
+
+**Resolution (2026-08-10, `feat/m2-payload-hygiene`, M-wave 2 W-PARSE).** Fixed as the
+entry's Shape describes. `stripZeroWidth` extracted to `lib/parser/zeroWidth.ts` — the ONE
+production definition site; the parser entry (`lib/parser/index.ts`), the cell boundary
+(`blocks/_helpers.ts` `clean()`), and the hotel cell normalizer (`blocks/hotelConfTokens.ts`,
+which carried the raw-glyph form of the same class) now import it, and all five Drive-string
+payload boundaries strip through it: `embeddedImages[].sheetTab` (both branches),
+`embeddedImages[].alt`, `linkedFolderItems[].alt`, `archivedPullSheetTabs[].tabName` +
+`.headerPreviews[]`. The archived-tab inclusion match compares stripped forms on BOTH sides,
+so a stored override round-tripping the stripped name still matches its tab (and a legacy
+override captured pre-strip does too). Guard: `tests/parser/payloadZeroWidthEnriched.test.ts`
+— planted U+200B at every covered field (observed failing pre-fix at all four seeded arms),
+clean-fixture verbatim pass, plus a comment-stripped dual-form uniqueness scan (escaped AND
+raw-glyph literals) pinning `lib/parser/zeroWidth.ts` as the only definition site across
+`lib/parser/**`, `lib/sync/**`, `lib/drive/**`, with planted-mutant premise rows both ways.
+
+**One-time fingerprint note (wave spec §4 limit 2).** Stripping rekeys archived-tab
+fingerprints ONLY for payloads that actually carried zero-width characters in Drive-derived
+fields; the consequence is one extra staged re-sync diff per affected show, surfaced through
+the normal review flow. NO migration, NO fingerprint-compat shim — ratified in spec
+`docs/superpowers/specs/2026-08-09-m-wave-2-design.md` §2.2.
+
+**Class-sweep round 0 (recorded).** `enrichAgenda` persists only parser-stripped labels
+(Sheets chip labels are match-only and never stored); the geocode city is a Google Geocoding
+response, not a Drive-supplied string. No additional Drive-string entry points found.
+
+### BL-MUTATION-DRIFT-TRIAGE — mechanism-triage the 143 ledger rows re-kinded to `text_drift` — RESOLVED 2026-08-10 (`feat/m2-payload-hygiene`)
+
+**Status:** RESOLVED (2026-08-10; filed 2026-08-09, created by the warning-shape amendment ratified for `feat/mutation-ref-sub`) · **Severity:** low · **Class:** CI / LEDGER HYGIENE · **Effort:** M
+
+The mutation harness gained a verdict class. `SIGNAL_TEXT_DRIFT` (payload equal, every code count exactly preserved, only a warning's human-readable text moved) is now distinct from `SILENT_SIGNAL_LOSS` (the parser genuinely went quieter), which stays never-deferrable. Spec: `docs/superpowers/specs/parser/2026-08-09-warning-shape-mutation-stability.md` §11.
+
+Landing that classifier re-kinded **143 existing ledger rows** from `signal_loss` to `text_drift` — a machine-generated flip carrying zero author judgement, since the classifier's own output decides eligibility (§11.5(iv)). Each flipped row keeps its original `finding` so it stays resolvable through `OPERATOR_FINDING_MAP`, and carries `[re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]` in its note.
+
+**What is owed:** each of the 143 gets its mechanism named in the note, replacing the migration marker. §11.5(iii) requires that of every ADDED drift row; the flip was a migration rather than an addition, so the bar arrives here instead of blocking the branch.
+
+**Probe evidence — the shape histogram, machine-derived from the warning objects (never authored):**
+
+| Drift shape                              | Count |
+| ---------------------------------------- | ----- |
+| Snippet moved                            | 125   |
+| Reorder-only, multiset identical         | 14    |
+| `blockRef.index` moved, `kind` unchanged | 4     |
+| **Mis-anchor (`blockRef.kind` changed)** | **0** |
+
+Replay: classify each `signal_loss` row's mutant under the new tier, then diff the baseline and mutant warning objects field-by-field. Zero mis-anchors is the safety result that made the flip admissible — §11.5 marks mis-anchor-shaped drift as likely-regression, so a non-zero count would have meant real regressions sitting mislabelled in the ledger today, needing extraction BEFORE the classifier landed. The 4 `blockRef.index` rows were checked individually rather than left as an unexplained residue: `kind` multisets are equal and only the positional ordinal moves.
+
+**Why this is triage and not investigation:** the histogram already assigns every row a shape, so the work is confirming 143 derived classifications, not deriving them. The 35 rows that stayed `signal_loss` are NOT in scope — the classifier discriminated them as genuine loss, which is itself evidence it is not a rubber stamp.
+
+**Not urgent.** These rows were already ledgered and already failing nothing; the flip corrects a label the instrument had been getting wrong since day one. Their notes are honest about what is owed.
+
+**Resolution (2026-08-10, `feat/m2-payload-hygiene`, M-wave 2 W-PARSE).** All 143 rows
+triaged. Replay (scratch script over the harness's own `boundedMutants` + `capture` +
+`verdict` + `fingerprint`): every marked row's mutant regenerated from its siteId, verdict
+re-confirmed `SIGNAL_TEXT_DRIFT` and the committed fingerprint reproduced — 0 mismatches —
+then the baseline-vs-mutant signal channels diffed and classified. The confirmation agreed
+with the machine-derived histogram EXACTLY: 125 snippet moved / 14 reorder-only (multiset
+identical) / 4 `blockRef.index` moved (`kind` unchanged), 0 mis-anchors, 0 disagreeing rows
+— nothing to escalate. Each note now carries `[triaged 2026-08-10: <mechanism>]` in place of
+the migration marker; zero `re-kinded by classifier` markers remain (grep-provable), and
+`knownHoles.test.ts` gained a durable assertion rejecting any future row that parks the
+marker. The 35 rows that stayed `signal_loss` are untouched (out of scope by this entry's
+own text).
+
 ### BL-CREW-FIELD-ENRICHMENT — Surface already-captured-but-unprojected crew-page fields (flights, Wi-Fi SSID/PW split, room-within-venue)
 
 **Filed:** 2026-06-18, during the crew-page redesign Phase 2 spec adversarial review (R16-MEDIUM). The Phase-1 spec's prose originally lumped several field-enrichments into "Phase 2," but the Phase-2 spec was scoped to **AGENDA run-of-show only**. To single-source the phase boundary (so an implementer can't read Phase-1 as promising Travel-flight work that Phase-2 doesn't deliver), these three field-enrichments are split out here and the Phase-1 references were corrected to point at this item.
