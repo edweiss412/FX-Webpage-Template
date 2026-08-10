@@ -6256,3 +6256,41 @@ This is the dark-spec class already recorded for this repo (`feedback_dark_spec_
 > bound instead of an 11-minute job on every admin PR. NOT a required context: a path-filtered
 > job is absent on non-matching PRs, and required-but-skipped contexts wedge merges. The
 > `_metaE2eWorkflowCoverage` allowlist row is rewritten to cite this ratification.
+
+---
+
+## BL-ADMIN-DASHBOARD-ROW-ACTIONS — ActiveShowsPanel row-action shortcuts — CLOSED 2026-08-10 (`feat/admin-dashboard-row-actions`)
+
+**Origin:** M11-E-D3 (MEDIUM) filed 2026-05-20. M11 user-facing-docs `/help/admin/dashboard` documents per-row actions `Open`, `Preview as`, `Re-sync`, `Archive` on the Active Shows panel per master spec §9.1. Shipped `components/admin/ActiveShowsPanel.tsx` renders show title + crew count + sync-status only; no row-level action affordances.
+
+**Effort:** M
+
+**Scope:** Add the four documented row actions to `ActiveShowsPanel.tsx`:
+
+- `Open` — link to `/admin/show/[slug]`. Already navigable via the show-title link; this would expose it as an explicit action with consistent affordance treatment.
+- `Preview as` — link to `/admin/show/[slug]/preview/[crewId]` (M10 Phase 3 §B preview-as flow). Already routable; this exposes it as a row action.
+- `Re-sync` — POST to the manual-sync route. Functional equivalent exists at `/admin/show/[slug]` via `<ReSyncButton>`; this is a dashboard-level shortcut.
+- `Archive` — likely needs a new SECURITY DEFINER RPC for soft-delete (`shows.archived_at`). Spec §9.1 mentions archiving but the column doesn't exist yet; promotion may require a small schema migration.
+
+**Why backlog, not deferred:** None of the four shortcuts close a functional ops gap — Doug can already accomplish all four actions by drilling into the per-show page (`Re-sync` directly; the others by navigation). This is pure surfacing/convenience. `Archive` is the only one with a schema implication; the others are pure UI work.
+
+**Promotion prerequisite:** Either (a) FXAV operator feedback surfaces dashboard-level friction (Doug actively wants to triage multiple shows from the dashboard without drilling in), OR (b) a v1.x admin-UX polish milestone. `Archive` may need a separate spec amendment if `shows.archived_at` semantics need definition (idempotency, side effects on `crew_member_auth`, etc.).
+
+**RESOLUTION 2026-08-10 (`feat/admin-dashboard-row-actions`).** Shipped, with the entry's own
+premises corrected on three counts by the spec that implemented it
+(`docs/superpowers/specs/admin/2026-08-09-admin-dashboard-row-actions-design.md` §0): the row
+renderer is `components/admin/ShowsTable.tsx` — no component named `ActiveShowsPanel` exists in the
+tree any more; Archive needed NO new RPC and NO schema work, because M12.2 Phase B2 already shipped
+`public.archive_show(uuid)` with its in-RPC advisory lock, the `archiveShowAction` server action and
+its `AUDITABLE_MUTATIONS` rows; and `shows` already carries both `archived` and `archived_at`.
+
+What shipped: a per-row kebab (⋮) menu on the Active-shows rows carrying all four §9.1 actions —
+Open (the same param-preserving modal href the row link uses), Preview as… (a submenu of the show's
+crew, capped at 12 with an overflow item), Re-sync (including the two-phase `shrink_held` decision),
+and Archive (a two-step in-menu confirm implementing the destructive contract). Unpublished rows
+expose Open only. The menu renders through a new anchored body-portal primitive
+(`components/admin/AnchoredPortal.tsx`) because the rows wrapper clips. Pure UI surfacing: no
+migration, no new RPC, no new mutation surface, no new advisory-lock holder.
+
+The id is preserved verbatim; the title keeps its stale `ActiveShowsPanel` name so existing
+cross-references still resolve.
