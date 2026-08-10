@@ -16,20 +16,29 @@
  *
  * The menu renders through `AnchoredPortal` because the dashboard's rows
  * wrapper is `overflow-hidden`: an in-row panel is clipped away on exactly the
- * bottom rows where it is needed (spec §3.1 positioning contract).
+ * bottom rows where it is needed (spec §3.1 positioning contract). The
+ * Preview-as submenu portals for the same reason, anchored to its own item.
  *
  * HIDE RULE (spec §1.3, AC-2): an unpublished row — Held or Publishing…, both
  * `finalizeOwned` values — exposes Open only. The server already refuses the
  * rest (the sync route with HTTP 409, the archive action with a typed
  * `FINALIZE_OWNED_SHOW`); the UI hides rather than disables, and the existing
  * row pill is the state badge, so no second badge is added here.
+ *
+ * No mutation surface is added: Re-sync POSTs the registered
+ * `/api/admin/sync/[slug]` route and Archive calls the registered
+ * `archiveShowAction`. This component is a CALLER of both (spec §1.1).
  */
 import Link from "next/link";
 import { Archive, ChevronRight, EllipsisVertical, Eye, RefreshCw } from "lucide-react";
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
 
+import { useRouter } from "next/navigation";
+
 import { AnchoredPortal } from "@/components/admin/AnchoredPortal";
 import { useShowModalNav } from "@/components/admin/useShowModalNav";
+import { ErrorExplainer } from "@/components/messages/ErrorExplainer";
+import { requestShowSync } from "@/lib/admin/syncRequest";
 import type { ActiveShowRow } from "@/lib/admin/showDisplay";
 
 /**
@@ -44,12 +53,42 @@ const MENU_ITEM_CLASS =
 
 const ICON_CLASS = "size-4 shrink-0 text-text-subtle";
 
+/**
+ * Cap + overflow (spec §3.2): a 40-person crew must not render a 40-item
+ * submenu. Past the cap the list ends with one item that opens the show, where
+ * the full roster lives.
+ */
+export const CREW_SUBMENU_CAP = 12;
+
+const RESYNC_IDLE_LABEL = "Re-sync";
+const RESYNC_PENDING_LABEL = "Syncing…";
+/** The established unnamed-crew fallback (wizard roster, step3ReviewSections.tsx:1688). */
+const UNNAMED_CREW = "Unnamed";
+
+type HeldShrink = { detail: string; heldModifiedTime: string };
+
 export function ShowRowActions({ row }: { row: ActiveShowRow }) {
+  const router = useRouter();
   const { openHref } = useShowModalNav();
   const [open, setOpen] = useState(false);
+  const [submenuOpen, setSubmenuOpen] = useState(false);
+  const [pending, setPending] = useState(false);
+  const [errorCode, setErrorCode] = useState<string | null>(null);
+  const [heldShrink, setHeldShrink] = useState<HeldShrink | null>(null);
+  // Persistent live region (BL-ANNOUNCE-REGION-UNMOUNT-CLASS): success CLOSES
+  // the menu, so an announcement living inside it would unmount before it could
+  // be read. This node outlives every menu state.
+  const [announcement, setAnnouncement] = useState("");
+
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const submenuRef = useRef<HTMLDivElement>(null);
+  const previewItemRef = useRef<HTMLButtonElement>(null);
+  const resyncItemRef = useRef<HTMLButtonElement>(null);
+  const keepCurrentRef = useRef<HTMLButtonElement>(null);
   const triggerId = useId();
+  const errorMsgId = useId();
+  const emptyCrewHintId = useId();
 
   // Guard condition (spec §3.1): a row with no title is named by its slug, so
   // the trigger never announces "Actions for null".
@@ -58,9 +97,24 @@ export function ShowRowActions({ row }: { row: ActiveShowRow }) {
   // §1.3: the four-item menu is a PUBLISHED-row surface.
   const showMutatingActions = row.published;
 
+  const crew = row.crew ?? [];
+  const shownCrew = crew.slice(0, CREW_SUBMENU_CAP);
+  const overflowCrewCount = crew.length - shownCrew.length;
+  const hasCrew = crew.length > 0;
+
+  // ONE in-flight action per row (spec §3.1 guard conditions). A pending
+  // request and an undecided shrink hold both mean "this row is mid-action".
+  const busy = pending || heldShrink !== null;
+
   const closeMenu = (restoreFocus: boolean) => {
     setOpen(false);
+    setSubmenuOpen(false);
     if (restoreFocus) triggerRef.current?.focus();
+  };
+
+  const closeSubmenu = () => {
+    setSubmenuOpen(false);
+    previewItemRef.current?.focus();
   };
 
   // APG: opening a menu button moves focus to the first item.
@@ -68,6 +122,55 @@ export function ShowRowActions({ row }: { row: ActiveShowRow }) {
     if (!open) return;
     menuRef.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus();
   }, [open]);
+
+  useEffect(() => {
+    if (!submenuOpen) return;
+    submenuRef.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus();
+  }, [submenuOpen]);
+
+  // Accidental-accept safety (WCAG 2.4.3 + §3.8): when the hold prompt appears,
+  // focus lands on the SAFE control, never on the destructive accept, so a
+  // stray Enter keeps last-good rather than clobbering it.
+  useEffect(() => {
+    if (heldShrink && !errorCode) keepCurrentRef.current?.focus();
+  }, [heldShrink, errorCode]);
+
+  // A closed menu forgets its transient result state; the next open starts
+  // clean. The announcement is deliberately NOT cleared — it must survive the
+  // close that a success triggers.
+  useEffect(() => {
+    if (open) return;
+    setSubmenuOpen(false);
+    setErrorCode(null);
+    setHeldShrink(null);
+  }, [open]);
+
+  const runSync = async (accept?: { expectedModifiedTime: string }) => {
+    if (pending) return;
+    setErrorCode(null);
+    setPending(true);
+    try {
+      const outcome = await requestShowSync(slug, accept);
+      if (outcome.kind === "held") {
+        // NOT a success: the reduced version was withheld and last-good is
+        // still live. Closing here would silently discard the decision.
+        setHeldShrink({ detail: outcome.detail, heldModifiedTime: outcome.heldModifiedTime });
+        setAnnouncement(`Sync paused for a decision. ${outcome.detail}`);
+      } else if (outcome.kind === "success") {
+        setHeldShrink(null);
+        setAnnouncement(outcome.summary);
+        // Ordering (§3.5): refresh FIRST, then close — the row's own sync cell
+        // has to be re-rendering by the time the menu goes away.
+        router.refresh();
+        closeMenu(false);
+      } else {
+        setHeldShrink(null);
+        setErrorCode(outcome.code);
+      }
+    } finally {
+      setPending(false);
+    }
+  };
 
   const onMenuKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
     const items = Array.from(
@@ -86,6 +189,11 @@ export function ShowRowActions({ row }: { row: ActiveShowRow }) {
       // Tab action lets focus continue in document order from the trigger.
       triggerRef.current?.focus();
       closeMenu(false);
+    } else if (e.key === "ArrowRight") {
+      e.preventDefault();
+      if (document.activeElement === previewItemRef.current && hasCrew && !busy) {
+        setSubmenuOpen(true);
+      }
     } else if (e.key === "ArrowDown") {
       e.preventDefault();
       items[(idx + 1 + items.length) % items.length]?.focus();
@@ -106,8 +214,53 @@ export function ShowRowActions({ row }: { row: ActiveShowRow }) {
     }
   };
 
+  const onSubmenuKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    const items = Array.from(
+      submenuRef.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? [],
+    );
+    const idx = items.indexOf(document.activeElement as HTMLElement);
+    if (e.key === "Escape" || e.key === "ArrowLeft") {
+      // Back to the parent ITEM, not out of the menu: a submenu Escape closes
+      // one level (APG menu), so the admin keeps their place.
+      e.preventDefault();
+      e.stopPropagation();
+      closeSubmenu();
+    } else if (e.key === "Tab") {
+      triggerRef.current?.focus();
+      closeMenu(false);
+    } else if (e.key === "ArrowDown") {
+      e.preventDefault();
+      items[(idx + 1 + items.length) % items.length]?.focus();
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      items[(idx - 1 + items.length) % items.length]?.focus();
+    } else if (e.key === "Home") {
+      e.preventDefault();
+      items[0]?.focus();
+    } else if (e.key === "End") {
+      e.preventDefault();
+      items[items.length - 1]?.focus();
+    } else if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      (document.activeElement as HTMLElement | null)?.click();
+    }
+  };
+
+  const itemDisabledProps = busy ? ({ "aria-disabled": true } as const) : {};
+
   return (
     <span className="relative flex shrink-0 items-center">
+      {/* Persistent announcement channel. Always mounted, so the success path —
+          which closes the menu — is still heard. */}
+      <span
+        role="status"
+        aria-live="polite"
+        className="sr-only"
+        data-testid={`row-actions-announce-${slug}`}
+      >
+        {announcement}
+      </span>
+
       {open ? (
         <button
           type="button"
@@ -154,7 +307,7 @@ export function ShowRowActions({ row }: { row: ActiveShowRow }) {
           aria-labelledby={triggerId}
           data-testid={`row-actions-menu-${slug}`}
           onKeyDown={onMenuKeyDown}
-          className="min-w-56 rounded-md border border-border bg-surface-raised p-1.5 shadow-lg"
+          className="min-w-56 max-w-80 rounded-md border border-border bg-surface-raised p-1.5 shadow-lg"
         >
           <Link
             role="menuitem"
@@ -164,7 +317,14 @@ export function ShowRowActions({ row }: { row: ActiveShowRow }) {
             // `/admin/show/[slug]` is only a legacy redirect (spec §3.1).
             href={openHref(slug)}
             scroll={false}
-            onClick={() => closeMenu(false)}
+            {...itemDisabledProps}
+            onClick={(e) => {
+              if (busy) {
+                e.preventDefault();
+                return;
+              }
+              closeMenu(false);
+            }}
             className={MENU_ITEM_CLASS}
           >
             <ChevronRight aria-hidden="true" className={ICON_CLASS} />
@@ -177,33 +337,177 @@ export function ShowRowActions({ row }: { row: ActiveShowRow }) {
                 type="button"
                 role="menuitem"
                 tabIndex={-1}
+                ref={previewItemRef}
                 data-testid={`row-action-preview-${slug}`}
+                {...(hasCrew
+                  ? { "aria-haspopup": "menu" as const, "aria-expanded": submenuOpen }
+                  : { "aria-disabled": true, "aria-describedby": emptyCrewHintId })}
+                {...itemDisabledProps}
+                onClick={() => {
+                  if (busy || !hasCrew) return;
+                  setSubmenuOpen((v) => !v);
+                }}
                 className={MENU_ITEM_CLASS}
               >
                 <Eye aria-hidden="true" className={ICON_CLASS} />
                 Preview as…
               </button>
+              {hasCrew ? null : (
+                // Guard condition (spec §3.1): the item says WHY it is inert,
+                // outside its own accessible name so the name stays "Preview as…".
+                <p
+                  id={emptyCrewHintId}
+                  data-testid={`row-action-preview-empty-hint-${slug}`}
+                  className="px-2.5 pb-1 text-xs/relaxed text-text-faint"
+                >
+                  No crew on this show yet.
+                </p>
+              )}
+
               <button
                 type="button"
                 role="menuitem"
                 tabIndex={-1}
+                ref={resyncItemRef}
                 data-testid={`row-action-resync-${slug}`}
+                aria-busy={pending}
+                {...itemDisabledProps}
+                onClick={() => {
+                  if (busy) return;
+                  void runSync();
+                }}
                 className={MENU_ITEM_CLASS}
               >
-                <RefreshCw aria-hidden="true" className={ICON_CLASS} />
-                Re-sync
+                <RefreshCw
+                  aria-hidden="true"
+                  className={`${ICON_CLASS} ${pending ? "animate-spin motion-reduce:animate-none" : ""}`}
+                />
+                {pending ? RESYNC_PENDING_LABEL : RESYNC_IDLE_LABEL}
               </button>
+
               <button
                 type="button"
                 role="menuitem"
                 tabIndex={-1}
                 data-testid={`row-action-archive-${slug}`}
+                {...itemDisabledProps}
                 className={MENU_ITEM_CLASS}
               >
                 <Archive aria-hidden="true" className={ICON_CLASS} />
                 Archive
               </button>
             </>
+          ) : null}
+
+          {errorCode ? (
+            // Same split as the shipped ReSyncButton reference (:280-287): the
+            // live region is the MESSAGE node, and the named group wraps it, so
+            // no focusable control is announced as part of the alert.
+            <div
+              role="group"
+              aria-labelledby={errorMsgId}
+              data-testid={`row-actions-error-${slug}`}
+              className="mt-1 rounded-sm border border-border-strong bg-warning-bg p-2.5 text-warning-text"
+            >
+              <div id={errorMsgId} role="alert" className="min-w-0 text-xs/relaxed">
+                <ErrorExplainer code={errorCode} surface="admin" />
+              </div>
+            </div>
+          ) : null}
+
+          {heldShrink && !errorCode ? (
+            // NOT a live region, deliberately: it holds this decision's own
+            // controls and takes focus, so a reader would otherwise hear the
+            // buttons as part of the announcement. The arrival is announced on
+            // the persistent channel above instead.
+            <div
+              data-testid={`row-actions-shrink-confirm-${slug}`}
+              className="mt-1 flex flex-col gap-2 rounded-sm border border-border-strong bg-warning-bg p-2.5 text-warning-text"
+            >
+              <p className="text-xs/relaxed">
+                This re-sync would reduce {label}: {heldShrink.detail}. The last confirmed version
+                is still live. Apply the reduced version anyway?
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  ref={keepCurrentRef}
+                  data-testid={`row-actions-keep-current-${slug}`}
+                  disabled={pending}
+                  onClick={() => {
+                    // Focus the still-mounted item BEFORE unmounting the panel
+                    // that holds the focused safe control (the C5 idiom).
+                    resyncItemRef.current?.focus();
+                    setHeldShrink(null);
+                  }}
+                  className="inline-flex min-h-tap-min items-center justify-center rounded-sm border border-border-strong bg-bg px-3.5 text-[13px] font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-warning-bg disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Keep current version
+                </button>
+                {/* Tier-2 destructive confirm-go (§3.8): accepting a
+                    show-shrinking sync over last-good takes the inverted-amber
+                    C1 recipe. Registered in tests/styles/_metaDestructiveConfirm. */}
+                <button
+                  type="button"
+                  data-testid={`row-actions-accept-shrink-${slug}`}
+                  disabled={pending}
+                  aria-busy={pending}
+                  onClick={() =>
+                    void runSync({ expectedModifiedTime: heldShrink.heldModifiedTime })
+                  }
+                  className="inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm bg-warning-text px-3.5 py-2 text-[13px] font-semibold text-warning-bg transition-opacity duration-fast hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-warning-bg disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {pending ? "Applying…" : "Apply reduced version"}
+                </button>
+              </div>
+            </div>
+          ) : null}
+        </div>
+      </AnchoredPortal>
+
+      <AnchoredPortal
+        open={open && submenuOpen && hasCrew}
+        anchorRef={previewItemRef}
+        testId={`row-action-preview-portal-${slug}`}
+        align="right"
+        preferredSide="bottom"
+      >
+        <div
+          ref={submenuRef}
+          role="menu"
+          aria-labelledby={`${triggerId}-preview`}
+          data-testid={`row-action-preview-menu-${slug}`}
+          onKeyDown={onSubmenuKeyDown}
+          className="min-w-56 rounded-md border border-border bg-surface-raised p-1.5 shadow-lg"
+        >
+          <span id={`${triggerId}-preview`} className="sr-only">
+            {`Preview ${label} as`}
+          </span>
+          {shownCrew.map((member) => (
+            <Link
+              key={member.id}
+              role="menuitem"
+              tabIndex={-1}
+              data-testid={`row-action-preview-crew-${member.id}`}
+              href={`/admin/show/${encodeURIComponent(slug)}/preview/${encodeURIComponent(member.id)}`}
+              onClick={() => closeMenu(false)}
+              className={MENU_ITEM_CLASS}
+            >
+              {member.name === null || member.name === "" ? UNNAMED_CREW : member.name}
+            </Link>
+          ))}
+          {overflowCrewCount > 0 ? (
+            <Link
+              role="menuitem"
+              tabIndex={-1}
+              data-testid={`row-action-preview-more-${slug}`}
+              href={openHref(slug)}
+              scroll={false}
+              onClick={() => closeMenu(false)}
+              className={`${MENU_ITEM_CLASS} text-text-subtle`}
+            >
+              {`… and ${overflowCrewCount} more (open the show)`}
+            </Link>
           ) : null}
         </div>
       </AnchoredPortal>

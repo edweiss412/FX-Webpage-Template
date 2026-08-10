@@ -1,0 +1,402 @@
+// @vitest-environment jsdom
+/**
+ * admin-dashboard-row-actions Task 4 — Preview-as submenu + row Re-sync.
+ *
+ * Spec §3.2 (crew source + cap), §3.4 (result surfacing), §3.4a (the
+ * `shrink_held` two-phase decision), AC-3/AC-4/AC-6/AC-7.
+ *
+ * The load-bearing branch is `shrink_held`: the route returns it as `ok: true`,
+ * and treating it as a success closes the menu while the reduced version is
+ * silently discarded. The Accept path must carry the destructive treatment AND
+ * fire a SECOND version-bound POST; Keep must fire none.
+ */
+import "@testing-library/jest-dom/vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import { cleanup, fireEvent, render, waitFor, within } from "@testing-library/react";
+
+const refreshMock = vi.fn();
+let mockSearchParams = new URLSearchParams();
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ refresh: refreshMock, push: vi.fn() }),
+  usePathname: () => "/admin",
+  useSearchParams: () => mockSearchParams,
+}));
+
+import { ShowRowActions } from "@/components/admin/ShowRowActions";
+import { buildShowModalHref } from "@/lib/admin/showModalParams";
+import { MESSAGE_CATALOG } from "@/lib/messages/catalog";
+import { CREW_SUBMENU_CAP } from "@/components/admin/ShowRowActions";
+import type { ActiveShowRow, CrewMemberRef } from "@/lib/admin/showDisplay";
+import { premise, premiseHolds } from "../../../_shared/premise";
+
+const fetchMock = vi.fn<typeof fetch>();
+
+beforeEach(() => {
+  refreshMock.mockReset();
+  fetchMock.mockReset();
+  mockSearchParams = new URLSearchParams();
+  global.fetch = fetchMock as unknown as typeof fetch;
+});
+afterEach(() => cleanup());
+
+function row(over: Partial<ActiveShowRow> & { slug: string }): ActiveShowRow {
+  return {
+    id: over.slug,
+    title: `Title ${over.slug}`,
+    showDateStart: "2026-06-01",
+    showDateEnd: "2026-06-05",
+    crewCount: 2,
+    crew: [
+      { id: "c1", name: "Ada Lovelace" },
+      { id: "c2", name: "Grace Hopper" },
+    ],
+    lastSyncedAt: null,
+    lastSyncStatus: null,
+    lastCheckedAt: null,
+    published: true,
+    isLive: false,
+    finalizeOwned: false,
+    archivedAt: null,
+    ...over,
+  };
+}
+
+const TAP_FLOOR = "min-h-tap-min";
+// Every UPPERCASE code the sync route can return to this surface (route
+// branches at app/api/admin/sync/[slug]/route.ts:75-129 plus the client's own
+// transport-fault code). Each must resolve to catalog copy — and to ITS OWN.
+const SYNC_FAILURE_CODES = ["FINALIZE_OWNED_SHOW", "SHOW_BUSY_RETRY", "SYNC_INFRA_ERROR"] as const;
+const q = <T extends HTMLElement>(testid: string) =>
+  document.body.querySelector<T>(`[data-testid="${testid}"]`);
+const menuOf = (slug: string) => q<HTMLElement>(`row-actions-menu-${slug}`)!;
+const openMenu = (slug: string) => {
+  fireEvent.click(q<HTMLButtonElement>(`row-actions-trigger-${slug}`)!);
+  return menuOf(slug);
+};
+const openSubmenu = (slug: string) => {
+  fireEvent.click(q<HTMLElement>(`row-action-preview-${slug}`)!);
+  return q<HTMLElement>(`row-action-preview-menu-${slug}`)!;
+};
+
+// Held-then-settle response helpers. `json` is read once per call, matching the
+// component's single `res.json()`.
+const jsonResponse = (payload: unknown) => ({ json: async () => payload }) as unknown as Response;
+const HELD_PAYLOAD = {
+  ok: true,
+  result: {
+    outcome: "shrink_held",
+    detail: "crew drops from 12 to 3",
+    heldModifiedTime: "2026-08-09T12:00:00.000Z",
+  },
+};
+
+describe("Preview as… submenu (AC-3, AC-7)", () => {
+  test("lists the row's crew, each linking its own preview route, each at the 44px floor", () => {
+    const crew: CrewMemberRef[] = [
+      { id: "c1", name: "Ada Lovelace" },
+      { id: "c2", name: "Grace Hopper" },
+    ];
+    premise("the fixture carries more than one crew member", crew.length, 1);
+    render(<ShowRowActions row={row({ slug: "east", crew, crewCount: crew.length })} />);
+    openMenu("east");
+    // A row WITH crew is neither disabled nor apologising: the empty-state hint
+    // belongs to the empty case alone. (Without this, an implementation that
+    // renders the hint unconditionally passes every other assertion here —
+    // mutant (d) of the four-mutant pass survived until this line existed.)
+    const previewItem = q<HTMLElement>("row-action-preview-east")!;
+    expect(previewItem.getAttribute("aria-disabled")).toBeNull();
+    expect(q("row-action-preview-empty-hint-east")).toBeNull();
+    const submenu = openSubmenu("east");
+    expect(submenu.getAttribute("role")).toBe("menu");
+    for (const member of crew) {
+      const item = within(submenu).getByTestId(`row-action-preview-crew-${member.id}`);
+      expect(item.getAttribute("role")).toBe("menuitem");
+      expect(item.className.split(/\s+/)).toContain(TAP_FLOOR);
+      // Derived from the fixture + the shipped route shape, never hand-written.
+      expect(item.getAttribute("href")).toBe(
+        `/admin/show/${encodeURIComponent("east")}/preview/${encodeURIComponent(member.id)}`,
+      );
+    }
+  });
+
+  test("a null crew name renders the established Unnamed fallback, and a real name is untouched", () => {
+    const crew: CrewMemberRef[] = [
+      { id: "c9", name: null },
+      { id: "c8", name: "Grace Hopper" },
+    ];
+    // PREMISE (own inputs): the fallback needs a null name to fire, AND a
+    // named member to prove the fallback is not applied indiscriminately.
+    premiseHolds("the fixture carries a null-named crew member", crew[0]!.name === null);
+    premiseHolds("the fixture also carries a NAMED crew member", crew[1]!.name !== null);
+    render(<ShowRowActions row={row({ slug: "s", crew, crewCount: crew.length })} />);
+    openMenu("s");
+    const submenu = openSubmenu("s");
+    // Exact, and scoped to the item itself: a label rendered elsewhere cannot
+    // satisfy it, and a longer string containing it is not the fallback.
+    expect(within(submenu).getByTestId("row-action-preview-crew-c9").textContent).toBe("Unnamed");
+    expect(within(submenu).getByTestId("row-action-preview-crew-c8").textContent).toBe(
+      crew[1]!.name,
+    );
+  });
+
+  test(`caps the list at ${CREW_SUBMENU_CAP} and offers an overflow item that opens the show`, () => {
+    mockSearchParams = new URLSearchParams("bucket=active");
+    const crew: CrewMemberRef[] = Array.from({ length: CREW_SUBMENU_CAP + 5 }, (_u, i) => ({
+      id: `c${i}`,
+      name: `Crew ${i}`,
+    }));
+    // PREMISE: the fixture must EXCEED the cap, or an uncapped implementation
+    // passes this assertion unchanged.
+    premise("the fixture crew exceeds the submenu cap", crew.length, CREW_SUBMENU_CAP);
+    render(<ShowRowActions row={row({ slug: "big", crew, crewCount: crew.length })} />);
+    openMenu("big");
+    const submenu = openSubmenu("big");
+    const crewItems = Array.from(
+      submenu.querySelectorAll('[data-testid^="row-action-preview-crew-"]'),
+    );
+    expect(crewItems).toHaveLength(CREW_SUBMENU_CAP);
+    const more = within(submenu).getByTestId("row-action-preview-more-big");
+    expect(more.className.split(/\s+/)).toContain(TAP_FLOOR);
+    expect(more.textContent).toContain(String(crew.length - CREW_SUBMENU_CAP));
+    // The overflow item uses the SAME param-preserving modal href as Open.
+    expect(more.getAttribute("href")).toBe(
+      buildShowModalHref("big", new URLSearchParams("bucket=active")),
+    );
+  });
+
+  test("no crew: the item is disabled, says why, and opens nothing", () => {
+    render(<ShowRowActions row={row({ slug: "empty", crew: [], crewCount: 0 })} />);
+    openMenu("empty");
+    const item = q<HTMLElement>("row-action-preview-empty")!;
+    expect(item.getAttribute("aria-disabled")).toBe("true");
+    expect(q("row-action-preview-empty-hint-empty")!.textContent).toBe("No crew on this show yet.");
+    fireEvent.click(item);
+    expect(q("row-action-preview-menu-empty")).toBeNull();
+  });
+
+  test("ArrowRight opens the submenu and moves focus into it; ArrowLeft closes back to the parent item", () => {
+    render(<ShowRowActions row={row({ slug: "kb" })} />);
+    const menu = openMenu("kb");
+    const preview = q<HTMLElement>("row-action-preview-kb")!;
+    preview.focus();
+    fireEvent.keyDown(menu, { key: "ArrowRight" });
+    const submenu = q<HTMLElement>("row-action-preview-menu-kb")!;
+    expect(submenu).not.toBeNull();
+    expect(preview.getAttribute("aria-expanded")).toBe("true");
+    expect(submenu.contains(document.activeElement)).toBe(true);
+    fireEvent.keyDown(submenu, { key: "ArrowLeft" });
+    expect(q("row-action-preview-menu-kb")).toBeNull();
+    expect(document.activeElement).toBe(preview);
+    expect(preview.getAttribute("aria-expanded")).toBe("false");
+  });
+
+  test("Escape inside the submenu returns to the parent item without closing the menu", () => {
+    render(<ShowRowActions row={row({ slug: "esc" })} />);
+    openMenu("esc");
+    const submenu = openSubmenu("esc");
+    fireEvent.keyDown(submenu, { key: "Escape" });
+    expect(q("row-action-preview-menu-esc")).toBeNull();
+    expect(menuOf("esc")).not.toBeNull(); // the parent menu survives
+    expect(document.activeElement).toBe(q("row-action-preview-esc"));
+  });
+
+  test("submenu ArrowDown/ArrowUp wrap across its own items", () => {
+    const crew: CrewMemberRef[] = [
+      { id: "a", name: "A" },
+      { id: "b", name: "B" },
+      { id: "c", name: "C" },
+    ];
+    premise("the submenu has enough items for wrap to differ from clamp", crew.length, 1);
+    render(<ShowRowActions row={row({ slug: "wrap", crew, crewCount: crew.length })} />);
+    openMenu("wrap");
+    const submenu = openSubmenu("wrap");
+    const items = Array.from(submenu.querySelectorAll<HTMLElement>('[role="menuitem"]'));
+    expect(document.activeElement).toBe(items[0]);
+    fireEvent.keyDown(submenu, { key: "ArrowUp" });
+    expect(document.activeElement).toBe(items.at(-1));
+    fireEvent.keyDown(submenu, { key: "ArrowDown" });
+    expect(document.activeElement).toBe(items[0]);
+  });
+});
+
+describe("Re-sync — plain path (AC-4)", () => {
+  test("fires EXACTLY one POST to the show's sync route", async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ ok: true, result: { outcome: "applied" } }));
+    render(<ShowRowActions row={row({ slug: "my-show" })} />);
+    openMenu("my-show");
+    fireEvent.click(q("row-action-resync-my-show")!);
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0]! as [string, RequestInit];
+    expect(url).toBe("/api/admin/sync/my-show");
+    expect(init.method).toBe("POST");
+    // The plain click carries NO accept body — only the confirm does (§3.4a).
+    expect(init.body).toBeUndefined();
+  });
+
+  test("pending disables the sibling items and swaps the item to its pending label", async () => {
+    let release: (r: Response) => void = () => {};
+    fetchMock.mockReturnValue(
+      new Promise<Response>((res) => {
+        release = res;
+      }),
+    );
+    render(<ShowRowActions row={row({ slug: "pend" })} />);
+    const menu = openMenu("pend");
+    fireEvent.click(q("row-action-resync-pend")!);
+    await waitFor(() => expect(q("row-action-resync-pend")!.textContent).toContain("Syncing…"));
+    const siblings = Array.from(menu.querySelectorAll<HTMLElement>('[role="menuitem"]')).filter(
+      (el) => el.dataset["testid"] !== "row-action-resync-pend",
+    );
+    // PREMISE: "siblings are disabled" is only observable when siblings exist.
+    premise("the menu has sibling items to disable", siblings.length, 0);
+    for (const s of siblings) expect(s.getAttribute("aria-disabled")).toBe("true");
+    release(jsonResponse({ ok: true, result: { outcome: "applied" } }));
+    await waitFor(() => expect(refreshMock).toHaveBeenCalled());
+  });
+
+  test("success refreshes BEFORE the menu closes, and announces the outcome", async () => {
+    const seen: string[] = [];
+    refreshMock.mockImplementation(() => {
+      seen.push(menuOf("ok1") ? "menu-open-at-refresh" : "menu-closed-at-refresh");
+    });
+    fetchMock.mockResolvedValue(jsonResponse({ ok: true, result: { outcome: "applied" } }));
+    render(<ShowRowActions row={row({ slug: "ok1" })} />);
+    openMenu("ok1");
+    fireEvent.click(q("row-action-resync-ok1")!);
+    await waitFor(() => expect(refreshMock).toHaveBeenCalled());
+    // The inventory's ordering row: close happens AFTER router.refresh() ran.
+    expect(seen).toEqual(["menu-open-at-refresh"]);
+    await waitFor(() => expect(q("row-actions-menu-ok1")).toBeNull());
+    // The menu is gone, so the announcement cannot live inside it: the
+    // persistent region carries it (BL-ANNOUNCE-REGION-UNMOUNT-CLASS).
+    const announce = q("row-actions-announce-ok1")!;
+    expect(announce.getAttribute("role")).toBe("status");
+    expect(announce.textContent).toContain("Synced. Changes applied.");
+  });
+
+  test.each(SYNC_FAILURE_CODES.map((c) => [c]))(
+    "an %s failure renders catalog copy in an alert, keeps the menu open, and leaks no raw code",
+    async (code) => {
+      const entry = MESSAGE_CATALOG[code as keyof typeof MESSAGE_CATALOG];
+      // PREMISE: the assertion compares against catalog copy, so the row must
+      // HAVE Doug-facing copy — a null would make `toContain("")` vacuous.
+      premiseHolds(`${code} has dougFacing copy in the catalog`, Boolean(entry.dougFacing));
+      fetchMock.mockResolvedValue(jsonResponse({ ok: false, error: code }));
+      render(<ShowRowActions row={row({ slug: "err" })} />);
+      openMenu("err");
+      fireEvent.click(q("row-action-resync-err")!);
+      const region = await waitFor(() => {
+        const el = q<HTMLElement>("row-actions-error-err");
+        expect(el).not.toBeNull();
+        return el!;
+      });
+      // Same alert semantics as the shipped ReSyncButton reference: a role="group"
+      // wrapper naming an inner role="alert" message node.
+      expect(region.getAttribute("role")).toBe("group");
+      const alert = region.querySelector('[role="alert"]')!;
+      expect(alert).not.toBeNull();
+      expect(region.textContent ?? "").toContain(entry.dougFacing!);
+      // …and ONLY this code's copy: a region still showing the previous
+      // failure's message is the stale-result bug this negative catches.
+      for (const other of SYNC_FAILURE_CODES.filter((c) => c !== code)) {
+        expect(region.textContent ?? "").not.toContain(
+          MESSAGE_CATALOG[other as keyof typeof MESSAGE_CATALOG].dougFacing!,
+        );
+      }
+      // No empty region, and no raw code anywhere in the rendered menu.
+      expect((region.textContent ?? "").trim().length).toBeGreaterThan(0);
+      expect(document.body.textContent ?? "").not.toContain(code);
+      // Failure keeps the menu open so the admin can read it.
+      expect(menuOf("err")).not.toBeNull();
+      expect(refreshMock).not.toHaveBeenCalled();
+    },
+  );
+});
+
+describe("Re-sync — shrink_held decision (§3.4a, AC-4)", () => {
+  test("held renders the prompt instead of closing, focuses the SAFE control, and disables items", async () => {
+    fetchMock.mockResolvedValue(jsonResponse(HELD_PAYLOAD));
+    render(<ShowRowActions row={row({ slug: "held" })} />);
+    const menu = openMenu("held");
+    fireEvent.click(q("row-action-resync-held")!);
+    const confirm = await waitFor(() => {
+      const el = q<HTMLElement>("row-actions-shrink-confirm-held");
+      expect(el).not.toBeNull();
+      return el!;
+    });
+    // Consequence prose quotes the server's own detail — never a generic line.
+    expect(confirm.textContent).toContain(HELD_PAYLOAD.result.detail);
+    // Safe-control focus (§3.8): Keep, never Apply.
+    expect(document.activeElement).toBe(q("row-actions-keep-current-held"));
+    // Held is NOT success: the menu stayed open and nothing refreshed.
+    expect(menu).not.toBeNull();
+    expect(refreshMock).not.toHaveBeenCalled();
+    for (const item of Array.from(menu.querySelectorAll<HTMLElement>('[role="menuitem"]'))) {
+      expect(item.getAttribute("aria-disabled")).toBe("true");
+    }
+  });
+
+  test("Accept carries the destructive recipe and fires a SECOND version-bound POST", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(HELD_PAYLOAD));
+    fetchMock.mockResolvedValueOnce(jsonResponse({ ok: true, result: { outcome: "applied" } }));
+    render(<ShowRowActions row={row({ slug: "acc" })} />);
+    openMenu("acc");
+    fireEvent.click(q("row-action-resync-acc")!);
+    const accept = await waitFor(() => {
+      const el = q<HTMLElement>("row-actions-accept-shrink-acc");
+      expect(el).not.toBeNull();
+      return el!;
+    });
+    // §3.8 tier-2 destructive recipe (C1): inverted amber, no competing fill.
+    const tokens = accept.className.split(/\s+/);
+    for (const t of ["bg-warning-text", "text-warning-bg", "font-semibold", "hover:opacity-90"]) {
+      expect(tokens).toContain(t);
+    }
+    for (const t of ["bg-accent", "bg-surface", "bg-bg"]) expect(tokens).not.toContain(t);
+
+    fireEvent.click(accept);
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    const [, init] = fetchMock.mock.calls[1]! as [string, RequestInit];
+    // Version-bound: a stale confirm must re-hold rather than clobber last-good.
+    expect(JSON.parse(String(init.body))).toEqual({
+      acceptShrink: true,
+      expectedModifiedTime: HELD_PAYLOAD.result.heldModifiedTime,
+    });
+  });
+
+  test("Keep fires ZERO further requests and restores focus to the Re-sync item", async () => {
+    fetchMock.mockResolvedValue(jsonResponse(HELD_PAYLOAD));
+    render(<ShowRowActions row={row({ slug: "keep" })} />);
+    openMenu("keep");
+    fireEvent.click(q("row-action-resync-keep")!);
+    const keep = await waitFor(() => {
+      const el = q<HTMLElement>("row-actions-keep-current-keep");
+      expect(el).not.toBeNull();
+      return el!;
+    });
+    const callsBefore = fetchMock.mock.calls.length;
+    premise("the held prompt arrived from a real request", callsBefore, 0);
+    fireEvent.click(keep);
+    await waitFor(() => expect(q("row-actions-shrink-confirm-keep")).toBeNull());
+    expect(fetchMock.mock.calls.length).toBe(callsBefore);
+    expect(refreshMock).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(q("row-action-resync-keep"));
+  });
+
+  test("the held prompt arrival is announced on the persistent region", async () => {
+    fetchMock.mockResolvedValue(jsonResponse(HELD_PAYLOAD));
+    render(<ShowRowActions row={row({ slug: "ann" })} />);
+    openMenu("ann");
+    fireEvent.click(q("row-action-resync-ann")!);
+    await waitFor(() =>
+      expect(q("row-actions-announce-ann")!.textContent).toContain(HELD_PAYLOAD.result.detail),
+    );
+    // The interactive prompt itself must NOT be a live region — a reader would
+    // otherwise hear its buttons as part of the announcement.
+    const confirm = q<HTMLElement>("row-actions-shrink-confirm-ann")!;
+    expect(confirm.getAttribute("role")).not.toBe("status");
+    expect(confirm.getAttribute("role")).not.toBe("alert");
+    expect(confirm.getAttribute("aria-live")).toBeNull();
+  });
+});

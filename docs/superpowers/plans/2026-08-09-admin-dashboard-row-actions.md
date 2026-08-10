@@ -79,7 +79,7 @@ The spec §3.5 inventory's rows are asserted RED-first inside the tasks that IMP
 | closed → open | popover pattern default (instant or ≤150ms fade per the popover primitive; whatever `AppHealthPopover` does — consistency wins) |
 | open → closed (dismiss/success) | same as primitive |
 | open → open+pending | instant swap of item content to spinner; other items disable |
-| open+pending → open+error | instant; error line appears, `role="status"` announces |
+| open+pending → open+error | instant; the error line appears in a `role="group"` naming an inner `role="alert"` message node — the shipped `ReSyncButton.tsx:280-287` reference; the alert role IS the announcement. (Aligned with §3.4 per plan R4 F5, which corrected an earlier `role="status"` here; a node cannot carry both roles, and §3.4 is the ratified one.) |
 | open+pending → closed (success) | close after `router.refresh()` resolves |
 | open → confirm-step (Archive) | instant in-place swap of the Archive row; initial focus lands on the SAFE control (Cancel) per the destructive-action contract |
 | confirm-step → open (cancel) | instant; focus restores to the Archive item (cancel focus restoration per DESIGN.md destructive contract) |
