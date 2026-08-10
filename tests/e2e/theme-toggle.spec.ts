@@ -15,8 +15,14 @@
  * flip mid-crossfade, and tests/help/header.test.tsx mocks the component.
  *
  * RESOLUTION RECIPE IS PART OF THE TEST (spec §3.2, review R2 F2). The toggle
- * exists ONLY in the CrewShell's Footer (components/layout/Footer.tsx, rendered
- * via _CrewShell). An UNAUTHENTICATED share-token request renders
+ * moved to the crew page HEADER on 2026-08-09 (UI spec §2.3) and now has two
+ * forms: an identity-less page renders the STANDALONE toggle in the header's
+ * right slot, and a page with a resolved crew identity carries the switch inside
+ * the avatar menu. This suite's admin-fixture recipe resolves `identityChip=null`
+ * — the admin arm of resolveShowPageAccess renders the CrewShell without a
+ * picker identity — so it drives the STANDALONE form, which is the one whose
+ * persistence and no-FOUC contract this file has always been about. The
+ * avatar-menu form is driven by its own arm below. An UNAUTHENTICATED share-token request renders
  * SignInOrSkipGate/PickerInterstitial instead, which has no footer and no
  * toggle — so a test that merely navigated would fail on a missing locator and
  * read as a product defect. Hence lookupSeededShow + share token +
@@ -170,31 +176,23 @@ test.describe("crew footer theme toggle — persistence, no-FOUC, a11y, tap targ
   }
 
   /**
-   * Land on the crew route with the CrewShell (and therefore the Footer) up.
+   * Land on the crew route with the header chrome up.
    *
-   * Width 760 is load-bearing, and NOT a convenience. At 390px the crew
-   * sub-nav's fixed bottom bar (`min-[720px]:hidden fixed inset-x-0 bottom-0`,
-   * components/crew/CrewSubNav.tsx:155) overlaps the footer's theme toggle, and
-   * the page is not padded to clear it. Measured on the seeded route at 390x844,
-   * scrolled fully to the bottom:
+   * AT 390px, the mobile width this product is designed for. The previous
+   * version ran at 760 and said why: at 390 the crew sub-nav's fixed bottom bar
+   * overlapped the FOOTER's theme toggle, `document.elementFromPoint` at the
+   * toggle's centre returned the BAR's svg, and no amount of scrolling cleared
+   * it. That obstruction was real and it was filed, with that probe attached, as
+   * BL-CREW-FOOTER-OBSCURED-BY-FIXED-BOTTOM-BAR.
    *
-   *   toggle top 775.6 bottom 819.6 · bar top 790.7 bottom 844 · overlaps true
-   *   document.elementFromPoint(toggle centre) -> the BAR's <svg>
-   *   getComputedStyle(document.body).paddingBottom -> "0px"
-   *
-   * so the toggle's centre is genuinely un-tappable there and no amount of
-   * scrolling clears it (the document bottom is already at the viewport bottom).
-   * That obstruction is a PRODUCT defect, filed as
-   * BL-CREW-FOOTER-OBSCURED-BY-FIXED-BOTTOM-BAR with this probe attached — it is
-   * a design call (how the footer should clear the mobile bar) this arc does not
-   * settle. It is NOT worked around by clicking a sliver or hiding product
-   * chrome: the bar is `min-[720px]:hidden`, so at >=720px it does not render and
-   * the toggle is reachable exactly as a real user finds it. The theme contract
-   * under test (write, persist, restore, announce) is viewport-independent; the
-   * mobile tap floor is asserted separately, at 390px, by the tap-target case.
+   * BOTH halves of the workaround's premise are now gone. The shell pads below
+   * the footer so its box clears the bar (UI spec §2.1), and the toggle itself
+   * left the footer for the header (§2.3), where nothing has ever overlapped it.
+   * Running at 760 would now be testing a width no crew member uses, to dodge a
+   * defect that no longer exists.
    */
   async function gotoCrewShell(page: Page): Promise<void> {
-    await page.setViewportSize({ width: 760, height: 1000 });
+    await page.setViewportSize({ width: 390, height: 844 });
     // Retried, because two things here are slow rather than wrong: the admin
     // session set by signInAs has to be visible to the SSR request (until it is,
     // resolveShowPageAccess renders SignInOrSkipGate and `crew-shell` never
@@ -425,10 +423,11 @@ test.describe("crew footer theme toggle — persistence, no-FOUC, a11y, tap targ
 
   test(`tap target: the toggle is at least ${TAP_MIN}x${TAP_MIN}px`, async ({ page }) => {
     await gotoCrewShell(page);
-    // Asserted at the MOBILE width under both projects — the tap floor is a
-    // mobile contract, and measuring it only at 760px would let a
-    // narrow-viewport regression through. Measuring needs no click, so the
-    // bottom-bar obstruction above does not apply here.
+    // The tap floor is a MOBILE contract and `gotoCrewShell` now lands at 390px,
+    // so this case no longer has to re-set the viewport to escape a workaround
+    // width. Kept explicit anyway: the assertion is about 390 specifically, and
+    // a future change to the helper's default must not silently move what this
+    // measures.
     await page.setViewportSize({ width: 390, height: 844 });
     await expect(page.getByTestId("theme-toggle")).toBeVisible();
     const box = await page.getByTestId("theme-toggle").boundingBox();
