@@ -264,9 +264,11 @@ describe("spec §7 case 2 — crash release", () => {
     await waitForStderr(holder, "acquired slot-", 20_000);
 
     const waiter = runWrapped(env, [process.execPath, "-e", "process.exit(0)"]);
-    // The waiter must be genuinely blocked before the kill, else the measurement
-    // times its own startup rather than the release.
-    await sleep(pollMs);
+    // Synchronize on the waiter's OWN first-wait line rather than a wall-clock
+    // sleep: interpreter boot varies by an order of magnitude between a quiet
+    // dev box and a 2-core CI runner, and a sleep-based barrier silently
+    // degrades into measuring that boot instead of the release.
+    await waitForStderr(waiter, "waiting for a heavy slot", 20_000);
     premiseHolds(
       "waiter is still blocked when the holder is killed",
       !waiter.stderr().includes("acquired slot-"),
@@ -635,7 +637,12 @@ describe("spec §7 case 11 — resize-race containment", () => {
       { ...base, FX_HEAVY_TEST_HOLD_OPEN_MS: "1500" },
       logWindowArgs("waiter", log, 300),
     );
-    await sleep(400);
+    // `config adopted` is emitted immediately before the acquire scan, so it
+    // pins the moment the waiter is about to open slot-0. Swapping on a bare
+    // wall-clock sleep instead would race interpreter boot: land the swap first
+    // and the waiter opens the NEW inode, leaving nothing orphaned to reject.
+    await waitForStderr(waiter, "config adopted", 20_000);
+    await sleep(150);
     premiseHolds(
       "the waiter is still inside the injected open->flock window",
       !waiter.stderr().includes("acquired slot-"),
@@ -681,12 +688,15 @@ describe("spec §7 case 11 — resize-race containment", () => {
     });
 
     const waiter = runWrapped(
-      { ...base, FX_HEAVY_TEST_HOLD_OPEN_MS: "800" },
+      { ...base, FX_HEAVY_TEST_HOLD_OPEN_MS: "1200" },
       logWindowArgs("waiter", log, 300),
     );
-    // Scan order is slot-0, slot-1, slot-2 with an injected sleep before each
-    // flock; the shrink lands while the waiter sits on slot-2.
-    await sleep(1800);
+    // Scan order is slot-0, slot-1, slot-2 with a 1200 ms injected sleep before
+    // each flock, so from `config adopted` the third window is [2400, 3600].
+    // Anchoring on that line rather than on spawn keeps interpreter boot out of
+    // the arithmetic; 2800 sits mid-window with ~400 ms of slack each way.
+    await waitForStderr(waiter, "config adopted", 20_000);
+    await sleep(2800);
     premiseHolds(
       "the waiter has not acquired before the shrink",
       !waiter.stderr().includes("acquired slot-"),
@@ -904,7 +914,9 @@ const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const [wrapper, innerScript, log, outDir] = process.argv.slice(2);
 // Outlive the wrapped parent: the env marker is inherited, the slot fd is not.
-Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1200);
+// The delay must also outlast the test's own competing holder reaching its
+// slot, which is a spawn the orphan cannot observe.
+Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 3000);
 const result = spawnSync("python3", [wrapper, "--", process.execPath, innerScript, log, outDir], {
   encoding: "utf8",
 });
@@ -1110,9 +1122,11 @@ describe("spec §7 case 12 — nested pass-through and stale marker", () => {
     await waitForStderr(parent, "acquired slot-", 15_000);
     expect((await parent.exited).code).toBe(0);
 
-    // Occupy the slot across the orphan's attempt, so "it acquired" is a claim
-    // about admission rather than about an empty dir.
-    const other = runWrapped(env, logWindowArgs("other", log, 2500));
+    // Occupy the slot ACROSS the orphan's attempt, so "it acquired" is a claim
+    // about admission rather than about an empty dir. The window must outlast
+    // the orphan's own 3000 ms wait-for-the-parent-to-die delay, measured from
+    // the parent's start rather than from this holder's — hence the margin.
+    const other = runWrapped(env, logWindowArgs("other", log, 4000));
     await waitForStderr(other, "acquired slot-", 15_000);
 
     await waitUntil(
