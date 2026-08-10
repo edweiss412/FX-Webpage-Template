@@ -283,20 +283,33 @@ describe("useNeedsAttentionBadge — async seed arm (AC-3, AC-5)", () => {
     await waitFor(() => expect(probe.paints.at(-1)).toBe(9));
   });
 
-  it("§3.2 row 2: navigation commits FIRST → a later seed is DROPPED and never painted", async () => {
-    attentionCountsInOrder(2);
+  it("§3.2 row 2: navigation commits FIRST → a later seed DEMOTES to a fresh fetch and never paints", async () => {
+    // Two queued counts: the navigation's refetch takes 2, the seed's DEMOTED
+    // fetch takes 3. Asserting the second fetch is what makes this row
+    // discriminate — a hook that simply DROPPED the seed would produce the very
+    // same frames (final 2, never 1) and this named AC-5 case would pass against
+    // the behavior spec §3.2.1 rejected.
+    attentionCountsInOrder(2, 3);
     const seed = deferred<NeedsAttentionCountResult>();
     const probe = renderAttention(seed.promise);
 
     mockPathname = "/admin/settings";
     probe.rerender({ seed: seed.promise });
     await waitFor(() => expect(probe.paints.at(-1)).toBe(2));
+    const attentionFetchesBeforeSeed = fetchSpy.mock.calls.filter(
+      (c) => c[0] === ATTENTION_ENDPOINT,
+    ).length;
 
     await settle(() => seed.resolve({ kind: "ok", count: 1 }));
 
-    // Expectation derives from the WINNING source (the refetch), and the losing
-    // seed value must appear in no frame at all.
-    expect(probe.paints.at(-1)).toBe(2);
+    // The seed's own value is painted in NO frame; a fresh fetch is issued and
+    // its server truth is what lands.
+    await waitFor(() =>
+      expect(fetchSpy.mock.calls.filter((c) => c[0] === ATTENTION_ENDPOINT)).toHaveLength(
+        attentionFetchesBeforeSeed + 1,
+      ),
+    );
+    await waitFor(() => expect(probe.paints.at(-1)).toBe(3));
     expect(probe.paints).not.toContain(1);
   });
 

@@ -63,7 +63,7 @@ RED: source-scan test asserting `app/admin/layout.tsx` does not `await` either l
 | pending to degraded (bell, infra_error) | instant; the existing `!` trigger recipe, unchanged |
 | visible to hidden (refetch lands 0 / fail-quiet null) | instant, existing hook behavior, unchanged |
 | hidden to visible (refetch lands > 0) | instant, existing hook behavior, unchanged |
-| compound: pathname refetch fires while the seed promise is still pending | fully specified in the §3.2 interleaving table: the refetch commits and bumps the token; the late seed is discarded; asserted in AC-5's integration tests |
+| compound: pathname refetch fires while the seed promise is still pending | fully specified in the §3.2 interleaving table: the refetch commits and bumps the token; the late seed does not paint — it demotes to a fresh fetch (§3.2.1), or applies its posture if it carries a failure (§5.5); asserted in AC-5's integration tests |
 | compound: layout re-render mid-stream (router.refresh) | new promise props arrive; the older subscription is INVALIDATED at that instant (promise-identity guard); only the newest promise's resolution reaches `ingestPropValue` |
 | compound: P1 pending, P2 arrives, P1 resolves first | P1's value is ignored (invalidated subscription); pending shape persists until P2 resolves or a refetch lands (spec R3 F2; test required, AC-5) |
 | compound: P2 arrives and HANGS after P1 invalidated | pending shape persists; next pathname refetch repopulates; no wedge, no stale paint |

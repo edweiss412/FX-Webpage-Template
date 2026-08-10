@@ -232,7 +232,9 @@ describe("NotifBell — badge appear/disappear is instant", () => {
  *   | hidden to visible (refetch lands > 0) | instant, existing hook behavior,
  *     unchanged |
  *   | compound: pathname refetch fires while the seed promise is still pending |
- *     the refetch commits and bumps the token; the late seed is discarded |
+ *     the refetch commits and bumps the token; the late seed does not paint — it
+ *     demotes to a fresh fetch (spec §3.2.1), or applies its posture if it
+ *     carries a failure (spec §5.5) |
  *   | compound: layout re-render mid-stream (router.refresh) | the older
  *     subscription is INVALIDATED at that instant (promise-identity guard) |
  *   | compound: P1 pending, P2 arrives, P1 resolves first | P1's value is

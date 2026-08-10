@@ -21,7 +21,10 @@ What shipped: `app/admin/layout.tsx` issues `loadBellUnseenCount` and `loadNeeds
 1. _"the repo has zero `<Suspense>` precedent"_ — stale when written. Real boundaries already shipped in the admin tree (`app/admin/page.tsx`, `app/admin/dev/telemetry/page.tsx`, `app/admin/dev/telemetry-dim/page.tsx`).
 2. _`<Suspense>` is the mechanism_ — REJECTED on evidence, not on cost. The resolved counts drive behavior far outside any leaf (the bell's trigger branch, the parent link's count-aware `aria-label`, `zeroNow()` firing before resolution), so nothing on this surface may suspend; and a pre-mount navigation would initialize `lastPathRef` on the destination and silently skip the first refetch. Spec §3.2 "Why the hooks own the pending state" is the record. **Do not re-file this as a Suspense task.**
 
-Original entry text, preserved verbatim for provenance:
+Original entry text below, with ONE normalization: the meta line is quoted as it stood on the branch at
+archive time (`**Status:** OPEN · **Effort:** M`) rather than as it stands on `origin/main`
+(`**Effort:** M`) — the status field was added by this arc's invariant-12 flight marker and then
+cleared. Every other line is verbatim.
 
 > ### BL-ADMIN-NAV-BADGE-SUSPENSE-STREAMING — stream the admin nav badge counts via `<Suspense>` instead of blocking layout
 >
