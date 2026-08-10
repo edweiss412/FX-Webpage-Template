@@ -72,9 +72,7 @@ Impeccable dual-gate with the CANONICAL v3 setup sequence (plan R1 F7): the skil
 
 ## §12 Impeccable closeout (populated at close-out)
 
-Findings and dispositions from the critique+audit pair land HERE, one row per finding (id, tier, disposition). The machine-checkable marker line below is finalized at close-out per the invariant-8 closeout grammar (`docs/superpowers/specs/2026-08-01-...invariant-8-closeout-enforcement` spec §3.3 — the implementer reads the grammar there before writing the line; it must be a standalone line beginning with the marker token).
-
-impeccable-gate: pending — finalized at close-out per §3.3 grammar
+Findings and dispositions from the critique+audit pair land HERE, one row per finding (id, tier, disposition). At close-out the implementer writes the machine-valid marker as a STANDALONE line in this section per the parser grammar in `tests/docs/_invariant8Closeout.ts` (`impeccable-gate: critique=RAN audit=RAN p0=<...> p1=<...> dispositions=<...>`); NO placeholder line exists until then — an invalid placeholder fails the parser.
 
 ## AC map
 
