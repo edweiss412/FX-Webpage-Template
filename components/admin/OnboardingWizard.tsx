@@ -162,10 +162,12 @@ export function StepIndicator({
 }) {
   // Pill (circle) shape shared by all states; focus ring shared by the two link
   // states (a plain span is not focusable, so it does not carry the ring).
-  const base =
-    "flex size-7 shrink-0 items-center justify-center rounded-pill border text-xs font-semibold tabular-nums transition-colors duration-fast";
-  const focusRing =
-    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg";
+  const base = cn(
+    "flex size-7 shrink-0 items-center justify-center rounded-pill border text-xs font-semibold tabular-nums transition-colors duration-fast",
+  );
+  const focusRing = cn(
+    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg",
+  );
   // The 44px TAP TARGET a reachable pill exposes (spec 2026-08-07-step3-a11y-cluster
   // §2.2). The painted 28px pill moves to an inner <span> and this anchor becomes
   // the hit box; `-m-2` cancels the growth exactly, so the pill's margin box stays
@@ -183,8 +185,9 @@ export function StepIndicator({
   // radius). `cursor-pointer` is on the target so the cursor changes across the
   // whole band. The focus ring stays on the anchor — a non-focusable inner span
   // can never match `focus-visible`.
-  const tapTarget =
-    "group -m-2 flex size-tap-min shrink-0 cursor-pointer items-center justify-center rounded-pill";
+  const tapTarget = cn(
+    "group -m-2 flex size-tap-min shrink-0 cursor-pointer items-center justify-center rounded-pill",
+  );
   return (
     <nav
       aria-label="Onboarding progress"
@@ -207,15 +210,21 @@ export function StepIndicator({
         // No success/green token exists (DESIGN.md) — a completed pill is neutral
         // (surface + strong border + a check glyph), NOT green. Accent is reserved
         // for the single active pill (≤10% accent budget).
+        // EVERY branch is `cn(...)`-wrapped, not the ternary as a whole: the
+        // canonical-class rule follows a recognized callee's ARGUMENTS, and a
+        // ternary handed to `cn` is one argument whose branches it does not
+        // enter. Wrapping each branch is what puts these strings in reach.
         const pillState = isActive
-          ? "border-accent-edge bg-accent text-accent-text"
+          ? cn("border-accent-edge bg-accent text-accent-text")
           : isDone
-            ? "border-border-strong bg-surface text-text-subtle"
+            ? cn("border-border-strong bg-surface text-text-subtle")
             : isVisited
               ? // `group-hover:`, not `hover:` — the visual span is no longer the
                 // element the pointer is over across the 8px expansion band.
-                "border-transparent bg-surface-sunken text-text-subtle group-hover:text-text-strong"
-              : "border-transparent bg-surface-sunken text-text-faint";
+                cn(
+                  "border-transparent bg-surface-sunken text-text-subtle group-hover:text-text-strong",
+                )
+              : cn("border-transparent bg-surface-sunken text-text-faint");
         // The check replaces the number on done pills; label sits beside the pill.
         const glyph = isDone ? <Check aria-hidden="true" className="size-3.5" /> : n;
         const pill = isVisited ? (
@@ -723,7 +732,7 @@ export async function OnboardingWizard({
   // it holds a 768px base (max-w-3xl) on laptops/tablets and widens to 1024px
   // (xl:max-w-5xl, ≥1280px) so the list stops looking lost in the max-w-[1600px]
   // admin shell on large desktops.
-  const containerMaxWidth = step === 3 ? "max-w-3xl xl:max-w-5xl" : "max-w-2xl";
+  const containerMaxWidth = step === 3 ? cn("max-w-3xl xl:max-w-5xl") : cn("max-w-2xl");
 
   return (
     // `pb-32` reserves space for the fixed full-width <WizardFooter> each step

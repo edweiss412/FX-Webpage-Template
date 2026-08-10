@@ -16,6 +16,7 @@ import { StatusIndicator } from "@/components/admin/StatusIndicator";
 import { formatRelative } from "@/lib/admin/showDisplay";
 import { PendingPanelRetryButton } from "@/components/admin/PendingPanelRetryButton";
 import { PendingPanelDiscardButtons } from "@/components/admin/PendingPanelDiscardButtons";
+import { cn } from "@/lib/ui/cn";
 
 type NeedsAttentionInboxProps = {
   items: NeedsAttentionItem[];
@@ -26,8 +27,9 @@ type NeedsAttentionInboxProps = {
   now: Date;
 };
 
-const reviewLinkClass =
-  "inline-flex min-h-tap-min items-center rounded-md border border-border px-3 text-sm font-semibold text-accent-on-bg underline-offset-2 hover:border-border-strong hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface";
+const reviewLinkClass = cn(
+  "inline-flex min-h-tap-min items-center rounded-md border border-border px-3 text-sm font-semibold text-accent-on-bg underline-offset-2 hover:border-border-strong hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface",
+);
 
 // Top row of every card: the status eyebrow on the left, a relative activity
 // timestamp ("1h ago") pinned right. The <time> is OMITTED entirely when the

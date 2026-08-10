@@ -621,7 +621,7 @@ function OpenReviewModalShell({
           ref={panelRef}
           {...{ [`data-${dataAttrPrefix}-panel`]: "" }}
           {...entranceAttr}
-          className="relative flex max-h-[85vh] w-full flex-col items-stretch overflow-clip rounded-t-md bg-bg text-text shadow-(--shadow-tile) sm:max-h-[80vh] sm:max-w-5xl sm:rounded-md"
+          className="relative flex max-h-[85vh] w-full flex-col items-stretch overflow-clip rounded-t-md bg-bg text-text shadow-tile sm:max-h-[80vh] sm:max-w-5xl sm:rounded-md"
         >
           {/* §3.5.2: the dialog's own undo channel. Content OUTSIDE an
           aria-modal dialog is excluded from the accessibility tree, and the

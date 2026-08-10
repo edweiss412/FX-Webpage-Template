@@ -157,6 +157,7 @@ import {
   AGENDA_CLIENT_POLL_BUDGET_MS,
   AGENDA_CLIENT_QUEUE_BUDGET_MS,
 } from "@/lib/agenda/constants";
+import { cn } from "@/lib/ui/cn";
 
 // ── §4.3 caps (single source of truth — values unchanged, spec §13) ──
 export const CREW_CAP = 30;
@@ -305,7 +306,7 @@ export function overflowNote(total: number, cap: number, noun: string): string |
 }
 
 /** The shared eyebrow-key style (spec §8 field-list grammar). */
-const EYEBROW_CLASS = "text-xs font-semibold uppercase text-text-subtle";
+const EYEBROW_CLASS = cn("text-xs font-semibold uppercase text-text-subtle");
 const EYEBROW_STYLE = { letterSpacing: "var(--tracking-eyebrow)" } as const;
 
 /**
@@ -423,7 +424,9 @@ function interpretBooleanValue(value: string): "yes" | "no" | null {
 }
 
 /** Uppercase eyebrow label for the redesigned spec cells / group headers. */
-const CELL_EYEBROW_CLASS = "text-[10px] font-semibold uppercase tracking-eyebrow text-text-subtle";
+const CELL_EYEBROW_CLASS = cn(
+  "text-[10px] font-semibold uppercase tracking-eyebrow text-text-subtle",
+);
 
 /**
  * Modal section chrome (Task 5 — spec §6.4/§5.2). The review modal wraps each
@@ -768,8 +771,9 @@ export function pointerSentenceParts(
  *  belongs to the card div). In the elsewhere state the sentence is the
  *  panel's only body content, so nothing interactive sits inside the raised
  *  zone (e2e disjointness proof). */
-const POINTER_INLINE_BUTTON_CLASS =
-  "relative z-10 inline-block whitespace-nowrap font-semibold text-text-strong underline underline-offset-2 before:absolute before:top-1/2 before:left-1/2 before:h-tap-min before:w-full before:min-w-tap-min before:-translate-1/2 before:content-[''] hover:text-text focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface focus-visible:outline-none";
+const POINTER_INLINE_BUTTON_CLASS = cn(
+  "relative z-10 inline-block whitespace-nowrap font-semibold text-text-strong underline underline-offset-2 before:absolute before:top-1/2 before:left-1/2 before:h-tap-min before:w-full before:min-w-tap-min before:-translate-1/2 before:content-[''] hover:text-text focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface focus-visible:outline-none",
+);
 
 /**
  * The published panel's "warnings are elsewhere" sentence (announcer spec
@@ -1043,7 +1047,7 @@ export function ModalSectionChrome({
         {...(chrome.sectionId !== undefined && chrome.freshnessFlash !== undefined
           ? { "data-section-freshness-flash": chrome.freshnessFlash }
           : {})}
-        className={`flex min-w-0 flex-col gap-1.5 rounded-md border bg-surface p-tile-pad shadow-(--shadow-tile) ${
+        className={`flex min-w-0 flex-col gap-1.5 rounded-md border bg-surface p-tile-pad shadow-tile ${
           flagged ? "border-border-strong" : "border-border"
         }`}
       >

@@ -29,7 +29,7 @@
  *                    surface); omit for the default uncolored offset
  *       inline     — inline-flex items-center justify-center
  *       selfStart  — self-start (flex-column parents)
- *       shadow     — shadow-(--shadow-tile)
+ *       shadow     — shadow-tile
  *       minWidthTap— min-w-tap-min (square tap floor)
  *   - All native <button> props pass through (type, onClick, disabled,
  *     aria-busy, data-testid, children, …). `type` defaults to "button"
@@ -69,7 +69,7 @@ export type AccentButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
   inline?: boolean;
   /** self-start, for flex-column parents that would otherwise stretch. */
   selfStart?: boolean;
-  /** shadow-(--shadow-tile) raised treatment. */
+  /** shadow-tile raised treatment. */
   shadow?: boolean;
   /** min-w-tap-min square-ish tap floor (in addition to the always-on min-h). */
   minWidthTap?: boolean;
@@ -84,26 +84,27 @@ export type AccentButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
 const SIZE_CLASS: Record<AccentButtonSize, string> = {
   // sm/lg deliberately omit `py-*` — the migrated sites that use them rely
   // on min-h-tap-min for vertical sizing (single-line height). md keeps py-2.
-  sm: "px-4 text-sm",
-  md: "px-4 py-2",
-  lg: "px-6 text-base",
+  sm: cn("px-4 text-sm"),
+  md: cn("px-4 py-2"),
+  lg: cn("px-6 text-base"),
 };
 
 const WEIGHT_CLASS: Record<AccentButtonWeight, string> = {
-  medium: "font-medium",
-  semibold: "font-semibold",
+  medium: cn("font-medium"),
+  semibold: cn("font-semibold"),
 };
 
 const RING_OFFSET_CLASS: Record<AccentButtonRingOffset, string> = {
-  bg: "focus-visible:ring-offset-bg",
-  "warning-bg": "focus-visible:ring-offset-warning-bg",
-  "surface-raised": "focus-visible:ring-offset-surface-raised",
-  surface: "focus-visible:ring-offset-surface",
+  bg: cn("focus-visible:ring-offset-bg"),
+  "warning-bg": cn("focus-visible:ring-offset-warning-bg"),
+  "surface-raised": cn("focus-visible:ring-offset-surface-raised"),
+  surface: cn("focus-visible:ring-offset-surface"),
 };
 
 // Canonical shared chrome — never varies across sites.
-const BASE_CLASS =
-  "min-h-tap-min rounded-sm bg-accent text-accent-text transition-colors duration-fast hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60";
+const BASE_CLASS = cn(
+  "min-h-tap-min rounded-sm bg-accent text-accent-text transition-colors duration-fast hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60",
+);
 
 export function AccentButton({
   size = "md",
@@ -126,7 +127,7 @@ export function AccentButton({
     minWidthTap ? "min-w-tap-min" : null,
     SIZE_CLASS[size],
     WEIGHT_CLASS[fontWeight],
-    shadow ? "shadow-(--shadow-tile)" : null,
+    shadow ? "shadow-tile" : null,
     ringOffset ? RING_OFFSET_CLASS[ringOffset] : null,
     // Escape hatch LAST so per-site overrides win cascade order.
     className ?? null,

@@ -21,6 +21,19 @@
  * Every one of those non-behaviors is pinned by an assertion in `tests/ui/cn.test.ts`,
  * because each would silently rewrite rendered output at call sites that look untouched.
  *
+ * A SINGLE-ARGUMENT call is deliberate and not a mistake. `cn("px-4 py-2")` is
+ * exactly `"px-4 py-2"` at runtime; it exists so the canonical-class rule can
+ * TRAVERSE the string. The rule follows recognized callees and direct JSX
+ * attributes, and reaches neither a bare `const X = "…"` initializer nor an
+ * object VALUE — nine such constants shipped with Tailwind drift inside them
+ * (`THUMB_BASE`'s `h-5 w-5` where its three sibling switches said `size-5`),
+ * invisible to `pnpm lint` and therefore to CI. The wrap is what makes them
+ * visible. The cover is the LINT RULE itself, which traverses these wraps and
+ * runs in CI as a required context — a guard that re-derived the rule's own
+ * identifier resolution was tried, took six review rounds, and was deleted.
+ * Spec: docs/superpowers/specs/2026-08-09-quick-wins-2-mech.md §2.3;
+ * rationale: docs/superpowers/plans/2026-08-09-quick-wins-2/closeout.md §12.1g.
+ *
  * `number` is deliberately outside `ClassValue`: admitting it would let a `0` be silently
  * dropped by the `Boolean` filter. Nested arrays are excluded for the same reason the
  * type is narrow at all — no call site needs them, and a narrow type keeps the eslint

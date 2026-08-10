@@ -13,6 +13,7 @@
  */
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { galleryDatabaseUrl, galleryPsqlEnv } from "../e2e/helpers/devCaptureStaged";
+import { NEUTRALIZED_PG_SERVICE_FILE } from "../e2e/helpers/psqlTarget";
 
 const KEY = "DATABASE_URL";
 let prior: string | undefined;
@@ -60,9 +61,17 @@ describe("galleryDatabaseUrl", () => {
     // hostname-only guard. Without this line the test could pass for the wrong
     // reason (e.g. a DSN that is rejected as non-loopback anyway).
     expect(new URL(dsn).hostname).toBe("127.0.0.1");
-    expect(() => galleryDatabaseUrl()).toThrow(
-      new RegExp(`authority-override parameter\\(s\\) \\(${param}`),
-    );
+    // The refusal MECHANISM changed under quick-wins-2 §2.6 — this was a
+    // seven-name denylist and is now the shared resolver's accept-set, which
+    // refuses everything outside connect_timeout/application_name/sslmode. Each
+    // case below is unchanged; only the wording it matches moved, and the set
+    // is strictly tighter (see the unmodeled-parameter case in
+    // tests/e2e/helpers/lockedCrewRestriction.unit.test.ts, which no denylist
+    // could have caught).
+    expect(() => galleryDatabaseUrl()).toThrow(new RegExp(`outside the accept-set: ${param}`));
+    // …and the error still explains WHY this particular name is not merely
+    // unlisted: it resolves over the URI's own authority.
+    expect(() => galleryDatabaseUrl()).toThrow(/authority-override parameter/);
   });
 
   test("a loopback host on a NON-Supabase port is refused (split-target hazard)", () => {
@@ -100,7 +109,7 @@ describe("galleryDatabaseUrl", () => {
  * these by parsing a URL, so the gallery does not inherit them at all.
  */
 describe("galleryPsqlEnv", () => {
-  test("strips every PG* variable, including the two that provably retargeted psql", () => {
+  test("strips every PG* variable, and NEUTRALIZES the service file rather than only stripping it", () => {
     const env = galleryPsqlEnv({
       PGHOSTADDR: "192.0.2.2",
       PGSERVICE: "evil",
@@ -111,7 +120,17 @@ describe("galleryPsqlEnv", () => {
       PATH: "/usr/bin",
       HOME: "/Users/someone",
     } as unknown as NodeJS.ProcessEnv);
-    expect(Object.keys(env).filter((k) => k.toUpperCase().startsWith("PG"))).toEqual([]);
+    // Nothing inherited from the source survives…
+    expect(
+      Object.keys(env).filter((k) => k.toUpperCase().startsWith("PG") && k !== "PGSERVICEFILE"),
+    ).toEqual([]);
+    // …and PGSERVICEFILE is REPOINTED, not merely dropped (quick-wins-2 §2.6
+    // part 3). Dropping it leaves HOME in place and libpq falls back to the user
+    // service file ~/.pg_service.conf — the second channel the R2 probe used to
+    // reach 192.0.2.3. Stripping the variable REOPENS that fallback; setting it
+    // to a path that does not exist closes it.
+    expect(env["PGSERVICEFILE"]).toBe(NEUTRALIZED_PG_SERVICE_FILE);
+    expect(env["PGSERVICEFILE"]).not.toBe("/tmp/evil.conf");
     // Non-PG variables survive — psql still needs a usable environment.
     expect(env["PATH"]).toBe("/usr/bin");
     expect(env["HOME"]).toBe("/Users/someone");

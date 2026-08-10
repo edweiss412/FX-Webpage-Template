@@ -82,8 +82,8 @@ describe("AccentButton — canonical chrome", () => {
       ),
     );
     // No square-bracket arbitrary utilities (e.g. px-[12px], tracking-[..]).
-    // shadow-(--shadow-tile) uses the arrow CSS-var form, which is a named
-    // token reference, not an arbitrary literal — explicitly allowed.
+    // The tile shadow ships as the canonical `shadow-tile` utility, which is a
+    // token-generated class rather than an arbitrary literal, so it is unaffected.
     const arbitrary = cls.match(/\b[\w:-]+\[[^\]]+\]/g) ?? [];
     expect(arbitrary, `arbitrary inline utilities found: ${arbitrary.join(", ")}`).toEqual([]);
   });
@@ -154,7 +154,7 @@ describe("AccentButton — variant props", () => {
       "self-start",
     );
     expect(classOf(renderToStaticMarkup(<AccentButton shadow>x</AccentButton>))).toContain(
-      "shadow-(--shadow-tile)",
+      "shadow-tile",
     );
     expect(classOf(renderToStaticMarkup(<AccentButton minWidthTap>x</AccentButton>))).toContain(
       "min-w-tap-min",
