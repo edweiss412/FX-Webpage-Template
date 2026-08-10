@@ -44,13 +44,19 @@ const MODULE_FILE_RE = /\.(ts|tsx|mts|cts|js|jsx|mjs|cjs)$/;
  * non-Supabase `.from(` shapes in this corpus (`Array.from(iterable)`,
  * `Array.from({ length: n })`) take no literal at all. The quote class includes
  * the backtick because a no-substitution template is an ordinary string
- * argument Prettier leaves alone (spec R2 F2); the `$` exclusion in the literal
- * class keeps substitution templates out, since those are dynamic names and
- * fall under the documented limit (spec §6.1). The optional `<...>` segment
+ * argument Prettier leaves alone (spec R2 F2). The optional `<...>` segment
  * covers the SDK's explicit type arguments — `.rpc<T>("x")` typechecks against
  * `SupabaseClient` and must be visible (spec R4 F1).
+ *
+ * The literal body runs lazily to the BACKREFERENCED closing quote, so the only
+ * character it excludes is the one that opened it. An earlier form excluded all
+ * three quote characters and `$` outright, which silently dropped
+ * `.rpc("cost$center")`, `.from("crew's")`, `.rpc('say"hi')`, a backticked
+ * `cost$center`, and `.from("")` — ordinary authoring that compiles, made
+ * invisible to every layer. Substitution templates are excluded where they
+ * actually live (below), not by banning `$` from every quoting style.
  */
-const SUPABASE_CALL_RE = /\.(from|rpc)(?:<[^>()]*>)?\s*\(\s*(["'`])([^"'`$]+)\2/g;
+const SUPABASE_CALL_RE = /\.(from|rpc)(?:<[^>()]*>)?\s*\(\s*(["'`])((?:\\.|[^\\])*?)\2/g;
 
 type Site = { kind: "from" | "rpc"; literal: string };
 
@@ -60,9 +66,14 @@ function extractSites(strippedSource: string): Site[] {
   let match = re.exec(strippedSource);
   while (match !== null) {
     const kind = match[1];
+    const quote = match[2];
     const literal = match[3];
     if ((kind === "from" || kind === "rpc") && literal !== undefined) {
-      sites.push({ kind, literal });
+      // A SUBSTITUTION template is a genuinely dynamic name and stays a
+      // documented limit (§6.1); a no-substitution template is an ordinary
+      // string argument and counts. `${` is the only thing that separates them,
+      // so that is what this tests — not the presence of a `$`.
+      if (!(quote === "`" && literal.includes("${"))) sites.push({ kind, literal });
     }
     match = re.exec(strippedSource);
   }
@@ -459,6 +470,33 @@ describe("META lib/data Supabase call boundary", () => {
       ]);
     });
 
+    // The literal class used to exclude all three quote characters AND `$`
+    // regardless of which quote opened the literal. Every shape below is
+    // ordinary authoring that compiles and that Prettier leaves alone, and each
+    // one was SILENTLY invisible: the site vanished from the extraction, so
+    // Layer 1 saw no call and Layer 2's deep-equal still matched. That is the
+    // one failure mode this guard promises never to have.
+    test("matches literals containing the other quote characters, a bare $, or nothing at all", () => {
+      expect(plantSites('await sb.rpc("cost$center");')).toEqual([
+        { kind: "rpc", literal: "cost$center" },
+      ]);
+      expect(plantSites('await sb.from("crew\'s");')).toEqual([
+        { kind: "from", literal: "crew's" },
+      ]);
+      expect(plantSites("await sb.rpc('say\"hi');")).toEqual([{ kind: "rpc", literal: 'say"hi' }]);
+      // A `$` that does not open a substitution leaves the template ordinary.
+      expect(plantSites("await sb.from(`cost$center`);")).toEqual([
+        { kind: "from", literal: "cost$center" },
+      ]);
+      // An empty name is nonsense, but invisible is the wrong way to say so:
+      // extract it, so it must be registered and a human sees it.
+      expect(plantSites('await sb.from("");')).toEqual([{ kind: "from", literal: "" }]);
+      // An escaped closing quote does not end the literal.
+      expect(plantSites('await sb.from("say \\"hi\\"").select("*");')).toEqual([
+        { kind: "from", literal: 'say \\"hi\\"' },
+      ]);
+    });
+
     test("extracts sites in source order, distinguishing kind and duplicate literals", () => {
       expect(
         plantSites(
@@ -483,6 +521,7 @@ describe("META lib/data Supabase call boundary", () => {
       expect(plantSites("await sb.from(tableVar);")).toEqual([]);
       expect(plantSites("await sb.rpc(fnVar, { p: 1 });")).toEqual([]);
       expect(plantSites("await sb.from(`${tableVar}`);")).toEqual([]);
+      expect(plantSites("await sb.from(`prefix_${tableVar}_suffix`);")).toEqual([]);
       expect(plantSites('await sb.rpc<Record<string, () => void>>("parens_generic");')).toEqual([]);
       expect(plantSites('await sb.rpc<Array<string>>("nested_angles");')).toEqual([]);
     });
@@ -518,6 +557,25 @@ describe("META lib/data Supabase call boundary", () => {
       expect(plantWaiver('const s = "// not-subject-to-meta: pretending";\nawait x();')).toBe(
         false,
       );
+    });
+
+    // Near-miss spellings are NOT recognized, and that is the safe direction: an
+    // unrecognized waiver leaves the file undischarged, so Layer 1 reds and names
+    // it. The guard's promise is handled-or-signaled; this is the signalled half,
+    // pinned here so it stays a decision rather than an accident.
+    test("a near-miss marker spelling fails loudly rather than waiving quietly", () => {
+      for (const spelling of [
+        "//not-subject-to-meta: no space after the slashes",
+        "//  not-subject-to-meta: two spaces after the slashes",
+        "// not-subject-to-meta : space before the colon",
+        "/* not-subject-to-meta: block comment form */",
+      ]) {
+        const source = `${spelling}\nawait sb.from("x");`;
+        expect(plantWaiver(source), spelling).toBe(false);
+        expect(undischargedFiles([scan("lib/data/__near_miss.ts", source)], {}), spelling).toEqual([
+          "lib/data/__near_miss.ts",
+        ]);
+      }
     });
   });
 
@@ -663,6 +721,26 @@ describe("META lib/data Supabase call boundary", () => {
           reader({ [SOURCE]: MODULE_SOURCE, [SUITE]: "test something else entirely" }),
         ),
       ).toEqual([expect.stringContaining("mentions neither the literal nor via")]);
+    });
+
+    // The export scanner reads `export function` / `export const` declarations.
+    // A symbol exported only through a re-export list is not seen — and the
+    // result is a REJECTION naming the row, not a silent pass, which is the
+    // direction the consequence bound requires. Pinned so the limit is a
+    // decision rather than an accident.
+    test("a via exported only via a re-export list is rejected, not silently accepted", () => {
+      const reExportSource = "async function addAdminEmail() {}\nexport { addAdminEmail };\n";
+      const registry: Registry = {
+        [SOURCE]: [
+          { kind: "from", literal: "admin_emails", coveredBy: [SUITE], via: "addAdminEmail" },
+        ],
+      };
+      expect(
+        validateRows(
+          registry,
+          reader({ [SOURCE]: reExportSource, [SUITE]: "test addAdminEmail writes admin_emails" }),
+        ),
+      ).toEqual([expect.stringContaining("is not an exported identifier")]);
     });
 
     test("a coveredBy citation to a deleted or renamed suite is rejected", () => {
