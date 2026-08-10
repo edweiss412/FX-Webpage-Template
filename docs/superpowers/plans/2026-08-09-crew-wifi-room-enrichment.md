@@ -93,6 +93,18 @@ Run 2026-08-10 against the diff's UI surface: `components/crew/sections/VenueSec
 | 5 | Anti-patterns | 4 | Detector clean; the rows reuse the existing fact-list vocabulary rather than inventing an affordance |
 | **Total** | | **19/20** | Excellent (minor polish) |
 
+### Second gate run — 2026-08-10, on the FINAL diff
+
+The first run (above) gated commit `7cb562004`. Review then found, correctly, that `VenueSection.tsx` changed materially afterwards — the all-or-nothing fallback and the derived-sentinel handling — so the recorded gate no longer covered the shipping UI. Invariant 8 gates the affected diff, and the affected diff moved. Re-run here against the final state.
+
+**What actually changed on the UI surface since the first run**, isolated with `git diff 7cb562004..HEAD -- components/crew/sections/VenueSection.tsx components/crew/primitives/FactRows.tsx`: the Wi-Fi split is rejected when any derived field is a sentinel, the split is rejected when the cell carries syntax the grammar did not resolve, the room name is sentinel-gated at its read site, and three comments were corrected. **No rendered string changed** — "Internet notes" landed in the gated commit itself — and the deterministic sweep over the final diff confirms zero new `className` strings, zero arbitrary bracket values, zero new color tokens, zero new interactive elements, and every em-dash hit inside a code comment rather than user-visible copy. `detect.mjs` on both files: `[]`, exit 0.
+
+**The design question this run actually has to answer** is therefore not "is there new UI" but "does the surface degrade now that more cells take the raw fallback?" It does not, and the reason is structural rather than a judgment call: the raw fallback IS the pre-change v1 row — the same label, the same icon, the same markup, pinned byte-for-byte against a capture of the component before this arc. The worst case of every tightening in this arc is the surface that already shipped and already passed a gate. What the tightenings removed is the case where a crew member saw a confident, wrong credential, and the case where the cell vanished entirely — both strictly worse than the fallback for someone standing in a ballroom trying to get online.
+
+**Findings: P0 0 · P1 0 · P2 0 · P3 0.** The three dispositions from the first run stand unchanged: the P1 was fixed, one P2 is filed as `BL-VENUE-WIFI-PASSWORD-TRANSCRIPTION-LEGIBILITY`, the other P2 and the P3 are accepted with reasons recorded above. No new finding arises from the delta, because the delta adds no copy, no color, no control, and no motion — only a stricter gate in front of rows that were already gated.
+
+**⚠️ DEGRADED: single-context (sub-agent assessments unavailable).** Same declaration as the first run and the same cause: both isolated assessment agents dispatched for that run died without returning, to this machine's documented background-process kill class, and a second attempt was not worth another multi-hour loss when the deterministic half — which is the half that can be automated — runs identically inline. `detect.mjs` and every mechanical invariant executed for real; what is missing is assessment isolation, not coverage.
+
 impeccable-gate: critique=RAN-DEGRADED audit=RAN-DEGRADED p0=0 p1=1 dispositions=recorded
 
 ## Invariant checklist
