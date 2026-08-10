@@ -381,25 +381,6 @@ gh api -X POST repos/edweiss412/FX-Webpage-Template/branches/main/protection/req
 Run it, confirm with `gh api repos/edweiss412/FX-Webpage-Template/branches/main/protection/required_status_checks --jq '.contexts'`,
 then archive this entry. Nothing else is owed.
 
-## BL-PG-CRON-COVERAGE-UNRUN — the live pg-cron introspection suite runs in no CI workflow
-
-**Status:** IN PROGRESS (was: PARTIALLY CLOSED 2026-07-26)(PR3 of the CI-dark coverage cluster) · **Severity:** medium · **Surfaced:** 2026-07-25, whole-diff review round 17 · **Effort:** M · **Branch:** feat/m2-e2e-infra
-**l-wave-screen 2026-08-06:** KEEP at honest residual scope — the wired-in-CI half closed 2026-07-26/27 and only the per-job smoke residue remains, so it is resized L->M in this same commit.
-
-**What closed.** The suite now runs in `unit-suite-db` (removed from `ENV_BOUND_EXCLUDES`, which applied only under `VITEST_EXCLUDE_ENV_BOUND=1` — so it ran locally and was dark in CI only), and against the persistent validation project via the new `pg-cron-validation-parity` job in `x-audits.yml`. Under CI an unreachable `psql` now throws instead of skipping, and a live-case counter refuses a run where zero live cases executed — measured before: exit 0 with "2 passed | 6 skipped", asserting nothing.
-
-**What stays open:** the per-job smoke-test residue (spec §9). The target-binding ceiling this entry used to inherit closed 2026-07-27: the connected cluster's `system_identifier` is now pinned and re-proven by a DO guard on every query's own connection (`feat/driveid-guard-cluster`, `docs/superpowers/specs/data-quality/2026-07-26-driveid-guard-cluster-design.md` §3.1) — a DSN substring check proves nothing, and no longer has to.
-
-**Original text (SUPERSEDED 2026-07-26 — the exclusion and the "nothing runs it" finding are both fixed; see the status note above):**
-
-`tests/cross-cutting/pg-cron-coverage.test.ts` is the only test that introspects the live `cron.job` table — job set, schedules, `active` flags, the pg_net extension, the vault secret. It was excluded from `unit-suite` via `ENV_BOUND_EXCLUDES` (`vitest.projects.ts`), and the comment there said it "runs against the validation project (like validation-schema-parity)". **Nothing ran it.** `pnpm test:audit:x6-pg-cron-pivot` runs four different files, and no other workflow references it; `grep -rl pg-cron-coverage .github/workflows/` returns only the `unit-suite.yml` comment that explains the exclusion.
-
-So every assertion in it is dead in CI, including the `active=true` gate that exists specifically because a disabled job would otherwise satisfy the name/schedule/command checks.
-
-**Fix:** give it a job in `x-audits.yml` with `PG_CRON_COVERAGE_TARGET=validation` and `TEST_DATABASE_URL` pointing at the validation project, alongside `validation-schema-parity` which already has that shape. Then correct the stale comment in `unit-suite.yml`.
-
-**Wiring it up is necessary but not sufficient** (whole-diff R18). Every assertion this suite makes about `cron.job.command` is text matching: PostgreSQL resolves the OUTER `cron.schedule` call but stores the command body verbatim, comments included. A job whose `net.http_get(...)` is commented out, followed by an executable `select 1;`, satisfies the route check, the `net.http_get(` check and the exactly-one-timeout check while issuing no request — and `active=true` does not help, because the job runs, it just does nothing. Proving a job actually fires needs a smoke test per job; only the sync path has one today. Track that with this entry rather than by adding more text assertions.
-
 ## BL-SERVER-ACTION-ORIGIN-GATE — same-origin gate for the crew guest Server Action
 
 **Status:** OPEN · **Severity:** low (logout CSRF; no read, no escalation) · **Surfaced:** `fix/picker-flow-app-bugs` review rounds 1-3 (2026-07-25), descoped rather than guessed at · **Effort:** M
@@ -963,49 +944,6 @@ screen-disposition 2026-08-04: PREREQ-FENCED + ANNOTATED, stays open, NOT claime
 
 **Promotion prerequisite:** EITHER (a) owner decides to formalize the downloadable template as a real v2 feature (template design + adoption plan), OR (b) the v1 redesign ships and operator feedback shows the empty-state surfaces (timeline, wifi, flights, contacts) are a real friction point worth closing at the source. Promotion starts with a brainstorming session on the template shape + the parser contract for any new structured tabs (the AGENDA run-of-show grid contract is already partially mapped in the redesign milestone's deep-read notes).
 
-### BL-FONT-CENSUS-ORACLE-FLAKE-BLOCKS-CREW-E2E — the font oracle intermittently cannot read the document, failing crew-e2e on any branch
-
-**Status:** IN PROGRESS · **Severity:** MEDIUM (a green crew-e2e is not reproducible on demand, so any gate that needs consecutive green runs is blocked by chance) · **Class:** CI flake, pre-existing · **Filed:** 2026-08-09 (measured while earning the `BL-RESURRECT-MOBILE-SAFARI-E2E` five-green bar) · **Effort:** M · **Branch:** feat/m2-e2e-infra
-
-**Not caused by the branch that measured it** — the same test fails the same way on an unrelated
-branch in the same window:
-
-```
-test/resurrect-mobile-safari-e2e   run 31310546822   1 failed, 2 flaky, 140 passed
-  ✘ [desktop-chromium] font-rendering-census.spec.ts:259
-    › every mono manifest entry still matches something on its route
-
-refactor/classname-array-join-cn   run 31310136900   1 failed, 1 flaky, 118 passed
-  ✘ [desktop-chromium] font-rendering-census.spec.ts:259
-    › every mono manifest entry still matches something on its route
-```
-
-Both fail inside the auto-fixture with the same message, on both the pre- and post-navigate sample:
-
-```
-Error: font oracle: the registered-face query failed on a document the element walk could read
-       (via pre-navigate). The guard cannot judge a document it cannot read, and passing on one
-       would make every other test's green meaningless.
-  at enforce (tests/e2e/helpers/fontFidelityFixture.ts:400:11)
-```
-
-`font-rendering-census.spec.ts:157` (`/admin/onboarding @ mobile renders the expected families`)
-flakes in the same runs, sometimes recovering on retry and sometimes not. Other branches DO go green
-in the same window (`chore/next-1630-wedge-remeasure`, `fix/step3-a11y-cluster`), so this is
-intermittent rather than a hard break.
-
-**Why it matters beyond one arc:** the guard is written to fail loud rather than pass on a document
-it cannot read, which is the right posture — but it means a transient read failure is indistinguishable
-from a real font regression, and it takes the whole job down with it. Any acceptance bar of the form
-"N consecutive green crew-e2e runs" is then a coin flip rather than a measurement.
-
-**First step if picked up:** determine WHY the registered-face query fails on a document the element
-walk could already read — a closed/navigating page during the fixture's sample, or a document whose
-`document.fonts` is not yet queryable. The message already distinguishes pre- from post-navigate,
-which should localise it.
-
----
-
 ### BL-CREW-FOOTER-OBSCURED-BY-FIXED-BOTTOM-BAR — the mobile bottom tab-bar covers the crew footer
 
 **Severity:** MEDIUM (real, reachable on every crew page at mobile widths; the obscured controls are the theme toggle and the report button) · **Class:** product layout defect · **Filed:** 2026-08-09 (surfaced rewriting `theme-toggle.spec.ts`, `BL-RESURRECT-MOBILE-SAFARI-E2E`) · **Effort:** S
@@ -1070,77 +1008,6 @@ have been red on arrival against the current tree. Filed under exception (a) rat
 trigger the invariant-8 impeccable dual gate.
 
 **Probably one fix with [[BL-CREW-FOOTER-OBSCURED-BY-FIXED-BOTTOM-BAR]]** — same broken flex chain.
-
----
-
-### BL-RIGHTNOW-SECTION57-FIXTURE-INERT — the §5.7 suite's run_of_show fixture does not drive the hero it asserts
-
-**Status:** IN PROGRESS · **Severity:** MEDIUM (the suite asserts nothing it claims to; it is now statically skipped so it cannot read as coverage) · **Class:** test-harness gap · **Filed:** 2026-08-09 (`BL-RESURRECT-MOBILE-SAFARI-E2E` §3.5 WHOLE-FILE valve, exception (c)) · **Effort:** M · **Branch:** feat/m2-e2e-infra
-
-**Probed, not theorized** (TZ=UTC, to match the CI runner). `tests/e2e/right-now-transitions.spec.ts`
-seeds `shows_internal.run_of_show` in `beforeAll` and asserts the RightNowHero renders that day's
-anchor. Changing the fixture's Day-1 entry from `7:30am` to `7:13am` left the rendered hero
-UNCHANGED:
-
-```
-Expected pattern: /7:13\s*am/i
-Received string:  "Today: Show day 1 of 2Show7:30 AM"
-```
-
-The write lands (the `afterAll` restore reads the prior value back; `psql` confirms the column
-round-trips and returns to its seeded NULL). The hero simply does not source its RightNow anchor from
-`run_of_show` on this route — it renders a show-level anchor.
-
-**Two coincidences hid this**, and either alone kept the suite green for the wrong reason:
-
-1. Day 1's `7:30am` equals the seed's own show-start anchor.
-2. Day 2's `8:00am` equals noon-UTC rendered in America/New_York — so on a developer Mac the
-   assertion matched the pinned CLOCK, not any anchor. CI (UTC) renders the same instant as
-   `12:00 PM`, which is what exposed it: `"Today: Show day 2 of 2Strike4/22 @ 12:00 PM"`.
-
-This is why the file is NOT wired into `crew-e2e.yml` and is statically skipped: wiring it would pin
-a suite whose assertions pass off seed-derived values, which is precisely the "credited as coverage it
-does not provide" failure the executed-count registry exists to prevent.
-
-**What it needs:** identify the hero's ACTUAL anchor source under a real crew viewer, then re-point
-the fixture at it — the same per-test crew row + email-matched session harness
-[[BL-RIGHTNOW-RECOVERY-CASE-NEEDS-RESTRICTED-VIEWER]] needs. Both rows are one piece of work.
-
-**Retained from the attempt** (they are improvements independent of the valve): the invariant-9
-call-boundary repairs on the file's five Supabase call sites, and the rendered-state assertion added
-to `driveToState`, which is what made the recovery case's state-entry failure loud instead of silent.
-
----
-
-### BL-RIGHTNOW-RECOVERY-CASE-NEEDS-RESTRICTED-VIEWER — the §5.7 recovery case cannot be driven by an admin viewer
-
-**Status:** IN PROGRESS · **Severity:** LOW (one e2e case statically skipped; the behavior keeps unit coverage) · **Class:** test-harness gap · **Filed:** 2026-08-09 (`BL-RESURRECT-MOBILE-SAFARI-E2E` Task 6 CASE valve, spec §3.5) · **Effort:** M · **Branch:** feat/m2-e2e-infra
-
-**Probed, not theorized.** `tests/e2e/right-now-transitions.spec.ts`'s recovery case enters
-`viewer_off_day` by mutating the VIEWER's `date_restriction`. Admin resolution ignores
-`crew_members.date_restriction` by design, so an admin viewer never enters that state. With the
-rendered-state assertion this arc added to `driveToState`, the attempt now fails loudly instead of
-passing on coincident anchor text:
-
-```
-Error: RightNow hero must render state kind "viewer_off_day"
-Expected: "viewer_off_day"
-Received: "show_day_n"          (transiently "post_show" during hydration)
-```
-
-Under the previous helper — which checked only HTTP 200 — this case would have "entered" a state it
-was never in and asserted against whatever rendered.
-
-**What it needs:** a restricted crew viewer through REAL resolution — a per-test `crew_members` row
-plus an email-matched test-auth session, the pattern
-`tests/e2e/stage-restricted-crew-schedule.spec.ts` uses (its header explains why an email-matched
-Google session, not a picker cookie: WebKit will not store the `__Host-` Secure picker cookie over
-plain http, and this file runs under mobile-safari). That is a new harness, not a URL swap.
-
-**Superseded in scope by [[BL-RIGHTNOW-SECTION57-FIXTURE-INERT]]** — the WHOLE file's fixture turned
-out not to drive the hero, so the entire suite is now statically skipped and unwired, this case
-included. The two rows are one piece of work: find the hero's real anchor source under a crew viewer
-and the recovery case's restricted-viewer harness together.
 
 ---
 
