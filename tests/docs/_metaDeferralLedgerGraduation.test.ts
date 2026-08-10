@@ -93,6 +93,22 @@ const GRADUATED = [
  * that recorded the finding.
  */
 const BACKLOG_GRADUATED = [
+  // feat/crew-field-enrichment (2026-08-09): the two entries the corpus probe
+  // closed together. The field-enrichment row graduates RESOLVED — its flight
+  // bullet had already shipped (the entry's "not in the ShowForViewer
+  // projection and renders no UI" claim was stale), and its Wi-Fi and room
+  // bullets ship on this branch. The flight-leg row graduates OBSOLETE: both its
+  // premise (unlabeled raw " | " legs) and its own stated promotion prerequisite
+  // (a structured flight shape) were already satisfied by the shipped structured
+  // flight card, so there is nothing left to promote.
+  {
+    id: "BL-CREW-FIELD-ENRICHMENT",
+    provenance: "feat/crew-field-enrichment",
+  },
+  {
+    id: "BL-FLIGHT-LEG-ORIENTATION",
+    provenance: "feat/crew-field-enrichment",
+  },
   // chore/next-1630-wedge-remeasure (2026-08-09): upstream React replay-loss fix
   // confirmed by measurement: 0/20 wedged samples on next 16.3.0's vendored canary
   // cbb046ab-20260731 vs the 7/10 baseline on 3f0b9e61-20260317. Graduated by the

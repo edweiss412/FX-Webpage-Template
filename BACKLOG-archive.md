@@ -6256,3 +6256,51 @@ This is the dark-spec class already recorded for this repo (`feedback_dark_spec_
 > bound instead of an 11-minute job on every admin PR. NOT a required context: a path-filtered
 > job is absent on non-matching PRs, and required-but-skipped contexts wedge merges. The
 > `_metaE2eWorkflowCoverage` allowlist row is rewritten to cite this ratification.
+
+---
+
+### BL-CREW-FIELD-ENRICHMENT — Surface already-captured-but-unprojected crew-page fields (flights, Wi-Fi SSID/PW split, room-within-venue)
+
+**Filed:** 2026-06-18, during the crew-page redesign Phase 2 spec adversarial review (R16-MEDIUM). The Phase-1 spec's prose originally lumped several field-enrichments into "Phase 2," but the Phase-2 spec was scoped to **AGENDA run-of-show only**. To single-source the phase boundary (so an implementer can't read Phase-1 as promising Travel-flight work that Phase-2 doesn't deliver), these three field-enrichments are split out here and the Phase-1 references were corrected to point at this item.
+
+**Effort:** M
+
+**Distinction from `BL-CREW-SHEET-TEMPLATE-V2`:** that entry is about a NEW standardized _source_ sheet (making genuinely-absent fields reliably present). THIS entry is about _surfacing fields that the organic sheets already carry_ (and the parser already captures or trivially could) but the projection/UI never exposes — no new source needed, just projection + UI + tests.
+
+**Scope (each upgrades a Phase-1 section/empty-state in place):**
+
+- **Per-crew flight surfacing.** `crew_members.flight_info` is already parsed (`lib/parser/types.ts:71`, `lib/parser/blocks/crew.ts:248`) but is **not** in the `ShowForViewer` projection and renders no UI. Add: the projection field, the Travel-section "flights" block (gated like ground transport — only the assigned crew member / admin sees their own flight PII), and a non-null flight test. Filled in ~1 of 7 organic sheets today, so it ships behind an honest empty state.
+- **Wi-Fi SSID/PW structured split.** Phase 1 shows the raw `event_details.internet` string in Venue (raw display IS in scope and ships in v1). This item adds a structured SSID/PW parse so the two render as discrete labeled fields. Reliable in only 2 of 7 organic sheets — fail-soft to the raw string when unsplittable.
+- **Room-within-venue name** structured capture (lives in EVENT DETAILS / section headers today, not a clean field).
+
+**Why backlog, not deferred:** no committed v1 trigger; these are honest-empty-state enrichments, not gaps that block launch (Phase 1 + Phase 2 ship complete without them). Each needs a small spec/plan (projection + UI + gating + tests). The flight block in particular needs a trust-boundary decision (per-crew flight PII visibility) mirroring `transportTileVisible`.
+
+**Promotion prerequisite:** owner prioritization OR post-launch operator feedback that a specific field (most likely flights) is a real friction point. Promotion starts with a brainstorming session per field (the flight trust boundary is the load-bearing design question).
+
+**RESOLVED 2026-08-09** — branch `feat/crew-field-enrichment`. All three bullets are closed; two of them were already closed when this arc opened, which is itself part of the record.
+
+- **Per-crew flight surfacing — SHIPPED EARLIER, and the bullet above was STALE.** Its claim that `crew_members.flight_info` is "not in the `ShowForViewer` projection and renders no UI" stopped being true before this arc: the projection reads it as `viewerFlightInfo` via an own-row read (`lib/data/getShowForViewer.ts`, `.eq("id", viewer.crewMemberId).eq("show_id", showId)`), `components/crew/sections/TravelSection.tsx` renders the "Your flight" card (`data-card-id="travel-flight"`), and `tests/data/getShowForViewerFlight.test.ts` pins it. The trust-boundary decision this bullet called load-bearing was made there, mirroring `transportTileVisible` as the bullet proposed. The stale claim is recorded rather than quietly deleted, because a reader who trusted it would have re-implemented shipped work.
+- **Wi-Fi SSID/PW structured split — SHIPPED HERE.** `lib/crew/wifiDisplay.ts` (`parseWifiValue`) splits the raw `event_details.internet` cell at display time, mirroring the `flightDisplay.ts` precedent — no parser, schema, or projection change. `VenueSection` renders "Wi-Fi network" / "Wi-Fi password" / retained "Crew Wi-Fi" notes rows on a successful split and today's raw row byte-identically otherwise, pinned by a captured pre-change render. The bullet's "reliable in only 2 of 7 organic sheets — fail-soft to the raw string when unsplittable" survived the full-corpus re-probe with a corrected count: 4 of 10 fixture shows and 2 of 4 live sheets split; the rest fall back.
+- **Room-within-venue name — SHIPPED HERE, and needed NO new capture.** The bullet's premise ("lives in EVENT DETAILS / section headers today, not a clean field") was half wrong: the probe found the room on ROOMS header line 2, never in EVENT DETAILS, and the parser already captures it as `rooms[].name` with the section prefix stripped. The enrichment was therefore one Venue fact row over existing data, suppressed for a parser-synthesized `General Session` fallback name, an empty name, zero rooms, and a rooms fetch failure.
+
+**Design + acceptance:** `docs/superpowers/specs/crew/2026-08-09-crew-wifi-room-enrichment-design.md` (§6 carries the six documented limits, including the two suppression rules that will look like bugs to anyone who has not read them). Recorded by feat/crew-field-enrichment.
+
+---
+
+### BL-FLIGHT-LEG-ORIENTATION — arrival/departure labels + richer flight-leg layout
+
+**Filed:** 2026-06-19 (crew-page Phase 3 per-crew flight info, impeccable v3 dual-gate LOW/MED note). The "Your flight" card renders each `flight_info` leg (split on the TECH-path `" | "`) as an unlabeled text line. The impeccable critique noted there is no arrival/departure orientation cue between the two legs, the confirmation code is buried mid-string, and the raw passthrough is slightly spreadsheet-flavored.
+
+**Effort:** M
+
+**Why backlog, not now:** intentional per the ratified spec decision to render the raw `" | "`-split legs WITHOUT deep-structuring (the split is positional — for a round-trip the first leg is arrival, second is departure, but a one-way leg cannot be disambiguated, and deep-parsing route/airline/time/conf from the space-separated string is fragile/YAGNI). Adding labels/structure is only sound once a structured-leg source exists. The cleanest enabler is `DEF-FLIGHT-1` (the TRAVEL-tab parser), which could normalize into a structured shape; alternatively a TECH-path post-parser that splits arrival vs departure deterministically.
+
+**Promotion prerequisite:** EITHER (a) `DEF-FLIGHT-1` lands a structured flight shape this card can label, OR (b) operator feedback that the unlabeled legs are a real readability friction. Until then the unlabeled raw-leg render is truthful and passes the impeccable gate.
+
+**OBSOLETE 2026-08-09** — branch `feat/crew-field-enrichment`. Not deferred, not descoped: the entry's own promotion prerequisite fired, and firing it dissolved the entry instead of enabling it.
+
+**Both halves were already satisfied.** The prerequisite named `DEF-FLIGHT-1` landing "a structured flight shape this card can label" — that shape shipped as `lib/crew/flightDisplay.ts` (`FlightSegment` carrying `date` / `flightNo` / `airline` / `origin` / `dest` / `depTime` / `arrTime` / `conf`, plus `parseFlightItinerary` / `sortSegmentsByDate` / `pickUpcomingIndex`), fed by the TRAVEL-tab parser `lib/parser/blocks/travelFlights.ts`. And the premise — "each `flight_info` leg rendered as an unlabeled text line", with "the confirmation code buried mid-string" — describes a render that no longer exists: `components/crew/sections/TravelSection.tsx` renders a structured "Your flight" card. The PR-38-217 audit recorded the supersession at the time: "PR #46's UI rendering (the `|` split + stripAgendaUrls card in TravelSection.tsx) was fully superseded on main by the structured flight card" (`docs/audits/pr-38-217-bug-audit-2026-07-02.md:666`).
+
+**The live successor is already filed separately**, so nothing is lost by closing this: `DEFERRED.md` `TRAVEL-FLIGHT-SUPPRESSED-LEGIBILITY-1` covers undated segments losing their only delimiter — a legibility concern on the structured card, which is a different surface from the unlabeled raw legs this entry was about.
+
+**Un-archive contract:** if the structured card is ever rolled back to a raw `" | "`-split render, this entry's design question returns and the row should come back. Absent that rollback, re-filing it is re-litigating a shipped surface. Recorded by feat/crew-field-enrichment.
