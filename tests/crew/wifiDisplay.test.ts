@@ -623,3 +623,48 @@ describe("parseWifiValue — credential-ish prose without syntax (documented lim
     expect(parseWifiValue("SSID: Guest\nAccess key=secret")?.notes).toBe("Access key=secret");
   });
 });
+
+/**
+ * Review S6 R2. Producers write QUALIFIED labels — `Door Code:`, `Dress Code:` —
+ * that are not the Wi-Fi password, and word-boundary anchoring alone read them
+ * as one: `Door Code: 2468\nSSID: Guest` rendered the password as `2468` with
+ * "Door" demoted to notes. A password label on a line with NO network label must
+ * therefore START that line.
+ *
+ * The rule is deliberately asymmetric, and the corpus is what justifies it:
+ * prose PRECEDING a network label is an observed shape (`Wifi for Polling
+ * Network: Institutional Investor ...`), so the same constraint cannot apply to
+ * network labels; every observed password label is either line-initial or
+ * follows a network pair on the same line, both of which stay legal.
+ */
+describe("parseWifiValue — qualified password labels reject (review S6 R2)", () => {
+  const QUALIFIERS = ["Door", "Dress", "Gate", "Alarm"];
+  const PASSWORD_LABELS = ["Code", "PW", "Passcode", "Password"];
+
+  it("a qualified password label on a network-free line rejects the whole cell", () => {
+    premise("qualifiers swept", QUALIFIERS.length, 0);
+    premise("password labels swept", PASSWORD_LABELS.length, 3);
+    for (const qualifier of QUALIFIERS) {
+      for (const label of PASSWORD_LABELS) {
+        const value = `${qualifier} ${label}: 2468\nSSID: Guest`;
+        expect(parseWifiValue(value), value).toBeNull();
+      }
+    }
+  });
+
+  it("a line-initial password label on its own line still splits", () => {
+    // The shape both live sheets actually use — the rule must not touch it.
+    expect(parseWifiValue("SSID: Guest\nCode: FITS2025")).toEqual({
+      ssid: "Guest",
+      password: "FITS2025",
+      notes: null,
+    });
+  });
+
+  it("a password label following a network pair on ONE line still splits", () => {
+    // The flattened fixture shape, and both pinned boundary cases.
+    expect(parseWifiValue(FIXTURE_FIXED_INCOME)?.password).toBe("FITS2025");
+    expect(parseWifiValue("SSID: Guest Code - secret")?.password).toBe("secret");
+    expect(parseWifiValue("SSID: Guest WiFi Password: secret")?.password).toBe("secret");
+  });
+});

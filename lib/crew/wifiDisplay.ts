@@ -131,12 +131,29 @@ export function parseWifiValue(raw: string | null | undefined): WifiInfo | null 
     // of the line belongs to label values.
     let proseEnd: number | null = null;
 
+    // A password label on a line with NO network label must START that line.
+    // Producers write QUALIFIED labels — `Door Code:`, `Dress Code:`, `Gate
+    // Code:` — that are not the Wi-Fi password, and word-boundary anchoring
+    // alone reads them as one (`Door Code: 2468` became the password, with
+    // "Door" demoted to notes). The asymmetry is corpus-justified rather than
+    // stylistic: prose PRECEDING a network label is an observed shape
+    // (`Wifi for Polling Network: Institutional Investor ...`), so the same rule
+    // cannot apply to network labels; and every observed password label is
+    // either line-initial (`Code: FITS2025`, `PW: ORDTG.`) or follows a network
+    // pair on the same line, which this rule still allows.
+    const lineHasNetwork = labels.some((candidate) => candidate.isNetwork);
+    const lineStart = line.length - line.trimStart().length;
+
     for (let i = 0; i < labels.length; i += 1) {
       const label = labels[i]!;
       const value = line.slice(label.end, labels[i + 1]?.start ?? line.length).trim();
       if (label.isNetwork) networkLabels += 1;
       else passwordLabels += 1;
       if (proseEnd === null) proseEnd = label.start;
+
+      if (!label.isNetwork && !lineHasNetwork && label.start > lineStart) {
+        ambiguous = true;
+      }
 
       // A recognized label with nothing after it: the cell says something this
       // splitter cannot represent, and dropping the bare label would lose text.
