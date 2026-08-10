@@ -948,6 +948,20 @@ earlier on this same branch.
 
 ---
 
+## BL-MUTATION-MERGED-CELL — a merged cell exports as a deleted pipe and silently fuses two cells — CLOSED 2026-08-10 (`feat/mutation-merged-cell`, PR #771, wave branch 3/5)
+
+**Status:** CLOSED · **Filed:** 2026-08-06 (L-wave decomposition of `BL-MUTATION-HARNESS-OPEN-HOLES`) · **Class:** PARSER ROBUSTNESS · **Effort:** M · **Severity:** medium
+
+Deleting one interior pipe — exactly how a merged cell exports to markdown — fused two adjacent cells with no signal: two columns became one value, and every column to their right shifted within that row. Each individual value still looked well-formed, which is why nothing downstream noticed.
+
+**Resolution.** `detectFusedRows` (`lib/parser/rowWidthDiscriminator.ts`) emits one warn-severity `ROW_CELLS_FUSED` per data row that is exactly one cell short of its section's modal DATA-row width. Detection only (spec §5.1): correcting would mean guessing which fused value belongs in which column, and a wrong guess is worse than a flagged row an operator can look at.
+
+**2,294 ledgered holes closed; `RAW_HOLES` 3,708 → 1,414.** `merged-cell` 2,285 of its 2,407 rows, plus 9 `column-shift` — short-by-one is a SHAPE, and more than one operator produces it, so **branch 4 should re-derive its blast radius from the ledger rather than trust the figure in its plan.** All four reconciliation buckets empty across the full 8-shard harness, re-confirmed after merging `origin/main`.
+
+**Segmentation is structural, and that took the review three tries.** An alignment row is markdown's own statement that a table starts, and the row above it is that table's header; no label registry is consulted. Every lexical formulation was wrong in BOTH directions (probed): an unregistered heading (`NOTES`) or a colon-suffixed one (`DATES:`) failed to separate butted tables, while a registered token sitting in an ordinary data cell (a `Driver` row) falsely separated one. A run holding a SECOND delimiter-shaped row is ambiguous by construction — butted table, or an all-`---` placeholder data row — so the run is abandoned rather than guessed, a choice made only after measuring that zero of 514 real pipe runs contain two delimiter rows.
+
+**Documented limits (spec §5.3).** 122 merged-cell mutants survive by design, where the discriminator has no well-defined modal to be short of: a section under the 3-data-row floor, a tied width distribution, a HEADER row (excluded from the population, since a narrower section title is ordinary authoring), or an abandoned ambiguous run. Said precisely, because an earlier draft got it wrong: those 122 are ledgered holes, so the mutants DO corrupt payload silently — what is zero is the detector's OUTPUT. The corruption is real, still ledgered, and still owed to a future pass. `tests/parser/cleanCorpusCalibration.test.ts` pins the zero-warning clean-corpus base rate so a future shift is visible rather than silent.
+
 ## BL-MUTATION-REF-SUB — an exported `#REF!` is absorbed into the parse with no signal — CLOSED 2026-08-09 (`feat/mutation-ref-sub`, PR #749, wave branch 2/5)
 
 **Status:** CLOSED · **Filed:** 2026-08-06 (L-wave decomposition of `BL-MUTATION-HARNESS-OPEN-HOLES`) · **Class:** PARSER ROBUSTNESS · **Effort:** M · **Severity:** medium
