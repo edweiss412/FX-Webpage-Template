@@ -14,8 +14,12 @@
  */
 import { describe, expect, test } from "vitest";
 
-import { WorkbookSynthesisError } from "@/lib/drive/exportSheetToMarkdown";
+import {
+  synthesizeMarkdownFromXlsx,
+  WorkbookSynthesisError,
+} from "@/lib/drive/exportSheetToMarkdown";
 import { DriveFetchError } from "@/lib/drive/fetch";
+import { buildXlsx } from "../helpers/buildXlsx";
 import type { DriveListedFile } from "@/lib/drive/list";
 import type { ParsedSheet, ParseResult } from "@/lib/parser/types";
 import {
@@ -204,15 +208,157 @@ describe("prepareOnboardingFiles fault classification (spec §4.2)", () => {
     expect(prepared).toHaveLength(1);
   });
 
-  test("an internal post-parse helper fault keeps today's code, NOT a fix-your-sheet code", async () => {
-    // whole-diff R2 finding 7: applyRoleTokenMappings runs on an ALREADY-PARSED
-    // result (it structuredClones it first). A fault there is recovered by a code
-    // fix, not by Doug editing his sheet, so telling him to fix the sheet — and
-    // downgrading the finalize log to warn — would be a new wrong reason.
+  test("an applyRoleTokenMappings fault is an INTERNAL fault, not Drive and not fix-your-sheet", async () => {
+    // BL-PREPARE-INTERNAL-FAULT-KIND (spec 2026-08-09-m-wave-2-design §2.3):
+    // applyRoleTokenMappings runs on an ALREADY-PARSED result (it structuredClones
+    // it first). A fault there is recovered by a code fix, not by Doug editing his
+    // sheet OR his share settings — both prior labels were wrong instructions.
     // A non-cloneable parse result reproduces exactly that internal fault.
     const nonCloneable = { ...EMPTY_PARSE, onSomething: () => undefined } as unknown as ParsedSheet;
     const result = await kindOfFailure(baseDeps({ parseSheet: () => nonCloneable }));
     expect(result.isPrepareError).toBe(true);
+    expect(result.kind).toBe("internal");
+  });
+
+  test("a finalizeArchivedTabs fault is an INTERNAL fault", async () => {
+    // finalizeArchivedTabs pushes archived-tab warnings onto the parse result; a
+    // frozen warnings array reproduces an internal fault at exactly that step
+    // (after enrich succeeded, before any override reconcile).
+    const result = await kindOfFailure(
+      baseDeps({
+        enrichWithDrivePins: async (parsed) =>
+          ({
+            ...parsed,
+            warnings: Object.freeze([]) as unknown as ParseResult["warnings"],
+          }) as unknown as ParseResult,
+        fetchMarkdownWithBinding: async () => ({
+          binding: { bindingToken: "rev-1", modifiedTime: SHEET.modifiedTime },
+          markdown: "| SHOW | Fixture |",
+          bytes: undefined,
+          // One NOT-included archived tab → emitArchivedTabWarnings produces a
+          // warning → the push into the frozen array throws inside finalize.
+          archivedPullSheetTabs: [
+            {
+              tabName: "OLD PULL SHEET",
+              headerPreviews: ["RIA - CHICAGO, IL"],
+              fingerprint: "f".repeat(64),
+              included: false,
+              contentChangedSinceAccept: false,
+            },
+          ],
+        }),
+      }),
+    );
+    expect(result.isPrepareError).toBe(true);
+    expect(result.kind).toBe("internal");
+  });
+
+  test("a reconcileIncludedTab fault is an INTERNAL fault", async () => {
+    // A poisoned tab list whose `filter` works (finalize passes) but whose `find`
+    // throws reproduces an internal fault at exactly the reconcile step.
+    const poisonedTabs = {
+      filter: () => [],
+      find: () => {
+        throw new Error("reconcile exploded");
+      },
+    } as unknown as never[];
+    const result = await kindOfFailure(
+      baseDeps({
+        readPullSheetOverride: async () => ({
+          tabName: "OLD PULL SHEET",
+          fingerprint: "f".repeat(64),
+          acceptedBy: "doug@example.com",
+          acceptedAt: "2026-08-01T00:00:00.000Z",
+        }),
+        fetchMarkdownWithBinding: async () => ({
+          binding: { bindingToken: "rev-1", modifiedTime: SHEET.modifiedTime },
+          markdown: "| SHOW | Fixture |",
+          bytes: undefined,
+          archivedPullSheetTabs: poisonedTabs,
+        }),
+      }),
+    );
+    expect(result.isPrepareError).toBe(true);
+    expect(result.kind).toBe("internal");
+  });
+
+  test("a fault inside discardAndRerun's re-parse fix-up path is an INTERNAL fault", async () => {
+    // Drive the I5b discard path for real: an accepted override whose fingerprint
+    // drifted (content_changed) over real workbook bytes, then a frozen warnings
+    // array on the REPARSE result reproduces an internal fault inside the
+    // discard-and-rerun helper (its re-finalize/fix-up work), after the wrapped
+    // synthesize+parse steps succeeded.
+    const bytes = buildXlsx([
+      {
+        name: "OLD PULL SHEET",
+        grid: [
+          ["PULL SHEET", "PULL SHEET"],
+          ["RIA - CHICAGO, IL"],
+          [],
+          ["QTY", "ITEM"],
+          ["2", "Shure SM58"],
+        ],
+      },
+    ]);
+    const liveTab = synthesizeMarkdownFromXlsx(bytes).archivedPullSheetTabs[0];
+    if (!liveTab) throw new Error("fixture workbook produced no archived tab");
+    let enrichCalls = 0;
+    const result = await kindOfFailure(
+      baseDeps({
+        readPullSheetOverride: async () => ({
+          tabName: liveTab.tabName,
+          fingerprint: "0".repeat(64), // ≠ live fingerprint → content_changed
+          acceptedBy: "doug@example.com",
+          acceptedAt: "2026-08-01T00:00:00.000Z",
+        }),
+        fetchMarkdownWithBinding: async () => ({
+          binding: { bindingToken: "rev-1", modifiedTime: SHEET.modifiedTime },
+          markdown: "| SHOW | Fixture |",
+          bytes,
+          archivedPullSheetTabs: [liveTab],
+        }),
+        enrichWithDrivePins: async (parsed) => {
+          enrichCalls += 1;
+          if (enrichCalls === 1) return parsed as unknown as ParseResult;
+          // The reparse inside discardAndRerun: freeze warnings so the helper's
+          // own post-parse work (re-finalize + content-changed fix-up) throws.
+          return {
+            ...parsed,
+            warnings: Object.freeze([]) as unknown as ParseResult["warnings"],
+          } as unknown as ParseResult;
+        },
+      }),
+    );
+    expect(enrichCalls).toBe(2);
+    expect(result.isPrepareError).toBe(true);
+    expect(result.kind).toBe("internal");
+  });
+
+  test("identity still beats the internal site: a DriveFetchError from a helper stays drive_fetch", async () => {
+    // The internal wrap must not swallow identity classification — a real Drive
+    // fault surfacing through a wrapped helper is still a Drive fault.
+    const poisonedTabs = {
+      filter: () => [],
+      find: () => {
+        throw new DriveFetchError("revision token changed");
+      },
+    } as unknown as never[];
+    const result = await kindOfFailure(
+      baseDeps({
+        readPullSheetOverride: async () => ({
+          tabName: "OLD PULL SHEET",
+          fingerprint: "f".repeat(64),
+          acceptedBy: "doug@example.com",
+          acceptedAt: "2026-08-01T00:00:00.000Z",
+        }),
+        fetchMarkdownWithBinding: async () => ({
+          binding: { bindingToken: "rev-1", modifiedTime: SHEET.modifiedTime },
+          markdown: "| SHOW | Fixture |",
+          bytes: undefined,
+          archivedPullSheetTabs: poisonedTabs,
+        }),
+      }),
+    );
     expect(result.kind).toBe("drive_fetch");
   });
 

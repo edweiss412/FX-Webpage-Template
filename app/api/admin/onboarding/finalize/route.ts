@@ -886,7 +886,9 @@ async function processApprovedRow(
       const code =
         err instanceof PrepareOnboardingFileError && err.kind === "parse"
           ? "STAGED_PARSE_FAILED"
-          : "DRIVE_FETCH_FAILED";
+          : err instanceof PrepareOnboardingFileError && err.kind === "internal"
+            ? "ONBOARDING_INTERNAL_ERROR"
+            : "DRIVE_FETCH_FAILED";
       await demotePending(tx, wizardSessionId, row.drive_file_id, code);
       return {
         drive_file_id: row.drive_file_id,
