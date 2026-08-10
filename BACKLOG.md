@@ -8,6 +8,55 @@ Last reconciled: 2026-08-04 — `feat/harness-font-fidelity` (PR #705) graduated
 
 ---
 
+## BL-LIGHTBOX-ORIGINAL-PROGRESS-AFFORDANCE — the lightbox pins the original with nothing to watch while it loads
+
+**Status:** OPEN — filed from the invariant-8 dual gate on PR feat/private-image-pipeline · **Severity:** medium · **Class:** UX · **Effort:** S
+
+The active lightbox slide sets `pinOriginal: true` (`components/diagrams/GalleryLightbox.tsx`), so
+opening a diagram downloads the full-resolution original — deliberately, because zoom needs it
+(spec `docs/superpowers/specs/crew/2026-08-09-private-image-pipeline-design.md` §6). On ballroom wifi
+that is seconds during which the only signal is a 16px blur, at the peak-stakes moment: a crew member
+tapped a stage plot mid-show and cannot tell whether anything is happening.
+
+**Reachability:** INFERRED, NOT PROBED. The probe that would settle it: throttle to a venue-grade
+profile, open a representative stage-plot original, and measure time-to-sharp against the blur.
+
+Two candidate shapes, neither settled: gate `pinOriginal` on zoom intent (the clamped 1024 tier paints
+fast, the original arrives on pinch, and the browser keeps the old bitmap during a src swap so the
+upgrade is a silent sharpen), or keep the pin and add a progress affordance. The first changes a
+ratified spec decision and needs a spec amendment, which is why it did not land in-branch.
+
+## BL-DIAGRAM-BLUR-EDGE-SIZE — the 16px blur carries no structure for line art and is brightest where it hurts
+
+**Status:** OPEN — filed from the invariant-8 dual gate on PR feat/private-image-pipeline · **Severity:** low · **Class:** UX · **Effort:** S
+
+`BLUR_MAX_EDGE = 16` (`lib/sync/diagramVariants.ts`) is the spec's bound (§3). A 16px downsample of a
+white stage plot with thin black lines averages to a near-uniform light field: it delivers the full
+brightness hit while carrying almost no content signal. At thumbnail scale the upscale is ~3x and it
+reads as a placeholder; on a full-viewport lightbox slide it is ~25x, and against the `bg-bg/95` scrim
+in dark mode a dark-adapted viewer reads it as a flash.
+
+**Reachability:** INFERRED, NOT PROBED. The probe: render a real stage-plot blur at both scales in
+both themes and compare against an emitting-nothing skeleton.
+
+Candidate: raise the bound to 32 (32x32 q40 still lands far under the 2048-char belt) and/or drop the
+placeholder on the lightbox tiers only. Both change spec §3, so neither landed in-branch.
+
+## BL-GALLERY-FAILED-ITEM-FOCUS-AND-ANNOUNCE — a failed thumbnail drops focus and says nothing
+
+**Status:** OPEN — filed from the invariant-8 dual gate on PR feat/private-image-pipeline · **Severity:** low · **Class:** A11Y · **Effort:** S
+
+When a thumbnail's runtime load fails, the gallery cell swaps from `<button>` to a non-interactive
+`<div>` (`components/diagrams/Gallery.tsx`). If that thumbnail held focus, focus falls to `<body>`.
+The lightbox already handles the identical transition deliberately — it relocates focus to its close
+button before the unmount cascade — so the pattern exists and is simply not applied here. Separately,
+the swap is silent to assistive tech: the replacement carries `sr-only` text discoverable only by
+re-browsing, not a live-region announcement.
+
+Both are PRE-EXISTING behaviours of this surface, unchanged by the next/image migration that surfaced
+them; they are filed rather than fixed in that branch because the repair is a focus-management and
+announcement decision on a surface the branch does not otherwise change.
+
 ## BL-TAP-TARGET-NEIGHBOUR-OVERLAP-COVERAGE — three 44px targets ship an unasserted expansion band
 
 **Filed:** 2026-08-09 (`docs/step3-a11y-impeccable-regate`, non-degraded invariant-8 re-run). **Class:** guard coverage. **Effort:** S-M — the blocker is harness shape, not assertion difficulty. **Class-sweep exception:** (c) — closing it means changing how the live entry mounts, which is a redesign of the harness this PR does not otherwise touch. **Reachability: PROBED — no live defect.**

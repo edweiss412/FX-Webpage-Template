@@ -137,9 +137,84 @@ Task ordering note (plan R1 F1): there is NO standalone manifest-types task — 
 
 ## 12 — closeout markers
 
-<!-- Task 10 writes the real marker line here, with the dual gate's actual counts.
-     Deliberately NOT a placeholder marker line: a malformed one fails §4.1.2 of
-     tests/docs/_metaInvariant8Closeout.test.ts, and a well-formed one would assert
-     critique=RAN before it has run. Until Task 10 lands, §4.1.1 correctly reports
-     this unit as declaring the gate without a marker. -->
+impeccable-gate: critique=RAN audit=RAN p0=0 p1=5 dispositions=recorded
 
+### Invariant-8 dual gate — findings and dispositions
+
+Run at Task 10 against the UI diff (`components/diagrams/Gallery.tsx`,
+`components/diagrams/GalleryLightbox.tsx`, `components/crew/DiagramsBlock.tsx`,
+plus `lib/images/diagramLoader.ts` and the `VenueSection.tsx` call site the
+`sizes` repair reached). Critique ran dual-agent (design review + detector /
+evidence, isolated); audit ran as its own pass. Browser evidence against the
+running app was UNAVAILABLE and is recorded as such rather than skipped: port
+3000 belongs to a different worktree, so any capture would have been evidence
+for the wrong code. The real-browser geometry claims are covered by Task 9's
+Playwright gate instead.
+
+**P0: none.**
+
+**P1 — fixed in branch (3 of 5):**
+
+1. *Keyboard focus was invisible, in both of its forms.* Critique found the
+   outset ring on the cell button clipped by the cell's `overflow-hidden`; the
+   first repair (`ring-inset`) was then refuted by the audit with box-model
+   evidence — an inset shadow paints below descendants, and the `fill` image
+   covers the button exactly, so the ring was occluded rather than clipped. The
+   ring now lives on the cell itself, driven by `has-[button:focus-visible]`
+   (an element's own ring is not clipped by its own overflow). The first
+   regression row asserted the class string and passed while focus was
+   invisible; it is replaced by one that pins the structure and premises both
+   failure modes, and reverting to the inset-on-button form reds it.
+2. *`sizes` over-declared by ~4x, so thumbnails fetched the 1024 variant where
+   256 suffices* — the exact waste this pipeline exists to remove, on the crew
+   path it exists for. `sizes` is now a caller-supplied prop: only the caller
+   knows whether it rendered into the venue split's narrow column (~92px
+   thumbnails) or the full-width branch (~268px), and a single static string is
+   wrong in one branch either way.
+3. *Blur placeholder painted `cover` under an `object-contain` image*, so it
+   rendered stretched and full-bleed and then snapped to the letterboxed image.
+   next/image derives the placeholder's `background-size` from `style.objectFit`,
+   not from the class. Fixed on both lightbox tiers and pinned.
+
+**P1 — deferred, spec-ratified (2 of 5).** Both contradict decisions the spec
+already ratified, so invariant 7 applies and they file rather than land:
+
+4. *The active lightbox slide pins the ORIGINAL with no progress affordance*,
+   which on venue wifi means seconds of blur at the peak-stakes moment. Spec §6
+   mandates the original pin (zoom needs full resolution). Filed as
+   `BL-LIGHTBOX-ORIGINAL-PROGRESS-AFFORDANCE`.
+5. *The 16px blur edge is too coarse for line-art* and, at full-viewport scale
+   in dark mode, reads as a light-bomb rather than a placeholder. Spec §3 fixes
+   the 16px bound. Filed as `BL-DIAGRAM-BLUR-EDGE-SIZE`.
+
+**P2 — fixed:** the stale "next/image cannot serve these URLs" rationale, which
+survived directly above the migrated `<Image>` it no longer describes.
+
+**P2 — deferred:** runtime image failure swaps the gallery cell from `<button>`
+to a non-interactive `<div>`, dropping focus to `<body>` (the lightbox already
+relocates focus on the identical transition); and that swap is silent to assistive
+tech. Both are pre-existing behaviours on this surface, both filed as
+`BL-GALLERY-FAILED-ITEM-FOCUS-AND-ANNOUNCE`.
+
+**P3 — fixed:** `validDims` was called twice per branch behind a non-null
+assertion (hoisted to one per-slide `const`, so the two calls can no longer
+disagree), and `blurProps` returned `... | object`, erasing type safety at the
+spread site (now `Partial<...>`).
+
+**Amended diff (post-gate UI repair, plan R3 F2).** Task 9's real-browser gate
+then caught a WebKit-only layout defect in the same surface: with `relative` on
+the cell BUTTON, WebKit resolves the button's `height: 100%` against the cell's
+aspect-ratio BORDER box, so the `fill` image rendered 98x100 against a 98x98
+content box and cropped 2px at the bottom — Chromium matched the content box and
+hid it entirely. `relative` moved to the cell `li` (which the focus-ring repair
+above had already made the ring's owner, for an independent reason). The dual
+gate's mechanical half was re-run against the amended diff: component suites
+75/75, typecheck clean, eslint clean, detector unchanged at the same 8 comment
+false positives. The design half is unaffected — the repair moves a positioning
+context between two elements that occupy the same box, changes no token, no copy,
+and no visual treatment.
+
+**Detector:** 8 `broken-image` findings, all false positives — every hit is the
+token `<img>` inside a code comment, and the detector does not strip comments.
+No literal `<img>` JSX remains in any of the three files, which is also what the
+AC-6 whole-directory grep gate asserts.

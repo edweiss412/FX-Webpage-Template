@@ -51,6 +51,8 @@ import type {
 type DiagramsTileProps = {
   showId: string;
   diagrams: PersistedDiagrams | null;
+  /** Passed through to the Gallery; see GalleryProps.sizes for why the caller owns it. */
+  thumbnailSizes?: string;
 };
 
 /**
@@ -107,7 +109,7 @@ function linkedItem(entry: PersistedLinkedFolderItem, ordinal: number): GalleryI
   };
 }
 
-export function DiagramsTile({ showId, diagrams }: DiagramsTileProps) {
+export function DiagramsTile({ showId, diagrams, thumbnailSizes }: DiagramsTileProps) {
   const embedded = diagrams?.embeddedImages ?? [];
   const linked = diagrams?.linkedFolderItems ?? [];
   const items: GalleryItem[] = [
@@ -146,7 +148,12 @@ export function DiagramsTile({ showId, diagrams }: DiagramsTileProps) {
       }
     >
       {diagrams ? (
-        <Gallery showId={showId} snapshotRevisionId={diagrams.snapshot_revision_id} items={items} />
+        <Gallery
+          showId={showId}
+          snapshotRevisionId={diagrams.snapshot_revision_id}
+          items={items}
+          {...(thumbnailSizes ? { sizes: thumbnailSizes } : {})}
+        />
       ) : null}
     </Section>
   );

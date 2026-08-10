@@ -62,7 +62,7 @@ function validDims(item: GalleryItem): { width: number; height: number } | null 
 }
 
 /** next/image blur props, only when the manifest actually carried a blur. */
-function blurProps(item: GalleryItem): { placeholder: "blur"; blurDataURL: string } | object {
+function blurProps(item: GalleryItem): Partial<{ placeholder: "blur"; blurDataURL: string }> {
   return typeof item.blurDataURL === "string" && item.blurDataURL.length > 0
     ? { placeholder: "blur" as const, blurDataURL: item.blurDataURL }
     : {};
@@ -501,6 +501,9 @@ export function GalleryLightbox({
             {items.map((item, i) => {
               const available = item.available && !failedKeys.has(item.id);
               const isActive = i === activeIndex;
+              // Computed once per slide: both tiers branch on it, and calling the
+              // guard twice per branch invites the two calls to disagree.
+              const dims = validDims(item);
               return (
                 <figure
                   key={item.id}
@@ -662,9 +665,12 @@ export function GalleryLightbox({
                             priority
                             draggable={false}
                             {...blurProps(item)}
-                            {...(validDims(item)
-                              ? validDims(item)!
-                              : { fill: true as const, sizes: "100vw" })}
+                            // next/image derives the placeholder's background-size
+                            // from style.objectFit, NOT from className — without it the
+                            // blur paints `cover` (stretched, full-bleed) and then snaps
+                            // to the letterboxed image.
+                            style={{ objectFit: "contain" }}
+                            {...(dims ?? { fill: true as const, sizes: "100vw" })}
                             onError={() => {
                               // Codex R2 HIGH: when the active image
                               // errors mid-zoom, the slide flips to
@@ -719,15 +725,11 @@ export function GalleryLightbox({
                     ) : (
                       // Inactive slides: plain <img>, no zoom state.
                       // Per shape brief §6 (per-diagram zoom context).
-                      // M9 C6b / M7-D3 — REVERTED: next/image does
-                      // NOT forward user auth cookies to the upstream
-                      // /api/asset/diagram/... proxy (server-side
-                      // fetch under a different context) AND rewrites
-                      // the proxy's private Cache-Control to public —
-                      // both disqualifying for authenticated private
-                      // assets. Per C6b round-1 P0 finding, the raw
-                      // <img> tag is correct here.
                       // Inactive slides: no zoom state, clamped variant tier.
+                      // (The old "next/image cannot serve these URLs" rationale left
+                      // with the raw <img> it justified — the custom loader emits our
+                      // own private asset-route URLs, so the optimizer is never in the
+                      // path.)
                       // The `fill` fallback needs a positioned ancestor, and it
                       // must NOT be the figure: `inset-0` resolves against the
                       // padding box, and the figure carries px-4 — so an image
@@ -746,7 +748,10 @@ export function GalleryLightbox({
                           alt={item.alt || `Diagram ${i + 1}`}
                           sizes="100vw"
                           {...blurProps(item)}
-                          {...(validDims(item) ? validDims(item)! : { fill: true as const })}
+                          // See the active branch: the placeholder's background-size
+                          // comes from style.objectFit, not the class.
+                          style={{ objectFit: "contain" }}
+                          {...(dims ?? { fill: true as const })}
                           onError={() =>
                             setFailedKeys((prev) => {
                               if (prev.has(item.id)) return prev;

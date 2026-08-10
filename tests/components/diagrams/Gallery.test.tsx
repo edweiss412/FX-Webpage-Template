@@ -20,7 +20,7 @@ import { afterEach, describe, expect, test } from "vitest";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 
 import { Gallery, type GalleryItem } from "@/components/diagrams/Gallery";
-import { premise } from "@/tests/_shared/premise";
+import { premise, premiseHolds } from "@/tests/_shared/premise";
 
 const SHOW_ID = "11111111-1111-4111-8111-111111111111";
 const REV = "22222222-2222-4222-8222-222222222222";
@@ -305,13 +305,25 @@ describe("Gallery — next/image thumbnails", () => {
     expect(firstImage(variantItem()).getAttribute("loading")).toBe("lazy");
   });
 
-  test("the clickable cell is a positioned ancestor, so fill resolves against it", () => {
-    // `fill` is absolute inset-0: without `relative` on the button it would
-    // resolve against the nearest positioned ancestor further up the page.
+  test("the CELL is the positioned ancestor, not the button", () => {
+    // `fill` is absolute inset-0, so it needs a positioned ancestor — but WHICH
+    // one is load-bearing: WebKit resolves the button's `height: 100%` against
+    // the cell's aspect-ratio BORDER box, so containing-blocking the image on the
+    // button made it 2px taller than the cell's content box and cropped it at the
+    // bottom, while Chromium matched the content box and hid the bug entirely.
+    // Real-browser geometry: tests/e2e/crew-layout-dimensions.spec.ts.
     const { container } = render(
       <Gallery showId={SHOW_ID} snapshotRevisionId={REV} items={[variantItem()]} />,
     );
-    expect(container.querySelector("button")!.className).toContain("relative");
+    const button = container.querySelector("button")!;
+    const cell = button.parentElement!;
+
+    premiseHolds(
+      "the cell sizes itself by aspect-ratio, which is what makes the box choice matter",
+      cell.className.includes("aspect-square"),
+    );
+    expect(cell.className).toContain("relative");
+    expect(button.className.split(/\s+/)).not.toContain("relative");
   });
 
   test("onError still flips to the unavailable branch", () => {

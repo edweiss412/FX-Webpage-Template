@@ -228,6 +228,21 @@ describe("GalleryLightbox — blur", () => {
   });
 });
 
+describe("GalleryLightbox — placeholder geometry", () => {
+  test("the blur letterboxes like the image, on BOTH tiers", () => {
+    // next/image reads style.objectFit — NOT the class — when sizing the
+    // placeholder background. Without it the blur paints `cover`: stretched and
+    // full-bleed, then snapping to the letterboxed image on load. Caught by the
+    // impeccable critique dual gate, pinned here.
+    const { container } = open([item(1, { blurDataURL: BLUR }), item(2, { blurDataURL: BLUR })]);
+
+    expect(activeImage(container).getAttribute("style")).toContain("background-size: contain");
+    const inactive = inactiveImages(container);
+    premise("an inactive slide rendered to check", inactive.length, 0);
+    expect(inactive[0]!.getAttribute("style")).toContain("background-size: contain");
+  });
+});
+
 describe("GalleryLightbox — intrinsic dimensions", () => {
   test("valid dims render width/height rather than the fill branch", () => {
     const { container } = open([item(1, { intrinsicWidth: 1600, intrinsicHeight: 900 })]);

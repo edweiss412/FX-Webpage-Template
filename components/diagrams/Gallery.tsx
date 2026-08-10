@@ -83,9 +83,29 @@ type GalleryProps = {
    * Gallery is a pure renderer and relays the order verbatim.
    */
   items: GalleryItem[];
+  /**
+   * The `sizes` string for thumbnails. Declared by the CALLER because only the
+   * caller knows which layout branch it rendered into: inside the venue split
+   * the gallery sits in the narrow `1fr` column and a thumbnail is ~92px at
+   * 1440px, while the full-width branch is ~268px. Over-declaring makes every
+   * thumbnail fetch a 1024 variant where 256 would do — the exact waste this
+   * pipeline exists to remove; under-declaring ships a blurry thumbnail.
+   */
+  sizes?: string;
 };
 
-export function Gallery({ showId, snapshotRevisionId, items }: GalleryProps) {
+/**
+ * Full-width fallback: the page caps at max-w-300 (1200px) and the grid is 4-up
+ * above 640px, so a thumbnail tops out near 280px.
+ */
+const DEFAULT_THUMBNAIL_SIZES = "(min-width: 1200px) 280px, (min-width: 640px) 23vw, 30vw";
+
+export function Gallery({
+  showId,
+  snapshotRevisionId,
+  items,
+  sizes = DEFAULT_THUMBNAIL_SIZES,
+}: GalleryProps) {
   const [expanded, setExpanded] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   // M9 C6b R1 P1: track per-thumbnail runtime load failures so a
@@ -114,14 +134,27 @@ export function Gallery({ showId, snapshotRevisionId, items }: GalleryProps) {
               key={item.id}
               data-testid={`diagram-slot-${i}`}
               {...(isAvailable ? {} : { "data-unavailable": "true" })}
-              className="aspect-square overflow-hidden rounded-sm border border-border bg-surface-sunken"
+              // `relative` lives HERE, not on the button: WebKit resolves the
+              // button's `height: 100%` against this cell's aspect-ratio BORDER
+              // box, so a `fill` image containing-blocked by the button came out
+              // 2px taller than the cell's content box and cropped at the bottom
+              // (Chromium matched the content box and hid it). Real-browser
+              // geometry gate: tests/e2e/crew-layout-dimensions.spec.ts.
+              //
+              // The focus ring is here for a second, independent reason: the
+              // button is size-full of this overflow-hidden cell, so an outset
+              // ring on it is clipped away, and an inset one paints UNDER the
+              // absolutely positioned fill image (inset shadows paint below
+              // descendants). An element's own ring is not clipped by its own
+              // overflow.
+              className="relative aspect-square overflow-hidden rounded-sm border border-border bg-surface-sunken has-[button:focus-visible]:ring-2 has-[button:focus-visible]:ring-focus-ring"
             >
               {isAvailable ? (
                 <button
                   type="button"
                   onClick={() => setLightboxIndex(i)}
                   aria-label={`Open ${item.alt || `Diagram ${i + 1}`}`}
-                  className="relative block size-full cursor-zoom-in focus:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+                  className="block size-full cursor-zoom-in focus:outline-none"
                 >
                   {/*
                   next/image with a CUSTOM LOADER (spec §6). The revert that
@@ -146,7 +179,7 @@ export function Gallery({ showId, snapshotRevisionId, items }: GalleryProps) {
                     src={item.key}
                     alt={item.alt || `Diagram ${i + 1}`}
                     fill
-                    sizes="(min-width: 640px) 25vw, 33vw"
+                    sizes={sizes}
                     {...(typeof item.blurDataURL === "string" && item.blurDataURL.length > 0
                       ? { placeholder: "blur" as const, blurDataURL: item.blurDataURL }
                       : {})}
