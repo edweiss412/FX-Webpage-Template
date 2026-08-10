@@ -284,9 +284,20 @@ function exportedNames(file: string, source: string): Set<string> {
       if (isRuntimeExport(statement) && statement.name) names.add(statement.name.text);
     } else if (ts.isVariableStatement(statement)) {
       if (isRuntimeExport(statement)) {
-        for (const decl of statement.declarationList.declarations) {
-          if (ts.isIdentifier(decl.name)) names.add(decl.name.text);
-        }
+        // Destructuring exports real bindings: `export const { a, b: c } = impl`
+        // and `export const [a] = impl` are as callable as a plain `const`, and
+        // omitting them rejected an honest `via` (R16 F3 — loud, but wrong).
+        const collect = (name: ts.BindingName): void => {
+          if (ts.isIdentifier(name)) {
+            names.add(name.text);
+            return;
+          }
+          for (const element of name.elements) {
+            if (ts.isOmittedExpression(element)) continue;
+            collect(element.name);
+          }
+        };
+        for (const decl of statement.declarationList.declarations) collect(decl.name);
       }
     } else if (ts.isExportDeclaration(statement) && !statement.isTypeOnly) {
       const clause = statement.exportClause;
@@ -369,15 +380,23 @@ function sourceWithCallErased(
   file: string,
   original: string,
   stripped: string,
-  kind: Site["kind"],
-  literal: string,
+  ordinal: number,
 ): string {
-  const ranges: Array<[number, number]> = [];
   const sourceFile = parse(file, original);
+  const ranges: Array<[number, number]> = [];
+  let seen = 0;
   const visit = (node: ts.Node): void => {
     const found = siteAt(node);
-    if (found !== undefined && found.site.kind === kind && found.site.literal === literal) {
-      ranges.push([found.argument.getStart(sourceFile), found.argument.getEnd()]);
+    if (found !== undefined) {
+      // The ORDINAL site, not every site that happens to share a kind and a
+      // literal. `getShowForViewer.ts` reads `crew_members` and `shows_internal`
+      // twice each; erasing both at once let the second row carry a copy of the
+      // first row's pin and pass — silently, and the coupling rule's whole
+      // promise is that a pin guards THIS site (R16 F1). Position is the same
+      // identity Layer 2 reconciles on.
+      if (seen === ordinal)
+        ranges.push([found.argument.getStart(sourceFile), found.argument.getEnd()]);
+      seen += 1;
     }
     ts.forEachChild(node, visit);
   };
@@ -423,7 +442,7 @@ function validateRows(registry: Registry, readFile: ReadFile = readFromDisk): st
         // pattern's text. At least one pin must stop matching once this row's
         // call is removed from the source; a pin that survives its own site's
         // deletion was never guarding it.
-        const erased = sourceWithCallErased(file, readFile(file), stripped, row.kind, row.literal);
+        const erased = sourceWithCallErased(file, readFile(file), stripped, index);
         if (!row.pin.some((pattern) => !matchesPin(pattern, erased))) {
           problems.push(
             `${where}: no pin depends on this row's call — every pin still matches once the call is erased, so a pin copied from another site, another call kind, or another function cannot be told apart`,
@@ -450,6 +469,17 @@ function validateRows(registry: Registry, readFile: ReadFile = readFromDisk): st
         );
       }
       for (const suite of row.coveredBy) {
+        // A covering suite must BE a suite. Any readable file satisfied the
+        // citation before, so a row could cite the production module it is
+        // registered against — which trivially supplies both the exported `via`
+        // and the table literal, discharging the row with no test at all
+        // (R16 F2).
+        if (!/^tests\/.*\.test\.tsx?$/.test(suite)) {
+          problems.push(
+            `${where}: covering suite ${suite} is not a test suite (expected tests/**/*.test.ts or .tsx)`,
+          );
+          continue;
+        }
         let mentioned: Set<string>;
         try {
           mentioned = mentionedNames(suite, readFile(suite));
@@ -1148,46 +1178,103 @@ describe("META lib/data Supabase call boundary", () => {
     // literal was worse: `includes("")` is true of every pin, so any pin
     // discharged it (whole-diff R3 F1). The literal must appear as a QUOTED
     // ARGUMENT in the pin, which is what "this pin guards THIS site" means.
+    // Rows sit in SOURCE ORDER, which is the identity Layer 2 reconciles on and
+    // now the identity the erasure uses too — so every fixture here registers
+    // the file's sites in order and moves only the pin under test.
     test("a pin coupled only by substring, or to an empty literal, is rejected", () => {
       const source =
         'await sb.from("shows_internal");\nawait sb.from("shows");\nawait sb.from("");\n';
-      const substringCollision: Registry = {
-        [SOURCE]: [{ kind: "from", literal: "shows", pin: [/\.from\("shows_internal"\)/] }],
-      };
-      expect(validateRows(substringCollision, reader({ [SOURCE]: source }))).toEqual([
-        expect.stringContaining("no pin depends on this row's call"),
-      ]);
-
-      const emptyLiteral: Registry = {
-        [SOURCE]: [{ kind: "from", literal: "", pin: [/\.from\("shows_internal"\)/] }],
-      };
-      expect(validateRows(emptyLiteral, reader({ [SOURCE]: source }))).toEqual([
-        expect.stringContaining("no pin depends on this row's call"),
-      ]);
-
-      // Controls: the honestly-coupled forms of both still pass, so the
-      // rejections above are the rule firing and not an unsatisfiable fixture.
-      const honest: Registry = {
-        [SOURCE]: [
+      const rowsWith = (borrowedAt: number): SiteRow[] => {
+        const honest: SiteRow[] = [
+          { kind: "from", literal: "shows_internal", pin: [/\.from\("shows_internal"\)/] },
           { kind: "from", literal: "shows", pin: [/\.from\("shows"\)/] },
           { kind: "from", literal: "", pin: [/\.from\(""\)/] },
-        ],
+        ];
+        return honest.map((row, at) =>
+          at === borrowedAt
+            ? { kind: row.kind, literal: row.literal, pin: [/\.from\("shows_internal"\)/] }
+            : row,
+        );
       };
-      expect(validateRows(honest, reader({ [SOURCE]: source }))).toEqual([]);
-    });
 
-    test("a pin copied from another site — matching, but not embedding this row's literal — is rejected", () => {
-      const registry: Registry = {
-        [SOURCE]: [{ kind: "from", literal: "new_table", pin: [/from\("admin_emails"\)/] }],
-      };
-      expect(validateRows(registry, reader({ [SOURCE]: MODULE_SOURCE }))).toEqual([
+      // `shows` is a substring of `shows_internal`, and both are live here.
+      expect(validateRows({ [SOURCE]: rowsWith(1) }, reader({ [SOURCE]: source }))).toEqual([
         expect.stringContaining("no pin depends on this row's call"),
       ]);
+      // An empty literal is a substring of everything.
+      expect(validateRows({ [SOURCE]: rowsWith(2) }, reader({ [SOURCE]: source }))).toEqual([
+        expect.stringContaining("no pin depends on this row's call"),
+      ]);
+
+      // Control: every row pinned to its own site passes, so the rejections
+      // above are the rule firing and not an unsatisfiable fixture.
+      expect(validateRows({ [SOURCE]: rowsWith(-1) }, reader({ [SOURCE]: source }))).toEqual([]);
     });
 
-    // `from` and `rpc` can name the same thing, so the literal alone does not
-    // identify the site. An unhandled row of one kind could reuse a handled
-    // pin of the other, in both directions (whole-diff R11 F1).
+    // Duplicate `{kind, literal}` sites are DISTINCT sites. Erasing every site
+    // that shared a kind and a literal let the second row carry a copy of the
+    // first row's pin and pass, silently — and `getShowForViewer.ts` really does
+    // read `crew_members` and `shows_internal` twice each (whole-diff R16 F1).
+    test("a duplicate site cannot be discharged by its twin's pin", () => {
+      const source =
+        'const a = await sb.from("dup");\nif (a.error) throw a.error;\nconst b = await sb.from("dup");\nif (b.error) throw b.error;\n';
+      const first: [RegExp, ...RegExp[]] = [/const a = await sb\.from\("dup"\)/];
+      const second: [RegExp, ...RegExp[]] = [/const b = await sb\.from\("dup"\)/];
+
+      expect(
+        validateRows(
+          {
+            [SOURCE]: [
+              { kind: "from", literal: "dup", pin: first },
+              { kind: "from", literal: "dup", pin: first },
+            ],
+          },
+          reader({ [SOURCE]: source }),
+        ),
+      ).toEqual([expect.stringContaining("no pin depends on this row's call")]);
+
+      // Control: each row pinned to its own occurrence passes.
+      expect(
+        validateRows(
+          {
+            [SOURCE]: [
+              { kind: "from", literal: "dup", pin: first },
+              { kind: "from", literal: "dup", pin: second },
+            ],
+          },
+          reader({ [SOURCE]: source }),
+        ),
+      ).toEqual([]);
+    });
+
+    test("a pin copied from another site in the same file is rejected", () => {
+      const source = 'await sb.from("admin_emails");\nawait sb.from("new_table");\n';
+      expect(
+        validateRows(
+          {
+            [SOURCE]: [
+              { kind: "from", literal: "admin_emails", pin: [/from\("admin_emails"\)/] },
+              { kind: "from", literal: "new_table", pin: [/from\("admin_emails"\)/] },
+            ],
+          },
+          reader({ [SOURCE]: source }),
+        ),
+      ).toEqual([expect.stringContaining("no pin depends on this row's call")]);
+
+      // Control: the second row pinned to its own site passes.
+      expect(
+        validateRows(
+          {
+            [SOURCE]: [
+              { kind: "from", literal: "admin_emails", pin: [/from\("admin_emails"\)/] },
+              { kind: "from", literal: "new_table", pin: [/from\("new_table"\)/] },
+            ],
+          },
+          reader({ [SOURCE]: source }),
+        ),
+      ).toEqual([]);
+    });
+
     test("a pin borrowed from the other call kind is rejected", () => {
       const source =
         'export async function f() {\n  const a = await sb.from("shared");\n  if (a.error) throw a.error;\n  await sb.rpc("shared");\n}\n';
@@ -1699,6 +1786,51 @@ describe("META lib/data Supabase call boundary", () => {
           }),
         ),
       ).toEqual([]);
+    });
+
+    // A covering suite must BE a suite. Any readable file satisfied the citation
+    // before, so a row could cite the production module it is registered
+    // against — which trivially supplies both the `via` and the table literal,
+    // discharging the row with no test at all (whole-diff R16 F2).
+    test("a coveredBy citation to a non-suite file is rejected", () => {
+      for (const cited of [SOURCE, "lib/data/adminEmails.ts", "tests/data/helpers.ts"]) {
+        const registry: Registry = {
+          [SOURCE]: [
+            { kind: "from", literal: "admin_emails", coveredBy: [cited], via: "addAdminEmail" },
+          ],
+        };
+        expect(
+          validateRows(registry, reader({ [SOURCE]: MODULE_SOURCE, [cited]: MODULE_SOURCE })),
+          cited,
+        ).toEqual([expect.stringContaining("is not a test suite")]);
+      }
+    });
+
+    // Destructured exports are real callable bindings.
+    test("a via bound by a destructuring export is accepted", () => {
+      for (const [name, moduleSource] of [
+        ["object pattern", "export const { addAdminEmail } = impl;\n"],
+        ["renamed", "export const { impl: addAdminEmail } = mod;\n"],
+        ["array pattern", "export const [addAdminEmail] = impl;\n"],
+        ["nested", "export const { a: { addAdminEmail } } = impl;\n"],
+        ["rest", "export const { other, ...addAdminEmail } = impl;\n"],
+      ] as const) {
+        const registry: Registry = {
+          [SOURCE]: [
+            { kind: "from", literal: "admin_emails", coveredBy: [SUITE], via: "addAdminEmail" },
+          ],
+        };
+        expect(
+          validateRows(
+            registry,
+            reader({
+              [SOURCE]: moduleSource,
+              [SUITE]: "test('x', () => { addAdminEmail(); });",
+            }),
+          ),
+          name,
+        ).toEqual([]);
+      }
     });
 
     test("a coveredBy citation to a deleted or renamed suite is rejected", () => {
