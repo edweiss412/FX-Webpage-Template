@@ -75,13 +75,11 @@ const CLASSIFIED: Array<[string, Side]> = [
     "pnpm exec vitest run",
     { side: "ignore", why: "a spelling of `vitest run`; the bullet states the shape once" },
   ],
-  [
-    "pnpm test:e2e*",
-    {
-      side: "ignore",
-      why: "glob form; the bullet names `pnpm test:e2e` and its scoped-config aliases",
-    },
-  ],
+  // The spec writes the glob; the bullet spells the base alias and then covers
+  // the rest with "and its scoped-config aliases". Classifying the glob `ignore`
+  // (the first repair's mistake) left NOTHING requiring the base shape, so the
+  // whole non-interactive umbrella could be deleted with the guard still green.
+  ["pnpm test:e2e*", { side: "must", as: "pnpm test:e2e" }],
   ["playwright test", { side: "must" }],
   ["pnpm screenshot:gallery", { side: "must" }],
   ["pnpm screenshot:help", { side: "must" }],
@@ -317,6 +315,13 @@ describe("AGENTS.md heavy-phase rule", () => {
     [
       "delete the direct `playwright test` shape",
       editRule(", any `playwright test` without an interactive flag", ""),
+    ],
+    [
+      "delete the non-interactive umbrella and the base `pnpm test:e2e` shape",
+      editRule(
+        "Any non-interactive playwright run: `pnpm test:e2e` and its scoped-config aliases, any `playwright test` without an interactive flag,",
+        "Wrap the scoped-config aliases, any direct `playwright test` without an interactive flag,",
+      ),
     ],
     [
       "delete the with-admin-dev-flag build path",
