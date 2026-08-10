@@ -1,3 +1,4 @@
+// build-time-only: static-analysis helper run by audit scripts and tests, never by a request
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
