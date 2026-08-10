@@ -22,21 +22,18 @@
  * safeupdate) so a regression to bare deletes fails CI loudly.
  */
 import { afterAll, afterEach, beforeEach, describe, expect, test } from "vitest";
+import { assertLocalDbUrl } from "./_localDbUrl";
 import postgres, { type Sql } from "postgres";
 import { randomUUID } from "node:crypto";
 
-const DB_URL =
-  process.env.TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
-
-// SAFETY: this test WIPES all shows via the reset RPC — never run it against a remote DB.
-const LOCAL_DB_URL_REGEX =
-  /^postgres(?:ql)?:\/\/[^@]+@(localhost|127\.0\.0\.1|\[::1\])(?::\d+)?\//i;
-if (!LOCAL_DB_URL_REGEX.test(DB_URL)) {
-  throw new Error(
-    `resetValidationDataPostgrest.test.ts: TEST_DATABASE_URL='${DB_URL}' is not local. ` +
-      "reset_validation_data() wipes ALL shows — refusing to run against a remote URL.",
-  );
-}
+// SAFETY: this test WIPES all shows via the reset RPC — never run it against a remote
+// DB. The loopback check goes through the SHARED guard rather than a local regex: this
+// file hand-rolled its own until 2026-08-10, which is the duplication
+// _metaStripCommentsSingleSource-style single-sourcing exists to prevent, and it is
+// also what the destructive-target guard resolves to when checking provenance.
+const DB_URL = assertLocalDbUrl(
+  process.env.LOCAL_TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+);
 
 // Local PostgREST + the well-known local demo service_role JWT (role=service_role).
 const REST_URL = "http://127.0.0.1:54321/rest/v1";

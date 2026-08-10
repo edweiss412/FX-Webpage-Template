@@ -30,17 +30,26 @@ import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 import { analyseDestructiveFile } from "./_destructiveFileAnalysis";
-import { stripCommentsForFile } from "@/tests/_shared/stripComments";
+import { stripCommentsForFile, stripSqlComments } from "@/tests/_shared/stripComments";
 
 const TESTS_ROOT = join(process.cwd(), "tests");
 
-/** Executes the whole-DB wipe RPC. */
-const EXECUTES_WIPE = /\bselect\s+public\.reset_validation_data\s*\(\s*\)/i;
+/**
+ * Executes the whole-DB wipe RPC.
+ *
+ * Keyed on the FUNCTION NAME, not on a statement shape. r15 showed
+ * `select * from public.reset_validation_data()`, a parenthesized form, and an aliased
+ * `update … as g set enabled = true` all escaping shape-anchored patterns — the same
+ * enumeration failure the analyzer went through, one layer up. A destructive function
+ * named in executed code is the signal; how the statement is spelled around it is not
+ * something this guard needs to model.
+ */
+const EXECUTES_WIPE = /\bpublic\.reset_validation_data\s*\(/i;
 
 /** Flips the prod-safety gate ON — the only thing standing between a test run
  *  and a live wipe. */
 const ENABLES_WIPE_GATE =
-  /update\s+public\.destructive_reset_gate\s+set\s+enabled\s*=\s*(?:true|\$\{?\s*true)/i;
+  /destructive_reset_gate\b[\s\S]{0,120}?\benabled\s*=\s*(?:true|\$\{?\s*true)/i;
 
 /** Executes a retention prune. Deletes by time window against whatever DB it is
  *  pointed at, so it is destructive in exactly the sense this guard exists for.
@@ -48,7 +57,7 @@ const ENABLES_WIPE_GATE =
  *  before 2026-08-09, one alternation to fix. That is the class-sweep default -
  *  repair every instance of the shape in the same PR - rather than filing a peer
  *  for something free to fix here. */
-const EXECUTES_PRUNE = /\bselect\s+public\.prune_(?:sync_log|app_events)\s*\(/i;
+const EXECUTES_PRUNE = /\bpublic\.prune_(?:sync_log|app_events)\s*\(/i;
 
 /** Any of the sanctioned loopback asserts, called (not merely imported).
  *  Retained for the message it powers; the ADMISSION decision now runs through
@@ -85,11 +94,43 @@ const files = walk(TESTS_ROOT).map((path) => ({ path, source: readFileSync(path,
 // genuinely unsafe file (whole-diff r1 finding 2). The shared scanner is string-aware.
 
 const destructive = files.filter(({ path, source }) => {
-  const code = stripCommentsForFile(source, path);
+  // JS comments come off first, then SQL comments INSIDE the surviving string
+  // literals. whole-diff r15: `select /* note */ public.reset_validation_data()` was
+  // not discovered, because stripping JS comments correctly leaves SQL comments in a
+  // literal untouched and the regexes never normalized them.
+  const code = stripSqlComments(stripCommentsForFile(source, path));
   return EXECUTES_WIPE.test(code) || ENABLES_WIPE_GATE.test(code) || EXECUTES_PRUNE.test(code);
 });
 
 describe("destructive DB target guard", () => {
+  test("discovery matches ordinary SQL spellings, not one canonical shape", () => {
+    // whole-diff r15: shape-anchored patterns missed `select * from public.prune_…()`,
+    // a parenthesized call, an aliased `update … as g set enabled = true`, and any
+    // form carrying an SQL block comment. Keying on the FUNCTION NAME after stripping
+    // SQL comments covers the class; these are the spellings that escaped.
+    const strip = (sql: string) => stripSqlComments(sql);
+    for (const sql of [
+      "select * from public.reset_validation_data()",
+      "select /* note */ public.reset_validation_data()",
+      "select (public.reset_validation_data())",
+    ]) {
+      expect(EXECUTES_WIPE.test(strip(sql)), sql).toBe(true);
+    }
+    for (const sql of [
+      "select * from public.prune_app_events()",
+      "select /* note */ public.prune_sync_log()",
+      "select (public.prune_sync_log(interval '60 days'))",
+    ]) {
+      expect(EXECUTES_PRUNE.test(strip(sql)), sql).toBe(true);
+    }
+    for (const sql of [
+      "update public.destructive_reset_gate as g set enabled = true",
+      "update public.destructive_reset_gate /* note */ set enabled = true",
+    ]) {
+      expect(ENABLES_WIPE_GATE.test(strip(sql)), sql).toBe(true);
+    }
+  });
+
   test("the discovery patterns actually match the known wipe surface (anti-vacuity)", () => {
     // If this fails, the regexes drifted and every assertion below is vacuous.
     const rel = destructive.map((f) => f.path.replace(process.cwd() + "/", ""));

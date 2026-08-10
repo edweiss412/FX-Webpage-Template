@@ -273,7 +273,13 @@ export function analyseDestructiveFile(
     };
   }
 
-  if (connects.length === 0) return { ok: false, reason: "no postgres(...) connection found" };
+  // A destructive file that opens NO postgres connection has nothing this analyzer can
+  // mis-target: its execution goes another way (PostgREST, in
+  // resetValidationDataPostgrest.test.ts), and it has already been shown to call the
+  // trusted guard above. The guard's claim is "every postgres connection is guarded",
+  // and zero connections satisfies it (whole-diff r15, after widening discovery pulled
+  // that file in).
+  if (connects.length === 0) return { ok: true };
 
   // EVERY connection, not just the first (r1 finding 2: a safe client followed by an
   // unguarded one that runs the prune).
