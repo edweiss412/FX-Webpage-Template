@@ -90,6 +90,8 @@ export function buildGallerySnapshot(
       coi_status: "received",
       diagrams: anchors.diagrams ? diagramsWithSignal() : null,
       pull_sheet: [],
+      // Anchor freshness (spec 2026-08-09-m-wave-2 §2.3): dev-only fixture data, not a
+      // shows-row projection — the freshness helper does not apply.
       source_anchors: {},
       drive_file_id: GALLERY_DRIVE_FILE_ID,
       archived: false,
@@ -584,6 +586,4 @@ export function applyFixture(
   }
 
   return { snapshot, dataOverrides };
-}// Anchor freshness (spec 2026-08-09-m-wave-2 §2.3): dev-only fixture data,
-}// not a shows-row projection — the freshness helper does not apply.
 }
