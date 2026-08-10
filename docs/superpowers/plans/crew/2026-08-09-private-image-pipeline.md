@@ -137,4 +137,9 @@ Task ordering note (plan R1 F1): there is NO standalone manifest-types task — 
 
 ## 12 — closeout markers
 
-impeccable-gate: pending (Task 10 records the dual-gate run here)
+<!-- Task 10 writes the real marker line here, with the dual gate's actual counts.
+     Deliberately NOT a placeholder marker line: a malformed one fails §4.1.2 of
+     tests/docs/_metaInvariant8Closeout.test.ts, and a well-formed one would assert
+     critique=RAN before it has run. Until Task 10 lands, §4.1.1 correctly reports
+     this unit as declaring the gate without a marker. -->
+

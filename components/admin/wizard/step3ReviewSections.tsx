@@ -75,6 +75,7 @@ import type {
   ParseWarning,
   PersistedDiagrams,
   PersistedEmbeddedImage,
+  PersistedLinkedFolderItem,
   PullSheetCase,
   PullSheetItem,
   RoomRow,
@@ -3764,8 +3765,13 @@ export function DiagramsBreakdown({
     ((stub: EmbeddedImageStub) =>
       `/api/admin/onboarding/staged-diagram/${wizardSessionId}/${dfid}/${encodeURIComponent(stub.objectId)}`);
   const resolvePreviewSource = previewSourceFor ?? hasStagedPreviewSource;
-  const stubs = arr(diagrams?.embeddedImages).filter(isRenderableDiagramStub);
-  const folderItems = arr(diagrams?.linkedFolderItems);
+  // Explicit type argument: `diagrams` is a union of the parser's stub shape and the
+  // persisted shape, and the persisted entries carry the optional §4 variant fields.
+  // Inference across a union of arrays does not pick the supertype on its own.
+  const stubs = arr<PersistedEmbeddedImage>(diagrams?.embeddedImages).filter(
+    isRenderableDiagramStub,
+  );
+  const folderItems = arr<PersistedLinkedFolderItem>(diagrams?.linkedFolderItems);
   const folderHref = diagrams?.linkedFolder
     ? trustedDriveFolderHref((diagrams.linkedFolder as { driveFolderUrl?: unknown }).driveFolderUrl)
     : null;
@@ -4188,7 +4194,9 @@ export function ReportIssueSection({ data }: { data: StagedSectionData }) {
 export function hasDiagramSignal(
   diagrams: ParseResult["diagrams"] | PersistedDiagrams | null | undefined,
 ): boolean {
-  const count = arr(diagrams?.embeddedImages).length + arr(diagrams?.linkedFolderItems).length;
+  const count =
+    arr<PersistedEmbeddedImage>(diagrams?.embeddedImages).length +
+    arr<PersistedLinkedFolderItem>(diagrams?.linkedFolderItems).length;
   return diagrams != null && (diagrams.linkedFolder != null || count > 0);
 }
 
