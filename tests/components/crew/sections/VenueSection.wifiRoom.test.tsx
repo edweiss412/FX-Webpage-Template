@@ -191,6 +191,40 @@ describe("Wi-Fi split rows", () => {
     }
   });
 
+  /**
+   * Review R5. The R2 repair guarded the ssid only, so a sentinel `password` or
+   * `notes` was suppressed by FactRows AFTER the component had committed to the
+   * split — with the raw row gone, that text left the page entirely. Swept
+   * across every sentinel AND every derived field, because the earlier fix
+   * covered one field and the other two escaped for three rounds.
+   */
+  test("a sentinel in ANY derived field falls back to the raw row, losing nothing", () => {
+    const SENTINELS = ["TBD", "N/A", "TBA", "—"];
+    const shapes: ReadonlyArray<[string, (s: string) => string]> = [
+      ["ssid", (sentinel) => `SSID: ${sentinel}`],
+      ["password", (sentinel) => `SSID: Guest Password: ${sentinel}`],
+      ["notes", (sentinel) => `${sentinel}\nSSID: Guest`],
+    ];
+    premise("sentinels swept", SENTINELS.length, 0);
+    premise("derived fields swept", shapes.length, 2);
+
+    for (const [field, build] of shapes) {
+      for (const sentinel of SENTINELS) {
+        const raw = build(sentinel);
+        const container = renderVenue(withInternet(raw));
+        const label = `${field}/${sentinel}`;
+        // No split row claimed it...
+        expect(container.querySelector('[data-testid="venue-wifi-ssid"]'), label).toBeNull();
+        // ...and every line of the cell is still on the page, verbatim.
+        for (const line of raw.split("\n")) {
+          expect(container.textContent, `${label} lost ${JSON.stringify(line)}`).toContain(line);
+        }
+        expect(container.textContent, label).toContain("Crew Wi-Fi");
+        cleanup();
+      }
+    }
+  });
+
   test("an empty internet value renders no Wi-Fi row at all", () => {
     const container = renderVenue(withInternet(""));
     expect(container.querySelector('[data-testid="venue-wifi-ssid"]')).toBeNull();
@@ -353,8 +387,8 @@ const DOCUMENTED_ROW_GUARDS = [
   "parking",
   "roomName",
   "internet && wifi",
-  "wifi.password && !shouldHideGenericOptional(wifi.password)",
-  "wifi.notes && !shouldHideGenericOptional(wifi.notes)",
+  "wifi.password",
+  "wifi.notes",
   "internet",
   "power",
 ] as const;

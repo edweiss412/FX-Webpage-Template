@@ -175,7 +175,17 @@ export function VenueSection({
   // losing the cell entirely. Rejecting the split here returns it to the raw row,
   // which renders "SSID: TBD" verbatim.
   const splitWifi = internet !== null ? parseWifiValue(internet) : null;
-  const wifi = splitWifi !== null && !shouldHideGenericOptional(splitWifi.ssid) ? splitWifi : null;
+  // EVERY derived field is re-checked, not just the ssid. FactRows drops a
+  // sentinel row, so a sentinel `password` or `notes` used to be suppressed
+  // AFTER the component had committed to the split — the raw row was gone too,
+  // and that text left the page entirely. One sentinel anywhere returns the
+  // whole cell to the raw row, where it renders verbatim.
+  const splitHasSentinel =
+    splitWifi !== null &&
+    [splitWifi.ssid, splitWifi.password, splitWifi.notes].some(
+      (value) => value !== null && shouldHideGenericOptional(value),
+    );
+  const wifi = splitWifi !== null && !splitHasSentinel ? splitWifi : null;
   const rawPower = data.show.event_details["power"] ?? null;
   const power = shouldHideGenericOptional(rawPower) ? null : rawPower!.trim();
 
@@ -248,10 +258,10 @@ export function VenueSection({
       icon: <WifiIcon />,
       testId: "venue-wifi-ssid",
     });
-    if (wifi.password && !shouldHideGenericOptional(wifi.password)) {
+    if (wifi.password) {
       factRows.push({ k: "Wi-Fi password", v: wifi.password, testId: "venue-wifi-password" });
     }
-    if (wifi.notes && !shouldHideGenericOptional(wifi.notes)) {
+    if (wifi.notes) {
       // Labeled "Internet notes", NOT "Crew Wi-Fi" (impeccable critique P1): four
       // of the five corpus values that produce notes describe a HARDLINE, so
       // "Crew Wi-Fi: Hardline from Encore" tells a crew member the opposite of
