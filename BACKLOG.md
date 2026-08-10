@@ -423,7 +423,7 @@ Deleting one interior pipe — which is exactly how a merged cell exports to mar
 
 ### BL-ZERO-WIDTH-POST-PARSE-ENRICHMENT — zero-width text still reaches the PERSISTED payload through the sync/Drive enrichment layer
 
-**Status:** OPEN (2026-08-09, surfaced by codex-guard round 4 on `feat/mutation-unicode`, PR #736) · **Severity:** medium · **Class:** PARSER ROBUSTNESS / SYNC · **Effort:** M
+**Status:** IN PROGRESS (2026-08-09, surfaced by codex-guard round 4 on `feat/mutation-unicode`, PR #736) · **Severity:** medium · **Class:** PARSER ROBUSTNESS / SYNC · **Effort:** M · **Branch:** feat/m2-payload-hygiene
 
 The parser-side hole is closed: `parseSheet` strips `[\u200B-\u200D\uFEFF]` from both of its inputs, so nothing invisible survives a parse. But `ParsedSheet` is not finished when `parseSheet` returns. The sync layer attaches Drive-derived fields afterwards (`lib/parser/index.ts` header: those fields are "NEVER populated here"), and every one of them carries author-controlled text that no boundary strips:
 
@@ -449,7 +449,7 @@ This is the SAME consequence the wave exists to remove — invisible characters 
 
 ### BL-MUTATION-DRIFT-TRIAGE — mechanism-triage the 143 ledger rows re-kinded to `text_drift`
 
-**Status:** OPEN (2026-08-09, created by the warning-shape amendment ratified for `feat/mutation-ref-sub`) · **Severity:** low · **Class:** CI / LEDGER HYGIENE · **Effort:** M
+**Status:** IN PROGRESS (2026-08-09, created by the warning-shape amendment ratified for `feat/mutation-ref-sub`) · **Severity:** low · **Class:** CI / LEDGER HYGIENE · **Effort:** M · **Branch:** feat/m2-payload-hygiene
 
 The mutation harness gained a verdict class. `SIGNAL_TEXT_DRIFT` (payload equal, every code count exactly preserved, only a warning's human-readable text moved) is now distinct from `SILENT_SIGNAL_LOSS` (the parser genuinely went quieter), which stays never-deferrable. Spec: `docs/superpowers/specs/parser/2026-08-09-warning-shape-mutation-stability.md` §11.
 
