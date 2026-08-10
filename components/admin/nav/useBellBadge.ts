@@ -69,7 +69,10 @@ export function useBellBadge(
   // admin-nav-badge-streaming §3.2 virgin-state rule — see the twin comment in
   // useNeedsAttentionBadge.ts. Set when a source COMMITS and when a fetch
   // STARTS; a seed resolving after any of that is stale by construction.
-  const claimedRef = useRef(false);
+  // Starts CLAIMED when the caller hands over a synchronous result — see the twin
+  // comment in useNeedsAttentionBadge.ts (diff review R2 F1). `null` is the
+  // pending shape and claims nothing.
+  const claimedRef = useRef(initial !== null);
   // See the twin comment in useNeedsAttentionBadge.ts: identity compare, not a
   // first-run flag, because StrictMode replays mount effects and a replay is
   // not a prop change.

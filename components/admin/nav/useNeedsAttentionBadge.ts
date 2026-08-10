@@ -35,7 +35,10 @@ export function useNeedsAttentionBadge(
   // ingesting a seed mid-flight would abort the very refetch that navigation
   // issued (see the abort in ingestPropValue), stranding the badge on the stale
   // seed value with nothing left to correct it.
-  const claimedRef = useRef(false);
+  // Starts CLAIMED when the caller hands over a synchronous count: that value has
+  // already committed, and a seed minted by the same server render is not newer
+  // than it. `null` is the pending shape, which claims nothing (diff review R2 F1).
+  const claimedRef = useRef(initialBadgeCount !== null);
   // The prop value this effect has already accounted for. Initialized to the
   // MOUNT prop, which `useState` above already holds — so the mount run, and
   // any later run that sees an unchanged prop, commits nothing.

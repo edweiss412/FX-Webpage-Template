@@ -8,6 +8,31 @@ Same split as [DEFERRED.md](./DEFERRED.md) ↔ [DEFERRED-archive.md](./DEFERRED-
 
 ---
 
+### BL-ADMIN-NAV-BADGE-SUSPENSE-STREAMING — stream the admin nav badge counts out of the blocking layout
+
+**Status:** SHIPPED 2026-08-10 — `feat/admin-nav-badge-suspense` (PR #768). **The GOAL shipped; the entry's named MECHANISM was rejected on evidence and must not be revived from this text.**
+
+Spec `docs/superpowers/specs/nav-perf/2026-08-09-admin-nav-badge-suspense-design.md`, plan `docs/superpowers/plans/2026-08-09-admin-nav-badge-suspense.md`.
+
+What shipped: `app/admin/layout.tsx` issues `loadBellUnseenCount` and `loadNeedsAttentionCount` without awaiting and passes their PROMISES into the client tree; `useBellBadge` and `useNeedsAttentionBadge` each gained one arm that commits a resolved promise through the hook's existing prop-ingestion path, guarded by promise identity and a virgin-state rule. The nav chrome now paints on the identity/health wall-time and each count arrives when its read lands. The onboarding early-return also stopped paying for two reads it discarded.
+
+**Two premises in the row below were FALSE and are corrected here rather than preserved:**
+
+1. _"the repo has zero `<Suspense>` precedent"_ — stale when written. Real boundaries already shipped in the admin tree (`app/admin/page.tsx`, `app/admin/dev/telemetry/page.tsx`, `app/admin/dev/telemetry-dim/page.tsx`).
+2. _`<Suspense>` is the mechanism_ — REJECTED on evidence, not on cost. The resolved counts drive behavior far outside any leaf (the bell's trigger branch, the parent link's count-aware `aria-label`, `zeroNow()` firing before resolution), so nothing on this surface may suspend; and a pre-mount navigation would initialize `lastPathRef` on the destination and silently skip the first refetch. Spec §3.2 "Why the hooks own the pending state" is the record. **Do not re-file this as a Suspense task.**
+
+Original entry text, preserved verbatim for provenance:
+
+> ### BL-ADMIN-NAV-BADGE-SUSPENSE-STREAMING — stream the admin nav badge counts via `<Suspense>` instead of blocking layout
+>
+> **Status:** OPEN · **Effort:** M
+>
+> **Filed:** 2026-06-23 (nav-perf Phase 2 — the descoped half of E). Phase 2's E-lite parallelized the admin layout's two badge reads (`Promise.all`), so first `/admin` entry blocks on one wall-time instead of three sequential round-trips. The further win is to stream the badges entirely OUT of the blocking layout path via `<Suspense>` so the nav chrome paints immediately and the counts arrive after.
+>
+> **Why backlog, not now:** `components/admin/nav/AdminNav.tsx` is a `"use client"` component with a stateful refetch hook (`useNeedsAttentionBadge`), and the repo has **zero `<Suspense>` precedent** — streaming needs a server-child + slot bridge (refactor AdminNav's prop/slot contract) for a first-`/admin`-entry-only gain (the layout is reused across sibling navs, so its awaits don't re-run per nav). Invasive relative to the payoff.
+>
+> **Promotion prerequisite:** an established `<Suspense>` streaming pattern in the codebase + an AdminNav slot refactor that lets the badge counts arrive as a streamed server child without breaking the client-side pathname-refetch hook.
+
 ### BL-RESURRECT-MOBILE-SAFARI-E2E — lift the remaining mobile-safari tile/crew specs into CI
 
 **Filed:** 2026-06-23 (discovered building the crew-e2e CI job). **Effort:** L

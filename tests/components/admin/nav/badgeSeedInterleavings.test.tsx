@@ -215,6 +215,54 @@ describe("StrictMode effect replay does not claim either hook", () => {
   });
 });
 
+/**
+ * A caller may hand a hook BOTH a synchronous count and a seed promise. The
+ * layout does not (it passes promises only), but the props are independent and
+ * AdminNav accepts both — and a synchronous count is a value that has already
+ * COMMITTED. A seed created by the same server render is not newer than it, so
+ * it must not overwrite it: the hook starts claimed whenever its initial prop
+ * carries a real value, and the seed then takes the non-virgin path.
+ *
+ * Diff review R2 F1. Both fetches are left hanging, so "no stale paint" cannot
+ * be satisfied by a corrective fetch landing.
+ */
+describe("a synchronous initial value claims the hook (R2 F1)", () => {
+  it("attention: a later seed never overwrites a synchronous initial count", async () => {
+    attentionCountsInOrder(); // any demoted fetch hangs
+    const seed = deferred<NeedsAttentionCountResult>();
+    const paints: (number | null)[] = [];
+    function Probe() {
+      paints.push(useNeedsAttentionBadge(5, seed.promise));
+      return null;
+    }
+    render(<Probe />);
+    expect(paints.at(-1)).toBe(5);
+
+    await settle(() => seed.resolve({ kind: "ok", count: 1 }));
+
+    expect(paints).not.toContain(1);
+    expect(paints.at(-1)).toBe(5);
+  });
+
+  it("bell: a later seed never overwrites a synchronous initial count", async () => {
+    bellCountsInOrder(); // any demoted fetch hangs
+    const seed = deferred<BellCountResult>();
+    const paints: BellFrame[] = [];
+    function Probe() {
+      const bell = useBellBadge({ kind: "ok", count: 5 }, seed.promise);
+      paints.push({ count: bell.count, degraded: bell.degraded });
+      return null;
+    }
+    render(<Probe />);
+    expect(paints.at(-1)).toEqual({ count: 5, degraded: false });
+
+    await settle(() => seed.resolve({ kind: "ok", count: 1 }));
+
+    expect(paints.map((f) => f.count)).not.toContain(1);
+    expect(paints.at(-1)?.count).toBe(5);
+  });
+});
+
 describe("useNeedsAttentionBadge — async seed arm (AC-3, AC-5)", () => {
   it("mounts in the pending shape (null) while the seed is unresolved", () => {
     const seed = deferred<NeedsAttentionCountResult>();
