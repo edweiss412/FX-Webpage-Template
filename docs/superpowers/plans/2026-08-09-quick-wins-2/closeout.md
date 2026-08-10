@@ -200,3 +200,38 @@ rg -n 'TEST_DATABASE_URL \?\?' tests/e2e/helpers --glob '*.ts'
 ```
 
 Three hits, all prose inside comments describing the removed pattern (`psqlTarget.ts:9`, `lockedCrewRestriction.ts:53`, `devCaptureStaged.ts:42`). Zero live module-load captures remain; both in-class helpers consume the one shared resolver through every DSN entry point.
+
+### §12.1i — round 9 (BLOCKING, 1 finding) and its repair
+
+**R9-1 (BLOCKING).** The R7 accept-set was still GATED by a regex recognizing
+named `gap-*` utilities, so `has-[:hover]:[gap:0px]` was never offered to it —
+along with `[column-gap:…]`, `[row-gap:…]` and the legacy `grid-*` aliases. The
+mounted HelpSheet case had no state refusal at all, so an ordinary `hover:gap-0`
+on the real header passed at its resting measurement. Reviewer's probe:
+`has-[:hover]:gap-0 refused=true`, `md:gap-3 refused=false`,
+`has-[:hover]:[gap:0px] refused=false`.
+
+**Repair.** Nothing recognizes a Tailwind spelling any more. For each class
+token, `gapTokensNotSettledByWidth` finds the rule the engine EMITTED and reads
+the property names off the declaration; a token is a gap token iff the browser
+says its rule sets a gap property. Variant splitting is bracket-aware (`has-
+[:hover]:[gap:0px]` has two structural colons among four). The same procedure now
+also runs against the mounted header's live class string.
+
+**The repair's first version was wrong, and its own probe caught it.** Tailwind
+v4 emits variants as native nesting — `.hover\:gap-0 { &:hover { gap: … } }` —
+so the rule whose selector matches the class carries ZERO declarations. Reading
+only that rule found nothing and classified every state-conditioned gap as
+harmless: the entire population the check exists to catch. It now reads the
+matched rule's whole subtree. What exposed it was probing BOTH failure
+directions plus a control — an over-refusing check and a never-refusing check
+are indistinguishable from a single-direction probe.
+
+**Probe, four arms, all against the shipped code:**
+
+| arm | plant | expected | observed |
+| --- | --- | --- | --- |
+| 1 | none | whole spec green | `56 passed` |
+| 2 | `has-[:hover]:[gap:0px]` on the Step3Review pin | refused | `premise not met … (unexercisable: has-[:hover]:[gap:0px])` |
+| 3 | `md:gap-3` on the same pin | NOT refused | `1 passed` |
+| 4 | `hover:gap-0` on the mounted HelpSheet header | refused | `premise not met … (unexercisable: hover:gap-0)`, all 4 viewports |

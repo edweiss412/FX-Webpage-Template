@@ -1621,6 +1621,117 @@ const EXPANSION_BAND_PER_SIDE = (TAP_MIN - VISUAL_PILL) / 2;
  * call site, never a pass. A className built from a template or a variable is
  * unreadable from source, so this refuses to vouch for it.
  */
+/**
+ * The tokens in `className` that AFFECT A GAP but are conditioned on something
+ * this suite's viewport sweep cannot settle.
+ *
+ * Two inversions live here, and they are different from each other.
+ *
+ * WHICH VARIANTS ARE OK is an ACCEPT-SET (review R7). The first version listed
+ * pseudo-state prefixes to refuse; `has-[:hover]:gap-0` walked straight through
+ * it, because arbitrary variants are an open set. The sweep only resizes the
+ * viewport, so only width variants can be settled — every other variant is
+ * refused, INCLUDING spellings nobody has written yet, since they are not on
+ * the accept-list either.
+ *
+ * WHICH TOKENS ARE GAPS is decided BY THE COMPILED STYLESHEET (review R9). That
+ * accept-set was still guarded by a regex recognizing named `gap-*` utilities,
+ * so `has-[:hover]:[gap:0px]` was never even offered to it — along with
+ * `[column-gap:…]`, `[row-gap:…]` and the legacy `grid-*` aliases. Recognizing
+ * Tailwind spellings is the exact defect this file already deleted twice. So
+ * nothing here recognizes anything: it finds the rule the engine EMITTED for
+ * each class and reads the property names off the declaration. A token is a gap
+ * token iff the browser says its rule sets a gap property, whatever it is spelt
+ * like, and a token the compiler never emitted sets nothing and is correctly
+ * ignored.
+ *
+ * Variant splitting is bracket-aware for the same reason: `has-[:hover]:[gap:0px]`
+ * splits on the TWO structural colons, not on the four a naive `split(":")` sees.
+ */
+async function gapTokensNotSettledByWidth(page: Page, className: string): Promise<string[]> {
+  return page.evaluate((cls) => {
+    const VIEWPORT_VARIANT =
+      /^(?:sm|md|lg|xl|2xl|min-\[[^\]]+\]|max-\[[^\]]+\]|max-(?:sm|md|lg|xl|2xl))$/;
+
+    const variantsOf = (token: string): string[] => {
+      const parts: string[] = [];
+      let depth = 0;
+      let current = "";
+      for (const ch of token) {
+        if (ch === "[" || ch === "(") depth += 1;
+        else if (ch === "]" || ch === ")") depth -= 1;
+        if (ch === ":" && depth === 0) {
+          parts.push(current);
+          current = "";
+          continue;
+        }
+        current += ch;
+      }
+      parts.push(current);
+      return parts.slice(0, -1);
+    };
+
+    // The class's own emitted rule, matched on the escaped selector with a
+    // right boundary so `.gap-2` never claims `.gap-24`'s declarations.
+    //
+    // The declarations are read from the matched rule AND ITS WHOLE SUBTREE,
+    // because Tailwind v4 emits variants as native CSS nesting: `hover:gap-0`
+    // compiles to `.hover\:gap-0 { &:hover { gap: … } }`, whose OUTER rule
+    // carries zero declarations. A first version read only the outer rule's
+    // `style`, found nothing, and reported every state-conditioned gap as "not
+    // a gap class" — the precise silence it exists to break. Its own probe
+    // caught it: `has-[:hover]:[gap:0px]` and `hover:gap-0` were both waved
+    // through. The nested rules are where the declaration actually lives.
+    const gapInSubtree = (rule: CSSRule): boolean => {
+      const style = (rule as CSSStyleRule).style;
+      if (style) {
+        for (let i = 0; i < style.length; i += 1) {
+          if (/gap/.test(style.item(i))) return true;
+        }
+      }
+      const kids = (rule as CSSGroupingRule).cssRules;
+      if (kids) {
+        for (const kid of Array.from(kids)) {
+          if (gapInSubtree(kid)) return true;
+        }
+      }
+      return false;
+    };
+
+    const declaresGap = (token: string): boolean => {
+      const escaped = CSS.escape(token).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const needle = new RegExp(`\\.${escaped}(?![A-Za-z0-9_-])`);
+      const visit = (rules: CSSRuleList): boolean => {
+        for (const rule of Array.from(rules)) {
+          const selector = (rule as CSSStyleRule).selectorText;
+          if (typeof selector === "string" && needle.test(selector) && gapInSubtree(rule)) {
+            return true;
+          }
+          // Descend regardless: the matching rule can sit inside an `@media`,
+          // `@layer` or `@supports` wrapper.
+          const kids = (rule as CSSGroupingRule).cssRules;
+          if (kids && visit(kids)) return true;
+        }
+        return false;
+      };
+      for (const sheet of Array.from(document.styleSheets)) {
+        try {
+          if (visit(sheet.cssRules)) return true;
+        } catch {
+          // Cross-origin sheet: unreadable, and never one of ours.
+        }
+      }
+      return false;
+    };
+
+    return cls
+      .split(/\s+/)
+      .filter((token) => token.length > 0)
+      .filter(declaresGap)
+      .filter((token) => variantsOf(token).some((v) => !VIEWPORT_VARIANT.test(v)));
+  }, className);
+}
+
 function immediateParentClassOf(relPath: string, testId: string): string | null {
   const source = readFileSync(join(REPO_ROOT, relPath), "utf8");
   const sourceFile = ts.createSourceFile(
@@ -1721,41 +1832,22 @@ test.describe("§2.7 — the 8px expansion band cannot reach an interactive neig
       );
       const className = classText as string;
 
-      // WHICH VARIANTS THIS PROBE CAN ACTUALLY EXERCISE — an ACCEPT-SET, not a
-      // list of states to refuse.
-      //
-      // The first version enumerated pseudo-state prefixes (`hover`, `focus`,
-      // `group-*`, …) and refused those. Review R7 drove `has-[:hover]:gap-0`
-      // straight through it: Tailwind emits `&:has(*:is(:hover))`, the hidden
-      // unhovered probe measures the base gap, and the pin passes while the real
-      // container collapses to `gap-0` whenever a child is hovered. Enumerating
-      // spellings does not terminate — arbitrary variants are an open set — which
-      // is the same lesson the gap RECOGNIZER taught two rounds earlier.
-      //
-      // So the question is inverted. The sweep below resizes the viewport, so the
-      // only variants it can settle are the ones a width change triggers. Every
-      // OTHER variant on a gap utility is state-conditioned as far as this probe
-      // is concerned, and is REFUSED — including variants nobody has written yet,
-      // because they are not on the list either.
-      const VIEWPORT_VARIANTS =
-        /^(?:sm|md|lg|xl|2xl|min-\[[^\]]+\]|max-\[[^\]]+\]|max-(?:sm|md|lg|xl|2xl))$/;
-      const unexercisable = className
-        .split(/\s+/)
-        .filter((t) => /(?::)gap(?:-[xy])?-/.test(t))
-        .filter((t) => {
-          const variants = t.split(":").slice(0, -1);
-          return variants.some((v) => !VIEWPORT_VARIANTS.test(v));
-        });
+      await boot(page, VIEWPORTS[0]);
+
+      // WHICH GAP VARIANTS THIS PROBE CAN ACTUALLY SETTLE. Both halves — which
+      // tokens are gaps, and which variants are exercisable — are decided by the
+      // engine and an accept-set rather than by recognizing spellings; see
+      // `gapTokensNotSettledByWidth`. Runs after `boot` because it reads the
+      // COMPILED stylesheet, which is the whole point.
+      const unexercisable = await gapTokensNotSettledByWidth(page, className);
       premiseHolds(
-        `${pin.label}: every gap variant on this container is one the viewport sweep can ` +
-          `exercise (unexercisable: ${unexercisable.join(", ") || "none"}). A gap conditioned on ` +
+        `${pin.label}: every gap-setting class on this container is one the viewport sweep can ` +
+          `settle (unexercisable: ${unexercisable.join(", ") || "none"}). A gap conditioned on ` +
           `anything but width — hover, focus, group/peer state, an arbitrary \`has-[…]\` variant — ` +
           `cannot be settled by a hidden probe, so it is refused rather than measured at its ` +
           `resting value.`,
         unexercisable.length === 0,
       );
-
-      await boot(page, VIEWPORTS[0]);
 
       // EVERY declared viewport, because a gap that collapses in the MIDDLE of
       // the range is invisible to endpoint sampling: `gap-2 min-[720px]:gap-0
@@ -1823,6 +1915,24 @@ test.describe("§2.7 — the 8px expansion band cannot reach an interactive neig
     }) => {
       await boot(page, width);
       await openHelpSheet(page);
+
+      // The MEASURED path needs the same refusal as the static pins, and did not
+      // have it (review R9): this case reads the header at its RESTING state, so
+      // an ordinary `hover:gap-0` on the real element measures the base gap and
+      // passes while the live container collapses under the pointer. Same
+      // decision procedure, applied to the class string the mounted element
+      // actually carries.
+      const headerClassName = await page
+        .locator('[data-testid="help-sheet-body"] > header')
+        .evaluate((el) => el.className);
+      const unexercisable = await gapTokensNotSettledByWidth(page, headerClassName);
+      premiseHolds(
+        `the mounted HelpSheet header's gap classes are all settled by width (unexercisable: ` +
+          `${unexercisable.join(", ") || "none"}). A gap conditioned on hover, focus, group/peer ` +
+          `state or an arbitrary \`has-[…]\` variant is not measurable at rest, so it is refused ` +
+          `rather than read at its resting value.`,
+        unexercisable.length === 0,
+      );
 
       // Re-queried AFTER the open (detach-safety): the header does not exist in
       // the pre-click DOM at all.
