@@ -169,7 +169,8 @@ Meta line: **Severity:** LOW (tooling; no product surface) · **Class:** review-
 (tooling) · **Filed:** 2026-08-09 (round-economy followups-2, promotion P1) · **Effort:** M ·
 **Reachability:** PROBED via three merged filings — quick-wins-2 plan R1 (four of fourteen
 findings were `red=` commands that already exit 0), classname plan R3-F5/R4-F1/R5-F1
-(never-red-by-construction across three rounds), resurrect-mobile-safari plan (three rounds of
+(cycle-breaker markers across three rounds — two never observably red, one whose command
+never goes green), resurrect-mobile-safari plan (three rounds of
 gate commands exiting 0 on the failure they name).
 
 Description: extend `spec:lint`'s declared-task-contract arm (`pnpm spec:lint`,
