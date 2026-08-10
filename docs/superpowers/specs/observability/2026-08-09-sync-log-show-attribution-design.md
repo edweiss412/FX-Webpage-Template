@@ -257,81 +257,15 @@ Both operate on committed existing shows, so their outcomes are attributable and
 
 Two comments in `app/admin/show/[slug]/_actions/useRaw.ts:162` and `app/admin/show/[slug]/_actions/useRaw.ts:173` assert that logging already happens here. They are wrong today and must be corrected with the wiring, or they will re-mislead the next reader exactly as they misled this spec.
 
-### 3.6 Attribution meta-test (the structural defense)
+### 3.6 Attribution meta-test — DESCOPED to its own change
 
-Three findings across rounds 1 and 2 were instances of one vector — *a `sync_log` row that could name its show does not*: the onboarding sink never resolved it (R1 F2), three row classes were misfiled as unattributable (R1 F7), and seven onboarding callers drop an available `driveFileId` (R2 F1). Each was repaired per-instance. `docs/agents/writing-plans.md` is explicit that this is the stopping point: *"if the class is already nameable at FIRST occurrence, ship the structural defense in the FIRST repair commit"*, because *"the 3-round same-vector threshold is a ceiling, not a waiting period."*
+The structural guard that would enforce §3.2's rule at CI time is **not part of this change**. It is filed as `BL-SYNC-LOG-ATTRIBUTION-METATEST` with its full design.
 
-**The attribution check applies ONLY to inline object literals.** Measured against the live tree: 37 writer call sites, 12 non-attributing, of which **three are false positives** — `lib/sync/runPushSyncForShow.ts:246` (`logSync(logEntry)`), `lib/sync/runScheduledCronSync.ts:2250` (`deps.logSync?.(entry)`), and `lib/sync/syncLog.ts:54` (the factory construction). Each passes a variable or is a construction, so a text match on the call source cannot see a drive file id that is present.
+**Why.** Its *definition* — accept-set, marker vocabulary, emission-vs-construction boundary — consumed spec review rounds 11, 12 and 13 plus two self-found findings, with each repair introducing the next round's edge case. That is the negative-marginal-value pattern the three-round prose cap describes (`docs/agents/spec-self-review.md:22`), and the documented response is to descope the vector rather than patch it further. The rule's own corpus note observes that every long arc it diagnosed had cited a rule that existed and went unapplied — including that cap.
 
-So the check flags a call only when its argument is an **inline object literal lacking a drive-file-id property** — decidable locally, still catching all seven target sites (which are `{ code: … }` literals), and dropping all three false positives. A variable argument is a DOCUMENTED LIMIT, not a finding. Narrowing the claim beats widening the recognizer: a guard with false positives trains contributors to add exemptions reflexively, and then it is decoration rather than a control.
+**What this costs, stated honestly.** The repairs in this change are correct without the guard; what is deferred is *regression prevention*. A future call site can reintroduce the defect and nothing will fail. That is a real gap, and it is why the entry is filed as ready-to-implement with no promotion prerequisite rather than as a nice-to-have.
 
-A NEW meta-suite under `tests/sync/` (named `_metaSyncLogAttribution`, created by this change, so it is a deliverable rather than a citation) walks every call site reaching a `sync_log` writer **from disk** and requires each to be in exactly one of **three** states.
-
-(R11 F2: an earlier revision said *two* here while §6.2 introduced a third. Implementing the two-state list literally would reject every legitimate gap marker; implementing the later claim would contradict "exactly one". The oracle was underspecified at exactly the point round 10 extended it, so the count is stated once, here, and §6.2 refers to it rather than restating it.)
-
-The three:
-
-1. **Attributing** — the call passes a `drive_file_id`; or
-2. **Exempted at the site as run-level** — an inline `// run-level-sync-log: <reason>` marker on or immediately above the call, asserting *no show is knowable there*; or
-3. **Marked as a filed emission gap** — an inline `// sync-log-emission-gap: <BL-id>` marker, asserting *the attempt is not emitted at all and the gap is filed* (§6.2).
-
-**Exemption is site-precise, never a file-level registry.** A file-scoped row for `lib/sync/runOnboardingScan.ts` — which legitimately needs one for its run-level readiness emit at `lib/sync/runOnboardingScan.ts:1134` — would exempt the seven superseded sites in that same file, i.e. exactly the sites this guard exists to catch. An exemption's granularity must be at least as fine as the defect's, and the file needing the exemption is usually the file holding the instances, because both come from one subsystem. Same shape as invariant 10's `// no-telemetry: <reason>`, and it does not rot when lines move.
-
-**Markers 2 and 3 are distinct on purpose.** Run-level asserts no show is knowable; the gap marker asserts the attempt is unemitted and filed. A staged apply knows its show perfectly well, so collapsing them would encode a deferred repair as a design property and leave no way to tell a genuine run-level site from one waiting on a filing.
-
-Filesystem discovery is the load-bearing part: a NEW call site fails by default rather than being silently exempt. Same posture as `tests/log/_metaMutationSurfaceObservability.test.ts` (invariant 10). Mechanism: `walkSourceFiles` (`lib/messages/__internal__/walkSourceFiles.ts:8-11`) plus the TypeScript AST, exactly as that precedent uses them.
-
-**This is the oracle for the caller class**, which no DB scenario can cover: the seven superseded branches are mutually exclusive, so a behavioral test reaches one per scenario (§5, R3 F1).
-
-**Recognized writers — derived from the module's exports, not hand-listed (R4 F4).** An earlier draft enumerated call shapes and omitted the two canonical exported writers, `writeSyncLog` and `makePostgresSyncLogSink` (`lib/sync/syncLog.ts:39`, `lib/sync/syncLog.ts:51`). That is not a hypothetical gap: `app/api/cron/sync/route.ts:4` imports `writeSyncLog` and `app/api/cron/sync/route.ts:21` wires it as `logSync: writeSyncLog`, so an ordinary direct `writeSyncLog({ driveFileId: null, … })` call — no aliasing, no obfuscation — evaded both the recognizer and the registry.
-
-The recognizer is therefore derived: **every exported symbol of `lib/sync/syncLog.ts`, plus the `logSync`/`insertSyncLog` method and callback forms, plus any literal `insert into public.sync_log`.** Deriving from the module's export list rather than a hand-kept list is the same "derive a cover, don't enumerate" rule the class-sweep discipline requires, and it is what makes a future writer covered by default.
-
-**Roots:** `lib`, `app/api`, and `app/admin`. R5 F2: the earlier narrow list omitted `app/admin` and `app/api/admin`, where all six manual entry points live, and an assertion over scanned roots cannot discover a writer in an unscanned root.
-
-**Writer grammar — three shapes the export-derived list alone misses (R5 F2):**
-
-- **The PostgREST idiom.** `.from("sync_log").insert(...)` is an established repository write form (`lib/log/persist.ts:16`) and is not an exported `syncLog.ts` symbol, a `logSync`/`insertSyncLog` call, or a SQL literal. Recognized explicitly.
-- **Schema-unqualified SQL.** `insert into sync_log` is ordinary valid SQL and falls outside an `insert into public.sync_log` literal match. The pattern accepts an optional `public.` qualifier.
-- **The factory boundary.** `makePostgresSyncLogSink` takes `sql` and RETURNS the emitter (`lib/sync/syncLog.ts:39-48`); the emitting invocation is the returned binding's call (`lib/sync/syncLog.ts:54`), whose callee is a call expression rather than a name. Deriving names from exports alone therefore inspects the wrong call boundary — classifying the construction as an emission and missing the entry-bearing call. The rule must match the shape actually present. The **only** production factory invocation is `makePostgresSyncLogSink(sql)(entry)` (`lib/sync/syncLog.ts:54`) — immediately invoked, with **no binding and no assignment**, so a rule phrased as "track the binding it is assigned to" matches nothing (R6 F2). The recognizer instead treats a call whose *callee is itself a call* to a known factory as the emission: for `f(a)(b)`, the outer `CallExpression` is the emitting site and the inner one is construction. A bound form (`const sink = makeX(sql); sink(entry)`) is handled by the same rule via the binding, but the immediately-invoked form is the one that exists and therefore the one the rule is written against. Roots are asserted against the derived writer set — a writer reachable from a root not scanned is itself a failure, so the two cannot drift apart silently.
-
-**Scope bound, stated so it cannot ratchet.** Target ~150 lines. If review pressure pushes it past ~250, that is the ratchet the round-economy retrospective describes, and the response is to narrow the claim rather than widen the recognizer.
-
-**The entry-point rule keys on the IMPORT, not the call name (R7 F1).** All four indirect sinkless paths call through a local alias rather than a syntactically named export: `catchUp` in `lib/showLifecycle/unarchiveShow.ts:24-32`, `runSync` in `app/api/admin/show/pull-sheet-override/route.ts:135`, and dependency-object properties at `app/api/admin/pending-ingestions/[id]/retry/route.ts:211-215` and `app/api/admin/pending-ingestions/[id]/retry/route.ts:216-220`. A recognizer matching callee names finds none of them.
-
-So the rule is: **every CALL to an imported sync entry point must supply a sink, or carry a site exemption.** Per call, not per file (R8 F2): `app/api/admin/pending-ingestions/[id]/retry/route.ts` imports two entry points and calls them at `app/api/admin/pending-ingestions/[id]/retry/route.ts:427-433` and `app/api/admin/pending-ingestions/[id]/retry/route.ts:488`, so a file-existential rule is satisfied by wiring either one — and wiring only the fenced existing-show call would leave the working first-seen call silent. The import is what makes the callee *identifiable* through an alias; the obligation attaches to each call. The entry-point seed set needs an accept-set, because unlike `lib/sync/syncLog.ts` — whose exports are all writers — the manual-sync modules export non-runners too (`readFinalizeOwnershipGuard_unlocked` alongside `runManualSyncForShow` and `runManualSyncForShow_unlocked`), and seeding on every export would make `lib/sync/unpublishShow.ts:9` a false positive for importing a guard (R8 F3).
-
-**Accept-set, keyed on the SINK PARAMETER, not on transitive reachability (R13 F1).** An exported function is a sync entry point iff **its own signature accepts a dependency object that can carry `logSync`**.
-
-Transitive reachability was wrong, and wrong in a way that has no stopping condition: `unarchiveShow` calls `runManualSyncForShow`, which reaches a writer, so `unarchiveShow` became an entry point, so the call at `app/admin/show/[slug]/_actions/unarchive.ts:34` had to supply a sink — and so on up the call graph indefinitely. Worse, no disposition there is truthful: the show is known, the attempt is real, and once the sink is wired into `unarchiveShow` itself (Task 3c) the attempt **is** emitted. The guard was unsatisfiable against a correct production call.
-
-Keying on the parameter fixes it structurally and terminates by construction. `unarchiveShow`'s own `deps?: { rpc?, runManualSyncForShow? }` carries no `logSync`, so it is not an entry point — it is a *caller* of one, and its obligation is to pass a sink inward, which is exactly what Task 3c does. Callers of `unarchiveShow` inherit nothing, because the sink is already installed below them.
-
-The rule reads: **a call to a function whose signature accepts a sink must supply one, or carry a site marker.** One level, decidable from the callee's signature, no graph walk.
-
-**A signature that cannot carry a sink is a defect to repair, not a reason to exclude the path.** `RunManualStageForFirstSeenDeps` (`lib/sync/runManualStageForFirstSeen.ts:52-62`) carries `upsertAdminAlert` and `publishShowInvalidation` but **no `logSync`** — so read naively, the signature-keyed rule would exclude the very path §6.2 shows needs a sink. That inverts the rule into an excuse.
-
-So the deliverable widens the type: `RunManualStageForFirstSeenDeps` gains `logSync?: ProcessOneFileDeps["logSync"]`, after which the accept-set admits it and its callers owe a sink like everyone else. The general form: **when the accept-set excludes a path that demonstrably reaches a writer, the signature is wrong and the repair widens it** — the alternative is a rule that quietly launders missing plumbing into "not an entry point".
-
-**The derivation is function-granular, and that is a DOCUMENTED LIMIT (R12 F2).** It cannot see branch conditions: `applyStaged` reaches a writer on its live branch, so the rule admits *every* call to it — including the wizard call, which fixes `sourceScope: "wizard"` and cannot reach that branch. Making the derivation branch-aware would mean tracking a literal argument through a callee's control flow, which is a data-flow analysis this guard deliberately does not attempt.
-
-The consequence is handled at the site rather than in the recognizer: a call the rule admits but that cannot produce an attributable attempt carries `// sync-log-no-attempt: <reason>` — a marker distinct from `run-level-sync-log`, which keeps its original single meaning: *no show is knowable at this site*.
-
-**Three markers, three disjoint claims (R13 F2 — an earlier revision gave `run-level-sync-log` two incompatible meanings across §3.6 and §6.2):**
-
-| Marker | Claim |
-| --- | --- |
-| `run-level-sync-log: <reason>` | No show is knowable here (the entry has no `drive_file_id`). |
-| `sync-log-no-attempt: <reason>` | A show may well be knowable, but this call reaches no sync attempt — e.g. the wizard `applyStaged` call, which passes a concrete `driveFileId` yet routes to the wizard branch. |
-| `sync-log-emission-gap: <BL-id>` | An attempt happens and is not emitted; the gap is filed. |
-
-Each says something a reader can check, and none can be substituted for another. The wizard route takes the second, not the first — it does pass a `driveFileId` (`app/api/admin/onboarding/staged/[wizardSessionId]/[driveFileId]/apply/route.ts:153-171`), so claiming no show is knowable would be false. Naming `processOneFile`/`processOneFile_unlocked` was too narrow (R9 F1): `runManualStageForFirstSeen` reaches neither — it calls `emitSuccessfulPhase2Tail` directly (`lib/sync/runManualStageForFirstSeen.ts:147`) — so the per-call rule would have missed the production call at `app/api/admin/pending-ingestions/[id]/retry/route.ts:488`, contradicting §6.2's promise that manual paths receive a sink.
-
-Defining the accept-set against the writer set rather than against two hand-picked function names also makes the two derivations one: an entry point is anything that can cause a write, which is the property the rule actually cares about. That is decidable from the module's own AST and does not depend on a naming convention, so a future runner is seeded automatically while a guard or accessor never is. Anything the derivation admits that is not a runner is a bug in the derivation, reported by name rather than silently included. Import presence is a file-local fact, so no interprocedural alias resolution is needed — the direct importer is always in a scanned root and is the correct site to name.
-
-**Threat model — corrected (R7 F1).** An earlier draft fenced "an aliased import" out as obfuscation. That was wrong, and it contradicted the rule above: an import alias and a DI-default binding are ordinary authoring, and they are the shape every real sinkless path uses. They are **in** scope and are covered by keying on the import. What remains out of scope is a writer or entry point reached with **no import at all** — a dynamically computed module specifier, or a callee assembled at runtime — which files to documented limits.
-
-**Seed registry** — exactly the rows §3.2 derives: `lib/sync/runScheduledCronSync.ts:3780`, `lib/sync/runScheduledCronSync.ts:3796`, the four `lib/onboarding/sessionLifecycle.ts` sites, `lib/sync/runOnboardingScan.ts:1134`, and `app/api/drive/webhook/route.ts:224`. The `app/api/cron/sync/route.ts:21` wiring is a *dependency injection*, not an emission, and is covered by the sites inside `runScheduledCronSync` that it drives — the meta-test must distinguish the two, or every injection site becomes a false positive.
+**What this change still ships:** every repair the guard would have policed — the sink resolution at all three writers (§3.1), the caller fixes at the seven superseded sites and the eight sinkless entry points (§3.5.1), and the markers on the fenced surfaces (§6.2), which are inert documentation until the guard lands but are written now while the reasoning is fresh.
 
 ---
 
