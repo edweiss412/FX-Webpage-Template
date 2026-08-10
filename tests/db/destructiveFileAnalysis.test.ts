@@ -328,6 +328,22 @@ await target.unsafe("select public.prune_sync_log()");`;
     }
   });
 
+  it("(x) createRequire is rejected — importing module-loading capability at all", () => {
+    // whole-diff r11: `createRequire(import.meta.url)("postgres")` yields a callable
+    // driver, and this repo already uses createRequire elsewhere, so it is ordinary.
+    // Node's ways to load a module are a CLOSED set - static import, import(),
+    // require, createRequire - which is why forbidding the remaining three terminates
+    // where enumerating ALIASING forms did not.
+    const src = `import { createRequire } from "node:module";
+${IMPORT}
+const url = assertLocalDbUrl(process.env.LOCAL_TEST_DATABASE_URL);
+const local = postgres(url, { max: 1 });
+const req = createRequire(import.meta.url);
+const target = req("postgres")(process.env.TEST_DATABASE_URL!);
+await target.unsafe("select public.prune_sync_log()");`;
+    expect(analyseDestructiveFile(P, src).ok).toBe(false);
+  });
+
   it("(g) a guarded client followed by a SECOND, unguarded client", () => {
     // whole-diff r1 finding 2: `second_unguarded_client`. Checking only the first
     // connection blesses the file; the prune runs on the second.

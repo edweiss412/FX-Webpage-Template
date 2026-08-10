@@ -149,7 +149,18 @@ export function analyseDestructiveFile(
   // form. Rather than teach the analyzer to trace dynamic acquisition, a destructive
   // file simply may not use it. The requirement is legible and the fix is a one-line
   // import.
+  // Module-loading capability, imported. `createRequire` from `node:module` produces a
+  // callable `require`, and this repo already uses it
+  // (tests/parser/fuzz/robustness.fuzz.test.ts), so it is ordinary authoring rather
+  // than obfuscation (whole-diff r11). Node's ways to load a module are a CLOSED set —
+  // static import, `import()`, `require`, and `createRequire` — which is why this
+  // enumeration terminates where the aliasing ones did not.
   let dynamicAcquire = false;
+  for (const stmt of sf.statements) {
+    if (!ts.isImportDeclaration(stmt) || !ts.isStringLiteral(stmt.moduleSpecifier)) continue;
+    const spec = stmt.moduleSpecifier.text;
+    if (spec === "node:module" || spec === "module") dynamicAcquire = true;
+  }
   const checkAcquire = (n: ts.Node): void => {
     if (ts.isCallExpression(n)) {
       const isDynamicImport = n.expression.kind === ts.SyntaxKind.ImportKeyword;
