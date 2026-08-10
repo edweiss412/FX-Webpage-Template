@@ -16,6 +16,7 @@
 // .eq(column, value) predicates so the two same-table head counts and the two
 // same-table row lists can be told apart by their archived predicate.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { premise, premiseHolds } from "../_shared/premise";
 
 type ShowRow = Record<string, unknown> & { archived?: boolean };
 
@@ -27,6 +28,7 @@ type Seed = {
   syncRows?: Record<string, unknown>[];
   syncCount?: number;
   existenceRows?: Record<string, unknown>[];
+  crewRows?: Record<string, unknown>[]; // { show_id, id, name }[]
   // show ids the finalize-owned RPC (readfinalizeowned_b2) returns true for.
   finalizeOwnedIds?: string[];
 };
@@ -92,7 +94,7 @@ function makeClient() {
             ctx.eq.archived === true ? (seed.archivedShows ?? []) : (seed.activeShows ?? []);
           return { data: list, error: null };
         }
-        if (table === "crew_members") return { data: [], error: null };
+        if (table === "crew_members") return { data: seed.crewRows ?? [], error: null };
         if (table === "pending_ingestions") return { data: [], error: null };
         if (table === "pending_syncs") return { data: seed.syncRows ?? [], error: null };
         return { data: [], error: null };
@@ -353,5 +355,53 @@ describe("fetchDashboardData — archived bucket", () => {
     };
     const r = (await run({ bucket: "archived" })) as { rows: Array<{ archivedAt: string | null }> };
     expect(r.rows[0]!.archivedAt).toBeNull();
+  });
+});
+
+// ── admin-dashboard-row-actions Task 1 (spec §1.4, §3.2) ─────────────────────
+// Row actions are an ACTIVE-segment feature. The archived bucket keeps its own
+// row surface (Unarchive) and is explicitly out of scope, so an archived row
+// never carries the Preview-as crew list even when it is published.
+describe("fetchDashboardData — archived rows carry no crew list", () => {
+  it("a published ARCHIVED row omits crew (active-segment-only widening)", async () => {
+    const crewRows = [
+      { show_id: "1", id: "c1", name: "Ada Lovelace" },
+      { show_id: "1", id: "c2", name: null },
+    ];
+    // PREMISE (this case's own inputs): omission is only distinguishable from
+    // "the query returned nothing" when the archived show HAS crew rows, and
+    // only distinguishable from the published gate when the row IS published.
+    premise(
+      "the archived show has crew rows in the fixture",
+      crewRows.filter((c) => c.show_id === "1").length,
+      0,
+    );
+    state.seed = {
+      archivedShows: [
+        {
+          id: "1",
+          slug: "x",
+          title: "X",
+          drive_file_id: "d1",
+          dates: DATES,
+          venue: null,
+          published: true,
+          archived: true,
+          archived_at: "2026-05-20T00:00:00Z",
+          requires_resync: false,
+        },
+      ],
+      activeCount: 0,
+      archivedCount: 1,
+      crewRows,
+    };
+    const r = (await run({ bucket: "archived" })) as {
+      rows: Array<{ slug: string; published: boolean; crewCount: number | null; crew?: unknown }>;
+    };
+    const row = r.rows.find((x) => x.slug === "x")!;
+    premiseHolds("the archived row under test is published", row.published === true);
+    expect("crew" in row).toBe(false);
+    // The count still lands — only the identity list is active-segment-only.
+    expect(row.crewCount).toBe(crewRows.length);
   });
 });

@@ -139,6 +139,17 @@ Task ordering note (plan R1 F1): there is NO standalone manifest-types task — 
 
 impeccable-gate: critique=RAN audit=RAN p0=0 p1=5 dispositions=recorded
 
+post-merge validation probe: NOT YET RUN — see `BL-PRIVATE-IMAGE-POSTMERGE-PROBE`.
+
+Task 11 step 6 requires this evidence to live in a comment on the merged PR,
+which is why it could not ride a pre-merge commit. It did not get run at
+close-out: the probe drives the DEPLOYED validation app (`pnpm validation:smoke`
+is deployed-side by construction), and Vercel refused deployments at merge time
+under an account-level 24h rate limit. The step was left recorded only in Task
+11's own text, which is a step in a plan whose other ten tasks are done and which
+nobody re-reads — so it is filed in the open queue instead, where it is actually
+schedulable.
+
 ### Invariant-8 dual gate — findings and dispositions
 
 Run at Task 10 against the UI diff (`components/diagrams/Gallery.tsx`,
