@@ -226,3 +226,68 @@ test("Where card surfaces name + city for a blank-address, city-in-name venue", 
   expect(dd(where, "City")).toBe("Chicago");
   expect(dd(where, "Address")).toBeNull(); // blank address → no Address row
 });
+
+test("the SPLIT branch hands the gallery a narrow thumbnail `sizes`; the full-width branch hands it none", () => {
+  // This call site is where the bandwidth regression actually lives: inside the
+  // split, the gallery sits in the narrow 1fr column (~92px thumbnails at
+  // 1440px), so the full-width default would make every thumbnail fetch a 1024
+  // variant where 256 suffices. Asserting only the prop plumbing further down
+  // leaves this branch free to drop the value (round-2 review finding).
+  const withLeft = makeShowForViewer({
+    show: {
+      venue: { name: "Center", address: "5 Ave", loadingDock: "Dock at rear" },
+    },
+    diagrams: {
+      snapshot_revision_id: "22222222-2222-4222-8222-222222222222",
+      snapshot_status: "complete",
+      linkedFolder: null,
+      embeddedImages: [
+        {
+          sheetTab: "DIAGRAMS",
+          objectId: "obj-1",
+          mimeType: "image/png",
+          sheetsRevisionId: "rev-1",
+          embeddedFingerprint: "fp",
+          recovery_disposition: "normal",
+          snapshotPath:
+            "diagram-snapshots/shows/11111111-1111-4111-8111-111111111111/22222222-2222-4222-8222-222222222222/embedded-obj-1.png",
+        },
+      ],
+      linkedFolderItems: [],
+    },
+  });
+
+  const split = render(
+    <VenueSection
+      {...ledgerProp()}
+      data={withLeft}
+      viewer={{ kind: "admin" }}
+      today={TODAY}
+      showId={SHOW_ID}
+    />,
+  );
+  const splitSizes = split.container.querySelector("img")?.getAttribute("sizes") ?? "";
+  expect(splitSizes.length).toBeGreaterThan(0);
+  // The value the split branch supplies is narrower than the component default,
+  // which is what makes the browser pick a smaller tier.
+  expect(splitSizes).toContain("92px");
+  cleanup();
+
+  // No venue "left" content → no split → the gallery keeps its own default.
+  const noLeft = makeShowForViewer({
+    show: { venue: null },
+    diagrams: withLeft.diagrams,
+  });
+  const full = render(
+    <VenueSection
+      {...ledgerProp()}
+      data={noLeft}
+      viewer={{ kind: "admin" }}
+      today={TODAY}
+      showId={SHOW_ID}
+    />,
+  );
+  const fullSizes = full.container.querySelector("img")?.getAttribute("sizes") ?? "";
+  expect(fullSizes).toContain("280px");
+  expect(fullSizes).not.toBe(splitSizes);
+});

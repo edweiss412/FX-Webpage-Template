@@ -20,6 +20,7 @@ vi.mock("@/lib/sync/defaultSnapshotAssetsForApply", () => ({
         snapshotRevisionId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
         runUuid: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
         tempPrefix: `diagram-snapshots/shows/${showId}/_pending/run-1/`,
+        variantFailures: [],
         warnings: [],
         pending: {
           revision_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
@@ -575,6 +576,46 @@ describe("runManualStageForFirstSeen", () => {
     expect(upsertAdminAlert.mock.calls.map(([input]) => input.code)).toEqual([
       "SHOW_FIRST_PUBLISHED",
     ]);
+  });
+
+  // Task 2 hop 5 of 5 (spec 2026-08-09-private-image-pipeline §3). Same shape as the roleFlagsNotice
+  // carry above and for the same reason: snapshotAssets records variant failures INSIDE this
+  // function's caller-held lock (the retry route's withRowTryLock), so emitting here would put a
+  // durable warn inside a tx a rollback could still erase (invariant 10). The rows are therefore
+  // CARRIED OUT on the applied arm and the route emits once that lock resolves. Failure mode
+  // caught: a first-seen retry that generates degraded assets and reports nothing anywhere.
+  test("carries the diagram variant failures on its applied return instead of dropping them", async () => {
+    const tx = new FakeManualStageTx();
+    // TWO rows with distinct keys/reasons/messages so a carrier that keeps only the head, or
+    // substitutes a constant, cannot pass the verbatim comparison below.
+    const variantFailures = [
+      {
+        assetKey: "folder-linked-1.png",
+        reason: "sharp_error" as const,
+        message: "sharp pipeline threw: unsupported input",
+      },
+      {
+        assetKey: "embedded-obj-1.png",
+        reason: "blur_oversize" as const,
+        message: "blur 24x18 exceeds the 16px cap",
+      },
+    ];
+
+    const result = await runManualStageForFirstSeen(tx as never, "file-1", {
+      ...firstSeenStageDeps(),
+      runPhase2: vi.fn(async () => ({
+        outcome: "applied" as const,
+        showId: "show-1",
+        appliedRoleMappings: [],
+        parseWarnings: [],
+        variantFailures,
+      })) as unknown as NonNullable<RunManualStageForFirstSeenDeps["runPhase2"]>,
+    });
+
+    expect(result).toEqual({ outcome: "applied", showId: "show-1", variantFailures });
+    // ...and NOT emitted here: this whole function runs inside the caller's held lock, so the only
+    // alert this path may raise is the first-published one.
+    expect(tx.alerts.map((alert) => alert.code)).toEqual(["SHOW_FIRST_PUBLISHED"]);
   });
 
   test("an applied first-seen with no role-flags notice returns no notice key", async () => {

@@ -142,6 +142,8 @@ export function makeSnapshotAssetsForApply(
       diagrams: args.diagrams,
       tx,
       storage: {
+        // no-variant-stage: storage adapter impl — forwards the bytes snapshotAssets()
+        // already ran the stage on. Generating here would make variants of variants.
         async upload(path, bytes, options) {
           const objectPath = path.startsWith(`${DIAGRAM_BUCKET}/`)
             ? path.slice(DIAGRAM_BUCKET.length + 1)

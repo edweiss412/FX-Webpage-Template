@@ -1,3 +1,4 @@
+// build-time-only: ts-morph scan over source, run by the codes suite and gen scripts, never by a request
 /**
  * Type-aware, fail-closed recognizer for `ParseWarning` construction sites.
  * Spec: `docs/superpowers/specs/2026-08-03-scanner-precision-cluster-design.md` §3.1.

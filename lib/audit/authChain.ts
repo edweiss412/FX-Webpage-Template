@@ -1,3 +1,4 @@
+// build-time-only: static-analysis helper run by audit scripts and tests, never by a request
 import ts from "typescript";
 
 export type AuthAuditFinding = string;
