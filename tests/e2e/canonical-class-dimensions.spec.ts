@@ -249,7 +249,7 @@ test.describe("canonical-class sizing deltas do not move geometry (AC-11)", () =
 
   /**
    * A CSS custom property's value, NORMALISED THROUGH THE ENGINE rather than
-   * string-compared. `getPropertyValue("--color-border")` returns the token's
+   * string-compared. `getPropertyValue("--color-text-faint")` returns the token's
    * authored text (`oklch(…)`), and `getComputedStyle(el).backgroundColor`
    * returns a resolved `rgb(…)` — comparing those two as strings fails on a
    * correct implementation. Painting the token onto a probe and reading the
@@ -351,41 +351,41 @@ test.describe("canonical-class sizing deltas do not move geometry (AC-11)", () =
    * stuck on one token, or the conditional deleted outright.
    *
    * The two tokens are REQUIRED TO DIFFER before the comparison is trusted: if
-   * `--color-border` and `--color-border-strong` ever resolved to the same
+   * `--color-text-faint` and `--color-text-subtle` ever resolved to the same
    * color, every assertion below would pass on any implementation at all.
    */
   test("C1 — at ?step=2 the done connector and the ahead connector carry DIFFERENT tokens", async ({
     page,
   }) => {
     const [first, second] = await sampleConnectors(page, 2, PROJECT_VIEWPORT.width);
-    const strong = await resolvedToken(page, "--color-border-strong");
-    const plain = await resolvedToken(page, "--color-border");
+    const strong = await resolvedToken(page, "--color-text-subtle");
+    const plain = await resolvedToken(page, "--color-text-faint");
     premiseHolds(
-      `--color-border-strong (${strong}) and --color-border (${plain}) resolve to DIFFERENT ` +
+      `--color-text-subtle (${strong}) and --color-text-faint (${plain}) resolve to DIFFERENT ` +
         `colors; if they were equal this assertion would pass on any implementation`,
       strong !== plain && strong.length > 0,
     );
     expect(
       { connector1: first.background, connector2: second.background },
-      `at step 2 the FIRST connector is behind the cursor (isDone, --color-border-strong) and ` +
-        `the SECOND is ahead of it (--color-border). Equal values mean the isDone conditional ` +
+      `at step 2 the FIRST connector is behind the cursor (isDone, --color-text-subtle) and ` +
+        `the SECOND is ahead of it (--color-text-faint). Equal values mean the isDone conditional ` +
         `is gone or inverted — geometry cannot see this.`,
     ).toEqual({ connector1: strong, connector2: plain });
   });
 
   test("C1 — at ?step=3 BOTH connectors are done and carry the strong token", async ({ page }) => {
     const [first, second] = await sampleConnectors(page, 3, PROJECT_VIEWPORT.width);
-    const strong = await resolvedToken(page, "--color-border-strong");
-    const plain = await resolvedToken(page, "--color-border");
+    const strong = await resolvedToken(page, "--color-text-subtle");
+    const plain = await resolvedToken(page, "--color-text-faint");
     premiseHolds(
-      `--color-border-strong (${strong}) and --color-border (${plain}) resolve to DIFFERENT ` +
+      `--color-text-subtle (${strong}) and --color-text-faint (${plain}) resolve to DIFFERENT ` +
         `colors`,
       strong !== plain && strong.length > 0,
     );
     expect(
       { connector1: first.background, connector2: second.background },
       `at step 3 both connectors are behind the cursor (n < 3), so both carry ` +
-        `--color-border-strong. A --color-border here means isDone is computed against the ` +
+        `--color-text-subtle. A --color-text-faint here means isDone is computed against the ` +
         `wrong step.`,
     ).toEqual({ connector1: strong, connector2: strong });
   });

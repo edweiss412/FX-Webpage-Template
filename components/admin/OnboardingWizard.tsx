@@ -192,16 +192,17 @@ export function StepIndicator({
     <nav
       aria-label="Onboarding progress"
       data-testid="wizard-step-indicator"
-      // `flex-1 min-w-0` is what makes the connectors real. Without it this
-      // <nav> is a flex ITEM at the default `flex: 0 1 auto` inside the row
-      // below, so it sizes to its content, has no free space to distribute, and
-      // every `flex-1` connector inside it resolves to 0 — which also made
-      // `max-w-confirm-box` inert, since an upper bound never binds on a 0-width
-      // box. It is the SOLE child of that row (see the wizard's top chrome), so
-      // stretching it takes width from nothing else. `min-w-0` because a flex
-      // item's default `min-width: auto` floors it at content width, which would
-      // re-create the same no-free-space condition at narrow viewports.
-      className="flex min-w-0 flex-1 items-center gap-2 sm:gap-3"
+      // CONTENT WIDTH, and that is the measured answer rather than the original
+      // one. Stretching this nav (`flex-1 min-w-0`) did make the connectors
+      // render — they had been 0px since the wizard shipped, because a
+      // content-sized flex parent has no free space for a `flex-1` child — but
+      // measurement showed the connectors land at EXACTLY 60px in all twelve
+      // step x viewport x theme cells, so the stretch grew nothing and the
+      // leftover collected as trailing dead space: 16-80px at 390px, 258px at
+      // 900px, with the rail's width jumping between steps 2 and 3 as the page
+      // container's max-width changed. Sizing the connector directly (below)
+      // renders identically with none of that.
+      className="flex items-center gap-2 sm:gap-3"
     >
       {([1, 2, 3] as const).map((n) => {
         const isActive = n === step;
@@ -277,9 +278,27 @@ export function StepIndicator({
               <span
                 data-testid="wizard-step-connector"
                 aria-hidden="true"
+                // WIDTH IS SET DIRECTLY, not competed for. `flex-1` +
+                // `max-w-confirm-box` resolved to the same 60px in every
+                // measured case, so the cap was doing all the work and the
+                // flex-grow only shifted dead space around (see the <nav>).
+                //
+                // COLOURS ARE TEXT TOKENS, not border tokens, and that is a
+                // contrast fix rather than a taste change. Measured against the
+                // page in a real browser: `border` read 1.22:1 and
+                // `border-strong` 1.52:1 — a 1px line nobody can see — and the
+                // two differed from EACH OTHER by 1.25:1, so the done/ahead
+                // state the branch encodes was not perceivable either. Border
+                // tokens are sized for a hairline BESIDE a filled surface;
+                // this line sits alone on the page and needs text-grade
+                // contrast. `text-faint` clears the 3:1 non-text floor (3.16:1
+                // light, 4.22:1 dark) and `text-subtle` doubles it (6.5:1,
+                // 6.8:1), so the completed run reads heavier at a glance.
+                // State is still never colour-ALONE: the done pill carries a
+                // Check glyph (§1 colour-blind floor).
                 className={cn(
-                  "h-px max-w-confirm-box flex-1 rounded-full",
-                  isDone ? "bg-border-strong" : "bg-border",
+                  "h-px w-confirm-box rounded-full",
+                  isDone ? "bg-text-subtle" : "bg-text-faint",
                 )}
               />
             ) : null}

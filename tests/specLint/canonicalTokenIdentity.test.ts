@@ -64,7 +64,13 @@ const CANONICAL_USE_SITES = [
     id: "C1",
     file: "components/admin/OnboardingWizard.tsx",
     testId: "wizard-step-connector",
-    utility: "max-w-confirm-box",
+    // `w-`, not `max-w-`, as of the connector-render change. The canonicalization
+    // this file proves is a TOKEN claim -- does the utility resolve to the 60px
+    // the bracket form encoded -- and that claim is identical whichever spacing
+    // utility consumes `--spacing-confirm-box`. The site moved from a cap that
+    // was doing all the work (`flex-1 max-w-confirm-box`) to setting the width
+    // outright, because measurement showed the flex-grow never grew anything.
+    utility: "w-confirm-box",
     replaced: "max-w-[60px]",
   },
   {
