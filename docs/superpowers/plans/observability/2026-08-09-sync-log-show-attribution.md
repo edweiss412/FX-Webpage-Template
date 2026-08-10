@@ -26,11 +26,11 @@ Restated from the spec so every `ac=` id in this plan resolves here. Spec is can
 
 | AC | Claim | Proved by |
 | --- | --- | --- |
-| **AC-1** | A row written for a `drive_file_id` with a committed `shows` row lands that show's id — for the cron, recovery, AND onboarding sinks alike. | Tasks 1, 3, 3b, 3c, 4 |
-| **AC-2** | `querySyncLog({ showId, sinceHours: null })` returns those rows, and zero for an unrelated show id. | Task 4 |
-| **AC-3** | A `drive_file_id` with no committed `shows` row lands `show_id IS NULL` — no FK violation, no blocking wait. | Tasks 1, 4 |
-| **AC-4** | A row with `drive_file_id IS NULL` lands `show_id IS NULL` and does not fail. | Tasks 1, 4 |
-| **AC-5** | The first-seen applied path does not block, and writes `show_id IS NULL`. | Task 4 (end-to-end, bounded timeout) |
+| **AC-1** | A row written for a `drive_file_id` with a committed `shows` row lands that show's id — for the cron, recovery, AND onboarding sinks alike. | Tasks 1, 3, 3b, 3c |
+| **AC-2** | `querySyncLog({ showId, sinceHours: null })` returns those rows, and zero for an unrelated show id. | Task 1 (DB oracle) |
+| **AC-3** | A `drive_file_id` with no committed `shows` row lands `show_id IS NULL` — no FK violation, no blocking wait. | Task 1 (unit + DB oracle) |
+| **AC-4** | A row with `drive_file_id IS NULL` lands `show_id IS NULL` and does not fail. | Task 1 (unit + DB oracle) |
+| **AC-5** | The first-seen applied path does not block, and writes `show_id IS NULL`. | Task 1 (DB oracle, end-to-end, bounded timeout) |
 | **AC-6** | Every row written through the `logSync` helper carries non-null `duration_ms`; only the §3.3.1 writers carry NULL. | Tasks 1, 2 |
 | **AC-7** | Both indexes exist on `public.sync_log`, and on `dev.sync_log` when the clone is present; the migration applies cleanly where it is absent. | Tasks 5, 8 |
 | **AC-8** | `prune_sync_log` exists with the `prune_app_events` security posture, deletes exactly the rows past the cutoff, is scheduled, `active`, and registered in the cron gate. | Tasks 5, 8 |
@@ -97,7 +97,7 @@ N/A — no Playwright surface.
 
 ## Task 1 — Cron sink writes `show_id` and `duration_ms`
 
-<!-- task: red=`pnpm vitest run tests/sync/syncLog.test.ts` ac=AC-1,AC-3,AC-4,AC-6 -->
+<!-- task: red=`pnpm vitest run tests/sync/syncLog.test.ts tests/db/syncLogAttribution.db.test.ts` ac=AC-1,AC-2,AC-3,AC-4,AC-5,AC-6 -->
 
 **RED validity.** `tests/sync/syncLog.test.ts:16-31` asserts `toHaveBeenCalledWith(expect.stringContaining("insert into public.sync_log"), [4 params])`. The production line whose absence makes it fail is the `insert into public.sync_log (drive_file_id, status, message, parse_warnings)` literal at `lib/sync/syncLog.ts:43` — four columns, four params. Not test-local: the string under assertion is production source.
 
@@ -133,6 +133,8 @@ attributed correctly? true
 
 That settles three things that were otherwise assumptions: `$1` reused twice with a 5-element param array is accepted by `sql.unsafe`; a missing show yields NULL with no FK violation; a real file resolves to `shows.id`. Do not re-derive them.
 
+**Type prerequisites land in THIS task (plan R5 F5).** The sink reads `entry.durationMs`, and `SyncLogEntry` currently ends at `parseWarnings` (`lib/sync/runScheduledCronSync.ts:446-455`). Add `durationMs?: number | null` to `SyncLogEntry` here, in the task that first consumes it — deferring it to Task 2 leaves this task's commit failing `pnpm typecheck`, and a task that cannot typecheck at its own boundary is not green. Task 2 then adds only the CAPTURE (`attemptStartedAtMs`), and adds it to `ProcessOneFileDeps` (`lib/sync/runScheduledCronSync.ts:494-577`) as well as `SyncLogDeps`, because its own `depsWithStart: ProcessOneFileDeps = { ...deps, attemptStartedAtMs }` is typed as the former.
+
 **Implementation.** Change the sink insert to (5 params, not 6 — there is no explicit show id; see spec §3.1.1):
 
 ```sql
@@ -141,6 +143,51 @@ values ((select id from public.shows where drive_file_id = $1), $1, $2, $3, $4::
 ```
 
 `makePostgresSyncLogSink` gains only `duration_ms` from the entry. **No explicit show-id parameter** — passing one from inside the cron transaction deadlocks the first-seen applied path against the FK check (spec §3.1.1). Mutant (d) below varies the drive file id, not a show id.
+
+### Task 1's DB oracle — attribution integration test (the probe, executable)
+
+
+**This task's suite is written and run as part of Task 1, not after it (plan R5 F2).** Two revisions in a row put an integration oracle at a task boundary where the defect it targets had already been repaired: R4 F2 moved the AC-4 case out of Task 5 into here, and here is still downstream of Task 1's sink implementation, so at this boundary AC-1/AC-3/AC-4/AC-5 are already green and the suite has no production defect left to fail on. That is the standalone-test defect this plan rejects in Task 3b's own RED-validity note.
+
+The repair is structural, not another relocation: **this DB suite is Task 1's second RED.** Task 1 writes both its unit test (`tests/sync/syncLog.test.ts`) and this integration suite (the new DB suite named in this task's own red command, created under the `tests/db/` tree per the plan's DB-suite placement rule) BEFORE touching `lib/sync/syncLog.ts`, watches both fail against the four-column sink, then implements once and takes both green in a single commit. The section below stays here as the suite's specification — its scenarios, its traps, and its negative controls — and Task 1's marker owns its execution. Nothing about the assertions changes; only the commit they land in.
+
+AC-4's case is one of them: write an entry with `driveFileId: null`, read the row back through `querySyncLog`, assert `show_id IS NULL` **and** that the insert did not throw. Paired with the positive case in the same run, so a sink that always writes NULL fails the positive half while a sink that rejects NULL fails this one — neither assertion is meaningful alone, because today's sink never binds `show_id` at all.
+
+New DB-backed test. Write attempts through the cron sink for a drive file with a known `shows` row, then assert `querySyncLog({ showId })` returns them.
+
+**This MUST NOT be an extension of `tests/observe/querySyncLog.test.ts`.** That suite mocks `@/lib/supabase/server` wholesale (`tests/observe/querySyncLog.test.ts:11-29`) and asserts on the recorded builder call chain — it never touches a database. A mocked read test can assert `.eq("show_id", …)` was called and stay green forever while no writer ever populates the column, which is exactly how this defect shipped and survived. Per the AGENTS.md "mocked-only tests invite tautological APPROVE" rule, the attribution proof must exercise a real write followed by a real read, in a new file.
+
+The mocked suite still gets its expected update for the select-list change (Task 1 alters no select list, so likely none) — but it is not, and cannot be, the AC-2 evidence.
+
+**Prune oracle (belongs to TASK 5, not here — plan R1 F13: the function does not exist until Task 5, so Task 1's DB oracle could not go green owning it). Stated here only as a cross-reference; the assertions live in Task 5.** It must prove NON-deletion of rows it did not mark (spec R4 F5). Asserting only that marked-new rows survive admits a predicate equivalent to `occurred_at < cutoff OR status = 'skipped'`: the marked old row disappears, the marked new row survives, the global return stays `>= fixtureOldCount`, and every assertion passes while unrelated recent rows are destroyed. So the fixture also inserts a **recent row NOT carrying the marker**, and asserts it survives. Include at least one whose `status` differs from the marker's, since status is the most likely accidental predicate.
+
+**The oracle CANNOT be rollback-only (plan R1 F10).** `querySyncLog` reads through a separate Supabase REST connection (`lib/observe/query/syncLog.ts:23`), so a row written inside the test transaction is invisible to it; and `writeSyncLog` opens and commits its OWN connection whose resolver prefers `TEST_DATABASE_URL` — the validation project. Either shape produces a false negative, a remote mutation, or residue.
+
+Required shape: **commit the fixture, then clean it in a `finally`**, with the target pinned explicitly to loopback for BOTH writer and reader, and an assertion that the two resolve to the same database (compare `current_database()` and the host, or inject one resolved URL into both). A rollback-only variant is only valid for assertions that never cross the connection boundary — the direct `select … from sync_log` readbacks, not `querySyncLog`.
+
+**One readback PER SINK (plan R1 F11).** AC-1 spans three writers and an earlier revision proved only the cron sink; recovery and onboarding had SQL-string assertions, which cannot show a row landed. Each of the three gets its own write-then-read-back, or its AC-1 clause is unproven.
+
+**Anti-tautology:** assert against the row read back from the DB, not the param array. Derive the expected show id from the fixture. Duration asserted against a known injected delta, not `> 0`. **Negative control (AC-2):** the same query for an unrelated show id returns zero rows — without it, green is equally consistent with the filter being ignored.
+
+**AC-5 is a separate, end-to-end test:** process a first-seen file through the full locked path against a live DB with a bounded timeout; assert it completes (no deadlock) and lands `show_id IS NULL`. A two-committed-fixture test does not exercise that topology and would have passed against the deadlocking design.
+
+**Premise (executable, per `tests/_shared/premise.ts`):** assert the `shows` row exists before asserting attribution — otherwise the test passes vacuously on an empty fixture, which is this spec's own defect class.
+
+**Skip hazard — closed executably, not by intention.** `TEST_DATABASE_URL` is non-loopback on this worktree, so loopback-guarded DB tests SKIP, and a skipped test is indistinguishable from a passing one in the summary line.
+
+Use the shared helper `unreachableDbFailure` (`lib/driveIdCoverage/introspect.ts:132-148`) rather than hand-rolling the condition. It already carries the hardening this class needs: its own comment records that an earlier draft's `if (!opts.ci)` let a CI wrapper exporting `CI=` silently disable the guard, so it keys on **presence** of `CI`, not truthiness (`lib/driveIdCoverage/introspect.ts:139-142`).
+
+Fail loudly when the probe fails and EITHER condition holds:
+- `CI` is set (any value, including empty) — via `unreachableDbFailure`
+- a DB URL was explicitly configured — the `DB_URL_EXPLICIT` shape at `tests/sync/qualityRegressionLifecycle.test.ts:449-459`
+
+Only a completely unconfigured local dev environment may skip clean.
+
+**Test-file template — with one deliberate divergence (plan R2 F4).** Follow `tests/db/driveFileIdNonblank.db.test.ts` for the driver and `assertLocalDbUrl` usage. **Do NOT apply its always-rollback rule to the `querySyncLog` assertions**: that reader opens a separate connection and cannot see an uncommitted row, so rollback would leave Task 1's DB oracle permanently red for the wrong reason. Rollback applies only to assertions that never cross the connection boundary (the direct `select … from sync_log` readbacks); the `querySyncLog` case commits its fixture and cleans it in a `finally`.
+
+**`sinceHours` trap (verified at `lib/observe/query/syncLog.ts:28`).** `querySyncLog` defaults `sinceHours` to **24** when the field is `undefined`; only an explicit `null` removes the time bound. A fixture whose rows are older than 24h therefore yields `rows: []` — an empty result that looks exactly like the bug under test, inside the very test meant to prove the bug is fixed. The test MUST pass `sinceHours: null` explicitly, and must additionally assert a **negative control**: the same query against a different show's id returns zero rows, so a green result cannot come from the filter being ignored.
+
+**Service-role requirement.** `querySyncLog` constructs `createSupabaseServiceRoleClient()` (`lib/observe/query/syncLog.ts:23`), so the test needs `SUPABASE_SECRET_KEY` / `SUPABASE_SERVICE_ROLE_KEY` present. Absent it, the call throws and is swallowed into `{ kind: "infra_error" }` (`lib/observe/query/syncLog.ts:52-54`) — assert on `kind === "ok"` before asserting on rows, or an infra fault reads as "no rows."
 
 ## Task 2 — Widen `SyncLogEntry` and `SyncLogDeps`; capture the attempt start
 
@@ -181,9 +228,11 @@ Guards: absent start → `undefined` (NULL), never NaN; non-monotonic clock → 
 
 The RED is a NEW assertion added to that file, and it must fail on production source before the edit:
 
-1. Capture the recovery insert's SQL through the same `sql` spy the file already uses and assert it contains `(select id from public.shows where drive_file_id = $1)` — currently it contains `$1::uuid` against an explicit argument, so this fails.
-2. Assert the captured parameter array has FIVE elements and that no element equals the caller-supplied show id — currently six, with `"show-1"` present.
-3. A type-level pin that `insertSyncLog` accepts exactly one argument, so the retired channel cannot return as an optional parameter nobody passes. Follow the type-removed precondition pattern: a source scan of the `ManualRecoveryTx.insertSyncLog` declaration, since a removed type cannot be asserted by a compiling test.
+1. Capture the recovery insert's SQL through the same `sql` spy the file already uses and assert it **normalizes to** the expected statement — the same `normalize()` Task 1 uses, comments stripped before whitespace collapse. NOT containment (plan R5 F6): Task 1 forbids containment for exactly this reason, and an appended suffix or a subselect parked in a comment satisfies a containment check while the live statement still binds `$1::uuid`. The two tasks assert the same way or the weaker one is the real contract.
+
+2. Assert the parameter array is `[entry.driveFileId, status, message, parseWarnings]` — **FOUR** elements (plan R5 F1). An earlier revision said five, claiming production has six; production has five (`lib/sync/runScheduledCronSync.ts:1220-1230`) and the target has four, because `$1` is reused for both the subselect and `drive_file_id` and this writer carries no duration (spec §3.3.1 — recovery is a NULL-duration writer). Five would be a bind-count error at runtime. The discriminating assertion is not the length but `params[0] === entry.driveFileId`: today `params[0]` is the show id, so the binding demonstrably flipped.
+
+3. A type-level pin that `insertSyncLog` accepts exactly one argument, so the retired channel cannot return as an optional parameter nobody passes. Follow the type-removed precondition pattern: a source scan of the `ManualRecoveryTx.insertSyncLog` declaration (`lib/sync/runScheduledCronSync.ts:490`) AND of the duplicate at `lib/sync/runManualSyncForShow.ts:88-99` (plan R2 F13), since a removed type cannot be asserted by a compiling test.
 
 Production line under test: `lib/sync/runScheduledCronSync.ts:1216-1219`.
 
@@ -253,7 +302,7 @@ Census — **two of ten** production entry points install a sink today (`app/api
 
 **The shape differs per site — "one property each" was wrong (plan R2 F2).** `RunManualSyncForShowDeps` exposes `processDeps?: ProcessOneFileDeps` (`lib/sync/runManualSyncForShow.ts:48-71`), NOT a top-level `logSync`, so six direct/manual-unlocked sites and pull-sheet override need the **nested** form `{ processDeps: { logSync: writeSyncLog } }`. `lib/showLifecycle/unarchiveShow.ts:11` types `CatchUpSync` as a **two-argument** function, so its call cannot forward a third argument at all without widening that alias or wrapping the default. Only the pending first-seen call takes top-level `logSync`, via the already-widened `RunManualStageForFirstSeenDeps`. Following a uniform "one property" instruction would fail typecheck or leave calls sinkless.
 
-**The eight call sites below ARE the contract for this task.** Task 3a pins exactly these eight and nothing else; the fixed list is the whole cover claim, and no derived or import-based recognizer ships here. Two of the eight surfaced only after a six-site list was published — that history is why the DERIVED guard is filed as `BL-SYNC-LOG-ATTRIBUTION-METATEST`, and it is not a licence to build that guard inside this task. A ninth site discovered later is a new finding against the filed entry, not a failure of this pin.
+**The eight call sites below ARE the contract for this task.** Task 3c's own pin covers exactly these eight and nothing else; the fixed list is the whole cover claim, and no derived or import-based recognizer ships here. Two of the eight surfaced only after a six-site list was published — that history is why the DERIVED guard is filed as `BL-SYNC-LOG-ATTRIBUTION-METATEST`, and it is not a licence to build that guard inside this task. A ninth site discovered later is a new finding against the filed entry, not a failure of this pin.
 
 | Site | Current shape |
 | --- | --- |
@@ -270,53 +319,13 @@ Census — **two of ten** production entry points install a sink today (`app/api
 
 **Also install the two fenced gap markers (plan R1 F12).** The approved spec §6.2 requires them and no task owned them; the plan referenced a nonexistent "the filed guard". Add `// sync-log-emission-gap: BL-MANUAL-SYNC-UNEMITTED` at `app/api/admin/staged/[fileId]/apply/route.ts:152` and `app/api/admin/show/staged/[stagedId]/apply/route.ts:164`. Without them the fenced attempts stay silently unemitted rather than explicitly signaled, which is the difference between a documented limit and an undocumented one.
 
-**Ordering:** before Task 4, whose DB oracle would otherwise be unable to observe a manual attempt at all. (Task 3a, the meta-test, was descoped — so 3b/3c no longer have a guard turning red before them; their REDs are their own tests.)
-
-## Task 4 — Attribution integration test (the probe, executable)
-
-<!-- task: red=`pnpm vitest run tests/db/syncLogAttribution.db.test.ts` ac=AC-4,AC-1,AC-2,AC-3,AC-5 -->
-
-**AC-4 belongs HERE, before the sink ships (plan R4 F2).** An earlier revision put the NULL case under Task 5, whose RED runs the migration and cron suites — after the sink implementation had already landed, so `driveFileId: null` could stay broken through Tasks 1 and 4 with every listed assertion green. This task owns it, and its RED must fail on the current sink: write an entry with `driveFileId: null`, read the row back through `querySyncLog`, and assert `show_id IS NULL` **and** that the insert did not throw. The current four-column sink never binds `show_id` at all, so a NULL readback alone proves nothing — pair it with the positive case in the same run, so a sink that always writes NULL fails the positive half while a sink that rejects NULL fails this half.
-
-New DB-backed test. Write attempts through the cron sink for a drive file with a known `shows` row, then assert `querySyncLog({ showId })` returns them.
-
-**This MUST NOT be an extension of `tests/observe/querySyncLog.test.ts`.** That suite mocks `@/lib/supabase/server` wholesale (`tests/observe/querySyncLog.test.ts:11-29`) and asserts on the recorded builder call chain — it never touches a database. A mocked read test can assert `.eq("show_id", …)` was called and stay green forever while no writer ever populates the column, which is exactly how this defect shipped and survived. Per the AGENTS.md "mocked-only tests invite tautological APPROVE" rule, the attribution proof must exercise a real write followed by a real read, in a new file.
-
-The mocked suite still gets its expected update for the select-list change (Task 1 alters no select list, so likely none) — but it is not, and cannot be, the AC-2 evidence.
-
-**Prune oracle (belongs to TASK 5, not here — plan R1 F13: the function does not exist until Task 5, so Task 4 could not go green owning it). Stated here only as a cross-reference; the assertions live in Task 5.** It must prove NON-deletion of rows it did not mark (spec R4 F5). Asserting only that marked-new rows survive admits a predicate equivalent to `occurred_at < cutoff OR status = 'skipped'`: the marked old row disappears, the marked new row survives, the global return stays `>= fixtureOldCount`, and every assertion passes while unrelated recent rows are destroyed. So the fixture also inserts a **recent row NOT carrying the marker**, and asserts it survives. Include at least one whose `status` differs from the marker's, since status is the most likely accidental predicate.
-
-**The oracle CANNOT be rollback-only (plan R1 F10).** `querySyncLog` reads through a separate Supabase REST connection (`lib/observe/query/syncLog.ts:23`), so a row written inside the test transaction is invisible to it; and `writeSyncLog` opens and commits its OWN connection whose resolver prefers `TEST_DATABASE_URL` — the validation project. Either shape produces a false negative, a remote mutation, or residue.
-
-Required shape: **commit the fixture, then clean it in a `finally`**, with the target pinned explicitly to loopback for BOTH writer and reader, and an assertion that the two resolve to the same database (compare `current_database()` and the host, or inject one resolved URL into both). A rollback-only variant is only valid for assertions that never cross the connection boundary — the direct `select … from sync_log` readbacks, not `querySyncLog`.
-
-**One readback PER SINK (plan R1 F11).** AC-1 spans three writers and an earlier revision proved only the cron sink; recovery and onboarding had SQL-string assertions, which cannot show a row landed. Each of the three gets its own write-then-read-back, or its AC-1 clause is unproven.
-
-**Anti-tautology:** assert against the row read back from the DB, not the param array. Derive the expected show id from the fixture. Duration asserted against a known injected delta, not `> 0`. **Negative control (AC-2):** the same query for an unrelated show id returns zero rows — without it, green is equally consistent with the filter being ignored.
-
-**AC-5 is a separate, end-to-end test:** process a first-seen file through the full locked path against a live DB with a bounded timeout; assert it completes (no deadlock) and lands `show_id IS NULL`. A two-committed-fixture test does not exercise that topology and would have passed against the deadlocking design.
-
-**Premise (executable, per `tests/_shared/premise.ts`):** assert the `shows` row exists before asserting attribution — otherwise the test passes vacuously on an empty fixture, which is this spec's own defect class.
-
-**Skip hazard — closed executably, not by intention.** `TEST_DATABASE_URL` is non-loopback on this worktree, so loopback-guarded DB tests SKIP, and a skipped test is indistinguishable from a passing one in the summary line.
-
-Use the shared helper `unreachableDbFailure` (`lib/driveIdCoverage/introspect.ts:132-148`) rather than hand-rolling the condition. It already carries the hardening this class needs: its own comment records that an earlier draft's `if (!opts.ci)` let a CI wrapper exporting `CI=` silently disable the guard, so it keys on **presence** of `CI`, not truthiness (`lib/driveIdCoverage/introspect.ts:139-142`).
-
-Fail loudly when the probe fails and EITHER condition holds:
-- `CI` is set (any value, including empty) — via `unreachableDbFailure`
-- a DB URL was explicitly configured — the `DB_URL_EXPLICIT` shape at `tests/sync/qualityRegressionLifecycle.test.ts:449-459`
-
-Only a completely unconfigured local dev environment may skip clean.
-
-**Test-file template — with one deliberate divergence (plan R2 F4).** Follow `tests/db/driveFileIdNonblank.db.test.ts` for the driver and `assertLocalDbUrl` usage. **Do NOT apply its always-rollback rule to the `querySyncLog` assertions**: that reader opens a separate connection and cannot see an uncommitted row, so rollback would leave Task 4 permanently red for the wrong reason. Rollback applies only to assertions that never cross the connection boundary (the direct `select … from sync_log` readbacks); the `querySyncLog` case commits its fixture and cleans it in a `finally`.
-
-**`sinceHours` trap (verified at `lib/observe/query/syncLog.ts:28`).** `querySyncLog` defaults `sinceHours` to **24** when the field is `undefined`; only an explicit `null` removes the time bound. A fixture whose rows are older than 24h therefore yields `rows: []` — an empty result that looks exactly like the bug under test, inside the very test meant to prove the bug is fixed. The test MUST pass `sinceHours: null` explicitly, and must additionally assert a **negative control**: the same query against a different show's id returns zero rows, so a green result cannot come from the filter being ignored.
-
-**Service-role requirement.** `querySyncLog` constructs `createSupabaseServiceRoleClient()` (`lib/observe/query/syncLog.ts:23`), so the test needs `SUPABASE_SECRET_KEY` / `SUPABASE_SERVICE_ROLE_KEY` present. Absent it, the call throws and is swallowed into `{ kind: "infra_error" }` (`lib/observe/query/syncLog.ts:52-54`) — assert on `kind === "ok"` before asserting on rows, or an infra fault reads as "no rows."
+**Ordering:** before Task 1's DB oracle, which would otherwise be unable to observe a manual attempt at all. (the derived meta-test was descoped — so 3b/3c no longer have a guard turning red before them; their REDs are their own tests.)
 
 ## Task 5 — Migration: indexes, prune function, cron schedule
 
 <!-- task: red=`pnpm vitest run tests/db/syncLogIndexesAndPrune.db.test.ts tests/cross-cutting/pg-cron-coverage.test.ts` ac=AC-7,AC-8 -->
+
+**Returned count: measured-baseline equality, NOT fixture-scoped (plan R5 F7).** `prune_sync_log` returns a GLOBAL count, so a fixture-scoped count is the wrong oracle for it and the two instructions cannot both hold. Survival assertions stay scoped to the fixture marker; the RETURNED count is asserted equal to `select count(*) from public.sync_log where started_at < <cutoff>` read inside the same rolled-back transaction immediately before the prune. Same rule, same rationale, as the `app_events` repair in Task 5b.
 
 **The prune assertions run inside an always-rolled-back transaction (plan R3 F6).** An uncommitted prune cannot permanently delete unrelated old local rows; a committing one can, and asserting only `>=` on the return leaves that invisible. Roll back, and scope every count to the fixture marker.
 
@@ -368,11 +377,13 @@ const url = process.env.TEST_DATABASE_URL!;
 assertLocalDbUrl("postgresql://localhost:54322/postgres");
 const sql = postgres(url);
 
-// (b) post-connection ordering. Valid import present, guard called on the RIGHT
-// value. Differs from the control only in ORDER.
+// (b) post-connection ordering. Valid import; the connected identifier IS the
+// one the guard call assigns, so binding equality holds. Differs from the
+// control only in ORDER - the assignment happens after the connection opens.
 import { assertLocalDbUrl } from "@/tests/db/_localDbUrl";
-const sql = postgres(process.env.TEST_DATABASE_URL!);
-assertLocalDbUrl(process.env.TEST_DATABASE_URL);
+let url = process.env.TEST_DATABASE_URL!;
+const sql = postgres(url);
+url = assertLocalDbUrl(url);
 
 // (c) local shadowing. Right value, right order, NO import - the name resolves
 // to a local no-op. Differs from the control only in CALLEE RESOLUTION.
@@ -380,7 +391,17 @@ const assertLocalDbUrl = (u: string | undefined) => u!;
 const sql = postgres(assertLocalDbUrl(process.env.TEST_DATABASE_URL));
 ```
 
-Read as a set they are a one-property-at-a-time discrimination: an analyzer that implements only the import check accepts (a) and (b) and fails those cases; one that implements only ordering accepts (a) and (c); one that implements only binding equality accepts (b) and (c). No single check passes all three, which is what makes the closure non-tautological.
+Read as a set they are a one-property-at-a-time discrimination. The earlier revision's mutant (b) passed the raw expression to `postgres` and discarded the guard's return, so it violated ordering AND binding equality at once — an analyzer implementing import resolution plus binding equality, with no ordering check at all, rejected all three mutants and accepted both controls (plan R5 F4). The `let` form above fixes that: `url` is assigned from the guard call, so a binding check sees the connected identifier bound to the guard's return and passes it; only an ordering check rejects it.
+
+The resulting matrix — each row an analyzer implementing exactly that check, each cell whether the mutant is caught:
+
+| Analyzer implements | (a) binding | (b) ordering | (c) import |
+| --- | --- | --- | --- |
+| import resolution only | missed | missed | caught |
+| binding equality only | caught | missed | missed |
+| ordering only | missed | caught | missed |
+
+No single check catches more than one, and no pair catches all three, which is what makes the closure non-tautological. Note that `const`-bound forms cannot express (b) at all — using a binding before its declaration is a temporal-dead-zone error, not a mutant — which is precisely why the operator needs `let`.
 
 Plus one positive control per accepted form — the two-step `const url = assertLocalDbUrl(...); postgres(url)` and the inline `postgres(assertLocalDbUrl(...))`, both with the real import — so an analyzer cannot pass by rejecting everything. Closure set for Edit C is those three mutants; for Edit A it stays the two regex operators (drop `sync_log`, drop `app_events`). Five operators, each breaking a named assertion.
 
@@ -389,7 +410,7 @@ Plus one positive control per accepted form — the two-step `const url = assert
 **The loopback guard is necessary and NOT sufficient (plan R4 F4).** Pinning the URL to localhost stops the validation project from being pruned; it does nothing about the LOCAL database, where that test still commits a global `prune_app_events` and accepts `n >= 1`. Old unrelated local rows are deleted permanently on every run, and a prune returning a wrong count stays green. The same repair Task 5 applies to the new sync-log suite applies here, and this task owns it:
 
 1. Wrap the prune call in a transaction that is ALWAYS rolled back, so no committed deletion escapes the test.
-2. Replace `n >= 1` with an exact oracle. The function's return is a GLOBAL count and the suite cannot know how many unrelated old rows exist, so derive it: inside the same rolled-back transaction, read `select count(*) from public.app_events where created_at < <cutoff>` immediately before the prune and assert the returned count equals that number exactly. That is an equality against a measured baseline, not a guess, and it fails on an off-by-one or a wrong cutoff.
+2. Replace `n >= 1` with an exact oracle. The function's return is a GLOBAL count and the suite cannot know how many unrelated old rows exist, so derive it: inside the same rolled-back transaction, read `select count(*) from public.app_events where occurred_at < <cutoff>` immediately before the prune and assert the returned count equals that number exactly. That is an equality against a measured baseline, not a guess, and it fails on an off-by-one or a wrong cutoff.
 3. Keep the survival assertions scoped to the fixture marker, which stays correct under rollback.
 
 The same three points bind Task 5's new sync-log suite — its "scope every count to the fixture marker" is a survival oracle only, and the returned-count oracle is this measured-baseline equality.
