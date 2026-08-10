@@ -329,32 +329,62 @@ export function pinProblems(rule: string, pinned: string): string[] {
   ];
 }
 
+/**
+ * Commented-out text is not the contract. Without this, wrapping the whole rule
+ * in `<!-- ... -->` left the extractor starting INSIDE the comment and matching
+ * its pin perfectly, while the document a reader follows had no rule at all.
+ */
+function stripComments(text: string): string {
+  return text.replace(/<!--[\s\S]*?-->/g, "");
+}
+
+/** The opener, tolerant of a line break anywhere a space appears. */
+const RULE_OPENER_RE = new RegExp(
+  RULE_OPENER.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/ /g, "\\s+"),
+);
+
+/**
+ * Any column-0 sibling block ends the rule: a bullet in any of markdown's three
+ * marker syntaxes, an ordered item, a heading, or a thematic break in any of its
+ * three. The rule's own continuation paragraphs are indented, so they are never
+ * boundaries. Every syntax this misses becomes a red on somebody else's
+ * unrelated edit, which is the cost a verbatim pin attaches to this regex.
+ */
+const SIBLING_BOUNDARY = /\n(?:[-*+] |\d+[.)] |#{1,6} |(?:-{3,}|_{3,}|\*{3,})\s*$)/m;
+
 export function extractRule(agents: string): string | null {
-  const start = agents.indexOf(RULE_OPENER);
-  if (start === -1) return null;
-  const rest = agents.slice(start + 1);
-  // End at ANY sibling block that starts at column 0 — a bullet (bold or not), a
-  // heading, or a horizontal rule. Ending only at a BOLD bullet swallowed a
-  // plainly-worded sibling into the extraction, so appending an unrelated rule
-  // fired the verbatim pin against a bullet nobody had touched. The rule's own
-  // continuation paragraphs are indented, so they are never boundaries.
-  const next = rest.search(/\n(?:- |#{1,6} |-{3,}\s*$)/m);
-  return next === -1 ? agents.slice(start) : agents.slice(start, start + 1 + next);
+  const source = stripComments(agents);
+  const opener = RULE_OPENER_RE.exec(source);
+  if (opener === null) return null;
+  const start = opener.index;
+  const rest = source.slice(start + 1);
+  const next = rest.search(SIBLING_BOUNDARY);
+  return next === -1 ? source.slice(start) : source.slice(start, start + 1 + next);
 }
 
 /** Returns one string per violation; empty means the rule is intact. */
 export function checkHeavyPhaseRule(agents: string): string[] {
   const problems: string[] = [];
 
-  // The bullet must live in the cross-cutting-discipline section it claims.
-  const sectionStart = agents.indexOf("## Cross-cutting discipline");
-  if (sectionStart === -1) return ["AGENTS.md has no cross-cutting-discipline section"];
-  const sectionEnd = agents.indexOf("\n## ", sectionStart + 1);
-  const section = agents.slice(sectionStart, sectionEnd === -1 ? undefined : sectionEnd);
+  // The bullet must live in the cross-cutting-discipline section it claims. The
+  // heading is matched loosely: renaming it around those words is an ordinary
+  // edit that has nothing to do with this rule, and an exact match turns that
+  // edit into a failure here.
+  const source = stripComments(agents);
+  const heading = /^#{1,6}[^\n]*cross-cutting discipline/im.exec(source);
+  if (heading === null) return ["AGENTS.md has no cross-cutting-discipline section"];
+  const sectionStart = heading.index;
+  const sectionEnd = source.indexOf("\n## ", sectionStart + 1);
+  const section = source.slice(sectionStart, sectionEnd === -1 ? undefined : sectionEnd);
 
-  const rule = extractRule(section);
-  if (rule === null) return ["the heavy-phase rule bullet is absent from the cross-cutting section"];
+  const raw = extractRule(section);
+  if (raw === null) return ["the heavy-phase rule bullet is absent from the cross-cutting section"];
 
+  // Everything below reads the NORMALIZED rule. `normalize()` declares whitespace
+  // irrelevant, and a check that still requires a literal space contradicts it —
+  // a reflowed line then passes the pin and fails a clause pattern, which is a
+  // red on an edit that changed no words.
+  const rule = normalize(raw);
   const mustAt = rule.indexOf(MUST_MARKER);
   const mustNotAt = rule.indexOf(MUST_NOT_MARKER);
   const tailAt = rule.indexOf(TAIL_MARKER);
@@ -411,11 +441,13 @@ export function checkHeavyPhaseRule(agents: string): string[] {
     if (!pattern.test(tailRegion)) problems.push(`missing clause: ${label}`);
   }
   problems.push(...polarityProblems(mustRegion, mustNotRegion));
-  problems.push(...pinProblems(rule, readFileSync(PINNED_PATH, "utf8")));
+  problems.push(...pinProblems(raw, readFileSync(PINNED_PATH, "utf8")));
   return problems;
 }
 
 const LIVE = readFileSync(AGENTS_PATH, "utf8");
+/** Re-exported for the comment-out operator, which needs the literal opener. */
+const RULE_OPENER_FOR_TESTS = RULE_OPENER;
 const SPEC = readFileSync(SPEC_PATH, "utf8");
 
 describe("AGENTS.md heavy-phase rule", () => {
@@ -461,6 +493,16 @@ describe("AGENTS.md heavy-phase rule", () => {
 
   const OPERATORS: Array<[string, (text: string) => string]> = [
     ["delete the whole bullet", (text) => withinRule(text, () => "")],
+    [
+      "comment the whole rule out of the normative document",
+      (text) =>
+        text
+          .replace(RULE_OPENER_FOR_TESTS, `<!--\n${RULE_OPENER_FOR_TESTS}`)
+          .replace(
+            "\n---\n\n## Cross-CLI orchestrator discipline",
+            "\n---\n-->\n\n## Cross-CLI orchestrator discipline",
+          ),
+    ],
     ["delete one MUST shape", editRule("`pnpm mutation:guards`", "the harness")],
     ["delete one MUST-NOT shape", editRule("`PWDEBUG`", "a debug")],
     [
@@ -603,6 +645,11 @@ describe("AGENTS.md heavy-phase rule", () => {
   const SIBLINGS: Array<[string, string]> = [
     ["a plainly-worded sibling bullet", "\n- A new valid cross-cutting rule.\n"],
     ["a bold sibling bullet", "\n- **A new valid rule.** With a body.\n"],
+    ["an asterisk-marker sibling bullet", "\n* A new valid cross-cutting rule.\n"],
+    ["a plus-marker sibling bullet", "\n+ A new valid cross-cutting rule.\n"],
+    ["an ordered sibling item", "\n1. A new valid cross-cutting rule.\n"],
+    ["an underscore thematic break", "\n___\n"],
+    ["an asterisk thematic break", "\n***\n"],
   ];
 
   it.each(SIBLINGS)("stays quiet when %s is appended after the rule", (_label, sibling) => {
@@ -611,6 +658,41 @@ describe("AGENTS.md heavy-phase rule", () => {
     const withSibling = LIVE.replace(rule!, rule! + sibling);
     premiseHolds("the sibling was actually appended", withSibling !== LIVE);
     expect(checkHeavyPhaseRule(withSibling)).toEqual([]);
+  });
+
+  /**
+   * Reflow and neighbourhood edits. `normalize()` declares whitespace
+   * irrelevant, so every check must agree — a reflowed line that satisfies the
+   * pin while failing a clause pattern is a red on an edit that changed no words.
+   */
+  const EQUIVALENT_EDITS: Array<[string, (text: string) => string]> = [
+    [
+      "the bold opener is reflowed across a line break",
+      (text) =>
+        text.replace(
+          "- **Heavy local phases run under the machine-wide slot semaphore.**",
+          "- **Heavy local phases run under the machine-wide slot\n  semaphore.**",
+        ),
+    ],
+    [
+      "body text is reflowed",
+      (text) =>
+        text.replace("Any non-interactive playwright run:", "Any non-interactive\n  playwright run:"),
+    ],
+    [
+      "the section heading is reworded around the same words",
+      (text) =>
+        text.replace(
+          "## Cross-cutting discipline (from milestone retrospectives)",
+          "## Shared cross-cutting discipline (from milestone retrospectives)",
+        ),
+    ],
+  ];
+
+  it.each(EQUIVALENT_EDITS)("stays quiet when %s", (_label, edit) => {
+    const edited = edit(LIVE);
+    premiseHolds("the edit actually changed the document", edited !== LIVE);
+    expect(checkHeavyPhaseRule(edited)).toEqual([]);
   });
 
   it.each(OPERATORS)("rejects a mutant that would %s", (_label, mutate) => {

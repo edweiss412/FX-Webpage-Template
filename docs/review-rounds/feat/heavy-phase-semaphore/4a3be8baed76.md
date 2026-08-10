@@ -50,23 +50,23 @@ authoring rule; applying it while drafting would have made R1 F1/R2 F1/R3 F2 fre
 plan prose and the spec case bodies; `TASK_AC_MISSING`/marker grammar already ran
 clean from round 1.
 
-## diff — 6 rounds
+## diff — 7 rounds
 
-**Examined:** six counted rounds on the implementation diff, dispatched as two
+**Examined:** seven counted rounds on the implementation diff, dispatched as two
 tight-scope reviews per the split-review default. The wrapper half
 (`scripts/with-heavy-slot.py` + `tests/scripts/withHeavySlot.test.ts`, ~1600 lines,
 the arc's entire mechanism) took APPROVE/0 in round 1 and was never re-opened; its
 reviewed scope is byte-identical from that verdict to merge. Every counted round
 after round 1 belongs to the other half: the AGENTS.md prose rule and its
-string-presence guard, 4/1/1/1/1/3 findings across rounds 1-6 — eleven in total.
+string-presence guard, 4/1/1/1/1/3/5 findings across rounds 1-7 — sixteen in total.
 
 That split is the finding. The half with kernel semantics, fd lifetimes across
 `execvp`, inode identity, and an atomic swap protocol converged immediately, because
 spec §7 had already enumerated its defect classes as executable cases and thirteen
-spec rounds had probed each one. The half that burned five is a paragraph of
+spec rounds had probed each one. The half that burned six is a paragraph of
 English and a regex list.
 
-**Judgment:** eight of the eleven diff findings are one class — *the guard's stated coverage is
+**Judgment:** eight of the sixteen diff findings are one class — *the guard's stated coverage is
 wider than its enforced coverage* — and the arc kept re-entering it because each
 repair changed WHERE the gap lived rather than removing the possibility of one. R1
 found members the hand-written list omitted; the repair derived the member set from
@@ -143,11 +143,38 @@ Round 6's third finding was against this filing's own arithmetic, which had gone
 stale across rounds — the counts here are now derived from the file rather than
 carried forward by hand.
 
+Round 7 is where the pin's real cost came due, and it is the part worth carrying
+forward. Four of its five findings were FALSE POSITIVES of this guard: a reflowed
+bold opener, a reflowed body line, a section heading reworded around the same
+words, and four markdown sibling syntaxes (`*`, `+`, `1.`, `___`) the boundary
+regex did not know. Each is an ordinary edit by someone with no interest in this
+rule, and each turned their commit red. The fifth was the acceptance half — the
+whole rule wrapped in an HTML comment, which left the extractor reading a
+commented-out copy that matched its pin perfectly while the normative document had
+no rule at all.
+
+The shape those four share is worth stating exactly, because it is the standing
+liability of a pin: **the guard located and matched on RAW text while its own
+`normalize()` declared whitespace irrelevant.** A pin does not merely add
+strictness; it converts every locating and boundary bug into a failure on a
+stranger's unrelated edit. So the repair was not four patches but one inversion —
+strip comments, locate the section and the opener by tolerant patterns, widen the
+boundary to every markdown sibling syntax, and run every member, clause, and
+polarity check against the NORMALIZED rule so no check can contradict the pin
+about what whitespace means. Nine regression rows now assert the guard stays
+QUIET, which is the half a mutation table never covers.
+
+**A pin is cheap to write and expensive to aim.** Anyone reaching for one on the
+strength of the round-5 lesson above should read this paragraph as the other half
+of that advice: budget a round for false positives, and write the stays-quiet rows
+in the same commit as the pin, not after a reviewer finds them.
+
 **Mechanizable:** the inversion class is now closed by construction (the verbatim
 pin), the exemption-claim axis is type-required (`pinnedBy`), the spec-derived
-registry catches a shape added to §4.6, and all thirty `OPERATORS` rows plus two
-false-positive rows — 34 cases — run on every suite, so no repair can silently
-regress an earlier one. What
+registry catches a shape added to §4.6, comment-stripping keeps a commented-out
+copy from standing in for the contract, and 43 cases — 31 `OPERATORS` rows plus
+ten stays-quiet rows — run on every suite, so no repair can silently regress an
+earlier one in either direction. What
 remains unmechanized is the authoring judgement — knowing to reach for a pin rather
 than a pattern list when the guard's subject is prose. That has no static signature;
 it belongs in `docs/agents/writing-plans.md` alongside the anti-tautology rule, and
