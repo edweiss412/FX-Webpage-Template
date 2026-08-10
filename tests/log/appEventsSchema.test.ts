@@ -1,8 +1,15 @@
 import { afterAll, describe, expect, test } from "vitest";
 import postgres from "postgres";
+import { assertLocalDbUrl } from "../db/_localDbUrl";
 
-const url =
-  process.env.TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+// This file executes public.prune_app_events(), and it resolved its URL from
+// TEST_DATABASE_URL - which is the VALIDATION project in this repo's .env.local. A
+// plain `pnpm test` therefore pruned live validation history. Repaired 2026-08-09
+// when the destructive-target guard was extended to discover prune calls; this was a
+// real, present hazard independent of that change.
+const url = assertLocalDbUrl(
+  process.env.LOCAL_TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+);
 const sql = postgres(url, { max: 1 });
 afterAll(async () => {
   await sql.end();
@@ -58,17 +65,44 @@ describe("app_events schema", () => {
   });
 
   test("prune_app_events deletes only rows older than retain", async () => {
-    await sql`insert into public.app_events (level, source, message, occurred_at)
-              values ('info','prune-test','old', now() - interval '90 days'),
-                     ('info','prune-test','new', now())`;
-    const deleted = await sql<
-      { n: number }[]
-    >`select public.prune_app_events(interval '60 days') as n`;
-    expect(Number(deleted[0]!.n)).toBeGreaterThanOrEqual(1);
-    const remaining = await sql<{ message: string }[]>`
-      select message from public.app_events where source = 'prune-test'`;
-    expect(remaining.map((r) => r.message)).toEqual(["new"]);
-    await sql`delete from public.app_events where source = 'prune-test'`;
+    // Pinning the URL to loopback stops the VALIDATION project being pruned; it does
+    // nothing about the LOCAL database, where this test used to COMMIT a global prune
+    // and accept `>= 1`. Old unrelated local rows were deleted permanently on every
+    // run, and a prune returning a wrong count stayed green. Both are closed here.
+    class Rollback extends Error {}
+    await sql
+      .begin(async (tx) => {
+        await tx`insert into public.app_events (level, source, message, occurred_at)
+                 values ('info','prune-test','old', now() - interval '90 days'),
+                        ('info','prune-test','new', now())`;
+
+        // The returned count is GLOBAL, so a fixture-scoped number is the wrong
+        // oracle for it. Measure the baseline inside this same transaction,
+        // immediately before the prune, and assert equality - not `>= 1`, which any
+        // over-deletion also satisfies.
+        const [expectedRow] = await tx<{ n: number }[]>`
+          select count(*)::int as n from public.app_events
+          where occurred_at < now() - interval '60 days'`;
+        const [returnedRow] = await tx<
+          { n: number }[]
+        >`select public.prune_app_events(interval '60 days') as n`;
+        expect(Number(returnedRow!.n)).toBe(expectedRow!.n);
+
+        // Survival stays fixture-scoped, where scoping IS correct.
+        const remaining = await tx<{ message: string }[]>`
+          select message from public.app_events where source = 'prune-test'`;
+        expect(remaining.map((r) => r.message)).toEqual(["new"]);
+
+        throw new Rollback();
+      })
+      .catch((e: unknown) => {
+        if (!(e instanceof Rollback)) throw e;
+      });
+
+    // Proof the rollback happened, rather than proof it was requested.
+    const [outsideRow] = await sql<{ n: number }[]>`
+      select count(*)::int as n from public.app_events where source = 'prune-test'`;
+    expect(outsideRow!.n).toBe(0);
   });
 
   test("prune cron job is registered", async () => {

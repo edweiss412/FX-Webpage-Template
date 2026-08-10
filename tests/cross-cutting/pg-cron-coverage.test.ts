@@ -104,7 +104,15 @@ const REQUIRED_NOTIFY_JOBS = [
 // (`select public.prune_app_events()`), NOT a Vercel-route net.http_get job, so
 // it is intentionally outside the `fxav_cron_` namespace + canonical
 // pg-cron-jobs.json (which models only the route jobs) and lives here.
-const EXPECTED_NON_FXAV_NON_ORPHAN_CRONS: readonly string[] = ["app_events_prune"];
+// sync_log_prune (2026-08-09 sync-log show attribution): the same shape as
+// app_events_prune — a pure-SQL retention cron (`select public.prune_sync_log()`),
+// deliberately outside the `fxav_cron_` namespace because that prefix is the
+// contract for the Vercel-route net.http_get jobs. Registered here in the SAME
+// commit as its migration: the migration alone turns this snapshot red.
+const EXPECTED_NON_FXAV_NON_ORPHAN_CRONS: readonly string[] = [
+  "app_events_prune",
+  "sync_log_prune",
+];
 
 // ── Target binding (spec 2026-07-26-driveid-guard-cluster-design §3.1) ──────
 // Mode comes from the TARGET alone — never from the DSN. Local mode reads only the

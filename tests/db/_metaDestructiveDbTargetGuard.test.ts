@@ -29,17 +29,50 @@ import { describe, expect, test } from "vitest";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 
+import { analyseDestructiveFile } from "./_destructiveFileAnalysis";
+import { stripCommentsForFile, stripSqlComments } from "@/tests/_shared/stripComments";
+
 const TESTS_ROOT = join(process.cwd(), "tests");
 
-/** Executes the whole-DB wipe RPC. */
-const EXECUTES_WIPE = /\bselect\s+public\.reset_validation_data\s*\(\s*\)/i;
+/**
+ * Executes the whole-DB wipe RPC.
+ *
+ * **DOCUMENTED LIMIT — discovery is spelling-sensitive, and that is not closed.**
+ * These patterns require the schema-qualified, unquoted `public.<name>(` form. An
+ * unqualified `select prune_sync_log()` or a quoted `select "public"."prune_sync_log"()`
+ * is NOT discovered, so no safety analysis runs on such a file (whole-diff r16). Chasing
+ * SQL spellings has the same non-termination as the aliasing enumerations this module's
+ * analyzer went through, so it is recorded rather than pursued: the terminating framing
+ * is to discover files by the fact that they OPEN A DATABASE CONNECTION, and require the
+ * guard of all of them, which removes SQL spelling from the question entirely. That is a
+ * cross-cutting change over every DB test in the repo and is filed as part of
+ * `BL-DESTRUCTIVE-GUARD-EXECUTION-SITE`.
+ *
+ * Keyed on the FUNCTION NAME, not on a statement shape. r15 showed
+ * `select * from public.reset_validation_data()`, a parenthesized form, and an aliased
+ * `update … as g set enabled = true` all escaping shape-anchored patterns — the same
+ * enumeration failure the analyzer went through, one layer up. A destructive function
+ * named in executed code is the signal; how the statement is spelled around it is not
+ * something this guard needs to model.
+ */
+const EXECUTES_WIPE = /\bpublic\.reset_validation_data\s*\(/i;
 
 /** Flips the prod-safety gate ON — the only thing standing between a test run
  *  and a live wipe. */
 const ENABLES_WIPE_GATE =
-  /update\s+public\.destructive_reset_gate\s+set\s+enabled\s*=\s*(?:true|\$\{?\s*true)/i;
+  /destructive_reset_gate\b[\s\S]{0,120}?\benabled\s*=\s*(?:true|\$\{?\s*true)/i;
 
-/** Any of the sanctioned loopback asserts, called (not merely imported). */
+/** Executes a retention prune. Deletes by time window against whatever DB it is
+ *  pointed at, so it is destructive in exactly the sense this guard exists for.
+ *  `prune_app_events` is folded in deliberately: identical hazard, no coverage
+ *  before 2026-08-09, one alternation to fix. That is the class-sweep default -
+ *  repair every instance of the shape in the same PR - rather than filing a peer
+ *  for something free to fix here. */
+const EXECUTES_PRUNE = /\bpublic\.prune_(?:sync_log|app_events)\s*\(/i;
+
+/** Any of the sanctioned loopback asserts, called (not merely imported).
+ *  Retained for the message it powers; the ADMISSION decision now runs through
+ *  analyseDestructiveFile, which closes the three holes a name match leaves open. */
 const CALLS_LOCAL_GUARD = /\b(?:assertLocalDbUrl|assertSafeDestructiveTarget)\s*\(/;
 
 /** Opt-out for a file that provably cannot reach a remote (documented inline). */
@@ -57,16 +90,76 @@ function walk(dir: string, out: string[] = []): string[] {
 
 const files = walk(TESTS_ROOT).map((path) => ({ path, source: readFileSync(path, "utf8") }));
 
-const destructive = files.filter(
-  ({ source }) => EXECUTES_WIPE.test(source) || ENABLES_WIPE_GATE.test(source),
-);
+/**
+ * Discovery runs on source with COMMENTS STRIPPED. A file that merely NAMES a
+ * destructive statement in prose does not execute it, and matching prose makes the
+ * guard a false-positive generator — demonstrated on itself: adding EXECUTES_PRUNE
+ * flagged tests/cross-cutting/pg-cron-coverage.test.ts, whose only prune mentions are
+ * two comments explaining which cron jobs exist. A false positive is not the safe
+ * direction here; it pushes authors toward blanket exemptions, which is how the guard
+ * stops guarding.
+ */
+// The naive form of this (regex `//` to end of line) ate the rest of the line from
+// INSIDE a string: `const docs = "https://..."` silently removed a real
+// `sql.unsafe("select public.prune_sync_log()")` from discovery, un-discovering a
+// genuinely unsafe file (whole-diff r1 finding 2). The shared scanner is string-aware.
+
+const destructive = files.filter(({ path, source }) => {
+  // JS comments come off first, then SQL comments INSIDE the surviving string
+  // literals. whole-diff r15: `select /* note */ public.reset_validation_data()` was
+  // not discovered, because stripping JS comments correctly leaves SQL comments in a
+  // literal untouched and the regexes never normalized them.
+  // UNION of two views, never the SQL-stripped one alone. `stripSqlComments` over a
+  // whole TypeScript file treats a JS decrement (`i--`) as a SQL line comment and
+  // erases the rest of that line, which can delete a real destructive execution
+  // (whole-diff r16, a regression introduced by r15's repair). Matching either view
+  // means erasure can only ever ADD a match, never hide one.
+  const js = stripCommentsForFile(source, path);
+  const sql = stripSqlComments(js);
+  const hit = (re: RegExp) => re.test(js) || re.test(sql);
+  return hit(EXECUTES_WIPE) || hit(ENABLES_WIPE_GATE) || hit(EXECUTES_PRUNE);
+});
 
 describe("destructive DB target guard", () => {
+  test("discovery matches ordinary SQL spellings, not one canonical shape", () => {
+    // whole-diff r15: shape-anchored patterns missed `select * from public.prune_…()`,
+    // a parenthesized call, an aliased `update … as g set enabled = true`, and any
+    // form carrying an SQL block comment. Keying on the FUNCTION NAME after stripping
+    // SQL comments covers the class; these are the spellings that escaped.
+    const strip = (sql: string) => stripSqlComments(sql);
+    for (const sql of [
+      "select * from public.reset_validation_data()",
+      "select /* note */ public.reset_validation_data()",
+      "select (public.reset_validation_data())",
+    ]) {
+      expect(EXECUTES_WIPE.test(strip(sql)), sql).toBe(true);
+    }
+    for (const sql of [
+      "select * from public.prune_app_events()",
+      "select /* note */ public.prune_sync_log()",
+      "select (public.prune_sync_log(interval '60 days'))",
+    ]) {
+      expect(EXECUTES_PRUNE.test(strip(sql)), sql).toBe(true);
+    }
+    for (const sql of [
+      "update public.destructive_reset_gate as g set enabled = true",
+      "update public.destructive_reset_gate /* note */ set enabled = true",
+    ]) {
+      expect(ENABLES_WIPE_GATE.test(strip(sql)), sql).toBe(true);
+    }
+  });
+
   test("the discovery patterns actually match the known wipe surface (anti-vacuity)", () => {
     // If this fails, the regexes drifted and every assertion below is vacuous.
     const rel = destructive.map((f) => f.path.replace(process.cwd() + "/", ""));
     expect(rel).toContain("tests/db/resetValidationDataDriveKeyedAudit.test.ts");
     expect(rel).toContain("tests/db/destructiveResetGate.test.ts");
+    // BOTH prune tests, not just the new one. Deleting `|app_events` from
+    // EXECUTES_PRUNE would otherwise make an EXISTING unsafe test vanish from
+    // discovery while every assertion below still passed - the mutation this
+    // guard most needs to fail on.
+    expect(rel).toContain("tests/db/syncLogIndexesAndPrune.db.test.ts");
+    expect(rel).toContain("tests/log/appEventsSchema.test.ts");
   });
 
   test.each(destructive.length ? destructive : [{ path: "<none discovered>", source: "" }])(
@@ -75,6 +168,15 @@ describe("destructive DB target guard", () => {
       if (path === "<none discovered>") return; // covered by the anti-vacuity test above
       const rel = path.replace(process.cwd() + "/", "");
       if (EXEMPTION.test(source)) return;
+      const verdict = analyseDestructiveFile(path, source);
+      expect(
+        verdict.ok,
+        `${rel}: ${verdict.ok ? "" : verdict.reason}. ` +
+          "A loopback guard must be called on the SAME value that is connected, BEFORE " +
+          "the connection opens, and must resolve to the imported guard rather than a " +
+          "local same-named function. TEST_DATABASE_URL is the VALIDATION project in " +
+          "this repo's .env.local.",
+      ).toBe(true);
       expect(
         CALLS_LOCAL_GUARD.test(source),
         `${rel} executes public.reset_validation_data() (or enables destructive_reset_gate) but ` +

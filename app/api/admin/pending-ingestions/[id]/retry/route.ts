@@ -15,6 +15,7 @@ import {
   type DriveFileMeta,
 } from "@/lib/sync/enrichWithDrivePins";
 import type { LockedShowTx } from "@/lib/sync/lockedShowTx";
+import { writeSyncLog } from "@/lib/sync/syncLog";
 import { CONCURRENT_SYNC_SKIPPED } from "@/lib/sync/lockedShowTx";
 import {
   runManualStageForFirstSeen as defaultRunManualStageForFirstSeen,
@@ -436,7 +437,10 @@ export async function handleLivePendingIngestionRetry(
           row.drive_file_id,
           "manual",
           metadata,
-          {},
+          // NESTED: the 5th parameter is RunManualSyncForShowDeps, which exposes
+          // processDeps?: ProcessOneFileDeps - a top-level logSync typechecks against
+          // nothing and would silently write no row.
+          { processDeps: { logSync: writeSyncLog } },
         );
         // nav-perf tag-caching (whole-diff R2): capture ANY showId-carrying outcome —
         // applied AND the parse_error/source_gone recovery outcomes (which now carry
@@ -496,7 +500,10 @@ export async function handleLivePendingIngestionRetry(
           error instanceof FirstSeenStagePrepareError ? error.code : "DRIVE_FETCH_FAILED";
         return errorResponse(code === "DRIVE_FETCH_FAILED" ? 502 : 409, code);
       }
-      const stageResult = await deps.runManualStageForFirstSeen(tx, row.drive_file_id, stageDeps);
+      const stageResult = await deps.runManualStageForFirstSeen(tx, row.drive_file_id, {
+        ...stageDeps,
+        logSync: writeSyncLog,
+      });
       if (stageResult.outcome === "applied") {
         appliedShowId = stageResult.showId;
         // Unit C: the notice runManualStageForFirstSeen now carries out of its own lock.
