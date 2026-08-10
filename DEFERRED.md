@@ -8,6 +8,39 @@ Last reconciled: 2026-07-24 — swept every merged PR body (#445–#570) for def
 
 ---
 
+### NAV-BADGE-ARRIVAL-ANNOUNCE-1 — the nav badge counts arrive after first paint with no announcement (2026-08-10)
+
+**Effort:** S
+
+Surfaced by the invariant-8 dual gate on branch `feat/admin-nav-badge-suspense`, by BOTH halves
+independently (critique P1, audit P2). Findings and dispositions are in §12 of
+`docs/superpowers/plans/2026-08-09-admin-nav-badge-suspense.md`.
+
+**The finding.** That branch moves the two badge reads out of the layout's blocking path, so the
+counts now land after the nav has painted. Two accessible names change at that moment:
+`NotifBell.tsx` flips "Notifications" → "Notifications: N unseen", and `AdminNav.tsx`'s attention
+tab flips "Needs attention" → "Needs attention, N items". Nothing announces the change. A screen
+reader user who reads either control during the pending window and never returns to it keeps the
+count-less name for the rest of the visit.
+
+**Why deferred rather than repaired in-branch — reason (a), it needs a product decision this PR
+cannot settle.** The repair is not the code; it is whether this surface should speak at all. The
+app has one announce channel (`AdminAnnounceProvider`) with a strict ownership contract — the
+region's owner must sit above every data-dependent branch (DESIGN.md §15), which the layout does
+satisfy — but wiring the _global nav_ into it means every `/admin` entry with a nonzero count
+announces on load. PRODUCT.md's register for this user is calm competence on a venue floor, and a
+count that speaks on every page load may be exactly the chatter that register rejects. Whether the
+badge should announce, and if so whether only on the first resolution and only above zero, is
+Doug's call, not the implementer's.
+
+**Un-defer trigger:** the owner rules on announcing badge arrivals, OR any a11y pass that finds a
+real screen-reader user affected by the stale name.
+
+**Bounded worst case today:** the control's PURPOSE is always conveyed correctly ("Notifications",
+"Needs attention"); only the supplementary count is missing, and it is restored on the next focus
+because both names are computed reactively from hook state. No control is unlabeled, mislabeled, or
+unreachable at any point.
+
 ### STEP3-GALLERY-TAP-TARGETS-1 — sub-44px chrome + a skipped heading level on `/admin?step=3` (2026-08-02)
 
 **Effort:** M (remaining: item (d) only)
@@ -338,3 +371,39 @@ From the impeccable v3 dual gate on `feat/sync-feed-undo-announce`. The critique
 **Accepted, not fixed, and deliberately so.** Deriving the label from `testIdBase` was implemented and reverted: it produces names like "Status updates in the wizard step3 card `<driveFileId>` review dialog", putting internal identifiers into text a screen reader speaks. A leaked drive-file id in an accessible name is a worse outcome for the user than a duplicated label in the rare two-dialog case. The `data-testid` remains derived, so tooling and Playwright stay unambiguous.
 
 **Un-defer trigger:** a human-readable per-dialog name becomes available on the shell (a title prop or similar), or two review dialogs become simultaneously reachable outside Step-3.
+
+---
+
+## Dashboard row actions — impeccable dual-gate deferrals (2026-08-10)
+
+From the impeccable v3 dual gate on `feat/admin-dashboard-row-actions`. The critique's deterministic detector ran clean (exit 0, `[]`). The P0 (keyboard-unreachable confirm controls) and the audit's P0 (a `translate` ancestor collapsing the outside-click backdrop) were FIXED in-branch, as were four P1s and two P2s. Three findings are accepted and deferred, each with its reason and un-defer trigger.
+
+### ROWACTIONS-MENU-ENTRY-MOTION-1 — impeccable critique P3: the menu opens and closes instantly where the precedent animates (2026-08-10)
+
+**Effort:** S
+
+`components/admin/wizard/CrewRowActions.tsx:284` gives its menu `route-enter`; the dashboard row menu has no entry motion.
+
+**Accepted, not fixed.** Instant is the RATIFIED treatment, not an omission: the spec's §3.5 transition inventory sets `closed → open` and `open → closed` to the popover-primitive default, and `tests/components/admin/rowActions/showRowActions.shell.test.tsx` pins the absence of any `transition-`/`animate-` class on the panel. Adding motion now would reopen a ratified inventory row and invert a shipped assertion in a close-out commit, which is the wrong place to relitigate a design decision.
+
+**Un-defer trigger:** a design pass that settles entry motion for the admin popover family as a whole (the precedent, `AppHealthPopover`, and this menu together), or an amendment to §3.5.
+
+### ROWACTIONS-MENU-MINWIDTH-BOUNDS-1 — impeccable audit P3: `min-w-52` can override the placement core's computed `maxWidth` (2026-08-10)
+
+**Effort:** S
+
+`components/admin/ShowRowActions.tsx` sets `min-w-52` (208px) on the panel. When the placement bounds are narrower than that — reachable only under pinch-zoom, where `lib/popover/position.ts` insets the visual viewport — the panel overflows the bounds it was measured against, and `wrappedHeightAt` then reports a height for a width the panel is not actually using.
+
+**Accepted, not fixed.** Not reachable at any supported layout width: the narrowest target viewport is 390px, and the bounds only fall under 208px inside a pinch-zoom gesture. The repair (`min-w-[min(13rem,100%)]`) is one class, but it changes the measured width of every menu and therefore the geometry e2e's containment numbers; landing it with a real-browser pinch-zoom assertion is the honest version, and there is no such harness today. `min-w-52` is also the shipped precedent's width, so the deferral keeps the two menus identical.
+
+**Un-defer trigger:** a pinch-zoom or visual-viewport e2e harness lands, or the popover family's min-width is revisited.
+
+### HELP-STRAIGHT-APOSTROPHES-1 — impeccable audit P3: `/help` MDX prose uses straight apostrophes (2026-08-10)
+
+**Effort:** M
+
+`app/help/admin/dashboard/page.mdx` carries 25 straight apostrophes in prose (lines 3, 12, 14, 17, 21, 26, 27, 29, 52-58, 62, 68 among them) against 2 typographic ones — both of the latter in the prose this branch added, which is the side that matches the project's mechanical copy rule.
+
+**Accepted, not fixed.** Pre-existing and file-wide: this branch introduced none of them, and normalizing them here would put a large unrelated prose diff inside a UI close-out commit. It is also almost certainly not one file — the rule applies across `/help`, so the fix is a sweep with its own guard, not a rider. The branch's own prose is correct and is pinned by `tests/help/dashboard-row-actions.test.ts`.
+
+**Un-defer trigger:** a `/help` copy-conformance sweep, or a mechanical guard extending the straight-apostrophe ban to MDX prose.

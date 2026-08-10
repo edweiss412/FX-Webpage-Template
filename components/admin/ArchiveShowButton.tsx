@@ -40,16 +40,22 @@ import { useFormStatus } from "react-dom";
 import { ErrorExplainer } from "@/components/messages/ErrorExplainer";
 import { HelpAffordance } from "@/components/admin/HelpAffordance";
 import { ARM_EXPIRED_ANNOUNCEMENT, ARM_REVERT_MS } from "@/lib/admin/destructiveConfirm";
+import {
+  ARCHIVE_GENERIC_ERROR_COPY,
+  ARCHIVE_NOT_FOUND_COPY,
+  archiveConsequenceProse,
+  classifyArchiveFailure,
+} from "@/lib/admin/archiveCopy";
 
 type LifecycleResult = { ok: true } | { ok: false; code: string };
 
 // Armed-state auto-revert window — harmonized to 4s across every destructive
 // surface (spec §4; DESTRUCT-2). Shared naming idiom: ARM_REVERT_MS.
 
-// §12.4 codes this button may surface inline. ADMIN_LINK_SHOW_NOT_FOUND is
-// RETIRED — a show_not_found result renders the generic refresh prompt, NOT a
-// messageFor lookup.
-const KNOWN_REFUSAL_CODES = new Set(["FINALIZE_OWNED_SHOW", "SHOW_ARCHIVED_IMMUTABLE"]);
+// The refusal classification and the copy each branch speaks live in
+// lib/admin/archiveCopy.ts, so the dashboard row menu says exactly the same
+// things (multi-surface copy rule). ADMIN_LINK_SHOW_NOT_FOUND stays RETIRED
+// there: a show_not_found result renders the refresh prompt, NOT a messageFor.
 
 export type ArchiveShowButtonProps = {
   /**
@@ -169,10 +175,11 @@ export function ArchiveShowButton({
       return;
     }
     setArmed(false);
-    if (result.code === "show_not_found") {
+    const failure = classifyArchiveFailure(result.code);
+    if (failure.kind === "not_found") {
       setNotFound(true);
-    } else if (KNOWN_REFUSAL_CODES.has(result.code)) {
-      setErrorCode(result.code);
+    } else if (failure.kind === "catalog") {
+      setErrorCode(failure.code);
     } else {
       // infra_error (the lifecycle caller's unmapped sentinel — NOT a §12.4
       // code, so it must NEVER be passed to messageFor): plain-language retry
@@ -238,7 +245,7 @@ export function ArchiveShowButton({
           data-testid="archive-show-not-found"
           className="rounded-sm border border-border-strong bg-warning-bg p-3 text-sm text-warning-text"
         >
-          We couldn&rsquo;t find this show anymore. Refresh the page and try again.
+          {ARCHIVE_NOT_FOUND_COPY}
         </p>
       ) : null}
 
@@ -248,8 +255,7 @@ export function ArchiveShowButton({
           data-testid="archive-show-generic-error"
           className="rounded-sm border border-border-strong bg-warning-bg p-3 text-sm text-warning-text"
         >
-          Archiving didn&rsquo;t go through. Try again in a moment; if it keeps failing, contact the
-          developer.
+          {ARCHIVE_GENERIC_ERROR_COPY}
         </p>
       ) : null}
     </>
@@ -305,17 +311,7 @@ export function ArchiveShowButton({
                 panel, one drove scrollWidth 306 -> 412 with overflow-x auto,
                 scrolling a destructive confirm sideways. */}
             <p id={warnId} className="text-sm wrap-break-word text-text-subtle">
-              {namedShow ? (
-                <>
-                  Crew links for &ldquo;{namedShow}&rdquo; stop working now and won&rsquo;t come
-                  back until you re-publish and issue a new link.
-                </>
-              ) : (
-                <>
-                  Crew links stop working now and won&rsquo;t come back until you re-publish and
-                  issue a new link.
-                </>
-              )}
+              {archiveConsequenceProse(namedShow)}
             </p>
             <div className="flex flex-wrap items-center justify-end gap-2">
               <form

@@ -121,6 +121,8 @@ import { emitRoleTokenMapped } from "@/lib/log/emitRoleTokenMapped";
 import { emitRoleFlagsNotice, ROLE_FLAGS_EMIT_SOURCE } from "@/lib/sync/emitRoleFlagsNotice";
 import { emitIdentityLinkRenameUnlanded } from "@/lib/log/emitIdentityLinkRenameUnlanded";
 import type { UnlandedRename } from "@/lib/sync/applyParseResult";
+import type { DiagramVariantFailureRow } from "@/lib/sync/snapshotAssets";
+import { emitDiagramVariantFailures } from "@/lib/log/emitDiagramVariantFailures";
 
 export const STAGED_PARSE_REVISION_RACE = "STAGED_PARSE_REVISION_RACE" as const;
 export const STAGED_PARSE_REVISION_RACE_COOLDOWN = "STAGED_PARSE_REVISION_RACE_COOLDOWN" as const;
@@ -410,6 +412,11 @@ export type ProcessOneFileResult =
       // that tail entirely. OPTIONAL, mirroring roleFlagsNotice? above — absent and [] both mean
       // "nothing unlanded", and every consumer defaults with `?? []`.
       unlandedRenames?: UnlandedRename[];
+      // Census hop 2 (spec §3): diagram variant failures carried out of the locked tx so
+      // processOneFile's post-commit tail can emit them. Two sinks read it off THIS type:
+      // the tail below (cron + manual) and the pending-ingestion retry route, which calls
+      // runManualSyncForShow_unlocked and so bypasses the tail entirely.
+      variantFailures?: DiagramVariantFailureRow[];
       snapshotRevisionId?: string;
       // §02 (FIX-3 / R16 structural defense): REQUIRED so tsc forces EVERY tail caller that builds
       // an applied result (cron / manual / staged) to supply it — a future 4th caller cannot
@@ -2865,6 +2872,27 @@ export async function processOneFile(
     const skipped = { outcome: "skipped" as const, reason: CONCURRENT_SYNC_SKIPPED };
     await logSync(deps, driveFileId, skipped);
   }
+  // Census hop 2 sink (spec §3): DIAGRAM_VARIANT_GENERATION_FAILED — POST-COMMIT,
+  // outside the show-lock tx (invariant 10), and FIRST in this tail. Placed ahead of
+  // the other post-commit steps and isolated, because this region is a sequence of
+  // un-isolated awaits: a throw in promote or in either emit below would otherwise
+  // skip the variant rows entirely, and a dropped signal is the one outcome the
+  // whole hop census exists to prevent.
+  if (!("skipped" in result) && result.outcome === "applied" && result.variantFailures?.length) {
+    try {
+      await emitDiagramVariantFailures(result.variantFailures, { showId: result.showId });
+    } catch (error) {
+      const escalation = log.error("diagram variant failure emit failed", {
+        source: "sync.diagramVariants",
+        code: "DIAGRAM_VARIANT_GENERATION_EMIT_FAILED",
+        showId: result.showId,
+        error,
+      });
+      await escalation.catch(() => {
+        /* best-effort: the escalation must never change the sync outcome */
+      });
+    }
+  }
   if (!("skipped" in result) && result.outcome === "applied" && result.snapshotRevisionId) {
     await (deps.promoteSnapshotUpload ?? defaultPromoteSnapshotUpload)(result.snapshotRevisionId);
   }
@@ -3751,6 +3779,9 @@ export async function processOneFile_unlocked(
   // mirroring roleFlagsNotice — nothing here emits, the emit is outside the lock (invariant 10).
   if (phase2.unlandedRenames && phase2.unlandedRenames.length > 0) {
     result.unlandedRenames = phase2.unlandedRenames;
+  }
+  if (phase2.variantFailures && phase2.variantFailures.length > 0) {
+    result.variantFailures = phase2.variantFailures;
   }
   if (phase2.snapshotRevisionId) result.snapshotRevisionId = phase2.snapshotRevisionId;
   await emitSuccessfulPhase2Tail({

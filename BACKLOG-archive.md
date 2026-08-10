@@ -8,6 +8,61 @@ Same split as [DEFERRED.md](./DEFERRED.md) ↔ [DEFERRED-archive.md](./DEFERRED-
 
 ---
 
+### BL-PRIVATE-IMAGE-PIPELINE — Migrate diagrams gallery to `next/image` with auth-preserving pipeline
+
+**Status:** SHIPPED 2026-08-10 · PR #761 · **Effort (as shipped):** L
+**l-wave-screen 2026-08-06:** PREREQ — scope floor — needs its own private-image-pipeline design session.
+
+**Origin:** DEFERRED entry M7-D3 (Diagrams gallery `<img>` → `next/image`). Re-deferred at M9 C6b 2026-05-13 after an in-cluster attempt failed P0 (auth cookies don't forward through `/_next/image`; private Cache-Control rewritten to public, breaking revocation propagation).
+
+**Scope:** Migrate `components/diagrams/Gallery.tsx` and `components/diagrams/GalleryLightbox.tsx` from `<img>` to `next/image` to gain LCP optimization on the mobile crew page. Currently they use `<img loading="lazy" decoding="async">` as the manual equivalent — works correctly but doesn't get Next's `/_next/image` optimizer benefits.
+
+Asset URLs are proxied through `/api/asset/diagram/...` which returns auth-checked bytes with `private, max-age=0, must-revalidate`. The `next/image` optimizer would either need to bypass the auth proxy OR add a second redirect layer — neither is straightforward.
+
+**Why backlog, not deferred:** The in-cluster M9 attempt failed P0 because the obvious paths (declare proxy origin as `next.config.ts` remote pattern; let `/_next/image` proxy through it) break the auth + cache contract. The right fix requires a private-image-pipeline design — custom loader + transform service, OR signed-URL CDN, OR architectural decision to accept the LCP cost of un-optimized images. Each path is a multi-day brainstorming session.
+
+**Promotion prerequisite:** Private-image-pipeline brainstorming (custom loader vs signed-URL CDN vs accept-the-cost). May fold into a broader "v1.5 perf-and-polish" milestone rather than standalone.
+
+---
+
+**RESOLVED 2026-08-10 — SHIPPED** on `feat/private-image-pipeline` (PR #761). Spec:
+`docs/superpowers/specs/crew/2026-08-09-private-image-pipeline-design.md`; plan:
+`docs/superpowers/plans/crew/2026-08-09-private-image-pipeline.md`.
+
+**The entry's own premise was right about the obstacle and wrong about the cost.** It framed the
+M9 P0 correctly — `/_next/image` does not forward the picker cookie and rewrites
+`private, max-age=0, must-revalidate` to a public header — and concluded the fix needed "a custom
+loader + transform service, OR signed-URL CDN, OR accepting the LCP cost". The shipped answer is
+the first half of option one WITHOUT a transform service: with a per-component `loader` prop,
+`next/image` never routes through the optimizer at all, so the loader's return value is the URL the
+BROWSER fetches directly and every cookie flows exactly as it did for the raw `<img>`. No
+`next.config.ts` change, no `remotePatterns`, no second redirect layer. The transform half moved to
+INGEST — sharp generates a `[256, 512, 1024]` webp ladder plus a blur placeholder at snapshot time,
+so nothing is transformed per request.
+
+What shipped, beyond the entry's scope: the variant ladder and blur are generated for BOTH the sync
+and the asset-recovery paths, with a structural census guard (`tests/sync/_metaVariantStageCensus.ts`
+sibling) that fails by default when a new original-byte upload path skips the stage; the private
+asset route's accept-set widened to manifest-listed variant paths with a shared key-shape predicate
+(`lib/images/diagramKey.ts`) used by route and loader alike; and promotion was repaired — its
+expected-count SQL counted originals only and its storage listings were unpaginated, either of which
+would have failed every variant-bearing snapshot before cutover.
+
+**Three defects worth remembering**, none of which a green local suite would have caught: `sharp`
+sat in `devDependencies` while `lib/sync` imports it at runtime (a production-only install has no
+sharp; now pinned by a derived guard); WebKit resolves a `height: 100%` child against the gallery
+cell's aspect-ratio BORDER box, so a `fill` image containing-blocked by the button cropped 2px while
+Chromium hid it entirely; and Supabase Storage's `createSignedUrl` NORMALIZES the path it is handed,
+so a manifest key containing `?` or `..` could sign a different object — closed by requiring the
+minted key shape at the accept-set rather than sanitizing at the URL layer.
+
+**Filed forward:** `BL-ADMIN-DIAGRAM-NEXT-IMAGE` (the two admin wizard `<img>` sites, class-sweep
+exception (c)), `BL-LIGHTBOX-ORIGINAL-PROGRESS-AFFORDANCE` and `BL-DIAGRAM-BLUR-EDGE-SIZE` (both
+need a spec amendment), `BL-GALLERY-FAILED-ITEM-FOCUS-AND-ANNOUNCE`, and three pre-existing sync
+classes this arc's review surfaced with probe evidence:
+`BL-RECOVERY-CLEANUP-DELETES-LIVE-BYTES`, `BL-SNAPSHOT-UPLOAD-THROW-ORPHANS-OBJECTS`,
+`BL-PROMOTE-VALIDATES-COUNTS-NOT-IDENTITIES`.
+
 ## BL-MUTATION-LEDGERGIT-SITE-DRIFT — the `ledgerGit` source-mutation gate is red on main: relocated sites, an uncovered new constant, and a CI-only survivor pair — CLOSED 2026-08-09 (`fix/mutation-ledgergit-site-drift`)
 
 **Status:** CLOSED · **Filed:** 2026-08-08 (parser mutation-hardening wave; PRE-EXISTING on `main`, not introduced by that wave) · **Severity:** medium · **Class:** CI / GUARD SURFACE · **Effort:** M
@@ -19,6 +74,34 @@ Same split as [DEFERRED.md](./DEFERRED.md) ↔ [DEFERRED-archive.md](./DEFERRED-
 3. **The CI-only survivor pair (`integer-literal:284:60:2>3`, `284:93:2>3`) — KILLED deterministically.** The pair mutates `diffHunks`' hunk-count group (`hm[2]`) to the never-present group 3; the suite had no case that deterministically produced a hunk with an explicit count, so the kill depended on the environment — falsifying the surface's L-6 environment-independence claim (CI 11 survivors / 0.8333, full clone 9 / 0.8571). A constructed-repo multi-line hunk case in `tests/scripts/ledgerClaimsCheck.test.ts` now kills both everywhere (each mutant verified red by hand before landing), re-establishing the claim, which the registry comment records.
 
 Post-fix measurement: 72/78 counted (84 mutants, 6 equivalent, 6 accepted-gap), score ≈ 0.923 ≥ floor 0.9. The parser-shard half of the same nightly red (drifted fingerprints) was healed separately by the wave itself (PR #736: zero-width strip + ledger re-bless `cdab19a29`).
+
+### BL-ADMIN-NAV-BADGE-SUSPENSE-STREAMING — stream the admin nav badge counts out of the blocking layout
+
+**Status:** SHIPPED 2026-08-10 — `feat/admin-nav-badge-suspense` (PR #768). **The GOAL shipped; the entry's named MECHANISM was rejected on evidence and must not be revived from this text.**
+
+Spec `docs/superpowers/specs/nav-perf/2026-08-09-admin-nav-badge-suspense-design.md`, plan `docs/superpowers/plans/2026-08-09-admin-nav-badge-suspense.md`.
+
+What shipped: `app/admin/layout.tsx` issues `loadBellUnseenCount` and `loadNeedsAttentionCount` without awaiting and passes their PROMISES into the client tree; `useBellBadge` and `useNeedsAttentionBadge` each gained one arm that commits a resolved promise through the hook's existing prop-ingestion path, guarded by promise identity and a virgin-state rule. The nav chrome now paints on the identity/health wall-time and each count arrives when its read lands. The onboarding early-return also stopped paying for two reads it discarded.
+
+**Two premises in the row below were FALSE and are corrected here rather than preserved:**
+
+1. _"the repo has zero `<Suspense>` precedent"_ — stale when written. Real boundaries already shipped in the admin tree (`app/admin/page.tsx`, `app/admin/dev/telemetry/page.tsx`, `app/admin/dev/telemetry-dim/page.tsx`).
+2. _`<Suspense>` is the mechanism_ — REJECTED on evidence, not on cost. The resolved counts drive behavior far outside any leaf (the bell's trigger branch, the parent link's count-aware `aria-label`, `zeroNow()` firing before resolution), so nothing on this surface may suspend; and a pre-mount navigation would initialize `lastPathRef` on the destination and silently skip the first refetch. Spec §3.2 "Why the hooks own the pending state" is the record. **Do not re-file this as a Suspense task.**
+
+Original entry text below, with ONE normalization: the meta line is quoted as it stood on the branch at
+archive time (`**Status:** OPEN · **Effort:** M`) rather than as it stands on `origin/main`
+(`**Effort:** M`) — the status field was added by this arc's invariant-12 flight marker and then
+cleared. Every other line is verbatim.
+
+> ### BL-ADMIN-NAV-BADGE-SUSPENSE-STREAMING — stream the admin nav badge counts via `<Suspense>` instead of blocking layout
+>
+> **Status:** OPEN · **Effort:** M
+>
+> **Filed:** 2026-06-23 (nav-perf Phase 2 — the descoped half of E). Phase 2's E-lite parallelized the admin layout's two badge reads (`Promise.all`), so first `/admin` entry blocks on one wall-time instead of three sequential round-trips. The further win is to stream the badges entirely OUT of the blocking layout path via `<Suspense>` so the nav chrome paints immediately and the counts arrive after.
+>
+> **Why backlog, not now:** `components/admin/nav/AdminNav.tsx` is a `"use client"` component with a stateful refetch hook (`useNeedsAttentionBadge`), and the repo has **zero `<Suspense>` precedent** — streaming needs a server-child + slot bridge (refactor AdminNav's prop/slot contract) for a first-`/admin`-entry-only gain (the layout is reused across sibling navs, so its awaits don't re-run per nav). Invasive relative to the payoff.
+>
+> **Promotion prerequisite:** an established `<Suspense>` streaming pattern in the codebase + an AdminNav slot refactor that lets the badge counts arrive as a streamed server child without breaking the client-side pathname-refetch hook.
 
 ### BL-RESURRECT-MOBILE-SAFARI-E2E — lift the remaining mobile-safari tile/crew specs into CI
 
@@ -513,6 +596,55 @@ Design memo captures six load-bearing principles: push-not-pull, severity tierin
 **Why backlog, not deferred:** Three independent prerequisites: (a) the design memo needs ratification via spec amendment + brainstorming; (b) Doug-validation questions need real answers from Doug's first-show workflow; (c) email-provider integration (Resend / Postmark / SES) requires a vendor decision + account setup + secrets management. Spec amendment + dedicated milestone plan, not a sub-milestone task. The notification-design-memo notes that MI-8/MI-8b modtime-stability debounce (ratified in plan amendment 7) becomes redundant once push-debounce lands — both achieve the same anti-spam UX outcome from different layers, so push-debounce might retire MI-8/MI-8b infrastructure.
 
 **Promotion prerequisite:** Doug-workflow observation from a live v1 deployment (need real data on which staging events Doug actually misses) + email-provider integration decision + spec amendment formalizing the notification design memo.
+
+---
+
+## BL-LIBDATA-SUPABASE-CALL-BOUNDARY-METATEST — Structural meta-test for `lib/data` Supabase call-boundary discipline — CLOSED 2026-08-10 (`test/libdata-call-boundary-metatest`, PR #770, IMPLEMENTED)
+
+**Status:** CLOSED · **Filed:** 2026-06-19, crew-page redesign Phase 2 Task 02.5 (`getShowForViewer.runOfShow` projection) · **Effort:** M
+
+**Resolution: IMPLEMENTED.** `tests/data/_metaLibDataCallBoundary.test.ts` ships per
+`docs/superpowers/specs/ci/2026-08-09-libdata-call-boundary-metatest-design.md`. It walks `lib/data/**`
+from disk and requires every Supabase `.from(...)` / `.rpc(...)` site to be shape-pinned in an in-file
+registry, discharged to a named behavioral suite, or waivered inline — converting the per-read
+behavioral fail-soft coverage into a class-wide, fails-by-default CI guard. All 17 live sites are
+registered (13 pins + 4 `coveredBy`).
+
+The entry's promotion prerequisite said "extend the `_metaInfraContract` pattern, don't write a parallel
+scanner", and that is what shipped: the registry + orphan-scan + waiver topology, reused with the shared
+`tests/_shared/stripComments.ts` and `tests/_shared/premise.ts` helpers, with
+`tests/auth/_metaInfraContract.test.ts` left byte-identical.
+
+Two assumptions in the original entry needed correcting, and the spec ratified both. The entry described
+the contract as "destructures `{ data, error }`"; `getShowForViewer.ts` uses the result-object form,
+which distinguishes returned-error from thrown identically and is pinned as written — the guard does not
+force a style migration. And the entry's own **Context** paragraph is the stale-waiver claim this arc
+repaired: the `// not-subject-to-meta:` comment said `lib/data` sits outside every scan, true when
+written and false the moment this suite landed.
+
+**What the review cost, and what it bought.** Twenty-two diff rounds. Twelve went into four separate
+instances of one mistake — a text pattern used to answer a question about program structure — in the site
+scanner, the waiver recognition, the mention check and the pin coupling; each was widened until it was
+replaced by asking the TypeScript parse instead. The round record
+(`docs/review-rounds/test/libdata-call-boundary-metatest/0d8d239abcba.md`) tabulates all four and states
+the lesson: "the recognizer missed a spelling" is a finding about the recognizer's category, and the
+second occurrence is the signal, not the fourth. R17 is the round that justified the train — until it,
+the guard required one pin to depend on the call, so a row could pin its own call and borrow a
+neighbour's error check, which is exactly what invariant 9 exists to prevent.
+
+**Not closed by this arc, deliberately:** the sibling hardening entries the promotion prerequisite offered
+as a bundling trigger — `BL-ADMIN-POSTGREST-DML-LOCKDOWN` and `BL-RLS-COVERAGE-CROSSCUTTING` — stay open
+and untouched. Sibling domains (`lib/notify`, `lib/sync`, `app/api/**`) remain owned by their own
+meta-tests.
+
+**Documented limits, recorded rather than filed:** the accepted limits in the design spec's §6 — dynamic
+call arguments; file-grain waivers on unregistered files; pins are text pins, not control-flow proofs;
+`supabase.auth.*` and storage out of scan scope; `coveredBy` proves mention, not exercise; duplicate
+literals distinguished by position (enforced, after R16 showed the earlier "noted" form was silent); pin
+strength beyond coupling is human territory, including the result-claim residue R18 established; and other
+built-in `from` receivers reported loudly rather than enumerated. Each has a conservative worst case and
+each is pinned executable by a planted self-test. Per the ledger filing bar these belong in the owning
+surface's limits record, not the open queue; grep the id to reach this entry.
 
 ---
 
@@ -6728,3 +6860,51 @@ instead of `drive_error` + a DRIVE_FETCH_FAILED alert. First-seen carve (deliber
 documented in the test): no show row = no last-good, so the pending_ingestions row
 keeps SYNC_FILE_FAILED — PARSE_ERROR_LAST_GOOD's copy would promise a previous
 version that does not exist. Producer-wiring pin extended to both producers.
+
+---
+
+---
+
+## BL-ADMIN-DASHBOARD-ROW-ACTIONS — ActiveShowsPanel row-action shortcuts — CLOSED 2026-08-10 (`feat/admin-dashboard-row-actions`, PR #765)
+
+**Origin:** M11-E-D3 (MEDIUM) filed 2026-05-20. M11 user-facing-docs `/help/admin/dashboard` documents per-row actions `Open`, `Preview as`, `Re-sync`, `Archive` on the Active Shows panel per master spec §9.1. Shipped `components/admin/ActiveShowsPanel.tsx` renders show title + crew count + sync-status only; no row-level action affordances.
+
+**Effort:** M
+
+**Scope:** Add the four documented row actions to `ActiveShowsPanel.tsx`:
+
+- `Open` — link to `/admin/show/[slug]`. Already navigable via the show-title link; this would expose it as an explicit action with consistent affordance treatment.
+- `Preview as` — link to `/admin/show/[slug]/preview/[crewId]` (M10 Phase 3 §B preview-as flow). Already routable; this exposes it as a row action.
+- `Re-sync` — POST to the manual-sync route. Functional equivalent exists at `/admin/show/[slug]` via `<ReSyncButton>`; this is a dashboard-level shortcut.
+- `Archive` — likely needs a new SECURITY DEFINER RPC for soft-delete (`shows.archived_at`). Spec §9.1 mentions archiving but the column doesn't exist yet; promotion may require a small schema migration.
+
+**Why backlog, not deferred:** None of the four shortcuts close a functional ops gap — Doug can already accomplish all four actions by drilling into the per-show page (`Re-sync` directly; the others by navigation). This is pure surfacing/convenience. `Archive` is the only one with a schema implication; the others are pure UI work.
+
+**Promotion prerequisite:** Either (a) FXAV operator feedback surfaces dashboard-level friction (Doug actively wants to triage multiple shows from the dashboard without drilling in), OR (b) a v1.x admin-UX polish milestone. `Archive` may need a separate spec amendment if `shows.archived_at` semantics need definition (idempotency, side effects on `crew_member_auth`, etc.).
+
+**RESOLUTION 2026-08-10 (`feat/admin-dashboard-row-actions`, PR #765).** Shipped. The entry's own
+premises were stale on three counts, all corrected by the spec that implemented it
+(`docs/superpowers/specs/admin/2026-08-09-admin-dashboard-row-actions-design.md` §0): the row
+renderer is `components/admin/ShowsTable.tsx` — no `ActiveShowsPanel` exists in the tree any more;
+Archive needed NO new RPC and NO schema work, because M12.2 Phase B2 already shipped
+`public.archive_show(uuid)` with its in-RPC advisory lock, the `archiveShowAction` server action and
+its `AUDITABLE_MUTATIONS` rows; and `shows` already carries both `archived` and `archived_at`.
+
+What shipped: a per-row kebab (⋮) menu on the Active-shows rows carrying all four §9.1 actions —
+Open (the same param-preserving modal href the row link uses), Preview as… (a submenu of the show's
+crew, capped at 12 with an overflow item), Re-sync (including the two-phase `shrink_held` decision),
+and Archive (a two-step in-menu confirm implementing the destructive contract). Unpublished rows
+expose Open only. The menu renders through a new anchored body-portal primitive
+(`components/admin/AnchoredPortal.tsx`) because the rows wrapper clips, and takes the row's trailing
+seat rather than adding a bar beneath every row. Pure UI surfacing: no migration, no new RPC, no new
+mutation surface, no new advisory-lock holder.
+
+Review: impeccable dual-gate (2 P0s, 4 P1s, 3 P2s fixed; 3 P3s deferred with un-defer triggers) then
+thirteen whole-diff cross-model rounds — 32 findings, 31 repaired, 1 recorded as a documented limit,
+converging to APPROVE. Two behavior-preserving extractions (`lib/admin/syncRequest.ts`,
+`lib/admin/archiveCopy.ts`) each fenced by their component's existing tests passing unmodified. Spec
+§6 carries six documented limits; the recurring outcome-visibility defect is closed executably by
+`tests/components/admin/rowActions/_metaOutcomeVisibility.test.tsx`.
+
+The id and its stale `ActiveShowsPanel` title are preserved verbatim so every cross-reference still
+resolves.
