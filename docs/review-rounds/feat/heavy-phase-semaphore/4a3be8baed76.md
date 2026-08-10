@@ -50,20 +50,20 @@ authoring rule; applying it while drafting would have made R1 F1/R2 F1/R3 F2 fre
 plan prose and the spec case bodies; `TASK_AC_MISSING`/marker grammar already ran
 clean from round 1.
 
-## diff — 18 rounds
+## diff — 19 rounds
 
-**Examined:** eighteen counted rounds on the implementation diff, dispatched as two
+**Examined:** nineteen counted rounds on the implementation diff, dispatched as two
 tight-scope reviews per the split-review default. The wrapper half
 (`scripts/with-heavy-slot.py` + `tests/scripts/withHeavySlot.test.ts`, ~1600 lines,
 the arc's entire mechanism) took APPROVE/0 in round 1 and was never re-opened; its
 reviewed scope is byte-identical from that verdict to merge. Every counted round
 after round 1 belongs to the other half: the AGENTS.md prose rule and its
-string-presence guard, 4/1/1/1/1/3/5/3/2/2/1/1/1/2/1/1/2/1 findings across rounds 1-18 — thirty-three in total.
+string-presence guard, 4/1/1/1/1/3/5/3/2/2/1/1/1/2/1/1/2/1/0 findings across rounds 1-19 — thirty-three in total, closing APPROVE/0 at round 19.
 
 That split is the finding. The half with kernel semantics, fd lifetimes across
 `execvp`, inode identity, and an atomic swap protocol converged immediately, because
 spec §7 had already enumerated its defect classes as executable cases and thirteen
-spec rounds had probed each one. The half that burned seventeen is a paragraph of
+spec rounds had probed each one. The half that burned eighteen is a paragraph of
 English and a regex list.
 
 **Judgment:** eight of the thirty-three diff findings are one class — *the guard's stated coverage is
@@ -371,8 +371,25 @@ than a pattern list when the guard's subject is prose. That has no static signat
 it belongs in `docs/agents/writing-plans.md` alongside the anti-tautology rule, and
 the paragraph above is written to be liftable there verbatim.
 
+**The number that should be read first.** The wrapper — 470 lines of Python doing
+fd inheritance across `execvp`, inode identity, an atomic swap protocol, and
+crash-release semantics, plus its 39-case process-spawning suite — took ONE round
+at zero findings, and its reviewed bytes never changed again. The AGENTS.md
+paragraph and its guard took eighteen more and thirty-three findings. The
+difference is not difficulty; it is that spec §7 had already turned the wrapper's
+defect classes into executable cases before any code existed, and nothing had done
+that for the prose. Every one of the eighteen rounds was discovering, one at a
+time, what "the guard pins the rule" was supposed to mean.
+
+The single most useful thing to carry out of this arc: **a guard over prose needs
+its own §7 before it is written.** Not a longer pattern list — a statement of what
+must be impossible (the words changing, the location changing, the normativity
+changing) and which parsed property makes each impossible. That statement is now
+recoverable from the finished guard, and it fits in a paragraph; deriving it cost
+eighteen rounds.
+
 **Infra:** the sandboxed reviewer could not start Vitest (`EPERM` creating its temp
-dir) in every one of the six rounds and transpiled the exported pure checker in memory
+dir) in every one of the nineteen rounds and transpiled the exported pure checker in memory
 instead. That worked only because the guard was authored as an exported pure function
 over text with the file-reading confined to two module-level constants. A guard
 written as a terminal script would have been unverifiable under the same sandbox — the
