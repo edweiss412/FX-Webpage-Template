@@ -243,9 +243,13 @@ function exportedNames(file: string, source: string): Set<string> {
   // A `via` names the wrapper a suite CALLS, so only runtime bindings qualify.
   // `export declare …` and every type-only spelling erase at compile time and
   // export nothing callable, yet each parses as an export (whole-diff R5 F3).
+  // A DEFAULT export binds the name `default`, whatever the declaration is
+  // called: `export default function addAdminEmail` exports `default`, and the
+  // declaration name is local (R12 F2). `declare` erases entirely.
   const isRuntimeExport = (node: ts.Node): boolean =>
     hasModifier(node, ts.SyntaxKind.ExportKeyword) &&
-    !hasModifier(node, ts.SyntaxKind.DeclareKeyword);
+    !hasModifier(node, ts.SyntaxKind.DeclareKeyword) &&
+    !hasModifier(node, ts.SyntaxKind.DefaultKeyword);
 
   for (const statement of parse(file, source).statements) {
     if (ts.isFunctionDeclaration(statement) || ts.isClassDeclaration(statement)) {
@@ -290,9 +294,21 @@ function exportedNames(file: string, source: string): Set<string> {
  * be found here — that is a rejection naming the row, the signalled direction;
  * no live row is affected.
  */
+const IDENTIFIER_PART_RE = /[\p{ID_Continue}$]/u;
+
 function pinEmbedsCall(patternSource: string, kind: Site["kind"], literal: string): boolean {
   const unescaped = patternSource.replace(/\\/g, "");
-  return ['"', "'", "`"].some((quote) => unescaped.includes(`${kind}(${quote}${literal}${quote}`));
+  return ['"', "'", "`"].some((quote) => {
+    const needle = `${kind}(${quote}${literal}${quote}`;
+    for (let at = unescaped.indexOf(needle); at !== -1; at = unescaped.indexOf(needle, at + 1)) {
+      // The member name needs a LEFT boundary of its own: without it a pin for
+      // `notfrom("x")` contains `from("x")` and `myrpc("x")` contains `rpc("x")`,
+      // so a pin naming a different function discharged the row (R12 F1).
+      const before = at === 0 ? undefined : unescaped[at - 1];
+      if (before === undefined || !IDENTIFIER_PART_RE.test(before)) return true;
+    }
+    return false;
+  });
 }
 
 function mentionedNames(file: string, source: string): Set<string> {
@@ -1134,6 +1150,42 @@ describe("META lib/data Supabase call boundary", () => {
       expect(validateRows(honest, reader({ [SOURCE]: source }))).toEqual([]);
     });
 
+    // The member name needs its own LEFT boundary: `notfrom("x")` contains
+    // `from("x")` and `myrpc("x")` contains `rpc("x")`, so a pin naming a
+    // different function was discharging the row (whole-diff R12 F1).
+    test("a pin naming a different function whose name ends in the member is rejected", () => {
+      const source =
+        'export async function f() {\n  await sb.from("shared_from");\n  await sb.rpc("shared_rpc");\n  notfrom("shared_from");\n  myrpc("shared_rpc");\n}\n';
+      for (const [name, rows] of [
+        [
+          "notfrom",
+          [{ kind: "from" as const, literal: "shared_from", pin: [/notfrom\("shared_from"\)/] }],
+        ],
+        [
+          "myrpc",
+          [{ kind: "rpc" as const, literal: "shared_rpc", pin: [/myrpc\("shared_rpc"\)/] }],
+        ],
+      ] as const) {
+        expect(validateRows({ [SOURCE]: [...rows] }, reader({ [SOURCE]: source })), name).toEqual([
+          expect.stringContaining("no pin embeds this row's call"),
+        ]);
+      }
+
+      // Control: the same pins with the real receiver pass, so the rejections
+      // are the boundary firing rather than an unsatisfiable fixture.
+      expect(
+        validateRows(
+          {
+            [SOURCE]: [
+              { kind: "from", literal: "shared_from", pin: [/sb\.from\("shared_from"\)/] },
+              { kind: "rpc", literal: "shared_rpc", pin: [/sb\.rpc\("shared_rpc"\)/] },
+            ],
+          },
+          reader({ [SOURCE]: source }),
+        ),
+      ).toEqual([]);
+    });
+
     test("a pin that no longer matches the source is rejected", () => {
       const registry: Registry = {
         [SOURCE]: [
@@ -1382,6 +1434,31 @@ describe("META lib/data Supabase call boundary", () => {
           }),
         ),
       ).toEqual([]);
+    });
+
+    // A DEFAULT export binds the name `default`; the declaration's own name is
+    // local and cannot be imported by it (whole-diff R12 F2).
+    test("a via naming a default-exported declaration is rejected", () => {
+      for (const [name, moduleSource] of [
+        ["default function", "export default function addAdminEmail() {}\n"],
+        ["default class", "export default class addAdminEmail {}\n"],
+      ] as const) {
+        const registry: Registry = {
+          [SOURCE]: [
+            { kind: "from", literal: "admin_emails", coveredBy: [SUITE], via: "addAdminEmail" },
+          ],
+        };
+        expect(
+          validateRows(
+            registry,
+            reader({
+              [SOURCE]: moduleSource,
+              [SUITE]: "test('x', () => { addAdminEmail(); });",
+            }),
+          ),
+          name,
+        ).toEqual([expect.stringContaining("is not an exported identifier")]);
+      }
     });
 
     test("a coveredBy citation to a deleted or renamed suite is rejected", () => {
