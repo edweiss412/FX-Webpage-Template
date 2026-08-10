@@ -56,9 +56,23 @@ const MODULE_FILE_RE = /\.(ts|tsx|mts|cts|js|jsx|mjs|cjs)$/;
  * invisible to every layer. Substitution templates are excluded where they
  * actually live (below), not by banning `$` from every quoting style.
  */
-const SUPABASE_CALL_RE = /\.(from|rpc)(?:<[^>()]*>)?\s*\(\s*(["'`])((?:\\.|[^\\])*?)\2/g;
+const SUPABASE_CALL_RE = /\.(from|rpc)(?:<[^>()]*>)?\s*\(\s*(["'`])((?:\\[\s\S]|[^\\])*?)\2/g;
 
 type Site = { kind: "from" | "rpc"; literal: string };
+
+/**
+ * Is this backtick literal a genuinely DYNAMIC name?
+ *
+ * Only an unescaped `${` opens a substitution. Dropping every literal whose raw
+ * text contains `${` also drops `` `cost\${center}` ``, which evaluates to the
+ * static string `cost${center}` — silently, which is the one thing this guard
+ * must never do. Removing escape PAIRS first is what makes the test exact: it
+ * consumes `\$` (so the `{` is left harmless) and consumes `\\` (so a literal
+ * backslash cannot hide the live `${` that follows it).
+ */
+function isSubstitutionTemplate(literal: string): boolean {
+  return literal.replace(/\\[\s\S]/g, "").includes("${");
+}
 
 function extractSites(strippedSource: string): Site[] {
   const re = new RegExp(SUPABASE_CALL_RE.source, "g");
@@ -71,9 +85,8 @@ function extractSites(strippedSource: string): Site[] {
     if ((kind === "from" || kind === "rpc") && literal !== undefined) {
       // A SUBSTITUTION template is a genuinely dynamic name and stays a
       // documented limit (§6.1); a no-substitution template is an ordinary
-      // string argument and counts. `${` is the only thing that separates them,
-      // so that is what this tests — not the presence of a `$`.
-      if (!(quote === "`" && literal.includes("${"))) sites.push({ kind, literal });
+      // string argument and counts.
+      if (!(quote === "`" && isSubstitutionTemplate(literal))) sites.push({ kind, literal });
     }
     match = re.exec(strippedSource);
   }
@@ -81,14 +94,29 @@ function extractSites(strippedSource: string): Site[] {
 }
 
 const WAIVER_MARKER = "// not-subject-to-meta:";
-const WAIVER_WITH_REASON_RE = /\/\/ not-subject-to-meta: \S/;
+
+/**
+ * The marker must OPEN its own line comment: optional indentation, then `//`,
+ * then the marker and a non-empty reason.
+ *
+ * Anchoring to the line start is what keeps a QUOTED marker from waiving. A
+ * `/* // not-subject-to-meta: … *\/` block, or a JSDoc line reading
+ * ` * // not-subject-to-meta: …`, is documentation ABOUT the convention — and
+ * both were accepted by the earlier unanchored form, because comment-stripping
+ * removes a block comment just as thoroughly as a line comment, so
+ * "absent after strip" could not tell them apart (whole-diff R2 F3). Writing
+ * about the directive in a JSDoc is ordinary; silently waiving a real call site
+ * because someone documented the convention is not acceptable.
+ */
+const WAIVER_WITH_REASON_RE = /^[ \t]*\/\/ not-subject-to-meta: \S/m;
 
 /**
  * Comment-proof waiver recognition, tightening the auth test's raw substring
- * check (spec R3 F3). Both halves must hold: the ORIGINAL carries a marker with
- * a non-empty reason, AND the marker is gone from the comment-STRIPPED source.
- * Present-in-original plus absent-after-strip proves the marker lives in a
- * comment, so a marker sitting inside a string literal cannot waive anything.
+ * check (spec R3 F3). Both halves must hold: the ORIGINAL opens a line comment
+ * with the marker and a non-empty reason, AND the marker is gone from the
+ * comment-STRIPPED source. Present-in-original plus absent-after-strip proves
+ * the marker lives in a comment, so a marker inside a string literal cannot
+ * waive; the line anchor proves it is the LINE comment that carries it.
  */
 function isWaived(original: string, stripped: string): boolean {
   return WAIVER_WITH_REASON_RE.test(original) && !stripped.includes(WAIVER_MARKER);
@@ -190,7 +218,11 @@ function validateRows(registry: Registry, readFile: ReadFile = readFromDisk): st
       for (const suite of row.coveredBy) {
         let suiteText: string;
         try {
-          suiteText = readFile(suite);
+          // Comment-stripped: a citation discharged by the suite's own PROSE
+          // about the boundary is the weakest form of the §6.5 limit, and it is
+          // the one form the machine can rule out for free (whole-diff R2 F4).
+          // Mention-not-exercise remains the accepted limit for live code.
+          suiteText = stripCommentsForFile(readFile(suite), suite);
         } catch {
           problems.push(`${where}: covering suite ${suite} does not exist`);
           continue;
@@ -223,6 +255,27 @@ function scan(file: string, source: string): ScannedFile {
  * comment it also contains, so a file-grain waiver can never exempt a pinned
  * site. Waivers discharge only files with no registry rows.
  */
+type Mismatch = { file: string; extracted: Site[]; expected: Site[] };
+
+/**
+ * Layer 2, as a function so the precedence self-test can assert on the
+ * reconciliation itself. "Not an orphan" cannot distinguish a file discharged
+ * by its rows from one discharged by its waiver, so a precedence claim asserted
+ * only through `undischargedFiles` is vacuous (whole-diff R2 F5).
+ */
+function reconciliationMismatches(scanned: ScannedFile[], registry: Registry): Mismatch[] {
+  const byFile = new Map(scanned.map((entry) => [entry.file, entry]));
+  const mismatches: Mismatch[] = [];
+  for (const [file, rows] of Object.entries(registry)) {
+    const extracted = byFile.get(file)?.sites ?? [];
+    const expected = rows.map((row) => ({ kind: row.kind, literal: row.literal }));
+    if (JSON.stringify(extracted) !== JSON.stringify(expected)) {
+      mismatches.push({ file, extracted, expected });
+    }
+  }
+  return mismatches;
+}
+
 function undischargedFiles(scanned: ScannedFile[], registry: Registry): string[] {
   return scanned
     .filter((entry) => entry.sites.length > 0)
@@ -409,15 +462,12 @@ describe("META lib/data Supabase call boundary", () => {
     const stale = Object.keys(REGISTRY).filter((file) => !byFile.has(file));
     expect(stale, "registry names files that no longer exist under lib/data").toEqual([]);
 
-    for (const [file, rows] of Object.entries(REGISTRY)) {
-      const extracted = byFile.get(file)?.sites ?? [];
-      expect(
-        extracted,
-        `Supabase call-site drift in ${file}. The scanner's ordered extraction no longer ` +
-          "matches the registry rows: add, remove, or reorder rows to match, and give any " +
-          "new row its own pin or coveredBy discharge.",
-      ).toEqual(rows.map((row) => ({ kind: row.kind, literal: row.literal })));
-    }
+    expect(
+      reconciliationMismatches(SCANNED, REGISTRY),
+      "Supabase call-site drift. The scanner's ordered extraction no longer matches the " +
+        "registry rows: add, remove, or reorder rows to match, and give any new row its " +
+        "own pin or coveredBy discharge.",
+    ).toEqual([]);
   });
 
   test("every lib/data Supabase call site is registered, discharged, or waivered", () => {
@@ -438,9 +488,15 @@ describe("META lib/data Supabase call boundary", () => {
   test("the getShowForViewer waiver names its real discharge, not a stale scan-scope claim", () => {
     const source = readFromDisk("lib/data/getShowForViewer.ts");
     expect(source).not.toMatch(/outside _metaInfraContract/);
-    expect(source).toMatch(
-      /\/\/ not-subject-to-meta:[\s\S]{0,240}?tests\/data\/_metaLibDataCallBoundary\.test\.ts/,
-    );
+    // Pin the LOAD-BEARING meaning, not just the path. Forbidding the old phrase
+    // and requiring a mention of this file left room for a replacement that
+    // named this suite only to deny it applied ("… is unrelated"), which the
+    // earlier pair accepted (whole-diff R2 F2). The claim that matters is that
+    // the marker is inert because registry rows take precedence.
+    const waiver =
+      /\/\/ not-subject-to-meta: INERT[\s\S]{0,400}?tests\/data\/_metaLibDataCallBoundary\.test\.ts/;
+    expect(source).toMatch(waiver);
+    expect(source).toMatch(/\/\/ not-subject-to-meta: INERT[\s\S]{0,400}?precedence/);
   });
 
   describe("scanner self-tests", () => {
@@ -495,6 +551,34 @@ describe("META lib/data Supabase call boundary", () => {
       expect(plantSites('await sb.from("say \\"hi\\"").select("*");')).toEqual([
         { kind: "from", literal: 'say \\"hi\\"' },
       ]);
+    });
+
+    // Two more shapes that were SILENTLY dropped — the same failure mode as the
+    // class above, found by probing the repaired scanner rather than the
+    // original (whole-diff R2 F1, F2).
+    test("an escaped ${ is a static name, and a backslash line continuation does not end the literal", () => {
+      // `\${` produces the two characters `$` and `{` at runtime, so the name is
+      // static. Testing for `${` in the raw text called it dynamic and dropped it.
+      expect(plantSites("await sb.rpc(`cost\\${center}`);")).toEqual([
+        { kind: "rpc", literal: "cost\\${center}" },
+      ]);
+      // A real substitution is still dropped, including one behind a literal
+      // backslash — `\\` is an escaped backslash, so the `${` after it is live.
+      expect(plantSites("await sb.from(`${tableVar}`);")).toEqual([]);
+      expect(plantSites("await sb.from(`a\\\\${tableVar}`);")).toEqual([]);
+      // A backslash line continuation: the escape must be able to consume a line
+      // terminator, which `\\.` cannot — `.` is not dot-all.
+      for (const [name, terminator] of [
+        ["LF", "\n"],
+        ["CR", "\r"],
+        ["CRLF", "\r\n"],
+        ["LS", "\u2028"],
+        ["PS", "\u2029"],
+      ] as const) {
+        expect(plantSites(`await sb.from("continued\\${terminator}name");`), name).toEqual([
+          { kind: "from", literal: `continued\\${terminator}name` },
+        ]);
+      }
     });
 
     test("extracts sites in source order, distinguishing kind and duplicate literals", () => {
@@ -569,6 +653,12 @@ describe("META lib/data Supabase call boundary", () => {
         "//  not-subject-to-meta: two spaces after the slashes",
         "// not-subject-to-meta : space before the colon",
         "/* not-subject-to-meta: block comment form */",
+        // Documentation ABOUT the convention must not waive a real call site.
+        // Comment-stripping erases a block comment exactly as it erases a line
+        // comment, so "absent after strip" alone could not tell these from the
+        // real thing (whole-diff R2 F3).
+        "/* // not-subject-to-meta: quoted directive */",
+        "/**\n * // not-subject-to-meta: documentation example\n */",
       ]) {
         const source = `${spelling}\nawait sb.from("x");`;
         expect(plantWaiver(source), spelling).toBe(false);
@@ -598,14 +688,41 @@ describe("META lib/data Supabase call boundary", () => {
       expect(undischargedFiles([scan(WAIVERED, CALL)], {})).toEqual([WAIVERED]);
     });
 
-    test("registry rows discharge a file even when it also carries a waiver comment", () => {
-      const planted = [scan(ORPHAN, `// not-subject-to-meta: planted reason\n${CALL}`)];
-      const registry: Registry = {
-        [ORPHAN]: [{ kind: "from", literal: "planted_table", pin: [/from\("planted_table"\)/] }],
-      };
-      expect(undischargedFiles(planted, registry)).toEqual([]);
-      // …and precedence is real: the rows, not the waiver, are what Layer 2 checks.
-      expect(undischargedFiles(planted, {})).toEqual([]);
+    const ROWS: Registry = {
+      [ORPHAN]: [{ kind: "from", literal: "planted_table", pin: [/from\("planted_table"\)/] }],
+    };
+
+    // Non-vacuous by construction: the planted file has NO waiver, so the two
+    // results DIFFER and the registry is what makes the difference. An earlier
+    // form planted a file that was already waivered, which returned [] with and
+    // without the rows — it could not have detected precedence being reversed
+    // (whole-diff R2 F5).
+    test("registry rows discharge a file that has no waiver", () => {
+      const planted = [scan(ORPHAN, CALL)];
+      expect(undischargedFiles(planted, ROWS)).toEqual([]);
+      expect(undischargedFiles(planted, {})).toEqual([ORPHAN]);
+    });
+
+    // Precedence proper. A waivered file WITH rows is still reconciled per-site,
+    // so its waiver cannot smuggle an unpinned call past Layer 2 — asserted on
+    // the reconciliation itself, since "not an orphan" cannot distinguish
+    // "discharged by rows" from "discharged by the waiver".
+    test("a waivered file with rows is still reconciled per-site", () => {
+      const waiveredWithRows = scan(
+        ORPHAN,
+        `// not-subject-to-meta: planted reason\n${CALL}\nawait sb.from("smuggled_table");`,
+      );
+      expect(undischargedFiles([waiveredWithRows], ROWS)).toEqual([]);
+      expect(reconciliationMismatches([waiveredWithRows], ROWS)).toEqual([
+        {
+          file: ORPHAN,
+          extracted: [
+            { kind: "from", literal: "planted_table" },
+            { kind: "from", literal: "smuggled_table" },
+          ],
+          expected: [{ kind: "from", literal: "planted_table" }],
+        },
+      ]);
     });
   });
 
@@ -707,6 +824,27 @@ describe("META lib/data Supabase call boundary", () => {
           reader({ [SOURCE]: MODULE_SOURCE, [SUITE]: suiteText }),
         ),
       ).toEqual([]);
+    });
+
+    // §6.5 stands: `coveredBy` proves mention, not exercise, and the runtime
+    // half stays with the behavioral suites. The one sub-case the machine can
+    // rule out for free is a citation discharged by the suite's own PROSE, so
+    // containment now reads the suite comment-stripped (whole-diff R2 F4).
+    test("a coveredBy suite that mentions the symbol only in a comment is rejected", () => {
+      const registry: Registry = {
+        [SOURCE]: [
+          { kind: "from", literal: "admin_emails", coveredBy: [SUITE], via: "addAdminEmail" },
+        ],
+      };
+      expect(
+        validateRows(
+          registry,
+          reader({
+            [SOURCE]: MODULE_SOURCE,
+            [SUITE]: "// addAdminEmail writes an admin_emails row\ntest('unrelated', () => {});",
+          }),
+        ),
+      ).toEqual([expect.stringContaining("mentions neither the literal nor via")]);
     });
 
     test("a coveredBy suite mentioning neither the literal nor via is rejected", () => {

@@ -291,6 +291,21 @@ describe("revokeAdminEmail (M9 C9 / M2-D1 R1)", () => {
     ).rejects.toBeInstanceOf(AdminEmailsInfraError);
   });
 
+  // The revoke boundary's THROWN arm. Its returned-error arm is covered above,
+  // and `addAdminEmail` has both; without this one, the `revoke_admin_email_rpc`
+  // registry row in tests/data/_metaLibDataCallBoundary.test.ts cited a suite
+  // that never exercised half the contract invariant 9 names (whole-diff R2 F3).
+  test("throws AdminEmailsInfraError on RPC sync throw", async () => {
+    mockState.throwOnRpc = true;
+    await expect(
+      revokeAdminEmail({
+        rawEmail: "x@example.com",
+        revokedBy: "u1",
+        actorCanonicalEmail: "actor@example.com",
+      }),
+    ).rejects.toBeInstanceOf(AdminEmailsInfraError);
+  });
+
   test("R5 HIGH FIX: revoke throws on unknown status string (schema-drift defense)", async () => {
     mockState.rpcResponse = { status: "totally_made_up_status" };
     await expect(revokeAdminEmail({ rawEmail: "x@example.com" })).rejects.toBeInstanceOf(
