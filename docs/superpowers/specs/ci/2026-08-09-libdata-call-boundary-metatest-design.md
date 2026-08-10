@@ -23,7 +23,7 @@ Corpus: 13 files in `lib/data/` (flat, no subdirectories today; the walker recur
 
 | File | Sites | Style | Existing coverage |
 | --- | --- | --- | --- |
-| `lib/data/adminEmails.ts` | 4 (`.from("admin_emails")`, `.rpc("upsert_admin_email_rpc")`, `.rpc("revoke_admin_email_rpc")`, `.rpc("set_admin_developer_rpc")`) | destructuring + `runAdminEmailWrite` wrapper | behavioral: `tests/auth/_metaInfraContract.test.ts` `describe("lib/data/adminEmails")` + `tests/data/adminEmails.test.ts` |
+| `lib/data/adminEmails.ts` | 4 (`.from("admin_emails")`, `.rpc("upsert_admin_email_rpc")`, `.rpc("revoke_admin_email_rpc")`, `.rpc("set_admin_developer_rpc")`) | destructuring + `runAdminEmailWrite` wrapper | behavioral: `tests/auth/_metaInfraContract.test.ts` `describe("lib/data/adminEmails")` + `tests/data/adminEmails.test.ts` (first three sites) + `tests/data/setAdminDeveloper.test.ts` (the `set_admin_developer_rpc` site — the only suite exercising it: 16 `setAdminDeveloper` grep matches there, 0 in the other two; spec R1 F3) |
 | `lib/data/listShowsForCrew.ts` | 2 (`.rpc("my_share_tokens_for_email")`, `.from("shows")`) | destructuring (`{ data: tokens, error: tokenErr }`, `{ data: shows, error: showErr }`) | `tests/data/listShowsForCrew.test.ts` |
 | `lib/data/loadShowShareToken.ts` | 1 (`.rpc("admin_read_share_token")`) | try/catch + `const { data, error } = result` | `tests/data/loadShowShareToken.test.ts` |
 | `lib/data/getShowForViewer.ts` | 10 (`.from("crew_members")` ×2, `.from("shows")`, `.from("hotel_reservations")`, `.from("rooms")`, `.from("transportation")`, `.from("contacts")`, `.from("shows_internal")` ×2, `.rpc("viewer_version_token")`) | result-object (`showRes.error`, `hotelRes.error`, …) | `tests/data/getShowForViewer*.test.ts` family (fail-soft per tile), `tests/data/getShowForViewerRunOfShow.test.ts` |
@@ -44,39 +44,51 @@ The auth-domain template this design mirrors: `tests/auth/_metaInfraContract.tes
 New file `tests/data/_metaLibDataCallBoundary.test.ts` (name mirrors `_metaInfraContract`; the `tests/data/` directory already runs in the unit suite — sibling tests there are green in CI today). Three layers in one file:
 
 - **Layer 1 — orphan scan** (§3.3): disk walk, fails-by-default for any file with an undischarged call site.
-- **Layer 2 — registry shape pins + site-count tripwire** (§3.4): per-site regex assertions + per-file expected-count reconciliation.
+- **Layer 2 — per-site registry reconciliation + shape pins** (§3.4): the scanner's extracted site list is deep-equal-reconciled against ordered registry rows, and every registered row carries its own executable discharge (a shape pin, or a covering-suite citation).
 - **Layer 3 — scanner self-tests** (§3.5): planted positive/negative shapes proving the scanner discriminates.
 
 ### 3.2 Scanner
 
 ```ts
-const SUPABASE_CALL_RE = /\.(?:from|rpc)\(\s*["']/g;
+const SUPABASE_CALL_RE = /\.(from|rpc)\(\s*["']([^"']+)["']/g;
 ```
 
-applied to `stripCommentsForFile(source, file)` output (`tests/_shared/stripComments.ts`). The string-literal first-argument anchor is the discriminator: it matches every real Supabase builder/RPC call (all 17 current sites name their table/function as a string literal) and rejects the two known non-Supabase shapes in the corpus — `Array.from(` (`lib/data/normalizeDateRestriction.ts`, `const years = Array.from(`) takes no string literal, and the prose mention of `.from()` in the `adminEmails.ts` `runAdminEmailWrite` doc comment is stripped before scanning. Calibration: §4.
+applied to `stripCommentsForFile(source, file)` output (`tests/_shared/stripComments.ts`). The scanner does not merely detect — it EXTRACTS, per file, the ordered list of `{ kind: "from" | "rpc", literal }` sites (capture groups 1 and 2), which Layer 2 reconciles against the registry. The string-literal first-argument anchor is the discriminator: it matches every real Supabase builder/RPC call (all 17 current sites name their table/function as a string literal) and rejects the two known non-Supabase shapes in the corpus — `Array.from(` (`lib/data/normalizeDateRestriction.ts`, `const years = Array.from(`) takes no string literal, and the prose mention of `.from()` in the `adminEmails.ts` `runAdminEmailWrite` doc comment is stripped before scanning. Calibration: §4.
 
 ### 3.3 Orphan scan (Layer 1)
 
-Walk `lib/data` recursively (same `walk` shape as the auth test, `readdirSync`/`statSync`, `.ts`/`.tsx` files). For each file whose comment-stripped source matches `SUPABASE_CALL_RE`, require one of:
+Walk `lib/data` recursively (same `walk` shape as the auth test, `readdirSync`/`statSync`) accepting `/\.(ts|tsx|mts|cts|js|jsx|mjs|cjs)$/` — the full set of module extensions the toolchain compiles, not only `.ts`/`.tsx` (spec R1 F2: this project's tsconfig includes `**/*.mts`, so a `.mts` module with a Supabase call must not be invisible to the walk; only `.ts` files exist in `lib/data` today, so the widening has zero current-corpus effect). For each file whose comment-stripped source matches `SUPABASE_CALL_RE`, require one of:
 
-1. membership in `REGISTERED_FILES` (Layer 2 pins it),
-2. membership in `BEHAVIORAL_CONTRACT_FILES` — today exactly `{ "lib/data/adminEmails.ts" }`, discharged to the named suites in §2's table,
-3. an inline `// not-subject-to-meta: <reason>` waiver (file-grain, matching the auth test's semantics — but see the registry-precedence rule below).
+1. membership in the Layer 2 registry (every site row reconciled and discharged there),
+2. an inline `// not-subject-to-meta: <reason>` waiver (file-grain, matching the auth test's semantics — but see the registry-precedence rule below).
 
-**Registry precedence:** a file in `REGISTERED_FILES` is pinned by Layer 2 regardless of any waiver comment it contains. This closes the file-grain-waiver hole for the one file that has both pins and waiver comments (`getShowForViewer.ts`, 10 sites + 2 waiver comments): its sites are individually pinned; its waiver comments cannot exempt them. Waivers only discharge files that are NOT registered.
+(The draft's separate `BEHAVIORAL_CONTRACT_FILES` set is folded INTO the registry: a behavioral discharge is now a per-site registry row whose discharge is a covering-suite citation instead of a shape pin — §3.4. One mechanism, one reconciliation.)
+
+**Registry precedence:** a file with registry rows is reconciled by Layer 2 regardless of any waiver comment it contains. This closes the file-grain-waiver hole for the one file that has both pins and waiver comments (`getShowForViewer.ts`, 10 sites + 2 waiver comments): its sites are individually reconciled; its waiver comments cannot exempt them. Waivers only discharge files with NO registry rows.
 
 Failure message names the file and the three discharge paths (mirrors the auth test's message).
 
-### 3.4 Registry pins + count tripwire (Layer 2)
+### 3.4 Per-site registry reconciliation (Layer 2)
 
-`REGISTERED_FILES` = `lib/data/getShowForViewer.ts`, `lib/data/listShowsForCrew.ts`, `lib/data/loadShowShareToken.ts`. Per file:
+**Design principle (spec R1 F1):** the reconciliation is DERIVED from the scanner's extraction, never from an authored count. The draft carried a hand-maintained expected-count per file; the R1 probe showed that a new unchecked call plus a count bump passes every layer — the authored number reconciled against itself. So there are no counts. The registry is a per-file ORDERED list of site rows, and the test asserts deep equality between the scanner's extracted `{ kind, literal }` sequence and the registry rows' `{ kind, literal }` sequence, per file, in both directions. A new site changes the extracted sequence and cannot pass without a new registry row — and a registry row cannot exist without a discharge, because the row TYPE requires one:
 
-- **Shape pins** — one regex assertion per call site pinning the error-handling shape, in the style of the auth test's R41 rows. Representative pins (the plan enumerates all 17 with exact regexes, typechecked):
-  - `listShowsForCrew.ts`: `/const\s+\{\s*data:\s*tokens,\s*error:\s*tokenErr\s*\}\s*=\s*await\s+supabase\.rpc\("my_share_tokens_for_email"\)/` and the matching `{ data: shows, error: showErr }` pin for the `.from("shows")` read, plus the `if (tokenErr)` / `if (showErr)` throw pins.
-  - `loadShowShareToken.ts`: the try/catch wrap around `supabase.rpc("admin_read_share_token"` and the `const { data, error } = result` + `if (error)` pins.
-  - `getShowForViewer.ts`: per-site result-object pins — e.g. `.from("hotel_reservations")` is read into `hotelRes` and `hotelRes.error` is checked; same for `showRes`, `roomRes`, `contactsRes`, the two `crew_members` reads, the two `shows_internal` reads, `transportation`, and the `viewer_version_token` RPC (`versionRpc`).
-- **Count tripwire** — the registry row carries the file's expected site count (`getShowForViewer.ts: 10`, `listShowsForCrew.ts: 2`, `loadShowShareToken.ts: 1`); the test counts `SUPABASE_CALL_RE` matches in the comment-stripped source and fails on mismatch in either direction. This is what catches a NEW call added to an already-registered file — the class the file-grain auth scan cannot see. (Echoes the gate-count-reconciliation lesson: the gate reconciles its own counts; produced must equal classified.)
-- **Behavioral-discharge count pin** — `adminEmails.ts` is not shape-pinned here (its contract lives in the behavioral suites), but its site count (4) IS pinned by the tripwire, so a fifth site added to it fails here and must be dispositioned.
+```ts
+type SiteRow = { kind: "from" | "rpc"; literal: string } & (
+  | { pin: RegExp | RegExp[] }              // shape pin(s), asserted against the file's stripped source
+  | { coveredBy: string[] }                 // behavioral discharge: covering-suite paths
+);
+```
+
+Registry contents (all 17 sites; the plan enumerates the exact pin regexes, typechecked):
+
+- `lib/data/listShowsForCrew.ts` — 2 pin rows: `/const\s+\{\s*data:\s*tokens,\s*error:\s*tokenErr\s*\}\s*=\s*await\s+supabase\.rpc\("my_share_tokens_for_email"\)/` plus the `if (tokenErr)` throw pin; the matching `{ data: shows, error: showErr }` + `if (showErr)` pins for the `.from("shows")` read.
+- `lib/data/loadShowShareToken.ts` — 1 pin row: the try/catch wrap around `supabase.rpc("admin_read_share_token"` and the `const { data, error } = result` + `if (error)` pins.
+- `lib/data/getShowForViewer.ts` — 10 pin rows: per-site result-object pins — `.from("hotel_reservations")` read into `hotelRes` with `hotelRes.error` checked; same shape for `showRes`, `roomRes`, `contactsRes`, the two `crew_members` reads, the two `shows_internal` reads, `transportation`, and the `viewer_version_token` RPC (`versionRpc`).
+- `lib/data/adminEmails.ts` — 4 `coveredBy` rows: the `admin_emails` / `upsert_admin_email_rpc` / `revoke_admin_email_rpc` sites cite `tests/data/adminEmails.test.ts`; the `set_admin_developer_rpc` site cites `tests/data/setAdminDeveloper.test.ts` (spec R1 F3 — it is the only suite exercising that site).
+
+**`coveredBy` rows are themselves executable, not prose:** for each cited suite path the test asserts (a) the file exists on disk, and (b) its source contains the row's `literal` — so a behavioral citation to a suite that never mentions `set_admin_developer_rpc` fails, and a suite deletion or rename fails. This is what makes the behavioral discharge as falsifiable as a pin. (A suite that mentions the literal without meaningfully exercising it is a documented limit — §6.5.)
+
+The gate-count-reconciliation lesson still holds — produced must equal classified — but the classification is now the registry itself, and the "produced" side is always the live extraction.
 
 ### 3.5 Scanner self-tests (Layer 3)
 
@@ -96,7 +108,7 @@ In `lib/data/getShowForViewer.ts`, the waiver above the `run_of_show` read curre
 Executed unconditionally in the suite body, per the guard-premise rule:
 
 - `premise("lib/data files walked", files.length, 3)` — the walk found a non-degenerate corpus;
-- `premise("Supabase call sites found", totalSites, 10)` — the scanner sees a non-trivial site population (17 today; the premise floor is deliberately below it so the premise doesn't duplicate the count tripwire).
+- `premise("Supabase call sites found", totalSites, 10)` — the scanner sees a non-trivial site population (17 today; the premise floor is deliberately below it so the premise doesn't duplicate the Layer 2 reconciliation, which is exact).
 
 ## §4 Corpus probe (run 2026-08-09, pre-draft)
 
@@ -112,27 +124,30 @@ The convergence criterion for review is this enumerated set, each family carryin
 
 | # | Mutant | Killed by |
 | --- | --- | --- |
-| F1 | Registered file removed from `REGISTERED_FILES` while it still has sites | Layer 1 orphan scan (file now undischarged) |
-| F2 | New `.from("x")`/`.rpc("x")` site added to a registered or behavioral file | Layer 2 count tripwire (expected ≠ actual) |
-| F3 | New `lib/data` file with a Supabase call, no registration/waiver | Layer 1 orphan scan (fails-by-default; disk walk, not a name list) |
+| F1 | A file's registry rows deleted while it still has sites | Layer 1 orphan scan (file now undischarged) |
+| F2 | New `.from("x")`/`.rpc("x")` site added to a registered file — with or without a matching bump elsewhere | Layer 2 sequence reconciliation: the extracted `{ kind, literal }` sequence no longer deep-equals the registry rows; passing requires a NEW row, and the row type forces a `pin` or `coveredBy` discharge (no authored count exists to bump — spec R1 F1) |
+| F3 | New `lib/data` file (any compiled extension, incl. `.mts` — spec R1 F2) with a Supabase call, no registration/waiver | Layer 1 orphan scan (fails-by-default; disk walk, not a name list) |
 | F4 | Error-handling removed at a pinned site (e.g. `if (hotelRes.error)` deleted) | that site's Layer 2 shape pin |
 | F5 | Scanner regex corrupted to match nothing | §3.7 premise (`totalSites` floor) + Layer 3 planted positives |
 | F6 | Comment-stripping dropped from the scan path | Layer 3 planted commented-call negative |
 | F7 | Waiver comment deleted from a waiver-discharged file | Layer 1 (file becomes orphan). No live waiver-discharged file exists today, so this family is expressed through a planted Layer 3 fixture, not the live corpus — stated per the premise rule (construct the environment rather than interrogating the ambient one) |
+| F8 | `coveredBy` citation pointed at a suite that never mentions the site's literal (or at a deleted/renamed suite) | Layer 2 `coveredBy` executable check: cited path must exist AND contain the literal (§3.4) |
 
 ## §6 Documented limits (accepted, not findings)
 
 1. **Non-literal call arguments are invisible.** `.from(tableVar)` / `.rpc(fnVar)` does not match the scanner. No such site exists in `lib/data` (§4), the repo convention is literal table names, and the limit is pinned executable by a Layer 3 negative self-test. Worst case: a dynamically-named read escapes the guard — conservative miss, no silent corruption of anything the guard already covers.
-2. **File-grain waivers on unregistered files.** A waiver anywhere in an unregistered file discharges all its sites (inherited from the auth test's semantics; registry precedence in §3.3 closes this for every currently-multi-site file). Worst case: a contributor waivers one site and a second site rides along — the count tripwire does not apply to waiver-discharged files. Accepted: zero waiver-discharged files exist today, and promoting one to the registry is the documented response if one appears.
+2. **File-grain waivers on unregistered files.** A waiver anywhere in an unregistered file discharges all its sites (inherited from the auth test's semantics; registry precedence in §3.3 closes this for every currently-multi-site file). Worst case: a contributor waivers one site and a second site rides along — the per-site reconciliation does not apply to waiver-discharged files. Accepted: zero waiver-discharged files exist today, and promoting one to the registry is the documented response if one appears.
 3. **Shape pins are text pins.** A pin proves the source text contains the compliant shape near the call, not that control flow reaches it. The behavioral suites in §2's table carry the runtime half; this guard is the structural half. Same division as the auth meta-test.
 4. **`supabase.auth.*` and storage calls are out of scan scope** — the scanner keys on `.from(`/`.rpc(` only, matching the ledger entry's scope. No such call exists in `lib/data` today; if one lands it is invisible to Layer 1. Files to the same response as limit 2: register or extend the regex when the first site appears.
+5. **`coveredBy` proves mention, not exercise.** The executable check on a behavioral row (§3.4) asserts the cited suite exists and contains the site's literal — it cannot prove the suite meaningfully exercises the boundary. The runtime half stays with the behavioral suites themselves (same division as limit 3). Worst case: a hollow citation passes the structural check — conservative, and visible to any reader following the citation.
+6. **Duplicate literals reconcile by position.** The two `.from("shows_internal")` and two `.from("crew_members")` sites in `getShowForViewer.ts` are distinguished only by sequence order, so swapping two same-literal sites' pins misattributes which pin guards which site while both still pass. Harmless today (each pin also names its distinct result variable) and pinned by the ordered deep-equal; noted so a reviewer doesn't re-derive it.
 
 ## §7 Acceptance criteria
 
 - **AC-1** `tests/data/_metaLibDataCallBoundary.test.ts` exists, runs in the unit suite with no new vitest wiring (sibling `tests/data/*.test.ts` already run), and is green on the current tree.
-- **AC-2** Layer 1 discovers files from disk. Self-test: a planted in-memory fixture (not a tree mutation) proves an undischarged file shape is flagged; deleting any `REGISTERED_FILES` row and running the suite reds (verified once during TDD's red step, not left as a permanent tree mutation).
-- **AC-3** All 17 current sites are dispositioned: 13 shape-pinned (10 + 2 + 1), 4 behaviorally discharged with count pin.
-- **AC-4** Count tripwire per §3.4 for all four files, expected values `10/2/1/4`.
+- **AC-2** Layer 1 discovers files from disk with the §3.3 widened extension set. Self-test: a planted in-memory fixture (not a tree mutation) proves an undischarged file shape is flagged; deleting any registered file's rows and running the suite reds (verified once during TDD's red step, not left as a permanent tree mutation).
+- **AC-3** All 17 current sites have registry rows: 13 `pin` rows (10 `getShowForViewer.ts` + 2 `listShowsForCrew.ts` + 1 `loadShowShareToken.ts`), 4 `coveredBy` rows (`adminEmails.ts`, with `set_admin_developer_rpc` citing `tests/data/setAdminDeveloper.test.ts`).
+- **AC-4** Layer 2 asserts ordered deep-equality between the scanner extraction and the registry rows per file, both directions, with NO authored count anywhere in the suite; `coveredBy` citations are executable per §3.4.
 - **AC-5** Layer 3 planted positives and negatives per §3.5, including the documented-limit negative.
 - **AC-6** The `run_of_show` waiver reason in `getShowForViewer.ts` no longer claims `lib/data` is outside every scan (§3.6).
 - **AC-7** Both §3.7 premises execute unconditionally in the suite body (not inside `.each` callbacks).
