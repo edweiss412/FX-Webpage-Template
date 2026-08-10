@@ -48,6 +48,13 @@ const MODULE_FILE_RE = /\.(ts|tsx|mts|cts|js|jsx|mjs|cjs)$/;
  * covers the SDK's explicit type arguments — `.rpc<T>("x")` typechecks against
  * `SupabaseClient` and must be visible (spec R4 F1).
  *
+ * Nothing between the method name and its argument list is assumed adjacent:
+ * whitespace, an optional generic segment, and an optional `?.` may all sit
+ * there. `sb.from <Row>("x")`, `sb.rpc/* note *\/<Row>("x")` (a comment is
+ * blanked to spaces before the scan) and `sb.rpc?.("x")` all typecheck against
+ * `SupabaseClient`, and every one of them was silently invisible when the
+ * pattern required adjacency (whole-diff R3 F2, F3).
+ *
  * The literal body runs lazily to the BACKREFERENCED closing quote, so the only
  * character it excludes is the one that opened it. An earlier form excluded all
  * three quote characters and `$` outright, which silently dropped
@@ -56,7 +63,8 @@ const MODULE_FILE_RE = /\.(ts|tsx|mts|cts|js|jsx|mjs|cjs)$/;
  * invisible to every layer. Substitution templates are excluded where they
  * actually live (below), not by banning `$` from every quoting style.
  */
-const SUPABASE_CALL_RE = /\.(from|rpc)(?:<[^>()]*>)?\s*\(\s*(["'`])((?:\\[\s\S]|[^\\])*?)\2/g;
+const SUPABASE_CALL_RE =
+  /\.(from|rpc)\s*(?:<[^>()]*>)?\s*(?:\?\.)?\s*\(\s*(["'`])((?:\\[\s\S]|[^\\])*?)\2/g;
 
 type Site = { kind: "from" | "rpc"; literal: string };
 
@@ -155,6 +163,24 @@ function exportedNames(strippedSource: string): Set<string> {
   return names;
 }
 
+/**
+ * Does this pin name the row's literal as the QUOTED ARGUMENT of a call?
+ *
+ * A bare substring test is not coupling: `shows` is a substring of
+ * `shows_internal` and both are live literals here, so a `shows` row could be
+ * discharged by a pin copied off a `shows_internal` site — precisely the defect
+ * the coupling rule exists to stop. An empty literal was worse: `includes("")`
+ * is true of every pin (whole-diff R3 F1). Requiring the delimiters makes the
+ * test say what it means.
+ *
+ * A literal carrying regex metacharacters appears escaped in the pin source and
+ * will NOT be found here — that is a rejection naming the row, which is the
+ * signalled direction; no live row is affected.
+ */
+function pinEmbedsLiteral(patternSource: string, literal: string): boolean {
+  return ['"', "'", "`"].some((quote) => patternSource.includes(`${quote}${literal}${quote}`));
+}
+
 function containsWholeWord(haystack: string, token: string): boolean {
   if (token === "") return false;
   return new RegExp(`\\b${token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`).test(haystack);
@@ -190,7 +216,7 @@ function validateRows(registry: Registry, readFile: ReadFile = readFromDisk): st
         // Rule 2 — literal coupling. Without it, copying an existing site's pin
         // onto a new row silently discharges an unchecked call; a pin copied
         // from `shows` cannot contain `new_table` (spec R2 F4).
-        if (!row.pin.some((pattern) => pattern.source.includes(row.literal))) {
+        if (!row.pin.some((pattern) => pinEmbedsLiteral(pattern.source, row.literal))) {
           problems.push(
             `${where}: no pin embeds the row literal — a pin copied from another site cannot guard this one`,
           );
@@ -526,6 +552,34 @@ describe("META lib/data Supabase call boundary", () => {
       ]);
     });
 
+    // One shape, several spellings: what sits between the method name and its
+    // argument list is not always adjacent. Each of these typechecks against the
+    // installed `SupabaseClient`, and each was SILENTLY invisible — the site
+    // vanished from the extraction, so Layer 1 saw no call and Layer 2 still
+    // reconciled (whole-diff R3 F2, F3).
+    test("the method, its type arguments and its argument list need not be adjacent", () => {
+      expect(plantSites('await sb.from <Row>("spaced_generic");')).toEqual([
+        { kind: "from", literal: "spaced_generic" },
+      ]);
+      // A comment between the two is blanked to spaces before the scan, so it
+      // reaches the scanner as the same shape by a different route.
+      expect(plantSites('await sb.rpc/* note */<Row>("commented_generic");')).toEqual([
+        { kind: "rpc", literal: "commented_generic" },
+      ]);
+      expect(plantSites('await sb.rpc?.("optional_rpc");')).toEqual([
+        { kind: "rpc", literal: "optional_rpc" },
+      ]);
+      expect(plantSites('await sb.from?.("optional_table");')).toEqual([
+        { kind: "from", literal: "optional_table" },
+      ]);
+      expect(plantSites('await sb.rpc<Row>?.("optional_typed");')).toEqual([
+        { kind: "rpc", literal: "optional_typed" },
+      ]);
+      // The discriminator is unchanged: still no string literal, still no site.
+      expect(plantSites("const xs = Array.from (iterable);")).toEqual([]);
+      expect(plantSites("const ys = Array.from?.(iterable);")).toEqual([]);
+    });
+
     // The literal class used to exclude all three quote characters AND `$`
     // regardless of which quote opened the literal. Every shape below is
     // ordinary authoring that compiles and that Prettier leaves alone, and each
@@ -773,6 +827,41 @@ describe("META lib/data Supabase call boundary", () => {
       expect(validateRows(emptyCoveredBy, reader({ [SOURCE]: MODULE_SOURCE }))).toEqual([
         expect.stringContaining("coveredBy is empty"),
       ]);
+    });
+
+    // Substring coupling is not coupling. `shows` is a substring of
+    // `shows_internal`, and BOTH are live literals in this registry, so a
+    // `shows` row could be discharged by a pin copied off a `shows_internal`
+    // site — the exact defect the coupling rule exists to stop. An empty
+    // literal was worse: `includes("")` is true of every pin, so any pin
+    // discharged it (whole-diff R3 F1). The literal must appear as a QUOTED
+    // ARGUMENT in the pin, which is what "this pin guards THIS site" means.
+    test("a pin coupled only by substring, or to an empty literal, is rejected", () => {
+      const source =
+        'await sb.from("shows_internal");\nawait sb.from("shows");\nawait sb.from("");\n';
+      const substringCollision: Registry = {
+        [SOURCE]: [{ kind: "from", literal: "shows", pin: [/\.from\("shows_internal"\)/] }],
+      };
+      expect(validateRows(substringCollision, reader({ [SOURCE]: source }))).toEqual([
+        expect.stringContaining("no pin embeds the row literal"),
+      ]);
+
+      const emptyLiteral: Registry = {
+        [SOURCE]: [{ kind: "from", literal: "", pin: [/\.from\("shows_internal"\)/] }],
+      };
+      expect(validateRows(emptyLiteral, reader({ [SOURCE]: source }))).toEqual([
+        expect.stringContaining("no pin embeds the row literal"),
+      ]);
+
+      // Controls: the honestly-coupled forms of both still pass, so the
+      // rejections above are the rule firing and not an unsatisfiable fixture.
+      const honest: Registry = {
+        [SOURCE]: [
+          { kind: "from", literal: "shows", pin: [/\.from\("shows"\)/] },
+          { kind: "from", literal: "", pin: [/\.from\(""\)/] },
+        ],
+      };
+      expect(validateRows(honest, reader({ [SOURCE]: source }))).toEqual([]);
     });
 
     test("a pin copied from another site — matching, but not embedding this row's literal — is rejected", () => {
