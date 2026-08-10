@@ -180,19 +180,11 @@ Guards: absent start → `undefined` (NULL), never NaN; non-monotonic clock → 
 
 `insertSyncLog(entry, showId?)` currently takes an explicit id (`runScheduledCronSync.ts:490`). **Retire that parameter** and resolve by the same subselect, so the recovery sink cannot reintroduce the uncommitted-reference hazard from a future caller. Update the four call sites (`runScheduledCronSync.ts:2581`, `runScheduledCronSync.ts:2636`; `runManualSyncForShow.ts:175`, `runScheduledCronSync.ts:224`).
 
-## Task 3a — Enumerated repair-site regression pin
+## Task 3b — Onboarding-scan sink + its seven callers (with their regression pin)
 
-<!-- task: red=`pnpm vitest run tests/sync/syncLogRepairSites.test.ts` ac=AC-1 -->
+**Pin lands WITH the repair, not before it (plan R1 F6).** An earlier revision put all fifteen assertions in a standalone Task 3a that had no implementation of its own and so could never reach green at its own boundary — seven assertions stayed red until 3b and eight until 3c, breaking the mandatory failing-test → implementation → passing-test → commit sequence. The pin is therefore split: the seven superseded assertions land in THIS task's `syncLogRepairSites` suite alongside the caller fix that makes them pass, and the eight entry-point assertions land in Task 3c with theirs.
 
-**Why an enumeration, deliberately.** Spec R14 F1: descoping the derived guard left the caller repairs with no oracle — the seven onboarding branches are mutually exclusive so no behavioural test reaches more than one, and nothing pinned the eight sink installations.
-
-This is a **fixed list of the fifteen sites this PR repairs**, asserting each passes a `drive_file_id` or installs a sink. It claims nothing about completeness. The anti-enumeration lesson of this arc applies to **covers**; a regression pin for specific repairs in a specific diff is a different thing, and it needs no accept-set, no marker taxonomy and no writer derivation — exactly the three definitions that would not converge (R14 F2, F3).
-
-**RED validity.** Before Tasks 3b/3c, the seven `WIZARD_SESSION_SUPERSEDED_DURING_SCAN` calls pass no `driveFileId` and the eight entry points install no sink, so every assertion fails against production source. Ordered before both so its RED is real.
-
-**Deleted when `BL-SYNC-LOG-ATTRIBUTION-METATEST` lands** — that guard subsumes it. Say so in the file header so it is retired rather than accumulated.
-
-## Task 3b — Onboarding-scan sink gains the same subselect
+The enumeration is still deliberate (a regression pin, not a cover — see the acceptance index), and the file is still deleted when `BL-SYNC-LOG-ATTRIBUTION-METATEST` lands.
 
 <!-- task: red=`pnpm vitest run tests/sync/onboardingScanSyncLogAttribution.test.ts` ac=AC-1 -->
 
@@ -224,7 +216,7 @@ Sites: `lib/sync/runOnboardingScan.ts:740`, `lib/sync/runOnboardingScan.ts:826`,
 
 **Do NOT touch `lib/sync/runOnboardingScan.ts:1134`** — the run-level readiness emit is genuinely unattributable and is a seed row in `RUN_LEVEL_SYNC_LOG_SITES` (Task 8b).
 
-## Task 3c — Manual entry points install a sync_log sink
+## Task 3c — Manual entry points install a sink (with their regression pin) + the two fenced gap markers
 
 <!-- task: red=`pnpm vitest run tests/sync/manualSyncInstallsSink.test.ts` ac=AC-1 -->
 
@@ -261,6 +253,8 @@ Census — exactly **two of seven** production entry points install a sink today
 
 **Also fix the two lying comments** at `app/admin/show/[slug]/_actions/useRaw.ts:162` and `app/admin/show/[slug]/_actions/useRaw.ts:173`, which assert that logging already happens here. They are false today and they are part of why this went unnoticed — a comment claiming a mechanism is the same defect class as a spec claiming one.
 
+**Also install the two fenced gap markers (plan R1 F12).** The approved spec §6.2 requires them and no task owned them; the plan referenced a nonexistent "Task 8b". Add `// sync-log-emission-gap: BL-MANUAL-SYNC-UNEMITTED` at `app/api/admin/staged/[fileId]/apply/route.ts:152` and `app/api/admin/show/staged/[stagedId]/apply/route.ts:164`. Without them the fenced attempts stay silently unemitted rather than explicitly signaled, which is the difference between a documented limit and an undocumented one.
+
 **Ordering:** before Task 4, whose DB oracle would otherwise be unable to observe a manual attempt at all. (Task 3a, the meta-test, was descoped — so 3b/3c no longer have a guard turning red before them; their REDs are their own tests.)
 
 ## Task 4 — Attribution integration test (the probe, executable)
@@ -274,6 +268,12 @@ New DB-backed test. Write attempts through the cron sink for a drive file with a
 The mocked suite still gets its expected update for the select-list change (Task 1 alters no select list, so likely none) — but it is not, and cannot be, the AC-2 evidence.
 
 **Prune oracle must prove NON-deletion of rows it did not mark (spec R4 F5).** Asserting only that marked-new rows survive admits a predicate equivalent to `occurred_at < cutoff OR status = 'skipped'`: the marked old row disappears, the marked new row survives, the global return stays `>= fixtureOldCount`, and every assertion passes while unrelated recent rows are destroyed. So the fixture also inserts a **recent row NOT carrying the marker**, and asserts it survives. Include at least one whose `status` differs from the marker's, since status is the most likely accidental predicate.
+
+**The oracle CANNOT be rollback-only (plan R1 F10).** `querySyncLog` reads through a separate Supabase REST connection (`lib/observe/query/syncLog.ts:23`), so a row written inside the test transaction is invisible to it; and `writeSyncLog` opens and commits its OWN connection whose resolver prefers `TEST_DATABASE_URL` — the validation project. Either shape produces a false negative, a remote mutation, or residue.
+
+Required shape: **commit the fixture, then clean it in a `finally`**, with the target pinned explicitly to loopback for BOTH writer and reader, and an assertion that the two resolve to the same database (compare `current_database()` and the host, or inject one resolved URL into both). A rollback-only variant is only valid for assertions that never cross the connection boundary — the direct `select … from sync_log` readbacks, not `querySyncLog`.
+
+**One readback PER SINK (plan R1 F11).** AC-1 spans three writers and an earlier revision proved only the cron sink; recovery and onboarding had SQL-string assertions, which cannot show a row landed. Each of the three gets its own write-then-read-back, or its AC-1 clause is unproven.
 
 **Anti-tautology:** assert against the row read back from the DB, not the param array. Derive the expected show id from the fixture. Duration asserted against a known injected delta, not `> 0`. **Negative control (AC-2):** the same query for an unrelated show id returns zero rows — without it, green is equally consistent with the filter being ignored.
 
@@ -308,6 +308,7 @@ the new migration under `supabase/migrations/`:
 - `create index if not exists sync_log_show_id_idx on public.sync_log (show_id, occurred_at desc);` plus the `drive_file_id` companion. Naming mirrors `sync_audit_show_id_idx` (`supabase/migrations/20260501001000_internal_and_admin.sql:218`).
 - **dev block MUST be existence-guarded** (SF-1). A bare `create index ... on dev.sync_log` raises on any target lacking the clone, and the validation project is exactly that. There is no `if exists` form of `create index` that guards the table, so use `do $$ ... if to_regclass('dev.sync_log') is not null then ... end if; $$`.
 - `prune_sync_log(retain interval default interval '60 days')` mirroring `prune_app_events` (`supabase/migrations/20260629000002_app_events.sql:32-45`) exactly: `returns integer`, `language sql`, `security definer`, `set search_path = public, pg_temp`, revoke from `public, anon, authenticated`, grant execute to `service_role`.
+- **In the SAME commit** (this is why Task 6 was merged here): `EXPECTED_NON_FXAV_NON_ORPHAN_CRONS` (`tests/cross-cutting/pg-cron-coverage.test.ts:107`) → `["app_events_prune", "sync_log_prune"]`. The assertion at `tests/cross-cutting/pg-cron-coverage.test.ts:461` is exact array equality over the live job set, so the migration without the row fails and the row without the migration fails — they are one atomic change, not two tasks.
 - Self-guarded `do $$` unschedule-then-schedule for job `sync_log_prune`, mirroring `supabase/migrations/20260629000002_app_events.sql:53-64`, on an off-peak minute distinct from `17 4 * * *`.
 
 ## Task 5b — Extend the destructive-target guard to cover prune
@@ -336,11 +337,14 @@ Close (c) the way `_metaLocalDbUrlGuard` already does — resolve the callee to 
 
 The existing inline exemption (`tests/db/_metaDestructiveDbTargetGuard.test.ts:46`, `// not-subject-to-destructive-target-guard:`) remains the escape hatch for a genuinely local-only helper.
 
-## Task 6 — Cron registry row
+## Task 6 — (MERGED INTO TASK 5)
+
+Plan R1 F7: this task's registry row must land in the same commit as Task 5's migration — the `pg-cron-coverage` assertion is exact array equality over the live job set, so a migration without the row fails it and a row without the migration fails it. Declaring them separate tasks while requiring one commit contradicted the one-commit-per-task rule. **Merged into Task 5**, whose body now carries the registry edit and whose RED covers both.
+
 
 <!-- task: red=`pnpm vitest run tests/cross-cutting/pg-cron-coverage.test.ts` ac=AC-8 -->
 
-`EXPECTED_NON_FXAV_NON_ORPHAN_CRONS` (`tests/cross-cutting/pg-cron-coverage.test.ts:107`) → `["app_events_prune", "sync_log_prune"]`. Must land in the same commit as Task 5's migration; the assertion at `tests/cross-cutting/pg-cron-coverage.test.ts:461` is exact array equality.
+
 
 Note `cleanup-bootstrap-nonces` is excluded by name in the query as a known orphan — not evidence the registry is optional.
 
