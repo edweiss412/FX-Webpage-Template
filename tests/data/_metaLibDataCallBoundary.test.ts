@@ -292,12 +292,19 @@ function pinEmbedsLiteral(patternSource: string, literal: string): boolean {
  * citation discharged by a suite that never mentions the symbol at all, which is
  * outside §6.5's "mention, not exercise" and simply wrong (whole-diff R7 F1).
  *
- * The boundary that matters is "not adjacent to an identifier character", and
- * both operands are identifier-shaped: a `via` is a JavaScript symbol, a
- * `literal` a table or function name. Unicode-aware so `é` counts as a letter
- * rather than as punctuation.
+ * Nor does an approximation of "letter, digit, `_` or `$`": ECMAScript's
+ * IdentifierPart also admits combining marks (`Mn`, `Mc`), connector
+ * punctuation beyond `_` (`Pc`), `Other_ID_Continue`, non-letter `ID_Start`
+ * characters like `℘`, and the zero-width joiners — so `get\u0301x` is one
+ * identifier that a `via` of `get` was still matching inside (whole-diff R8 F1).
+ *
+ * The definition is therefore TAKEN, not approximated: IdentifierPart is
+ * `ID_Continue` plus `$`, ZWNJ and ZWJ, and `\p{ID_Continue}` is a Unicode
+ * property escape the regex engine already implements. Enumerating the families
+ * it covers would be the same open-set mistake this suite has refused
+ * elsewhere; naming the property closes all of them at once.
  */
-const IDENTIFIER_CHAR = "[\\p{L}\\p{N}_$]";
+const IDENTIFIER_CHAR = "[\\p{ID_Continue}$\\u200C\\u200D]";
 
 function containsWholeWord(haystack: string, token: string): boolean {
   if (token === "") return false;
@@ -1264,6 +1271,38 @@ describe("META lib/data Supabase call boundary", () => {
         };
         expect(
           validateRows(registry, reader({ [SOURCE]: moduleSource, [SUITE]: suiteText })),
+          name,
+        ).toEqual([expect.stringContaining("mentions neither the literal nor via")]);
+      }
+    });
+
+    // ECMAScript IdentifierPart is not "letter, digit, `_` or `$`". Each family
+    // below continues an identifier, so `get<mark>x` is ONE identifier and a
+    // `via` of `get` must not match inside it (whole-diff R8 F1). Taken from the
+    // `ID_Continue` property rather than enumerated — this list is the evidence
+    // the property covers them, not the mechanism.
+    test("a coveredBy suite mentioning a larger identifier in any IdentifierPart family is rejected", () => {
+      const families: Array<[string, string]> = [
+        ["Mn combining mark", "\u0301"],
+        ["Mc spacing mark", "\u0903"],
+        ["Pc connector punctuation", "\u203F"],
+        ["Other_ID_Continue", "\u00B7"],
+        ["non-letter ID_Start", "\u2118"],
+        ["ZWNJ", "\u200C"],
+        ["ZWJ", "\u200D"],
+      ];
+      for (const [name, continuation] of families) {
+        const registry: Registry = {
+          [SOURCE]: [{ kind: "from", literal: "admin_emails", coveredBy: [SUITE], via: "get" }],
+        };
+        expect(
+          validateRows(
+            registry,
+            reader({
+              [SOURCE]: "export function get() {}\n",
+              [SUITE]: `test get${continuation}x does something`,
+            }),
+          ),
           name,
         ).toEqual([expect.stringContaining("mentions neither the literal nor via")]);
       }
