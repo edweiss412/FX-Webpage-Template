@@ -20,7 +20,15 @@
  *    `FX_HEAVY_JITTER_PCT=0` wherever determinism is asserted.
  */
 import { type ChildProcess, spawn } from "node:child_process";
-import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  closeSync,
+  mkdtempSync,
+  openSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -509,5 +517,358 @@ describe("spec §7 case 8 — knob domains", () => {
       holder.child.kill("SIGKILL");
       await holder.exited;
     }
+  }, 60_000);
+});
+
+// --- Task 3 shared oracles ------------------------------------------------
+
+/** `python3 scripts/with-heavy-slot.py --recreate --slots N` — no `--`, no command. */
+function runRecreate(env: Record<string, string>, args: string[]): Run {
+  return spawnRun("python3", [WRAPPER, "--recreate", ...args], env);
+}
+
+function slotFiles(dir: string): string[] {
+  return readdirSync(dir)
+    .filter((name) => /^slot-\d+$/.test(name))
+    .sort((a, b) => Number(a.slice(5)) - Number(b.slice(5)));
+}
+
+function tmpResidue(dir: string): string[] {
+  return readdirSync(dir).filter((name) => name.startsWith("config.tmp."));
+}
+
+/** Byte-level dir identity — the oracle for "a rejected management command changed nothing". */
+function dirSnapshot(dir: string): string {
+  return readdirSync(dir)
+    .sort()
+    .map((name) => `${name}:${readFileSync(join(dir, name)).toString("hex")}`)
+    .join("\n");
+}
+
+/** The `swap begin/end <monotonic-ns>` pair the recreator brackets its swap with. */
+function swapWindow(stderr: string): { begin: bigint; end: bigint } | null {
+  const begin = /^swap begin (\d+)$/m.exec(stderr);
+  const end = /^swap end (\d+)$/m.exec(stderr);
+  if (!begin || !end) return null;
+  return { begin: BigInt(begin[1]!), end: BigInt(end[1]!) };
+}
+
+/** Bootstrap a dir + config at N with a trivial wrapped run. */
+async function bootstrapDir(dir: string, slots: number): Promise<void> {
+  const run = runWrapped({ FX_HEAVY_SLOT_DIR: dir, FX_HEAVY_SLOTS: String(slots) }, [
+    process.execPath,
+    "-e",
+    "process.exit(0)",
+  ]);
+  const { code } = await run.exited;
+  if (code !== 0) throw new Error(`bootstrap failed (${code}): ${run.stderr()}`);
+}
+
+describe("spec §7 case 9 — slot-count consistency", () => {
+  it("adopts the dir-recorded count over its own preference (sequential arm)", async () => {
+    const dir = slotDir();
+    await bootstrapDir(dir, 3);
+    expect(configSlots(dir)).toBe(3);
+
+    const env = { FX_HEAVY_SLOT_DIR: dir, FX_HEAVY_SLOTS: "1", FX_HEAVY_POLL_MS: "100" };
+    const h0 = await holdSlot(env);
+    const h1 = await holdSlot(env);
+    try {
+      // Observable adoption: an implementation that honoured its own
+      // FX_HEAVY_SLOTS=1 would block behind the two live holders forever.
+      const third = runWrapped(env, [process.execPath, "-e", "process.exit(0)"]);
+      await waitForStderr(third, "acquired slot-2", 15_000);
+      expect((await third.exited).code).toBe(0);
+      expect(third.stderr()).toContain("config adopted (slots=3)");
+    } finally {
+      for (const holder of [h0, h1]) {
+        holder.child.kill("SIGKILL");
+        await holder.exited;
+      }
+    }
+  }, 60_000);
+
+  it("elects EXACTLY ONE config creator under a simultaneous first-boot race", async () => {
+    const dir = slotDir();
+    rmSync(dir, { recursive: true, force: true }); // no pre-existing dir: every racer is a candidate creator
+
+    const desired = ["1", "2", "3", "4", "5", "6"];
+    const runs = desired.map((slots) =>
+      runWrapped({ FX_HEAVY_SLOT_DIR: dir, FX_HEAVY_SLOTS: slots, FX_HEAVY_POLL_MS: "100" }, [
+        process.execPath,
+        "-e",
+        "process.exit(0)",
+      ]),
+    );
+    const results = await Promise.all(runs.map((run) => run.exited));
+    for (const result of results) expect(result.code).toBe(0);
+
+    const created = runs
+      .map((run) => /^config created \(slots=(\d+)\)$/m.exec(run.stderr()))
+      .filter((match): match is RegExpExecArray => match !== null);
+    const adopted = runs
+      .map((run) => /^config adopted \(slots=(\d+)\)$/m.exec(run.stderr()))
+      .filter((match): match is RegExpExecArray => match !== null);
+
+    // A last-writer-wins overwrite fails both of these: several processes would
+    // report themselves the creator, and adopters would disagree about X.
+    expect(created).toHaveLength(1);
+    const electedSlots = Number(created[0]![1]);
+    expect(adopted).toHaveLength(desired.length - 1);
+    for (const match of adopted) expect(Number(match[1])).toBe(electedSlots);
+
+    expect(configSlots(dir)).toBe(electedSlots);
+    expect(tmpResidue(dir)).toEqual([]);
+  }, 90_000);
+});
+
+describe("spec §7 case 11 — resize-race containment", () => {
+  it("rejects a lock won on an orphaned inode when the swap keeps the same size", async () => {
+    const dir = slotDir();
+    await bootstrapDir(dir, 1);
+    const base = { FX_HEAVY_SLOT_DIR: dir, FX_HEAVY_SLOTS: "1", FX_HEAVY_POLL_MS: "100" };
+    const log = join(dir, "case11-identity.log");
+
+    const waiter = runWrapped(
+      { ...base, FX_HEAVY_TEST_HOLD_OPEN_MS: "1500" },
+      logWindowArgs("waiter", log, 300),
+    );
+    await sleep(400);
+    premiseHolds(
+      "the waiter is still inside the injected open->flock window",
+      !waiter.stderr().includes("acquired slot-"),
+    );
+
+    // Same name, same size, NEW inode: the index check (0 < 1) cannot see this.
+    rmSync(join(dir, "slot-0"));
+    closeSync(openSync(join(dir, "slot-0"), "w"));
+    const holder = runWrapped(base, logWindowArgs("holder", log, 2500));
+    let holderDone = false;
+    void holder.exited.then(() => {
+      holderDone = true;
+    });
+    await waitForStderr(holder, "acquired slot-", 15_000);
+
+    await waitForStderr(waiter, "topology restart:", 20_000);
+    premiseHolds(
+      "the new-generation holder is still running when the orphan lock is rejected — " +
+        "an already-finished holder could not overlap regardless of the rejection",
+      !holderDone,
+    );
+    expect(waiter.stderr()).toContain("stale generation");
+
+    await Promise.all([waiter.exited, holder.exited]);
+    const got = windows(log);
+    expect(got.get("holder")).toBeDefined();
+    expect(got.get("waiter")).toBeDefined();
+    expect(overlaps(got.get("waiter"), got.get("holder"))).toBe(false);
+  }, 90_000);
+
+  it("rejects a lock won on a slot the shrink removed", async () => {
+    const dir = slotDir();
+    await bootstrapDir(dir, 3);
+    const base = { FX_HEAVY_SLOT_DIR: dir, FX_HEAVY_SLOTS: "3", FX_HEAVY_POLL_MS: "100" };
+    const log = join(dir, "case11-shrink.log");
+
+    const holder0 = runWrapped(base, logWindowArgs("holder", log, 4000));
+    await waitForStderr(holder0, "acquired slot-0", 15_000);
+    const holder1 = await holdSlot(base);
+    let holder0Done = false;
+    void holder0.exited.then(() => {
+      holder0Done = true;
+    });
+
+    const waiter = runWrapped(
+      { ...base, FX_HEAVY_TEST_HOLD_OPEN_MS: "800" },
+      logWindowArgs("waiter", log, 300),
+    );
+    // Scan order is slot-0, slot-1, slot-2 with an injected sleep before each
+    // flock; the shrink lands while the waiter sits on slot-2.
+    await sleep(1800);
+    premiseHolds(
+      "the waiter has not acquired before the shrink",
+      !waiter.stderr().includes("acquired slot-"),
+    );
+    writeFileSync(join(dir, "config"), JSON.stringify({ slots: 1 }) + "\n");
+    rmSync(join(dir, "slot-1"));
+    rmSync(join(dir, "slot-2"));
+
+    await waitForStderr(waiter, "topology restart:", 20_000);
+    premiseHolds(
+      "slot-0's holder is still running when the removed-slot lock is rejected",
+      !holder0Done,
+    );
+
+    await Promise.all([waiter.exited, holder0.exited]);
+    holder1.child.kill("SIGKILL");
+    await holder1.exited;
+
+    const got = windows(log);
+    expect(got.get("holder")).toBeDefined();
+    expect(got.get("waiter")).toBeDefined();
+    expect(overlaps(got.get("waiter"), got.get("holder"))).toBe(false);
+  }, 90_000);
+});
+
+describe("spec §7 case 13 — recreate discipline", () => {
+  it("blocks on a live holder, surfaces it by name, and swaps only after it exits", async () => {
+    const dir = slotDir();
+    await bootstrapDir(dir, 1);
+    const env = { FX_HEAVY_SLOT_DIR: dir, FX_HEAVY_SLOTS: "1", FX_HEAVY_POLL_MS: "100" };
+    const log = join(dir, "case13-holder.log");
+
+    const holder = runWrapped(env, logWindowArgs("holder", log, 2500));
+    await waitForStderr(holder, "acquired slot-", 15_000);
+
+    const recreate = runRecreate(env, ["--slots", "2"]);
+    let recreateDone = false;
+    void recreate.exited.then(() => {
+      recreateDone = true;
+    });
+    await waitForStderr(recreate, "waiting: slot-0 held by", 15_000);
+    expect(recreate.stderr()).toContain(`pid=${holder.pid}`);
+    premiseHolds("the recreation is still blocked while the holder runs", !recreateDone);
+
+    expect((await holder.exited).code).toBe(0);
+    expect((await recreate.exited).code).toBe(0);
+
+    expect(slotFiles(dir)).toEqual(["slot-0", "slot-1"]);
+    expect(configSlots(dir)).toBe(2);
+    expect(tmpResidue(dir)).toEqual([]);
+  }, 90_000);
+
+  it("serializes two recreators against each other, each holding the swap for its full delay", async () => {
+    const dir = slotDir();
+    await bootstrapDir(dir, 1);
+    const env = { FX_HEAVY_SLOT_DIR: dir, FX_HEAVY_POLL_MS: "100" };
+
+    // Premise: an UNDELAYED recreation's swap is far shorter than the injected
+    // delay, so two unserialized delayed swaps would necessarily overlap.
+    const warmup = runRecreate(env, ["--slots", "1"]);
+    expect((await warmup.exited).code).toBe(0);
+    const warmupWindow = swapWindow(warmup.stderr());
+    premiseHolds("the warm-up recreation emitted a swap window", warmupWindow !== null);
+    const delayMs = 2000;
+    premiseHolds(
+      "an undelayed recreation completes its swap in well under the injected delay — " +
+        "otherwise 'each window spans >= D' would hold without any serialization",
+      Number(warmupWindow!.end - warmupWindow!.begin) < delayMs * 1_000_000,
+    );
+
+    const delayed = { ...env, FX_HEAVY_TEST_HOLD_OPEN_MS: String(delayMs) };
+    const first = runRecreate(delayed, ["--slots", "2"]);
+    const second = runRecreate(delayed, ["--slots", "3"]);
+    const [r1, r2] = await Promise.all([first.exited, second.exited]);
+    expect(r1.code).toBe(0);
+    expect(r2.code).toBe(0);
+
+    const w1 = swapWindow(first.stderr());
+    const w2 = swapWindow(second.stderr());
+    expect(w1).not.toBeNull();
+    expect(w2).not.toBeNull();
+    for (const window of [w1!, w2!]) {
+      expect(Number(window.end - window.begin)).toBeGreaterThanOrEqual(delayMs * 1_000_000);
+    }
+    const disjoint = w1!.end <= w2!.begin || w2!.end <= w1!.begin;
+    expect(disjoint).toBe(true);
+
+    // The waiting line is the recreator-behind-recreator site's own oracle: a
+    // blocking-flock mutant produces disjoint windows but never emits it.
+    const later = w1!.begin < w2!.begin ? second : first;
+    expect(later.stderr()).toContain("waiting: recreate.lock held");
+
+    const lastTarget = w1!.end > w2!.end ? 2 : 3;
+    expect(configSlots(dir)).toBe(lastTarget);
+    expect(slotFiles(dir)).toEqual(Array.from({ length: lastTarget }, (_, i) => `slot-${i}`));
+    expect(tmpResidue(dir)).toEqual([]);
+  }, 120_000);
+
+  it("excludes ordinary acquisition for the whole swap window, then admits it under the NEW generation", async () => {
+    const dir = slotDir();
+    await bootstrapDir(dir, 1);
+    const env = { FX_HEAVY_SLOT_DIR: dir, FX_HEAVY_POLL_MS: "100" };
+
+    const recreate = runRecreate({ ...env, FX_HEAVY_TEST_HOLD_OPEN_MS: "3000" }, ["--slots", "4"]);
+    await waitForStderr(recreate, "swap begin ", 15_000);
+
+    const command = runWrapped(env, [process.execPath, "-e", "process.exit(0)"]);
+    await waitForStderr(command, "waiting: recreation in progress", 15_000);
+
+    // Ordering assertion in the test's own timeline — no cross-process clocks.
+    while (!recreate.stderr().includes("swap end ")) {
+      expect(command.stderr()).not.toContain("acquired slot-");
+      await sleep(20);
+    }
+
+    expect((await recreate.exited).code).toBe(0);
+    expect((await command.exited).code).toBe(0);
+    expect(command.stderr()).toMatch(/^acquired slot-\d+ \(slots=4\)$/m);
+  }, 90_000);
+
+  it("survives a recreator killed mid-swap, and a later recreation converges on the exact slot set", async () => {
+    const dir = slotDir();
+    await bootstrapDir(dir, 5);
+    const env = { FX_HEAVY_SLOT_DIR: dir, FX_HEAVY_POLL_MS: "100" };
+    // Materialize the full 0..4 generation: the acquire scan only ever creates
+    // the slot it wins, and the residue this arm converges on must EXIST first.
+    expect((await runRecreate(env, ["--slots", "5"]).exited).code).toBe(0);
+    premiseHolds(
+      "slot-0..slot-4 are present before the crash — an index-range enumeration " +
+        "has no residue to leave behind otherwise",
+      slotFiles(dir).join(",") === "slot-0,slot-1,slot-2,slot-3,slot-4",
+    );
+
+    const doomed = runRecreate({ ...env, FX_HEAVY_TEST_HOLD_OPEN_MS: "5000" }, ["--slots", "2"]);
+    await waitForStderr(doomed, "swap begin ", 15_000);
+    doomed.child.kill("SIGKILL");
+    await doomed.exited;
+
+    // The swap replaced config BEFORE the delay, so a valid count is always
+    // present — an absent config would let the next wrapper reseed the dir with
+    // its own FX_HEAVY_SLOTS, silently losing the recorded capacity.
+    expect(configSlots(dir)).toBe(2);
+
+    const after = runWrapped({ ...env, FX_HEAVY_SLOTS: "9" }, [
+      process.execPath,
+      "-e",
+      "process.exit(0)",
+    ]);
+    expect((await after.exited).code).toBe(0);
+    expect(after.stderr()).toContain("config adopted (slots=2)");
+    expect(after.stderr()).not.toContain("config created");
+
+    // 3 sits strictly between the recorded 2 and the old 5: an index-range
+    // enumeration would leave slot-3 and slot-4 behind forever.
+    const converge = runRecreate(env, ["--slots", "3"]);
+    expect((await converge.exited).code).toBe(0);
+    expect(slotFiles(dir)).toEqual(["slot-0", "slot-1", "slot-2"]);
+    expect(configSlots(dir)).toBe(3);
+    expect(tmpResidue(dir)).toEqual([]);
+  }, 120_000);
+
+  it.each([[[]], [["--slots", "0"]], [["--slots", "65"]], [["--slots", "banana"]]])(
+    "rejects `--recreate %j` with exit 2 and a byte-identical dir",
+    async (args: string[]) => {
+      const dir = slotDir();
+      await bootstrapDir(dir, 2);
+      const before = dirSnapshot(dir);
+
+      const run = runRecreate({ FX_HEAVY_SLOT_DIR: dir }, args);
+      const { code } = await run.exited;
+      expect(code).toBe(2);
+      expect(run.stderr()).toContain("--slots");
+      expect(dirSnapshot(dir)).toBe(before);
+    },
+    60_000,
+  );
+
+  it("accepts the boundary `--recreate --slots 64`", async () => {
+    const dir = slotDir();
+    await bootstrapDir(dir, 2);
+    const run = runRecreate({ FX_HEAVY_SLOT_DIR: dir }, ["--slots", "64"]);
+    expect((await run.exited).code).toBe(0);
+    expect(slotFiles(dir)).toEqual(Array.from({ length: 64 }, (_, i) => `slot-${i}`));
+    expect(configSlots(dir)).toBe(64);
+    expect(tmpResidue(dir)).toEqual([]);
   }, 60_000);
 });
