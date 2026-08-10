@@ -94,7 +94,7 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
     note: "context built by buildParseErrorContext(lib/sync/runManualSyncForShow.ts:261); keys mirror the cron twin at lib/sync/runScheduledCronSync.ts:3414",
   },
   {
-    site: "lib/sync/runScheduledCronSync.ts:377",
+    site: "lib/sync/runScheduledCronSync.ts:379",
     computedContext: true,
     contextKeys: ["drive_file_id", "sheet_name"],
     code: "RESYNC_QUALITY_REGRESSED",
@@ -102,7 +102,7 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
     note: "context forwarded as a shorthand variable (lib/sync/runScheduledCronSync.ts:377)",
   },
   {
-    site: "lib/sync/runScheduledCronSync.ts:2381",
+    site: "lib/sync/runScheduledCronSync.ts:2388",
     contextKeys: [
       "crew_count",
       "drive_file_id",
@@ -115,13 +115,13 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
     scope: "per-show",
   },
   {
-    site: "lib/sync/runScheduledCronSync.ts:2590",
+    site: "lib/sync/runScheduledCronSync.ts:2597",
     contextKeys: ["drive_file_id", "previous_last_seen_modified_time", "sheet_name"],
     code: "SHEET_UNAVAILABLE",
     scope: "per-show",
   },
   {
-    site: "lib/sync/runScheduledCronSync.ts:2650",
+    site: "lib/sync/runScheduledCronSync.ts:2657",
     contextKeys: [
       "drive_file_id",
       "failure_code",
@@ -132,7 +132,7 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
     scope: "per-show",
   },
   {
-    site: "lib/sync/runScheduledCronSync.ts:2669",
+    site: "lib/sync/runScheduledCronSync.ts:2676",
     contextKeys: [
       "drive_file_id",
       "failure_code",
@@ -143,7 +143,7 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
     scope: "per-show",
   },
   {
-    site: "lib/sync/runScheduledCronSync.ts:3414",
+    site: "lib/sync/runScheduledCronSync.ts:3442",
     computedContext: true,
     contextKeys: ["drive_file_id", "sheet_name"],
     // error_code is spread-conditional on the failure code being allowlisted
@@ -154,7 +154,7 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
     note: "context built by buildParseErrorContext(lib/sync/runScheduledCronSync.ts:3414)",
   },
   {
-    site: "lib/sync/runScheduledCronSync.ts:3449",
+    site: "lib/sync/runScheduledCronSync.ts:3477",
     contextKeys: ["detail", "drive_file_id", "held_modified_time", "sheet_name"],
     code: "RESYNC_SHRINK_HELD",
     scope: "per-show",
@@ -252,16 +252,16 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
     note: "post-response tile sweep; viewerKey is the observer discriminator",
   },
   {
-    site: "lib/reports/submit.ts:759",
+    site: "lib/reports/submit.ts:767",
     computedContext: true,
     contextKeys: ["idempotency_key", "depth"],
     code: "REPORT_LEASE_THRASHING",
     scope: "per-show",
     dynamic: true,
-    note: "opts.alertCode; caller :853 passes REPORT_LEASE_THRASHING; degrades to global when show_id unknown",
+    note: "opts.alertCode; caller :861 passes REPORT_LEASE_THRASHING; degrades to global when show_id unknown",
   },
   {
-    site: "lib/reports/submit.ts:784",
+    site: "lib/reports/submit.ts:792",
     computedContext: true,
     contextKeys: ["code"],
     code: "GITHUB_BOT_LOGIN_MISSING",
@@ -270,7 +270,7 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
     note: "showId null; only when error.code === BOT_LOGIN_MISSING",
   },
   {
-    site: "lib/sync/applyStaged.ts:1964",
+    site: "lib/sync/applyStaged.ts:1992",
     contextKeys: ["drive_file_id"],
     code: "EMBEDDED_RECOVERY_REQUIRES_RESTAGE",
     scope: "per-show",
@@ -278,7 +278,7 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
     note: "result.adminAlertCode",
   },
   {
-    site: "lib/sync/applyStaged.ts:1974",
+    site: "lib/sync/applyStaged.ts:2002",
     contextKeys: ["drive_file_id"],
     code: "EMBEDDED_RECOVERY_REQUIRES_RESTAGE",
     scope: "per-show",
@@ -286,7 +286,7 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
     note: "result.adminAlertCodes[]",
   },
   {
-    site: "lib/sync/applyStaged.ts:1974",
+    site: "lib/sync/applyStaged.ts:2002",
     contextKeys: ["drive_file_id"],
     code: "OPENING_REEL_PERMISSION_DENIED",
     scope: "per-show",
@@ -294,7 +294,7 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
     note: "result.adminAlertCodes[]",
   },
   {
-    site: "lib/sync/applyStaged.ts:1974",
+    site: "lib/sync/applyStaged.ts:2002",
     contextKeys: ["drive_file_id"],
     code: "OPENING_REEL_NOT_VIDEO",
     scope: "per-show",
@@ -302,7 +302,7 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
     note: "result.adminAlertCodes[]",
   },
   {
-    site: "lib/sync/applyStaged.ts:1974",
+    site: "lib/sync/applyStaged.ts:2002",
     contextKeys: ["drive_file_id"],
     code: "REEL_DRIFTED",
     scope: "per-show",
@@ -310,7 +310,7 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
     note: "result.adminAlertCodes[]",
   },
   {
-    site: "lib/sync/applyStaged.ts:1974",
+    site: "lib/sync/applyStaged.ts:2002",
     contextKeys: ["drive_file_id"],
     code: "EMBEDDED_ASSET_DRIFTED",
     scope: "per-show",
@@ -332,7 +332,7 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
     note: "upsertAdminAlert(roleFlagsNotice); showId=snapshot.showId (phase2.ts:591)",
   },
   {
-    site: "lib/sync/assetRecovery.ts:482",
+    site: "lib/sync/assetRecovery.ts:509",
     contextKeys: ["snapshotRevisionId"],
     code: "ASSET_RECOVERY_DRIFT_COOLDOWN",
     scope: "per-show",
@@ -340,7 +340,7 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
     note: "showId fn param",
   },
   {
-    site: "lib/sync/assetRecovery.ts:501",
+    site: "lib/sync/assetRecovery.ts:528",
     contextKeys: ["snapshotRevisionId"],
     code: "ASSET_RECOVERY_BYTES_EXCEEDED",
     scope: "per-show",
@@ -348,7 +348,7 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
     note: "showId fn param",
   },
   {
-    site: "lib/sync/assetRecovery.ts:519",
+    site: "lib/sync/assetRecovery.ts:546",
     contextKeys: ["currentSnapshotRevisionId", "snapshotRevisionId"],
     code: "ASSET_RECOVERY_REVISION_DRIFT",
     scope: "per-show",
@@ -356,7 +356,7 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
     note: "showId fn param",
   },
   {
-    site: "lib/sync/assetRecovery.ts:560",
+    site: "lib/sync/assetRecovery.ts:625",
     contextKeys: ["currentSnapshotRevisionId", "snapshotRevisionId"],
     code: "ASSET_RECOVERY_REVISION_DRIFT",
     scope: "per-show",
@@ -364,7 +364,7 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
     note: "showId fn param",
   },
   {
-    site: "lib/sync/assetRecovery.ts:579",
+    site: "lib/sync/assetRecovery.ts:648",
     contextKeys: ["snapshotRevisionId"],
     code: "ASSET_RECOVERY_REVISION_DRIFT",
     scope: "per-show",
@@ -372,7 +372,7 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
     note: "showId fn param",
   },
   {
-    site: "lib/sync/assetRecovery.ts:590",
+    site: "lib/sync/assetRecovery.ts:659",
     contextKeys: ["snapshotRevisionId"],
     code: "EMBEDDED_RECOVERY_REQUIRES_RESTAGE",
     scope: "per-show",

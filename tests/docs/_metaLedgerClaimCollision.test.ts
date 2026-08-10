@@ -72,7 +72,12 @@ function declaredHere(root: string = ROOT): string[] {
 }
 
 describe("ledger claim collision (cross-branch backstop)", () => {
-  it("declares no row that another live branch already declares", () => {
+  // 120s, not the 30s default: the live scan's cost is linear in the number of
+  // live origin branches, and a five-branch claim batch (2026-08-09) pushed the
+  // measured CI duration to ~33.7s — a deterministic timeout, twice, on a
+  // docs-only PR. The bound still exists so a wedged fetch fails loud; it is
+  // sized to the branch census growing, not to a fixed universe.
+  it("declares no row that another live branch already declares", { timeout: 120_000 }, () => {
     // Refresh in CI at whatever depth the checkout has. Skipping on a full clone
     // would leave a branch pushed after checkout invisible — the exact collision
     // this exists to catch. Only the --depth=1 argument is conditional, because

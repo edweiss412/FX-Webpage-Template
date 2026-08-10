@@ -18,17 +18,19 @@
 // It is a no-op on any non-positive status, so generic positive dots
 // (Published pills, badges) never inherit it.
 
+import { cn } from "@/lib/ui/cn";
+
 const STATUSES = ["live", "positive", "review", "warn", "idle"] as const;
 export type StatusKind = (typeof STATUSES)[number];
 
 // Literal class strings (not template-constructed) so Tailwind v4's content
 // scan emits each utility into the built CSS.
 const DOT_BG: Record<StatusKind, string> = {
-  live: "bg-status-live",
-  positive: "bg-status-positive",
-  review: "bg-status-review",
-  warn: "bg-status-warn",
-  idle: "bg-status-idle",
+  live: cn("bg-status-live"),
+  positive: cn("bg-status-positive"),
+  review: cn("bg-status-review"),
+  warn: cn("bg-status-warn"),
+  idle: cn("bg-status-idle"),
 };
 
 // The bare status dot (no text). Color is health/state only; callers MUST pair it

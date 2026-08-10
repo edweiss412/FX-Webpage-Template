@@ -9,6 +9,7 @@
  * strip on the use-raw path leaked shapes the parser stripped). Self-contained leaf module (no
  * parser/warnings imports) so both callers can depend on it without an import cycle.
  */
+import { stripZeroWidth } from "@/lib/parser/zeroWidth";
 import { clean, decodeEntities } from "./_helpers";
 
 const STREET_ADDRESS_RE =
@@ -121,8 +122,7 @@ export function stripConfirmationTokens(rawCell: string): string {
  * definition — the splitter and the emitter must never drift.
  */
 export function normalizeHotelCellText(s: string): string {
-  return s
-    .replace(/[​-‍﻿]/g, "") // zero-width: ZWSP / ZWNJ / ZWJ / BOM
+  return stripZeroWidth(s)
     .replace(/["“”]/g, " ") // straight + smart double-quotes → space
     .replace(/\s+/g, " ")
     .trim();

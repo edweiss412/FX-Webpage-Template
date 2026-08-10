@@ -11,7 +11,7 @@ import { getDriveAccessToken, getDriveClient } from "@/lib/drive/client";
 import { findMediaByFingerprint } from "@/lib/drive/embeddedObjects";
 import { fetchCurrentSheetXlsxBytes } from "@/lib/drive/fetch";
 import { createStallGuard, DRIVE_ASSET_STALL_TIMEOUT_MS } from "@/lib/drive/stallGuard";
-import type { PersistedDiagrams } from "@/lib/parser/types";
+import type { PersistedDiagramFields, PersistedDiagrams } from "@/lib/parser/types";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 import {
   ByteLimitExceededError,
@@ -25,6 +25,10 @@ import {
   type LockableSyncTx,
   withShowLock,
 } from "@/lib/sync/lockedShowTx";
+import { emitDiagramVariantFailures } from "@/lib/log/emitDiagramVariantFailures";
+import { generateDiagramVariants } from "@/lib/sync/diagramVariants";
+import type { DiagramVariantFailureRow } from "@/lib/sync/snapshotAssets";
+import { log } from "@/lib/log";
 
 export { CONCURRENT_SYNC_SKIPPED };
 
@@ -123,9 +127,25 @@ type VerifiedAssetRun = {
 };
 
 export type AssetRecoveryResult =
-  | { outcome: "recovered"; snapshotRevisionId: string }
-  | { outcome: "restage_required"; snapshotRevisionId: string }
-  | { outcome: "partial_failure"; snapshotRevisionId: string }
+  // Census hop 6 (spec §3): the recovery path is the second place ORIGINAL bytes
+  // enter storage, so it runs the same variant stage — and, like the sync path, it
+  // runs inside a show lock and may not log. The rows ride these three
+  // snapshot-writing outcomes out to runAssetRecoveryCron's post-commit sink.
+  | {
+      outcome: "recovered";
+      snapshotRevisionId: string;
+      variantFailures?: DiagramVariantFailureRow[];
+    }
+  | {
+      outcome: "restage_required";
+      snapshotRevisionId: string;
+      variantFailures?: DiagramVariantFailureRow[];
+    }
+  | {
+      outcome: "partial_failure";
+      snapshotRevisionId: string;
+      variantFailures?: DiagramVariantFailureRow[];
+    }
   | { outcome: "skipped"; code: typeof CONCURRENT_SYNC_SKIPPED }
   | {
       outcome: "revision_drift";
@@ -432,16 +452,23 @@ async function collectVerifiedAssets(
 function applyVerifiedAssets(
   diagrams: PersistedDiagrams,
   verified: VerifiedAsset[],
+  variantFields: Map<string, PersistedDiagramFields> = new Map(),
 ): PersistedDiagrams {
   const paths = new Map(verified.map((asset) => [`${asset.kind}:${asset.id}`, asset.path]));
+  // Fields apply ONLY to entries this run actually recovered: an entry that already
+  // had a snapshotPath keeps whatever its own snapshot wrote (spec §4 omission rule).
+  const fieldsFor = (key: string, alreadyPersisted: string | null): PersistedDiagramFields =>
+    alreadyPersisted ? {} : (variantFields.get(key) ?? {});
   const next: PersistedDiagrams = {
     ...diagrams,
     embeddedImages: diagrams.embeddedImages.map((entry) => ({
       ...entry,
+      ...fieldsFor(`embedded:${entry.objectId}`, entry.snapshotPath),
       snapshotPath: entry.snapshotPath ?? paths.get(`embedded:${entry.objectId}`) ?? null,
     })),
     linkedFolderItems: diagrams.linkedFolderItems.map((entry) => ({
       ...entry,
+      ...fieldsFor(`linked:${entry.driveFileId}`, entry.snapshotPath),
       snapshotPath: entry.snapshotPath ?? paths.get(`linked:${entry.driveFileId}`) ?? null,
     })),
   };
@@ -539,11 +566,49 @@ export async function assetRecovery(
     }
 
     const uploadedPaths: string[] = [];
+    const variantFailures: DiagramVariantFailureRow[] = [];
+    const variantFieldsByAsset = new Map<string, PersistedDiagramFields>();
     for (const asset of verifiedRun.assets) {
-      await deps.storage.upload(asset.path, await readFile(asset.tempPath), {
+      const bytes = await readFile(asset.tempPath);
+      const assetKey = asset.path.slice(asset.path.lastIndexOf("/") + 1);
+      const generated = await generateDiagramVariants({
+        bytes,
+        mimeType: asset.contentType,
+        assetKey,
+      });
+      if (generated.failure) {
+        variantFailures.push({
+          assetKey,
+          reason: generated.failure.reason,
+          message: generated.failure.message,
+        });
+      }
+      const directory = asset.path.slice(0, asset.path.lastIndexOf("/") + 1);
+      for (const variant of generated.variants) {
+        const variantPath = `${directory}${variant.key}`;
+        await deps.storage.upload(variantPath, variant.bytes, {
+          contentType: variant.mimeType,
+        });
+        // Tracked with the original so the skip / drift / no_op cleanup below removes
+        // variants too — an orphaned variant object would outlive its manifest entry.
+        uploadedPaths.push(variantPath);
+      }
+      await deps.storage.upload(asset.path, bytes, {
         contentType: asset.contentType,
       });
       uploadedPaths.push(asset.path);
+
+      const fields: PersistedDiagramFields = {};
+      if (generated.variants.length > 0) {
+        fields.variants = generated.variants.map((variant) => ({
+          width: variant.width,
+          key: variant.key,
+        }));
+      }
+      if (generated.blurDataURL !== null) fields.blurDataURL = generated.blurDataURL;
+      if (generated.intrinsicWidth !== null) fields.intrinsicWidth = generated.intrinsicWidth;
+      if (generated.intrinsicHeight !== null) fields.intrinsicHeight = generated.intrinsicHeight;
+      variantFieldsByAsset.set(`${asset.kind}:${asset.id}`, fields);
     }
 
     const locked = await deps.withShowLock<AssetRecoveryResult>(
@@ -568,7 +633,11 @@ export async function assetRecovery(
           } satisfies AssetRecoveryResult;
         }
 
-        const recovered = applyVerifiedAssets(lockedDiagrams, verifiedRun.assets);
+        const recovered = applyVerifiedAssets(
+          lockedDiagrams,
+          verifiedRun.assets,
+          variantFieldsByAsset,
+        );
         const updated = await tx.updateRecoveredDiagrams(
           showId,
           recovered,
@@ -603,17 +672,20 @@ export async function assetRecovery(
           return {
             outcome: "recovered",
             snapshotRevisionId: recovered.snapshot_revision_id,
+            ...(variantFailures.length > 0 ? { variantFailures } : {}),
           } satisfies AssetRecoveryResult;
         }
         if (recovered.snapshot_status === "partial_failure_restage_required") {
           return {
             outcome: "restage_required",
             snapshotRevisionId: recovered.snapshot_revision_id,
+            ...(variantFailures.length > 0 ? { variantFailures } : {}),
           } satisfies AssetRecoveryResult;
         }
         return {
           outcome: "partial_failure",
           snapshotRevisionId: recovered.snapshot_revision_id,
+          ...(variantFailures.length > 0 ? { variantFailures } : {}),
         } satisfies AssetRecoveryResult;
       },
     );
@@ -810,6 +882,8 @@ function defaultRecover(showId: string): Promise<AssetRecoveryResult> {
       }
     },
     storage: {
+      // no-variant-stage: storage adapter impl — forwards the bytes assetRecovery()
+      // already ran the stage on. Generating here would make variants of variants.
       async upload(path, bytes, options) {
         const objectPath = path.startsWith("diagram-snapshots/")
           ? path.slice("diagram-snapshots/".length)
@@ -877,6 +951,25 @@ export async function runAssetRecoveryCron(
       // diagrams UPDATE under the show lock, which has committed by the time `recover` resolves
       // (post-commit). The other outcomes (no_op / revision_drift / drift_cooldown /
       // bytes_exceeded / skipped / infra_error) wrote NO shows row → no revalidate.
+      // Census hop 6 sink (spec §3): POST-COMMIT — `recover` has resolved, so its
+      // show-lock tx committed. A no_op / drift / skipped outcome carries no rows.
+      // FIRST in this tail and isolated: revalidateShow below is an un-isolated
+      // await, and a throw there would otherwise drop the variant rows entirely.
+      if ("variantFailures" in result && result.variantFailures?.length) {
+        try {
+          await emitDiagramVariantFailures(result.variantFailures, { showId });
+        } catch (error) {
+          const escalation = log.error("diagram variant failure emit failed", {
+            source: "sync.diagramVariants",
+            code: "DIAGRAM_VARIANT_GENERATION_EMIT_FAILED",
+            showId,
+            error,
+          });
+          await escalation.catch(() => {
+            /* best-effort: the escalation must never change the recovery outcome */
+          });
+        }
+      }
       if (
         result.outcome === "recovered" ||
         result.outcome === "restage_required" ||

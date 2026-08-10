@@ -16,6 +16,7 @@
  *     selectable for manual copy — no destructive consequence.
  */
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { cn } from "@/lib/ui/cn";
 
 /**
  * Style axis (modal-header-reconciliation §6.4). Replaces the former boolean
@@ -142,18 +143,21 @@ export function ShareLinkCopyButton({
   );
 
   const className: Record<ShareLinkCopyButtonVariant, string> = {
-    compact:
+    compact: cn(
       "inline-flex min-h-tap-min min-w-tap-min shrink-0 items-center justify-center rounded-sm text-text-subtle transition-colors duration-fast hover:bg-surface-sunken hover:text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring",
-    accent:
+    ),
+    accent: cn(
       "inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm bg-accent px-3 py-1.5 text-sm font-semibold text-accent-text transition-colors duration-fast hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring",
-    // Neutral bordered arm (§6.4). `min-w-[8.5rem]` reserves the WIDER of
+    ),
+    // Neutral bordered arm (§6.4). `min-w-34` (34 x 0.25rem = 8.5rem) reserves the WIDER of
     // "Copy crew link" / "Copied" so the idle→copied swap cannot shift the
     // button's left edge — it sits at the strip row's `ml-auto` end, where a
     // width change would visibly jump. Same discipline as the Re-sync trigger.
     // The border carries NO contrast obligation (§7.1): it measures ~1.6:1 in
     // both themes and the visible label does the identifying work.
-    outline:
-      "inline-flex min-h-tap-min min-w-[8.5rem] items-center justify-center gap-1.5 rounded-sm border border-border-strong bg-transparent px-3 py-1.5 text-sm font-semibold text-text transition-colors duration-fast hover:border-border-strong hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring",
+    outline: cn(
+      "inline-flex min-h-tap-min min-w-34 items-center justify-center gap-1.5 rounded-sm border border-border-strong bg-transparent px-3 py-1.5 text-sm font-semibold text-text transition-colors duration-fast hover:border-border-strong hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring",
+    ),
   };
 
   return (

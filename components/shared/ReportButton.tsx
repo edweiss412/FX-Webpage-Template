@@ -37,12 +37,14 @@ import {
   type ReportSurface,
 } from "@/components/shared/ReportModal";
 import { FlagGlyph } from "@/components/shared/FlagGlyph";
+import { cn } from "@/lib/ui/cn";
 
 export type ReportButtonProps = {
   surface: ReportSurface;
   /** Stable per-button-instance id; the sessionStorage scope. */
   surfaceId: string;
-  showId: string;
+  /** Null for non-show-scoped surfaces (help). */
+  showId: string | null;
   autocapture?: ReportAutocapture;
   /** Override the default label for this surface. */
   label?: string;
@@ -75,25 +77,29 @@ export type ReportButtonProps = {
 // (UI spec §2.2): the ring offset is a 2px GAP that paints the container's
 // background, so an offset that does not match the container shows the wrong
 // colour — the defect `tests/styles/noBareRingOffset.test.ts` exists to stop.
-type RingOffset = "bg" | "surface" | "surface-raised" | "warning-bg" | "surface-sunken";
+type RingOffset = "bg" | "surface" | "surface-raised" | "warning-bg" | "surface-sunken" | "info-bg";
 
 const DEFAULT_LABEL: Record<ReportSurface, string> = {
   crew: "Something looks wrong?",
   admin: "Report this",
+  help: "Report a recurring error",
 };
 
 const DEFAULT_VARIANT: Record<ReportSurface, "text" | "accent" | "icon"> = {
   crew: "text",
   admin: "accent",
+  help: "accent",
 };
 
 // Full literal class strings so Tailwind v4 JIT resolves each (no dynamic interpolation).
 const RING_OFFSET_CLASS: Record<RingOffset, string> = {
-  bg: "focus-visible:ring-offset-bg",
-  surface: "focus-visible:ring-offset-surface",
-  "surface-raised": "focus-visible:ring-offset-surface-raised",
-  "warning-bg": "focus-visible:ring-offset-warning-bg",
-  "surface-sunken": "focus-visible:ring-offset-surface-sunken",
+  bg: cn("focus-visible:ring-offset-bg"),
+  surface: cn("focus-visible:ring-offset-surface"),
+  "surface-raised": cn("focus-visible:ring-offset-surface-raised"),
+  "warning-bg": cn("focus-visible:ring-offset-warning-bg"),
+  "surface-sunken": cn("focus-visible:ring-offset-surface-sunken"),
+  // The note-variant Callout on /help/errors paints bg-info-bg.
+  "info-bg": cn("focus-visible:ring-offset-info-bg"),
 };
 
 export function ReportButton(props: ReportButtonProps) {
@@ -145,6 +151,7 @@ export function ReportButton(props: ReportButtonProps) {
         // here (the surfaceId otherwise only existed inside the open modal +
         // sessionStorage, where it could not be inspected pre-interaction).
         data-surface-id={surfaceId}
+        aria-haspopup="dialog"
         onClick={() => setOpen(true)}
         className={className}
         // The accessible name is the label in EVERY variant. In `icon` the label

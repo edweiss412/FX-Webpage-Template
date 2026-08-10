@@ -284,9 +284,20 @@
    *
    * Components MUST consume this via the canonical `shadow-tile`
    * Tailwind v4 utility — NEVER inline an arbitrary square-bracket
-   * shadow value, and prefer the canonical form over the
-   * `shadow-(--shadow-tile)` arrow variable syntax
-   * (eslint-plugin-better-tailwindcss enforces this).
+   * shadow value, and never the `shadow-(--shadow-tile)` arrow
+   * variable syntax. What enforces that, MEASURED 2026-08-09 rather
+   * than assumed: eslint-plugin-better-tailwindcss reports the
+   * canonical form for most @theme tokens (29 of the 35 `-runtime`
+   * indirection tokens, by direct probe) and is SILENT on a residue
+   * of six — both shadow tokens plus --color-text-subtle,
+   * --color-text-faint, --color-accent, --color-accent-on-bg. Which
+   * tokens the plugin happens to see is not a contract, so the
+   * enforcement that closes the whole class is the repo guard
+   * `tests/specLint/themeTokenArrowBan.test.ts`: it DERIVES the ban
+   * from these declarations, covering every token here and every one
+   * added later on arrival. (`--breakpoint-*` is excluded there by
+   * rule — no token-preserving canonical utility exists for that
+   * namespace, so the arrow form is the correct spelling.)
    * The runtime value lives under :root / [data-theme="dark"] /
    * @media(prefers-color-scheme:dark) so a single token spans both modes.
    */

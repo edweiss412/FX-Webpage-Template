@@ -33,6 +33,7 @@ import { HealthAlertResolveButton } from "@/components/admin/telemetry/HealthAle
 import { CompactAlertCard } from "@/components/admin/CompactAlertCard";
 import { NewTabHint } from "@/components/shared/NewTabHint";
 import { isAutoResolving, autoResolveNote } from "@/lib/adminAlerts/audience";
+import { cn } from "@/lib/ui/cn";
 
 type SearchParams = Record<string, string | string[] | undefined>;
 
@@ -57,7 +58,7 @@ function loadMoreHref(
   return `/admin/dev/telemetry?${qs.toString()}#health`;
 }
 
-const PANEL_CLASS = "flex flex-col gap-section-gap";
+const PANEL_CLASS = cn("flex flex-col gap-section-gap");
 
 /** Exported for test only: see ActionCell in BellPanel.tsx for the rationale. */
 export function HealthAlertRowItem({

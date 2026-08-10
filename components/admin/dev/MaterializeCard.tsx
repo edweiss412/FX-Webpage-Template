@@ -23,6 +23,7 @@
 import { useActionState, useState } from "react";
 import { useFormStatus } from "react-dom";
 import type { MaterializeResult } from "@/lib/dev/materialize/run";
+import { cn } from "@/lib/ui/cn";
 
 export type MaterializeCardProps = {
   /** Tier-3 only: the sole materializable tier (§5.0). */
@@ -35,10 +36,12 @@ export type MaterializeCardProps = {
 
 const CONFIRM_TOKEN = "VALIDATION";
 
-const CONTROL =
-  "min-h-tap-min rounded-md border border-border bg-surface px-3 text-xs text-text-strong focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:outline-none";
-const BUTTON =
-  "min-h-tap-min rounded-md border border-border px-4 text-xs font-medium text-text-strong disabled:opacity-60 focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:outline-none";
+const CONTROL = cn(
+  "min-h-tap-min rounded-md border border-border bg-surface px-3 text-xs text-text-strong focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:outline-none",
+);
+const BUTTON = cn(
+  "min-h-tap-min rounded-md border border-border px-4 text-xs font-medium text-text-strong disabled:opacity-60 focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:outline-none",
+);
 
 /**
  * Operator copy per outcome. The card is a developer instrument, so the raw

@@ -83,6 +83,9 @@ importers:
       resend:
         specifier: ^6.12.4
         version: 6.12.4
+      sharp:
+        specifier: ^0.34.5
+        version: 0.34.5
       tz-lookup:
         specifier: 6.1.25
         version: 6.1.25
@@ -186,9 +189,6 @@ importers:
       remark:
         specifier: ^15.0.1
         version: 15.0.1
-      sharp:
-        specifier: ^0.34.5
-        version: 0.34.5
       simple-git-hooks:
         specifier: ^2.13.1
         version: 2.13.1

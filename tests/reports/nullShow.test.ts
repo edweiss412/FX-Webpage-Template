@@ -103,6 +103,66 @@ describe("POST /api/report — show_id null loosening (route validation, §K5)",
 });
 
 // ---------------------------------------------------------------------------
+// help surface (2026-08-09 spec §2.3). The null-show allowance is EXTENDED to
+// "help", and the non-show contract is enforced server-side: a help body may
+// not carry any of the three show-identity fields `showLine` consults
+// (show_id / showTitle / showSlug), because each of them would render a
+// show-scoped Summary/Show line under a database-unscoped report.
+// ---------------------------------------------------------------------------
+
+const validHelpBody = {
+  idempotency_key: "018f2f4c-8f54-4c28-9f56-f0f1b2c3d4f0",
+  message: "This code keeps coming back",
+  surface: "help",
+  show_id: null as string | null,
+  fieldRef: { helpCode: "AMBIGUOUS_EMAIL_BINDING" },
+};
+
+describe("POST /api/report — help surface (spec §2.3)", () => {
+  test("accepts help + show_id null under admin identity", async () => {
+    const deps = makeDeps({
+      requireAdminIdentity: vi.fn(async () => ({ email: "admin@example.com" })),
+      submitReport: vi.fn(async () => ({
+        status: 201,
+        body: { ok: true, status: "created", github_issue_url: "https://github.test/issue/11" },
+      })),
+    });
+
+    const response = await handleReport(request(validHelpBody), deps);
+
+    expect(response.status).toBe(201);
+    expect(deps.submitReport).toHaveBeenCalledWith(
+      { kind: "admin", email: "admin@example.com" },
+      expect.objectContaining({ show_id: null, surface: "help" }),
+    );
+  });
+
+  test.each([
+    ["non-null show_id", { show_id: "11111111-1111-4111-8111-111111111111" }],
+    ["showTitle", { show_id: null, showTitle: "Wrong Show" }],
+    ["showSlug", { show_id: null, showSlug: "wrong-show" }],
+    ["absent show_id", { show_id: undefined }],
+  ])("rejects help body with %s (400, before auth)", async (_label, patch) => {
+    const deps = makeDeps({
+      // Would succeed if reached — proves the 400 comes from body validation,
+      // not from an auth failure that happens to share the status family.
+      requireAdminIdentity: vi.fn(async () => ({ email: "admin@example.com" })),
+    });
+
+    const body: Record<string, unknown> = { ...validHelpBody, ...patch };
+    if (patch.show_id === undefined && "show_id" in patch) delete body.show_id;
+
+    const response = await handleReport(request(body), deps);
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({ ok: false });
+    expect(deps.requireAdminIdentity).not.toHaveBeenCalled();
+    expect(deps.resolvePickerSelection).not.toHaveBeenCalled();
+    expect(deps.submitReport).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Harness half 2 (§K6): formatters + call-site guards. Model on
 // tests/reports/showContext.test.ts (hoisted supabaseMock records every
 // from() query; githubMock.createIssue captures {title, body}).
