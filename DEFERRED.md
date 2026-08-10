@@ -371,3 +371,39 @@ From the impeccable v3 dual gate on `feat/sync-feed-undo-announce`. The critique
 **Accepted, not fixed, and deliberately so.** Deriving the label from `testIdBase` was implemented and reverted: it produces names like "Status updates in the wizard step3 card `<driveFileId>` review dialog", putting internal identifiers into text a screen reader speaks. A leaked drive-file id in an accessible name is a worse outcome for the user than a duplicated label in the rare two-dialog case. The `data-testid` remains derived, so tooling and Playwright stay unambiguous.
 
 **Un-defer trigger:** a human-readable per-dialog name becomes available on the shell (a title prop or similar), or two review dialogs become simultaneously reachable outside Step-3.
+
+---
+
+## Dashboard row actions — impeccable dual-gate deferrals (2026-08-10)
+
+From the impeccable v3 dual gate on `feat/admin-dashboard-row-actions`. The critique's deterministic detector ran clean (exit 0, `[]`). The P0 (keyboard-unreachable confirm controls) and the audit's P0 (a `translate` ancestor collapsing the outside-click backdrop) were FIXED in-branch, as were four P1s and two P2s. Three findings are accepted and deferred, each with its reason and un-defer trigger.
+
+### ROWACTIONS-MENU-ENTRY-MOTION-1 — impeccable critique P3: the menu opens and closes instantly where the precedent animates (2026-08-10)
+
+**Effort:** S
+
+`components/admin/wizard/CrewRowActions.tsx:284` gives its menu `route-enter`; the dashboard row menu has no entry motion.
+
+**Accepted, not fixed.** Instant is the RATIFIED treatment, not an omission: the spec's §3.5 transition inventory sets `closed → open` and `open → closed` to the popover-primitive default, and `tests/components/admin/rowActions/showRowActions.shell.test.tsx` pins the absence of any `transition-`/`animate-` class on the panel. Adding motion now would reopen a ratified inventory row and invert a shipped assertion in a close-out commit, which is the wrong place to relitigate a design decision.
+
+**Un-defer trigger:** a design pass that settles entry motion for the admin popover family as a whole (the precedent, `AppHealthPopover`, and this menu together), or an amendment to §3.5.
+
+### ROWACTIONS-MENU-MINWIDTH-BOUNDS-1 — impeccable audit P3: `min-w-52` can override the placement core's computed `maxWidth` (2026-08-10)
+
+**Effort:** S
+
+`components/admin/ShowRowActions.tsx` sets `min-w-52` (208px) on the panel. When the placement bounds are narrower than that — reachable only under pinch-zoom, where `lib/popover/position.ts` insets the visual viewport — the panel overflows the bounds it was measured against, and `wrappedHeightAt` then reports a height for a width the panel is not actually using.
+
+**Accepted, not fixed.** Not reachable at any supported layout width: the narrowest target viewport is 390px, and the bounds only fall under 208px inside a pinch-zoom gesture. The repair (`min-w-[min(13rem,100%)]`) is one class, but it changes the measured width of every menu and therefore the geometry e2e's containment numbers; landing it with a real-browser pinch-zoom assertion is the honest version, and there is no such harness today. `min-w-52` is also the shipped precedent's width, so the deferral keeps the two menus identical.
+
+**Un-defer trigger:** a pinch-zoom or visual-viewport e2e harness lands, or the popover family's min-width is revisited.
+
+### HELP-STRAIGHT-APOSTROPHES-1 — impeccable audit P3: `/help` MDX prose uses straight apostrophes (2026-08-10)
+
+**Effort:** M
+
+`app/help/admin/dashboard/page.mdx` carries 25 straight apostrophes in prose (lines 3, 12, 14, 17, 21, 26, 27, 29, 52-58, 62, 68 among them) against 2 typographic ones — both of the latter in the prose this branch added, which is the side that matches the project's mechanical copy rule.
+
+**Accepted, not fixed.** Pre-existing and file-wide: this branch introduced none of them, and normalizing them here would put a large unrelated prose diff inside a UI close-out commit. It is also almost certainly not one file — the rule applies across `/help`, so the fix is a sweep with its own guard, not a rider. The branch's own prose is correct and is pinned by `tests/help/dashboard-row-actions.test.ts`.
+
+**Un-defer trigger:** a `/help` copy-conformance sweep, or a mechanical guard extending the straight-apostrophe ban to MDX prose.
