@@ -2,15 +2,18 @@
  * tests/sync/prepareOnboardingFilesErrorKind.test.ts
  * (spec docs/superpowers/specs/2026-07-24-test-safety-hardening-batch.md §4.2, §5 test 12)
  *
- * prepareOnboardingFiles fails for two materially different reasons, and both used
- * to reach Doug as "we couldn't fetch this from Google Drive, check your share
- * settings" (BL-RESCAN-PREPARE-ERROR-GRANULARITY). This pins which faults are
- * re-classified as sheet-content faults and — just as important — which are NOT.
+ * prepareOnboardingFiles fails for THREE materially different reasons, and all of
+ * them used to reach Doug as "we couldn't fetch this from Google Drive, check your
+ * share settings" (BL-RESCAN-PREPARE-ERROR-GRANULARITY). This pins which faults
+ * classify as sheet-content (`parse`), which as post-parse code bugs (`internal` —
+ * BL-PREPARE-INTERNAL-FAULT-KIND, spec 2026-08-09-m-wave-2-design §2.3, mapped to
+ * ONBOARDING_INTERNAL_ERROR's contact-the-developer copy), and which stay
+ * `drive_fetch`.
  *
- * The deliberate asymmetry (whole-diff R2 finding 7): only a POSITIVELY identified
- * sheet-content fault becomes `parse`. A bug inside a post-parse helper is not
- * something Doug can fix by editing his sheet, so it keeps today's code rather than
- * acquiring a new, differently wrong instruction.
+ * Identity beats site in both directions: only a POSITIVELY identified
+ * sheet-content fault becomes `parse`, only a positively identified post-parse
+ * helper fault becomes `internal`, and a DriveFetchError keeps `drive_fetch`
+ * through either wrap. An unclassified throw defaults to `drive_fetch`.
  */
 import { describe, expect, test } from "vitest";
 

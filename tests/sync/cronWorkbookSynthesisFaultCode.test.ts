@@ -185,6 +185,62 @@ describe("cron workbook-synthesis fault code (BL-CRON-WORKBOOK-FAULT-CODE)", () 
     );
   });
 
+  test("FIRST-SEEN + staged pending row: the early return carves too (review r1 F1)", async () => {
+    // The existing-pending early return must not bypass the carve: a first-seen
+    // file with a live pending_syncs row and a synthesis fault reports the generic
+    // code, never PARSE_ERROR_LAST_GOOD's previous-version promise. No writes on
+    // this path (the staged row already represents the file).
+    const { tx, upsertLivePendingIngestion, updateShowParseError, markShowDriveError } = makeTx({
+      async readLivePendingSync() {
+        return { stagedId: "staged-1" };
+      },
+      async readShowForPhase1() {
+        return null;
+      },
+    });
+    const file = fileMeta("drive-file-1");
+    const deps = synthesisDeps();
+
+    const prepared = await prepareProcessOneFile(
+      "drive-file-1",
+      "cron",
+      file,
+      deps,
+      async () => null,
+    );
+    const result = await processOneFile_unlocked(tx, "drive-file-1", "cron", file, deps, prepared);
+
+    expect(result).toEqual({ outcome: "parse_error", code: "SYNC_FILE_FAILED" });
+    expect(upsertLivePendingIngestion).not.toHaveBeenCalled();
+    expect(updateShowParseError).not.toHaveBeenCalled();
+    expect(markShowDriveError).not.toHaveBeenCalled();
+  });
+
+  test("EXISTING show + staged pending row: the early return keeps PARSE_ERROR_LAST_GOOD", async () => {
+    // The show exists, so the code's copy is true; the early return stays a
+    // no-write return (the staged row already represents the file).
+    const { tx, upsertLivePendingIngestion, updateShowParseError } = makeTx({
+      async readLivePendingSync() {
+        return { stagedId: "staged-1" };
+      },
+    });
+    const file = fileMeta("drive-file-1");
+    const deps = synthesisDeps();
+
+    const prepared = await prepareProcessOneFile(
+      "drive-file-1",
+      "cron",
+      file,
+      deps,
+      async () => null,
+    );
+    const result = await processOneFile_unlocked(tx, "drive-file-1", "cron", file, deps, prepared);
+
+    expect(result).toEqual({ outcome: "parse_error", code: "PARSE_ERROR_LAST_GOOD" });
+    expect(upsertLivePendingIngestion).not.toHaveBeenCalled();
+    expect(updateShowParseError).not.toHaveBeenCalled();
+  });
+
   test("FIRST-SEEN carve: no show row means no last-good, so the ingestion row keeps SYNC_FILE_FAILED", async () => {
     // PARSE_ERROR_LAST_GOOD's copy promises "the previous version is still live";
     // a first-seen sheet has no previous version, so that code would be a wrong

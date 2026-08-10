@@ -2657,9 +2657,16 @@ async function handleFetchFailure_unlocked(
     code === STAGED_PARSE_SOURCE_GONE
       ? { outcome: "source_gone" as const, code }
       : { outcome: "parse_error" as const, code };
-  if (existingPending) return result;
-
+  // The show read is hoisted ABOVE the existing-pending early return (review r1 F1):
+  // the first-seen carve below must also govern that return, or a first-seen file
+  // with a staged pending row would report PARSE_ERROR_LAST_GOOD — a code whose copy
+  // promises a previous live version that does not exist.
   const show = await tx.readShowForPhase1(driveFileId);
+  if (existingPending) {
+    return code === "PARSE_ERROR_LAST_GOOD" && !show
+      ? { outcome: "parse_error", code: SYNC_FILE_FAILED }
+      : result;
+  }
   const recoveryTx = tx as LockedShowTx<CronRecoveryTx>;
   // BL-CRON-WORKBOOK-FAULT-CODE parse-family arm: a corrupt workbook on an EXISTING
   // show presents as a parse failure (status 'parse_error', PARSE_ERROR_LAST_GOOD

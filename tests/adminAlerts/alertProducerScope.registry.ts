@@ -91,7 +91,7 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
     optionalContextKeys: ["error_code"],
     code: "PARSE_ERROR_LAST_GOOD",
     scope: "per-show",
-    note: "context built by buildParseErrorContext(lib/sync/runManualSyncForShow.ts:261); keys mirror the cron twin at lib/sync/runScheduledCronSync.ts:3511",
+    note: "context built by buildParseErrorContext(lib/sync/runManualSyncForShow.ts:261); keys mirror the cron twin at lib/sync/runScheduledCronSync.ts:3519",
   },
   {
     site: "lib/sync/runScheduledCronSync.ts:384",
@@ -123,7 +123,7 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
   {
     // BL-CRON-WORKBOOK-FAULT-CODE (spec 2026-08-09-m-wave-2 §2.3): the workbook-
     // synthesis fetch-failure arm — parse-family producer for an EXISTING show.
-    site: "lib/sync/runScheduledCronSync.ts:2692",
+    site: "lib/sync/runScheduledCronSync.ts:2699",
     computedContext: true,
     contextKeys: ["drive_file_id", "sheet_name"],
     // error_code is spread-conditional on the failure code being allowlisted
@@ -134,7 +134,7 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
     note: "context built by buildParseErrorContext (workbook-synthesis arm; twin of the hard_fail producer)",
   },
   {
-    site: "lib/sync/runScheduledCronSync.ts:2732",
+    site: "lib/sync/runScheduledCronSync.ts:2739",
     contextKeys: [
       "drive_file_id",
       "failure_code",
@@ -145,7 +145,7 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
     scope: "per-show",
   },
   {
-    site: "lib/sync/runScheduledCronSync.ts:2751",
+    site: "lib/sync/runScheduledCronSync.ts:2758",
     contextKeys: [
       "drive_file_id",
       "failure_code",
@@ -156,7 +156,7 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
     scope: "per-show",
   },
   {
-    site: "lib/sync/runScheduledCronSync.ts:3511",
+    site: "lib/sync/runScheduledCronSync.ts:3519",
     computedContext: true,
     contextKeys: ["drive_file_id", "sheet_name"],
     // error_code is spread-conditional on the failure code being allowlisted
@@ -164,10 +164,10 @@ export const PRODUCER_SCOPE: ProducerScopeRow[] = [
     optionalContextKeys: ["error_code"],
     code: "PARSE_ERROR_LAST_GOOD",
     scope: "per-show",
-    note: "context built by buildParseErrorContext(lib/sync/runScheduledCronSync.ts:3511)",
+    note: "context built by buildParseErrorContext(lib/sync/runScheduledCronSync.ts:3519)",
   },
   {
-    site: "lib/sync/runScheduledCronSync.ts:3546",
+    site: "lib/sync/runScheduledCronSync.ts:3554",
     contextKeys: ["detail", "drive_file_id", "held_modified_time", "sheet_name"],
     code: "RESYNC_SHRINK_HELD",
     scope: "per-show",
