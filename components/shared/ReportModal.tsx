@@ -164,6 +164,40 @@ function copyForCode(code: MessageCode, surface: ReportSurface): string | null {
   return surface === "crew" ? entry.crewFacing : entry.dougFacing;
 }
 
+const HEADING: Record<ReportSurface, string> = {
+  crew: "Something looks wrong?",
+  admin: "Report this",
+  // Matches the trigger label on /help/errors, so the dialog's accessible name
+  // names the same act the button did (impeccable critique P1).
+  help: "Report a recurring error",
+};
+
+function fieldRefHelpCode(fieldRef: unknown): string | null {
+  if (!fieldRef || typeof fieldRef !== "object") return null;
+  const value = (fieldRef as { helpCode?: unknown }).helpCode;
+  return typeof value === "string" && value.length > 0 ? value : null;
+}
+
+/**
+ * What the help surface says it captured. Doug arrives here after hitting the
+ * same error twice, and the capture is best-effort (2026-08-09 spec §4 limit
+ * 3): a find-in-page arrival sets no fragment at all. Saying so is the
+ * difference between a conservative outcome and a silent one, and the note is
+ * the documented backstop. The captured code is rendered through the catalog
+ * as its title, never as the raw code (invariant 5).
+ */
+function helpCaptureLine(fieldRef: unknown): string {
+  const code = fieldRefHelpCode(fieldRef);
+  if (!code) {
+    return "No error code was captured from this page. Name it in your note so Eric can match it.";
+  }
+  if (isMessageCode(code)) {
+    const title = messageFor(code).title;
+    if (title) return `About ${title}. Eric gets that code with your note.`;
+  }
+  return "Eric gets the section you were reading, plus your note.";
+}
+
 // Network-failure rendering routes through the §12.4 catalog as
 // `NETWORK_UNREACHABLE` — the client-side-fetch-failed case where the
 // POST never reaches the server (TypeError on fetch, offline, DNS,
@@ -415,13 +449,13 @@ export function ReportModal(props: ReportModalProps) {
   const showResumeBanner = mountedFromResume && status === "failed-retryable";
   const showStartFreshWarning = status === "new-report-warning";
 
-  const heading = surface === "crew" ? "Something looks wrong?" : "Report this";
+  const heading = HEADING[surface];
   // When the note is optional (messageOptional — data-quality reports, where the
   // autocapture IS the content), say so, so an empty-but-enabled Submit doesn't read
   // as a required-but-unfilled field (impeccable critique P3).
   const placeholder = messageOptional
-    ? "Add a note if you like. We've already captured the details."
-    : "What's off? Be as brief as you like.";
+    ? "Add a note if you like. We’ve already captured the details."
+    : "What’s off? Be as brief as you like.";
   // Surface-specific subhead. Crew copy is verbatim from spec §13.1
   // (line 2982): the modal must explicitly tell the crew member that
   // reports go to the developer (not Doug) and that show-content
@@ -433,7 +467,9 @@ export function ReportModal(props: ReportModalProps) {
   const subhead =
     surface === "crew"
       ? "This goes to the developer, not Doug. For show-content questions, message Doug directly."
-      : "This files a GitHub issue for Eric to triage.";
+      : surface === "help"
+        ? helpCaptureLine(autocapture?.fieldRef)
+        : "This files a GitHub issue for Eric to triage.";
   const submitLabel = showResumeBanner ? "Resume submission" : "Submit";
 
   // POLISH-D1/D3: errorCopy is always a string (possibly empty) when error

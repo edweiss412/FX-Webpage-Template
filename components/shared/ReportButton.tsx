@@ -120,6 +120,7 @@ export function ReportButton(props: ReportButtonProps) {
         // here (the surfaceId otherwise only existed inside the open modal +
         // sessionStorage, where it could not be inspected pre-interaction).
         data-surface-id={surfaceId}
+        aria-haspopup="dialog"
         onClick={() => setOpen(true)}
         className={className}
       >

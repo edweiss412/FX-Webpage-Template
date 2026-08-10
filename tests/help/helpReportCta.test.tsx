@@ -193,6 +193,27 @@ describe("HelpReportCta (spec §2.1, §3 test 2)", () => {
     );
   });
 
+  test("case 9 — an out-of-shape fragment falls back to the hashless scope", () => {
+    // The fragment is BOTH a sessionStorage key and a reported field. A
+    // percent-encoded or oversized fragment would otherwise become a multi-KB
+    // scope key and a helpCode that can never match a catalog code.
+    setHash(`#${"x".repeat(200)}`);
+    render(<HelpReportCta />);
+    openModal();
+    typeDraft("long fragment");
+    expect(scope("help-errors-none")).not.toBeNull();
+    expect(sessionStorage.length).toBe(1);
+  });
+
+  test("case 10 — a percent-encoded fragment is not stored verbatim", async () => {
+    setHash("#caf%C3%A9%20crash");
+    render(<HelpReportCta />);
+    openModal();
+    typeDraft("encoded fragment");
+    const body = await submit();
+    expect(body).not.toHaveProperty("fieldRef");
+  });
+
   test("case 8 — the CTA passes the info-bg ring offset (the Callout background)", () => {
     render(<HelpReportCta />);
     const button = screen.getByTestId("report-button-trigger");

@@ -155,6 +155,15 @@ describe("ReportButton", () => {
     expect(button.className).toContain("bg-accent");
   });
 
+  test("trigger announces that it opens a dialog", () => {
+    render(<ReportButton surface="crew" surfaceId="footer-crew" showId={SHOW_ID} />);
+    // Without this, a screen-reader user hears a plain button and gets no cue
+    // that activation moves them into a dialog.
+    expect(screen.getByTestId("report-button-trigger").getAttribute("aria-haspopup")).toBe(
+      "dialog",
+    );
+  });
+
   test("messageOptional flows to the modal (Submit enabled with an empty note)", () => {
     render(
       <ReportButton

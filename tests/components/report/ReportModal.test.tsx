@@ -940,13 +940,54 @@ describe("G. help surface (spec §2.2)", () => {
     expect(body.fieldRef).toEqual({ helpCode: HELP_CODE });
   });
 
-  test("renders the admin heading (crew-vs-rest, not crew copy)", () => {
+  test("heading names the same act as the trigger that opened it", () => {
     const { container } = render(
       <ReportModal {...defaultProps({ surface: "help", showId: null })} />,
     );
     const heading = container.querySelector("#report-modal-heading")?.textContent ?? "";
-    expect(heading).toBe("Report this");
+    // aria-labelledby points at this node, so a dialog reading "Report this"
+    // after a button reading "Report a recurring error" renames the act
+    // mid-flow (impeccable critique P1).
+    expect(heading).toBe("Report a recurring error");
     expect(heading).not.toMatch(/something looks wrong/i);
+  });
+
+  test("subhead names the captured code through the catalog, never the raw code", () => {
+    const { container } = render(
+      <ReportModal
+        {...defaultProps({
+          surface: "help",
+          showId: null,
+          autocapture: { fieldRef: { helpCode: HELP_CODE } },
+        })}
+      />,
+    );
+    const subhead = container.querySelector("#report-modal-heading")?.nextElementSibling;
+    const text = subhead?.textContent ?? "";
+    // Fixture-derived: the catalog title is the human copy for this code
+    // (invariant 5 — the raw code never renders).
+    expect(text).toContain(MESSAGE_CATALOG[HELP_CODE].title!);
+    expect(text).not.toContain(HELP_CODE);
+  });
+
+  test("subhead says so when nothing was captured (conservative, not silent)", () => {
+    const { container } = render(
+      <ReportModal {...defaultProps({ surface: "help", showId: null, autocapture: {} })} />,
+    );
+    const text =
+      container.querySelector("#report-modal-heading")?.nextElementSibling?.textContent ?? "";
+    // A find-in-page arrival sets no fragment; the modal must say the capture
+    // is empty rather than imply a code travelled.
+    expect(text).toMatch(/no error code was captured/i);
+  });
+
+  test("admin and crew headings are unchanged by the record", () => {
+    const { container, rerender } = render(<ReportModal {...defaultProps({ surface: "admin" })} />);
+    expect(container.querySelector("#report-modal-heading")?.textContent).toBe("Report this");
+    rerender(<ReportModal {...defaultProps({ surface: "crew" })} />);
+    expect(container.querySelector("#report-modal-heading")?.textContent).toBe(
+      "Something looks wrong?",
+    );
   });
 
   test("renders the github_issue_url success link (flipped :324/:589)", async () => {

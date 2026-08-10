@@ -31,8 +31,17 @@ function subscribe(onChange: () => void) {
   return () => window.removeEventListener("hashchange", onChange);
 }
 
+// A fragment becomes BOTH a sessionStorage scope key and the reported
+// helpCode, so its shape is bounded here. Catalog codes and the page's family
+// anchors are all within this charset; anything else (percent-encoded text, a
+// pasted sentence) is treated as no fragment rather than stored verbatim. This
+// bounds the encoding, not the meaning: an in-charset fragment is still passed
+// through unvalidated against the catalog (spec §1.1 item 5).
+const FRAGMENT_SHAPE = /^[A-Za-z0-9_-]{1,128}$/;
+
 function readHash(): string {
-  return window.location.hash.slice(1);
+  const raw = window.location.hash.slice(1);
+  return FRAGMENT_SHAPE.test(raw) ? raw : "";
 }
 
 export function HelpReportCta() {

@@ -104,7 +104,8 @@ export default function ErrorsPage() {
             captures whichever code anchor the reader arrived on, so the prose
             does not ask them to retype it. */}
         <p className="mb-3">
-          Read your code&rsquo;s explanation above. Still seeing it after that?
+          Read your code&rsquo;s explanation above. If it keeps happening after that, report it and
+          Eric will pick it up.
         </p>
         <HelpReportCta />
       </Callout>

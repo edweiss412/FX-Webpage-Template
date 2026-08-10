@@ -399,6 +399,28 @@ Page edit: in the trailing `Callout`, replace the `mailto:` anchor with `<HelpRe
 
 - [ ] **Impeccable dual gate FIRST:** `/impeccable critique` AND `/impeccable audit` on the affected diff (`app/help/**`, `components/shared/**`) with the canonical v3 setup gates (context.mjs → register read). Fix or defer P0/P1 via DEFERRED.md, then ADD the filled marker line directly below this step, on its own line (grammar: `impeccable-gate: critique=RAN audit=RAN p0=<n> p1=<n> dispositions=recorded`, RAN-DEGRADED where a half ran degraded; `dispositions=none` only when p0+p1 = 0). Marker-lifecycle note: this plan names both gate halves, so `tests/docs/_metaInvariant8Closeout.test.ts` reds on this file from this commit until the filled marker lands here — that is the guard's intended in-flight state; the marker MUST be filled before the full-gates step below, and no line starting with the marker prefix may exist before then.
 
+impeccable-gate: critique=RAN audit=RAN p0=0 p1=4 dispositions=recorded
+
+**Invariant-8 findings and dispositions (2026-08-09).** Critique ran as two isolated
+sub-agents (design review + detector/browser evidence); audit ran as a third. Detector
+(`detect.mjs --json`) over the five changed UI files: clean, zero findings. Browser visualization was
+skipped with cause — `/help/errors` is admin-gated at `app/help/layout.tsx`, so an unauthenticated
+localhost visit cannot render it. Heuristic total 22/40; audit health 16/20.
+
+| # | Finding | Sev | Disposition |
+| --- | --- | --- | --- |
+| 1 | Dialog heading read "Report this" after a trigger reading "Report a recurring error" — `aria-labelledby` named the act differently from the button that opened it | P1 | FIXED — `HEADING` is a per-surface record; help reads "Report a recurring error". Test: heading case in `tests/components/report/ReportModal.test.tsx`, plus an admin/crew regression row. |
+| 2 | Capture was invisible: nothing told Doug whether a code travelled, and a find-in-page arrival captures nothing at all (spec §4 limit 3 ratifies the best-effort capture; it does not ratify the silence) | P1 | FIXED — the help subhead states what was captured, via the catalog TITLE rather than the raw code (invariant 5), and says so plainly when nothing was. Two tests. |
+| 3 | `/help/errors` newly downloads the 4052-line message catalog client-side through `ReportButton` → `ReportModal` → `HelpAffordance` | P1 | DEFERRED — `BL-REPORT-MODAL-STATIC-IMPORT-SHIPS-CATALOG` (reason (c): the `next/dynamic` repair changes the mount contract for all four hardened surfaces). |
+| 4 | A mid-open `hashchange` unmounts the dialog with no cue; focus falls to `document.body` | P1 | DEFERRED — `BL-REPORT-CTA-REMOUNT-DROPS-FOCUS` (reason (a): the two candidate repairs contradict either the R5-ratified remount or ordinary reading behavior; that is a product decision). |
+| 5 | Fragment used raw as both a sessionStorage key and `helpCode` — un-decoded and unbounded | P2 | FIXED — `FRAGMENT_SHAPE` bounds the encoding (charset + 128 chars) and falls back to the hashless scope; an in-charset fragment is still passed through unvalidated against the catalog per spec §1.1 item 5. Two tests. |
+| 6 | Esc does not close the modal (pre-existing, all four surfaces) | P2 | DEFERRED — `BL-REPORT-MODAL-NO-ESCAPE-HANDLER` (reason (b): spec §1.1 item 9 fences existing-surface behavior in this PR). |
+| 7 | Straight apostrophes in the modal placeholder copy (`We've`, `What's`) | P2 | FIXED — curly form, per DESIGN.md §9. Class-swept: those were the only two user-visible straight apostrophes in the file. |
+| 8 | Trigger carried no `aria-haspopup` | P3 | FIXED — `aria-haspopup="dialog"`, with a test. |
+| 9 | "Still seeing it after that?" was answered by a button that does not answer it | P3 | FIXED — the Callout prose is now a statement the button completes. |
+| 10 | `report-modal-start-fresh` lacks the 44px floor | P2 (claimed) | REFUTED, recorded so it is not re-raised — it is a button rendered inline inside a prose sentence, which PRODUCT.md's accessibility floor exempts by the WCAG 2.5.5 inline-flow exception; a `min-h-tap-min` on an inline element would break the sentence's line box. Class-swept: it is the only control in the file without the class, and the backdrop hit is a full-viewport element (a detector false positive). |
+| 11 | `bg-accent` measures 2.00:1 against `bg-info-bg` in light mode | P2 (claimed) | REFUTED, recorded — SC 1.4.11 is satisfied by the label at 8.23:1 (DESIGN.md:64), the figure matches the app-wide accent-button ground (2.33:1 on `surface`, 2.11:1 on `warning-bg`), and the focus ring itself is 3.08:1 on `info-bg` (DESIGN.md:39) with `info-bg` already in `FOCUS_BACKDROP_ALLOWLIST`. |
+
 - [ ] **Full gates:** `pnpm typecheck && pnpm lint && pnpm format:check && pnpm test` (memory: typecheck covers what vitest strips; format:check because commits use --no-verify).
 - [ ] **Whole-diff cross-model review** (codex-guard, `--stage diff`) to APPROVE; round corpus rows land in `docs/review-rounds/feat/help-report-surface/`.
 - [ ] **Push → PR → real CI green → `gh pr merge --merge` → fast-forward main (`git rev-list --left-right --count main...origin/main` == `0 0`)**; herdr labels + cron nudge cleared at Stage 4.4 only.
