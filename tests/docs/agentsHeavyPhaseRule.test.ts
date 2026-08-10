@@ -719,6 +719,37 @@ export function checkHeavyPhaseRule(agents: string): string[] {
   for (const [label, pattern] of TAIL_CLAUSES) {
     if (!pattern.test(tailRegion)) problems.push(`missing clause: ${label}`);
   }
+  /*
+   * Raw HTML inside the rule.
+   *
+   * `canonicalText` drops `html` nodes because a comment is not the contract —
+   * and that is exactly what let a `<details><summary>Retired guidance
+   * (non-normative)</summary>` wrapper collapse every MUST, MUST-NOT, and tail
+   * clause into a disclaimed panel while contributing nothing to the text the pin
+   * compares.
+   *
+   * The split is structural rather than a tag vocabulary: an HTML COMMENT renders
+   * as nothing and cannot contain, hide, or relabel anything, so it stays
+   * allowed; any other raw HTML is markup that can, so it is rejected. There is
+   * no list of dangerous tags to keep current, because the property being tested
+   * is "is this a comment", and that is decidable.
+   */
+  const markup = (function collectHtml(node: MdNode, out: string[] = []): string[] {
+    if (node.type === "html" && typeof node.value === "string") {
+      const value = node.value.trim();
+      if (!/^<!--[\s\S]*-->$/.test(value)) out.push(value);
+    }
+    for (const child of node.children ?? []) collectHtml(child, out);
+    return out;
+  })(located.item);
+  if (markup.length > 0) {
+    problems.push(
+      `the rule contains raw HTML (${markup[0]!.slice(0, 60)}). Markup can wrap the ` +
+        "contract in a collapsed or disclaimed container while contributing nothing " +
+        "to its text; only HTML comments, which render as nothing, are allowed here.",
+    );
+  }
+
   // The delimiters are free; the EMPHASIS is not. Dropping the bold entirely
   // would flatten the rule's two-block structure for every human reader, and the
   // content pin above cannot see it, so it is asserted as parse-tree structure.
@@ -792,6 +823,16 @@ describe("AGENTS.md heavy-phase rule", () => {
   const OPERATORS: Array<[string, (text: string) => string]> = [
     ["delete the whole bullet", (text) => withinRule(text, () => "")],
     // Heading edits are REJECTED, per the ratified reversal documented at the pin.
+    [
+      "wrap the normative clauses in a collapsed, disclaimed HTML panel",
+      (text) =>
+        withinRule(text, (rule) =>
+          rule.replace(
+            "\n\n  **MUST wrap**",
+            "\n\n  <details><summary>Retired guidance (non-normative)</summary>\n\n  **MUST wrap**",
+          ) + "\n\n  </details>",
+        ),
+    ],
     [
       "flatten the MUST/MUST-NOT blocks by dropping their emphasis",
       editRule("**MUST NOT wrap** — any INTERACTIVE", "MUST NOT wrap — any INTERACTIVE"),

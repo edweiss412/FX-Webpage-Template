@@ -50,23 +50,23 @@ authoring rule; applying it while drafting would have made R1 F1/R2 F1/R3 F2 fre
 plan prose and the spec case bodies; `TASK_AC_MISSING`/marker grammar already ran
 clean from round 1.
 
-## diff — 17 rounds
+## diff — 18 rounds
 
-**Examined:** seventeen counted rounds on the implementation diff, dispatched as two
+**Examined:** eighteen counted rounds on the implementation diff, dispatched as two
 tight-scope reviews per the split-review default. The wrapper half
 (`scripts/with-heavy-slot.py` + `tests/scripts/withHeavySlot.test.ts`, ~1600 lines,
 the arc's entire mechanism) took APPROVE/0 in round 1 and was never re-opened; its
 reviewed scope is byte-identical from that verdict to merge. Every counted round
 after round 1 belongs to the other half: the AGENTS.md prose rule and its
-string-presence guard, 4/1/1/1/1/3/5/3/2/2/1/1/1/2/1/1/2 findings across rounds 1-17 — thirty-two in total.
+string-presence guard, 4/1/1/1/1/3/5/3/2/2/1/1/1/2/1/1/2/1 findings across rounds 1-18 — thirty-three in total.
 
 That split is the finding. The half with kernel semantics, fd lifetimes across
 `execvp`, inode identity, and an atomic swap protocol converged immediately, because
 spec §7 had already enumerated its defect classes as executable cases and thirteen
-spec rounds had probed each one. The half that burned sixteen is a paragraph of
+spec rounds had probed each one. The half that burned seventeen is a paragraph of
 English and a regex list.
 
-**Judgment:** eight of the thirty-two diff findings are one class — *the guard's stated coverage is
+**Judgment:** eight of the thirty-three diff findings are one class — *the guard's stated coverage is
 wider than its enforced coverage* — and the arc kept re-entering it because each
 repair changed WHERE the gap lived rather than removing the possibility of one. R1
 found members the hand-written list omitted; the repair derived the member set from
@@ -335,6 +335,18 @@ instances (R3, R4, R14, R16): **declaring a class closed in the same commit that
 closes one member of it.** Each time the honest move was available and cheap — say
 which axis was closed and which were not yet examined.
 
+Round 18 then turned the R17 repair's own design choice against it, which is the
+tidiest single finding in the arc. `canonicalText` drops `html` nodes because a
+comment is not the contract — so a `<details><summary>Retired guidance
+(non-normative)</summary>` wrapper collapsed every MUST, MUST-NOT, and tail clause
+into a disclaimed panel while contributing nothing to the text the pin compares.
+The repair is a STRUCTURAL split rather than a tag vocabulary: an HTML comment
+renders as nothing and cannot contain, hide, or relabel anything, so it stays
+allowed; any other raw HTML is markup that can, so it is rejected. "Is this a
+comment" is decidable, which is why this does not become a list of dangerous tags
+to keep current — the shape every earlier vocabulary-flavoured proposal in this arc
+failed on.
+
 **Mechanizable:** the inversion class is now closed by construction (the verbatim
 pin), the exemption-claim axis is type-required (`pinnedBy`), the spec-derived
 registry catches a shape added to §4.6, block structure comes from `remark` rather
@@ -349,9 +361,11 @@ no clause-referenced span can quietly stop being one, the pin ignores the list
 marker glyph and every other markdown delimiter because those are syntax rather
 than content, emphasis is asserted as `strong` NODES so its spelling is free while
 its absence is not, one canonical AST-derived rendering feeds every check so no
-delimiter spelling and no editorial comment can reach any of them, and 67 cases —
-43 `OPERATORS` rows plus twenty-two stays-quiet rows — run on every suite, so no
-repair can silently regress an earlier one in either direction. What
+delimiter spelling and no editorial comment can reach any of them, raw HTML markup
+inside the rule is rejected while comments stay allowed (a decidable split, not a
+tag list), and 68 cases — 44 `OPERATORS` rows plus twenty-two stays-quiet rows —
+run on every suite, so no repair can silently regress an earlier one in either
+direction. What
 remains unmechanized is the authoring judgement — knowing to reach for a pin rather
 than a pattern list when the guard's subject is prose. That has no static signature;
 it belongs in `docs/agents/writing-plans.md` alongside the anti-tautology rule, and
