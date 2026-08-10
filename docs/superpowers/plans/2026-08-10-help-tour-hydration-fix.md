@@ -39,9 +39,9 @@ Red is written by this task (invariant-1 shape): deleting the `"tests/e2e/help-p
 
 ## Task 3 — Impeccable dual gate (invariant 8)
 
-<!-- task: red=`grep -q "impeccable-gate: critique=RAN" docs/superpowers/plans/2026-08-10-help-tour-hydration-fix.md` ac=AC-5 -->
+<!-- task: red=`grep -qE "^impeccable-gate: critique=RAN" docs/superpowers/plans/2026-08-10-help-tour-hydration-fix.md` ac=AC-5 -->
 
-Red now (observed: the grep exits 1 — the filled marker line is absent from this plan; the production line is the §12 marker this task writes). Run BOTH halves of the invariant-8 dual gate (`/impeccable`, critique mode then audit mode) on the diff with the canonical v3 setup (context.mjs load then register read). Expected visual delta nil-to-minimal (spec §6); P0/P1 findings fixed or DEFERRED.md-logged. On completion, fill the §12 marker line with the real values (`critique=RAN audit=RAN p0=<n> p1=<n> dispositions=<recorded|none>`) — the closeout guard accepts only the filled form, which is why this task precedes the docs-suite green in Task 4.
+Red now (observed at plan time: the LINE-ANCHORED grep exits 1 — the only current occurrence of the pattern is inside this task's own marker comment, which is not at line start; the real §12 marker will be — R2 F1). After filling the §12 marker, RERUN the same command and observe exit 0 (the required green endpoint, R2 F2). Run BOTH halves of the invariant-8 dual gate (`/impeccable`, critique mode then audit mode) on the diff with the canonical v3 setup (context.mjs load then register read). Expected visual delta nil-to-minimal (spec §6); P0/P1 findings fixed or DEFERRED.md-logged. On completion, fill the §12 marker line with the real values (`critique=RAN audit=RAN p0=<n> p1=<n> dispositions=<recorded|none>`) — the closeout guard accepts only the filled form, which is why this task precedes the docs-suite green in Task 4.
 
 ## Task 4 — Parent-entry reconciliation + graduation
 
