@@ -103,14 +103,29 @@ function renderHub(opts: Opts = {}) {
  * after a colon, whatever precedes it. Negatives never raise the max, so a
  * trigger carrying only `-z-10` reads 0.
  */
+const Z_BAND_LEVELS: Record<string, number> = {
+  // The semantic band scale (app/globals.css @theme, M-wave 2 §2.6). The
+  // level pins below stay NUMERIC on purpose — the rule they encode is an
+  // ordering, and the bands are its names.
+  raised: 10,
+  dropdown: 20,
+  nav: 30,
+  banner: 40,
+  overlay: 50,
+  "dev-controls": 60,
+  "sticky-banner": 100,
+};
+
 const maxZLevel = (cls: string): number => {
   let max = 0;
   for (const tok of cls.split(/\s+/).filter(Boolean)) {
     // Trailing `!` is Tailwind v4's important modifier (`z-30!`) — a real,
     // plausible way to force an elevation, so allow it before the anchor.
-    const m = /(?:^|:)(-?)z-(?:\[(-?\d+)\]|(\d+))!?$/.exec(tok);
+    const m = /(?:^|:)(-?)z-(?:\[(-?\d+)\]|(\d+)|([a-z-]+))!?$/.exec(tok);
     if (!m) continue;
-    const n = (m[1] === "-" ? -1 : 1) * Number(m[2] ?? m[3]);
+    const raw = m[2] ?? m[3] ?? (m[4] !== undefined ? String(Z_BAND_LEVELS[m[4]] ?? "") : "");
+    if (raw === "") continue;
+    const n = (m[1] === "-" ? -1 : 1) * Number(raw);
     if (n > max) max = n;
   }
   return max;
@@ -270,7 +285,7 @@ describe("ShareHub — open/close semantics", () => {
     const group = primary().parentElement!;
     // Word-boundary, not substring: `toContain("z-30")` also passes on `z-300`
     // or `not-z-30`, neither of which emits the stacking rule this pins.
-    expect(screen.getByTestId("share-hub-backdrop").className).toMatch(/(^|\s)z-20(\s|$)/);
+    expect(screen.getByTestId("share-hub-backdrop").className).toMatch(/(^|\s)z-dropdown(\s|$)/);
   });
 
   it("caps the popover height so destructive controls cannot be pushed off-screen", () => {
@@ -324,13 +339,13 @@ describe("ShareHub — z-order (spec §3)", () => {
     renderHub();
     const root = primary().parentElement as HTMLElement;
     expect(root.className).toContain("relative");
-    expect(root.className).not.toMatch(/(^|\s)z-\d+(\s|$)/);
+    expect(maxZLevel(root.className)).toBe(0);
 
     fireEvent.click(primary());
-    expect(root.className).not.toMatch(/(^|\s)z-\d+(\s|$)/);
+    expect(maxZLevel(root.className)).toBe(0);
 
     fireEvent.click(primary());
-    expect(root.className).not.toMatch(/(^|\s)z-\d+(\s|$)/);
+    expect(maxZLevel(root.className)).toBe(0);
   });
 
   it("keeps BOTH triggers below the z-20 menu's stacking level", () => {
@@ -405,7 +420,7 @@ describe("ShareHub — caret (spec §5)", () => {
     // overflow-y-auto and silently invisible.
     expect(popover().contains(caret)).toBe(false);
 
-    // Two z-40 siblings: TREE ORDER decides paint order, not z-index. The caret
+    // Two z-banner siblings: TREE ORDER decides paint order, not z-index. The caret
     // must FOLLOW the popover or the panel's top border cuts the notch.
     expect(
       popover().compareDocumentPosition(caret) & Node.DOCUMENT_POSITION_FOLLOWING,
@@ -426,10 +441,10 @@ describe("ShareHub — caret (spec §5)", () => {
     expectClasses(caret, { has: ["pointer-events-none"] });
 
     // The two are equal-z SIBLINGS, so tree order (asserted above) only decides
-    // paint order while both stay at z-40. Pin the level on both, or lowering the
+    // paint order while both stay at z-banner. Pin the level on both, or lowering the
     // caret's z would drop it behind the panel while order + geometry still pass.
-    expectClasses(caret, { has: ["z-40"] });
-    expectClasses(popover(), { has: ["z-40"] });
+    expectClasses(caret, { has: ["z-banner"] });
+    expectClasses(popover(), { has: ["z-banner"] });
 
     // The dialog keeps its OWN scrolling - the withdrawn outer/inner split would
     // have moved it off the focused element.

@@ -301,7 +301,7 @@ describe("measure-and-apply with stubbed rects", () => {
       expect(body.className).toContain(token);
       expect(caret.className).toContain(token);
     }
-    expect(caret.className).toContain("z-50");
+    expect(caret.className).toContain("z-overlay");
     expect(caret.className).toContain("pointer-events-none");
     // closed state mirrors the body's toggle
     expect(caret.className).toContain("hidden");

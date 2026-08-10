@@ -776,7 +776,7 @@ function FinalizeBlockerDialog({ run }: { run: FinalizeRun }) {
       aria-modal="true"
       aria-labelledby={titleId}
       data-testid="wizard-finalize-blocker-modal"
-      className="fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-6"
+      className="fixed inset-0 z-overlay flex items-end justify-center sm:items-center sm:p-6"
     >
       {/* Backdrop. For `error` (dismissible) it is an interactive Close control
           kept OUT of the tab order (Escape + the visible Close button are the
@@ -815,7 +815,7 @@ function FinalizeBlockerDialog({ run }: { run: FinalizeRun }) {
           data-testid="wizard-finalize-blocker-dismiss"
           aria-label={dismissLabel}
           onClick={handleDismiss}
-          className="absolute right-1 top-1 z-10 inline-flex size-tap-min items-center justify-center rounded-sm text-text-subtle transition-colors duration-fast hover:bg-surface-sunken hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+          className="absolute right-1 top-1 z-raised inline-flex size-tap-min items-center justify-center rounded-sm text-text-subtle transition-colors duration-fast hover:bg-surface-sunken hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
         >
           <span aria-hidden="true" className="text-xl leading-none">
             ×

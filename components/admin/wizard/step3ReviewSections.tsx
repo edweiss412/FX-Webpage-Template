@@ -766,14 +766,14 @@ export function pointerSentenceParts(
  *  reveal control: text-sized inline button; 44x44 floor via a CENTERED
  *  before-overlay (translate + min-w/h-tap-min, width = max(text, 44px)) —
  *  zero line-box inflation. Same intent as HoverHelp's compactTrigger tap
- *  floor, different geometry (that one is a fixed inset box). z-10: the
+ *  floor, different geometry (that one is a fixed inset box). z-raised: the
  *  overlay must WIN hit-testing against the card's own padding box
  *  (elementFromPoint returns the topmost paint; without it the ±21px zone
  *  belongs to the card div). In the elsewhere state the sentence is the
  *  panel's only body content, so nothing interactive sits inside the raised
  *  zone (e2e disjointness proof). */
 const POINTER_INLINE_BUTTON_CLASS = cn(
-  "relative z-10 inline-block whitespace-nowrap font-semibold text-text-strong underline underline-offset-2 before:absolute before:top-1/2 before:left-1/2 before:h-tap-min before:w-full before:min-w-tap-min before:-translate-1/2 before:content-[''] hover:text-text focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface focus-visible:outline-none",
+  "relative z-raised inline-block whitespace-nowrap font-semibold text-text-strong underline underline-offset-2 before:absolute before:top-1/2 before:left-1/2 before:h-tap-min before:w-full before:min-w-tap-min before:-translate-1/2 before:content-[''] hover:text-text focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface focus-visible:outline-none",
 );
 
 /**

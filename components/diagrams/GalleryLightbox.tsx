@@ -391,7 +391,7 @@ export function GalleryLightbox({
       // `manipulation` here. Prevents Safari's double-tap-to-zoom
       // and viewport pinch-zoom from competing with the library's
       // gesture handlers on the active slide. See shape brief §7.
-      className="fixed inset-0 z-50 flex touch-manipulation flex-col bg-bg/95 backdrop-blur-sm"
+      className="fixed inset-0 z-overlay flex touch-manipulation flex-col bg-bg/95 backdrop-blur-sm"
       initial={prefersReducedMotion ? false : { opacity: 0, scale: 0.96 }}
       animate={{ opacity: 1, scale: 1 }}
       exit={prefersReducedMotion ? { opacity: 1, scale: 1 } : { opacity: 0, scale: 0.96 }}
@@ -462,7 +462,7 @@ export function GalleryLightbox({
           dialog focus trap via natural DOM order.
         */}
         {zoomed ? (
-          <div className="pointer-events-none absolute inset-x-0 top-2 z-20 flex justify-center px-4">
+          <div className="pointer-events-none absolute inset-x-0 top-2 z-dropdown flex justify-center px-4">
             <button
               type="button"
               data-testid="lightbox-reset-chip"
@@ -491,7 +491,7 @@ export function GalleryLightbox({
             onClick={scrollPrev}
             aria-label="Previous diagram"
             disabled={activeIndex === 0}
-            className="absolute left-2 top-1/2 z-10 inline-flex size-11 -translate-y-1/2 items-center justify-center rounded-pill bg-surface-raised text-text-strong shadow-tile hover:bg-surface focus:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring disabled:opacity-40"
+            className="absolute left-2 top-1/2 z-raised inline-flex size-11 -translate-y-1/2 items-center justify-center rounded-pill bg-surface-raised text-text-strong shadow-tile hover:bg-surface focus:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring disabled:opacity-40"
           >
             <ChevronLeft aria-hidden="true" className="size-6" />
           </button>
@@ -782,7 +782,7 @@ export function GalleryLightbox({
             onClick={scrollNext}
             aria-label="Next diagram"
             disabled={activeIndex === items.length - 1}
-            className="absolute right-2 top-1/2 z-10 inline-flex size-11 -translate-y-1/2 items-center justify-center rounded-pill bg-surface-raised text-text-strong shadow-tile hover:bg-surface focus:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring disabled:opacity-40"
+            className="absolute right-2 top-1/2 z-raised inline-flex size-11 -translate-y-1/2 items-center justify-center rounded-pill bg-surface-raised text-text-strong shadow-tile hover:bg-surface focus:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring disabled:opacity-40"
           >
             <ChevronRight aria-hidden="true" className="size-6" />
           </button>

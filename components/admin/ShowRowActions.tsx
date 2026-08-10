@@ -622,7 +622,7 @@ export function ShowRowActions({ row }: { row: ActiveShowRow }) {
               tabIndex={-1}
               data-testid={`row-actions-backdrop-${slug}`}
               onClick={() => dismissMenu(false)}
-              className="fixed inset-0 z-40 cursor-default"
+              className="fixed inset-0 z-banner cursor-default"
             />,
             document.body,
           )
