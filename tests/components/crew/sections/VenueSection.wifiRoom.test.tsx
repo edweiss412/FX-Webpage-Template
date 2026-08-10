@@ -94,6 +94,15 @@ const gsNamesOf = (rooms: ProjectedRoomRow[]): string[] =>
  */
 const labelOf = (row: Element | null): string | undefined =>
   row?.querySelector("dt")?.textContent ?? undefined;
+
+/**
+ * The raw-fallback row, located by its LABEL because it deliberately carries no
+ * testid — adding one would change the markup the byte-identical pin protects.
+ */
+const rawWifiRow = (container: HTMLElement): Element | null =>
+  [...container.querySelectorAll('[data-testid="fact-rows"] > div')].find(
+    (row) => row.querySelector("dt")?.textContent === "Crew Wi-Fi",
+  ) ?? null;
 const valueOf = (row: Element | null): string | undefined =>
   row?.querySelector("dd")?.textContent ?? undefined;
 
@@ -215,11 +224,11 @@ describe("Wi-Fi split rows", () => {
         const label = `${field}/${sentinel}`;
         // No split row claimed it...
         expect(container.querySelector('[data-testid="venue-wifi-ssid"]'), label).toBeNull();
-        // ...and every line of the cell is still on the page, verbatim.
-        for (const line of raw.split("\n")) {
-          expect(container.textContent, `${label} lost ${JSON.stringify(line)}`).toContain(line);
-        }
-        expect(container.textContent, label).toContain("Crew Wi-Fi");
+        // ...and the raw row carries the cell EXACTLY. Asserting each line is
+        // present somewhere would pass on flattened, reversed, or duplicated
+        // output — probed, all three — which is presence, not the byte-identical
+        // fallback the consequence bound requires (review S4 R1).
+        expect(valueOf(rawWifiRow(container)), label).toBe(raw.trim());
         cleanup();
       }
     }
