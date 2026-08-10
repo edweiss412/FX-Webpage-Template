@@ -1024,7 +1024,7 @@ So this is not a `shadow-*` carve-out: **every `@theme` token defined through a 
 
 ### BL-CI-UNIT-GATE-EXCLUSIONS — gate the two files excluded from the full-suite job
 
-**Effort:** M
+**Status:** IN PROGRESS · **Branch:** ci/unit-gate-exclusions · **Effort:** M
 
 > **UPDATED 2026-07-26 (PR3 of the CI-dark coverage cluster).** This entry described THREE excluded files and repeated the false premise that the local-bootstrap runner cannot provide pg_cron. `scripts/ci/supabase-local-bootstrap.sh` holds the guarded migrations aside for the INITIAL boot only, then applies them with `supabase migration up --include-all`, so that runner has always had them. `pg-cron-coverage` is no longer excluded and now runs in `unit-suite-db`; TWO files remain excluded. The promotion work this entry proposed for pg-cron-coverage is DONE — do not redo it.
 
