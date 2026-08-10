@@ -1,5 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
-import { stripSqlComments } from "@/tests/_shared/stripComments";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { stripSqlComments, stripCommentsForFile } from "@/tests/_shared/stripComments";
 import {
   emitSuccessfulPhase2Tail,
   makeSyncPipelineTx,
@@ -301,5 +303,29 @@ describe("recovery sink — show_id by subselect, explicit parameter retired (sp
     // params[0] - today it is the show id, so the binding demonstrably flipped.
     expect(call.params).toHaveLength(4);
     expect(call.params[0]).toBe("file-9");
+  });
+
+  it("both production declarations of insertSyncLog take exactly one parameter", () => {
+    // A SOURCE scan, because the pin above runs through `as unknown as OneArgWriter`
+    // and therefore cannot fail if a declaration regains `showId?` (whole-diff r13).
+    // A removed optional parameter is invisible to a compiling test: every existing
+    // call still typechecks. The plan named both declarations for exactly this reason.
+    const read = (rel: string) =>
+      stripCommentsForFile(readFileSync(join(process.cwd(), rel), "utf8"), rel);
+
+    for (const rel of ["lib/sync/runScheduledCronSync.ts", "lib/sync/runManualSyncForShow.ts"]) {
+      const src = read(rel);
+      // Anchored on the DECLARATION's typed parameter (`entry:`), so call sites -
+      // which pass an object literal - cannot match and be mistaken for signatures.
+      const decls = [
+        ...src.matchAll(/insertSyncLog\s*\(\s*entry\s*:([\s\S]*?)\)\s*(?::\s*Promise|\{)/g),
+      ].map((m) => m[1]!);
+      expect(decls.length, `${rel} declares no insertSyncLog`).toBeGreaterThan(0);
+      for (const params of decls) {
+        expect(params, `${rel} still advertises the retired explicit show-id channel`).not.toMatch(
+          /\bshowId\b/,
+        );
+      }
+    }
   });
 });

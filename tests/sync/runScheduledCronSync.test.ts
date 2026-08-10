@@ -110,15 +110,12 @@ type PipelineTx = Phase1Tx &
       driveFileId: string,
       code: string,
     ): Promise<{ showId: string | null; lastSeenModifiedTime: string | null }>;
-    insertSyncLog(
-      entry: {
-        driveFileId: string | null;
-        outcome: string;
-        code?: string;
-        payload?: Record<string, unknown>;
-      },
-      showId?: string | null,
-    ): Promise<void>;
+    insertSyncLog(entry: {
+      driveFileId: string | null;
+      outcome: string;
+      code?: string;
+      payload?: Record<string, unknown>;
+    }): Promise<void>;
     upsertAdminAlert(input: {
       showId: string | null;
       code: string;

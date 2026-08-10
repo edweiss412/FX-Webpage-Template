@@ -154,6 +154,62 @@ describe("sync_log attribution — write through the real sink, read through que
     expect(rows[0]!.show_id).toBeNull();
   });
 
+  test("the RECOVERY sink attributes through the real driver, not just in SQL text", async () => {
+    // whole-diff r13: the plan split one readback per sink across Tasks 1/3/3b, and only
+    // the cron one landed. Tasks 3 and 3b shipped SQL-TEXT assertions, which cannot show
+    // that a row landed attributed - the subselect resolves in Postgres, not in a string.
+    const { makeSyncPipelineTx } = await import("@/lib/sync/runScheduledCronSync");
+    const FILE = `${RUN}-recovery`;
+    const [show] = await sql<{ id: string }[]>`
+      insert into public.shows (drive_file_id, slug, title, client_label, template_version)
+      values (${FILE}, ${`${RUN}-rec-slug`}, ${"Recovery fixture"}, ${RUN}, 1)
+      returning id
+    `;
+
+    const tx = {
+      unsafe: async (text: string, params: unknown[] = []) => {
+        await sql.unsafe(text, params as never[]);
+        return [];
+      },
+    };
+    const pipe = makeSyncPipelineTx(tx as never) as unknown as {
+      insertSyncLog(entry: unknown): Promise<void>;
+    };
+    await pipe.insertSyncLog({ driveFileId: FILE, outcome: "error", code: "SHEET_UNAVAILABLE" });
+
+    const [row] = await sql<{ show_id: string | null; duration_ms: number | null }[]>`
+      select show_id, duration_ms from public.sync_log where drive_file_id = ${FILE}
+    `;
+    expect(row, "the recovery sink wrote no row").toBeDefined();
+    expect(row!.show_id).toBe(show!.id);
+    // Spec §3.3.1: this writer owns no attempt boundary, so NULL is correct here.
+    expect(row!.duration_ms).toBeNull();
+  });
+
+  test("the ONBOARDING sink attributes through the real driver", async () => {
+    const { PostgresOnboardingScanTx } = await import("@/lib/sync/runOnboardingScan");
+    const FILE = `${RUN}-onboarding`;
+    const [show] = await sql<{ id: string }[]>`
+      insert into public.shows (drive_file_id, slug, title, client_label, template_version)
+      values (${FILE}, ${`${RUN}-onb-slug`}, ${"Onboarding fixture"}, ${RUN}, 1)
+      returning id
+    `;
+
+    const tx = new PostgresOnboardingScanTx({
+      unsafe: async (text: string, params: unknown[] = []) => {
+        await sql.unsafe(text, params as never[]);
+        return [];
+      },
+    } as never);
+    await tx.logSync({ code: "WIZARD_SESSION_SUPERSEDED_DURING_SCAN", driveFileId: FILE });
+
+    const [row] = await sql<{ show_id: string | null }[]>`
+      select show_id from public.sync_log where drive_file_id = ${FILE}
+    `;
+    expect(row, "the onboarding sink wrote no row").toBeDefined();
+    expect(row!.show_id).toBe(show!.id);
+  });
+
   test("an entry with no durationMs persists NULL — the ?? null bind, against the real driver", async () => {
     // THE case a unit mock cannot express. postgres.js raises UNDEFINED_VALUE for an
     // undefined bind parameter, so `entry.durationMs` without `?? null` throws here
