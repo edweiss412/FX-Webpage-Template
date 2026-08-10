@@ -54,7 +54,7 @@ describe("Chunk 5: minor-polish sweep", () => {
     // the wizard's own help page and UI say "finish setup" — so the pin now
     // holds the corrected phrasing, same fact.
     expect(src).toMatch(/folder-URL verification/);
-    expect(src).toMatch(/finish-setup step that publishes your shows and activates sync/);
+    expect(src).toMatch(/finish-setup step that publishes the shows you tick and activates sync/);
   });
 
   it("landing: the value/benefit intro is split into separate sentences", () => {

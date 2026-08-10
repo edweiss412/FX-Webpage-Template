@@ -66,6 +66,14 @@ const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
   // into a blank line the parser never sees. No accepted-gap: this surface's
   // floor is 1, so a gap here would have to be repaid, not blessed.
   reviewRoundCorpus: { equivalent: 2 },
+  // M-wave 2 W-GUARDS (2026-08-10). popoverOverlayExtract: TWO equivalent rows
+  // (the template-separator connector flip, which can only inject the token
+  // `undefined` where no accept-set token contains it; and the null-key
+  // fall-through continue, which reaches only comparisons a null key cannot
+  // match). renderedTextHaystack: clean sweep, 17/17 killed after the
+  // hardening rows.
+  popoverOverlayExtract: { equivalent: 2 },
+  renderedTextHaystack: {},
 };
 
 describe("guard-surface registry — ledger-kind expectations", () => {

@@ -302,39 +302,6 @@ The adapter is the substance of the work, not the rendering — `getShowForViewe
 
 ---
 
-## BL-POPOVER-REGISTRY-PER-FILE-AND-TAILWIND-ONLY — the anchored-scroller registry is fail-by-default per FILE, and only for the Tailwind idiom
-
-**Effort:** M · **Status:** IN PROGRESS · **Branch:** feat/m2-guard-precision
-
-Surfaced by cross-model review of `fix/admin-popover-overlay-cluster` (2026-08-02),
-with live probes against the shipped guard. PRE-EXISTING: the cluster tightened the
-`fit-within-clip` import assertion and added rows, but did not introduce either gap.
-
-`tests/components/admin/showpage/_metaPopoverPlacementContract.test.ts` compares a set
-of detected FILES against the registry's file rows, and `looksLikeAnchoredScroller`
-matches Tailwind class idiom in the source text. Two consequences:
-
-1. **Per-file, not per-overlay.** A second, undispositioned overlay added to an
-   already-registered file leaves the detected file set unchanged, so the guard stays
-   green. Reviewer probe: appending an `UndispositionedSecondOverlay` with
-   `className="absolute top-full overflow-y-auto"` to `ShareHub.tsx` gave
-   `SUMMARY 15/15 passed; undispositioned overlay appended in already-registered file=true`.
-   The same escape exists in all seven registered files.
-2. **Tailwind-only recognition.** An overlay written with inline styles
-   (`style={{ position: "absolute", top: "100%", overflowY: "auto" }}`) is genuinely an
-   anchored scroller but is not detected at all. Reviewer probe:
-   `CLASSIFIER inline-style mutant => false` and `SUMMARY 15/15 shipped guard cases passed`.
-
-So a new unsafe overlay can ship undispositioned despite the guard's stated
-fail-by-default contract. Fix shape: key the registry by OVERLAY (a stable per-element
-marker such as a testid or a declared symbol) rather than by file, and widen the
-classifier to computed/inline positioning as well as the class idiom — or state the
-limit explicitly in the registry header so the contract stops over-promising.
-
-Not fixed in the cluster that surfaced it: closing it means re-keying an existing
-registry and re-dispositioning seven files, which is its own change with its own
-review surface.
-
 ## BL-SECTION-HEADER-VISUAL-REQUIRED-CONTEXT — promote the visual gate into branch protection's required set after soak
 
 **Status:** OPEN · **Severity:** low · **Class:** CI wiring · **Filed:** 2026-07-27 (reconciliation — the one live follow-up carried out of `BL-HEADER-PROBE-RESIDUAL-VACUITY` when it graduated to `BACKLOG-archive.md`) · **Effort:** XS
@@ -1133,19 +1100,3 @@ override on the shared harness would do it), or a decision about obstacle 2. Unt
 docblock states the gap rather than papering over it.
 
 ---
-
-## BL-CROSSWALK-HAYSTACK-RENDERED-TEXT-ONLY — the /help UI-label crosswalk attests against all source, so a type annotation counts as a button label
-
-**Filed:** 2026-08-05 (M-wave W-UI, U8 probe). **Class:** guard precision. **Effort:** M (touches every label in the crosswalk corpus). **Severity:** low.
-
-`tests/help/_metaUiLabelCrosswalk.test.ts` attests that a bolded /help label names a real control by searching a haystack built from ALL production source. Comments are stripped, and U8 added import statements — both are categorically non-rendered. What remains is everything else: type annotations, identifiers, object keys. So `**Viewer**` at `app/help/getting-started/page.mdx:10` is attested by `viewer: Viewer` in `app/show/[slug]/[shareToken]/_CrewShell.tsx`, a type annotation, and the guard reports a match that proves nothing about rendered UI.
-
-**Probed, not inferred** (U8, 2026-08-05): the word-boundary tier U8 shipped closes the ACCIDENTAL-SUBSTRING half of this — `Share` no longer matches inside `ShareHub`/`shareToken` — and is proven to discriminate by a premise fixture. It does not close the bare-identifier half, and no further lexical narrowing can: excluding identifiers wholesale would break every label that IS its component name, which is common and legitimate. `tests/help/_metaUiLabelCrosswalk.test.ts` pins the residual as an executable DOCUMENTED LIMIT that fails the day this is fixed.
-
-**Work:** build the haystack from RENDERED TEXT ONLY — string literals and JSX text children, via the TypeScript AST rather than a regex. Decidable and bounded. Expect a wave of newly-failing labels on the first run; each is either real drift or a third-party-UI label (below), and the triage is the bulk of the effort.
-
-**Also needs settling in the same pass: third-party UI labels have no home.** `**Share**` and `**Viewer**` in `app/help/getting-started/page.mdx` are GOOGLE DRIVE's controls, not this app's — "click **Share** on that folder… Give it **Viewer** access". They are correct copy that this guard should never have treated as candidates. The M-wave plan assumed the opposite (that the copy was wrong and should be rewritten to name real controls); the probe refuted it, and rewriting them would have made accurate documentation inaccurate. `tests/help/_uiLabelExceptions.ts` cannot hold them either: every row must cite a `DEFERRED.md M11-E-D<N>` id, and these are not deferrals. Needs a third-party-UI carve with its own reason field.
-
-**Deferral exception: (c)** — a redesign of the guard's oracle spanning the whole crosswalk corpus, on a surface this PR does not otherwise touch. W-UI shipped the half that is closable without it.
-
-**Status:** IN PROGRESS · **Branch:** feat/m2-guard-precision

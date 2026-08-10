@@ -106,6 +106,161 @@ describe("anchored-scroller recognition (per element, both idioms)", () => {
   });
 });
 
+describe("accept-set branch coverage (mutation-gate hardening, 2026-08-10)", () => {
+  // Every row below kills a surviving mutant the source-mutation gate found on
+  // first enrollment (score 0.692 vs floor 0.9): each exercises an accept-set
+  // branch the live tree happens not to reach. The gate's survivor list is the
+  // derivation; these are not decorative.
+  it("a module TEMPLATE-LITERAL const referenced by className classifies", () => {
+    const source = [
+      "const T = `absolute top-full overflow-y-auto`;",
+      'export const P = () => <div data-testid="tpl-const" className={T} />;',
+    ].join("\n");
+    const { overlays } = extractAnchoredOverlays(source, "components/P.tsx");
+    expect(overlays.map((o) => o.marker)).toEqual(["tpl-const"]);
+  });
+
+  it("a clsx() module const AND an inline clsx() className both classify", () => {
+    const viaConst = [
+      'const C = clsx("absolute top-full overflow-y-auto");',
+      'export const P = () => <div data-testid="clsx-const" className={C} />;',
+    ].join("\n");
+    expect(
+      extractAnchoredOverlays(viaConst, "components/P.tsx").overlays.map((o) => o.marker),
+    ).toEqual(["clsx-const"]);
+    const inline =
+      'export const Q = () => <div data-testid="clsx-inline" className={clsx("absolute top-full", "overflow-y-auto")} />;';
+    expect(
+      extractAnchoredOverlays(inline, "components/Q.tsx").overlays.map((o) => o.marker),
+    ).toEqual(["clsx-inline"]);
+  });
+
+  it("an uninitialized module binding does not derail extraction", () => {
+    // The const-collector must SKIP a binding with no initializer, not read
+    // through it; the surviving connector flip crashed here.
+    const source = [
+      "let pending;",
+      'export const P = () => <div data-testid="after-bare-let" className="absolute top-full overflow-y-auto" />;',
+    ].join("\n");
+    expect(
+      extractAnchoredOverlays(source, "components/P.tsx").overlays.map((o) => o.marker),
+    ).toEqual(["after-bare-let"]);
+  });
+
+  it("template interpolation is a token SEPARATOR: fragments never concatenate", () => {
+    // "overflow-" + "y-auto" across an unresolved interpolation must NOT form
+    // a scroller token.
+    const source =
+      'export const P = ({ x }: { x: string }) => <div data-testid="split-token" className={`absolute overflow-${x}y-auto top-full`} />;';
+    const report = extractAnchoredOverlays(source, "components/P.tsx");
+    expect(report.overlays).toEqual([]);
+  });
+
+  it("a template TAIL after a resolved const interpolation still contributes", () => {
+    const source = [
+      'const POS = cn("absolute top-full");',
+      'export const P = () => <div data-testid="tpl-tail" className={`${POS} overflow-y-auto`} />;',
+    ].join("\n");
+    expect(
+      extractAnchoredOverlays(source, "components/P.tsx").overlays.map((o) => o.marker),
+    ).toEqual(["tpl-tail"]);
+  });
+
+  it.each([
+    ["fixed + overflow auto", '{ position: "fixed", overflow: "auto" }', true],
+    ["absolute + overflowY scroll", '{ position: "absolute", overflowY: "scroll" }', true],
+    ["static is not positioned", '{ position: "static", top: "100%", overflowY: "auto" }', false],
+    ["overflowY visible is no scroller", '{ position: "absolute", overflowY: "visible" }', false],
+    ["overflow hidden is no scroller", '{ position: "absolute", overflow: "hidden" }', false],
+  ])("style accept-set: %s", (_label, style, detected) => {
+    const source = `export const P = () => <div data-testid="style-probe" style={${style}} />;`;
+    const { overlays } = extractAnchoredOverlays(source, "components/P.tsx");
+    expect(overlays.length > 0).toBe(detected);
+  });
+
+  it("style-bottom anchoring with a scrolling DESCENDANT classifies (edge-anchored path)", () => {
+    const source = [
+      "export const P = () => (",
+      '  <div data-testid="style-bottom-anchor" style={{ position: "absolute", bottom: "100%" }}>',
+      '    <div className="overflow-y-auto" />',
+      "  </div>",
+      ");",
+    ].join("\n");
+    const { overlays } = extractAnchoredOverlays(source, "components/P.tsx");
+    expect(overlays.map((o) => o.via)).toEqual(["anchored-descendant-scroller"]);
+  });
+
+  it("a scroller GRANDCHILD still qualifies the anchored wrapper", () => {
+    const source = [
+      "export const P = () => (",
+      '  <div data-testid="deep-subtree" className="absolute top-full">',
+      "    <section>",
+      '      <div className="overflow-y-auto" />',
+      "    </section>",
+      "  </div>",
+      ");",
+    ].join("\n");
+    expect(
+      extractAnchoredOverlays(source, "components/P.tsx").overlays.map((o) => o.marker),
+    ).toEqual(["deep-subtree"]);
+  });
+
+  it("a SPREAD property inside a style object is reported unclassified", () => {
+    const source =
+      'export const P = ({ base }: { base: object }) => <div data-testid="style-spread" className="absolute" style={{ ...base, top: "100%" }} />;';
+    const { unclassified } = extractAnchoredOverlays(source, "components/P.tsx");
+    expect(unclassified).toHaveLength(1);
+    expect(unclassified[0]!.marker).toBe("style-spread");
+  });
+
+  it("a spread ATTRIBUTE on the overlay element neither derails nor hides it", () => {
+    const source =
+      'export const P = (rest: object) => <div {...rest} data-testid="spread-attr" className="absolute top-full overflow-y-auto" />;';
+    expect(
+      extractAnchoredOverlays(source, "components/P.tsx").overlays.map((o) => o.marker),
+    ).toEqual(["spread-attr"]);
+  });
+
+  it("a SUBSTITUTION template module const still classifies through its static chunks", () => {
+    // NoSubstitutionTemplateLiteral is StringLiteralLike and takes the first
+    // collector branch; only a template WITH spans reaches the template branch.
+    const source = [
+      'const T = `absolute ${"x"} top-full overflow-y-auto`;',
+      'export const P = () => <div data-testid="tpl-span-const" className={T} />;',
+    ].join("\n");
+    expect(
+      extractAnchoredOverlays(source, "components/P.tsx").overlays.map((o) => o.marker),
+    ).toEqual(["tpl-span-const"]);
+  });
+
+  it("an INLINE cn() className classifies (not only clsx)", () => {
+    const source =
+      'export const P = () => <div data-testid="cn-inline" className={cn("absolute top-full", "overflow-y-auto")} />;';
+    expect(
+      extractAnchoredOverlays(source, "components/P.tsx").overlays.map((o) => o.marker),
+    ).toEqual(["cn-inline"]);
+  });
+
+  it("a COMPUTED style key is reported unclassified", () => {
+    const source =
+      'export const P = () => <div data-testid="computed-key" className="absolute" style={{ ["top"]: "100%" }} />;';
+    const { unclassified } = extractAnchoredOverlays(source, "components/P.tsx");
+    expect(unclassified).toHaveLength(1);
+    expect(unclassified[0]!.marker).toBe("computed-key");
+  });
+
+  it("reports the overlay's 1-based line exactly", () => {
+    const source = [
+      "// filler line",
+      "export const P = () => (",
+      '  <div data-testid="line-pin" className="absolute top-full overflow-y-auto" />',
+      ");",
+    ].join("\n");
+    const { overlays } = extractAnchoredOverlays(source, "components/P.tsx");
+    expect(overlays[0]!.line).toBe(3);
+  });
+});
+
 describe("per-overlay extraction (BL-POPOVER-REGISTRY-PER-FILE-AND-TAILWIND-ONLY)", () => {
   // The entry's reviewer probe (a), as a standing self-test: a second,
   // undispositioned overlay appended to an ALREADY-REGISTERED file must

@@ -686,6 +686,29 @@ describe("rendered-text haystack premise (BL-CROSSWALK-HAYSTACK-RENDERED-TEXT-ON
   });
 });
 
+describe("rendered-text extraction hardening (mutation-gate survivors, 2026-08-10)", () => {
+  // Each row kills a surviving mutant from the surface's first enrollment
+  // (score 0.824 vs floor 0.9): an accept-set branch no premise fixture reached.
+  it("a string literal INSIDE a template interpolation in render position contributes", () => {
+    const source =
+      'export const P = ({ on }: { on: boolean }) => <i>{`state ${on ? "PlantedTernaryLabel" : "off"}`}</i>;';
+    expect(renderedTextOf(source, "components/P.tsx")).toContain("PlantedTernaryLabel");
+  });
+
+  it("a template TAIL fragment after the interpolation contributes", () => {
+    const source =
+      "export const P = ({ n }: { n: number }) => <i>{`Connected · ${n} tail-marker`}</i>;";
+    expect(renderedTextOf(source, "components/P.tsx")).toContain(" tail-marker");
+  });
+
+  it("an EMPTY attribute expression is skipped, not read through", () => {
+    // `title={}` parses as a JsxExpression with no expression; the guard must
+    // skip it (the surviving connector flip crashed here).
+    const source = "export const P = () => <span title={}><b>StillRenderedLabel</b></span>;";
+    expect(renderedTextOf(source, "components/P.tsx")).toContain("StillRenderedLabel");
+  });
+});
+
 describe("the short-label tier (BL-HELP-UI-LABEL-CROSSWALK-EXACT-MATCH)", () => {
   it("PREMISE: the tier discriminates — a short label matches only at word boundaries", () => {
     // Without this the tier could be `return true` and every crosswalk assertion
