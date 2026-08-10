@@ -53,7 +53,7 @@ Three tight-scope dispatches (the diff is ~60 files; `AGENTS.md` makes split bri
 | the shared psql-target resolver | NEEDS-ATTENTION | 1 |
 | the mechanical class sweep, docs and ledger | NEEDS-ATTENTION | 2 |
 
-Every finding arrived with a probe, and every one was real. Seven of eight are ANTI-TAUTOLOGY defects in guards this arc wrote — which is the honest summary: the product changes held up (all four canonical substitutions and both shadow themes reproduced, token order and set retained, the six concatenations byte-identical, the 29/35 plugin claim exact), and what did not hold up was the machinery asserting it.
+Every finding arrived with a probe, and every one was real. **Six of the eight are guard/assertion defects** — R1-1 through R1-5 in the guards, plus R1-7's broadened `min-w` assertion — while R1-6 is a resolver BEHAVIOR defect (an empty DSN silently selecting the local default) and R1-8 is a census arithmetic correction. An earlier draft said "seven of eight," which over-counted by folding R1-8 in; the round-3 docs review caught it against this table. The honest summary is unchanged in substance: the product changes held up (all four canonical substitutions and both shadow themes reproduced, token order and set retained, the six concatenations byte-identical, the 29/35 plugin claim exact), and most of what did not hold up was the machinery asserting it.
 
 | # | Scope | Finding | Repair |
 | --- | --- | --- | --- |
@@ -70,7 +70,9 @@ Two CI failures surfaced in the same window and are repaired with them: the psql
 
 ### §12.1c Cross-model diff review — round 2
 
-Two dispatches over the round-1 repairs plus a peer sweep. The resolver, the ledger, the sweep and the docs came back clean of new findings in the guards dispatch's own words ("`scopeTiles` has no remaining zero-assertion or premise/call divergence route; the `min-w-34` assertion is exact; the arc diff contains no other broadened assertion accepting a degenerate value"). Three NEW findings, all on the same surface round 1 had already opened — the tap-target pins and the arrow-ban parser — and all three probe-backed.
+Two dispatches over the round-1 repairs plus a peer sweep. **One of them produced no verdict**: the resolver/ledger/sweep/docs dispatch was killed by the wrapper's own timeouts (attempt 1 at 1200s, attempt 2 at 300s), so that scope was NOT reviewed in round 2 and nothing here may be read as clearing it. An earlier draft of this section said those surfaces "came back clean" — that was wrong in the precise way `AGENTS.md` warns about (`no_verdict` is an infrastructure fault, never evidence the reviewer found nothing), and it was caught by the round-3 docs review rather than by me. The scope was re-dispatched in round 3 and cleared there.
+
+What the GUARDS dispatch did report clean, in its own words: "`scopeTiles` has no remaining zero-assertion or premise/call divergence route; the `min-w-34` assertion is exact; the arc diff contains no other broadened assertion accepting a degenerate value." Three NEW findings, all on the surface round 1 had already opened — the tap-target pins and the arrow-ban parser — and all three probe-backed.
 
 | # | Finding | Reachability, probed BEFORE repairing | Repair |
 | --- | --- | --- | --- |
