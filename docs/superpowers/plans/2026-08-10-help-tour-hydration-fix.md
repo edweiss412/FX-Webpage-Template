@@ -8,7 +8,7 @@
 
 **Layout-dimensions / transition-audit tasks:** N/A per spec (no dimensional invariants, no transitions — both sections state None with reasons).
 
-**e2e harness readiness:** the spec file already exists and is wired locally; boot is the playwright config's port-3000 webServer (`BASELINE_SERVER_ONLY=1` filter), readiness gates are the file's existing per-route assertions. No new Playwright plumbing.
+**e2e harness readiness:** boot is the playwright config's port-3000 webServer (`BASELINE_SERVER_ONLY=1` filter). Honest gate statement (plan R3 F1): the existing spec awaits only `networkidle` (`tests/e2e/help-pages.spec.ts:128`) with no hydration-specific gate — a late hydration error can post-date the assertion window. Task 1 therefore ADDS a hydration gate to the page-error case: after `networkidle`, await a rendered interactive marker (the page's sidebar nav link responding to evaluation) plus a settle beat before reading `pageErrors`, so the assertion window covers hydration. Detach-safety: per-route fresh locators (existing pattern).
 
 <!-- tasks: depth=2 -->
 
@@ -62,8 +62,8 @@ The `red=` above IS the acceptance command (R1 F1/F2): the jq asserts `(length==
 
 1. Open the PR; let `pull_request` runs accumulate; re-trigger with EMPTY COMMITS only (batch-1 AC-3 semantics — `workflow_dispatch` runs are NOT evidence).
 2. Five consecutive green `app-e2e` pull_request runs, zero retries, ALL ON THE FINAL CONTENT SHA's window (R1 F6): any content push — including whole-diff-review repairs — RESETS the count; only empty commits re-trigger within a window; the merge happens with the acceptance command green against the final content and nothing pushed after it except window-internal empty commits.
-3. Fallback (spec §5, pre-ratified): a help-pages flake inside the window reverts the promotion as a unit (YAML entry, oracle row, 17 governs, allowlist row restored WITH flake reason, parent census restored, comments name the flake) while Tasks 1 + 4 still ship; ACs read per their fallback readings.
-4. Whole-diff cross-model review to APPROVE BEFORE the five-green window is accepted (review repairs are content pushes and reset it — R1 F6 ordering); real CI green (all workflows); `gh pr merge --merge`; fast-forward main; `git rev-list --left-right --count main...origin/main` == `0  0`. (No end-of-PR ledger-marker step — see Task 4's invariant-12 note.)
+3. Fallback (spec §5, pre-ratified): a help-pages flake inside the window reverts the promotion as a unit (YAML entry, oracle row, 17 governs, allowlist row restored WITH flake reason, parent census restored, comments name the flake) while Tasks 1 + 3 + 4 still ship. **AC-1 stays bound on this path (R3 F2): before merge, run the spec once against a production build (`pnpm build && pnpm start`, then the Task 1 command against it) and paste the transcript in the PR — the spec's both-postures requirement does not ride on the reverted CI wiring.** The ARCHIVE entry is written to match reality (R3 F5): Task 4's graduation text records the fix unconditionally and the promotion CONDITIONALLY ("promoted; see PR" vs "promotion reverted on an in-window flake, allowlist restored") — on fallback, the same reconciliation commit amends the archive entry before merge.
+4. Whole-diff cross-model review to APPROVE BEFORE the five-green window is accepted (review repairs are content pushes and reset it — R1 F6 ordering). **If any post-gate repair touches `app/help/tour/page.mdx` or any UI surface, RERUN both halves of the invariant-8 gate on the amended diff and refresh the §12 record + marker before the window restarts (R3 F3 — the gated diff must be the merged diff), then rerun `pnpm vitest run tests/docs`.** Real CI green (all workflows); `gh pr merge --merge`; fast-forward main; `git rev-list --left-right --count main...origin/main` == `0  0`. (No end-of-PR ledger-marker step — see Task 4's invariant-12 note.)
 
 <!-- tasks: end -->
 
@@ -78,4 +78,4 @@ The `red=` above IS the acceptance command (R1 F1/F2): the jq asserts `(length==
 
 ## §12 — impeccable gate record
 
-The marker line lands here, filled, at Task 3 completion (the guard accepts only the filled grammar).
+The marker line lands here, filled, at Task 3 completion (the guard accepts only the filled grammar), FOLLOWED by the full findings table (R3 F4): every critique and audit finding — P0 through P3 — one row each with severity, description, and disposition (fixed / DEFERRED.md ref / accepted-with-reason). Aggregate counts alone are not the record.
