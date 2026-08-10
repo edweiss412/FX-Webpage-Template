@@ -241,10 +241,12 @@ export function judgeSample(sample: FrameSample | null, via: string): Observatio
     via,
     families: families ? families.split(" ~ ") : [],
     faces,
-    // A LIVE document the walk could read but whose face query failed in-page
-    // is a broken oracle, not a document without faces — still flagged, still
-    // fails loud in enforce().
-    ...(unreadable && families ? { facesUnreadable: true as const } : {}),
+    // A LIVE document whose face query failed in-page is a broken oracle, not
+    // a document without faces — still flagged, still fails loud in enforce().
+    // NOT gated on `families`: the atomic sample RESOLVING proves the document
+    // was live, and a textless live document is no licence to swallow the
+    // sentinel (review r3 F1 — the gated form recorded it as benign-empty).
+    ...(unreadable ? { facesUnreadable: true as const } : {}),
   };
 }
 

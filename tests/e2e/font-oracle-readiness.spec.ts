@@ -104,4 +104,27 @@ test.describe("font oracle sampling (BL-FONT-CENSUS-ORACLE-FLAKE)", () => {
       "a live document whose face query fails is STILL flagged — enforce() will throw",
     ).toBe(true);
   });
+
+  test("row 5 — a live TEXTLESS document with a broken fonts API is still flagged", async ({
+    page,
+  }) => {
+    // Review r3 F1: the flag was gated on `families` being truthy, so a live
+    // document with NO rendered text whose face query failed was recorded as a
+    // benign empty observation. An atomic sample that RESOLVED proves the
+    // document was live; the sentinel alone proves the oracle broke on it.
+    await page.setContent("<body></body>");
+    await page.evaluate(() => {
+      Object.getPrototypeOf(document.fonts).forEach = () => {
+        throw new Error("sabotaged for the E2 fail-loud pin");
+      };
+    });
+    const sample = await sampleFrame(page);
+    expect(sample, "the atomic sample resolves on a live empty document").not.toBeNull();
+    expect(sample!.faces).toBe("FACES_UNREADABLE");
+    const observation = judgeSample(sample, "e2-spec");
+    expect(
+      observation?.facesUnreadable,
+      "textless is not a licence to swallow a broken face query",
+    ).toBe(true);
+  });
 });
