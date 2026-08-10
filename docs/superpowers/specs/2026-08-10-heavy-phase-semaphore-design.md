@@ -578,8 +578,11 @@ real `/tmp/fx-heavy-slots`.
     OVERLAPPING swap windows by construction, which is the premise the R8 F5 probe
     showed the bare started-together fixture lacks. Assert: the two `swap begin/end`
     stderr windows are disjoint AND each spans >= D (proving the delay was live
-    inside both), and the final dir exactly matches the LAST completed recreation
-    (one config, matching slot files, no orphaned-generation files).
+    inside both); the SECOND recreator's stderr carries
+    `waiting: recreate.lock held` (R11 F1 — the recreator-behind-recreator wait
+    site's own oracle: a blocking-flock mutant passes the window assertions but
+    never emits this line); and the final dir exactly matches the LAST completed
+    recreation (one config, matching slot files, no orphaned-generation files).
     Swap-window arm (pins the SH/EX exclusion, R7 F1): a recreator delayed INSIDE
     its swap (injection site (b), now between the config `os.replace` and slot-file
     adjustment); an ordinary wrapped command started during the delay — assert its
