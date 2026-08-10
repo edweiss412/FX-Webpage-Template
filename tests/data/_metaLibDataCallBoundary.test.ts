@@ -275,42 +275,26 @@ function exportedNames(file: string, source: string): Set<string> {
 }
 
 /**
- * Does this pin name the row's CALL — its kind and its literal together?
+ * The names a suite actually MENTIONS: every identifier it writes, and every
+ * static string it contains.
  *
- * A bare substring test is not coupling: `shows` is a substring of
- * `shows_internal` and both are live literals here, so a `shows` row could be
- * discharged by a pin copied off a `shows_internal` site — precisely the defect
- * the coupling rule exists to stop. An empty literal was worse: `includes("")`
- * is true of every pin (whole-diff R3 F1).
+ * Three rounds landed on the text-containment predicate this replaces, each
+ * with a token that the source spells one way and the language reads another:
+ * ASCII `\b` let `x$get` satisfy `$get` (R7), a letter/digit approximation of
+ * IdentifierPart let `get\u0301x` satisfy `get` (R8), and raw `#` and `\`
+ * still let `#get`, `get\u0301x` and `admin_emails\u005Fv2` satisfy their
+ * tokens (R10). Each repair widened a character class, and the next round found
+ * the next spelling — the same open-set mistake the SCANNER escaped by moving
+ * to the parse, and the same answer applies. Source text is not identifier
+ * text: `\u005F` IS an underscore, `#get` is a private identifier and not
+ * `get`, and only the lexer knows.
  *
- * Coupling to the literal ALONE is not enough either. `from` and `rpc` can name
- * the same thing, so an unhandled `rpc("shared")` row could reuse a handled
- * `from("shared")` pin and pass every rule in both directions (whole-diff R11
- * F1). The row's kind is half of what identifies the site, so the pin must
- * carry both.
- *
- * Regex escaping is removed before the comparison, so `\.from\("shows"\)`
- * reads as the call it pins. A literal carrying regex metacharacters will NOT
- * be found here — that is a rejection naming the row, the signalled direction;
- * no live row is affected.
+ * String literals are collected alongside identifiers because a table name is
+ * cited as a string, and because §6.5's ratified limit is that a mention in a
+ * test title still counts. Comments contribute nothing, which is R2 F4's
+ * comment-only rejection now falling out of the parse rather than needing a
+ * separate strip.
  */
-const IDENTIFIER_PART_RE = /[\p{ID_Continue}$]/u;
-
-function pinEmbedsCall(patternSource: string, kind: Site["kind"], literal: string): boolean {
-  const unescaped = patternSource.replace(/\\/g, "");
-  return ['"', "'", "`"].some((quote) => {
-    const needle = `${kind}(${quote}${literal}${quote}`;
-    for (let at = unescaped.indexOf(needle); at !== -1; at = unescaped.indexOf(needle, at + 1)) {
-      // The member name needs a LEFT boundary of its own: without it a pin for
-      // `notfrom("x")` contains `from("x")` and `myrpc("x")` contains `rpc("x")`,
-      // so a pin naming a different function discharged the row (R12 F1).
-      const before = at === 0 ? undefined : unescaped[at - 1];
-      if (before === undefined || !IDENTIFIER_PART_RE.test(before)) return true;
-    }
-    return false;
-  });
-}
-
 function mentionedNames(file: string, source: string): Set<string> {
   const names = new Set<string>();
   const visit = (node: ts.Node): void => {
@@ -320,6 +304,70 @@ function mentionedNames(file: string, source: string): Set<string> {
   };
   visit(parse(file, source));
   return names;
+}
+
+/**
+ * Does this pin actually DEPEND on the row's call?
+ *
+ * Not "does the pin's text mention it" — that question is unanswerable, and
+ * four rounds proved it. A bare substring let a `shows` row take a
+ * `shows_internal` pin (R3 F1); the literal alone let an `rpc("shared")` row
+ * take a `from("shared")` pin (R11 F1); a missing left boundary let
+ * `notfrom("x")` take a `from` row (R12 F1); and reading that boundary out of
+ * the pattern text still broke on supplementary-plane characters and on
+ * `\u{61}from` (R13 F1, F2). Each repair lexed the pin's SOURCE a little
+ * better and the next round found the next spelling — because a regex source is
+ * a pattern, not a program, and lexing it is the same open-set mistake the
+ * scanner and the mention check both escaped by asking a real question instead.
+ *
+ * The real question is behavioral: ERASE this row's call from the source, and
+ * the pin must stop matching. A pin copied from another site, or from the other
+ * call kind, or naming a different function entirely, goes on matching and is
+ * rejected — whatever its text looks like. The erasure runs through the PARSE,
+ * so every spelling the scanner already understands is erased too.
+ *
+ * Only the ARGUMENT is erased, not the callee. Erasing the callee as well was
+ * this repair's own first bug, and a mutant found it: with `sb.from` blanked, a
+ * pin of `/sb\.from\(/` — which names the member and nothing else, and would
+ * discharge any `from` row in the file — stops matching and is ACCEPTED.
+ * Leaving the callee in place keeps such a pin matching, so it is rejected,
+ * which is what "this pin guards THIS site" has to mean.
+ */
+function sourceWithCallErased(
+  file: string,
+  original: string,
+  stripped: string,
+  kind: Site["kind"],
+  literal: string,
+): string {
+  const ranges: Array<[number, number]> = [];
+  const sourceFile = parse(file, original);
+  const visit = (node: ts.Node): void => {
+    if (ts.isCallExpression(node)) {
+      const parts = calleeParts(node.expression);
+      const first = node.arguments[0];
+      const arg = first === undefined ? undefined : unwrap(first);
+      if (
+        parts !== undefined &&
+        parts.member === kind &&
+        arg !== undefined &&
+        ts.isStringLiteralLike(arg) &&
+        arg.text === literal
+      ) {
+        ranges.push([arg.getStart(sourceFile), arg.getEnd()]);
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+
+  const chars = stripped.split("");
+  for (const [from, to] of ranges) {
+    for (let at = from; at < to && at < chars.length; at += 1) {
+      if (chars[at] !== "\n") chars[at] = "\u0000";
+    }
+  }
+  return chars.join("");
 }
 
 /**
@@ -349,12 +397,14 @@ function validateRows(registry: Registry, readFile: ReadFile = readFromDisk): st
           problems.push(`${where}: pin is empty — an empty discharge proves nothing`);
           return;
         }
-        // Rule 2 — literal coupling. Without it, copying an existing site's pin
-        // onto a new row silently discharges an unchecked call; a pin copied
-        // from `shows` cannot contain `new_table` (spec R2 F4).
-        if (!row.pin.some((pattern) => pinEmbedsCall(pattern.source, row.kind, row.literal))) {
+        // Rule 2 — call coupling, proven by ERASURE rather than by reading the
+        // pattern's text. At least one pin must stop matching once this row's
+        // call is removed from the source; a pin that survives its own site's
+        // deletion was never guarding it.
+        const erased = sourceWithCallErased(file, readFile(file), stripped, row.kind, row.literal);
+        if (!row.pin.some((pattern) => !pattern.test(erased))) {
           problems.push(
-            `${where}: no pin embeds this row's call — a pin copied from another site, or from the other call kind, cannot guard this one`,
+            `${where}: no pin depends on this row's call — every pin still matches once the call is erased, so a pin copied from another site, another call kind, or another function cannot be told apart`,
           );
         }
         const unmatched = row.pin.filter((pattern) => !pattern.test(stripped));
@@ -1083,14 +1133,14 @@ describe("META lib/data Supabase call boundary", () => {
         [SOURCE]: [{ kind: "from", literal: "shows", pin: [/\.from\("shows_internal"\)/] }],
       };
       expect(validateRows(substringCollision, reader({ [SOURCE]: source }))).toEqual([
-        expect.stringContaining("no pin embeds this row's call"),
+        expect.stringContaining("no pin depends on this row's call"),
       ]);
 
       const emptyLiteral: Registry = {
         [SOURCE]: [{ kind: "from", literal: "", pin: [/\.from\("shows_internal"\)/] }],
       };
       expect(validateRows(emptyLiteral, reader({ [SOURCE]: source }))).toEqual([
-        expect.stringContaining("no pin embeds this row's call"),
+        expect.stringContaining("no pin depends on this row's call"),
       ]);
 
       // Controls: the honestly-coupled forms of both still pass, so the
@@ -1109,7 +1159,7 @@ describe("META lib/data Supabase call boundary", () => {
         [SOURCE]: [{ kind: "from", literal: "new_table", pin: [/from\("admin_emails"\)/] }],
       };
       expect(validateRows(registry, reader({ [SOURCE]: MODULE_SOURCE }))).toEqual([
-        expect.stringContaining("no pin embeds this row's call"),
+        expect.stringContaining("no pin depends on this row's call"),
       ]);
     });
 
@@ -1126,7 +1176,7 @@ describe("META lib/data Supabase call boundary", () => {
         ],
       };
       expect(validateRows(borrowed, reader({ [SOURCE]: source }))).toEqual([
-        expect.stringContaining("no pin embeds this row's call"),
+        expect.stringContaining("no pin depends on this row's call"),
       ]);
 
       const reversed: Registry = {
@@ -1136,7 +1186,7 @@ describe("META lib/data Supabase call boundary", () => {
         ],
       };
       expect(validateRows(reversed, reader({ [SOURCE]: source }))).toEqual([
-        expect.stringContaining("no pin embeds this row's call"),
+        expect.stringContaining("no pin depends on this row's call"),
       ]);
 
       // Control: each row pinned to its OWN call kind passes, so the rejections
@@ -1156,18 +1206,13 @@ describe("META lib/data Supabase call boundary", () => {
     test("a pin naming a different function whose name ends in the member is rejected", () => {
       const source =
         'export async function f() {\n  await sb.from("shared_from");\n  await sb.rpc("shared_rpc");\n  notfrom("shared_from");\n  myrpc("shared_rpc");\n}\n';
-      for (const [name, rows] of [
-        [
-          "notfrom",
-          [{ kind: "from" as const, literal: "shared_from", pin: [/notfrom\("shared_from"\)/] }],
-        ],
-        [
-          "myrpc",
-          [{ kind: "rpc" as const, literal: "shared_rpc", pin: [/myrpc\("shared_rpc"\)/] }],
-        ],
-      ] as const) {
-        expect(validateRows({ [SOURCE]: [...rows] }, reader({ [SOURCE]: source })), name).toEqual([
-          expect.stringContaining("no pin embeds this row's call"),
+      const borrowed: Array<[string, SiteRow]> = [
+        ["notfrom", { kind: "from", literal: "shared_from", pin: [/notfrom\("shared_from"\)/] }],
+        ["myrpc", { kind: "rpc", literal: "shared_rpc", pin: [/myrpc\("shared_rpc"\)/] }],
+      ];
+      for (const [name, row] of borrowed) {
+        expect(validateRows({ [SOURCE]: [row] }, reader({ [SOURCE]: source })), name).toEqual([
+          expect.stringContaining("no pin depends on this row's call"),
         ]);
       }
 
@@ -1181,6 +1226,73 @@ describe("META lib/data Supabase call boundary", () => {
               { kind: "rpc", literal: "shared_rpc", pin: [/sb\.rpc\("shared_rpc"\)/] },
             ],
           },
+          reader({ [SOURCE]: source }),
+        ),
+      ).toEqual([]);
+    });
+
+    // R13's two spellings, and the reason they are no longer expressible: the
+    // rule never reads the pattern's text, so how the pattern spells a
+    // neighbouring function — with a supplementary-plane character, or with a
+    // braced Unicode escape — cannot affect whether it depends on THIS call.
+    test("a pin naming a neighbouring function is rejected however that name is spelled", () => {
+      const source =
+        'export async function f() {\n  await sb.from("shared_from");\n  await sb.rpc("shared_rpc");\n  \u{10400}from("shared_from");\n  afrom("shared_from");\n  \u{10400}rpc("shared_rpc");\n  arpc("shared_rpc");\n}\n';
+      const borrowed: Array<[string, SiteRow]> = [
+        [
+          "astral prefix, from",
+          { kind: "from", literal: "shared_from", pin: [/\u{10400}from\("shared_from"\)/u] },
+        ],
+        [
+          "astral prefix, rpc",
+          { kind: "rpc", literal: "shared_rpc", pin: [/\u{10400}rpc\("shared_rpc"\)/u] },
+        ],
+        [
+          "braced escape, from",
+          { kind: "from", literal: "shared_from", pin: [/\u{61}from\("shared_from"\)/u] },
+        ],
+        [
+          "braced escape, rpc",
+          { kind: "rpc", literal: "shared_rpc", pin: [/\u{61}rpc\("shared_rpc"\)/u] },
+        ],
+      ];
+      for (const [name, row] of borrowed) {
+        expect(validateRows({ [SOURCE]: [row] }, reader({ [SOURCE]: source })), name).toEqual([
+          expect.stringContaining("no pin depends on this row's call"),
+        ]);
+      }
+
+      // Control: pins on the real sites depend on them and pass.
+      expect(
+        validateRows(
+          {
+            [SOURCE]: [
+              { kind: "from", literal: "shared_from", pin: [/sb\.from\("shared_from"\)/] },
+              { kind: "rpc", literal: "shared_rpc", pin: [/sb\.rpc\("shared_rpc"\)/] },
+            ],
+          },
+          reader({ [SOURCE]: source }),
+        ),
+      ).toEqual([]);
+    });
+
+    // A pin that names the member and not the literal would discharge any row
+    // of that kind in the file. It must be rejected — the case that decides
+    // whether the erasure covers the callee (it must not).
+    test("a pin naming only the member, not the literal, is rejected", () => {
+      const source =
+        'export async function f() {\n  const a = await sb.from("only_one");\n  if (a.error) throw a.error;\n}\n';
+      expect(
+        validateRows(
+          { [SOURCE]: [{ kind: "from", literal: "only_one", pin: [/sb\.from\(/] }] },
+          reader({ [SOURCE]: source }),
+        ),
+      ).toEqual([expect.stringContaining("no pin depends on this row's call")]);
+
+      // Control: naming the call passes.
+      expect(
+        validateRows(
+          { [SOURCE]: [{ kind: "from", literal: "only_one", pin: [/sb\.from\("only_one"\)/] }] },
           reader({ [SOURCE]: source }),
         ),
       ).toEqual([]);
