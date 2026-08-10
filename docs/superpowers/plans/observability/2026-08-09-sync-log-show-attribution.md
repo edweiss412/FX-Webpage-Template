@@ -33,7 +33,7 @@ Restated from the spec so every `ac=` id in this plan resolves here. Spec is can
 | **AC-5** | The first-seen applied path does not block, and writes `show_id IS NULL`. | Task 4 (end-to-end, bounded timeout) |
 | **AC-6** | Every row written through the `logSync` helper carries non-null `duration_ms`; only the §3.3.1 writers carry NULL. | Tasks 1, 2 |
 | **AC-7** | Both indexes exist on `public.sync_log`, and on `dev.sync_log` when the clone is present; the migration applies cleanly where it is absent. | Tasks 5, 8 |
-| **AC-8** | `prune_sync_log` exists with the `prune_app_events` security posture, deletes exactly the rows past the cutoff, is scheduled, `active`, and registered in the cron gate. | Tasks 5, 6, 8 |
+| **AC-8** | `prune_sync_log` exists with the `prune_app_events` security posture, deletes exactly the rows past the cutoff, is scheduled, `active`, and registered in the cron gate. | Tasks 5, 8 |
 | **AC-9** | `BL-ADMIN-PER-SHOW-HISTORY` is archived with the UI half recorded as a decision, not a debt. | Task 9 |
 
 ## Meta-test inventory (mandatory declaration)
@@ -214,7 +214,7 @@ await callTx("logSync", () => tx.logSync({ code: WIZARD_SESSION_SUPERSEDED_DURIN
 
 Sites: `lib/sync/runOnboardingScan.ts:740`, `lib/sync/runOnboardingScan.ts:826`, `lib/sync/runOnboardingScan.ts:842`, `lib/sync/runOnboardingScan.ts:863`, `lib/sync/runOnboardingScan.ts:896`, `lib/sync/runOnboardingScan.ts:922`, `lib/sync/runOnboardingScan.ts:1019`. **Scope verified per site** — six are inside `scanPreparedFileWithTx` (`lib/sync/runOnboardingScan.ts:719`), one inside `recordLiveRowConflict` (`lib/sync/runOnboardingScan.ts:1001`), and all seven have `file.driveFileId` in lexical scope. **Assert exactly 7 replacements**; 6 or 8 means the file moved and the site list must be re-derived, not patched.
 
-**Do NOT touch `lib/sync/runOnboardingScan.ts:1134`** — the run-level readiness emit is genuinely unattributable and is a seed row in `RUN_LEVEL_SYNC_LOG_SITES` (Task 8b).
+**Do NOT touch `lib/sync/runOnboardingScan.ts:1134`** — the run-level readiness emit is genuinely unattributable and is a seed row in the filed guard's `RUN_LEVEL_SYNC_LOG_SITES` (`BL-SYNC-LOG-ATTRIBUTION-METATEST`), not a deliverable here.
 
 ## Task 3c — Manual entry points install a sink (with their regression pin) + the two fenced gap markers
 
@@ -305,7 +305,7 @@ Only a completely unconfigured local dev environment may skip clean.
 
 <!-- task: red=`pnpm vitest run tests/db/syncLogIndexesAndPrune.db.test.ts tests/cross-cutting/pg-cron-coverage.test.ts` ac=AC-7,AC-8 -->
 
-**New DB assertions are required — none exist today.** `rg "sync_log_show_id_idx|sync_log_drive_file_id_idx|prune_sync_log|sync_log_prune" tests` returns nothing, and `tests/db/schema.test.ts:293-303` inspects CHECK syntax, not indexes. Per spec §5, assert: both public indexes in `pg_indexes` with column order and DESC; both dev indexes when `to_regclass('dev.sync_log')` is non-null, plus a migration-text assertion that the `to_regclass` guard is present so an ungated form cannot ship; `prune_sync_log` in `pg_proc` with `prosecdef` and `search_path`; `has_function_privilege` positive for `service_role` and negative for `anon`/`authenticated`; prune behavior across the cutoff asserting BOTH the returned count and that newer rows survive; and the `cron.job` row's command and schedule.
+**New DB assertions are required — none exist today.** `rg "sync_log_show_id_idx|sync_log_drive_file_id_idx|prune_sync_log|sync_log_prune" tests` returns nothing, and `tests/db/schema.test.ts:293-303` inspects CHECK syntax, not indexes. Per spec §5, assert: both public indexes in `pg_indexes` with column order and DESC; both dev indexes when `to_regclass('dev.sync_log')` is non-null, plus a migration-text assertion that the `to_regclass` guard is present so an ungated form cannot ship; `prune_sync_log` in `pg_proc` with `prosecdef` and `search_path`; `has_function_privilege` positive for `service_role` and negative for `anon`/`authenticated`; prune behavior across the cutoff asserting BOTH the returned count and that newer rows survive; and the `cron.job` row's command, schedule, **and `active = true`** (plan R2 F12: a migration that schedules the correct command and then disables the job satisfies every other assertion while retention never runs). Also assert `proargdefaults` decodes to 60 days AND exercise the no-argument `prune_sync_log()` call the cron command actually issues (plan R1 F15).
 
 the new migration under `supabase/migrations/`:
 
@@ -338,6 +338,12 @@ const EXECUTES_PRUNE = /\bselect\s+public\.prune_(?:sync_log|app_events)\s*\(/i;
 **Edit C — close the three name-match holes (spec R4 F3).** Extending discovery is necessary but not sufficient: `CALLS_LOCAL_GUARD` (`tests/db/_metaDestructiveDbTargetGuard.test.ts:42-43`) matches a *call whose name looks right*. It does not establish (a) that the guarded value is the URL actually passed to `postgres`, (b) that the call precedes the connection, or (c) that the callee is the imported guard rather than a local same-named function. A prune test can call `assertLocalDbUrl` on an unrelated loopback literal, or after pruning, and pass.
 
 Close (c) the way `_metaLocalDbUrlGuard` already does — resolve the callee to the guard module's export (that file's own whole-diff finding 1b). Close (a) and (b) by asserting, in the discovered file's AST, that the identifier passed to `postgres(...)` is the same binding returned by the guard call. 
+
+**Edit C — close all three name-match holes. No deferral branch (plan R1 F9, restated after R2 F5 found my removal had also deleted this section).** `CALLS_LOCAL_GUARD` (`tests/db/_metaDestructiveDbTargetGuard.test.ts:42-43`) matches a call whose NAME looks right. It does not establish (a) that the guarded value is the URL passed to `postgres`, (b) that the call precedes the connection, or (c) that the callee is the imported guard rather than a local same-named function.
+
+Close (c) by resolving the callee to an import of `@/tests/db/_localDbUrl` — the correction `_metaLocalDbUrlGuard` already made for itself. Close (a) by asserting in the discovered file's AST that the identifier passed to `postgres(...)` is the binding the guard call returned, accepting the inline `postgres(assertLocalDbUrl(...))` form. Close (b) by requiring the guard call's position to precede the `postgres(` call in the same file.
+
+None of these may be filed as a documented limit. The thing guarded is deletion of shared data, and R2 F6 found a live instance already.
 
 **Edit B-pre — repair the LIVE hit the new pattern discovers (plan R2 F6).** `EXECUTES_PRUNE` folds in `prune_app_events`, and `tests/log/appEventsSchema.test.ts` executes it at `tests/log/appEventsSchema.test.ts:66` while resolving its URL from `process.env.TEST_DATABASE_URL` with **no loopback guard** (`tests/log/appEventsSchema.test.ts:5`). That is a real, present hazard — the validation project's `app_events` can be pruned by an existing test today, independent of this change — and it means Task 5b **cannot reach green** until that file calls `assertLocalDbUrl`. Repair it in this task and name it in the anti-vacuity list.
 
