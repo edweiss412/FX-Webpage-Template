@@ -59,12 +59,12 @@ Each decision below is settled. Cited ratification, not re-derivation.
 
 ### Acceptance criteria
 
-- **AC-1.** A `sync_log` row written for a `drive_file_id` that has a **committed** `shows` row lands with that show's id in `show_id`. This holds for **every** writer that supplies a `drive_file_id` — the cron sink, the recovery sink, and the onboarding-scan sink alike.
+- **AC-1.** *(Scoped per §6.2 — governs rows that are written; it does not claim every attempt writes one.)* A `sync_log` row written for a `drive_file_id` that has a **committed** `shows` row lands with that show's id in `show_id`. This holds for **every** writer that supplies a `drive_file_id` — the cron sink, the recovery sink, and the onboarding-scan sink alike.
 - **AC-2.** `querySyncLog({ showId, sinceHours: null })` returns those rows, and returns zero rows for an unrelated show id. (This is the probe in §1, executable, with its negative control.)
 - **AC-3.** A row whose `drive_file_id` has no committed `shows` row lands `show_id IS NULL` and does not fail — no FK violation, no blocking wait.
 - **AC-4.** A row with `drive_file_id IS NULL` (run-level and session-lifecycle entries) lands `show_id IS NULL` and does not fail.
 - **AC-5.** **The first-seen applied path does not block.** Processing a first-seen file end-to-end — where the `shows` row is inserted inside the same transaction that awaits the sink — completes without deadlock or FK wait, and writes its row with `show_id IS NULL`. See §3.1.1.
-- **AC-6.** Every row written **through the `logSync` helper** carries a non-null `duration_ms`. Rows from the writers enumerated in §3.3.1 carry NULL by design; no other writer may.
+- **AC-6.** *(Scoped per §6.2.)* Every row written **through the `logSync` helper** carries a non-null `duration_ms`. Rows from the writers enumerated in §3.3.1 carry NULL by design; no other writer may.
 - **AC-7.** `public.sync_log` carries a `(show_id, occurred_at desc)` index and a `(drive_file_id, occurred_at desc)` index; `dev.sync_log` carries the same two **when the dev clone is present**, and the migration applies cleanly to a target where it is absent.
 - **AC-8.** `prune_sync_log(retain interval default interval '60 days')` exists with the same security posture as `prune_app_events`, deletes exactly the rows older than `retain` and returns the deleted count, is scheduled via `pg_cron`, and its job name is registered in the cron-coverage gate.
 - **AC-9.** `BL-ADMIN-PER-SHOW-HISTORY` is archived, with the UI half recorded as a decision rather than a debt.
@@ -372,6 +372,14 @@ Deliberate, and not findings:
 - **Retention is uniform at 60 days.** No per-show or per-status retention tiering. `sync_audit` remains the durable record of applied changes and is not pruned.
 
 ---
+
+## 6.2 Manual sync is largely UNEMITTED, and this change does not fix that (R8 F1)
+
+A sink is necessary but not sufficient. `runManualStageForFirstSeen` returns before its sole emission (`lib/sync/runManualStageForFirstSeen.ts:147`) on `stage` (`lib/sync/runManualStageForFirstSeen.ts:81-83`), `hard_fail` (`lib/sync/runManualStageForFirstSeen.ts:84-85`), `pass` (`lib/sync/runManualStageForFirstSeen.ts:87`), `defer` (`lib/sync/runManualStageForFirstSeen.ts:185-186`) and phase-2 `stale` (`lib/sync/runManualStageForFirstSeen.ts:133-135`); a reviewer probe supplying `logSync` measured `logSyncCalls: 0` on four of them. `runManualSyncForShow` awaits `runOne` with no catch (`lib/sync/runManualSyncForShow.ts:431`), so a throw escapes unlogged.
+
+**Scope decision, taken by the user 2026-08-09:** ship attribution; file the emission gap. Rationale: adding emission at each early return and deciding what a thrown attempt records is a change to *what the pipeline reports*, not to *how a row is attributed*, and it is branch-level surgery across two modules. Filed as `BL-MANUAL-SYNC-UNEMITTED` with the probe.
+
+**Consequently AC-1 and AC-6 are scoped, not universal.** They govern rows that are WRITTEN. This change guarantees that any row a sink receives is attributed and timed; it does not guarantee that every manual attempt produces a row. The cron and Drive-webhook paths do emit and are fully covered. The manual paths receive their sink here — correct and necessary — and become fully observable only when `BL-MANUAL-SYNC-UNEMITTED` lands. Stating this is the point: an unscoped AC would be quietly false for the paths the operator uses most.
 
 ## 6.1 A pre-existing defect this change surfaced but does NOT fix (R7 F2/F3)
 

@@ -787,6 +787,18 @@ Asset URLs are proxied through `/api/asset/diagram/...` which returns auth-check
 
 **Promotion prerequisite:** Either (a) FXAV operator feedback surfaces dashboard-level friction (Doug actively wants to triage multiple shows from the dashboard without drilling in), OR (b) a v1.x admin-UX polish milestone. `Archive` may need a separate spec amendment if `shows.archived_at` semantics need definition (idempotency, side effects on `crew_member_auth`, etc.).
 
+### BL-MANUAL-SYNC-UNEMITTED — manual sync writes no sync_log row on most outcome branches
+
+**Status:** OPEN · **Severity:** HIGH (Doug's deliberate actions are invisible to `observe synclog`) · **Class:** sync observability · **Effort:** M · **Filed:** 2026-08-09
+
+**Probe (cross-model review R8 F1, `fix/sync-log-show-id-duration`).** Installing a `logSync` sink is NOT sufficient for a manual attempt to be recorded. `runManualStageForFirstSeen` returns before its sole emission at `lib/sync/runManualStageForFirstSeen.ts:147` on four branches — `stage` (`:81-83`), `hard_fail` (`:84-85`), `pass` (`:87`), `defer` (`:185-186`) — plus phase-2 `stale` (`:133-135`). A probe supplying `logSync` and exercising the first four reported `logSyncCalls: 0` for every one. Thrown phase-1/phase-2 failures escape through unguarded awaits at `:117` and `:205`. Separately, `runManualSyncForShow` awaits `runOne` with no catch (`lib/sync/runManualSyncForShow.ts:431`); a probe with `processDeps.logSync` installed and `runOne` throwing produced `{"thrown":"probe-prepare-failure","logSyncCalls":0}`.
+
+**Why the arc that found it did not fix it.** `fix/sync-log-show-id-duration` makes every sync writer attribute its show and wires a sink into all eight entry points that lacked one. That is necessary and, for the cron and Drive-webhook paths, sufficient. It is NOT sufficient for manual sync, because these branches never reach an emission at all. Repairing them means adding emission at each early return and deciding what a thrown attempt should record — a change to what the pipeline reports, not to how a row is attributed. Scope decision taken by the user 2026-08-09: ship attribution, file this.
+
+**Scope of a real fix:** emit at each early-return branch of `runManualStageForFirstSeen`; wrap `runOne` in `runManualSyncForShow` so a throw records an `error` outcome. Verify with a live manual sync per branch — the existing tests inject `logSync` at the helper level and so never exercise the early returns.
+
+**Related:** `docs/superpowers/specs/observability/2026-08-09-sync-log-show-attribution-design.md` §6.2 fences this and scopes AC-1/AC-6 to the paths that do emit. Sibling defect on the same surface: `BL-PENDING-RETRY-EXISTING-SHOW-THROWS`.
+
 ### BL-PENDING-RETRY-EXISTING-SHOW-THROWS — existing-show pending-ingestion retry throws before any sync work
 
 **Status:** OPEN · **Severity:** HIGH (a shipped admin action appears to work and cannot) · **Class:** sync pipeline · **Effort:** M · **Filed:** 2026-08-09
