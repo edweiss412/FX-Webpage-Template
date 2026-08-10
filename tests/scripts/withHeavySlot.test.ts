@@ -61,10 +61,9 @@ afterAll(() => {
  * case's topology and reentrancy posture.
  */
 function sanitizedEnv(extra: Record<string, string>): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = {};
-  for (const [key, value] of Object.entries(process.env)) {
-    if (key.startsWith("FX_HEAVY_")) continue;
-    env[key] = value;
+  const env: NodeJS.ProcessEnv = { ...process.env };
+  for (const key of Object.keys(env)) {
+    if (key.startsWith("FX_HEAVY_")) delete env[key];
   }
   return { ...env, ...extra };
 }
