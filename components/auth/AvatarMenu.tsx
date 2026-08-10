@@ -183,9 +183,14 @@ export function AvatarMenu({ name, role, slug, shareToken, showId, clearAction }
         focusItem(ITEM_COUNT - 1);
         break;
       case "Tab":
-        // NOT trapped, and not prevented: the menu closes and the browser moves
-        // focus per the natural tab order.
-        close({ restoreFocus: false });
+        // NOT trapped and NOT prevented — the browser still moves focus per the
+        // natural tab order. But focus is handed back to the TRIGGER first,
+        // because closing unmounts the focused item and an unmounted node
+        // cannot be a tab origin: focus fell to `BODY`, so the next Tab
+        // restarted from the top of the document instead of continuing past the
+        // menu. Restoring synchronously here means the browser tabs from the
+        // trigger, which is where the user actually is.
+        close({ restoreFocus: true });
         break;
       default:
         break;

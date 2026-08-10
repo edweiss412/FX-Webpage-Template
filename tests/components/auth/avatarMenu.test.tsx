@@ -253,9 +253,16 @@ describe("the keyboard contract", () => {
     openMenu();
     act(() => fireEvent.keyDown(screen.getByRole("menu"), { key: "Tab" }));
     expect(screen.queryByRole("menu")).toBeNull();
-    // Focus is NOT yanked back to the trigger: the person is tabbing forward,
-    // and restoring focus would send them backwards.
-    expect(document.activeElement).not.toBe(screen.getByTestId("avatar-menu-trigger"));
+    // Focus lands on the TRIGGER, and that is forward movement rather than
+    // backward. The old contract here asserted the opposite on the reasoning
+    // that "restoring focus would send them backwards" — but the handler does
+    // not preventDefault, so the browser still performs the Tab AFTER this,
+    // moving from wherever focus now is. The question is only what the tab
+    // ORIGIN is, and the item this closed is unmounted: review R2 measured
+    // focus falling to `BODY`, which makes the next Tab restart from the top of
+    // the document. jsdom does not perform the default Tab, so this asserts the
+    // origin; the browser's forward step is exercised in the e2e arm.
+    expect(document.activeElement).toBe(screen.getByTestId("avatar-menu-trigger"));
   });
 });
 

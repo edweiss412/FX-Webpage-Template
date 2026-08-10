@@ -15,9 +15,13 @@
  * Why the thin wrapper around `clearIdentity`:
  *   React 19 `<form action>` expects `(FormData) => void | Promise<void>`;
  *   Pin-2's `clearIdentity` returns `Promise<ClearIdentityResult>`. The
- *   typed result is informational; failure modes either succeed
- *   (`action: 'noop'`) or are absorbed into a `code` field, both
- *   harmless to discard at the form boundary.
+ *   typed result is discarded here, and that is a KNOWN GAP rather than a
+ *   safe simplification. The original claim - that failures either succeed as
+ *   `action: 'noop'` or are absorbed into a `code` - was disproven by probe on
+ *   2026-08-10: `clearIdentity` can resolve `{ ok: false, code:
+ *   'PICKER_RESOLVER_LOOKUP_FAILED' }`, and discarding it makes a failed clear
+ *   look exactly like a successful one. Surfacing it needs a failure state the
+ *   menu does not have; tracked by BL-IDENTITY-CLEAR-FAILURE-IS-SILENT.
  */
 
 import { clearIdentity } from "@/lib/auth/picker/clearIdentity";
