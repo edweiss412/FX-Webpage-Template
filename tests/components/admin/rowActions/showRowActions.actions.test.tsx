@@ -400,3 +400,32 @@ describe("Re-sync — shrink_held decision (§3.4a, AC-4)", () => {
     expect(confirm.getAttribute("aria-live")).toBeNull();
   });
 });
+
+// ── impeccable critique P0, held-prompt half ────────────────────────────────
+describe("shrink_held prompt — the menu grammar yields to the sub-panel", () => {
+  test("Tab keeps the prompt open and Escape returns to the menu", async () => {
+    fetchMock.mockResolvedValue(jsonResponse(HELD_PAYLOAD));
+    render(<ShowRowActions row={row({ slug: "kbh" })} />);
+    const menu = openMenu("kbh");
+    fireEvent.click(q("row-action-resync-kbh")!);
+    const accept = await waitFor(() => {
+      const el = q<HTMLButtonElement>("row-actions-accept-shrink-kbh");
+      expect(el).not.toBeNull();
+      return el!;
+    });
+    // The destructive control must be reachable from the safe one.
+    expect(accept.getAttribute("tabindex")).toBeNull();
+    expect(accept.disabled).toBe(false);
+    fireEvent.keyDown(menu, { key: "Tab" });
+    expect(q("row-actions-shrink-confirm-kbh")).not.toBeNull();
+    expect(q("row-actions-menu-kbh")).not.toBeNull();
+    const callsBefore = fetchMock.mock.calls.length;
+    fireEvent.keyDown(menu, { key: "Escape" });
+    // Escape dismisses the DECISION (keeping the current version) and returns
+    // to the menu — it never silently accepts, and never fires a request.
+    expect(q("row-actions-shrink-confirm-kbh")).toBeNull();
+    expect(q("row-actions-menu-kbh")).not.toBeNull();
+    expect(fetchMock.mock.calls.length).toBe(callsBefore);
+    expect(document.activeElement).toBe(q("row-action-resync-kbh"));
+  });
+});

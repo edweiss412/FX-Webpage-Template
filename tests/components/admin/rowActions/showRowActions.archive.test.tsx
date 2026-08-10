@@ -219,3 +219,60 @@ describe("Archive — transition inventory rows owned by this task (§3.5)", () 
     expect(q("row-action-archive-t")).not.toBeNull();
   });
 });
+
+// ── impeccable critique P0 (keyboard reachability of the confirm) ────────────
+// A confirm step is not a menu. Its Cancel/Confirm pair are plain buttons, not
+// role="menuitem", so the menu's own key grammar strands a keyboard user on the
+// safe control: Arrow keys jump back to the menu items and Tab closes the whole
+// surface, leaving "Confirm archive" unreachable (WCAG 2.1.1). Found by the
+// impeccable critique on the shipped implementation; these pin the repair.
+describe("Archive confirm — the menu grammar yields to the sub-panel", () => {
+  test("the confirm-go is in the tab order and enabled, so Tab can reach it", () => {
+    render(<ShowRowActions row={row({ slug: "kb" })} />);
+    openMenu("kb");
+    enterConfirm("kb");
+    const go = q<HTMLButtonElement>("row-actions-archive-go-kb")!;
+    const cancel = q<HTMLButtonElement>("row-actions-archive-cancel-kb")!;
+    // PREMISE: focus starts on the SAFE control, which is the whole reason the
+    // other control has to be reachable from there.
+    premiseHolds("focus starts on Cancel", document.activeElement === cancel);
+    for (const el of [go, cancel]) {
+      expect(el.getAttribute("tabindex")).toBeNull(); // never -1
+      expect(el.disabled).toBe(false);
+      expect(el.getAttribute("aria-hidden")).toBeNull();
+    }
+  });
+
+  test("Tab does NOT close the menu while the confirm owns the surface", () => {
+    render(<ShowRowActions row={row({ slug: "tab" })} />);
+    const menu = openMenu("tab");
+    enterConfirm("tab");
+    fireEvent.keyDown(menu, { key: "Tab" });
+    // Before the repair this closed the entire menu, so Tab could never move
+    // from Cancel to Confirm.
+    expect(q("row-actions-archive-confirm-tab")).not.toBeNull();
+    expect(q("row-actions-menu-tab")).not.toBeNull();
+  });
+
+  test("Arrow keys do NOT yank focus back into the menu items", () => {
+    render(<ShowRowActions row={row({ slug: "arr" })} />);
+    const menu = openMenu("arr");
+    enterConfirm("arr");
+    const cancel = q("row-actions-archive-cancel-arr");
+    fireEvent.keyDown(menu, { key: "ArrowDown" });
+    expect(document.activeElement).toBe(cancel);
+    fireEvent.keyDown(menu, { key: "ArrowUp" });
+    expect(document.activeElement).toBe(cancel);
+  });
+
+  test("Escape cancels ONE level: back to the menu, not out of it", () => {
+    render(<ShowRowActions row={row({ slug: "esc" })} />);
+    const menu = openMenu("esc");
+    enterConfirm("esc");
+    fireEvent.keyDown(menu, { key: "Escape" });
+    expect(q("row-actions-archive-confirm-esc")).toBeNull();
+    expect(q("row-actions-menu-esc")).not.toBeNull();
+    expect(document.activeElement).toBe(q("row-action-archive-esc"));
+    expect(archiveActionMock).not.toHaveBeenCalled();
+  });
+});

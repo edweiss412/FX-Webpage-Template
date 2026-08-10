@@ -532,7 +532,7 @@ export function ShowsTable({
               const endText = formatShortDate(row.showDateEnd);
               const crewLabel = `${row.crewCount ?? 0} crew`;
               return (
-                <li key={row.id}>
+                <li key={row.id} className={showRowActions ? "relative" : undefined}>
                   <Link
                     href={openHref(row.slug)}
                     // Full viewport prefetch (spec 2026-07-19-show-modal-prefetch):
@@ -542,7 +542,7 @@ export function ShowsTable({
                     scroll={false}
                     onClick={handleRowClick(row.slug)}
                     data-testid={`shows-table-row-${row.slug}`}
-                    className={`flex flex-col gap-1 px-4 py-3 underline-offset-2 hover:bg-surface-sunken active:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus-ring ${ROW_GRID}`}
+                    className={`flex flex-col gap-1 px-4 py-3 underline-offset-2 hover:bg-surface-sunken active:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus-ring ${showRowActions ? "pe-14" : ""} ${ROW_GRID}`}
                   >
                     {/* Show cell — title + state pill (always visible) */}
                     <div className="flex min-w-0 flex-col gap-1">
@@ -616,13 +616,19 @@ export function ShowsTable({
                     >
                       <StatePill row={row} place="column" />
                     </span>
-                    <span
-                      data-testid={`shows-chevron-${row.slug}`}
-                      aria-hidden="true"
-                      className="hidden text-text-faint min-[768px]:block"
-                    >
-                      <ChevronRight size={16} />
-                    </span>
+                    {/* The chevron and the ⋮ menu occupy the SAME trailing cell:
+                        with row actions on, the menu is the trailing affordance
+                        and its first item IS Open, so the row's "this opens"
+                        cue is not lost — two glyphs stacked there would be. */}
+                    {showRowActions ? null : (
+                      <span
+                        data-testid={`shows-chevron-${row.slug}`}
+                        aria-hidden="true"
+                        className="hidden text-text-faint min-[768px]:block"
+                      >
+                        <ChevronRight size={16} />
+                      </span>
+                    )}
                   </Link>
                   {/* Task E1 — per-row action bar (Held-shows Publish). Sibling
                       of the Link (NOT nested) so the interactive control is
@@ -632,22 +638,37 @@ export function ShowsTable({
                       chip rides here, BEFORE the Publish action, when this row's
                       summary has total>0 (items-center keeps it baseline-aligned
                       with the action; Tailwind v4 has no default stretch). */}
-                  {rowAction || showRowActions ? (
+                  {rowAction ? (
                     <div
                       data-testid={`shows-row-action-${row.slug}`}
                       className="flex flex-wrap items-center gap-3 border-t border-border bg-surface-sunken px-4 py-3"
                     >
-                      {rowAction ? rowAction(row) : null}
-                      {/* admin-dashboard-row-actions: the ⋮ menu rides the SAME
-                          slot, still a sibling of the row Link. ml-auto parks it
-                          at the row end when it shares the bar with a caller's
-                          own action (the Held-shows Publish control). */}
-                      {showRowActions ? (
-                        <span className="ml-auto flex items-center">
-                          <ShowRowActions row={row} />
-                        </span>
-                      ) : null}
+                      {rowAction(row)}
                     </div>
+                  ) : null}
+                  {/* admin-dashboard-row-actions: the ⋮ menu is a SIBLING of the
+                      Link (an interactive control inside an <a> is invalid HTML
+                      and steals the row's own click target) but must not read as
+                      a second row: an in-flow bar under every row nearly doubles
+                      the table's height for one button. It is absolutely
+                      positioned into the row's trailing cell instead — the seat
+                      the chevron vacates above — so the row keeps its height and
+                      the menu sits where the help page says it does.
+                      `end-2` not `right-2`: the admin surface is LTR today, and
+                      a logical inset keeps it correct if that ever changes.
+                      NO TRANSFORM here, deliberately: `-translate-y-1/2` would
+                      make this span the containing block for `position: fixed`
+                      DESCENDANTS, which collapses the menu's full-viewport
+                      outside-click backdrop down to this 44px button — the menu
+                      would then never close on an outside click. `inset-y-0` +
+                      `items-center` centers it with no transform. */}
+                  {showRowActions ? (
+                    <span
+                      data-testid={`shows-row-menu-${row.slug}`}
+                      className="absolute inset-y-0 end-2 z-10 flex items-center"
+                    >
+                      <ShowRowActions row={row} />
+                    </span>
                   ) : null}
                 </li>
               );

@@ -56,7 +56,7 @@ import type { ActiveShowRow } from "@/lib/admin/showDisplay";
  * one belongs in both.
  */
 const MENU_ITEM_CLASS =
-  "flex min-h-tap-min w-full items-center gap-2.5 rounded-sm px-2.5 py-2 text-left text-[13px] font-medium text-text hover:bg-surface-sunken focus-visible:bg-surface-sunken focus-visible:outline-none";
+  "flex min-h-tap-min w-full items-center gap-2.5 rounded-sm px-2.5 py-2 text-left text-[13px] font-medium text-text hover:bg-surface-sunken focus-visible:bg-surface-sunken focus-visible:outline-none aria-disabled:cursor-not-allowed aria-disabled:opacity-60 aria-disabled:hover:bg-transparent";
 
 const ICON_CLASS = "size-4 shrink-0 text-text-subtle";
 
@@ -92,7 +92,15 @@ export function ShowRowActions({ row }: { row: ActiveShowRow }) {
   // Persistent live region (BL-ANNOUNCE-REGION-UNMOUNT-CLASS): success CLOSES
   // the menu, so an announcement living inside it would unmount before it could
   // be read. This node outlives every menu state.
-  const [announcement, setAnnouncement] = useState("");
+  // `{ text, seq }`, not a bare string: a live region whose text does not CHANGE
+  // is not re-announced, so a second identical outcome (two "Nothing new from
+  // Drive." in a row) would be silent. The seq alternates one trailing no-break
+  // space, which changes the node's text without changing what is read aloud.
+  const [announcement, setAnnouncement] = useState<{ text: string; seq: number }>({
+    text: "",
+    seq: 0,
+  });
+  const announce = (text: string) => setAnnouncement((prev) => ({ text, seq: prev.seq + 1 }));
 
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -100,6 +108,8 @@ export function ShowRowActions({ row }: { row: ActiveShowRow }) {
   const previewItemRef = useRef<HTMLButtonElement>(null);
   const resyncItemRef = useRef<HTMLButtonElement>(null);
   const keepCurrentRef = useRef<HTMLButtonElement>(null);
+  const acceptShrinkRef = useRef<HTMLButtonElement>(null);
+  const archiveGoRef = useRef<HTMLButtonElement>(null);
   const archiveItemRef = useRef<HTMLButtonElement>(null);
   const archiveCancelRef = useRef<HTMLButtonElement>(null);
   const restoreArchiveFocusRef = useRef(false);
@@ -158,9 +168,15 @@ export function ShowRowActions({ row }: { row: ActiveShowRow }) {
   // Accidental-accept safety (WCAG 2.4.3 + §3.8): when the hold prompt appears,
   // focus lands on the SAFE control, never on the destructive accept, so a
   // stray Enter keeps last-good rather than clobbering it.
+  // `pending` is in the deps because the safe control is `disabled` while a
+  // request is in flight, and a disabled element CANNOT take focus: without
+  // this the safe-control-focus contract silently no-ops on any commit where
+  // the prompt appears before pending clears, leaving focus back on the first
+  // menu item. Retry the moment it becomes focusable.
   useEffect(() => {
-    if (heldShrink && !errorCode) keepCurrentRef.current?.focus({ preventScroll: true });
-  }, [heldShrink, errorCode]);
+    if (heldShrink && !errorCode && !pending)
+      keepCurrentRef.current?.focus({ preventScroll: true });
+  }, [heldShrink, errorCode, pending]);
 
   // A closed menu forgets its transient result state; the next open starts
   // clean. The announcement is deliberately NOT cleared — it must survive the
@@ -179,8 +195,9 @@ export function ShowRowActions({ row }: { row: ActiveShowRow }) {
   // focus falls to <body>, and the next Enter can land on Confirm — the
   // stray-second-Enter vector on a destructive control.
   useEffect(() => {
-    if (confirmingArchive) archiveCancelRef.current?.focus({ preventScroll: true });
-  }, [confirmingArchive]);
+    // Same disabled-cannot-focus reason as the held prompt above.
+    if (confirmingArchive && !pending) archiveCancelRef.current?.focus({ preventScroll: true });
+  }, [confirmingArchive, pending]);
 
   // C5 (close focus): only a CANCEL restores, and it must run AFTER the item
   // it returns to has re-mounted.
@@ -200,14 +217,17 @@ export function ShowRowActions({ row }: { row: ActiveShowRow }) {
         // NOT a success: the reduced version was withheld and last-good is
         // still live. Closing here would silently discard the decision.
         setHeldShrink({ detail: outcome.detail, heldModifiedTime: outcome.heldModifiedTime });
-        setAnnouncement(`Sync paused for a decision. ${outcome.detail}`);
+        announce(`Sync paused for a decision. ${outcome.detail}`);
       } else if (outcome.kind === "success") {
         setHeldShrink(null);
-        setAnnouncement(outcome.summary);
+        announce(outcome.summary);
         // Ordering (§3.5): refresh FIRST, then close — the row's own sync cell
         // has to be re-rendering by the time the menu goes away.
         router.refresh();
-        closeMenu(false);
+        // closeMenu(TRUE): the focused menuitem is about to unmount, and a
+        // close that leaves focus on <body> strands a keyboard user at the top
+        // of the document (WCAG 2.4.3).
+        closeMenu(true);
       } else {
         setHeldShrink(null);
         setErrorCode(outcome.code);
@@ -227,11 +247,11 @@ export function ShowRowActions({ row }: { row: ActiveShowRow }) {
       const result = await archiveShowAction(slug);
       if (result.ok) {
         setConfirmingArchive(false);
-        setAnnouncement(`Archived ${label}. Crew links for this show are now dead.`);
+        announce(`Archived ${label}. Crew links for this show stop working now.`);
         // Ordering (§3.5): refresh FIRST — the row has to be relocating into
         // the Archived bucket by the time the menu goes away.
         router.refresh();
-        closeMenu(false);
+        closeMenu(true);
       } else {
         setArchiveFailure(classifyArchiveFailure(result.code));
       }
@@ -241,6 +261,42 @@ export function ShowRowActions({ row }: { row: ActiveShowRow }) {
   };
 
   const onMenuKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    // A confirm step is NOT a menu. Its Cancel/Confirm pair are plain buttons,
+    // not `role="menuitem"`, so the menu grammar below would strand a keyboard
+    // user on the safe control: Arrow keys jump back to the menu items and Tab
+    // closes the whole surface, leaving Confirm archive / Apply reduced version
+    // unreachable (WCAG 2.1.1). While a sub-panel owns the surface, native Tab
+    // moves between its two controls and Escape cancels ONE level, back to the
+    // menu it came from.
+    if (confirmingArchive || heldShrink !== null) {
+      if (e.key === "Tab") {
+        // Two stops, cycled: the menu is still open behind the prompt, so
+        // tabbing out to the page underneath it would leave a decision pending
+        // over content the backdrop is meant to hold off.
+        e.preventDefault();
+        const stops = (
+          confirmingArchive
+            ? [archiveCancelRef.current, archiveGoRef.current]
+            : [keepCurrentRef.current, acceptShrinkRef.current]
+        ).filter((el): el is HTMLButtonElement => el !== null);
+        if (stops.length === 0) return;
+        const at = stops.indexOf(document.activeElement as HTMLButtonElement);
+        const next = (at + (e.shiftKey ? -1 : 1) + stops.length) % stops.length;
+        stops[next]?.focus({ preventScroll: true });
+        return;
+      }
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      e.stopPropagation();
+      if (confirmingArchive) {
+        restoreArchiveFocusRef.current = true;
+        setConfirmingArchive(false);
+      } else {
+        resyncItemRef.current?.focus({ preventScroll: true });
+        setHeldShrink(null);
+      }
+      return;
+    }
     const items = Array.from(
       menuRef.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? [],
     );
@@ -326,7 +382,7 @@ export function ShowRowActions({ row }: { row: ActiveShowRow }) {
         className="sr-only"
         data-testid={`row-actions-announce-${slug}`}
       >
-        {announcement}
+        {announcement.seq % 2 === 0 ? announcement.text : `${announcement.text}\u00A0`}
       </span>
 
       {open ? (
@@ -374,177 +430,191 @@ export function ShowRowActions({ row }: { row: ActiveShowRow }) {
         // preventScroll, so the dismissal does not fight the scroll that caused it.
         onDismiss={() => closeMenu(true)}
       >
+        {/* The panel owns the chrome AND the key handling; the `role="menu"`
+            element inside it holds ONLY menuitems and separators. The ARIA menu
+            content model has no room for an error region, a decision prompt or
+            a confirm step, and a keydown handler on the wrapper still sees keys
+            from every one of them. */}
         <div
-          ref={menuRef}
-          role="menu"
-          aria-labelledby={triggerId}
-          data-testid={`row-actions-menu-${slug}`}
+          data-testid={`row-actions-panel-${slug}`}
           onKeyDown={onMenuKeyDown}
-          className="min-w-56 max-w-80 rounded-md border border-border bg-surface-raised p-1.5 shadow-lg"
+          className="min-w-52 max-w-80 rounded-md border border-border bg-surface-raised p-1.5 shadow-popover"
         >
-          <Link
-            role="menuitem"
-            tabIndex={-1}
-            data-testid={`row-action-open-${slug}`}
-            // The SAME param-preserving modal href the row link itself uses —
-            // `/admin/show/[slug]` is only a legacy redirect (spec §3.1).
-            href={openHref(slug)}
-            scroll={false}
-            {...itemDisabledProps}
-            onClick={(e) => {
-              if (busy) {
-                e.preventDefault();
-                return;
-              }
-              closeMenu(false);
-            }}
-            className={MENU_ITEM_CLASS}
+          <div
+            ref={menuRef}
+            role="menu"
+            aria-labelledby={triggerId}
+            data-testid={`row-actions-menu-${slug}`}
+            className="flex flex-col"
           >
-            <ChevronRight aria-hidden="true" className={ICON_CLASS} />
-            Open
-          </Link>
+            <Link
+              role="menuitem"
+              tabIndex={-1}
+              data-testid={`row-action-open-${slug}`}
+              // The SAME param-preserving modal href the row link itself uses —
+              // `/admin/show/[slug]` is only a legacy redirect (spec §3.1).
+              href={openHref(slug)}
+              scroll={false}
+              {...itemDisabledProps}
+              onClick={(e) => {
+                if (busy) {
+                  e.preventDefault();
+                  return;
+                }
+                closeMenu(false);
+              }}
+              className={MENU_ITEM_CLASS}
+            >
+              <ChevronRight aria-hidden="true" className={ICON_CLASS} />
+              Open
+            </Link>
 
-          {showMutatingActions ? (
-            <>
-              <button
-                type="button"
-                role="menuitem"
-                tabIndex={-1}
-                ref={previewItemRef}
-                data-testid={`row-action-preview-${slug}`}
-                {...(hasCrew
-                  ? { "aria-haspopup": "menu" as const, "aria-expanded": submenuOpen }
-                  : { "aria-disabled": true, "aria-describedby": emptyCrewHintId })}
-                {...itemDisabledProps}
-                onClick={() => {
-                  if (busy || !hasCrew) return;
-                  setSubmenuOpen((v) => !v);
-                }}
-                className={MENU_ITEM_CLASS}
-              >
-                <Eye aria-hidden="true" className={ICON_CLASS} />
-                Preview as…
-              </button>
-              {hasCrew ? null : (
-                // Guard condition (spec §3.1): the item says WHY it is inert,
-                // outside its own accessible name so the name stays "Preview as…".
-                <p
-                  id={emptyCrewHintId}
-                  data-testid={`row-action-preview-empty-hint-${slug}`}
-                  className="px-2.5 pb-1 text-xs/relaxed text-text-faint"
-                >
-                  No crew on this show yet.
-                </p>
-              )}
-
-              <button
-                type="button"
-                role="menuitem"
-                tabIndex={-1}
-                ref={resyncItemRef}
-                data-testid={`row-action-resync-${slug}`}
-                aria-busy={pending}
-                {...itemDisabledProps}
-                onClick={() => {
-                  if (busy) return;
-                  void runSync();
-                }}
-                className={MENU_ITEM_CLASS}
-              >
-                <RefreshCw
-                  aria-hidden="true"
-                  className={`${ICON_CLASS} ${pending ? "animate-spin motion-reduce:animate-none" : ""}`}
-                />
-                {pending ? RESYNC_PENDING_LABEL : RESYNC_IDLE_LABEL}
-              </button>
-
-              {confirmingArchive ? (
-                // In-place swap of the Archive ROW (§3.5): the item is replaced,
-                // never duplicated, so there is exactly one archive affordance.
-                <div
-                  role="group"
-                  aria-label={`Confirm archiving ${label}`}
-                  data-testid={`row-actions-archive-confirm-${slug}`}
-                  className="flex flex-col gap-2 rounded-sm bg-surface-sunken p-2.5"
-                >
-                  {/* Wraps, never truncates: a pathological title must not
-                      elide the very context a destructive confirm depends on. */}
-                  <p
-                    id={archiveWarnId}
-                    data-testid={`row-actions-archive-consequence-${slug}`}
-                    className="text-xs/relaxed wrap-break-word text-text-subtle"
-                  >
-                    {archiveConsequenceProse(row.title)}
-                  </p>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <button
-                      type="button"
-                      ref={archiveCancelRef}
-                      data-testid={`row-actions-archive-cancel-${slug}`}
-                      disabled={pending}
-                      onClick={() => {
-                        restoreArchiveFocusRef.current = true;
-                        setConfirmingArchive(false);
-                      }}
-                      className="inline-flex min-h-tap-min items-center justify-center rounded-sm border border-border bg-surface px-3.5 text-[13px] font-medium text-text transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      Cancel
-                    </button>
-                    {/* Tier-2 destructive confirm-go (§3.8): archiving rotates
-                        the crew link dead immediately. Registered in
-                        tests/styles/_metaDestructiveConfirm (occurrence 1). */}
-                    <button
-                      type="button"
-                      data-testid={`row-actions-archive-go-${slug}`}
-                      aria-describedby={archiveWarnId}
-                      disabled={pending}
-                      aria-busy={pending}
-                      onClick={() => void runArchive()}
-                      className="inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm bg-warning-text px-3.5 py-2 text-[13px] font-semibold text-warning-bg transition-opacity duration-fast hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface-sunken disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      {pending ? "Archiving…" : "Confirm archive"}
-                    </button>
-                  </div>
-                </div>
-              ) : (
+            {showMutatingActions ? (
+              <>
                 <button
                   type="button"
                   role="menuitem"
                   tabIndex={-1}
-                  ref={archiveItemRef}
-                  data-testid={`row-action-archive-${slug}`}
+                  ref={previewItemRef}
+                  data-testid={`row-action-preview-${slug}`}
+                  {...(hasCrew
+                    ? { "aria-haspopup": "menu" as const, "aria-expanded": submenuOpen }
+                    : { "aria-disabled": true, "aria-describedby": emptyCrewHintId })}
                   {...itemDisabledProps}
                   onClick={() => {
-                    if (busy) return;
-                    setArchiveFailure(null);
-                    setConfirmingArchive(true);
+                    if (busy || !hasCrew) return;
+                    setSubmenuOpen((v) => !v);
                   }}
                   className={MENU_ITEM_CLASS}
                 >
-                  <Archive aria-hidden="true" className={ICON_CLASS} />
-                  Archive
+                  <Eye aria-hidden="true" className={ICON_CLASS} />
+                  Preview as…
                 </button>
-              )}
+                {hasCrew ? null : (
+                  // Guard condition (spec §3.1): the item says WHY it is inert,
+                  // outside its own accessible name so the name stays "Preview as…".
+                  <p
+                    id={emptyCrewHintId}
+                    data-testid={`row-action-preview-empty-hint-${slug}`}
+                    // role="none": a <p> is not part of the ARIA menu content model, and
+                    // this one is referenced by aria-describedby rather than read in place.
+                    role="none"
+                    className="px-2.5 pb-1 text-xs/relaxed text-text-subtle"
+                  >
+                    No crew on this show yet.
+                  </p>
+                )}
 
-              {archiveFailure ? (
-                // Every reachable failure says SOMETHING: the two lowercase
-                // sentinels get generic prose (they are NOT §12.4 codes and
-                // must never reach messageFor), catalog codes get catalog copy.
-                <div
-                  role="alert"
-                  data-testid={`row-actions-archive-error-${slug}`}
-                  className="mt-1 rounded-sm border border-border-strong bg-warning-bg p-2.5 text-xs/relaxed text-warning-text"
+                <button
+                  type="button"
+                  role="menuitem"
+                  tabIndex={-1}
+                  ref={resyncItemRef}
+                  data-testid={`row-action-resync-${slug}`}
+                  aria-busy={pending}
+                  {...itemDisabledProps}
+                  onClick={() => {
+                    if (busy) return;
+                    void runSync();
+                  }}
+                  className={MENU_ITEM_CLASS}
                 >
-                  {archiveFailure.kind === "catalog" ? (
-                    <ErrorExplainer code={archiveFailure.code} surface="admin" />
-                  ) : archiveFailure.kind === "not_found" ? (
-                    ARCHIVE_NOT_FOUND_COPY
-                  ) : (
-                    ARCHIVE_GENERIC_ERROR_COPY
-                  )}
-                </div>
-              ) : null}
-            </>
+                  <RefreshCw
+                    aria-hidden="true"
+                    className={`${ICON_CLASS} ${pending ? "animate-spin motion-reduce:animate-none" : ""}`}
+                  />
+                  {pending ? RESYNC_PENDING_LABEL : RESYNC_IDLE_LABEL}
+                </button>
+
+                {confirmingArchive ? null : (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    tabIndex={-1}
+                    ref={archiveItemRef}
+                    data-testid={`row-action-archive-${slug}`}
+                    {...itemDisabledProps}
+                    onClick={() => {
+                      if (busy) return;
+                      setArchiveFailure(null);
+                      setConfirmingArchive(true);
+                    }}
+                    className={MENU_ITEM_CLASS}
+                  >
+                    <Archive aria-hidden="true" className={ICON_CLASS} />
+                    Archive
+                  </button>
+                )}
+              </>
+            ) : null}
+          </div>
+          {confirmingArchive ? (
+            // In-place swap of the Archive ROW (§3.5): the item is replaced,
+            // never duplicated, so there is exactly one archive affordance.
+            <div
+              role="group"
+              aria-label={`Confirm archiving ${label}`}
+              data-testid={`row-actions-archive-confirm-${slug}`}
+              className="flex flex-col gap-2 rounded-sm bg-surface-sunken p-2.5"
+            >
+              {/* Wraps, never truncates: a pathological title must not
+                    elide the very context a destructive confirm depends on. */}
+              <p
+                id={archiveWarnId}
+                data-testid={`row-actions-archive-consequence-${slug}`}
+                className="text-xs/relaxed wrap-break-word text-text-subtle"
+              >
+                {archiveConsequenceProse(row.title)}
+              </p>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  ref={archiveCancelRef}
+                  data-testid={`row-actions-archive-cancel-${slug}`}
+                  disabled={pending}
+                  onClick={() => {
+                    restoreArchiveFocusRef.current = true;
+                    setConfirmingArchive(false);
+                  }}
+                  className="inline-flex min-h-tap-min items-center justify-center rounded-sm border border-border bg-surface px-3.5 text-[13px] font-medium text-text transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Cancel
+                </button>
+                {/* Tier-2 destructive confirm-go (§3.8): archiving rotates
+                      the crew link dead immediately. Registered in
+                      tests/styles/_metaDestructiveConfirm (occurrence 1). */}
+                <button
+                  type="button"
+                  ref={archiveGoRef}
+                  data-testid={`row-actions-archive-go-${slug}`}
+                  aria-describedby={archiveWarnId}
+                  disabled={pending}
+                  aria-busy={pending}
+                  onClick={() => void runArchive()}
+                  className="inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm bg-warning-text px-3.5 py-2 text-[13px] font-semibold text-warning-bg transition-opacity duration-fast hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface-sunken disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {pending ? "Archiving…" : "Confirm archive"}
+                </button>
+              </div>
+            </div>
+          ) : null}
+          {archiveFailure ? (
+            // Every reachable failure says SOMETHING: the two lowercase
+            // sentinels get generic prose (they are NOT §12.4 codes and
+            // must never reach messageFor), catalog codes get catalog copy.
+            <div
+              role="alert"
+              data-testid={`row-actions-archive-error-${slug}`}
+              className="mt-1 rounded-sm border border-border-strong bg-warning-bg p-2.5 text-xs/relaxed text-warning-text"
+            >
+              {archiveFailure.kind === "catalog" ? (
+                <ErrorExplainer code={archiveFailure.code} surface="admin" />
+              ) : archiveFailure.kind === "not_found" ? (
+                ARCHIVE_NOT_FOUND_COPY
+              ) : (
+                ARCHIVE_GENERIC_ERROR_COPY
+              )}
+            </div>
           ) : null}
 
           {errorCode ? (
@@ -597,6 +667,7 @@ export function ShowRowActions({ row }: { row: ActiveShowRow }) {
                     C1 recipe. Registered in tests/styles/_metaDestructiveConfirm. */}
                 <button
                   type="button"
+                  ref={acceptShrinkRef}
                   data-testid={`row-actions-accept-shrink-${slug}`}
                   disabled={pending}
                   aria-busy={pending}
@@ -627,7 +698,7 @@ export function ShowRowActions({ row }: { row: ActiveShowRow }) {
           aria-labelledby={`${triggerId}-preview`}
           data-testid={`row-action-preview-menu-${slug}`}
           onKeyDown={onSubmenuKeyDown}
-          className="min-w-56 rounded-md border border-border bg-surface-raised p-1.5 shadow-lg"
+          className="min-w-52 rounded-md border border-border bg-surface-raised p-1.5 shadow-popover"
         >
           <span id={`${triggerId}-preview`} className="sr-only">
             {`Preview ${label} as`}

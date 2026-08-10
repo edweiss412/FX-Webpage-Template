@@ -80,8 +80,8 @@ describe("ShowsTable.showRowActions (spec §1.6)", () => {
     );
     expect(triggers()).toHaveLength(rows.length);
     for (const r of rows) {
-      const slot = document.body.querySelector(`[data-testid="shows-row-action-${r.slug}"]`);
-      expect(slot, `row ${r.slug} renders its action slot`).not.toBeNull();
+      const slot = document.body.querySelector(`[data-testid="shows-row-menu-${r.slug}"]`);
+      expect(slot, `row ${r.slug} renders its menu seat`).not.toBeNull();
       expect(
         slot!.querySelector(`[data-testid="row-actions-trigger-${r.slug}"]`),
         `row ${r.slug}'s trigger sits in its OWN slot`,
@@ -106,7 +106,26 @@ describe("ShowsTable.showRowActions (spec §1.6)", () => {
     expect(link.contains(trigger)).toBe(false);
   });
 
-  test("the boolean carries the feature — no render-function prop crosses the boundary", () => {
+  test("the menu takes the row's trailing seat instead of adding a bar under it", () => {
+    render(
+      <ShowsTable
+        rows={rows}
+        now={now}
+        activeCount={rows.length}
+        overflowCount={0}
+        showRowActions
+      />,
+    );
+    // No per-row action bar is created for the menu alone: an in-flow bar under
+    // every row nearly doubles the table's height for one button.
+    expect(document.body.querySelector('[data-testid="shows-row-action-a"]')).toBeNull();
+    // …and the chevron yields its seat rather than sitting beside a second glyph.
+    expect(document.body.querySelector('[data-testid="shows-chevron-a"]')).toBeNull();
+    const seat = document.body.querySelector('[data-testid="shows-row-menu-a"]')!;
+    expect(seat.className.split(/\s+/)).toContain("absolute");
+  });
+
+  test("a caller's own rowAction still gets its bar, alongside the menu", () => {
     // §1.6: `rowAction` stays for CLIENT callers and is untouched; a server
     // component cannot pass it. Both may not be needed at once.
     render(
@@ -119,9 +138,11 @@ describe("ShowsTable.showRowActions (spec §1.6)", () => {
         rowAction={(r) => <span data-testid={`legacy-action-${r.slug}`}>legacy</span>}
       />,
     );
-    // The legacy slot still renders its caller's node…
+    // The legacy slot still renders its caller's node in its own bar…
+    expect(document.body.querySelector('[data-testid="shows-row-action-z"]')).not.toBeNull();
     expect(document.body.querySelector('[data-testid="legacy-action-z"]')).not.toBeNull();
-    // …and the boolean still mounts the menu, in the same slot.
+    // …and the boolean still mounts the menu, in its own trailing seat.
+    expect(document.body.querySelector('[data-testid="shows-row-menu-z"]')).not.toBeNull();
     expect(document.body.querySelector('[data-testid="row-actions-trigger-z"]')).not.toBeNull();
   });
 });

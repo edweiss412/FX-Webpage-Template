@@ -93,12 +93,35 @@ export function AnchoredPortal({
   const [applied, setApplied] = useState<Applied | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
   // Held in a ref so a caller passing an inline arrow does not re-subscribe
-  // every listener on every render.
+  // every listener on every render. Written in an effect, never during render:
+  // a render can be discarded, and a discarded render must not leave a mutated
+  // ref behind.
   const onDismissRef = useRef<(() => void) | undefined>(onDismiss);
-  onDismissRef.current = onDismiss;
+  useEffect(() => {
+    onDismissRef.current = onDismiss;
+  }, [onDismiss]);
 
   // Portals need a DOM; the first client render is the earliest safe moment.
   useEffect(() => setMounted(true), []);
+
+  /**
+   * Placement is recomputed on every frame the anchor could have moved, and the
+   * result is USUALLY identical. A fresh object each time re-renders the whole
+   * hosted surface on every tick of a scroll or resize gesture, so an unchanged
+   * placement is dropped here rather than paid for downstream.
+   */
+  const commit = useCallback((next: Applied) => {
+    setApplied((prev) =>
+      prev !== null &&
+      prev.left === next.left &&
+      prev.top === next.top &&
+      prev.side === next.side &&
+      prev.maxHeight === next.maxHeight &&
+      prev.maxWidth === next.maxWidth
+        ? prev
+        : next,
+    );
+  }, []);
 
   const measureAndApply = useCallback(() => {
     const anchor = anchorRef.current;
@@ -138,8 +161,14 @@ export function AnchoredPortal({
       // consequence bound forbids. An unplaceable measurement (a detached or
       // not-yet-laid-out panel) falls back to the plain below-the-trigger
       // anchor and recovers on the next frame like any other placement.
-      setApplied({
-        left: triggerRect.left + window.scrollX,
+      commit({
+        // The fallback still honors `align`: a right-aligned menu that jumps to
+        // the trigger's LEFT edge on a degenerate measurement is a visible
+        // sideways lurch, and the natural width is already measured here.
+        left:
+          (align === "right"
+            ? Math.max(0, triggerRect.right - naturalRect.width)
+            : triggerRect.left) + window.scrollX,
         top: triggerRect.bottom + GAP + window.scrollY,
         side: "bottom",
         maxHeight: null,
@@ -147,14 +176,14 @@ export function AnchoredPortal({
       });
       return;
     }
-    setApplied({
+    commit({
       left: placement.viewport.x + window.scrollX,
       top: placement.viewport.y + window.scrollY,
       side: placement.side,
       maxHeight: placement.maxHeight,
       maxWidth: placement.maxWidth,
     });
-  }, [anchorRef, align, preferredSide]);
+  }, [anchorRef, align, preferredSide, commit]);
 
   // Pre-paint placement on open, then re-place from every source that can move
   // the anchor under the panel. The open-gate stays at the CALL SITE: a

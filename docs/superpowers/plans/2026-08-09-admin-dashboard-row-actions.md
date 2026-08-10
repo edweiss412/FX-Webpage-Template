@@ -93,9 +93,47 @@ The spec §3.5 inventory's rows are asserted RED-first inside the tasks that IMP
 
 Impeccable dual-gate with the CANONICAL v3 setup sequence (plan R1 F7): the skill's context loader (PRODUCT.md + DESIGN.md) → the register reference read (brand or product register file, per the skill) → `/impeccable critique` → `/impeccable audit`, on the affected diff. Findings + dispositions recorded in §12 below (P0/P1 fixed or DEFERRED.md'd). Full ladder INCLUDING the geometry rerun after all wiring (plan R1 F8): `pnpm test`, `pnpm typecheck`, `pnpm lint`, `pnpm format:check`, `pnpm exec playwright test tests/e2e/rowactions-geometry.spec.ts`. Whole-diff codex review (fresh-eyes; REVIEWER ONLY; consequence bound: every row action performs its documented effect or surfaces its coded copy — handled correctly OR signaled, never silently wrong; fence: admin-only surface, accidental misuse; convergence: the AC suite is the closure — new findings need a concrete probe). **Ordering (plan R2 F10 — the reviewed diff IS the merged diff):** the invariant-12 marker-off commit lands FIRST as the branch's final commit; THEN whole-diff review runs on that final SHA; then push; then real CI green (12 contexts) on that same SHA; then merge with zero commits after the reviewed SHA; main sync `0  0` (AC-9, AC-10).
 
-## §12 Impeccable closeout (populated at close-out)
+## §12 Impeccable closeout
 
-Findings and dispositions from the critique+audit pair land HERE, one row per finding (id, tier, disposition). At close-out the implementer writes the machine-valid marker as a STANDALONE line in this section per the parser grammar in `tests/docs/_invariant8Closeout.ts` (`impeccable-gate: critique=RAN audit=RAN p0=<...> p1=<...> dispositions=<...>`); NO placeholder line exists until then — an invalid placeholder fails the parser.
+Both halves of the invariant-8 gate ran on this diff's UI surfaces
+(`components/admin/ShowRowActions.tsx`, `components/admin/AnchoredPortal.tsx`,
+`components/admin/ShowsTable.tsx`, `app/help/admin/dashboard/page.mdx`) with the canonical v3 setup
+sequence: `context.mjs` (PRODUCT.md + DESIGN.md) → the `product` register reference → `/impeccable
+critique` (dual-agent: design review + deterministic detector, isolated) → `/impeccable audit`.
+Browser visualization was unavailable to both — `/admin` is auth-gated and no browser tool was
+exposed to the assessment agents — so both ran source-level; the real-browser evidence for this
+surface is `tests/e2e/rowactions-geometry.spec.ts`, which runs against the wired dashboard.
+
+Detector: `detect.mjs --json` over all four surfaces → exit 0, `[]`. Critique design health 29/40.
+Audit dimension scores: a11y 1 · performance 3 · responsive 3 · theming 3 · anti-patterns 4.
+
+| id | tier | finding | disposition |
+| --- | --- | --- | --- |
+| C-P0 | P0 | Confirm/held sub-panels sit inside `role="menu"`, so the menu's own key grammar strands a keyboard user on the safe control — Arrow keys jump back to the menu items and Tab closes the whole surface, leaving Confirm archive / Apply reduced version unreachable (WCAG 2.1.1) | FIXED — the handler yields to a sub-panel: Tab cycles the two controls, Escape cancels one level. Pinned by 5 new cases in `showRowActions.archive.test.tsx` + `showRowActions.actions.test.tsx` |
+| A-P0 | P0 | The `-translate-y-1/2` on the row's menu seat makes it the containing block for `position: fixed` DESCENDANTS, collapsing the outside-click backdrop from the viewport to the 44px button — the menu never closes on an outside click | FIXED — `inset-y-0` + `items-center`, no transform. The e2e now asserts the backdrop rect equals the viewport |
+| C-P1 | P1 | The ⋮ rendered in a full-width sunken bar under every row (~68px, taller than the row itself), nearly doubling the table's height for one button, while the row still ended in a chevron | FIXED — the menu takes the row's trailing seat and the chevron yields it (the menu's first item IS Open). The help copy already described this layout |
+| C-P1 | P1 | `aria-disabled` menu items look identical to live ones | FIXED — `aria-disabled:opacity-60 aria-disabled:cursor-not-allowed` on the shared item recipe |
+| A-P1 | P1 | Success closes with `closeMenu(false)`; the focused menuitem unmounts and focus falls to `<body>` | FIXED — `closeMenu(true)` on both success paths |
+| A-P1 | P1 | The empty-crew hint used `text-text-faint` (3.36:1 light / 3.53:1 dark), a token DESIGN.md caps at 3:1 decorative | FIXED — `text-text-subtle` |
+| A-P2 | P2 | `role="menu"` wrapped an error region, a decision prompt and a confirm step — none are in the ARIA menu content model | FIXED — the panel owns the chrome and the key handling; `role="menu"` now holds only menuitems and separators. Pinned by a content-model test |
+| A-P2 | P2 | Raw `shadow-lg` where `--shadow-popover` is the admin popover token | FIXED — `shadow-popover` |
+| C-P2 | P2 | No `role="separator"` before the destructive Archive item | FIXED |
+| A-P3 | P3 | `AnchoredPortal` allocated fresh placement state every tick, re-rendering the hosted surface on every scroll frame | FIXED — unchanged placements are dropped |
+| A-P3 | P3 | `onDismissRef` written during render | FIXED — moved into an effect |
+| C-P3 | P3 | The fallback placement ignored `align="right"` | FIXED |
+| C-P3 | P3 | Repeated identical announcements never re-fire (a live region whose text does not change is not re-read) | FIXED — the announcement carries a sequence that alternates a trailing no-break space |
+| C-P3 | P3 | Archive announcement said links are "now dead" where every other surface says "stop working" | FIXED |
+| C-P3 | P3 | `min-w-56` where the precedent uses `min-w-52` | FIXED |
+| C-P3 | P3 | No entry motion where the precedent uses `route-enter` | DEFERRED — `ROWACTIONS-MENU-ENTRY-MOTION-1` (instant is the ratified §3.5 treatment) |
+| A-P3 | P3 | `min-w-52` can override the core's computed `maxWidth` below 208px bounds | DEFERRED — `ROWACTIONS-MENU-MINWIDTH-BOUNDS-1` (unreachable above pinch-zoom; no harness) |
+| A-P3 | P3 | `/help` MDX prose uses straight apostrophes | DEFERRED — `HELP-STRAIGHT-APOSTROPHES-1` (pre-existing, file-wide, not introduced here) |
+
+Not-introduced-here observations, recorded so a later reviewer does not re-derive them: the three
+`ShowsTable` interactive elements without a tap-target class (the Find input, the row Link, the
+sync-legend link) and the `"—"` date placeholders at `ShowsTable.tsx:594,600` all predate this
+branch. The menu's own backdrop button is `aria-hidden` with `tabIndex={-1}` and is not a target.
+
+impeccable-gate: critique=RAN audit=RAN p0=2 p1=4 dispositions=recorded
 
 ## AC map
 

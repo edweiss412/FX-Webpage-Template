@@ -258,6 +258,30 @@ test.describe("dashboard row actions — real-browser geometry (§3.1, AC-7)", (
     await expect(trigger).toHaveAttribute("aria-expanded", "false");
   });
 
+  test("the outside-click backdrop covers the whole viewport", async ({ page }) => {
+    // impeccable audit P0: the menu's seat in the row must not be a containing
+    // block for `position: fixed` descendants. A `transform` there (a
+    // `-translate-y-1/2` centering trick, which this originally shipped)
+    // silently collapses the backdrop from the viewport to the 44px button, and
+    // the menu then never closes on an outside click. jsdom cannot see this —
+    // it computes no layout, so the backdrop's rect is 0x0 either way.
+    const trigger = await lastSeededTrigger(page);
+    await trigger.scrollIntoViewIfNeeded();
+    await trigger.click();
+    await expect(page.locator('[data-testid^="row-actions-menu-"]')).toBeVisible();
+    const backdrop = page.locator('[data-testid^="row-actions-backdrop-"]');
+    await expect(backdrop).toHaveCount(1);
+    const rect = await rectOf(backdrop);
+    const vp = await viewportSize(page);
+    expect(rect.width, "backdrop spans the viewport width").toBeGreaterThanOrEqual(vp.width - TOL);
+    expect(rect.height, "backdrop spans the viewport height").toBeGreaterThanOrEqual(
+      vp.height - TOL,
+    );
+    // …and it actually dismisses.
+    await page.mouse.click(4, 4);
+    await expect(page.locator('[data-testid^="row-actions-menu-"]')).toHaveCount(0);
+  });
+
   test("compound: the row unmounting while the menu is open leaves no orphaned portal", async ({
     page,
   }) => {

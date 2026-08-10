@@ -226,8 +226,12 @@ describe("ShowRowActions — transition inventory rows owned by this task (§3.5
     const menu = openMenu("t1");
     // Instant per the inventory (popover-primitive default): no exit animation
     // wrapper holds the node alive, and no opacity/transition class governs the
-    // open state — the node's PRESENCE is the state.
-    const classes = menu.className.split(/\s+/);
+    // open state — the node's PRESENCE is the state. Inspect the PANEL, which
+    // carries the surface's chrome; the role="menu" element inside it is a bare
+    // list and would satisfy this vacuously.
+    const panel = document.body.querySelector<HTMLElement>('[data-testid="row-actions-panel-t1"]')!;
+    expect(panel).not.toBeNull();
+    const classes = panel.className.split(/\s+/);
     premiseHolds("the menu rendered with at least one class to inspect", classes.length > 0);
     expect(classes.filter((c) => c.startsWith("transition-") || c.startsWith("animate-"))).toEqual(
       [],
@@ -235,5 +239,38 @@ describe("ShowRowActions — transition inventory rows owned by this task (§3.5
     fireEvent.keyDown(menu, { key: "Escape" });
     // Synchronously gone in the same tick: nothing is awaiting an exit.
     expect(menuNode("t1")).toBeNull();
+  });
+});
+
+// ── impeccable audit P2: the ARIA menu content model ────────────────────────
+// `role="menu"` accepts menuitem / separator / group children — not an error
+// region, not a decision prompt, not a confirm step. Those surfaces live in the
+// PANEL beside the menu, and the panel (not the menu) owns key handling so they
+// still reach it.
+describe("ShowRowActions — the menu element holds only menu content", () => {
+  test("every child of role=menu is a menuitem or a separator", () => {
+    render(<ShowRowActions row={row({ slug: "aria" })} />);
+    const menu = openMenu("aria");
+    const kids = Array.from(menu.children);
+    premise("the menu rendered children to inspect", kids.length, 0);
+    for (const kid of kids) {
+      expect(
+        ["menuitem", "separator"],
+        `unexpected role="${kid.getAttribute("role")}" child of role="menu"`,
+      ).toContain(kid.getAttribute("role"));
+    }
+  });
+
+  test("the Archive confirm renders OUTSIDE the menu element, inside the panel", () => {
+    render(<ShowRowActions row={row({ slug: "outside" })} />);
+    const menu = openMenu("outside");
+    fireEvent.click(document.body.querySelector('[data-testid="row-action-archive-outside"]')!);
+    const confirm = document.body.querySelector(
+      '[data-testid="row-actions-archive-confirm-outside"]',
+    )!;
+    const panel = document.body.querySelector('[data-testid="row-actions-panel-outside"]')!;
+    expect(confirm).not.toBeNull();
+    expect(menu.contains(confirm)).toBe(false);
+    expect(panel.contains(confirm)).toBe(true);
   });
 });
