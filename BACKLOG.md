@@ -145,7 +145,7 @@ The adapter is the substance of the work, not the rendering — `getShowForViewe
 
 ## BL-POPOVER-REGISTRY-PER-FILE-AND-TAILWIND-ONLY — the anchored-scroller registry is fail-by-default per FILE, and only for the Tailwind idiom
 
-**Effort:** M
+**Effort:** M · **Status:** IN PROGRESS · **Branch:** feat/m2-guard-precision
 
 Surfaced by cross-model review of `fix/admin-popover-overlay-cluster` (2026-08-02),
 with live probes against the shipped guard. PRE-EXISTING: the cluster tightened the
@@ -1384,4 +1384,4 @@ docblock states the gap rather than papering over it.
 
 **Deferral exception: (c)** — a redesign of the guard's oracle spanning the whole crosswalk corpus, on a surface this PR does not otherwise touch. W-UI shipped the half that is closable without it.
 
-**Status:** OPEN.
+**Status:** IN PROGRESS · **Branch:** feat/m2-guard-precision
