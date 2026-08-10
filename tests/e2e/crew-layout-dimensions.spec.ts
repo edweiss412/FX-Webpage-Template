@@ -1790,6 +1790,26 @@ test.describe("crew diagrams gallery — next/image variant tiers (private image
     // Membership alone is not enough: with one entry silently missing, the other
     // entry's request still belongs to the listed set and the case passes. Pin
     // that EVERY seeded entry fetched one of ITS OWN variants.
+    // A CEILING, not a pinned string: on a 390px phone no thumbnail may be served
+    // the LARGEST tier. That is the product claim ("do not ship a phone the big
+    // bytes"), and it is what a dropped or over-declared `sizes` actually breaks —
+    // membership in the listed set survives that regression, so membership alone
+    // cannot catch it. The sizes string itself stays the component's to choose.
+    const largestTier = Math.max(
+      ...ctx.entries.flatMap((entry) =>
+        entry.variantKeys.map((key) => Number(key.match(/@(\d+)\.webp$/)?.[1] ?? 0)),
+      ),
+    );
+    premise("the seed offers more than one tier, or a ceiling is vacuous", largestTier, 0);
+    for (const key of requestedKeys) {
+      const tier = Number(key.match(/@(\d+)\.webp$/)?.[1] ?? 0);
+      expect(
+        tier,
+        `@390px a thumbnail fetched the ${tier}px tier (the largest is ${largestTier}px) — ` +
+          `the sizes string is over-declaring, which is the bandwidth regression this pipeline exists to remove`,
+      ).toBeLessThan(largestTier);
+    }
+
     for (const entry of ctx.entries) {
       const own = ctx.variantKeysByEntry.get(entry.key) ?? new Set<string>();
       premise(`seeded entry ${entry.key} carries variants to request`, own.size, 0);
@@ -1915,7 +1935,11 @@ test.describe("crew diagrams gallery — next/image variant tiers (private image
     let previous: string | null = null;
     let lastError: unknown = null;
     let lastSlides: SlideSample[] | null = null;
-    for (let attempt = 0; attempt < 90; attempt += 1) {
+    // 90 frames was enough on an idle machine and not on a loaded one: the ACTIVE
+    // slide pins the ORIGINAL, so this gate waits on a full-resolution decode, not
+    // a thumbnail. Raising the READINESS budget only — the geometry assertion the
+    // caller passes in is unchanged, so a real layout defect still fails.
+    for (let attempt = 0; attempt < 300; attempt += 1) {
       let slides: SlideSample[] | null = null;
       try {
         slides = await sampleLightbox(page);

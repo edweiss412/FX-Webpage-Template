@@ -44,7 +44,7 @@
  */
 
 import { afterEach, beforeAll, describe, expect, test, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
 
 // The zoom library is mocked to plain boxes: this file is about which element
@@ -66,6 +66,52 @@ vi.mock("react-zoom-pan-pinch", async () => {
     }),
   };
 });
+
+// A CONTROLLED Embla: the real library only emits `select` after layout, which
+// jsdom never provides — so a swap test written against it silently asserts
+// against a slide that never changed (round-2 review finding). This mock exposes
+// the emitter, so the swap below is React actually re-rendering both branches.
+vi.mock("embla-carousel-react", async () => {
+  const React = await import("react");
+  // Named as a hook so the rules-of-hooks lint can see it is one.
+  function useEmblaCarouselMock() {
+    const listeners = React.useRef(new Map<string, Set<() => void>>());
+    const selected = React.useRef(0);
+    const api = React.useMemo(
+      () => ({
+        selectedScrollSnap: () => selected.current,
+        scrollTo: (index: number) => {
+          selected.current = index;
+          for (const cb of listeners.current.get("select") ?? []) cb();
+        },
+        scrollNext: () => api.scrollTo(selected.current + 1),
+        scrollPrev: () => api.scrollTo(Math.max(0, selected.current - 1)),
+        canScrollNext: () => true,
+        canScrollPrev: () => selected.current > 0,
+        on: (event: string, cb: () => void) => {
+          const set = listeners.current.get(event) ?? new Set<() => void>();
+          set.add(cb);
+          listeners.current.set(event, set);
+          return api;
+        },
+        off: (event: string, cb: () => void) => {
+          listeners.current.get(event)?.delete(cb);
+          return api;
+        },
+        reInit: () => {},
+        rootNode: () => document.createElement("div"),
+        internalEngine: () => ({}),
+      }),
+      [],
+    );
+    emblaApis.push(api);
+    return [() => {}, api] as const;
+  }
+  return { default: useEmblaCarouselMock };
+});
+
+/** Every Embla instance this file mounts, newest last. */
+const emblaApis: Array<{ scrollTo: (index: number) => void }> = [];
 
 import { GalleryLightbox } from "@/components/diagrams/GalleryLightbox";
 import type { GalleryItem } from "@/components/diagrams/Gallery";
@@ -317,18 +363,19 @@ describe("GalleryLightbox — transition audit (spec §6 inventory)", () => {
     expect(inactiveImages(container).length).toBe(before - 1);
   });
 
-  test("failed → any is TERMINAL: a failed item renders no image in the tier it is in", () => {
+  test("failed → any is TERMINAL: the failure survives a REAL tier swap", () => {
     // failedKeys is keyed by item id, never cleared, and read by BOTH branches —
-    // which is why a tier swap cannot retry. jsdom can prove the per-item, never-
-    // cleared part (below); it cannot drive the swap, for the Embla reason in the
-    // row above, and this row does not pretend otherwise.
+    // so making the failed item ACTIVE must not retry it. Now actually exercised.
     const { container } = open([item(1), item(2)]);
     const before = container.querySelectorAll("img").length;
     premise("there were two tiers rendered before the failure", before, 1);
-
     fireEvent.error(inactiveImages(container)[0]!);
-
     expect(container.querySelectorAll("img")).toHaveLength(before - 1);
+
+    act(() => emblaApis.at(-1)!.scrollTo(1));
+
+    // Item 2 is the active slide now, and it is still the unavailable branch.
+    expect(container.querySelector('[data-testid="rzpp-component"]')).toBeNull();
     expect(screen.getByText(/unavailable/i)).toBeTruthy();
   });
 
@@ -352,26 +399,26 @@ describe("GalleryLightbox — transition audit (spec §6 inventory)", () => {
     );
   });
 
-  test("the two tiers differ by URL and nothing else — the swap itself is an e2e claim", () => {
-    // What jsdom CAN prove: at any moment the active slide serves the pinned
-    // original, the inactive slide serves a clamped variant, and no animation
-    // wrapper or keyed remount sits around either image — so a swap between them
-    // is a src change with nothing to animate.
-    //
-    // What jsdom CANNOT prove, and what this row deliberately does NOT claim:
-    // that a swap HAPPENS. The component moves activeIndex only on Embla's
-    // `select`, which needs real layout — neither a rerender with a new
-    // startIndex nor a click on the nav button emits it here, so a row written
-    // that way asserts against a slide that never changed. The actual swap is
-    // driven in tests/e2e/crew-layout-dimensions.spec.ts, which navigates with
-    // the Next/Previous control and re-samples the CURRENT slide after settle.
+  test("a REAL tier swap re-renders the slide and swaps the URL to the pinned original", () => {
+    // Driven through the mocked Embla emitter, so this is React actually moving
+    // both branches — not a static render inspected twice. Note what is NOT
+    // claimed: the image NODE is replaced, because the two branches live under
+    // different parents (TransformWrapper vs the inactive wrapper), so "the tiers
+    // differ by URL and nothing else" would be false.
     const { container } = open([item(1), item(2)]);
-    const active = pathOf(activeImage(container).getAttribute("src"));
-    const inactive = pathOf(inactiveImages(container)[0]!.getAttribute("src"));
+    const beforeInactive = pathOf(inactiveImages(container)[0]!.getAttribute("src"));
+    premiseHolds(
+      "the inactive tier starts on a clamped VARIANT, or the swap proves nothing",
+      beforeInactive.includes("@") && beforeInactive !== ORIGINAL(2),
+    );
 
-    expect(active).toBe(ORIGINAL(1));
-    expect(inactive).not.toBe(ORIGINAL(2));
-    premiseHolds("the inactive tier really is a variant URL", inactive.includes("@"));
+    act(() => emblaApis.at(-1)!.scrollTo(1));
+
+    expect(pathOf(activeImage(container).getAttribute("src"))).toBe(ORIGINAL(2));
+    // ...and the slide that was active falls back to its clamped variant.
+    const afterInactive = pathOf(inactiveImages(container)[0]!.getAttribute("src"));
+    expect(afterInactive).not.toBe(ORIGINAL(1));
+    expect(afterInactive).toContain("@");
     expect(container.innerHTML).not.toContain("data-framer");
   });
 });
