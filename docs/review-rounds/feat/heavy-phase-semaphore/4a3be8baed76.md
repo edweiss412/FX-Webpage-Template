@@ -50,23 +50,23 @@ authoring rule; applying it while drafting would have made R1 F1/R2 F1/R3 F2 fre
 plan prose and the spec case bodies; `TASK_AC_MISSING`/marker grammar already ran
 clean from round 1.
 
-## diff — 5 rounds
+## diff — 6 rounds
 
-**Examined:** five counted rounds on the implementation diff, dispatched as two
+**Examined:** six counted rounds on the implementation diff, dispatched as two
 tight-scope reviews per the split-review default. The wrapper half
 (`scripts/with-heavy-slot.py` + `tests/scripts/withHeavySlot.test.ts`, ~1600 lines,
 the arc's entire mechanism) took APPROVE/0 in round 1 and was never re-opened; its
 reviewed scope is byte-identical from that verdict to merge. Every counted round
 after round 1 belongs to the other half: the AGENTS.md prose rule and its
-string-presence guard, 4/1/1/1/1 findings across rounds 1-5.
+string-presence guard, 4/1/1/1/1/3 findings across rounds 1-6 — eleven in total.
 
 That split is the finding. The half with kernel semantics, fd lifetimes across
 `execvp`, inode identity, and an atomic swap protocol converged immediately, because
 spec §7 had already enumerated its defect classes as executable cases and thirteen
-spec rounds had probed each one. The half that burned three rounds is a paragraph of
+spec rounds had probed each one. The half that burned five is a paragraph of
 English and a regex list.
 
-**Judgment:** all six diff findings are one class — *the guard's stated coverage is
+**Judgment:** eight of the eleven diff findings are one class — *the guard's stated coverage is
 wider than its enforced coverage* — and the arc kept re-entering it because each
 repair changed WHERE the gap lived rather than removing the possibility of one. R1
 found members the hand-written list omitted; the repair derived the member set from
@@ -110,7 +110,7 @@ broke, which a pin cannot; and the spec-derived registry closes the one axis the
 structurally cannot see — a shape ADDED to spec §4.6 that the bullet never picked
 up, where the bullet is unchanged and therefore matches its pin perfectly.
 
-**The transferable rule, stated at the cost of five rounds:** a guard over PROSE can
+**The transferable rule, stated at the cost of five rounds (3 through 6):** a guard over PROSE can
 close two things by assertion — that named things are present and on the right side,
 and that the text is the text. It cannot close "the prose does not mean the opposite"
 by pattern, at any length of pattern list. Decide at authoring time which of the
@@ -121,25 +121,40 @@ edited out, because the pattern they make is the finding.
 
 Worth stating plainly against the round-1 brief: it named the mutation-family closure
 as the convergence criterion and demanded a surviving mutant per finding, and every
-round complied — eight findings, fifteen mutants, zero speculation, and no ratchet
-into a markdown parser or an AST. Every round cost was bounded by a concrete accepted
+round complied — eleven findings, twenty-two mutants, zero speculation, and no
+ratchet into a markdown parser or an AST. Every round cost was bounded by a concrete accepted
 document rather than an argument. The criterion did its job: it kept every round
 honest and it is why the arc ends with a closed criterion instead of a longer list.
 What a per-finding mutant requirement cannot do is tell you the enumeration you are
-inside will not terminate — that took five rounds to see, and seeing it is what
-produced the pin.
+inside will not terminate — that took three rounds of pattern-adding to see, and
+seeing it is what produced the pin.
+
+Round 6 then found the two things the pin could not: a member whose ENV GATE is the
+load-bearing part of its shape (`RUN_BUILD_ARTIFACT_GATE_TEST=1` — without it the
+suite is `describe.skipIf(!RUN)` and must NOT be wrapped, so a file:line citation
+could never carry the condition), and a false positive the pin itself introduced,
+where appending a plainly-worded sibling bullet was swallowed by an extraction that
+ended only at a BOLD one. The second is worth naming: a verbatim pin converts every
+extraction-boundary bug into a failure on somebody else's unrelated edit, so the pin
+and the extraction have to be reviewed as one mechanism. Both sibling shapes are now
+regression rows asserting the guard stays QUIET.
+
+Round 6's third finding was against this filing's own arithmetic, which had gone
+stale across rounds — the counts here are now derived from the file rather than
+carried forward by hand.
 
 **Mechanizable:** the inversion class is now closed by construction (the verbatim
 pin), the exemption-claim axis is type-required (`pinnedBy`), the spec-derived
-registry catches a shape added to §4.6, and all twenty-five mutants five rounds
-produced are `OPERATORS` rows, so no repair can silently regress an earlier one. What
+registry catches a shape added to §4.6, and all thirty `OPERATORS` rows plus two
+false-positive rows — 34 cases — run on every suite, so no repair can silently
+regress an earlier one. What
 remains unmechanized is the authoring judgement — knowing to reach for a pin rather
 than a pattern list when the guard's subject is prose. That has no static signature;
 it belongs in `docs/agents/writing-plans.md` alongside the anti-tautology rule, and
 the paragraph above is written to be liftable there verbatim.
 
 **Infra:** the sandboxed reviewer could not start Vitest (`EPERM` creating its temp
-dir) in any of the three rounds and transpiled the exported pure checker in memory
+dir) in every one of the six rounds and transpiled the exported pure checker in memory
 instead. That worked only because the guard was authored as an exported pure function
 over text with the file-reading confined to two module-level constants. A guard
 written as a terminal script would have been unverifiable under the same sandbox — the

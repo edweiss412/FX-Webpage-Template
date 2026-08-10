@@ -132,13 +132,13 @@ const CLASSIFIED: Array<[string, Side]> = [
       pinnedBy: /over `tests\/` \+ `scripts\/`/,
     },
   ],
+  // The ENV GATE is the load-bearing part: without RUN_BUILD_ARTIFACT_GATE_TEST=1
+  // the suite is `describe.skipIf(!RUN)` and is an ordinary scoped vitest run
+  // that must NOT be wrapped. A file:line citation cannot carry that condition,
+  // which is what made the earlier `ignore` row wrong rather than merely loose.
   [
     "RUN_BUILD_ARTIFACT_GATE_TEST=1 pnpm vitest run tests/admin/build-artifact-gate.test.ts",
-    {
-      side: "ignore",
-      why: "the transitive member is pinned by its cited file:line instead",
-      pinnedBy: /tests\/admin\/build-artifact-gate\.test\.ts:73/,
-    },
+    { side: "must" },
   ],
   ["tests/admin/build-artifact-gate.test.ts:73", { side: "must" }],
   [
@@ -333,7 +333,12 @@ export function extractRule(agents: string): string | null {
   const start = agents.indexOf(RULE_OPENER);
   if (start === -1) return null;
   const rest = agents.slice(start + 1);
-  const next = rest.search(/\n- \*\*/);
+  // End at ANY sibling block that starts at column 0 — a bullet (bold or not), a
+  // heading, or a horizontal rule. Ending only at a BOLD bullet swallowed a
+  // plainly-worded sibling into the extraction, so appending an unrelated rule
+  // fired the verbatim pin against a bullet nobody had touched. The rule's own
+  // continuation paragraphs are indented, so they are never boundaries.
+  const next = rest.search(/\n(?:- |#{1,6} |-{3,}\s*$)/m);
   return next === -1 ? agents.slice(start) : agents.slice(start, start + 1 + next);
 }
 
@@ -587,6 +592,26 @@ describe("AGENTS.md heavy-phase rule", () => {
       ),
     ],
   ];
+
+  /**
+   * The rejection half. A guard that reds on an edit a human would call fine is a
+   * false positive, and a verbatim pin makes that failure mode cheap to hit: the
+   * first version ended the extraction only at a BOLD bullet, so appending a
+   * plainly-worded sibling swallowed it into the extraction and fired the pin
+   * against a bullet nobody had touched.
+   */
+  const SIBLINGS: Array<[string, string]> = [
+    ["a plainly-worded sibling bullet", "\n- A new valid cross-cutting rule.\n"],
+    ["a bold sibling bullet", "\n- **A new valid rule.** With a body.\n"],
+  ];
+
+  it.each(SIBLINGS)("stays quiet when %s is appended after the rule", (_label, sibling) => {
+    const rule = extractRule(LIVE);
+    premiseHolds("the live rule was located", rule !== null);
+    const withSibling = LIVE.replace(rule!, rule! + sibling);
+    premiseHolds("the sibling was actually appended", withSibling !== LIVE);
+    expect(checkHeavyPhaseRule(withSibling)).toEqual([]);
+  });
 
   it.each(OPERATORS)("rejects a mutant that would %s", (_label, mutate) => {
     const mutated = mutate(LIVE);
