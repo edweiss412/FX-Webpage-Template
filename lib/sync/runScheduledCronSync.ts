@@ -452,6 +452,10 @@ export type SyncLogEntry = {
   // (sync_log channel). Set ONLY for the applied outcome (the parser-owned codes + any sync-emitted
   // AGENDA_DAY_EMPTIED). insertSyncLog unions these alongside the per-outcome payload row.
   parseWarnings?: ParseResult["warnings"];
+  /** Wall-clock ms for the attempt. Absent for the §3.3.1 writers that own no
+   *  attempt boundary (run-level emits, webhook direct-error classes); the sink
+   *  binds `?? null` so absence persists as SQL NULL rather than throwing. */
+  durationMs?: number | null;
 };
 
 export type SyncPipelineTxBoundDeps = {

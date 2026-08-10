@@ -3,7 +3,8 @@ import { makePostgresSyncLogSink } from "@/lib/sync/syncLog";
 
 // Flow 6.2 §3.2: the cron sync_log sink must persist the applied-outcome parse
 // warnings that logSync threads into entry.parseWarnings (previously dropped by
-// warningsFor). parse_warnings is the LAST positional param of the insert.
+// warningsFor). parse_warnings is params[3]; duration_ms became the last param
+// when show attribution landed (2026-08-09), so `length - 1` no longer names it.
 describe("sync_log sink — parse-warnings persistence (flow 6.2 §3.2)", () => {
   test("applied entry appends parseWarnings after the payload row", async () => {
     const unsafe = vi.fn(async (_sql: string, _params?: unknown[]): Promise<unknown[]> => []);
@@ -19,7 +20,7 @@ describe("sync_log sink — parse-warnings persistence (flow 6.2 §3.2)", () => 
       parseWarnings,
     } as never);
     const params = unsafe.mock.calls[0]![1] as unknown[];
-    expect(params[params.length - 1]).toEqual([
+    expect(params[3]).toEqual([
       { kind: "delta", outcome: "applied", code: null },
       ...parseWarnings,
     ]);
@@ -35,7 +36,7 @@ describe("sync_log sink — parse-warnings persistence (flow 6.2 §3.2)", () => 
       payload: { kind: "watermark" },
     } as never);
     const params = unsafe.mock.calls[0]![1] as unknown[];
-    expect(params[params.length - 1]).toEqual([
+    expect(params[3]).toEqual([
       { kind: "watermark", outcome: "skipped", code: "WEBHOOK_NOOP_ALREADY_SYNCED" },
     ]);
   });
@@ -46,6 +47,6 @@ describe("sync_log sink — parse-warnings persistence (flow 6.2 §3.2)", () => 
     const parseWarnings = [{ code: "ROLE_TOKEN_AUTOCORRECTED", severity: "warn", message: "z" }];
     await sink({ driveFileId: "file-3", outcome: "applied", parseWarnings } as never);
     const params = unsafe.mock.calls[0]![1] as unknown[];
-    expect(params[params.length - 1]).toEqual([...parseWarnings]);
+    expect(params[3]).toEqual([...parseWarnings]);
   });
 });
