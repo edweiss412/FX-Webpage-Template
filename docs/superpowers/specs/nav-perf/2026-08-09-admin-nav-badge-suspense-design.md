@@ -61,6 +61,16 @@ Interleavings (each gets a test, AC-5):
 | seed resolves `infra_error` (bell) | `degraded: true`, `!` trigger — unchanged affordance |
 | seed never resolves (hung read) | pending shape persists; first pathname refetch repopulates; no wedge |
 
+### 3.2.1 Ratified amendment (implementation, 2026-08-10) — a non-virgin ATTENTION seed DEMOTES, it does not drop
+
+§3.2 above says a resolving seed is "DROPPED for the attention badge and DEMOTED to a fresh fetch for the bell." Implementation showed the attention half leaves the badge permanently stale, so both hooks now demote. **Where §3.2 and this section disagree, this section wins.**
+
+The rule was written against the mental model in which the synchronous prop still carries router.refresh's fresh value, with the seed as a mount-time extra. This design deletes that: the layout no longer passes `initialBadgeCount` at all, so the prop-sync path is DEAD on this surface and **every** router.refresh delivers its fresh count as a new seed promise — into a hook that has not been virgin since first paint. Dropping it means an admin who resolves an item watches the badge keep the page-load count until they navigate. That is the exact staleness the virgin-state rule exists to prevent, arrived at from the other direction.
+
+Demote-to-fetch satisfies both halves: the seed's own value is still NEVER painted directly (the anti-stale invariant is untouched), and the fetch it triggers is by construction newer than the seed, so freshness survives. It also makes the two hooks symmetric — the bell has always demoted — which §3.2's closing sentence already asks for ("a resolved promise value is processed by exactly the code path a synchronous prop change takes today").
+
+Cost: one extra client fetch per same-route refresh, the same cost the bell was already ratified to pay. Pinned by "router.refresh path: a seed arriving into a non-virgin hook REFETCHES rather than going stale" in `tests/components/admin/nav/badgeSeedInterleavings.test.tsx`.
+
 ### 3.3 What the user sees
 
 First `/admin` entry: nav chrome (links, health, avatar, bell button) paints without waiting on the two badge queries; the attention badge and bell count chip pop in when their reads land. Failure: the attention badge stays hidden (its ratified fail-quiet contract); the bell renders its existing degraded `!` trigger (its ratified contract — the two differ deliberately, R1 F3). No spinner anywhere.

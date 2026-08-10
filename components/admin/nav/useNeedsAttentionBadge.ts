@@ -62,32 +62,11 @@ export function useNeedsAttentionBadge(
     setCount(next);
   }, []);
 
-  useEffect(() => {
-    if (Object.is(initialBadgeCount, lastPropRef.current)) return; // mount or effect replay
-    lastPropRef.current = initialBadgeCount;
-    ingestPropValue(initialBadgeCount);
-  }, [initialBadgeCount, ingestPropValue]);
-
-  // Source 4: the streamed seed. Keyed on PROMISE IDENTITY — when a newer
-  // promise arrives (router.refresh re-renders the layout), this effect's
-  // cleanup invalidates the older subscription at that instant, so an older
-  // promise resolving later can never paint over the newer one's window.
-  useEffect(() => {
-    if (!seedPromise) return;
-    let current = true;
-    void seedPromise.then((value) => {
-      if (!current) return; // superseded by a newer promise
-      if (claimedRef.current) return; // non-virgin: DROP (fail-quiet D-4 posture)
-      ingestPropValue(value.kind === "ok" ? value.count : null);
-    });
-    return () => {
-      current = false;
-    };
-  }, [seedPromise, ingestPropValue]);
-
-  useEffect(() => {
-    if (pathname === lastPathRef.current) return; // initial mount: server prop is fresh
-    lastPathRef.current = pathname;
+  // Shared fetch core for source 3 (pathname) and for the seed DEMOTION below.
+  // Race-safe via the same monotonic token + abort pattern every source uses;
+  // any fault commits null (fail-quiet, ratified D-4 — the badge hides rather
+  // than showing a number it cannot stand behind).
+  const runFetch = useCallback((): (() => void) => {
     claimedRef.current = true; // claimed at INITIATION, not at commit — see the ref's comment
     tokenRef.current += 1;
     const token = tokenRef.current;
@@ -106,7 +85,47 @@ export function useNeedsAttentionBadge(
         if (tokenRef.current === token) setCount(null); // fail-quiet (ratified D-4)
       });
     return () => controller.abort();
-  }, [pathname]);
+  }, []);
+
+  useEffect(() => {
+    if (Object.is(initialBadgeCount, lastPropRef.current)) return; // mount or effect replay
+    lastPropRef.current = initialBadgeCount;
+    ingestPropValue(initialBadgeCount);
+  }, [initialBadgeCount, ingestPropValue]);
+
+  // Source 4: the streamed seed. Keyed on PROMISE IDENTITY — when a newer
+  // promise arrives (router.refresh re-renders the layout), this effect's
+  // cleanup invalidates the older subscription at that instant, so an older
+  // promise resolving later can never paint over the newer one's window.
+  useEffect(() => {
+    if (!seedPromise) return;
+    let current = true;
+    void seedPromise.then((value) => {
+      if (!current) return; // superseded by a newer promise
+      if (claimedRef.current) {
+        // Non-virgin: the seed is a snapshot of the instant the LAYOUT rendered,
+        // so it is stale by arrival and must never be painted directly. DEMOTE
+        // to a fresh fetch rather than dropping it — the layout no longer passes
+        // a synchronous count, so this promise IS the router.refresh path (an
+        // admin resolves an item, the tree re-renders, a new promise arrives).
+        // Dropping it would leave the badge on the page-load count forever,
+        // stale exactly when the number matters most. Mirrors the bell's
+        // long-standing post-zero demotion.
+        runFetch();
+        return;
+      }
+      ingestPropValue(value.kind === "ok" ? value.count : null);
+    });
+    return () => {
+      current = false;
+    };
+  }, [seedPromise, ingestPropValue, runFetch]);
+
+  useEffect(() => {
+    if (pathname === lastPathRef.current) return; // initial mount: server prop is fresh
+    lastPathRef.current = pathname;
+    return runFetch();
+  }, [pathname, runFetch]);
 
   return count;
 }

@@ -290,6 +290,32 @@ describe("useNeedsAttentionBadge — async seed arm (AC-3, AC-5)", () => {
     await waitFor(() => expect(probe.paints.at(-1)).toBe(7));
   });
 
+  // The layout stopped passing a synchronous count, so the prop-sync path that
+  // used to carry router.refresh's fresh value is dead on this surface: EVERY
+  // post-mutation refresh now arrives as a new seed promise, into a hook that is
+  // no longer virgin. Dropping it outright would leave the badge showing the
+  // count from page load — stale exactly when Doug resolves an item and looks at
+  // the badge to confirm it. Demote to a fresh fetch, as the bell already does:
+  // the seed's own value is still never painted, and freshness survives.
+  it("router.refresh path: a seed arriving into a non-virgin hook REFETCHES rather than going stale", async () => {
+    attentionCountsInOrder(2);
+    const first = deferred<NeedsAttentionCountResult>();
+    const probe = renderAttention(first.promise);
+    await settle(() => first.resolve({ kind: "ok", count: 5 }));
+    expect(probe.paints.at(-1)).toBe(5);
+
+    // router.refresh re-renders the layout: a NEW promise prop arrives, and the
+    // server has since dropped to 2.
+    const refreshed = deferred<NeedsAttentionCountResult>();
+    probe.rerender({ seed: refreshed.promise });
+    await settle(() => refreshed.resolve({ kind: "ok", count: 2 }));
+
+    // The refetch — not the seed value — is what lands.
+    await waitFor(() => expect(probe.paints.at(-1)).toBe(2));
+    const attentionFetches = fetchSpy.mock.calls.filter((c) => c[0] === ATTENTION_ENDPOINT);
+    expect(attentionFetches).toHaveLength(1);
+  });
+
   it("§3.7 compound: P1 resolves AFTER P2 arrives → P1 is ignored, only P2 reaches the hook", async () => {
     const p1 = deferred<NeedsAttentionCountResult>();
     const p2 = deferred<NeedsAttentionCountResult>();
