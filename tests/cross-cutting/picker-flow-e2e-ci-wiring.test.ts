@@ -24,8 +24,10 @@
  * carries a `PATH_GATED_BY_EXCLUSION` allowlist row that says what it actually is.
  * BL-RESURRECT-MOBILE-SAFARI-E2E closed 2026-08-09: crew-page.spec (mobile-safari
  * only) and the rewritten theme-toggle.spec are now wired here too, nine specs
- * were deleted as superseded, and right-now-transitions stays UNSEEN and
- * statically skipped under its own valve. What remains dark is the NON-mobile-safari
+ * were deleted as superseded. right-now-transitions followed 2026-08-10
+ * (M-wave 2 W-E2E): un-skipped, wired desktop-chromium-only (WebKit refuses the
+ * __Host- picker-bootstrap cookie over plain http), classified
+ * PATH_GATED_BY_EXCLUSION. What remains dark is the NON-mobile-safari
  * residual of BL-E2E-APP-DEPENDENT-SPECS-CI-DARK.
  */
 import { execFileSync } from "node:child_process";
@@ -163,6 +165,10 @@ const EXPECTED_SKIPS: Record<string, string[]> = {
     "Admin Reset + Rotate flow: changing the share-token invalidates the old URL and the new URL works",
   ],
   "tests/e2e/stage-restricted-crew-schedule.spec.ts": [],
+  // Wired 2026-08-10 (M-wave 2 W-E2E): the §5.7 anchor pair + restricted-viewer
+  // recovery run un-skipped on desktop-chromium alone (the spec header records
+  // the measured WebKit __Host- envelope constraint). Skips nothing.
+  "tests/e2e/right-now-transitions.spec.ts": [],
   // Wired 2026-08-09 (BL-RESURRECT-MOBILE-SAFARI-E2E). Rows are EXPLICIT — an
   // empty array is a claim ("this spec skips nothing"), and the ENROLLED
   // membership assertion below refuses a missing row rather than defaulting it.
@@ -269,6 +275,7 @@ const ENROLLED = [
   "tests/e2e/stage-restricted-crew-schedule.spec.ts",
   "tests/e2e/crew-page.spec.ts",
   "tests/e2e/theme-toggle.spec.ts",
+  "tests/e2e/right-now-transitions.spec.ts",
 ] as const;
 
 const EXEMPT: Record<string, string> = {
