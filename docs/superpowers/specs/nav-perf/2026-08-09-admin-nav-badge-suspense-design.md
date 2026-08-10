@@ -45,7 +45,7 @@ const attentionCountPromise = loadNeedsAttentionCount().catch(() => ({ kind: "in
 `AdminNav` and `NotifBell` mount IMMEDIATELY — nothing suspends, no Suspense boundary exists on this surface. Each hook gains an async-seed arm:
 
 - On mount, state is the pending shape: attention count `null` (chip hidden by the existing finite-gt-0 gate), bell count `null` + `degraded: false` (bell button renders, no chip, no `!`).
-- An effect subscribes: `promise.then((initial) => commitIfCurrent(initial))` where `commitIfCurrent` goes through the hook's EXISTING monotonic token — the seed commit applies only if no later commit source (pathname refetch, `zeroNow()`, panel `onOpened` refetch, prop-sync) has bumped the token since mount. A late-resolving seed LOSES to every newer commit (R1 F2's clobber direction).
+- An effect subscribes: `promise.then((value) => ingestPropValue(value))` where `ingestPropValue` is the hook's EXISTING synchronous prop-ingestion path — NOT a new commit source (spec R2 F1). For the attention badge that path commits directly through the monotonic token; for the bell it carries the pinned post-zero demotion: after `zeroNow()` has fired, a prop-delivered value is NEVER committed directly but demoted to a fresh fetch (`useBellBadge.ts` post-zero contract, pinned by `useBellBadge.test.tsx`), so a refresh-cycle promise resolving with a pre-open count cannot resurrect it. A late-resolving seed additionally LOSES to every newer commit via the token (R1 F2's clobber direction). One rule, stated once: a resolved promise value is processed by exactly the code path a synchronous prop change takes today — any future prop-handling nuance carries over automatically.
 - All downstream consumers — the bell trigger branch, count-aware `aria-label`s (including the parent link's in `AdminNav`), `zeroNow()`'s synchronous zero, `pingSignal`, the panel's `onOpened` refetch — keep reading hook state exactly where they read it today. The pending window is observationally "count unknown", which every existing render gate already handles.
 - Bell `infra_error` resolution commits `degraded: true` → the existing catalog-derived `!` trigger renders exactly as today (R1 F3 — the bell's degraded affordance is pinned by `notifBell.test.tsx` / `AdminNav.test.tsx` and is PRESERVED; fail-quiet-hidden is the ATTENTION badge's ratified contract only).
 
@@ -89,7 +89,8 @@ Attention chip states: pending (null, hidden), hidden (resolved 0 or infra_error
 | visible to hidden (refetch lands 0 / fail-quiet null) | instant, existing hook behavior, unchanged |
 | hidden to visible (refetch lands > 0) | instant, existing hook behavior, unchanged |
 | compound: pathname refetch fires while the seed promise is still pending | fully specified in the §3.2 interleaving table: the refetch commits and bumps the token; the late seed is discarded; asserted in AC-5's integration tests |
-| compound: layout re-render mid-stream (router.refresh) | new promise props arrive; the seed arm re-subscribes with a fresh token check; identical decision rule as first load |
+| compound: layout re-render mid-stream (router.refresh) | new promise props arrive; the seed arm re-subscribes; each resolution is processed by the hook's existing prop-ingestion path (bell: post-zero demotion applies) |
+| compound: refresh promise pending, bell opened + zeroed, restoring fetch commits 0, THEN refresh promise resolves with the pre-open count | the resolved value is DEMOTED to a fresh fetch by the bell's post-zero prop contract — the stale pre-open count is never painted (spec R2 F1; test required, AC-5) |
 
 ## §4 Acceptance criteria
 
@@ -97,7 +98,7 @@ Attention chip states: pending (null, hidden), hidden (resolved 0 or infra_error
 - **AC-2** `/admin` layout render does not await either badge loader (source-scan: no `await` on the two call expressions; behavioral: chrome testids present before slow-loader resolution in the spike-derived e2e or RTL-with-suspended-promise test).
 - **AC-3** Attention chip renders post-seed with correct count, "9+" cap, hidden on `infra_error` and on 0 — the existing render-gate tests keep passing unmodified.
 - **AC-4** Bell button paints without the count; count chip arrives on seed resolution; `infra_error` seed renders the existing degraded `!` trigger; `zeroNow()`, `pingSignal`, and panel `onOpened` refetch behave byte-identically to today (existing `notifBell.test.tsx` contract tests keep passing unmodified).
-- **AC-5** Every §3.2 interleaving row has a test: seed-then-navigate, navigate-then-seed (late seed discarded), zeroNow-before-seed (late seed discarded), infra_error seed (bell degraded), hung seed (pathname refetch repopulates). Existing pathname-refetch tests keep passing unmodified.
+- **AC-5** Every §3.2/§3.7 interleaving row has a test: seed-then-navigate, navigate-then-seed (late seed discarded), zeroNow-before-seed (late seed discarded), infra_error seed (bell degraded), hung seed (pathname refetch repopulates), AND refresh-promise-resolves-after-zeroNow (value demoted to fresh fetch, stale pre-open count never painted). Existing pathname-refetch and post-zero-demotion tests keep passing unmodified.
 - **AC-6** No raw error codes in UI (invariant 5): attention failure renders nothing (D-4 fail-quiet); bell failure renders the existing catalog-derived degraded trigger — both ratified contracts, unchanged.
 - **AC-7** Impeccable dual-gate on the diff (UI surface); `impeccable-gate:` marker in closeout.
 - **AC-8** Full suite + real CI green; cross-model whole-diff review APPROVE.
