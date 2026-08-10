@@ -587,7 +587,15 @@ describe("the real git adapter and the JSON envelope (whole-diff F3/F9)", () => 
     expect(Array.isArray(payload.claims)).toBe(true);
     // A healthy-empty run and a degraded run must be distinguishable.
     expect(payload.degraded).toContain("no-fetch-cached-refs");
-  });
+    // 120 s explicit, against a 30 s default that sat BELOW the 90 s budget this
+    // test grants its own child. A cold tsx spawn measured 20.5 s idle and 55 s
+    // under load; inside the mutation harness's per-mutant child runs, the
+    // 30 s cap flaked, the child exited 1, and the runner scored the mutant
+    // KILLED -- which read every ledgerGit accepted row as stale at once (all
+    // twelve, including the three timeout constants no test can kill) on the
+    // 2026-08-09 PR run of the nightly gate. A test must not time out before
+    // the child it is waiting on.
+  }, 120_000);
 
   it("resolves every claim past the display limit at the core", () => {
     // M8, half one: the cap is a display concern, and a machine consumer given a
