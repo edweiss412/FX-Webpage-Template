@@ -6171,3 +6171,70 @@ This is the dark-spec class already recorded for this repo (`feedback_dark_spec_
 > bound instead of an 11-minute job on every admin PR. NOT a required context: a path-filtered
 > job is absent on non-matching PRs, and required-but-skipped contexts wedge merges. The
 > `_metaE2eWorkflowCoverage` allowlist row is rewritten to cite this ratification.
+
+---
+
+## BL-CREW-FOOTER-OBSCURED-BY-FIXED-BOTTOM-BAR — the mobile bottom tab-bar covers the crew footer — CLOSED 2026-08-10 (`feat/crew-chrome-footer-avatar`)
+
+**Status:** CLOSED · **Severity:** MEDIUM (real, reachable on every crew page at mobile widths; the obscured controls are the theme toggle and the report button) · **Class:** product layout defect · **Filed:** 2026-08-09 (surfaced rewriting `theme-toggle.spec.ts`, `BL-RESURRECT-MOBILE-SAFARI-E2E`) · **Effort:** S
+
+**Probed, not theorized** (seeded crew route, mobile-safari, 390x844, scrolled fully to the bottom):
+
+```
+toggle  top 775.6  bottom 819.6  (44x44)
+bar     top 790.7  bottom 844    (height 53.3)   overlaps: true
+footer  top 637.0  bottom 843.6
+document.elementFromPoint(toggle centre) -> the BAR's <svg>
+getComputedStyle(document.body).paddingBottom -> "0px"
+```
+
+The crew sub-nav's fixed bottom bar (`min-[720px]:hidden fixed inset-x-0 bottom-0 z-10`,
+`components/crew/CrewSubNav.tsx:155`) sits over the last ~53px of the footer, and nothing pads the
+page to clear it. The toggle's centre point belongs to the nav bar, so Playwright refuses the click
+with "intercepts pointer events" — and a real thumb lands on the nav tab, not the toggle. Only a
+~15px sliver of the toggle is reachable.
+
+**Why it was invisible until now:** every spec that touched the footer at mobile width was
+`test.describe.skip` against a 404ing route. `crew-page.spec.ts`'s inv8 asserts that the last SECTION
+block clears the fixed bar; the FOOTER is outside `page-container` and no invariant covered it.
+
+**Not fixed in-arc** — exception (a): how the footer should clear the mobile bar (page padding vs
+moving the toggle into the sub-nav vs hiding the footer chrome behind the bar) is a design call this
+arc does not settle. `tests/e2e/theme-toggle.spec.ts` therefore drives its interaction cases at 760px,
+where the bar does not render (`min-[720px]:hidden`), and still asserts the 44px tap floor at 390px.
+
+**Probably one fix with [[BL-CREW-FOOTER-NOT-ANCHORED-SHORT-CONTENT]]:** both symptoms point at
+`crew-shell` being a plain block that breaks the `page-shell` flex chain the footer is written for.
+
+---
+
+## BL-CREW-FOOTER-NOT-ANCHORED-SHORT-CONTENT — `mt-auto` on the crew footer is inert, so a short page leaves it mid-viewport — CLOSED 2026-08-10 (`feat/crew-chrome-footer-avatar`)
+
+**Status:** CLOSED · **Severity:** LOW (no seeded show currently renders a short enough page; reachable when one does) · **Class:** product layout defect · **Filed:** 2026-08-09 (`BL-RESURRECT-MOBILE-SAFARI-E2E` Task 7 probe) · **Effort:** S
+
+**Probed, not theorized** (seeded crew route, mobile-safari, 390x844):
+
+```
+topology  page-shell (display:flex, flex-direction:column)
+            > crew-shell (display:block)          <- breaks the flex chain
+              > page-footer (class mt-auto)
+getComputedStyle(page-footer).marginTop -> "0px"   <- mt-auto resolves to ZERO
+
+every seeded section is taller than the viewport, so the case never occurs on this seed:
+  today 1985 · venue 1539 · travel 1459 · gear 1391 · crew 1329 · schedule 1083   (viewport 844)
+
+constructed short case (section body collapsed; docH 844 == viewport):
+  footer top 135.9  bottom 342.5   gapBelowFooter 501.5px
+```
+
+`mt-auto` only pushes an element when its PARENT is a flex container. The footer's parent is
+`crew-shell`, a plain block, so the declaration does nothing and the footer sits in natural flow. On a
+page shorter than the viewport it floats mid-screen with dead space beneath it.
+
+**Consequence today is nil and the signal is surfaced, not silent** — no seeded show is short enough
+to hit it, which is exactly why the residue test the spec proposed (§3.3.2) was NOT landed: it would
+have been red on arrival against the current tree. Filed under exception (a) rather than fixed: making
+`crew-shell` participate in the flex chain is a layout change to a shipped surface, and it would
+trigger the invariant-8 impeccable dual gate.
+
+**Probably one fix with [[BL-CREW-FOOTER-OBSCURED-BY-FIXED-BOTTOM-BAR]]** — same broken flex chain.
