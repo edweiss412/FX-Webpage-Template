@@ -2,6 +2,7 @@
 
 import { type ReactElement, useEffect, useState } from "react";
 import { MapPin, Navigation } from "lucide-react";
+import { cn } from "@/lib/ui/cn";
 
 /** Read the pre-hydration-stamped theme (app/layout.tsx NO_FOUC_SCRIPT →
  * document.documentElement.dataset.theme; same read as ThemeToggle.tsx:69). */
@@ -128,7 +129,7 @@ export function VenueMapTile({
     </>
   );
 
-  const common = "relative block h-full min-h-tile-min-h w-full overflow-hidden";
+  const common = cn("relative block size-full min-h-tile-min-h overflow-hidden");
   return mapHref ? (
     <a
       data-testid="venue-map-tile"

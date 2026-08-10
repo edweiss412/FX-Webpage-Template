@@ -37,6 +37,7 @@
  * Server Component (no `'use client'`) — props in, markup out.
  */
 import type { KeyTimeAnchors } from "@/lib/crew/resolveKeyTimes";
+import { cn } from "@/lib/ui/cn";
 
 type KeyTimesStripProps = {
   anchors: KeyTimeAnchors;
@@ -141,7 +142,7 @@ export function KeyTimesStrip({ anchors, layout = "stack" }: KeyTimesStripProps)
   // The overflow disclosure is a vertical list regardless of the outer posture,
   // so its disclosed rows always use the STACK row shape (never the row-layout
   // `min-[720px]:flex-col` column form, which is meant for the equal-width strip).
-  const stackAnchorClass = "flex items-baseline justify-between gap-3";
+  const stackAnchorClass = cn("flex items-baseline justify-between gap-3");
 
   return (
     <dl data-testid="key-times-strip" data-layout={layout} className={containerClass}>

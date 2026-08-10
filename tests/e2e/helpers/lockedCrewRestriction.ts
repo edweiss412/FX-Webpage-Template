@@ -45,12 +45,33 @@
  */
 import { execFileSync } from "node:child_process";
 
-// Same databaseUrl resolution as supabase/seedWalkerFixtures.ts:25-28 /
-// supabase/seed.ts:11-13 — psql is the locked-fixture transport for both.
-const databaseUrl =
-  process.env.TEST_DATABASE_URL ??
-  process.env.DATABASE_URL ??
-  "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+import { psqlChildEnv, resolvePsqlTarget } from "./psqlTarget";
+
+/**
+ * The psql target, resolved at CALL time through the shared resolver.
+ *
+ * It was a module constant reading `TEST_DATABASE_URL ?? DATABASE_URL ?? local
+ * default`, and that is BL-LOCKED-FIXTURE-HELPER-TARGETS-REMOTE-DB: the
+ * canonical `.env.local` points `TEST_DATABASE_URL` at the validation pooler,
+ * so a local run resolved the crew id against the loopback stack (where the
+ * suite's PostgREST admin client reads) and sent the UPDATE to the SHARED
+ * validation project — order-dependently, because module-load capture lets
+ * import order decide the target.
+ *
+ * `TEST_DATABASE_URL` is still READ, deliberately rather than ignored: the
+ * resolver has to SEE the variable that caused the defect in order to refuse it
+ * by name. A non-loopback value now throws naming the host, the channel that
+ * supplied it, and the `LOCKED_FIXTURE_ALLOW_REMOTE=1` opt-in — in place of the
+ * old symptom, a no-rows error suggesting `pnpm db:seed`, which named the wrong
+ * cause entirely.
+ */
+function psqlTarget(): string {
+  return resolvePsqlTarget({
+    caller: "lockedCrewRestriction",
+    envVars: ["TEST_DATABASE_URL", "DATABASE_URL"],
+    honorRemoteOptIn: true,
+  });
+}
 
 function sqlString(value: string): string {
   return `'${value.replaceAll("'", "''")}'`;
@@ -83,11 +104,19 @@ function runLockedCrewUpdate(driveFileId: string, crewId: string, setClause: str
     returning id;
     commit;
   `;
+  // Resolved HERE, at the spawn, not at import — and refusing before it runs, so
+  // a mistargeted DSN never reaches a database at all.
+  const dsn = psqlTarget();
   let stdout: string;
   try {
-    stdout = execFileSync("psql", ["-X", "-v", "ON_ERROR_STOP=1", "-At", databaseUrl], {
+    stdout = execFileSync("psql", ["-X", "-v", "ON_ERROR_STOP=1", "-At", dsn], {
       input: sql,
       encoding: "utf8",
+      // NOT the ambient environment: PG* variables retarget libpq behind a
+      // validated DSN (a live probe reached 192.0.2.2 via PGHOSTADDR), and
+      // PGSERVICEFILE is repointed rather than merely stripped, because
+      // stripping it restores the ~/.pg_service.conf fallback.
+      env: psqlChildEnv({ honorRemoteOptIn: true }),
     });
   } catch (err) {
     throw new Error(
