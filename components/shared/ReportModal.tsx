@@ -279,6 +279,24 @@ export function ReportModal(props: ReportModalProps) {
   // Persist on every state change. The `surfaceId !== persisted.surfaceId`
   // mismatch is impossible by construction (we key by surfaceId); the
   // guard is defense-in-depth against future refactor.
+  // A submission outlives the component that started it: the parent may unmount
+  // this modal (a keyed remount on /help/errors, an ordinary close) while the
+  // POST is still in flight. The detached attempt must go INERT rather than
+  // reach back into shared state — clearing sessionStorage from a component
+  // nobody can see wipes the idempotency key out from under whatever mounted in
+  // its place, and the next open mints a fresh key that files a second issue
+  // for the same report. Leaving the persisted row alone keeps the ORIGINAL
+  // key, so a resumed attempt lands on the server's idempotency path and
+  // returns duplicate/recovered instead of creating a duplicate. Conservative
+  // and visible (the resume banner), never silent.
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
   useEffect(() => {
     // Don't persist terminal states — they're cleared on transition.
     if (status === "succeeded" || status === "expired") return;
@@ -351,6 +369,8 @@ export function ReportModal(props: ReportModalProps) {
         signal: controller.signal,
       });
       clearTimeout(timeoutId);
+      // Detached mid-flight: leave every shared surface untouched.
+      if (!mountedRef.current) return;
       let parsed: { ok?: boolean; code?: string; status?: string; github_issue_url?: string } = {};
       try {
         parsed = (await response.json()) as typeof parsed;
@@ -397,6 +417,7 @@ export function ReportModal(props: ReportModalProps) {
       }
     } catch {
       clearTimeout(timeoutId);
+      if (!mountedRef.current) return;
       setStatus("failed-retryable");
       setError({ kind: "network" });
     }

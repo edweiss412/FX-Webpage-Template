@@ -1019,6 +1019,58 @@ describe("G. help surface (spec §2.2)", () => {
     );
   });
 
+  test("a submission that outlives its modal leaves the attempt row intact", async () => {
+    // Diff review R3 F1: the parent can unmount this modal while the POST is in
+    // flight (the keyed remount on /help/errors, or an ordinary close). If the
+    // detached attempt still ran its terminal branch it would clear the scope
+    // key, and the next open would mint a FRESH idempotency key -- a second
+    // GitHub issue for one report, with Doug never seeing the first succeed.
+    let resolveFetch: (r: Response) => void = () => {};
+    fetchMock.mockImplementationOnce(
+      () => new Promise<Response>((resolve) => (resolveFetch = resolve)),
+    );
+    const { getByTestId, unmount } = render(
+      <ReportModal {...defaultProps({ surface: "help", showId: null })} />,
+    );
+    fireEvent.change(getByTestId("report-modal-textarea"), { target: { value: "in flight" } });
+    fireEvent.click(getByTestId("report-modal-submit"));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+
+    const persistedBefore = JSON.parse(sessionStorage.getItem(STORAGE_KEY)!);
+    expect(persistedBefore.idempotencyKey).toBe(uuids[0]);
+
+    unmount();
+    await act(async () => {
+      resolveFetch(jsonResponse(201, { ok: true, status: "created" }));
+      await Promise.resolve();
+    });
+
+    const persistedAfter = sessionStorage.getItem(STORAGE_KEY);
+    expect(persistedAfter, "a detached attempt must not clear the live scope").not.toBeNull();
+    expect(JSON.parse(persistedAfter!).idempotencyKey).toBe(uuids[0]);
+    expect(JSON.parse(persistedAfter!).draft).toBe("in flight");
+  });
+
+  test("a detached attempt does not clear the scope on the expired branch either", async () => {
+    let resolveFetch: (r: Response) => void = () => {};
+    fetchMock.mockImplementationOnce(
+      () => new Promise<Response>((resolve) => (resolveFetch = resolve)),
+    );
+    const { getByTestId, unmount } = render(
+      <ReportModal {...defaultProps({ surface: "help", showId: null })} />,
+    );
+    fireEvent.change(getByTestId("report-modal-textarea"), { target: { value: "in flight" } });
+    fireEvent.click(getByTestId("report-modal-submit"));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    unmount();
+    await act(async () => {
+      resolveFetch(jsonResponse(410, { ok: false, code: "REPORT_HORIZON_EXPIRED" }));
+      await Promise.resolve();
+    });
+    // The other terminal branch clears the same scope; both are guarded.
+    expect(sessionStorage.getItem(STORAGE_KEY)).not.toBeNull();
+  });
+
   // Spec §3 test 5b. NOT a live baseline RED (plan R5 F2): today's
   // copyForCode sends a runtime "help" down its crew arm and renders the
   // same string by coincidence. Its stated failure mode is a PARTIAL
