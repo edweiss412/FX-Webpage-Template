@@ -17,7 +17,7 @@
 
 ## Meta-test inventory (mandatory declaration)
 
-- CREATES: none. EXTENDS: none. No Supabase call boundary, advisory lock, admin alert, or tile surface is touched. Executable proof for the wrapper is its own process-spawning suite (spec §7). `tests/docs/_metaInvariant8Closeout.test.ts` satisfied by the §12 marker below; `tests/docs/specsReadmeIndexParity.test.ts` green at spec commit (root-level spec, no row required — verified by running it).
+- CREATES: tests/docs/agentsHeavyPhaseRule.test.ts (Task 5 — pins the new AGENTS.md bullet's load-bearing anchors; plan R2 F2). EXTENDS: none. No Supabase call boundary, advisory lock, admin alert, or tile surface is touched. Executable proof for the wrapper is its own process-spawning suite (spec §7). `tests/docs/_metaInvariant8Closeout.test.ts` satisfied by the §12 marker below; `tests/docs/specsReadmeIndexParity.test.ts` green at spec commit (root-level spec, no row required — verified by running it).
 - Mutation-family closure: N/A — Python CLI, process-lifecycle defect class; the source-mutation registry overlays vitest-imported TS modules and cannot express it (step3-a11y precedent, spec §1.1). Defect classes are the spec §7 case list; a reviewer-proposed NEW class needs a live demonstration against the shipped wrapper.
 
 ## e2e harness-readiness: N/A — no Playwright attached; all tests are vitest + child_process.
@@ -49,7 +49,7 @@ Shared test scaffolding (anti-tautology): every case builds its OWN `mkdtemp` sl
 
 RED: create tests/scripts/withHeavySlot.test.ts implementing spec §7 cases 1-4 exactly as specified (premise-carrying overlap oracle, jitter-aware crash-release bound, exit-code/argv transparency, descendant lock-lifetime pin — case 4 moved here from Task 2 because the behavior it pins is emergent from this task's execvp+spawn semantics, plan R1 F1). Fails: scripts/with-heavy-slot.py does not exist.
 
-GREEN — MINIMAL for cases 1-4 only (plan R1 F1: nothing tested by a later case lands here): dir bootstrap, minimal config create/adopt (enough for the scan to know N; the full atomic-publication protocol with its discriminator lines is Task 3's, where case 9 tests it), acquire scan with `O_CREAT`, wait loop with basic warn cadence, `acquired slot-<i>` line, `os.set_inheritable` + `os.execvp`. NO metadata content/redaction (Task 2, case 7), NO SH bracket (Task 3, case 13), NO post-acquire validation (Task 3, cases 9/11), NO priority or reentrancy (Task 4). Stdlib only.
+GREEN — MINIMAL for cases 1-4 only (plan R1 F1: nothing tested by a later case lands here): dir bootstrap, minimal config create/adopt (enough for the scan to know N; the full atomic-publication protocol with its discriminator lines is Task 3's, where case 9 tests it), acquire scan with `O_CREAT`, wait loop (sleep+retry ONLY — the warn cadence and holder-naming lines are Task 2's, where case 7 first asserts them; plan R2 F1), `acquired slot-<i>` line, `os.set_inheritable` + `os.execvp`. NO metadata content/redaction (Task 2, case 7), NO SH bracket (Task 3, case 13), NO post-acquire validation (Task 3, cases 9/11), NO priority or reentrancy (Task 4). Stdlib only.
 
 Commit: `feat(infra): heavy-phase slot wrapper core (mutual exclusion, crash-safe)`
 
@@ -87,7 +87,7 @@ Commit: `feat(infra): heavy-slot priority bias and outermost-owns reentrancy`
 
 <!-- task: red=`pnpm vitest run tests/scripts/withHeavySlot.test.ts` ac=AC-10 -->
 
-RED: add spec §7 case 10 (fails: no `heavy` script in package.json).
+RED: add spec §7 case 10 (fails: no `heavy` script in package.json) AND create tests/docs/agentsHeavyPhaseRule.test.ts asserting the AGENTS.md bullet exists with its load-bearing anchors — `pnpm heavy`, the FX_HEAVY_PRIORITY closeout convention, the never-set-FX_HEAVY_SLOT_DIR rule, both named transitive-shape members, and the --recreate-only capacity rule (fails pre-edit; closes plan R2 F2 — the existing marker-contract meta-test deliberately cannot see this bullet).
 
 GREEN: add `"heavy": "python3 scripts/with-heavy-slot.py --"` to root package.json; append the AGENTS.md cross-cutting bullet per spec §5 — mechanism, §4.6 MUST/MUST-NOT shapes INCLUDING the transitive-shape rule and its two named members, FX_HEAVY_PRIORITY closeout convention, never-set-FX_HEAVY_SLOT_DIR rule, dev-server instruction, --recreate-only capacity changes, spec citation.
 
@@ -101,8 +101,8 @@ Commit: `feat(infra): pnpm heavy entry point + AGENTS.md heavy-phase rule`
 
 (Gate-command validity: probed against constructed failing state — exits 1 on a branch without Task 5's commit, 0 after; anchors ordering, not a test file.)
 
-- Full local gates, wrapper dogfooded: `pnpm heavy pnpm test`, `pnpm typecheck` (vitest AND playwright tsconfigs), `pnpm exec eslint .`, `pnpm format:check`.
-- Round-economy filing FIRST (plan R1 F3 — the merged tree IS the closeout artifact; nothing tracked mutates post-merge): every review round's corpus row and any threshold-owed filing section commits with that round's repair, and the final filing state is part of the diff the last review round examines.
+- Full local gates, wrapper dogfooded INCLUDING the closeout-priority convention it ships (plan R2 F3): `FX_HEAVY_PRIORITY=1 pnpm heavy pnpm test`, `pnpm typecheck` (vitest AND playwright tsconfigs), `pnpm exec eslint .`, `pnpm format:check`.
+- Round-economy filing (plan R1 F3, sequencing per plan R2 F4): every NON-approving round's corpus row and any threshold-owed filing section commits with that round's repair, inside later-reviewed diffs. The APPROVING round's own corpus row cannot be inside the diff it reviewed (the wrapper writes it after the verdict) — it lands as an explicit post-APPROVE process-record commit BEFORE push/merge, and its confinement is checked executably: `git diff --name-only <approved-sha>..HEAD` must list only `docs/review-rounds/**` paths, else the diff changed and the review is re-run.
 - Whole-diff codex-guard review (stage diff) to APPROVE; push; PR; real CI green (`gh pr checks --required`); `gh pr merge --merge` same turn; ff-sync `0 0`; Stage 4.4 (pane+agent labels cleared, nudge CronDelete).
 - Ledger: no BL-/DEF- rows exist for this arc — nothing to mark or archive.
 
