@@ -168,10 +168,18 @@ describe("popover placement consumers read the visible viewport, not the layout 
     expect(MAY_MATCH.test("const w = window/* gap */.innerWidth;")).toBe(true);
   });
 
-  it("discovers EXACTLY the two known consumers", { timeout: 60_000 }, () => {
+  it("discovers EXACTLY the three known consumers", { timeout: 60_000 }, () => {
     const rels = consumers.map((f) => relative(REPO_ROOT, f)).sort();
     expect(rels).toEqual(
-      ["components/admin/HoverHelp.tsx", "components/admin/showpage/ShareHub.tsx"].sort(),
+      [
+        "components/admin/HoverHelp.tsx",
+        "components/admin/showpage/ShareHub.tsx",
+        // admin-dashboard-row-actions: the dashboard row menu's anchored portal
+        // composes the same placement core, so it is subject to the same
+        // visible-viewport contract — and joins this fail-by-default registry
+        // rather than being exempted from it.
+        "components/admin/AnchoredPortal.tsx",
+      ].sort(),
     );
   });
 
