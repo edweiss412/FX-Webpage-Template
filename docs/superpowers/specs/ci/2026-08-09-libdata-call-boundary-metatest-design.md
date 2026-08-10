@@ -50,10 +50,10 @@ New file `tests/data/_metaLibDataCallBoundary.test.ts` (name mirrors `_metaInfra
 ### 3.2 Scanner
 
 ```ts
-const SUPABASE_CALL_RE = /\.(from|rpc)\(\s*["']([^"']+)["']/g;
+const SUPABASE_CALL_RE = /\.(from|rpc)\(\s*(["'`])([^"'`$]+)\2/g;
 ```
 
-applied to `stripCommentsForFile(source, file)` output (`tests/_shared/stripComments.ts`). The scanner does not merely detect — it EXTRACTS, per file, the ordered list of `{ kind: "from" | "rpc", literal }` sites (capture groups 1 and 2), which Layer 2 reconciles against the registry. The string-literal first-argument anchor is the discriminator: it matches every real Supabase builder/RPC call (all 17 current sites name their table/function as a string literal) and rejects the two known non-Supabase shapes in the corpus — `Array.from(` (`lib/data/normalizeDateRestriction.ts`, `const years = Array.from(`) takes no string literal, and the prose mention of `.from()` in the `adminEmails.ts` `runAdminEmailWrite` doc comment is stripped before scanning. Calibration: §4.
+applied to `stripCommentsForFile(source, file)` output (`tests/_shared/stripComments.ts`). The scanner does not merely detect — it EXTRACTS, per file, the ordered list of `{ kind: "from" | "rpc", literal }` sites (capture groups 1 and 3; group 2 is the quote character, backreferenced so quotes cannot mismatch), which Layer 2 reconciles against the registry. The quote class includes the backtick: a NO-SUBSTITUTION template literal (`` .from(`shows`) ``) is an ordinary string argument that Prettier leaves unchanged, so it must be visible to every layer (spec R2 F2); the `$`-exclusion in the literal class keeps substitution templates (`` .from(`${t}`) ``) out — those are dynamic names and fall under §6.1. The string-literal first-argument anchor is the discriminator: it matches every real Supabase builder/RPC call (all 17 current sites name their table/function as a string literal) and rejects the two known non-Supabase shapes in the corpus — `Array.from(` (`lib/data/normalizeDateRestriction.ts`, `const years = Array.from(`) takes no string literal, and the prose mention of `.from()` in the `adminEmails.ts` `runAdminEmailWrite` doc comment is stripped before scanning. Calibration: §4.
 
 ### 3.3 Orphan scan (Layer 1)
 
@@ -74,19 +74,25 @@ Failure message names the file and the three discharge paths (mirrors the auth t
 
 ```ts
 type SiteRow = { kind: "from" | "rpc"; literal: string } & (
-  | { pin: RegExp | RegExp[] }              // shape pin(s), asserted against the file's stripped source
-  | { coveredBy: string[] }                 // behavioral discharge: covering-suite paths
+  | { pin: [RegExp, ...RegExp[]] }                    // shape pin(s), asserted against the file's stripped source
+  | { coveredBy: [string, ...string[]]; via: string } // behavioral discharge: covering-suite paths + exported wrapper symbol
 );
 ```
+
+**Row validation (runtime, mirroring `validateSurface` in `tests/mutation/source/registry.ts` — the authoring-time half of the anti-vacuity defence; the non-empty tuple types are the compile-time half, and both exist because a cast defeats either alone):** a `validateRows()` pass runs FIRST in the suite and fails with a named problem list when any row violates:
+
+1. `pin` and `coveredBy` are non-empty (spec R2 F3: an empty array discharges vacuously — `[].every(...)` is `true`);
+2. **literal coupling** — at least one `pin` element's `source` contains the row's `literal` (spec R2 F4: without this, copying an existing site's pin into a new row silently discharges an unchecked call; a copied `shows` pin cannot contain `new_table`);
+3. for `coveredBy` rows: `via` names a symbol exported by the scanned source file (source contains `function <via>` / `export const <via>`), and EACH cited suite contains the row's `literal` OR its `via` — because a suite that mocks at the client boundary never mentions the table literal (spec R2 F1: `tests/data/adminEmails.test.ts` contains `listAdminEmails` 7 times but `admin_emails` zero times; the literal-only check could never be green there).
 
 Registry contents (all 17 sites; the plan enumerates the exact pin regexes, typechecked):
 
 - `lib/data/listShowsForCrew.ts` — 2 pin rows: `/const\s+\{\s*data:\s*tokens,\s*error:\s*tokenErr\s*\}\s*=\s*await\s+supabase\.rpc\("my_share_tokens_for_email"\)/` plus the `if (tokenErr)` throw pin; the matching `{ data: shows, error: showErr }` + `if (showErr)` pins for the `.from("shows")` read.
 - `lib/data/loadShowShareToken.ts` — 1 pin row: the try/catch wrap around `supabase.rpc("admin_read_share_token"` and the `const { data, error } = result` + `if (error)` pins.
 - `lib/data/getShowForViewer.ts` — 10 pin rows: per-site result-object pins — `.from("hotel_reservations")` read into `hotelRes` with `hotelRes.error` checked; same shape for `showRes`, `roomRes`, `contactsRes`, the two `crew_members` reads, the two `shows_internal` reads, `transportation`, and the `viewer_version_token` RPC (`versionRpc`).
-- `lib/data/adminEmails.ts` — 4 `coveredBy` rows: the `admin_emails` / `upsert_admin_email_rpc` / `revoke_admin_email_rpc` sites cite `tests/data/adminEmails.test.ts`; the `set_admin_developer_rpc` site cites `tests/data/setAdminDeveloper.test.ts` (spec R1 F3 — it is the only suite exercising that site).
+- `lib/data/adminEmails.ts` — 4 `coveredBy` rows: the `admin_emails` read cites `tests/data/adminEmails.test.ts` with `via: "listAdminEmails"` (exported at `lib/data/adminEmails.ts`, `export async function listAdminEmails`; the suite mentions the symbol 7 times but never the table literal — spec R2 F1); the `upsert_admin_email_rpc` / `revoke_admin_email_rpc` sites cite `tests/data/adminEmails.test.ts` (literal present there), `via` `upsertAdminEmail` / `revokeAdminEmail`; the `set_admin_developer_rpc` site cites `tests/data/setAdminDeveloper.test.ts` (spec R1 F3), `via: "setAdminDeveloper"`.
 
-**`coveredBy` rows are themselves executable, not prose:** for each cited suite path the test asserts (a) the file exists on disk, and (b) its source contains the row's `literal` — so a behavioral citation to a suite that never mentions `set_admin_developer_rpc` fails, and a suite deletion or rename fails. This is what makes the behavioral discharge as falsifiable as a pin. (A suite that mentions the literal without meaningfully exercising it is a documented limit — §6.5.)
+**`coveredBy` rows are themselves executable, not prose:** the §3.4 validation asserts suite existence plus literal-or-`via` containment, so a behavioral citation to a suite that never mentions either fails, and a suite deletion or rename fails. This is what makes the behavioral discharge as falsifiable as a pin. (A suite that mentions the symbol without meaningfully exercising the boundary is a documented limit — §6.5.)
 
 The gate-count-reconciliation lesson still holds — produced must equal classified — but the classification is now the registry itself, and the "produced" side is always the live extraction.
 
@@ -94,10 +100,11 @@ The gate-count-reconciliation lesson still holds — produced must equal classif
 
 Planted string fixtures (the `plant()` pattern from `tests/docs/_metaLedgerInProgress.test.ts`), asserting the scanner:
 
-- matches `.from("x")` and `.rpc("x")` and single-quote variants (positive);
+- matches `.from("x")`, `.rpc("x")`, single-quote variants, AND no-substitution template literals `` .from(`x`) `` (positive — spec R2 F2);
 - does NOT match `Array.from(iterable)`, `Array.from({ length: n })` (negative);
 - does NOT match `.from("x")` inside `//` or `/* */` comments (negative — proves the strip is load-bearing);
-- does NOT match `.from(tableVar)` (negative — and this is the §6.1 documented limit, asserted deliberately so the limit is executable, not prose).
+- does NOT match `.from(tableVar)` or a substitution template `` .from(`${t}`) `` (negatives — the §6.1 documented limit, asserted deliberately so the limit is executable, not prose);
+- `validateRows()` self-tests: an empty `pin`/`coveredBy` array is rejected (R2 F3); a row whose pins all lack the literal is rejected (R2 F4); a `coveredBy` row whose suites mention neither literal nor `via` is rejected (R2 F1).
 
 ### 3.6 Stale-waiver reword (only production-file edit)
 
@@ -116,7 +123,7 @@ Candidate `grep -rn '\.\(from\|rpc\)("' lib/data/*.ts` (the string-literal ancho
 
 Complement probe (all `.from(`/`.rpc(` WITHOUT the string-literal anchor): exactly 2 lines, both non-Supabase — `lib/data/adminEmails.ts` doc-comment prose (`* failure, .from() throw) AND async-chain throws ALL surface as`) and `lib/data/normalizeDateRestriction.ts` (`const years = Array.from(`). Both rejected by the anchor; the comment is additionally removed by `stripCommentsForFile`.
 
-The shipped scanner adds the single-quote alternative (`["']`) the probe's grep omitted; the repo is Prettier-formatted with double quotes, so this widening has zero current-corpus effect and exists for resilience only.
+The shipped scanner adds the single-quote and backtick alternatives the probe's grep omitted (§3.2 quote class); the repo is Prettier-formatted with double quotes, so these widenings have zero current-corpus effect and exist for resilience (single quotes) and R2 F2 closure (no-substitution templates).
 
 ## §5 Mutation-family closure set
 
@@ -131,23 +138,27 @@ The convergence criterion for review is this enumerated set, each family carryin
 | F5 | Scanner regex corrupted to match nothing | §3.7 premise (`totalSites` floor) + Layer 3 planted positives |
 | F6 | Comment-stripping dropped from the scan path | Layer 3 planted commented-call negative |
 | F7 | Waiver comment deleted from a waiver-discharged file | Layer 1 (file becomes orphan). No live waiver-discharged file exists today, so this family is expressed through a planted Layer 3 fixture, not the live corpus — stated per the premise rule (construct the environment rather than interrogating the ambient one) |
-| F8 | `coveredBy` citation pointed at a suite that never mentions the site's literal (or at a deleted/renamed suite) | Layer 2 `coveredBy` executable check: cited path must exist AND contain the literal (§3.4) |
+| F8 | `coveredBy` citation pointed at a suite that never mentions the site's literal or its `via` symbol (or at a deleted/renamed suite) | Layer 2 `coveredBy` executable check: cited path must exist AND contain literal-or-`via` (§3.4) |
+| F9 | Discharge emptied: `pin: []` or `coveredBy: []` on a row (R2 F3) | `validateRows()` non-empty rule + non-empty tuple types; planted Layer 3 self-test |
+| F10 | Existing pin copied onto a new row for a different literal (R2 F4) | `validateRows()` literal-coupling rule: ≥1 pin element's source must contain the row's literal; planted Layer 3 self-test |
+| F11 | Site authored as a no-substitution template literal `` .from(`x`) `` (R2 F2) | §3.2 scanner backtick class + Layer 3 planted positive |
 
 ## §6 Documented limits (accepted, not findings)
 
-1. **Non-literal call arguments are invisible.** `.from(tableVar)` / `.rpc(fnVar)` does not match the scanner. No such site exists in `lib/data` (§4), the repo convention is literal table names, and the limit is pinned executable by a Layer 3 negative self-test. Worst case: a dynamically-named read escapes the guard — conservative miss, no silent corruption of anything the guard already covers.
+1. **Dynamic call arguments are invisible.** `.from(tableVar)` / `.rpc(fnVar)` and substitution templates (`` .from(`${t}`) ``) do not match the scanner; no-substitution template literals ARE matched (§3.2, R2 F2), so this limit covers only genuinely dynamic names. No such site exists in `lib/data` (§4), the repo convention is literal table names, and the limit is pinned executable by Layer 3 negative self-tests. Worst case: a dynamically-named read escapes the guard — conservative miss, no silent corruption of anything the guard already covers.
 2. **File-grain waivers on unregistered files.** A waiver anywhere in an unregistered file discharges all its sites (inherited from the auth test's semantics; registry precedence in §3.3 closes this for every currently-multi-site file). Worst case: a contributor waivers one site and a second site rides along — the per-site reconciliation does not apply to waiver-discharged files. Accepted: zero waiver-discharged files exist today, and promoting one to the registry is the documented response if one appears.
 3. **Shape pins are text pins.** A pin proves the source text contains the compliant shape near the call, not that control flow reaches it. The behavioral suites in §2's table carry the runtime half; this guard is the structural half. Same division as the auth meta-test.
 4. **`supabase.auth.*` and storage calls are out of scan scope** — the scanner keys on `.from(`/`.rpc(` only, matching the ledger entry's scope. No such call exists in `lib/data` today; if one lands it is invisible to Layer 1. Files to the same response as limit 2: register or extend the regex when the first site appears.
-5. **`coveredBy` proves mention, not exercise.** The executable check on a behavioral row (§3.4) asserts the cited suite exists and contains the site's literal — it cannot prove the suite meaningfully exercises the boundary. The runtime half stays with the behavioral suites themselves (same division as limit 3). Worst case: a hollow citation passes the structural check — conservative, and visible to any reader following the citation.
+5. **`coveredBy` proves mention, not exercise.** The executable check on a behavioral row (§3.4) asserts the cited suite exists and contains the site's literal or `via` symbol — it cannot prove the suite meaningfully exercises the boundary. The runtime half stays with the behavioral suites themselves (same division as limit 3). Worst case: a hollow citation passes the structural check — conservative, and visible to any reader following the citation.
 6. **Duplicate literals reconcile by position.** The two `.from("shows_internal")` and two `.from("crew_members")` sites in `getShowForViewer.ts` are distinguished only by sequence order, so swapping two same-literal sites' pins misattributes which pin guards which site while both still pass. Harmless today (each pin also names its distinct result variable) and pinned by the ordered deep-equal; noted so a reviewer doesn't re-derive it.
+7. **Pin strength beyond literal-coupling is human territory.** `validateRows()` proves a pin is non-empty, matches the source, and embeds its own literal (§3.4); it cannot prove the pin asserts a MEANINGFUL error-handling shape — a contributor could author `pin: [/from\("new_table"\)/]`, which matches the call itself and nothing else. That is deliberate weak authoring, outside the §1.3 fence (accidental mistakes), and lands in PR review where the pin text is visible. Same division as limits 3 and 5: the machine proves presence and coupling; humans review strength.
 
 ## §7 Acceptance criteria
 
 - **AC-1** `tests/data/_metaLibDataCallBoundary.test.ts` exists, runs in the unit suite with no new vitest wiring (sibling `tests/data/*.test.ts` already run), and is green on the current tree.
 - **AC-2** Layer 1 discovers files from disk with the §3.3 widened extension set. Self-test: a planted in-memory fixture (not a tree mutation) proves an undischarged file shape is flagged; deleting any registered file's rows and running the suite reds (verified once during TDD's red step, not left as a permanent tree mutation).
-- **AC-3** All 17 current sites have registry rows: 13 `pin` rows (10 `getShowForViewer.ts` + 2 `listShowsForCrew.ts` + 1 `loadShowShareToken.ts`), 4 `coveredBy` rows (`adminEmails.ts`, with `set_admin_developer_rpc` citing `tests/data/setAdminDeveloper.test.ts`).
-- **AC-4** Layer 2 asserts ordered deep-equality between the scanner extraction and the registry rows per file, both directions, with NO authored count anywhere in the suite; `coveredBy` citations are executable per §3.4.
+- **AC-3** All 17 current sites have registry rows: 13 `pin` rows (10 `getShowForViewer.ts` + 2 `listShowsForCrew.ts` + 1 `loadShowShareToken.ts`), 4 `coveredBy` rows (`adminEmails.ts` — `via` symbols `listAdminEmails`/`upsertAdminEmail`/`revokeAdminEmail`/`setAdminDeveloper`, the last citing `tests/data/setAdminDeveloper.test.ts`).
+- **AC-4** Layer 2 asserts ordered deep-equality between the scanner extraction and the registry rows per file, both directions, with NO authored count anywhere in the suite; `validateRows()` (non-empty, literal-coupling, `coveredBy` literal-or-`via`, `via`-exported) runs before any reconciliation and its rejections are covered by planted self-tests per §3.5.
 - **AC-5** Layer 3 planted positives and negatives per §3.5, including the documented-limit negative.
 - **AC-6** The `run_of_show` waiver reason in `getShowForViewer.ts` no longer claims `lib/data` is outside every scan (§3.6).
 - **AC-7** Both §3.7 premises execute unconditionally in the suite body (not inside `.each` callbacks).
