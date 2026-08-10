@@ -97,7 +97,7 @@ N/A — no Playwright surface.
 
 ## Task 1 — Cron sink writes `show_id` and `duration_ms`
 
-<!-- task: red=`pnpm vitest run tests/sync/syncLog.test.ts tests/db/syncLogAttribution.db.test.ts` ac=AC-1,AC-2,AC-3,AC-4,AC-5,AC-6 -->
+<!-- task: red=`pnpm vitest run tests/sync/syncLog.test.ts tests/sync/syncLogSink.persistence.test.ts tests/db/syncLogAttribution.db.test.ts` ac=AC-1,AC-2,AC-3,AC-4,AC-5,AC-6 -->
 
 **RED validity.** `tests/sync/syncLog.test.ts:16-31` asserts `toHaveBeenCalledWith(expect.stringContaining("insert into public.sync_log"), [4 params])`. The production line whose absence makes it fail is the `insert into public.sync_log (drive_file_id, status, message, parse_warnings)` literal at `lib/sync/syncLog.ts:43` — four columns, four params. Not test-local: the string under assertion is production source.
 
@@ -138,6 +138,8 @@ attributed correctly? true
 ```
 
 That settles three things that were otherwise assumptions: `$1` reused twice with a 5-element param array is accepted by `sql.unsafe`; a missing show yields NULL with no FK violation; a real file resolves to `shows.id`. Do not re-derive them.
+
+**An EXISTING suite pins the old column order and this task must update it (plan R7 F1).** `tests/sync/syncLogSink.persistence.test.ts` asserts `parse_warnings` is the last parameter, at `tests/sync/syncLogSink.persistence.test.ts:22`, `tests/sync/syncLogSink.persistence.test.ts:38`, and `tests/sync/syncLogSink.persistence.test.ts:49`. Appending `duration_ms` breaks all three. No later task owned that file, so Task 1's advertised suites could go green while the repo stayed red — the plan's own suites are not the whole test surface, and a task is green only when the full suite is. Update those three assertions here and add the file to this task's red command.
 
 **Type prerequisites land in THIS task (plan R5 F5).** The sink reads `entry.durationMs`, and `SyncLogEntry` currently ends at `parseWarnings` (`lib/sync/runScheduledCronSync.ts:446-455`). Add `durationMs?: number | null` to `SyncLogEntry` here, in the task that first consumes it — deferring it to Task 2 leaves this task's commit failing `pnpm typecheck`, and a task that cannot typecheck at its own boundary is not green. Task 2 then adds only the CAPTURE (`attemptStartedAtMs`), and adds it to `ProcessOneFileDeps` (`lib/sync/runScheduledCronSync.ts:494-577`) as well as `SyncLogDeps`, because its own `depsWithStart: ProcessOneFileDeps = { ...deps, attemptStartedAtMs }` is typed as the former.
 
@@ -205,11 +207,15 @@ Only a completely unconfigured local dev environment may skip clean.
 
 ## Task 2 — Capture the attempt start and thread it to the sink
 
-<!-- task: red=`pnpm vitest run tests/sync/runScheduledCronSync.test.ts -t logSync` ac=AC-6 -->
+<!-- task: red=`pnpm vitest run tests/sync/runScheduledCronSync.test.ts -t logSync tests/sync/perFileProcessor.test.ts` ac=AC-6 -->
 
 **RED validity — the claimed existing RED was false (plan R1 F3).** `tests/sync/runScheduledCronSync.test.ts:2662` observes the dependency object handed to a MOCKED `processOneFile`, not the `SyncLogEntry` built inside the real `logSync`, so adding a field to that entry cannot fail it; the later sink assertion is `expect.objectContaining`, not exact. This task therefore WRITES its RED: a new duration assertion against the entry the real helper constructs, with an injected clock and a known delta. The production line is the entry construction inside `logSync` (`lib/sync/runScheduledCronSync.ts:2241-2249`).
 
 `SyncLogEntry.durationMs` is NOT added here — Task 1 adds it, as `durationMs?: number | null`, because Task 1 is its first consumer and a task that cannot typecheck at its own boundary is not green (plan R5 F5). Re-adding it here duplicates the property or narrows the nullable type Task 1 established (plan R6 F2). This task adds `attemptStartedAtMs` — to `ProcessOneFileDeps` as well as `SyncLogDeps`, since the `depsWithStart: ProcessOneFileDeps` object below is typed as the former — and **not** `showId` (plan R1 F2: an explicit show-id channel is the design the spec rejected in §3.1.1, and Task 1's own text forbids it) (`lib/sync/runScheduledCronSync.ts:446-456`); add **both** `attemptStartedAtMs?: number` **and** `now?: () => Date` to `SyncLogDeps` (plan R1 F2: `logSync` computes `now() - start`, so a widening carrying only the start cannot read `deps.now` under the declared parameter type and would fall back to ambient time, defeating the injected-delta oracle) (`lib/sync/runScheduledCronSync.ts:2218-2220`).
+
+**An EXISTING suite pins the exact logged object (plan R7 F2).** `tests/sync/perFileProcessor.test.ts:982` asserts the logged entry by exact shape; once every `processOneFile` invocation carries a captured start, that entry gains `durationMs` and the assertion fails. Same class as Task 1's persistence suite, and the second measured instance: the plan's per-task red commands name only the suites a task ADDS, never the ones it breaks. Update that assertion here and add `tests/sync/perFileProcessor.test.ts` to this task's red command.
+
+**Class sweep, at plan time rather than at the third finding.** Before implementing either task, run `rg -l "sync_log|logSync|insertSyncLog" tests/` and check every hit for an exact-shape or positional assertion over the sink's columns, entry object, or parameter array. Two were found by review; the sweep is what establishes there is no third. Record its output in the task's commit message.
 
 **Exact injection point.** `processOneFile(driveFileId, mode, fileMeta, deps: ProcessOneFileDeps = {})` (`lib/sync/runScheduledCronSync.ts:2707-2712`). Capture at the top, before `prepareProcessOneFile`, then bind once:
 
@@ -222,7 +228,11 @@ const depsWithStart: ProcessOneFileDeps = { ...deps, attemptStartedAtMs };
 
 **Do not** confuse this with the outer `SyncPipelineTxBoundDeps` param (`lib/sync/runScheduledCronSync.ts:457-459`) — it carries no `logSync`, and since `logSync?` is optional, a change routed there typechecks and silently no-ops.
 
-Guards: absent start → `undefined` (NULL), never NaN; non-monotonic clock → clamp at 0.
+Guards: absent start → SQL `NULL`, never NaN; non-monotonic clock → clamp at 0.
+
+**`undefined` is NOT `NULL` to Postgres.js, and the difference throws (plan R7 F3).** An earlier revision wrote "`undefined` (NULL)" as if the driver coerced. It does not: the postgres.js driver raises `UNDEFINED_VALUE` for an undefined bind parameter, and `writeSyncLog` constructs its client with no `transform.undefined` option (`lib/sync/syncLog.ts:51`). Every NULL-duration writer in spec §3.3.1 would therefore THROW instead of persisting a row — the two run-level emits, the escaped-throw emit, the push preflight/failure/duplicate emits, and both webhook direct-error classes, the last of which visibly pass no duration at all (`app/api/drive/webhook/route.ts:218`, `app/api/drive/webhook/route.ts:234`). That is strictly worse than the bug this arc repairs: today those rows land unattributed; under the broken form they would not land.
+
+The sink binds `entry.durationMs ?? null`, never `entry.durationMs`. Its test needs a case the pasted probe cannot express — the probe exercises durations `42` and `7`, both defined, so it passes either way. Add a third case that emits an entry with NO `durationMs` property at all and asserts the row lands with `duration_ms IS NULL` and no throw. That case is the whole oracle for §3.3.1's writers, and it is a DB-level case: a unit mock cannot reproduce the driver's undefined rejection.
 
 **The duration oracle is BRANCH-complete, not path-complete (spec R4 F1).** Five distinct behaviors, five assertions. A suite exercising only the applied path satisfies the known-delta assertion while leaving every one of these free — and `rg "duration_ms|attemptStartedAt" tests` confirms no existing write-side oracle covers any of them:
 
@@ -339,6 +349,10 @@ Census — **two of ten** production entry points install a sink today (`app/api
 
 <!-- task: red=`pnpm vitest run tests/db/syncLogIndexesAndPrune.db.test.ts tests/cross-cutting/pg-cron-coverage.test.ts` ac=AC-7,AC-8 -->
 
+**Writing the migration file is not applying it (plan R7 F4).** No task applied the migration to the LOCAL database, so every live-DB assertion in this task's red command — indexes in `pg_indexes`, `prune_sync_log` in `pg_proc`, the `cron.job` row — would stay red after a perfectly correct SQL file, and Task 7's `pnpm gen:schema-manifest` would introspect a database that has never seen the function. The only apply anywhere in the plan targeted the validation project, in Task 8, two tasks later.
+
+The implementation step is therefore: write the new migration under `supabase/migrations/` (stem `20260809000000_sync_log_show_attribution`), then apply it to the local stack — `psql -v ON_ERROR_STOP=1 "$LOCAL_TEST_DATABASE_URL" -f supabase/migrations/20260809000000_sync_log_show_attribution.sql` — and re-run the suite. `LOCAL_TEST_DATABASE_URL`, not `TEST_DATABASE_URL`: the latter points at the validation project (`AGENTS.md:20`), and applying here by that variable is the exact hazard Task 5b's guard exists to stop. Do NOT use `supabase db reset` — it rolls back on pg_cron in this project's local stack.
+
 **Returned count: measured-baseline equality, NOT fixture-scoped (plan R5 F7).** `prune_sync_log` returns a GLOBAL count, so a fixture-scoped count is the wrong oracle for it and the two instructions cannot both hold. Survival assertions stay scoped to the fixture marker; the RETURNED count is asserted equal to `select count(*) from public.sync_log where occurred_at < <cutoff>` read inside the same rolled-back transaction immediately before the prune. Same rule, same rationale, as the `app_events` repair in Task 5b.
 
 **The prune assertions run inside an always-rolled-back transaction (plan R3 F6).** An uncommitted prune cannot permanently delete unrelated old local rows; a committing one can, and asserting only `>=` on the return leaves that invisible. Roll back, and scope every count to the fixture marker.
@@ -449,13 +463,20 @@ The approved spec's tier × layer matrix requires a note in `docs/agents/observe
 
 <!-- task: red=`pnpm gen:schema-manifest --check` ac=AC-8 -->
 
-An index does not change the manifest; the new `prune_sync_log` function does. Run `pnpm gen:schema-manifest` against the local all-migrations-applied DB and commit the regenerated `supabase/__generated__/schema-manifest.json`.
+An index does not change the manifest; the new `prune_sync_log` function does. It regenerates from the LOCAL database, which is only correct because Task 5 applied the migration there (plan R7 F4) — `scripts/generate-schema-manifest.ts:4` states that contract. Run `pnpm gen:schema-manifest` against the local all-migrations-applied DB and commit the regenerated `supabase/__generated__/schema-manifest.json`.
 
 ## Task 8 — Validation-project apply and parity
 
-<!-- task: red=`pnpm vitest run tests/db/validation-schema-parity.test.ts` ac=AC-7,AC-8 -->
+<!-- task: red=`TEST_DATABASE_URL=<validation> pnpm vitest run tests/db/validation-schema-parity.test.ts` ac=AC-7,AC-8 -->
 
 Apply the migration surgically to the validation project (`supabase db push` is blocked there), then `notify pgrst, 'reload schema';`. Confirm the `validation-schema-parity` gate passes all three layers.
+
+**The bare command does not bind this task to validation (plan R7 F5).** `tests/db/validation-schema-parity.test.ts:92-103` falls back to LOCAL Postgres whenever `TEST_DATABASE_URL` is unset, and Vitest loads no `.env.local`. After Task 5's local apply and Task 7's manifest regen, `pnpm vitest run tests/db/validation-schema-parity.test.ts` is therefore GREEN before validation is touched at all — it would have re-verified Task 5's work and reported it as Task 8's.
+
+Two corrections, both required:
+
+1. Run the suite with `TEST_DATABASE_URL` explicitly set to the validation connection string, so Layer 2 compares against validation rather than local. The red is real only under that variable, and the task's red command is the invocation that sets it.
+2. Assert the run actually reached validation rather than silently falling back — the suite's own target-reporting line, or a pre-flight `select current_database()` against the resolved URL, recorded in the closeout's `## Validation apply` section beside the exit status. A parity pass whose target was local is the failure mode this task exists to prevent, and it is indistinguishable from success without that line.
 
 **Tracked output (plan R3 F9).** This task otherwise mutates only an external project and would owe an empty commit under the one-commit-per-task rule. Its commit creates this plan's stem-named closeout sibling (same directory, same stem, closeout suffix — the form `partitionUnits` folds into this unit) with a `## Validation apply` section recording the applied migration filename, the psql exit status, and each parity layer's result. That file is also where Task 9 writes the invariant-8 marker, so the unit gains its closeout sibling here and completes it there. The parity gate is the executable proof; the record is the tracked artifact.
 
