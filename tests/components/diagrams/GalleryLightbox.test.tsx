@@ -290,14 +290,26 @@ describe("GalleryLightbox — placeholder geometry", () => {
 });
 
 describe("GalleryLightbox — intrinsic dimensions", () => {
-  test("valid dims render width/height rather than the fill branch", () => {
-    const { container } = open([item(1, { intrinsicWidth: 1600, intrinsicHeight: 900 })]);
+  test("valid dims render width/height rather than the fill branch — BOTH tiers", () => {
+    // Asserting the active branch alone leaves an inactive implementation that
+    // always takes `fill` green, and the inactive branch is the one with the
+    // dedicated wrapper, so it is the likelier place to get this wrong.
+    const { container } = open([
+      item(1, { intrinsicWidth: 1600, intrinsicHeight: 900 }),
+      item(2, { intrinsicWidth: 800, intrinsicHeight: 1200 }),
+    ]);
     const img = activeImage(container);
 
     expect(img.getAttribute("width")).toBe("1600");
     expect(img.getAttribute("height")).toBe("900");
     // The fill branch is absolutely positioned; the dims branch must not be.
     expect(img.getAttribute("style") ?? "").not.toContain("position: absolute");
+
+    const inactive = inactiveImages(container);
+    premise("an inactive dims-bearing slide rendered to check", inactive.length, 0);
+    expect(inactive[0]!.getAttribute("width")).toBe("800");
+    expect(inactive[0]!.getAttribute("height")).toBe("1200");
+    expect(inactive[0]!.getAttribute("style") ?? "").not.toContain("position: absolute");
   });
 
   test.each([
@@ -382,8 +394,14 @@ describe("GalleryLightbox — transition audit (spec §6 inventory)", () => {
     // inventory declares failure terminal in BOTH directions, so both are driven.
     act(() => emblaApis.at(-1)!.scrollTo(0));
 
+    // Identify WHICH slide is active, not just the counts: "still on the failed
+    // item 2" and "back on item 1 with 2 inactive-failed" both satisfy a
+    // one-image / one-placeholder assertion, so counts alone prove nothing here.
+    expect(pathOf(activeImage(container).getAttribute("src"))).toBe(ORIGINAL(1));
     expect(container.querySelectorAll("img")).toHaveLength(before - 1);
+    // Item 2 is inactive again and STILL failed — no retry on the way back.
     expect(screen.getByText(/unavailable/i)).toBeTruthy();
+    expect(inactiveImages(container)).toHaveLength(0);
   });
 
   test("unavailable → any never transitions: an unavailable item renders no image at all", () => {

@@ -2079,6 +2079,9 @@ test.describe("crew diagrams gallery — next/image variant tiers (private image
       "the lightbox offers a reachable neighbouring slide (≥2 items), so an inactive tier exists",
       canGoPrevious || (await nextButton.isEnabled().catch(() => false)),
     );
+    // The slide we are leaving is the no-dims entry, whose key this case asserted
+    // immediately above. Naming it lets the RETURN prove it actually returned.
+    const departedActiveKey = noDims!.key;
     if (canGoPrevious) await previousButton.click();
     else await nextButton.click();
     const wentForward = !canGoPrevious;
@@ -2135,11 +2138,20 @@ test.describe("crew diagrams gallery — next/image variant tiers (private image
     // against a locator captured before the move (Embla replaces slide DOM).
     if (wentForward) await previousButton.click();
     else await nextButton.click();
+    // The predicate NAMES the slide expected back. Without that, a no-op
+    // navigation passes the moment the neighbouring active slide decodes — which
+    // is exactly the shape a broken second selection would have.
     const returnedSlides = await settledLightboxSample(page, (slides) =>
-      slides.some((slide) => slide.active && slide.complete),
+      slides.some(
+        (slide) => slide.active && slide.complete && assetKeyOf(slide.src) === departedActiveKey,
+      ),
     );
     const returnedActive = returnedSlides.find((slide) => slide.active);
     expect(returnedActive, "a slide is active again after navigating back").toBeTruthy();
+    expect(
+      assetKeyOf(returnedActive!.src),
+      `navigating back must restore the slide we left (${departedActiveKey}), not merely settle on some active slide`,
+    ).toBe(departedActiveKey);
     expect(
       returnedActive!.complete && returnedActive!.naturalWidth > 0,
       "the slide that became active again decoded",
