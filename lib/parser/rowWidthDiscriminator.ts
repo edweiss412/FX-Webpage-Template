@@ -134,6 +134,28 @@ export function detectFusedRows(markdown: string): ParseWarning[] {
 
   let section: Row[] = [];
   let sectionKind: string = GENERIC_SECTION_KIND;
+  // Per-RUN state (a run = a maximal block of consecutive pipe lines).
+  //
+  // A markdown table has exactly ONE delimiter row, right under its header. A SECOND
+  // delimiter-shaped row inside the same run is therefore ambiguous by construction: it is
+  // either a second table butted against the first with no blank line, or an ordinary data
+  // row whose cells all happen to read `-` / `---` (a placeholder, which sheets do write).
+  // Nothing in the text distinguishes them, and guessing wrong reports a valid row as
+  // fused — probed by cross-model review across every shape `ALIGNMENT_CELL` admits.
+  //
+  // So the run is ABANDONED rather than guessed: its warnings are buffered and dropped.
+  // Measured cost on real input: ZERO. Across the 17 registry fixtures there are 514 pipe
+  // runs and NONE contains two delimiter-shaped rows — real sheets separate their tables
+  // with a blank line, which starts a new run. This is a §5.3 abstention, not a gap.
+  let runWarnings: ParseWarning[] = [];
+  let runDelimiters = 0;
+  let runAmbiguous = false;
+  const closeRun = (): void => {
+    if (!runAmbiguous) warnings.push(...runWarnings);
+    runWarnings = [];
+    runDelimiters = 0;
+    runAmbiguous = false;
+  };
 
   const flush = (): void => {
     // DATA rows only: neither the delimiter row nor the table's HEADER row. The
@@ -159,7 +181,7 @@ export function detectFusedRows(markdown: string): ParseWarning[] {
 
     for (const r of data) {
       if (r.cells !== modal - 1) continue;
-      warnings.push({
+      runWarnings.push({
         severity: "warn",
         code: "ROW_CELLS_FUSED",
         message:
@@ -192,6 +214,10 @@ export function detectFusedRows(markdown: string): ParseWarning[] {
       // Both directions vanish here: no label is consulted at all. `canonicalSectionKind`
       // stays, but only for the ROUTING KEY on the warning, which is what it is for.
       const info = analyzeRow(line);
+      if (info.alignment) {
+        runDelimiters++;
+        if (runDelimiters >= 2) runAmbiguous = true;
+      }
       if (info.alignment && section.length > 0) {
         // The last row pushed is this table's header, so it belongs to the NEW section —
         // and is marked as its header so the modal is taken over data rows alone.
@@ -221,7 +247,9 @@ export function detectFusedRows(markdown: string): ParseWarning[] {
       flush();
       section = [];
     }
+    closeRun();
   }
   flush();
+  closeRun();
   return warnings;
 }

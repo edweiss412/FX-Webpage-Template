@@ -372,6 +372,36 @@ describe("ROW_CELLS_FUSED calibration (hand-built shapes the corpus does not con
     expect(fused(md, "calibration.md")).toEqual([]);
   });
 
+  it("abstains on a run holding a SECOND delimiter-shaped row", () => {
+    // KILLS: treating every delimiter-shaped row as a table boundary. A markdown table has
+    // exactly ONE delimiter, under its header, so a second one in the same run is ambiguous
+    // by construction -- either a butted second table or an ordinary data row whose cells
+    // all read `-`/`---`, which sheets do write as placeholders. Nothing in the text tells
+    // them apart, and guessing split the section and reported a valid row. Probed by
+    // cross-model review across every shape ALIGNMENT_CELL admits, which is why this arm
+    // iterates them rather than picking one.
+    //
+    // Abstention costs nothing measurable: across the 17 registry fixtures there are 514
+    // pipe runs and NONE holds two delimiter-shaped rows, because real sheets separate
+    // tables with a blank line -- which starts a new run and leaves detection intact.
+    for (const token of ["-", "---", ":---", "---:", ":---:"]) {
+      const md = [
+        "| CREW | Role | Call | Out | Note |",
+        "| --- | --- | --- | --- | --- |",
+        "| A | r | c | o | n |",
+        "| B | r | c | o | n |",
+        "| C | r | c | o |",
+        "| P | r | c | o | n |",
+        `| ${token} | ${token} | ${token} | ${token} | ${token} |`,
+        "| Q | r | c | o |",
+        "| R | r | c | o |",
+        "| S | r | c | o |",
+        "",
+      ].join("\n");
+      expect(fused(md, "calibration.md"), `placeholder ${token}`).toEqual([]);
+    }
+  });
+
   it("measures the modal over DATA rows, letting a narrower header be narrower", () => {
     // KILLS: including the table header in the measured population. A section title
     // spanning fewer cells than its columns is ordinary sheet authoring, and counted as
