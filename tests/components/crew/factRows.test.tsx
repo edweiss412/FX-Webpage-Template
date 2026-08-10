@@ -83,3 +83,46 @@ test("a row with no icon and no sub renders just k + v (no icon square, no sub n
   expect(list.textContent).toContain("Crew Wi-Fi");
   expect(list.textContent).toContain("SSID Guest");
 });
+
+// --- optional `testId` (spec §3.2 declared shared-primitive change) -----------
+// The Venue Wi-Fi split needs per-row addressability; the row element is the only
+// place a caller can hang one, because the caller passes data, not JSX.
+
+const testIdRows: FactRow[] = [
+  { k: "Wi-Fi network", v: "Hyatt_Meeting", testId: "venue-wifi-ssid" },
+  { k: "Wi-Fi password", v: "FITS2025", testId: "venue-wifi-password" },
+  { k: "Power", v: "Wall outlets" }, // no testId
+  { k: "Parking", v: "TBD", testId: "venue-parking" }, // sentinel → row omitted entirely
+];
+
+test("a row with testId emits it as data-testid on the row element; a row without emits none", () => {
+  const { getByTestId } = render(<FactRows rows={testIdRows} />);
+  const list = getByTestId("fact-rows");
+
+  const ssid = list.querySelector('[data-testid="venue-wifi-ssid"]');
+  expect(ssid).not.toBeNull();
+  // On the ROW, not on the label or value node — a caller queries the row to read
+  // both halves, so an attribute parked on the <dd> would satisfy a laxer
+  // assertion while breaking every real consumer.
+  expect(ssid!.tagName).toBe("DIV");
+  expect(ssid!.querySelector("dt")?.textContent).toBe("Wi-Fi network");
+  expect(ssid!.querySelector("dd")?.textContent).toContain("Hyatt_Meeting");
+
+  // The row that declares no testId carries no data-testid at all — not an empty
+  // one. Count is derived from the fixture, never hardcoded.
+  const declared = testIdRows.filter(
+    (r) => r.testId !== undefined && !SENTINELS.has(r.v.trim().toUpperCase()),
+  );
+  expect(declared.length).toBeGreaterThan(0); // premise: the fixture must declare some
+  expect(list.querySelectorAll("[data-testid]").length).toBe(declared.length);
+  for (const row of declared) {
+    expect(list.querySelector(`[data-testid="${row.testId}"]`)).not.toBeNull();
+  }
+});
+
+test("a sentinel-valued row is omitted even when it declares a testId", () => {
+  const { getByTestId } = render(<FactRows rows={testIdRows} />);
+  const list = getByTestId("fact-rows");
+  expect(list.querySelector('[data-testid="venue-parking"]')).toBeNull();
+  expect(list.textContent).not.toContain("Parking");
+});
