@@ -28,6 +28,7 @@ import { premiseHolds } from "@/tests/_shared/premise";
 const ROOT = process.cwd();
 const AGENTS_PATH = join(ROOT, "AGENTS.md");
 const SPEC_PATH = join(ROOT, "docs/superpowers/specs/2026-08-10-heavy-phase-semaphore-design.md");
+const PINNED_PATH = join(ROOT, "tests/docs/fixtures/agents-heavy-phase-rule.md");
 
 const RULE_OPENER = "- **Heavy local phases run under the machine-wide slot semaphore.**";
 const MUST_MARKER = "**MUST wrap**";
@@ -284,6 +285,50 @@ export function polarityProblems(mustRegion: string, mustNotRegion: string): str
   return problems;
 }
 
+/**
+ * Whitespace-insensitive, word-exact: markdown may reflow, meaning may not. A
+ * trailing horizontal rule is dropped too — it belongs to the SECTION, not the
+ * bullet, and it leaves the extraction the moment another bullet is appended
+ * after this one, which would fire the pin on an edit that never touched it.
+ */
+function normalize(text: string): string {
+  return text
+    .replace(/\s*-{3,}\s*$/, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * The close for the INVERSION class, and the reason the patterns above are now
+ * diagnostics rather than the guarantee.
+ *
+ * Rounds 4 and 5 both inverted declarative sentences — "non-interactive" to
+ * "interactive", "stay unwrapped" to "stay wrapped", "bounds nothing across
+ * worktrees" to "bounds across worktrees" — leaving every registered token in
+ * place. Round 5's seven mutants make the shape plain: the invertible set is
+ * every declarative clause in the paragraph, so closing it by adding patterns is
+ * an enumeration over English that does not terminate. Round 4 already showed
+ * what that costs, since the sweep that claimed to cover the axis covered one
+ * word of it.
+ *
+ * A pin terminates instead. Any edit to the normative text fails, inversions
+ * included, and the cost is one deliberate fixture update when the contract
+ * genuinely changes — which is the correct ceremony for a cross-CLI contract
+ * other harnesses rely on. The structural checks stay because they name WHAT
+ * broke, and because the pin cannot see the one thing they can: a shape added to
+ * spec §4.6 that the bullet never picked up.
+ */
+export function pinProblems(rule: string, pinned: string): string[] {
+  if (normalize(rule) === normalize(pinned)) return [];
+  return [
+    "the rule's text differs from tests/docs/fixtures/agents-heavy-phase-rule.md. " +
+      "This bullet is a cross-CLI contract: Codex sessions read it and never read the " +
+      "spec, so an edit that inverts a qualifier reads as intact to every pattern " +
+      "check. If the change is intentional, re-read spec §4.6 and §5, then update the " +
+      "fixture in the SAME commit.",
+  ];
+}
+
 export function extractRule(agents: string): string | null {
   const start = agents.indexOf(RULE_OPENER);
   if (start === -1) return null;
@@ -361,6 +406,7 @@ export function checkHeavyPhaseRule(agents: string): string[] {
     if (!pattern.test(tailRegion)) problems.push(`missing clause: ${label}`);
   }
   problems.push(...polarityProblems(mustRegion, mustNotRegion));
+  problems.push(...pinProblems(rule, readFileSync(PINNED_PATH, "utf8")));
   return problems;
 }
 
@@ -486,8 +532,11 @@ describe("AGENTS.md heavy-phase rule", () => {
       editRule(" over `tests/` + `scripts/`", ""),
     ],
     // The round-4 class: a qualifier whose deletion INVERTS a clause while every
-    // registered token survives. One row per polarity-bearing qualifier found by
-    // sweeping the bullet, not just the one reported.
+    // registered token survives. These four are the interactivity and
+    // server-placement axes specifically — round 5 showed the invertible set is
+    // every declarative clause in the paragraph, which is why the verbatim pin,
+    // not this table, is what closes the class. They stay because a named
+    // violation is worth more than a diff when one of them is what broke.
     [
       "delete the `non-` that makes the playwright rule non-interactive",
       editRule("Any non-interactive playwright run", "Any interactive playwright run"),
@@ -505,7 +554,37 @@ describe("AGENTS.md heavy-phase rule", () => {
     ],
     [
       "move long-lived servers INSIDE the wrapper",
-      editRule("Long-lived servers start OUTSIDE the wrapper", "Long-lived servers start inside the wrapper"),
+      editRule(
+        "Long-lived servers start OUTSIDE the wrapper",
+        "Long-lived servers start inside the wrapper",
+      ),
+    ],
+    // Round 5's seven inversions. Each is caught by the pin rather than by a
+    // pattern, which is exactly the point of having one.
+    ["invert the shape-not-alias rule", editRule("never by alias", "also by alias")],
+    ["tell readers to wrap interactive runs", editRule("run them unwrapped", "run them wrapped")],
+    ["invert the bulk exclusions", editRule("all stay unwrapped", "all stay wrapped")],
+    [
+      "claim the inner build lock bounds across worktrees",
+      editRule("it bounds nothing across worktrees", "it bounds across worktrees"),
+    ],
+    [
+      "make an inner wrap correct rather than merely harmless",
+      editRule("so it is harmless, not correct", "so it is harmless, correct"),
+    ],
+    [
+      "make the server the heavy phase instead of the suite",
+      editRule(
+        "the suite hitting them is the heavy phase, not the server",
+        "the suite hitting them is not the heavy phase; the server is",
+      ),
+    ],
+    [
+      "claim two slot dirs share one semaphore",
+      editRule(
+        "two dirs are two independent semaphores",
+        "two dirs share one semaphore",
+      ),
     ],
   ];
 

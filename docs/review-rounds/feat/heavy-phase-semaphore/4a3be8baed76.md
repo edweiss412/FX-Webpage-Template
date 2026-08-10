@@ -50,15 +50,15 @@ authoring rule; applying it while drafting would have made R1 F1/R2 F1/R3 F2 fre
 plan prose and the spec case bodies; `TASK_AC_MISSING`/marker grammar already ran
 clean from round 1.
 
-## diff — 4 rounds
+## diff — 5 rounds
 
-**Examined:** four counted rounds on the implementation diff, dispatched as two
+**Examined:** five counted rounds on the implementation diff, dispatched as two
 tight-scope reviews per the split-review default. The wrapper half
 (`scripts/with-heavy-slot.py` + `tests/scripts/withHeavySlot.test.ts`, ~1600 lines,
 the arc's entire mechanism) took APPROVE/0 in round 1 and was never re-opened; its
 reviewed scope is byte-identical from that verdict to merge. Every counted round
 after round 1 belongs to the other half: the AGENTS.md prose rule and its
-string-presence guard, 4/1/1/1 findings across rounds 1-4.
+string-presence guard, 4/1/1/1/1 findings across rounds 1-5.
 
 That split is the finding. The half with kernel semantics, fd lifetimes across
 `execvp`, inode identity, and an atomic swap protocol converged immediately, because
@@ -85,41 +85,58 @@ reach: R4 deleted three characters, the `non-` in "non-interactive", putting
 interactive Playwright on the MUST side in direct contradiction with the MUST-NOT
 side, with every registered code span and every clause pattern intact.
 
-So the class has at least two axes, and each needed its own structural close rather
-than a longer list:
+Round 5 then did it again, and that is what finally identified the real shape. It
+produced seven more inversions — `never by alias` to `also by alias`, `stay
+unwrapped` to `stay wrapped`, `bounds nothing across worktrees` to `bounds across
+worktrees` — and the round-4 repair's own claim to have "swept every
+polarity-bearing qualifier" was false for the same reason the round-3 claim was:
 
-- *An exemption claims coverage nothing enforces* — closed by making the claim
-  executable (`pinnedBy`, type-required).
-- *A qualifier's deletion INVERTS a clause while its tokens survive* — closed by
-  asserting the AXIS instead of the phrasing: on the MUST side every mention of
-  interactivity must be negated, on the MUST-NOT side at least one must not be. A
-  clause list would not have survived the next rewording, because the words move
-  and the axis does not.
+**The invertible set is every declarative clause in the paragraph.** Closing it by
+adding patterns is an enumeration over English, which does not terminate. Three
+rounds were spent discovering that, each one adding patterns and each one declaring
+a class closed that the next round re-opened with an ordinary three-character edit.
 
-The transferable rule is narrower and more honest than the round-3 version: when a
-guard's coverage is stated in prose — an exemption's reason, a qualifier's sense —
-the prose is the next defect site, and the repair is to make that specific claim
-executable. Each such claim is its own axis. Declaring the class closed after
-closing one axis is what produced round 4, and it is worth noting that the round-3
-filing made exactly that error in writing, one round before being refuted by it.
+The close is a VERBATIM PIN of the bullet against
+`tests/docs/fixtures/agents-heavy-phase-rule.md`, whitespace-normalized so markdown
+may reflow but no word may change. Every inversion fails, including all fifteen the
+reviewer produced and every one nobody thought of, and the criterion is closed
+rather than open: there is no "what if they word it differently", because any
+different wording fails. The cost is one deliberate fixture update when the contract
+genuinely changes — the correct ceremony for a document other harnesses depend on
+and cannot see the spec behind.
+
+The pattern checks stay, for two reasons that are worth separating. They name WHAT
+broke, which a pin cannot; and the spec-derived registry closes the one axis the pin
+structurally cannot see — a shape ADDED to spec §4.6 that the bullet never picked
+up, where the bullet is unchanged and therefore matches its pin perfectly.
+
+**The transferable rule, stated at the cost of five rounds:** a guard over PROSE can
+close two things by assertion — that named things are present and on the right side,
+and that the text is the text. It cannot close "the prose does not mean the opposite"
+by pattern, at any length of pattern list. Decide at authoring time which of the
+three you need, and reach for the pin the moment the answer is the third. The
+round-3 and round-4 filings each declared this class closed one round before being
+refuted, and both of those overclaims are left in the history above rather than
+edited out, because the pattern they make is the finding.
 
 Worth stating plainly against the round-1 brief: it named the mutation-family closure
 as the convergence criterion and demanded a surviving mutant per finding, and every
-round complied — seven findings, seven mutants, zero speculation, no ratchet into a
-markdown parser, and each round's cost bounded by a concrete accepted document. The
-criterion worked. What it could not do was stop a repair from introducing or leaving
-a gap, which is why rounds 2, 3, and 4 exist. Against the alternative — an
-enumeration-shaped criterion over "documents a contributor might write" — this arc
-terminated in four rounds with every finding demonstrated rather than argued.
+round complied — eight findings, fifteen mutants, zero speculation, and no ratchet
+into a markdown parser or an AST. Every round cost was bounded by a concrete accepted
+document rather than an argument. The criterion did its job: it kept every round
+honest and it is why the arc ends with a closed criterion instead of a longer list.
+What a per-finding mutant requirement cannot do is tell you the enumeration you are
+inside will not terminate — that took five rounds to see, and seeing it is what
+produced the pin.
 
-**Mechanizable:** both axes are mechanized in-repo — `pinnedBy` is type-required, so
-an unpinned `ignore` row is a compile error; the polarity check asserts the
-interactivity axis directly; and all eighteen mutants four review rounds produced are
-`OPERATORS` rows rather than prose, so no repair can silently regress. The general
-form (a guard whose coverage is stated in prose that no assertion backs) has no
-static signature a linter could match across the repo's other registries without
-knowing what each piece of prose claims; it belongs in authoring guidance, not a
-gate.
+**Mechanizable:** the inversion class is now closed by construction (the verbatim
+pin), the exemption-claim axis is type-required (`pinnedBy`), the spec-derived
+registry catches a shape added to §4.6, and all twenty-five mutants five rounds
+produced are `OPERATORS` rows, so no repair can silently regress an earlier one. What
+remains unmechanized is the authoring judgement — knowing to reach for a pin rather
+than a pattern list when the guard's subject is prose. That has no static signature;
+it belongs in `docs/agents/writing-plans.md` alongside the anti-tautology rule, and
+the paragraph above is written to be liftable there verbatim.
 
 **Infra:** the sandboxed reviewer could not start Vitest (`EPERM` creating its temp
 dir) in any of the three rounds and transpiled the exported pure checker in memory
