@@ -423,6 +423,9 @@ describe("Task 6 — use-raw overlay wired into runPhase2 + persistence + STALE 
         runUuid: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
         tempPrefix: "diagram-snapshots/shows/show-1/_pending/",
         warnings: [],
+        // Required on SnapshotAssetsResult (spec §3): the consuming hop reads it
+        // directly, so a dropped channel fails loudly rather than defaulting to [].
+        variantFailures: [],
         pending: {
           revision_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
           snapshot_revision_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",

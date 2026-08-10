@@ -8,6 +8,145 @@ Last reconciled: 2026-08-04 — `feat/harness-font-fidelity` (PR #705) graduated
 
 ---
 
+## BL-RECOVERY-CLEANUP-DELETES-LIVE-BYTES — a losing concurrent recovery can delete the winner's objects
+
+**Status:** OPEN — filed from cross-model review of PR #761 · **Severity:** HIGH · **Class:** CORRECTNESS · **Effort:** M
+
+`assetRecovery` gates under the show lock, RELEASES it, uploads to deterministic canonical paths,
+then re-takes the lock to commit. Two overlapping runs can both pass the gate. When one commits
+`snapshot_status: complete`, the other's locked read returns `no_op` (or `skipped` on contention) and
+its cleanup removes every path IT uploaded — which are byte-identical canonical paths to the ones the
+winner's committed manifest now references (`lib/sync/assetRecovery.ts`, the `uploadedPaths` cleanup
+in the skipped and drift/no_op branches). The crew page then renders a manifest pointing at objects
+that no longer exist.
+
+Reviewer's interleaving probe: after A commits, the manifest points at
+`.../rev/embedded-obj.png@256.webp`; after B's cleanup, `manifestTargetExists: false`.
+
+**Pre-existing, and widened by PR #761.** The race and the cleanup both predate that PR — it applied
+to ORIGINALS already. What the PR changed is blast radius: variant objects now ride the same
+`uploadedPaths` list, so a firing deletes the variants too. It is filed rather than fixed in-branch
+under class-sweep exception (a): the repair is a product decision the PR cannot settle — never
+deleting leaks orphans that GC only reclaims under a non-retained revision prefix, while deleting
+keeps risking live bytes, and picking between them is a spec question about recovery's concurrency
+model, not a patch.
+
+**Cheapest probe to schedule first:** confirm whether two `runAssetRecoveryCron` invocations can
+actually overlap in production (the cron route has no job-level lock that this review found) — that
+sets the severity for real.
+
+## BL-SNAPSHOT-UPLOAD-THROW-ORPHANS-OBJECTS — an upload exception leaves objects nothing will reclaim
+
+**Status:** OPEN — filed from cross-model review of PR #761 · **Severity:** medium · **Class:** STORAGE HYGIENE · **Effort:** M
+
+Two instances of one shape:
+
+- `snapshotAssets` uploads to `_pending/<runUuid>/` and, on any throw, calls
+  `markPendingSnapshotDeleteStarted` through the transaction that is about to roll back. With the
+  ledger insert rolled back, GC cannot discover that prefix, and its object sweep skips `_pending`
+  anyway. The storage port has no removal operation at all.
+- `assetRecovery` tracks uploaded paths but only cleans up on `skipped`, `revision_drift`, and
+  `no_op`; an upload exception goes straight to the `finally` that removes the local temp dir, and
+  the already-uploaded canonical objects stay.
+
+Reviewer's probe against `snapshotAssets` with a real 800x600 PNG and an injected original-upload
+failure: three objects uploaded, `deleteMarkerCalls: ["rev-1"]`, `storageRemoveCapability: false`.
+
+**Pre-existing, and widened by PR #761** in the same way as the entry above: originals already
+orphaned this way; variants now orphan alongside them. Filed rather than fixed under exception (c) —
+the repair is a removal capability on the storage port plus a GC reach into `_pending`, which is a
+redesign of two surfaces the PR does not otherwise touch.
+
+## BL-PROMOTE-VALIDATES-COUNTS-NOT-IDENTITIES — promotion compares list lengths, not the names the manifest requires
+
+**Status:** OPEN — filed from cross-model review of PR #761 · **Severity:** medium · **Class:** CORRECTNESS · **Effort:** S
+
+`promoteSnapshot` computes how many objects the manifest describes and compares that number to the
+temp listing's length and then to the canonical listing's length. It never checks that each
+`snapshotPath` basename and each variant `key` is actually PRESENT. A missing required object plus an
+unrelated object of equal count passes both checks, gets moved to canonical, and cuts over a manifest
+pointing at bytes that are not there. Duplicate entries produce the same class.
+
+Reviewer's probe: `countCheckPasses: true` with `missingExpected: ["embedded-a.png@256.webp"]`; the
+only integrity conditions in the function are the two length comparisons, and there is no set or
+membership check anywhere.
+
+**Pre-existing.** The count-only check is what the function has always done; PR #761 widened the
+COUNT to include variants but did not change its nature. Filed rather than fixed under exception (c):
+moving from a count to a required-name set is a change to the promotion integrity contract itself —
+it needs a decision about what to do with EXTRA objects (today they are tolerated when counts match)
+and a matching rollback story, which is a spec, not a patch.
+
+## BL-ADMIN-DIAGRAM-NEXT-IMAGE — the two admin wizard diagram surfaces still render raw `<img>`
+
+**Status:** OPEN — filed at private-image-pipeline close-out · **Severity:** low · **Class:** PERF / consistency · **Effort:** M
+
+`components/admin/wizard/step3ReviewSections.tsx` has two same-shape `<img>` sites — the staged-diagram
+preview and the published breakdown that builds `/api/asset/diagram/` srcs. They are the same defect
+shape the crew gallery just fixed, and the loader plus the ingest variant ladder are reusable there
+as-is: `makeDiagramLoader` (`lib/images/diagramLoader.ts`) already takes manifest `variants` and
+returns asset-route URLs, and the manifest fields land for every show at its next snapshot.
+
+Deferred under the class-sweep disposition rule's exception **(c)**, ratified in the design session
+(`docs/superpowers/specs/crew/2026-08-09-private-image-pipeline-design.md` §1.1): the repair lands
+inside a ~4000-line admin wizard file the shipping PR does not otherwise touch, which blows its review
+scope; and the value driver — crew bandwidth on venue 4G — does not apply to a desktop admin surface.
+This is NOT "same defect, different file" with nothing more to say: the exception is named, and the
+reason it applies is that the cost of the repair is dominated by the file it lives in rather than by
+the change itself.
+
+**Un-defer trigger:** any work that already opens `step3ReviewSections.tsx` for another reason should
+carry these two sites with it, since the marginal cost then collapses to the edit itself.
+
+## BL-LIGHTBOX-ORIGINAL-PROGRESS-AFFORDANCE — the lightbox pins the original with nothing to watch while it loads
+
+**Status:** OPEN — filed from the invariant-8 dual gate on PR feat/private-image-pipeline · **Severity:** medium · **Class:** UX · **Effort:** S
+
+The active lightbox slide sets `pinOriginal: true` (`components/diagrams/GalleryLightbox.tsx`), so
+opening a diagram downloads the full-resolution original — deliberately, because zoom needs it
+(spec `docs/superpowers/specs/crew/2026-08-09-private-image-pipeline-design.md` §6). On ballroom wifi
+that is seconds during which the only signal is a 16px blur, at the peak-stakes moment: a crew member
+tapped a stage plot mid-show and cannot tell whether anything is happening.
+
+**Reachability:** INFERRED, NOT PROBED. The probe that would settle it: throttle to a venue-grade
+profile, open a representative stage-plot original, and measure time-to-sharp against the blur.
+
+Two candidate shapes, neither settled: gate `pinOriginal` on zoom intent (the clamped 1024 tier paints
+fast, the original arrives on pinch, and the browser keeps the old bitmap during a src swap so the
+upgrade is a silent sharpen), or keep the pin and add a progress affordance. The first changes a
+ratified spec decision and needs a spec amendment, which is why it did not land in-branch.
+
+## BL-DIAGRAM-BLUR-EDGE-SIZE — the 16px blur carries no structure for line art and is brightest where it hurts
+
+**Status:** OPEN — filed from the invariant-8 dual gate on PR feat/private-image-pipeline · **Severity:** low · **Class:** UX · **Effort:** S
+
+`BLUR_MAX_EDGE = 16` (`lib/sync/diagramVariants.ts`) is the spec's bound (§3). A 16px downsample of a
+white stage plot with thin black lines averages to a near-uniform light field: it delivers the full
+brightness hit while carrying almost no content signal. At thumbnail scale the upscale is ~3x and it
+reads as a placeholder; on a full-viewport lightbox slide it is ~25x, and against the `bg-bg/95` scrim
+in dark mode a dark-adapted viewer reads it as a flash.
+
+**Reachability:** INFERRED, NOT PROBED. The probe: render a real stage-plot blur at both scales in
+both themes and compare against an emitting-nothing skeleton.
+
+Candidate: raise the bound to 32 (32x32 q40 still lands far under the 2048-char belt) and/or drop the
+placeholder on the lightbox tiers only. Both change spec §3, so neither landed in-branch.
+
+## BL-GALLERY-FAILED-ITEM-FOCUS-AND-ANNOUNCE — a failed thumbnail drops focus and says nothing
+
+**Status:** OPEN — filed from the invariant-8 dual gate on PR feat/private-image-pipeline · **Severity:** low · **Class:** A11Y · **Effort:** S
+
+When a thumbnail's runtime load fails, the gallery cell swaps from `<button>` to a non-interactive
+`<div>` (`components/diagrams/Gallery.tsx`). If that thumbnail held focus, focus falls to `<body>`.
+The lightbox already handles the identical transition deliberately — it relocates focus to its close
+button before the unmount cascade — so the pattern exists and is simply not applied here. Separately,
+the swap is silent to assistive tech: the replacement carries `sr-only` text discoverable only by
+re-browsing, not a live-region announcement.
+
+Both are PRE-EXISTING behaviours of this surface, unchanged by the next/image migration that surfaced
+them; they are filed rather than fixed in that branch because the repair is a focus-management and
+announcement decision on a surface the branch does not otherwise change.
+
 ## BL-GLYPHS-OUTSIDE-INTER-SUBSET — ~150 UI glyph sites render in a fallback face, not Inter
 
 **Filed:** 2026-08-09 (`docs/step3-a11y-impeccable-regate`, the non-degraded invariant-8 re-run of the step3-a11y cluster). **Class:** visual consistency (`DESIGN.md` §2.1 commits to ONE type family). **Effort:** M — the fix is a decision plus either a wider subset or a glyph-to-icon migration, not a patch. **Class-sweep exception:** (c) — it spans surfaces no single PR touches. **Reachability: PROBED.**
@@ -670,21 +809,6 @@ Promotion path these were filed under, retained: spec at `docs/superpowers/specs
 plan tree at `docs/superpowers/plans/<date>-<name>/`, a milestone number, then list it in
 `docs/superpowers/plans/README.md`. Promotion is gated like any milestone — brainstorming, spec
 self-review, adversarial review, planning, adversarial review.
-
-### BL-PRIVATE-IMAGE-PIPELINE — Migrate diagrams gallery to `next/image` with auth-preserving pipeline
-
-**Effort:** L (scope floor — design-gated)
-**l-wave-screen 2026-08-06:** PREREQ — scope floor — needs its own private-image-pipeline design session.
-
-**Origin:** DEFERRED entry M7-D3 (Diagrams gallery `<img>` → `next/image`). Re-deferred at M9 C6b 2026-05-13 after an in-cluster attempt failed P0 (auth cookies don't forward through `/_next/image`; private Cache-Control rewritten to public, breaking revocation propagation).
-
-**Scope:** Migrate `components/diagrams/Gallery.tsx` and `components/diagrams/GalleryLightbox.tsx` from `<img>` to `next/image` to gain LCP optimization on the mobile crew page. Currently they use `<img loading="lazy" decoding="async">` as the manual equivalent — works correctly but doesn't get Next's `/_next/image` optimizer benefits.
-
-Asset URLs are proxied through `/api/asset/diagram/...` which returns auth-checked bytes with `private, max-age=0, must-revalidate`. The `next/image` optimizer would either need to bypass the auth proxy OR add a second redirect layer — neither is straightforward.
-
-**Why backlog, not deferred:** The in-cluster M9 attempt failed P0 because the obvious paths (declare proxy origin as `next.config.ts` remote pattern; let `/_next/image` proxy through it) break the auth + cache contract. The right fix requires a private-image-pipeline design — custom loader + transform service, OR signed-URL CDN, OR architectural decision to accept the LCP cost of un-optimized images. Each path is a multi-day brainstorming session.
-
-**Promotion prerequisite:** Private-image-pipeline brainstorming (custom loader vs signed-URL CDN vs accept-the-cost). May fold into a broader "v1.5 perf-and-polish" milestone rather than standalone.
 
 ### BL-ADMIN-DASHBOARD-ROW-ACTIONS — ActiveShowsPanel row-action shortcuts
 

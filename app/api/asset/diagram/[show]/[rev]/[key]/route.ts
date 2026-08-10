@@ -6,6 +6,7 @@ import { isAllowedDiagramMime, resolveCurrentDiagrams } from "@/lib/data/diagram
 import type { PersistedDiagrams } from "@/lib/parser/types";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 import { boundedPassThroughWeb, ByteLimitExceededError } from "@/lib/sync/boundedBytes";
+import { isSafeDiagramKey } from "@/lib/images/diagramKey";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const CACHE_CONTROL = "private, max-age=0, must-revalidate";
@@ -102,10 +103,80 @@ function objectPath(storagePath: string): string | null {
   return storagePath.slice(prefix.length);
 }
 
+/**
+ * The §4 guard conditions, applied to one entry's `variants` field.
+ *
+ * A malformed manifest value can never make this route throw — it shrinks the
+ * accept-set toward originals-only. Every rejected shape here is a row in the
+ * route suite's malformed matrix.
+ */
+function listedVariantKeys(entry: { variants?: unknown }): string[] {
+  const raw = entry.variants;
+  if (!Array.isArray(raw)) return [];
+  const keys: string[] = [];
+  for (const row of raw) {
+    if (typeof row !== "object" || row === null) continue;
+    const { width, key } = row as { width?: unknown; key?: unknown };
+    if (typeof width !== "number" || !Number.isFinite(width) || width <= 0) continue;
+    if (typeof key !== "string" || key.length === 0) continue;
+    if (!isSafeDiagramKey(key)) continue;
+    keys.push(key);
+  }
+  return keys;
+}
+
+/**
+ * `resolveCurrentDiagrams` duck-types on the revision id alone, so a persisted
+ * manifest can be missing either collection, hold a null entry, or carry a
+ * non-string mimeType and still resolve. Spreading or destructuring those
+ * directly throws a TypeError, which the route turns into a 500 — the one
+ * outcome the "a malformed manifest can never make findAsset throw" contract
+ * (spec §4) forbids. Every degenerate shape must SHRINK the accept-set instead.
+ */
+function manifestEntries(diagrams: PersistedDiagrams): PersistedDiagrams["embeddedImages"] {
+  const collections = [diagrams.embeddedImages, diagrams.linkedFolderItems];
+  const entries: PersistedDiagrams["embeddedImages"] = [];
+  for (const collection of collections) {
+    if (!Array.isArray(collection)) continue;
+    for (const entry of collection) {
+      if (typeof entry !== "object" || entry === null) continue;
+      entries.push(entry as PersistedDiagrams["embeddedImages"][number]);
+    }
+  }
+  return entries;
+}
+
 function findAsset(diagrams: PersistedDiagrams, expectedPath: string): AssetEntry | null {
-  for (const entry of [...diagrams.embeddedImages, ...diagrams.linkedFolderItems]) {
-    if (entry.snapshotPath === expectedPath) {
-      return { snapshotPath: entry.snapshotPath, mimeType: entry.mimeType };
+  for (const entry of manifestEntries(diagrams)) {
+    // Non-null string gate FIRST (spec §5): `snapshotPath: string | null` is a valid
+    // persisted shape, and deriving a directory from null is the throw this ordering
+    // prevents. A null-path entry with plausible-looking variants is simply skipped.
+    const { snapshotPath } = entry;
+    if (typeof snapshotPath !== "string" || snapshotPath.length === 0) continue;
+
+    // The SAME shape gate as variants, on the original's own key. Matching by
+    // literal equality is not sufficient: the matched path is what gets signed,
+    // and Storage normalizes it, so a manifest whose original key carried `?`,
+    // `..` or a backslash would sign a different object. Applying the gate to one
+    // branch and not the other is how that class survived round 2.
+    const originalKey = snapshotPath.slice(snapshotPath.lastIndexOf("/") + 1);
+    if (!isSafeDiagramKey(originalKey)) continue;
+
+    if (snapshotPath === expectedPath) {
+      // A non-string mimeType reaches isAllowedDiagramMime, which lowercases it.
+      // Coerce to a value that simply fails the allowlist rather than throwing.
+      const mimeType = typeof entry.mimeType === "string" ? entry.mimeType : "";
+      return { snapshotPath, mimeType };
+    }
+
+    const directory = snapshotPath.slice(0, snapshotPath.lastIndexOf("/") + 1);
+    for (const key of listedVariantKeys(entry)) {
+      if (`${directory}${key}` === expectedPath) {
+        // The VARIANT's own path is what gets signed — serving the original's bytes
+        // under a variant URL would defeat the pipeline while looking correct.
+        // Variants are always webp by construction (spec §3 encoding).
+        return { snapshotPath: expectedPath, mimeType: "image/webp" };
+      }
     }
   }
   return null;
