@@ -52,3 +52,26 @@ the crew-field-enrichment precedent).
 
 E2's five-consecutive-green crew-e2e bar (wave spec §4 limit 8) is tracked
 post-merge, not a pre-merge gate.
+
+## W-GUARDS (`feat/m2-guard-precision`)
+
+impeccable-gate: critique=RAN audit=RAN p0=0 p1=0 dispositions=none
+
+GATE FLIPPED from `N/A — no UI surface` per the spec §0 contingency: G2's
+crosswalk triage corrected `app/help/getting-started/page.mdx` (the bolded
+**Finalize** named no shipped control — the wizard UI and its own help page
+say "finish setup"). Scoped dual-gate run 2026-08-10 on that one-sentence
+diff, canonical v3 setup (context.mjs + product register), DUAL-AGENT
+(Assessment A design review + Assessment B detector/mechanical evidence as
+isolated subagents — not degraded). A: heuristics 36/40, clean slop verdict,
+zero P0/P1, one P2 (buried payload — link pushed to line end by a 17-word
+parenthetical) + P3s (all-shows overclaim; both FIXED in-branch: sentence
+split with the link early, "publishes the shows you tick"). B: detector exit
+0 with a planted-violation liveness control, PLUS the honest record that the
+detector has no prose rule surface — its green is "untested", not "passed",
+for a copy-only diff; greps clean (0 em dashes, ASCII quotes, 0 raw codes,
+0 residual "Finalize"), link target verified. Residual gap: no rendered-DOM
+pass (no browser session provisioned for the scoped run).
+
+Cross-model review + mutation-gate record: see the review section below
+(appended at dispatch/verdict time).
