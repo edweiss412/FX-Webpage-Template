@@ -888,6 +888,20 @@ export const MESSAGE_CATALOG = {
     longExplanation: null,
     helpHref: null,
   },
+  ONBOARDING_INTERNAL_ERROR: {
+    code: "ONBOARDING_INTERNAL_ERROR",
+    warningClass: "general",
+    dougFacing:
+      "Something went wrong on our side while preparing this sheet. It isn't a problem with the sheet or with Google Drive. Try again once, and contact the developer if it keeps happening.",
+    crewFacing: null,
+    followUp: "Eric → investigate",
+    helpfulContext:
+      "A step that runs after your sheet is read hit a bug on our side. Nothing is wrong with the sheet's content or its sharing, and retrying may work, but a repeat means the app needs a code fix. Contact the developer with the time this happened.",
+    title: "Internal error while preparing a sheet",
+    longExplanation:
+      "A step that runs after your sheet is read hit a bug on our side. Nothing is wrong with the sheet's content or its sharing, and retrying may work, but a repeat means the app needs a code fix. Contact the developer with the time this happened.",
+    helpHref: "/help/errors#ONBOARDING_INTERNAL_ERROR",
+  },
   ONBOARDING_FINALIZE_INTERNAL_ERROR: {
     code: "ONBOARDING_FINALIZE_INTERNAL_ERROR",
     warningClass: "general",
