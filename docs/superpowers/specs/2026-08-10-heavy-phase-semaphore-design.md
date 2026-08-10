@@ -67,10 +67,11 @@ probe-settled (§4.0), including R1-driven reversals. Reviewers verify, not re-d
 
 - **C1 — No increase to the phases that dominate per-arc ship time.** Slots wrap ONLY
   heavy local phases. Spec/plan authoring, codex review dispatch/polling, CI polling,
-  and merges never acquire a slot. A wrapped heavy phase MAY pay a bounded, surfaced
-  queue wait in the ≥(slots+1)-overlap regime — that trade is ratified and registered
-  as a documented limit (§8); the constraint is about arc wall-clock, not about no
-  command ever waiting.
+  and merges never acquire a slot. A wrapped heavy phase MAY pay a surfaced
+  queue wait in the ≥(slots+1)-overlap regime — surfaced by the wait warnings,
+  finite in practice, but NOT formally bounded (§4.1.2 states the no-fairness
+  semantics; R9 F2) — that trade is ratified and registered as a documented limit
+  (§8); the constraint is about arc wall-clock, not about no command ever waiting.
 - **C2 — Full-speed holders.** A slot holder is never worker-starved. (Satisfied
   structurally: the wrapper adds exactly one env marker — `FX_HEAVY_SLOT_HELD`, the
   §4.1 reentrancy guard, which no test or build tool reads — and modifies nothing
@@ -275,12 +276,17 @@ AGENTS.md rule):
 - A non-priority waiter that backs off for a fresh marker emits a one-line stderr
   notice (`yielding to priority waiter`) — the marker mechanism's own observable
   surface (R4 F3).
-- Marker freshness window — the ONLY definition (R6 F2): a marker is fresh while
-  `age <= max(10 min, 2 × the observing waiter's effective poll interval)`. The
-  adaptive term exists because a fixed 10-minute window goes stale between two polls
-  at the 600 s poll ceiling and would silently cancel the bias (R4 F5 interaction
-  class); the 10-minute floor bounds how long a crashed waiter's marker can throttle
-  others at ordinary poll rates.
+- Marker freshness window — the ONLY definition (R6 F2; declared-cadence basis per
+  R9 F1): each marker's content is one JSON line carrying the priority waiter's pid
+  and its OWN effective poll interval; an observer treats the marker as fresh while
+  `age <= max(10 min, 2 × the interval DECLARED IN THE MARKER)`. Basing the window
+  on the observer's interval silently expired an active slow-polling waiter's
+  marker for every faster-polling observer (R9 F1: priority at 600 s poll renews at
+  up to 720 s gaps while a 3 s observer expired it at 600 s); the declared cadence
+  closes the whole heterogeneous-settings region. An unreadable/unparseable marker
+  is treated as fresh-at-the-10-minute-floor and surfaced in the yielding notice as
+  `cadence unknown` — never silently ignored. The 10-minute floor bounds how long a
+  crashed waiter's marker can throttle others at ordinary poll rates.
 - No lock handoff, no queue file, no strict ordering guarantee. A starved normal waiter
   still acquires as soon as no fresh priority marker exists.
 - Discriminability requirement for §7: the marker back-off must be observable
@@ -433,8 +439,9 @@ cross-CLI contract.
   measured this morning, suites ran at a fraction of speed and shards blew a 3600 s
   timeout. Serial-at-full-speed beats parallel-at-thrash-speed on wall clock in that
   regime. (For 3 phases that would have co-run acceptably, the queued phase pays a
-  bounded wait; the C1 claim is about the phases that dominate arc latency, next
-  bullet — not that no command ever waits.)
+  surfaced, practically-finite wait — not formally bounded, §4.1.2; the C1 claim is
+  about the phases that dominate arc latency, next bullet — not that no command
+  ever waits.)
 - Phases that dominate arc latency (review rounds, CI, merge polling) never wait.
 - A holder is never slowed: the wrapper adds no caps, no env changes, no flags (C2).
 - Builds are wrapped like any heavy phase (§4.6); the same-worktree double-build
@@ -478,6 +485,13 @@ real `/tmp/fx-heavy-slots`.
    pins the per-poll refresh, R7 F3; a create-once implementation fails this arm).
    `.retry(2)` retained for scheduler noise on the ordering arm; the notice and
    refresh arms are timing-independent.
+   Declared-cadence freshness arm (R9 F1): plant two markers by hand with backdated
+   mtimes (`os.utime`) — one declaring poll 400000 ms backdated 700 s (window
+   `max(600 s, 2 × 400 s) = 800 s` → FRESH: a normal waiter emits the yielding
+   notice), one declaring poll 3000 ms backdated 700 s (window = 600 s floor →
+   STALE: no yield). Flips exactly at the declared-cadence boundary,
+   deterministically, no waiting — an implementation computing freshness from the
+   observer's own interval fails the first half.
 6. **Disable hatch.** `FX_HEAVY_DISABLE=1`: two slots=1 commands overlap (no locking).
 7. **Metadata surfacing and secret absence (R1 F5, R2 F5).** Slots=1 held with
    deliberately truncated/garbage slot-file content (test writes over it via a separate
@@ -577,8 +591,9 @@ The suite spawns ≤3 tiny node children per case — it is itself light and nee
   recreation races `--recreate` exists to prevent. Consequence is bounded over-
   admission until in-flight commands finish, surfaced by topology-restart notices on
   every subsequent acquisition; the repair is rerunning `--recreate`.
-- A wrapped phase can wait when more than `slots` heavy phases overlap — bounded,
-  surfaced by the wait warning, ratified under C1 (R2 F6).
+- A wrapped phase can wait when more than `slots` heavy phases overlap — surfaced by
+  the wait warning, finite in practice, NOT formally bounded (no-fairness semantics,
+  §4.1.2, R9 F2) — ratified under C1 (R2 F6).
 - Same-worktree double build: the second build holds a heavy slot while idling on the
   worktree-local inner lock (§4.6, R2 F1) — rare under invariant 11, surfaced by the
   wait warning naming the holder.
