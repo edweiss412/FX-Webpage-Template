@@ -39,7 +39,7 @@ Restated from the spec so every `ac=` id in this plan resolves here. Spec is can
 ## Meta-test inventory (mandatory declaration)
 
 - **EXTENDS** `tests/cross-cutting/pg-cron-coverage.test.ts` — one registry row (`sync_log_prune`).
-- **CREATES** a new `syncLogIndexesAndPrune` suite under `tests/db/` — no existing test references any of the new index or function names (`rg` returns nothing), so AC-7 and AC-8 have no executable proof without it. Includes a migration-text assertion pinning the `to_regclass` dev guard, so an ungated `create index ... on dev.sync_log` cannot ship.
+- **CREATES** a new `syncLogIndexesAndPrune.db` suite under `tests/db/` — no existing test references any of the new index or function names (`rg` returns nothing), so AC-7 and AC-8 have no executable proof without it. Includes a migration-text assertion pinning the `to_regclass` dev guard, so an ungated `create index ... on dev.sync_log` cannot ship.
 - **CREATES no attribution meta-test.** Descoped to `BL-SYNC-LOG-ATTRIBUTION-METATEST` under the three-round prose cap after its definition consumed spec rounds 11-13. Design is preserved in that entry, ready to implement. The repairs it would police all ship here; what is deferred is regression prevention.
 - **CREATES** no other registry meta-test. The invariant-9 registry (`tests/auth/_metaInfraContract.test.ts`, `tests/admin/_metaInfraContract.test.ts`) is **not** extended: the sink uses raw `postgres`, not a Supabase client, so it is outside that contract. The read path already conforms and is unchanged.
 - **Invariant-10 mutation-surface registry:** N/A — no new HTTP route and no new `"use server"` action.
@@ -96,7 +96,7 @@ N/A — no Playwright surface.
 
 ## Task 1 — Cron sink writes `show_id` and `duration_ms`
 
-<!-- task: red=`pnpm vitest run tests/sync/syncLog.test.ts` ac=AC-1,AC-3,AC-4,AC-5,AC-6 -->
+<!-- task: red=`pnpm vitest run tests/sync/syncLog.test.ts` ac=AC-1,AC-3,AC-4,AC-6 -->
 
 **RED validity.** `tests/sync/syncLog.test.ts:16-31` asserts `toHaveBeenCalledWith(expect.stringContaining("insert into public.sync_log"), [4 params])`. The production line whose absence makes it fail is the `insert into public.sync_log (drive_file_id, status, message, parse_warnings)` literal at `lib/sync/syncLog.ts:43` — four columns, four params. Not test-local: the string under assertion is production source.
 
@@ -143,9 +143,9 @@ values ((select id from public.shows where drive_file_id = $1), $1, $2, $3, $4::
 
 ## Task 2 — Widen `SyncLogEntry` and `SyncLogDeps`; capture the attempt start
 
-<!-- task: red=`pnpm vitest run tests/sync/runScheduledCronSync.test.ts -t logSync` ac=AC-5,AC-6 -->
+<!-- task: red=`pnpm vitest run tests/sync/runScheduledCronSync.test.ts -t logSync` ac=AC-6 -->
 
-**RED validity.** The exact-object `toHaveBeenCalledWith` assertions at `tests/sync/runScheduledCronSync.test.ts:2643-2680` fail the moment the entry gains a field. The production line is the entry construction inside `logSync` (`lib/sync/runScheduledCronSync.ts:2241-2249`).
+**RED validity — the claimed existing RED was false (plan R1 F3).** `tests/sync/runScheduledCronSync.test.ts:2662` observes the dependency object handed to a MOCKED `processOneFile`, not the `SyncLogEntry` built inside the real `logSync`, so adding a field to that entry cannot fail it; the later sink assertion is `expect.objectContaining`, not exact. This task therefore WRITES its RED: a new duration assertion against the entry the real helper constructs, with an injected clock and a known delta. The production line is the entry construction inside `logSync` (`lib/sync/runScheduledCronSync.ts:2241-2249`).
 
 Add `durationMs?: number` to `SyncLogEntry` — **not** `showId` (plan R1 F2: an explicit show-id channel is the design the spec rejected in §3.1.1, and Task 1's own text forbids it) (`tests/sync/runScheduledCronSync.test.ts:446-456`); add **both** `attemptStartedAtMs?: number` **and** `now?: () => Date` to `SyncLogDeps` (plan R1 F2: `logSync` computes `now() - start`, so a widening carrying only the start cannot read `deps.now` under the declared parameter type and would fall back to ambient time, defeating the injected-delta oracle) (`tests/sync/runScheduledCronSync.test.ts:2218-2220`).
 
@@ -169,12 +169,12 @@ Guards: absent start → `undefined` (NULL), never NaN; non-monotonic clock → 
 | 1 | Prepared skip (`lib/sync/runScheduledCronSync.ts:2742`) | row carries the injected delta, not NULL |
 | 2 | Lock-contended skip (`lib/sync/runScheduledCronSync.ts:2761`) | same |
 | 3 | Manual first-seen apply (`lib/sync/runManualStageForFirstSeen.ts:147-158`) | same, via its own capture site |
-| 4 | Reuse hazard (`lib/sync/runScheduledCronSync.ts:3877-3942`) | process two files with different injected starts in one run; each row carries ITS OWN duration. A mutated shared `processDeps` leaks file 1's start into file 2 and this is the only assertion that catches it. |
+| 4 | Reuse hazard (`lib/sync/runScheduledCronSync.ts:3877-3942`) | **Assert the shared object is NOT mutated**, not merely that two rows differ. Plan R1 F14: the file loop is sequential, so an implementation assigning `deps.attemptStartedAtMs = freshStart` on every invocation mutates the shared `processDeps` and STILL gives both rows correct durations — a two-file duration comparison cannot distinguish it. Snapshot the deps object's own keys before the run and assert it is unchanged after, or assert the per-file object is not reference-identical to the shared one. |
 | 5 | Missing start / backward clock | NULL and 0 respectively — never NaN, never negative |
 
 ## Task 3 — Recovery sink resolves by subselect; explicit parameter retired
 
-<!-- task: red=`pnpm vitest run tests/sync/runOfShowSyncLogChannel.test.ts` ac=AC-5 -->
+<!-- task: red=`pnpm vitest run tests/sync/runOfShowSyncLogChannel.test.ts` ac=AC-1 -->
 
 **RED validity.** `tests/sync/runOfShowSyncLogChannel.test.ts:199-250` structurally pins `insertSyncLog`'s insert. Production line: `lib/sync/runScheduledCronSync.ts:1216-1219`.
 
@@ -259,7 +259,7 @@ Census — exactly **two of seven** production entry points install a sink today
 
 ## Task 4 — Attribution integration test (the probe, executable)
 
-<!-- task: red=`pnpm vitest run tests/observe/querySyncLogAttribution.test.ts` ac=AC-1,AC-2,AC-3 -->
+<!-- task: red=`pnpm vitest run tests/observe/querySyncLogAttribution.test.ts` ac=AC-1,AC-2,AC-3,AC-5 -->
 
 New DB-backed test. Write attempts through the cron sink for a drive file with a known `shows` row, then assert `querySyncLog({ showId })` returns them.
 
@@ -267,7 +267,7 @@ New DB-backed test. Write attempts through the cron sink for a drive file with a
 
 The mocked suite still gets its expected update for the select-list change (Task 1 alters no select list, so likely none) — but it is not, and cannot be, the AC-2 evidence.
 
-**Prune oracle must prove NON-deletion of rows it did not mark (spec R4 F5).** Asserting only that marked-new rows survive admits a predicate equivalent to `occurred_at < cutoff OR status = 'skipped'`: the marked old row disappears, the marked new row survives, the global return stays `>= fixtureOldCount`, and every assertion passes while unrelated recent rows are destroyed. So the fixture also inserts a **recent row NOT carrying the marker**, and asserts it survives. Include at least one whose `status` differs from the marker's, since status is the most likely accidental predicate.
+**Prune oracle (belongs to TASK 5, not here — plan R1 F13: the function does not exist until Task 5, so Task 4 could not go green owning it). Stated here only as a cross-reference; the assertions live in Task 5.** It must prove NON-deletion of rows it did not mark (spec R4 F5). Asserting only that marked-new rows survive admits a predicate equivalent to `occurred_at < cutoff OR status = 'skipped'`: the marked old row disappears, the marked new row survives, the global return stays `>= fixtureOldCount`, and every assertion passes while unrelated recent rows are destroyed. So the fixture also inserts a **recent row NOT carrying the marker**, and asserts it survives. Include at least one whose `status` differs from the marker's, since status is the most likely accidental predicate.
 
 **The oracle CANNOT be rollback-only (plan R1 F10).** `querySyncLog` reads through a separate Supabase REST connection (`lib/observe/query/syncLog.ts:23`), so a row written inside the test transaction is invisible to it; and `writeSyncLog` opens and commits its OWN connection whose resolver prefers `TEST_DATABASE_URL` — the validation project. Either shape produces a false negative, a remote mutation, or residue.
 
@@ -317,7 +317,9 @@ the new migration under `supabase/migrations/`:
 
 **Why this is a deliverable, not an assumption.** Spec R3 F6: the spec had claimed the existing meta-guards already covered the prune hazard. They do not. `EXECUTES_WIPE` (`tests/db/_metaDestructiveDbTargetGuard.test.ts:35`) matches only `reset_validation_data`, and `tests/db/_metaLocalDbUrlGuard.test.ts:122` scans only `LOCAL_TEST_DATABASE_URL` — never the `TEST_DATABASE_URL` that points at validation and that `lib/sync/syncLog.ts:8-14` prefers. A prune test wired through it passes both guards and deletes shared validation history.
 
-**RED validity.** Before this task, the new prune test (Task 5) executes `select public.prune_sync_log(...)` and is NOT discovered by the guard, so the guard's `test.each` never asserts a loopback call for it. The production line making the RED fail is the discovery filter at `tests/db/_metaDestructiveDbTargetGuard.test.ts:60-62`, which enumerates two patterns and not this one.
+**RED validity — the obvious RED is VACUOUS (plan R1 F8).** "The prune test is not discovered" makes the guard suite pass, not fail; an undiscovered destructive test is exactly the silent-pass defect, so absence of discovery cannot be the red signal.
+
+The real RED is an assertion on the discovery itself: extend the existing anti-vacuity test (`tests/db/_metaDestructiveDbTargetGuard.test.ts:66-72`), which today names only the two wipe files, to also require the prune test in `destructive`. That fails against the current discovery filter and passes once `EXECUTES_PRUNE` is added — a red that comes from production source rather than from something not happening.
 
 **Edit A** — third discovery pattern beside `EXECUTES_WIPE` (`tests/db/_metaDestructiveDbTargetGuard.test.ts:35`) and `ENABLES_WIPE_GATE` (`tests/db/_metaDestructiveDbTargetGuard.test.ts:39-41`), and widen the filter at `tests/db/_metaDestructiveDbTargetGuard.test.ts:60-62`:
 
@@ -347,6 +349,14 @@ Plan R1 F7: this task's registry row must land in the same commit as Task 5's mi
 
 
 Note `cleanup-bootstrap-nonces` is excluded by name in the query as a known orphan — not evidence the registry is optional.
+
+## Task 6b — `observe-cli.md` note on sink-derived `--show`
+
+<!-- task: red=`pnpm vitest run tests/docs/_metaSpecsReadmeIndex.test.ts` ac=AC-2 -->
+
+The approved spec's tier × layer matrix requires a note in `docs/agents/observe-cli.md` explaining that `--show` attribution is derived at the sink; no task owned it (plan R1 F16). One paragraph under the `synclog` row: the flag filters `show_id`, which the sink resolves from `drive_file_id` at write time, so rows written before a show existed stay NULL and are reachable by `--file`.
+
+**RED validity.** Documentation deliverable with no behavioural test; its proof is the doc gate plus the whole-diff review. Stated plainly rather than dressed as a test-driven task.
 
 ## Task 7 — Schema manifest regen
 
