@@ -26,6 +26,7 @@ import { useEffect, useId, useRef, useState, useTransition, type KeyboardEvent }
 import { resetCrewMemberSelection } from "@/lib/auth/picker/resetCrewMemberSelection";
 import { useDevActionOverride } from "@/components/admin/dev/actionOverrideContext";
 import { ARM_EXPIRED_ANNOUNCEMENT, ARM_REVERT_MS } from "@/lib/admin/destructiveConfirm";
+import { cn } from "@/lib/ui/cn";
 
 // Armed-state auto-revert — harmonized 4s across destructive surfaces
 // (DESTRUCT-2; mirrors app/admin/show/[slug]/PickerResetControl.tsx:29).
@@ -231,8 +232,9 @@ export function CrewRowActions({
     });
   };
 
-  const menuItemClass =
-    "flex min-h-tap-min w-full items-center gap-2.5 rounded-sm px-2.5 py-2 text-left text-[13px] font-medium text-text hover:bg-surface-sunken focus-visible:bg-surface-sunken focus-visible:outline-none";
+  const menuItemClass = cn(
+    "flex min-h-tap-min w-full items-center gap-2.5 rounded-sm px-2.5 py-2 text-left text-[13px] font-medium text-text hover:bg-surface-sunken focus-visible:bg-surface-sunken focus-visible:outline-none",
+  );
 
   return (
     <span className="relative flex shrink-0 items-center">

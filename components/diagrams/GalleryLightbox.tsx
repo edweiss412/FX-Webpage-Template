@@ -461,7 +461,7 @@ export function GalleryLightbox({
                 controlsSlotRef.current?.resetTransform();
               }}
               aria-label="Reset zoom"
-              className="pointer-events-auto inline-flex min-h-tap-min items-center gap-2 rounded-pill border border-border-strong bg-surface-raised px-4 text-sm font-medium text-text-strong shadow-(--shadow-tile) hover:bg-surface focus:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+              className="pointer-events-auto inline-flex min-h-tap-min items-center gap-2 rounded-pill border border-border-strong bg-surface-raised px-4 text-sm font-medium text-text-strong shadow-tile hover:bg-surface focus:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
             >
               <RotateCcw aria-hidden="true" className="size-4" />
               <span>Reset</span>
@@ -474,7 +474,7 @@ export function GalleryLightbox({
             onClick={scrollPrev}
             aria-label="Previous diagram"
             disabled={activeIndex === 0}
-            className="absolute left-2 top-1/2 z-10 inline-flex size-11 -translate-y-1/2 items-center justify-center rounded-pill bg-surface-raised text-text-strong shadow-(--shadow-tile) hover:bg-surface focus:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring disabled:opacity-40"
+            className="absolute left-2 top-1/2 z-10 inline-flex size-11 -translate-y-1/2 items-center justify-center rounded-pill bg-surface-raised text-text-strong shadow-tile hover:bg-surface focus:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring disabled:opacity-40"
           >
             <ChevronLeft aria-hidden="true" className="size-6" />
           </button>
@@ -734,7 +734,7 @@ export function GalleryLightbox({
             onClick={scrollNext}
             aria-label="Next diagram"
             disabled={activeIndex === items.length - 1}
-            className="absolute right-2 top-1/2 z-10 inline-flex size-11 -translate-y-1/2 items-center justify-center rounded-pill bg-surface-raised text-text-strong shadow-(--shadow-tile) hover:bg-surface focus:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring disabled:opacity-40"
+            className="absolute right-2 top-1/2 z-10 inline-flex size-11 -translate-y-1/2 items-center justify-center rounded-pill bg-surface-raised text-text-strong shadow-tile hover:bg-surface focus:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring disabled:opacity-40"
           >
             <ChevronRight aria-hidden="true" className="size-6" />
           </button>

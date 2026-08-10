@@ -23,6 +23,7 @@ import {
   updateRoleTokenMapping,
   deleteRoleTokenMapping,
 } from "@/app/admin/settings/_actions/roleTokenMappings";
+import { cn } from "@/lib/ui/cn";
 
 export type RoleMappingRowData = {
   token: string;
@@ -43,16 +44,19 @@ const CHECKBOX_LABEL: Record<GrantableFlag, string> = {
   FINANCIALS: COPY.CHECKBOX_FINANCIAL,
 };
 
-const outlineBtn =
-  "inline-flex min-h-tap-min items-center justify-center gap-2 rounded-sm border border-border-strong bg-surface px-3 text-sm font-medium text-text-strong " +
-  "transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring " +
-  "disabled:cursor-not-allowed disabled:opacity-60";
-const ghostBtn =
-  "min-h-tap-min rounded-sm px-2 text-sm font-medium text-text-subtle underline underline-offset-2 " +
-  "transition-colors duration-fast hover:text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring " +
-  "disabled:cursor-not-allowed disabled:opacity-60";
-const popIn =
-  "motion-safe:animate-[role-recognize-pop_var(--duration-fast)_var(--ease-out-quart)] motion-reduce:animate-none";
+const outlineBtn = cn(
+  "inline-flex min-h-tap-min items-center justify-center gap-2 rounded-sm border border-border-strong bg-surface px-3 text-sm font-medium text-text-strong",
+  "transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring",
+  "disabled:cursor-not-allowed disabled:opacity-60",
+);
+const ghostBtn = cn(
+  "min-h-tap-min rounded-sm px-2 text-sm font-medium text-text-subtle underline underline-offset-2",
+  "transition-colors duration-fast hover:text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring",
+  "disabled:cursor-not-allowed disabled:opacity-60",
+);
+const popIn = cn(
+  "motion-safe:animate-[role-recognize-pop_var(--duration-fast)_var(--ease-out-quart)] motion-reduce:animate-none",
+);
 
 function checksFromGrants(grants: readonly GrantableFlag[]): Checks {
   return { ...EMPTY_CHECKS, ...Object.fromEntries(grants.map((g) => [g, true])) } as Checks;
