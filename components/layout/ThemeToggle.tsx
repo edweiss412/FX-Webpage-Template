@@ -94,7 +94,22 @@ export function ThemeToggle() {
         about a state we do not yet know, whereas `false` is a wrong claim. One
         React tick later the real state arrives.
       */
-      aria-label={mounted ? (isDark ? "Switch to light theme" : "Switch to dark theme") : "Theme"}
+      /*
+        ONE SEMANTIC MODEL, not two. This carried a NEXT-ACTION name ("Switch to
+        light theme") together with `aria-pressed` reporting CURRENT state, so a
+        screen reader in dark mode announced "Switch to light theme, pressed" —
+        the name says the button will make it light, the state says light is
+        already on. Review R4 probed it: `name="Switch to light theme"
+        pressed=true`.
+
+        Resolved toward the toggle model, matching the sibling control: the
+        avatar menu's theme row is a `menuitemcheckbox` with a stable label and
+        a checked state, so the two now speak the same way about the same thing.
+        The name is the THING being toggled; `aria-pressed` is whether it is on.
+        Pre-mount the state is unknown, so `aria-pressed` is still omitted
+        rather than guessed.
+      */
+      aria-label="Dark mode"
       {...(mounted ? { "aria-pressed": isDark } : {})}
       onClick={flip}
       className="inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm border border-border bg-surface text-text-subtle transition-colors duration-fast hover:border-border-strong hover:bg-surface-raised hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg"

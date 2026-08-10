@@ -406,19 +406,26 @@ test.describe("crew footer theme toggle — persistence, no-FOUC, a11y, tap targ
     const named = (name: string) => page.getByRole("button", { name });
 
     // Light: the name states the ACTION a tap performs, and it is not pressed.
-    await expect(named("Switch to dark theme")).toBeVisible();
-    await expect(named("Switch to dark theme")).toHaveAttribute("aria-pressed", "false");
+    // ONE MODEL: the name is the thing ("Dark mode"), aria-pressed is whether it
+    // is on. The old contract paired a next-action name with a current-state
+    // aria-pressed, so dark mode announced "Switch to light theme, pressed" —
+    // the two halves contradicting each other (review R4).
+    await expect(named("Dark mode")).toBeVisible();
+    await expect(named("Dark mode")).toHaveAttribute("aria-pressed", "false");
 
     await tapToggle(page, "dark");
-    await expect(named("Switch to light theme")).toBeVisible();
-    await expect(named("Switch to light theme")).toHaveAttribute("aria-pressed", "true");
-    // The old name must be GONE, not merely joined by the new one.
+    await expect(named("Dark mode")).toBeVisible();
+    await expect(named("Dark mode")).toHaveAttribute("aria-pressed", "true");
+    // The NEXT-ACTION names must be gone entirely — under the toggle model the
+    // control is named for the thing, not the transition, so either of the old
+    // names appearing means both models are live again.
     await expect(named("Switch to dark theme")).toHaveCount(0);
+    await expect(named("Switch to light theme")).toHaveCount(0);
 
-    // …and the restored theme drives them after a reload, not just the click.
+    // …and the restored theme drives the state after a reload, not just the click.
     await reloadCrewShell(page);
-    await expect(named("Switch to light theme")).toBeVisible();
-    await expect(named("Switch to light theme")).toHaveAttribute("aria-pressed", "true");
+    await expect(named("Dark mode")).toBeVisible();
+    await expect(named("Dark mode")).toHaveAttribute("aria-pressed", "true");
   });
 
   test(`tap target: the toggle is at least ${TAP_MIN}x${TAP_MIN}px`, async ({ page }) => {
