@@ -15,8 +15,9 @@ free to run a full vitest suite (default worker count = CPU count), playwright e
 captures simultaneously, on top of the 4 GB Docker VM and Chrome. Recovery cost ~2 h of
 wall clock across every live arc. No layer imposes machine-wide admission control over
 suite-shaped work; each session is individually well-behaved and collectively lethal.
-(Builds are the exception: `scripts/with-admin-dev-flag.mjs:216-220` already serializes
-ALL builds machine-wide behind a lock — see §4.6.)
+(The build lock in `scripts/with-admin-dev-flag.mjs:216-220` serializes builds only
+WITHIN one worktree — its `ROOT` is `process.cwd()` — so cross-worktree builds are part
+of the unbounded set; see §4.6.)
 
 Contention already taxes ship time today: the mutation-merged-cell arc recorded shard runs
 hitting the 3600 s per-shard timeout "under sibling-session load" — an hour added to one
@@ -44,11 +45,15 @@ probe-settled (§4.0), including R1-driven reversals. Reviewers verify, not re-d
   (`tests/cross-cutting/db-test-connection-hygiene.test.ts:148-161`). Aggregate load is
   bounded by slot count alone; holders always run with an untouched environment (C2 is
   satisfied trivially). Do not propose re-adding sizing in either direction.
-- **Builds are OUT of the wrapped set** (R1 F6 reversal, fenced): `pnpm build` and
-  direct `next build` already serialize machine-wide behind the lock in
-  `scripts/with-admin-dev-flag.mjs:216-220`; wrapping them would park an idle waiter in
-  a heavy slot. Do not propose wrapping builds, and do not propose removing the existing
-  build lock.
+- **Builds are IN the wrapped set** (R2 F1 probe-backed reversal of the R1 F6 reversal,
+  now fenced both directions): the `scripts/with-admin-dev-flag.mjs:216-220` lock is
+  WORKTREE-LOCAL (`ROOT = process.cwd()`, lock under ROOT/.build-locks), so it bounds
+  nothing across worktrees, and direct `next build` bypasses the wrapper script
+  entirely. Wrapping builds is therefore required; the residual case — two builds in
+  the SAME worktree, where the second holds a heavy slot while idling on the inner
+  worktree-local lock — is a documented limit (§8), rare by construction (one session
+  owns a worktree, invariant 11). Do not propose re-excluding builds, and do not
+  propose removing the existing inner lock.
 - **Priority is best-effort bias, not strict ordering** (C3, §4.4). Non-FIFO, non-fair
   wakeup is a documented limit (§8), not a finding.
 - **No enforcement hook** ships in this arc (§8). The AGENTS.md rule is the contract, at
@@ -60,8 +65,12 @@ probe-settled (§4.0), including R1-driven reversals. Reviewers verify, not re-d
 
 ## 2. Constraints (ratified in conversation, 2026-08-10)
 
-- **C1 — No per-arc ship-time increase.** Slots wrap ONLY heavy local phases. Spec/plan
-  authoring, codex review dispatch/polling, CI polling, and merges never acquire a slot.
+- **C1 — No increase to the phases that dominate per-arc ship time.** Slots wrap ONLY
+  heavy local phases. Spec/plan authoring, codex review dispatch/polling, CI polling,
+  and merges never acquire a slot. A wrapped heavy phase MAY pay a bounded, surfaced
+  queue wait in the ≥(slots+1)-overlap regime — that trade is ratified and registered
+  as a documented limit (§8); the constraint is about arc wall-clock, not about no
+  command ever waiting.
 - **C2 — Full-speed holders.** A slot holder is never worker-starved. (Satisfied
   structurally: the wrapper modifies nothing about the command's environment or flags.)
 - **C3 — Nearest-merge priority.** A closeout/CI-stage arc's heavy run jumps ahead of
@@ -77,8 +86,8 @@ probe-settled (§4.0), including R1-driven reversals. Reviewers verify, not re-d
 - Not a scheduler: no persistent daemon, no queue state, no cross-machine coordination.
 - Not CI-facing: GitHub Actions runners are single-tenant; the wrapper is never invoked
   by workflows.
-- Not a cap on Docker, Chrome, codex processes, or builds (§4.6) — only on suite-shaped
-  phases the repo's own tooling launches.
+- Not a cap on Docker, Chrome, or codex processes — only on the heavy phases the
+  repo's own tooling launches (§4.6, suites and builds).
 - Not strict FIFO or strict priority: flock wakeup order is kernel-chosen; §4.4 biases
   it, nothing more.
 
@@ -130,9 +139,12 @@ scripts/with-heavy-slot.py — new in this arc (invoked as `python3 scripts/with
    `os.close`d immediately before trying the next slot (R1 F4 lifecycle note). There
    are no probe fds anywhere in the design (sizing is removed).
 4. On success, write holder metadata with unbuffered raw-fd calls (R1 F5):
-   `os.ftruncate(fd, 0)` then a single `os.write(fd, …)` of one JSON line
-   (`pid`, `argv`, ISO timestamp from the shell clock, priority flag). `os.write` is a
-   direct syscall — nothing to flush across `exec`.
+   `os.ftruncate(fd, 0)` then a single `os.write(fd, …)` of one JSON line —
+   `pid`, `cmd` (BASENAME of argv[0] only), `argc` (argument count), ISO timestamp,
+   priority flag. Full argv is deliberately NEVER recorded and never echoed to stderr
+   (R2 F5): slot files are world-readable shared state and wait warnings land in
+   transcripts, so a token-bearing argument or credential URL must have no path into
+   either. `os.write` is a direct syscall — nothing to flush across `exec`.
 5. If all slots are held: sleep `FX_HEAVY_POLL_MS` (default 3000 ms normal, 1000 ms when
    priority) with ±20% jitter, retry. On first wait and every `FX_HEAVY_WAIT_WARN_S`
    (default 300 s) thereafter, emit one stderr line naming each slot's recorded holder
@@ -212,18 +224,33 @@ AGENTS.md rule):
 | `FX_HEAVY_WAIT_WARN_S` | `300` | repeat-warning cadence while waiting. |
 | `FX_HEAVY_DISABLE` | unset | `1` = exec the command directly, no locking (escape hatch; also the CI posture). |
 
-**Slot-count consistency (R1 F9):** the first wrapper invocation to create the slot dir
-writes `config` (one JSON line: `{"slots": N}`) into it. Every later invocation reads
-`config`; if its own `FX_HEAVY_SLOTS` differs from the recorded value, it emits a
-one-line stderr warning and ADOPTS the recorded value — the dir's topology wins, so
-mixed-config sessions can never disagree about capacity (the fork R1 F9 describes).
-Changing capacity is explicit: remove the slot dir (or reboot — `/tmp` clears) while no
-holder is live; the warning text says exactly that. A missing/torn `config` in an
-existing dir is repaired by the next invocation writing its own value (surfaced by the
-same warning path).
+**Slot-count consistency (R1 F9, atomicity per R2 F2):** publication of `config` (one
+JSON line `{"slots": N}`) is ATOMIC first-writer-wins: an invocation that finds no
+`config` writes its complete content to a private `config.tmp.<pid>` in the same dir,
+then attempts `os.link(tmp, config)` — `link(2)` fails with `EEXIST` if any other
+writer already published, so exactly one creator can ever win, and a published `config`
+is complete by construction (a reader can never observe a partial write; the
+check-then-write race and the torn-read "repair" overwrite from R2 F2 are both
+structurally impossible). The loser unlinks its tmp, reads the winner's value, and on
+mismatch with its own `FX_HEAVY_SLOTS` emits a one-line stderr warning and ADOPTS the
+recorded value. Waiters RE-RESOLVE `config` on every poll iteration (R2 F2 third
+instance): a waiter that outlives a dir removal/recreation converges on the new
+topology within one poll rather than acting on a startup snapshot. Changing capacity is
+explicit: remove the slot dir (or reboot — `/tmp` clears) while no holder is live; the
+warning text says exactly that.
 
-All knobs are read once at startup. Invalid numeric values fall back to defaults with a
-stderr warning (never a crash — the wrapper failing must not block a gate run).
+**Knob domains (R2 F4).** All knobs are read at startup (except the per-poll `config`
+re-resolve above); every out-of-domain value falls back with a one-line stderr warning,
+never a crash and never silence:
+
+- `FX_HEAVY_SLOTS`: integer in [1, 64]; else warn + default 2. (0 or negative would
+  make the acquire loop empty and wait forever — rejected, R2 F4.)
+- `FX_HEAVY_POLL_MS`: integer in [50, 600000]; else warn + default. (0 busy-spins;
+  negatives break sleep — rejected.)
+- `FX_HEAVY_WAIT_WARN_S`: integer in [10, 86400]; else warn + default 300.
+- `FX_HEAVY_PRIORITY`, `FX_HEAVY_DISABLE`: the string `1` means on; UNSET means off
+  silently; any other set value means off WITH a stderr warning naming the expected
+  value (a typo like `true` must not silently disable requested behavior — R2 F4).
 
 ### 4.6 What must be wrapped (the AGENTS.md rule, summarized)
 
@@ -232,20 +259,22 @@ invocation shape, not alias (R1 F7):
 
 - Any full-suite vitest run — `pnpm test`, `pnpm test:fast`, or any `vitest run` /
   `pnpm exec vitest run` not scoped to an explicit file list.
-- Any non-interactive playwright run — every `pnpm test:e2e*` EXCEPT `test:e2e:ui`
-  (below), any direct `playwright test`, and the screenshot captures
-  `pnpm screenshot:gallery` / `pnpm screenshot:help` (their config runs an inner
-  8192 MB build, `playwright.screenshots.config.ts:128`).
+- Any NON-INTERACTIVE playwright run — every `pnpm test:e2e*` except interactive forms
+  (below), any direct `playwright test` without an interactive flag, and the screenshot
+  captures `pnpm screenshot:gallery` / `pnpm screenshot:help` (their config runs an
+  inner 8192 MB build, `playwright.screenshots.config.ts:128`).
+- Any build — `pnpm build`, direct `next build`, or any invocation of
+  `scripts/with-admin-dev-flag.mjs` (R2 F1: the inner build lock is worktree-local, so
+  only the semaphore bounds builds across worktrees).
 - Mutation harness: `pnpm mutation:guards`, any `--project mutation` run; one slot per
   concurrently-running shard batch.
 
 MUST NOT be wrapped:
 
-- Builds — `pnpm build` and direct `next build` (already machine-serialized by
-  `scripts/with-admin-dev-flag.mjs:216-220`; wrapping parks an idle waiter in a slot,
-  R1 F6).
-- `pnpm test:e2e:ui` (root package.json line 62) — interactive and unbounded-lived; a slot held
-  indefinitely violates C1. Run it unwrapped and sparingly.
+- Any INTERACTIVE playwright invocation, identified by shape not alias (R2 F3):
+  `--ui` (including the `pnpm test:e2e:ui` alias, root package.json line 62),
+  `--debug`, or a `PWDEBUG`-set environment — unbounded-lived; a slot held
+  indefinitely violates C1. Run them unwrapped and sparingly.
 - Scoped vitest runs with an explicit file list, typecheck, eslint, `format:check`,
   codex dispatches, CI polling, git/gh operations, spec/plan authoring.
 - Long-lived pre-warmed dev servers (§4.2 early-release direction): start them OUTSIDE
@@ -274,7 +303,9 @@ cross-CLI contract.
   bullet — not that no command ever waits.)
 - Phases that dominate arc latency (review rounds, CI, merge polling) never wait.
 - A holder is never slowed: the wrapper adds no caps, no env changes, no flags (C2).
-- Builds keep their existing dedicated serialization and never consume a slot (§4.6).
+- Builds are wrapped like any heavy phase (§4.6); the same-worktree double-build
+  idle-hold is the one shape that parks a slot (documented limit, §8), and invariant 11
+  (one session per worktree) makes it rare.
 - The crash alternative charged every live arc ~2 h. Amortized, admission control is
   the fast path.
 
@@ -308,17 +339,27 @@ real `/tmp/fx-heavy-slots`.
    the bias — deleting the marker logic fails this test. `.retry(2)` retained for
    scheduler noise; the barrier removes the start-order race.
 6. **Disable hatch.** `FX_HEAVY_DISABLE=1`: two slots=1 commands overlap (no locking).
-7. **Metadata surfacing (R1 F5).** Slots=1 held with deliberately truncated/garbage
-   slot-file content (test writes over it via a separate fd after acquisition):
-   a waiter's first-wait stderr line contains `holder unknown (metadata unreadable)`.
-   Companion positive case: with intact metadata the line contains the holder's PID.
-8. **Invalid knob fallback.** `FX_HEAVY_SLOTS=banana`: wrapper warns on stderr, uses
-   default 2, and still runs the command (exit 0).
-9. **Slot-count consistency (R1 F9).** Dir created by an invocation with
+7. **Metadata surfacing and secret absence (R1 F5, R2 F5).** Slots=1 held with
+   deliberately truncated/garbage slot-file content (test writes over it via a separate
+   fd after acquisition): a waiter's first-wait stderr line contains
+   `holder unknown (metadata unreadable)`. Companion positive case: intact metadata →
+   the line contains the holder's PID. Secret-absence arm: wrap a command carrying a
+   token-shaped argument (`node -e … --token=hunter2-sentinel`); assert the sentinel
+   appears in NEITHER the slot file NOR any waiter stderr (only the `cmd` basename and
+   `argc` do).
+8. **Knob domains (R2 F4).** `FX_HEAVY_SLOTS=banana` and `FX_HEAVY_SLOTS=0`: warn +
+   default 2 + command runs (exit 0). `FX_HEAVY_DISABLE=true` (not `1`): stderr warning
+   naming the expected value AND locking still active (observable: the case-1 mutual
+   exclusion holds under it). `FX_HEAVY_POLL_MS=0`: warn + default (asserted via the
+   warning line; no busy-spin).
+9. **Slot-count consistency (R1 F9, R2 F2).** Sequential arm: dir created under
    `FX_HEAVY_SLOTS=3` (config records 3); a second invocation with `FX_HEAVY_SLOTS=1`
-   warns and ADOPTS 3 — observable: with two holders live, the second invocation still
-   acquires (a 1-slot believer could not).
-10. **pnpm forwarding (Task 4).** `pnpm heavy -- node -e "process.exit(0)"` exits 0.
+   warns and ADOPTS 3 — observable: with two holders live it still acquires. Race arm:
+   N simultaneous first invocations (no pre-existing dir, mixed `FX_HEAVY_SLOTS`
+   values) — after all complete, exactly one `config` value exists, every process's
+   stderr shows either creation or adopt, and no `config.tmp.*` residue remains
+   (pins the `os.link` first-writer-wins publication).
+10. **pnpm forwarding (Task 5).** `pnpm heavy -- node -e "process.exit(0)"` exits 0.
 
 The suite spawns ≤3 tiny node children per case — it is itself light and needs no slot.
 
@@ -334,6 +375,11 @@ The suite spawns ≤3 tiny node children per case — it is itself light and nee
   guessing (§4.1.5). Never silent.
 - `/tmp` clears on reboot — by design (locks are runtime state; the kernel released
   them at death anyway).
+- A wrapped phase can wait when more than `slots` heavy phases overlap — bounded,
+  surfaced by the wait warning, ratified under C1 (R2 F6).
+- Same-worktree double build: the second build holds a heavy slot while idling on the
+  worktree-local inner lock (§4.6, R2 F1) — rare under invariant 11, surfaced by the
+  wait warning naming the holder.
 - Sessions that ignore the AGENTS.md rule are not stopped by any mechanism here;
   enforcement is the rule + review culture (cross-cutting tier). A PreToolUse hook
   could mechanize it later; out of scope (YAGNI until non-compliance is measured).
