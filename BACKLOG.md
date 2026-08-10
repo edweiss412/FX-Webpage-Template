@@ -559,17 +559,19 @@ viewer reports seeing the whole show expanded when they expected their day marke
 
 alert-audience-split (spec §6.7) makes health-alert resolution developer-gated at every PRODUCT surface (the dev-gated `resolveHealthAlertFormAction` plus HEALTH_CODES rejects on the three legacy user-facing resolve surfaces: `resolveAdminAlertFormAction`, `app/api/admin/admin-alerts/[id]/resolve`, `app/api/admin/show/[slug]/alerts/[id]/resolve`). This is app-surface defense-in-depth + UI coherence, NOT a DB-enforced trust boundary: `admin_alerts` still GRANTs UPDATE to `authenticated` and its RLS policy allows any `public.is_admin()` caller to update rows (`supabase/migrations/20260501002000_rls_policies.sql`), so a non-developer admin could in principle `PATCH admin_alerts.resolved_at` directly through PostgREST, bypassing the app layer. We ACCEPT this (Doug is the trusted business owner, not an adversary; role filtering is UX not security). **Fix (when prioritized):** revoke direct `admin_alerts` UPDATE from `authenticated`/`anon` and route ALL resolution — doug alerts included — through `SECURITY DEFINER` RPCs with an `is_developer()` check for health codes. Materially larger, whole-resolve-path change; deferred as a cross-reference of the broader `BL-ADMIN-POSTGREST-DML-LOCKDOWN` admin_alerts-class DML lockdown item.
 
-### BL-MUTATION-MERGED-CELL — a merged cell exports as a deleted pipe and silently fuses two cells
+### BL-HELP-REFANCHOR-A11Y-PASS — the `/help/errors` copy-link needs one whole-surface a11y pass, not 200+ per-entry patches
 
-**Status:** OPEN (2026-08-06, L-wave decomposition of `BL-MUTATION-HARNESS-OPEN-HOLES`; wave spec+plan ratified 2026-08-08 — see docs/superpowers/specs/parser/2026-08-07-parser-mutation-wave-design.md) · **Severity:** medium · **Class:** PARSER ROBUSTNESS · **Effort:** M
+**Status:** OPEN (2026-08-09, filed from the invariant-8 dual gate on `feat/mutation-merged-cell`; the first two findings surfaced on `feat/mutation-ref-sub` and were recorded in the wave closeout §12 without a ledger row) · **Severity:** low · **Class:** A11Y / HELP SURFACE · **Effort:** S
 
-Deleting one interior pipe — which is exactly how a merged cell exports to markdown — fuses two adjacent cells with no signal. Cell-fusion class: two columns become one value, and every downstream column index shifts within that row.
+`RefAnchor` (`app/help/_components/RefAnchor.tsx`) renders the copy-link beside every catalog entry on `/help/errors`. It is ONE shared component rendered ~217 times, so each finding below is a single repair, applied once:
 
-**Ledgered blast radius: 2404 holes** (2271 `wrong` / 133 `signal_loss`), the second-largest class — derived 2026-08-06 from `RAW_HOLES`. Linkage: `OPERATOR_FINDING_MAP["merged-cell"] = "BL-MUTATION-MERGED-CELL"` (`tests/parser/mutation/knownHoles.ts:87`), pinned by `knownHoles.test.ts`.
+1. **All copy-links share one accessible name.** A screen-reader user tabbing the page hears the same label 217 times, with nothing saying which code each one copies. Fix: an `aria-label` composed from the entry's code.
+2. **The copy has no perceivable confirmation.** `writeText` succeeds silently; sighted users get the visual state change, screen-reader users get nothing. The repo already ships the pattern this wants (`role="status" aria-live="polite"`, e.g. `components/admin/FinalizeButton.tsx:549`).
+3. **217 tab stops precede the footer CTA.** Keyboard-only users traverse every copy-link to reach the report link.
 
-**Shape (M):** the discriminator is a row whose cell count is short by one against its section's established width, which needs corpus calibration — genuinely ragged rows are normal sheet authoring, so the heuristic must separate "merged cell" from "author left a trailing cell blank". Plus the warn-severity `ParseWarning` code with its §12.4 lockstep triple and warning-card copy row.
+**Why deferred rather than swept in-branch** (AGENTS.md class-sweep disposition, exception (c)): the repair is a redesign of a shared component this branch does not otherwise touch, and item 3 is not a local edit at all but a question about whether the copy-links belong in the tab order. Two consecutive branches have now incremented the count without being the right place to answer it. **This entry is the named owner: a later branch adding a help-family row cites it instead of re-deriving the findings.**
 
-**Ratchet contract:** SHRINK-ONLY, as above — `staleRows` on hardening, `newAlarms` on regression. Decomposition record: `BACKLOG-archive.md` § `BL-MUTATION-HARNESS-OPEN-HOLES`.
+**Reachability:** PROBED. `pnpm exec vitest run tests/help` (642 tests, green) asserts none of the three, so the suite passing is not evidence against them. Findings 1 and 3 were measured on branch 2 (closeout §12); finding 2 by reading `RefAnchor.tsx:65-72` against the project's own `aria-live` pattern.
 
 ### BL-MUTATION-COLUMN-SHIFT — a spurious leading empty column shifts a section's row grid with no signal
 
