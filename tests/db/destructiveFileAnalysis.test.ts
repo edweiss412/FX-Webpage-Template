@@ -263,6 +263,30 @@ await target.unsafe("select public.prune_sync_log()");`;
     expect(analyseDestructiveFile(P, src).ok).toBe(false);
   });
 
+  it("(t) a second connection loaded via dynamic import is rejected", () => {
+    // whole-diff r7: `(await import("postgres")).default` opened an unchecked second
+    // connection. That form is ordinary here - validation-schema-parity.test.ts already
+    // uses it - so the rule is not to trace it but to forbid it in a DESTRUCTIVE file,
+    // where every connection has to be visible to be checked.
+    const src = `${IMPORT}
+const url = assertLocalDbUrl(process.env.LOCAL_TEST_DATABASE_URL);
+const local = postgres(url, { max: 1 });
+const pg2 = (await import("postgres")).default;
+const target = pg2(process.env.TEST_DATABASE_URL!);
+await target.unsafe("select public.prune_sync_log()");`;
+    expect(analyseDestructiveFile(P, src).ok).toBe(false);
+  });
+
+  it("(u) a second connection loaded via require is rejected", () => {
+    const src = `${IMPORT}
+const url = assertLocalDbUrl(process.env.LOCAL_TEST_DATABASE_URL);
+const local = postgres(url, { max: 1 });
+const pg2 = require("postgres");
+const target = pg2(process.env.TEST_DATABASE_URL!);
+await target.unsafe("select public.prune_sync_log()");`;
+    expect(analyseDestructiveFile(P, src).ok).toBe(false);
+  });
+
   it("(g) a guarded client followed by a SECOND, unguarded client", () => {
     // whole-diff r1 finding 2: `second_unguarded_client`. Checking only the first
     // connection blesses the file; the prune runs on the second.

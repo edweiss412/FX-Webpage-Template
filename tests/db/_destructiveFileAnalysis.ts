@@ -119,6 +119,34 @@ export function analyseDestructiveFile(
 
   const isDriver = (name: string): boolean => driverNames.has(name) && !driverShadowed.has(name);
 
+  // The driver must be acquired by the STATIC default import, the one form this module
+  // can see. r7 showed `(await import("postgres")).default` and `require("postgres")`
+  // each opening a second, unchecked connection — and that is ordinary authoring here,
+  // not obfuscation: tests/db/validation-schema-parity.test.ts already uses the dynamic
+  // form. Rather than teach the analyzer to trace dynamic acquisition, a destructive
+  // file simply may not use it. The requirement is legible and the fix is a one-line
+  // import.
+  let dynamicAcquire = false;
+  const checkAcquire = (n: ts.Node): void => {
+    if (ts.isCallExpression(n)) {
+      const isDynamicImport = n.expression.kind === ts.SyntaxKind.ImportKeyword;
+      const isRequire = ts.isIdentifier(n.expression) && n.expression.text === "require";
+      if (isDynamicImport || isRequire) {
+        const a = n.arguments[0];
+        if (a && ts.isStringLiteral(a) && a.text === "postgres") dynamicAcquire = true;
+      }
+    }
+    ts.forEachChild(n, checkAcquire);
+  };
+  ts.forEachChild(sf, checkAcquire);
+  if (dynamicAcquire) {
+    return {
+      ok: false,
+      reason:
+        'the postgres driver is acquired dynamically (import()/require); a destructive file must use the static `import postgres from "postgres"` so every connection is visible',
+    };
+  }
+
   const guardCalls: ts.CallExpression[] = [];
   const connects: ts.CallExpression[] = [];
   /** Any call to a name that LOOKS like the driver but does not resolve to it. */
