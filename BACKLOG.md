@@ -273,53 +273,6 @@ work cannot land here without either violating that scoping or dragging a UI cha
 review. Unlike `BL-CANONICAL-CLASS-ARRAY-BLINDSPOT`, there is no guard half to ship in the meantime:
 the fix IS the control. Claim released; it was marked at Stage 0 before the fence was read.
 
-## BL-PICKER-CLEANUP-REVALIDATE-QUERY-VARIANT — `cleanupStaleEntry` revalidates a path the picker is rarely on
-
-**Effort:** M
-
-> **PREMISE REFUTED — 2026-08-03.** This entry's stated cause is wrong, and the correction is the
-> most important thing on it. Probed against the installed Next 16.2.10 during review of
-> `fix/picker-signin-flow-cluster`:
->
-> ```text
-> getImplicitTags(page, pathname) → ["_N_T_/show/demo/<token>"]
-> revalidatePath(originalPath)    → "_N_T_" + removeTrailingSlash(originalPath)
-> ```
->
-> Both the tag written at render and the tag `revalidatePath` invalidates are **pathname-only**.
-> The query is not a separate cache tag, so there is no `?gate=skip` variant being "missed". The
-> prose below reasons from a mechanism that does not exist; do not act on it as written.
->
-> **Descoped from that branch by the owner**, after the item generated three consecutive rounds of
-> review findings while the two shipped fixes converged. Obstacles found and worth knowing before
-> a second attempt:
->
-> - The redirect cannot live in `cleanupStaleEntryCoreImpl`: `cleanupStaleEntryCore`'s bare `catch`
->   converts Next's `NEXT_REDIRECT` sentinel into `{ ok: false, code: "PICKER_RESOLVER_LOOKUP_FAILED" }`,
->   so no navigation ever reaches the browser.
-> - A bare-canonical redirect lands on the WRONG SCREEN. `page.tsx` gates `allowGateSkip` on
->   `gate === "skip"`, so without it the cleanup re-resolves as `no_auth: first_contact` and renders
->   `<SignInOrSkipGate>`, not the picker. Carrying `gate` needs a seven-hop threading path that does
->   not exist today.
-> - Its e2e needs a `shows.picker_epoch` mutation, which would be an **unlocked write in violation
->   of plan-wide invariant 2**, and trips the frozen-DML guard pinning `picker-flow.spec.ts`.
->
-> **Any future attempt starts by MEASURING what screen actually renders after a stale cleanup**,
-> rather than reasoning from cache-tag behaviour. Full rationale:
-> `docs/superpowers/specs/2026-08-03-picker-signin-flow-cluster-design.md` §1.3.
-
-**Status:** IN PROGRESS · **Severity:** low · **Surfaced:** class-sweep of the `?gate=skip` revalidate defect (2026-07-25) · **Branch:** docs/m-wave-2-spec
-
-`lib/auth/picker/cleanupStaleEntry.ts:107` calls `revalidatePath('/show/<slug>/<shareToken>')`. `revalidatePath` takes a path and ignores the query string, and the picker is commonly reached at `?gate=skip`, so that variant's entry is not invalidated. This is the same defect fixed in `_PickerInterstitial`'s select-identity form action, where a roster tap set the cookie and then re-served the picker, leaving the person exactly where they were until a reload.
-
-**Why it is low here, not the same severity.** The intended screen after a stale-entry cleanup IS the picker, so the user is already looking at the right thing — unlike the select case, where the intended screen was the resolved show. `_StaleCleanupAutoSubmit`'s effect has an empty dependency array, so a stale render cannot re-submit in a loop. The worst observable outcome is a cleared stale-entry hint lingering until the next navigation.
-
-**Why it was not fixed alongside the select case:** the fix there is verified by a prod-build e2e (`CI=1` picker-flow, the guest case). The stale path has no equivalent, and shipping an unverified change to a second Server Action to claim a complete sweep would be worse than recording the instance. The comment in `_StaleCleanupAutoSubmit.tsx` now states the caveat rather than the old claim that the user "sees the fresh picker on next render."
-
-**What remains:** decide whether the cleanup action should redirect to the canonical URL like the select action now does, and write a prod-build e2e for one of `epoch_stale | removed_from_roster | identity_invalidated` first so the change is provable. **Trigger:** the next change to the stale-cleanup path, or any report of a stale hint persisting.
-
----
-
 ## BL-NULLCODE-STAMP-BATCH-2 residuals (2026-07-03)
 
 **Effort:** XS
