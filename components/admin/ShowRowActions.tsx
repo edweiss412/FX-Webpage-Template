@@ -203,6 +203,7 @@ export function ShowRowActions({ row }: { row: ActiveShowRow }) {
   // close that a success triggers.
   useEffect(() => {
     if (open) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- a close RESETS transient result state so the next open starts clean; it runs once per close, sets constants (never values derived from other state), and cannot cascade.
     setSubmenuOpen(false);
     setErrorCode(null);
     setHeldShrink(null);
@@ -499,7 +500,11 @@ export function ShowRowActions({ row }: { row: ActiveShowRow }) {
               // `/admin/show/[slug]` is only a legacy redirect (spec §3.1).
               href={openHref(slug)}
               scroll={false}
-              {...itemDisabledProps}
+              // Explicit, not the shared `{...itemDisabledProps}` spread: an
+              // identifier-backed spread on an ANCHOR is unresolvable to the
+              // new-tab announcement scanner (tests/styles/_metaNewTabAnnouncement),
+              // which then cannot prove this link opens in the same tab.
+              aria-disabled={busy || undefined}
               onClick={(e) => {
                 if (busy) {
                   e.preventDefault();

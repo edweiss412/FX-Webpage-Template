@@ -665,7 +665,7 @@ export function ShowsTable({
                   {showRowActions ? (
                     <span
                       data-testid={`shows-row-menu-${row.slug}`}
-                      className="absolute inset-y-0 end-2 z-10 flex items-center"
+                      className="absolute inset-y-0 inset-e-2 z-10 flex items-center"
                     >
                       <ShowRowActions row={row} />
                     </span>

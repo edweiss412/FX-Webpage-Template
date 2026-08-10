@@ -102,6 +102,7 @@ export function AnchoredPortal({
   }, [onDismiss]);
 
   // Portals need a DOM; the first client render is the earliest safe moment.
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- load-bearing second render: a portal cannot exist during the server render or the hydrating one, so the flip to `mounted` IS the mechanism (the HoverHelp precedent carries the same waiver).
   useEffect(() => setMounted(true), []);
 
   /**
@@ -235,6 +236,7 @@ export function AnchoredPortal({
 
   // A closed surface holds no stale placement: the next open measures fresh.
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- discarding a placement on close is a RESET, not a derivation: it runs once per close and cannot cascade, because the panel is unmounted by then and nothing re-measures until the next open.
     if (!open) setApplied(null);
   }, [open]);
 
