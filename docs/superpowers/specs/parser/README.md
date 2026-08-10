@@ -37,4 +37,5 @@ Post-deployment (v1.X+) specs grouped by subsystem. See [`../README.md`](../READ
 | [`2026-07-27-inline-later-group-own-hotel-design.md`](./2026-07-27-inline-later-group-own-hotel-design.md) | 2026-07-27 |
 | [`2026-08-02-parser-determinism-pair.md`](./2026-08-02-parser-determinism-pair.md) | 2026-08-02 |
 | [`2026-08-07-parser-mutation-wave-design.md`](./2026-08-07-parser-mutation-wave-design.md) | 2026-08-07 |
+| [`2026-08-09-warning-shape-mutation-stability.md`](./2026-08-09-warning-shape-mutation-stability.md) | 2026-08-09 |
 | [`probes`](./probes) | 2026-08-07 |

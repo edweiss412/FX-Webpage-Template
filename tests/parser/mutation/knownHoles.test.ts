@@ -121,7 +121,7 @@ describe("committed ledger shape", () => {
   it("KNOWN_SILENT_HOLES rows all carry the required fields", () => {
     for (const h of KNOWN_SILENT_HOLES) {
       expect(typeof h.siteId).toBe("string");
-      expect(["wrong", "signal_loss"]).toContain(h.kind);
+      expect(["wrong", "signal_loss", "text_drift"]).toContain(h.kind);
       expect(typeof h.fingerprint).toBe("string");
       expect(h.finding.length).toBeGreaterThan(0);
     }

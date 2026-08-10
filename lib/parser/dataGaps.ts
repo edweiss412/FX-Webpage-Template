@@ -30,6 +30,7 @@ import type { ParseWarning } from "@/lib/parser/types";
  */
 export const GAP_CLASSES = [
   { code: "FIELD_UNREADABLE", label: "unreadable field" },
+  { code: "REF_ERROR_LITERAL", label: "broken reference in sheet" },
   { code: "UNKNOWN_SECTION_HEADER", label: "unknown section" },
   { code: "ORPHANED_CREW_ROWS", label: "cut-off crew rows" },
   { code: "BLOCK_DISAPPEARED", label: "removed section" },
@@ -401,6 +402,7 @@ export function formatDataGapBreakdown(summary: DataGapsSummary, cap = 4): strin
  * drift.
  */
 export const OPERATOR_ACTIONABLE_ANCHORED: ReadonlySet<string> = new Set([
+  "REF_ERROR_LITERAL",
   "SCHEDULE_TIME_UNPARSED",
   "SCHEDULE_STRIKE_DATE_OFF_SCHEDULE",
   "UNKNOWN_ROLE_TOKEN",

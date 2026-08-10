@@ -53,6 +53,18 @@ The **nineteen** isolating mutants, as an operator list ready to enrol — every
 
 **First scheduled step:** add the registry row and run the gate, then triage survivors — the nineteen above should all be killed already, so any survivor is new information.
 
+## BL-SPECLINT-RED-EXECUTABILITY-ARM — spec:lint arm that observes each declared red=/gate command
+
+**Filed:** 2026-08-09 (round-economy followups-2, promotion P1; spec `docs/superpowers/specs/ci/2026-08-09-round-economy-followups-2.md` §3.1). **Severity:** LOW (tooling; no product surface). **Class:** review-round reduction (tooling). **Effort:** M. **Reachability:** PROBED via three merged filings — quick-wins-2 plan R1 (four of fourteen findings were `red=` commands that already exit 0: `docs/review-rounds/docs/quick-wins-2-specs/97e179d831aa.md`), classname plan R3-F5/R4-F1/R5-F1 (cycle-breaker markers across three rounds — two never observably red, one whose command never goes green: `docs/review-rounds/refactor/classname-array-join-cn/61281c23e8ce.md`), resurrect-mobile-safari plan (three rounds of gate commands exiting 0 on the failure they name: `docs/review-rounds/test/resurrect-mobile-safari-e2e/9bd0a8456151.md`).
+
+Extend `spec:lint`'s declared-task-contract arm (`pnpm spec:lint`, `scripts/spec-lint.ts`; task-region grammar per `docs/agents/spec-self-review.md`). For an enrolled plan, validating the same-command red-then-green cycle: (a) an execution mode that RUNS each `red=` the plan asserts is red NOW (its failing case exists at plan time) and reports a new code (e.g. `RED_ALREADY_GREEN`) when it exits 0 — opt-in per invocation, since a `red=` may be expensive; a `red=` whose failing case the task itself writes (a new test file OR a new case in an existing suite) is the ordinary invariant-1 shape, exempt from execution but not from validation: the arm instead checks the task names a production line verifiable as absent or defective on the live tree; (b) static cycle-breaker shapes needing no execution: a guard test green at authoring, a command whose target the GREEN step deletes or renames (the SAME command never passes), an `&&` conjunct behind an expected failure, and a task body with no one-line "what is red and why" statement; (c) an advisory listing declared gate commands that carry no "probed against a constructed failing input" annotation. The rule half binds immediately via the promoted writing-plans bullet; this row is the mechanical enforcement. Design and thresholds belong to the implementing arc, not this row.
+
+## BL-SPECLINT-PROSE-COUNT-PARITY — numeric-sweep extension: prose cardinalities against executable declarations
+
+**Filed:** 2026-08-09 (round-economy followups-2, promotion P3; spec `docs/superpowers/specs/ci/2026-08-09-round-economy-followups-2.md` §3.2). **Severity:** LOW (docs drift; nothing renders differently). **Class:** review-round reduction (tooling). **Effort:** S. **Reachability:** PROBED via merged filings — classname delta arc: five findings across four rounds plus one CI cycle, all one class (`docs/review-rounds/refactor/classname-array-join-cn/b2aca7b02547.md`); wedge-remeasure: quantity drift across quoted disposition templates (spec §) and a stale cardinality over a grown sibling list (diff §) (`docs/review-rounds/chore/next-1630-wedge-remeasure/9bec2e11ab11.md`).
+
+Extend `lib/specLint/numerics.ts` beyond `NUMERIC_NOUN_MISMATCH` with the three measured shapes: (a) when a doc names a script that declares a count constant (the `EXPECTED_SITE_TOTAL` pattern in `scripts/verify-cn-operand-parity.mjs` — a module-local `const`, so the arm reads the declaration textually rather than importing it), compare the doc's PRESENT-TENSE prose cardinalities against the constant's live value — prose carrying the dated "at authoring time" qualifier, and dated historical records (probe transcripts, execution records: the filing's own boundary is that historical measurements are never corrected), are EXCLUDED from the comparison, not flagged; (b) count the sibling list items directly beneath an "N shapes/items" claim and compare; (c) compare quantities repeated across quoted disposition templates within one doc. Advisory-first is acceptable; the rule half binds immediately via the promoted spec-self-review numeric-sweep extension. Design and opt-in mechanics belong to the implementing arc.
+
 ## BL-TAP-TARGET-INLINE-TEXT-CONTROLS — eight inline text controls sit under the 44px floor pending a per-site prose-vs-chrome call
 
 **Filed:** 2026-08-07 (`fix/step3-a11y-cluster`, spec §9.1). **Class:** accessibility (tap-target floor). **Effort:** S-M (the judgment, then a mechanical repair for whatever it classifies as chrome). **Class-sweep exception:** (a) — needs a product decision the filing branch cannot settle. **Reachability:** PROBED — every site and its computed height is in the spec's §2.6 corpus baseline (`docs/superpowers/specs/2026-08-07-step3-a11y-cluster.md`).
@@ -90,20 +102,6 @@ So "retain the live row" is not obviously right at `:337`: the fallback runs whe
 **Deferral exception: (a)** — needs a design decision about hold semantics that arc C's ratified scope (spec §1.1) does not settle, on a branch whose diff is otherwise two narrow changes. Swept and probed at round 0 rather than left for a later reader to rediscover.
 
 **Promotion prerequisite:** the ruling above. If it lands as "defect", the fix mirrors arc C's: thread the live row and prefer it, with no-match falling back to today's behaviour.
-
-## BL-TASK-ENROLLMENT-SINGLE-DEPTH — the declared task region cannot express hierarchical or interleaved plan shapes
-
-**Status:** OPEN · **Severity:** LOW (opt-in convention; conservative failure with a surfaced finding, never silent) · **Class:** spec-lint task contract, enrollment expressiveness · **Filed:** 2026-08-03, from `docs/superpowers/specs/2026-08-03-pre-review-gate-arms-design.md` §6 items 6 and 7 · **Effort:** L
-**l-wave-screen 2026-08-06:** PREREQ — design-gated multi-depth enrollment redesign; the entry's own deferral-exception (c) fences it, so no wave can schedule it.
-
-The `<!-- tasks: depth=N -->` region declares ONE heading depth. Two real corpus shapes do not fit it, both measured:
-
-- **Task units at two depths** — 7 of 533 plans, e.g. `docs/superpowers/plans/alerts/2026-07-04-alert-at-a-glance-identity.md` (depths 2 and 3). Enrolling either depth silently excludes the units at the other.
-- **Non-task headings at the task depth, between the first and last task** — 6 plans, e.g. grouping headers like `Tasks 5-22: A3-A20 (PROC each)`. No region delimiter can exclude a heading in the middle of the region; it is classified as a task and draws `TASK_MARKER_MISSING`.
-
-**Deferral exception (c)** per the class-sweep disposition rule in `AGENTS.md`: the repair is a redesign of a surface this PR does not otherwise touch. Multi-depth enrollment forces a nesting model — a depth-3 task inside a depth-2 extent — whose marker ownership, extent boundaries, and `TASK_MARKER_MISSING` semantics are a design of their own, not a clause. Neither (a) nor (b) applies: this is not an unsettled product decision, and no prior ratification fences it.
-
-**Why it is safe to carry.** Enrollment is opt-in and no legacy plan is enrolled (measured: 534 plans scanned, 1 attempted, 0 findings). A plan of either shape either normalizes its task depths or stays unenrolled; the author is told plainly rather than checked wrongly. Re-open when someone wants to enrol a plan of one of these shapes.
 
 ## BL-SOURCE-ANCHORS-STALE-AFTER-FAILED-GID-FETCH — a preserved anchor map has no revision stamp, so a stale range reads as a valid deep link
 
@@ -243,21 +241,6 @@ So every assertion in it is dead in CI, including the `active=true` gate that ex
 
 **Wiring it up is necessary but not sufficient** (whole-diff R18). Every assertion this suite makes about `cron.job.command` is text matching: PostgreSQL resolves the OUTER `cron.schedule` call but stores the command body verbatim, comments included. A job whose `net.http_get(...)` is commented out, followed by an executable `select 1;`, satisfies the route check, the `net.http_get(` check and the exactly-one-timeout check while issuing no request — and `active=true` does not help, because the job runs, it just does nothing. Proving a job actually fires needs a smoke test per job; only the sync path has one today. Track that with this entry rather than by adding more text assertions.
 
-## BL-WATCH-PROMOTION-ACTIVATION-RACE — a folder switch racing a subscriber can leave one stale active channel
-
-**Status:** OPEN · **Severity:** low (bounded to one lease; no data loss) · **Surfaced:** 2026-07-26, watch-renewal-lifecycle spec rounds 2-5 · **Effort:** L
-**l-wave-screen 2026-08-06:** PARKED (ratified 2026-08-05) for its own lock-topology design session; not schedulable inside any wave (see the 2026-08-04 screen ruling in-body).
-
-`promoteSettings` supersedes the prior folder's `active` channels and orphans its `pending` ones inside the settings-swap transaction, and `activatePending` refuses a zero-row activation. That closes every window where the pending row exists when promotion runs. It does NOT close the window where a subscriber reads the old configured folder, promotion commits, and the subscriber then inserts and activates its pending row — nor the one where the subscriber commits its activation while promotion is still uncommitted, since under READ COMMITTED it reads the previous committed folder.
-
-Three review rounds tried to close this with an `app_settings` predicate inside `activatePending`; each attempt failed for a different reason, the last being that an ordinary subquery cannot see an uncommitted promotion. **A correct fix requires serialization** between the promotion transaction and concurrent subscribers — an advisory lock on the settings row, or `select … for update` — which collides with the ratified "no advisory locks on any watch surface" constraint (that constraint exists because a second holder on this hashkey is the M5-R20 nested-holder class). So this is a lock-topology change and needs its own design.
-
-**Bounded, not open-ended:** refresh renews only the configured folder and renews nothing when the folder read fails, so a stale row is never renewed under any branch. It dies at its own `expires_at` within `WATCH_TTL_MS`, is reaped to `expired`, and is GC'd. Worst case is up to 24h of webhook deliveries for a folder nobody watches — the same class that was PERMANENT before that work landed.
-
-**Amends AC-6.18**, which is otherwise absolute. Design context: `docs/superpowers/specs/observability/2026-07-26-watch-renewal-lifecycle-design.md` §3.2.4.
-
-screen-disposition 2026-08-04: KEEP — probe-adjacent evidence already in the tree, and the worst case is not conservative. The race is asserted by the production code itself at `app/api/admin/onboarding/finalize-cas/route.ts:860-862` ("A subscriber that inserts AFTER promotion commits is not covered — closing that needs serialization this surface deliberately does not have"), the same-transaction supersede it races is at `:863-869`, and the isolation premise is stated verbatim at `lib/drive/watch.ts:1070-1072` ("`sql.begin` runs at READ COMMITTED, where each statement takes its own"). `activatePending` (`lib/drive/watch.ts:253-283`) takes no `for update`, no advisory lock and no isolation override. The outcome is a stale `active` channel delivering webhooks for an unwatched folder for up to 24h — a wrong live state, not a refusal, so it is not a documented-limit candidate.
-
 ## BL-SERVER-ACTION-ORIGIN-GATE — same-origin gate for the crew guest Server Action
 
 **Status:** OPEN · **Severity:** low (logout CSRF; no read, no escalation) · **Surfaced:** `fix/picker-flow-app-bugs` review rounds 1-3 (2026-07-25), descoped rather than guessed at · **Effort:** M
@@ -349,26 +332,6 @@ the fix IS the control. Claim released; it was marked at Stage 0 before the fenc
 
 ---
 
-## BL-DEV-GATE-GALLERY-SPEC-ROT — `attention-modal-gallery.spec.ts` runs nowhere but a dispatch-only gate, and has rotted
-
-> **PARTIAL 2026-07-26 (PR4 of the CI-dark cluster).** `dev-gate-e2e.yml` now carries a DAILY schedule alongside `workflow_dispatch`, so a break is bounded to 24h instead of until someone remembers to dispatch. The ambiguous `getByText(String(n))` locator is FIXED (each count asserted on its own paragraph). The Escape assertion is deliberately UNCHANGED pending a reproduction — the product path was traced and is intact, and weakening an unreproduced assertion is how a real regression gets papered over. Still open because a schedule is not PR-blocking-capable, so the spec keeps its allowlist row.
-
-**Status:** OPEN · **Severity:** medium · **Surfaced:** `fix/picker-flow-app-bugs` Task 13 close-out (2026-07-25) · **Effort:** M
-**Nightly-red measurement 2026-08-09:** the PARTIAL's daily schedule has been red 9 of its last 10 firings (probed via `gh run list --workflow=dev-gate-e2e.yml --branch main`: failures 2026-07-31, -08-01, -08-02, -08-04, -08-05, -08-06, -08-07, -08-08, -08-09 = runs 30619278961, 30691990257, 30740095858, 30894831479, 30990761496, 31087555225, 31158561514, 31245680158, 31300710571; sole green 2026-08-03 run 30804083044). Every probed failure is the SAME test — `tests/e2e/attention-modal-gallery.spec.ts:192` ("Flight boundary + write containment"), `dev-build` project — a THIRD rotted site beyond the `:398`/`:265` pair below: on 2026-08-09 the click on the review-modal Published toggle looped "element was detached from the DOM, retrying" for the full 60s budget (the toggle keeps remounting under the dev build), and each failure aborts the run with 38 tests never executed, so the gate certifies nothing nightly. This is the entry's own predicted trigger firing daily; the "What remains" decisions below are now bounding a permanently-red scheduled gate, not a hypothetical dispatch.
-
-`tests/e2e/attention-modal-gallery.spec.ts` runs only under the `dev-build` Playwright project (`playwright.config.ts:92`), and `dev-build` runs only in `dev-gate-e2e.yml`, which is `workflow_dispatch`-only. No PR ever triggers it. Its last green run was **2026-07-02**; the only other run since was a failure on 2026-06-22. Dispatching it during this branch's close-out failed two assertions:
-
-- `:398` — `controls.getByText(String(GLOBAL.length), { exact: false })` raises a strict-mode violation, resolving to 2 elements. The substring match means any element in the controls bar containing that digit qualifies.
-- `:265` — `await expect(attentionMenu).toHaveCount(0)` after `Escape` times out; the menu does not close the way the spec expects.
-
-**Not caused by the branch that found it.** `fix/picker-flow-app-bugs` touches no file under `components/` or `app/admin/`, and its only `playwright.config.ts` edits are to the `mobile-safari` and `desktop-chromium` matchers — `dev-build` is untouched. Two commits that landed on `main` _after_ the gate's last green run change exactly what these assertions read: `432d8ef06 feat(admin-dev): exclude global-scope tier-1 scenarios from the gallery switcher` (the global-scope set the `:398` count is derived from) and `f4c4bf493 feat(admin): merge the attention panel's three groups into two` (the menu at `:265`). 793 commits touched `components/admin/` in that window.
-
-This is the dark-spec class already recorded for this repo (`feedback_dark_spec_in_unrun_project_rots`, #486): a spec nothing runs stops describing the product, and the cost lands on whoever next dispatches the gate.
-
-**What remains:** two decisions, in order. (1) Repair both assertions against the current UI — the count needs an exact/scoped match rather than a substring, and the menu-close assertion needs to match the post-merge panel behavior. (2) Decide whether the gallery spec belongs in a gate no PR runs at all. If its value is the built `ADMIN_DEV_PANEL_ENABLED=true` artifact, that is a reason for a dedicated project, not a reason to be unreachable; if it can run on the `:3000` baseline, move it somewhere PR CI executes. **Trigger:** the next `dev-gate-e2e.yml` dispatch, which will fail on this until it is fixed.
-
----
-
 ## BL-NULLCODE-STAMP-BATCH-2 residuals (2026-07-03)
 
 **Effort:** XS
@@ -446,18 +409,6 @@ screen-disposition 2026-08-04: KEEP — PROBED, and the mislabeling is determini
 
 The cron sync path also synthesizes workbooks (`lib/sync/runScheduledCronSync.ts:3118,3144`). A throw at either site escapes `prepareProcessOneFile` and is caught by the outer per-file loop (`:3915-3925`), which records `outcome: "parse_error"` with `classifySyncFailure(error)` — typically `SYNC_FILE_FAILED`. So it is already parse-family rather than Drive-family (unlike the onboarding paths this batch fixed), and the open question is narrower: should a corrupt workbook there report `PARSE_ERROR_LAST_GOOD`, whose copy tells Doug the latest edit did not parse and the previous version is still live? **Fix (when prioritized):** key on the `WorkbookSynthesisError` type this batch introduced. Deferred because it changes a live crew-visible sync contract and belongs in its own spec.
 
-### BL-MUTATION-REF-SUB — an exported `#REF!` is absorbed into the parse with no signal
-
-**Status:** OPEN (2026-08-06, L-wave decomposition of `BL-MUTATION-HARNESS-OPEN-HOLES`; wave spec+plan ratified 2026-08-08 — see docs/superpowers/specs/parser/2026-08-07-parser-mutation-wave-design.md) · **Severity:** medium · **Class:** PARSER ROBUSTNESS · **Effort:** M
-
-A body cell rewritten to the literal `#REF!` — a real broken-reference export artifact, **present in 3 of the 7 live shows** — parses as an ordinary value. Value-corruption class: the operator sees a crew page with `#REF!` where a name or time belongs, and nothing upstream said so.
-
-**Ledgered blast radius: 3314 holes** (3094 `wrong` / 220 `signal_loss`), the LARGEST class in the harness — derived 2026-08-06 from `RAW_HOLES` in `tests/parser/mutation/knownHoles.ts`. Linkage: `OPERATOR_FINDING_MAP["ref-sub"] = "BL-MUTATION-REF-SUB"` (`tests/parser/mutation/knownHoles.ts:82`), pinned by `tests/parser/mutation/knownHoles.test.ts` — this id must stay resolvable while that row exists.
-
-**Shape (M):** one corpus-calibrated detection heuristic (`#REF!` is an unambiguous literal, so the discriminator is cheap — the calibration is deciding WHICH fields warn vs hard-fail) plus one new warn-severity `ParseWarning` code carrying the §12.4 lockstep triple (master-spec §12.4 prose + `pnpm gen:spec-codes` + `lib/messages/catalog.ts`, same commit) and a warning-card copy row.
-
-**Ratchet contract:** the ledger is SHRINK-ONLY. Hardening this class turns its holes into `staleRows` and the nightly harness FAILS until they are removed from `knownHoles.ts`, so the fix is measurable as a ledger reduction. Never grow the ledger silently; a NEW hole fails as `newAlarms`. Decomposition record: `BACKLOG-archive.md` § `BL-MUTATION-HARNESS-OPEN-HOLES`.
-
 ### BL-MUTATION-MERGED-CELL — a merged cell exports as a deleted pipe and silently fuses two cells
 
 **Status:** OPEN (2026-08-06, L-wave decomposition of `BL-MUTATION-HARNESS-OPEN-HOLES`; wave spec+plan ratified 2026-08-08 — see docs/superpowers/specs/parser/2026-08-07-parser-mutation-wave-design.md) · **Severity:** medium · **Class:** PARSER ROBUSTNESS · **Effort:** M
@@ -495,6 +446,31 @@ This is the SAME consequence the wave exists to remove — invisible characters 
 **Why filed rather than repaired in the branch that found it** (AGENTS.md class-sweep disposition, exception (b) — a ratified scope decision already fences it): the wave's spec fences every branch to the parser (`docs/superpowers/specs/parser/2026-08-07-parser-mutation-wave-design.md` §3.1 scopes the strip to `parseSheet` entry), and plan-wide invariant 7 makes the spec canonical, directing an out-of-scope discovery to a question rather than a silent fix. `lib/sync/**` and `lib/drive/**` are a different subsystem that no branch of this wave otherwise touches. Note this is NOT the "same defect, different file" case the rule forbids deferring: the fence is a ratified scope decision, not convenience.
 
 **Shape (M):** strip at the point Drive-supplied strings enter the payload (five call sites across the three files above, sharing one helper with the parser's `stripZeroWidth` so the boundaries cannot drift), plus a guard in the shape of `tests/parser/payloadZeroWidth.test.ts` covering the enriched payload rather than the parse output, plus a decision on whether the archived-tab fingerprint rekey needs a one-time migration note.
+
+### BL-MUTATION-DRIFT-TRIAGE — mechanism-triage the 143 ledger rows re-kinded to `text_drift`
+
+**Status:** OPEN (2026-08-09, created by the warning-shape amendment ratified for `feat/mutation-ref-sub`) · **Severity:** low · **Class:** CI / LEDGER HYGIENE · **Effort:** M
+
+The mutation harness gained a verdict class. `SIGNAL_TEXT_DRIFT` (payload equal, every code count exactly preserved, only a warning's human-readable text moved) is now distinct from `SILENT_SIGNAL_LOSS` (the parser genuinely went quieter), which stays never-deferrable. Spec: `docs/superpowers/specs/parser/2026-08-09-warning-shape-mutation-stability.md` §11.
+
+Landing that classifier re-kinded **143 existing ledger rows** from `signal_loss` to `text_drift` — a machine-generated flip carrying zero author judgement, since the classifier's own output decides eligibility (§11.5(iv)). Each flipped row keeps its original `finding` so it stays resolvable through `OPERATOR_FINDING_MAP`, and carries `[re-kinded by classifier; mechanism triage owed, BL-MUTATION-DRIFT-TRIAGE]` in its note.
+
+**What is owed:** each of the 143 gets its mechanism named in the note, replacing the migration marker. §11.5(iii) requires that of every ADDED drift row; the flip was a migration rather than an addition, so the bar arrives here instead of blocking the branch.
+
+**Probe evidence — the shape histogram, machine-derived from the warning objects (never authored):**
+
+| Drift shape                              | Count |
+| ---------------------------------------- | ----- |
+| Snippet moved                            | 125   |
+| Reorder-only, multiset identical         | 14    |
+| `blockRef.index` moved, `kind` unchanged | 4     |
+| **Mis-anchor (`blockRef.kind` changed)** | **0** |
+
+Replay: classify each `signal_loss` row's mutant under the new tier, then diff the baseline and mutant warning objects field-by-field. Zero mis-anchors is the safety result that made the flip admissible — §11.5 marks mis-anchor-shaped drift as likely-regression, so a non-zero count would have meant real regressions sitting mislabelled in the ledger today, needing extraction BEFORE the classifier landed. The 4 `blockRef.index` rows were checked individually rather than left as an unexplained residue: `kind` multisets are equal and only the positional ordinal moves.
+
+**Why this is triage and not investigation:** the histogram already assigns every row a shape, so the work is confirming 143 derived classifications, not deriving them. The 35 rows that stayed `signal_loss` are NOT in scope — the classifier discriminated them as genuine loss, which is itself evidence it is not a rubber stamp.
+
+**Not urgent.** These rows were already ledgered and already failing nothing; the flip corrects a label the instrument had been getting wrong since day one. Their notes are honest about what is owed.
 
 ### BL-MUTATION-LEDGERGIT-SITE-DRIFT — the `ledgerGit` source-mutation gate is red on main: relocated sites, an uncovered new constant, and a CI-only survivor pair
 
@@ -584,7 +560,7 @@ Ledgered `accepted-gap`, not `equivalent`, in `tests/mutation/source/registry.ts
 
 ### BL-TRANSPORT-ID-RESOLUTION — the deferred red-first regression pins for `transportTileVisible`
 
-**Status:** OPEN at residual scope · **Severity:** low · **Class:** TEST COVERAGE · **Effort:** S · **Filed:** 2026-07-09 · **Resized:** 2026-08-06 (L-wave)
+**Severity:** low · **Class:** TEST COVERAGE · **Effort:** S · **Filed:** 2026-07-09 · **Resized:** 2026-08-06 (L-wave)
 
 > **RESIZED 2026-08-06 (L-wave, `feat/l-wave-docs`), decided by probe.** The entry's headline residual
 > — id-based transport visibility — landed as Flow 8.3b (#380). `transportTileVisible` now carries
@@ -968,42 +944,6 @@ screen-disposition 2026-08-04: PREREQ-FENCED + ANNOTATED, stays open, NOT claime
 
 ---
 
-### BL-TWO-WAY-SHEET-SYNC — Write corrections back to the source Google Sheet
-
-**Filed:** 2026-06-08, during the "sync changes feed + identity-only gate" brainstorming (`docs/superpowers/specs/v1-pre-deployment-amendments/2026-06-08-sync-changes-feed-identity-gate-design.md`). Surfaced when evaluating whether **undo** could write the old value back to the sheet to keep app and sheet consistent (instead of the chosen "revert + per-entity hold" approach).
-
-**Effort:** L
-
-**Description:** Today the app is strictly one-directional — Doug's Google Sheet is the source of truth, the app reflects it. A two-way-sync feature would let an admin correction made in the app (e.g. an undo, or a future inline edit) write back into the source sheet, so the sheet and the live pages stay consistent without the app having to "hold/override" the sheet's value across syncs. It would obviate the per-entity `sync_holds` override mechanism for the undo path (the conflict simply wouldn't exist if the sheet were corrected too).
-
-**Why backlog, not deferred — three hard walls (all verified 2026-06-08):**
-
-- **Read-only OAuth scopes.** The app uses `auth/drive.readonly` + `auth/spreadsheets.readonly` (`lib/drive/client.ts`). Write-back needs `auth/spreadsheets` (write) + re-consent + **edit** access to Doug's sheets — a real permission/security/trust escalation.
-- **No source-cell provenance.** The parser abstracts the messy human sheet into structured `parse_result` and discards cell/row/range coordinates (`lib/parser/types.ts` `CrewMemberRow` etc. carry no provenance). Writing "Bob" back to "the name cell" requires a reverse field→cell mapping the parser doesn't retain — a significant parser change, brittle against merged cells/formulas/free-form layout.
-- **Inverts the product model + new hazards.** "App edits Doug's source data" flips the one-directional trust model and introduces formatting-clobber risk, concurrent-edit races with Doug, and a modified-time feedback loop (app writes → sheet mtime advances → sync re-triggers; needs app-origin-write guards).
-
-**Promotion prerequisite:** Doug (or the operator) explicitly wants genuine two-way sync (e.g. "fixing it in the app should fix my sheet"). It's its own project — scope expansion (write scope + consent), a parser change to retain cell provenance, conflict/feedback-loop handling, and a trust/relationship decision about the app editing source-of-truth sheets. The chosen v1 reconciliation (human fixes the sheet; the app holds the overridden item steady until then) keeps the app in its read-only lane; this entry exists only so the idea isn't lost.
-
----
-
-### BL-NON-CREW-UNDO — Undo for non-crew feed rows (section shrinkage / field degradation / asset drift)
-
-**Effort:** L
-**l-wave-screen 2026-08-06:** PREREQ — waits on the operator explicitly wanting non-crew undo; the capture-widening cost is judged then, not now.
-**park-review 2026-08-07:** trigger re-checked with the owner — unfired. No operator has wanted to un-apply a non-crew change in-app; "edit the sheet to change this" remains the intended path (the feed spec's §6.2 rationale — sheet stays the source of truth, and even crew undo is only a temporary `undo_override` pin that releases when the sheet reconciles or moves on, §4.3). Stays PREREQ-fenced. The gate field below was split out of the compound "Technical home + promotion prerequisite" label in this pass so the ledger viewer classifies the row as gated (watch) rather than open.
-
-**Filed:** 2026-06-10 from the shipped "sync changes feed + identity-only gate" milestone (PR #19, `docs/superpowers/specs/v1-pre-deployment-amendments/2026-06-08-sync-changes-feed-identity-gate-design.md` §1 non-goals / §7 / finding F6).
-
-**Description:** v1 undo covers **crew-identity** changes only (`crew_added` / `crew_removed` / `crew_renamed`). Non-crew auto-applied changes — MI-7 section shrinkage, MI-8/8b/8c field degradation, asset drift (DIAGRAMS\_\*/REEL_DRIFT) — render as **notification-only** feed rows (`action='none'`, null `before_image`, "edit the sheet to change this" pointer). This entry would extend per-item undo to those rows.
-
-**Why backlog, not deferred — F6 showed it's "not cheap" + no committed trigger:** the undo restore path needs the **pre-apply state** in `before_image`, but the Phase-2 snapshot (`applyShowSnapshot` → `previousCrewMembers`, `lib/sync/runScheduledCronSync.ts:913-932,1088-1100`) captures **prior crew rows ONLY**. It does NOT snapshot prior hotel/room/contact rows, show fields, diagrams, or reel state. Backing non-crew undo requires **widening that prior-state capture** per domain (a real Phase-2 change), plus a domain-specific restore in `undo_change` and the feed's undoable predicate. The approved scope call (#9) was "crew-identity undo first, non-crew only if cheap"; F6 determined non-crew is not cheap.
-
-**Technical home:** widen `applyShowSnapshot`/`before_image` to capture the relevant prior non-crew rows → add the domain to `undo_change`'s direction handling + the feed's `isCrewDomainChangeKind`-style predicate (it currently single-sources `{crew_added,crew_removed,crew_renamed}`).
-
-**Promotion prerequisite:** an operator explicitly wants to undo a non-crew change in-app (rather than re-editing the sheet), and the capture-widening cost is judged worth it.
-
----
-
 ### BL-SHADOW-TILE-ARROW-SYNTAX — `shadow-(--shadow-tile)` is not canonicalized, and globals.css claims it is
 
 **Severity:** LOW (documented inconsistency, nothing renders differently) · **Class:** lint coverage · **Filed:** 2026-08-07 (`refactor/classname-array-join-cn`, spec §9.1 / R5, class-sweep exception (c)) · **Effort:** S · **Reachability:** PROBED 2026-08-07 — 24 textual matches across 18 files (21 class-string sites; 3 are doc comments), all live under a passing `pnpm lint`.
@@ -1155,22 +1095,6 @@ So this is not a `shadow-*` carve-out: **every `@theme` token defined through a 
 
 **Promotion prerequisite:** EITHER (a) `DEF-FLIGHT-1` lands a structured flight shape this card can label, OR (b) operator feedback that the unlabeled legs are a real readability friction. Until then the unlabeled raw-leg render is truthful and passes the impeccable gate.
 
-### BL-CI-UNIT-GATE-EXCLUSIONS — gate the two files excluded from the full-suite job
-
-**Effort:** M
-
-> **UPDATED 2026-07-26 (PR3 of the CI-dark coverage cluster).** This entry described THREE excluded files and repeated the false premise that the local-bootstrap runner cannot provide pg_cron. `scripts/ci/supabase-local-bootstrap.sh` holds the guarded migrations aside for the INITIAL boot only, then applies them with `supabase migration up --include-all`, so that runner has always had them. `pg-cron-coverage` is no longer excluded and now runs in `unit-suite-db`; TWO files remain excluded. The promotion work this entry proposed for pg-cron-coverage is DONE — do not redo it.
-
-**Filed:** 2026-06-22 (alongside the `unit-suite.yml` full-vitest CI gate that closed the "no gate runs `pnpm test`" gap). The new gate runs the whole vitest suite minus two files that need environments the local-bootstrap runner can't provide:
-
-- `tests/cross-cutting/pg-cron-coverage.test.ts` — live-DB introspection of `cron.job` rows. The shared `supabase-local-bootstrap.sh` deliberately HOLDS ASIDE the two GUC-guarded `pg_cron` migrations (`app.fxav_vercel_url`), so no cron jobs exist locally → the test expects 9, gets 0. It is designed for the validation project (`TEST_DATABASE_URL` + `VALIDATION_SUPABASE_PROJECT_REF`), like `validation-schema-parity`.
-- `tests/admin/test-auth-gate.test.ts` — the 3 Layer-2 "HTTP positive-path" tests drive a real Supabase `auth.admin.createUser → signInWithPassword` chain that returns 501 without the running instance's matching service-role key + a working GoTrue. They do NOT skip-when-unreachable by design (Codex M3 R2: "opportunistic skip is the wrong default for security tests"), so they fail rather than skip locally.
-- `tests/cross-cutting/email-canonicalization.test.ts` — three tests set an EXPLICIT 15s per-test timeout while doc-scanning the large master spec + plan. Under full-suite concurrency on the 2-core CI runner they starve and time out, but pass STANDALONE (isolated resources) in the `x5-email-canonicalization` gate that already covers this file. (Surfaced on the gate's first real-CI run — the local-passes-CI-fails class the gate exists to catch, applied to itself.)
-
-**Why backlog, not now:** both were ALREADY ungated before `unit-suite.yml`, so excluding them is not a regression — the gate's job was to cover the 6800+ tests that had NO gate at all. Wiring the two excluded files needs either a remote-validation job variant (TEST_DATABASE_URL pointed at the validation project, mirroring `validation-schema-parity`/`postgrest-dml-lockdown`) or a live-auth setup that provisions the matching service-role key. The `test-auth-gate` 501 may also indicate the Layer-2 tests have drifted since a route change — investigate before gating (don't freeze a possibly-broken security test green).
-
-**Promotion prerequisite:** a CI pass that adds (a) a remote-validation matrix leg for `pg-cron-coverage` + (b) a live-auth setup (or a root-cause fix) for `test-auth-gate` Layer 2, each verified green in real CI before being added to the gate's run set.
-
 ### BL-ADMIN-NAV-BADGE-SUSPENSE-STREAMING — stream the admin nav badge counts via `<Suspense>` instead of blocking layout
 
 **Effort:** M
@@ -1183,7 +1107,7 @@ So this is not a `shadow-*` carve-out: **every `@theme` token defined through a 
 
 ### BL-LOCKED-FIXTURE-HELPER-TARGETS-REMOTE-DB — a local e2e run can send fixture writes to the validation project
 
-**Status:** OPEN · **Severity:** MEDIUM (local-only, but the write lands in the SHARED validation project, and the symptom names the wrong cause) · **Class:** test-harness / env-resolution defect · **Filed:** 2026-08-09 (surfaced wiring right-now-transitions into the crew-e2e multi-spec invocation) · **Effort:** S
+**Severity:** MEDIUM (local-only, but the write lands in the SHARED validation project, and the symptom names the wrong cause) · **Class:** test-harness / env-resolution defect · **Filed:** 2026-08-09 (surfaced wiring right-now-transitions into the crew-e2e multi-spec invocation) · **Effort:** S
 
 **Probed, not theorized.** `tests/e2e/helpers/lockedCrewRestriction.ts` resolves its psql target
 ONCE, at module load:
@@ -1273,7 +1197,7 @@ which should localise it.
 
 ### BL-CREW-FOOTER-OBSCURED-BY-FIXED-BOTTOM-BAR — the mobile bottom tab-bar covers the crew footer
 
-**Status:** OPEN · **Severity:** MEDIUM (real, reachable on every crew page at mobile widths; the obscured controls are the theme toggle and the report button) · **Class:** product layout defect · **Filed:** 2026-08-09 (surfaced rewriting `theme-toggle.spec.ts`, `BL-RESURRECT-MOBILE-SAFARI-E2E`) · **Effort:** S
+**Severity:** MEDIUM (real, reachable on every crew page at mobile widths; the obscured controls are the theme toggle and the report button) · **Class:** product layout defect · **Filed:** 2026-08-09 (surfaced rewriting `theme-toggle.spec.ts`, `BL-RESURRECT-MOBILE-SAFARI-E2E`) · **Effort:** S
 
 **Probed, not theorized** (seeded crew route, mobile-safari, 390x844, scrolled fully to the bottom):
 
@@ -1307,7 +1231,7 @@ where the bar does not render (`min-[720px]:hidden`), and still asserts the 44px
 
 ### BL-CREW-FOOTER-NOT-ANCHORED-SHORT-CONTENT — `mt-auto` on the crew footer is inert, so a short page leaves it mid-viewport
 
-**Status:** OPEN · **Severity:** LOW (no seeded show currently renders a short enough page; reachable when one does) · **Class:** product layout defect · **Filed:** 2026-08-09 (`BL-RESURRECT-MOBILE-SAFARI-E2E` Task 7 probe) · **Effort:** S
+**Severity:** LOW (no seeded show currently renders a short enough page; reachable when one does) · **Class:** product layout defect · **Filed:** 2026-08-09 (`BL-RESURRECT-MOBILE-SAFARI-E2E` Task 7 probe) · **Effort:** S
 
 **Probed, not theorized** (seeded crew route, mobile-safari, 390x844):
 

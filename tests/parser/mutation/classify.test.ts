@@ -75,9 +75,18 @@ describe("classifySection", () => {
   it("a headerless section is other", () => {
     expect(classifySection({ index: 0, runIndex: 0, rows: [], headerRow: null })).toBe("other");
   });
-  it("RISK_CRITICAL is exactly the seven audit domains", () => {
+  it("RISK_CRITICAL is exactly the eight audit domains", () => {
     expect([...RISK_CRITICAL].sort()).toEqual(
-      ["agenda", "crew", "dates", "event_details", "hotel", "rooms", "transportation"].sort(),
+      [
+        "agenda",
+        "crew",
+        "dates",
+        "event_details",
+        "hotel",
+        "pull_sheet",
+        "rooms",
+        "transportation",
+      ].sort(),
     );
   });
 });

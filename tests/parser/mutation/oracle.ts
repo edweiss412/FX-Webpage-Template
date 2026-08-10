@@ -3,7 +3,12 @@ import { createHash } from "node:crypto";
 import { parseSheet } from "@/lib/parser";
 import type { ParsedSheet, ParseWarning, ParseError } from "@/lib/parser/types";
 
-export type Verdict = "ABSORBED" | "SIGNALED" | "SILENT_WRONG" | "SILENT_SIGNAL_LOSS";
+export type Verdict =
+  | "ABSORBED"
+  | "SIGNALED"
+  | "SILENT_WRONG"
+  | "SILENT_SIGNAL_LOSS"
+  | "SIGNAL_TEXT_DRIFT";
 
 export const capture = (md: string, filename: string): ParsedSheet => parseSheet(md, filename);
 
@@ -56,6 +61,67 @@ export function signalKeys(p: ParsedSheet): Map<string, number> {
   for (const r of p.raw_unrecognized) bump(`R:${r.block}|${r.key}`);
   return map;
 }
+/**
+ * Per-code occurrence extractors for the EQUALITY tier only (spec
+ * 2026-08-09-warning-shape-mutation-stability §11.4). Default weight is 1 per warning,
+ * so an unregistered code behaves exactly as before.
+ *
+ * NO ZERO-FALLBACK. A registered code whose warning yields zero occurrences is itself
+ * the anomaly the softer bucket must never swallow: with a `|| 1` fallback, a cell that
+ * keeps its warning but loses its literal reads as harmless drift; without it, that same
+ * case correctly reads SILENT_SIGNAL_LOSS.
+ */
+const OCCURRENCE_EXTRACTORS: Record<string, (w: ParseWarning) => number> = {
+  REF_ERROR_LITERAL: (w) => (cleanForCount(w.rawSnippet ?? "").match(/#REF!/g) ?? []).length,
+};
+
+/** Mirror of blocks/_helpers clean(), local so the oracle imports nothing from the parser. */
+const cleanForCount = (s: string): string =>
+  s
+    .replace(/[\u200B-\u200D\uFEFF]/g, "")
+    .replace(/\\(.)/g, "$1")
+    .trim();
+
+/**
+ * Occurrence-WEIGHTED signal multiset. Feeds `signalKeysEq` ONLY.
+ *
+ * `signalKeys` above is deliberately left untouched and keeps feeding `newSignalFired`:
+ * if weighting leaked into `stronger`, verdicts could flip across the payload-changed
+ * rows too, because `verdict` consults `stronger` on that branch as well.
+ */
+export function weightedSignalKeys(p: ParsedSheet): Map<string, number> {
+  const map = new Map<string, number>();
+  const bump = (k: string, n = 1) => map.set(k, (map.get(k) ?? 0) + n);
+  for (const h of p.hardErrors) bump(`H:${h.code}`);
+  // SEVERITY IS PART OF THE KEY. Keying on the code alone would call a warn -> info
+  // downgrade "text drift": the code is still present and the count is unchanged, but an
+  // info warning drops out of the operator-facing gap counts (lib/parser/dataGaps.ts) and
+  // out of section routing, so Doug stops seeing it. That is signal LOSS wearing the same
+  // multiset as drift, and it is exactly what this tier must not wave through.
+  for (const w of p.warnings)
+    bump(`W:${w.severity}:${w.code}`, OCCURRENCE_EXTRACTORS[w.code]?.(w) ?? 1);
+  for (const r of p.raw_unrecognized) bump(`R:${r.block}|${r.key}`);
+  return map;
+}
+
+/**
+ * FULL multiset equality of the weighted signal keys, both directions, exact counts.
+ *
+ * This is the tier the vocabulary was missing. `newSignalFired` is one-directional
+ * ("did any count go UP"), so a mutation that preserves every count while moving a
+ * warning's TEXT had nowhere to land except SILENT_SIGNAL_LOSS. Universal equality is
+ * also what makes the softer bucket sound where an existential "a warning still fires"
+ * predicate was not: a detector that skips one of six offending cells changes a count
+ * and fails this.
+ */
+export function signalKeysEq(b: ParsedSheet, m: ParsedSheet): boolean {
+  const x = weightedSignalKeys(b);
+  const y = weightedSignalKeys(m);
+  if (x.size !== y.size) return false;
+  for (const [k, n] of x) if (y.get(k) !== n) return false;
+  return true;
+}
+
 export function newSignalFired(b: ParsedSheet, m: ParsedSheet): boolean {
   const bk = signalKeys(b),
     mk = signalKeys(m);
@@ -70,7 +136,12 @@ export function verdict(b: ParsedSheet, m: ParsedSheet): Verdict {
     stronger = newSignalFired(b, m);
   if (pEq && sEq) return "ABSORBED";
   if (pEq && !sEq && stronger) return "SIGNALED";
-  if (pEq && !sEq && !stronger) return "SILENT_SIGNAL_LOSS";
+  // The signal channel differs and nothing got stronger. Split on WHY: if every code's
+  // count is exactly preserved, only the warning's human-readable text moved (anchor,
+  // snippet, ordering) -- distinct from the parser going quiet about a corrupt sheet.
+  if (pEq && !sEq && !stronger) {
+    return signalKeysEq(b, m) ? "SIGNAL_TEXT_DRIFT" : "SILENT_SIGNAL_LOSS";
+  }
   if (!pEq && stronger) return "SIGNALED";
   return "SILENT_WRONG";
 }
