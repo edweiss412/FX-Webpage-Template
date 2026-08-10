@@ -53,6 +53,24 @@ type DiagramsTileProps = {
   diagrams: PersistedDiagrams | null;
 };
 
+/**
+ * The §4 manifest fields, carried through to the Gallery item verbatim.
+ *
+ * `variants` is normalised to an array here (never undefined) because the loader
+ * treats it as one; the other three are OMITTED when absent, matching the
+ * manifest's own serialization rule — a null would read as "generated, empty".
+ */
+function variantFields(
+  entry: PersistedEmbeddedImage | PersistedLinkedFolderItem,
+): Pick<GalleryItem, "variants" | "blurDataURL" | "intrinsicWidth" | "intrinsicHeight"> {
+  return {
+    variants: entry.variants ?? [],
+    ...(entry.blurDataURL !== undefined ? { blurDataURL: entry.blurDataURL } : {}),
+    ...(entry.intrinsicWidth !== undefined ? { intrinsicWidth: entry.intrinsicWidth } : {}),
+    ...(entry.intrinsicHeight !== undefined ? { intrinsicHeight: entry.intrinsicHeight } : {}),
+  };
+}
+
 function embeddedItem(entry: PersistedEmbeddedImage, ordinal: number): GalleryItem {
   return {
     // Stable, list-unique React/failed-tracking identity — source-prefixed so
@@ -71,6 +89,7 @@ function embeddedItem(entry: PersistedEmbeddedImage, ordinal: number): GalleryIt
     // entry with a non-null snapshotPath would render as `<img>` here
     // but always 410 at the proxy → broken image with no admin signal.
     available: entry.snapshotPath !== null && isAllowedDiagramMime(entry.mimeType),
+    ...variantFields(entry),
   };
 }
 
@@ -84,6 +103,7 @@ function linkedItem(entry: PersistedLinkedFolderItem, ordinal: number): GalleryI
     // availability so a linked-folder SVG entry never renders as a
     // broken proxy URL on the crew page.
     available: entry.snapshotPath !== null && isAllowedDiagramMime(entry.mimeType),
+    ...variantFields(entry),
   };
 }
 

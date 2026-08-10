@@ -31,6 +31,8 @@ import { AnimatePresence } from "framer-motion";
 import { ChevronDown, ChevronUp, ImageOff } from "lucide-react";
 
 import { GalleryLightbox } from "@/components/diagrams/GalleryLightbox";
+import Image from "next/image";
+import { makeDiagramLoader } from "@/lib/images/diagramLoader";
 
 export type GalleryItem = {
   /**
@@ -52,6 +54,17 @@ export type GalleryItem = {
    * `<img>` element.
    */
   available: boolean;
+  /**
+   * Manifest-listed variant tiers for this asset (spec §4). ALWAYS present —
+   * empty for old manifests, GIFs, and generation failures, which is what makes
+   * the loader fall back to the original. Keys are DATA: the client never
+   * constructs a variant name.
+   */
+  variants: Array<{ width: number; key: string }>;
+  /** Tiny inline webp for next/image's blur placeholder, when one was generated. */
+  blurDataURL?: string;
+  intrinsicWidth?: number;
+  intrinsicHeight?: number;
 };
 
 const INITIAL_VISIBLE = 12;
@@ -71,10 +84,6 @@ type GalleryProps = {
    */
   items: GalleryItem[];
 };
-
-function assetUrl(showId: string, rev: string, key: string): string {
-  return `/api/asset/diagram/${showId}/${rev}/${key}`;
-}
 
 export function Gallery({ showId, snapshotRevisionId, items }: GalleryProps) {
   const [expanded, setExpanded] = useState(false);
@@ -112,35 +121,35 @@ export function Gallery({ showId, snapshotRevisionId, items }: GalleryProps) {
                   type="button"
                   onClick={() => setLightboxIndex(i)}
                   aria-label={`Open ${item.alt || `Diagram ${i + 1}`}`}
-                  className="block size-full cursor-zoom-in focus:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+                  className="relative block size-full cursor-zoom-in focus:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
                 >
                   {/*
-                  M9 C6b / M7-D3 — next/image migration was REVERTED
-                  after Codex C6b round-1 P0 finding: the /_next/image
-                  optimizer (a) does NOT forward the user's auth
-                  cookies to the upstream /api/asset/diagram/... route
-                  (server-side fetch under a different context), so
-                  the route's auth chain rejects every request with
-                  401/403, and (b) overwrites the proxy's
-                  `Cache-Control: private, max-age=0, must-revalidate`
-                  with public-cache headers. For authenticated private
-                  asset routes, the raw <img> tag is the correct
-                  choice; the @next/next/no-img-element lint warning
-                  is disabled inline with this rationale. Adoption of
-                  next/image for these URLs requires either a custom
-                  loader that forwards cookies AND preserves private
-                  caching, or a different image pipeline entirely.
+                  next/image with a CUSTOM LOADER (spec §6). The revert that
+                  put a raw <img> here was about the /_next/image optimizer,
+                  which strips auth cookies and rewrites Cache-Control — this
+                  loader emits our own private asset-route URLs, so the
+                  optimizer is never involved (AC-3 pins zero /_next/image
+                  requests). srcset therefore offers manifest-listed variant
+                  URLs only.
 
-                  onError handler (C6b R1 P1): runtime 4xx/5xx failures
-                  fall back to the same unavailable placeholder branch
-                  as parse-time-known-unavailable items.
+                  onError handler (C6b R1 P1): runtime 4xx/5xx failures fall
+                  back to the same unavailable placeholder branch as
+                  parse-time-known-unavailable items.
                 */}
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={assetUrl(showId, snapshotRevisionId, item.key)}
+                  <Image
+                    loader={makeDiagramLoader({
+                      showId,
+                      rev: snapshotRevisionId,
+                      key: item.key,
+                      variants: item.variants,
+                    })}
+                    src={item.key}
                     alt={item.alt || `Diagram ${i + 1}`}
-                    loading="lazy"
-                    decoding="async"
+                    fill
+                    sizes="(min-width: 640px) 25vw, 33vw"
+                    {...(typeof item.blurDataURL === "string" && item.blurDataURL.length > 0
+                      ? { placeholder: "blur" as const, blurDataURL: item.blurDataURL }
+                      : {})}
                     onError={() =>
                       setFailedKeys((prev) => {
                         if (prev.has(item.id)) return prev;
@@ -149,7 +158,7 @@ export function Gallery({ showId, snapshotRevisionId, items }: GalleryProps) {
                         return next;
                       })
                     }
-                    className="size-full object-cover"
+                    className="object-cover"
                   />
                 </button>
               ) : (

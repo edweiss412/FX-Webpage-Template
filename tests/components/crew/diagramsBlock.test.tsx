@@ -20,6 +20,7 @@
  *     available diagrams.
  */
 import { afterEach, describe, expect, test, vi } from "vitest";
+import { premise } from "@/tests/_shared/premise";
 import { cleanup, render, screen } from "@testing-library/react";
 
 // Stub the leaf client components — they're exercised in their own
@@ -164,10 +165,18 @@ describe("DiagramsTile", () => {
       screen.getByTestId("gallery-stub").getAttribute("data-items") ?? "[]",
     ) as { id: string; key: string; available: boolean }[];
     expect(items).toEqual([
-      { id: "embedded:obj-1", key: "embedded-obj-1.png", alt: "Diagram 1", available: true },
+      // `variants: []` is now part of every mapped item (spec §6): the loader
+      // takes an array, and an absent field would read as "not yet mapped".
+      {
+        id: "embedded:obj-1",
+        key: "embedded-obj-1.png",
+        alt: "Diagram 1",
+        available: true,
+        variants: [],
+      },
       // null snapshotPath → asset `key` falls back to the bare parser id,
       // but `id` stays source-prefixed and unique for React reconciliation.
-      { id: "embedded:obj-2", key: "obj-2", alt: "Diagram 2", available: false },
+      { id: "embedded:obj-2", key: "obj-2", alt: "Diagram 2", available: false, variants: [] },
     ]);
   });
 
@@ -264,5 +273,105 @@ describe("DiagramsTile", () => {
     );
     expect(container.innerHTML).not.toContain("drive.google.com");
     expect(container.innerHTML).not.toContain("docs.google.com");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// §4 field plumbing through the REAL mapper (spec §6).
+//
+// Gallery.test.tsx constructs GalleryItem objects directly, so the mapper could
+// drop every one of these fields and that suite would still pass. This is the
+// only place the manifest-entry → GalleryItem carry is actually exercised.
+// ---------------------------------------------------------------------------
+
+describe("DiagramsTile — §4 manifest fields reach GalleryItem", () => {
+  const variants = [
+    { width: 256, key: "embedded-obj-1.png@256.webp" },
+    { width: 512, key: "embedded-obj-1.png@512.webp" },
+  ];
+  const blurDataURL = "data:image/webp;base64,UklGRhIAAABXRUJQ";
+
+  function manifest(overrides: {
+    embedded?: Record<string, unknown>;
+    linked?: Record<string, unknown>;
+  }): PersistedDiagrams {
+    return {
+      snapshot_revision_id: REV,
+      snapshot_status: "complete",
+      linkedFolder: null,
+      embeddedImages: [
+        {
+          sheetTab: "DIAGRAMS",
+          objectId: "obj-1",
+          mimeType: "image/png",
+          sheetsRevisionId: "sheet-rev-1",
+          embeddedFingerprint: "fp",
+          recovery_disposition: "normal",
+          snapshotPath: `diagram-snapshots/shows/${SHOW_ID}/${REV}/embedded-obj-1.png`,
+          ...overrides.embedded,
+        },
+      ],
+      linkedFolderItems: [
+        {
+          driveFileId: "linked-1",
+          mimeType: "image/jpeg",
+          drive_modified_time: "2026-05-01T00:00:00.000Z",
+          headRevisionId: "rev-1",
+          md5Checksum: "a".repeat(32),
+          snapshotPath: `diagram-snapshots/shows/${SHOW_ID}/${REV}/folder-linked-1.jpg`,
+          ...overrides.linked,
+        },
+      ],
+    } as unknown as PersistedDiagrams;
+  }
+
+  type CapturedItem = Record<string, unknown>;
+
+  function capturedItems(diagrams: PersistedDiagrams): CapturedItem[] {
+    render(<DiagramsTile showId={SHOW_ID} diagrams={diagrams} />);
+    const raw = screen.getByTestId("gallery-stub").getAttribute("data-items");
+    return JSON.parse(raw ?? "[]") as CapturedItem[];
+  }
+
+  test("variants, blur and intrinsic dims carry from BOTH entry types", () => {
+    const linkedVariants = [{ width: 256, key: "folder-linked-1.jpg@256.webp" }];
+    const items = capturedItems(
+      manifest({
+        embedded: { variants, blurDataURL, intrinsicWidth: 1600, intrinsicHeight: 900 },
+        linked: {
+          variants: linkedVariants,
+          blurDataURL,
+          intrinsicWidth: 800,
+          intrinsicHeight: 600,
+        },
+      }),
+    );
+
+    premise("both entry types produced items to inspect", items.length, 1);
+    expect(items[0]).toMatchObject({
+      variants,
+      blurDataURL,
+      intrinsicWidth: 1600,
+      intrinsicHeight: 900,
+    });
+    expect(items[1]).toMatchObject({
+      variants: linkedVariants,
+      blurDataURL,
+      intrinsicWidth: 800,
+      intrinsicHeight: 600,
+    });
+  });
+
+  test("absent manifest fields map to absent item fields, never to nulls", () => {
+    const items = capturedItems(manifest({}));
+
+    for (const item of items) {
+      expect("blurDataURL" in item).toBe(false);
+      expect("intrinsicWidth" in item).toBe(false);
+      expect("intrinsicHeight" in item).toBe(false);
+      // `variants` is always present on the item (the loader takes an array),
+      // but it must be EMPTY rather than a fabricated ladder.
+      expect(item.variants).toEqual([]);
+    }
   });
 });
