@@ -106,7 +106,13 @@ N/A — no Playwright surface.
 **The new SQL assertion must be exact equality, not containment** — a `show_id` token inside a SQL comment satisfies containment while the column is dead, which is mutant (c) below:
 
 ```ts
-const sql = (unsafe.mock.calls[0]![0] as string).replace(/\s+/g, " ").trim();
+// normalize(): strip `--` comments FIRST, then collapse whitespace. Both steps
+// are mandatory - the shipped statement carries an explanatory comment, so a
+// whitespace-only normalizer fails on correct code (plan R6 F4), and a
+// comment-blind one lets a commented-out subselect satisfy the assertion.
+const normalize = (raw: string) =>
+  raw.replace(/--[^\n]*/g, " ").replace(/\s+/g, " ").trim();
+const sql = normalize(unsafe.mock.calls[0]![0] as string);
 expect(sql).toBe(
   "insert into public.sync_log (show_id, drive_file_id, status, message, parse_warnings, duration_ms) " +
   "values ((select id from public.shows where drive_file_id = $1), $1, $2, $3, $4::jsonb, $5)",
@@ -165,7 +171,15 @@ The mocked suite still gets its expected update for the select-list change (Task
 
 Required shape: **commit the fixture, then clean it in a `finally`**, with the target pinned explicitly to loopback for BOTH writer and reader, and an assertion that the two resolve to the same database (compare `current_database()` and the host, or inject one resolved URL into both). A rollback-only variant is only valid for assertions that never cross the connection boundary — the direct `select … from sync_log` readbacks, not `querySyncLog`.
 
-**One readback PER SINK (plan R1 F11).** AC-1 spans three writers and an earlier revision proved only the cron sink; recovery and onboarding had SQL-string assertions, which cannot show a row landed. Each of the three gets its own write-then-read-back, or its AC-1 clause is unproven.
+**One readback PER SINK, each landing in the task that repairs that sink (plan R6 F1).** AC-1 spans three writers, and the R5 relocation folded the whole suite into Task 1 — which repairs only the CRON sink. Recovery still binds `$1::uuid` until Task 3 (`lib/sync/runScheduledCronSync.ts:1214`) and onboarding still omits `show_id` until Task 3b (`lib/sync/runOnboardingScan.ts:659`), so a Task 1 commit owning all three readbacks could not go green without silently dropping two of them. The file is written once, in Task 1, with the cron cases live; the other two cases are added by the tasks that make them passable:
+
+| Readback | Written and taken green in | Because that task repairs |
+| --- | --- | --- |
+| cron sink (AC-1 cron clause, AC-2, AC-3, AC-4, AC-5) | Task 1 | `lib/sync/syncLog.ts` |
+| recovery sink (AC-1 recovery clause) | Task 3 | `insertSyncLog`'s explicit-id channel |
+| onboarding sink (AC-1 onboarding clause) | Task 3b | `runOnboardingScan`'s sink |
+
+Each of those three tasks therefore has a DB-level RED as well as its structural one, and each reaches green at its OWN boundary — the property R1 F6 established and the R5 merge broke for two of the three. The acceptance index credits AC-1 to Tasks 1, 3, 3b, 3c for exactly this reason. Each of the three gets its own write-then-read-back, or its AC-1 clause is unproven.
 
 **Anti-tautology:** assert against the row read back from the DB, not the param array. Derive the expected show id from the fixture. Duration asserted against a known injected delta, not `> 0`. **Negative control (AC-2):** the same query for an unrelated show id returns zero rows — without it, green is equally consistent with the filter being ignored.
 
@@ -189,13 +203,13 @@ Only a completely unconfigured local dev environment may skip clean.
 
 **Service-role requirement.** `querySyncLog` constructs `createSupabaseServiceRoleClient()` (`lib/observe/query/syncLog.ts:23`), so the test needs `SUPABASE_SECRET_KEY` / `SUPABASE_SERVICE_ROLE_KEY` present. Absent it, the call throws and is swallowed into `{ kind: "infra_error" }` (`lib/observe/query/syncLog.ts:52-54`) — assert on `kind === "ok"` before asserting on rows, or an infra fault reads as "no rows."
 
-## Task 2 — Widen `SyncLogEntry` and `SyncLogDeps`; capture the attempt start
+## Task 2 — Capture the attempt start and thread it to the sink
 
 <!-- task: red=`pnpm vitest run tests/sync/runScheduledCronSync.test.ts -t logSync` ac=AC-6 -->
 
 **RED validity — the claimed existing RED was false (plan R1 F3).** `tests/sync/runScheduledCronSync.test.ts:2662` observes the dependency object handed to a MOCKED `processOneFile`, not the `SyncLogEntry` built inside the real `logSync`, so adding a field to that entry cannot fail it; the later sink assertion is `expect.objectContaining`, not exact. This task therefore WRITES its RED: a new duration assertion against the entry the real helper constructs, with an injected clock and a known delta. The production line is the entry construction inside `logSync` (`lib/sync/runScheduledCronSync.ts:2241-2249`).
 
-Add `durationMs?: number` to `SyncLogEntry` — **not** `showId` (plan R1 F2: an explicit show-id channel is the design the spec rejected in §3.1.1, and Task 1's own text forbids it) (`lib/sync/runScheduledCronSync.ts:446-456`); add **both** `attemptStartedAtMs?: number` **and** `now?: () => Date` to `SyncLogDeps` (plan R1 F2: `logSync` computes `now() - start`, so a widening carrying only the start cannot read `deps.now` under the declared parameter type and would fall back to ambient time, defeating the injected-delta oracle) (`lib/sync/runScheduledCronSync.ts:2218-2220`).
+`SyncLogEntry.durationMs` is NOT added here — Task 1 adds it, as `durationMs?: number | null`, because Task 1 is its first consumer and a task that cannot typecheck at its own boundary is not green (plan R5 F5). Re-adding it here duplicates the property or narrows the nullable type Task 1 established (plan R6 F2). This task adds `attemptStartedAtMs` — to `ProcessOneFileDeps` as well as `SyncLogDeps`, since the `depsWithStart: ProcessOneFileDeps` object below is typed as the former — and **not** `showId` (plan R1 F2: an explicit show-id channel is the design the spec rejected in §3.1.1, and Task 1's own text forbids it) (`lib/sync/runScheduledCronSync.ts:446-456`); add **both** `attemptStartedAtMs?: number` **and** `now?: () => Date` to `SyncLogDeps` (plan R1 F2: `logSync` computes `now() - start`, so a widening carrying only the start cannot read `deps.now` under the declared parameter type and would fall back to ambient time, defeating the injected-delta oracle) (`lib/sync/runScheduledCronSync.ts:2218-2220`).
 
 **Exact injection point.** `processOneFile(driveFileId, mode, fileMeta, deps: ProcessOneFileDeps = {})` (`lib/sync/runScheduledCronSync.ts:2707-2712`). Capture at the top, before `prepareProcessOneFile`, then bind once:
 
@@ -222,7 +236,7 @@ Guards: absent start → `undefined` (NULL), never NaN; non-monotonic clock → 
 
 ## Task 3 — Recovery sink resolves by subselect; explicit parameter retired
 
-<!-- task: red=`pnpm vitest run tests/sync/runOfShowSyncLogChannel.test.ts` ac=AC-1 -->
+<!-- task: red=`pnpm vitest run tests/sync/runOfShowSyncLogChannel.test.ts tests/db/syncLogAttribution.db.test.ts` ac=AC-1 -->
 
 **RED validity — the existing suite is NOT the red (plan R4 F3).** `tests/sync/runOfShowSyncLogChannel.test.ts:199-250` tests parse-warning preservation: it declares `insertSyncLog(entry, showId?)` and calls it with `"show-1"`, so current production — explicit parameter, `$1::uuid` in the insert — satisfies it completely. Naming that suite as the oracle would let this task begin green.
 
@@ -244,7 +258,7 @@ Production line under test: `lib/sync/runScheduledCronSync.ts:1216-1219`.
 
 The enumeration is still deliberate (a regression pin, not a cover — see the acceptance index), and the file is still deleted when `BL-SYNC-LOG-ATTRIBUTION-METATEST` lands.
 
-<!-- task: red=`pnpm vitest run tests/sync/onboardingScanSyncLogAttribution.test.ts tests/sync/syncLogRepairSites.test.ts` ac=AC-1 -->
+<!-- task: red=`pnpm vitest run tests/sync/onboardingScanSyncLogAttribution.test.ts tests/sync/syncLogRepairSites.test.ts tests/db/syncLogAttribution.db.test.ts` ac=AC-1 -->
 
 **This test file is NEW.** a `runOnboardingScan` test file does not exist (an earlier plan draft cited it — corrected by the pre-draft verification pass), and `grep -rn "insert into public.sync_log" tests/` shows no test asserts the onboarding sink's SQL at all. The only production-sink assertion in the repo is `tests/sync/runOfShowSyncLogChannel.test.ts:228`, which covers `insertSyncLog`. So there is no existing RED to extend; the task creates one.
 
@@ -319,13 +333,13 @@ Census — **two of ten** production entry points install a sink today (`app/api
 
 **Also install the two fenced gap markers (plan R1 F12).** The approved spec §6.2 requires them and no task owned them; the plan referenced a nonexistent "the filed guard". Add `// sync-log-emission-gap: BL-MANUAL-SYNC-UNEMITTED` at `app/api/admin/staged/[fileId]/apply/route.ts:152` and `app/api/admin/show/staged/[stagedId]/apply/route.ts:164`. Without them the fenced attempts stay silently unemitted rather than explicitly signaled, which is the difference between a documented limit and an undocumented one.
 
-**Ordering:** before Task 1's DB oracle, which would otherwise be unable to observe a manual attempt at all. (the derived meta-test was descoped — so 3b/3c no longer have a guard turning red before them; their REDs are their own tests.)
+**Ordering:** after Task 1, which creates the DB suite this task extends. An earlier revision said "before Task 4" and a mechanical rename turned that into a claim that Task 3c precedes Task 1's oracle — backwards, since Task 3c is sequenced afterward (plan R6 F1). (the derived meta-test was descoped — so 3b/3c no longer have a guard turning red before them; their REDs are their own tests.)
 
 ## Task 5 — Migration: indexes, prune function, cron schedule
 
 <!-- task: red=`pnpm vitest run tests/db/syncLogIndexesAndPrune.db.test.ts tests/cross-cutting/pg-cron-coverage.test.ts` ac=AC-7,AC-8 -->
 
-**Returned count: measured-baseline equality, NOT fixture-scoped (plan R5 F7).** `prune_sync_log` returns a GLOBAL count, so a fixture-scoped count is the wrong oracle for it and the two instructions cannot both hold. Survival assertions stay scoped to the fixture marker; the RETURNED count is asserted equal to `select count(*) from public.sync_log where started_at < <cutoff>` read inside the same rolled-back transaction immediately before the prune. Same rule, same rationale, as the `app_events` repair in Task 5b.
+**Returned count: measured-baseline equality, NOT fixture-scoped (plan R5 F7).** `prune_sync_log` returns a GLOBAL count, so a fixture-scoped count is the wrong oracle for it and the two instructions cannot both hold. Survival assertions stay scoped to the fixture marker; the RETURNED count is asserted equal to `select count(*) from public.sync_log where occurred_at < <cutoff>` read inside the same rolled-back transaction immediately before the prune. Same rule, same rationale, as the `app_events` repair in Task 5b.
 
 **The prune assertions run inside an always-rolled-back transaction (plan R3 F6).** An uncommitted prune cannot permanently delete unrelated old local rows; a committing one can, and asserting only `>=` on the return leaves that invisible. Roll back, and scope every count to the fixture marker.
 
