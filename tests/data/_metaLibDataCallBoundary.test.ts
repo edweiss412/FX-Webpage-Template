@@ -283,9 +283,26 @@ function pinEmbedsLiteral(patternSource: string, literal: string): boolean {
   return ['"', "'", "`"].some((quote) => patternSource.includes(`${quote}${literal}${quote}`));
 }
 
+/**
+ * Is `token` present as a whole IDENTIFIER, not merely as a substring?
+ *
+ * `\b` cannot answer this: it is an ASCII word boundary, so it sees one between
+ * `x` and `$`, and one between `é` and `X`. A `via` of `$get` was therefore
+ * satisfied by an unrelated `x$get`, and a `via` of `café` by `caféX` — a
+ * citation discharged by a suite that never mentions the symbol at all, which is
+ * outside §6.5's "mention, not exercise" and simply wrong (whole-diff R7 F1).
+ *
+ * The boundary that matters is "not adjacent to an identifier character", and
+ * both operands are identifier-shaped: a `via` is a JavaScript symbol, a
+ * `literal` a table or function name. Unicode-aware so `é` counts as a letter
+ * rather than as punctuation.
+ */
+const IDENTIFIER_CHAR = "[\\p{L}\\p{N}_$]";
+
 function containsWholeWord(haystack: string, token: string): boolean {
   if (token === "") return false;
-  return new RegExp(`\\b${token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`).test(haystack);
+  const escaped = token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(?<!${IDENTIFIER_CHAR})${escaped}(?!${IDENTIFIER_CHAR})`, "u").test(haystack);
 }
 
 /**
@@ -1228,6 +1245,59 @@ describe("META lib/data Supabase call boundary", () => {
           name,
         ).toEqual([expect.stringContaining("is not an exported identifier")]);
       }
+    });
+
+    // Containment is by IDENTIFIER, not by ASCII word boundary. `\b` sees a
+    // boundary between `x` and `$`, and between `é` and `X`, so a citation was
+    // dischargeable by a suite that never mentions the symbol at all
+    // (whole-diff R7 F1).
+    test("a coveredBy suite mentioning only a LARGER identifier is rejected", () => {
+      const cases: Array<[string, string, string, string]> = [
+        // name, module source, via, suite text
+        ["leading $ in via", "export function $get() {}\n", "$get", "test x$get does something"],
+        ["trailing $ in via", "export function get$() {}\n", "get$", "test get$x does something"],
+        ["unicode via", "export function café() {}\n", "café", "test caféX does something"],
+      ];
+      for (const [name, moduleSource, via, suiteText] of cases) {
+        const registry: Registry = {
+          [SOURCE]: [{ kind: "from", literal: "admin_emails", coveredBy: [SUITE], via }],
+        };
+        expect(
+          validateRows(registry, reader({ [SOURCE]: moduleSource, [SUITE]: suiteText })),
+          name,
+        ).toEqual([expect.stringContaining("mentions neither the literal nor via")]);
+      }
+    });
+
+    test("a coveredBy suite mentioning the exact identifier is accepted", () => {
+      const cases: Array<[string, string, string, string]> = [
+        ["leading $ in via", "export function $get() {}\n", "$get", "test $get(1) does something"],
+        ["unicode via", "export function café() {}\n", "café", "test café(1) does something"],
+      ];
+      for (const [name, moduleSource, via, suiteText] of cases) {
+        const registry: Registry = {
+          [SOURCE]: [{ kind: "from", literal: "admin_emails", coveredBy: [SUITE], via }],
+        };
+        expect(
+          validateRows(registry, reader({ [SOURCE]: moduleSource, [SUITE]: suiteText })),
+          name,
+        ).toEqual([]);
+      }
+    });
+
+    // The same boundary applies to the LITERAL operand of the OR.
+    test("a coveredBy suite mentioning only a larger table name is rejected", () => {
+      const registry: Registry = {
+        [SOURCE]: [
+          { kind: "from", literal: "admin_emails", coveredBy: [SUITE], via: "addAdminEmail" },
+        ],
+      };
+      expect(
+        validateRows(
+          registry,
+          reader({ [SOURCE]: MODULE_SOURCE, [SUITE]: "test admin_emails_v2 rows" }),
+        ),
+      ).toEqual([expect.stringContaining("mentions neither the literal nor via")]);
     });
 
     test("a coveredBy citation to a deleted or renamed suite is rejected", () => {
