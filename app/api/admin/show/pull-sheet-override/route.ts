@@ -4,6 +4,7 @@ import { requireAdminIdentity } from "@/lib/auth/requireAdmin";
 import { log } from "@/lib/log";
 import { logAdminOutcome } from "@/lib/log/logAdminOutcome";
 import { fetchCurrentSheetXlsxBytes } from "@/lib/drive/fetch";
+import { writeSyncLog } from "@/lib/sync/syncLog";
 import {
   synthesizeMarkdownFromXlsx,
   type ArchivedPullSheetTab,
@@ -210,7 +211,9 @@ export async function handlePublishedPullSheetOverride(
   // tx; the sync path takes its own lock.
   let sync: SyncClassification;
   try {
-    sync = classifySync(await runSync(body.driveFileId, "manual"));
+    sync = classifySync(
+      await runSync(body.driveFileId, "manual", { processDeps: { logSync: writeSyncLog } }),
+    );
   } catch {
     sync = { ok: false, kind: "threw" };
   }

@@ -161,6 +161,12 @@ export async function handleLiveStagedApply(
     if (!reviewerChoices.every(isReviewerChoice))
       return errorResponse(400, "INVALID_REVIEWER_ACTION");
 
+    // sync-log-emission-gap: BL-MANUAL-SYNC-UNEMITTED
+    // This apply path writes NO sync_log row, so show attribution cannot reach it.
+    // Not a defect introduced here and not repaired here: the gap is that applyStaged
+    // emits nothing on most branches, which is a behaviour change needing its own
+    // scope decision. Probe measured logSyncCalls: 0. Marked so the silence is
+    // explicit rather than mistaken for an attribution bug in the sink.
     const result = await deps.applyStaged(
       {
         sourceScope: "live",

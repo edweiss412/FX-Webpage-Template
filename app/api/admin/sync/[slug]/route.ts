@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { requireAdmin, requireAdminIdentity } from "@/lib/auth/requireAdmin";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 import { FINALIZE_OWNED_SHOW, runManualSyncForShow } from "@/lib/sync/runManualSyncForShow";
+import { writeSyncLog } from "@/lib/sync/syncLog";
 import { deriveRequestId, log, runWithRequestContext } from "@/lib/log";
 import { logAdminOutcome } from "@/lib/log/logAdminOutcome";
 
@@ -94,6 +95,10 @@ export async function POST(_request: NextRequest, context: RouteContext): Promis
     const result = await runManualSyncForShow(resolved.driveFileId, "manual", {
       ...(acceptShrink ? { acceptShrink: true } : {}),
       ...(expectedModifiedTime !== undefined ? { expectedModifiedTime } : {}),
+      // The sink is NESTED under processDeps: RunManualSyncForShowDeps exposes
+      // processDeps?: ProcessOneFileDeps, not a top-level logSync, so a top-level
+      // property typechecks against nothing and silently writes no row.
+      processDeps: { logSync: writeSyncLog },
     });
     if (
       "outcome" in result &&

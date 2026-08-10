@@ -30,6 +30,7 @@ import { logAdminOutcome } from "@/lib/log/logAdminOutcome";
 import type { ParseWarning } from "@/lib/parser/types";
 import { withShowLock, type LockableSyncTx } from "@/lib/sync/lockedShowTx";
 import { runManualSyncForShow } from "@/lib/sync/runManualSyncForShow";
+import { writeSyncLog } from "@/lib/sync/syncLog";
 import { normalizeUseRawDecisions, type UseRawCode } from "@/lib/sync/useRawOverlay";
 import {
   computeUseRawToggle,
@@ -159,18 +160,22 @@ export async function setUseRawDecisionAction(
   // the admin's toggle resolves in ~200ms instead of blocking on a full Drive
   // re-sync (spec 2026-07-16-use-raw-bg-apply §2.2). Failure observability is
   // parity with the previous inline call: returned sync failures are logged
-  // inside runManualSyncForShow (logSync under the pipeline lock), and a THROWN
+  // inside runManualSyncForShow (logSync under the pipeline lock) — which is true
+  // only because this call site now INSTALLS that sink. Until 2026-08-09 it did
+  // not, so the claim was false and these failures were written nowhere. And a THROWN
   // fault is contained in the task body so it can never crash the invocation
   // post-response.
   try {
     deferPostResponse(async () => {
       try {
-        await runManualSyncForShow(driveFileId);
+        await runManualSyncForShow(driveFileId, "manual", {
+          processDeps: { logSync: writeSyncLog },
+        });
       } catch {
         // This catch handles only an unexpected THROWN fault, swallowed at exact
         // parity with the previous inline catch (spec 2026-07-16 §2.2). Returned
         // failure outcomes are not inspected here at all — runManualSyncForShow
-        // records them itself (logSync under the pipeline lock). Either way the
+        // records them itself, via the sink installed above. Either way the
         // decision stays durable (apply-pending) and applies on the next
         // successful sync.
       }

@@ -96,6 +96,7 @@ import {
   type SupabaseLike,
 } from "@/lib/dev/materialize/run";
 import { runManualSyncForShow } from "@/lib/sync/runManualSyncForShow";
+import { writeSyncLog } from "@/lib/sync/syncLog";
 
 export type ParseAndStageResult = {
   filename: string;
@@ -619,7 +620,9 @@ export async function clearAttentionScenario(
       // an applied/stage outcome actually regenerates authentic warnings, so
       // anything else must surface as a partial Clear rather than a silent ok.
       resync: async (driveFileId) => {
-        const result = await runManualSyncForShow(driveFileId, "manual");
+        const result = await runManualSyncForShow(driveFileId, "manual", {
+          processDeps: { logSync: writeSyncLog },
+        });
         const outcome = (result as { outcome?: string }).outcome ?? "unknown";
         const ok = outcome === "applied" || outcome === "stage";
         return { ok, detail: ok ? outcome : `re-sync did not regenerate warnings: ${outcome}` };
