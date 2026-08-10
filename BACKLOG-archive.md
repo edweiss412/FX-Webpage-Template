@@ -8,6 +8,62 @@ Same split as [DEFERRED.md](./DEFERRED.md) ↔ [DEFERRED-archive.md](./DEFERRED-
 
 ---
 
+### BL-PRIVATE-IMAGE-PIPELINE — Migrate diagrams gallery to `next/image` with auth-preserving pipeline
+
+**Status:** SHIPPED 2026-08-10 · PR #761 · **Effort (as shipped):** L
+**Effort:** L (scope floor — design-gated)
+**l-wave-screen 2026-08-06:** PREREQ — scope floor — needs its own private-image-pipeline design session.
+
+**Origin:** DEFERRED entry M7-D3 (Diagrams gallery `<img>` → `next/image`). Re-deferred at M9 C6b 2026-05-13 after an in-cluster attempt failed P0 (auth cookies don't forward through `/_next/image`; private Cache-Control rewritten to public, breaking revocation propagation).
+
+**Scope:** Migrate `components/diagrams/Gallery.tsx` and `components/diagrams/GalleryLightbox.tsx` from `<img>` to `next/image` to gain LCP optimization on the mobile crew page. Currently they use `<img loading="lazy" decoding="async">` as the manual equivalent — works correctly but doesn't get Next's `/_next/image` optimizer benefits.
+
+Asset URLs are proxied through `/api/asset/diagram/...` which returns auth-checked bytes with `private, max-age=0, must-revalidate`. The `next/image` optimizer would either need to bypass the auth proxy OR add a second redirect layer — neither is straightforward.
+
+**Why backlog, not deferred:** The in-cluster M9 attempt failed P0 because the obvious paths (declare proxy origin as `next.config.ts` remote pattern; let `/_next/image` proxy through it) break the auth + cache contract. The right fix requires a private-image-pipeline design — custom loader + transform service, OR signed-URL CDN, OR architectural decision to accept the LCP cost of un-optimized images. Each path is a multi-day brainstorming session.
+
+**Promotion prerequisite:** Private-image-pipeline brainstorming (custom loader vs signed-URL CDN vs accept-the-cost). May fold into a broader "v1.5 perf-and-polish" milestone rather than standalone.
+
+---
+
+**RESOLVED 2026-08-10 — SHIPPED** on `feat/private-image-pipeline` (PR #761). Spec:
+`docs/superpowers/specs/crew/2026-08-09-private-image-pipeline-design.md`; plan:
+`docs/superpowers/plans/crew/2026-08-09-private-image-pipeline.md`.
+
+**The entry's own premise was right about the obstacle and wrong about the cost.** It framed the
+M9 P0 correctly — `/_next/image` does not forward the picker cookie and rewrites
+`private, max-age=0, must-revalidate` to a public header — and concluded the fix needed "a custom
+loader + transform service, OR signed-URL CDN, OR accepting the LCP cost". The shipped answer is
+the first half of option one WITHOUT a transform service: with a per-component `loader` prop,
+`next/image` never routes through the optimizer at all, so the loader's return value is the URL the
+BROWSER fetches directly and every cookie flows exactly as it did for the raw `<img>`. No
+`next.config.ts` change, no `remotePatterns`, no second redirect layer. The transform half moved to
+INGEST — sharp generates a `[256, 512, 1024]` webp ladder plus a blur placeholder at snapshot time,
+so nothing is transformed per request.
+
+What shipped, beyond the entry's scope: the variant ladder and blur are generated for BOTH the sync
+and the asset-recovery paths, with a structural census guard (`tests/sync/_metaVariantStageCensus.ts`
+sibling) that fails by default when a new original-byte upload path skips the stage; the private
+asset route's accept-set widened to manifest-listed variant paths with a shared key-shape predicate
+(`lib/images/diagramKey.ts`) used by route and loader alike; and promotion was repaired — its
+expected-count SQL counted originals only and its storage listings were unpaginated, either of which
+would have failed every variant-bearing snapshot before cutover.
+
+**Three defects worth remembering**, none of which a green local suite would have caught: `sharp`
+sat in `devDependencies` while `lib/sync` imports it at runtime (a production-only install has no
+sharp; now pinned by a derived guard); WebKit resolves a `height: 100%` child against the gallery
+cell's aspect-ratio BORDER box, so a `fill` image containing-blocked by the button cropped 2px while
+Chromium hid it entirely; and Supabase Storage's `createSignedUrl` NORMALIZES the path it is handed,
+so a manifest key containing `?` or `..` could sign a different object — closed by requiring the
+minted key shape at the accept-set rather than sanitizing at the URL layer.
+
+**Filed forward:** `BL-ADMIN-DIAGRAM-NEXT-IMAGE` (the two admin wizard `<img>` sites, class-sweep
+exception (c)), `BL-LIGHTBOX-ORIGINAL-PROGRESS-AFFORDANCE` and `BL-DIAGRAM-BLUR-EDGE-SIZE` (both
+need a spec amendment), `BL-GALLERY-FAILED-ITEM-FOCUS-AND-ANNOUNCE`, and three pre-existing sync
+classes this arc's review surfaced with probe evidence:
+`BL-RECOVERY-CLEANUP-DELETES-LIVE-BYTES`, `BL-SNAPSHOT-UPLOAD-THROW-ORPHANS-OBJECTS`,
+`BL-PROMOTE-VALIDATES-COUNTS-NOT-IDENTITIES`.
+
 ### BL-RESURRECT-MOBILE-SAFARI-E2E — lift the remaining mobile-safari tile/crew specs into CI
 
 **Filed:** 2026-06-23 (discovered building the crew-e2e CI job). **Effort:** L
