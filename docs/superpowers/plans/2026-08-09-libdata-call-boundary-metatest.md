@@ -60,23 +60,17 @@ Registry count reconciliation (authored AND run): rows per file 4/1/2/10 = 17 to
 
 <!-- tasks: depth=2 -->
 
-## Task 1 — scanner, validation, self-tests, walk, reconciliation (corpus RED)
+## Task 1 — the meta-test, complete (corpus RED → registry → GREEN → commit)
 
-<!-- task: red=`pnpm vitest run tests/data/_metaLibDataCallBoundary.test.ts` ac=AC-1,AC-5,AC-7 -->
+<!-- task: red=`pnpm vitest run tests/data/_metaLibDataCallBoundary.test.ts` ac=AC-1,AC-2,AC-3,AC-4,AC-5,AC-7 -->
 
-Create `tests/data/_metaLibDataCallBoundary.test.ts` complete EXCEPT the registry (empty `REGISTRY`): scanner (`SUPABASE_CALL_RE` final form incl. generic segment), `extractSites()`, `validateRows()`, `isWaived()` (comment-proof recognition), the disk walk (extension set `/\.(ts|tsx|mts|cts|js|jsx|mjs|cjs)$/`), Layer 1 orphan scan, Layer 2 reconciliation, both §3.7 premises (unconditional in the suite body, satisfiable in this task because the walk lands here), and ALL §3.5 planted self-tests (scanner positives/negatives incl. backtick, generic, substitution-template and parenthesized-generic limits; validateRows rejections; waiver shapes). **RED (corpus-derived, the plan's validity anchor): the orphan scan names EXACTLY THREE live files — `lib/data/adminEmails.ts`, `lib/data/listShowsForCrew.ts`, `lib/data/loadShowShareToken.ts` — as undischarged.** `lib/data/getShowForViewer.ts` is NOT an orphan at this stage: its live `// not-subject-to-meta:` comment is a well-formed file-grain waiver under §3.3 semantics, and registry precedence cannot apply while it has no rows (spec R1 finding on the plan corrected the four-file claim). This RED fails because of live corpus content, not any test-local fixture. Planted self-tests go green within this task; the orphan-scan assertion stays red into Task 2.
+One task, one RED→GREEN cycle, one commit (plan R2 F1: no cross-task red). Build `tests/data/_metaLibDataCallBoundary.test.ts` whole: scanner (final `SUPABASE_CALL_RE`), `extractSites()`, `validateRows()`, `isWaived()` (comment-proof), disk walk (widened extension set), Layer 1 orphan scan, Layer 2 reconciliation, both premises (unconditional), all §3.5 planted self-tests — with the REGISTRY EMPTY. **RED (corpus-derived): the orphan scan names exactly THREE files — `adminEmails.ts`, `listShowsForCrew.ts`, `loadShowShareToken.ts`** (`getShowForViewer.ts` is discharged by its live file-grain waiver until registered). Then paste the authoritative REGISTRY snippet (all 17 rows; registry precedence now covers `getShowForViewer.ts`); suite GREEN. In-task proofs before the commit: (a) the planted in-memory undischarged-file fixture is a PERMANENT self-test; (b) transiently delete `lib/data/adminEmails.ts`'s four rows — a file with NO waiver, so the red is guaranteed (plan R2 F3; `getShowForViewer.ts` is the wrong deletion target: its waiver revives and the suite stays green) — confirm red naming that file, restore. Planted self-tests each go red-then-green within the task's micro-iterations (behavior-first, never an unresolved-import red). **Commit:** `test(db): lib/data Supabase call-boundary meta-test (BL-LIBDATA-SUPABASE-CALL-BOUNDARY-METATEST)`.
 
-## Task 2 — registry rows discharge the corpus (green + AC-2 proofs)
-
-<!-- task: red=`pnpm vitest run tests/data/_metaLibDataCallBoundary.test.ts` ac=AC-2,AC-3,AC-4 -->
-
-Paste the authoritative REGISTRY snippet (above) — all 17 rows including `getShowForViewer.ts`'s 10 (registry precedence now overrides its file-grain waiver, so its sites become individually reconciled). Suite goes green. AC-2's BOTH proof mechanisms, executed and then restored: (a) the planted in-memory undischarged-file fixture (a source string with a call site and no discharge, fed through the same classification path, asserted flagged — this is a permanent Layer 3 self-test, not a tree mutation); (b) transiently delete one registered file's rows, run, confirm red naming that file, restore before commit. Count reconciliation asserted by the deep-equal itself (no authored counts).
-
-## Task 3 — stale-waiver reword (only production-file edit)
+## Task 2 — stale-waiver reword (only production-file edit)
 
 <!-- task: red=`pnpm vitest run tests/data/_metaLibDataCallBoundary.test.ts tests/data/getShowForViewerRunOfShow.test.ts` ac=AC-6 -->
 
-Add the permanent meta-test assertion that `lib/data/getShowForViewer.ts`'s waiver text does not contain the stale phrase "outside _metaInfraContract" — RED against the current tree (live corpus text). Reword the comment to name the real discharge (registry-pinned by this suite; behaviorally covered by `tests/data/getShowForViewerRunOfShow.test.ts`); green. The second waiver comment (non-call site) is untouched; `getShowForViewerRunOfShow.test.ts` stays green (fail-soft unchanged).
+Add the permanent meta-test assertion that `lib/data/getShowForViewer.ts`'s waiver text does not contain the stale phrase "outside _metaInfraContract" — RED against the current tree (live corpus text). Reword the comment to name the real discharge (registry-pinned by this suite; behaviorally covered by `tests/data/getShowForViewerRunOfShow.test.ts`); GREEN; `getShowForViewerRunOfShow.test.ts` stays green (fail-soft unchanged). **Commit:** `fix(db): reword stale lib/data waiver to name its real discharge`.
 
 <!-- tasks: end -->
 
@@ -92,4 +86,4 @@ Full pre-push ladder: `pnpm test`, `pnpm typecheck`, `pnpm lint`, `pnpm format:c
 - Invariant 10: N/A — no mutation surface.
 - Invariant 11: work in `../FX-worktrees/libdata-call-boundary-metatest` (this worktree).
 - Invariant 12: marker on `BL-LIBDATA-SUPABASE-CALL-BOUNDARY-METATEST` comes off in the PR's last commit.
-- AC map (spec §7): AC-1 (suite exists, unit-suite wired — Task 1; green on tree — Task 2); AC-2 (disk discovery + planted in-memory fixture + row-deletion red — Task 2); AC-3 (17 rows, 13 pins + 4 coveredBy with via symbols — Task 2); AC-4 (ordered deep-equality both directions, no authored count, executable coveredBy — Task 2); AC-5 (planted positives/negatives incl. documented-limit shapes — Task 1); AC-6 (stale waiver reworded — Task 3); AC-7 (both premises unconditional — Task 1); AC-8 (full suite + real CI green — Close-out).
+- AC map (spec §7): AC-1/AC-2/AC-3/AC-4/AC-5/AC-7 — Task 1 (AC-2's transient deletion targets the waiver-less `adminEmails.ts`); AC-6 — Task 2; AC-8 — Close-out.
