@@ -28,6 +28,10 @@ A third genuine multi-token SSID was found in the non-harvested corpus (`Network
 
 ## 4. Design
 
+### 4.0 Client boundary (R1 F2)
+
+`FactRows` and `VenueSection` are synchronous Server Components and STAY that way. The copy control is a dedicated client island, a NEW file named CopyFactValue.tsx under `components/crew/primitives/` (`"use client"`), mirroring the isolation rationale of `app/admin/show/[slug]/ShareLinkCopyButton.tsx:1` (an island exactly so its owner stays a Server Component). `FactRows` renders the island only when `copyLabel` is present (a Server Component may render a client child); no other consumer hydrates anything. The island owns the button, the copied state/timer, and its announce region.
+
 ### 4.1 `FactRows` API (mirrors the existing `KeyValueRows` flag pattern)
 
 `FactRow` (`components/crew/primitives/FactRows.tsx:42` region) gains two optional flags:
@@ -39,9 +43,10 @@ Guard conditions: `v` empty/whitespace → the push site already omits the row (
 
 ### 4.2 Copy control
 
-- `<button type="button">` after the value span inside the `<dd>`; visual: the repo's standard copy glyph pair (copy → check, swap on success) at `size-3.5`, inside a visible `size-7` rounded tile matching the `dt` icon tile treatment (`FactRows.tsx:76`); the **hit target reaches 44×44 via padding + negative margin** (`-m-*` cancellation), the step3-a11y recipe — the painted box stays small, the row's visual rhythm is untouched.
+- `<button type="button">` after the value span inside the `<dd>`, with the step3-a11y **Class B recipe verbatim** (`docs/superpowers/specs/2026-08-07-step3-a11y-cluster.md`, "Recipe, empirically selected"): button = `-m-2 inline-flex size-tap-min shrink-0 items-center justify-center` (44×44 target, 28×28 margin box), inner visual `<span>` = `grid size-7 place-items-center rounded-md bg-surface-sunken text-text-subtle` (the exact `dt` icon-tile treatment, `FactRows.tsx:76`) holding the repo's standard copy/check glyph pair at `size-3.5`. Exact classes stated because wildcard `-m-*` is not a spec (R1 F3). The 28px margin box raises the row's flex cross-size from ~21px (bare `text-sm` value) to 28px — the SAME content height every icon-bearing row already has, so the row lands on an existing design size rather than a novel one.
 - Behavior clones `app/admin/show/[slug]/ShareLinkCopyButton.tsx:95` (the ratified clipboard pattern): `try { await navigator.clipboard.writeText(v) }`, copied state with a 2 s reset timeout, silent catch — on clipboard unavailability the password is still on screen for manual transcription, which is exactly the §4.1 type treatment's job. No stale-value race exists here (the value is render-constant), so the requested-vs-current guard is not carried over.
-- **Announcement:** success announces "Copied." through the shared announce implementation (`components/admin/announceLog.tsx` — `useAnnounceLog` + `AnnounceLogRegion`, `DESIGN.md:502`); `role="status"` shape (the text cannot legitimately recur back-to-back within the 2 s window, and repeat copies re-announce after the state reset). No announcement on failure (nothing changed; the value remains visible).
+- **Announcement:** success announces "Copied." through the shared announce implementation (`components/admin/announceLog.tsx` — `useAnnounceLog` + `AnnounceLogRegion`, `DESIGN.md:502`). The shape is **`role="log"`** — `AnnounceLogRegion` hardcodes `role="log"` and appends keyed children (`components/admin/announceLog.tsx:106`), and log is also the CORRECT choice by DESIGN.md's own rule: identical "Copied." text legitimately recurs on repeat taps, and an append always re-announces where a status swap may not (R1 F1). **Region ownership and placement:** the island renders its own `AnnounceLogRegion` as a sibling of the button inside the island (visually hidden per the shared component's contract); one region per island instance, and at most one island exists per page today (§4.3). No announcement on failure (nothing changed; the value remains visible).
+- **Focus treatment (R1 F4):** the button carries the repo's standard ring: `focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg` (the shared ring contract, DESIGN.md:40; same string as the wizard step pills).
 - `aria-label` = `copyLabel`; when copied, the accessible name is unchanged (state is conveyed by the announcement, not a label swap).
 
 ### 4.3 Call site
@@ -50,9 +55,9 @@ Guard conditions: `v` empty/whitespace → the push site already omits the row (
 
 ## Dimensional Invariants
 
-- The copy control's hit target is ≥44×44 (`--spacing-tap-min`, `app/globals.css:179`) via padding/negative-margin cancellation; its painted tile is `size-7` — asserted with a real-browser `getBoundingClientRect()` check, not jsdom.
-- The row (`FactRows.tsx:63`, `flex items-center justify-between … py-3`) must not grow taller when the control is present: the `-m-*` cancellation keeps the control's margin box at the painted size. Real-browser assertion: row height with the control === row height of a sibling row without it, within 0.5px.
-- The value span keeps `min-w-0 wrap-break-word` (`FactRows.tsx:86`); with the control present the `<dd>` remains a flex row whose value span may shrink — long passwords wrap rather than pushing the control out of the row (assert control stays within the row box at 390px with a 40-char password).
+- The copy control's hit target is exactly `size-tap-min` (44×44, `--spacing-tap-min`, `app/globals.css:179`); its margin box is 28×28 (`-m-2` cancellation); its painted tile is `size-7` — real-browser `getBoundingClientRect()` assertions, not jsdom.
+- The password row's height equals the height of an icon-bearing `FactRows` row (both have 28px flex content in a `py-3` row): asserted by rendering the SAME row twice in the harness — once with `copyLabel`, once without but with an `icon` — and comparing heights within 0.5px, plus the discriminating with/without-control comparison stated as an expected +7px delta over the bare-text row (R1 F3: the assertion names its numbers instead of comparing against an arbitrary sibling).
+- The value span keeps `min-w-0 wrap-break-word` (`FactRows.tsx:86`); long passwords wrap rather than pushing the control out of the row (assert the control's rect stays within the row rect at 390px with a 40-char password).
 
 ## Transition Inventory
 
@@ -60,8 +65,8 @@ States: idle, copied (2 s), back to idle. Pairs: idle→copied — instant glyph
 
 ## 6. Verification
 
-- **Unit/component (red first):** FactRows renders `code-value` on the value span when `code: true` and not otherwise; renders the copy control only when `copyLabel` is non-empty; clipboard success path sets copied state + emits the announcement (sink-spy on the announce hook); clipboard rejection leaves state idle and announces nothing. Anti-tautology: assert against the value span's own class list scoped by `data-testid="venue-wifi-password"`, not a container innerHTML match; derive the copied-state assertion from a mocked `navigator.clipboard` promise, both resolve and reject branches.
-- **Real-browser (Playwright):** the three Dimensional Invariants above at 390px, mobile-safari.
+- **Unit/component (red first):** FactRows renders `code-value` on the value span when `code: true` and not otherwise; renders the copy control only when `copyLabel` is non-empty; clipboard success path sets copied state + emits the announcement (sink-spy on the announce hook); clipboard rejection leaves state idle and announces nothing. **Byte oracle (R1 F5): the `navigator.clipboard.writeText` spy's ARGUMENT is asserted strictly equal to the row's `v`, with `ORDTG.` (trailing period) as the fixture** — copied-state assertions alone cannot catch an implementation that copies altered or constant text. Anti-tautology: assert against the value span's own class list scoped by `data-testid="venue-wifi-password"`, not a container innerHTML match; both clipboard promise branches exercised.
+- **Real-browser (Playwright):** the Dimensional Invariants above at 390px, mobile-safari — landed as new cases in `tests/e2e/crew-page.spec.ts` (already wired in `.github/workflows/crew-e2e.yml`'s run list, mobile-safari), NOT a new standalone file (R1 F6: a new file is dark until registered). The executed-count floor in `scripts/check-crew-e2e-executed.mjs` is recalibrated in the same commit from a real run (the oracle's read-not-run rule).
 - **Existing suites:** `VenueSection` render tests extend for the new row fields; no other consumer of `FactRows` changes output (assert a control-free consumer renders byte-identical DOM).
 - **Impeccable critique + audit** on the diff (invariant 8).
 
