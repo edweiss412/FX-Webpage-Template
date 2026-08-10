@@ -123,8 +123,29 @@ function listedVariantKeys(entry: { variants?: unknown }): string[] {
   return keys;
 }
 
+/**
+ * `resolveCurrentDiagrams` duck-types on the revision id alone, so a persisted
+ * manifest can be missing either collection, hold a null entry, or carry a
+ * non-string mimeType and still resolve. Spreading or destructuring those
+ * directly throws a TypeError, which the route turns into a 500 — the one
+ * outcome the "a malformed manifest can never make findAsset throw" contract
+ * (spec §4) forbids. Every degenerate shape must SHRINK the accept-set instead.
+ */
+function manifestEntries(diagrams: PersistedDiagrams): PersistedDiagrams["embeddedImages"] {
+  const collections = [diagrams.embeddedImages, diagrams.linkedFolderItems];
+  const entries: PersistedDiagrams["embeddedImages"] = [];
+  for (const collection of collections) {
+    if (!Array.isArray(collection)) continue;
+    for (const entry of collection) {
+      if (typeof entry !== "object" || entry === null) continue;
+      entries.push(entry as PersistedDiagrams["embeddedImages"][number]);
+    }
+  }
+  return entries;
+}
+
 function findAsset(diagrams: PersistedDiagrams, expectedPath: string): AssetEntry | null {
-  for (const entry of [...diagrams.embeddedImages, ...diagrams.linkedFolderItems]) {
+  for (const entry of manifestEntries(diagrams)) {
     // Non-null string gate FIRST (spec §5): `snapshotPath: string | null` is a valid
     // persisted shape, and deriving a directory from null is the throw this ordering
     // prevents. A null-path entry with plausible-looking variants is simply skipped.
@@ -132,7 +153,10 @@ function findAsset(diagrams: PersistedDiagrams, expectedPath: string): AssetEntr
     if (typeof snapshotPath !== "string" || snapshotPath.length === 0) continue;
 
     if (snapshotPath === expectedPath) {
-      return { snapshotPath, mimeType: entry.mimeType };
+      // A non-string mimeType reaches isAllowedDiagramMime, which lowercases it.
+      // Coerce to a value that simply fails the allowlist rather than throwing.
+      const mimeType = typeof entry.mimeType === "string" ? entry.mimeType : "";
+      return { snapshotPath, mimeType };
     }
 
     const directory = snapshotPath.slice(0, snapshotPath.lastIndexOf("/") + 1);

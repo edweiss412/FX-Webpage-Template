@@ -23,8 +23,29 @@ export type MakeDiagramLoaderArgs = {
   pinOriginal?: boolean;
 };
 
+/**
+ * The key is manifest DATA and becomes one URL path segment, so it is encoded
+ * rather than interpolated raw. Unencoded, a key containing `/`, `?`, `#`, `%`,
+ * or a control character is reinterpreted by URL parsing and route matching —
+ * and the dangerous case is not the 404: `v?x.webp` truncates to `v`, which can
+ * SILENTLY select and sign a DIFFERENT listed object. The route decodes its
+ * params before comparing, so an encoded segment still matches the manifest key
+ * exactly.
+ */
+function encodeKeySegment(key: string): string {
+  // `@` is legal in a path segment and every real variant key contains one
+  // (`<assetKey>@<width>.webp`), so it is decoded back rather than left as %40 —
+  // keeping the URL shape the route, the e2e network gate, and any operator
+  // reading logs already expect.
+  const encoded = encodeURIComponent(key).replace(/%40/g, "@");
+  // A segment of exactly "." or ".." is a relative-path component, not a name;
+  // encodeURIComponent leaves both untouched.
+  if (encoded === "." || encoded === "..") return encoded.replace(/\./g, "%2E");
+  return encoded;
+}
+
 export function diagramAssetUrl(showId: string, rev: string, key: string): string {
-  return `/api/asset/diagram/${showId}/${rev}/${key}`;
+  return `/api/asset/diagram/${showId}/${rev}/${encodeKeySegment(key)}`;
 }
 
 /**

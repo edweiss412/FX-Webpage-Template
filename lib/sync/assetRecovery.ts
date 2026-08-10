@@ -950,17 +950,31 @@ export async function runAssetRecoveryCron(
       // diagrams UPDATE under the show lock, which has committed by the time `recover` resolves
       // (post-commit). The other outcomes (no_op / revision_drift / drift_cooldown /
       // bytes_exceeded / skipped / infra_error) wrote NO shows row → no revalidate.
+      // Census hop 6 sink (spec §3): POST-COMMIT — `recover` has resolved, so its
+      // show-lock tx committed. A no_op / drift / skipped outcome carries no rows.
+      // FIRST in this tail and isolated: revalidateShow below is an un-isolated
+      // await, and a throw there would otherwise drop the variant rows entirely.
+      if ("variantFailures" in result && result.variantFailures?.length) {
+        try {
+          await emitDiagramVariantFailures(result.variantFailures, { showId });
+        } catch (error) {
+          const escalation = log.error("diagram variant failure emit failed", {
+            source: "sync.diagramVariants",
+            code: "DIAGRAM_VARIANT_GENERATION_EMIT_FAILED",
+            showId,
+            error,
+          });
+          await escalation.catch(() => {
+            /* best-effort: the escalation must never change the recovery outcome */
+          });
+        }
+      }
       if (
         result.outcome === "recovered" ||
         result.outcome === "restage_required" ||
         result.outcome === "partial_failure"
       ) {
         revalidateShow(showId);
-      }
-      // Census hop 6 sink (spec §3): POST-COMMIT — `recover` has resolved, so its
-      // show-lock tx committed. A no_op / drift / skipped outcome carries no rows.
-      if ("variantFailures" in result && result.variantFailures?.length) {
-        await emitDiagramVariantFailures(result.variantFailures, { showId });
       }
       processed.push({ showId, result });
     } catch (error) {

@@ -119,6 +119,30 @@ const EXEMPT_SITES: ReadonlyArray<{ file: string; fn: string; reason: string }> 
 /** Inline form of the same exemption. POSITIVE marker, MANDATORY reason. */
 const EXEMPT_MARKER = /(?:^|\s)no-variant-stage:\s+\S/;
 
+/**
+ * Method names that write BYTES to storage. `upload` alone was not the closure:
+ * the installed Supabase storage client also writes through `uploadToSignedUrl`,
+ * so a new original-byte path could have used it and gone undiscovered — found by
+ * cross-model review, probed against @supabase/storage-js (StorageFileApi).
+ *
+ * The client's third writer, `update`, is deliberately NOT here. The name is
+ * indistinguishable at this level from `hash.update(...)` and the stream
+ * `update` calls in lib/sync/boundedBytes.ts — adding it produced ten false
+ * positives on the current tree, and a guard that cries wolf teaches people to
+ * add exemptions, which is a worse outcome than the gap. Closing it properly
+ * needs the callee's TYPE, not its name.
+ *
+ * DOCUMENTED LIMIT, deliberately not closed: reachability is computed from the
+ * innermost enclosing FUNCTION, so adding a second, stage-less upload branch
+ * inside a function that already calls the stage elsewhere satisfies the census.
+ * Closing that needs per-call-site dataflow from the uploaded bytes back to a
+ * stage result. Against the threat model here — an ordinary contributor adding a
+ * new upload path, who overwhelmingly adds it as a new function or a new file —
+ * the function-level relation catches the realistic shapes, and the tighter
+ * analysis is a spec of its own.
+ */
+const BYTE_WRITE_CALLEES = new Set(["upload", "uploadToSignedUrl"]);
+
 // ---------------------------------------------------------------------------
 // Filesystem walk
 // ---------------------------------------------------------------------------
@@ -469,7 +493,7 @@ function scanRepo(
     const mod = modules.get(file)!;
     const { sf, text } = mod;
     const visit = (node: ts.Node): void => {
-      if (ts.isCallExpression(node) && calleeName(node.expression) === "upload") {
+      if (ts.isCallExpression(node) && BYTE_WRITE_CALLEES.has(calleeName(node.expression) ?? "")) {
         const fnNode = enclosingFunction(node);
         const chainParts: string[] = [];
         for (let cur: ts.Node | undefined = node.parent; cur; cur = cur.parent) {

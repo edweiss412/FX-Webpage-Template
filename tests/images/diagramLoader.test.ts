@@ -132,3 +132,63 @@ describe("makeDiagramLoader — URL construction", () => {
     );
   });
 });
+
+describe("makeDiagramLoader — key encoding", () => {
+  // A manifest key becomes ONE URL path segment. Unencoded, a key containing a
+  // path or query delimiter is reinterpreted by URL parsing and route matching —
+  // and the dangerous case is not the 404: `v?x.webp` truncates to `v`, which can
+  // silently select and sign a DIFFERENT listed object.
+  const HOSTILE: Array<[string, string]> = [
+    ["a slash", "nested/v.webp"],
+    ["a query delimiter", "v?x.webp"],
+    ["a fragment delimiter", "v#x.webp"],
+    ["a traversal pair", "a/../b.webp"],
+    ["a percent escape", "a%2Fb.webp"],
+    ["a backslash", "v\\x.webp"],
+    ["a tab", "v\tx.webp"],
+    ["a newline", "v\nx.webp"],
+    ["a bare dot-dot", ".."],
+  ];
+
+  test.each(HOSTILE)("%s survives as ONE segment that decodes back to the key", (_label, key) => {
+    const url = makeDiagramLoader({
+      showId,
+      rev,
+      key: "orig.png",
+      variants: [{ width: 256, key }],
+    })({ src: "orig.png", width: 256 });
+
+    const segments = url.split("/");
+    premiseHolds("the URL kept its fixed prefix shape", segments.length === 7);
+    const last = segments[6]!;
+    // Exactly one segment, and it means exactly the key the manifest listed.
+    expect(decodeURIComponent(last)).toBe(key);
+    expect(last).not.toContain("/");
+    expect(last).not.toContain("?");
+    expect(last).not.toContain("#");
+  });
+
+  test("two keys that differ only past a delimiter cannot collide", () => {
+    // The reviewer's reproduction: requesting `v?x.webp` selected and signed `v`.
+    const collide = makeDiagramLoader({
+      showId,
+      rev,
+      key: "orig.png",
+      variants: [{ width: 256, key: "v?x.webp" }],
+    })({ src: "orig.png", width: 256 });
+    const plain = makeDiagramLoader({
+      showId,
+      rev,
+      key: "orig.png",
+      variants: [{ width: 256, key: "v" }],
+    })({ src: "orig.png", width: 256 });
+
+    expect(collide).not.toBe(plain);
+  });
+
+  test("the ordinary @<width>.webp key stays literally readable", () => {
+    // `@` is legal in a path segment; encoding it would churn every URL, the e2e
+    // network gate, and anything an operator greps for.
+    expect(load(512)).toContain("@512.webp");
+  });
+});

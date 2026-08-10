@@ -1966,6 +1966,27 @@ export async function applyStaged(
       });
       return result;
     }
+    // Census hop 3 sink (spec §3): DIAGRAM_VARIANT_GENERATION_FAILED — POST-COMMIT,
+    // outside the held lock tx (invariant 10), and FIRST in this tail. This region is
+    // a sequence of un-isolated awaits (alert upserts, a landed-status read, two other
+    // emits); behind them, any throw would drop the variant rows, and a dropped signal
+    // is what the hop census exists to prevent. Isolated so it cannot take the rest of
+    // the tail down either.
+    if (!("skipped" in result) && result.outcome === "applied" && result.variantFailures?.length) {
+      try {
+        await emitDiagramVariantFailures(result.variantFailures, { showId: result.showId });
+      } catch (error) {
+        const escalation = log.error("diagram variant failure emit failed", {
+          source: "sync.diagramVariants",
+          code: "DIAGRAM_VARIANT_GENERATION_EMIT_FAILED",
+          showId: result.showId,
+          error,
+        });
+        await escalation.catch(() => {
+          /* best-effort: the escalation must never change the apply outcome */
+        });
+      }
+    }
     if (!("skipped" in result) && result.outcome === "applied" && result.adminAlertCode) {
       const upsertAdminAlert = deps.upsertAdminAlert ?? defaultUpsertAdminAlert;
       await upsertAdminAlert({
@@ -2029,13 +2050,6 @@ export async function applyStaged(
         showId: result.showId,
         driveFileId: args.driveFileId,
       });
-    }
-    // Census hop 3 sink (spec §3): DIAGRAM_VARIANT_GENERATION_FAILED — POST-COMMIT, outside the
-    // held lock tx (invariant 10; applyLiveWithDriveReverify has fully awaited every
-    // withPipelineLock before returning). A rolled-back staged apply never reaches here and so
-    // emits nothing, which is the whole reason the produce site stays silent.
-    if (!("skipped" in result) && result.outcome === "applied" && result.variantFailures?.length) {
-      await emitDiagramVariantFailures(result.variantFailures, { showId: result.showId });
     }
     // §10 point 5: ROLE_TOKEN_MAPPED emission — POST-COMMIT, outside the held lock tx (invariant 10;
     // the withPipelineLock resolved before this point). A non-applied outcome carries no entries.

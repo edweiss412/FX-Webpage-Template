@@ -8,6 +8,75 @@ Last reconciled: 2026-08-04 — `feat/harness-font-fidelity` (PR #705) graduated
 
 ---
 
+## BL-RECOVERY-CLEANUP-DELETES-LIVE-BYTES — a losing concurrent recovery can delete the winner's objects
+
+**Status:** OPEN — filed from cross-model review of PR #761 · **Severity:** HIGH · **Class:** CORRECTNESS · **Effort:** M
+
+`assetRecovery` gates under the show lock, RELEASES it, uploads to deterministic canonical paths,
+then re-takes the lock to commit. Two overlapping runs can both pass the gate. When one commits
+`snapshot_status: complete`, the other's locked read returns `no_op` (or `skipped` on contention) and
+its cleanup removes every path IT uploaded — which are byte-identical canonical paths to the ones the
+winner's committed manifest now references (`lib/sync/assetRecovery.ts`, the `uploadedPaths` cleanup
+in the skipped and drift/no_op branches). The crew page then renders a manifest pointing at objects
+that no longer exist.
+
+Reviewer's interleaving probe: after A commits, the manifest points at
+`.../rev/embedded-obj.png@256.webp`; after B's cleanup, `manifestTargetExists: false`.
+
+**Pre-existing, and widened by PR #761.** The race and the cleanup both predate that PR — it applied
+to ORIGINALS already. What the PR changed is blast radius: variant objects now ride the same
+`uploadedPaths` list, so a firing deletes the variants too. It is filed rather than fixed in-branch
+under class-sweep exception (a): the repair is a product decision the PR cannot settle — never
+deleting leaks orphans that GC only reclaims under a non-retained revision prefix, while deleting
+keeps risking live bytes, and picking between them is a spec question about recovery's concurrency
+model, not a patch.
+
+**Cheapest probe to schedule first:** confirm whether two `runAssetRecoveryCron` invocations can
+actually overlap in production (the cron route has no job-level lock that this review found) — that
+sets the severity for real.
+
+## BL-SNAPSHOT-UPLOAD-THROW-ORPHANS-OBJECTS — an upload exception leaves objects nothing will reclaim
+
+**Status:** OPEN — filed from cross-model review of PR #761 · **Severity:** medium · **Class:** STORAGE HYGIENE · **Effort:** M
+
+Two instances of one shape:
+
+- `snapshotAssets` uploads to `_pending/<runUuid>/` and, on any throw, calls
+  `markPendingSnapshotDeleteStarted` through the transaction that is about to roll back. With the
+  ledger insert rolled back, GC cannot discover that prefix, and its object sweep skips `_pending`
+  anyway. The storage port has no removal operation at all.
+- `assetRecovery` tracks uploaded paths but only cleans up on `skipped`, `revision_drift`, and
+  `no_op`; an upload exception goes straight to the `finally` that removes the local temp dir, and
+  the already-uploaded canonical objects stay.
+
+Reviewer's probe against `snapshotAssets` with a real 800x600 PNG and an injected original-upload
+failure: three objects uploaded, `deleteMarkerCalls: ["rev-1"]`, `storageRemoveCapability: false`.
+
+**Pre-existing, and widened by PR #761** in the same way as the entry above: originals already
+orphaned this way; variants now orphan alongside them. Filed rather than fixed under exception (c) —
+the repair is a removal capability on the storage port plus a GC reach into `_pending`, which is a
+redesign of two surfaces the PR does not otherwise touch.
+
+## BL-PROMOTE-VALIDATES-COUNTS-NOT-IDENTITIES — promotion compares list lengths, not the names the manifest requires
+
+**Status:** OPEN — filed from cross-model review of PR #761 · **Severity:** medium · **Class:** CORRECTNESS · **Effort:** S
+
+`promoteSnapshot` computes how many objects the manifest describes and compares that number to the
+temp listing's length and then to the canonical listing's length. It never checks that each
+`snapshotPath` basename and each variant `key` is actually PRESENT. A missing required object plus an
+unrelated object of equal count passes both checks, gets moved to canonical, and cuts over a manifest
+pointing at bytes that are not there. Duplicate entries produce the same class.
+
+Reviewer's probe: `countCheckPasses: true` with `missingExpected: ["embedded-a.png@256.webp"]`; the
+only integrity conditions in the function are the two length comparisons, and there is no set or
+membership check anywhere.
+
+**Pre-existing.** The count-only check is what the function has always done; PR #761 widened the
+COUNT to include variants but did not change its nature. Filed rather than fixed under exception (c):
+moving from a count to a required-name set is a change to the promotion integrity contract itself —
+it needs a decision about what to do with EXTRA objects (today they are tolerated when counts match)
+and a matching rollback story, which is a spec, not a patch.
+
 ## BL-ADMIN-DIAGRAM-NEXT-IMAGE — the two admin wizard diagram surfaces still render raw `<img>`
 
 **Status:** OPEN — filed at private-image-pipeline close-out · **Severity:** low · **Class:** PERF / consistency · **Effort:** M

@@ -349,3 +349,51 @@ describe("Gallery — next/image thumbnails", () => {
     );
   });
 });
+
+describe("Gallery — thumbnail sizes", () => {
+  function firstImg(sizes?: string): HTMLImageElement {
+    const { container } = render(
+      <Gallery
+        showId={SHOW_ID}
+        snapshotRevisionId={REV}
+        items={[
+          {
+            id: "embedded-obj-1",
+            key: "embedded-obj-1.png",
+            alt: "Diagram 1",
+            available: true,
+            variants: [
+              { width: 256, key: "embedded-obj-1.png@256.webp" },
+              { width: 1024, key: "embedded-obj-1.png@1024.webp" },
+            ],
+          },
+        ]}
+        {...(sizes ? { sizes } : {})}
+      />,
+    );
+    return container.querySelector("img")!;
+  }
+
+  test("a caller-supplied sizes reaches the element and CHANGES which tier is picked", () => {
+    // The over-declaration this fixes is invisible to status and URL-shape
+    // assertions: every candidate is still a listed variant either way. What
+    // separates the correct value from the wrong one is WHICH tier the browser
+    // is offered at a given viewport, so that is what this asserts.
+    const narrow = "(min-width: 1200px) 92px, 29vw";
+    const img = firstImg(narrow);
+
+    expect(img.getAttribute("sizes")).toBe(narrow);
+    const wide = firstImg();
+    expect(wide.getAttribute("sizes")).not.toBe(narrow);
+    premiseHolds(
+      "the default is a real value, not an empty attribute",
+      (wide.getAttribute("sizes") ?? "").length > 0,
+    );
+  });
+
+  test("the default sizes reflects the FULL-WIDTH branch, not the split", () => {
+    // A default tuned for the narrow split column would under-declare in the
+    // full-width branch and ship a blurry thumbnail — the opposite failure.
+    expect(firstImg().getAttribute("sizes")).toContain("280px");
+  });
+});

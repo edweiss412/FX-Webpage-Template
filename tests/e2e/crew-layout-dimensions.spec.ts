@@ -1414,6 +1414,8 @@ test.describe("crew diagrams gallery — next/image variant tiers (private image
     entries: SeededDiagramEntry[];
     /** Every manifest-listed variant key across every available entry. */
     variantKeys: Set<string>;
+    /** Per-entry variant keys, so a missing entry cannot hide behind its sibling's request. */
+    variantKeysByEntry: Map<string, Set<string>>;
   };
 
   /**
@@ -1463,6 +1465,9 @@ test.describe("crew diagrams gallery — next/image variant tiers (private image
       showId: seeded.showId,
       entries,
       variantKeys: new Set(entries.flatMap((entry) => entry.variantKeys)),
+      variantKeysByEntry: new Map(
+        entries.map((entry) => [entry.key, new Set(entry.variantKeys)] as const),
+      ),
     };
   }
 
@@ -1677,6 +1682,15 @@ test.describe("crew diagrams gallery — next/image variant tiers (private image
       await page.setViewportSize({ width, height: 900 });
       await gotoVenue(page, ctx);
       const decoded = await waitForDecodedGalleryImages(page);
+      // Reconciled against the SEED, not against zero. `onError` removes a failed
+      // thumbnail from the DOM, so "at least one decoded" stays true while an entry
+      // silently disappears — the sample would then measure only the survivor and
+      // report green. Every available seeded entry must be on screen.
+      expect(
+        decoded,
+        `@${width}px: ${ctx.entries.length} seeded available entries, ${decoded} decoded — ` +
+          `a missing one means its variant URL failed and onError removed it`,
+      ).toBe(ctx.entries.length);
       premise(`@${width}px the gallery rendered at least one Image element`, decoded, 0);
 
       const samples = await sampleThumbnails(page);
@@ -1773,6 +1787,18 @@ test.describe("crew diagrams gallery — next/image variant tiers (private image
     premise("the browser issued diagram asset requests", assetRequests.length, 0);
     const requestedKeys = [...new Set(assetRequests.map(assetKeyOf))];
     const originalKeys = new Set(ctx.entries.map((entry) => entry.key));
+    // Membership alone is not enough: with one entry silently missing, the other
+    // entry's request still belongs to the listed set and the case passes. Pin
+    // that EVERY seeded entry fetched one of ITS OWN variants.
+    for (const entry of ctx.entries) {
+      const own = ctx.variantKeysByEntry.get(entry.key) ?? new Set<string>();
+      premise(`seeded entry ${entry.key} carries variants to request`, own.size, 0);
+      expect(
+        requestedKeys.some((key) => own.has(key)),
+        `no thumbnail request for any variant of "${entry.key}" — ` +
+          `requested: ${JSON.stringify(requestedKeys)}; its variants: ${JSON.stringify([...own])}`,
+      ).toBe(true);
+    }
     for (const key of requestedKeys) {
       expect(
         ctx.variantKeys.has(key),

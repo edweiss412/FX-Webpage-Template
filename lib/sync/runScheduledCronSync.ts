@@ -2767,6 +2767,27 @@ export async function processOneFile(
     const skipped = { outcome: "skipped" as const, reason: CONCURRENT_SYNC_SKIPPED };
     await logSync(deps, driveFileId, skipped);
   }
+  // Census hop 2 sink (spec §3): DIAGRAM_VARIANT_GENERATION_FAILED — POST-COMMIT,
+  // outside the show-lock tx (invariant 10), and FIRST in this tail. Placed ahead of
+  // the other post-commit steps and isolated, because this region is a sequence of
+  // un-isolated awaits: a throw in promote or in either emit below would otherwise
+  // skip the variant rows entirely, and a dropped signal is the one outcome the
+  // whole hop census exists to prevent.
+  if (!("skipped" in result) && result.outcome === "applied" && result.variantFailures?.length) {
+    try {
+      await emitDiagramVariantFailures(result.variantFailures, { showId: result.showId });
+    } catch (error) {
+      const escalation = log.error("diagram variant failure emit failed", {
+        source: "sync.diagramVariants",
+        code: "DIAGRAM_VARIANT_GENERATION_EMIT_FAILED",
+        showId: result.showId,
+        error,
+      });
+      await escalation.catch(() => {
+        /* best-effort: the escalation must never change the sync outcome */
+      });
+    }
+  }
   if (!("skipped" in result) && result.outcome === "applied" && result.snapshotRevisionId) {
     await (deps.promoteSnapshotUpload ?? defaultPromoteSnapshotUpload)(result.snapshotRevisionId);
   }
@@ -2781,13 +2802,6 @@ export async function processOneFile(
       showId: result.showId,
       driveFileId,
     });
-  }
-  // Census hop 2 sink (spec §3): DIAGRAM_VARIANT_GENERATION_FAILED — POST-COMMIT, outside the
-  // show-lock tx (invariant 10), on the same site as the unlanded-rename emit above so cron AND
-  // manual are both covered. A rolled-back or non-applied outcome never reaches here, which is
-  // exactly why the rows may not be logged where they are produced.
-  if (!("skipped" in result) && result.outcome === "applied" && result.variantFailures?.length) {
-    await emitDiagramVariantFailures(result.variantFailures, { showId: result.showId });
   }
   // §10 point 5: ROLE_TOKEN_MAPPED emission — POST-COMMIT, outside the show-lock tx (invariant 10).
   // Reads the committed apply outcome; a skipped / rolled-back / non-applied result carries no

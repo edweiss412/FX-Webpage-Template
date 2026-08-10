@@ -30,15 +30,18 @@ vi.mock("@/components/diagrams/Gallery", () => ({
     items,
     snapshotRevisionId,
     showId,
+    sizes,
   }: {
     items: { id: string; key: string; alt: string; available: boolean }[];
     snapshotRevisionId: string;
     showId: string;
+    sizes?: string;
   }) => (
     <div
       data-testid="gallery-stub"
       data-show={showId}
       data-rev={snapshotRevisionId}
+      data-sizes={sizes ?? ""}
       data-items={JSON.stringify(items)}
     />
   ),
@@ -373,5 +376,59 @@ describe("DiagramsTile — §4 manifest fields reach GalleryItem", () => {
       // but it must be EMPTY rather than a fabricated ladder.
       expect(item.variants).toEqual([]);
     }
+  });
+});
+
+describe("DiagramsTile — thumbnailSizes passthrough", () => {
+  // The `sizes` repair spans VenueSection -> DiagramsTile -> Gallery, and the
+  // over-declaration it fixed (thumbnails fetching 1024 where 256 suffices) is
+  // invisible to every status-and-URL assertion. This is the middle link.
+  test("a caller-supplied thumbnailSizes reaches the Gallery", () => {
+    render(
+      <DiagramsTile
+        showId={SHOW_ID}
+        diagrams={diagrams({
+          embeddedImages: [
+            {
+              sheetTab: "DIAGRAMS",
+              objectId: "obj-1",
+              mimeType: "image/png",
+              sheetsRevisionId: "rev-1",
+              embeddedFingerprint: "fp",
+              recovery_disposition: "normal",
+              snapshotPath: `diagram-snapshots/shows/${SHOW_ID}/${REV}/embedded-obj-1.png`,
+            },
+          ],
+        })}
+        thumbnailSizes="(min-width: 1200px) 92px, 29vw"
+      />,
+    );
+
+    expect(screen.getByTestId("gallery-stub").getAttribute("data-sizes")).toBe(
+      "(min-width: 1200px) 92px, 29vw",
+    );
+  });
+
+  test("no thumbnailSizes leaves the Gallery on its own default", () => {
+    render(
+      <DiagramsTile
+        showId={SHOW_ID}
+        diagrams={diagrams({
+          embeddedImages: [
+            {
+              sheetTab: "DIAGRAMS",
+              objectId: "obj-1",
+              mimeType: "image/png",
+              sheetsRevisionId: "rev-1",
+              embeddedFingerprint: "fp",
+              recovery_disposition: "normal",
+              snapshotPath: `diagram-snapshots/shows/${SHOW_ID}/${REV}/embedded-obj-1.png`,
+            },
+          ],
+        })}
+      />,
+    );
+
+    expect(screen.getByTestId("gallery-stub").getAttribute("data-sizes")).toBe("");
   });
 });

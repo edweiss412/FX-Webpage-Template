@@ -1042,3 +1042,70 @@ describe("/api/asset/diagram — manifest-listed variants", () => {
     expect(routeMock.storageDownloads).toEqual([]);
   });
 });
+
+describe("/api/asset/diagram — malformed manifest ABOVE the variants field", () => {
+  // resolveCurrentDiagrams duck-types on the revision id alone, so a persisted
+  // manifest can be missing a collection, hold a null entry, or carry a
+  // non-string mimeType and still resolve. Each of these used to reach a
+  // TypeError and a 500 — the one outcome the never-throw contract forbids.
+  // The collection that HOLDS the requested asset: losing it shrinks the
+  // accept-set to nothing for this key, so 410 is correct.
+  const SHAPES: Array<[string, Record<string, unknown>]> = [
+    ["a missing embeddedImages", { embeddedImages: undefined }],
+    ["a null embeddedImages", { embeddedImages: null }],
+    ["a non-array embeddedImages", { embeddedImages: "nope" }],
+    ["a null entry", { embeddedImages: [null] }],
+    ["a non-object entry", { embeddedImages: ["nope"] }],
+  ];
+
+  // The OTHER collection: the accept-set shrinks, it does not collapse, so the
+  // valid original still serves. Same no-throw property, opposite status —
+  // asserting 410 here would have pinned an over-broad failure as correct.
+  const SIBLING_SHAPES: Array<[string, Record<string, unknown>]> = [
+    ["a missing linkedFolderItems", { linkedFolderItems: undefined }],
+    ["a null linkedFolderItems", { linkedFolderItems: null }],
+    ["a non-array linkedFolderItems", { linkedFolderItems: 42 }],
+  ];
+
+  test.each(SIBLING_SHAPES)("%s still serves the valid original", async (_label, override) => {
+    const base = currentDiagrams();
+    routeMock.diagrams = {
+      current: { ...base, ...override } as unknown as PersistedDiagrams,
+      pending: null,
+    };
+
+    const response = await getDiagram(currentRev, assetKey);
+
+    expect(response.status).toBe(200);
+    expect(assetLogRecords.filter((record) => record.level === "error")).toEqual([]);
+  });
+
+  test.each(SHAPES)("%s yields 410, never a 500", async (_label, override) => {
+    const base = currentDiagrams();
+    routeMock.diagrams = {
+      current: { ...base, ...override } as unknown as PersistedDiagrams,
+      pending: null,
+    };
+
+    const response = await getDiagram(currentRev, assetKey);
+
+    expect(response.status).toBe(410);
+    expect(assetLogRecords.filter((record) => record.level === "error")).toEqual([]);
+  });
+
+  test("a matching entry with a non-string mimeType is 410, not a 500", async () => {
+    const base = currentDiagrams();
+    routeMock.diagrams = {
+      current: {
+        ...base,
+        embeddedImages: [{ ...base.embeddedImages[0]!, mimeType: { evil: true } }],
+      } as unknown as PersistedDiagrams,
+      pending: null,
+    };
+
+    const response = await getDiagram(currentRev, assetKey);
+
+    expect(response.status).toBe(410);
+    expect(assetLogRecords.filter((record) => record.level === "error")).toEqual([]);
+  });
+});

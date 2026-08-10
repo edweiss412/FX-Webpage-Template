@@ -317,24 +317,19 @@ describe("GalleryLightbox — transition audit (spec §6 inventory)", () => {
     expect(inactiveImages(container).length).toBe(before - 1);
   });
 
-  test("failed → any is TERMINAL: a failed item stays unavailable in both tiers", () => {
-    // failedKeys is keyed by item id, never cleared, and read by both branches —
-    // so a tier swap cannot retry a failed item. Asserted structurally: the
-    // failure survives a re-render with the SAME item identity.
-    const { container, rerender } = open([item(1), item(2)]);
+  test("failed → any is TERMINAL: a failed item renders no image in the tier it is in", () => {
+    // failedKeys is keyed by item id, never cleared, and read by BOTH branches —
+    // which is why a tier swap cannot retry. jsdom can prove the per-item, never-
+    // cleared part (below); it cannot drive the swap, for the Embla reason in the
+    // row above, and this row does not pretend otherwise.
+    const { container } = open([item(1), item(2)]);
+    const before = container.querySelectorAll("img").length;
+    premise("there were two tiers rendered before the failure", before, 1);
+
     fireEvent.error(inactiveImages(container)[0]!);
 
-    rerender(
-      <GalleryLightbox
-        showId={SHOW_ID}
-        snapshotRevisionId={REV}
-        items={[item(1), item(2)]}
-        startIndex={1}
-        onClose={() => {}}
-      />,
-    );
-
-    expect(container.querySelectorAll("img")).toHaveLength(1);
+    expect(container.querySelectorAll("img")).toHaveLength(before - 1);
+    expect(screen.getByText(/unavailable/i)).toBeTruthy();
   });
 
   test("unavailable → any never transitions: an unavailable item renders no image at all", () => {
@@ -357,14 +352,26 @@ describe("GalleryLightbox — transition audit (spec §6 inventory)", () => {
     );
   });
 
-  test("tier swap is a src swap with no animation wrapper around either image", () => {
-    // The compound rows all reduce to: swapping tiers changes the URL and
-    // nothing else. No AnimatePresence, no exit animation, no keyed remount
-    // around the image — so there is no transition to get wrong.
+  test("the two tiers differ by URL and nothing else — the swap itself is an e2e claim", () => {
+    // What jsdom CAN prove: at any moment the active slide serves the pinned
+    // original, the inactive slide serves a clamped variant, and no animation
+    // wrapper or keyed remount sits around either image — so a swap between them
+    // is a src change with nothing to animate.
+    //
+    // What jsdom CANNOT prove, and what this row deliberately does NOT claim:
+    // that a swap HAPPENS. The component moves activeIndex only on Embla's
+    // `select`, which needs real layout — neither a rerender with a new
+    // startIndex nor a click on the nav button emits it here, so a row written
+    // that way asserts against a slide that never changed. The actual swap is
+    // driven in tests/e2e/crew-layout-dimensions.spec.ts, which navigates with
+    // the Next/Previous control and re-samples the CURRENT slide after settle.
     const { container } = open([item(1), item(2)]);
-    const active = activeImage(container);
+    const active = pathOf(activeImage(container).getAttribute("src"));
+    const inactive = pathOf(inactiveImages(container)[0]!.getAttribute("src"));
 
-    expect(pathOf(active.getAttribute("src"))).toBe(ORIGINAL(1));
+    expect(active).toBe(ORIGINAL(1));
+    expect(inactive).not.toBe(ORIGINAL(2));
+    premiseHolds("the inactive tier really is a variant URL", inactive.includes("@"));
     expect(container.innerHTML).not.toContain("data-framer");
   });
 });
