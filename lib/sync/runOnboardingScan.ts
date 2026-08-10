@@ -1151,20 +1151,28 @@ async function verifyOnboardingScanReady(
  * which can surface from INSIDE the Drive export — `lib/drive/fetch.ts:511,642` —
  * and so cannot be identified by call site alone).
  *
- * `kind: "drive_fetch"` is everything else, deliberately including the post-parse
- * internal helpers (`finalizeArchivedTabs`, `reconcileIncludedTab`,
- * `discardAndRerun`'s fix-up, `applyRoleTokenMappings`), the enrichment pass, the
- * folder listing, and a throwing `onProgress` / `readRoleTokenMappings` adapter.
- * Those are NOT sheet-structure faults: a bug in the role-mapping overlay is fixed
- * by a code change, not by Doug editing his sheet, so re-labelling it "we couldn't
- * read your sheet, fix its structure" would replace one wrong reason with another.
- * They keep today's code (whole-diff R2 finding 7). Only positively identified
- * sheet-content faults are re-classified.
+ * `kind: "internal"` is a fault inside a post-parse internal helper
+ * (`finalizeArchivedTabs`, `reconcileIncludedTab`, `discardAndRerun`'s fix-up,
+ * `applyRoleTokenMappings`) — BL-PREPARE-INTERNAL-FAULT-KIND (spec
+ * 2026-08-09-m-wave-2-design §2.3). Those are NOT sheet-structure faults and not
+ * Drive faults either: a bug in the role-mapping overlay is fixed by a code
+ * change, not by Doug editing his sheet or his share settings, so both prior
+ * labels sent the operator to the wrong place. Consumers map it to
+ * `ONBOARDING_INTERNAL_ERROR` (contact-the-developer copy; finalize per-row
+ * severity stays `error`).
+ *
+ * `kind: "drive_fetch"` is everything else: the enrichment pass, the folder
+ * listing, and a throwing `onProgress` / `readRoleTokenMappings` adapter.
+ * Only positively identified faults are re-classified.
  */
 export class PrepareOnboardingFileError extends Error {
-  readonly kind: "drive_fetch" | "parse";
+  readonly kind: "drive_fetch" | "parse" | "internal";
 
-  constructor(kind: "drive_fetch" | "parse", message: string, options?: { cause?: unknown }) {
+  constructor(
+    kind: "drive_fetch" | "parse" | "internal",
+    message: string,
+    options?: { cause?: unknown },
+  ) {
     super(message, options as ErrorOptions | undefined);
     this.name = "PrepareOnboardingFileError";
     this.kind = kind;
@@ -1174,7 +1182,7 @@ export class PrepareOnboardingFileError extends Error {
 /** Classify by error IDENTITY first, then by the site's own default. Idempotent. */
 function asPrepareError(
   cause: unknown,
-  siteKind: "drive_fetch" | "parse",
+  siteKind: "drive_fetch" | "parse" | "internal",
 ): PrepareOnboardingFileError {
   if (cause instanceof PrepareOnboardingFileError) return cause;
   const detail = cause instanceof Error ? cause.message : String(cause);
@@ -1269,7 +1277,16 @@ async function prepareOnboardingFilesUnclassified(
     let parseResult = await enrich(parsed, driveClient, enrichCtx);
     // §5.2/§5.9: attach the archived-tab offers + emit PULL_SHEET_ON_ARCHIVED_TAB warnings
     // for every NOT-included tab, so the staged parse_result carries them first-class.
-    finalizeArchivedTabs(parseResult, archivedPullSheetTabs);
+    // INTERNAL-fault boundary (BL-PREPARE-INTERNAL-FAULT-KIND): this and the other
+    // post-parse helpers below run on already-parsed data — a throw here is a code
+    // bug, not a Drive or sheet-structure fault. Identity still beats site inside
+    // asPrepareError, so a DriveFetchError/WorkbookSynthesisError surfacing through
+    // a helper keeps its true kind.
+    try {
+      finalizeArchivedTabs(parseResult, archivedPullSheetTabs);
+    } catch (cause) {
+      throw asPrepareError(cause, "internal");
+    }
     // §5.8 applied snapshot: what override THIS staged parse was produced under.
     let pullSheetOverrideApplied: OverrideSnapshot = overrideSnapshot(override);
     let pullSheetOverrideCleared = false;
@@ -1277,35 +1294,52 @@ async function prepareOnboardingFilesUnclassified(
     // → discard-and-rerun via the SINGLE shared helper. Re-parse WITHOUT inclusion from
     // the already-fetched bytes (drops OLD gear, preserves any current non-OLD pull
     // sheet), clear the override, stage applied=null. No path may diverge from this.
-    const reconciled = reconcileIncludedTab({ tabs: archivedPullSheetTabs, override });
+    let reconciled: ReturnType<typeof reconcileIncludedTab>;
+    try {
+      reconciled = reconcileIncludedTab({ tabs: archivedPullSheetTabs, override });
+    } catch (cause) {
+      throw asPrepareError(cause, "internal");
+    }
     if (
       override &&
       bytes &&
       (reconciled.kind === "content_changed" || reconciled.kind === "tab_missing")
     ) {
-      const discard = await discardAndRerun({
-        reconcile: reconciled,
-        overrideTabName: override.tabName,
-        reparseNoOverride: async () => {
-          // synthesize + parse are both sheet-content work: a fault here is a parse
-          // fault even though it runs inside the discard-and-rerun helper.
-          let reparsedSheet: ParsedSheet;
-          let noOverride: ReturnType<typeof synthesizeMarkdownFromXlsx>;
-          try {
-            noOverride = synthesizeMarkdownFromXlsx(bytes);
-            reparsedSheet = parseSheet(noOverride.markdown, file.name);
-          } catch (cause) {
-            throw asPrepareError(cause, "parse");
-          }
-          const reparsed = await enrich(reparsedSheet, driveClient, enrichCtx);
-          return finalizeArchivedTabs(reparsed, noOverride.archivedPullSheetTabs);
-        },
-        // The durable clear runs at staging (under the show: lock) via the cleared flag;
-        // pre-lock we only record the intent so the upsert writes pull_sheet_override=null.
-        clearOverride: async () => {
-          pullSheetOverrideCleared = true;
-        },
-      });
+      let discard: Awaited<ReturnType<typeof discardAndRerun>>;
+      try {
+        discard = await discardAndRerun({
+          reconcile: reconciled,
+          overrideTabName: override.tabName,
+          reparseNoOverride: async () => {
+            // synthesize + parse are both sheet-content work: a fault here is a parse
+            // fault even though it runs inside the discard-and-rerun helper.
+            let reparsedSheet: ParsedSheet;
+            let noOverride: ReturnType<typeof synthesizeMarkdownFromXlsx>;
+            try {
+              noOverride = synthesizeMarkdownFromXlsx(bytes);
+              reparsedSheet = parseSheet(noOverride.markdown, file.name);
+            } catch (cause) {
+              throw asPrepareError(cause, "parse");
+            }
+            // The enrichment pass is a Drive-pin read wherever it runs — classify it
+            // here so the surrounding internal wrap cannot re-label a Drive fault.
+            let reparsed: ParseResult;
+            try {
+              reparsed = await enrich(reparsedSheet, driveClient, enrichCtx);
+            } catch (cause) {
+              throw asPrepareError(cause, "drive_fetch");
+            }
+            return finalizeArchivedTabs(reparsed, noOverride.archivedPullSheetTabs);
+          },
+          // The durable clear runs at staging (under the show: lock) via the cleared flag;
+          // pre-lock we only record the intent so the upsert writes pull_sheet_override=null.
+          clearOverride: async () => {
+            pullSheetOverrideCleared = true;
+          },
+        });
+      } catch (cause) {
+        throw asPrepareError(cause, "internal");
+      }
       parseResult = discard.parseResult;
       pullSheetOverrideApplied = discard.appliedSnapshot;
       pullSheetOverrideCleared = true;
@@ -1317,7 +1351,12 @@ async function prepareOnboardingFilesUnclassified(
     // ([] when nothing consumed): no code path may produce overlay output
     // without the evidence the publish freshness gate verifies; an ABSENT key
     // downstream therefore means a legacy pre-feature staged row.
-    const overlaid = applyRoleTokenMappings(parseResult, roleTokenMappings);
+    let overlaid: ReturnType<typeof applyRoleTokenMappings>;
+    try {
+      overlaid = applyRoleTokenMappings(parseResult, roleTokenMappings);
+    } catch (cause) {
+      throw asPrepareError(cause, "internal");
+    }
     parseResult = overlaid.result;
     const stampByToken = new Map<string, { token: string; grants: string[] }>();
     for (const a of overlaid.applied) {

@@ -36,6 +36,10 @@ function baseSnapshot(overrides: Partial<ShowReviewSnapshot> = {}): ShowReviewSn
     diagrams: { snapshot_revision_id: "r1", embeddedImages: [] },
     pull_sheet: [{ caseLabel: "Case 1", items: [] }],
     source_anchors: { venue: "A1" },
+    // Matched stamps (spec 2026-08-09-m-wave-2 §2.3): the freshness gate forwards
+    // the map only when the anchors' revision equals the data's revision.
+    source_anchors_modified_time: "2026-05-08T12:00:00.000Z",
+    last_seen_modified_time: "2026-05-08T12:00:00.000Z",
     drive_file_id: "DRIVE_XYZ",
     archived: false,
     published: true,
@@ -87,6 +91,32 @@ describe("buildPublishedSectionData — header + mode fields", () => {
     expect(d.sourceAnchors).toEqual({ venue: "A1" });
     expect(d.driveFileId).toBe("DRIVE_XYZ");
     expect(d.archivedPullSheetTabs).toEqual([]);
+  });
+
+  it("demotes sourceAnchors to {} when the anchor stamp mismatches the data revision", () => {
+    // BL-SOURCE-ANCHORS-STALE (spec 2026-08-09-m-wave-2 §2.3): the published-review
+    // path previously forwarded source_anchors uncompared — a deep link built from
+    // anchors computed against an older workbook layout.
+    const d = buildPublishedSectionData(
+      baseSnapshot({
+        show: {
+          source_anchors_modified_time: "2026-05-01T00:00:00.000Z",
+          last_seen_modified_time: "2026-05-08T12:00:00.000Z",
+        },
+      } as never),
+      { slug: SLUG },
+    );
+    expect(d.sourceAnchors).toEqual({});
+  });
+
+  it("demotes sourceAnchors to {} when the anchor stamp is NULL (provenance unknown)", () => {
+    const d = buildPublishedSectionData(
+      baseSnapshot({
+        show: { source_anchors_modified_time: null },
+      } as never),
+      { slug: SLUG },
+    );
+    expect(d.sourceAnchors).toEqual({});
   });
 
   it("coerces empty client_label to null and null drive_file_id to null", () => {

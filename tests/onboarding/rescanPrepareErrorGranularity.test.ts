@@ -79,6 +79,19 @@ describe("re-scan maps the prepare fault to the right §12.4 code (spec §4.4)",
     expect(calls.filter((q) => MUTATION_RE.test(q))).toEqual([]);
   });
 
+  test("an INTERNAL fault reports ONBOARDING_INTERNAL_ERROR, not Drive and not fix-your-sheet", async () => {
+    // BL-PREPARE-INTERNAL-FAULT-KIND (spec 2026-08-09-m-wave-2-design §2.3): a bug
+    // in a post-parse helper is recovered by a code fix — the operator is told to
+    // contact the developer, not to check share settings or edit the sheet.
+    const { deps, calls } = makeDeps(
+      new PrepareOnboardingFileError("internal", "overlay clone failed"),
+    );
+    const result = await rescanWizardSheet(DRIVE, WIZARD, deps as never);
+
+    expect(result).toEqual({ status: "needs_attention", code: "ONBOARDING_INTERNAL_ERROR" });
+    expect(calls.filter((q) => MUTATION_RE.test(q))).toEqual([]);
+  });
+
   test("an UNCLASSIFIED throw keeps today's DRIVE_FETCH_FAILED (conservative default)", async () => {
     const { deps } = makeDeps(new Error("something else entirely"));
     await expect(rescanWizardSheet(DRIVE, WIZARD, deps as never)).resolves.toEqual({
@@ -115,5 +128,12 @@ describe("finalize per-row telemetry severity (spec §4.5)", () => {
     // change removes. Pinned so neither can flip silently.
     expect(severityForFinalizeRowCode("DRIVE_FETCH_FAILED")).toBe("error");
     expect(severityForFinalizeRowCode("STAGED_PARSE_FAILED")).toBe("warn");
+  });
+
+  test("an internal fault keeps severity error (spec 2026-08-09-m-wave-2 §2.3)", () => {
+    // These faults reported as DRIVE_FETCH_FAILED (error) before the internal kind
+    // existed; a code bug is not operator-recoverable by re-apply, so the split must
+    // not silently downgrade it to warn.
+    expect(severityForFinalizeRowCode("ONBOARDING_INTERNAL_ERROR")).toBe("error");
   });
 });

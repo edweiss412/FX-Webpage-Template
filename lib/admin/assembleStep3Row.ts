@@ -262,6 +262,9 @@ export function assembleStep3Row(
       const withParse: Step3Row = {
         ...base,
         parseResult: staged.parseResult,
+        // Anchor freshness (spec 2026-08-09-m-wave-2 §2.3): fresh-by-construction —
+        // staging anchors were computed by the scan that produced this staged parse
+        // (same revision), so the shows-row freshness helper does not apply here.
         sourceAnchors: staged.sourceAnchors,
         adminAgendaPreview: staged.adminAgendaPreview,
         agendaStateKey: staged.agendaStateKey,
