@@ -32,7 +32,7 @@ import { resolve } from "node:path";
 
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, fireEvent, render } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 
 // --- next/navigation: usePathname is mutable so the compound route-change
 // case can re-render with a new pathname while the menu is open.
@@ -50,6 +50,8 @@ vi.mock("@/app/admin/settings/admins/actions", () => ({
 import { UserMenu } from "@/components/admin/nav/UserMenu";
 import { NotifBell } from "@/components/admin/nav/NotifBell";
 import { AdminNav } from "@/components/admin/nav/AdminNav";
+import type { BellCountResult } from "@/lib/admin/bellFeed";
+import type { NeedsAttentionCountResult } from "@/lib/admin/needsAttentionCount";
 
 const REPO_ROOT = resolve(__dirname, "../../../..");
 const readSource = (rel: string) => readFileSync(resolve(REPO_ROOT, rel), "utf8");
@@ -212,6 +214,103 @@ describe("NotifBell — badge appear/disappear is instant", () => {
 
     rerender(<NotifBell initialCount={{ kind: "ok", count: 0 }} viewerIsDeveloper={false} />);
     expect(queryByTestId("admin-notif-badge")).toBeNull();
+  });
+});
+
+/**
+ * admin-nav-badge-streaming §3.7 — the badge counts now ARRIVE, so the nav has
+ * a pending state it never had before. Inventory rows, verbatim from the spec:
+ *
+ *   | pending to hidden | instant, and visually identical for the attention
+ *     chip: both render nothing |
+ *   | pending to visible | instant appearance on seed resolution; no animation
+ *     (chip is additive, no shift) |
+ *   | pending to degraded (bell, infra_error) | instant; the existing `!`
+ *     trigger recipe, unchanged |
+ *   | visible to hidden (refetch lands 0 / fail-quiet null) | instant, existing
+ *     hook behavior, unchanged |
+ *   | hidden to visible (refetch lands > 0) | instant, existing hook behavior,
+ *     unchanged |
+ *   | compound: pathname refetch fires while the seed promise is still pending |
+ *     the refetch commits and bumps the token; the late seed does not paint — it
+ *     demotes to a fresh fetch (spec §3.2.1), or applies its posture if it
+ *     carries a failure (spec §5.5) |
+ *   | compound: layout re-render mid-stream (router.refresh) | the older
+ *     subscription is INVALIDATED at that instant (promise-identity guard) |
+ *   | compound: P1 pending, P2 arrives, P1 resolves first | P1's value is
+ *     ignored; pending shape persists |
+ *   | compound: P2 arrives and HANGS after P1 invalidated | pending shape
+ *     persists; next pathname refetch repopulates |
+ *   | compound: refresh promise pending, bell opened + zeroed, restoring fetch
+ *     commits 0, THEN refresh promise resolves with the pre-open count | the
+ *     resolved value is DEMOTED to a fresh fetch; never painted |
+ *
+ * The compound rows are BEHAVIORAL and are asserted in
+ * tests/components/admin/nav/badgeSeedInterleavings.test.tsx (one named test
+ * per row). What belongs HERE is the audit half: every pending branch is
+ * instant, and the arrival of a streamed value animates nothing.
+ */
+describe("§3.7 pending-state audit — streamed badge arrival is instant", () => {
+  const never = <T,>(): Promise<T> => new Promise<T>(() => {});
+
+  it("pending to hidden is visually identical: no chip while pending, no chip at a resolved 0", async () => {
+    const { rerender } = render(
+      <AdminNav email="d@e.com" attentionCountPromise={never<NeedsAttentionCountResult>()} />,
+    );
+    expect(document.querySelector('[data-testid="admin-attention-badge"]')).toBeNull();
+
+    rerender(
+      <AdminNav
+        email="d@e.com"
+        attentionCountPromise={Promise.resolve<NeedsAttentionCountResult>({
+          kind: "ok",
+          count: 0,
+        })}
+      />,
+    );
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(document.querySelector('[data-testid="admin-attention-badge"]')).toBeNull();
+  });
+
+  it("pending to visible is instant — the chip carries no animation class when it arrives", async () => {
+    render(
+      <AdminNav
+        email="d@e.com"
+        attentionCountPromise={Promise.resolve<NeedsAttentionCountResult>({
+          kind: "ok",
+          count: 4,
+        })}
+      />,
+    );
+    const badge = await screen.findByTestId("admin-attention-badge");
+    expect(badge.className).not.toContain("route-enter");
+    expect(badge.className).not.toMatch(/animate-/);
+    expect(badge.className).not.toMatch(/transition-(?!colors)/);
+  });
+
+  it("pending to degraded is instant — the bell's existing `!` recipe, no animation class", async () => {
+    render(
+      <NotifBell
+        countPromise={Promise.resolve<BellCountResult>({ kind: "infra_error" })}
+        viewerIsDeveloper={false}
+      />,
+    );
+    const degraded = await screen.findByTestId("admin-notif-bell-degraded");
+    expect(degraded.className).not.toContain("route-enter");
+    expect(degraded.className).not.toMatch(/animate-/);
+  });
+
+  it("the pending branches introduce no AnimatePresence anywhere in the seam", () => {
+    for (const src of [NOTIF_BELL_SRC, ADMIN_NAV_SRC]) {
+      expect(src).not.toMatch(/AnimatePresence/);
+    }
+    // The hooks own the pending state; neither may reach for a motion library.
+    expect(readSource("components/admin/nav/useBellBadge.ts")).not.toMatch(/framer-motion/);
+    expect(readSource("components/admin/nav/useNeedsAttentionBadge.ts")).not.toMatch(
+      /framer-motion/,
+    );
   });
 });
 

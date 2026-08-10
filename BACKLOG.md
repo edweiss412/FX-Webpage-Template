@@ -972,16 +972,6 @@ screen-disposition 2026-08-04: PREREQ-FENCED + ANNOTATED, stays open, NOT claime
 
 **Promotion prerequisite:** EITHER (a) `DEF-FLIGHT-1` lands a structured flight shape this card can label, OR (b) operator feedback that the unlabeled legs are a real readability friction. Until then the unlabeled raw-leg render is truthful and passes the impeccable gate.
 
-### BL-ADMIN-NAV-BADGE-SUSPENSE-STREAMING — stream the admin nav badge counts via `<Suspense>` instead of blocking layout
-
-**Effort:** M
-
-**Filed:** 2026-06-23 (nav-perf Phase 2 — the descoped half of E). Phase 2's E-lite parallelized the admin layout's two badge reads (`Promise.all`), so first `/admin` entry blocks on one wall-time instead of three sequential round-trips. The further win is to stream the badges entirely OUT of the blocking layout path via `<Suspense>` so the nav chrome paints immediately and the counts arrive after.
-
-**Why backlog, not now:** `components/admin/nav/AdminNav.tsx` is a `"use client"` component with a stateful refetch hook (`useNeedsAttentionBadge`), and the repo has **zero `<Suspense>` precedent** — streaming needs a server-child + slot bridge (refactor AdminNav's prop/slot contract) for a first-`/admin`-entry-only gain (the layout is reused across sibling navs, so its awaits don't re-run per nav). Invasive relative to the payoff.
-
-**Promotion prerequisite:** an established `<Suspense>` streaming pattern in the codebase + an AdminNav slot refactor that lets the badge counts arrive as a streamed server child without breaking the client-side pathname-refetch hook.
-
 ### BL-FONT-CENSUS-ORACLE-FLAKE-BLOCKS-CREW-E2E — the font oracle intermittently cannot read the document, failing crew-e2e on any branch
 
 **Status:** OPEN · **Severity:** MEDIUM (a green crew-e2e is not reproducible on demand, so any gate that needs consecutive green runs is blocked by chance) · **Class:** CI flake, pre-existing · **Filed:** 2026-08-09 (measured while earning the `BL-RESURRECT-MOBILE-SAFARI-E2E` five-green bar) · **Effort:** M

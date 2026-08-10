@@ -23,13 +23,25 @@ import { BellPanel } from "@/components/admin/BellPanel";
 import { useBellBadge } from "./useBellBadge";
 
 export function NotifBell({
-  initialCount,
+  initialCount = null,
+  countPromise = null,
   viewerIsDeveloper,
 }: {
-  initialCount: BellCountResult;
+  /**
+   * Synchronous first-paint count, or `null` for the PENDING shape — the bell
+   * button renders in its normal branch with no chip and NOT degraded, because
+   * "count unknown" is neither zero nor a failed read (admin-nav-badge-streaming
+   * §3.2). Callers holding a resolved result still pass it.
+   */
+  initialCount?: BellCountResult | null;
+  /** §3.2: the layout's un-awaited read; the hook commits it on arrival. */
+  countPromise?: Promise<BellCountResult> | null;
   viewerIsDeveloper: boolean;
 }) {
-  const { count, degraded, refetch, zeroNow, pingSignal } = useBellBadge(initialCount);
+  const { count, degraded, refetch, zeroNow, pingSignal } = useBellBadge(
+    initialCount,
+    countPromise,
+  );
   const [open, setOpen] = useState(false);
 
   // Open gesture: zero the badge immediately client-side (spec §7.2 — a quick
