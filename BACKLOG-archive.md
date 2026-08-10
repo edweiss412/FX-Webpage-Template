@@ -6794,6 +6794,73 @@ the migration marker; zero `re-kinded by classifier` markers remain (grep-provab
 marker. The 35 rows that stayed `signal_loss` are untouched (out of scope by this entry's
 own text).
 
+## BL-SOURCE-ANCHORS-STALE-AFTER-FAILED-GID-FETCH — a preserved anchor map has no revision stamp, so a stale range reads as a valid deep link — RESOLVED 2026-08-10 (`feat/m2-sync-fault-codes`)
+
+**Filed:** 2026-08-03 (surfaced by the cross-model review of the `fix/onboarding-cas-source-anchors` spec). **Class:** data fidelity. **Effort:** M (needs a schema decision first).
+
+Every writer of `shows.source_anchors` preserves the stored map rather than clearing it when a scan could not compute anchors: the cron path emits `undefined` on a genuine sheets-list failure so the coalesce keeps the old value (`lib/sync/runScheduledCronSync.ts:3073`, `lib/sync/runScheduledCronSync.ts:1527`), the wizard scan degrades to `{}` on a gid-fetch failure (`lib/sync/runOnboardingScan.ts:1350`), and both finalize flows omit the arg rather than passing a defined `{}`. That is the right trade — the alternative wipes every good anchor on a transient Drive hiccup — but it has a blind spot: the same apply advances `shows.last_seen_modified_time`, so the show now carries data from revision R2 alongside anchors computed for R1.
+
+`lib/sheet-links/buildSheetDeepLink.ts:22` cannot detect this. It guards structure only (allowlisted title, numeric gid), so an R1 anchor is accepted and the "In sheet" link opens the old range instead of falling back to `#gid=0`. The mis-link persists until a later anchor-writer run over that sheet either produces a non-empty map or clears the stale one — and nothing schedules such a run. Below the watermark an automatic pass skips the file entirely (`lib/sync/perFileProcessor.ts:337`). The wizard re-onboard path is the one that can hold a stale map indefinitely: it preserves on ANY empty scan because `pending_syncs.source_anchors` cannot distinguish a transient Drive failure from a workbook with no recognized regions, whereas a sync pass distinguishes exactly one cause and clears on the rest (`lib/sync/runScheduledCronSync.ts:3073`).
+
+**Work:** store the revision the anchors were computed from (a `source_anchors_modified_time` column, or a stamp inside the jsonb) and have the deep-link builder fall back to `#gid=0` when it does not match `last_seen_modified_time`. The schema decision is the gate — a sibling column is simplest but adds a write to every anchor-writing path; an in-jsonb stamp keeps it to one column and one coalesce but changes the map's shape for every reader.
+
+**Why backlog, not deferred:** the failure needs an empty-anchor scan AND a row-moving sheet edit in the same window, and the visible symptom is a deep link that opens the wrong range — not data loss. No trigger scheduled. Documented as an accepted limit at `docs/superpowers/specs/step3-onboarding/2026-08-03-finalize-cas-source-anchors.md` §4.1.
+
+**Status:** RESOLVED 2026-08-10
+
+---
+
+**Resolution (2026-08-10, `feat/m2-sync-fault-codes`, M-wave 2 W-SYNC).** Fixed as
+ratified (sibling column `shows.source_anchors_modified_time`, spec §2.3). Migration
+`20260810150000` adds the nullable stamp + the per-show-locked legacy backfill (stamp
+= own `last_seen_modified_time` where anchors are non-empty — the entry's accepted
+staleness window, now bounded per-show; wave spec §4 limit 9). Every
+`shows.source_anchors` write funnels through the ONE `applyShowSnapshot` surface,
+whose three statements stamp fresh writes with the processed revision and preserve
+the old stamp with the preserved map — the entry's degrade path (gid fetch failed,
+anchors preserved, data advanced) is now DETECTABLE as stamp ≠ watermark. Readers
+demote through the ONE shared `freshSourceAnchors` helper at both shows-row
+projections (`getShowForViewer`, `publishedAdapter`) to the builder's existing
+`#gid=0` fallback arm; NULL stamp = mismatch. The validation backfill script gained
+the W1/W2 TOCTOU guard (raced → NULL stamp + surfaced re-run warning). Validation
+project: column applied surgically + manifest regenerated (three-step checklist).
+
+### BL-PREPARE-INTERNAL-FAULT-KIND — a third fault kind for post-parse internal helpers — RESOLVED 2026-08-10 (`feat/m2-sync-fault-codes`)
+
+**Status:** RESOLVED (2026-08-10; filed 2026-07-25) · **Severity:** low · **Class:** TELEMETRY GRANULARITY · **Effort:** M
+
+`PrepareOnboardingFileError` has two kinds, `drive_fetch` and `parse`, and the post-parse internal helpers (`finalizeArchivedTabs`, `reconcileIncludedTab`, `discardAndRerun`'s fix-up, `applyRoleTokenMappings`) currently fall to `drive_fetch` — today's unchanged behavior. Neither code is right for them: a bug in the role-mapping overlay is not a Drive failure, and it is not something Doug fixes by editing his sheet either, so `STAGED_PARSE_FAILED` ("fix its structure", `warn` severity) would be a new wrong instruction. **Fix (when prioritized):** a third `internal` kind mapped to a code that tells the operator to contact the developer, with the finalize severity staying `error`. Needs a new §12.4 row and the full four-gate CI fan-out, which is why it was not folded into the batch that surfaced it.
+
+screen-disposition 2026-08-04: KEEP — PROBED, and the mislabeling is deterministic rather than hypothetical. Verified 2026-08-04: `PrepareOnboardingFileError.kind` is the two-member union `"drive_fetch" | "parse"` at `lib/sync/runOnboardingScan.ts:1164-1172` (repeated in `asPrepareError` at `:1177`), there is no `"internal"` anywhere under `lib/sync/`, and the doc comment at `:1154` states outright that `drive_fetch` is "everything else, deliberately including the post-parse" helpers. All four helpers the entry names exist and are reachable: `applyRoleTokenMappings` (`lib/sync/roleMappingOverlay.ts:62`), `reconcileIncludedTab` (`lib/sync/pullSheetOverride.ts:157`), `discardAndRerun` (`:199`), `finalizeArchivedTabs` (`:229`). A precedent for the operator-facing code already exists at `lib/messages/catalog.ts:812` (`ONBOARDING_FINALIZE_INTERNAL_ERROR`). Every one of those faults reports today as a Drive failure.
+
+**Resolution (2026-08-10, `feat/m2-sync-fault-codes`, M-wave 2 W-SYNC).** Fixed as ratified
+(spec 2026-08-09-m-wave-2-design §2.3). `PrepareOnboardingFileError.kind` gained
+`"internal"`, raised via call-site wraps around the four post-parse helpers in
+`prepareOne` (covering every consumer of the shared prepare path); identity still beats
+site (WorkbookSynthesisError → parse, DriveFetchError → drive_fetch, including through
+the wraps). Consumers map it to the NEW §12.4 code `ONBOARDING_INTERNAL_ERROR`
+(contact-the-developer copy; full lockstep triple + helpfulContext appendix + catalog
+row; the ONBOARDING prefix already families it on /help/errors); finalize per-row
+severity stays `error` (`lib/onboarding/finalizeRowSeverity.ts`). RED observed on all
+four helper faults (previously drive_fetch) and both consumer mappings.
+
+### BL-CRON-WORKBOOK-FAULT-CODE — a corrupt workbook on the cron path reports SYNC_FILE_FAILED — RESOLVED 2026-08-10 (`feat/m2-sync-fault-codes`)
+
+**Status:** RESOLVED (2026-08-10; filed 2026-07-25) · **Severity:** low · **Class:** TELEMETRY GRANULARITY · **Effort:** M
+
+The cron sync path also synthesizes workbooks (`lib/sync/runScheduledCronSync.ts:3118,3144`). A throw at either site escapes `prepareProcessOneFile` and is caught by the outer per-file loop (`:3915-3925`), which records `outcome: "parse_error"` with `classifySyncFailure(error)` — typically `SYNC_FILE_FAILED`. So it is already parse-family rather than Drive-family (unlike the onboarding paths this batch fixed), and the open question is narrower: should a corrupt workbook there report `PARSE_ERROR_LAST_GOOD`, whose copy tells Doug the latest edit did not parse and the previous version is still live? **Fix (when prioritized):** key on the `WorkbookSynthesisError` type this batch introduced. Deferred because it changes a live crew-visible sync contract and belongs in its own spec.
+
+**Resolution (2026-08-10, `feat/m2-sync-fault-codes`, M-wave 2 W-SYNC).** Fixed as
+ratified: `classifySyncFailure` keys on the `WorkbookSynthesisError` type and returns
+`PARSE_ERROR_LAST_GOOD` (existing code + copy, NO new §12.4 row). The RED's family
+assertion decided the wrapper arm the entry left open: `handleFetchFailure_unlocked`
+now presents an existing show's synthesis fault parse-family (status `parse_error`
+via `updateShowParseError`, PARSE_ERROR_LAST_GOOD alert, last-good payload untouched)
+instead of `drive_error` + a DRIVE_FETCH_FAILED alert. First-seen carve (deliberate,
+documented in the test): no show row = no last-good, so the pending_ingestions row
+keeps SYNC_FILE_FAILED — PARSE_ERROR_LAST_GOOD's copy would promise a previous
+version that does not exist. Producer-wiring pin extended to both producers.
+
 ---
 
 ---

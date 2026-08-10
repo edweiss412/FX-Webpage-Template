@@ -417,8 +417,10 @@ describe(
           "+ tests/db/watchActivationRace.db.test.ts (the promotion/activation interleave " +
           "test, 2026-08-09; runs promoteSettings's GLOBALLY-scoped channel statements and " +
           "captures/restores drive_watch_channels, app_settings and the orphan alert, " +
-          "local-only)",
-      ).toBe(67);
+          "local-only) " +
+          "+ tests/sync/backfillAnchorsToctou.db.test.ts (the anchor-backfill TOCTOU rows, " +
+          "2026-08-10; seeds and deletes one fixture shows row, local-only)",
+      ).toBe(68);
     });
 
     test("the one validation-capable suite guards its LOCAL leg WITHOUT constraining TEST_DATABASE_URL", () => {
